@@ -468,6 +468,8 @@ export interface FlashbackMyCard {
   quoteLevel: string
   /** 句子白名单区间（多选；首句 = 消费面展示句，圈选器回显全量） */
   quoteSpans: { questionKey: string; start: number; len: number }[] | null
+  /** 墙上匿名署名「王** · 年 · 城」（#1022 后端单源：寄出前预览与上墙后逐字一致，前端不自拼） */
+  anonymousAttribution: string
   /** 本人金句点赞数（R36；未授权档为 null） */
   quoteStats: { likeCount: number } | null
   today: FlashbackMyToday | null
@@ -657,6 +659,8 @@ export interface FlashbackEnterProfile {
   participation: 'attended' | 'not_selected'
   role: string
   appliedAt: string | null
+  /** 墙上匿名署名（#1022 后端单源） */
+  anonymousAttribution: string
   archive: FlashbackEnterArchiveRef | null
   answers: { id: string; questionKey: string; rawText: string; fogSpans: FlashbackFogSpan[] }[]
 }
@@ -665,6 +669,7 @@ export interface FlashbackEnterResult {
   line: 'memory' | 'dream'
   profile: FlashbackEnterProfile | null
   progress: {
+    hasSelectedQuotes: boolean
     quoteLevel: string
     maskedPhone: string | null
     maskedEmail: string | null
@@ -807,9 +812,11 @@ export interface MiniProgramApi {
   ): Promise<void>
   /** wish2 U9/R31：金句授权三档（off/anonymous/credited） */
   /** R35：档位与圈选区间一起提交（questionKey/span 缺省 = 不动既有区间） */
+  /** token 可选：首程（未登录，凭链接）带 token；回访登录态省略走会话（#1022 寄出时授权两腿都要） */
   flashbackSetQuoteLicense(
     level: 'off' | 'anonymous' | 'credited',
-    chosenQuoteSpans?: { questionKey: string; start: number; len: number }[] | null
+    chosenQuoteSpans?: { questionKey: string; start: number; len: number }[] | null,
+    token?: string | null
   ): Promise<void>
   /** wish2 U9/R16：句子级雾化调整（提交整份 spans，服务端校验重叠/越界）；
    *  token 可选=会话腿（跳过注册的回访者），与 today 版同规则 */

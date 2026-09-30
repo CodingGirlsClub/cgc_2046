@@ -24,7 +24,7 @@ vi.mock('../src/api/client', () => ({
   }
 }))
 
-vi.mock('../src/api/operations', () => ({ FlashbackClaimMutationDocument: 'FLASHBACK_CLAIM' }))
+vi.mock('../src/api/operations', () => ({ FlashbackClaimMutationDocument: 'FLASHBACK_CLAIM', FlashbackSetQuoteLicenseMutationDocument: 'FLASHBACK_SET_QUOTE' }))
 vi.mock('../src/state/workspaceTab', () => ({ clearWorkspaceTab: vi.fn(), rememberWorkspaceTab: vi.fn() }))
 // real.ts 引用的 state 模块都 import @tarojs/taro（vitest 里缺构建期全局量）：整块 mock
 vi.mock('../src/state/silentLogin', () => ({ silentLoginAllowed: () => true, setSilentLoginAllowed: () => undefined }))
@@ -51,6 +51,23 @@ describe('flashbackClaim（一键收好）', () => {
       name: 'BusinessError',
       code: 'flashback_recover_account_conflict',
       message: expect.stringContaining('另一个账号')
+    })
+  })
+})
+
+
+describe('寄出时授权的身份与选句', () => {
+  it('首程 token 与当前选句透传；登录态不携带旧 token', async () => {
+    const api = new RealMiniProgramApi()
+    const pick = { questionKey: 'self_intro', start: 8, len: 12 }
+    mocks.graphqlRequest.mockResolvedValue({ flashbackSetQuoteLicense: { level: 'anonymous' } })
+    await api.flashbackSetQuoteLicense('anonymous', [pick], 'fixture-journey-token')
+    expect(mocks.graphqlRequest).toHaveBeenLastCalledWith('FLASHBACK_SET_QUOTE', {
+      level: 'anonymous', chosenQuoteSpans: [pick], token: 'fixture-journey-token'
+    })
+    await api.flashbackSetQuoteLicense('anonymous', [pick])
+    expect(mocks.graphqlRequest).toHaveBeenLastCalledWith('FLASHBACK_SET_QUOTE', {
+      level: 'anonymous', chosenQuoteSpans: [pick], token: undefined
     })
   })
 })

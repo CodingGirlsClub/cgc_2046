@@ -561,6 +561,7 @@ export const FlashbackCapsuleQueryDocument = /* GraphQL */ `
           start
           len
         }
+        anonymousAttribution
         quoteStats {
           likeCount
         }
@@ -774,6 +775,7 @@ export const FlashbackEnterMutationDocument = /* GraphQL */ `
         participation
         role
         appliedAt
+        anonymousAttribution
         archive {
           key
           name
@@ -791,6 +793,7 @@ export const FlashbackEnterMutationDocument = /* GraphQL */ `
         }
       }
       progress {
+        hasSelectedQuotes
         quoteLevel
         maskedPhone
         maskedEmail

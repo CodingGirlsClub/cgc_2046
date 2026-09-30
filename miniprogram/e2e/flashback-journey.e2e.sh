@@ -10,8 +10,8 @@
 #      （题干/切句/雾面句/KTD4 本人原文完整）→ 点雾句解雾（R16）
 #   6. 金句授权层默认关（R31：三档 + 选中「关闭」+ 圈选器不展开）
 #   7. 今天写入面：write 入口直接翻面 → 写入 → 「写完寄出」一步到位（U5：层关 +
-#      今天格点亮 + dock 回读）→ 金句授权引导层（nudge）弹出
-#   7.5 nudge「选一句试试」→ 匿名档预选 → 圈选一句（R35）→ 匿名预览 → dock 回读
+#      今天格点亮 + dock 回读）→ 无二次授权提醒
+#   7.5 寄出时明确放句 → 匿名预览 → dock 回读
 #      → 寄出+授权后点赞徽章（R36 正例）
 #   8. 卡片页（pages/flashback-today）：四态 chip（默认合起来）+ 金句高亮（rvQuote）
 #      + 分享面板（#771：朋友将看到的全文卡 → 允许生成分享链接 → 链接已开启 → 先不分享）
@@ -19,7 +19,7 @@
 #   9. 愿望段：公开愿留言/附议/许愿/两步删除闭环 + 私愿折叠展开
 #  批次二：
 #   11. 首程旅程（token 面免登录 R1）：intro→quiz→reveal→翻面写→寄出浮层（R27/R29）
-#   13. 长廊首程落地：welcome 金句引导（先不）+ 今天格已寄出 + 点堆进场次页
+#   13. 长廊首程落地：无重复授权引导 + 今天格已寄出 + 点堆进场次页
 #   13.5 场次页：统计行 + 3 列网格（显影/雾卡）+ 找回 CTA + 回环三出口
 #   14. 三级视角（R32）：路人围观 → 登录未匹配给出下一步 → 自动认领闭环（含快门）
 #
@@ -29,11 +29,6 @@
 # 已知边界（2026-09-21 重写时实测）：
 #   - 行动板（四态行动卡）已随 refactor 移除（e0e0c0ed/41de6b0b/f14bc734），旧段
 #     8/8.5/9/9.5 整段删除；城市钉筛选重映射到长廊城市堆。
-#   - 金句授权档位行（licenseRow ×3 同类名）无法按文案点第 2 行：wechatide 选择器
-#     实测不支持 :nth-child/:not/elementId/x-y 偏移（静默退化为首匹配）。匿名档切换
-#     改走 nudge「选一句试试」（唯一锚点，且是产品既定的寄出后引导路径）。同理卡片页
-#     四态 chip 不可点第 4 个「摘要卡」——摘要卡版式由 domain 单测钉住，e2e 只断言
-#     默认「合起来」态。
 #   - 今天写入面的「失焦自动保存」（saveOnBlur）自动化不可触发（input action 不聚焦，
 #     点他处不派生 blur）——保存经「写完寄出」覆盖（sendToday 先 persistToday 再寄出）。
 #   - loading 态一闪而过（mock 即时返回），不做断言。
@@ -216,11 +211,6 @@ SHUTTER_BTN=$(cls "$COR" shutterBtn)
 SHUTTER_EYEBROW=$(cls "$COR" shutterEyebrow)
 SHUTTER_LEAD=$(cls "$COR" shutterLead)
 SHUTTER_HINT=$(cls "$COR" shutterHint)
-NUDGE_MASK=$(cls "$COR" nudgeMask)
-NUDGE_LEAD=$(cls "$COR" nudgeLead)
-NUDGE_SUB=$(cls "$COR" nudgeSub)
-NUDGE_PRIMARY=$(cls "$COR" nudgePrimary)
-NUDGE_SKIP=$(cls "$COR" nudgeSkip)
 SHEET_MASK=$(cls "$COR" wishSheetMask)
 SHEET_TITLE=$(cls "$COR" wishSheetTitle)
 COURAGE=$(cls "$COR" courageBadgeText)
@@ -249,6 +239,10 @@ WRITE_INPUT=$(clsCommon writeInput)
 WRITE_LABEL=$(clsCommon writeLabel)
 PAPER_TODAY_TITLE=$(clsCommon paperTodayTitle)
 SEND_BTN=$(clsCommon sendBtn)
+QUOTE_SEND=$(clsCommon quoteChoiceWithQuote)
+ALBUM_SEND=$(clsCommon quoteChoiceAlbumOnly)
+QUOTE_SUGGESTION=$(clsCommon quoteChoiceText)
+QUOTE_SHUFFLE=$(clsCommon quoteChoiceShuffle)
 SEND_NOTE=$(clsCommon sendNote)
 BACK_LINK=$(clsCommon backLink)
 RV_SENTENCE=$(clsCommon rvSentence)
@@ -277,13 +271,13 @@ SHARE_STATUS_ON=$(cls "$TODAY" shareStatusOn)
 SHARE_STATUS_HINT=$(cls "$TODAY" shareStatusHint)
 SHARE_CANCEL=$(cls "$TODAY" shareCancel)
 
-echo "### 0) 清态：退出残留登录 + 清闪念间相关 storage（mock 持久档/token/intent/nudge/视角开关；不清则跨跑残留）"
+echo "### 0) 清态：退出残留登录 + 清闪念间相关 storage（mock 持久档/token/intent/视角开关；不清则跨跑残留）"
 RAW automation_navigate --action reLaunch --url '/pages/profile/index' >/dev/null
 sleep 2
 # 清 storage 放 reLaunch 后（runtime 已就绪）；刚开窗口时 evaluate 可能还没就绪，重试一次
 cleared=0
 for _ in 1 2; do
-  if RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.e2e.flashback_mock_state"); wx.removeStorageSync("cgc.flashback_token"); wx.removeStorageSync("cgc.flashback_entry_intent"); wx.removeStorageSync("cgc.flashback_license_nudge_done"); wx.removeStorageSync("cgc.workspace_tab_visible"); wx.removeStorageSync("cgc.e2e.flashback_unclaimed"); wx.removeStorageSync("cgc.e2e.flashback_claim_miss"); wx.removeStorageSync("cgc.e2e.workspace_access_denied") }' \
+  if RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.e2e.flashback_mock_state"); wx.removeStorageSync("cgc.flashback_token"); wx.removeStorageSync("cgc.flashback_entry_intent"); wx.removeStorageSync("cgc.workspace_tab_visible"); wx.removeStorageSync("cgc.e2e.flashback_unclaimed"); wx.removeStorageSync("cgc.e2e.flashback_claim_miss"); wx.removeStorageSync("cgc.e2e.workspace_access_denied") }' \
     | grep -q '"success": true'; then cleared=1; break; fi
   sleep 1.5
 done
@@ -392,8 +386,8 @@ ck "点当年面翻到今天写入面" "$(COUNT "$CARD_FLIPPED")" '^1$'
 ck "写入面 4 行输入（现在/想学/帮助/想说）" "$(COUNT "$WRITE_INPUT")" '^4$'
 ck "首行标签=现在在做什么" "$(RES automation_element_action --action text --selector "$WRITE_LABEL")" '^现在在做什么$'
 ck "写入面标题（动态日期）" "$(RES automation_element_action --action text --selector "$PAPER_TODAY_TITLE")" '^今天的你 · [0-9]+\.[0-9]+\.[0-9]+$'
-ck "寄出钮=写完寄出" "$(RES automation_element_action --action text --selector "$SEND_BTN")" '^写完寄出 →$'
-ck "寄出公开性提示（#933 可见范围 = 登录的人）" "$(RES automation_element_action --action text --selector "$SEND_NOTE")" '^寄出后登录的人都能在相册里看到 · 雾住的句子除外 · 随时可调、可撤下$'
+ck "寄出时两种明确选择" "$(COUNT "$QUOTE_SEND")/$(COUNT "$ALBUM_SEND")" '^1/1$'
+ck "寄出公开性提示（#933 可见范围 = 登录的人）" "$(RES automation_element_action --action text --selector "$SEND_NOTE")" '^金句墙所有人可见、不用登录；相册只有登录的学员可见。两者都能随时撤回。$'
 ck "回当年面链接" "$(RES automation_element_action --action text --selector "$BACK_LINK")" '^← 回到当年答案$'
 shot 035-card-write-face.png
 TAP "$BACK_LINK"
@@ -432,40 +426,42 @@ TRIGGER tap '{}' "$SHEET_MASK"
 sleep 1
 ck "授权层关闭（遮罩 trigger 关层）" "$(COUNT "$SHEET_MASK")" '^0$'
 
-echo "### 7) 今天写入面：write 入口 → 写入 → 写完寄出（U5 三拍收尾）→ 金句引导层弹出"
+echo "### 7) 今天写入面：write 入口 → 写入 → 写完寄出（U5 三拍收尾）→ 只寄出不授权"
 TAP "$DOCK_WRITE"
 sleep 1.5
 ck "write 入口直接落在写入面（autoOpen 翻面）" "$(COUNT "$CARD_FLIPPED")" '^1$'
 RAW automation_element_action --action input --selector "$WRITE_INPUT" --value 'E2E 闪念间回访' >/dev/null
 sleep 0.5
 ck "首行输入回读" "$(RES automation_element_action --action value --selector "$WRITE_INPUT")" '^E2E 闪念间回访$'
-TAP "$SEND_BTN"
+TAP "$ALBUM_SEND"
 sleep 3
 ck "寄出后开卡层关闭（落定三拍之一）" "$(COUNT "$LAYER_MASK")" '^0$'
-ck "金句授权引导层弹出（寄出落定轻推）" "$(COUNT "$NUDGE_MASK")" '^1$'
-ck "引导勇气语" "$(RES automation_element_action --action text --selector "$NUDGE_LEAD")" '^你说的话，会成为别人的勇气。$'
-ck "引导副文案" "$(RES automation_element_action --action text --selector "$NUDGE_SUB")" '^从当年的答案里选一句，匿名或实名地传下去。$'
-ck "引导主钮=选一句试试" "$(RES automation_element_action --action text --selector "$NUDGE_PRIMARY")" '^选一句试试 →$'
-ck "引导次出口=先不" "$(RES automation_element_action --action text --selector "$NUDGE_SKIP")" '^先不$'
+ck "只寄出不授权" "$(RES automation_element_action --action text --selector "$DOCK_LICENSE")" '^← 金句授权$'
 ck "dock 寄出回读=已寄出 ✓" "$(RES automation_element_action --action text --selector "$DOCK_SEND")" '^已寄出 ✓$'
 ck "dock 写入口补完成态勾" "$(RES automation_element_action --action text --selector "$DOCK_WRITE")" '^✎ 写今天的你 ✓$'
 ck "今天格点亮（瘦长黑相纸）" "$(COUNT "$TODAY_LIT")" '^1$'
 ck "今天格照片=本人名" "$(RES automation_element_action --action text --selector "$TODAY_LIT_NAME")" '^王小明$'
-shot 07-corridor-sent-nudge.png
+shot 07-corridor-album-only.png
 
-echo "### 7.5) nudge「选一句试试」→ 匿名档预选 + 圈选一句（R35）→ 匿名预览 → 回读 + R36 点赞徽章"
-TAP "$NUDGE_PRIMARY"
+echo "### 7.5) 底栏寄出打开写入面 → 明确放句 → 匿名授权回读"
+TAP "$DOCK_SEND"
+sleep 1.5
+ck "底栏寄出复用写入卡" "$(COUNT "$CARD_FLIPPED")" '^1$'
+ck "预览第一句（雾已解）" "$(RES automation_element_action --action text --selector "$QUOTE_SUGGESTION")" '^「我在盛大做测试。」$'
+TAP "$QUOTE_SHUFFLE"
+sleep 0.5
+ck "换一句改变预览" "$(RES automation_element_action --action text --selector "$QUOTE_SUGGESTION")" '^「想亲眼看看是不是真的！」$'
+# 循环回第一句，后续检查与原来的金句高亮用例保持相同内容
+TAP "$QUOTE_SHUFFLE"
+TAP "$QUOTE_SHUFFLE"
+TAP "$QUOTE_SHUFFLE"
+TAP "$QUOTE_SEND"
 sleep 2
-ck "引导转授权层" "$(COUNT "$SHEET_MASK")" '^1$'
-ck "引导层已关" "$(COUNT "$NUDGE_MASK")" '^0$'
-ck "预选档=匿名金句（nudge 路径）" "$(RES automation_element_action --action text --selector "$LICENSE_ROW_ACTIVE $LICENSE_LABEL")" '^匿名金句$'
-ck "首行档仍=关闭（三档都在）" "$(RES automation_element_action --action text --selector "$LICENSE_ROW $LICENSE_LABEL")" '^关闭$'
-ck "圈选器展开，已选 0 句" "$(RES automation_element_action --action text --selector "$QUOTE_PICKHINT")" '已选 0 句$'
-ck "候选句=5（当年 4 句已解雾 + 今天 1 句）" "$(COUNT "$QUOTE_CANDIDATE")" '^5$'
-ck "无雾句候选（段 5 已解雾）" "$(COUNT "$QUOTE_CANDIDATE_FOGGED")" '^0$'
-TAP "$QUOTE_CANDIDATE"
-sleep 2
-ck "圈选后高亮恰一句" "$(COUNT "$QUOTE_CANDIDATE_ACTIVE")" '^1$'
+ck "明确放句后关闭卡层" "$(COUNT "$LAYER_MASK")" '^0$'
+ck "dock 授权回读匿名" "$(RES automation_element_action --action text --selector "$DOCK_LICENSE")" '^← 金句授权 · 匿名 ✓$'
+TAP "$DOCK_LICENSE"
+sleep 1
+ck "授权档为匿名" "$(RES automation_element_action --action text --selector "$LICENSE_ROW_ACTIVE $LICENSE_LABEL")" '^匿名金句$'
 ck "已选计数=1" "$(RES automation_element_action --action text --selector "$QUOTE_PICKHINT")" '已选 1 句$'
 ck "匿名预览金句=首句原文" "$(RES automation_element_action --action text --selector "$QUOTE_PREVIEW_Q")" '^「我在盛大做测试。」$'
 ck "匿名预览署名=王** · 2014 · 北京" "$(RES automation_element_action --action text --selector "$QUOTE_PREVIEW_NAME")" '^王\*\* · 2014 · 北京$'
@@ -604,8 +600,8 @@ RAW automation_navigate --action reLaunch --url '/pages/profile/index' >/dev/nul
 sleep 2
 if [ "$(COUNT "$LOGOUT")" != "0" ]; then TAP "$LOGOUT"; sleep 1; fi
 # 清 journey token（cgc.flashback_token）与首程 mock 态——段 3-9 写过的 state 不入旅程；
-# nudge 已推标记一并清（段 13 要断言 welcome 引导）；入口 intent 防上次崩溃残留
-RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.e2e.flashback_mock_state"); wx.removeStorageSync("cgc.flashback_token"); wx.removeStorageSync("cgc.flashback_entry_intent"); wx.removeStorageSync("cgc.flashback_license_nudge_done"); wx.removeStorageSync("cgc.e2e.flashback_unclaimed"); wx.removeStorageSync("cgc.e2e.flashback_claim_miss") }' >/dev/null
+# 入口 intent 防上次崩溃残留
+RAW automation_evaluate --fn-source 'function(){ wx.removeStorageSync("cgc.e2e.flashback_mock_state"); wx.removeStorageSync("cgc.flashback_token"); wx.removeStorageSync("cgc.flashback_entry_intent"); wx.removeStorageSync("cgc.e2e.flashback_unclaimed"); wx.removeStorageSync("cgc.e2e.flashback_claim_miss") }' >/dev/null
 RAW automation_navigate --action reLaunch --url '/pages/flashback-journey/index?token=e2e-flashback-token' >/dev/null
 sleep 2
 JOURNEY='pages/flashback-journey'
@@ -646,7 +642,7 @@ sleep 1.2
 ck "翻面=今天背面书写" "$(RES automation_element_action --action text --selector "$JBACK")" '^今天的你 · 写完寄出$'
 ck "背面 3 个输入框" "$(COUNT "$JTEXTAREA")" '^3$'
 RAW automation_element_action --action input --selector "$JTEXTAREA" --value 'E2E 首程寄出' >/dev/null
-TAP "$JCTA"
+TAP "$QUOTE_SEND"
 sleep 2
 ck "寄出浮层弹出" "$(COUNT "$JOVERLAY")" '^1$'
 ck "浮层标题（R29 定稿）" "$(RES automation_element_action --action text --selector "$JOVER_TITLE")" '^照片正在贴上墙。$'
@@ -658,16 +654,11 @@ TAP "$JOVER_SKIP"
 wait_route '/pages/flashback-corridor/index' || true
 ck "跳过后落长廊" "$(ROUTE)" '/pages/flashback-corridor/index'
 
-echo "### 13) 长廊首程落地（token 态）：welcome 金句引导 + 今天格已寄出 + 点堆进场次页"
+echo "### 13) 长廊首程落地（token 态）：无重复授权引导 + 今天格已寄出 + 点堆进场次页"
 sleep 3
 # welcome intent 抑制快门仪式（intent 走 storage 单次传递——switchTab 不带 query，
 # router.params 永远读不到；曾因此首程落地误弹快门）
 ck "首程落地不弹快门（welcome intent 抑制）" "$(COUNT "$SHUTTER_MASK")" '^0$'
-ck "welcome 金句引导弹出（一次性轻推）" "$(COUNT "$NUDGE_MASK")" '^1$'
-ck "引导勇气语" "$(RES automation_element_action --action text --selector "$NUDGE_LEAD")" '^你说的话，会成为别人的勇气。$'
-TAP "$NUDGE_SKIP"
-sleep 1
-ck "先不 后引导关闭" "$(COUNT "$NUDGE_MASK")" '^0$'
 ck "token 腿同档案=王小明" "$(RES automation_element_action --action text --selector "$MINICARD_NAME")" '^王小明$'
 ck "dock 寄出=已寄出 ✓（首程寄出同源）" "$(RES automation_element_action --action text --selector "$DOCK_SEND")" '^已寄出 ✓$'
 ck "dock 写入口带完成勾（首程写了今天）" "$(RES automation_element_action --action text --selector "$DOCK_WRITE")" '^✎ 写今天的你 ✓$'
