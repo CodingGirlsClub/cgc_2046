@@ -6675,14 +6675,26 @@ type FlashbackArchiveRef {
 
 type FlashbackProfile {
   fullName: String!
+
   surname: String
+
   city: String
+
   occupationThen: String
+
   gender: String
+
   role: String!
+
   participation: String!
+
   appliedAt: String
+
+  "匿名署名预览「王** · 年 · 城」（#1022）：与金句墙署名同源，寄出前预览逐字一致"
+  anonymousAttribution: String!
+
   archive: FlashbackArchiveRef
+
   answers: [FlashbackAnswer]
 }
 
@@ -6710,6 +6722,7 @@ type FlashbackToday {
 }
 
 type FlashbackProgress {
+  hasSelectedQuotes: Boolean!
   bound: Boolean!
   today: FlashbackToday
   quoteLevel: String!
@@ -7042,6 +7055,9 @@ type FlashbackCapsuleMe {
 
   "句子白名单区间列表（首句 = 消费面展示句;圈选器回显全量）"
   quoteSpans: [FlashbackQuoteSpan]
+
+  "匿名署名预览「王** · 年 · 城」（#1022）：与金句墙署名同源，寄出前预览逐字一致"
+  anonymousAttribution: String!
 
   "本人金句的点赞数（R36；仅匿名\/实名授权档返回，未授权为 null）"
   quoteStats: FlashbackQuoteStats

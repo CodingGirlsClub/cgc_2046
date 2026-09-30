@@ -812,6 +812,8 @@ defmodule Cgc2046.Flashback.Tokens do
       role: Atom.to_string(person.role),
       participation: Atom.to_string(person.participation),
       applied_at: person.applied_at && DateTime.to_iso8601(person.applied_at),
+      # 首程寄出前「放进金句墙」预览的署名（#1022）：与墙上逐字一致
+      anonymous_attribution: Cgc2046.Flashback.Public.anonymous_attribution(person.id),
       archive:
         person.archive_event &&
           %{
@@ -837,6 +839,9 @@ defmodule Cgc2046.Flashback.Tokens do
   defp progress_payload(person) do
     %{
       bound: not is_nil(person.user_id),
+      has_selected_quotes:
+        not is_nil(person.quote_license) and
+          person.quote_license.chosen_quote_spans not in [nil, []],
       today: today_payload(person.today),
       quote_level:
         if(person.quote_license, do: Atom.to_string(person.quote_license.level), else: "off"),
