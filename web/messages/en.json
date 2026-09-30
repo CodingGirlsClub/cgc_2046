@@ -329,7 +329,7 @@
           "label": "coaches"
         },
         {
-          "value": "50+",
+          "value": "45+",
           "label": "offline workshops"
         },
         {
@@ -3300,7 +3300,7 @@
     "hashtag": "#hackerstart1024",
     "hero": {
       "eyebrow": "CODING GIRLS CLUB · 10TH ANNIVERSARY CAMPAIGN",
-      "slot": "CGC × your brand",
+      "slogan": "Ten years on, we changed our verb: code → build",
       "title": "Hacker Start 1024",
       "sub": "So ordinary people build something that actually runs — with an agent, hands on, for the first time",
       "nums": {
@@ -3320,8 +3320,8 @@
     "why": {
       "badge": "Why now",
       "label": "The moment",
-      "title": "Agents are past the capability tipping point. <em>What's missing is ordinary people daring to start.</em>",
-      "lead": "Agent coding can already do real work; the bottleneck is whether ordinary people dare to start, and whether anyone is alongside them the first time. Every AI coding product out there draws its natural traffic from developers, and nobody has built a path for a beginner's first attempt. Hacker Start 1024 is that path: three hours a session · classes of 8 to 32 · an agent that adapts as you learn · an 87 yuan deposit, refunded when you turn up — turning \"my first working build\" into something we can actually deliver."
+      "title": "Agents are past the capability tipping point. <em>What's missing is builders who dare to start.</em>",
+      "lead": "Agent coding can already do real work; the bottleneck is now human — daring to start, having company the first time, turning an idea into a working build. Every AI coding product out there draws its natural traffic from developers, and nobody has built a path for an ordinary person's first build. Hacker Start 1024 is that path: three hours a session · classes of 8 to 32 · you and your agent building side by side · an 87 yuan deposit, refunded when you turn up — turning \"my first working build\" into something we can actually deliver."
     },
     "join": {
       "badge": "Join a session",
@@ -3331,7 +3331,7 @@
         {
           "min": "15",
           "t": "Warm-up",
-          "d": "Meet the agent and the people you're building with — no code yet, just what you came to make"
+          "d": "Pick what you'll build today from the project menu — and meet the builders around you"
         },
         {
           "min": "120",
@@ -3441,7 +3441,7 @@
           "l": "Cities reached"
         },
         {
-          "v": "50+",
+          "v": "45+",
           "l": "In-person workshops"
         },
         {
