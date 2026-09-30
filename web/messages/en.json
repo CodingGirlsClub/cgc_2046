@@ -128,7 +128,16 @@
     "volunteer_application_invalid_transition": "The application status changed. Refresh and try again.",
     "volunteer_application_rejection_reason_required": "A rejection reason is required.",
     "volunteer_application_assignment_failed": "Assignment did not complete (workspace join or session assignment failed). The application is unchanged; try again.",
-    "recruitment_cohort_open_conflict": "A cohort is already open. Close it before opening another."
+    "recruitment_cohort_open_conflict": "A cohort is already open. Close it before opening another.",
+    "mini_web_login_invalid": "Invalid login request. Please start again.",
+    "mini_web_login_expired": "Login request expired.",
+    "mini_web_login_cancelled": "Login request cancelled.",
+    "mini_web_login_not_approved": "Confirm the login in the mini program first.",
+    "mini_web_login_consumed": "Request already used. Return to the original page or start again.",
+    "mini_web_login_account_conflict": "Account mismatch. Check the current account and start again.",
+    "mini_web_login_phone_required": "Complete phone authorization first.",
+    "mini_web_login_unavailable": "WeChat login is temporarily unavailable.",
+    "mini_web_login_failed": "Login did not complete. Please retry."
   },
   "auth": {
     "helpCenter": "Help Center",
@@ -287,6 +296,30 @@
       "errorInvalidPhone": "Please enter a valid phone number",
       "errorInvalidCode": "Invalid or expired code",
       "errorRateLimited": "Too many requests. Please try again later."
+    },
+    "miniWeb": {
+      "loading": "Preparing WeChat login…",
+      "confirming": "Confirmed. Signing in…",
+      "done": "Signed in. Returning…",
+      "expired": "This login request has expired. Please start again.",
+      "cancelled": "This login request was cancelled.",
+      "cancelling": "Cancelling login. Please wait…",
+      "scan": "Scan with WeChat and confirm in the mini program.",
+      "return": "Open the mini program to confirm your login.",
+      "returnHint": "After confirming, return to this page in the same browser.",
+      "qrAlt": "WeChat mini program login code",
+      "open": "Open WeChat to sign in",
+      "network": "Connection interrupted. Retrying. Keep this page open.",
+      "accountConflict": "This browser is signed in to another account. Sign out before trying again.",
+      "rateLimited": "Too many attempts. Please wait and try again.",
+      "unavailable": "Unable to complete this login. Start again or use another sign-in method.",
+      "restart": "Start login again",
+      "switchToLink": "Open on this phone",
+      "switchToQr": "Use a QR code",
+      "cancel": "Cancel login",
+      "expiresIn": "Expires in {seconds} seconds",
+      "restored": "Login request restored. Start again if you have not scanned yet.",
+      "alreadyUsed": "This request was already used and cannot be cancelled. Refresh to check your session."
     }
   },
   "landing": {
