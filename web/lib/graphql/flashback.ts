@@ -106,6 +106,7 @@ export function sentencesWithFogMark(
 }
 
 export interface FlashbackProgress {
+	hasSelectedQuotes?: boolean;
 	bound: boolean;
 	today?: FlashbackToday | null;
 	quoteLevel: string;
@@ -480,6 +481,7 @@ export const FLASHBACK_ENTER: TypedDocumentNode<
 				}
 			}
 			progress {
+				hasSelectedQuotes
 				bound
 				today {
 					nowStatus

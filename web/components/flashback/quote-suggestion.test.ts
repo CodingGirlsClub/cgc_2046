@@ -97,3 +97,12 @@ describe("currentSuggestion / nextSuggestion", () => {
 		expect(nextSuggestion([], null)).toBeNull();
 	});
 });
+
+
+describe("姓名字段不完整时仍保护匿名预览", () => {
+  it.each([null, "", "李"])("surname=%s 不推荐含名字的句子", (surname) => {
+    expect(quoteSuggestions([
+      { id: "name-probe", questionKey: "self_intro", rawText: "大家叫我晓雨就好。", fogSpans: [] }
+    ], {}, "王晓雨", surname)).toEqual([]);
+  });
+});

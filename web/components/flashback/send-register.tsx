@@ -43,6 +43,7 @@ export default function SendRegister({
 	surname,
 	anonymousAttribution,
 	quoteLevel,
+	hasSelectedQuotes = false,
 	initialTodayFogSpans,
 	maskedPhone,
 	maskedEmail,
@@ -66,8 +67,9 @@ export default function SendRegister({
 	surname?: string | null;
 	/** 墙上匿名署名（后端单源，与上墙后逐字一致） */
 	anonymousAttribution: string;
-	/** 现有授权档（enter progress）：非 off 即已授权，寄出时不再询问 */
+	/** 只有开档且已选句才跳过；零句仍需完成明确选句。 */
 	quoteLevel: string;
+	hasSelectedQuotes?: boolean;
 	/** 服务端既有 today 雾区间（enter 载荷；预填 review 的初始雾态——盲初值闭环；null/缺省从空起步） */
 	initialTodayFogSpans?: Record<string, FlashbackFogSpan[]> | null;
 	maskedPhone?: string | null;
@@ -116,9 +118,9 @@ export default function SendRegister({
 	);
 	// 脏比对直接以 initialTodayFogSpans prop 为基线：闪层期间服务端基线不变
 
-	/** 推荐句随检查页雾态实时重算；已开授权档不再询问（空候选 = 单按钮寄出） */
+	/** 推荐句随检查页雾态实时重算；已开授权档且已选句不再询问（空候选 = 单按钮寄出） */
 	const suggestions =
-		quoteLevel === "off" ? quoteSuggestions(answers, spansByAnswer, fullName, surname) : [];
+		(quoteLevel === "off" || !hasSelectedQuotes) ? quoteSuggestions(answers, spansByAnswer, fullName, surname) : [];
 	const [chosen, setChosen] = useState<QuoteSuggestion | null>(null);
 	const suggestion = currentSuggestion(suggestions, chosen);
 	/** 本次寄出带的那句（确认时定格，失败重试沿用；null = 只寄出到相册） */

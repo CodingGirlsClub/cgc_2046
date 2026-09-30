@@ -28,7 +28,7 @@ export function quoteSuggestions(
 	fullName: string,
 	surname?: string | null,
 ): QuoteSuggestion[] {
-	const givenName = surname && fullName.startsWith(surname) ? fullName.slice(surname.length) : "";
+	const givenName = surname && fullName.startsWith(surname) ? fullName.slice(surname.length) : Array.from(fullName).slice(1).join("");
 	const names = Array.from(givenName).length >= 2 ? [fullName, givenName] : [fullName];
 
 	return SOURCE_KEYS.flatMap((questionKey) =>
