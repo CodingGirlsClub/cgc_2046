@@ -1,0 +1,6 @@
+.launch { display: flex; align-items: center; justify-content: center; min-height: 52px; width: 100%; padding: 12px 20px; border-radius: var(--radius-medium); background: var(--accent); color: #fff; font-size: 14px; text-align: center; }
+.launch:hover { background: var(--accent-mention); }
+.launch:active { transform: scale(.98); }
+.launch:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; }
+.control { min-height: 44px; padding: 8px 12px; touch-action: manipulation; }
+.control:active { transform: scale(.98); }

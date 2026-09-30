@@ -6,12 +6,17 @@ allowBuilds:
 # 删掉会让 frozen install 报 ERR_PNPM_LOCKFILE_CONFIG_MISMATCH。
 patchedDependencies:
   '@tarojs/plugin-platform-xhs@1.2.2': patches/@tarojs__plugin-platform-xhs@1.2.2.patch
-# 2026-09-03：pnpm audit --prod 4 个 high 全为 fast-uri <3.1.6 传递链
+# 2026-09-30：fast-uri 3.1.6 新增 authority/host 解析漏洞，补丁升至 3.1.7
 # （@tarojs/taro>webpack>terser>schema-utils>ajv>fast-uri，BSD-3-Clause）。
-# 3.1.6 为补丁版本、上游 range ^3.0.1 本可解析但 lockfile 已锁 3.1.5，
-# update/--depth 均不触碰传递条目——overrides 强制收敛，无 API 变更。
+# GHSA-qw65-cvwx-89v3 / GHSA-58mr-gqgx-xq4g；沿用传递依赖 override 收敛。
 overrides:
-  "fast-uri@<3.1.6": 3.1.6
+  "fast-uri@<3.1.7": 3.1.7
+  # GHSA-qhr7-859c-m2p7 / GHSA-6j4f-fj2g-mc7p：1.x 递归 DoS 补丁。
+  "brace-expansion@>=1.0.0 <1.1.20": 1.1.20
+  # GHSA-g84c-rxfj-3j2c：5.x 无修复版，使用上游 7.4.6 路径边界修复。
+  # Node >=18.12（CI 用 24）；tests/dev-middleware-security.test.mjs 经 Taro 的
+  # webpack-dev-server 验证打包/HTTP/关闭及越界拒绝。上游解析不再命中旧版本后可移除。
+  "webpack-dev-middleware@>=5.0.0 <7.4.6": 7.4.6
   # 2026-09-15：GHSA-w27v-7q3p-w38r（svgo removeScripts 命名空间/控制字符绕过，
   # high）——@tarojs/taro>webpack>terser-webpack-plugin>cssnano>postcss-svgo>
   # svgo 传递链，lockfile 锁 3.3.4，3.3.5 为补丁版本（postcss-svgo range ^3

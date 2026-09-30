@@ -34,6 +34,7 @@ export default function CampaignPage() {
         <Text className={styles.brand}>程序媛汇 · <Text className={styles.brandAccent}>十周年 CAMPAIGN</Text></Text>
         <Text className={styles.title} data-testid='campaign-title'>Hacker Start 1024</Text>
         <Text className={styles.subtitle}>让普通人第一次亲手用 Agent 做出能跑的作品</Text>
+        <Text className={styles.slogan}>十年，我们换了一个动词：code → build</Text>
         <View className={styles.numbers}>
           <Text className={styles.number}>全国 <Text className={styles.numberValue}>1,024</Text> 场（<Pow n={10} />）</Text>
           <Text className={styles.number}><Text className={styles.numberValue}>10.24</Text> 启动（<Pow n={0} />）</Text>
@@ -101,7 +102,7 @@ export default function CampaignPage() {
         <Text className={styles.sectionTitle}>十年社区，可以被查证的十年<Text className={styles.sectionEn}>RECOGNITION</Text></Text>
         <View className={styles.card}>
           <Text className={styles.cardDesc}>程序媛汇（Coding Girls Club）· 2016 年成立 · 中国首个女性编程社区（社会企业）。</Text>
-          <Text className={styles.cardDesc}>2016-2025 历史累计：10 城 · 50+ 场工作坊 · 4,000+ 学员 · 阅读 2,000 万+。</Text>
+          <Text className={styles.cardDesc}>2016-2025 历史累计：10 城 · 45+ 场工作坊 · 4,000+ 学员 · 阅读 2,000 万+。</Text>
           <Text className={styles.cardDesc}>ICSE CHASE 2021（IEEE）论文收录 · 联合国开发计划署「科技与慈善」案例 · 中国日报 / 环球时报 / CGTN 报道——均可公开检索。</Text>
           <Text className={styles.lever}>本轮一个 campaign 的参与人数目标 ≈ 过去十年累计。</Text>
         </View>

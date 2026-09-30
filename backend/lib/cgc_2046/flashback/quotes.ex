@@ -222,8 +222,13 @@ defmodule Cgc2046.Flashback.Quotes do
     end
   end
 
-  # 城市/年份快照（person 现值；archive 缺失时回落至 person.city / nil 年）。
-  defp snapshot_of(person) do
+  @doc """
+  城市/年份快照（person 现值；archive 缺失时回落至 person.city / nil 年）。
+  Quote 行生成与寄出前的署名预览（`Public.anonymous_attribution/1`）共用，
+  两处逐字一致。person 需预载 `archive_event`。
+  """
+  @spec snapshot_of(map()) :: %{city: String.t() | nil, year: integer() | nil}
+  def snapshot_of(person) do
     archive = Map.get(person, :archive_event)
 
     %{

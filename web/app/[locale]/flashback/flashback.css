@@ -695,18 +695,6 @@
 	color-scheme: light;
 	accent-color: var(--fb-ink);
 }
-/* 纸面上的选项（选句）：暗房的 .fb-option 是浅字半透明白底，放到纸上几乎看不见；
-   选中 = 金（小程序语义「金 = 选中结果」）。特异性须压过 .fb-root .fb-option */
-.fb-root .fb-write-form .fb-option {
-	background: transparent;
-	border-color: rgba(43, 39, 35, 0.22);
-	color: var(--fb-ink);
-}
-.fb-root .fb-write-form .fb-option-selected {
-	border-color: var(--ink);
-	background: var(--ink);
-	color: var(--paper);
-}
 .fb-field-label { font-size: 11px; opacity: 0.7; }
 .fb-field-input,
 .fb-field-textarea {
@@ -1218,6 +1206,11 @@
 	overflow-wrap: anywhere;
 }
 .fb-quote-cite { color: #77726a; font-size: 11px; font-style: normal; }
+/* 寄出时「放进金句墙」预览（#1022）：复用墙卡样式；与句子列表同宽、左对齐（同墙上） */
+.fb-quote-choice { margin: 0; width: 100%; text-align: left; }
+.fb-quote-choice-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* 两个选择同宽（取较长者）：单独同意，视觉上不偏向任何一边 */
+.fb-quote-choice-actions { display: grid; gap: 10px; width: max-content; max-width: 100%; }
 /* 点赞（R36）：♡/♥ + 计数——未赞中性灰、已赞品牌金；点击即就地更新 */
 .fb-root .fb-quote-like {
 	display: inline-flex;

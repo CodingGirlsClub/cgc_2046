@@ -1,13 +1,12 @@
 import { gql } from "@apollo/client";
 import type { TypedDocumentNode } from "@apollo/client";
-import type { MutationResult } from "./shared";
 
 /**
  * #61 登录/注册 GraphQL mutation（已按后端 #60 实际 schema 对齐，commit d73b578）。
  *
  * 关键约定（已迁移 httpOnly cookie —— 路径 B）：
- * - signUpWithPhone（手机号注册）是 create mutation：input 嵌套，result/errors 两段式；
- *   token 由后端 before_send 写 httpOnly cookie（旧邮箱 signUp 已下线）。
+ * - 注册通过微信小程序手机号授权；密码登录服务已有账号。
+ *   token 由后端 before_send 写 httpOnly cookie。
  * - signIn 是 read_one as_mutation：参数平铺，返回平铺字段（无 token）；
  *   失败时 signIn 为 null
  *   且顶层 errors 含 [{ message, code: "authentication_failed" }]（Apollo 抛 ApolloError）。
@@ -43,44 +42,12 @@ export interface PasswordResetGraphqlError {
 
 /* ---------------- 真实 mutation ---------------- */
 
-/* ---------------- 手机号注册（/register 邮箱 → 手机号） ---------------- */
-
-export interface SignUpWithPhoneInput {
-  /** 手机号（后端归一化 +86 形） */
-  phone: string;
-  /** 短信验证码（purpose REGISTER） */
-  code: string;
-  /** 明文密码（后端 min 8 位） */
-  password: string;
-}
-
 export interface PhoneUserLite {
   id: string;
   /** 手机号用户 email 可空 */
   email: string | null;
   isPlatformAdmin: boolean;
 }
-
-export type SignUpWithPhoneResultData = MutationResult<PhoneUserLite>;
-
-export const SIGN_UP_WITH_PHONE: TypedDocumentNode<
-  { signUpWithPhone: SignUpWithPhoneResultData },
-  { input: SignUpWithPhoneInput }
-> = gql`
-  mutation SignUpWithPhone($input: SignUpWithPhoneInput!) {
-    signUpWithPhone(input: $input) {
-      result {
-        id
-        email
-        isPlatformAdmin
-      }
-      errors {
-        message
-        code
-      }
-    }
-  }
-`;
 
 export const SIGN_IN: TypedDocumentNode<
   { signIn: SignInResultData | null },
@@ -122,18 +89,6 @@ export const REQUEST_PHONE_CODE: TypedDocumentNode<
   }
 `;
 
-export const SIGN_IN_WITH_PHONE_CODE: TypedDocumentNode<
-  { signInWithPhoneCode: SignInWithPhoneCodeResultData | null },
-  { phone: string; code: string }
-> = gql`
-  mutation SignInWithPhoneCode($phone: String!, $code: String!) {
-    signInWithPhoneCode(phone: $phone, code: $code) {
-      id
-      email
-      isPlatformAdmin
-    }
-  }
-`;
 
 /* ---------------- 设置页绑定/换绑手机号（purpose CHANGE_PHONE） ---------------- */
 

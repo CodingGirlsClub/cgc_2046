@@ -20,7 +20,7 @@ export type SiteNavLink = "campaign" | "events" | "courses" | "initiatives" | "f
  *
  * 响应式（视觉审计 2026-09）：桌面 ≥1281px 完整横排（en 长标签不再断词换行或
  * 裁掉登录/注册按钮）；≤1280px 收起为「菜单」按钮 + 抽屉，抽屉内容与桌面同源
- * 同序（含登录/加入我们/语言切换），Escape、路径变化均自动收起。
+ * 同序（含统一登录／注册和语言切换），Escape、路径变化均自动收起。
  */
 export default function SiteHeader({ active }: { active?: SiteNavLink }) {
 	const t = useTranslations("landing.nav");
@@ -103,11 +103,8 @@ export default function SiteHeader({ active }: { active?: SiteNavLink }) {
 						</Link>
 					) : (
 						<>
-							<Link href={withNext("/login")} className="site-nav__login">
-								{t("login")} <span aria-hidden="true">→</span>
-							</Link>
-							<Link href={withNext("/register")} className="join-button join-button--primary">
-								{t("join")}
+							<Link href={withNext("/login")} className="join-button join-button--primary">
+								{t("login")}
 							</Link>
 						</>
 					)}
@@ -152,14 +149,11 @@ export default function SiteHeader({ active }: { active?: SiteNavLink }) {
 									</Link>
 								) : (
 									<>
-										<Link href={withNext("/login")} className="site-nav__login">
-											{t("login")} <span aria-hidden="true">→</span>
-										</Link>
 										<Link
-											href={withNext("/register")}
+											href={withNext("/login")}
 											className="join-button join-button--primary"
 										>
-											{t("join")}
+											{t("login")}
 										</Link>
 									</>
 								)}

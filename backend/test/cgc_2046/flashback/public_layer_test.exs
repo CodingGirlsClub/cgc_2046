@@ -53,12 +53,13 @@ defmodule Cgc2046.Flashback.PublicLayerTest do
     |> Ash.create!(authorize?: false)
   end
 
-  defp create_answer(person, text \\ "我想亲眼看看是不是。", key \\ "self_intro") do
+  defp create_answer(person, text \\ "我想亲眼看看是不是。", key \\ "self_intro", fog_spans \\ []) do
     Answer
     |> Ash.Changeset.for_create(:create, %{
       person_id: person.id,
       question_key: key,
-      raw_text: text
+      raw_text: text,
+      fog_spans: fog_spans
     })
     |> Ash.create!(authorize?: false)
   end
@@ -210,6 +211,40 @@ defmodule Cgc2046.Flashback.PublicLayerTest do
       assert quote_payload.level == "credited"
       assert quote_payload.public_slug == "wang-xiaoyu"
       assert quote_payload.text == "想亲眼看看是不是"
+    end
+
+    # 句 1 [0,8) 我是一个文科生。 句 2 [8,16) 我在深圳做设计。 句 3 [16,29) 想亲眼看看代码是不是魔法。
+    @three_sentences "我是一个文科生。我在深圳做设计。想亲眼看看代码是不是魔法。"
+
+    test "同题他句带雾：墙上仍是选中的整句（雾区间按句内坐标遮）" do
+      archive = create_archive()
+      fog_after = create_person(archive, %{email: "after@example.com"})
+      fog_before = create_person(archive, %{email: "before@example.com"})
+      create_answer(fog_after, @three_sentences, "self_intro", [%{"start" => 8, "len" => 8}])
+      create_answer(fog_before, @three_sentences, "self_intro", [%{"start" => 0, "len" => 8}])
+
+      set_license(fog_after, :anonymous, %{"start" => 0, "len" => 8})
+      set_license(fog_before, :anonymous, %{"start" => 16, "len" => 13})
+
+      {:ok, quotes} = Public.quotes()
+
+      assert quotes |> Enum.map(& &1.text) |> Enum.sort() ==
+               Enum.sort(["我是一个文科生。", "想亲眼看看代码是不是魔法。"])
+    end
+
+    test "选句与雾重叠（雾剪句失同步）：雾住的原文不上墙，句内其余照常" do
+      archive = create_archive()
+      alice = create_person(archive, %{email: "a@example.com"})
+
+      # 雾住「深圳」[10,2)；直建授权行绕过写面的「与雾重叠即拒」，模拟失同步态
+      create_answer(alice, @three_sentences, "self_intro", [%{"start" => 10, "len" => 2}])
+      set_license(alice, :anonymous, %{"start" => 8, "len" => 21})
+
+      {:ok, [%{text: text}]} = Public.quotes()
+
+      refute text =~ "深圳"
+      assert text =~ "▓▓"
+      assert text =~ "做设计。想亲眼看看代码是不是魔法。"
     end
   end
 

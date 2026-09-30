@@ -2381,6 +2381,8 @@ export type FlashbackCapsuleArchive = {
 };
 
 export type FlashbackCapsuleMe = {
+  /** 匿名署名预览「王** · 年 · 城」（#1022）：与金句墙署名同源，寄出前预览逐字一致 */
+  anonymousAttribution: Scalars['String']['output'];
   /** 本人当年答案（U9 起含原文与既有雾面区间——编辑雾化消费面；text 仍为雾化版） */
   answers: Array<FlashbackMeAnswer>;
   appliedAt?: Maybe<Scalars['String']['output']>;
@@ -2598,6 +2600,8 @@ export type FlashbackOwnedWish = {
 };
 
 export type FlashbackProfile = {
+  /** 匿名署名预览「王** · 年 · 城」（#1022）：与金句墙署名同源，寄出前预览逐字一致 */
+  anonymousAttribution: Scalars['String']['output'];
   answers?: Maybe<Array<Maybe<FlashbackAnswer>>>;
   appliedAt?: Maybe<Scalars['String']['output']>;
   archive?: Maybe<FlashbackArchiveRef>;
@@ -2612,6 +2616,7 @@ export type FlashbackProfile = {
 
 export type FlashbackProgress = {
   bound: Scalars['Boolean']['output'];
+  hasSelectedQuotes: Scalars['Boolean']['output'];
   maskedEmail?: Maybe<Scalars['String']['output']>;
   maskedPhone?: Maybe<Scalars['String']['output']>;
   quoteLevel: Scalars['String']['output'];
@@ -3803,6 +3808,28 @@ export type McpToken = {
   revokedAt?: Maybe<Scalars['DateTime']['output']>;
 };
 
+export type MiniWebLoginMode =
+  | 'LINK'
+  | 'QR';
+
+export type MiniWebLoginResult = {
+  expiresAt?: Maybe<Scalars['DateTime']['output']>;
+  id?: Maybe<Scalars['ID']['output']>;
+  launchUrl?: Maybe<Scalars['String']['output']>;
+  pollIntervalSeconds?: Maybe<Scalars['Int']['output']>;
+  qrDataUrl?: Maybe<Scalars['String']['output']>;
+  requestId?: Maybe<Scalars['String']['output']>;
+  sessionEstablished?: Maybe<Scalars['Boolean']['output']>;
+  status: MiniWebLoginStatus;
+};
+
+export type MiniWebLoginStatus =
+  | 'APPROVED'
+  | 'CANCELLED'
+  | 'CONSUMED'
+  | 'EXPIRED'
+  | 'PENDING';
+
 export type MiniprogramCodeResult = {
   codeBase64: Scalars['String']['output'];
   expiresAt: Scalars['DateTime']['output'];
@@ -4934,6 +4961,10 @@ export type RootMutationType = {
   waivePayment?: Maybe<PendingOperationConfirmation>;
   /** 发起微信扫码登录（plan 002 U4；未配置 → wechat_login_unavailable；IP 20/15min 限流） */
   wechatLoginStart?: Maybe<WechatLoginStartResult>;
+  wechatMiniWebLoginCancel?: Maybe<MiniWebLoginResult>;
+  wechatMiniWebLoginConfirm?: Maybe<MiniWebLoginResult>;
+  wechatMiniWebLoginConsume?: Maybe<MiniWebLoginResult>;
+  wechatMiniWebLoginStart?: Maybe<MiniWebLoginResult>;
 };
 
 
@@ -5773,6 +5804,26 @@ export type RootMutationTypeWechatLoginStartArgs = {
   next?: InputMaybe<Scalars['String']['input']>;
 };
 
+
+export type RootMutationTypeWechatMiniWebLoginCancelArgs = {
+  requestId: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeWechatMiniWebLoginConfirmArgs = {
+  requestId: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeWechatMiniWebLoginConsumeArgs = {
+  requestId: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeWechatMiniWebLoginStartArgs = {
+  mode: MiniWebLoginMode;
+};
+
 export type RootQueryType = {
   /** 当前用户可读的已发布课程内容（chapter + typed materials；不含原始 WorkflowRun） */
   courseContent?: Maybe<CourseContent>;
@@ -5958,6 +6009,8 @@ export type RootQueryType = {
   validateInvitation?: Maybe<Invitation>;
   /** Owner/Admin（platform_admin 穿透）申请详情（R13）：申请记录 + 申请人简历档案元数据（未建档为 null；文件内容不经 GraphQL 面）；非本台管理角色 forbidden */
   volunteerApplicationDetail?: Maybe<VolunteerApplicationDetail>;
+  wechatMiniWebLoginPreview?: Maybe<MiniWebLoginResult>;
+  wechatMiniWebLoginStatus?: Maybe<MiniWebLoginResult>;
   /** 工作台创建申请列表（申请人仅见自己；platform_admin 见全部） */
   workspaceApplications?: Maybe<KeysetPageOfWorkspaceApplication>;
   /** 工作台成员列表（成员本人仅见自己；Owner/Admin 见全部，供成员管理页） */
@@ -6471,6 +6524,16 @@ export type RootQueryTypeValidateInvitationArgs = {
 export type RootQueryTypeVolunteerApplicationDetailArgs = {
   id: Scalars['ID']['input'];
   workspaceId: Scalars['ID']['input'];
+};
+
+
+export type RootQueryTypeWechatMiniWebLoginPreviewArgs = {
+  requestId: Scalars['String']['input'];
+};
+
+
+export type RootQueryTypeWechatMiniWebLoginStatusArgs = {
+  requestId: Scalars['String']['input'];
 };
 
 

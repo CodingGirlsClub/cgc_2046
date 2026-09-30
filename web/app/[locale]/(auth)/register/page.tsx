@@ -1,18 +1,13 @@
-import type { Metadata } from "next";
-import { pageAlternates } from "@/lib/seo";
-import AuthShell from "../auth-shell";
+import { redirect } from "@/i18n/navigation";
 
 type PageProps = {
-	params: Promise<{ locale: string }>;
+  params: Promise<{ locale: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export async function generateMetadata({
-	params,
-}: PageProps): Promise<Metadata> {
-	const { locale } = await params;
-	return { alternates: pageAlternates("/register", locale) };
-}
-
-export default function RegisterPage() {
-	return <AuthShell mode="register" />;
+export default async function RegisterPage({ params, searchParams }: PageProps) {
+  const { locale } = await params;
+  const next = (await searchParams)?.next;
+  // Fixed local destination. Final next navigation uses the existing same-origin validator.
+  redirect({ href: typeof next === "string" && next ? { pathname: "/login", query: { next } } : "/login", locale });
 }

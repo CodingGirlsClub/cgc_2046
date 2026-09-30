@@ -48,8 +48,8 @@ vi.mock("@apollo/client/react", async (importOriginal) => {
 	};
 });
 
-vi.mock("@/app/[locale]/(auth)/login/use-sms-login", () => ({
-	useSmsLogin: () => ({
+vi.mock("@/lib/use-phone-code", () => ({
+	usePhoneCode: () => ({
 		sendCode: mocks.sendCode,
 		submit: vi.fn(),
 		countdown: mocks.state.countdown,

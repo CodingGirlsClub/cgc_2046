@@ -3,12 +3,11 @@
 import { Link } from "@/i18n/navigation";
 import { useState, type FormEvent } from "react";
 import { useTranslations } from "next-intl";
-import { useSearchParams } from "next/navigation";
 
-export type AuthMode = "login" | "register";
+export type AuthMode = "login";
 
 export interface AuthSubmitPayload {
-  /** 登录标识：手机号或邮箱（signIn login 入参）。注册已走手机号验证码路径（register-phone-form），不经此 payload。 */
+  /** 登录标识：手机号或邮箱（signIn login 入参）。新用户通过微信小程序注册，不经此 payload。 */
   login: string;
   password: string;
 }
@@ -141,7 +140,7 @@ export default function AuthForm({
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  // 注册已迁 register-phone-form（手机号验证码）；本组件 login-only。
+  // Password sign-in is for existing accounts; new users use the mini-program entry.
   const t = useTranslations("auth");
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -152,12 +151,6 @@ export default function AuthForm({
   };
 
   const displayError = formError ?? error;
-  const switchLabel = t("switch.createAccount");
-  // 切换登录/注册保留 next（报名页引导链路不回丢）
-  const searchParams = useSearchParams();
-  const nextRaw = searchParams?.get("next") ?? null;
-  const switchHref =
-    "/register" + (nextRaw ? `?next=${encodeURIComponent(nextRaw)}` : "");
 
   return (
     <div className="auth-form-body">
@@ -181,7 +174,6 @@ export default function AuthForm({
               setFormError(null);
             }}
             autoComplete="username"
-            autoFocus
             required
           />
         </div>
@@ -209,9 +201,7 @@ export default function AuthForm({
         <Link href="/forgot-password" className="auth-inline-link auth-switch__action">
           {t("forgotPassword")}
         </Link>
-        <Link href={switchHref} className="auth-inline-link auth-switch__action">
-          {switchLabel}
-        </Link>
+        <span>{t("unified.firstUse")}</span>
       </p>
 
       <p className="auth-terms">

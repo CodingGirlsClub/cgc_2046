@@ -11,6 +11,16 @@
  */
 
 export const COPY: Record<string, string> = {
+  mini_web_login_invalid: '登录请求无效，请重新发起。',
+  mini_web_login_expired: '登录请求已过期，请重新发起。',
+  mini_web_login_cancelled: '登录请求已取消。',
+  mini_web_login_not_approved: '请先在小程序确认登录。',
+  mini_web_login_consumed: '请求已使用，请返回原网页或重新发起。',
+  mini_web_login_account_conflict: '账号不一致，请确认当前账号后重新发起。',
+  mini_web_login_phone_required: '请先完成手机号授权登录。',
+  mini_web_login_unavailable: '快捷登录暂时不可用，请稍后重试。',
+  mini_web_login_failed: '登录未完成，请重试。',
+
   // DB 故障统一 code（六文件共用；#241 F4）
   database_error: '服务暂时不可用，请稍后重试。',
   // 重复活跃报名（唯一约束冲突，含并发）

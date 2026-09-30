@@ -36,12 +36,7 @@ describe("SiteHeader 报名引导回跳（UAT 断链修复）", () => {
 			"href",
 			`/login?next=${encodeURIComponent("/events/1024-changsha-01")}`,
 		);
-		expect(
-			screen.getByRole("link", { name: /加入我们/ }),
-		).toHaveAttribute(
-			"href",
-			`/register?next=${encodeURIComponent("/events/1024-changsha-01")}`,
-		);
+		expect(screen.queryByRole("link", { name: /加入我们/ })).not.toBeInTheDocument();
 	});
 
 	it("首页与登录/注册页不构造 next（避免回环）", () => {
@@ -165,12 +160,7 @@ describe("SiteHeader 窄屏菜单抽屉", () => {
 			"href",
 			`/login?next=${encodeURIComponent("/events/1024-changsha-01")}`,
 		);
-		expect(
-			within(drawer).getByRole("link", { name: /加入我们/ }),
-		).toHaveAttribute(
-			"href",
-			`/register?next=${encodeURIComponent("/events/1024-changsha-01")}`,
-		);
+		expect(within(drawer).queryByRole("link", { name: /加入我们/ })).not.toBeInTheDocument();
 		// 语言切换在抽屉中可达（桌面/抽屉各一组）
 		expect(
 			within(drawer).getByRole("group", { name: "语言" }),
