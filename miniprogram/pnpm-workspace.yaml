@@ -6,12 +6,12 @@ allowBuilds:
 # 删掉会让 frozen install 报 ERR_PNPM_LOCKFILE_CONFIG_MISMATCH。
 patchedDependencies:
   '@tarojs/plugin-platform-xhs@1.2.2': patches/@tarojs__plugin-platform-xhs@1.2.2.patch
-# 2026-09-03：pnpm audit --prod 4 个 high 全为 fast-uri <3.1.6 传递链
-# （@tarojs/taro>webpack>terser>schema-utils>ajv>fast-uri，BSD-3-Clause）。
-# 3.1.6 为补丁版本、上游 range ^3.0.1 本可解析但 lockfile 已锁 3.1.5，
-# update/--depth 均不触碰传递条目——overrides 强制收敛，无 API 变更。
+# #1022：修补 fast-uri URI authority 注入、未闭合括号主机混淆及主机大小写归一化公告。
+# @tarojs/taro > webpack > schema-utils > ajv 的 3.x 传递依赖，BSD-3-Clause。
+# 3.1.8 是已修复的补丁版；沿用既有 override，避免锁文件继续解析到 3.1.6。
+# 上游解析自然收敛到修复版且审计通过后可移除此 override。
 overrides:
-  "fast-uri@<3.1.6": 3.1.6
+  "fast-uri@>=3.0.0 <3.1.8": 3.1.8
   # 2026-09-15：GHSA-w27v-7q3p-w38r（svgo removeScripts 命名空间/控制字符绕过，
   # high）——@tarojs/taro>webpack>terser-webpack-plugin>cssnano>postcss-svgo>
   # svgo 传递链，lockfile 锁 3.3.4，3.3.5 为补丁版本（postcss-svgo range ^3
