@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import sitemap from "./sitemap";
 
 /** 静态公开路由数（sitemap.ts STATIC_PATHS）——新增公开页时同步 */
-const STATIC_COUNT = 10;
+const STATIC_COUNT = 9;
 
 /**
  * sitemap 现在分两条独立查询（供给物一条、Initiative 一条，见 sitemap.ts 注释：
@@ -168,4 +168,12 @@ describe("sitemap", () => {
 			),
 		).toBe(true);
 	});
+});
+
+it("统一登录入口仍在 sitemap，重定向的注册旧地址不再独立索引", async () => {
+  vi.stubEnv("NEXT_PUBLIC_WEB_BASE_URL", "https://codingirlsclub.com");
+  stubFetch({});
+  const entries = await sitemap();
+  expect(entries.some(e => e.url === "https://codingirlsclub.com/login")).toBe(true);
+  expect(entries.some(e => e.url === "https://codingirlsclub.com/register")).toBe(false);
 });

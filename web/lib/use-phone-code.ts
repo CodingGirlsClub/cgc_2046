@@ -2,37 +2,22 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation } from "@apollo/client/react";
-import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { client } from "@/lib/apollo-client";
 import {
 	graphqlErrorDetails,
 	REQUEST_PHONE_CODE,
-	SIGN_IN_WITH_PHONE_CODE,
-	type PhoneCodePurpose,
 } from "@/lib/graphql/auth";
-import { resolveNextTarget } from "./use-auth-submit";
 
 /** 浏览器定时器句柄(window.setInterval 返回 number)。 */
 type IntervalHandle = number | undefined;
 
-/**
- * 手机验证码登录(plan 002 U3/U5)。
- *
- * - sendCode:requestPhoneCode 发送验证码,成功后按 retryAfterSeconds 进入倒计时;
- *   后端错误 code 经 graphqlErrorDetails 映射 i18n。
- * - submit:signInWithPhoneCode 成功后 resetStore(同 use-auth-submit 先例)
- *   并跳转 next(同源校验);用户不存在由后端自动建号。
- * - 倒计时:1s 递减(payment-checkout-dialog 先例),卸载清理。
- */
-export function useSmsLogin() {
-	const router = useRouter();
+/** Shared code delivery for phone changes and live legacy WeChat bindings; no sign-in side effects. */
+export function usePhoneCode() {
 	const t = useTranslations("auth.sms");
 	const [error, setError] = useState<string | null>(null);
 	const [countdown, setCountdown] = useState(0);
 	const timerRef = useRef<IntervalHandle>(undefined);
 	const [requestCode, requestState] = useMutation(REQUEST_PHONE_CODE);
-	const [signIn, signInState] = useMutation(SIGN_IN_WITH_PHONE_CODE);
 
 	useEffect(() => {
 		return () => window.clearInterval(timerRef.current);
@@ -54,7 +39,7 @@ export function useSmsLogin() {
 	}, []);
 
 	const sendCode = useCallback(
-		async (phone: string, purpose: PhoneCodePurpose = "LOGIN") => {
+		async (phone: string, purpose: "WECHAT_BIND" | "CHANGE_PHONE") => {
 			setError(null);
 			try {
 				const { data } = await requestCode({ variables: { phone, purpose } });
@@ -72,31 +57,10 @@ export function useSmsLogin() {
 		[requestCode, startCountdown, t],
 	);
 
-	const submit = useCallback(
-		async (phone: string, code: string) => {
-			setError(null);
-			try {
-				const { data } = await signIn({ variables: { phone, code } });
-				if (data?.signInWithPhoneCode?.id) {
-					await client.resetStore();
-					const nextRaw = new URLSearchParams(window.location.search).get("next");
-					router.push(resolveNextTarget(nextRaw, window.location.origin));
-					return;
-				}
-				setError(t("signInFailed"));
-			} catch (e) {
-				setError(smsErrorMessage(e, t));
-			}
-		},
-		[signIn, router, t],
-	);
-
 	return {
 		sendCode,
-		submit,
 		countdown,
 		sending: requestState.loading,
-		busy: signInState.loading,
 		error,
 		setError,
 	};

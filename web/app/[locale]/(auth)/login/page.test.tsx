@@ -1,114 +1,58 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { cleanup, screen } from "@testing-library/react";
 import { render } from "@/test-utils";
 import LoginPage from "./page";
 
-// 数据层 hook 全部 mock 掉（本测试只关心组件树构成，不关心登录提交逻辑）：
-// 分发器零改动的结构性保证 = 首公里邀请模态只挂在工作区概览页（plan U3 Test Scenarios）
 vi.mock("./use-auth-submit", () => ({
-	useAuthSubmit: () => ({ onSubmit: vi.fn(), busy: false, error: null }),
+  useAuthSubmit: () => ({ onSubmit: vi.fn(), busy: false, error: null }),
 }));
-vi.mock("./use-sms-login", () => ({
-	useSmsLogin: () => ({
-		sendCode: vi.fn(),
-		submit: vi.fn(),
-		countdown: 0,
-		sending: false,
-		busy: false,
-		error: null,
-		setError: vi.fn(),
-	}),
-	smsErrorMessage: () => null,
+vi.mock("@/lib/use-phone-code", () => ({
+  usePhoneCode: () => ({ sendCode: vi.fn(), submit: vi.fn(), countdown: 0, sending: false, busy: false, error: null, setError: vi.fn() }),
+  smsErrorMessage: () => null,
+}));
+vi.mock("./wechat-qr-panel", () => ({
+  default: () => <div data-testid="wechat-request">小程序登录请求</div>,
 }));
 vi.mock("@apollo/client/react", () => ({
-	useMutation: () => [vi.fn(), { loading: false }],
+  useMutation: () => [vi.fn(), { loading: false }],
 }));
 vi.mock("next/navigation", () => ({
-	redirect: vi.fn(),
-	permanentRedirect: vi.fn(),
-	notFound: vi.fn(),
-	useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
-	usePathname: () => "/login",
-	useSearchParams: () => searchParams.current,
+  redirect: vi.fn(), permanentRedirect: vi.fn(), notFound: vi.fn(),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+  usePathname: () => "/login", useSearchParams: () => searchParams.current,
 }));
-
 const searchParams = vi.hoisted(() => ({ current: new URLSearchParams() }));
+afterEach(() => { cleanup(); searchParams.current = new URLSearchParams(); });
 
-afterEach(cleanup);
+describe("统一 Web 登录／注册入口", () => {
+  it("微信为主入口，密码仅供已有账号；没有短信登录或注册表单", () => {
+    render(<LoginPage />);
+    const headings = screen.getAllByRole("heading", { level: 2 });
+    expect(headings.map(h => h.textContent)).toEqual(["微信快捷登录／注册", "账号密码登录"]);
+    expect(screen.getByTestId("wechat-request")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("手机号或邮箱")).toBeInTheDocument();
+    expect(screen.getByText("已有账号并设置过密码的用户可使用。")).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "验证码登录" })).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("6 位验证码")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "创建账号" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "忘记密码？" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
 
-describe("LoginPage（plan U3 反向断言：登录链路无首公里模态，F2 不被劫持）", () => {
-	afterEach(() => {
-		searchParams.current = new URLSearchParams();
-	});
+  it("密码输入不会抢走初始焦点，首次使用明确指向微信入口", () => {
+    render(<LoginPage />);
+    expect(screen.getByPlaceholderText("手机号或邮箱")).not.toHaveFocus();
+    expect(screen.getByText("首次使用请通过微信快捷注册。")).toBeInTheDocument();
+  });
 
-	it("登录页组件树无 onboarding 邀请模态（R3：登录分发不因此功能改变）", () => {
-		render(<LoginPage />);
-
-		// 非空树锚点：登录表单确实渲染（断言非空转）
-		expect(
-			screen.getByPlaceholderText("手机号或邮箱"),
-		).toBeInTheDocument();
-		// 反向断言：无邀请模态、无任何 role=dialog
-		expect(
-			screen.queryByTestId("onboarding-invite-overlay"),
-		).not.toBeInTheDocument();
-		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-	});
-
-	it("bind_ticket 模式：tabs 隐藏，卡片内渲染「验证手机号」绑定表单", () => {
-		searchParams.current = new URLSearchParams({ bind_ticket: "s1" });
-
-		render(<LoginPage />);
-
-		expect(
-			screen.getByRole("heading", { name: "验证手机号" }),
-		).toBeInTheDocument();
-		expect(screen.getByText(/首次使用微信登录/)).toBeInTheDocument();
-		// tabs 不在（绑定模式独占主列）
-		expect(screen.queryByRole("tab", { name: "密码登录" })).not.toBeInTheDocument();
-		expect(screen.queryByRole("tab", { name: "验证码登录" })).not.toBeInTheDocument();
-		// 登录表单不在
-		expect(
-			screen.queryByPlaceholderText("手机号或邮箱"),
-		).not.toBeInTheDocument();
-		// 绑定模式侧栏不得挂 QR 面板（挂载即 wechatLoginStart → 覆盖
-		// cgc_wechat_state cookie → 绑定请求 browser_mismatch 必败），
-		// 只渲染静态进行中提示
-		expect(screen.queryByTitle("微信登录二维码")).not.toBeInTheDocument();
-		expect(screen.getByText(/正在验证手机号/)).toBeInTheDocument();
-		expect(screen.getByPlaceholderText("请输入手机号")).toBeInTheDocument();
-		// 绑定流程中不引导跳注册（表单复用但 auth-switch 不渲染）
-		expect(screen.queryByRole("link", { name: "创建账号" })).not.toBeInTheDocument();
-	});
-
-	it("无 bind_ticket：正常登录 tabs", () => {
-		render(<LoginPage />);
-
-		expect(screen.getByRole("tab", { name: "密码登录" })).toBeInTheDocument();
-		expect(screen.getByRole("tab", { name: "验证码登录" })).toBeInTheDocument();
-	});
-
-	it("验证码登录 tab：仍提供「创建账号」入口（与密码 tab 一致）", () => {
-		render(<LoginPage />);
-
-		fireEvent.click(screen.getByRole("tab", { name: "验证码登录" }));
-
-		const registerLink = screen.getByRole("link", { name: "创建账号" });
-		expect(registerLink).toBeInTheDocument();
-		expect(registerLink).toHaveAttribute("href", expect.stringContaining("/register"));
-		// 密码表单卸载后入口不重复
-		expect(screen.queryByPlaceholderText("手机号或邮箱")).not.toBeInTheDocument();
-	});
-
-	it("验证码登录 tab：next 参数透传到注册入口（报名页引导链路不回丢）", () => {
-		searchParams.current = new URLSearchParams({ next: "/join/ws1" });
-
-		render(<LoginPage />);
-		fireEvent.click(screen.getByRole("tab", { name: "验证码登录" }));
-
-		expect(screen.getByRole("link", { name: "创建账号" })).toHaveAttribute(
-			"href",
-			expect.stringContaining(encodeURIComponent("/join/ws1")),
-		);
-	});
+  it("旧 bind_ticket 会话仍可绑定，但不启动新的小程序登录请求", () => {
+    searchParams.current = new URLSearchParams({ bind_ticket: "s1", next: "/join/ws1" });
+    render(<LoginPage />);
+    expect(screen.getByRole("heading", { name: "验证手机号" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("请输入手机号")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "完成绑定并登录" })).toBeInTheDocument();
+    expect(screen.queryByTestId("wechat-request")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("手机号或邮箱")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "创建账号" })).not.toBeInTheDocument();
+  });
 });
