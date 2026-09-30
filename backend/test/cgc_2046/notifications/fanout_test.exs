@@ -303,6 +303,47 @@ defmodule Cgc2046.Notifications.FanoutTest do
       assert length(deliveries_for(user.id)) == 2
     end
 
+    # #1040：无能力平台身份在耐久路径预滤——count 回执 = 实际展开身份数，
+    # wechat_web 身份不计、不落行；真零身份语义不受影响（哨兵行见后）。
+    test "已迁键：wechat_web 身份被预滤，count 与落行均只含小程序家族身份" do
+      user = Fixtures.register_user("fanout-receipt-web")
+      insert_identity(user.id, :wechat, "fanout-receipt-mp")
+      insert_identity(user.id, :wechat_web, "fanout-receipt-web")
+
+      assert {:ok, 1} =
+               Fanout.deliver_with_receipt(
+                 {user.id, Fanout.identities(user.id)},
+                 "approval_result",
+                 %{"status" => "confirmed", "enrollment_id" => "e-web"},
+                 %{
+                   "enrollment_id" => "e-web",
+                   "idempotency_key" => "approval.result:e-web:confirmed"
+                 }
+               )
+
+      assert [row] = deliveries_for(user.id)
+      assert row.platform == "wechat"
+    end
+
+    # #1040：有身份但全部无能力 → {:ok, 0} 且不落行（区别于真零身份的哨兵行）
+    test "已迁键：仅 wechat_web 身份 → {:ok, 0}、不落行不落哨兵" do
+      user = Fixtures.register_user("fanout-web-only")
+      insert_identity(user.id, :wechat_web, "fanout-web-only-uid")
+
+      assert {:ok, 0} =
+               Fanout.deliver_with_receipt(
+                 {user.id, Fanout.identities(user.id)},
+                 "approval_result",
+                 %{"status" => "confirmed", "enrollment_id" => "e-webonly"},
+                 %{
+                   "enrollment_id" => "e-webonly",
+                   "idempotency_key" => "approval.result:e-webonly:confirmed"
+                 }
+               )
+
+      assert deliveries_for(user.id) == []
+    end
+
     test "零身份（未迁键）明确返回零入队，不伪称已接受任务" do
       user = Fixtures.register_user("fanout-receipt-empty")
 

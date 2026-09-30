@@ -337,8 +337,8 @@ defmodule Cgc2046.Recruitment.SubscriberTest do
       email = assert_email()
       assert {_, @contact_email} = List.first(email.to)
 
-      # #847 批 4：耐久路径经 DeliveryWorker——未授权是 pending_reason 类，
-      # 返回 error 重试（非终态 discard），发送不发生
+      # #1040：未授权改判确定性终态静默——job :ok（不重试不 discard），发送
+      # 不发生；投递行落 :failed 由规15 出报表（规6 死信面不再计入）
       [row] =
         NotificationDelivery
         |> Ash.Query.filter(
@@ -346,10 +346,13 @@ defmodule Cgc2046.Recruitment.SubscriberTest do
         )
         |> Ash.read!(authorize?: false)
 
-      assert {:error, :consent_exhausted} =
+      assert :ok =
                perform_job(Cgc2046.Notifications.Workers.DeliveryWorker, %{
                  "delivery_id" => row.id
                })
+
+      assert %{status: :failed, last_error: ":consent_exhausted"} =
+               Ash.get!(NotificationDelivery, row.id, authorize?: false)
 
       refute_receive {:notification, :wechat, _}
     end

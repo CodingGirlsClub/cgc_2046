@@ -468,6 +468,28 @@ defmodule Cgc2046.Notifications.Service do
   # ⇒ 后端渲染统一 +8 折算。
   defp beijing(%DateTime{} = dt), do: DateTime.add(dt, 8 * 3600, :second)
 
+  @doc """
+  平台是否属订阅消息小程序家族（#1040）：结构性判定，真源 =
+  `:miniprogram_platforms` 配置的键集（wechat/tt/xhs）。wechat_web（开放平台
+  网站应用）等家族外平台永续无订阅消息能力，入队层据此滤除身份；家族内具体
+  模板缺失属配置态，**不**经本谓词判定——留给 template_id 门禁的
+  template_not_configured 面（#606 配置事故可见性分工）。
+  """
+  @spec miniprogram_platform?(atom() | String.t()) :: boolean()
+  def miniprogram_platform?(provider) when is_atom(provider) do
+    :cgc_2046
+    |> Application.get_env(:miniprogram_platforms, %{})
+    |> Map.has_key?(provider)
+  end
+
+  def miniprogram_platform?(provider) when is_binary(provider) do
+    provider
+    |> String.to_existing_atom()
+    |> miniprogram_platform?()
+  rescue
+    ArgumentError -> false
+  end
+
   defp template_id(platform, template_key) do
     case get_in(Application.get_env(:cgc_2046, :miniprogram_templates, %{}), [
            platform,

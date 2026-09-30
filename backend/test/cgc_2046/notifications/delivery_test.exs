@@ -126,6 +126,65 @@ defmodule Cgc2046.Notifications.DeliveryTest do
     assert [] = all_enqueued(worker: DeliveryWorker, args: %{"delivery_id" => row.id})
   end
 
+  # #1040：周期生产方（LearningProgressWorker 每 5 分钟一拍）重唤时，:failed
+  # 行必须像 :sent 一样不再产生新 job——否则每拍一个必败 job 耗尽成 discard
+  # （生产 22k/5.5 天死信风暴的断复活闸）。
+  test "已 failed 的行重复入队 → 不再插 job（#1040 断复活闸）" do
+    user = Fixtures.register_user("dt-failed")
+    identity = %{provider: :wechat, uid: "dt-failed-openid"}
+    key = enqueue(user.id, [identity])
+
+    [row] = deliveries_for(user.id)
+
+    {:ok, _} =
+      row
+      |> Ash.Changeset.for_update(:mark_failed, %{last_error: ":consent_exhausted"},
+        authorize?: false
+      )
+      |> Ash.update()
+
+    # 清空既有 job，使 Oban unique 无法兜底——钉的正是 :failed 行的 no-requeue 分支
+    Repo.delete_all(Oban.Job)
+
+    :ok =
+      Delivery.enqueue(
+        {user.id, [identity]},
+        "approval_result",
+        %{"status" => "confirmed"},
+        %{"idempotency_key" => key}
+      )
+
+    assert [%{status: :failed}] = deliveries_for(user.id)
+    assert [] = all_enqueued(worker: DeliveryWorker, args: %{"delivery_id" => row.id})
+  end
+
+  # #1040：wechat_web（开放平台网站应用）结构性无订阅消息能力，投递必败——
+  # 身份在入队即滤除；「有身份但全部无能力」不等于零身份（不落哨兵行）。
+  test "wechat_web 身份 → 不落行不入队（平台结构性无能力）" do
+    user = Fixtures.register_user("dt-web")
+    enqueue(user.id, [%{provider: :wechat_web, uid: "dt-web-openid"}])
+
+    assert [] = deliveries_for(user.id)
+  end
+
+  test "混合身份 → 仅小程序家族身份落行入队（wechat_web 被过滤）" do
+    user = Fixtures.register_user("dt-mixed")
+
+    enqueue(user.id, [
+      %{provider: :wechat, uid: "dt-mixed-mp"},
+      %{provider: :wechat_web, uid: "dt-mixed-web"}
+    ])
+
+    [row] = deliveries_for(user.id)
+    assert row.platform == "wechat"
+    assert row.identity_uid == "dt-mixed-mp"
+
+    assert [%{args: %{"delivery_id" => id}}] =
+             all_enqueued(worker: DeliveryWorker, args: %{"delivery_id" => row.id})
+
+    assert id == row.id
+  end
+
   test "零身份 → 哨兵行（platform/identity_uid 均为 nil、pending）+ 一个 job（Q5：可观测记录）" do
     user = Fixtures.register_user("dt-zero")
     enqueue(user.id, [])
