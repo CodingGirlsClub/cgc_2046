@@ -7,7 +7,6 @@ import {
 	appliedStamp,
 	scatterLabelOf,
 	yearsAgo,
-	type FlashbackAnswer,
 	type FlashbackDreamTarget,
 	type FlashbackProfile,
 	type FlashbackProgress,
@@ -41,7 +40,6 @@ export default function Reveal({
 	startOnBack = false,
 	onRevealed,
 	role,
-	answers,
 	progress,
 	onWriteNext,
 }: {
@@ -53,7 +51,6 @@ export default function Reveal({
 	startOnBack?: boolean;
 	onRevealed: () => void;
 	role: string;
-	answers: FlashbackAnswer[];
 	progress: FlashbackProgress;
 	onWriteNext: (form: TodayFormState) => void;
 }) {
@@ -206,7 +203,6 @@ export default function Reveal({
 					<div className={flipClasses}>
 						<Write
 							role={role}
-							answers={answers}
 							progress={progress}
 							onNext={onWriteNext}
 							data-face="back"

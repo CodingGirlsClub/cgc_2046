@@ -43,9 +43,17 @@ const TODAY_TEXTS = {
 	say: "谢谢你们当年拉我进教室。",
 };
 
-const FORM: TodayFormState = { quoteLevel: "off", ...TODAY_TEXTS };
+const FORM: TodayFormState = { ...TODAY_TEXTS };
 
 const ANSWERS: FlashbackAnswer[] = [];
+
+/** 本人身份与墙上署名（#1022 两按钮所需；与授权档一起，默认未授权） */
+const IDENTITY = { fullName: "王晓雨", surname: "王", anonymousAttribution: "王** · 2014 · 北京", quoteLevel: "off" };
+
+/** 句 1 [0,8) 我是一个文科生。 句 2 [8,13) 想亲眼看看代码是不是魔法。 */
+const QUOTE_ANSWERS: FlashbackAnswer[] = [
+	{ id: "a1", questionKey: "self_intro", rawText: "我是一个文科生。想亲眼看看代码是不是魔法。", fogSpans: null },
+];
 
 function makeHandlers(
 	log: string[],
@@ -84,12 +92,18 @@ function renderStep(
 	handlers: ReturnType<typeof makeHandlers>,
 	formOverrides: Partial<TodayFormState> = {},
 	initialTodayFogSpans: Record<string, { start: number; len: number }[]> | null = null,
+	{ answers = ANSWERS, quoteLevel = "off", hasSelectedQuotes = true }: { answers?: FlashbackAnswer[]; quoteLevel?: string; hasSelectedQuotes?: boolean } = {},
 ) {
 	return render(
 		<SendRegister
 			form={{ ...FORM, ...formOverrides }}
 			initialTodayFogSpans={initialTodayFogSpans}
-			answers={ANSWERS}
+			answers={answers}
+			fullName="王晓雨"
+			surname="王"
+			anonymousAttribution="王** · 2014 · 北京"
+			quoteLevel={quoteLevel}
+			hasSelectedQuotes={hasSelectedQuotes}
 			onSubmitToday={handlers.onSubmitToday}
 			onSendToWall={handlers.onSendToWall}
 			onSetQuoteLicense={handlers.onSetQuoteLicense}
@@ -176,29 +190,6 @@ describe("SendRegister 寄出检查步：today 逐句雾选", () => {
 		expect(handlers.onAdjustTodayFog).not.toHaveBeenCalled();
 	});
 
-	it("非 off 档：setQuoteLicense 必须先于 sendToWall 并放行", async () => {
-		const handlers = makeHandlers([]);
-		renderStep(handlers, { quoteLevel: "anonymous" });
-		fireEvent.click(screen.getByRole("button", { name: /确认寄出/ }));
-		const seq = handlers.log;
-		await waitFor(() => {
-			expect(seq[seq.length - 1]).toBe("sendToWall");
-		});
-		expect(seq.indexOf("setQuoteLicense")).toBeGreaterThan(-1);
-		expect(seq.indexOf("setQuoteLicense")).toBeLessThan(seq.indexOf("sendToWall"));
-	});
-
-	it("金句授权失败：寄出在此暂停（不调 sendToWall），进失败态可重试", async () => {
-		const handlers = makeHandlers([], { setQuoteLicenseOk: false });
-		renderStep(handlers, { quoteLevel: "anonymous" });
-		fireEvent.click(screen.getByRole("button", { name: /确认寄出/ }));
-		await waitFor(() => {
-			expect(handlers.onSetQuoteLicense).toHaveBeenCalled();
-			expect(handlers.onSendToWall).not.toHaveBeenCalled();
-		});
-		expect(screen.getByRole("button", { name: /再试一次/ })).toBeInTheDocument();
-	});
-
 	it("服务端既有 today 雾区间预填（盲初值闭环）：命中句渲染为雾态（aria-pressed=true）", () => {
 		renderStep(makeHandlers([]), {}, { now: [{ start: 0, len: 2 }] });
 		const fogged = [...document.querySelectorAll(".fb-review-sentence--fog")];
@@ -266,7 +257,7 @@ describe("收好账号归属", () => {
  it("已登录时只调用一键收好，成功后进入长廊，不出现手机号表单", async () => {
   auth.mockReturnValue({ authed: true, confirmed: true });
   const h = makeHandlers([]); const claim = vi.fn().mockResolvedValue(true);
-  render(<SendRegister form={FORM} answers={[]} {...h} bound={false} onClaim={claim} />);
+  render(<SendRegister form={FORM} answers={[]} {...IDENTITY} {...h} bound={false} onClaim={claim} />);
   fireEvent.click(screen.getByRole("button", { name: /^确认寄出/ }));
   fireEvent.click(await screen.findByRole("button", { name: "收进当前账号" }));
   expect(await screen.findByRole("button", { name: /^进入时间长廊/ })).toBeInTheDocument();
@@ -277,7 +268,7 @@ describe("收好账号归属", () => {
  });
  it("已有主人时不出现手机号表单，给登录出口", async () => {
   const h = makeHandlers([]);
-  render(<SendRegister form={FORM} answers={[]} {...h} bound onClaim={vi.fn()} />);
+  render(<SendRegister form={FORM} answers={[]} {...IDENTITY} {...h} bound onClaim={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: /^确认寄出/ }));
   expect(await screen.findByText("这张卡已经收进账号，登录即可查看。")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "登录" })).toHaveAttribute("href", "/login?next=%2Fflashback%2Fcapsule");
@@ -286,7 +277,7 @@ describe("收好账号归属", () => {
  it("一键收好被拒时保留重试与登录出口", async () => {
   auth.mockReturnValue({ authed: true, confirmed: true });
   const h = makeHandlers([]); const claim = vi.fn().mockRejectedValue({ errors: [{ code: "flashback_recover_account_conflict" }] });
-  render(<SendRegister form={FORM} answers={[]} {...h} bound={false} onClaim={claim} />);
+  render(<SendRegister form={FORM} answers={[]} {...IDENTITY} {...h} bound={false} onClaim={claim} />);
   fireEvent.click(screen.getByRole("button", { name: /^确认寄出/ }));
   fireEvent.click(await screen.findByRole("button", { name: "收进当前账号" }));
   expect(await screen.findByRole("alert")).toHaveClass("fb-error");
@@ -342,4 +333,93 @@ describe("文案守卫", () => {
   expect(pitch).toContain("收好");
   expect(pitch).not.toContain("成真时收到通知");
  });
+});
+
+// #1022：寄出那一刻明确地问「要不要把这句放进金句墙」（单独同意：两按钮同分量，授权永不预选）
+describe("寄出时的金句选择（#1022）", () => {
+	const withQuote = () => screen.getByRole("button", { name: "寄出，并把这句匿名放进金句墙 →" });
+	const albumOnly = () => screen.getByRole("button", { name: "寄出到相册" });
+
+	it("有推荐句：预览这句与墙上署名，两个同分量按钮替代单个寄出", () => {
+		renderStep(makeHandlers([]), {}, null, { answers: QUOTE_ANSWERS });
+
+		expect(screen.getByText("「我是一个文科生。」")).toBeInTheDocument();
+		expect(screen.getByText("王** · 2014 · 北京")).toBeInTheDocument();
+		expect(withQuote().className).toBe(albumOnly().className);
+		expect(screen.queryByRole("button", { name: /^确认寄出/ })).not.toBeInTheDocument();
+	});
+
+	it("「寄出，并把这句…」：先授权这一句，再寄出；完成页给金句墙入口", async () => {
+		const handlers = makeHandlers([]);
+		renderStep(handlers, {}, null, { answers: QUOTE_ANSWERS });
+		fireEvent.click(withQuote());
+
+		await waitFor(() => expect(handlers.log[handlers.log.length - 1]).toBe("sendToWall"));
+		expect(handlers.onSetQuoteLicense).toHaveBeenCalledWith([{ questionKey: "self_intro", start: 0, len: 8 }]);
+		expect(handlers.log.indexOf("setQuoteLicense")).toBeLessThan(handlers.log.indexOf("sendToWall"));
+		expect(await screen.findByText("这句话已放进金句墙。")).toBeInTheDocument();
+		expect(screen.getByRole("link", { name: "去金句墙看看 →" })).toHaveAttribute("href", "/flashback/voices");
+	});
+
+	it("「寄出到相册」：不发授权，照常寄出，完成页不提金句墙", async () => {
+		const handlers = makeHandlers([]);
+		renderStep(handlers, {}, null, { answers: QUOTE_ANSWERS });
+		fireEvent.click(albumOnly());
+
+		await waitFor(() => expect(handlers.onSendToWall).toHaveBeenCalled());
+		expect(handlers.onSetQuoteLicense).not.toHaveBeenCalled();
+		expect(await screen.findByRole("heading", { name: "已经寄出了" })).toBeInTheDocument();
+		expect(screen.queryByText("这句话已放进金句墙。")).not.toBeInTheDocument();
+	});
+
+	it("换一句：预览换成下一句，授权带的是当前这句", async () => {
+		const handlers = makeHandlers([]);
+		renderStep(handlers, {}, null, { answers: QUOTE_ANSWERS });
+		fireEvent.click(screen.getByRole("button", { name: /换一句/ }));
+
+		expect(screen.getByText("「想亲眼看看代码是不是魔法。」")).toBeInTheDocument();
+		fireEvent.click(withQuote());
+		await waitFor(() =>
+			expect(handlers.onSetQuoteLicense).toHaveBeenCalledWith([{ questionKey: "self_intro", start: 8, len: 13 }]),
+		);
+	});
+
+	it("检查页把推荐句雾住：预览顺延到下一句；全部雾住 → 只剩单个寄出按钮", () => {
+		renderStep(makeHandlers([]), {}, null, { answers: QUOTE_ANSWERS });
+
+		fireEvent.click(screen.getByRole("button", { name: "我是一个文科生。" }));
+		expect(screen.getByText("「想亲眼看看代码是不是魔法。」")).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "想亲眼看看代码是不是魔法。" }));
+		expect(screen.queryByRole("button", { name: "寄出到相册" })).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: /^确认寄出/ })).toBeInTheDocument();
+	});
+
+	it("授权失败：寄出暂停（不调 sendToWall），重试仍带着这句", async () => {
+		const handlers = makeHandlers([], { setQuoteLicenseOk: false });
+		renderStep(handlers, {}, null, { answers: QUOTE_ANSWERS });
+		fireEvent.click(withQuote());
+
+		const retry = await screen.findByRole("button", { name: /再试一次/ });
+		expect(handlers.onSendToWall).not.toHaveBeenCalled();
+		fireEvent.click(retry);
+		await waitFor(() => expect(handlers.onSetQuoteLicense).toHaveBeenCalledTimes(2));
+		expect(handlers.onSetQuoteLicense).toHaveBeenLastCalledWith([{ questionKey: "self_intro", start: 0, len: 8 }]);
+	});
+
+	it("已开授权档（非 off）：不再询问，只有单个寄出按钮，也不改授权", async () => {
+		const handlers = makeHandlers([]);
+		renderStep(handlers, {}, null, { answers: QUOTE_ANSWERS, quoteLevel: "credited" });
+
+		expect(screen.queryByRole("button", { name: "寄出到相册" })).not.toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: /^确认寄出/ }));
+		await waitFor(() => expect(handlers.onSendToWall).toHaveBeenCalled());
+		expect(handlers.onSetQuoteLicense).not.toHaveBeenCalled();
+	});
+});
+
+
+it("开档但零句：寄出时仍可明确选择匿名放句", () => {
+  renderStep(makeHandlers([]), {}, null, { answers: QUOTE_ANSWERS, quoteLevel: "anonymous", hasSelectedQuotes: false });
+  expect(screen.getByRole("button", { name: "寄出，并把这句匿名放进金句墙 →" })).toBeInTheDocument();
 });
