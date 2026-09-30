@@ -22,7 +22,7 @@ defmodule Cgc2046.Accounts.Workers.LoginArtifactPrunerWorker do
   require Logger
 
   @retention_days 1
-  @tables ~w(phone_verification_codes wechat_login_tickets)
+  @tables ~w(phone_verification_codes wechat_login_tickets wechat_mini_web_login_requests)
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do

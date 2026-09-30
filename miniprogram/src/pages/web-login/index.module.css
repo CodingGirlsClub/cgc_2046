@@ -1,0 +1,14 @@
+.page { min-height: 100vh; box-sizing: border-box; padding: 84rpx 48rpx 48rpx; background: var(--paper, #faf9f6); color: var(--ink, #222326); }
+.mark { width: 76rpx; height: 76rpx; }
+.brand { display: block; margin-top: 24rpx; font-size: 28rpx; font-weight: 600; }
+.title { display: block; margin-top: 64rpx; font-size: 48rpx; font-weight: 700; }
+.description { display: block; margin-top: 24rpx; color: var(--ink-2, #4b4d54); font-size: 28rpx; line-height: 1.7; }
+.account { margin: 44rpx 0; padding: 28rpx 0; border-top: 1rpx solid var(--line, #ddd); border-bottom: 1rpx solid var(--line, #ddd); }
+.label, .footer { display: block; font-size: 24rpx; color: var(--ink-3, #777); }
+.name { display: block; margin-top: 12rpx; font-size: 32rpx; font-weight: 600; word-break: break-all; }
+.primary { margin-top: 40rpx; color: white; background: var(--fire, #ea5504); border-radius: 18rpx; font-size: 30rpx; }
+.secondary { margin-top: 20rpx; color: var(--ink-2, #4b4d54); background: transparent; font-size: 28rpx; }
+.cancel { min-height: 88rpx; }
+.primary:active, .secondary:active { transform: scale(.98); }
+.error { display: block; margin-top: 24rpx; font-size: 26rpx; color: #a52a20; }
+.footer { margin-top: 48rpx; line-height: 1.6; }

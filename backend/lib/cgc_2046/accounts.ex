@@ -30,6 +30,7 @@ defmodule Cgc2046.Accounts do
     resource(Cgc2046.Accounts.PhoneVerificationCode)
     # plan 002 U4：微信扫码登录票据（内部资源，模块函数封装操作）
     resource(Cgc2046.Accounts.WechatLoginTicket)
+    resource(Cgc2046.Accounts.WechatMiniWebLoginRequest)
     # Phase 1 身份基座：小程序平台身份绑定（provider/uid/unionid/user_id）
     resource(Cgc2046.Accounts.UserIdentity)
     resource(Cgc2046.Accounts.Workspace)
