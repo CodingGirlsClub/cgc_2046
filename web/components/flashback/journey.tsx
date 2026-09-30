@@ -265,6 +265,7 @@ export default function Journey() {
 					surname={profile.surname}
 					anonymousAttribution={profile.anonymousAttribution}
 					quoteLevel={entry.progress?.quoteLevel ?? "off"}
+					hasSelectedQuotes={entry.progress?.hasSelectedQuotes ?? false}
 					initialTodayFogSpans={entry.progress?.today?.fogSpans}
 					maskedPhone={entry.progress?.maskedPhone}
 					maskedEmail={entry.progress?.maskedEmail}

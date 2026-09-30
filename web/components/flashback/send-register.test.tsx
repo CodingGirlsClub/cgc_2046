@@ -92,7 +92,7 @@ function renderStep(
 	handlers: ReturnType<typeof makeHandlers>,
 	formOverrides: Partial<TodayFormState> = {},
 	initialTodayFogSpans: Record<string, { start: number; len: number }[]> | null = null,
-	{ answers = ANSWERS, quoteLevel = "off" }: { answers?: FlashbackAnswer[]; quoteLevel?: string } = {},
+	{ answers = ANSWERS, quoteLevel = "off", hasSelectedQuotes = true }: { answers?: FlashbackAnswer[]; quoteLevel?: string; hasSelectedQuotes?: boolean } = {},
 ) {
 	return render(
 		<SendRegister
@@ -103,6 +103,7 @@ function renderStep(
 			surname="王"
 			anonymousAttribution="王** · 2014 · 北京"
 			quoteLevel={quoteLevel}
+			hasSelectedQuotes={hasSelectedQuotes}
 			onSubmitToday={handlers.onSubmitToday}
 			onSendToWall={handlers.onSendToWall}
 			onSetQuoteLicense={handlers.onSetQuoteLicense}
@@ -415,4 +416,10 @@ describe("寄出时的金句选择（#1022）", () => {
 		await waitFor(() => expect(handlers.onSendToWall).toHaveBeenCalled());
 		expect(handlers.onSetQuoteLicense).not.toHaveBeenCalled();
 	});
+});
+
+
+it("开档但零句：寄出时仍可明确选择匿名放句", () => {
+  renderStep(makeHandlers([]), {}, null, { answers: QUOTE_ANSWERS, quoteLevel: "anonymous", hasSelectedQuotes: false });
+  expect(screen.getByRole("button", { name: "寄出，并把这句匿名放进金句墙 →" })).toBeInTheDocument();
 });
