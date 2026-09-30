@@ -4898,6 +4898,10 @@ type Sponsorship {
 }
 
 type RootQueryType {
+  wechatMiniWebLoginStatus(requestId: String!): MiniWebLoginResult
+
+  wechatMiniWebLoginPreview(requestId: String!): MiniWebLoginResult
+
   "闪念间圆梦线 CTA 两态（U4\/R9）：本城最近一场可报名公开场次；未命中时前端落 Initiative 公开页。匿名可读，仅指路字段"
   flashbackDreamTarget(city: String): FlashbackDreamTarget
 
@@ -5870,6 +5874,14 @@ type RootMutationType {
 
   "登出：服务端撤销当前 token 并清除 httpOnly cookie（token 被偷也无法重放）"
   signOut: String
+
+  wechatMiniWebLoginStart(mode: MiniWebLoginMode!): MiniWebLoginResult
+
+  wechatMiniWebLoginConfirm(requestId: String!): MiniWebLoginResult
+
+  wechatMiniWebLoginConsume(requestId: String!): MiniWebLoginResult
+
+  wechatMiniWebLoginCancel(requestId: String!): MiniWebLoginResult
 
   "管理员单笔退款（R15）：第一段——建 pending 并返回后端生成的确认摘要（不落业务库）；confirmOperation 确认后真正执行"
   refundOrder(id: ID!): PendingOperationConfirmation
@@ -7684,6 +7696,30 @@ type AdminUserPayload {
   email: String
   isPlatformAdmin: Boolean
   errors: [MutationError]
+}
+
+enum MiniWebLoginMode {
+  QR
+  LINK
+}
+
+enum MiniWebLoginStatus {
+  PENDING
+  APPROVED
+  CONSUMED
+  CANCELLED
+  EXPIRED
+}
+
+type MiniWebLoginResult {
+  id: ID
+  requestId: String
+  status: MiniWebLoginStatus!
+  expiresAt: DateTime
+  pollIntervalSeconds: Int
+  qrDataUrl: String
+  launchUrl: String
+  sessionEstablished: Boolean
 }
 
 type SignInResult {

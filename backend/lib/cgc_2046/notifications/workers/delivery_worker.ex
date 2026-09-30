@@ -17,7 +17,16 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorker do
     max_attempts: 5,
     unique: [period: :infinity, states: :incomplete]
 
+  require Logger
+
   alias Cgc2046.Notifications.{NotificationDelivery, Service, Staleness}
+
+  # 确定性终态原因（#1040）：重试不能自愈——模板/平台配置只随部署变、授权
+  # 配额不回填——首拍即终态静默：行落 :failed（规15 报表）、job 返回 :ok
+  # （不重试、不 discard），落实 deploy.yml「静默跳过，不阻塞」原意；可见性
+  # = Logger.warning（配置事故可 grep）+ 规15 :failed 行。identity_not_found
+  # **不在此列**：Q5 哨兵语义（用户稍绑身份经重解析补投）依赖重试窗口。
+  @terminal_reasons [:template_not_configured, :consent_exhausted, :platform_not_configured]
 
   @impl true
   def perform(%Oban.Job{args: %{"delivery_id" => id}} = job) do
@@ -67,12 +76,15 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorker do
   end
 
   # 哨兵行（Q5，语义见 Delivery moduledoc）：入队时零身份的行在此重解析——
-  # 用户身份可能在其后已绑定；解析到首身份 assign 后投递，否则以
-  # :identity_not_found 走重试→末拍终态化（pending_reason 类）。
+  # 用户身份可能在其后已绑定；解析到首个**有能力**身份 assign 后投递，否则以
+  # :identity_not_found 走重试→末拍终态化（pending_reason 类）。能力过滤
+  # （#1042 review）：不过滤会把首个绑定错锁在必败平台（如 wechat_web），
+  # 行被终态失败、后续绑定的小程序身份再无机会补投。
 
   defp deliver(row) do
     if is_nil(row.identity_uid) or is_nil(row.platform) do
-      case Cgc2046.Notifications.Fanout.identities(row.user_id) do
+      case Cgc2046.Notifications.Fanout.identities(row.user_id)
+           |> Enum.filter(&Service.miniprogram_platform?(&1.provider)) do
         [identity | _] ->
           with {:ok, assigned} <-
                  row
@@ -106,16 +118,36 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorker do
           end
 
         {:error, reason} ->
-          if pending_reason?(reason) do
-            {:error, reason}
-          else
-            row
-            |> Ash.Changeset.for_update(:mark_failed, %{last_error: inspect(reason)},
-              authorize?: false
-            )
-            |> Ash.update()
+          cond do
+            reason in @terminal_reasons ->
+              Logger.warning(
+                "notification delivery suppressed terminally " <>
+                  "(delivery_id=#{row.id} template_key=#{row.template_key} reason=#{reason})"
+              )
 
-            {:error, inspect(reason)}
+              # 终态化落库失败不得 ACK（#1042 review）：把更新错误原样上抛交
+              # Oban 重试——否则 job :ok 完成而行滞留 :pending，既失重试也
+              # 不进规15 :failed 报表
+              case row
+                   |> Ash.Changeset.for_update(:mark_failed, %{last_error: inspect(reason)},
+                     authorize?: false
+                   )
+                   |> Ash.update() do
+                {:ok, _} -> :ok
+                {:error, error} -> {:error, inspect(error)}
+              end
+
+            pending_reason?(reason) ->
+              {:error, reason}
+
+            true ->
+              row
+              |> Ash.Changeset.for_update(:mark_failed, %{last_error: inspect(reason)},
+                authorize?: false
+              )
+              |> Ash.update()
+
+              {:error, inspect(reason)}
           end
       end
     end
@@ -125,9 +157,6 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorker do
     do:
       reason in [
         :identity_not_found,
-        :platform_identity_not_found,
-        :template_not_configured,
-        :consent_exhausted,
-        :platform_not_configured
+        :platform_identity_not_found
       ]
 end

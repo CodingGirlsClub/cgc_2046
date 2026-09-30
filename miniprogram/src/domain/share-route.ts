@@ -16,10 +16,13 @@
  * 名单单源 `domain/platform-pages.ts`。
  */
 import { pageRegistered, type RoutePlatform } from './platform-pages.ts'
+import { WEB_LOGIN_PATH, webLoginEntry } from './web-login.ts'
 
 export type { RoutePlatform }
 
 export interface AppShowQuery {
+  cq?: string
+  requestId?: string
   quoteId?: string
   city?: string
   scene?: string
@@ -255,6 +258,16 @@ export function resolveEntry(
   const query = options?.query ?? {}
   const top = pages[pages.length - 1]
   const path = normalizePath(options.path ?? '')
+  if (path === WEB_LOGIN_PATH || query.scene?.startsWith('wl_') || query.cq?.startsWith('wl_')) {
+    const id = webLoginEntry(path, { ...query }, platform)
+    const url = platform === 'wechat' && path === WEB_LOGIN_PATH ? `/${WEB_LOGIN_PATH}${id ? `?requestId=${id}` : ''}` : null
+    return {
+      scene: null,
+      url,
+      navigate: url !== null && pages.length > 0 &&
+        !(normalizePath(top?.route ?? '') === path && webLoginEntry(path, { ...top?.options }, platform) === id)
+    }
+  }
   const collectionKey = path === FLASHBACK_VOICES_ROUTE ? 'quoteId' :
     path === 'pages/flashback-wishes/index' ? 'wishId' : null
   // Whole-collection shares must not inherit a previous item or city landing.

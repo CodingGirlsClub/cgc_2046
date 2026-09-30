@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act } from "@testing-library/react";
 import { renderHook } from "@/test-utils";
-import { useSmsLogin } from "./use-sms-login";
+import { usePhoneCode } from "./use-phone-code";
 
 // vi.mock 工厂会被提升（hoist），mock 函数必须用 vi.hoisted 定义
 const { push, requestMock, signInMock, resetStore } = vi.hoisted(() => ({
@@ -37,7 +37,7 @@ vi.mock("@apollo/client/react", async (importOriginal) => {
 	};
 });
 
-describe("useSmsLogin（plan U5.8 / advisor02 M6）", () => {
+describe("usePhoneCode（plan U5.8 / advisor02 M6）", () => {
 	beforeEach(() => {
 		vi.useFakeTimers();
 		push.mockClear();
@@ -55,11 +55,13 @@ describe("useSmsLogin（plan U5.8 / advisor02 M6）", () => {
 			data: { requestPhoneCode: { sent: true, retryAfterSeconds: 60 } },
 		});
 
-		const { result } = renderHook(() => useSmsLogin());
+		const { result } = renderHook(() => usePhoneCode());
 		await act(async () => {
-			await result.current.sendCode("+8613800138000");
+			await result.current.sendCode("+8613800138000", "CHANGE_PHONE");
 		});
 
+		expect(requestMock).toHaveBeenCalledWith({ variables: { phone: "+8613800138000", purpose: "CHANGE_PHONE" } });
+		expect(signInMock).not.toHaveBeenCalled();
 		expect(result.current.countdown).toBe(60);
 		expect(result.current.error).toBeNull();
 
@@ -74,45 +76,13 @@ describe("useSmsLogin（plan U5.8 / advisor02 M6）", () => {
 			errors: [{ extensions: { code: "sms_send_failed" } }],
 		});
 
-		const { result } = renderHook(() => useSmsLogin());
+		const { result } = renderHook(() => usePhoneCode());
 		await act(async () => {
-			await result.current.sendCode("+8613800138000");
+			await result.current.sendCode("+8613800138000", "CHANGE_PHONE");
 		});
 
 		expect(result.current.error).toBe("验证码发送失败，请稍后重试");
 		expect(result.current.countdown).toBe(0);
-	});
-
-	it("submit 成功：resetStore + 跳转 next（同源）", async () => {
-		signInMock.mockResolvedValue({
-			data: {
-				signInWithPhoneCode: { id: "u1", email: null, isPlatformAdmin: false },
-			},
-		});
-		window.history.replaceState(null, "", "/login?next=/orders/3");
-
-		const { result } = renderHook(() => useSmsLogin());
-		await act(async () => {
-			await result.current.submit("+8613800138000", "123456");
-		});
-
-		expect(resetStore).toHaveBeenCalledTimes(1);
-		expect(push).toHaveBeenCalledWith("/orders/3");
-		window.history.replaceState(null, "", "/");
-	});
-
-	it("invalid_or_expired_code 错误映射", async () => {
-		signInMock.mockRejectedValue({
-			errors: [{ extensions: { code: "invalid_or_expired_code" } }],
-		});
-
-		const { result } = renderHook(() => useSmsLogin());
-		await act(async () => {
-			await result.current.submit("+8613800138000", "000000");
-		});
-
-		expect(result.current.error).toBe("验证码错误或已过期");
-		expect(push).not.toHaveBeenCalled();
 	});
 
 	it("sent:false（SendCloud 投递失败，M4）：不进入倒计时，错误映射", async () => {
@@ -120,9 +90,9 @@ describe("useSmsLogin（plan U5.8 / advisor02 M6）", () => {
 			data: { requestPhoneCode: { sent: false, retryAfterSeconds: 60 } },
 		});
 
-		const { result } = renderHook(() => useSmsLogin());
+		const { result } = renderHook(() => usePhoneCode());
 		await act(async () => {
-			await result.current.sendCode("+8613800138000");
+			await result.current.sendCode("+8613800138000", "CHANGE_PHONE");
 		});
 
 		expect(result.current.countdown).toBe(0);
@@ -130,3 +100,11 @@ describe("useSmsLogin（plan U5.8 / advisor02 M6）", () => {
 	});
 });
 
+
+it("旧微信绑定显式使用 WECHAT_BIND，卸载清理倒计时", async () => {
+ vi.useFakeTimers(); requestMock.mockResolvedValue({ data: { requestPhoneCode: { sent: true, retryAfterSeconds: 60 } } });
+ const { result, unmount } = renderHook(() => usePhoneCode());
+ await act(async () => { await result.current.sendCode("+8613800138000", "WECHAT_BIND"); });
+ expect(requestMock).toHaveBeenLastCalledWith({ variables: { phone: "+8613800138000", purpose: "WECHAT_BIND" } });
+ expect(vi.getTimerCount()).toBe(1); unmount(); expect(vi.getTimerCount()).toBe(0); vi.useRealTimers();
+});

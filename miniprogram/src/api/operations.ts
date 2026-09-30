@@ -1364,3 +1364,15 @@ export const FlashbackPublicWishQueryDocument = /* GraphQL */ `
     }
   }
 `
+
+// Browser login approval is explicit and never captures a Web auth cookie.
+export const WebLoginPreviewDocument = /* GraphQL */ `
+  query WebLoginPreview($requestId: String!) {
+    wechatMiniWebLoginPreview(requestId: $requestId) { status expiresAt }
+  }
+`
+export const WebLoginConfirmDocument = /* GraphQL */ `
+  mutation WebLoginConfirm($requestId: String!) {
+    wechatMiniWebLoginConfirm(requestId: $requestId) { status expiresAt }
+  }
+`

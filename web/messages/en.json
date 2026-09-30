@@ -128,9 +128,25 @@
     "volunteer_application_invalid_transition": "The application status changed. Refresh and try again.",
     "volunteer_application_rejection_reason_required": "A rejection reason is required.",
     "volunteer_application_assignment_failed": "Assignment did not complete (workspace join or session assignment failed). The application is unchanged; try again.",
-    "recruitment_cohort_open_conflict": "A cohort is already open. Close it before opening another."
+    "recruitment_cohort_open_conflict": "A cohort is already open. Close it before opening another.",
+    "mini_web_login_invalid": "Invalid login request. Please start again.",
+    "mini_web_login_expired": "Login request expired.",
+    "mini_web_login_cancelled": "Login request cancelled.",
+    "mini_web_login_not_approved": "Confirm the login in the mini program first.",
+    "mini_web_login_consumed": "Request already used. Return to the original page or start again.",
+    "mini_web_login_account_conflict": "Account mismatch. Check the current account and start again.",
+    "mini_web_login_phone_required": "Complete phone authorization first.",
+    "mini_web_login_unavailable": "WeChat login is temporarily unavailable.",
+    "mini_web_login_failed": "Login did not complete. Please retry."
   },
   "auth": {
+    "unified": {
+      "title": "Sign in or register with WeChat",
+      "hint": "Authorize your phone number and confirm. New users register; existing users sign in.",
+      "passwordTitle": "Account and password",
+      "passwordHint": "For existing accounts with a password.",
+      "firstUse": "New here? Register through WeChat."
+    },
     "helpCenter": "Help Center",
     "brandPanelLabel": "About CGC 2046",
     "brandCopy": {
@@ -287,6 +303,30 @@
       "errorInvalidPhone": "Please enter a valid phone number",
       "errorInvalidCode": "Invalid or expired code",
       "errorRateLimited": "Too many requests. Please try again later."
+    },
+    "miniWeb": {
+      "loading": "Preparing WeChat login…",
+      "confirming": "Confirmed. Signing in…",
+      "done": "Signed in. Returning…",
+      "expired": "This login request has expired. Please start again.",
+      "cancelled": "This login request was cancelled.",
+      "cancelling": "Cancelling login. Please wait…",
+      "scan": "Scan with WeChat and confirm in the mini program.",
+      "return": "Open the mini program to confirm your login.",
+      "returnHint": "After confirming, return to this page in the same browser.",
+      "qrAlt": "WeChat mini program login code",
+      "open": "Open WeChat to sign in",
+      "network": "Connection interrupted. Retrying. Keep this page open.",
+      "accountConflict": "This browser is signed in to another account. Sign out before trying again.",
+      "rateLimited": "Too many attempts. Please wait and try again.",
+      "unavailable": "Unable to complete this login. Start again or use another sign-in method.",
+      "restart": "Start login again",
+      "switchToLink": "Open on this phone",
+      "switchToQr": "Use a QR code",
+      "cancel": "Cancel login",
+      "expiresIn": "Expires in {seconds} seconds",
+      "restored": "Login request restored. Start again if you have not scanned yet.",
+      "alreadyUsed": "This request was already used and cannot be cancelled. Refresh to check your session."
     }
   },
   "landing": {
@@ -299,7 +339,7 @@
       "flashback": "In a Flash",
       "voices": "Voices",
       "wishes": "Wish Tree",
-      "login": "Sign in",
+      "login": "Sign in / Register",
       "join": "Join us",
       "myLearning": "My learning",
       "myFlashback": "My Flashback",
@@ -329,7 +369,7 @@
           "label": "coaches"
         },
         {
-          "value": "50+",
+          "value": "45+",
           "label": "offline workshops"
         },
         {
@@ -3300,7 +3340,7 @@
     "hashtag": "#hackerstart1024",
     "hero": {
       "eyebrow": "CODING GIRLS CLUB · 10TH ANNIVERSARY CAMPAIGN",
-      "slot": "CGC × your brand",
+      "slogan": "Ten years on, we changed our verb: code → build",
       "title": "Hacker Start 1024",
       "sub": "So ordinary people build something that actually runs — with an agent, hands on, for the first time",
       "nums": {
@@ -3320,8 +3360,8 @@
     "why": {
       "badge": "Why now",
       "label": "The moment",
-      "title": "Agents are past the capability tipping point. <em>What's missing is ordinary people daring to start.</em>",
-      "lead": "Agent coding can already do real work; the bottleneck is whether ordinary people dare to start, and whether anyone is alongside them the first time. Every AI coding product out there draws its natural traffic from developers, and nobody has built a path for a beginner's first attempt. Hacker Start 1024 is that path: three hours a session · classes of 8 to 32 · an agent that adapts as you learn · an 87 yuan deposit, refunded when you turn up — turning \"my first working build\" into something we can actually deliver."
+      "title": "Agents are past the capability tipping point. <em>What's missing is builders who dare to start.</em>",
+      "lead": "Agent coding can already do real work; the bottleneck is now human — daring to start, having company the first time, turning an idea into a working build. Every AI coding product out there draws its natural traffic from developers, and nobody has built a path for an ordinary person's first build. Hacker Start 1024 is that path: three hours a session · classes of 8 to 32 · you and your agent building side by side · an 87 yuan deposit, refunded when you turn up — turning \"my first working build\" into something we can actually deliver."
     },
     "join": {
       "badge": "Join a session",
@@ -3331,7 +3371,7 @@
         {
           "min": "15",
           "t": "Warm-up",
-          "d": "Meet the agent and the people you're building with — no code yet, just what you came to make"
+          "d": "Pick what you'll build today from the project menu — and meet the builders around you"
         },
         {
           "min": "120",
@@ -3441,7 +3481,7 @@
           "l": "Cities reached"
         },
         {
-          "v": "50+",
+          "v": "45+",
           "l": "In-person workshops"
         },
         {

@@ -766,6 +766,13 @@ export type FlashbackTodayInput = {
   wantGiveTags?: Array<string | null | undefined> | null | undefined;
 };
 
+export type MiniWebLoginStatus =
+  | 'APPROVED'
+  | 'CANCELLED'
+  | 'CONSUMED'
+  | 'EXPIRED'
+  | 'PENDING';
+
 export type RejectEnrollmentInput = {
   rejectionReason?: string | null | undefined;
 };
@@ -1323,3 +1330,17 @@ export type FlashbackPublicWishQueryVariables = Exact<{
 
 
 export type FlashbackPublicWishQuery = { flashbackPublicWish: { id: string, content: string, city: string | null, signature: string, expectationCount: number, endorsementCount: number, contributionDistribution: string, expectedByViewer: boolean, endorsedByViewer: boolean, echoCount: number, listedAt: string, insertedAt: string, latestEcho: { id: string, content: string, status: string, publishedAt: string, correctedAt: string | null } | null, echoes: Array<{ id: string, content: string, status: string, publishedAt: string, correctedAt: string | null }> } | null };
+
+export type WebLoginPreviewQueryVariables = Exact<{
+  requestId: string;
+}>;
+
+
+export type WebLoginPreviewQuery = { wechatMiniWebLoginPreview: { status: MiniWebLoginStatus, expiresAt: string | null } | null };
+
+export type WebLoginConfirmMutationVariables = Exact<{
+  requestId: string;
+}>;
+
+
+export type WebLoginConfirmMutation = { wechatMiniWebLoginConfirm: { status: MiniWebLoginStatus, expiresAt: string | null } | null };

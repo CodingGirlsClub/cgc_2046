@@ -37,7 +37,7 @@ defmodule Cgc2046.Notifications.Fanout do
   require Logger
 
   alias Cgc2046.Accounts.{Role, UserIdentity, WorkspaceMembership}
-  alias Cgc2046.Notifications.{Delivery, DeliveryKey, NotificationWorker}
+  alias Cgc2046.Notifications.{Delivery, DeliveryKey, NotificationWorker, Service}
 
   @telemetry_event [:cgc2046, :notification_fanout, :deliver]
 
@@ -117,8 +117,9 @@ defmodule Cgc2046.Notifications.Fanout do
   是 Oban 本次新接受的任务数（args-unique 命中已存在任务不计，#834 回执
   契约）；已迁耐久投递的键（`DeliveryKey.durable?/1`）在本函数内委托
   `Delivery.enqueue`，count 是展开的身份数——幂等去重命中也计，不再是
-  「Oban 接受任务数」。无身份为 `{:ok, 0}`；任一任务拒绝或解析/入队
-  异常返回 `{:error, :enqueue_failed}`。
+  「Oban 接受任务数」；结构性无能力平台身份（wechat_web 等，#1040）在
+  durable_enqueue 预滤、不计入 count。无身份为 `{:ok, 0}`；任一任务拒绝
+  或解析/入队异常返回 `{:error, :enqueue_failed}`。
 
   调用方若把业务标记与任务入队放在同一 Repo transaction，可据此决定是否
   提交标记；传统调用方继续使用返回 `:ok` 的 `deliver/5`。
@@ -215,8 +216,22 @@ defmodule Cgc2046.Notifications.Fanout do
     meta = Map.put(job_meta, "idempotency_key", template_key <> ":" <> event_key)
 
     Enum.reduce_while(recipients, {:ok, 0}, fn {user_id, identities}, {:ok, count} ->
-      :ok = Delivery.enqueue({user_id, identities}, template_key, data, meta)
-      {:cont, {:ok, count + length(identities)}}
+      # #1040：结构性无能力平台身份（wechat_web 等）预滤——保 count 回执 =
+      # 实际展开身份数；谓词真源 Service.miniprogram_platform?/1。真零身份
+      # 不过滤（Q5 哨兵行由 Delivery 层落——空列表 filter 仍为空，先判 []）。
+      capable =
+        if identities == [] do
+          identities
+        else
+          Enum.filter(identities, &Service.miniprogram_platform?(&1.provider))
+        end
+
+      if identities != [] and capable == [] do
+        {:cont, {:ok, count}}
+      else
+        :ok = Delivery.enqueue({user_id, capable}, template_key, data, meta)
+        {:cont, {:ok, count + length(capable)}}
+      end
     end)
   end
 

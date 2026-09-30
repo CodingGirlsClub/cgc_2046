@@ -12,6 +12,12 @@ patchedDependencies:
 # 上游解析自然收敛到修复版且审计通过后可移除此 override。
 overrides:
   "fast-uri@>=3.0.0 <3.1.8": 3.1.8
+  # GHSA-qhr7-859c-m2p7 / GHSA-6j4f-fj2g-mc7p：1.x 递归 DoS 补丁。
+  "brace-expansion@>=1.0.0 <1.1.20": 1.1.20
+  # GHSA-g84c-rxfj-3j2c：5.x 无修复版，使用上游 7.4.6 路径边界修复。
+  # Node >=18.12（CI 用 24）；tests/dev-middleware-security.test.mjs 经 Taro 的
+  # webpack-dev-server 验证打包/HTTP/关闭及越界拒绝。上游解析不再命中旧版本后可移除。
+  "webpack-dev-middleware@>=5.0.0 <7.4.6": 7.4.6
   # 2026-09-15：GHSA-w27v-7q3p-w38r（svgo removeScripts 命名空间/控制字符绕过，
   # high）——@tarojs/taro>webpack>terser-webpack-plugin>cssnano>postcss-svgo>
   # svgo 传递链，lockfile 锁 3.3.4，3.3.5 为补丁版本（postcss-svgo range ^3

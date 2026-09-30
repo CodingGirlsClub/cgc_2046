@@ -37,31 +37,81 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorkerTest do
     row
   end
 
-  test "末拍（attempt = max_attempts）pending_reason → 终态 failed，last_error 带原因" do
-    user = Fixtures.register_user("dw-final")
+  # #1040：确定性终态原因（template_not_configured / consent_exhausted /
+  # platform_not_configured）重试不能自愈——首拍即终态静默：行落 :failed 带原因
+  # （规15 报表）、job 返回 :ok（不重试、不 discard）。identity_not_found 不走
+  # 此面（Q5 哨兵重解析依赖重试窗口，见下方既有测试）。
+  test "consent_exhausted → 首拍即终态静默：job :ok、行 :failed 带原因（#1040）" do
+    user = Fixtures.register_user("dw-consent")
     row = enqueue_delivery(user.id)
 
-    # consent_exhausted 是 pending_reason（未订阅授权）——非末拍只重试不落终态；
-    # 末拍（第 5 次，max_attempts=5）终态化
-    assert {:error, :consent_exhausted} =
-             perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 5)
+    assert :ok = perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 1)
 
     reloaded = Ash.get!(NotificationDelivery, row.id, authorize?: false)
     assert reloaded.status == :failed
     assert reloaded.last_error =~ "consent_exhausted"
     assert reloaded.attempts == 1
+
+    # 末拍同果（终态判定不依赖 attempt 计数）
+    assert :ok = perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 5)
+
+    assert %{status: :failed} = Ash.get!(NotificationDelivery, row.id, authorize?: false)
   end
 
-  test "非末拍 pending_reason → 仍 pending（重试语义不变）" do
-    user = Fixtures.register_user("dw-retry")
+  test "template_not_configured → 首拍即终态静默：job :ok、行 :failed 带原因（#1040）" do
+    templates = Application.get_env(:cgc_2046, :miniprogram_templates)
+    Application.put_env(:cgc_2046, :miniprogram_templates, %{wechat: %{}})
+
+    on_exit(fn ->
+      Application.put_env(:cgc_2046, :miniprogram_templates, templates)
+    end)
+
+    user = Fixtures.register_user("dw-tmpl")
     row = enqueue_delivery(user.id)
 
-    assert {:error, :consent_exhausted} =
-             perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 2)
+    assert :ok = perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 1)
 
     reloaded = Ash.get!(NotificationDelivery, row.id, authorize?: false)
-    assert reloaded.status == :pending
-    assert reloaded.attempts == 0
+    assert reloaded.status == :failed
+    assert reloaded.last_error =~ "template_not_configured"
+  end
+
+  # 瞬态渠道错误语义锚（#1040 回归守卫）：首拍落 :failed 但 job 仍 {:error, _}
+  # 交给 Oban 重试——:failed 行不被 perform 短路，渠道恢复后可翻盘至 :sent。
+  test "瞬态渠道错误 → 行首拍 :failed、job {:error, _}，下拍渠道恢复翻盘 :sent（#1040 回归锚）" do
+    user = Fixtures.register_user("dw-transient")
+    insert_identity(user.id, "dw-transient-openid")
+    {:ok, _} = Consent.grant(user.id, :wechat, "approval_result")
+
+    row =
+      enqueue_key(user.id, "dw-transient-openid", "approval_result", %{
+        "status" => "confirmed",
+        "enrollment_id" => "e-transient"
+      })
+
+    # 渠道侧瞬态失败（微信 47003）；setup 的全局 mock 在本用例覆盖为失败面
+    Tesla.Mock.mock(fn
+      %{method: :post, url: "https://api.weixin.qq.com/cgi-bin/message/subscribe/send" <> _} ->
+        Tesla.Mock.json(%{"errcode" => 47_003, "errmsg" => "page rendering failed"})
+    end)
+
+    assert {:error, _} = perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 1)
+
+    reloaded = Ash.get!(NotificationDelivery, row.id, authorize?: false)
+    assert reloaded.status == :failed
+    assert reloaded.attempts == 1
+
+    # 渠道恢复（回到成功 mock）：同一 :failed 行重试投递成功 —— 未被 :failed 短路
+    Tesla.Mock.mock(fn
+      %{method: :post, url: "https://api.weixin.qq.com/cgi-bin/message/subscribe/send" <> _} = env ->
+        send(self(), {:notification, :wechat, Jason.decode!(env.body)})
+        Tesla.Mock.json(%{"errcode" => 0})
+    end)
+
+    assert :ok = perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 2)
+
+    assert %{status: :sent} = Ash.get!(NotificationDelivery, row.id, authorize?: false)
+    assert_receive {:notification, :wechat, _}
   end
 
   test "已 sent 行幂等 no-op（不重复投递、不落终态）" do
@@ -162,13 +212,13 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorkerTest do
     :ok
   end
 
-  defp insert_identity(user_id, uid) do
+  defp insert_identity(user_id, uid, provider \\ "wechat") do
     Cgc2046.Repo.query!(
       """
       INSERT INTO user_identities (id, provider, uid, user_id, inserted_at, updated_at)
-      VALUES (gen_random_uuid(), 'wechat', $1, $2, NOW(), NOW())
+      VALUES (gen_random_uuid(), $3, $1, $2, NOW(), NOW())
       """,
-      [uid, Ecto.UUID.dump!(user_id)]
+      [uid, Ecto.UUID.dump!(user_id), provider]
     )
   end
 
@@ -336,6 +386,39 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorkerTest do
       assert reloaded.identity_uid == "dws-zero-late-openid"
       assert_receive {:notification, :wechat, _}
       assert {:ok, 0} = Consent.remaining(user.id, :wechat, "approval_result")
+    end
+
+    # #1042 review：重解析必须经能力过滤——否则首个绑定若是必败平台
+    # （wechat_web），assign 粘死后行被终态失败，后续小程序身份再无补投机会
+    test "哨兵行 + 仅绑定无能力平台身份（wechat_web）→ 视为无可投递身份，不错锁必败平台（#1042 review）" do
+      user = Fixtures.register_user("dws-zero-web")
+      row = enqueue_key(user.id, nil, "approval_result", %{"status" => "confirmed"})
+
+      insert_identity(user.id, "dws-zero-web-uid", "wechat_web")
+
+      assert {:error, :identity_not_found} =
+               perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 1)
+
+      reloaded = Ash.get!(NotificationDelivery, row.id, authorize?: false)
+      assert reloaded.status == :pending
+      assert is_nil(reloaded.platform)
+    end
+
+    test "哨兵行 + 先绑 wechat_web 后绑 wechat → 重解析锁定小程序身份并投递（#1042 review）" do
+      user = Fixtures.register_user("dws-zero-both")
+      {:ok, _} = Consent.grant(user.id, :wechat, "approval_result")
+      row = enqueue_key(user.id, nil, "approval_result", %{"status" => "confirmed"})
+
+      insert_identity(user.id, "dws-zero-both-web", "wechat_web")
+      insert_identity(user.id, "dws-zero-both-mp")
+
+      assert :ok = perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 1)
+
+      reloaded = Ash.get!(NotificationDelivery, row.id, authorize?: false)
+      assert reloaded.status == :sent
+      assert reloaded.platform == "wechat"
+      assert reloaded.identity_uid == "dws-zero-both-mp"
+      assert_receive {:notification, :wechat, _}
     end
 
     test "哨兵行 + 始终无身份 → identity_not_found 重试至末拍终态化 :failed（rule 15 可查）" do

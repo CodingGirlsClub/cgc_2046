@@ -58,6 +58,18 @@ defmodule Cgc2046.Notifications.ServiceTest do
     :ok
   end
 
+  # #1040：平台能力谓词——结构性判定（订阅消息 family = :miniprogram_platforms
+  # 键集），Delivery/Fanout 入队过滤的唯一真源；家族内模板缺失不属此谓词
+  # （配置态，留给 template_id 门禁）。
+  test "miniprogram_platform?/1：wechat/tt/xhs 为小程序家族，wechat_web 等家族外平台否" do
+    assert Service.miniprogram_platform?(:wechat)
+    assert Service.miniprogram_platform?(:tt)
+    assert Service.miniprogram_platform?(:xhs)
+
+    refute Service.miniprogram_platform?(:wechat_web)
+    refute Service.miniprogram_platform?("wechat_web")
+  end
+
   test "一次授权增加一份配额，发送成功才原子消费且不会减成负数" do
     user = Fixtures.register_user("notification-consent")
     insert_identity(user.id, :wechat, "wx-openid")

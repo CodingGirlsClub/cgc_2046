@@ -128,7 +128,7 @@ describe("公开 Landing 页", () => {
 
 		expect(screen.getByText("4000+")).toBeInTheDocument();
 		expect(screen.getByText("1000+")).toBeInTheDocument();
-		expect(screen.getByText("50+")).toBeInTheDocument();
+		expect(screen.getByText("45+")).toBeInTheDocument();
 		expect(screen.getByText("17")).toBeInTheDocument();
 		expect(screen.getByText("10")).toBeInTheDocument();
 		expect(screen.getByText("名学员")).toBeInTheDocument();

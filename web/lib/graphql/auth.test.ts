@@ -3,22 +3,11 @@ import { print } from "graphql";
 import {
 	MY_PHONE,
 	SIGN_IN,
-	SIGN_UP_WITH_PHONE,
 	UPDATE_MY_PHONE,
 	signInErrorMessage,
 } from "./auth";
 
-describe("signUpWithPhone/signIn mutation 文档（httpOnly cookie；邮箱 signUp 已下线）", () => {
-	it("SIGN_UP_WITH_PHONE 使用 input 嵌套 + result/errors 两段式（无 metadata）", () => {
-		const doc = print(SIGN_UP_WITH_PHONE);
-		expect(doc).toContain("mutation SignUpWithPhone($input: SignUpWithPhoneInput!)");
-		expect(doc).toContain("signUpWithPhone(input: $input)");
-		expect(doc).toContain("result {");
-		expect(doc).toContain("errors {");
-		expect(doc).toContain("isPlatformAdmin");
-		expect(doc).not.toContain("metadata");
-	});
-
+describe("signIn mutation 文档（httpOnly cookie；邮箱 signUp 已下线）", () => {
 	it("SIGN_IN 使用平铺 login/password 参数（手机号/邮箱单框）+ 平铺返回字段（无 token）", () => {
 		const doc = print(SIGN_IN);
 		expect(doc).toContain("signIn(login: $login, password: $password)");
