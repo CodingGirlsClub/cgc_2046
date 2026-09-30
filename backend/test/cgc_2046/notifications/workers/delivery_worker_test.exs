@@ -212,13 +212,13 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorkerTest do
     :ok
   end
 
-  defp insert_identity(user_id, uid) do
+  defp insert_identity(user_id, uid, provider \\ "wechat") do
     Cgc2046.Repo.query!(
       """
       INSERT INTO user_identities (id, provider, uid, user_id, inserted_at, updated_at)
-      VALUES (gen_random_uuid(), 'wechat', $1, $2, NOW(), NOW())
+      VALUES (gen_random_uuid(), $3, $1, $2, NOW(), NOW())
       """,
-      [uid, Ecto.UUID.dump!(user_id)]
+      [uid, Ecto.UUID.dump!(user_id), provider]
     )
   end
 
@@ -386,6 +386,39 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorkerTest do
       assert reloaded.identity_uid == "dws-zero-late-openid"
       assert_receive {:notification, :wechat, _}
       assert {:ok, 0} = Consent.remaining(user.id, :wechat, "approval_result")
+    end
+
+    # #1042 review：重解析必须经能力过滤——否则首个绑定若是必败平台
+    # （wechat_web），assign 粘死后行被终态失败，后续小程序身份再无补投机会
+    test "哨兵行 + 仅绑定无能力平台身份（wechat_web）→ 视为无可投递身份，不错锁必败平台（#1042 review）" do
+      user = Fixtures.register_user("dws-zero-web")
+      row = enqueue_key(user.id, nil, "approval_result", %{"status" => "confirmed"})
+
+      insert_identity(user.id, "dws-zero-web-uid", "wechat_web")
+
+      assert {:error, :identity_not_found} =
+               perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 1)
+
+      reloaded = Ash.get!(NotificationDelivery, row.id, authorize?: false)
+      assert reloaded.status == :pending
+      assert is_nil(reloaded.platform)
+    end
+
+    test "哨兵行 + 先绑 wechat_web 后绑 wechat → 重解析锁定小程序身份并投递（#1042 review）" do
+      user = Fixtures.register_user("dws-zero-both")
+      {:ok, _} = Consent.grant(user.id, :wechat, "approval_result")
+      row = enqueue_key(user.id, nil, "approval_result", %{"status" => "confirmed"})
+
+      insert_identity(user.id, "dws-zero-both-web", "wechat_web")
+      insert_identity(user.id, "dws-zero-both-mp")
+
+      assert :ok = perform_job(DeliveryWorker, %{"delivery_id" => row.id}, attempt: 1)
+
+      reloaded = Ash.get!(NotificationDelivery, row.id, authorize?: false)
+      assert reloaded.status == :sent
+      assert reloaded.platform == "wechat"
+      assert reloaded.identity_uid == "dws-zero-both-mp"
+      assert_receive {:notification, :wechat, _}
     end
 
     test "哨兵行 + 始终无身份 → identity_not_found 重试至末拍终态化 :failed（rule 15 可查）" do

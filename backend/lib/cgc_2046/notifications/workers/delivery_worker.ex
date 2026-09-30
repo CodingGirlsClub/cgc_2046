@@ -76,12 +76,15 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorker do
   end
 
   # 哨兵行（Q5，语义见 Delivery moduledoc）：入队时零身份的行在此重解析——
-  # 用户身份可能在其后已绑定；解析到首身份 assign 后投递，否则以
-  # :identity_not_found 走重试→末拍终态化（pending_reason 类）。
+  # 用户身份可能在其后已绑定；解析到首个**有能力**身份 assign 后投递，否则以
+  # :identity_not_found 走重试→末拍终态化（pending_reason 类）。能力过滤
+  # （#1042 review）：不过滤会把首个绑定错锁在必败平台（如 wechat_web），
+  # 行被终态失败、后续绑定的小程序身份再无机会补投。
 
   defp deliver(row) do
     if is_nil(row.identity_uid) or is_nil(row.platform) do
-      case Cgc2046.Notifications.Fanout.identities(row.user_id) do
+      case Cgc2046.Notifications.Fanout.identities(row.user_id)
+           |> Enum.filter(&Service.miniprogram_platform?(&1.provider)) do
         [identity | _] ->
           with {:ok, assigned} <-
                  row
@@ -122,13 +125,17 @@ defmodule Cgc2046.Notifications.Workers.DeliveryWorker do
                   "(delivery_id=#{row.id} template_key=#{row.template_key} reason=#{reason})"
               )
 
-              row
-              |> Ash.Changeset.for_update(:mark_failed, %{last_error: inspect(reason)},
-                authorize?: false
-              )
-              |> Ash.update()
-
-              :ok
+              # 终态化落库失败不得 ACK（#1042 review）：把更新错误原样上抛交
+              # Oban 重试——否则 job :ok 完成而行滞留 :pending，既失重试也
+              # 不进规15 :failed 报表
+              case row
+                   |> Ash.Changeset.for_update(:mark_failed, %{last_error: inspect(reason)},
+                     authorize?: false
+                   )
+                   |> Ash.update() do
+                {:ok, _} -> :ok
+                {:error, error} -> {:error, inspect(error)}
+              end
 
             pending_reason?(reason) ->
               {:error, reason}
