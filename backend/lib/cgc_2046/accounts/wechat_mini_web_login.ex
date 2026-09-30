@@ -287,8 +287,9 @@ defmodule Cgc2046.Accounts.WechatMiniWebLogin do
 
     checks =
       case action do
-        :start -> [{key, 3, 1}, {key, 3600, 20}, {context[:mini_web_ip], 3600, 60}]
-        :preview -> [{key, 60, 30}, {context[:mini_web_ip], 60, 120}]
+        # Reject at the stable IP bucket before allocating attacker-controlled/random keys.
+        :start -> [{context[:mini_web_ip], 3600, 60}, {key, 3, 1}, {key, 3600, 20}]
+        :preview -> [{context[:mini_web_ip], 60, 120}, {key, 60, 30}]
         :status -> [{key, 60, 30}]
         :confirm -> [{key, 60, 20}]
         _ -> [{key, 60, 10}]

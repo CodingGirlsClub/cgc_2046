@@ -14,13 +14,20 @@ export function webLoginEntry(path: string, query: Record<string, string | undef
   return ids.length > 0 && ids.every(id => /^[A-Za-z0-9_-]{22}$/.test(id) && id === ids[0]) ? ids[0] : null
 }
 export function canConfirmWebLogin(request: WebLoginRequest | null, authenticated: boolean, now: number): boolean {
-  return !!request && authenticated && ['PENDING', 'APPROVED'].includes(request.status) &&
+  return !!request && authenticated && request.status === 'PENDING' &&
     typeof request.expiresAt === 'string' && Date.parse(request.expiresAt) > now
 }
-export function webLoginCopy(request: WebLoginRequest | null, now: number): string {
+export function webLoginCopy(request: WebLoginRequest | null, now: number, local: { exited?: boolean; confirmationAttempted?: boolean } = {}): string {
+  // Leaving this page is not a server cancellation. A lost response can hide an approval.
+  if (local.exited) {
+    if (request?.status === 'CONSUMED') return '网页版已登录，退出此页不会退出网页版。请返回原网页查看。'
+    if (local.confirmationAttempted || request?.status === 'APPROVED') return '你可能已授权网页登录。退出此页不会撤销授权，请返回原网页查看或取消。'
+    return '已退出本次确认，请返回原网页查看或取消登录请求。'
+  }
   if (!request) return '正在检查登录请求…'
   if (request.status === 'CONSUMED') return '网页版已登录，请返回刚才的网页。'
   if (request.status === 'CANCELLED') return '这次登录已取消，请在网页重新发起。'
   if (request.status === 'EXPIRED' || !request.expiresAt || Date.parse(request.expiresAt) <= now) return '登录请求已过期，请在网页重新发起。'
+  if (request.status === 'APPROVED') return '这次网页登录已获授权，请返回原网页查看。'
   return '仅确认你本人刚刚发起的登录。'
 }

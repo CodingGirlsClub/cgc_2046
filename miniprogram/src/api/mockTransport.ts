@@ -1861,12 +1861,19 @@ function responseFor(document: string, variables: object): unknown {
   throw new Error(`E2E GraphQL mock 未处理该 operation：${document.slice(0, 80)}`)
 }
 
+const webLoginRequests = new Map<string, { status: 'PENDING' | 'APPROVED'; expiresAt: string }>()
+
 export function mockGraphQLRequest<TData>(document: RequestDocument, variables: object): TData {
-  if (String(document).includes('query WebLoginPreview')) return {
-    wechatMiniWebLoginPreview: { status: 'PENDING', expiresAt: new Date(Date.now() + 600000).toISOString() }
-  } as TData
-  if (String(document).includes('mutation WebLoginConfirm')) return {
-    wechatMiniWebLoginConfirm: { status: 'APPROVED', expiresAt: new Date(Date.now() + 600000).toISOString() }
-  } as TData
+  const preview = String(document).includes('query WebLoginPreview')
+  const confirm = String(document).includes('mutation WebLoginConfirm')
+  if (preview || confirm) {
+    const { requestId } = variables as { requestId: string }
+    const request = webLoginRequests.get(requestId) ?? { status: 'PENDING', expiresAt: new Date(Date.now() + 600000).toISOString() }
+    if (confirm) request.status = 'APPROVED'
+    webLoginRequests.set(requestId, request)
+    // Synthetic E2E prefix allows independent runs: commit approval, then lose the response.
+    if (confirm && requestId.startsWith('lost_')) throw new Error('Simulated lost approval response')
+    return { [preview ? 'wechatMiniWebLoginPreview' : 'wechatMiniWebLoginConfirm']: { ...request } } as TData
+  }
   return (mockVoicesRequest(String(document), variables) ?? responseFor(String(document), variables)) as TData
 }

@@ -53,4 +53,18 @@ defmodule Cgc2046.Integrations.Wechat.WebLoginLaunchTest do
       assert {:error, :mini_web_login_unavailable} = WebLoginLaunch.generate(:link, @code)
     end
   end
+
+  test "image content-type cannot admit arbitrary or oversized QR bodies" do
+    for body <- [
+          "not an image",
+          <<255, 216, 255>> <> :binary.copy(<<0>>, 1_048_576),
+          <<137, 80, 78, 71, 13, 10, 26, 10>> <> :binary.copy(<<0>>, 1_048_576)
+        ] do
+      Req.Test.stub(Cgc2046.MiniprogramClientStub, fn conn ->
+        conn |> Plug.Conn.put_resp_content_type("image/jpeg") |> Plug.Conn.send_resp(200, body)
+      end)
+
+      assert {:error, :mini_web_login_unavailable} = WebLoginLaunch.generate(:qr, @code)
+    end
+  end
 end

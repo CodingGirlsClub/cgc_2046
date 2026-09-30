@@ -16,6 +16,7 @@ export default function WebLoginPage() {
   const [user, setUser] = useState<UserSummary | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
+  const [confirmationAttempted, setConfirmationAttempted] = useState(false)
   const [cancelled, setCancelled] = useState(false)
   const [error, setError] = useState('')
   const [now, setNow] = useState(Date.now)
@@ -54,13 +55,14 @@ export default function WebLoginPage() {
   }
   const confirm = async () => {
     if (!id || busy || !canConfirmWebLogin(request, !!user, Date.now())) return
+    setConfirmationAttempted(true)
     setBusy(true); setError('')
     try {
       const result = await confirmWebLogin(id)
       setRequest(result)
       if (result.status === 'APPROVED') setConfirmed(true)
       else setError('登录请求已失效，请从网页重新发起。')
-    } catch { setError('未能确认登录，请检查当前账号或返回网页重新发起。') }
+    } catch { setError('确认结果暂时未知，请返回原网页查看，或重试检查。') }
     finally { setBusy(false) }
   }
   const active = canConfirmWebLogin(request, true, now) && !confirmed && !cancelled
@@ -68,8 +70,8 @@ export default function WebLoginPage() {
     <View className={styles.page}>
       <Image className={styles.mark} src={flameLogo} mode='aspectFit' />
       <Text className={styles.brand}>程序媛汇 2046</Text>
-      <Text className={styles.title}>{confirmed ? '已确认登录' : cancelled ? '已取消确认' : '登录网页版'}</Text>
-      <Text className={styles.description}>{confirmed ? '请返回刚才的网页，网页将自动完成登录。' : cancelled ? '网页尚未获得登录授权。你可以关闭此页。' : error && !request ? '请返回原网页检查登录请求。' : webLoginCopy(request, now)}</Text>
+      <Text className={styles.title}>{confirmed ? '已确认登录' : cancelled ? '已退出确认' : '登录网页版'}</Text>
+      <Text className={styles.description}>{confirmed ? '请返回刚才的网页，网页将自动完成登录。' : error && !request && !cancelled ? '请返回原网页检查登录请求。' : webLoginCopy(request, now, { exited: cancelled, confirmationAttempted })}</Text>
       {active && user && <View className={styles.account}><Text className={styles.label}>当前账号</Text><Text className={styles.name}>{user.displayName || user.memberNumber || '程序媛汇用户'}</Text></View>}
       {error && <Text className={styles.error}>{error}</Text>}
       {active && (user ? <Button className={styles.primary} disabled={busy} loading={busy} onClick={() => void confirm()}>确认登录</Button> : <Button className={styles.primary} disabled={busy} loading={busy} onClick={() => void login()}>手机号快捷登录</Button>)}

@@ -4,10 +4,15 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join, resolve } from 'node:path'
 import assert from 'node:assert/strict'
+import { randomBytes } from 'node:crypto'
 
 // WechatIDE keys runtime sessions by project path; never alternate a trailing slash.
 const root = resolve(fileURLToPath(new URL('../', import.meta.url)))
 const client = process.env.CGC_WECHATIDE_CLIENT || 'Codex'
+const freshId = () => randomBytes(16).toString('base64url')
+const loginId = freshId()
+const exitId = freshId()
+const lostResponseId = `lost_${freshId().slice(0, 17)}`
 function tool(name, args = []) {
   const raw = execFileSync('wechatide', ['-c', client, name, '--project', root, ...args], { encoding: 'utf8', timeout: 60000 })
   const result = JSON.parse(raw)
@@ -42,7 +47,7 @@ function tap(page, name) {
 }
 
 // Initializer owns opening/compilation. Reopening here can invalidate the active runtime bridge.
-tool('automation_navigate', ['--action', 'reLaunch', '--url', '/pages/web-login/index?requestId=abcdefghijklmnopqrstuv'])
+tool('automation_navigate', ['--action', 'reLaunch', '--url', `/pages/web-login/index?requestId=${loginId}`])
 let body = waitText('仅确认你本人刚刚发起的登录。')
 assert.ok(!body.includes('已确认登录'))
 if (body.includes('手机号快捷登录') || body.includes('当前账号')) {
@@ -57,9 +62,21 @@ assert.ok(!texts().includes('已确认登录'), 'account login alone must not ap
 tap('web-login', 'primary')
 waitText('已确认登录')
 const confirmed = tool('simulator_screenshot', ['--path', '/tmp/cgc-mini-web-confirmed.jpg']).path
-tool('automation_navigate', ['--action', 'reLaunch', '--url', '/pages/web-login/index?requestId=bcdefghijklmnopqrstuvw'])
+tool('automation_navigate', ['--action', 'reLaunch', '--url', `/pages/web-login/index?requestId=${exitId}`])
 waitText('当前账号')
 tap('web-login', 'cancel')
-waitText('已取消确认')
+waitText('已退出确认')
+assert.ok(!texts().includes('网页尚未获得登录授权'))
 const cancelled = tool('simulator_screenshot', ['--path', '/tmp/cgc-mini-web-cancelled.jpg']).path
-console.log(JSON.stringify({ pass: true, cases: ['explicit approval', 'login return', 'fresh request', 'cancel'], screenshots: [confirmed, cancelled] }))
+tool('automation_navigate', ['--action', 'reLaunch', '--url', `/pages/web-login/index?requestId=${lostResponseId}`])
+waitText('当前账号')
+tap('web-login', 'primary')
+waitText('确认结果暂时未知')
+tap('web-login', 'cancel')
+waitText('你可能已授权网页登录')
+assert.ok(!texts().includes('网页尚未获得登录授权'))
+const unknown = tool('simulator_screenshot', ['--path', '/tmp/cgc-mini-web-confirm-unknown.jpg']).path
+tool('automation_navigate', ['--action', 'reLaunch', '--url', `/pages/web-login/index?requestId=${lostResponseId}`])
+waitText('这次网页登录已获授权')
+assert.ok(!texts().includes('当前账号'), 'approved request must not invite another confirmation')
+console.log(JSON.stringify({ pass: true, cases: ['explicit approval', 'login return', 'fresh request', 'local exit', 'lost confirmation response', 'approved request reopen'], screenshots: [confirmed, cancelled, unknown] }))

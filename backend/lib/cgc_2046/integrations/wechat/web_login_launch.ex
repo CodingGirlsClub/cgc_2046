@@ -54,6 +54,10 @@ defmodule Cgc2046.Integrations.Wechat.WebLoginLaunch do
        when byte_size(png) <= 1_048_576,
        do: {:ok, %{qr_data_url: "data:image/png;base64," <> Base.encode64(png)}}
 
+  defp parse(:qr, _, %Req.Response{status: 200, body: <<255, 216, 255, _::binary>> = jpeg})
+       when byte_size(jpeg) <= 1_048_576,
+       do: {:ok, %{qr_data_url: "data:image/jpeg;base64," <> Base.encode64(jpeg)}}
+
   defp parse(:link, code, %Req.Response{status: 200, body: %{"url_link" => link}})
        when is_binary(link) do
     case URI.parse(link) do
