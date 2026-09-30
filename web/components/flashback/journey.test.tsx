@@ -75,6 +75,7 @@ const memoryEntry: FlashbackEnterResult = {
 		role: "learner",
 		participation: "attended",
 		appliedAt: "2012-02-20T11:03:00Z",
+		anonymousAttribution: "王** · 2012 · 上海",
 		archive: { key: "2012-02-sh", name: "Rails Girls 上海", city: "上海", occurredOn: "2012-02-20" },
 		answers: [
 			{ id: "a1", questionKey: "self_intro", rawText: "一个刚毕业的文科生，在出版社做校对。", fogSpans: null },
@@ -99,6 +100,7 @@ const dreamEntry: FlashbackEnterResult = {
 		role: "learner",
 		participation: "not_selected",
 		appliedAt: "2014-01-05T05:06:00Z",
+		anonymousAttribution: "李** · 2014 · 北京",
 		archive: { key: "2014-01-11-bj", name: "Rails Girls 北京", city: "北京", occurredOn: "2014-01-11" },
 		answers: [{ id: "a2", questionKey: "self_intro", rawText: "我想亲眼看看是不是。", fogSpans: null }],
 	},
@@ -121,6 +123,13 @@ async function renderJourney(url = "/flashback/enter?token=tok-123") {
 }
 
 /** 快进到指定阶段（记忆线：快门→散照桌面→同屏问答→原位显影→写字→寄出浮层）；自带 render */
+/** 检查步「不带金句寄出」：有推荐句时是「寄出到相册」，否则是单按钮「确认寄出」（#1022） */
+function confirmSendAlbumOnly() {
+	fireEvent.click(
+		screen.queryByRole("button", { name: "寄出到相册" }) ?? screen.getByRole("button", { name: /^确认寄出/ }),
+	);
+}
+
 async function walkTo(stage: "scatter" | "quiz" | "reveal" | "write" | "send") {
 	await renderJourney();
 	fireEvent.click(screen.getByRole("button", { name: "按下快门，回到那天" }));
@@ -142,7 +151,7 @@ async function walkTo(stage: "scatter" | "quiz" | "reveal" | "write" | "send") {
 	fireEvent.submit(screen.getByRole("button", { name: "写好了，去寄出 →" }).closest("form")!);
 	// 浮层化（E/F）：不换页；浮层打开先停检查步（本人自选雾面），确认才寄出
 	await screen.findByText("寄出前，检查当年的你");
-	fireEvent.click(screen.getByRole("button", { name: /^确认寄出/ }));
+	confirmSendAlbumOnly();
 	await screen.findByRole("button", { name: "跳过，直接上墙" });
 }
 
@@ -338,7 +347,7 @@ describe("Journey · 记忆线", () => {
 		);
 	});
 
-	it("翻面写字表单：四个自由文本 + 勾选组 + 金句授权（非雾面句为候选）", async () => {
+	it("翻面写字表单：四个自由文本 + 勾选组；金句授权不在这里（#1022）", async () => {
 		mockEnterResolve(memoryEntry);
 		await walkTo("write");
 
@@ -347,13 +356,9 @@ describe("Journey · 记忆线", () => {
 		expect(screen.getByLabelText(/需要什么帮助/)).toBeInTheDocument();
 		expect(screen.getByLabelText(/想对 CGC \/ 文洋说点什么/)).toBeInTheDocument();
 		expect(screen.getByText("想参加什么 · 能帮上什么")).toBeInTheDocument();
-		expect(screen.getByText("金句授权")).toBeInTheDocument();
-
-		fireEvent.click(screen.getByRole("radio", { name: /匿名金句/ }));
-		expect(await screen.findByText("选出可以展示的句子（可多选，平台从中挑选）：")).toBeInTheDocument();
-		expect(
-			screen.getByRole("button", { name: "一个刚毕业的文科生，在出版社做校对。" }),
-		).toBeInTheDocument();
+		// #1022：金句授权挪到寄出那一刻，写字面只管写
+		expect(screen.queryByText("金句授权")).not.toBeInTheDocument();
+		expect(screen.queryByRole("radio", { name: /匿名金句/ })).not.toBeInTheDocument();
 	});
 
 	it("志愿者角色多一问（AE6），学员不出现", async () => {
@@ -370,7 +375,7 @@ describe("Journey · 记忆线", () => {
 		expect(screen.queryByText("愿意牵头组织 1024 你城市的场")).not.toBeInTheDocument();
 	});
 
-	it("雾面句不进金句候选（R14 纪律）", async () => {
+	it("雾面句不进寄出时的推荐句（R14 纪律）：唯一句带雾 → 只有单个寄出按钮", async () => {
 		mockEnterResolve({
 			...memoryEntry,
 			profile: {
@@ -386,10 +391,12 @@ describe("Journey · 记忆线", () => {
 			},
 		});
 		await walkTo("write");
+		fireEvent.submit(screen.getByRole("button", { name: "写好了，去寄出 →" }).closest("form")!);
+		await screen.findByText("寄出前，检查当年的你");
 
-		fireEvent.click(screen.getByRole("radio", { name: /匿名金句/ }));
-		// 唯一句带雾面 → 无候选，展示占位说明
-		expect(await screen.findByText(/都带着雾面/)).toBeInTheDocument();
+		// 唯一句带雾面 → 无推荐句：不出现「放进金句墙」的选择，只有单个确认寄出
+		expect(screen.queryByRole("button", { name: "寄出到相册" })).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: /^确认寄出/ })).toBeInTheDocument();
 	});
 
 	it("寄出流程：submitToday + sendToWall 依次发出；跳过注册后仍寄出成功并进胶囊（R27/R29）", async () => {
@@ -434,7 +441,7 @@ describe("Journey · 记忆线", () => {
 		expect(submit).not.toHaveBeenCalled();
 		expect(wall).not.toHaveBeenCalled();
 
-		fireEvent.click(screen.getByRole("button", { name: /^确认寄出/ }));
+		confirmSendAlbumOnly();
 
 		await waitFor(() => expect(wall).toHaveBeenCalledTimes(1));
 		expect(await screen.findByRole("button", { name: "跳过，直接上墙" })).toBeInTheDocument();
@@ -471,7 +478,7 @@ describe("Journey · 记忆线", () => {
 		await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/flashback/capsule"));
 	});
 
-	it("金句授权随寄出提交：选句后 setQuoteLicense 收到区间（R31）", async () => {
+	it("寄出时放句（#1022）：setQuoteLicense 收到匿名档 + 这一句，先于上墙", async () => {
 		pendingResults.set(
 			FLASHBACK_SUBMIT_TODAY,
 			() => Promise.resolve({ data: { flashbackSubmitToday: { today: {} } } }),
@@ -488,19 +495,23 @@ describe("Journey · 记忆线", () => {
 		await walkTo("write");
 		// 渲染后 registry 必有该 runner（所有 useMutation 已执行）
 		const quote = mutations.get(FLASHBACK_SET_QUOTE_LICENSE)!;
+		const wall = mutations.get(FLASHBACK_SEND_TO_WALL)!;
 
-		fireEvent.click(screen.getByRole("radio", { name: /匿名金句/ }));
-		fireEvent.click(await screen.findByRole("button", { name: "一个刚毕业的文科生，在出版社做校对。" }));
 		fireEvent.submit(screen.getByRole("button", { name: "写好了，去寄出 →" }).closest("form")!);
-		// 检查步确认后才寄出：等注册引导出现即说明 submitToday/quote/sendToWall 已顺序发出
 		await screen.findByText("寄出前，检查当年的你");
-		fireEvent.click(screen.getByRole("button", { name: /^确认寄出/ }));
+		// 预览 = 后端署名（不自拼）
+		expect(screen.getByText("王** · 2012 · 上海")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "寄出，并把这句匿名放进金句墙 →" }));
 		await screen.findByRole("button", { name: "跳过，直接上墙" });
 
-		await waitFor(() => expect(quote).toHaveBeenCalled());
-		const variables = quote.mock.calls[0][0].variables;
-		expect(variables.level).toBe("anonymous");
-		expect(variables.chosenQuoteSpans).toEqual([{ questionKey: "self_intro", start: 0, len: 18 }]);
+		expect(quote).toHaveBeenCalledWith({
+			variables: {
+				token: "tok-123",
+				level: "anonymous",
+				chosenQuoteSpans: [{ questionKey: "self_intro", start: 0, len: 18 }],
+			},
+		});
+		expect(quote.mock.invocationCallOrder[0]).toBeLessThan(wall.mock.invocationCallOrder[0]);
 	});
 
 	it("检查步调雾上链：确认寄出后 flashbackAdjustFog 带 token/answerId/spans 且先于上墙（R16/KTD4）", async () => {
