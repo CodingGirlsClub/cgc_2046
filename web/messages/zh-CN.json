@@ -140,6 +140,13 @@
     "mini_web_login_failed": "登录未完成，请重试。"
   },
   "auth": {
+    "unified": {
+      "title": "微信快捷登录／注册",
+      "hint": "授权手机号并确认，自动注册或登录。",
+      "passwordTitle": "账号密码登录",
+      "passwordHint": "已有账号并设置过密码的用户可使用。",
+      "firstUse": "首次使用请通过微信快捷注册。"
+    },
     "helpCenter": "帮助中心",
     "brandPanelLabel": "CGC 平台介绍",
     "brandCopy": {
@@ -332,7 +339,7 @@
       "flashback": "闪念间",
       "voices": "金句墙",
       "wishes": "许愿树",
-      "login": "登录",
+      "login": "登录／注册",
       "join": "加入我们",
       "myLearning": "我的学习",
       "myFlashback": "我的闪念间",

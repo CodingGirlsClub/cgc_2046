@@ -120,7 +120,7 @@ describe("首页（公开 Landing + 已登录分发）", () => {
 				name: "一桥飞架南北，天堑变通途",
 			}),
 		).toBeInTheDocument();
-		expect(screen.getAllByRole("link", { name: "登录" })[0]).toHaveAttribute(
+		expect(screen.getAllByRole("link", { name: "登录／注册" })[0]).toHaveAttribute(
 			"href",
 			"/login",
 		);

@@ -140,6 +140,13 @@
     "mini_web_login_failed": "Login did not complete. Please retry."
   },
   "auth": {
+    "unified": {
+      "title": "Sign in or register with WeChat",
+      "hint": "Authorize your phone number and confirm. New users register; existing users sign in.",
+      "passwordTitle": "Account and password",
+      "passwordHint": "For existing accounts with a password.",
+      "firstUse": "New here? Register through WeChat."
+    },
     "helpCenter": "Help Center",
     "brandPanelLabel": "About CGC 2046",
     "brandCopy": {
@@ -332,7 +339,7 @@
       "flashback": "In a Flash",
       "voices": "Voices",
       "wishes": "Wish Tree",
-      "login": "Sign in",
+      "login": "Sign in / Register",
       "join": "Join us",
       "myLearning": "My learning",
       "myFlashback": "My Flashback",

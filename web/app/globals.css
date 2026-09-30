@@ -1529,53 +1529,6 @@ body {
        nowrap 无宽度约束会把 with 之后的内容裁出可视区。 */
   }
 
-  .auth-page--register .auth-brand-copy {
-    position: absolute;
-    top: 24%;
-    left: clamp(32px, 5vw, 80px);
-    margin: 0;
-  }
-
-  .auth-page--register .auth-brand-copy h1 {
-    max-width: none;
-    margin-top: 0;
-    font-size: clamp(30px, 3vw, 42px);
-    letter-spacing: -0.9px;
-    /* 不设 nowrap：EN 标题在 45% 品牌栏内自然换行（同 login 分支修复，
-       nowrap 无宽度约束会把行尾裁出可视区）。 */
-  }
-
-  .auth-page--register .auth-benefits { margin-top: 48px; }
-
-  .auth-benefits {
-    display: grid;
-    gap: 24px;
-    margin-top: 40px;
-  }
-
-  .auth-benefit {
-    display: flex;
-    align-items: flex-start;
-    gap: 16px;
-  }
-
-  .auth-feature-icon {
-    display: inline-flex;
-    flex: 0 0 auto;
-    align-items: center;
-    justify-content: center;
-    width: 48px;
-    height: 48px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-large);
-    color: var(--accent-strong);
-    background: var(--soft-2);
-  }
-
-  .auth-feature-icon svg { width: 25px; height: 25px; }
-  .auth-benefit h2 { color: var(--ink); font-size: 16px; font-weight: 590; line-height: 24px; }
-  .auth-benefit p { max-width: 360px; margin-top: 2px; color: var(--ink-2); font-size: 14px; line-height: 22px; }
-
   .auth-form-panel {
     position: relative;
     display: flex;
@@ -1594,16 +1547,15 @@ body {
     background: var(--card);
     box-shadow: var(--shadow-ring);
   }
-  /* DeepSeek 式登录布局：左表单 + 右微信扫码常驻 */
+  /* 微信主入口 + 已有账号密码入口；窄屏同序堆叠。 */
   .auth-page--login .auth-form-card { width: min(100%, 780px); }
-  .auth-login-split { display: grid; grid-template-columns: minmax(0, 1fr) 324px; gap: clamp(24px, 4vw, 44px); align-items: start; }
-  .auth-login-split__side { background: var(--soft); border-radius: var(--radius-medium); padding: 18px 8px; }
-  .auth-login-split__side .auth-wechat-panel { padding: 0; }
+  .auth-login-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, .85fr); gap: clamp(24px, 4vw, 44px); align-items: start; }
+  .auth-login-split__side { background: var(--soft); border-radius: var(--radius-medium); padding: 20px; }
+  .auth-login-split__side .auth-form-heading h2 { font-size: 22px; letter-spacing: -.3px; }
+  .auth-login-split__side .auth-form-body { margin-top: 20px; }
+  .auth-login-split__side .auth-switch { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .auth-login-note { margin-top: 12px; color: var(--ink-2); font-size: 13px; line-height: 1.6; }
 
-  .auth-page--register .auth-form-card {
-    width: min(100%, 680px);
-    padding: clamp(32px, 4vw, 60px);
-  }
 
   .auth-form-heading h2 {
     color: var(--ink);
@@ -1615,7 +1567,6 @@ body {
 
   .auth-form-body { margin-top: 32px; }
   .auth-form { display: grid; gap: 20px; }
-  .auth-page--register .auth-form { gap: 24px; }
   .auth-field { display: grid; gap: 8px; }
   .auth-field__label-row { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
   .auth-field__label { color: var(--ink-2); font-size: 14px; line-height: 20px; }
@@ -1647,7 +1598,6 @@ body {
     transition: box-shadow 120ms ease, background-color 120ms ease;
   }
 
-  .auth-page--register .auth-input { min-height: 60px; }
 
   .auth-input::placeholder { color: var(--ink-3); }
   .auth-input:focus { background: var(--soft-2); box-shadow: inset 0 0 0 1px var(--accent); }
@@ -1681,18 +1631,11 @@ body {
 
   .auth-inline-link:hover { color: var(--accent-mention); }
   .auth-submit { width: 100%; min-height: 52px; margin-top: 4px; border-radius: var(--radius-medium); background: var(--accent); color: #fff; font-size: 14px; line-height: 20px; transition: background-color 120ms ease, opacity 120ms ease; }
-  .auth-page--register .auth-submit { min-height: 60px; }
   .auth-submit:hover { background: var(--accent-mention); }
   .auth-submit:disabled { cursor: wait; opacity: 0.65; }
 
   .auth-alert { border-radius: var(--radius-medium); background: color-mix(in srgb, var(--status-red) 10%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-red) 35%, transparent); color: var(--status-red); font-size: 13px; line-height: 20px; padding: 10px 12px; }
   .auth-submit-note { margin-top: 16px; border-radius: var(--radius-medium); background: var(--soft); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-2); font-size: 12px; line-height: 18px; padding: 12px; }
-
-  /* plan 002 U5：登录方式 tabs（密码/验证码/微信扫码） */
-  .auth-tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid var(--line); }
-  .auth-tab { padding: 8px 4px 10px; color: var(--ink-2); font-size: 14px; line-height: 20px; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color 120ms ease, border-color 120ms ease; }
-  .auth-tab:hover { color: var(--ink); }
-  .auth-tab--active { color: var(--accent-strong); border-bottom-color: var(--accent-strong); font-weight: 500; }
 
   /* plan 002 U5：手机验证码（发送按钮内嵌验证码行） */
   .auth-sms-code-row { display: flex; gap: 8px; }
@@ -1748,14 +1691,9 @@ body {
     .auth-brand-panel::before { top: -260px; right: -160px; left: auto; width: 420px; height: 420px; }
     .auth-brand-panel::after { top: -120px; right: 40px; left: auto; width: 220px; height: 220px; }
     .auth-page--login .auth-brand-lockup,
-    .auth-page--login .auth-brand-copy,
-    .auth-page--register .auth-brand-copy { position: static; transform: none; }
-    .auth-page--login .auth-brand-copy,
-    .auth-page--register .auth-brand-copy { margin: 18px 0 0; }
-    .auth-page--login .auth-brand-copy h1,
-    .auth-page--register .auth-brand-copy h1 { white-space: normal; }
-    /* 注册页的 benefits 列表在横幅模式下过长，窄屏不展示 */
-    .auth-page--register .auth-benefits { display: none; }
+    .auth-page--login .auth-brand-copy { position: static; transform: none; }
+    .auth-page--login .auth-brand-copy { margin: 18px 0 0; }
+    .auth-page--login .auth-brand-copy h1 { white-space: normal; }
     .auth-form-panel { padding-top: 40px; }
   }
 

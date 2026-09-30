@@ -6,9 +6,8 @@
  * - 展示态：当前绑定（MY_PHONE 掩码）/「未绑定」+「修改/绑定」按钮展开表单。
  *   MY_PHONE 首挂 loading 渲染 settings-skeleton 占位（不显示「未绑定」），
  *   请求失败渲染 members-error + 重试（refetch）——账号安全状态不折叠语义。
- * - 表单态：新手机号 + 验证码行 + 提交；发码复用 useSmsLogin().sendCode
- *   （purpose CHANGE_PHONE）与 countdown（register-phone-form 先例：只用
- *   sendCode，submit 自己实现）；提交走 updateMyPhone，成功后 refetch
+ * - 表单态：新手机号 + 验证码行 + 提交；发码复用 usePhoneCode().sendCode
+ *   （purpose CHANGE_PHONE）与 countdown（提交由本组件负责）；提交走 updateMyPhone，成功后 refetch
  *   MY_PHONE 并给 settings-saved 提示。
  * - 错误映射同 smsErrorMessage 思路；phone_already_registered 在换绑上下文
  *   用 workspaceAccount.phoneTakenByOther（「已被其他账号使用」），不复用注册文案。
@@ -25,7 +24,7 @@ import {
   MY_PHONE,
   UPDATE_MY_PHONE,
 } from "@/lib/graphql/auth";
-import { useSmsLogin } from "@/app/[locale]/(auth)/login/use-sms-login";
+import { usePhoneCode } from "@/lib/use-phone-code";
 
 export function PhoneBindingSection() {
   const t = useTranslations("workspaceAccount");
@@ -38,7 +37,7 @@ export function PhoneBindingSection() {
     sending,
     error: sendError,
     setError: setSendError,
-  } = useSmsLogin();
+  } = usePhoneCode();
   const [updatePhone, updateState] = useMutation(UPDATE_MY_PHONE);
   const [editing, setEditing] = useState(false);
   const [phone, setPhone] = useState("");

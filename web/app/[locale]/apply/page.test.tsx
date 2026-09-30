@@ -104,7 +104,8 @@ describe("/apply 申请创建工作台", () => {
 
 		// 顶导（SiteHeader）与正文各有「登录」链接（顶导的 → 是 aria-hidden，
 		// 两者可访问名相同）：断言两处都在，且表单不渲染。
-		expect(screen.getAllByRole("link", { name: "登录" })).toHaveLength(2);
+		expect(screen.getByRole("link", { name: "登录" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "登录／注册" })).toBeInTheDocument();
 		expect(screen.queryByPlaceholderText(/名称/)).not.toBeInTheDocument();
 	});
 
