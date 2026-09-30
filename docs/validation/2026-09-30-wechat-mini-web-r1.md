@@ -14,14 +14,18 @@
 
 ## 正式构建配置
 
-在当前独立 checkout 通过 ignored 本地链接复用已有 `.env.prod`，仅由构建工具读取；没有查看、打印或提交配置值，没有修改生产配置。执行 `NODE_ENV=production CGC_E2E_MOCK=false pnpm build:weapp` 后，`pnpm check:release-endpoint weapp` 通过，产物使用正式 HTTPS API 地址，主包 1,138,310 bytes。dist 不入库，也未上传。
+在当前独立 checkout 通过 ignored 本地链接复用已有 `.env.prod`，仅由构建工具读取；没有查看、打印或提交配置值，没有修改生产配置。执行 `NODE_ENV=production CGC_E2E_MOCK=false pnpm build:weapp` 后，`pnpm check:release-endpoint weapp` 通过，产物使用正式 HTTPS API 地址，主包 1,138,975 bytes。dist 不入库，也未上传。
 
 复跑时必须在实际上传对应 checkout 配置正式构建环境；先完成 `pnpm check:ci`（末尾会生成 mock 包），再显式重建非 mock 正式包并检查 endpoint，不能把 CI 留下的 mock 包上传。
 
 ## 验证与发布边界
 
-本地完整 `pnpm check:ci` 通过：audit、codegen 新鲜度、类型、许可、384 个 node:test、232 个 Vitest、三端构建、包体积、零导流、xhs 分享配对、mock anchors 与 E2E 文档对账。Backend 认证专项及全量、Web 保持旧入口的全量验证结果见 PR 验证记录。
+本地完整 `pnpm check:ci` 通过：audit、codegen 新鲜度、类型、许可、386 个 node:test、232 个 Vitest、三端构建、包体积、零导流、xhs 分享配对、mock anchors 与 E2E 文档对账。Backend 认证专项及全量、Web 保持旧入口的全量验证结果见 PR 验证记录。
 
 原登录功能回归覆盖 proof/Origin/平台身份、显式确认、一次领取、JWT 撤销事务回滚、JPEG、IP 限流后内存键不增长、小程序确认结果未知。此前微信工具异常场景已通过；切分后的依赖更新仍须以当前 head 检查为准。
 
 本报告是源码交付验证，不是发布批准。数据库迁移和锁文件需人工合并；不部署、不上传、不操作生产数据。真实微信手机号授权、A02 完整已有业务数据互通、生产等价 Cookie 域隔离及设备矩阵是 R2 合并/上线门。
+
+## PR 复审补充
+
+确认／确认结果未知／本地退出的状态迁移已集中到 `domain/web-login.ts` 的纯 reducer 与 view；页面通过 `useReducer` 接入。新增两条 Node 回归覆盖未知确认后退出、非 APPROVED 响应、确认成功与退出终态，先红后绿，并将退出丢弃尝试事实的实现变异为红、还原为绿。完整小程序 CI 与六场景微信模拟器 E2E 再次通过，最后重新生成正式非 mock 包并检查 endpoint 与体积。

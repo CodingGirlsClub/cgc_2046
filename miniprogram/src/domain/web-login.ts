@@ -31,3 +31,34 @@ export function webLoginCopy(request: WebLoginRequest | null, now: number, local
   if (request.status === 'APPROVED') return '这次网页登录已获授权，请返回原网页查看。'
   return '仅确认你本人刚刚发起的登录。'
 }
+
+
+export type WebLoginPageState = 'active' | 'confirmation_attempted' | 'confirmed' | 'exited' | 'exited_after_attempt'
+export type WebLoginPageAction =
+  | { type: 'confirm_started' }
+  | { type: 'confirm_received'; status: WebLoginStatus }
+  | { type: 'exit' }
+
+/** Local exit never revokes server approval, including an approval whose response was lost. */
+export function transitionWebLoginPage(state: WebLoginPageState, action: WebLoginPageAction): WebLoginPageState {
+  if (state === 'confirmed' || state === 'exited' || state === 'exited_after_attempt') return state
+  switch (action.type) {
+    case 'confirm_started': return 'confirmation_attempted'
+    case 'confirm_received': return state === 'confirmation_attempted' && action.status === 'APPROVED' ? 'confirmed' : state
+    case 'exit': return state === 'confirmation_attempted' ? 'exited_after_attempt' : 'exited'
+  }
+}
+
+export function webLoginPageView(request: WebLoginRequest | null, state: WebLoginPageState, now: number, error = '') {
+  const confirmed = state === 'confirmed'
+  const exited = state === 'exited' || state === 'exited_after_attempt'
+  const refreshable = !confirmed && !exited
+  return {
+    title: confirmed ? '已确认登录' : exited ? '已退出确认' : '登录网页版',
+    description: confirmed ? '请返回刚才的网页，网页将自动完成登录。' : error && !request && !exited
+      ? '请返回原网页检查登录请求。'
+      : webLoginCopy(request, now, { exited, confirmationAttempted: state === 'confirmation_attempted' || state === 'exited_after_attempt' }),
+    active: refreshable && canConfirmWebLogin(request, true, now),
+    refreshable
+  }
+}
