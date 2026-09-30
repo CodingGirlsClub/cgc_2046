@@ -6,6 +6,7 @@ defmodule Cgc2046Web.GraphqlSchema do
   import_types(Cgc2046Web.GraphqlSchema.Offering)
   import_types(Cgc2046Web.GraphqlSchema.Learning)
   import_types(Cgc2046Web.GraphqlSchema.Auth)
+  import_types(Cgc2046Web.GraphqlSchema.Auth.MiniWebLogin)
   import_types(Cgc2046Web.GraphqlSchema.AdminDashboard)
   import_types(Cgc2046Web.GraphqlSchema.Flashback)
 
@@ -34,6 +35,7 @@ defmodule Cgc2046Web.GraphqlSchema do
     auto_generate_sdl_file?: true
 
   query do
+    import_fields(:mini_web_login_queries)
     @desc "Placeholder query until the first resource is added"
     field :ping, :string do
       resolve(fn _, _, _ ->
@@ -252,6 +254,7 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   mutation do
     import_fields(:auth_mutations)
+    import_fields(:mini_web_login_mutations)
     @desc "Owner/Admin 创建一次性工作台邀请小程序码"
     field :generate_mini_program_code, :miniprogram_code_result do
       arg(:workspace_id, non_null(:id))

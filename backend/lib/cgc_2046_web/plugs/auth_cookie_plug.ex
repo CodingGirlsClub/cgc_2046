@@ -39,9 +39,21 @@ defmodule Cgc2046Web.Plugs.AuthCookiePlug do
     conn
     |> write_token_cookie(context)
     |> write_wechat_state_cookie(context)
+    |> write_mini_web_proof_cookie(context)
   end
 
   def before_send(conn, _), do: conn
+
+  defp write_mini_web_proof_cookie(conn, %{mini_web_proof_set: proof}) when is_binary(proof) do
+    put_resp_cookie(conn, "cgc_mp_web_proof", proof,
+      http_only: true,
+      same_site: "Lax",
+      max_age: 600,
+      secure: Application.get_env(:cgc_2046, :auth_cookie_secure, true)
+    )
+  end
+
+  defp write_mini_web_proof_cookie(conn, _), do: conn
 
   defp write_token_cookie(conn, context) do
     cond do

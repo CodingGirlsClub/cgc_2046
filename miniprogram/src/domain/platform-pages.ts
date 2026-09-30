@@ -22,6 +22,7 @@ export const WEAPP_PAGES: readonly string[] = [
   'pages/initiative-detail/index',
   'pages/event-detail/index',
   'pages/login/index',
+  'pages/web-login/index',
   'pages/register-form/index',
   'pages/enrollment-result/index',
   'pages/order-pay/index',

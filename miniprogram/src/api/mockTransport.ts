@@ -1862,5 +1862,11 @@ function responseFor(document: string, variables: object): unknown {
 }
 
 export function mockGraphQLRequest<TData>(document: RequestDocument, variables: object): TData {
+  if (String(document).includes('query WebLoginPreview')) return {
+    wechatMiniWebLoginPreview: { status: 'PENDING', expiresAt: new Date(Date.now() + 600000).toISOString() }
+  } as TData
+  if (String(document).includes('mutation WebLoginConfirm')) return {
+    wechatMiniWebLoginConfirm: { status: 'APPROVED', expiresAt: new Date(Date.now() + 600000).toISOString() }
+  } as TData
   return (mockVoicesRequest(String(document), variables) ?? responseFor(String(document), variables)) as TData
 }

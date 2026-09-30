@@ -58,6 +58,7 @@ defmodule Cgc2046Web.Router do
     plug(:load_from_bearer)
     plug(Cgc2046Web.Plugs.AuthTokenContextPlug)
     plug(Cgc2046Web.Plugs.WechatStatePlug)
+    plug(Cgc2046Web.Plugs.MiniWebLoginPlug)
     plug(:load_actor)
     plug(AshGraphql.Plug)
   end
