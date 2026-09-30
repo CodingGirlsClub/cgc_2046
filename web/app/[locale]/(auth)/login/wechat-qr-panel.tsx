@@ -16,7 +16,7 @@ export default function WechatQrPanel() {
     const navigate = () => navigateAfterLogin(router, new URLSearchParams(window.location.search).get('next'));
     void client.resetStore().then(navigate, navigate);
   });
-  const busy = phase === 'loading' || phase === 'confirming';
+  const busy = phase === 'loading' || phase === 'confirming' || phase === 'cancelling';
   const terminal = ['expired', 'cancelled', 'error'].includes(phase);
   const [countdown, setCountdown] = useState<{ deadline: string; seconds: number } | null>(null);
   const deadline = request?.expiresAt;
@@ -28,10 +28,10 @@ export default function WechatQrPanel() {
   return (
     <div className='auth-wechat-panel' aria-busy={busy}>
       <p className='auth-wechat-hint' role='status' aria-live='polite'>
-        {phase === 'loading' ? t('loading') : phase === 'confirming' ? t('confirming') : phase === 'done' ? t('done') : phase === 'expired' ? t('expired') : phase === 'cancelled' ? t('cancelled') : request && !request.qrDataUrl && !request.launchUrl ? t('restored') : mode === 'QR' ? t('scan') : t('return')}
+        {phase === 'loading' ? t('loading') : phase === 'confirming' ? t('confirming') : phase === 'cancelling' ? t('cancelling') : phase === 'done' ? t('done') : phase === 'expired' ? t('expired') : phase === 'cancelled' ? t('cancelled') : request && !request.qrDataUrl && !request.launchUrl ? t('restored') : mode === 'QR' ? t('scan') : t('return')}
       </p>
       {!terminal && phase !== 'done' && mode === 'QR' && request?.qrDataUrl && (
-        // Server-generated PNG is bounded and the data URL never contains a login credential.
+        // Server-generated image is bounded and the data URL never contains a login credential.
         // eslint-disable-next-line @next/next/no-img-element
         <img className='auth-wechat-qr' src={request.qrDataUrl} alt={t('qrAlt')} width={200} height={200} />
       )}

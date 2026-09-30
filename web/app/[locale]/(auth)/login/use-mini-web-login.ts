@@ -4,7 +4,7 @@ import { client } from '@/lib/apollo-client';
 import { MINI_WEB_START, MINI_WEB_STATUS, MINI_WEB_CONSUME, MINI_WEB_CANCEL, type MiniWebRequest } from '@/lib/graphql/mini-web-login';
 
 type Mode = 'QR' | 'LINK';
-type Phase = 'loading' | 'ready' | 'confirming' | 'cancelled' | 'expired' | 'error' | 'done';
+type Phase = 'loading' | 'ready' | 'confirming' | 'cancelling' | 'cancelled' | 'expired' | 'error' | 'done';
 const STORAGE = 'cgc.miniWebLogin';
 function readSaved(): { requestId: string; mode: Mode } | null {
   try {
@@ -30,9 +30,10 @@ export function useMiniWebLogin(onDone: () => void) {
   const [phase, setPhase] = useState<Phase>('loading');
   const [error, setError] = useState<string | null>(null);
   const doneRef = useRef(onDone);
-  const busyPoll = useRef(false);
-  const startRef = useRef<{ key: string; promise: Promise<MiniWebRequest> } | null>(null);
+  const actionVersion = useRef(0);
+  const startRef = useRef<{ key: string; promise: Promise<MiniWebRequest>; subscribers: number; abort: () => void } | null>(null);
   useEffect(() => { doneRef.current = onDone; }, [onDone]);
+  useEffect(() => () => { actionVersion.current++; }, []);
 
   useEffect(() => {
     if (selection.iteration === 0 && seed) return;
@@ -40,16 +41,31 @@ export function useMiniWebLogin(onDone: () => void) {
     const key = `${selection.mode}:${selection.iteration}`;
     // React StrictMode re-subscribes to this promise; it must not issue a second browser proof.
     if (startRef.current?.key !== key) {
-      const promise = client.mutate<{ wechatMiniWebLoginStart: MiniWebRequest }>({ mutation: MINI_WEB_START, variables: { mode: selection.mode }, fetchPolicy: 'no-cache' })
-        .then(({ data }) => { if (!data?.wechatMiniWebLoginStart) throw new Error('Missing login request'); return data.wechatMiniWebLoginStart; });
-      startRef.current = { key, promise };
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      const promise = client.mutate<{ wechatMiniWebLoginStart: MiniWebRequest }>({ mutation: MINI_WEB_START, variables: { mode: selection.mode }, fetchPolicy: 'no-cache', context: { fetchOptions: { signal: controller.signal } } })
+        .then(({ data }) => { if (!data?.wechatMiniWebLoginStart) throw new Error('Missing login request'); return data.wechatMiniWebLoginStart; })
+        .finally(() => clearTimeout(timeout));
+      startRef.current = { key, promise, subscribers: 0, abort: () => { clearTimeout(timeout); controller.abort(); } };
     }
-    void startRef.current.promise.then(result => {
+    const pending = startRef.current;
+    pending.subscribers++;
+    void pending.promise.then(result => {
       if (disposed) return;
       remember({ requestId: result.requestId, mode: selection.mode });
       setRequest(result); setPhase('ready'); setError(null);
     }).catch(reason => { if (!disposed) { setError(errorCode(reason) ?? 'mini_web_login_unavailable'); setPhase('error'); } });
-    return () => { disposed = true; };
+    return () => {
+      disposed = true; pending.subscribers--;
+      // StrictMode immediately re-subscribes. A real unmount must abort before a late
+      // Set-Cookie can overwrite the proof belonging to another mounted login page.
+      queueMicrotask(() => {
+        if (pending.subscribers === 0) {
+          pending.abort();
+          if (startRef.current === pending) startRef.current = null;
+        }
+      });
+    };
   }, [selection, seed]);
 
   const requestId = request?.requestId;
@@ -57,6 +73,10 @@ export function useMiniWebLogin(onDone: () => void) {
     if (!requestId) return;
     let disposed = false;
     let terminal = false;
+    // Each request owns its network work; a hung previous request cannot block a new one.
+    let busyPoll = false;
+    let activeController: AbortController | undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     let failures = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const finish = () => {
@@ -68,11 +88,15 @@ export function useMiniWebLogin(onDone: () => void) {
     };
     const poll = async () => {
       if (disposed || terminal || document.visibilityState === 'hidden') return;
-      if (busyPoll.current) { schedule(3000); return; }
-      busyPoll.current = true;
+      if (busyPoll) { schedule(3000); return; }
+      busyPoll = true;
+      const controller = new AbortController();
+      activeController = controller;
+      timeout = setTimeout(() => controller.abort(), 15000);
+      const context = { fetchOptions: { signal: controller.signal }, queryDeduplication: false };
       let delay = 3000;
       try {
-        const { data } = await client.query<{ wechatMiniWebLoginStatus: MiniWebRequest }>({ query: MINI_WEB_STATUS, variables: { requestId }, fetchPolicy: 'no-cache' });
+        const { data } = await client.query<{ wechatMiniWebLoginStatus: MiniWebRequest }>({ query: MINI_WEB_STATUS, variables: { requestId }, fetchPolicy: 'no-cache', context });
         if (disposed) return;
         const status = data?.wechatMiniWebLoginStatus;
         if (!status) throw new Error('Missing status');
@@ -86,7 +110,7 @@ export function useMiniWebLogin(onDone: () => void) {
           terminal = true; remember(null); setPhase(status.status === 'EXPIRED' ? 'expired' : 'cancelled');
         } else if (status.status === 'APPROVED') {
           setPhase('confirming');
-          const result = await client.mutate<{ wechatMiniWebLoginConsume: { id: string; status: string } }>({ mutation: MINI_WEB_CONSUME, variables: { requestId }, fetchPolicy: 'no-cache' });
+          const result = await client.mutate<{ wechatMiniWebLoginConsume: { id: string; status: string } }>({ mutation: MINI_WEB_CONSUME, variables: { requestId }, fetchPolicy: 'no-cache', context });
           if (disposed) return;
           if (result.data?.wechatMiniWebLoginConsume?.id) finish(); else throw new Error('Missing session');
         } else setPhase('ready');
@@ -100,12 +124,12 @@ export function useMiniWebLogin(onDone: () => void) {
           setPhase('ready');
           setError(code ?? 'network');
         }
-      } finally { busyPoll.current = false; schedule(delay); }
+      } finally { clearTimeout(timeout); busyPoll = false; activeController = undefined; schedule(delay); }
     };
     const resume = () => { clearTimeout(timer); if (document.visibilityState !== 'hidden') void poll(); };
     document.addEventListener('visibilitychange', resume); window.addEventListener('pageshow', resume);
     void poll();
-    return () => { disposed = true; clearTimeout(timer); document.removeEventListener('visibilitychange', resume); window.removeEventListener('pageshow', resume); };
+    return () => { disposed = true; clearTimeout(timer); clearTimeout(timeout); activeController?.abort(); document.removeEventListener('visibilitychange', resume); window.removeEventListener('pageshow', resume); };
   }, [requestId]);
 
   // A server outage must not keep polling beyond the request lifetime.
@@ -117,22 +141,30 @@ export function useMiniWebLogin(onDone: () => void) {
 
   const restart = (mode: Mode = selection.mode) => {
     if (phase === 'loading' || phase === 'confirming') return;
+    actionVersion.current++;
     remember(null); setRequest(null); setError(null); setPhase('loading');
     setSelection(previous => ({ mode, iteration: previous.iteration + 1 }));
   };
   const cancel = async () => {
     if (!requestId) return;
+    const version = ++actionVersion.current;
     // Stop the effect before cancelling so a late status response cannot initiate consumption.
-    setRequest(null); remember(null); setPhase('cancelled');
+    setRequest(null); remember(null); setPhase('cancelling');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
     try {
-      const result = await client.mutate<{ wechatMiniWebLoginCancel: { status: string } }>({ mutation: MINI_WEB_CANCEL, variables: { requestId }, fetchPolicy: 'no-cache' });
+      const result = await client.mutate<{ wechatMiniWebLoginCancel: { status: string } }>({ mutation: MINI_WEB_CANCEL, variables: { requestId }, fetchPolicy: 'no-cache', context: { fetchOptions: { signal: controller.signal } } });
+      if (version !== actionVersion.current) return;
       if (result.data?.wechatMiniWebLoginCancel?.status === 'CONSUMED') {
         setError('mini_web_login_consumed'); setPhase('error');
       } else if (result.data?.wechatMiniWebLoginCancel?.status !== 'CANCELLED') {
         setError('mini_web_login_failed'); setPhase('error');
+      } else {
+        setError(null); setPhase('cancelled');
       }
     }
-    catch { setError('mini_web_login_failed'); setPhase('error'); }
+    catch { if (version === actionVersion.current) { setError('mini_web_login_failed'); setPhase('error'); } }
+    finally { clearTimeout(timeout); }
   };
   return { request, phase, error, mode: selection.mode, restart, cancel };
 }

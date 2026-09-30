@@ -4,6 +4,8 @@
 
 结论：实现和本地功能验证完成；**尚不具备生产 Web 入口切换条件**。小程序完整 `check:ci` 被既有依赖漏洞审计阻挡；正式配置、主域隔离及真机矩阵尚未验收。本报告不代表发布批准。
 
+以下初次实现记录保留用于追溯；评审修复后的最新结果见文末“修复后复验”。代码复审通过不等于 push/发布质量门通过。
+
 ## 交付边界
 
 - 基线：`d61cceb975b3957890016af6516bcbf18452ca4c`。
@@ -70,3 +72,34 @@ HTTP 测试走真实 GraphQL/Plug、Cookie/Bearer 与隔离 PostgreSQL，只替�
 先处理依赖审计与正式构建配置门；后端迁移由人合并/发布，小程序确认页由人上传、审核、发布。之后在生产等价验收环境部署 R2 候选 Web，执行方案 A01/A02/A20 与全部真机矩阵，再决定是否切换生产 Web 入口。R1 与 R2 必须维持分步发布依赖，不能仅因本地测试通过而一起上线。
 
 出现错误账号登录或跨浏览器领取时停止新入口，由人退回 Web 版本；旧入口会恢复短信依赖。回退不合并或删除用户，不自动执行生产 migration down。
+
+## 修复后复验（同日）
+
+用户授权修复评审发现的 5 项问题。认证/小程序修复提交为 `684e2de4`；Web 修复及本节记录在本节所在提交。源码复审最终未发现剩余具体阻断问题，交付质量门仍被既有依赖审计阻挡。未 push、开 PR 或发布。
+
+| 原问题 | 修复与回归 |
+| --- | --- |
+| JPEG 成功响应被拒绝 | PNG/JPEG 魔数白名单、1 MiB 上限及匹配 MIME；新增 HTTP 测试读取真实 JPEG fixture，验证返回字节一致，拒绝任意及超大内容 |
+| 旧轮询悬挂阻塞新请求 | 每请求独立轮询锁、AbortController、15 秒超时；回归覆盖 A 挂起后 B 仍可完成登录 |
+| 旧取消结果污染新请求 | 请求版本隔离成功/失败回调；回归覆盖旧取消网络失败及已消费结果晚到 |
+| 小程序确认未知时宣称未授权 | 记录是否尝试过确认，退出文案明确不撤销授权；已批准请求不再提示重复确认；mock 先保存批准再丢响应，GUI 验证退出与重开 |
+| IP 限流后仍新增随机内存键 | 启动/预览均先检查 IP；HTTP 回归在耗尽额度后继续发送 100 次请求，断言不增加 ETS 行 |
+
+复审同时补齐了同类异常：首次启动 15 秒超时恢复；真实卸载中止旧启动，StrictMode 重订阅仍只发一次；Web 取消待定使用 `cancelling`，只在收到 `CANCELLED` 后显示成功，15 秒超时进入错误状态。E2E 每轮使用新的合法请求 ID，同一开发工具 runtime 可重复执行。
+
+| 最终检查 | 结果 | 本机临时证据文件 |
+| --- | --- | --- |
+| Backend `mix precommit` | 3370 passed，1 skipped | `cgc-mini-web-fix-precommit.log` |
+| Backend 专项恢复检查 | 20 passed；snapshot check exit 0 | `cgc-mini-web-fix-final-restored-backend.log`、`cgc-mini-web-fix-snapshot-final.log` |
+| Web `pnpm test` | 1698 passed / 165 files | `cgc-mini-web-fix-web-final.log` |
+| Web 定向恢复检查 | 18 passed | `cgc-mini-web-fix-final-restored-web.log` |
+| Web 类型/lint/build | 类型通过；lint 0 errors、6 条既有 warnings；Node 24 production build 通过 | `cgc-mini-web-fix-web-types-final2.log`、`cgc-mini-web-fix-web-lint-final.log`、`cgc-mini-web-fix-web-build-final.log` |
+| 小程序单测/类型/codegen | node:test 383 passed，Vitest 232 passed；类型与 codegen 新鲜度通过 | `cgc-mini-web-fix-mini-final.log`、`cgc-mini-web-fix-mp-types-final.log`、`cgc-mini-web-fix-codegen.log` |
+| 三端构建与守卫 | weapp/tt/xhs、零导流、分享配对、许可、anchors/E2E 文档对账通过；主包 1,137,527 bytes | `cgc-mini-web-fix-weapp-final.log`、`cgc-mini-web-fix-tt.log`、`cgc-mini-web-fix-xhs.log`、`cgc-mini-web-fix-diversion.log`、`cgc-mini-web-fix-size.log` |
+| 微信开发工具 GUI | 同一 runtime 连续两轮 `pass=true`，每轮含显式确认、登录返回、新请求、退出、丢响应、已授权重开 | `cgc-mini-web-fix-mini-e2e2.log`、`cgc-mini-web-fix-mini-e2e3.log` |
+
+10 轮独立变异均产生预期失败后恢复：JPEG 识别、IP 桶顺序、轮询锁隔离、取消回调版本、小程序未知结果文案、轮询超时、首次启动超时、真实卸载中止、取消待定状态、JPEG 大小限制。证据前缀为 `cgc-mini-web-fix-mut-`；上述恢复专项检查在所有变异还原后执行。
+
+真实本地浏览器（ego-browser、同源 Next→Backend，仅外部微信接口 stub）验证：JPEG 能渲染；旧状态查询悬挂后新请求可登录；旧取消错误不覆盖新请求；取消挂起时不显示成功，超时后可重试；`/login → /register → /login` 的旧启动被中止，新请求可用；登录完成后 `me` 已认证、pending 清除、JS 不可读取认证 Cookie。截图为 `cgc-mini-web-fix-browser-races-passed.png`、`cgc-mini-web-fix-browser-cancelling.png`；小程序未知确认截图为 `cgc-mini-web-confirm-unknown.jpg`。一次较早的浏览器尝试发生旧 proof 失效；随后使用新请求在同一测试调用内重复异常序列并通过，未把那次失败记为 PASS。
+
+**未解除的门：** 本轮再次运行 `pnpm audit:prod`，仍报现有依赖树的 5 条 high（审计摘要仍为 21 条，其中 1 条 critical ignored）；没有修改依赖文件或跳过该门。非 mock 小程序已恢复，但正式 endpoint 检查仍因开发默认地址失败，不能上传。真实微信授权、生产等价 Cookie 隔离、A02 完整业务数据和真机矩阵依旧未验证。修复不改变 R1 先发布、R2 待验收后再切换的依赖。

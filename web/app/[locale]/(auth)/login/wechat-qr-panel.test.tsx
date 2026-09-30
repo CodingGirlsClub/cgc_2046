@@ -26,4 +26,10 @@ describe('mini-program login panel', () => {
     fireEvent.click(screen.getByRole('button', { name: '重新发起登录' })); expect(restart).toHaveBeenCalled();
     expect(screen.queryByText('绑定手机号')).not.toBeInTheDocument();
   });
+  it('pending cancellation never claims that authorization has been cancelled', () => {
+    state.current = { phase: 'cancelling', mode: 'QR', request: null }; render(<WechatQrPanel />);
+    expect(screen.getByRole('status')).toHaveTextContent('正在取消登录，请稍候…');
+    expect(screen.getByRole('button', { name: '重新发起登录' })).toBeDisabled();
+    expect(screen.queryByText('本次登录已取消。')).not.toBeInTheDocument();
+  });
 });

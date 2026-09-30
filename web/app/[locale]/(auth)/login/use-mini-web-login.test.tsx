@@ -59,4 +59,102 @@ describe('mini-program browser handoff', () => {
     expect(result.current.phase).toBe('error');
     expect(result.current.error).toBe('mini_web_login_consumed');
   });
+  it('can complete a fresh login while the previous status request is hung', async () => {
+    const next = { ...request, requestId: 'bcdefghijklmnopqrstuvw' };
+    query.mockReturnValueOnce(new Promise(() => {})).mockResolvedValue({ data: { wechatMiniWebLoginStatus: { status: 'APPROVED', expiresAt: next.expiresAt } } });
+    mutate.mockResolvedValueOnce({ data: { wechatMiniWebLoginStart: request } })
+      .mockResolvedValueOnce({ data: { wechatMiniWebLoginCancel: { status: 'CANCELLED' } } })
+      .mockResolvedValueOnce({ data: { wechatMiniWebLoginStart: next } })
+      .mockResolvedValueOnce({ data: { wechatMiniWebLoginConsume: { id: 'user-1', status: 'CONSUMED' } } });
+    const done = vi.fn(); const { result, unmount } = renderHook(() => useMiniWebLogin(done));
+    await waitFor(() => expect(query).toHaveBeenCalledOnce());
+    await act(async () => { await result.current.cancel(); });
+    act(() => result.current.restart());
+    try { await waitFor(() => expect(done).toHaveBeenCalledOnce()); }
+    finally { unmount(); }
+  });
+  it.each(['network failure', 'already consumed'])('ignores an old cancellation result: %s', async (outcome) => {
+    const next = { ...request, requestId: 'bcdefghijklmnopqrstuvw' };
+    let resolveCancel!: (value: unknown) => void;
+    let rejectCancel!: (reason: Error) => void;
+    query.mockResolvedValue({ data: { wechatMiniWebLoginStatus: { status: 'PENDING', expiresAt: request.expiresAt } } });
+    mutate.mockResolvedValueOnce({ data: { wechatMiniWebLoginStart: request } })
+      .mockImplementationOnce(() => new Promise((resolve, reject) => { resolveCancel = resolve; rejectCancel = reject; }))
+      .mockResolvedValueOnce({ data: { wechatMiniWebLoginStart: next } });
+    const { result, unmount } = renderHook(() => useMiniWebLogin(vi.fn()));
+    await waitFor(() => expect(result.current.phase).toBe('ready'));
+    let cancellation!: Promise<void>;
+    act(() => { cancellation = result.current.cancel(); });
+    act(() => result.current.restart());
+    await waitFor(() => expect(result.current.request?.requestId).toBe(next.requestId));
+    await act(async () => {
+      if (outcome === 'network failure') rejectCancel(new Error('network'));
+      else resolveCancel({ data: { wechatMiniWebLoginCancel: { status: 'CONSUMED' } } });
+      await cancellation;
+    });
+    try { expect(result.current.phase).toBe('ready'); expect(result.current.error).toBeNull(); }
+    finally { unmount(); }
+  });
+  it('recovers from a timed-out status request and releases timers on unmount', async () => {
+    vi.useFakeTimers();
+    query.mockImplementationOnce(({ context }) => new Promise((_, reject) => {
+      context.fetchOptions.signal.addEventListener('abort', () => reject(new Error('timeout')), { once: true });
+    })).mockResolvedValue({ data: { wechatMiniWebLoginStatus: { status: 'CONSUMED', sessionEstablished: true } } });
+    const done = vi.fn();
+    let hook!: ReturnType<typeof renderHook<ReturnType<typeof useMiniWebLogin>, unknown>>;
+    await act(async () => { hook = renderHook(() => useMiniWebLogin(done)); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+    expect(hook.result.current.error).toBe('network');
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(done).toHaveBeenCalledOnce();
+    hook.unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('a hung first start times out and can be retried without duplicate StrictMode starts', async () => {
+    vi.useFakeTimers();
+    mutate.mockImplementationOnce(({ context }) => new Promise((_, reject) => {
+      context?.fetchOptions.signal.addEventListener('abort', () => reject(new Error('timeout')), { once: true });
+    })).mockResolvedValue({ data: { wechatMiniWebLoginStart: request } });
+    let hook!: ReturnType<typeof renderHook<ReturnType<typeof useMiniWebLogin>, unknown>>;
+    await act(async () => { hook = renderHook(() => useMiniWebLogin(vi.fn()), { wrapper: StrictMode }); });
+    expect(mutate).toHaveBeenCalledOnce();
+    await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+    expect(hook.result.current.phase).toBe('error');
+    await act(async () => { hook.result.current.restart(); });
+    expect(hook.result.current.phase).toBe('ready');
+    expect(mutate).toHaveBeenCalledTimes(2);
+    hook.unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('aborts an unfinished start on real unmount before another instance can receive a proof', async () => {
+    let aborted = false;
+    mutate.mockImplementationOnce(({ context }) => new Promise((_, reject) => {
+      context.fetchOptions.signal.addEventListener('abort', () => { aborted = true; reject(new Error('aborted')); }, { once: true });
+    })).mockResolvedValue({ data: { wechatMiniWebLoginStart: request } });
+    const first = renderHook(() => useMiniWebLogin(vi.fn()));
+    await waitFor(() => expect(mutate).toHaveBeenCalledOnce());
+    await act(async () => { first.unmount(); });
+    expect(aborted).toBe(true);
+    const next = renderHook(() => useMiniWebLogin(vi.fn()));
+    await waitFor(() => expect(next.result.current.phase).toBe('ready'));
+    next.unmount();
+  });
+  it('does not report cancellation until confirmed and bounds an unknown cancellation result', async () => {
+    vi.useFakeTimers();
+    mutate.mockResolvedValueOnce({ data: { wechatMiniWebLoginStart: request } })
+      .mockImplementationOnce(({ context }) => new Promise((_, reject) => {
+        context?.fetchOptions.signal.addEventListener('abort', () => reject(new Error('timeout')), { once: true });
+      }));
+    let hook!: ReturnType<typeof renderHook<ReturnType<typeof useMiniWebLogin>, unknown>>;
+    await act(async () => { hook = renderHook(() => useMiniWebLogin(vi.fn())); });
+    let cancellation!: Promise<void>;
+    act(() => { cancellation = hook.result.current.cancel(); });
+    try {
+      expect(hook.result.current.phase).toBe('cancelling');
+      await act(async () => { await vi.advanceTimersByTimeAsync(15000); await cancellation; });
+      expect(hook.result.current.phase).toBe('error');
+      expect(hook.result.current.error).toBe('mini_web_login_failed');
+    } finally { hook.unmount(); }
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });

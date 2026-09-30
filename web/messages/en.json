@@ -303,6 +303,7 @@
       "done": "Signed in. Returning…",
       "expired": "This login request has expired. Please start again.",
       "cancelled": "This login request was cancelled.",
+      "cancelling": "Cancelling login. Please wait…",
       "scan": "Scan with WeChat and confirm in the mini program.",
       "return": "Open the mini program to confirm your login.",
       "returnHint": "After confirming, return to this page in the same browser.",
