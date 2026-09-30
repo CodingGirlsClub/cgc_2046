@@ -6722,6 +6722,7 @@ type FlashbackToday {
 }
 
 type FlashbackProgress {
+  hasSelectedQuotes: Boolean!
   bound: Boolean!
   today: FlashbackToday
   quoteLevel: String!

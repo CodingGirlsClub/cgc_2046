@@ -245,6 +245,7 @@ defmodule Cgc2046Web.GraphqlSchema.Flashback.WishTypes do
   end
 
   object :flashback_progress do
+    field(:has_selected_quotes, non_null(:boolean))
     field(:bound, non_null(:boolean))
     field(:today, :flashback_today)
     field(:quote_level, non_null(:string))
