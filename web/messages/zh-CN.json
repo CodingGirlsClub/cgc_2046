@@ -128,7 +128,16 @@
     "volunteer_application_invalid_transition": "申请状态已变化，请刷新后重试。",
     "volunteer_application_rejection_reason_required": "拒绝原因必填。",
     "volunteer_application_assignment_failed": "分配未完成（入台或场次指派失败），申请保持原状态，请重试。",
-    "recruitment_cohort_open_conflict": "已有一个招募中的批次，请先关闭后再开放。"
+    "recruitment_cohort_open_conflict": "已有一个招募中的批次，请先关闭后再开放。",
+    "mini_web_login_invalid": "登录请求无效，请重新发起。",
+    "mini_web_login_expired": "登录请求已过期，请重新发起。",
+    "mini_web_login_cancelled": "登录请求已取消。",
+    "mini_web_login_not_approved": "请先在小程序确认登录。",
+    "mini_web_login_consumed": "请求已使用，请返回原网页或重新发起。",
+    "mini_web_login_account_conflict": "账号不一致，请确认当前账号后重新发起。",
+    "mini_web_login_phone_required": "请先完成手机号授权登录。",
+    "mini_web_login_unavailable": "微信登录暂时不可用，请稍后重试。",
+    "mini_web_login_failed": "登录未完成，请重试。"
   },
   "auth": {
     "helpCenter": "帮助中心",
@@ -287,6 +296,29 @@
       "errorInvalidPhone": "请输入有效的手机号",
       "errorInvalidCode": "验证码错误或已过期",
       "errorRateLimited": "请求过于频繁，请稍后再试"
+    },
+    "miniWeb": {
+      "loading": "正在准备微信登录…",
+      "confirming": "已确认，正在登录…",
+      "done": "登录成功，正在返回…",
+      "expired": "登录请求已过期，请重新发起。",
+      "cancelled": "本次登录已取消。",
+      "scan": "使用微信扫码，在小程序中确认登录。",
+      "return": "打开小程序完成登录确认。",
+      "returnHint": "确认后，请返回当前浏览器的这个页面。",
+      "qrAlt": "微信登录小程序码",
+      "open": "打开微信小程序登录",
+      "network": "网络暂时中断，正在重试，请保留当前页面。",
+      "accountConflict": "当前浏览器已登录其他账号，请先退出再重试。",
+      "rateLimited": "操作较频繁，请稍候再试。",
+      "unavailable": "本次登录暂时无法完成，请重新发起或使用其他登录方式。",
+      "restart": "重新发起登录",
+      "switchToLink": "在手机上打开小程序",
+      "switchToQr": "使用二维码登录",
+      "cancel": "取消登录",
+      "expiresIn": "剩余 {seconds} 秒",
+      "restored": "已恢复登录请求。尚未扫码时，可重新发起。",
+      "alreadyUsed": "请求已经使用，无法再取消。请刷新页面检查登录状态。"
     }
   },
   "landing": {
