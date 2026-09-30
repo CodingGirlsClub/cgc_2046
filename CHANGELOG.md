@@ -18,6 +18,8 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ## [Unreleased]
 
+## [2026-09-28]
+
 ### Added
 
 - 邮箱死信按人抑制入队：退信后不再继续给同一人发邮件（`outreach_email_bounced_at`），只闸 email 腿、sms 腿照常触达。

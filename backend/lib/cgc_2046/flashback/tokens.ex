@@ -839,6 +839,9 @@ defmodule Cgc2046.Flashback.Tokens do
   defp progress_payload(person) do
     %{
       bound: not is_nil(person.user_id),
+      has_selected_quotes:
+        not is_nil(person.quote_license) and
+          person.quote_license.chosen_quote_spans not in [nil, []],
       today: today_payload(person.today),
       quote_level:
         if(person.quote_license, do: Atom.to_string(person.quote_license.level), else: "off"),
