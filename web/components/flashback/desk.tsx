@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import type {
-	FlashbackAnswer,
 	FlashbackDreamTarget,
 	FlashbackProfile,
 	FlashbackProgress,
@@ -37,7 +36,6 @@ export default function Desk({
 	quizChoice,
 	startOnBack = false,
 	role,
-	answers,
 	progress,
 	scatter = [],
 	onAnswer,
@@ -50,7 +48,6 @@ export default function Desk({
 	quizChoice: QuizChoice | null;
 	startOnBack?: boolean;
 	role: string;
-	answers: FlashbackAnswer[];
 	progress: FlashbackProgress;
 	/** 桌面散照候选（enter scatter 投影；缺失时桌面空态由 scatter 呈现） */
 	scatter?: FlashbackScatterPhoto[];
@@ -97,7 +94,6 @@ export default function Desk({
 						quizChoice={quizChoice}
 						startOnBack={startOnBack}
 						role={role}
-						answers={answers}
 						progress={progress}
 						onRevealed={onRevealed}
 						onWriteNext={onWriteNext}

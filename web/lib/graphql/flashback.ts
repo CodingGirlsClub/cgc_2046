@@ -46,6 +46,8 @@ export interface FlashbackProfile {
 	role: string;
 	participation: string;
 	appliedAt?: string | null;
+	/** 墙上匿名署名「王** · 年 · 城」（#1022 后端单源，寄出前预览与上墙后逐字一致） */
+	anonymousAttribution: string;
 	archive?: FlashbackArchiveRef | null;
 	answers?: FlashbackAnswer[] | null;
 }
@@ -104,6 +106,7 @@ export function sentencesWithFogMark(
 }
 
 export interface FlashbackProgress {
+	hasSelectedQuotes?: boolean;
 	bound: boolean;
 	today?: FlashbackToday | null;
 	quoteLevel: string;
@@ -459,6 +462,7 @@ export const FLASHBACK_ENTER: TypedDocumentNode<
 				role
 				participation
 				appliedAt
+				anonymousAttribution
 				archive {
 					key
 					name
@@ -477,6 +481,7 @@ export const FLASHBACK_ENTER: TypedDocumentNode<
 				}
 			}
 			progress {
+				hasSelectedQuotes
 				bound
 				today {
 					nowStatus

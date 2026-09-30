@@ -2915,9 +2915,9 @@
       "contactHint": "Changing numbers? Update it in the mini program for now — there's no update page here yet.",
       "quoteLegend": "Quote license",
       "quote_off": "Off (default)",
-      "quote_anonymous": "Anonymous quote — the platform may pick one line from your old answers to share anonymously (credited as \"W** · year · city\")",
+      "quote_anonymous": "Anonymous quote — the lines you pick appear anonymously on the Voices wall (credited as \"W** · year · city\")",
       "quote_credited": "Credited support — share this line publicly under your name",
-      "quotePick": "Pick sentences to allow (multi-select; we choose from them):",
+      "quotePick": "Pick lines for the Voices wall (multi-select; every line you pick goes up):",
       "quoteNoCandidate": "(All sentences are fogged — clear the fog to pick quotes)",
       "creditedNoteLabel": "What you're doing now, in your words (public, credited)",
       "creditedNotePlaceholder": "e.g. accessibility development",
@@ -2961,7 +2961,14 @@
       "claimFailed": "Could not save your card. Please try again.",
       "alreadyKept": "This card is already saved to an account. Sign in to view it.",
       "checkingAccount": "Checking your account…",
-      "login": "Sign in"
+      "login": "Sign in",
+      "quoteChoiceTitle": "One line for the Voices wall · anonymous",
+      "quoteShuffle": "Another line ↻",
+      "confirmSendWithQuote": "Send, and put this line on the Voices wall anonymously →",
+      "confirmSendAlbumOnly": "Send to the album",
+      "quoteChoiceNote": "The Voices wall is public — no sign-in needed. The album is visible to signed-in members only. You can withdraw either at any time.",
+      "sentWithQuote": "This line is now on the Voices wall.",
+      "voicesLink": "See the Voices wall →"
     },
     "echoCard": {
       "regionLabel": "Echo",
@@ -3105,7 +3112,8 @@
       "save": "Save license",
       "saving": "Saving…",
       "saved": "Saved ✓",
-      "error": "Saving failed — please try again."
+      "error": "Saving failed — please try again.",
+      "noPickHint": "No line picked yet — nothing shows on the wall."
     },
     "invalid": {
       "flashback_token_claimed": {

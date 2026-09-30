@@ -2915,9 +2915,9 @@
       "contactHint": "手机号要换？请到小程序上验证更新（Web 端目前没有更新入口）。",
       "quoteLegend": "金句授权",
       "quote_off": "关闭（默认）",
-      "quote_anonymous": "匿名金句——平台可从当年答案挑一句匿名传播（署「王** · 年 · 城」）",
+      "quote_anonymous": "匿名金句——你选的句子会匿名出现在金句墙（署「王** · 年 · 城」）",
       "quote_credited": "实名支持——用你的名字公开这句话",
-      "quotePick": "选出可以展示的句子（可多选，平台从中挑选）：",
+      "quotePick": "选出可以放进金句墙的句子（可多选，每一句都会上墙）：",
       "quoteNoCandidate": "（当年的句子里都带着雾面——解开后才能选金句）",
       "creditedNoteLabel": "现在在做什么、想说的话（实名公开）",
       "creditedNotePlaceholder": "例：在做无障碍开发",
@@ -2961,7 +2961,14 @@
       "claimFailed": "暂时没能收好，请重试。",
       "alreadyKept": "这张卡已经收进账号，登录即可查看。",
       "checkingAccount": "正在确认登录状态…",
-      "login": "登录"
+      "login": "登录",
+      "quoteChoiceTitle": "放进金句墙的一句 · 匿名",
+      "quoteShuffle": "换一句 ↻",
+      "confirmSendWithQuote": "寄出，并把这句匿名放进金句墙 →",
+      "confirmSendAlbumOnly": "寄出到相册",
+      "quoteChoiceNote": "金句墙所有人可见、不用登录；相册只有登录的学员可见。两者都能随时撤回。",
+      "sentWithQuote": "这句话已放进金句墙。",
+      "voicesLink": "去金句墙看看 →"
     },
     "echoCard": {
       "regionLabel": "回响",
@@ -3105,7 +3112,8 @@
       "save": "保存授权",
       "saving": "保存中……",
       "saved": "已保存 ✓",
-      "error": "保存没有成功——请再试一次。"
+      "error": "保存没有成功——请再试一次。",
+      "noPickHint": "还没选句子——墙上暂不显示。"
     },
     "invalid": {
       "flashback_token_claimed": {
