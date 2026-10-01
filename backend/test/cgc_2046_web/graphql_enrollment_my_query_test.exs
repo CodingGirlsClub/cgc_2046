@@ -323,7 +323,7 @@ defmodule Cgc2046Web.GraphqlEnrollmentMyQueryTest do
     assert when_value == DateTime.to_iso8601(starts_at)
   end
 
-  test "myEnrollments 返回押金快照金额 depositAmountCents（#696：与 createOrder 金额同源）" do
+  test "myEnrollments 返回押金活动现值金额 depositAmountCents（#696：与 createOrder 金额同源）" do
     admin = Fixtures.platform_admin("my-enrollments-deposit-admin")
     workspace = Fixtures.create_workspace(admin)
     learner = Fixtures.register_user("my-enrollments-deposit-learner")

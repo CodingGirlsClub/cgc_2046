@@ -25,19 +25,19 @@ import styles from './index.module.css'
 /**
  * 缴费闭环 U12/R13/R14：小程序订单支付页。
  *
- * 链路（#727 重排后）：预检报名快照（paymentMode/depositAmountCents）→ 押金场
+ * 链路（#727 重排后）：预检活动现值（paymentMode/depositAmountCents）→ 押金场
  * 先「勾选同意」→ createOrder（带 depositConsent）→ credential(pay_params) →
  * Taro.requestPayment(JSAPI 五键) → 轮询 orderStatus(2s×30s，与 web 同契约) →
  * paid 成功态 / 超窗手动刷新态；倒计时 expire_at。
  *
  * 押金同意门两道（U1 小程序落点 + #727 后端下沉）：
- * - 创单前门：押金场的判据取**报名快照**（paymentMode 识别 + depositAmountCents
+ * - 创单前门：押金场的判据取**活动现值**（paymentMode 识别 + depositAmountCents
  *   表态，与 web /orders/new 同源）——勾选后才创单，创单请求携带 depositConsent:
  *   true；后端按 order_kind 复核（缺失即拒 order_deposit_consent_required，本页
  *   落可重试错误态）。
  * - 支付前门：判据是**订单自己的口径快照** `order.orderKind` + `order.amountCents`
  *   （后端 order_kind/创单时写入订单的 tier_snapshot 金额），不是活动的实时缴费配置——活动随时
- *   可改配置，这一笔不会；金额创单前用报名快照、创单后一律切到订单快照。判据为
+ *   可改配置，这一笔不会；金额创单前用活动现值、创单后一律切到订单快照。判据为
  *   纯函数 preCreateDepositGate / canRequestPayment，本页只渲染。
  *
  * e2e 边界(#172 已定)：真实支付调起不可自动化，端到端止于订单生成 + 凭据
@@ -232,7 +232,7 @@ export default function OrderPayPage() {
       notify: ({ kind, title }) => Taro.showToast({ title, icon: kind === 'accepted' ? 'success' : 'none' })
     })
 
-  // 押金披露 + 勾选行（两道门共用同一段标记：判据不同源——创单前=报名快照、
+  // 押金披露 + 勾选行（两道门共用同一段标记：判据不同源——创单前=活动现值、
   // 支付前=订单快照——但披露口径与 e2e 锚点必须同形；类名留在本页 wxss）
   const depositAckBlock = (notice: DepositPayNotice) => (
     <View className={styles.depositNotice} data-testid='deposit-pay-notice'>
