@@ -308,7 +308,7 @@ function NewOrderForm() {
 
 			{isDeposit ? (
 				// 押金披露门（#696）：创单前明示押金口径 + 未到场不退，勾选同意后
-				// 才放行 createOrder（#686 弹框同构）；金额 = 报名快照 = 实付金额
+				// 才放行 createOrder（#686 弹框同构）；金额 = 活动现值 = 实付金额
 				<div
 					className="mt-5 grid gap-2 rounded-large border border-line bg-soft-2 px-3 py-3"
 					data-testid="deposit-note"

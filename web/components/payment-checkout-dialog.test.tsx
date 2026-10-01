@@ -104,7 +104,7 @@ function mockPollingQueries(orderStatus: unknown) {
   });
 }
 
-/** 押金场报名快照（#748：MY_ENROLLMENT 随返） */
+/** 押金场报名的活动现值字段（#748：MY_ENROLLMENT 随返） */
 function depositEnrollment(overrides: Record<string, unknown> = {}) {
   return {
     id: "enr-1",
@@ -603,7 +603,7 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 
 	// #675：押金脏金额（0/缺失/非整数分）→ 说明行不表态「押金（金额待定）」，
 	// 框头金额整体不显示——绝不出现「押金 ¥0（到场退）」/「¥0.00」。
-	// #748 起识别走报名快照 paymentMode（弹框自取），金额（含脏值）不参与识别：
+	// #748 起识别走活动现值 paymentMode（弹框自取），金额（含脏值）不参与识别：
 	// 押金场 + 脏金额 → 披露门照常出现，不 fail-open 成非押金口径。
 	it.each([
 		["0", 0],
@@ -680,7 +680,7 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 	});
 
 	it("押金场 + 后端拒单（本框识别缺失的 fail-open 类）→ 自愈回 consent 补勾选（#727/#748 F-06）", async () => {
-		// 报名快照非押金/不可得（enrollments 空）→ 直接创单不带 consent → 后端拒
+		// 活动现值非押金/不可得（enrollments 空）→ 直接创单不带 consent → 后端拒
 		mockQueries({ results: [] });
 		client.mutate.mockResolvedValueOnce({
 			data: {
@@ -856,7 +856,7 @@ describe("payment-checkout-dialog 押金支付前确认（U1：以到场为退�
 		expect(await screen.findByTestId("checkout-qr")).toBeInTheDocument();
 	});
 
-	it("反向断言（#686/#748）：报名快照非押金（paymentMode=pricing）即使金额在场也不出门——识别已脱离金额", async () => {
+	it("反向断言（#686/#748）：活动现值非押金（paymentMode=pricing）即使金额在场也不出门——识别已脱离金额", async () => {
 		mockQueries(
 			{ results: [] },
 			{ results: [depositEnrollment({ paymentMode: "pricing" })] },
@@ -1142,8 +1142,8 @@ describe("payment-checkout-dialog 押金口径绑订单快照（#580）", () => 
 		expect(screen.queryByTestId("checkout-qr")).not.toBeInTheDocument();
 	});
 
-	it("改押金额后复用活单：说明行显示订单快照价而非报名快照现值（不漂移）", async () => {
-		// 报名快照（MY_ENROLLMENT）已跟随现值 6900（#749），在途单仍是创单时快照 9900
+	it("改押金额后复用活单：说明行显示订单快照价而非活动现值（不漂移）", async () => {
+		// MY_ENROLLMENT 的活动现值已改为 6900（#749），在途单仍是创单时快照 9900
 		mockQueries(
 			{ results: [pendingOrder({ orderKind: "deposit", amountCents: 9900 })] },
 			{ results: [depositEnrollment({ depositAmountCents: 6900 })] },
