@@ -349,3 +349,6 @@
 .overlayDivider { border-top-color: var(--rule); }
 .invalidEyebrow { color: var(--ink-3); font: 500 21rpx/1 sans-serif; letter-spacing: 0.3em; }
 .invalidText { color: var(--ink-2); }
+
+.overlayVoices { margin-top: 16rpx; padding: 16rpx; background: var(--paper-deep); color: var(--gold-ink); font-size: 24rpx; line-height: 1.5; }
+.overlayVoices::after { border: none; }
