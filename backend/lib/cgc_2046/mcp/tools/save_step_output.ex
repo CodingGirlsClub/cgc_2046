@@ -168,7 +168,18 @@ defmodule Cgc2046.Mcp.Tools.SaveStepOutput do
         {:error, "forbidden: not authorized to write run #{run.id}"}
 
       {:error, err} ->
-        {:error, Cgc2046.Mcp.Errors.message(err, "failed to save step output")}
+        if stale_record?(err) do
+          {:error, "workflow run changed concurrently; re-read and retry"}
+        else
+          {:error, Cgc2046.Mcp.Errors.message(err, "failed to save step output")}
+        end
     end
   end
+
+  defp stale_record?(%Ash.Error.Changes.StaleRecord{}), do: true
+
+  defp stale_record?(%Ash.Error.Invalid{errors: errors}) when is_list(errors),
+    do: Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
+
+  defp stale_record?(_), do: false
 end

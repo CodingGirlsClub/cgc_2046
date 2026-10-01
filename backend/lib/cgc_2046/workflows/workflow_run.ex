@@ -460,6 +460,7 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       description("MCP 工具写入 step 产出（facts 浅合并；终态拒绝）")
       require_atomic?(false)
       accept([:facts])
+      change(optimistic_lock(:version))
 
       change(fn changeset, _context ->
         case Ash.Changeset.get_data(changeset, :status) do
