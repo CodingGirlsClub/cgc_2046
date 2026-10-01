@@ -30,7 +30,7 @@ const ALLOW = new Set([
 ]);
 
 // 首段为忽略 / 生成物 / 外部目录的引用，存在性不代表仓库状态
-const IGNORED_FIRST = /^(dist|node_modules|\.loopx|\.codex|\.worktrees|\.worktrees|tmp|deps|_build|origin|evidence|logs)\//;
+const IGNORED_FIRST = /^(dist|node_modules|\.loopx|\.codex|\.claude|\.worktrees|\.worktrees|tmp|deps|_build|origin|evidence|logs)\//;
 
 const EXT = /\.(md|ex|exs|ts|tsx|mts|mjs|cjs|js|sh|rb|yml|yaml|json|lock|graphql|puml|txt)$/;
 

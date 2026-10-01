@@ -1,6 +1,6 @@
 # cgc_2046 · Agent 项目约定
 
-通用工程与测试原则（最简实现、分层构建、复用优先、测试先行、E2E 优先等）以全局 `~/.agents/AGENTS.md` 为准——Codex CLI 经 `~/.codex/AGENTS.md` symlink 同样加载——本文件不重复，只记本项目特有约定。
+通用工程与测试原则（最简实现、分层构建、复用优先、测试先行、E2E 优先等）以全局 `~/.agents/AGENTS.md` 为准——Codex CLI 经 `~/.codex/AGENTS.md` symlink、Claude Code 经 `~/.claude/CLAUDE.md` 引用同样加载——本文件不重复，只记本项目特有约定。
 
 ## 依赖与 License 合规
 
@@ -8,14 +8,14 @@
 
 ## 子目录规则
 
-改 `backend/`、`web/`、`miniprogram/`、`omp-plugin/`、`openclacky-ext/` 下的文件前，先读该目录的 `AGENTS.md`——Codex 只自动加载仓库根到当前工作目录路径上的 AGENTS.md，不会读更深的子目录。
+改 `backend/`、`web/`、`miniprogram/`、`omp-plugin/`、`openclacky-ext/` 下的文件前，先读该目录的 `AGENTS.md`——agent 宿主只保证加载仓库根到当前工作目录路径上的 AGENTS.md，更深子目录的不一定自动读到。
 
-## LoopX 工作流（Codex CLI）
+## LoopX 工作流（Claude Code）
 
-- **宿主**：Codex CLI 的 `/goal` 可见循环，LoopX agent id `codex-cli-cgc-2046`。
+- **宿主**：Claude Code——`/loopx <task>` 备好 LoopX 状态后跑原生 `/loop`，每一轮经 LoopX `should_run` 放行；LoopX agent id `claude-code-cgc-2046`。
 - **运行位置**：主控会话在主 checkout 运行（`.loopx/` 与 LoopX 管理的项目 skill 只在这里），主 checkout 保持在 `develop`；所有改动都在 worktree 里做。手动会话同样用自己的 worktree，别在主 checkout 上切分支。
 - **任务来源**：只接带 `ready-for-agent` 标签的 issue，一个 issue 对应一个 LoopX todo（记 issue 号、分支、PR 链接）。任务状态只记在 LoopX，不另建状态文件。
-- **模型**：主控用 Codex 默认模型；子 agent 统一用 LoopX goal 配置的子任务模型（`loopx configure-goal --subagent-model`），不在别处另设。
+- **模型**：主控用 Claude Code 会话当前模型；子 agent 统一用 LoopX goal 配置的子任务模型（`loopx configure-goal --subagent-model`），不在别处另设。
 - **质量门**：push 前 LoopX change-quality 收据通过（`--base-ref origin/develop`；收据生成后再改代码即作废，需重跑）；开 PR 后跑 LoopX pr-review。涉及哪一端就先做哪一端的真实验收。
 - **合并**：符合授权表的 PR 由主控自合并到 `develop`，随后主 checkout 快进到最新 `develop`，下一个 issue 从它开工。
 - **不调用 `sop-omp`**：它只用于非 LoopX 的手动流程。

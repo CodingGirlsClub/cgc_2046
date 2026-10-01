@@ -1,12 +1,12 @@
-# LoopX 工作流（Codex CLI）
+# LoopX 工作流（Claude Code）
 
-读者：LoopX 主控会话（Codex CLI）与它拉起的子 agent。只记录当前实际在用的做法；能做什么、不能做什么以根 `AGENTS.md` 的授权表为准；GitHub 操作一律用 `gh-axi`——它不是 `gh` 的透传，flag 与 `gh` 不同，照 `docs/agents/issue-tracker.md` 的实测写法用。
+读者：LoopX 主控会话（Claude Code）与它拉起的子 agent。只记录当前实际在用的做法；能做什么、不能做什么以根 `AGENTS.md` 的授权表为准；GitHub 操作一律用 `gh-axi`——它不是 `gh` 的透传，flag 与 `gh` 不同，照 `docs/agents/issue-tracker.md` 的实测写法用。
 
 ## 1. 角色与模型
 
-- **主控**：Codex CLI 会话，LoopX agent `codex-cli-cgc-2046`，模型用 Codex 默认模型。负责认领 todo、triage、决定哪些只读工作派给子 agent、写代码、验收结论、change-quality 收据、push + 开 PR、按授权表合并到 `develop`、写回 LoopX。
-- **主控跑在主 checkout**（`.loopx/`、goal state 与 LoopX 管理的项目 skill 都只在这里），主 checkout 保持在 `develop`、不切分支改代码；所有改动都在 worktree 里做，LoopX 命令用 `--repo-path <worktree>` 指向它。手动会话也用自己的 worktree，别在主 checkout 上切分支。
-- **子 agent**：LoopX `multi_subagent` 放行的临时子 agent，最多 3 个同时运行——端口 4001 与 ego-browser 登录态是实际上限。模型统一用 goal 配置的子任务模型（`spawn_policy.model_config`），不在别处另设。**只做只读工作**：收集资料、按当前 develop 核实 issue（triage 取证）、读代码找证据、独立复核 / 评审、跑测试并汇报；不改代码、不 commit、不 push、不开 PR、不写 LoopX 状态、不 spend。要跑测试就用自己的 worktree（各用各的测试库，见 §6）。写代码、验收、change-quality 收据、PR、合并都由主控自己做；子 agent 的结论由主控核实原件后才采用。
+- **主控**：Claude Code 会话，LoopX agent `claude-code-cgc-2046`，模型用会话当前模型。负责认领 todo、triage、决定哪些只读工作派给子 agent、写代码、验收结论、change-quality 收据、push + 开 PR、按授权表合并到 `develop`、写回 LoopX。
+- **主控跑在主 checkout**（`.loopx/`、goal state 与 LoopX 管理的项目 skill 都只在这里），主 checkout 保持在 `develop`、不切分支改代码；所有改动都在 worktree 里做，LoopX 命令用 `--repo-path <worktree>` 指向它。Claude Code 只从 `.claude/skills` 发现项目 skill：LoopX 管理的用 `loopx project-skill install --surface claude-code` 装，其余软链到 `.agents/skills` 下同名目录。手动会话也用自己的 worktree，别在主 checkout 上切分支。
+- **子 agent**：LoopX `multi_subagent` 放行的临时子 agent，最多 3 个同时运行——端口 4001 与 ego-browser 登录态是实际上限。模型统一用 goal 配置的子任务模型（`spawn_policy.model_config`），不在别处另设——Claude Code 用 Agent tool 派生时 `model` 参数取这个值。**只做只读工作**：收集资料、按当前 develop 核实 issue（triage 取证）、读代码找证据、独立复核 / 评审、跑测试并汇报；不改代码、不 commit、不 push、不开 PR、不写 LoopX 状态、不 spend。要跑测试就用自己的 worktree（各用各的测试库，见 §6）。写代码、验收、change-quality 收据、PR、合并都由主控自己做；子 agent 的结论由主控核实原件后才采用。
 - 不为了"看起来在并行"而拆子 agent。
 
 ## 2. 任务来源与 todo 约定
