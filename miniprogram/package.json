@@ -17,6 +17,7 @@
     "check:diversion": "node scripts/check-no-diversion.mjs",
     "check:xhs-patch": "node scripts/check-xhs-share-pairing.mjs",
     "check:release-endpoint": "node scripts/check-release-endpoint.mjs",
+    "check:release-schema": "node scripts/check-release-schema.mjs",
     "test:unit": "node --experimental-strip-types --test 'tests/**/*.test.ts' 'tests/**/*.test.mjs' && vitest run",
     "audit:prod": "node scripts/audit-if-deps-changed.mjs -- pnpm audit --prod --audit-level high",
     "check:ci": "pnpm audit:prod && pnpm codegen && git diff --exit-code -- src/api/generated && pnpm typecheck && pnpm check:licenses && pnpm test:unit && pnpm build:weapp && node scripts/check-bundle-size.mjs && pnpm build:tt && pnpm build:xhs && pnpm check:xhs-patch && pnpm check:diversion && pnpm build:weapp:mock && node scripts/check-anchors.mjs && node scripts/check-e2e-docs.mjs",
