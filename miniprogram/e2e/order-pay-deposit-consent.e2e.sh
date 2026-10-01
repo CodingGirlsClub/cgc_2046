@@ -116,7 +116,7 @@ if [ "$(COUNT "$NOTICE")" != "1" ]; then
 fi
 ck "落在 order-pay" "$(ROUTE)" '/pages/order-pay/index'
 
-echo "### 2) 创单前：披露（口径 + 金额 = 报名快照）+ 未勾选零创单（#727 重排）"
+echo "### 2) 创单前：披露（口径 + 金额 = 活动现值）+ 未勾选零创单（#727 重排）"
 ck "阶段标题=押金确认（创单前）" "$(RES automation_element_action --action text --selector "$TITLE")" '押金确认'
 ck "押金金额行" "$(RES automation_element_action --action text --selector "$NOTICE")" '押金 ¥ ?[0-9]+\.[0-9]{2}（到场退）'
 ck "未到场不退明示" "$(RES automation_element_action --action text --selector "$NOTICE")" '未到场不退。'

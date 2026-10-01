@@ -51,7 +51,7 @@ E2E 跑在**微信开发者工具模拟器**里，与 web 的 ego-browser 无关
 
 押金单必须明示「押金 ¥xx（到场退）+ 未到场不退」并取得显式勾选同意（与 web 收银框 U1 / /orders/new 同源）。**两道门，判据不得混用**：
 
-1. **创单前门**（`preCreateDepositGate`，`src/pages/order-pay/index.tsx`）：押金场先「勾选」→ `createOrder(enrollmentId, true)`（带 `depositConsent`）→ 支付。判据 = **报名快照** `Enrollment.paymentMode === 'deposit'` + `depositAmountCents`（两者都以**活动现值**为权威——后端计算字段与创单金额同源同值，预检走 `api.getEnrollment`）。后端按 `order_kind` 权威复核：押金单缺 `depositConsent: true` → `order_deposit_consent_required` 拒单，页面经 `createOrderSelfHealsToConsent`（#751）识别后转「披露 + 勾选」流程自愈，不落同构重试死循环。
+1. **创单前门**（`preCreateDepositGate`，`src/pages/order-pay/index.tsx`）：押金场先「勾选」→ `createOrder(enrollmentId, true)`（带 `depositConsent`）→ 支付。判据 = **活动现值** `Enrollment.paymentMode === 'deposit'` + `depositAmountCents`（两者都以**活动现值**为权威——后端计算字段与创单金额同源同值，预检走 `api.getEnrollment`）。后端按 `order_kind` 权威复核：押金单缺 `depositConsent: true` → `order_deposit_consent_required` 拒单，页面经 `createOrderSelfHealsToConsent`（#751）识别后转「披露 + 勾选」流程自愈，不落同构重试死循环。
 2. **支付前门**（`canRequestPayment`）：押金单未勾选不放行 `Taro.requestPayment`（纵深防御）。判据 = **订单自己的口径快照** `Order.orderKind === 'deposit'` + `order.amountCents`（订单创建后不随活动配置漂移）。
 
 - **不要**用活动的实时缴费配置（`offering.depositEnabled` / `CatalogItem.depositAmountCents`）当钱动前的判据——活动随时可改配置，订单创建后用户同意的是这一笔。创单前那一格是唯一例外（订单还不存在），判据取 `Enrollment.paymentMode`/`depositAmountCents`（与创单实付同源）；创单后一律切到订单快照。
