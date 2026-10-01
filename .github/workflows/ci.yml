@@ -22,8 +22,11 @@ concurrency:
 jobs:
   # 门禁前置:push 事件的 merge commit 去重。
   # 判据:merge commit(2 parents) 且 tree == 第二父 tree(零漂移合并——
-  #       base 未动、无冲突解决) 且第二父 SHA 上 CI job 最新结论全 ∈ {success,skipped}
-  #       且 secrets 必为 success(纯文档 PR 的重型 job 会 skipped,见 changes job)
+  #       base 未动、无冲突解决) 且第二父 SHA 上 5 个检查(backend/web/miniprogram/
+  #       secrets/ext)齐全、最新结论全 ∈ {success,skipped} 且 secrets 必为 success;
+  #       出现 skipped 时,还须 changes job 成功,且本 job 对第二父的改动
+  #       (first...second)独立重算 docs_only=true——skipped 只在「确为纯文档」
+  #       时才算已绿,workflow 写错/前置 job 被取消导致的 skipped 不放行
   #   → 该 merge 等价于刚跑绿的 PR head,跳过(run=false)。
   # 直接 push(parents==1)、基线漂移(tree 不等)、squash merge、判断异常
   #   → run=true。fail-closed 于质量门:宁可多跑,不漏跑。
@@ -33,6 +36,9 @@ jobs:
     outputs:
       run: ${{ steps.decide.outputs.run }}
     steps:
+      # 仅 push 去重才用得上 scripts/ci/docs-only.sh;PR 事件早退,不必 checkout
+      - if: github.event_name == 'push'
+        uses: actions/checkout@v7
       - id: decide
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -49,15 +55,31 @@ jobs:
           second_tree=$(gh api "repos/$REPO/commits/$second" --jq '.commit.tree.sha') || exit 0
           [ "$tree" = "$second_tree" ] || exit 0
 
-          # 第二父(被合入分支 head)上各 CI job 最新结论:全部 ∈ {success,skipped}
-          # (纯文档 PR 的重型 job 被 changes 跳过),且 secrets 必须是 success——
-          # secrets 恒跑,它的 success 才证明那一轮 CI 真跑过;没有这条,
-          # 全 skipped 的 run 会被误当「已绿」。无记录/进行中(null)→ 跑(fail-closed)
+          # 第二父(被合入分支 head)上各 CI job 最新结论:5 个检查必须齐全,
+          # 全部 ∈ {success,skipped},且 secrets 必须是 success——secrets 恒跑,
+          # 它的 success 才证明那一轮 CI 真跑过。无记录/进行中(null)→ 跑(fail-closed)
           concls=$(gh api "repos/$REPO/commits/$second/check-runs?per_page=100" \
-            --jq '[.check_runs[] | select(.name == "backend" or .name == "web" or .name == "miniprogram" or .name == "secrets" or .name == "ext")]
+            --jq '[.check_runs[] | select(.name == "backend" or .name == "web" or .name == "miniprogram" or .name == "secrets" or .name == "ext" or .name == "changes")]
                   | group_by(.name) | map(sort_by(.started_at) | last | "\(.name) \(.conclusion)") | .[]') || exit 0
           grep -qx 'secrets success' <<<"$concls" || exit 0
           ! grep -qvE ' (success|skipped)$' <<<"$concls" || exit 0
+          for n in backend web miniprogram ext; do
+            grep -qE "^$n (success|skipped)$" <<<"$concls" || exit 0
+          done
+
+          # skipped 只在「第二父确为纯文档」时算已绿:要求 changes job 成功,且独立
+          # 重算 first...second(三点比较=相对合并基点的 PR 改动)必须 docs_only=true。
+          # 不信 skipped 本身——workflow 写错或前置 job 被取消同样会 skipped。
+          if grep -q ' skipped$' <<<"$concls"; then
+            grep -qx 'changes success' <<<"$concls" || exit 0
+            first=$(jq -r '.parents[0].sha' <<<"$info")
+            files=$(gh api "repos/$REPO/compare/${first}...${second}" \
+              --jq '.files[] | .filename, (.previous_filename // empty)') || exit 0
+            # compare API 单次最多 300 files,达到即可能截断 → 跑
+            [ "$(wc -l <<<"$files")" -lt 300 ] || exit 0
+            result=$(printf '%s\n' "$files" | bash scripts/ci/docs-only.sh) || exit 0
+            [ "$result" = "docs_only=true" ] || exit 0
+          fi
 
           echo "merge push 等价于已绿 PR head $second,跳过" >> "$GITHUB_STEP_SUMMARY"
           echo "run=false" >> "$GITHUB_OUTPUT"
