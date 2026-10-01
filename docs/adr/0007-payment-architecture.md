@@ -58,3 +58,11 @@
 3. **`deposit_settlement_race` 错误码曾保留但无抛出点，#861 已删除。** 迁移前实测：自助取消侧该 raise 分支不可达，竞态实际透出 `order_already_processed`。R1 审查更正机制认知：不可达的根因不是「case 子句匹配不上 Ash 错误类 struct」（那只是伴随症状 `CaseClauseError`），而是 Ash 默认 `rollback_on_error?: true`——嵌套 action 失败即回滚外层事务，重读收敛逻辑根本执行不到。R1-#1 修复（`rollback_on_error?: false`，产品拍板 A）后重读真正执行：已收敛 → 自助取消/核销由失败改为成功（有意行为修复），未收敛 → 上抛回滚、code 不变。（2026-09-27 #861 处置：triage 决定删码——已收敛情形改为取消成功属良性，未收敛透传 `order_already_processed`，无启用场景；`domain_error_code`/`domain_error_message` 子句与 #241 契约条目已随删，web/小程序经 git 历史核实从未配过此键文案，未来如需显式竞态语义须重新登记错误码。）
 
 4. **变化：旧 D(a)（结算自动退款）竞态路径的补插删除（#862 对账检测）。** 旧 D(a) 的 `enqueue_auto_refund/1` 在 CAS 未命中且 reload 见 `refunding`/`refunded` 时会手动补插退款 job——发起方 action 自带 `after_action` 入队后，他路的 job 必然已存在，该补插为冗余防御，随 D1 删除（旧 C 流程只扫 `paid` 订单，从来不会补插；自助取消侧读时已 `refunding` 的补插同批删除）。代价：`refunding` 单若因运维原因丢失 in-flight job，不再有调用方补插自愈——由 #862 的对账检测承接。
+
+---
+
+## 更正补记（#749）——押金金额源：活动现值，创单后钉死为订单快照
+
+> 正文与既有补记不改，本节只更正 2026-09-14 补记第 3 条的一处措辞（写法先例见该补记首段）。
+
+2026-09-14 补记第 3 条写的「金额源为报名提交时物化的押金快照」已被 #749 取代，**该句保持原样不动，以本节为准**：押金金额以**活动现值**为权威——`Enrollment.depositAmountCents` / `paymentMode` 是计算字段，每次读都取活动当下配置，`submission_payload` 不再物化也不参与金额（历史预埋的脏键天然免疫）；创单（`createOrder`）时才把金额钉死进订单的 `tier_snapshot`，此后不随活动改价追溯已创建订单。术语：创单前 = 活动现值，创单后 = 订单快照（见 `CONTEXT.md` §9 易混清单）。落账链、`forfeit` / `start_refund` 的仲裁纪律与第 3 条其余部分不受影响。

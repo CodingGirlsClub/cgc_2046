@@ -200,7 +200,7 @@ describe("/orders/new 进页守卫（支付接续）", () => {
 		it("守卫失败 → 后端拒单（order_deposit_consent_required）→ 自愈补门 + 重跑守卫（#727）", async () => {
 			// 第一次守卫查询 reject（既有「不阻塞下单」兜底）→ 本页押金事实缺失
 			client.query.mockRejectedValueOnce(new Error("guard down"));
-			// 自愈重跑守卫：拿到押金快照
+			// 自愈重跑守卫：拿到押金活动现值
 			mockDepositEnrollment();
 			client.mutate
 				.mockResolvedValueOnce({

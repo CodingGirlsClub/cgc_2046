@@ -389,8 +389,8 @@ test('支付门判据：押金单未勾选不放行；一般报名单零回归�
 
 // ── #727 创单前门：勾选 → 创单（带同意）→ 支付 ──
 
-test('创单前门判据：押金场 required + 报名快照金额；非押金/读不到不拦', () => {
-  // 押金场：出门（非 null），金额取报名快照（与后端下单实付同源）
+test('创单前门判据：押金场 required + 活动现值金额；非押金/读不到不拦', () => {
+  // 押金场：出门（非 null），金额取活动现值（与后端下单实付同源）
   const depositGate = preCreateDepositGate({
     paymentMode: 'deposit',
     depositAmountCents: 6900
