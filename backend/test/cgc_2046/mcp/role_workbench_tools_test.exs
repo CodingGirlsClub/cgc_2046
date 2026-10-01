@@ -110,7 +110,8 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
       # #586 bump:learner playbook 补缴费槽三态口径（押金场不得读成免费）
       # #622 bump:learner playbook 补「payment_mode 现行配置 vs order_kind 订单事实」口径
       # #675 bump:learner playbook 押金脏金额不表态文案统一「押金（金额待定）」（对齐 web/小程序）
-      assert payload["version"] == "2026-09-26.1"
+      # #839 bump:learner playbook 押金金额口径改「活动现值权威」（订单创建前跟随现值、订单创建后钉死在订单）
+      assert payload["version"] == "2026-10-01.1"
       assert payload["content"] =~ "学习模式"
 
       # #586:缴费槽口径随版本号分发（引号内押金文案与 web zh-CN / 小程序逐字节一致，
@@ -139,6 +140,16 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
       assert payload["content"] =~ "order_kind"
       assert payload["content"] =~ "不得用 payment_mode 覆盖订单事实"
       assert payload["content"] =~ "复习纪律(间隔重复)"
+
+      # #839:押金金额口径 = 活动现值权威——订单创建前披露与实付跟随现值、订单创建后钉死在订单
+      # tier_snapshot（换渠道沿用原单金额）。钉子落在指令句本身（\s* 容忍 playbook 折行）；
+      # 旧口径「取报名提交时的快照、改了活动配置也不追溯这一笔」不得回潮——agent 会据此对用户
+      # 承诺「金额已锁定」，而创单实付实际跟随组织者改价。
+      assert payload["content"] =~ ~r/押金金额以\*\*活动现值\*\*为权威/
+      assert payload["content"] =~ ~r/不得向用户承诺此时金额已锁定/
+      assert payload["content"] =~ ~r/订单一旦创建,\s*这一笔金额即钉死在订单\(tier_snapshot\)/
+      refute payload["content"] =~ ~r/报名提交时\s*的\s*快照/
+      refute payload["content"] =~ ~r/不追溯\s*这一笔/
 
       # advisor F6:discover 详情按来源分流（公开 → public 工具；成员段 → summary）
       assert payload["content"] =~ "get_public_offering(id, kind)"

@@ -75,8 +75,8 @@ function NewOrderForm() {
 	const [guard, setGuard] = useState<GuardState>({ kind: "checking" });
 	// 报名对象标题（守卫查询随返）：下单成功时经 sessionStorage 交接订单页成功卡
 	const [enrollTitle, setEnrollTitle] = useState<string | null>(null);
-	// 押金事实（守卫查询随返，#696）：现行 paymentMode（识别判据）+ 报名时物化
-	// 的押金快照金额（与 createOrder 实付同源，纯表态）
+	// 押金事实（守卫查询随返，#696）：现行 paymentMode（识别判据）+ 押金金额
+	// （活动现值，与 createOrder 实付同源，纯表态）
 	const [enrollDeposit, setEnrollDeposit] = useState<{
 		paymentMode: string | null;
 		depositAmountCents: number | null;
