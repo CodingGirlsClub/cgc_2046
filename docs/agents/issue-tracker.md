@@ -9,7 +9,7 @@ Issues and PRDs for this repo live as GitHub issues in `CodingGirlsClub/cgc_2046
 - **List issues**: `gh-axi issue list --state open --label <name> --fields body,labels` (comments aren't available here; read them with `issue view`).
 - **Comment on an issue**: `gh-axi issue comment <number> --body "..."` (or `--body-file <path>`)
 - **Apply / remove labels**: `gh-axi issue edit <number> --add-label "..."` / `--remove-label "..."`
-- **Close**: `gh-axi issue close <number> --comment "..."` (add `--reason not_planned` when it won't be done)
+- **Close**: `gh-axi issue close <number> --comment "..."` (add `--reason "not planned"` when it won't be done — quoted, with a space; `gh-axi`'s help lists `not_planned`, but it forwards the value to `gh`, which rejects it)
 
 `gh-axi` infers the repo from the clone's remote; pass `-R owner/name` otherwise.
 
