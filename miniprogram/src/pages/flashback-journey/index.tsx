@@ -12,6 +12,9 @@ import {
   quizResultText,
   revealStamp,
   SEND_OVERLAY } from '@/domain/flashback-journey'
+import QuoteSendChoice from '@/components/MyCard/QuoteSendChoice'
+import { quoteSuggestions, shouldOfferQuoteChoice, QUOTE_SEND_COPY } from '@/domain/quote-suggestion'
+import { sendWithQuoteChoice, type QuotePick } from '@/domain/quote-send'
 import { questionLabel } from '@/domain/flashback'
 import { buildFlashbackEntryPath } from '@/domain/share-route'
 import type { FlashbackEnterResult, FlashbackTokenInvalidCode } from '@/domain/models'
@@ -34,7 +37,7 @@ const INVALID_COPY: Record<FlashbackTokenInvalidCode, string> = {
 }
 
 /** 进长廊（现为 tabBar 页面）：switchTab 不接受 query，welcome 语义改走一次性
- * intent——抑制快门仪式 + 推一次金句引导（首程刚走完，不该再演一遍开场）。 */
+ * intent——抑制快门仪式（首程刚走完，不该再演一遍开场）。 */
 function enterCorridor(): void {
   setFlashbackEntry('welcome')
   void Taro.switchTab({ url: '/pages/flashback-corridor/index' })
@@ -63,6 +66,10 @@ export default function FlashbackJourneyPage() {
   const [draftWant, setDraftWant] = useState('')
   const [draftSay, setDraftSay] = useState('')
   const [sending, setSending] = useState(false)
+  const sendBusy = useRef(false)
+  const [sendError, setSendError] = useState('')
+  const [sentWithQuote, setSentWithQuote] = useState(false)
+  const committedPick = useRef<QuotePick | null>(null)
   const [overlay, setOverlay] = useState(false)
   const [claiming, setClaiming] = useState(false)
 
@@ -153,21 +160,23 @@ export default function FlashbackJourneyPage() {
   }
 
   // 寄出（R11）：先写今天（R8）再上墙——浮层盖在显影场景上，不换页（原型 F）
-  const send = async () => {
-    if (sending) return
+  const send = async (pick: QuotePick | null = null) => {
+    if (sendBusy.current) return
+    sendBusy.current = true
     setSending(true)
-    try {
-      await api.flashbackSubmitToday(
-        { nowStatus: draftNow || null, want: draftWant || null, say: draftSay || null },
-        token
-      )
-      await api.flashbackSendToWall(token)
+    setSendError('')
+    const result = await sendWithQuoteChoice(api,
+      { nowStatus: draftNow || null, want: draftWant || null, say: draftSay || null }, pick, token, committedPick.current)
+    if (result.ok) {
+      committedPick.current = null
+      setSentWithQuote(result.withQuote)
       setOverlay(true)
-    } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '寄出失败，请重试', icon: 'none' })
-    } finally {
-      setSending(false)
+    } else {
+      committedPick.current = result.licenseCommitted
+      setSendError(result.message)
     }
+    sendBusy.current = false
+    setSending(false)
   }
 
   // R14 分享：卡片落旅程入口（朋友从这里进入闪念间）；不带本人 token（R32 边界）
@@ -207,6 +216,8 @@ export default function FlashbackJourneyPage() {
   }
 
   const profile = entry?.profile
+  const suggestions = profile && shouldOfferQuoteChoice(entry?.progress?.quoteLevel ?? 'off', entry?.progress?.hasSelectedQuotes ?? false)
+    ? quoteSuggestions(profile.answers, profile.fullName, profile.surname) : []
   const faceAnswers = profile ? cardFaceAnswers(profile.answers) : []
 
   return (
@@ -281,9 +292,16 @@ export default function FlashbackJourneyPage() {
             </View>
           </View>
           {!flipped && <Text className={styles.revealHint}>点击照片翻面写字</Text>}
-          <Button className={styles.cta} disabled={sending || !flipped} onClick={() => void send()}>
-            {sending ? '正在寄出…' : '寄出，回到时间长廊 →'}
-          </Button>
+          {flipped && suggestions.length > 0 ? (
+            <QuoteSendChoice suggestions={suggestions} attribution={profile.anonymousAttribution}
+              busy={sending} onSend={(pick) => void send(pick)} />
+          ) : (
+            <Button className={styles.cta} disabled={sending || !flipped} onClick={() => void send()}>
+              {sending ? QUOTE_SEND_COPY.sending : QUOTE_SEND_COPY.albumOnly}
+            </Button>
+          )}
+          {sendError && <Text className={styles.backHint}>{sendError}。请再次点击寄出重试。</Text>}
+
         </View>
       )}
 
@@ -293,6 +311,10 @@ export default function FlashbackJourneyPage() {
           <View className={styles.overlayCard}>
             <Text className={styles.overlayTitle}>{SEND_OVERLAY.title}</Text>
             <Text className={styles.overlayBody}>{SEND_OVERLAY.body}</Text>
+            {sentWithQuote && <Button className={styles.overlayVoices}
+              onClick={() => void Taro.navigateTo({ url: '/pages/flashback-voices/index' })}>
+              {QUOTE_SEND_COPY.sentWithQuote}去金句墙看看 →
+            </Button>}
             <Button className={styles.overlayPrimary} disabled={claiming} onClick={() => void claimAndStore()}>
               {claiming ? '正在收好…' : SEND_OVERLAY.primary}
             </Button>

@@ -309,3 +309,16 @@
 /* 雾块放在最后：本块给 .sentence / .rvSentence 设了墨色，雾句的透明字色必须压在它之后
    （同为单类选择器，后写者胜——否则雾住的句子会重新露出原文） */
 .sentenceFogged, .rvFog { color: transparent; background: linear-gradient(90deg, rgba(152, 160, 146, 0.55), rgba(152, 160, 146, 0.35)); }
+
+/* 寄出时逐句授权：同宽同色的两个明确选择，延续现有纸面与墨色。 */
+.quoteChoice { margin: 24rpx 8rpx 16rpx; padding: 24rpx; background: var(--paper-deep); text-align: left; }
+.quoteChoiceEyebrow { display: block; font-size: 21rpx; color: var(--ink-2); }
+.quoteChoiceText { display: block; margin: 18rpx 0; font-family: var(--serif); font-size: 28rpx; line-height: 1.7; color: var(--ink); }
+.quoteChoiceMeta { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; }
+.quoteChoiceCite { font-size: 22rpx; color: var(--ink-2); }
+.quoteChoiceShuffle { margin: 0; padding: 12rpx; font-size: 22rpx; line-height: 1.5; background: transparent; color: var(--gold-ink); }
+.quoteChoiceShuffle::after { border: none; }
+.quoteChoiceActions { display: flex; flex-direction: column; gap: 12rpx; }
+.quoteChoiceWithQuote, .quoteChoiceAlbumOnly { margin: 0 8rpx; padding: 18rpx 16rpx; font-size: 24rpx; }
+.sendError { display: block; padding: 16rpx; color: var(--ink); font-size: 24rpx; line-height: 1.6; }
+.quoteSentLink { display: block; padding: 20rpx 8rpx; color: var(--gold-ink); font-size: 24rpx; text-align: center; }

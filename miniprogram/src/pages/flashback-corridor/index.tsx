@@ -9,6 +9,7 @@ import MyCard from '@/components/MyCard'
 import { EndorseWishSheet } from '@/components/Wishes/EndorseSheet'
 import WishEchoCard from '@/components/WishEchoCard'
 import { myCardView, quoteLikeBadge, shareMessage, futureEventCards, quoteCandidatesOf, isCandidatePicked, parseQuoteLevel, QUOTE_LEVEL_OPTIONS, TODAY_FIELDS, questionLabel, type QuoteLevel } from '@/domain/flashback'
+import { quoteLicenseBadge, QUOTE_SEND_COPY } from '@/domain/quote-suggestion'
 import { corridorFrames, todayFrameLabel } from '@/domain/flashback-journey'
 import { buildFlashbackEntryPath } from '@/domain/share-route'
 import { shouldRevealRecoveredCard } from '@/domain/flashback-recovery'
@@ -63,14 +64,7 @@ export default function FlashbackCorridorPage() {
   // U7 报名 sheet:点场次卡→详情(押金);报名→event-detail 端内闭环
   const [eventSheet, setEventSheet] = useState<{ id: string; title: string; meta: string } | null>(null)
   const [enrolled, setEnrolled] = useState<string[]>([])
-  const [sendingCard, setSendingCard] = useState(false)
-  // 金句授权引导(一次性):首程落地或寄出落定且未授权未推过 → 轻推
-  const [licenseNudge, setLicenseNudge] = useState(false)
-  const maybeNudgeLicense = (level: string) => {
-    if (level !== 'off') return
-    if (Taro.getStorageSync<boolean>(STORAGE_KEYS.flashbackLicenseNudge)) return
-    setLicenseNudge(true)
-  }
+  const [sentWithQuote, setSentWithQuote] = useState(false)
 
   // #933 相册开放告知（一次性）：开放前就寄出的人第一次回来时看到；进来时还没寄出的人
   // 寄出前会读到新的可见范围文案——直接置位，寄出后不再打扰
@@ -89,33 +83,17 @@ export default function FlashbackCorridorPage() {
   const [todayLanded, setTodayLanded] = useState(false)
 
   /** 寄出落定(U5 三拍收尾):关抽屉 → 滚到 ⚡今天格,让用户看到自己上墙 */
-  const sentLanding = () => {
+  const sentLanding = (withQuote: boolean) => {
+    setSentWithQuote(withQuote)
     setCardLayer(null)
     setScrollAnchor('')
     setTimeout(() => setScrollAnchor('todayAnchor'), 350)
     setTodayLanded(true)
     setTimeout(() => setTodayLanded(false), 2000)
-    if (mode.kind === 'member') maybeNudgeLicense(parseQuoteLevel(mode.capsule.me.quoteLevel))
-  }
-
-  /** 寄出(U5 完整三拍);骨架期:发送 → toast + 交 U5 落定 */
-  const sendTodayCard = async () => {
-    if (mode.kind !== 'member' || sendingCard) return
-    setSendingCard(true)
-    try {
-      await api.flashbackSendToWall(mode.token ?? null)
-      Taro.showToast({ title: '已贴上墙', icon: 'none' })
-      await reloadMember()
-      sentLanding()
-    } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '寄出失败', icon: 'none' })
-    } finally {
-      setSendingCard(false)
-    }
   }
 
   // 闪念间入口 intent（长廊成为 tabBar 页面后 switchTab 不带 query）：useDidShow
-  // 一次性消费，供 future（滚未来段）与 welcome（推金句引导）两处共用——两处
+  // 一次性消费，供 future（滚未来段）与 welcome（跳过快门）两处共用——两处
   // 各自消费的话，先跑的那处会把 intent 清掉，后一处永远读不到。
   const entryIntent = useRef<FlashbackEntryIntent | null>(null)
   // useDidShow：登录回跳（returnUrl）后自动重载——路人态升级为参与态的落点；
@@ -139,16 +117,6 @@ export default function FlashbackCorridorPage() {
     if (shouldRevealRecoveredCard(revealedPerson.current, person, entryIntent.current === 'welcome')) setShutter(true)
     revealedPerson.current = person
   }, [mode])
-
-  // 首程落地（welcome intent）：member 就绪后一次性推金句授权引导
-  const welcomeNudged = useRef(false)
-  useEffect(() => {
-    if (mode.kind !== 'member' || welcomeNudged.current) return
-    if (entryIntent.current !== 'welcome') return
-    welcomeNudged.current = true
-    maybeNudgeLicense(parseQuoteLevel(mode.capsule.me.quoteLevel))
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 落地一次性
-  }, [mode.kind])
 
   // 首次进入（member 数据就绪）→ 定位到「今天」格：长廊按时间序排列，真实
   // 数据的历史场次（2012-2018 六城）会把今天格推到数屏之外，用户点进来第一
@@ -225,7 +193,7 @@ export default function FlashbackCorridorPage() {
     if (mode.kind !== 'checking') return
     setCardLayer(null); setWishModal(null); setWishComment(''); setPrivateOpen(false)
     setEndorseSheet(null); setEventSheet(null); setLicenseOpen(false); setLicensePicks([])
-    setLicenseInited(false); setLicenseNudge(false); setShutter(false)
+    setLicenseInited(false); setSentWithQuote(false); setShutter(false)
   }, [mode.kind])
 
   const cancelEndorse = async (wishId: string) => {
@@ -341,10 +309,10 @@ export default function FlashbackCorridorPage() {
               ✎ 写今天的你{todayWritten ? ' ✓' : ''}
             </Text>
             <Text
-              className={`${styles.dockSend} ${sendingCard ? styles.dockSendBusy : me?.today?.sentToWallAt ? styles.dockSendDone : todayWritten ? '' : styles.dockSendDim}`}
-              onClick={() => void sendTodayCard()}
+              className={`${styles.dockSend} ${me?.today?.sentToWallAt ? styles.dockSendDone : todayWritten ? '' : styles.dockSendDim}`}
+              onClick={() => openCardLayer('write')}
             >
-              {sendingCard ? '正在贴上墙…' : me?.today?.sentToWallAt ? '已寄出 ✓' : '写完寄出 →'}
+              {me?.today?.sentToWallAt ? '已寄出 ✓' : '写完寄出 →'}
             </Text>
             <Text
               className={`${styles.dockLicense} ${me && parseQuoteLevel(me.quoteLevel) !== 'off' ? styles.dockLicenseOn : ''}`}
@@ -360,12 +328,16 @@ export default function FlashbackCorridorPage() {
                 setLicenseOpen(true)
               }}
             >
-              ← 金句授权{me && parseQuoteLevel(me.quoteLevel) !== 'off' ? ` · ${parseQuoteLevel(me.quoteLevel) === 'anonymous' ? '匿名' : '实名'} ✓` : ''}
+              ← 金句授权{quoteLicenseBadge(me.quoteLevel, me.quoteSpans)}
             </Text>
           </View>
         </View>
       )}
 
+      {sentWithQuote && <Text className={styles.sentQuoteNotice}
+        onClick={() => void Taro.navigateTo({ url: '/pages/flashback-voices/index' })}>
+        {QUOTE_SEND_COPY.sentWithQuote}去金句墙看看 →
+      </Text>}
       <View className={styles.capsuleShell}>
       <ScrollView
         id='fbCapsule'
@@ -553,42 +525,6 @@ export default function FlashbackCorridorPage() {
 
       <AppTabBar selected='flashback' />
 
-      {/* 金句授权引导(一次性):勇气语+去授权/先不 */}
-      {licenseNudge && (
-        <View className={styles.nudgeMask} catchMove onClick={() => setLicenseNudge(false)}>
-          <View className={styles.nudgeCard} onClick={(e) => e.stopPropagation()}>
-            <Text className={styles.nudgeLead}>你说的话，会成为别人的勇气。</Text>
-            <Text className={styles.nudgeSub}>从当年的答案里选一句，匿名或实名地传下去。</Text>
-            <Button
-              className={styles.nudgePrimary}
-              onClick={() => {
-                Taro.setStorageSync(STORAGE_KEYS.flashbackLicenseNudge, true)
-                setLicenseNudge(false)
-                setLicenseLevel('anonymous')
-                setLicensePicks(
-                  me?.quoteSpans
-                    ? me.quoteSpans.map((sp) => ({ questionKey: sp.questionKey, start: sp.start, len: sp.len }))
-                    : [],
-                )
-                setLicenseInited(true)
-                setLicenseOpen(true)
-              }}
-            >
-              选一句试试 →
-            </Button>
-            <Button
-              className={styles.nudgeSkip}
-              onClick={() => {
-                Taro.setStorageSync(STORAGE_KEYS.flashbackLicenseNudge, true)
-                setLicenseNudge(false)
-              }}
-            >
-              先不
-            </Button>
-          </View>
-        </View>
-      )}
-
       {/* U8 快门仪式层:回访进门——呼吸快门,点按即入(原型 G intro) */}
       {shutter && mode.kind === 'member' && (
         <View className={styles.shutterMask} onClick={() => setShutter(false)}>
@@ -678,8 +614,9 @@ export default function FlashbackCorridorPage() {
             {licenseLevel !== 'off' && (
               <View className={styles.quotePickerSheet}>
                 <Text className={styles.quotePickHint}>
-                  选出可以展示的句子（可多选，平台从中挑选）：已选 {licensePicks.length} 句
+                  选出可以展示的句子（可多选，每一句都会上墙）：已选 {licensePicks.length} 句
                 </Text>
+                {licensePicks.length === 0 && <Text className={styles.quotePickHint}>{QUOTE_SEND_COPY.noPickHint}</Text>}
                 {quoteCandidatesOf(mode.capsule.me.answers, mode.capsule.me.today).map((candidate) => {
                   const picked = isCandidatePicked(candidate, licensePicks)
                   const order = licensePicks.findIndex(
@@ -730,7 +667,7 @@ export default function FlashbackCorridorPage() {
                         </Text>
                         <View className={styles.quotePreviewBy}>
                           <Text className={styles.quotePreviewName}>
-                            {mode.capsule.me.surname}** · {mode.capsule.me.appliedAt?.slice(0, 4)} · {mode.capsule.me.city ?? ''}
+                            {mode.capsule.me.anonymousAttribution}
                           </Text>
                           <Text className={styles.quotePreviewDim}>匿名 · 不可点</Text>
                         </View>

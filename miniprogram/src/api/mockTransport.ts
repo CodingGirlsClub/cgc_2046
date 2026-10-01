@@ -1255,6 +1255,8 @@ function responseFor(document: string, variables: object): unknown {
             return host ? host.slice(first.start, first.start + first.len) : null
           })(),
           quoteSpans: state.chosenQuoteSpans ?? [],
+          // #1022：后端单源署名（王小明 = 王** · 场次 2014 · 北京）
+          anonymousAttribution: '王** · 2014 · 北京',
           quoteStats:
             state.quoteLevel === 'off' ? null : { likeCount: state.likeCount ?? 0 },
           today: { ...state.today, fogSpans: state.todayFogSpans ?? {} },
@@ -1390,6 +1392,7 @@ function responseFor(document: string, variables: object): unknown {
           participation: 'attended',
           role: 'learner',
           appliedAt: '2014-01-11T13:06:00+08:00',
+          anonymousAttribution: '王** · 2014 · 北京',
           archive: { ...FLASHBACK_E2E_ARCHIVE },
           answers: [
             {
@@ -1407,6 +1410,7 @@ function responseFor(document: string, variables: object): unknown {
           ]
         },
         progress: {
+          hasSelectedQuotes: !!state.chosenQuoteSpans?.length,
           quoteLevel: state.quoteLevel,
           maskedPhone: '139****0001',
           maskedEmail: null,

@@ -1158,6 +1158,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
         quoteSpans: (capsule.me.quoteSpans ?? [])
           .filter((s): s is NonNullable<typeof s> => s != null)
           .map((s) => ({ questionKey: s.questionKey, start: s.start, len: s.len })),
+        anonymousAttribution: capsule.me.anonymousAttribution,
         quoteStats: capsule.me.quoteStats ? { likeCount: capsule.me.quoteStats.likeCount } : null,
         today: capsule.me.today
           ? {
@@ -1233,11 +1234,12 @@ export class RealMiniProgramApi implements MiniProgramApi {
 
     async flashbackSetQuoteLicense(
     level: 'off' | 'anonymous' | 'credited',
-    chosenQuoteSpans?: { questionKey: string; start: number; len: number }[] | null
+    chosenQuoteSpans?: { questionKey: string; start: number; len: number }[] | null,
+    token?: string | null
   ): Promise<void> {
     const data = await graphqlRequest<FlashbackSetQuoteLicenseMutation, FlashbackSetQuoteLicenseMutationVariables>(
       FlashbackSetQuoteLicenseMutationDocument,
-      { level, chosenQuoteSpans: chosenQuoteSpans ?? null }
+      { level, chosenQuoteSpans: chosenQuoteSpans ?? null, token: token ?? undefined }
     )
     if (!data.flashbackSetQuoteLicense) throw new Error('授权设置失败，请重试')
   }
@@ -1287,6 +1289,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
             participation: result.profile.participation === 'not_selected' ? 'not_selected' : 'attended',
             role: result.profile.role,
             appliedAt: result.profile.appliedAt ?? null,
+            anonymousAttribution: result.profile.anonymousAttribution,
             archive: result.profile.archive
               ? {
                   key: result.profile.archive.key,
@@ -1310,6 +1313,7 @@ export class RealMiniProgramApi implements MiniProgramApi {
         : null,
       progress: result.progress
         ? {
+            hasSelectedQuotes: result.progress.hasSelectedQuotes,
             quoteLevel: result.progress.quoteLevel,
             maskedPhone: result.progress.maskedPhone ?? null,
             maskedEmail: result.progress.maskedEmail ?? null,
