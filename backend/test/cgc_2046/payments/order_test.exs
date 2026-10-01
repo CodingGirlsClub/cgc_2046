@@ -3,7 +3,7 @@ defmodule Cgc2046.Payments.OrderTest do
   支付闭环 U1：Order 状态机骨架 + 库级不变量（R11 唯一活跃订单部分索引 /
   R21 WebhookEvent 幂等去重）；event-deposit U7：forfeited 终态与 forfeit CAS、
   forfeited 统计桶、重复支付回调对 forfeited 单的迟到裁决；event-deposit U2：
-  押金单金额源分派（KTD1）——下单/换渠道取押金快照而非定价档位，落账链零改动。
+  押金单金额源分派（KTD1）——下单/换渠道取押金活动现值（创单时钉死为 tier_snapshot）而非定价档位，落账链零改动。
 
   全部动作以 authorize?: false 走内部路径（worker/域服务语义）；面向用户的
   policy 随 U5/U9 暴露时细化。
@@ -969,7 +969,7 @@ defmodule Cgc2046.Payments.OrderTest do
   end
 
   # U2 押金布置：押金场（ends_at 非空是 U3 校验要求，也是 no-show 结算锚点）→
-  # 报名落 payment_pending 且 submission_payload 已物化押金快照。
+  # 报名落 payment_pending；押金金额以活动现值为权威（#749，submission_payload 不参与）。
   defp deposit_attrs(extra \\ %{}) do
     Map.merge(
       %{

@@ -161,7 +161,7 @@ defmodule Cgc2046Web.GraphqlOrderTest do
     end
   end
 
-  describe "押金场 createOrder（U2/KTD1：金额源 = 押金快照）" do
+  describe "押金场 createOrder（U2/KTD1：金额源 = 活动现值）" do
     test "押金报名 order-pay 端到端：deposit 单 + 押金金额 + 渠道凭据" do
       %{enrollment_id: enrollment_id, token: token} = deposit_enrollment("e2e")
 

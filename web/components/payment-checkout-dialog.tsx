@@ -89,7 +89,7 @@ type CheckoutOrder = Pick<
 >;
 
 // U1：押金单在钱动前停在「以到场为退还条件」确认态（consent）——门由订单
-// 快照口径（或无单时刻的报名快照）判定（#580/#748），未确认前不产生任何
+// 快照口径（或无单时刻的活动现值）判定（#580/#748），未确认前不产生任何
 // 渠道单/凭据
 type Phase = "consent" | "checking" | "paying" | "error";
 
@@ -135,7 +135,7 @@ export default function PaymentCheckoutDialog({
   // 押金不表态文案单源在 `offerings`（#675，与公开页/报名页同句）
   const tOfferings = useTranslations("offerings");
   const labelsT = useTranslations();
-  // 开框统一 checking：并行查活单（订单快照口径 orderKind）与报名快照（押金
+  // 开框统一 checking：并行查活单（订单快照口径 orderKind）与活动现值（押金
   // 事实 paymentMode/depositAmountCents，#748）再定 consent/paying
   // （#580）——押金门不再由调用方下传的活动实时配置预判
   const [phase, setPhase] = useState<Phase>("checking");
@@ -144,7 +144,7 @@ export default function PaymentCheckoutDialog({
   // 后端判定「这是押金单」（order_deposit_consent_required，#727 自愈）：本框
   // 押金识别缺失/过期时采纳，让重试创单带上同意标记（而非再次裸发）
   const [backendDepositRequired, setBackendDepositRequired] = useState(false);
-  // 报名快照押金事实（#748 自取 MY_ENROLLMENT）：无活单时识别判据 +
+  // 活动现值押金事实（#748 自取 MY_ENROLLMENT）：无活单时识别判据 +
   // 披露金额源；查询失败落 null → 按非押金场处理（既有「不阻塞下单」兜底，
   // 错误由 createOrder 翻译层承接 + #727 自愈回 consent）
   const [enrollDeposit, setEnrollDeposit] = useState<EnrollDeposit | null>(null);
@@ -200,7 +200,7 @@ export default function PaymentCheckoutDialog({
   });
 
   // 押金口径（#580/#686/#748）：订单就绪 → 只认订单快照 orderKind；未就绪
-  // （无活单的 consent 预判路径）→ 报名快照 paymentMode（#748 自取
+  // （无活单的 consent 预判路径）→ 活动现值 paymentMode（#748 自取
   // MY_ENROLLMENT，与后端创单金额同源；金额不参与识别——脏金额绝不让押金单
   // 掉进非押金分支连披露门都不出）；后端拒单 order_deposit_consent_required
   // 是第三来源（#727 自愈）：后端按 order_kind 判押金而本框识别缺失时，采纳
@@ -301,7 +301,7 @@ export default function PaymentCheckoutDialog({
     ],
   );
 
-  // 开框初始化：并行查活单（订单快照口径）与报名快照（押金事实，#748）
+  // 开框初始化：并行查活单（订单快照口径）与活动现值（押金事实，#748）
   // → 复用活单 or 初始下单。押金口径不可判（orderKind 缺失/未知）→ fail-closed
   // 停支付面。
   // 守卫在 cleanup 中解锁（React StrictMode dev 双跑：mount→unmount→remount
@@ -363,7 +363,7 @@ export default function PaymentCheckoutDialog({
       }
       if (enrollment?.paymentMode === "deposit") {
         // 无活单 + 押金场：先停确认态（U1），确认后才创单——此刻尚无订单，
-        // 披露金额 = 报名快照（#748），与创单实付同源。识别按 paymentMode
+        // 披露金额 = 活动现值（#748），与创单实付同源。识别按 paymentMode
         // 存在性（#686）：金额缺失不漏门（金额只用于表态）
         setPhase("consent");
         return;
@@ -456,7 +456,7 @@ export default function PaymentCheckoutDialog({
     credential === null &&
     status === "pending";
   const amountCents = order?.amountCents ?? amountHintCents;
-  // 说明行金额同源：订单快照优先、报名快照兜底（#748：与创单实付同源），
+  // 说明行金额同源：订单快照优先、活动现值兜底（#748：与创单实付同源），
   // 且表态过守卫（#675）：脏金额（缺失/0/负/非整数分）→ null → 说明行
   // 「押金（金额待定）」，框头金额同步不显示（既有 null 分支），绝不出现
   // 「¥0.00」。识别不读金额（#686/#748：paymentMode/订单口径/后端判定定门），

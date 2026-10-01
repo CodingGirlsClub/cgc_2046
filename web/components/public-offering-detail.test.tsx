@@ -1370,7 +1370,7 @@ function mockPaidCheckoutFlow() {
     if (query === MY_PENDING_ORDERS) {
       return Promise.resolve({ data: { myOrders: { results: [] } } });
     }
-    // #748：弹框自取报名快照押金事实（MY_ENROLLMENT）
+    // #748：弹框自取活动现值押金事实（MY_ENROLLMENT）
     if (query === MY_ENROLLMENT) {
       return Promise.resolve({
         data: {
@@ -1494,7 +1494,7 @@ describe("押金场详情与本人看码（R10/R11；KTD5/KTD10）", () => {
     expect(note).toHaveTextContent("未到场不退。");
   });
 
-  it("押金场报名开框即停同意门（#686 D4 钉，#748 弹框自取报名快照）：未勾选零创单", async () => {
+  it("押金场报名开框即停同意门（#686 D4 钉，#748 弹框自取活动现值）：未勾选零创单", async () => {
     mocks.fetchPublicOffering.mockResolvedValue(DEPOSIT_EVENT);
     mocks.submitEnrollment.mockResolvedValueOnce({
       result: { id: "enr-deposit", status: "payment_pending" },

@@ -188,7 +188,7 @@ test('mock 押金同意门：押金单缺 consent 拒单、带 true 放行、非
   }>(CreateEnrollmentMutationDocument, {
     input: { userId: 'user-1', eventId: 'event-deposit', ageConfirmed: true }
   })
-  // #727：报名快照带押金金额（order-pay 创单前披露的金额源）
+  // #727：活动现值带押金金额（order-pay 创单前披露的金额源）
   assert.equal(enrolled.createEnrollment.result?.paymentMode, 'deposit')
   assert.equal(enrolled.createEnrollment.result?.depositAmountCents, 6900)
 
@@ -232,7 +232,7 @@ test('#617 契约：两处报名 selection 都含 startsAt/venue', () => {
     assert.match(doc, /\bstartsAt\b/, `${name} 缺 startsAt`)
     assert.match(doc, /\bvenue\b/, `${name} 缺 venue`)
     assert.match(doc, /\bregistrationDeadline\b/, `${name} 缺 registrationDeadline（既有字段回归）`)
-    // #727：押金快照金额只给单条回查（order-pay 创单前门的金额源）——列表查询
+    // #727：押金活动现值金额只给单条回查（order-pay 创单前门的金额源）——列表查询
     // 不选（该计算字段 load submission_payload，列表最多 100 行，白拉 JSONB）；
     // 少选即静默「金额待定」，多选即列表浪费，两侧都钉住
     if (name === 'EnrollmentQueryDocument') {
