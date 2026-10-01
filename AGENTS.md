@@ -89,6 +89,7 @@ LoopX 会话只按上方授权表把自己的 PR 合并到 `develop`；其余合
 - 人工合并 feature→develop PR 同样用 `gh pr merge --auto --merge`（develop 与 main 同为 4 checks strict 保护）；LoopX 会话不开 auto-merge，见授权表。
 - 紧急修复可直接 hotfix→main PR：head 非 develop 时 4 checks 在 PR 上重新跑，绿了即可合并部署，不必绕道 develop。
 - **后端 API 收紧 × 客户端依赖的组合发布纪律**：后端新增必填校验/收紧参数（如 #727 的押金 `depositConsent` 门）而客户端（小程序/APP）需过审才能带上新参数时——后端与客户端**同窗口发布**，或**客户端先行过审**后再合后端；窗口期存量客户端的对应请求会被硬拒。同时为新增拒绝错误码加监控曲线（观察窗口期拒绝量回落至基线）。
+- **客户端依赖后端新字段 → 上传门（#786，ADR-0020）**：小程序 operation 引用后端新字段而线上后端尚未部署时，GraphQL 校验会让整条 document 被拒（整页挂）。反方向纪律：**后端先部署，小程序上传前、全量发布前各跑一次 `pnpm check:release-schema`**（用 `/healthz` 的 `x-cgc-version` 取线上 SHA，校验全部 operation），红则不上传 / 不发布；回滚后端前用 `--ref <目标 SHA>` 预检。不要靠拆 fail-soft query 或运行时 introspection 规避。
 
 ## Deploy deps 镜像节奏
 
