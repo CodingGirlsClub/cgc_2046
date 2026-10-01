@@ -112,8 +112,9 @@ defmodule Cgc2046.Recruitment.ApplicationWorkflowInstantiator do
   # 不留「status=interview 而 run 仍停在 submitted 门控」的漂移）。
   defp maybe_exempt_initial_review(run, opts) do
     if opts[:exempt_initial_review?] do
-      with :ok <- put_exemption_fact(run, opts),
-           {:ok, exempted_run} <- resume_gate(run, @initial_gate, exemption_payload(opts), opts) do
+      with {:ok, updated_run} <- put_exemption_fact(run, opts),
+           {:ok, exempted_run} <-
+             resume_gate(updated_run, @initial_gate, exemption_payload(opts), opts) do
         {:ok, exempted_run}
       end
     else
@@ -147,7 +148,7 @@ defmodule Cgc2046.Recruitment.ApplicationWorkflowInstantiator do
            authorize?: false
          )
          |> Ash.update(tenant: run.workspace_id, authorize?: false) do
-      {:ok, _run} -> :ok
+      {:ok, updated_run} -> {:ok, updated_run}
       {:error, reason} -> {:error, {:exemption_fact_failed, reason}}
     end
   end

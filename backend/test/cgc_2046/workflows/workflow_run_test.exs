@@ -9,6 +9,7 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
   alias Cgc2046.Workflows.JidoAdapter
   alias Cgc2046.Workflows.StepHandlerRegistry
   alias Cgc2046.Workflows.TestActions
+  alias Cgc2046.MiniprogramFixtures.Barrier
 
   require Ash.Query
 
@@ -626,6 +627,50 @@ defmodule Cgc2046.Workflows.WorkflowRunTest do
   end
 
   describe "optimistic lock" do
+    test "concurrent whole-facts writes from one snapshot have one winner" do
+      admin = Fixtures.platform_admin("wfrun-facts-race-admin")
+      workspace = Fixtures.create_workspace(admin)
+      {:ok, defn} = create_definition(workspace, admin)
+      {:ok, published} = publish_definition(defn, workspace, admin)
+      {:ok, run} = create_run(workspace, admin, published)
+      barrier = start_supervised!({Barrier, 2})
+
+      results =
+        ["first_step", "second_step"]
+        |> Enum.map(fn step_key ->
+          Task.async(fn ->
+            changeset =
+              Ash.Changeset.for_update(
+                run,
+                :update_facts_for_mcp,
+                %{facts: %{step_key => %{"ok" => true}}},
+                authorize?: false
+              )
+
+            Barrier.arrive(barrier)
+            Ash.update(changeset, tenant: workspace.id, authorize?: false)
+          end)
+        end)
+        |> Task.await_many(15_000)
+
+      assert Enum.count(results, &match?({:ok, _}, &1)) == 1
+      assert Enum.count(results, &match?({:error, %Ash.Error.Invalid{}}, &1)) == 1
+
+      assert {:ok, final_run} =
+               Ash.get(WorkflowRun, run.id, authorize?: false, tenant: workspace.id)
+
+      assert map_size(final_run.facts) == 1
+      assert final_run.version == run.version + 1
+
+      assert Enum.any?(results, fn
+               {:error, %Ash.Error.Invalid{errors: errors}} ->
+                 Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
+
+               _ ->
+                 false
+             end)
+    end
+
     test "concurrent update on stale version rejected" do
       admin = Fixtures.platform_admin("wfrun-admin")
       workspace = Fixtures.create_workspace(admin)
