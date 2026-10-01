@@ -383,7 +383,7 @@ export function canRequestPayment(input: {
  * 创单前押金门判据（纯函数；order-pay 页只做渲染与调起）。
  *
  * 非 null = 押金场：先出披露 + 勾选，同意后才创单（携带 depositConsent）；
- * null = 非押金/报名读不到 → 直接创单。判据 = 报名快照的
+ * null = 非押金/报名读不到 → 直接创单。判据 = 活动现值的
  * `paymentMode === 'deposit'`（与 web /orders/new 同源），披露金额取
  * `depositAmountCents`——#749 起它与创单实付同源同值（活动现值权威，
  * payload 不参与金额）。报名读不到（null）→ null：本端 fail-open 由后端
