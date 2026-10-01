@@ -52,3 +52,21 @@ test('保存今天失败不授权；授权成功但寄出失败明确部分成�
   const result = await sendWithQuoteChoice(send.api, today, pick, null)
   assert.match('message' in result ? result.message : '', /金句已授权.*相册.*失败/)
 })
+
+test('寄出失败时带回已授权的句子，重试沿用后不会把墙上留句报成未带句', async () => {
+  const send = fixture('send')
+  const result = await sendWithQuoteChoice(send.api, today, pick, null)
+  assert.equal(result.ok, false)
+  assert.deepEqual('licenseCommitted' in result ? result.licenseCommitted : null, pick)
+  // 已有授权在墙；专辑-only 重试也如实报告带句成功
+  const retry = fixture()
+  assert.deepEqual(await sendWithQuoteChoice(retry.api, today, null, null, pick), { ok: true, withQuote: true })
+  assert.deepEqual(retry.calls.map(([name]) => name), ['today', 'send'])
+})
+
+test('授权阶段失败不带回已授权句子', async () => {
+  const failed = fixture('license')
+  const result = await sendWithQuoteChoice(failed.api, today, pick, null)
+  assert.equal(result.ok, false)
+  assert.equal('licenseCommitted' in result ? result.licenseCommitted : null, null)
+})

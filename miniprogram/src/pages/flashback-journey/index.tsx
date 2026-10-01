@@ -69,6 +69,7 @@ export default function FlashbackJourneyPage() {
   const sendBusy = useRef(false)
   const [sendError, setSendError] = useState('')
   const [sentWithQuote, setSentWithQuote] = useState(false)
+  const committedPick = useRef<QuotePick | null>(null)
   const [overlay, setOverlay] = useState(false)
   const [claiming, setClaiming] = useState(false)
 
@@ -165,11 +166,15 @@ export default function FlashbackJourneyPage() {
     setSending(true)
     setSendError('')
     const result = await sendWithQuoteChoice(api,
-      { nowStatus: draftNow || null, want: draftWant || null, say: draftSay || null }, pick, token)
+      { nowStatus: draftNow || null, want: draftWant || null, say: draftSay || null }, pick, token, committedPick.current)
     if (result.ok) {
+      committedPick.current = null
       setSentWithQuote(result.withQuote)
       setOverlay(true)
-    } else setSendError(result.message)
+    } else {
+      committedPick.current = result.licenseCommitted
+      setSendError(result.message)
+    }
     sendBusy.current = false
     setSending(false)
   }

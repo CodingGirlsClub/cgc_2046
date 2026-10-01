@@ -25,6 +25,8 @@ import {
 import QuoteSendChoice from './QuoteSendChoice'
 import { quoteSuggestions, shouldOfferQuoteChoice, QUOTE_SEND_COPY } from '@/domain/quote-suggestion'
 import { sendWithQuoteChoice, type QuotePick } from '@/domain/quote-send'
+import { pageRegistered } from '@/domain/platform-pages'
+import { currentPlatform } from '@/platform'
 import styles from './index.module.css'
 
 type TodayKey = (typeof TODAY_FIELDS)[number]['field']
@@ -63,6 +65,7 @@ export default function MyCard({
   const sending = useRef(false)
   const [sendError, setSendError] = useState('')
   const [sentWithQuote, setSentWithQuote] = useState(false)
+  const committedPick = useRef<QuotePick | null>(null)
   const suggestions = shouldOfferQuoteChoice(capsule.me.quoteLevel, !!capsule.me.quoteSpans?.length)
     ? quoteSuggestions(answers, capsule.me.fullName, capsule.me.surname) : []
 
@@ -108,13 +111,17 @@ export default function MyCard({
     const result = await sendWithQuoteChoice(api, {
       nowStatus: draft.nowStatus || null, want: draft.want || null,
       need: draft.need || null, say: draft.say || null
-    }, pick, token ?? null)
+    }, pick, token ?? null, committedPick.current)
     if (result.ok) {
+      committedPick.current = null
       setSentWithQuote(result.withQuote)
       void Taro.showToast({ title: result.withQuote ? '已寄出，金句已上墙' : '已寄出到相册', icon: 'none' })
       onWrite()
       onSent?.(result.withQuote)
-    } else setSendError(result.message)
+    } else {
+      committedPick.current = result.licenseCommitted
+      setSendError(result.message)
+    }
     sending.current = false
     setSaving(false)
   }
@@ -212,10 +219,13 @@ export default function MyCard({
               </>
             )}
             {sendError && <Text className={styles.sendError}>{sendError}。请再次点击寄出重试。</Text>}
-            {sentWithQuote && <Text className={styles.quoteSentLink}
-              onClick={() => void Taro.navigateTo({ url: '/pages/flashback-voices/index' })}>
-              {QUOTE_SEND_COPY.sentWithQuote}去金句墙看看 →
-            </Text>}
+            {/* tt 裁剪端未注册金句墙页，链接会静默失败——只在本端注册了 voices 页时展示 */}
+            {sentWithQuote && pageRegistered('pages/flashback-voices/index', currentPlatform()) && (
+              <Text className={styles.quoteSentLink}
+                onClick={() => void Taro.navigateTo({ url: '/pages/flashback-voices/index' })}>
+                {QUOTE_SEND_COPY.sentWithQuote}去金句墙看看 →
+              </Text>
+            )}
             <Text className={styles.backLink} onClick={() => setFlipped(false)}>
               ← 回到当年答案
             </Text>
