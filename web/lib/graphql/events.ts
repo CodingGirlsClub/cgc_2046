@@ -773,9 +773,9 @@ export interface MyEnrollmentRow {
    */
   paymentMode?: string | null;
   /**
-   * 押金快照金额（分；#696）：报名提交时物化，与 createOrder 押金单实付金额
-   * 同源；脏值/无键 → null（披露行「押金（金额待定）」，绝不 ¥0）。
-   * 仅 MY_ENROLLMENT 选取。
+   * 押金金额（分；#696，#749 收紧）：活动现值权威——后端计算字段读目标现值，与
+   * createOrder 押金单实付金额同源，未支付报名随组织者改价同步；脏值/无键 → null
+   * （披露行「押金（金额待定）」，绝不 ¥0）。仅 MY_ENROLLMENT 选取。
    */
   depositAmountCents?: number | null;
 }

@@ -167,7 +167,7 @@ interface MockEnrollment {
   checkInCode: string | null
   /** 目标缴费模式（后端 Enrollment.paymentMode 计算字段同规则：押金 > 定价 > 免费） */
   paymentMode: string | null
-  /** #727 押金快照金额（后端 Enrollment.depositAmountCents 计算字段同规则：非押金场 null） */
+  /** #727 押金金额（后端 Enrollment.depositAmountCents 计算字段同规则：非押金场 null） */
   depositAmountCents: number | null
   /** #617 目标开始时间（后端 Enrollment.startsAt 计算字段同规则：从目标记录取） */
   startsAt: string | null
@@ -957,8 +957,9 @@ function responseFor(document: string, variables: object): unknown {
       // 生成时点 = create（KTD5）——confirmed 才出示，故仅免缴直通有码
       checkInCode: status === 'confirmed' ? CHECK_IN_CODE : null,
       paymentMode,
-      // #727：押金快照金额（与后端 Enrollment.depositAmountCents 同源口径——
-      // 报名提交时物化；非押金场 null）。order-pay 创单前披露的金额源
+      // #727：押金金额（与后端 Enrollment.depositAmountCents 同源口径——活动现值，
+      // 非押金场 null；mock 目标押金额恒为常量、无改价路径，不模拟「改价跟随」）。
+      // order-pay 创单前披露的金额源
       depositAmountCents:
         paymentMode === 'deposit' && target && 'depositAmountCents' in target
           ? (target.depositAmountCents ?? null)

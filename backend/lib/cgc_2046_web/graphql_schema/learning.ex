@@ -157,9 +157,9 @@ defmodule Cgc2046Web.GraphqlSchema.Learning do
       end)
     end
 
-    # 押金快照金额（#696）：报名提交时物化的 submission_payload 键，与 createOrder
-    # 押金单实付金额同源——/orders/new 披露行的金额源；定价/免费报名 nil（展示面
-    # 走「金额待定」，绝不 ¥0）。
+    # 押金金额（#696，#749 收紧）：以活动现值为权威（Enrollment 计算字段读目标现值），
+    # 与 createOrder 押金单实付同源、未支付报名随组织者改价同步——/orders/new 披露行
+    # 的金额源；定价/免费报名 nil（展示面走「金额待定」，绝不 ¥0）。
     field(:deposit_amount_cents, :integer) do
       resolve(fn parent, _args, %{definition: definition} ->
         {:ok, enrollment_calc_value(parent, definition, :deposit_amount_cents)}

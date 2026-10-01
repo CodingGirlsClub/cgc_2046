@@ -253,8 +253,8 @@ export interface EnrollmentSummary {
   /** 目标缴费模式（后端 Enrollment.paymentMode 计算字段）：押金场取消文案与规则行据此分叉 */
   paymentMode: PaymentMode | null
   /**
-   * 押金快照金额（分；后端 Enrollment.depositAmountCents 计算字段，源 = 报名提交
-   * 时物化的 submission_payload 键，与下单实付金额同源）。order-pay 的**创单前**
+   * 押金金额（分；后端 Enrollment.depositAmountCents 计算字段，源 = 目标活动现值
+   * （#749），与下单实付金额同源、随组织者改价同步）。order-pay 的**创单前**
    * 披露用它表态；脏值/无键 → null（文案走「押金（金额待定）」，绝不 ¥0）。
    * 创单后一律切到订单快照 `order.amountCents`（权威，见 order-pay 页）。
    */
