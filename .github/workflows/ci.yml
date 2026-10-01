@@ -22,7 +22,11 @@ concurrency:
 jobs:
   # 门禁前置:push 事件的 merge commit 去重。
   # 判据:merge commit(2 parents) 且 tree == 第二父 tree(零漂移合并——
-  #       base 未动、无冲突解决) 且第二父 SHA 上 CI 四 job 最新结论全 success
+  #       base 未动、无冲突解决) 且第二父 SHA 上 5 个检查(backend/web/miniprogram/
+  #       secrets/ext)齐全、最新结论全 ∈ {success,skipped} 且 secrets 必为 success;
+  #       出现 skipped 时,还须 changes job 成功,且本 job 对第二父的改动
+  #       (first...second)独立重算 docs_only=true——skipped 只在「确为纯文档」
+  #       时才算已绿,workflow 写错/前置 job 被取消导致的 skipped 不放行
   #   → 该 merge 等价于刚跑绿的 PR head,跳过(run=false)。
   # 直接 push(parents==1)、基线漂移(tree 不等)、squash merge、判断异常
   #   → run=true。fail-closed 于质量门:宁可多跑,不漏跑。
@@ -32,6 +36,9 @@ jobs:
     outputs:
       run: ${{ steps.decide.outputs.run }}
     steps:
+      # 仅 push 去重才用得上 scripts/ci/docs-only.sh;PR 事件早退,不必 checkout
+      - if: github.event_name == 'push'
+        uses: actions/checkout@v7
       - id: decide
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -48,23 +55,91 @@ jobs:
           second_tree=$(gh api "repos/$REPO/commits/$second" --jq '.commit.tree.sha') || exit 0
           [ "$tree" = "$second_tree" ] || exit 0
 
-          # 第二父(被合入分支 head)上四个 CI job 的最新结论必须全 success;
-          # 无记录时结论为空串≠success → 跑(fail-closed)
+          # 第二父(被合入分支 head)上各 CI job 最新结论:5 个检查必须齐全,
+          # 全部 ∈ {success,skipped},且 secrets 必须是 success——secrets 恒跑,
+          # 它的 success 才证明那一轮 CI 真跑过。无记录/进行中(null)→ 跑(fail-closed)
           concls=$(gh api "repos/$REPO/commits/$second/check-runs?per_page=100" \
-            --jq '[.check_runs[] | select(.name == "backend" or .name == "web" or .name == "miniprogram" or .name == "secrets" or .name == "ext")]
-                  | group_by(.name) | map(sort_by(.started_at) | last | .conclusion) | unique | join(",")') || exit 0
-          [ "$concls" = "success" ] || exit 0
+            --jq '[.check_runs[] | select(.name == "backend" or .name == "web" or .name == "miniprogram" or .name == "secrets" or .name == "ext" or .name == "changes")]
+                  | group_by(.name) | map(sort_by(.started_at) | last | "\(.name) \(.conclusion)") | .[]') || exit 0
+          grep -qx 'secrets success' <<<"$concls" || exit 0
+          ! grep -qvE ' (success|skipped)$' <<<"$concls" || exit 0
+          for n in backend web miniprogram ext; do
+            grep -qE "^$n (success|skipped)$" <<<"$concls" || exit 0
+          done
+
+          # skipped 只在「第二父确为纯文档」时算已绿:要求 changes job 成功,且独立
+          # 重算 first...second(三点比较=相对合并基点的 PR 改动)必须 docs_only=true。
+          # 不信 skipped 本身——workflow 写错或前置 job 被取消同样会 skipped。
+          if grep -q ' skipped$' <<<"$concls"; then
+            grep -qx 'changes success' <<<"$concls" || exit 0
+            first=$(jq -r '.parents[0].sha' <<<"$info")
+            files=$(gh api "repos/$REPO/compare/${first}...${second}" \
+              --jq '.files[] | .filename, (.previous_filename // empty)') || exit 0
+            # compare API 单次最多 300 files,达到即可能截断 → 跑
+            [ "$(wc -l <<<"$files")" -lt 300 ] || exit 0
+            result=$(printf '%s\n' "$files" | bash scripts/ci/docs-only.sh) || exit 0
+            [ "$result" = "docs_only=true" ] || exit 0
+          fi
 
           echo "merge push 等价于已绿 PR head $second,跳过" >> "$GITHUB_STEP_SUMMARY"
           echo "run=false" >> "$GITHUB_OUTPUT"
 
+  # 纯文档判定(#1051):改动文件全部落在 docs/** 或仓库根 *.md 时 docs_only=true,
+  # backend/web/miniprogram/ext 据此 job 级跳过(secrets、agent-docs 照跑)。
+  # 必须 job 级 if 而非 workflow 级 paths:——前者跳过的 job 结论 skipped,按通过
+  # 计入 required checks;后者整个 workflow 不触发,required checks 永远不出现,
+  # PR 卡死。判定逻辑在 scripts/ci/docs-only.sh,本 job 每次先跑它的断言:
+  # 断言失败 → 本 job 红、docs_only 为空 → 下游照常全量跑(可见且 fail-closed)。
+  # 检测任何异常(API 失败/文件数达上限/事件不识别)一律保持 docs_only=false。
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      docs_only: ${{ steps.detect.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: bash scripts/ci/docs-only.test.sh
+      - id: detect
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          # rename 场景 filename 只有新路径,previous_filename 补旧路径
+          case "$EVENT" in
+            pull_request)
+              files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" \
+                --jq '.[] | .filename, (.previous_filename // empty)') || exit 0
+              limit=3000 ;;  # pulls files 接口上限 3000,达到即可能截断
+            push)
+              # 新分支/首推 before 为全 0,无基线 → 全量
+              [[ "$BEFORE" =~ ^0+$ ]] && exit 0
+              files=$(gh api "repos/$REPO/compare/${BEFORE}...${SHA}" \
+                --jq '.files[] | .filename, (.previous_filename // empty)') || exit 0
+              limit=300 ;;   # compare 单次最多 300 files,达到即可能截断
+            *) exit 0 ;;
+          esac
+          [ "$(wc -l <<<"$files")" -lt "$limit" ] || exit 0
+          result=$(printf '%s\n' "$files" | bash scripts/ci/docs-only.sh) || exit 0
+          echo "$result" >> "$GITHUB_OUTPUT"
+          echo "纯文档判定:$result" >> "$GITHUB_STEP_SUMMARY"
+
   backend:
-    needs: gate
+    needs: [gate, changes]
     # 双重去重:gate 挡「等价于已绿 PR 的 merge push」;PR 侧仅跳过
     # 「head 为本仓库 develop」的 PR(复用 develop push 的同 SHA 结论);
     # feature→develop、fork PR 没有可复用结果,照常跑
     if: >
+      !cancelled() &&
       needs.gate.outputs.run == 'true' &&
+      needs.changes.outputs.docs_only != 'true' &&
       (github.event_name == 'push' ||
        github.head_ref != 'develop' ||
        github.event.pull_request.head.repo.full_name != github.repository)
@@ -152,10 +227,12 @@ jobs:
       - run: mix test --only migration_probe
         timeout-minutes: 10
   web:
-    needs: gate
+    needs: [gate, changes]
     # 去重条件同 backend(gate + PR 侧 develop→main 跳过)
     if: >
+      !cancelled() &&
       needs.gate.outputs.run == 'true' &&
+      needs.changes.outputs.docs_only != 'true' &&
       (github.event_name == 'push' ||
        github.head_ref != 'develop' ||
        github.event.pull_request.head.repo.full_name != github.repository)
@@ -218,10 +295,12 @@ jobs:
           BACKEND_URL: http://localhost:4000
 
   miniprogram:
-    needs: gate
+    needs: [gate, changes]
     # 去重条件同 backend(gate + PR 侧 develop→main 跳过)
     if: >
+      !cancelled() &&
       needs.gate.outputs.run == 'true' &&
+      needs.changes.outputs.docs_only != 'true' &&
       (github.event_name == 'push' ||
        github.head_ref != 'develop' ||
        github.event.pull_request.head.repo.full_name != github.repository)
@@ -291,10 +370,12 @@ jobs:
   # Ruby 套件，内部 Open3 调 node）+ bin/pack 冒烟（manifest 与「git 跟踪
   # 集 − 容器 .gitignore」全等校验 + ext verify）。本地同命令秒级。
   ext:
-    needs: gate
+    needs: [gate, changes]
     # 去重条件同 backend(gate + PR 侧 develop→main 跳过)
     if: >
+      !cancelled() &&
       needs.gate.outputs.run == 'true' &&
+      needs.changes.outputs.docs_only != 'true' &&
       (github.event_name == 'push' ||
        github.head_ref != 'develop' ||
        github.event.pull_request.head.repo.full_name != github.repository)
