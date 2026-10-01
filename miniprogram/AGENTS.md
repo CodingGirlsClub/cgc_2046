@@ -55,7 +55,7 @@ E2E 跑在**微信开发者工具模拟器**里，与 web 的 ego-browser 无关
 2. **支付前门**（`canRequestPayment`）：押金单未勾选不放行 `Taro.requestPayment`（纵深防御）。判据 = **订单自己的口径快照** `Order.orderKind === 'deposit'` + `order.amountCents`（订单创建后不随活动配置漂移）。
 
 - **不要**用活动的实时缴费配置（`offering.depositEnabled` / `CatalogItem.depositAmountCents`）当钱动前的判据——活动随时可改配置，订单创建后用户同意的是这一笔。创单前那一格是唯一例外（订单还不存在），判据取 `Enrollment.paymentMode`/`depositAmountCents`（与创单实付同源）；创单后一律切到订单快照。
-- **金额语义（#749）**：创单实付与披露金额都以活动现值为权威，`submission_payload` 不参与金额（历史预埋脏键天然免疫）。组织者改押金额后，未支付报名的披露与创单同步跟随新价；只有**已创建订单**的金额钉死在 `tier_snapshot`。旧口径「报名时物化快照、改价不追溯」已废弃，不要再按它写断言或文案。
+- **金额语义（#749）**：创单实付与披露金额都以活动现值为权威，`submission_payload` 不参与金额（历史预埋脏键天然免疫）。组织者改押金额后，未支付报名的披露与创单同步跟随新价；只有**已创建订单**的金额钉死在 `tier_snapshot`。
 - 新增任何资金动作入口都要挂同一道门，并扫查 `Taro.requestPayment` 与 `api.createOrder` 的调用点（当前各一处，均在 `src/pages/order-pay/index.tsx`）。
 - `src/api/mockTransport.ts` 必须镜像后端门（押金场缺 `depositConsent` → 同 code 业务错误），否则 e2e 会在 mock 上「绿着漏门」。
 

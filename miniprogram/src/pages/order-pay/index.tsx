@@ -36,7 +36,7 @@ import styles from './index.module.css'
  *   true；后端按 order_kind 复核（缺失即拒 order_deposit_consent_required，本页
  *   落可重试错误态）。
  * - 支付前门：判据是**订单自己的口径快照** `order.orderKind` + `order.amountCents`
- *   （后端 order_kind/报名时物化的押金快照），不是活动的实时缴费配置——活动随时
+ *   （后端 order_kind/创单时写入订单的 tier_snapshot 金额），不是活动的实时缴费配置——活动随时
  *   可改配置，这一笔不会；金额创单前用报名快照、创单后一律切到订单快照。判据为
  *   纯函数 preCreateDepositGate / canRequestPayment，本页只渲染。
  *

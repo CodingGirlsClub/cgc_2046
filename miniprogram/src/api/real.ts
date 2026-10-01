@@ -259,8 +259,9 @@ type ContentRecord = (EventRecord | CourseRecord) &
 // 详情查询同文档带出的 myEnrollment 子集（#355 P1-3；两 kind 形状一致）
 type MyEnrollmentRecord = NonNullable<EventDetailQuery['myEnrollment']>
 // enrollments 两查询的行形状（#355 P1-4 列表 + 按 id 回查）。两文档选择集只在
-// #727 押金快照金额上分叉：单条回查选 depositAmountCents（order-pay 创单前门用），
-// 列表不选（该计算字段 load submission_payload，列表最多 100 行——不白拉 JSONB）
+// #727 押金金额上分叉：单条回查选 depositAmountCents（order-pay 创单前门用），
+// 列表不选（列表行无此消费方；#749 起该计算字段读目标现值、与 startsAt 共用一次
+// target_schedule 批量取，不再 load submission_payload）
 type EnrollmentRecord =
   | NonNullable<NonNullable<MyEnrollmentsQuery['enrollments']>['results']>[number]
   | NonNullable<NonNullable<EnrollmentQuery['enrollments']>['results']>[number]
@@ -319,7 +320,7 @@ function mapEnrollment(enrollment: EnrollmentRecord): EnrollmentSummary {
     insertedAt: enrollment.insertedAt,
     checkInCode: enrollment.checkInCode ?? null,
     paymentMode: parsePaymentMode(enrollment.paymentMode ?? null),
-    // #727：押金快照金额（order-pay 创单前披露的金额源，与下单实付同源）。
+    // #727：押金金额（order-pay 创单前披露的金额源，活动现值，与下单实付同源）。
     // 只有单条回查文档选了该字段；列表路径取不到 → null（诚实缺省，非 0）
     depositAmountCents:
       'depositAmountCents' in enrollment ? (enrollment.depositAmountCents ?? null) : null,
@@ -811,9 +812,9 @@ export class RealMiniProgramApi implements MiniProgramApi {
       // create 结果未选缴费模式/截止时间（两查询同形状仅列表/单条回查）——
       // 从报名目标本地推导，与后端 payment_mode 计算同规则（押金优先于定价）
       paymentMode: form.target.depositEnabled ? 'deposit' : form.target.pricingEnabled ? 'pricing' : 'free',
-      // #727：押金快照金额同样未选，按目标押金配置本地推导（与 paymentMode 同款
-      // 理由：同一时刻报名快照 = 目标配置；服务端计算字段的权威读取走
-      // getEnrollment/getEnrollments。非押金场 null）
+      // #727：押金金额同样未选，按目标押金配置本地推导（与 paymentMode 同款
+      // 理由：披露金额以活动现值为权威（#749），此刻 = 目标配置；服务端计算字段的
+      // 权威读取走 getEnrollment/getEnrollments。非押金场 null）
       depositAmountCents: form.target.depositEnabled ? form.target.depositAmountCents : null,
       // #617：create 结果同样未选 startsAt/venue。startsAt 与 form.target 同形
       // （都是供给物 starts_at 的 ISO 值）→ 本地取；venue 不行——读面契约是后端
