@@ -343,6 +343,95 @@ defmodule Cgc2046.Admission.CapacityLedgerTest do
     end
   end
 
+  describe "删除交错（#714：stale sync 不复活账本行）" do
+    @tag :stale_sync_after_deletion
+    test "RR stale sync 在 draft 删除锁提交后不创建账本行", %{sandbox_owner: owner} do
+      {admin, workspace, event, stale_event} = stale_sync_fixture("key-share")
+      cleanup_on_exit(owner, workspace.id, [admin])
+      parent = self()
+
+      reader =
+        Task.async(fn ->
+          unboxed(fn ->
+            Cgc2046.Repo.transaction(fn ->
+              Cgc2046.Repo.query!("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+
+              snapshot = Ash.get!(Cgc2046.Events.Event, event.id, authorize?: false)
+              send(parent, {:stale_read, snapshot})
+
+              receive do
+                :delete_locked -> :ok
+              end
+
+              send(parent, :sync_started)
+              CapacityLedger.sync_from_offering(snapshot)
+            end)
+          end)
+        end)
+
+      deleter =
+        Task.async(fn ->
+          receive do
+            :start_delete -> hold_draft_deletion(event.id, parent)
+          end
+        end)
+
+      on_exit(fn ->
+        send(deleter.pid, :release)
+        send(reader.pid, :delete_locked)
+        Process.exit(reader.pid, :kill)
+        Process.exit(deleter.pid, :kill)
+      end)
+
+      assert_receive {:stale_read, ^stale_event}, 5_000
+      send(deleter.pid, :start_delete)
+      assert_receive :delete_locked, 5_000
+      send(reader.pid, :delete_locked)
+      assert_receive :sync_started, 5_000
+
+      send(deleter.pid, :release)
+      assert {:ok, _} = Task.await(deleter, 15_000)
+      _reader_result = Task.await(reader, 15_000)
+
+      assert {:error, :not_found} = CapacityLedger.fetch_by_offering(:event, event.id)
+    end
+
+    @tag :stale_sync_unfixed_witness
+    test "RR stale snapshot 暴露 VALUES upsert 的孤儿账本 witness", %{sandbox_owner: owner} do
+      {admin, workspace, event, stale_event} = stale_sync_fixture("unfixed-witness")
+      cleanup_on_exit(owner, workspace.id, [admin])
+      parent = self()
+
+      reader =
+        Task.async(fn ->
+          unboxed(fn ->
+            Cgc2046.Repo.transaction(fn ->
+              Cgc2046.Repo.query!("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+
+              snapshot = Ash.get!(Cgc2046.Events.Event, event.id, authorize?: false)
+              send(parent, {:stale_read, snapshot})
+
+              receive do
+                :delete_committed -> CapacityLedger.sync_from_offering(snapshot)
+              end
+            end)
+          end)
+        end)
+
+      on_exit(fn ->
+        send(reader.pid, :delete_committed)
+        Process.exit(reader.pid, :kill)
+      end)
+
+      assert_receive {:stale_read, ^stale_event}, 5_000
+      assert :ok = delete_draft_rows(event.id)
+      send(reader.pid, :delete_committed)
+      _reader_result = Task.await(reader, 15_000)
+
+      assert {:error, :not_found} = CapacityLedger.fetch_by_offering(:event, event.id)
+    end
+  end
+
   describe "invite_only 双 CAS 锁序（KTD7）" do
     test "配额不足时整体回滚：账本 occupancy 不落、配额保持" do
       admin = Fixtures.platform_admin("ledger-invite-admin")
@@ -520,6 +609,74 @@ defmodule Cgc2046.Admission.CapacityLedgerTest do
   defp assert_business_code({:error, %Ash.Error.Invalid{errors: errors}}, expected) do
     assert Enum.any?(errors, &match?(%Cgc2046.Errors.BusinessError{code: ^expected}, &1)),
            "expected BusinessError code #{expected}, got: #{inspect(errors)}"
+  end
+
+  defp stale_sync_fixture(tag) do
+    unboxed(fn ->
+      admin = Fixtures.platform_admin("ledger-stale-#{tag}-admin")
+      workspace = Fixtures.create_workspace(admin)
+
+      event =
+        Cgc2046.Events.Event
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            title: "ledger stale #{tag}",
+            slug: "ledger-stale-#{tag}",
+            capacity: 5
+          },
+          tenant: workspace.id
+        )
+        |> Ash.create!(tenant: workspace.id, actor: admin)
+
+      assert :ok =
+               CapacityLedger.sync_offering_cache(%{
+                 kind: :event,
+                 offering_id: event.id,
+                 workspace_id: workspace.id,
+                 status: event.status,
+                 capacity: event.capacity
+               })
+
+      stale_event = Ash.get!(Cgc2046.Events.Event, event.id, authorize?: false)
+      {admin, workspace, event, stale_event}
+    end)
+  end
+
+  defp hold_draft_deletion(event_id, parent) do
+    unboxed(fn ->
+      Cgc2046.Repo.transaction(fn ->
+        Cgc2046.Repo.query!(
+          "DELETE FROM admission_capacity_ledgers WHERE offering_id = $1",
+          [Cgc2046.Repo.uuid!(event_id)]
+        )
+
+        Cgc2046.Repo.query!("DELETE FROM events WHERE id = $1", [Cgc2046.Repo.uuid!(event_id)])
+        send(parent, :delete_locked)
+
+        receive do
+          :release -> :ok
+        end
+      end)
+    end)
+  end
+
+  defp delete_draft_rows(event_id) do
+    case unboxed(fn ->
+           Cgc2046.Repo.transaction(fn ->
+             Cgc2046.Repo.query!(
+               "DELETE FROM admission_capacity_ledgers WHERE offering_id = $1",
+               [Cgc2046.Repo.uuid!(event_id)]
+             )
+
+             Cgc2046.Repo.query!("DELETE FROM events WHERE id = $1", [
+               Cgc2046.Repo.uuid!(event_id)
+             ])
+           end)
+         end) do
+      {:ok, _} -> :ok
+      other -> other
+    end
   end
 
   defp create_enrollment(target, user, attrs \\ %{}) do

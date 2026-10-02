@@ -279,12 +279,17 @@ defmodule Cgc2046.Admission.CapacityLedger do
           optional(:registration_deadline) => DateTime.t() | NaiveDateTime.t() | nil
         }) :: :ok | {:error, term()}
   def sync_offering_cache(%{kind: kind} = cache) when kind in @offering_kinds do
+    table = if kind == :event, do: "events", else: "courses"
+
     case Repo.query(
            """
            INSERT INTO admission_capacity_ledgers
              (id, workspace_id, offering_kind, offering_id, status, capacity,
               registration_deadline, occupancy, sync_version, inserted_at, updated_at)
-           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, 0, 0, NOW(), NOW())
+           SELECT gen_random_uuid(), $1, $2, o.id, $4, $5, $6, 0, 0, NOW(), NOW()
+           FROM #{table} o
+           WHERE o.id = $3
+           FOR KEY SHARE
            ON CONFLICT (offering_kind, offering_id) DO UPDATE
            SET status = EXCLUDED.status,
                capacity = EXCLUDED.capacity,

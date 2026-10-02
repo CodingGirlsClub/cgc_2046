@@ -190,16 +190,19 @@ defmodule Cgc2046.Courses.CourseDraftDeletionTest do
         })
     end
 
-    # 不误伤负例的第三行：同 offering_id、kind=:event（批量 DELETE 写错 kind
-    # 维度即丢这行——现实中两 kind 不会同 id，此为守护测试）
-    :ok =
-      CapacityLedger.sync_offering_cache(%{
-        kind: :event,
-        offering_id: course_a.id,
-        workspace_id: workspace.id,
-        status: :draft,
-        capacity: 5
-      })
+    # 非被测对象的第三行：同 offering_id、kind=:event（批量 DELETE 写错 kind
+    # 维度即丢这行——现实中两 kind 不会同 id，此为守护测试）。由于 #714 的
+    # sync_offering_cache 现在要求对应宿主行存在，这个跨 kind 负例必须用裸 SQL
+    # 布置，避免把不存在的 event 冒充为合法同步输入。
+    Cgc2046.Repo.query!(
+      """
+      INSERT INTO admission_capacity_ledgers
+        (id, workspace_id, offering_kind, offering_id, status, capacity,
+         registration_deadline, occupancy, sync_version, inserted_at, updated_at)
+      VALUES (gen_random_uuid(), $1, 'event', $2, 'draft', $3, NULL, 0, 0, NOW(), NOW())
+      """,
+      [Cgc2046.Repo.uuid!(workspace.id), Cgc2046.Repo.uuid!(course_a.id), 5]
+    )
 
     assert {:ok, _} = CapacityLedger.fetch_by_offering(:course, course_a.id)
     assert {:ok, _} = CapacityLedger.fetch_by_offering(:course, course_b.id)
