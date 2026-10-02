@@ -126,9 +126,9 @@ defmodule Cgc2046.Curriculum.Output do
     # - upsert_condition 把 version == base_version 下推为冲突更新相的 WHERE
     #   子句——check-and-write 单语句原子,不命中即 StaleRecord(并发首存撞
     #   (key,kind) 唯一同归此路:他方已写,version ≥ 1 ≠ 0);
-    # - base_version > 0 而行不存在 = 首存传错基准:行只增不删(唯一例外 = 下方
-    #   `:delete` 内部 action,#676 draft 课程删除级联——不产生新行,不破坏本
-    #   前置检查),存在性前置检查无竞态,版本匹配仍由 upsert_condition 原子兜底。
+    # - base_version > 0 而行不存在 = 首存传错基准;draft_exists? 是构建期的
+    #   契约检查,不能防止 draft 删除级联后的 INSERT 回退。事务内宿主 KEY SHARE
+    #   锁与 Course :delete 的 FOR UPDATE 互斥,覆盖首存与冲突更新两相(#704)。
     create :upsert_content do
       description("保存/更新课程内容(活文档,(key,kind) upsert;唯一写入口为 MCP 工具)")
 
@@ -143,6 +143,35 @@ defmodule Cgc2046.Curriculum.Output do
       upsert_identity(:unique_key_kind)
       upsert_fields([:data, :submitted_by, :workflow_run_id])
       upsert_condition(expr(version == ^arg(:base_version)))
+
+      change(fn changeset, _context ->
+        Ash.Changeset.around_action(changeset, fn cs, action ->
+          repo = Cgc2046.Repo
+          "course_" <> course_id = Ash.Changeset.get_attribute(cs, :key)
+
+          with {:ok, result} <-
+                 repo.transact(fn ->
+                   case repo.query("SELECT 1 FROM courses WHERE id = $1 FOR KEY SHARE", [
+                          repo.uuid!(course_id)
+                        ]) do
+                     {:ok, %{rows: [[1]]}} ->
+                       case action.(cs) do
+                         {:ok, _, _, _} = result -> {:ok, result}
+                         {:error, _} = error -> error
+                       end
+
+                     {:ok, %{rows: []}} ->
+                       {:error,
+                        Ash.Error.Changes.InvalidChanges.exception(message: "course not found")}
+
+                     {:error, reason} ->
+                       {:error, reason}
+                   end
+                 end) do
+            result
+          end
+        end)
+      end)
 
       change(fn changeset, _context ->
         case Ash.Changeset.get_argument(changeset, :base_version) do
