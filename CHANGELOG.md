@@ -18,6 +18,10 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ## [Unreleased]
 
+### Fixed
+
+- 保存课程内容与删除课程并发时，保存现在等待宿主行锁并在课程已删除后明确返回 `course not found`，不再写入孤儿教研内容行或假报 `saved`（#704）。
+
 ## [2026-10-01]
 
 ### Fixed
