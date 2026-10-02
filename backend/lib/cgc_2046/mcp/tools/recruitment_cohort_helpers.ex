@@ -4,7 +4,7 @@ defmodule Cgc2046.Mcp.Tools.RecruitmentCohortHelpers do
   「工具间单源」惯例——五件工具的行投影与租户收紧取数不逐份复制）。
   """
 
-  alias Cgc2046.Mcp.Tools.AdminInitiativeHelpers
+  alias Cgc2046.Mcp.Tools.Shared
   alias Cgc2046.Recruitment.RecruitmentCohort
 
   require Ash.Query
@@ -52,7 +52,7 @@ defmodule Cgc2046.Mcp.Tools.RecruitmentCohortHelpers do
   end
 
   @doc """
-  时间字段经通用解析复用（admin_initiative_helpers 单源，带偏移 ISO8601 → UTC
+  时间字段经通用解析复用（Shared 单源，带偏移 ISO8601 → UTC
   DateTime）；其余字段原样透传。解析失败保留原字符串，由 Ash cast 报错并经
   Errors.message 折叠——不在工具层发明第二种错误出口。
   """
@@ -60,7 +60,7 @@ defmodule Cgc2046.Mcp.Tools.RecruitmentCohortHelpers do
   def parse_datetime_attrs(attrs) do
     Map.new(attrs, fn
       {key, value} when key in @datetime_fields ->
-        {key, AdminInitiativeHelpers.parse_datetime(value)}
+        {key, Shared.parse_datetime(value)}
 
       {key, value} ->
         {key, value}

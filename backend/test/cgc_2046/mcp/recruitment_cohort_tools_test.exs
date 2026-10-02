@@ -96,7 +96,7 @@ defmodule Cgc2046.Mcp.RecruitmentCohortToolsTest do
       payload = decode_reply(reply)
       assert payload["status"] == "draft"
       assert payload["name"] == "第 1 批 · 首批志愿者招募"
-      # 带偏移入参 → UTC 存储（解析单源 admin_initiative_helpers）
+      # 带偏移入参 → UTC 存储（原 admin_initiative_helpers，现 Shared）
       assert payload["apply_deadline_at"] == "2026-10-10T15:59:00Z"
       assert payload["starts_at"] == "2026-10-23T16:00:00Z"
       assert payload["ends_at"] == nil

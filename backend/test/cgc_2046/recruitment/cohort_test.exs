@@ -14,6 +14,8 @@ defmodule Cgc2046.Recruitment.CohortTest do
   alias Cgc2046.Errors.BusinessError
   alias Cgc2046.Recruitment.RecruitmentCohort
 
+  require Ash.Query
+
   setup do
     # workspace 创建限 platform_admin（Workspace create policy），故库主是 platform_admin；
     # Owner 另由 add_member 授予 [:owner]，用于验证 WorkspaceActorIsOwnerOrAdmin 分支
@@ -185,6 +187,124 @@ defmodule Cgc2046.Recruitment.CohortTest do
       cohort = create_cohort(ws, owner, %{name: "本台批次"})
 
       assert {:error, %Ash.Error.Forbidden{}} = open_cohort(cohort, ws.id, other_owner)
+    end
+  end
+
+  describe "执行周期时间序（#766）" do
+    test "create 拒绝逆序与相等的执行周期，不创建批次", %{workspace: ws, owner: owner} do
+      for ends_at <- [~U[2026-10-23 00:00:00Z], ~U[2026-10-24 00:00:00Z]] do
+        assert {:error, %Ash.Error.Invalid{errors: errors}} =
+                 create_cohort_result(ws, owner, %{
+                   name: "无效执行周期",
+                   starts_at: ~U[2026-10-24 00:00:00Z],
+                   ends_at: ends_at
+                 })
+
+        assert Enum.any?(
+                 errors,
+                 &match?(%Ash.Error.Changes.InvalidAttribute{field: :ends_at}, &1)
+               )
+      end
+
+      assert [] ==
+               RecruitmentCohort
+               |> Ash.Query.filter(name == "无效执行周期")
+               |> Ash.read!(tenant: ws.id, actor: owner)
+    end
+
+    test "update 拒绝逆序与相等的执行周期，保留原起止时间", %{workspace: ws, owner: owner} do
+      cohort =
+        create_cohort(ws, owner, %{
+          starts_at: ~U[2026-10-24 00:00:00Z],
+          ends_at: ~U[2026-10-25 00:00:00Z]
+        })
+
+      for ends_at <- [~U[2026-10-26 00:00:00Z], ~U[2026-10-27 00:00:00Z]] do
+        assert {:error, %Ash.Error.Invalid{errors: errors}} =
+                 cohort
+                 |> Ash.Changeset.for_update(
+                   :update,
+                   %{starts_at: ~U[2026-10-27 00:00:00Z], ends_at: ends_at},
+                   tenant: ws.id
+                 )
+                 |> Ash.update(tenant: ws.id, actor: owner)
+
+        assert Enum.any?(
+                 errors,
+                 &match?(%Ash.Error.Changes.InvalidAttribute{field: :ends_at}, &1)
+               )
+
+        stored = Ash.get!(RecruitmentCohort, cohort.id, tenant: ws.id, actor: owner)
+        assert stored.starts_at == ~U[2026-10-24 00:00:00Z]
+        assert stored.ends_at == ~U[2026-10-25 00:00:00Z]
+      end
+    end
+
+    test "未提供可选起止时间时可创建并更新名称", %{workspace: ws, owner: owner} do
+      assert {:ok, cohort} = create_cohort_result(ws, owner, %{name: "未定执行周期"})
+      assert cohort.starts_at == nil
+      assert cohort.ends_at == nil
+
+      assert {:ok, updated} =
+               cohort
+               |> Ash.Changeset.for_update(:update, %{name: "改名后仍未定"}, tenant: ws.id)
+               |> Ash.update(tenant: ws.id, actor: owner)
+
+      stored = Ash.get!(RecruitmentCohort, updated.id, tenant: ws.id, actor: owner)
+      assert stored.name == "改名后仍未定"
+      assert stored.starts_at == nil
+      assert stored.ends_at == nil
+    end
+
+    test "严格递增的执行周期可创建并更新", %{workspace: ws, owner: owner} do
+      assert {:ok, cohort} =
+               create_cohort_result(ws, owner, %{
+                 starts_at: ~U[2026-10-24 00:00:00Z],
+                 ends_at: ~U[2026-10-25 00:00:00Z]
+               })
+
+      assert cohort.starts_at == ~U[2026-10-24 00:00:00Z]
+      assert cohort.ends_at == ~U[2026-10-25 00:00:00Z]
+
+      assert {:ok, updated} =
+               cohort
+               |> Ash.Changeset.for_update(
+                 :update,
+                 %{starts_at: ~U[2026-10-26 00:00:00Z], ends_at: ~U[2026-10-27 00:00:00Z]},
+                 tenant: ws.id
+               )
+               |> Ash.update(tenant: ws.id, actor: owner)
+
+      stored = Ash.get!(RecruitmentCohort, updated.id, tenant: ws.id, actor: owner)
+      assert stored.starts_at == ~U[2026-10-26 00:00:00Z]
+      assert stored.ends_at == ~U[2026-10-27 00:00:00Z]
+    end
+
+    test "只更新一个端点时也与已存端点比较，无效变更不落库", %{workspace: ws, owner: owner} do
+      cohort =
+        create_cohort(ws, owner, %{
+          starts_at: ~U[2026-10-24 00:00:00Z],
+          ends_at: ~U[2026-10-25 00:00:00Z]
+        })
+
+      for attrs <- [
+            %{ends_at: ~U[2026-10-23 00:00:00Z]},
+            %{starts_at: ~U[2026-10-26 00:00:00Z]}
+          ] do
+        assert {:error, %Ash.Error.Invalid{errors: errors}} =
+                 cohort
+                 |> Ash.Changeset.for_update(:update, attrs, tenant: ws.id)
+                 |> Ash.update(tenant: ws.id, actor: owner)
+
+        assert Enum.any?(
+                 errors,
+                 &match?(%Ash.Error.Changes.InvalidAttribute{field: :ends_at}, &1)
+               )
+
+        stored = Ash.get!(RecruitmentCohort, cohort.id, tenant: ws.id, actor: owner)
+        assert stored.starts_at == ~U[2026-10-24 00:00:00Z]
+        assert stored.ends_at == ~U[2026-10-25 00:00:00Z]
+      end
     end
   end
 
