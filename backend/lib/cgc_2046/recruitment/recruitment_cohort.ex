@@ -98,11 +98,13 @@ defmodule Cgc2046.Recruitment.RecruitmentCohort do
 
     create :create do
       accept([:name, :apply_deadline_at, :starts_at, :ends_at])
+      validate(compare(:ends_at, greater_than: :starts_at))
     end
 
     update :update do
       require_atomic?(false)
       accept([:name, :apply_deadline_at, :starts_at, :ends_at])
+      validate(compare(:ends_at, greater_than: :starts_at))
     end
 
     # 开放批次：撞「已有 open」→ 条件唯一索引冲突 → 稳定业务 code（AE9）
