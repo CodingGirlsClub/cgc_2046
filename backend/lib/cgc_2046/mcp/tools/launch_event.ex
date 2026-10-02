@@ -40,7 +40,7 @@ defmodule Cgc2046.Mcp.Tools.LaunchEvent do
         event_id = params["event_id"]
 
         with :ok <- authorize(actor, workspace_id),
-             {:ok, event} <- fetch_event(actor, workspace_id, event_id) do
+             {:ok, event} <- Event.fetch_scoped(workspace_id, event_id, actor: actor) do
           if event.status != :draft do
             {:error, "cannot launch from status=#{event.status}（仅 draft 可发布）"}
           else
@@ -70,7 +70,7 @@ defmodule Cgc2046.Mcp.Tools.LaunchEvent do
     workspace_id = params["workspace_id"]
     event_id = params["event_id"]
 
-    with {:ok, event} <- fetch_event(actor, workspace_id, event_id) do
+    with {:ok, event} <- Event.fetch_scoped(workspace_id, event_id, actor: actor) do
       case event
            |> Ash.Changeset.for_update(:launch, %{}, tenant: workspace_id)
            |> Ash.update(actor: actor, tenant: workspace_id) do
@@ -98,25 +98,6 @@ defmodule Cgc2046.Mcp.Tools.LaunchEvent do
       :ok
     else
       {:error, "forbidden: owner or admin required to launch events"}
-    end
-  end
-
-  # tenant 收紧活动归属：他租户 event_id 与不存在同一「not found」，不泄露存在性
-  defp fetch_event(actor, workspace_id, event_id) do
-    case Event
-         |> Ash.Query.for_read(:get_by_id, %{id: event_id})
-         |> Ash.read_one(actor: actor, tenant: workspace_id) do
-      {:ok, nil} ->
-        {:error, "event not found: #{event_id}"}
-
-      {:ok, event} ->
-        {:ok, event}
-
-      {:error, %Ash.Error.Forbidden{}} ->
-        {:error, "forbidden: not allowed to read event #{event_id}"}
-
-      {:error, _} ->
-        {:error, "failed to load event"}
     end
   end
 end
