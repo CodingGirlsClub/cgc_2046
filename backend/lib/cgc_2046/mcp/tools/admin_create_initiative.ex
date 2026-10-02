@@ -17,6 +17,7 @@ defmodule Cgc2046.Mcp.Tools.AdminCreateInitiative do
   alias Cgc2046.Initiatives.Initiative
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
   alias Cgc2046.Mcp.Tools.AdminInitiativeHelpers, as: H
+  alias Cgc2046.Mcp.Tools.Shared
 
   schema do
     field(:name, {:required, :string}, description: "活动名称")
@@ -47,7 +48,7 @@ defmodule Cgc2046.Mcp.Tools.AdminCreateInitiative do
   @spec execute_confirmed(term(), map()) :: {:ok, map()} | {:error, String.t()}
   def execute_confirmed(actor, params) do
     attrs =
-      H.attrs(params, ~w(name slug hashtag description)a)
+      Shared.attrs(params, ~w(name slug hashtag description)a)
       |> Map.merge(H.datetime_attrs(params))
       |> Map.put(:created_by, actor.id)
 
