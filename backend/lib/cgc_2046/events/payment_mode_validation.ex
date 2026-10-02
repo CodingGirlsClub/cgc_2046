@@ -190,12 +190,6 @@ defmodule Cgc2046.Events.PaymentModeValidation do
     do: domain_error(:deposit_amount_required, :deposit_amount_cents)
 
   @doc """
-  押金重开必须显式携带金额的稳定业务错误（#616 单源，MCP 快速失败复用）。
-  """
-  def deposit_amount_must_be_explicit_error,
-    do: domain_error(:deposit_amount_must_be_explicit, :deposit_amount_cents)
-
-  @doc """
   `deposit_enabled = true` 要求报名截止非空的稳定业务错误（单源，#587）。
 
   Event 写面校验（本模块 `validate/3`）与规则写入路径
