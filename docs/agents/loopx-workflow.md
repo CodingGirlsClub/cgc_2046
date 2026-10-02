@@ -7,6 +7,7 @@
 - **主控**：Codex CLI 会话，LoopX agent `codex-cli-cgc-2046`，模型用 Codex 默认模型。负责认领 todo、triage、决定哪些只读工作派给子 agent、写代码、验收结论、change-quality 收据、push + 开 PR、按授权表合并到 `develop`、写回 LoopX。
 - **主控跑在主 checkout**（`.loopx/`、goal state 与 LoopX 管理的项目 skill 都只在这里），主 checkout 保持在 `develop`、不切分支改代码；所有改动都在 worktree 里做，LoopX 命令用 `--repo-path <worktree>` 指向它。手动会话也用自己的 worktree，别在主 checkout 上切分支。
 - **子 agent**：LoopX `multi_subagent` 放行的临时子 agent，最多 3 个同时运行——端口 4001 与 ego-browser 登录态是实际上限。模型统一用 goal 配置的子任务模型（`spawn_policy.model_config`），不在别处另设。**只做只读工作**：收集资料、按当前 develop 核实 issue（triage 取证）、读代码找证据、独立复核 / 评审、跑测试并汇报；不改代码、不 commit、不 push、不开 PR、不写 LoopX 状态、不 spend。要跑测试就用自己的 worktree（各用各的测试库，见 §6）。写代码、验收、change-quality 收据、PR、合并都由主控自己做；子 agent 的结论由主控核实原件后才采用。
+- **委托边界**：使用当前安装版本的 LoopX 官方入口与授权配置，不维护项目自建的代理调度或生命周期；具体命令以对应版本的官方文档和 CLI 为准。模型偏好由官方配置管理；委托不得扩大根 `AGENTS.md` 的授权，子 agent 仍只做只读工作，任务状态与验收证据仍由 LoopX 管理。独立实施 Host 不因注册或委托而自动获得写入、提交或合并授权。
 - 不为了"看起来在并行"而拆子 agent。
 
 ## 2. 任务来源与 todo 约定
