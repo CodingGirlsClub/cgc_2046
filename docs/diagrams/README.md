@@ -58,14 +58,14 @@
 |---|---|---|---|
 | `container-topology.puml` | C4 Container | 平台由哪些**运行时单元**组成，各自职责、技术选型、相互协议 | 仓库顶层结构 + config.exs（Oban PG-backed）+ router.ex 挂载 + next.config.ts |
 | `deployment-view.puml` | C4 Deployment / 4+1 Physical | 各单元部署在哪个节点与环境，CD 流水线与配置注入 | `docs/运维/邮件与CD环境注入.md`（含「无部署信号」现状 + prod 注入契约）+ ci.yml |
-| `api-contracts.puml` | arc42 §3.2 | 四个 API 面：GraphQL（Query 36 / Mutation 60+ 字段）、MCP 8 工具、AshAdmin /ops、dev /dev/mailbox；各面凭证差异 | router.ex + schema.graphql + `Cgc2046.Mcp.Server` |
+| `api-contracts.puml` | arc42 §3.2 | 五个 API 面：GraphQL（Query / Mutation 结构）、MCP 工具族、AshAdmin /ops、dev /dev/mailbox、payments webhook 渠道回调；各面凭证差异 | router.ex + schema.graphql + `Cgc2046.Mcp.Server` |
 | `signal-event-catalog.puml` | 事件驱动文档实践 | signal 全目录：17 种类型 × 生产者 × 六订阅方 × 幂等四策略 | `signal_emitter.ex` / `signal_subscriber.ex` / 六订阅方模块 / `signal_idempotency.ex` |
 | `auth-tenant-isolation.puml` | arc42 §7 横切概念 | 四种凭证模型、全局/租户资源边界、四条审计链路 | `mcp/token.ex` / `tool_call_log.ex` / `policies/actor_is_enrolled_learner.ex` + D5/D6/D9/D12/D13 |
 | L3.2 子类显式化 | C4 Dynamic / arc42 §6 | 每个关键场景一张时序图；已有确认流、挂起唤醒两例，报名全程 / 支付 / 邀请接受等场景按需增补 | 各详细设计 §5 |
 
 > **漂移信号裁决记录**（原三例，本轮补图时处理）：
 > - `miniprogram/` 与 `openclacky-ext/` 顶层单元 → 已入 `container-topology`（小程序多端 + 扩展属用户侧交付物，均非原 L0 设计图的覆盖范围）；
-> - MCP 工具面未见独立呈现 → 已入 `container-topology`（/mcp 容器）+ `api-contracts`（面 2，8 工具全清单）。
+> - MCP 工具面未见独立呈现 → 已入 `container-topology`（/mcp 容器）+ `api-contracts`（面 2，按工具族呈现）。
 > 新增漂移发现（来自本轮 codebase 取证，待下一步架构对照时处理）：
 > - **Redis 幂等承载未实现**：`key-routing-isolation.puml` 声称「幂等三层承载 Postgres/Redis」，但 config 无 Redix、`signal_idempotency` 落 Postgres——Redis 仅文档备选；
 > - **无生产部署**：`deployment-view` 如实呈现「无 vercel/fly/docker 配置」现状，与原图隐含的部署预期存在差距；
@@ -73,7 +73,7 @@
 > **2026-08-17 增量同步**（基准 develop@7c8cadb：payments #181/#184/#187 + course-issue #183/#186 合入）：
 > 10 张图更新——payments 全域（Order/WebhookEvent/Provider 三 adapter/webhook 第五面/5 worker/七订阅方）、
 > Enrollment 6 态（payment_pending，F4 兑现且落报名侧）、course-issue 闭环（LearningRecord/ResearchOutput 活文档/
-> MCP 工具 8→12/LearnerAuthorization）。详见 DRIFT-REPORT §7.1 R8 与 REVIEW-FINDINGS F4。
+> MCP 课程内容与学习授权面/LearnerAuthorization）。详见 DRIFT-REPORT §7.1 R8 与 REVIEW-FINDINGS F4。
 
 ## 三、图索引
 
@@ -85,7 +85,9 @@
 | `architecture-overview.puml` | ✅ | 分层架构总览：接入层（Web/Agent/OpenClacky）→ 编排层（Jido Workflow）→ 领域层 → 引擎层，Signal 门控机制 | 总纲 §2 分层架构 |
 | `container-topology.puml` | ✅ 新 | 容器拓扑：web/miniprogram/backend（GraphQL+MCP+引擎+Oban 三队列+邮件+payments 域+webhook 入口）/Postgres + 用户侧 openclacky-ext + 微信/支付宝外部系统 | codebase 顶层 + config.exs + router.ex |
 | `deployment-view.puml` | ✅ 新 | 部署视图：GitHub CI + 开发机拓扑 + 生产目标（如实呈现「无部署信号」现状 + SendCloud 五值注入契约与 fail-fast） | docs/运维/邮件与CD环境注入.md |
-| `api-contracts.puml` | ✅ 新 | 接口契约：五个面（GraphQL Q50/M63 / MCP 12 工具 / AshAdmin /ops / dev mailbox / **payments webhook 渠道回调·无 actor 验签**）× 凭证 × 审计 | router.ex + schema.graphql + Mcp.Server |
+| `api-contracts.puml` | ✅ 新 | 接口契约：五个面（GraphQL Query / Mutation 结构 / MCP 工具族 / AshAdmin /ops / dev mailbox / **payments webhook 渠道回调·无 actor 验签**）× 凭证 × 审计 | router.ex + schema.graphql + Mcp.Server |
+
+`api-contracts` 仅展示结构与工具族，不维护手工字段或工具数量；完整清单的真相源为 `backend/priv/graphql/schema.graphql`（GraphQL）与 `backend/lib/cgc_2046/mcp/server.ex`（MCP）。
 
 ### L1 — 领域模型（4 张）
 

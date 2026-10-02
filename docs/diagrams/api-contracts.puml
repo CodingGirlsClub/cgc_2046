@@ -3,15 +3,15 @@
 ' L0 - 接口契约图（arc42 §3.2）
 ' 事实来源：backend/lib/cgc_2046_web/router.ex（scope 挂载：/api/graphql、
 ' /mcp、/ops、/dev/mailbox、/api/payments/webhooks/:provider :50-60）、
-' backend/priv/graphql/schema.graphql（RootQueryType 50 字段 /
-' RootMutationType 63 字段，payments 根字段 Q4+M5）、
-' backend/lib/cgc_2046/mcp/server.ex（12 工具）、
+' backend/priv/graphql/schema.graphql（根操作字段清单真相源）、
+' backend/lib/cgc_2046/mcp/server.ex（工具族注册真相源）、
 ' backend/lib/cgc_2046/mcp/token.ex（Bearer/SHA256）、
 ' backend/lib/cgc_2046_web/controllers/payment_webhook_controller.ex +
 ' payments/webhook_event.ex（R21 幂等去重）+ endpoint.ex
 ' （CachingBodyReader raw body 缓存 :49-56）、
 ' docs/diagrams 既有图 confirm-flow.puml（two-tool 确认流）。
-' 本图按 codebase 现状绘制（2026-08，develop 7c8cadb）。
+' 原绘制基准：2026-08，develop 7c8cadb。
+' 2026-10 #698：删除手工计数，MCP 按工具族呈现；完整清单以真相源为准。
 ' ============================================================
 title CGC 平台对外接口契约（五个面，L0）
 skinparam backgroundColor white
@@ -36,16 +36,21 @@ actor "开发者\n（本机）" as DEV
 rectangle "CGC-2046 backend（Phoenix）" as BE #F0FDE8 {
 
     rectangle "面 1：GraphQL /api/graphql\nAbsinthe + AshGraphql\n────\n凭证：httpOnly cookie JWT\n（AshAuthentication）\n────\n审计：SignalLog / AdminActionLog" as GQL {
-        rectangle "Query（50 字段，按域）\n· me / workspace* / portfolio\n· enrollment / sponsorship\n· payments：myOrders / orderStatus\n  / workspaceOrders /\n  workspacePaymentStats（统计）\n· speakerInvitation*\n· listSignalLogs / ToolCallLogs\n（管理员审计面）\n· reconciliationFindings" as Q
-        rectangle "Mutation（63 字段，按域）\n· auth：signIn/signUp/\n  requestPasswordReset/\n  signInWithPlatform\n· workspace 成员治理\n· event/course 生命周期\n· enrollment/sponsorship 审批\n· payments：createOrder /\n  replaceProvider / cancelOrder /\n  refundOrder / waivePayment\n· speakerInvitation 全流程\n· mcpToken 签发/撤销" as M
+        rectangle "Query（按域，结构示意）\n· me / workspace* / portfolio\n· enrollment / sponsorship\n· payments：myOrders / orderStatus\n  / workspaceOrders /\n  workspacePaymentStats（统计）\n· speakerInvitation*\n· listSignalLogs / ToolCallLogs\n（管理员审计面）\n· reconciliationFindings" as Q
+        rectangle "Mutation（按域，结构示意）\n· auth：signIn/signUp/\n  requestPasswordReset/\n  signInWithPlatform\n· workspace 成员治理\n· event/course 生命周期\n· enrollment/sponsorship 审批\n· payments：createOrder /\n  replaceProvider / cancelOrder /\n  refundOrder / waivePayment\n· speakerInvitation 全流程\n· mcpToken 签发/撤销" as M
     }
 
     rectangle "面 2：MCP /mcp\nanubis_mcp streamable HTTP\n────\n凭证：Bearer 连接 token\n（SHA256 落库，D13；\n绑用户不绑工作区）\n────\n审计：每次调用 ToolCallLog\n（params redact 后，D9）" as MCP {
-        rectangle "读（4）\nget_workspace_context\nlist_members\nget_workflow\nget_step_output" as MT_R
-        rectangle "写（1）\nsave_step_output\n（facts 浅合并，终态拒绝）" as MT_W
-        rectangle "管理（1，two-tool 确认流）\ncreate_invitation →\nneeds_confirmation{pending_id}" as MT_A
-        rectangle "确认流（2）\nconfirm_operation\ncancel_operation\n（PendingOperation TTL）" as MT_C
-        rectangle "课程学习（4，#180）\nget_course_content（读）\nget_learning_records（读，恒本人）\nsave_learning_records\n（写，学员记忆）\nsave_course_content\n（写，教研侧唯一入口）\n（不走两段确认）" as MT_L
+        rectangle "工作台上下文 / 成员 / 工作流\n· 上下文、成员、加入审批、角色与邀请\n· 工作流、步骤产出读写\nget_workspace_context / list_members\nsave_step_output / create_invitation\n（步骤产出浅合并，终态拒绝）" as MT_CONTEXT
+        rectangle "确认流\nconfirm_operation / cancel_operation\n（PendingOperation TTL）" as MT_CONFIRM
+        rectangle "公开浏览\n· 活动、课程与倡导活动列表 / 详情\nlist_public_offerings\nget_public_initiative" as MT_PUBLIC
+        rectangle "角色工作台基座\n· 本人工作台、角色 playbook、待办\nlist_my_workspaces\nget_role_playbook / list_my_tasks" as MT_ROLE
+        rectangle "平台治理族\n· 用户、工作台与申请治理\n· 审计、对账、闪念间与获客统计\n· 许愿治理、触达、倡导活动规则\n· 押金错没收补救（平台管理员专属）\nadmin_list_users / admin_list_audit_logs" as MT_PLATFORM
+        rectangle "工作台管理面\n· 课程 / 活动生命周期、主理人\n· 报名审批、签到、订单与退款\n· 加入策略、招募批次\n（各工具分别判定角色权限）" as MT_WORKSPACE
+        rectangle "教研族\n· 课程内容草稿读写、认领与指派\n· 策略、结构 / 质量检查、审核 / 退回\nget_course_content / save_course_content\nget_prep_status\n（save_course_content：tutor ∪ owner/admin）" as MT_PREP
+        rectangle "课程版本读\n· 已发布、冻结的不可变版本\nget_course_revision" as MT_REVISION
+        rectangle "学员旅程\n· 发现、报名前摘要、报名\n· 本人报名与订单状态\ndiscover_offerings / get_enrollment_summary\ncreate_enrollment" as MT_LEARNER
+        rectangle "学习族\n· 学习 run、评价、状态与学习分析\nstart_learning_run / submit_learning_attempt\nget_learning_state\nget_course_learning_analytics" as MT_LEARNING
     }
 
     rectangle "面 5：渠道回调\n/api/payments/webhooks/:provider\nPaymentWebhookController\n────\n凭证：无 actor——鉴权即\n渠道验签（adapter verify_webhook：\n微信 v3 签名 / 支付宝 RSA2；\nraw body 经 CachingBodyReader\n原文缓存）\n────\n幂等（R21）：WebhookEvent\n(provider, event_id) 唯一索引\n去重，重复投递按成功回执\n────\n应答：微信 200 code:SUCCESS /\n支付宝 200 success；\n验签失败 400 + telemetry\n────\n副作用：落库 + 同事务入队\n落账 job（Oban payments 队列）" as WH
@@ -73,20 +78,16 @@ note right of MCP
   （OpenClacky ≤1.5.6 兼容）。
 end note
 
-note bottom of MT_A
+note bottom of MT_CONFIRM
   高风险工具 two-tool 模式（D-D3）：
   调用不落业务库，返回 pending_id；
   用户确认后 confirm_operation
   才执行。TTL 过期自动失效。
 end note
-note bottom of MT_L
-  课程学习工具授权
-  （KTD2 三层）：学员侧
-  = 成员 ∪ 本人 confirmed
-  enrollment ∪ 已有记录
-  （授权锚 user_id）；
-  save_course_content =
-  tutor ∪ owner/admin。
+note bottom of MT_LEARNING
+  学习 run 幂等启动；
+  正式评价不可变，学习状态由账本投影；
+  掌握状态由投影得出，agent 不直写。
 end note
 
 note right of WH
@@ -101,5 +102,11 @@ note bottom of GQL
   /api/playground 仅 dev 挂载
   （next.config.ts rewrite 限定
   NODE_ENV != production）。
+end note
+
+note bottom of BE
+  结构示意，非完整枚举；不维护字段或工具数量。
+  GraphQL 真相源：backend/priv/graphql/schema.graphql
+  MCP 真相源：backend/lib/cgc_2046/mcp/server.ex
 end note
 @enduml
