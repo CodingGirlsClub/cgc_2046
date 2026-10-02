@@ -1,5 +1,5 @@
 import { client } from "./apollo-client";
-import { gql } from "@apollo/client";
+import { SIGN_OUT_MUTATION } from "./graphql/auth";
 
 /**
  * 登录态工具（#61 A-2-FE）。
@@ -34,9 +34,3 @@ export async function clearSession(): Promise<{ ok: boolean; error?: Error }> {
 		return { ok: false, error: e instanceof Error ? e : new Error(String(e)) };
 	}
 }
-
-const SIGN_OUT_MUTATION = gql`
-	mutation SignOut {
-		signOut
-	}
-`;

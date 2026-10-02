@@ -87,7 +87,7 @@ export type InitiativeMountPreview = {
 	missingRules: string[];
 };
 
-const PUBLIC_INITIATIVE: TypedDocumentNode<
+export const PUBLIC_INITIATIVE: TypedDocumentNode<
 	{ publicInitiative: PublicInitiative | null },
 	{ slug: string }
 > = gql`
@@ -99,7 +99,7 @@ const PUBLIC_INITIATIVE: TypedDocumentNode<
 	}
 `;
 
-const PUBLIC_INITIATIVES: TypedDocumentNode<
+export const PUBLIC_INITIATIVES: TypedDocumentNode<
 	{ publicInitiatives: PublicInitiativeCard[] },
 	Record<string, never>
 > = gql`

@@ -31,7 +31,7 @@ export type EventModeratorPayload = {
 	errors: MutationError[];
 };
 
-const EVENT_MODERATORS: TypedDocumentNode<
+export const EVENT_MODERATORS: TypedDocumentNode<
 	{ eventModerators: EventModerator[] },
 	{ workspaceId: string; eventId: string }
 > = gql`
@@ -51,7 +51,7 @@ const EVENT_MODERATORS: TypedDocumentNode<
 	}
 `;
 
-const ASSIGN_EVENT_MODERATOR: TypedDocumentNode<
+export const ASSIGN_EVENT_MODERATOR: TypedDocumentNode<
 	{ assignEventModerator: EventModeratorPayload },
 	{ workspaceId: string; eventId: string; userId: string }
 > = gql`
@@ -71,7 +71,7 @@ const ASSIGN_EVENT_MODERATOR: TypedDocumentNode<
 	}
 `;
 
-const REMOVE_EVENT_MODERATOR: TypedDocumentNode<
+export const REMOVE_EVENT_MODERATOR: TypedDocumentNode<
 	{ removeEventModerator: EventModeratorPayload },
 	{ workspaceId: string; moderatorId: string }
 > = gql`

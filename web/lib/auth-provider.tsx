@@ -9,7 +9,7 @@ import {
 	type ReactNode,
 } from "react";
 import { useQuery } from "@apollo/client/react";
-import { gql } from "@apollo/client";
+import { ME_QUERY } from "./graphql/auth";
 import { CombinedGraphQLErrors } from "@apollo/client/errors";
 
 /**
@@ -35,10 +35,6 @@ export interface AuthedState {
 	/** 当前登录用户 ID（confirmed=true 且 authed=true 时必有值；未登录或未确认时为 null） */
 	userId: string | null;
 }
-
-const ME_QUERY = gql`
-  query Me { me { id } }
-`;
 
 interface MeQueryResult {
 	me: { id: string } | null;

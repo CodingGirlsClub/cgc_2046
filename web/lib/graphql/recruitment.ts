@@ -110,7 +110,7 @@ export type CreateVolunteerApplicationInput = {
 
 const COHORT_FIELDS = `id name applyDeadlineAt startsAt endsAt status`;
 
-const CURRENT_RECRUITMENT_COHORT: TypedDocumentNode<
+export const CURRENT_RECRUITMENT_COHORT: TypedDocumentNode<
 	{ currentRecruitmentCohort: RecruitmentCohort | null },
 	{ workspaceId: string }
 > = gql`
@@ -119,7 +119,7 @@ const CURRENT_RECRUITMENT_COHORT: TypedDocumentNode<
 	}
 `;
 
-const MY_RESUME_PROFILE: TypedDocumentNode<
+export const MY_RESUME_PROFILE: TypedDocumentNode<
 	{ myResumeProfile: ResumeProfile | null },
 	{ workspaceId: string }
 > = gql`
@@ -130,7 +130,7 @@ const MY_RESUME_PROFILE: TypedDocumentNode<
 	}
 `;
 
-const MY_VOLUNTEER_APPLICATIONS: TypedDocumentNode<
+export const MY_VOLUNTEER_APPLICATIONS: TypedDocumentNode<
 	{ myVolunteerApplications: VolunteerApplication[] },
 	{ workspaceId: string }
 > = gql`
@@ -141,7 +141,7 @@ const MY_VOLUNTEER_APPLICATIONS: TypedDocumentNode<
 	}
 `;
 
-const UPSERT_RESUME_PROFILE: TypedDocumentNode<
+export const UPSERT_RESUME_PROFILE: TypedDocumentNode<
 	{ upsertResumeProfile: MutationOutcome<ResumeProfile> },
 	{ workspaceId: string; input: UpsertResumeProfileInput }
 > = gql`
@@ -153,7 +153,7 @@ const UPSERT_RESUME_PROFILE: TypedDocumentNode<
 	}
 `;
 
-const UPLOAD_RESUME_FILE: TypedDocumentNode<
+export const UPLOAD_RESUME_FILE: TypedDocumentNode<
 	{ uploadResumeFile: MutationOutcome<ResumeProfile> },
 	{ workspaceId: string; input: UploadResumeFileInput }
 > = gql`
@@ -165,7 +165,7 @@ const UPLOAD_RESUME_FILE: TypedDocumentNode<
 	}
 `;
 
-const CREATE_VOLUNTEER_APPLICATION: TypedDocumentNode<
+export const CREATE_VOLUNTEER_APPLICATION: TypedDocumentNode<
 	{ createVolunteerApplication: MutationOutcome<VolunteerApplication> },
 	{ workspaceId: string; input: CreateVolunteerApplicationInput }
 > = gql`
@@ -288,7 +288,7 @@ const ADMIN_APPLICATION_FIELDS = `id userId cohortId position city heardAboutUs 
 
 const DETAIL_RESUME_FIELDS = `id fullName contactEmail weeklyHours skills fileName fileContentType fileSize uploadedAt`;
 
-const LIST_VOLUNTEER_APPLICATIONS: TypedDocumentNode<
+export const LIST_VOLUNTEER_APPLICATIONS: TypedDocumentNode<
 	{ listVolunteerApplications: AdminVolunteerApplication[] },
 	{
 		workspaceId: string;
@@ -304,7 +304,7 @@ const LIST_VOLUNTEER_APPLICATIONS: TypedDocumentNode<
 	}
 `;
 
-const VOLUNTEER_APPLICATION_DETAIL: TypedDocumentNode<
+export const VOLUNTEER_APPLICATION_DETAIL: TypedDocumentNode<
 	{ volunteerApplicationDetail: VolunteerApplicationDetail | null },
 	{ workspaceId: string; id: string }
 > = gql`
@@ -316,7 +316,7 @@ const VOLUNTEER_APPLICATION_DETAIL: TypedDocumentNode<
 	}
 `;
 
-const LIST_RECRUITMENT_COHORTS: TypedDocumentNode<
+export const LIST_RECRUITMENT_COHORTS: TypedDocumentNode<
 	{ listRecruitmentCohorts: RecruitmentCohort[] },
 	{ workspaceId: string }
 > = gql`
@@ -331,7 +331,7 @@ const APPLICATION_MUTATION_RESULT = `
 	errors { message code }
 `;
 
-const ADVANCE_TO_INTERVIEW: TypedDocumentNode<
+export const ADVANCE_TO_INTERVIEW: TypedDocumentNode<
 	{ advanceVolunteerApplicationToInterview: MutationOutcome<AdminVolunteerApplication> },
 	{ workspaceId: string; id: string }
 > = gql`
@@ -340,7 +340,7 @@ const ADVANCE_TO_INTERVIEW: TypedDocumentNode<
 	}
 `;
 
-const ADVANCE_TO_TRAINING: TypedDocumentNode<
+export const ADVANCE_TO_TRAINING: TypedDocumentNode<
 	{ advanceVolunteerApplicationToTraining: MutationOutcome<AdminVolunteerApplication> },
 	{ workspaceId: string; id: string }
 > = gql`
@@ -349,7 +349,7 @@ const ADVANCE_TO_TRAINING: TypedDocumentNode<
 	}
 `;
 
-const ASSIGN_APPLICATION: TypedDocumentNode<
+export const ASSIGN_APPLICATION: TypedDocumentNode<
 	{ assignVolunteerApplication: MutationOutcome<AdminVolunteerApplication> },
 	{ workspaceId: string; id: string; assignedEventId: string | null; assignmentNote: string | null }
 > = gql`
@@ -358,7 +358,7 @@ const ASSIGN_APPLICATION: TypedDocumentNode<
 	}
 `;
 
-const REJECT_APPLICATION: TypedDocumentNode<
+export const REJECT_APPLICATION: TypedDocumentNode<
 	{ rejectVolunteerApplication: MutationOutcome<AdminVolunteerApplication> },
 	{ workspaceId: string; id: string; reason: string }
 > = gql`
@@ -367,7 +367,7 @@ const REJECT_APPLICATION: TypedDocumentNode<
 	}
 `;
 
-const CANCEL_APPLICATION: TypedDocumentNode<
+export const CANCEL_APPLICATION: TypedDocumentNode<
 	{ cancelVolunteerApplication: MutationOutcome<AdminVolunteerApplication> },
 	{ workspaceId: string; id: string; reason: string | null }
 > = gql`
@@ -381,7 +381,7 @@ const COHORT_MUTATION_RESULT = `
 	errors { message code }
 `;
 
-const CREATE_RECRUITMENT_COHORT: TypedDocumentNode<
+export const CREATE_RECRUITMENT_COHORT: TypedDocumentNode<
 	{ createRecruitmentCohort: MutationOutcome<RecruitmentCohort> },
 	{ workspaceId: string; input: { name: string; applyDeadlineAt: string; startsAt?: string | null; endsAt?: string | null } }
 > = gql`
@@ -390,7 +390,7 @@ const CREATE_RECRUITMENT_COHORT: TypedDocumentNode<
 	}
 `;
 
-const OPEN_RECRUITMENT_COHORT: TypedDocumentNode<
+export const OPEN_RECRUITMENT_COHORT: TypedDocumentNode<
 	{ openRecruitmentCohort: MutationOutcome<RecruitmentCohort> },
 	{ workspaceId: string; id: string }
 > = gql`
@@ -399,7 +399,7 @@ const OPEN_RECRUITMENT_COHORT: TypedDocumentNode<
 	}
 `;
 
-const CLOSE_RECRUITMENT_COHORT: TypedDocumentNode<
+export const CLOSE_RECRUITMENT_COHORT: TypedDocumentNode<
 	{ closeRecruitmentCohort: MutationOutcome<RecruitmentCohort> },
 	{ workspaceId: string; id: string }
 > = gql`
