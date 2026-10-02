@@ -27,7 +27,8 @@ const SDL_PATH = resolve(HERE, "../../../backend/priv/graphql/schema.graphql");
 
 /** 只数 gql tagged template；普通字符串片段和注释不构造 DocumentNode。 */
 function countGqlDocuments(path: string, source: string): number {
-  const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+  const kind = path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, false, kind);
   let count = 0;
   const visit = (node: ts.Node): void => {
     if (ts.isTaggedTemplateExpression(node) && ts.isIdentifier(node.tag) && node.tag.text === "gql") {
@@ -185,17 +186,37 @@ describe("手写 GraphQL 文档 ↔ SDL 契约", () => {
  * 请求层，上线后才会发现（2026-09-26）。
  * #760：文档必须在领域模块中导出。raw 源码计数与运行时导出计数相等，防止私有文档绕过校验；
  * 两份 glob 的模块集也必须相等。插值模板只计一次，展开后的文档仍由 validate 校验。
+ * web 全树只加载 raw 源码，要求领域目录外没有 gql；不执行 Next 页面或服务端模块。
  */
 describe("全部手写文档 ↔ 后端 SDL 校验", () => {
-  const modules = import.meta.glob(["./*.ts", "!./*.test.ts"], { eager: true }) as Record<
-    string,
-    Record<string, unknown>
-  >;
-  const sources = import.meta.glob(["./*.ts", "!./*.test.ts"], {
+  const modules = import.meta.glob([
+    "./**/*.ts", "!./**/*.test.ts", "./**/*.tsx", "!./**/*.test.tsx",
+    "!./**/__tests__/**", "!./**/tests/**", "!./**/*.spec.ts", "!./**/*.spec.tsx",
+  ], { eager: true }) as Record<string, Record<string, unknown>>;
+  const sources = import.meta.glob([
+    "./**/*.ts", "!./**/*.test.ts", "./**/*.tsx", "!./**/*.test.tsx",
+    "!./**/__tests__/**", "!./**/tests/**", "!./**/*.spec.ts", "!./**/*.spec.tsx",
+  ], {
     query: "?raw",
     import: "default",
     eager: true,
   }) as Record<string, string>;
+  const webSources = import.meta.glob([
+    "/**/*.ts", "/**/*.tsx",
+    "!/**/node_modules/**", "!/.next/**", "!/out/**", "!/build/**", "!/coverage/**",
+    "!/**/*.test.ts", "!/**/*.test.tsx", "!/**/*.spec.ts", "!/**/*.spec.tsx",
+    "!/**/__tests__/**", "!/**/tests/**",
+  ], { query: "?raw", import: "default", eager: true }) as Record<string, string>;
+
+  it("web 的 gql 文档只能定义在 lib/graphql 内", () => {
+    const failures: string[] = [];
+    for (const [path, source] of Object.entries(webSources)) {
+      if (path.startsWith("/lib/graphql/")) continue;
+      const documents = countGqlDocuments(path, source);
+      if (documents > 0) failures.push(`${path}: gql documents=${documents}, move to lib/graphql`);
+    }
+    expect(failures).toEqual([]);
+  });
 
   it("raw 源码与运行时导出的模块集相等", () => {
     expect(Object.keys(sources).sort(), "raw glob 与模块 glob 的 key 集不一致").toEqual(
