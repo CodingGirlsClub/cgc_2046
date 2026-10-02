@@ -1181,4 +1181,33 @@ defmodule Cgc2046.Events.Event do
       :inserted_at
     ])
   end
+
+  @doc """
+  按租户与 actor 收紧读取活动。**不变量：必须带 `tenant: workspace_id`**——Event
+  为全局资源，省略 tenant 会跨工作台读取并泄露活动存在性。
+
+  错误字符串是 interface 的一部分，供 MCP 工具与其他 domain consumer 逐字透传。
+  """
+  @spec fetch_scoped(String.t(), String.t(), actor: term()) ::
+          {:ok, t()} | {:error, String.t() | Ash.Error.Invalid.t()}
+  def fetch_scoped(workspace_id, event_id, actor: actor) do
+    case __MODULE__
+         |> Ash.Query.for_read(:get_by_id, %{id: event_id})
+         |> Ash.read_one(actor: actor, tenant: workspace_id) do
+      {:ok, nil} ->
+        {:error, "event not found: #{event_id}"}
+
+      {:ok, event} ->
+        {:ok, event}
+
+      {:error, %Ash.Error.Forbidden{}} ->
+        {:error, "forbidden: not allowed to read event #{event_id}"}
+
+      {:error, %Ash.Error.Invalid{} = error} ->
+        {:error, error}
+
+      {:error, %Ash.Error.Unknown{}} ->
+        {:error, "failed to load event"}
+    end
+  end
 end

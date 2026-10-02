@@ -52,6 +52,165 @@ defmodule Cgc2046.FkOnDeleteGuardTest do
   # 后续新缺口按原格式登记于此。
   @no_db_fk_relationships []
 
+  # #717：events/courses 直接引用列的单一登记清单。全集由 DB catalog 的实际 FK
+  # 与命名候选列并集得到；新增 FK 或裸 uuid/uuid[] 引用而未登记时必须变红。
+  # 历史根因证据：flashback_action_cards.event_id 曾是未登记裸 uuid，随后由
+  # 20260919004500_drop_flashback_action_cards.exs 删除整表；它只保留在本注释中，
+  # 不作为当前 manifest 条目，避免把已不存在的历史列误当活约束。
+  @offering_cascade_manifest [
+    %{
+      table: "attendances",
+      column: "event_id",
+      handling: :structurally_impossible,
+      expected_confdeltype: "a",
+      reason:
+        "Event :delete 仅允许 draft（events/event.ex:791-794）；签到发生在可报名活动，" <>
+          "删除路径没有 attendance 显式收口，NO ACTION 由 draft-only 不变量挡住"
+    },
+    %{
+      table: "curriculum_course_revisions",
+      column: "course_id",
+      handling: :structurally_impossible,
+      expected_confdeltype: "a",
+      reason:
+        "Course :delete 仅允许 draft，course.ex:628-635 明确 revision 对 draft 结构性不存在；" <>
+          "migration 未声明 on_delete，NO ACTION 保留为异常防线"
+    },
+    %{
+      table: "enrollments",
+      column: "event_id",
+      handling: :fk_cascade,
+      expected_confdeltype: "c",
+      reason: "enrollment 行由 events FK ON DELETE CASCADE 承接"
+    },
+    %{
+      table: "enrollments",
+      column: "course_id",
+      handling: :fk_cascade,
+      expected_confdeltype: "c",
+      reason: "enrollment 行由 courses FK ON DELETE CASCADE 承接"
+    },
+    %{
+      table: "event_moderators",
+      column: "event_id",
+      handling: :fk_cascade,
+      expected_confdeltype: "c",
+      reason: "event moderator 行由 events FK ON DELETE CASCADE 承接"
+    },
+    %{
+      table: "flashback_people",
+      column: "archive_event_id",
+      handling: :structurally_impossible,
+      expected_confdeltype: nil,
+      reason: "指向 Flashback event archive，不是当前 events.id"
+    },
+    %{
+      table: "invitations",
+      column: "prep_course_ids",
+      handling: :explicit_collect,
+      expected_confdeltype: nil,
+      reason:
+        "Course :delete 没有自动回写 invitation；Invitation.assign_prep_courses/2（accounts/invitation.ex:630-652）" <>
+          "对已删除或已终结课程跳过并记录日志，属于规则兜底而非 FK 收口"
+    },
+    %{
+      table: "invite_batches",
+      column: "event_id",
+      handling: :fk_cascade,
+      expected_confdeltype: "c",
+      reason: "invite batch 行由 events FK ON DELETE CASCADE 承接"
+    },
+    %{
+      table: "invite_batches",
+      column: "course_id",
+      handling: :fk_cascade,
+      expected_confdeltype: "c",
+      reason: "invite batch 行由 courses FK ON DELETE CASCADE 承接"
+    },
+    %{
+      table: "payments_webhook_events",
+      column: "event_id",
+      handling: :structurally_impossible,
+      expected_confdeltype: nil,
+      reason: "text 类型的支付渠道 event_id，不是当前 events.id"
+    },
+    %{
+      table: "sponsorships",
+      column: "event_id",
+      handling: :fk_cascade,
+      expected_confdeltype: "c",
+      reason: "sponsorship 行由 events FK ON DELETE CASCADE 承接；deliveries 仅经 sponsorship_id 间接承接"
+    },
+    %{
+      table: "speaker_invitations",
+      column: "event_id",
+      handling: :fk_cascade,
+      expected_confdeltype: "c",
+      reason: "speaker invitation 行由 events FK ON DELETE CASCADE 承接"
+    },
+    %{
+      table: "volunteer_applications",
+      column: "assigned_event_id",
+      handling: :fk_cascade,
+      expected_confdeltype: "n",
+      reason: "志愿者可指派到 draft event；events 删除通过 SET NULL 保留申请"
+    },
+    %{
+      table: "workflow_runs",
+      column: "subject_course_id",
+      handling: :structurally_impossible,
+      expected_confdeltype: nil,
+      reason:
+        "WorkflowRun.subject_course_id 没有独立 FK 或删除收口；learning run 只在可学习的非 draft 课程存在，" <>
+          "而 Course :delete 仅允许 draft，因此当前没有可达的课程删除并存场景"
+    }
+  ]
+
+  @workflow_cascade_manifest [
+    %{
+      type: :learning,
+      handling: :structurally_impossible,
+      reason: "learning run 依赖已发布/可学习课程，draft-only Course :delete 不会触达该 run"
+    },
+    %{
+      type: :enrollment,
+      handling: :structurally_impossible,
+      reason: "WorkflowDefinition.type 的 :enrollment 是预留枚举；当前代码没有该类型的 event/course 实例化或删除收口路径"
+    },
+    %{
+      type: :sponsorship,
+      handling: :structurally_impossible,
+      reason: "WorkflowDefinition.type 的 :sponsorship 是预留枚举；当前代码没有该类型的 event/course 实例化或删除收口路径"
+    },
+    %{
+      type: :speaker_invitation,
+      handling: :explicit_collect,
+      reason:
+        "Event :delete 通过 SpeakerInvitation.stop_event_runs/1 收口非终态 run（events/event.ex:818-824）"
+    },
+    %{
+      type: :curriculum,
+      handling: :structurally_impossible,
+      reason:
+        "curriculum run 由 Event launch 后实例化；Event :delete 仅允许 draft（events/event.ex:791-794），" <>
+          "因此没有可达的 event 删除并存场景"
+    },
+    %{
+      type: :course_preparation,
+      handling: :explicit_collect,
+      reason:
+        "Course :delete 通过 Curriculum.Prep.stop_active_runs/1 收口非终态 prep run（courses/course.ex:670-675）"
+    },
+    %{
+      type: :recruitment_application,
+      handling: :structurally_impossible,
+      reason:
+        "recruitment_application run 的业务锚点是 volunteer_application/cohort；它没有 event_id/course_id 列，也没有 event/course 删除收口路径"
+    }
+  ]
+
+  @cascade_handlings [:fk_cascade, :explicit_collect, :structurally_impossible]
+
   # 未声明 on_delete → 生成迁移不打印 on_delete → Ecto 不写 ON DELETE 子句 → NO ACTION
   defp confdeltype(nil), do: "a"
   defp confdeltype(:nothing), do: "a"
@@ -167,6 +326,65 @@ defmodule Cgc2046.FkOnDeleteGuardTest do
     end
   end
 
+  describe "#717 级联清单单一所有者" do
+    test "所有 event/course 引用候选列都已登记" do
+      actual = MapSet.new(offering_reference_columns())
+      registered = MapSet.new(@offering_cascade_manifest, &{&1.table, &1.column})
+
+      assert actual == registered,
+             "event/course 引用列登记不完整；缺少 #{inspect(MapSet.difference(actual, registered) |> MapSet.to_list())}；" <>
+               "多余 #{inspect(MapSet.difference(registered, actual) |> MapSet.to_list())}"
+    end
+
+    test "列 manifest 的 handling、理由与 FK 动作一致" do
+      offering_fks = offering_fks()
+
+      for entry <- @offering_cascade_manifest do
+        assert entry.handling in @cascade_handlings,
+               "#{entry.table}.#{entry.column} 使用了未知处理类别 #{inspect(entry.handling)}"
+
+        assert is_binary(entry.reason) and String.trim(entry.reason) != "",
+               "#{entry.table}.#{entry.column} 必须写明处理理由"
+
+        actual = Map.get(offering_fks, {entry.table, entry.column})
+
+        case entry.handling do
+          :fk_cascade ->
+            assert actual == entry.expected_confdeltype,
+                   "#{entry.table}.#{entry.column} 声明 FK 承接，期望 confdeltype=" <>
+                     "#{entry.expected_confdeltype}，实际 #{inspect(actual)}"
+
+          :structurally_impossible ->
+            assert actual == entry.expected_confdeltype,
+                   "#{entry.table}.#{entry.column} 声明结构性不存在，期望 confdeltype=" <>
+                     "#{inspect(entry.expected_confdeltype)}，实际 #{inspect(actual)}"
+
+          :explicit_collect ->
+            assert is_nil(actual),
+                   "#{entry.table}.#{entry.column} 声明显式收口但仍有指向 events/courses 的 FK " <>
+                     "（实际 #{inspect(actual)}）"
+        end
+      end
+    end
+
+    test "代码声明的每种 workflow type 都有处理登记" do
+      actual = MapSet.new(workflow_types())
+      registered = MapSet.new(@workflow_cascade_manifest, & &1.type)
+
+      assert actual == registered,
+             "workflow type 登记不完整；缺少 #{inspect(MapSet.difference(actual, registered) |> MapSet.to_list())}；" <>
+               "多余 #{inspect(MapSet.difference(registered, actual) |> MapSet.to_list())}"
+
+      for entry <- @workflow_cascade_manifest do
+        assert entry.handling in @cascade_handlings,
+               "workflow #{entry.type} 使用了未知处理类别 #{inspect(entry.handling)}"
+
+        assert is_binary(entry.reason) and String.trim(entry.reason) != "",
+               "workflow #{entry.type} 必须写明处理理由"
+      end
+    end
+  end
+
   # 对齐主体 = 未忽略、且不在 @no_db_fk_relationships 里的 relationship
   defp aligned_relationships do
     no_fk = MapSet.new(@no_db_fk_relationships, fn {t, c, _, _} -> {t, c} end)
@@ -245,5 +463,75 @@ defmodule Cgc2046.FkOnDeleteGuardTest do
              "或同列多约束，会逃逸四桶断言（须扩展本守卫）"
 
     fks
+  end
+
+  defp offering_reference_columns do
+    offering_fk_columns()
+    |> MapSet.new()
+    |> MapSet.union(MapSet.new(named_offering_columns()))
+    |> MapSet.to_list()
+  end
+
+  defp offering_fk_columns do
+    %{rows: rows} =
+      Cgc2046.Repo.query!("""
+      SELECT child.relname, child_attr.attname
+      FROM pg_constraint con
+      JOIN pg_class child ON child.oid = con.conrelid
+      JOIN pg_namespace child_ns ON child_ns.oid = child.relnamespace AND child_ns.nspname = 'public'
+      JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS key(attnum, ord) ON true
+      JOIN pg_attribute child_attr ON child_attr.attrelid = con.conrelid AND child_attr.attnum = key.attnum
+      JOIN pg_class parent ON parent.oid = con.confrelid
+      JOIN pg_namespace parent_ns ON parent_ns.oid = parent.relnamespace AND parent_ns.nspname = 'public'
+      WHERE con.contype = 'f'
+        AND array_length(con.conkey, 1) = 1
+        AND parent.relname IN ('events', 'courses')
+      ORDER BY child.relname, child_attr.attname
+      """)
+
+    Enum.map(rows, fn [table, column] -> {table, column} end)
+  end
+
+  defp named_offering_columns do
+    %{rows: rows} =
+      Cgc2046.Repo.query!("""
+      SELECT table_name, column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND (
+          column_name IN ('event_id', 'course_id')
+          OR right(column_name, 9) = '_event_id'
+          OR right(column_name, 10) = '_course_id'
+          OR right(column_name, 10) = '_event_ids'
+          OR right(column_name, 11) = '_course_ids'
+        )
+      ORDER BY table_name, column_name
+      """)
+
+    Enum.map(rows, fn [table, column] -> {table, column} end)
+  end
+
+  defp offering_fks do
+    %{rows: rows} =
+      Cgc2046.Repo.query!("""
+      SELECT child.relname, child_attr.attname, con.confdeltype::text
+      FROM pg_constraint con
+      JOIN pg_class child ON child.oid = con.conrelid
+      JOIN pg_namespace child_ns ON child_ns.oid = child.relnamespace AND child_ns.nspname = 'public'
+      JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS key(attnum, ord) ON true
+      JOIN pg_attribute child_attr ON child_attr.attrelid = con.conrelid AND child_attr.attnum = key.attnum
+      JOIN pg_class parent ON parent.oid = con.confrelid
+      JOIN pg_namespace parent_ns ON parent_ns.oid = parent.relnamespace AND parent_ns.nspname = 'public'
+      WHERE con.contype = 'f'
+        AND array_length(con.conkey, 1) = 1
+        AND parent.relname IN ('events', 'courses')
+      """)
+
+    Map.new(rows, fn [table, column, action] -> {{table, column}, action} end)
+  end
+
+  defp workflow_types do
+    attr = Ash.Resource.Info.attribute(Cgc2046.Workflows.WorkflowDefinition, :type)
+    attr.constraints[:one_of]
   end
 end
