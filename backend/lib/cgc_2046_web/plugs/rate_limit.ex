@@ -12,6 +12,10 @@ defmodule Cgc2046Web.Plugs.RateLimit do
         resolve(...)
       end
 
+  `ip_bucket: "sign-in"` 按 IP 单独计数；`ip_context_key: :mini_web_ip` 使用
+  GraphQL plug 已解析的可信 IP，不依赖 context 中不存在的完整 conn。
+  两项均显式启用，其他调用方的 key 与 IP 来源不变。
+
   ## 具名上限（#930）
 
   `limit: name` 取 `limit/1` 的具名上限（缺省值集中在 `@limits`，可经
@@ -38,7 +42,13 @@ defmodule Cgc2046Web.Plugs.RateLimit do
   # - platform_sign_in_openid：计费防刷按 openid 计（SignInPreparation，code2session
   #   之后、换手机号之前），正常用户 15 分钟内登录 10 次已是上限；
   # - notification_consent_actor：订阅授权按账号计（一次最多 3 个模板）。
-  @limits %{platform_sign_in_ip: 100, platform_sign_in_openid: 10, notification_consent_actor: 30}
+  # - sign_in_ip：账号密码登录跨账号喷洒的 IP 总量上限。
+  @limits %{
+    platform_sign_in_ip: 100,
+    platform_sign_in_openid: 10,
+    notification_consent_actor: 30,
+    sign_in_ip: 30
+  }
 
   @doc false
   def table, do: @table
@@ -115,20 +125,28 @@ defmodule Cgc2046Web.Plugs.RateLimit do
 
   defp build_middleware_key(resolution, key_path, opts) do
     remote_ip =
-      case resolution.context do
-        %{conn: %{remote_ip: ip}} -> ip |> :inet.ntoa() |> to_string()
-        _ -> "unknown"
+      if context_key = opts[:ip_context_key] do
+        Map.get(resolution.context, context_key, "unknown")
+      else
+        case resolution.context do
+          %{conn: %{remote_ip: ip}} -> ip |> :inet.ntoa() |> to_string()
+          _ -> "unknown"
+        end
       end
 
-    field_value =
-      Enum.reduce(key_path, resolution.arguments, fn key, acc ->
-        case acc do
-          %{^key => val} -> val
-          _ -> nil
-        end
-      end)
+    if bucket = opts[:ip_bucket] do
+      build_key("rate:#{bucket}:ip", remote_ip)
+    else
+      field_value =
+        Enum.reduce(key_path, resolution.arguments, fn key, acc ->
+          case acc do
+            %{^key => val} -> val
+            _ -> nil
+          end
+        end)
 
-    build_key("rate:#{remote_ip}", field_value, opts)
+      build_key("rate:#{remote_ip}", field_value, opts)
+    end
   end
 
   defp normalize_value(value, normalizer) when is_function(normalizer, 1),

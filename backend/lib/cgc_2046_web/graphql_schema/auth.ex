@@ -20,7 +20,15 @@ defmodule Cgc2046Web.GraphqlSchema.Auth do
       arg(:password, non_null(:string))
 
       middleware(Cgc2046Web.Plugs.RateLimit,
+        ip_bucket: "sign-in",
+        ip_context_key: :mini_web_ip,
+        limit: :sign_in_ip,
+        window_seconds: 900
+      )
+
+      middleware(Cgc2046Web.Plugs.RateLimit,
         key_path: [:login],
+        ip_context_key: :mini_web_ip,
         normalize: &Cgc2046.Accounts.WebAuthFlow.normalize_login/1
       )
 

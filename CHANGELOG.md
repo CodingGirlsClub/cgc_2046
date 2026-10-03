@@ -30,6 +30,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ### Security
 
 - 赞助管理读面按行所属工作台授权，阻止 Owner/Admin 使用 GraphQL OR filter 跨台读取赞助信息；保留赞助人本人读取和平台管理员跨台读取权限（#709）。
+- 账号密码登录新增跨账号 IP 总量限流，保留 IP + 账号限流；收银弹框与订单详情的支付跳转仅允许有效 HTTPS URL，非法凭据回退本地订单页并保留语言；CI 校验固定 gitleaks 官方 SHA-256 后才解压执行，plugin 同步将版本经环境变量写入 JSON，避免源码插值（#985）。
 
 ## [2026-10-01]
 

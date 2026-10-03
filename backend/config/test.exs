@@ -85,7 +85,8 @@ config :cgc_2046, Cgc2046Web.Plugs.RateLimit, max_attempts: 999_999
 config :cgc_2046, :rate_limits,
   platform_sign_in_ip: 999_999,
   platform_sign_in_openid: 999_999,
-  notification_consent_actor: 999_999
+  notification_consent_actor: 999_999,
+  sign_in_ip: 999_999
 
 # MCP 失败认证节流同款关闭（共享 ETS 表，async 401 测试会互相累计计数）
 config :cgc_2046, Cgc2046Web.Plugs.McpAuthPlug, max_attempts: 999_999
