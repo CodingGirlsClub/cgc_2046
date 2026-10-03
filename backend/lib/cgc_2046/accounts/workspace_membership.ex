@@ -197,7 +197,7 @@ defmodule Cgc2046.Accounts.WorkspaceMembership do
     # 双面契约见 `Cgc2046.Accounts.Policies.PlatformAdmin` moduledoc。
     policy action_type(:read) do
       authorize_if(expr(user_id == ^actor(:id)))
-      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.ActorManagesWorkspaceMembershipWorkspace)
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
