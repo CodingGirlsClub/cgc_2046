@@ -2,7 +2,7 @@
 # 前置（服务器初始化，一次性）：
 #   1. Docker + Kamal 首次 boot（kamal setup 或手动 docker run kamal-proxy）
 #   2. GitHub production environment 补 4 个值：
-#      secrets: SERVER_SSH_KEY, KAMAL_REGISTRY_PASSWORD, DATABASE_URL
+#      secrets: SERVER_SSH_KEY, TCR_PASSWORD, DATABASE_URL
 #      vars:    TCR_REGISTRY, TCR_USERNAME, SERVER_HOST, SERVER_HOST_KEY
 # 环境注入契约：docs/运维/邮件与CD环境注入.md
 #
@@ -212,7 +212,7 @@ jobs:
           : > .kamal/secrets
           missing=""
           for v in \
-            KAMAL_REGISTRY_PASSWORD DATABASE_URL SECRET_KEY_BASE TOKEN_SIGNING_SECRET \
+            TCR_PASSWORD DATABASE_URL SECRET_KEY_BASE TOKEN_SIGNING_SECRET \
             SENDCLOUD_API_USER SENDCLOUD_API_KEY SENDCLOUD_FROM SENDCLOUD_FROM_NAME \
             SENDCLOUD_SMS_USER SENDCLOUD_SMS_KEY SENDCLOUD_SMS_TEMPLATE_ID \
             SENDCLOUD_FLASHBACK_SMS_TEMPLATE_ID \
@@ -254,7 +254,7 @@ jobs:
           [ -z "$missing" ] || { echo "::error::missing GitHub secrets/vars:$missing"; exit 1; }
           echo "secrets 非空校验通过（61 项）"
         env:
-          KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
+          TCR_PASSWORD: ${{ secrets.TCR_PASSWORD }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SECRET_KEY_BASE: ${{ secrets.SECRET_KEY_BASE }}
           TOKEN_SIGNING_SECRET: ${{ secrets.TOKEN_SIGNING_SECRET }}
@@ -398,10 +398,10 @@ jobs:
           # 只剩 registry 密码走 secrets lookup；NEXT_PUBLIC_* / BACKEND_URL
           # 已由 builder args 经 sed 占位符直写 deploy.ci.yml（本文件不再消费）
           cat > .kamal/secrets <<SECRETS_EOF
-          KAMAL_REGISTRY_PASSWORD=${KAMAL_REGISTRY_PASSWORD}
+          TCR_PASSWORD=${TCR_PASSWORD}
           SECRETS_EOF
         env:
-          KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
+          TCR_PASSWORD: ${{ secrets.TCR_PASSWORD }}
 
       - name: Deploy web
         working-directory: web
