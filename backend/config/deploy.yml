@@ -69,7 +69,7 @@ registry:
   # 数组形式才走 secrets lookup（字符串会被远程 shell 展开为空——
   # "password is empty" 的根因）；值从 .kamal/secrets 解析
   password:
-    - KAMAL_REGISTRY_PASSWORD
+    - TCR_PASSWORD
 
 env:
   clear:
@@ -179,7 +179,7 @@ accessories:
     volumes:
       - /opt/cgc/postgres/data:/var/lib/postgresql/data
 
-# SSH 私钥/registry 密码经 KAMAL_REGISTRY_PASSWORD 与 ssh key 配置注入，
+# SSH 私钥/registry 密码经 TCR_PASSWORD 与 ssh key 配置注入，
 # 不落仓库。builder：x86 服务器在 CI x86 runner 上直接构建，无需 remote builder。
 builder:
   # CI working-directory=backend（CWD）；docker --file 相对 CWD 而非
