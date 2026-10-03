@@ -450,6 +450,22 @@ defmodule Cgc2046.Accounts.JoinRequestTest do
       assert Enum.any?(requests, &(&1.id == jr.id))
     end
 
+    test "admin can read all join requests in workspace" do
+      %{workspace: workspace, member: admin} =
+        Fixtures.workspace_with_member(member_roles: [:admin])
+
+      applicant = Fixtures.register_user("jr-admin-read-applicant")
+      jr = create_join_request(workspace, applicant)
+
+      assert {:ok, requests} =
+               JoinRequest
+               |> Ash.Query.for_read(:read)
+               |> Ash.read(tenant: workspace.id, actor: admin)
+
+      assert Enum.any?(requests, &(&1.id == jr.id))
+      assert Enum.all?(requests, &(&1.workspace_id == workspace.id))
+    end
+
     test "plain member cannot read others' join requests" do
       admin = Fixtures.platform_admin("jr-admin")
       workspace = Fixtures.create_workspace(admin)

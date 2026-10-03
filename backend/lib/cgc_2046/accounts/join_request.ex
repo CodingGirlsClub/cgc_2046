@@ -309,10 +309,12 @@ defmodule Cgc2046.Accounts.JoinRequest do
       authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
     end
 
-    # :read 申请人本人可读自己的申请；Owner/Admin 可读该工作台全部申请
+    # :read 申请人本人可读自己的申请；Owner/Admin 可读该工作台全部申请；
+    # PlatformAdmin 可跨工作台读取治理数据。
     policy action_type(:read) do
       authorize_if(expr(user_id == ^actor(:id)))
-      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.ActorManagesJoinRequestWorkspace)
+      authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
 
