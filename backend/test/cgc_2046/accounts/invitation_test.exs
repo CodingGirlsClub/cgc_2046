@@ -6,6 +6,8 @@ defmodule Cgc2046.Accounts.InvitationTest do
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.EventsFixtures
 
+  require Ash.Query
+
   defp create_invitation(workspace, inviter, attrs \\ %{}) do
     changes =
       Map.merge(
@@ -758,6 +760,207 @@ defmodule Cgc2046.Accounts.InvitationTest do
       assert validated.status == :revoked
       assert validated.effective_status == "revoked"
     end
+  end
+
+  describe "read visibility（Invitation read policy 管理面，#705）" do
+    @describetag :invitation_read_705
+
+    setup do
+      %{owner: owner, workspace: ws_x, member: admin} =
+        Fixtures.workspace_with_member(member_roles: [:admin])
+
+      %{workspace: ws_y, member: other_inviter} =
+        Fixtures.workspace_with_member(member_roles: [:volunteer])
+
+      volunteer = Fixtures.register_user("inv705-volunteer")
+      Fixtures.add_member(ws_x, volunteer, [:volunteer])
+      learner = Fixtures.register_user("inv705-learner")
+      Fixtures.add_member(ws_x, learner, [:learner])
+
+      inv_x1 =
+        create_invitation(ws_x, volunteer, %{
+          target_email: "inv705-learner@example.com",
+          preauthorized_role_names: [:learner]
+        })
+
+      inv_x2 =
+        create_invitation(ws_x, owner, %{
+          target_email: "inv705-tutor@example.com",
+          preauthorized_role_names: [:tutor]
+        })
+
+      inv_y = create_invitation(ws_y, other_inviter)
+
+      %{
+        owner: owner,
+        admin: admin,
+        volunteer: volunteer,
+        learner: learner,
+        ws_x: ws_x,
+        ws_y: ws_y,
+        inv_x1: inv_x1,
+        inv_x2: inv_x2,
+        inv_y: inv_y
+      }
+    end
+
+    test "Owner reads all invitations in their workspace, including another inviter's", s do
+      rows =
+        Invitation
+        |> Ash.Query.filter(workspace_id == ^s.ws_x.id)
+        |> Ash.read!(actor: s.owner)
+
+      assert invitation_ids(rows) == MapSet.new([s.inv_x1.id, s.inv_x2.id])
+    end
+
+    test "Admin reads other inviters' invitations by workspace and by id", s do
+      rows =
+        Invitation
+        |> Ash.Query.filter(workspace_id == ^s.ws_x.id)
+        |> Ash.read!(actor: s.admin)
+
+      assert invitation_ids(rows) == MapSet.new([s.inv_x1.id, s.inv_x2.id])
+      assert Ash.get!(Invitation, s.inv_x1.id, actor: s.admin).id == s.inv_x1.id
+    end
+
+    test "Owner and Admin OR-filter reads contain only the managed workspace", s do
+      for actor <- [s.owner, s.admin] do
+        rows = read_cross_workspace_invitations(s, actor)
+
+        assert invitation_ids(rows) == MapSet.new([s.inv_x1.id, s.inv_x2.id])
+        assert MapSet.new(rows, & &1.workspace_id) == MapSet.new([s.ws_x.id])
+        assert Enum.all?(rows, &(&1.workspace_id == s.ws_x.id))
+        refute Enum.any?(rows, &(&1.id == s.inv_y.id))
+      end
+    end
+
+    test "GraphQL Owner and Admin OR-filter results preserve row isolation and public fields",
+         s do
+      for actor <- [s.owner, s.admin] do
+        assert %{"data" => %{"invitations" => %{"results" => rows}}} =
+                 invitation_graphql(s, invitation_sign_in(actor))
+
+        assert MapSet.new(rows, & &1["id"]) == MapSet.new([s.inv_x1.id, s.inv_x2.id])
+        assert MapSet.new(rows, & &1["workspaceId"]) == MapSet.new([s.ws_x.id])
+        assert Enum.all?(rows, &(&1["workspaceId"] == s.ws_x.id))
+        refute Enum.any?(rows, &(&1["id"] == s.inv_y.id))
+
+        assert Map.new(
+                 rows,
+                 &{&1["id"], Map.take(&1, ~w(targetEmail preauthorizedRoleNames status))}
+               ) ==
+                 %{
+                   s.inv_x1.id => %{
+                     "targetEmail" => "inv705-learner@example.com",
+                     "preauthorizedRoleNames" => ["learner"],
+                     "status" => "active"
+                   },
+                   s.inv_x2.id => %{
+                     "targetEmail" => "inv705-tutor@example.com",
+                     "preauthorizedRoleNames" => ["tutor"],
+                     "status" => "active"
+                   }
+                 }
+      end
+    end
+
+    test "Volunteer reads only their own invitations even after leaving the workspace", s do
+      assert invitation_ids(read_cross_workspace_invitations(s, s.volunteer)) ==
+               MapSet.new([s.inv_x1.id])
+
+      Fixtures.remove_membership(s.ws_x, s.volunteer)
+
+      assert Ash.get!(Invitation, s.inv_x1.id, actor: s.volunteer).id == s.inv_x1.id
+
+      assert invitation_ids(read_cross_workspace_invitations(s, s.volunteer)) ==
+               MapSet.new([s.inv_x1.id])
+    end
+
+    test "Learner membership does not grant invitation management reads", s do
+      assert invitation_ids(read_cross_workspace_invitations(s, s.learner)) == MapSet.new()
+    end
+
+    test "Outsider cannot read other inviters' invitations", s do
+      outsider = Fixtures.register_user("inv705-outsider")
+      assert invitation_ids(read_cross_workspace_invitations(s, outsider)) == MapSet.new()
+    end
+
+    test "Anonymous GraphQL invitations remain forbidden", s do
+      assert %{"data" => %{"invitations" => nil}, "errors" => [error | _]} =
+               invitation_graphql(s, nil)
+
+      assert error["code"] == "forbidden"
+    end
+
+    test "PlatformAdmin retains cross-workspace global invitation reads", s do
+      platform_admin = Fixtures.platform_admin("inv705-platform")
+
+      assert invitation_ids(read_cross_workspace_invitations(s, platform_admin)) ==
+               MapSet.new([s.inv_x1.id, s.inv_x2.id, s.inv_y.id])
+    end
+
+    test "Explicit tenant still restricts PlatformAdmin invitation reads", s do
+      platform_admin = Fixtures.platform_admin("inv705-tenant-platform")
+
+      rows =
+        Invitation
+        |> cross_workspace_invitation_query(s)
+        |> Ash.read!(actor: platform_admin, tenant: s.ws_x.id)
+
+      assert invitation_ids(rows) == MapSet.new([s.inv_x1.id, s.inv_x2.id])
+      assert MapSet.new(rows, & &1.workspace_id) == MapSet.new([s.ws_x.id])
+    end
+  end
+
+  defp invitation_ids(rows), do: MapSet.new(rows, & &1.id)
+
+  defp cross_workspace_invitation_query(query, s) do
+    Ash.Query.filter(query, workspace_id == ^s.ws_x.id or workspace_id == ^s.ws_y.id)
+  end
+
+  defp read_cross_workspace_invitations(s, actor) do
+    Invitation
+    |> cross_workspace_invitation_query(s)
+    |> Ash.read!(actor: actor)
+  end
+
+  defp invitation_sign_in(user) do
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/graphql", %{
+        "query" =>
+          "mutation($login: String!, $password: String!) { signIn(login: $login, password: $password) { id } }",
+        "variables" => %{"login" => to_string(user.email), "password" => Fixtures.password()}
+      })
+
+    assert %{"data" => %{"signIn" => %{"id" => _}}} = json_response(conn, 200)
+    conn.resp_cookies["cgc_token"].value
+  end
+
+  defp invitation_graphql(s, session) do
+    conn = build_conn() |> put_req_header("content-type", "application/json")
+    conn = if session, do: put_req_header(conn, "authorization", "Bearer #{session}"), else: conn
+
+    conn
+    |> post("/api/graphql", %{
+      "query" => """
+      query($filter: InvitationFilterInput!) {
+        invitations(first: 50, filter: $filter) {
+          results { id workspaceId targetEmail preauthorizedRoleNames status }
+        }
+      }
+      """,
+      "variables" => %{
+        "filter" => %{
+          "or" => [
+            %{"workspaceId" => %{"eq" => s.ws_x.id}},
+            %{"workspaceId" => %{"eq" => s.ws_y.id}}
+          ]
+        }
+      }
+    })
+    |> json_response(200)
   end
 
   describe "tenant isolation" do

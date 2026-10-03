@@ -599,7 +599,7 @@ defmodule Cgc2046.Accounts.Invitation do
     # #114 加 platform_admin bypass（admin 详情页 pending-owner badge 任意平台管理员可见）
     policy action_type(:read) do
       authorize_if(expr(inviter_id == ^actor(:id)))
-      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.ActorManagesInvitationWorkspace)
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end
