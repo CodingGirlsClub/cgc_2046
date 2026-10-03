@@ -144,6 +144,60 @@ defmodule Cgc2046Web.GraphqlInviteBatchTest do
     assert disabled["status"] == "disabled"
   end
 
+  test "Owner 与 Admin 读取同 workspace 批次，普通成员不能读取管理列表" do
+    setup = cross_workspace_read_setup()
+
+    for token <- [setup.owner_token, setup.admin_token] do
+      assert %{"data" => %{"inviteBatches" => %{"results" => rows}}} =
+               graphql(workspace_filter_query(setup.workspace_x.id), token)
+
+      assert Enum.map(rows, & &1["id"]) == [setup.x_batch["id"]]
+      assert Enum.all?(rows, &(&1["workspaceId"] == setup.workspace_x.id))
+    end
+
+    response = graphql(workspace_filter_query(setup.workspace_x.id), setup.member_token)
+
+    assert %{"data" => %{"inviteBatches" => %{"results" => []}}} = response
+  end
+
+  test "Owner 的 workspaceId OR filter 不能读取另一 workspace 的批次" do
+    setup = cross_workspace_read_setup()
+
+    response =
+      graphql(
+        or_workspace_filter_query(setup.workspace_x.id, setup.workspace_y.id),
+        setup.owner_token
+      )
+
+    assert %{"data" => %{"inviteBatches" => %{"results" => rows}}} = response
+    assert rows != []
+    assert Enum.all?(rows, &(&1["workspaceId"] == setup.workspace_x.id))
+    refute Enum.any?(rows, &(&1["id"] == setup.y_batch["id"]))
+  end
+
+  test "PlatformAdmin 读取 OR filter 时保留跨 workspace bypass" do
+    setup = cross_workspace_read_setup()
+
+    response =
+      graphql(
+        or_workspace_filter_query(setup.workspace_x.id, setup.workspace_y.id),
+        setup.platform_admin_token
+      )
+
+    assert %{"data" => %{"inviteBatches" => %{"results" => rows}}} = response
+
+    assert Enum.map(rows, & &1["workspaceId"]) |> Enum.sort() ==
+             Enum.sort([setup.workspace_x.id, setup.workspace_y.id])
+  end
+
+  test "匿名不能读取 InviteBatch 管理列表" do
+    setup = cross_workspace_read_setup()
+    response = graphql(workspace_filter_query(setup.workspace_x.id), nil)
+
+    assert %{"data" => %{"inviteBatches" => nil}, "errors" => [error | _]} = response
+    assert error["code"] == "forbidden"
+  end
+
   test "普通成员不能经 GraphQL 创建批次码" do
     %{owner: owner, member: member, workspace: workspace} = Fixtures.workspace_with_member()
     event = EventFixtures.create_event(workspace, owner, %{enrollment_policy: :invite_only})
@@ -162,6 +216,62 @@ defmodule Cgc2046Web.GraphqlInviteBatchTest do
     admin = Fixtures.register_user("gql-invite-admin")
     Fixtures.add_member(workspace, admin, [:admin])
     %{owner: owner, admin: admin, member: member, workspace: workspace}
+  end
+
+  defp cross_workspace_read_setup do
+    platform_admin = Fixtures.platform_admin("gql-invite-read-platform")
+
+    %{owner: owner_x, member: member_x, workspace: workspace_x} =
+      Fixtures.workspace_with_member(member_roles: [:learner])
+
+    admin_x = Fixtures.register_user("gql-invite-read-admin")
+    Fixtures.add_member(workspace_x, admin_x, [:admin])
+
+    workspace_y = Fixtures.create_workspace(platform_admin)
+    event_x = EventFixtures.create_event(workspace_x, owner_x, %{enrollment_policy: :invite_only})
+
+    event_y =
+      EventFixtures.create_event(workspace_y, platform_admin, %{enrollment_policy: :invite_only})
+
+    x_batch = create_batch!(sign_in_token(owner_x), :event, event_x.id, "READ_X", 1)
+    y_batch = create_batch!(sign_in_token(platform_admin), :event, event_y.id, "READ_Y", 1)
+
+    %{
+      owner_x: owner_x,
+      admin_x: admin_x,
+      member_x: member_x,
+      workspace_x: workspace_x,
+      workspace_y: workspace_y,
+      x_batch: x_batch,
+      y_batch: y_batch,
+      owner_token: sign_in_token(owner_x),
+      admin_token: sign_in_token(admin_x),
+      member_token: sign_in_token(member_x),
+      platform_admin_token: sign_in_token(platform_admin)
+    }
+  end
+
+  defp workspace_filter_query(workspace_id) do
+    """
+    query {
+      inviteBatches(filter: {workspaceId: {eq: "#{workspace_id}"}}, first: 50) {
+        results { id workspaceId eventId courseId inviteCode quota remainingQuota status insertedAt remark }
+      }
+    }
+    """
+  end
+
+  defp or_workspace_filter_query(workspace_id, other_workspace_id) do
+    """
+    query {
+      inviteBatches(
+        filter: {or: [{workspaceId: {eq: "#{workspace_id}"}}, {workspaceId: {eq: "#{other_workspace_id}"}}]}
+        first: 50
+      ) {
+        results { id workspaceId eventId courseId inviteCode quota remainingQuota status insertedAt remark }
+      }
+    }
+    """
   end
 
   defp create_batch!(token, kind, id, code, quota) do
@@ -254,6 +364,13 @@ defmodule Cgc2046Web.GraphqlInviteBatchTest do
 
     assert %{"data" => %{"signIn" => %{"id" => _}}} = json_response(conn, 200)
     conn.resp_cookies["cgc_token"].value
+  end
+
+  defp graphql(query, nil) do
+    build_conn()
+    |> put_req_header("content-type", "application/json")
+    |> post("/api/graphql", %{"query" => query})
+    |> json_response(200)
   end
 
   defp graphql(query, token) do
