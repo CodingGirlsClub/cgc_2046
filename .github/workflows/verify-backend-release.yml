@@ -58,10 +58,10 @@ jobs:
         env:
           REGISTRY: ${{ vars.TCR_REGISTRY }}
           REGISTRY_USER: ${{ vars.TCR_USERNAME }}
-          REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
+          TCR_PASSWORD: ${{ secrets.TCR_PASSWORD }}
         run: |
-          test -n "$REGISTRY" && test -n "$REGISTRY_USER" && test -n "$REGISTRY_PASSWORD"
-          printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
+          test -n "$REGISTRY" && test -n "$REGISTRY_USER" && test -n "$TCR_PASSWORD"
+          printf '%s' "$TCR_PASSWORD" | docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
           LOCK_HASH=$(sha256sum candidate/backend/mix.lock | cut -c1-16)
           DEPS_IMAGE="$REGISTRY/codingirlsclub/cgc2046-backend-deps:$LOCK_HASH"
           docker pull --platform linux/amd64 "$DEPS_IMAGE"
