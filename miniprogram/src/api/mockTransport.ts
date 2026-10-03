@@ -167,7 +167,7 @@ interface MockEnrollment {
   checkInCode: string | null
   /** 目标缴费模式（后端 Enrollment.paymentMode 计算字段同规则：押金 > 定价 > 免费） */
   paymentMode: string | null
-  /** #727 押金快照金额（后端 Enrollment.depositAmountCents 计算字段同规则：非押金场 null） */
+  /** #727 押金金额（后端 Enrollment.depositAmountCents 计算字段同规则：非押金场 null） */
   depositAmountCents: number | null
   /** #617 目标开始时间（后端 Enrollment.startsAt 计算字段同规则：从目标记录取） */
   startsAt: string | null
@@ -957,8 +957,9 @@ function responseFor(document: string, variables: object): unknown {
       // 生成时点 = create（KTD5）——confirmed 才出示，故仅免缴直通有码
       checkInCode: status === 'confirmed' ? CHECK_IN_CODE : null,
       paymentMode,
-      // #727：押金快照金额（与后端 Enrollment.depositAmountCents 同源口径——
-      // 报名提交时物化；非押金场 null）。order-pay 创单前披露的金额源
+      // #727：押金金额（与后端 Enrollment.depositAmountCents 同源口径——活动现值，
+      // 非押金场 null；mock 目标押金额恒为常量、无改价路径，不模拟「改价跟随」）。
+      // order-pay 创单前披露的金额源
       depositAmountCents:
         paymentMode === 'deposit' && target && 'depositAmountCents' in target
           ? (target.depositAmountCents ?? null)
@@ -1255,6 +1256,8 @@ function responseFor(document: string, variables: object): unknown {
             return host ? host.slice(first.start, first.start + first.len) : null
           })(),
           quoteSpans: state.chosenQuoteSpans ?? [],
+          // #1022：后端单源署名（王小明 = 王** · 场次 2014 · 北京）
+          anonymousAttribution: '王** · 2014 · 北京',
           quoteStats:
             state.quoteLevel === 'off' ? null : { likeCount: state.likeCount ?? 0 },
           today: { ...state.today, fogSpans: state.todayFogSpans ?? {} },
@@ -1390,6 +1393,7 @@ function responseFor(document: string, variables: object): unknown {
           participation: 'attended',
           role: 'learner',
           appliedAt: '2014-01-11T13:06:00+08:00',
+          anonymousAttribution: '王** · 2014 · 北京',
           archive: { ...FLASHBACK_E2E_ARCHIVE },
           answers: [
             {
@@ -1407,6 +1411,7 @@ function responseFor(document: string, variables: object): unknown {
           ]
         },
         progress: {
+          hasSelectedQuotes: !!state.chosenQuoteSpans?.length,
           quoteLevel: state.quoteLevel,
           maskedPhone: '139****0001',
           maskedEmail: null,

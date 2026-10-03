@@ -4,6 +4,7 @@ defmodule Cgc2046.Mcp.Tools.AdminInitiativeHelpers do
   require Ash.Query
 
   alias Cgc2046.Initiatives.{Initiative, InitiativeRule, Public}
+  alias Cgc2046.Mcp.Tools.Shared
 
   def row(initiative, actor) do
     case Ash.load(initiative, :rules, actor: actor) do
@@ -46,33 +47,14 @@ defmodule Cgc2046.Mcp.Tools.AdminInitiativeHelpers do
     end
   end
 
-  def attrs(params, fields) do
-    Enum.reduce(fields, %{}, fn field, acc ->
-      value = Map.get(params, Atom.to_string(field), Map.get(params, field))
-      if is_nil(value), do: acc, else: Map.put(acc, field, value)
-    end)
-  end
-
   def datetime_attrs(params) do
     [
-      {:window_starts_at, parse_datetime(Map.get(params, "window_starts_at"))},
-      {:window_ends_at, parse_datetime(Map.get(params, "window_ends_at"))}
+      {:window_starts_at, Shared.parse_datetime(Map.get(params, "window_starts_at"))},
+      {:window_ends_at, Shared.parse_datetime(Map.get(params, "window_ends_at"))}
     ]
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
   end
-
-  def parse_datetime(nil), do: nil
-  def parse_datetime(%DateTime{} = value), do: value
-
-  def parse_datetime(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, date_time, _offset} -> date_time
-      _ -> value
-    end
-  end
-
-  def parse_datetime(value), do: value
 
   def rule_key(value) when is_binary(value) do
     case Enum.find(InitiativeRule.rule_keys(), &(Atom.to_string(&1) == value)) do

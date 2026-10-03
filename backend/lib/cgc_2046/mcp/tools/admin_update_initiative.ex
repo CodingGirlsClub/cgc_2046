@@ -15,6 +15,7 @@ defmodule Cgc2046.Mcp.Tools.AdminUpdateInitiative do
   alias Cgc2046.Initiatives.Initiative
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
   alias Cgc2046.Mcp.Tools.AdminInitiativeHelpers, as: H
+  alias Cgc2046.Mcp.Tools.Shared
 
   schema do
     field(:initiative_id, {:required, :string}, description: "倡导活动 ID（取自 admin_list_initiatives）")
@@ -36,7 +37,7 @@ defmodule Cgc2046.Mcp.Tools.AdminUpdateInitiative do
 
           {:ok, initiative} ->
             fields =
-              H.attrs(params, ~w(name slug hashtag description)a)
+              Shared.attrs(params, ~w(name slug hashtag description)a)
               |> Map.merge(H.datetime_attrs(params))
 
             if map_size(fields) == 0 do
@@ -65,7 +66,7 @@ defmodule Cgc2046.Mcp.Tools.AdminUpdateInitiative do
   def execute_confirmed(actor, params) do
     with {:ok, initiative} <- Ash.get(Initiative, params["initiative_id"], actor: actor) do
       attrs =
-        H.attrs(params, ~w(name slug hashtag description)a)
+        Shared.attrs(params, ~w(name slug hashtag description)a)
         |> Map.merge(H.datetime_attrs(params))
 
       case initiative |> Ash.Changeset.for_update(:update, attrs) |> Ash.update(actor: actor) do

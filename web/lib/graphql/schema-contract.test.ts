@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { buildSchema, Kind, print, validate, type DocumentNode } from "graphql";
+import * as ts from "typescript";
 import { CHECK_IN_ENROLLMENT } from "@/lib/graphql/attendance";
 import { MY_ENROLLMENTS } from "@/lib/graphql/participations";
 import { GET_INITIATIVE, LIST_INITIATIVES } from "@/lib/graphql/admin";
@@ -23,6 +24,21 @@ import { INITIATIVE_MOUNT_PREVIEW } from "@/lib/graphql/initiatives";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SDL_PATH = resolve(HERE, "../../../backend/priv/graphql/schema.graphql");
+
+/** 只数 gql tagged template；普通字符串片段和注释不构造 DocumentNode。 */
+function countGqlDocuments(path: string, source: string): number {
+  const kind = path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, false, kind);
+  let count = 0;
+  const visit = (node: ts.Node): void => {
+    if (ts.isTaggedTemplateExpression(node) && ts.isIdentifier(node.tag) && node.tag.text === "gql") {
+      count += 1;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return count;
+}
 
 /** 从 SDL 抽出 object/input 类型的字段名集合（只做字段集比对，不建完整 AST 索引） */
 function objectFields(sdl: string, typeName: string): Set<string> {
@@ -168,14 +184,62 @@ describe("手写 GraphQL 文档 ↔ SDL 契约", () => {
  * 全部手写文档 ↔ 后端 schema 的整体校验（graphql-js validate）：字段不存在、操作类型放错（query / mutation）、
  * 参数名不对都会在这里红。后台「单人重发」曾以 mutation 调用一个定义在 Query 上的字段，界面测试 mock 掉了
  * 请求层，上线后才会发现（2026-09-26）。
+ * #760：文档必须在领域模块中导出。raw 源码计数与运行时导出计数相等，防止私有文档绕过校验；
+ * 两份 glob 的模块集也必须相等。插值模板只计一次，展开后的文档仍由 validate 校验。
+ * web 全树只加载 raw 源码，要求领域目录外没有 gql；不执行 Next 页面或服务端模块。
  */
 describe("全部手写文档 ↔ 后端 SDL 校验", () => {
+  const modules = import.meta.glob([
+    "./**/*.ts", "!./**/*.test.ts", "./**/*.tsx", "!./**/*.test.tsx",
+    "!./**/__tests__/**", "!./**/tests/**", "!./**/*.spec.ts", "!./**/*.spec.tsx",
+  ], { eager: true }) as Record<string, Record<string, unknown>>;
+  const sources = import.meta.glob([
+    "./**/*.ts", "!./**/*.test.ts", "./**/*.tsx", "!./**/*.test.tsx",
+    "!./**/__tests__/**", "!./**/tests/**", "!./**/*.spec.ts", "!./**/*.spec.tsx",
+  ], {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }) as Record<string, string>;
+  const webSources = import.meta.glob([
+    "/**/*.ts", "/**/*.tsx",
+    "!/**/node_modules/**", "!/.next/**", "!/out/**", "!/build/**", "!/coverage/**",
+    "!/**/*.test.ts", "!/**/*.test.tsx", "!/**/*.spec.ts", "!/**/*.spec.tsx",
+    "!/**/__tests__/**", "!/**/tests/**",
+  ], { query: "?raw", import: "default", eager: true }) as Record<string, string>;
+
+  it("web 的 gql 文档只能定义在 lib/graphql 内", () => {
+    const failures: string[] = [];
+    for (const [path, source] of Object.entries(webSources)) {
+      if (path.startsWith("/lib/graphql/")) continue;
+      const documents = countGqlDocuments(path, source);
+      if (documents > 0) failures.push(`${path}: gql documents=${documents}, move to lib/graphql`);
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("raw 源码与运行时导出的模块集相等", () => {
+    expect(Object.keys(sources).sort(), "raw glob 与模块 glob 的 key 集不一致").toEqual(
+      Object.keys(modules).sort(),
+    );
+  });
+
+  it("lib/graphql 下每个 gql 文档都已导出", () => {
+    const failures: string[] = [];
+    for (const [path, source] of Object.entries(sources)) {
+      const documents = countGqlDocuments(path, source);
+      const exported = Object.values(modules[path]).filter(
+        (value) => (value as { kind?: unknown } | null)?.kind === Kind.DOCUMENT,
+      ).length;
+      if (documents !== exported) {
+        failures.push(`${path.slice(2)}: gql documents=${documents}, exported DocumentNodes=${exported}`);
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
   it("lib/graphql 下每个导出的 DocumentNode 都能通过后端 schema 校验", () => {
     const schema = buildSchema(readFileSync(SDL_PATH, "utf8"));
-    const modules = import.meta.glob(["./*.ts", "!./*.test.ts"], { eager: true }) as Record<
-      string,
-      Record<string, unknown>
-    >;
     const failures: string[] = [];
     let checked = 0;
 

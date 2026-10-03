@@ -62,6 +62,16 @@ export const SIGN_IN: TypedDocumentNode<
   }
 `;
 
+export const ME_QUERY = gql`
+  query Me { me { id } }
+`;
+
+export const SIGN_OUT_MUTATION = gql`
+	mutation SignOut {
+		signOut
+	}
+`;
+
 /* ---------------- 手机验证码登录（plan 002 U3/U5） ---------------- */
 
 export type PhoneCodePurpose = "LOGIN" | "WECHAT_BIND" | "REGISTER" | "CHANGE_PHONE";

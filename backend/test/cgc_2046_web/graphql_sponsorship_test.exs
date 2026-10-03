@@ -3,6 +3,7 @@ defmodule Cgc2046Web.GraphqlSponsorshipTest do
 
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.EventsFixtures, as: EventFixtures
+  alias Cgc2046.Sponsorship.Sponsorship
 
   @tier %{
     "id" => "9d2f7c80-0000-4000-8000-0000000000ab",
@@ -206,6 +207,165 @@ defmodule Cgc2046Web.GraphqlSponsorshipTest do
     assert Enum.map_join(errors, " ", & &1["message"]) =~ "forbidden"
   end
 
+  describe "Sponsorship read 行级授权（#709）" do
+    setup do
+      x = Fixtures.workspace_with_member()
+      y = Fixtures.workspace_with_member()
+      admin = Fixtures.register_user("sponsorship-read-admin")
+      Fixtures.add_member(x.workspace, admin, [:admin])
+      sponsor_x = Fixtures.register_user("sponsorship-read-x")
+      sponsor_y = Fixtures.register_user("sponsorship-read-y")
+
+      rows_x = sponsorship_pair(x.workspace, x.owner, sponsor_x)
+      rows_y = sponsorship_pair(y.workspace, y.owner, sponsor_y)
+
+      %{
+        x: x,
+        y: y,
+        owner: x.owner,
+        admin: admin,
+        sponsor_x: sponsor_x,
+        sponsor_y: sponsor_y,
+        rows_x: rows_x,
+        rows_y: rows_y
+      }
+    end
+
+    for role <- [:owner, :admin] do
+      test "#{role} 可读本台两级赞助，OR filter 不扩大完整行集", context do
+        actor = Map.fetch!(context, unquote(role))
+        token = sign_in_token(actor)
+        x_id = context.x.workspace.id
+        y_id = context.y.workspace.id
+
+        filters = [
+          "{workspaceId: {eq: \"#{x_id}\"}}",
+          "{or: [{workspaceId: {eq: \"#{x_id}\"}}, " <>
+            "{sponsorUserId: {eq: \"#{context.sponsor_y.id}\"}}]}",
+          "{or: [{workspaceId: {eq: \"#{x_id}\"}}, {workspaceId: {eq: \"#{y_id}\"}}]}"
+        ]
+
+        for filter <- filters do
+          assert_sponsorship_rows(sponsorship_list(filter, token), context.rows_x)
+        end
+
+        for row <- context.rows_x do
+          response = graphql(sponsorship_detail(row.id), token)
+          assert response["data"]["getSponsorship"] == %{"id" => row.id, "workspaceId" => x_id}
+        end
+
+        for row <- context.rows_y do
+          response = graphql(sponsorship_detail(row.id), token)
+          assert %{"data" => %{"getSponsorship" => nil}} = response
+        end
+      end
+    end
+
+    test "无管理角色成员不能读取本人以外的赞助", context do
+      for roles <- [[], [:tutor], [:volunteer], [:learner]] do
+        member = Fixtures.register_user("sponsorship-read-member")
+        Fixtures.add_member(context.x.workspace, member, roles)
+
+        assert_sponsorship_rows(
+          sponsorship_list(workspace_or_filter(context), sign_in_token(member)),
+          []
+        )
+      end
+    end
+
+    test "无成员资格的 sponsor 可跨工作台读本人行，但不可读其他 sponsor", context do
+      own_y = sponsorship_pair(context.y.workspace, context.y.owner, context.sponsor_x)
+
+      assert_sponsorship_rows(
+        sponsorship_list(workspace_or_filter(context), sign_in_token(context.sponsor_x)),
+        context.rows_x ++ own_y
+      )
+    end
+
+    test "管理读面与外台 self-read 取并集，不放行外台第三人的赞助", context do
+      own_y =
+        create_sponsorship(context.y.workspace, context.owner, %{
+          level: :workspace,
+          target_workspace_id: context.y.workspace.id
+        })
+
+      assert_sponsorship_rows(
+        sponsorship_list(workspace_or_filter(context), sign_in_token(context.owner)),
+        context.rows_x ++ [own_y]
+      )
+    end
+
+    test "非成员 PlatformAdmin 保留跨工作台读取 bypass", context do
+      platform_admin = Fixtures.platform_admin("sponsorship-read-platform")
+
+      assert_sponsorship_rows(
+        sponsorship_list(workspace_or_filter(context), sign_in_token(platform_admin)),
+        context.rows_x ++ context.rows_y
+      )
+    end
+
+    test "匿名读取 fail-closed，不返回赞助数据", context do
+      response = sponsorship_list(workspace_or_filter(context), nil)
+
+      assert %{"data" => %{"sponsorships" => nil}, "errors" => errors} = response
+      assert Enum.any?(errors, &(&1["code"] == "forbidden"))
+    end
+  end
+
+  defp sponsorship_pair(workspace, owner, sponsor) do
+    event = EventFixtures.create_event(workspace, owner)
+
+    [
+      create_sponsorship(workspace, sponsor, %{level: :event, event_id: event.id}),
+      create_sponsorship(workspace, sponsor, %{
+        level: :workspace,
+        target_workspace_id: workspace.id
+      })
+    ]
+  end
+
+  defp create_sponsorship(workspace, sponsor, attrs) do
+    attrs =
+      Map.merge(
+        %{
+          sponsor_user_id: sponsor.id,
+          company_name: "Read isolation sponsor",
+          contact_email: sponsor.email,
+          amount: if(attrs.level == :event, do: 10_000, else: 20_000)
+        },
+        attrs
+      )
+
+    Sponsorship
+    |> Ash.Changeset.for_create(:create_sponsorship, attrs, tenant: workspace.id)
+    |> Ash.create!(tenant: workspace.id, actor: sponsor)
+  end
+
+  defp workspace_or_filter(context) do
+    "{or: [{workspaceId: {eq: \"#{context.x.workspace.id}\"}}, " <>
+      "{workspaceId: {eq: \"#{context.y.workspace.id}\"}}]}"
+  end
+
+  defp sponsorship_list(filter, token) do
+    graphql(
+      "query { sponsorships(first: 250, filter: #{filter}) " <>
+        "{ results { id workspaceId sponsorUserId amount contactEmail } } }",
+      token
+    )
+  end
+
+  defp sponsorship_detail(id) do
+    "query { getSponsorship(id: \"#{id}\") { id workspaceId } }"
+  end
+
+  defp assert_sponsorship_rows(response, expected) do
+    assert %{"data" => %{"sponsorships" => %{"results" => rows}}} = response
+    refute Map.has_key?(response, "errors")
+    assert MapSet.new(rows, & &1["id"]) == MapSet.new(expected, & &1.id)
+    assert MapSet.new(rows, & &1["workspaceId"]) == MapSet.new(expected, & &1.workspace_id)
+    assert length(rows) == length(expected)
+  end
+
   defp sign_in_token(user) do
     mutation = """
     mutation {
@@ -220,6 +380,13 @@ defmodule Cgc2046Web.GraphqlSponsorshipTest do
 
     assert %{"data" => %{"signIn" => %{"id" => _}}} = json_response(conn, 200)
     conn.resp_cookies["cgc_token"].value
+  end
+
+  defp graphql(query, nil) do
+    build_conn()
+    |> put_req_header("content-type", "application/json")
+    |> post("/api/graphql", %{"query" => query})
+    |> json_response(200)
   end
 
   defp graphql(query, token) do

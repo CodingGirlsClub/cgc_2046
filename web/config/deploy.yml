@@ -1,6 +1,6 @@
 # Kamal: web service（Next.js standalone 容器）
 # 与 backend.yml 分开部署（各自独立 blue-green）：
-#   KAMAL_REGISTRY_PASSWORD=<TCR token> kamal deploy -c config/deploy.yml
+#   .kamal/secrets 须提供 TCR_PASSWORD（TCR 凭证），再执行 kamal deploy。
 # 注意与 backend 的差异：service 名不同（容器/proxy 角色隔离），
 # 不带 accessories（PG 只随 backend）。
 
@@ -32,7 +32,7 @@ registry:
   # 同 backend：username 经 CI sed 替换，不硬编码
   username: <TCR_USERNAME>
   password:
-    - KAMAL_REGISTRY_PASSWORD
+    - TCR_PASSWORD
 
 # 运行时 env（#283）：Dockerfile 的 ENV 只在 build stage 生效（多阶段不跨
 # FROM），alignUserLocale 等服务端代码在运行时读 BACKEND_URL——必须此处注入

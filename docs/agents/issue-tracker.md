@@ -7,9 +7,9 @@ Issues and PRDs for this repo live as GitHub issues in `CodingGirlsClub/cgc_2046
 - **Create an issue**: `gh-axi issue create --title "..." --body-file <path>`. Write multi-line bodies to a file first.
 - **Read an issue**: `gh-axi issue view <number> --comments --full`. It doesn't print labels; get them from `gh-axi api /repos/<owner>/<repo>/issues/<number>`.
 - **List issues**: `gh-axi issue list --state open --label <name> --fields body,labels` (comments aren't available here; read them with `issue view`).
-- **Comment on an issue**: `gh-axi issue comment <number> --body "..."` (or `--body-file <path>`)
+- **Comment on an issue**: `gh-axi issue comment <number> --body "..."` (or `--body-file <path>`). Write multi-line bodies to a file first.
 - **Apply / remove labels**: `gh-axi issue edit <number> --add-label "..."` / `--remove-label "..."`
-- **Close**: `gh-axi issue close <number> --comment "..."` (add `--reason not_planned` when it won't be done)
+- **Close**: `gh-axi issue close <number> --comment "..."` (add `--reason "not planned"` when it won't be done — quoted, with a space; `gh-axi`'s help lists `not_planned`, but it forwards the value to `gh`, which rejects it)
 
 `gh-axi` infers the repo from the clone's remote; pass `-R owner/name` otherwise.
 

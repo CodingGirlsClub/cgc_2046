@@ -15,9 +15,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { gql } from "@apollo/client";
 import { client } from "@/lib/apollo-client";
 import {
+	GET_WORKSPACE_BY_ID,
 	JOIN_POLICY_LABEL,
 	ROLE_BADGE_CLASS,
 	type MembershipRoleName,
@@ -31,18 +31,6 @@ import {
 } from "@/lib/invitations";
 import { fetchUsers, reassignWorkspaceOwner } from "@/lib/admin";
 import type { AdminUser } from "@/lib/graphql/admin";
-
-const GET_WORKSPACE_BY_ID = gql`
-  query GetWorkspaceById($id: ID!) {
-    getWorkspaceById(id: $id) {
-      id
-      slug
-      name
-      joinPolicy
-      sponsorshipEnabled
-    }
-  }
-`;
 
 interface WorkspaceByIdResult {
 	getWorkspaceById: Workspace | null;

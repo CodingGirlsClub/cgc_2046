@@ -73,8 +73,11 @@ defmodule Cgc2046.Mcp.Playbooks do
 
   1. create_enrollment 返回 payment_pending + checkout_url 时,把链接原样给用户,
      引导其在**外部浏览器**(系统默认浏览器)完成支付——押金单与定价单同一入口
-     (押金金额取报名提交时的快照,改了活动配置也不追溯这一笔);侧边栏/对话永不
-     承载支付凭证、支付 SDK 或渠道原始数据(R33);
+     (押金金额以**活动现值**为权威:订单创建前(用户在下单页确认前),披露与实付
+     都跟随活动现值,组织者改押金额后以新价为准,不得向用户承诺此时金额已锁定;
+     订单一旦创建,这一笔金额即钉死在订单(tier_snapshot),之后不随活动改价变化,
+     换支付渠道也沿用原单金额,复述以 get_order_status 返回的订单金额为准);
+     侧边栏/对话永不承载支付凭证、支付 SDK 或渠道原始数据(R33);
   2. 支付状态查询:调用 get_order_status(workspace_id, enrollment_id) 拿本人最新
      订单安全摘要(order_kind/金额/渠道/状态/过期时间)——order_kind(enrollment|deposit)
      是资金语义:押金单的没收/退款口径与报名单不同,不得把押金单说成报名费或收费
@@ -294,7 +297,7 @@ defmodule Cgc2046.Mcp.Playbooks do
     platform_admin: %{version: "2026-08-29.2", content: @platform_admin_content},
     workspace_admin: %{version: "2026-09-26.1", content: @workspace_admin_content},
     tutor: %{version: "2026-09-17.1", content: @tutor_content},
-    learner: %{version: "2026-09-26.1", content: @learner_content}
+    learner: %{version: "2026-10-01.1", content: @learner_content}
   }
 
   @type role :: :platform_admin | :workspace_admin | :tutor | :learner

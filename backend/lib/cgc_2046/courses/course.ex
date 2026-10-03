@@ -1038,7 +1038,8 @@ defmodule Cgc2046.Courses.Course do
   - `actor: actor`——走授权读（lifecycle 工具 cancel/close/launch/update 原样），
     命中 field policy 拒绝时映到 forbidden 文案。
 
-  错误字符串是 interface 的一部分（全部消费方为 MCP 工具，文案契约逐字保留）。
+  错误字符串是 interface 的一部分（消费方包括 MCP 工具与 `learning/runs.ex` 等 domain
+  入口，文案契约逐字保留）。
   """
   @spec fetch_scoped(String.t(), String.t(), keyword()) ::
           {:ok, t()} | {:error, String.t()}

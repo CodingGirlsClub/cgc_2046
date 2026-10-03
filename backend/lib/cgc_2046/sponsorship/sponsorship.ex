@@ -355,7 +355,7 @@ defmodule Cgc2046.Sponsorship.Sponsorship do
 
     policy action_type(:read) do
       authorize_if(expr(sponsor_user_id == ^actor(:id)))
-      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Sponsorship.Policies.ActorManagesSponsorshipWorkspace)
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
   end

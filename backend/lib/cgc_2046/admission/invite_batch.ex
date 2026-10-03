@@ -124,7 +124,7 @@ defmodule Cgc2046.Admission.InviteBatch do
 
   policies do
     policy action_type(:read) do
-      authorize_if(Cgc2046.Accounts.Policies.WorkspaceActorIsOwnerOrAdmin)
+      authorize_if(Cgc2046.Accounts.Policies.ActorManagesInviteBatchWorkspace)
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 

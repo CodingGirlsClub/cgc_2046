@@ -177,7 +177,7 @@ defmodule Cgc2046Web.GraphqlCheckInEnrollmentTest do
     }
   end
 
-  # 已付押金单：走真实下单链（金额源=报名快照）后 mark_paid
+  # 已付押金单：走真实下单链（金额源=活动现值）后 mark_paid
   # （deposit_consent：押金同意门 #727 的放行值）
   defp paid_deposit_order(enrollment, workspace, learner) do
     {:ok, order} =

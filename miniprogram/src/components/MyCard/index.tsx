@@ -6,13 +6,14 @@
  * 数据由父级传入 capsule/token;雾化/今天/寄出直调 api 后经 onWrite 通知
  * 父级 reload;分享 sheet 由页面级 onOpenShare 唤起(canvas 在页面)。
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import type { FlashbackCapsule, FlashbackMeAnswer } from '@/domain/models'
 import { api } from '@/api'
 import {
   isCandidatePicked,
+  parseQuoteLevel,
   quoteLikeBadge,
   sentencesWithFog,
   toggleSentenceFog,
@@ -21,6 +22,11 @@ import {
   TODAY_FIELDS,
   questionLabel
 } from '@/domain/flashback'
+import QuoteSendChoice from './QuoteSendChoice'
+import { quoteSuggestions, shouldOfferQuoteChoice, QUOTE_SEND_COPY } from '@/domain/quote-suggestion'
+import { sendWithQuoteChoice, type QuotePick } from '@/domain/quote-send'
+import { pageRegistered } from '@/domain/platform-pages'
+import { currentPlatform } from '@/platform'
 import styles from './index.module.css'
 
 type TodayKey = (typeof TODAY_FIELDS)[number]['field']
@@ -39,7 +45,7 @@ export default function MyCard({
   token?: string | null
   onWrite: () => void
   /** 寄出成功(保存+上墙)后通知页面:关抽屉+滚到今天格 */
-  onSent?: () => void
+  onSent?: (withQuote: boolean) => void
   /** write 入口:抽屉升起直接落在「今天写入面」;view 入口落在「当年答案面」 */
   autoOpen?: boolean
   /** chrome:状态行+分享按钮(独立页需要;corridor 居中模态里外移到遮罩,传 false) */
@@ -56,6 +62,12 @@ export default function MyCard({
     say: capsule.me.today?.say ?? ''
   })
   const [saving, setSaving] = useState(false)
+  const sending = useRef(false)
+  const [sendError, setSendError] = useState('')
+  const [sentWithQuote, setSentWithQuote] = useState(false)
+  const committedPick = useRef<QuotePick | null>(null)
+  const suggestions = shouldOfferQuoteChoice(capsule.me.quoteLevel, !!capsule.me.quoteSpans?.length)
+    ? quoteSuggestions(answers, capsule.me.fullName, capsule.me.surname) : []
 
   // capsule 更新(reload/写后)同步本地雾化态
   useEffect(() => {
@@ -81,7 +93,7 @@ export default function MyCard({
       want: next.want || null,
       need: next.need || null,
       say: next.say || null
-    })
+    }, token)
     onWrite()
   }
 
@@ -91,20 +103,27 @@ export default function MyCard({
     )
   }
 
-  const sendToday = async () => {
-    if (saving) return
+  const sendToday = async (pick: QuotePick | null = null) => {
+    if (sending.current) return
+    sending.current = true
     setSaving(true)
-    try {
-      await persistToday(draft)
-      await api.flashbackSendToWall(token ?? null)
-      Taro.showToast({ title: '已贴上墙', icon: 'none' })
+    setSendError('')
+    const result = await sendWithQuoteChoice(api, {
+      nowStatus: draft.nowStatus || null, want: draft.want || null,
+      need: draft.need || null, say: draft.say || null
+    }, pick, token ?? null, committedPick.current)
+    if (result.ok) {
+      committedPick.current = null
+      setSentWithQuote(result.withQuote)
+      void Taro.showToast({ title: result.withQuote ? '已寄出，金句已上墙' : '已寄出到相册', icon: 'none' })
       onWrite()
-      onSent?.()
-    } catch (error) {
-      Taro.showToast({ title: error instanceof Error ? error.message : '寄出失败', icon: 'none' })
-    } finally {
-      setSaving(false)
+      onSent?.(result.withQuote)
+    } else {
+      committedPick.current = result.licenseCommitted
+      setSendError(result.message)
     }
+    sending.current = false
+    setSaving(false)
   }
 
   return (
@@ -185,14 +204,28 @@ export default function MyCard({
                 </View>
               ))}
             </View>
-            <Button
-              className={`${styles.sendBtn} ${saving ? styles.sendBtnBusy : ''}`}
-              disabled={saving}
-              onClick={() => void sendToday()}
-            >
-              {saving ? '正在贴上墙…' : '写完寄出 →'}
-            </Button>
-            <Text className={styles.sendNote}>寄出后登录的人都能在相册里看到 · 雾住的句子除外 · 随时可调、可撤下</Text>
+            {suggestions.length > 0 ? (
+              <QuoteSendChoice suggestions={suggestions} attribution={capsule.me.anonymousAttribution}
+                busy={saving} onSend={(pick) => void sendToday(pick)} />
+            ) : (
+              <>
+                <Button className={`${styles.sendBtn} ${saving ? styles.sendBtnBusy : ''}`}
+                  disabled={saving} onClick={() => void sendToday()}>
+                  {saving ? QUOTE_SEND_COPY.sending : QUOTE_SEND_COPY.albumOnly}
+                </Button>
+                <Text className={styles.sendNote}>寄出后登录的人都能在相册里看到 · 雾住的句子除外 · 随时可调、可撤下</Text>
+                {capsule.me.quoteSpans?.length && parseQuoteLevel(capsule.me.quoteLevel) !== 'off'
+                  ? <Text className={styles.sendNote}>你的金句已在金句墙</Text> : null}
+              </>
+            )}
+            {sendError && <Text className={styles.sendError}>{sendError}。请再次点击寄出重试。</Text>}
+            {/* tt 裁剪端未注册金句墙页，链接会静默失败——只在本端注册了 voices 页时展示 */}
+            {sentWithQuote && pageRegistered('pages/flashback-voices/index', currentPlatform()) && (
+              <Text className={styles.quoteSentLink}
+                onClick={() => void Taro.navigateTo({ url: '/pages/flashback-voices/index' })}>
+                {QUOTE_SEND_COPY.sentWithQuote}去金句墙看看 →
+              </Text>
+            )}
             <Text className={styles.backLink} onClick={() => setFlipped(false)}>
               ← 回到当年答案
             </Text>
