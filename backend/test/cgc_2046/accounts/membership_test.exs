@@ -4,6 +4,7 @@ defmodule Cgc2046.Accounts.MembershipTest do
   alias Cgc2046.Accounts.Workspace
   alias Cgc2046.Accounts.WorkspaceMembership
   alias Cgc2046.AccountsFixtures, as: Fixtures
+  require Ash.Query
 
   defp load_role_names(membership) do
     Ash.load!(membership, :roles, tenant: membership.workspace_id, authorize?: false)
@@ -240,6 +241,97 @@ defmodule Cgc2046.Accounts.MembershipTest do
       loaded2 = Ash.load!(fetched2, [:my_membership_id, :can_access], actor: outsider)
       assert loaded2.my_membership_id == nil
       assert loaded2.can_access == false
+    end
+  end
+
+  describe "membership read policy" do
+    test "owner and admin see managed workspace members with public fields" do
+      %{owner: owner, workspace: workspace, member: member} = Fixtures.workspace_with_member()
+
+      admin = Fixtures.register_user("membership-read-admin")
+      Fixtures.add_member(workspace, admin, [:admin])
+
+      query =
+        WorkspaceMembership
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(workspace_id == ^workspace.id)
+        |> Ash.Query.load([:user_email, :user_display_name])
+
+      assert {:ok, owner_rows} = Ash.read(query, actor: owner)
+      assert Enum.any?(owner_rows, &(&1.user_id == member.id))
+
+      member_row = Enum.find(owner_rows, &(&1.user_id == member.id))
+      assert member_row.user_email == to_string(member.email)
+      assert member_row.user_display_name == member.display_name
+
+      assert {:ok, admin_rows} = Ash.read(query, actor: admin)
+      assert Enum.any?(admin_rows, &(&1.user_id == member.id))
+    end
+
+    test "ordinary member retains scoped self-read" do
+      %{workspace: workspace, member: member} = Fixtures.workspace_with_member()
+      other = Fixtures.register_user("membership-read-other")
+      Fixtures.add_member(workspace, other, [:tutor])
+
+      query =
+        WorkspaceMembership
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(workspace_id == ^workspace.id)
+
+      assert {:ok, rows} = Ash.read(query, actor: member, tenant: workspace.id)
+      assert rows != []
+      assert Enum.all?(rows, &(&1.workspace_id == workspace.id and &1.user_id == member.id))
+    end
+
+    test "ordinary member retains global self-read across workspaces" do
+      admin = Fixtures.platform_admin("membership-global-read-admin")
+      workspace_x = Fixtures.create_workspace(admin)
+      workspace_y = Fixtures.create_workspace(admin)
+      member = Fixtures.register_user("membership-global-read-member")
+
+      Fixtures.add_member(workspace_x, member)
+      membership_y = Fixtures.add_member(workspace_y, member)
+      Fixtures.add_member(workspace_x, Fixtures.register_user("membership-global-read-other"))
+
+      assert {:ok, rows} =
+               WorkspaceMembership
+               |> Ash.Query.for_read(:read)
+               |> Ash.read(actor: member)
+
+      assert rows != []
+      assert Enum.all?(rows, &(&1.user_id == member.id))
+      assert Enum.any?(rows, &(&1.id == membership_y.id))
+    end
+
+    test "owner OR filter cannot return a victim from another workspace" do
+      %{owner: owner, workspace: workspace_x} = Fixtures.workspace_with_member()
+      %{workspace: workspace_y} = Fixtures.workspace_with_member()
+      victim = Fixtures.register_user("membership-read-victim")
+      Fixtures.add_member(workspace_y, victim)
+
+      query =
+        Ash.Query.filter(
+          WorkspaceMembership,
+          workspace_id == ^workspace_x.id or user_id == ^victim.id
+        )
+
+      assert {:ok, rows} = Ash.read(query, actor: owner)
+      assert rows != []
+      assert Enum.all?(rows, &(&1.workspace_id == workspace_x.id))
+      refute Enum.any?(rows, &(&1.user_id == victim.id))
+    end
+
+    test "platform admin retains global membership read bypass" do
+      %{workspace: workspace, member: member} = Fixtures.workspace_with_member()
+      platform_admin = Fixtures.platform_admin("membership-read-platform-admin")
+
+      assert {:ok, rows} =
+               WorkspaceMembership
+               |> Ash.Query.for_read(:read)
+               |> Ash.Query.filter(workspace_id == ^workspace.id)
+               |> Ash.read(actor: platform_admin)
+
+      assert Enum.any?(rows, &(&1.user_id == member.id))
     end
   end
 
