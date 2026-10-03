@@ -422,11 +422,11 @@ jobs:
       - uses: actions/checkout@v7
       - name: Ensure amd64 deps image
         env:
-          KAMAL_REGISTRY_PASSWORD: ${{ secrets.KAMAL_REGISTRY_PASSWORD }}
+          TCR_PASSWORD: ${{ secrets.TCR_PASSWORD }}
           TCR_REGISTRY: ${{ vars.TCR_REGISTRY }}
           TCR_USERNAME: ${{ vars.TCR_USERNAME }}
         run: |
-          echo "$KAMAL_REGISTRY_PASSWORD" | docker login "$TCR_REGISTRY" -u "$TCR_USERNAME" --password-stdin
+          echo "$TCR_PASSWORD" | docker login "$TCR_REGISTRY" -u "$TCR_USERNAME" --password-stdin
           # 架构校验与 deploy.yml 同款：错架构（本地误推 arm64）按缺失处理，
           # 原生 amd64 重建覆盖推送即自愈
           LOCK_HASH=$(sha256sum mix.lock | cut -c1-16)

@@ -18,6 +18,10 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ## [Unreleased]
 
+### Changed
+
+- CI、backend/web 部署和后端 release 验证的 TCR 镜像仓库密码统一使用 `TCR_PASSWORD`；切换前须在 GitHub Repository 与 `production` 环境分别配置同名 Secret，避免与 Docker Hub 凭证混用。
+
 ### Fixed
 
 - 保存课程内容与删除课程并发时，保存现在等待宿主行锁并在课程已删除后明确返回 `course not found`，不再写入孤儿教研内容行或假报 `saved`（#704）。

@@ -57,7 +57,20 @@ MIX_ENV=prod mix release
 >
 > - **backend job**：`SENDCLOUD_API_USER/API_KEY`（secrets）与 `SENDCLOUD_FROM/FROM_NAME/SMS_*/WEB_BASE_URL`（vars）等 27 项经**非空断言**写入 `.kamal/secrets`——GitHub 漏配 = deploy 首分钟红，kamal deploy 未执行、旧容器继续服务。
 > - **web job**：`NEXT_PUBLIC_WEB_BASE_URL` / `BACKEND_URL`（vars）经 sed 注入 Kamal builder args（**构建期内联**进 Next 产物，运行时不可改），同款非空断言（#254）。`NEXT_PUBLIC_WEB_BASE_URL` 是全站 canonical/hreflang/sitemap 的基准 URL（消费方 `web/lib/seo.ts`），为空会把 SEO 面静默焊死成回退值——断言在 sed 之前挡住。
-> - 全部 Secrets/Variables 挂 GitHub repo **Environments → `production`**，作用域隔离且可审计。变量登记单源 = deploy.yml 的两处断言名单，本文档不再复制。
+> - 生产部署所需的 Secrets/Variables 挂 GitHub repo **Environments → `production`**，作用域隔离且可审计。变量登记单源 = deploy.yml 的两处断言名单，本文档不再复制；不绑定生产环境的 CI registry 凭证另见下节。
+
+### TCR 镜像仓库密码
+
+镜像仓库密码统一命名为 `TCR_PASSWORD`。backend/web 的 Kamal `registry.password`、部署 workflow 的 `.kamal/secrets`、CI deps 镜像登录及 release 验证均使用该名称，不再回退读取旧名。
+
+| GitHub Secret 作用域 | 消费方 |
+|---|---|
+| Repository | `.github/workflows/ci.yml` 的 `deps-image`；该 job 不绑定 `production` |
+| Environment `production` | `.github/workflows/deploy.yml` 的 backend/web，以及 `.github/workflows/verify-backend-release.yml` |
+
+两个作用域分别配置 `TCR_PASSWORD`，来源均为本地 Keychain 的 `zsh:TCR_PASSWORD`。不要误用本地 `zsh:KAMAL_REGISTRY_PASSWORD` 的 Docker Hub PAT；`TCR_REGISTRY`、`TCR_USERNAME` 的名称及现有存储位置保持不变。
+
+切换顺序：先由维护者安全创建两个作用域的新 Secret（不回显值、不写入版本控制），再推送/合并命名改动。完成 CI 与部署验收，并确认没有旧 workflow 在途或需要重跑后，才能删除 GitHub 两个作用域的旧 `KAMAL_REGISTRY_PASSWORD`；本地同名 Docker Hub 条目不在删除范围。只更新 Keychain 不会自动同步 GitHub Secrets。
 
 ## 3. SendCloud 前置检查单（首次上线前）
 
