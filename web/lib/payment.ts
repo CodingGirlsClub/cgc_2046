@@ -137,6 +137,15 @@ export function dispatchCredential(
 	return { mode: "unsupported", reason: "unknown" };
 }
 
+export function httpsRedirectOrFallback(raw: string, fallback: string): string {
+  try {
+    // 不传 base：相对路径不能借本站协议成为支付外链，签名参数保留原字节。
+    return new URL(raw).protocol === "https:" ? raw : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 /* ---------------- 统计解析（U10 决策 3：JsonString snake_case int 键） ---------------- */
 
 export interface PaymentStats {

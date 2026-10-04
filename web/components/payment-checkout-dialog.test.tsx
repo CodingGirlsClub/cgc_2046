@@ -423,14 +423,17 @@ describe("payment-checkout-dialog 支付成功与关闭", () => {
     expect(onClose).toHaveBeenCalledTimes(3);
   });
 
-  it("跳转凭据（redirect）：渲染前往支付宝按钮", async () => {
+  it.each([
+    "https://pay.alipay.com/x",
+    "https://pay.alipay.com/x?sign=a%2Bb&return_url=%2Forders%2Fo1#done",
+  ])("checkout HTTPS 签名链接保持原值：%s", async (url) => {
     mockQueries({ results: [] });
     client.mutate.mockResolvedValue({
       data: createOrderPayload({
         metadata: {
           credential: JSON.stringify({
             type: "redirect",
-            url: "https://pay.alipay.com/x",
+            url,
           }),
         },
       }),
@@ -445,8 +448,33 @@ describe("payment-checkout-dialog 支付成功与关闭", () => {
     );
 
     const link = await screen.findByTestId("checkout-redirect");
-    expect(link).toHaveAttribute("href", "https://pay.alipay.com/x");
+    expect(link).toHaveAttribute("href", url);
     expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noreferrer");
+  });
+
+  it.each([
+    ["zh-CN", "http://pay.alipay.com/x", "/orders/o2"],
+    ["en", "http://pay.alipay.com/x", "/en/orders/o2"],
+    ["zh-CN", "data:text/html,test", "/orders/o2"],
+    ["en", "data:text/html,test", "/en/orders/o2"],
+    ["zh-CN", "https://", "/orders/o2"],
+    ["en", "https://", "/en/orders/o2"],
+    ["zh-CN", "https://[invalid", "/orders/o2"],
+    ["en", "https://[invalid", "/en/orders/o2"],
+  ] as const)("checkout 非法 redirect 保留订单与 locale：%s %s", async (locale, url, expected) => {
+    mockQueries({ results: [pendingOrder({ id: "o2", provider: "alipay_page" })] });
+    sessionStorage.setItem("order-credential:o2", JSON.stringify({ type: "redirect", url }));
+
+    render(
+      <PaymentCheckoutDialog enrollmentId="enr-1" onClose={vi.fn()} onPaid={vi.fn()} />,
+      { locale },
+    );
+
+    const link = await screen.findByTestId("checkout-redirect");
+    expect(link).toHaveAttribute("href", expected);
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noreferrer");
   });
 
   it("createOrder 失败（not_payment_pending）→ 翻译层错误 + error 态可重试", async () => {

@@ -37,17 +37,25 @@ jobs:
           mkdir -p /tmp/cgc-omp-plugins/plugins/cgc-2046
           rsync -av --delete omp-plugin/cgc-2046/ /tmp/cgc-omp-plugins/plugins/cgc-2046/ --exclude='.git'
 
-      - name: Read version from package.json and update catalog
+      - name: Read version from package.json
+        id: version
         run: |
           VERSION=$(python3 -c "import json; print(json.load(open('omp-plugin/cgc-2046/package.json'))['version'])")
+          printf 'VERSION=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Update catalog version
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
           cd /tmp/cgc-omp-plugins
-          python3 <<PYEOF
+          python3 <<'PYEOF'
           import json
+          import os
           with open('.omp-plugin/marketplace.json') as f:
               catalog = json.load(f)
           for p in catalog['plugins']:
               if p['name'] == 'cgc-2046':
-                  p['version'] = '$VERSION'
+                  p['version'] = os.environ['VERSION']
           with open('.omp-plugin/marketplace.json', 'w') as f:
               json.dump(catalog, f, indent=2, ensure_ascii=False)
           PYEOF

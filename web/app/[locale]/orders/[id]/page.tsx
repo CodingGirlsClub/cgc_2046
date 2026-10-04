@@ -17,7 +17,7 @@
 import { Link } from "@/i18n/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, usePathname, useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { client } from "@/lib/apollo-client";
 import {
@@ -33,6 +33,7 @@ import {
   WEB_ENABLED_PROVIDERS,
   countdownText,
   dispatchCredential,
+  httpsRedirectOrFallback,
   formatAmount,
   formatAmountShort,
   positiveAmountOrNull,
@@ -62,6 +63,7 @@ export default function OrderDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const orderId = params?.id ?? "";
+  const orderPath = usePathname() ?? `/orders/${encodeURIComponent(orderId)}`;
   const { authed, confirmed } = useAuthed();
   const translatePaymentError = usePaymentErrorTranslator();
   const t = useTranslations("orders");
@@ -383,7 +385,7 @@ export default function OrderDetailPage() {
               ) : dispatch.mode === "redirect" ? (
                 <div className="grid gap-2">
                   <a
-                    href={dispatch.url}
+                    href={httpsRedirectOrFallback(dispatch.url, orderPath)}
                     target="_blank"
                     rel="noreferrer"
                     className="rounded-large border border-line-strong bg-card px-4 py-2 text-center text-sm font-medium text-ink hover:border-line"
