@@ -24,7 +24,7 @@ defmodule Cgc2046.Mcp.Tools.PreviewInitiativeMount do
   看不到规则**（建场/挂载本身即 Owner/Admin 专属）；平台管理员读规则走
   `admin_get_initiative`，本工具不设 platform_admin 豁免（双面契约）。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["workspace_admin"]
 
   alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Initiatives.RulePreview

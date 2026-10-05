@@ -213,6 +213,16 @@ defmodule Cgc2046.Accounts.Rbac do
     |> Enum.any?(&(Role.manage_role?(&1) or &1 == :tutor))
   end
 
+  # scope 层级守卫（#1085 评审 T4b）：`granted/1` 与 `Rbac.staff/manage` 同词表，
+  # scope 词表改了这里没改则 tool_scopes_test 红。
+  @doc false
+  @spec workspace_manage_roles() :: [atom()]
+  def workspace_manage_roles, do: Enum.sort([:owner, :admin])
+
+  @doc false
+  @spec staff_roles() :: [atom()]
+  def staff_roles, do: Enum.sort([:tutor, :owner, :admin])
+
   @doc """
   actor 在目标工作台是否持 owner 角色（draft 删除等收窄管理面用，#676）。
 

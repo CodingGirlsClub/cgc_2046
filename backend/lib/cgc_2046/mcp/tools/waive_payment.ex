@@ -15,7 +15,7 @@ defmodule Cgc2046.Mcp.Tools.WaivePayment do
   Owner/Admin 专属：默认 fail-closed member 门 + 工具层管理角色判定（第一段
   快速拒绝省 pending）；confirm 段由 waive_payment policy 兜底。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["workspace_admin"]
 
   alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Admission.Enrollment

@@ -18,7 +18,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseLearningAnalytics do
   LearningAttempt 账本,Owner 结果面 = list_enrollments +
   list_workspace_orders + 本工具 run_stats,不另建)。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["tutor"]
 
   alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Courses.Course

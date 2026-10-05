@@ -16,7 +16,7 @@ defmodule Cgc2046.Mcp.Tools.ConfirmEnrollment do
   快速拒绝省 pending）；confirm 段由 confirm_enrollment policy 兜底（审批人
   角色可能在确认窗口内被撤）。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["workspace_admin"]
 
   alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Admission.Enrollment

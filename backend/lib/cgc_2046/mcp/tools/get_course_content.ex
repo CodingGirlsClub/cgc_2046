@@ -16,7 +16,7 @@ defmodule Cgc2046.Mcp.Tools.GetCourseContent do
   单源 `Cgc2046.Curriculum.Content.issue_key/2`)——面板与 agent 无需自算或
   退用内部 id。
   """
-  use Anubis.Server.Component, type: :tool, meta: %{membership: :deferred}
+  use Anubis.Server.Component, type: :tool, scopes: ["tutor"], meta: %{membership: :deferred}
 
   alias Cgc2046.Courses.Course
   alias Cgc2046.Learning.Authorization

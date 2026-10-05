@@ -15,7 +15,7 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceOrders do
   判定（`Role.manage_role?/1`），非管理角色成员快速拒绝并落 ToolCallLog 审计；
   读 policy（workspace_orders 仅 Owner/Admin 本租户 + PlatformAdmin）兜底。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["workspace_admin"]
 
   alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Mcp.Wrapper

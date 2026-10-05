@@ -13,7 +13,7 @@ defmodule Cgc2046.Mcp.Tools.UpdateJoinPolicy do
   Owner/Admin 专属：默认 fail-closed member 门 + 工具层管理角色判定（第一段
   快速拒绝省 pending）；confirm 段由 update policy 兜底。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["workspace_admin"]
 
   alias Cgc2046.Accounts.{Rbac, Workspace}
   alias Cgc2046.Mcp.{Confirmation, Wrapper}

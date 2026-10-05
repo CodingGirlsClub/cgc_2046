@@ -12,7 +12,7 @@ defmodule Cgc2046.Mcp.Tools.UpdateRecruitmentCohort do
   工具层 Rbac.manage?/2 判定；业务 update action 的
   WorkspaceActorIsOwnerOrAdmin policy 兜底。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["workspace_admin"]
 
   alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Mcp.Tools.RecruitmentCohortHelpers, as: H

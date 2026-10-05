@@ -12,7 +12,7 @@ defmodule Cgc2046.Mcp.Tools.ListJoinRequests do
   指定的预授角色提议 = Role.role_names() − 管理角色，对齐 web 审批面
   GRANTABLE_ROLE_NAMES 语义）。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["workspace_admin"]
 
   alias Cgc2046.Accounts.{JoinRequest, Rbac, Role}
   alias Cgc2046.Mcp.Wrapper
