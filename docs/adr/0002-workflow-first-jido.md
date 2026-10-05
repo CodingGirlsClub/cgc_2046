@@ -20,11 +20,11 @@
 |---|---|---|
 | D-A1 | WorkflowDefinition（蓝图）+ WorkflowRun（执行实例）为核心模型；引擎选型 Jido | 决策 1/2/3/8 |
 | D-A2 | WorkflowDefinition 带版本管理（改定义不影响已开始 run） | 决策 1 |
-| D-A3 | Event/Course 挂 Workspace（Event 场地形态 / Course 线上课程）；Sponsorship 两级（Event+Workspace）；SpeakerInvitation Event 级；Workspace 创建两级入口 | 领域模型定稿 §5.1 |
+| D-A3 | Event/Course 挂 Workspace（Event 场地形态 / Course 线上课程）；Sponsorship 两级（Event+Workspace）；SpeakerInvitation Event 级；Workspace 创建两级入口 | 出范围（面向领域建模工作坊「领域模型定稿 · §5.1」的并排参考，属业务模型定稿而非本 ADR 引擎落地；落地由后续业务 context 实施承接，本 ADR 决策 #1-8 未覆盖） |
 | D-A4 | Enrollment 归活动 context，由报名 workflow 同步调 `create_enrollment` Action 创建；不自动成为 Workspace 成员 | 决策 5 |
 | D-A5 | 每 Workspace = 一个 partition；审计 context 数据源 = Thread journal | 决策 6/7 |
 | D-A6 | 同步写走 Action（8 成）、衍生/通知走 Signal 异步（2 成） | 决策 5 |
-| D-A7 | 连接器扩展自动配置 mcp.json（取代 D13 手动粘贴） | 不涉及（onboarding 侧） |
+| D-A7 | 连接器扩展自动配置 mcp.json（取代 D13 手动粘贴） | 出范围（onboarding/扩展落地侧，非本 ADR 引擎决策；后续由 #211 及扩展仓实现，GLOSSARY.md §1「连接器扩展」词条为现行描述） |
 
 1. **核心 aggregate = WorkflowDefinition + WorkflowRun（引擎 context）**
    - WorkflowDefinition = DAG 蓝图（Runic.Workflow 数据流 + 元数据 id/name/type/version/输入 schema/节点定义），带版本管理；改定义不影响已开始 run。

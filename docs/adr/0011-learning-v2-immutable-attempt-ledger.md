@@ -1,8 +1,8 @@
-# ADR-0011:Learning v2——不可变评价账本与派生掌握投影
+# ADR-0011: Learning v2——不可变评价账本与派生掌握投影
 
 - 状态:已接受(2026-08-30;随 role-agent-journeys-v2 S8 落地)
 - 决策者:product owner(计划 2026-08-29-1110 第五部分草案 → 本片实施定稿)
-- 对照:ADR-0009 §目标地图 Learning 行("Learning (core) —— LearningRecord(记忆挂人)、进度投影")与 GLOSSARY.md 旧「学习记录」词条
+- 对照:ADR-0009 §目标地图 Learning 行("Learning (core) —— LearningRecord(记忆挂人)、进度投影");GLOSSARY.md 旧「学习记录」词条已被本 ADR 取代并删除,现行词条 = 「学习评价账本(Learning.Attempt)」+「掌握投影(Mastery)与下一步推荐(NextAction)」+「学习 run 投影单源(Learning.Runs)」
 
 ## 背景
 
