@@ -127,7 +127,7 @@ defmodule Cgc2046.Notifications.ScheduleChangedSubscriberTest do
 
   describe "fanout（#565 latest-wins）" do
     test "执行时回查 event 真状态：信号之后场地再改，通知内容=最新值" do
-      %{event: event, workspace: workspace} = setup_event_with_enrollment()
+      %{event: event, workspace: workspace, learner: learner} = setup_event_with_enrollment()
 
       assert :ok =
                ScheduleChangedSubscriber.handle(
@@ -150,6 +150,13 @@ defmodule Cgc2046.Notifications.ScheduleChangedSubscriberTest do
       assert data["venue"]["district"] == "朝阳区"
       assert data["event_id"] == event.id
       assert data["title"] == event.title
+
+      assert [%{type: "event_schedule_changed", payload: payload}] =
+               Cgc2046.Notifications.Notification
+               |> Ash.Query.for_read(:read, %{}, actor: learner)
+               |> Ash.read!(page: false)
+
+      assert String.contains?(payload["body"], "北京朝阳区")
     end
 
     test "执行后活跃报名逐人落 delivery rows（一轮一条）" do

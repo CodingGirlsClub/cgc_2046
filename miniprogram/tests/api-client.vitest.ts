@@ -173,17 +173,27 @@ describe('失败分类与状态清理', () => {
     expect(client.getAuthToken()).toBe(FIXTURE_TOKEN)
   })
 
-  it('2xx 无 errors 但缺 data 抛「服务端未返回数据」', async () => {
-    mocks.request.mockResolvedValue(httpResponse(200, {}))
-    await expect(client.graphqlRequest('q', {})).rejects.toThrow('服务端未返回数据')
+  it.each([{ body: null }, { body: 'invalid envelope' }, { body: 42 }, { body: [] }, { body: true }])('invalid HTTP 200 envelope $body is a typed contract error and cannot commit a login cookie', async ({ body }) => {
+    client.setAuthToken(FIXTURE_TOKEN)
+    mocks.request.mockResolvedValue(httpResponse(200, body, {}, ['cgc_token=invalid-response-candidate; Path=/']))
+    await expect(client.graphqlRequest('q', {}, { captureAuthCookie: true })).rejects.toMatchObject({
+      name: 'GraphQLRequestError', statusCode: 200
+    })
+    expect(client.getAuthToken()).toBe(FIXTURE_TOKEN)
+    expect(mocks.storage.get(AUTH_TOKEN_KEY)).toBe(FIXTURE_TOKEN)
   })
 
-  it('Taro.request 网络 reject 原样传播并保留 token', async () => {
+  it('2xx missing GraphQL data is a typed response error', async () => {
+    mocks.request.mockResolvedValue(httpResponse(200, {}))
+    await expect(client.graphqlRequest('q', {})).rejects.toMatchObject({ name: 'GraphQLRequestError', statusCode: 200 })
+  })
+
+  it('Taro.request rejection is typed transport failure with original cause and preserves token', async () => {
     mocks.storage.set(AUTH_TOKEN_KEY, FIXTURE_TOKEN)
     await loadClient()
     const networkError = new TypeError('Network request failed')
     mocks.request.mockRejectedValue(networkError)
-    await expect(client.graphqlRequest('q', {})).rejects.toBe(networkError)
+    await expect(client.graphqlRequest('q', {})).rejects.toMatchObject({ name: 'GraphQLTransportError', cause: networkError })
     expect(client.getAuthToken()).toBe(FIXTURE_TOKEN)
   })
 

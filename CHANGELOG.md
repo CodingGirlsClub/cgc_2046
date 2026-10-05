@@ -18,6 +18,14 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ## [Unreleased]
 
+### Added
+
+- [Backend] 新增用户私有的 30 天通知收件箱与服务端已读状态，换设备仍可查看保留期内记录；通知表示系统已生成并接受，不等于渠道已送达（#232）。
+- [微信 / 小红书小程序]「我的」展示服务端通知收件箱，本地缓存按账号隔离，仅在网络失败时兜底并明确标记缓存来源，支持刷新、分页与已读（#232，待客户端上传/过审/发布）。
+
+> #232 发布顺序：后端先部署；小程序上传前、全量发布前各通过既有 `pnpm check:release-schema`。
+
+
 ### Changed
 
 - CI、backend/web 部署和后端 release 验证的 TCR 镜像仓库密码统一使用 `TCR_PASSWORD`；切换前须在 GitHub Repository 与 `production` 环境分别配置同名 Secret，避免与 Docker Hub 凭证混用。
@@ -33,6 +41,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ### Security
 
 - 工作台数据隔离加固一批：赞助（#709）、招募批次（#708）、成员关系（#707）、加入申请与邀请的管理读面统一按行所属工作台过滤，阻止 Owner/Admin 借 GraphQL filter 跨台读取；本人读取和平台管理员跨台读取不受影响。
+- 账号密码登录新增跨账号 IP 总量限流，保留 IP + 账号限流；收银弹框与订单详情的支付跳转仅允许有效 HTTPS URL，非法凭据回退本地订单页并保留语言；CI 校验固定 gitleaks 官方 SHA-256 后才解压执行，plugin 同步将版本经环境变量写入 JSON，避免源码插值（#985）。
 
 ## [2026-10-01]
 

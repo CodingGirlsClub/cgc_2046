@@ -30,9 +30,10 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { client } from "@/lib/apollo-client";
 import { useQrDataUrl } from "@/lib/use-qr-data-url";
+import { getPathname } from "@/i18n/navigation";
 import {
   CREATE_ORDER,
   DEPOSIT_CONSENT_REQUIRED_CODE,
@@ -50,6 +51,7 @@ import {
   WEB_ENABLED_PROVIDERS,
   countdownText,
   dispatchCredential,
+  httpsRedirectOrFallback,
   formatAmount,
   formatAmountShort,
   parseOrderKind,
@@ -131,6 +133,7 @@ export default function PaymentCheckoutDialog({
   title = null,
 }: PaymentCheckoutDialogProps) {
   const translatePaymentError = usePaymentErrorTranslator();
+  const locale = useLocale();
   const t = useTranslations("checkout");
   // 押金不表态文案单源在 `offerings`（#675，与公开页/报名页同句）
   const tOfferings = useTranslations("offerings");
@@ -688,7 +691,10 @@ export default function PaymentCheckoutDialog({
                 ) : dispatch.mode === "redirect" ? (
                   <div className="grid gap-2 justify-items-center">
                     <a
-                      href={dispatch.url}
+                      href={httpsRedirectOrFallback(
+                        dispatch.url,
+                        getPathname({ href: `/orders/${encodeURIComponent(order.id)}`, locale }),
+                      )}
                       target="_blank"
                       rel="noreferrer"
                       className="join-button join-button--primary"

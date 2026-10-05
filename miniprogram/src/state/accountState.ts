@@ -1,10 +1,43 @@
 import Taro from '@tarojs/taro'
 import type { NotificationItem } from '@/domain/models'
 import { STORAGE_KEYS } from '@/state/storage'
+import { retainedNotifications, validNotification } from '@/domain/notifications'
 
 const ACTIVE_USER_KEY = 'cgc.active_user_id'
 const LEGACY_NOTIFICATION_KEY = 'cgc.local_notifications'
-const MAX_NOTIFICATIONS = 50
+let accountEpoch = 0
+
+export interface AccountScope { userId: string; epoch: number }
+
+export function captureAccountScope(): AccountScope | null {
+  const userId = getActiveAccountId()
+  return userId ? { userId, epoch: accountEpoch } : null
+}
+
+export function accountScopeCurrent(scope: AccountScope): boolean {
+  return scope.epoch === accountEpoch && scope.userId === getActiveAccountId()
+}
+
+function feedKey(userId: string): string { return `cgc.notification_feed.v1.${userId}` }
+
+export function cacheNotificationFeed(scope: AccountScope, items: NotificationItem[]): void {
+  if (!accountScopeCurrent(scope)) return
+  const safe = items.slice(0, 20).map(({ id, type, title, body, createdAt, readAt, deepLink }) =>
+    ({ id, type, title, body, createdAt, readAt, deepLink }))
+  Taro.setStorageSync(feedKey(scope.userId), { items: safe, fetchedAt: new Date().toISOString() })
+}
+
+export function cachedNotificationFeed(scope: AccountScope): NotificationItem[] | null {
+  if (!accountScopeCurrent(scope)) return null
+  const value = Taro.getStorageSync<{ items?: unknown; fetchedAt?: unknown }>(feedKey(scope.userId))
+  if (!value) return null
+  if (!Array.isArray(value.items) || !value.items.every(validNotification) ||
+      typeof value.fetchedAt !== 'string' || !Number.isFinite(Date.parse(value.fetchedAt))) {
+    Taro.removeStorageSync(feedKey(scope.userId))
+    return null
+  }
+  return retainedNotifications(value.items)
+}
 
 function notificationKey(userId: string): string {
   return `cgc.local_notifications.${userId}`
@@ -16,6 +49,8 @@ export function getActiveAccountId(): string | null {
 
 export function activateAccount(userId: string): void {
   const previous = getActiveAccountId()
+  if (previous !== userId) accountEpoch += 1
+  Taro.removeStorageSync(notificationKey(userId))
   if (previous && previous !== userId) {
     Taro.removeStorageSync(STORAGE_KEYS.lastEnrollment)
   }
@@ -25,8 +60,10 @@ export function activateAccount(userId: string): void {
 }
 
 export function clearAccountState(options?: { clearPendingScene?: boolean }): void {
+  accountEpoch += 1
   const activeId = getActiveAccountId()
   if (activeId) Taro.removeStorageSync(notificationKey(activeId))
+  if (activeId) Taro.removeStorageSync(feedKey(activeId))
   Taro.removeStorageSync(ACTIVE_USER_KEY)
   Taro.removeStorageSync(LEGACY_NOTIFICATION_KEY)
   Taro.removeStorageSync(STORAGE_KEYS.lastEnrollment)
@@ -43,25 +80,6 @@ export function clearFlashbackLinkIdentity(): void {
   Taro.removeStorageSync(STORAGE_KEYS.flashbackToken)
 }
 
-export function appendLocalNotification(title: string, body: string): void {
-  const activeId = getActiveAccountId()
-  if (!activeId) return
-  const notifications = readLocalNotifications()
-  notifications.unshift({
-    id: `${Date.now()}`,
-    title,
-    body,
-    createdAt: new Date().toISOString(),
-    read: false
-  })
-  Taro.setStorageSync(notificationKey(activeId), notifications.slice(0, MAX_NOTIFICATIONS))
-}
-
-export function readLocalNotifications(): NotificationItem[] {
-  const activeId = getActiveAccountId()
-  if (!activeId) return []
-  return Taro.getStorageSync<NotificationItem[]>(notificationKey(activeId)) || []
-}
 
 export function takePendingScene(routeScene?: string): string {
   const scene = routeScene ?? Taro.getStorageSync<string>(STORAGE_KEYS.pendingScene) ?? ''

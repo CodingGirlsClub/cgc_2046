@@ -8,7 +8,7 @@ const { client } = vi.hoisted(() => ({ client: { query: vi.fn(), mutate: vi.fn()
 const { QRCodeStub } = vi.hoisted(() => ({
 	QRCodeStub: { toDataURL: vi.fn() },
 }));
-const { useParams } = vi.hoisted(() => ({ useParams: vi.fn() }));
+const { useParams, usePathname } = vi.hoisted(() => ({ useParams: vi.fn(), usePathname: vi.fn() }));
 const { copyText } = vi.hoisted(() => ({ copyText: vi.fn() }));
 
 // i18n Phase 3：payment-errors 表迁 messages errors namespace；测试环境无
@@ -32,8 +32,7 @@ vi.mock("next/navigation", () => ({
 	redirect: vi.fn(),
 	permanentRedirect: vi.fn(),
 	useParams,
-	// Link（next/link）内部依赖 usePathname；提供 no-op mock
-	usePathname: () => "/orders/o1",
+	usePathname,
 	useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
 }));
 
@@ -59,6 +58,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	useAuthed.mockReturnValue({ authed: true, confirmed: true, userId: "u1" });
 	useParams.mockReturnValue({ id: "o1" });
+	usePathname.mockReturnValue("/orders/o1");
 	copyText.mockResolvedValue(true);
 	QRCodeStub.toDataURL.mockResolvedValue("data:image/png;base64,qr");
 	vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-08-16T11:59:30Z"));
@@ -179,18 +179,61 @@ describe("/orders/[id] 订单页（U11：倒计时/凭据/轮询编排）", () =
 		expect(switchBtn).toHaveClass("join-button--primary");
 	});
 
-	it("跳转凭据（alipay）：渲染前往支付宝按钮（链接指向凭据 url）", async () => {
+	it.each([
+		"https://pay.alipay.com/x",
+		"https://pay.alipay.com/x?sign=a%2Bb&return_url=%2Forders%2Fo1#done",
+		"HTTPS://pay.alipay.com/x",
+	])("HTTPS 跳转凭据保留原始链接：%s", async (url) => {
 		client.query.mockResolvedValue({ data: orderPayload({ provider: "alipay_page" }) });
 		sessionStorage.setItem(
 			"order-credential:o1",
-			JSON.stringify({ type: "redirect", url: "https://pay.alipay.com/x" }),
+			JSON.stringify({ type: "redirect", url }),
 		);
 
 		render(<OrderDetailPage />);
 
 		const link = await screen.findByTestId("order-redirect");
-		expect(link).toHaveAttribute("href", "https://pay.alipay.com/x");
+		expect(link).toHaveAttribute("href", url);
 		expect(link).toHaveAttribute("target", "_blank");
+		expect(link).toHaveAttribute("rel", "noreferrer");
+	});
+
+	it.each([
+		"http://pay.alipay.com/x",
+		"javascript:alert(1)",
+		"JaVaScRiPt:alert(1)",
+		"data:text/html,test",
+		"file:///tmp/x",
+		"ftp://example.com/x",
+		"//pay.alipay.com/x",
+		"/pay/x",
+		"pay.alipay.com/x",
+		"not a url",
+		"https://",
+		"https://[invalid",
+		"https://%",
+		"   ",
+	])("非法跳转凭据回到当前订单：%s", async (url) => {
+		client.query.mockResolvedValue({ data: orderPayload({ provider: "alipay_page" }) });
+		sessionStorage.setItem("order-credential:o1", JSON.stringify({ type: "redirect", url }));
+		render(<OrderDetailPage />);
+		expect(await screen.findByTestId("order-redirect")).toHaveAttribute("href", "/orders/o1");
+	});
+
+	it.each(["/en/orders/o1", null])("非法跳转的 locale / pathname fallback：%s", async (pathname) => {
+		usePathname.mockReturnValue(pathname);
+		client.query.mockResolvedValue({ data: orderPayload({ provider: "alipay_page" }) });
+		sessionStorage.setItem("order-credential:o1", JSON.stringify({ type: "redirect", url: "https://" }));
+		render(<OrderDetailPage />);
+		expect(await screen.findByTestId("order-redirect")).toHaveAttribute("href", pathname ?? "/orders/o1");
+	});
+
+	it.each(["", undefined, null, 42])("空值 / 非字符串跳转凭据沿用 unsupported：%s", async (url) => {
+		client.query.mockResolvedValue({ data: orderPayload({ provider: "alipay_page" }) });
+		sessionStorage.setItem("order-credential:o1", JSON.stringify({ type: "redirect", url }));
+		render(<OrderDetailPage />);
+		await screen.findByTestId("order-credential-unsupported");
+		expect(screen.queryByTestId("order-redirect")).not.toBeInTheDocument();
 	});
 
 	it("轮询推进：orderStatus 每 2s 拉一次，paid 即停", async () => {

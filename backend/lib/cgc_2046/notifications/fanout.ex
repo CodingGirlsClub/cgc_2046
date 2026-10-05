@@ -45,7 +45,7 @@ defmodule Cgc2046.Notifications.Fanout do
   解析 workspace 内目标角色成员（selector 见 moduledoc）的平台身份，
   按 `user_id` 分组。每工作台一次读取（调用方预取后逐条记录复用，消 N+1）。
 
-  无目标角色成员 → 返回空 map（调用方不必区分「无人」与「有人无身份」）。
+  无目标角色成员返回空 map；已命中角色但无身份的用户保留为 []，供站内接受。
   """
   @spec managers(term(), :manage | {:roles, [atom()]}) :: %{String.t() => [UserIdentity.t()]}
   def managers(workspace_id, selector \\ :manage) do
@@ -56,10 +56,13 @@ defmodule Cgc2046.Notifications.Fanout do
         %{}
 
       managed_ids ->
-        UserIdentity
-        |> Ash.Query.filter(user_id in ^managed_ids)
-        |> Ash.read!(authorize?: false)
-        |> Enum.group_by(& &1.user_id)
+        identities =
+          UserIdentity
+          |> Ash.Query.filter(user_id in ^managed_ids)
+          |> Ash.read!(authorize?: false)
+          |> Enum.group_by(& &1.user_id)
+
+        Map.new(managed_ids, &{&1, Map.get(identities, &1, [])})
     end
   end
 
@@ -216,22 +219,9 @@ defmodule Cgc2046.Notifications.Fanout do
     meta = Map.put(job_meta, "idempotency_key", template_key <> ":" <> event_key)
 
     Enum.reduce_while(recipients, {:ok, 0}, fn {user_id, identities}, {:ok, count} ->
-      # #1040：结构性无能力平台身份（wechat_web 等）预滤——保 count 回执 =
-      # 实际展开身份数；谓词真源 Service.miniprogram_platform?/1。真零身份
-      # 不过滤（Q5 哨兵行由 Delivery 层落——空列表 filter 仍为空，先判 []）。
-      capable =
-        if identities == [] do
-          identities
-        else
-          Enum.filter(identities, &Service.miniprogram_platform?(&1.provider))
-        end
-
-      if identities != [] and capable == [] do
-        {:cont, {:ok, count}}
-      else
-        :ok = Delivery.enqueue({user_id, capable}, template_key, data, meta)
-        {:cont, {:ok, count + length(capable)}}
-      end
+      capable = Enum.filter(identities, &Service.miniprogram_platform?(&1.provider))
+      :ok = Delivery.enqueue({user_id, identities}, template_key, data, meta)
+      {:cont, {:ok, count + length(capable)}}
     end)
   end
 
@@ -240,14 +230,21 @@ defmodule Cgc2046.Notifications.Fanout do
   # 「本次新接受任务数」语义，见 #834。
   defp oban_enqueue(recipients, template_key, data, job_meta, unique) do
     Enum.reduce_while(recipients, {:ok, 0}, fn {user_id, identities}, {:ok, count} ->
-      Enum.reduce_while(identities, {:ok, count}, fn identity, {:ok, identity_count} ->
-        case insert_notification(identity, user_id, template_key, data, job_meta, unique) do
-          {:ok, _job} -> {:cont, {:ok, identity_count + 1}}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
-      |> case do
-        {:ok, updated_count} -> {:cont, {:ok, updated_count}}
+      case Cgc2046.Repo.transaction(fn ->
+             accepted =
+               Enum.reduce(identities, 0, fn identity, acc ->
+                 case insert_notification(identity, user_id, template_key, data, job_meta, unique) do
+                   {:ok, job} -> acc + if(job.conflict?, do: 0, else: 1)
+                   {:error, reason} -> Cgc2046.Repo.rollback(reason)
+                 end
+               end)
+
+             if accepted > 0,
+               do: Cgc2046.Notifications.Inbox.record(user_id, template_key, data, job_meta)
+
+             accepted
+           end) do
+        {:ok, accepted} -> {:cont, {:ok, count + accepted}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)

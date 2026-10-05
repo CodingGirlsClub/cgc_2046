@@ -34,7 +34,6 @@ const EXPECTED_COUNTS = {
   result: 2,
   enrollments: 1,
   workspace: 2,
-  profile: 1
 }
 
 const WAIT_MS = 5000
@@ -137,7 +136,6 @@ async function run() {
     await expectText(page, sel['approval-empty'], /暂无待审批/, 'workspace')
 
     page = await miniProgram.switchTab('/pages/profile/index')
-    await expectText(page, sel['notification-list'], /审批已完成/, 'profile')
 
     assert.deepEqual(counts, EXPECTED_COUNTS)
     const total = Object.values(counts).reduce((sum, n) => sum + n, 0)

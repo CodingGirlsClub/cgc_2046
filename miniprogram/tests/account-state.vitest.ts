@@ -8,6 +8,8 @@ const KEY = {
   legacyNotifications: 'cgc.local_notifications',
   notifA: 'cgc.local_notifications.user-a',
   notifB: 'cgc.local_notifications.user-b',
+  feedA: 'cgc.notification_feed.v1.user-a',
+  feedB: 'cgc.notification_feed.v1.user-b',
   flashbackToken: 'cgc.flashback_token',
   authToken: 'cgc.auth_token'
 }
@@ -43,26 +45,20 @@ beforeEach(() => {
 })
 
 describe('账号本地状态隔离', () => {
-  it('A/B 两账号通知互不可见', () => {
+  it('A/B 缓存隔离且晚到 A 写入在切换与注销后失效', () => {
+    const row = { id: 'server-a', type: 'event_reminder', title: '活动提醒', body: '活动即将开始', createdAt: new Date().toISOString(), readAt: null, deepLink: null }
     accountState.activateAccount('user-a')
-    accountState.appendLocalNotification('A 标题', 'A 内容')
-    expect(accountState.readLocalNotifications()).toEqual([
-      expect.objectContaining({ title: 'A 标题', body: 'A 内容' })
-    ])
-
+    const a = accountState.captureAccountScope()!
+    accountState.cacheNotificationFeed(a, [row])
     accountState.activateAccount('user-b')
-    expect(accountState.readLocalNotifications()).toEqual([])
-    accountState.appendLocalNotification('B 标题', 'B 内容')
-    expect(accountState.readLocalNotifications()).toEqual([
-      expect.objectContaining({ title: 'B 标题' })
-    ])
-
-    // 切回 A：A 的 namespaced 通知仍在，B 的不可见
+    const b = accountState.captureAccountScope()!
+    expect(accountState.cachedNotificationFeed(b)).toBe(null)
+    accountState.cacheNotificationFeed(a, [{ ...row, body: '迟到的旧响应' }])
     accountState.activateAccount('user-a')
-    expect(accountState.readLocalNotifications()).toEqual([
-      expect.objectContaining({ title: 'A 标题' })
-    ])
-    expect(mocks.storage.has(KEY.notifB)).toBe(true)
+    expect(accountState.cachedNotificationFeed(accountState.captureAccountScope()!)).toEqual([row])
+    accountState.clearAccountState()
+    accountState.cacheNotificationFeed(a, [row])
+    expect(mocks.storage.has(KEY.feedA)).toBe(false)
   })
 
   it('切换账号清 lastEnrollment，首次激活不清', () => {
@@ -73,43 +69,28 @@ describe('账号本地状态隔离', () => {
     expect(mocks.storage.has(KEY.lastEnrollment)).toBe(false)
   })
 
-  it('旧全局通知 key 不可读且激活时被清', () => {
-    mocks.storage.set(KEY.legacyNotifications, [
-      { id: '1', title: 'legacy', body: 'x', createdAt: '', read: false }
-    ])
-    // 无 active user：不读 legacy
-    expect(accountState.readLocalNotifications()).toEqual([])
+  it('不导入旧本机记录，过期和损坏缓存不可恢复', () => {
+    mocks.storage.set(KEY.legacyNotifications, [{ id: 'old', title: '旧记录' }])
+    mocks.storage.set(KEY.notifA, [{ id: 'old-account' }])
     accountState.activateAccount('user-a')
-    expect(mocks.storage.has(KEY.legacyNotifications)).toBe(false)
-    expect(accountState.readLocalNotifications()).toEqual([])
-  })
-
-  it('无 active user 时 append 不写任何通知 key', () => {
-    accountState.appendLocalNotification('孤儿', '无主')
+    const scope = accountState.captureAccountScope()!
     expect(mocks.storage.has(KEY.legacyNotifications)).toBe(false)
     expect(mocks.storage.has(KEY.notifA)).toBe(false)
-    expect(mocks.storage.has(KEY.notifB)).toBe(false)
-  })
-
-  it('通知最新在前且最多 50 条', () => {
-    accountState.activateAccount('user-a')
-    for (let i = 1; i <= 55; i++) accountState.appendLocalNotification(`标题${i}`, `内容${i}`)
-    const list = accountState.readLocalNotifications()
-    expect(list.length).toBe(50)
-    expect(list[0].title).toBe('标题55')
-    expect(list[49].title).toBe('标题6')
+    mocks.storage.set(KEY.feedA, { items: [{ id: 'bad' }], fetchedAt: new Date().toISOString() })
+    expect(accountState.cachedNotificationFeed(scope)).toBe(null)
+    expect(mocks.storage.has(KEY.feedA)).toBe(false)
   })
 })
 
 describe('clearAccountState 与 pendingScene 边界', () => {
   it('默认保留 pending scene，删除 active user 通知/ID/legacy/lastEnrollment', () => {
     accountState.activateAccount('user-a')
-    accountState.appendLocalNotification('A', 'B')
+    accountState.cacheNotificationFeed(accountState.captureAccountScope()!, [])
     mocks.storage.set(KEY.pendingScene, 's1')
     mocks.storage.set(KEY.lastEnrollment, 'e1')
 
     accountState.clearAccountState()
-    expect(mocks.storage.has(KEY.notifA)).toBe(false)
+    expect(mocks.storage.has(KEY.feedA)).toBe(false)
     expect(mocks.storage.has(KEY.activeUser)).toBe(false)
     expect(mocks.storage.has(KEY.legacyNotifications)).toBe(false)
     expect(mocks.storage.has(KEY.lastEnrollment)).toBe(false)
