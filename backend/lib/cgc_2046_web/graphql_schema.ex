@@ -25,6 +25,7 @@ defmodule Cgc2046Web.GraphqlSchema do
       Cgc2046.Flashback,
       Cgc2046.Accounts,
       Cgc2046.Learning,
+      Cgc2046.Notifications,
       Cgc2046.Payments,
       Cgc2046.Reconciliation,
       Cgc2046.Recruitment,

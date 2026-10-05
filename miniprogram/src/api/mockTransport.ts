@@ -177,7 +177,19 @@ interface MockEnrollment {
   registrationDeadline: string | null
 }
 
-let loggedIn = false
+let loggedIn = wxStorage()?.getStorageSync('cgc.auth_token') === 'e2e-mock-token'
+const inboxRows: Record<string, Array<{ id: string; type: string; title: string; body: string; insertedAt: string; readAt: string | null; deepLink: string | null }>> = {
+  'user-1': Array.from({ length: 23 }, (_, i) => ({ id: `mock-inbox-a-${String(i).padStart(2, '0')}`, type: 'event_reminder',
+    title: `活动提醒 ${i + 1}`, body: '合成验收数据：请查看活动的开始安排。', insertedAt: new Date(Date.now() - i * 60_000).toISOString(), readAt: null, deepLink: '/pages/my-enrollments/index' })),
+  'user-2': [{ id: 'mock-inbox-b', type: 'enrollment_completed', title: '账号 B 报名成功', body: '合成验收数据：这是账号 B 的通知。', insertedAt: new Date().toISOString(), readAt: null, deepLink: null }]
+}
+const INBOX_MOCK_STATE = 'cgc.e2e.notification_backend.v1'
+function inboxState(): typeof inboxRows {
+  const saved = wxStorage()?.getStorageSync(INBOX_MOCK_STATE)
+  return typeof saved === 'string' && saved ? JSON.parse(saved) as typeof inboxRows : inboxRows
+}
+
+function inboxAccount(): string { return e2eFlag('cgc.e2e.notification_account_b') ? 'user-2' : 'user-1' }
 let enrollment: MockEnrollment | null = null
 let order: MockOrder | null = null
 let orderStatusOverride: string | null = null
@@ -727,6 +739,25 @@ function myEnrollmentFor(kind: 'event' | 'course', offeringId: string) {
 
 function responseFor(document: string, variables: object): unknown {
   const values = variablesRecord(variables)
+  if (document.includes('query NotificationFeed')) {
+    if (!loggedIn) return { errors: [{ message: '请登录', code: 'unauthorized' }] }
+    if (e2eFlag('cgc.e2e.notification_feed_error')) return { errors: [{ message: '通知加载失败（合成验收）' }] }
+    if (e2eFlag('cgc.e2e.notification_feed_empty')) return { notificationFeed: { results: [], endKeyset: null } }
+    const rows = inboxState()[inboxAccount()]
+    const start = values.after ? rows.findIndex(row => row.id === values.after) + 1 : 0
+    const results = rows.slice(start, start + Math.min(Number(values.first) || 20, 50))
+    return { notificationFeed: { results, endKeyset: results[results.length - 1]?.id ?? null } }
+  }
+  if (document.includes('mutation MarkNotificationRead')) {
+    if (!loggedIn) return { errors: [{ message: '请登录', code: 'unauthorized' }] }
+    if (e2eFlag('cgc.e2e.notification_mark_error')) return { markNotificationRead: { result: null, errors: [{ message: '标记失败，请重试' }] } }
+    const state = inboxState()
+    const row = state[inboxAccount()].find(row => row.id === values.id)
+    if (!row) return { markNotificationRead: { result: null, errors: [{ message: '记录不存在', code: 'not_found' }] } }
+    row.readAt ??= new Date().toISOString()
+    wxStorage()?.setStorageSync(INBOX_MOCK_STATE, JSON.stringify(state))
+    return { markNotificationRead: { result: row, errors: [] } }
+  }
 
   if (document.includes('query PublicInitiatives')) return { publicInitiatives: [initiativeCard] }
   if (document.includes('query PublicInitiative(')) {
@@ -852,7 +883,7 @@ function responseFor(document: string, variables: object): unknown {
     return {
       me: loggedIn
         ? {
-            id: 'user-1',
+            id: inboxAccount(),
             email: 'cheng@example.com',
             displayName: '小程',
             memberNumber: 'CGC-000001',

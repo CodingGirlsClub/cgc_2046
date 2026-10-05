@@ -51,8 +51,8 @@ export const ANCHORS = {
   'urgent-summary': ['pages/workspace/index.wxss', 'approvalSummary'],
   'approve-enrollment-1': ['pages/workspace/index.wxss', 'approve'],
   'approval-empty': ['common.wxss', 'state'], // PageState 根类（公共样式块）
-  // profile（通知面板 = 本页首个 panel）
-  'notification-list': ['pages/profile/index.wxss', 'panel'],
+  // notification inbox is shared by both My surfaces.
+  'notification-list': ['pages/profile/index.wxss', 'inbox'],
   // profile 页内入口卡（「我的报名」「去 OpenClacky」同款组合类）——journey 按卡片文本挑
   'profile-entry-card': ['pages/profile/index.wxss', 'openclacky']
 }

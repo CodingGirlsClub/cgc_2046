@@ -1,3 +1,21 @@
+export const NotificationFeedQueryDocument = /* GraphQL */ `
+  query NotificationFeed($first: Int, $after: String) {
+    notificationFeed(first: $first, after: $after) {
+      results { id type title body deepLink readAt insertedAt }
+      endKeyset
+    }
+  }
+`
+
+export const MarkNotificationReadMutationDocument = /* GraphQL */ `
+  mutation MarkNotificationRead($id: ID!) {
+    markNotificationRead(id: $id) {
+      result { id type title body deepLink readAt insertedAt }
+      errors { message code fields }
+    }
+  }
+`
+
 // 公开发现面查询（F2/D2）：字段 = 匿名白名单（与 web PUBLIC_LIST_* 同源），
 // 不含 workspaceId/curriculumRequirements/workflowRunId/capacity/confirmedCount
 // 等成员可见字段——匿名/跨工作台成员请求受保护字段会 forbidden_field 抛错。

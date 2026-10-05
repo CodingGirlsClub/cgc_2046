@@ -105,6 +105,13 @@ defmodule Cgc2046.Flashback.WishEchoesTest do
     assert {:ok, _corrected} = WishEchoes.correct(first.id, "更正后的回响")
     assert {:ok, _revoked} = WishEchoes.revoke(second.id)
     assert length(all_enqueued(worker: NotificationWorker)) == 1
+
+    assert [%{type: "flashback_wish_echo", deep_link: link}] =
+             Cgc2046.Notifications.Notification
+             |> Ash.Query.for_read(:read, %{}, actor: user)
+             |> Ash.read!(page: false)
+
+    assert link == "/pages/flashback-wishes/index?wishId=" <> wish.id
   end
 
   test "无身份时保留通知机会，之后出现身份可由下一条 Echo 消耗" do
@@ -117,6 +124,11 @@ defmodule Cgc2046.Flashback.WishEchoesTest do
     assert {:ok, _published} = WishEchoes.publish(first.id, Ecto.UUID.generate())
     assert is_nil(used_at(endorsement.id))
     assert all_enqueued(worker: NotificationWorker) == []
+
+    assert [] =
+             Cgc2046.Notifications.Notification
+             |> Ash.Query.for_read(:read, %{}, actor: user)
+             |> Ash.read!(page: false)
 
     insert_identity(user.id, :wechat, "wish-echo-late-identity-openid")
     second = create_echo(wish, "身份已就绪")

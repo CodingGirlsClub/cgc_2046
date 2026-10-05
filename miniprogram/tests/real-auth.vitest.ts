@@ -11,8 +11,6 @@ const mocks = vi.hoisted(() => ({
   activateAccount: vi.fn(),
   clearAccountState: vi.fn(),
   clearFlashbackLinkIdentity: vi.fn(),
-  appendLocalNotification: vi.fn(),
-  readLocalNotifications: vi.fn(),
   currentPlatform: vi.fn(),
   silentLoginAllowed: vi.fn(),
   setSilentLoginAllowed: vi.fn(),
@@ -70,10 +68,9 @@ vi.mock('../src/state/workspaceTab', () => ({
 
 vi.mock('../src/state/accountState', () => ({
   activateAccount: mocks.activateAccount,
-  appendLocalNotification: mocks.appendLocalNotification,
   clearAccountState: mocks.clearAccountState,
   clearFlashbackLinkIdentity: mocks.clearFlashbackLinkIdentity,
-  readLocalNotifications: mocks.readLocalNotifications
+  captureAccountScope: vi.fn(), accountScopeCurrent: vi.fn(), cacheNotificationFeed: vi.fn(), cachedNotificationFeed: vi.fn()
 }))
 
 vi.mock('../src/platform', () => ({
@@ -359,7 +356,6 @@ describe('getSession 错误降级(真机事故回归:坏 token 不该拖死发�
     expect(result).toEqual({ user: null, workspaces: [], approvals: [], authExpired: false })
     expect(mocks.clearExpiredAuthentication).not.toHaveBeenCalled()
     expect(mocks.clearWorkspaceTab).toHaveBeenCalled()
-    expect(mocks.clearAccountState).toHaveBeenCalledWith()
   })
 
   it('认证错误 → 降级空 session(token 由 client.ts 清,不重复清)', async () => {

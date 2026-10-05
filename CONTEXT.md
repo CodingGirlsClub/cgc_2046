@@ -548,6 +548,15 @@
 
 - **定义**：**收件人解析 + 通知入队的唯一归属**（2026-08-14 通知分发收敛，架构评审候选①，依赖异步链路 PR-B 合入后落地）。interface 三件套：`managers(workspace_id, selector)`（租户内目标角色成员 → `%{user_id => [identity]}` 平台身份分组）｜`identities(user_id)`（单用户全平台身份）｜`deliver(recipients, template_key, data, job_meta, unique)`（入队 args 形状 / identity_uid 展开 / unique 预设的唯一实现）。**收件人选择器是数据不是谓词**：`:manage`（走 `Role.manage_roles/0` 唯一真源）｜`{:roles, [...]}`（显式窄集，如赞助 Workspace 级仅 Owner，拍板 #4）；unique 用命名预设 `:default`｜`:reminder_7d`，未显式传参时按 template_key 查 `NotificationWorker.type/1` 的 unique 预设（缺省 `:default`，2026-08-18 架构深化候选 D D3）——Oban unique 语义不进 interface。**错误内化**：不崩、必 Logger + telemetry（`[:cgc2046, :notification_fanout, :deliver]`，失败可计数）。
 - **架构位置**：Notifications.Subscriber / SpeakerSubscriber（handle 体）与 ApprovalReminderWorker / LearningProgressWorker（按工作台预取分组复用，消 N+1——两段式 interface 的原因）四方调用的 seam；Notifications.Subscriber 退化纯订阅方（公共入队面删除，异步计划 Q4 backlog 落地）；发送侧 Notifications.Service 与 NotificationWorker 不动；`target_title` 的 Event/Course 分叉不在此面（属 offering seam 候选）。
+- **无身份收件人（#232）**：`managers` 保留已命中角色但身份列表为空的用户。耐久接受逐用户同事务写站内快照与渠道 outbox/jobs；真零身份保留既有哨兵，有身份但全无订阅能力仅写站内记录，channel count 仍为 0。`deliver` 的 best-effort/claim_first 失败边界不变，失败不冒充已接受。
+
+### 通知收件箱（Notification Inbox）
+
+- **定义**：用户本人最近 30 天内系统已生成并接受的通知及服务端已读状态，不是订阅授权余额、投递账本或送达回执。工作台管理者与平台管理员均无他人收件箱读取旁路。
+- **生命周期**：`inserted_at > now - 30 天` 才可读取或标记已读；日清理删除等于或早于截止时刻的正文。`read_at` 首次写入后不再覆盖，换设备仍一致；本机仅缓存账号隔离的服务端快照，认证错误不能恢复缓存。
+- **来源**：既有通知类型在接受事务中写精简用户文本；同类型、同来源、同用户的多身份扇出只有一条站内记录，写入和查询均不消耗 Consent，不触发发送。不回填旧 outbox/本机记录，也不保存核销码、认证密钥或原始渠道载荷。
+- **去重边界**：不保永久幂等墓碑。保留行去重，旧 durable outbox 不作为历史导入来源；纯站内记录清理后，同一来源被重新接受可能产生新记录，不称永久 exactly-once，也不恢复旧 `read_at`。
+
 
 ### 通知类型（Notification Types）
 
