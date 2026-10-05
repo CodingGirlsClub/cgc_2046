@@ -7,7 +7,7 @@ defmodule Cgc2046.Mcp.Tools.ClaimPrepAuthoring do
   乐观锁 CAS，并发双认领恰一成一败，落败方收到 already claimed 业务错误。
   认领成功 prep_state draft → authoring。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["tutor"]
 
   alias Cgc2046.Courses.Course
   alias Cgc2046.Curriculum.Prep

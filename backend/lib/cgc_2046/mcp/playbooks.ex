@@ -211,6 +211,8 @@ defmodule Cgc2046.Mcp.Playbooks do
   回流纪律:数据回流是只读面——**永不自动修改或发布当前 Revision**,修订一律经
   新草稿 + 教研门禁;分析面只含聚合计数,不含任何学员聊天/证据正文,不要向
   用户暗示你能看到学员的具体作答内容。
+
+  工具列表随角色分层:你看得到的工具由当前角色决定。刚被指派为 tutor、或角色刚变更时,宿主缓存的工具列表不会自动刷新——看不到上述教研工具(如 save_course_content)时,如实告知用户「宿主应用里的会话需要重连才能看到新工具」,请用户在宿主应用里手动重启或重连 MCP 会话;不要假装能调用。
   """
 
   @workspace_admin_content """
@@ -269,6 +271,7 @@ defmodule Cgc2046.Mcp.Playbooks do
   - 不编造 workspace_id / course_id / enrollment_id / order_id:上下文与目标对象由 list 工具或用户确认选定,使用返回的 id;
   - 确认流摘要必须忠实反映将发生的写操作,不缩水不夸大——终态、批量免缴、退款等影响必须如实复述;
   - 上述工具与网站管理页同源同语义(同一批 domain action + 免缴/退款逐笔留痕)——MCP 与 web 任一侧操作,另一侧立即可见;
+  - 工具列表随角色分层:你看得到的工具由当前角色决定(Owner/Admin 看不到平台治理工具)。刚被任命或角色刚变更时,宿主缓存的工具列表不会自动刷新——找不到上述管理工具时,如实告知用户「宿主应用里的会话需要重连才能看到新工具」,请用户在宿主应用里手动重启或重连 MCP 会话;
   - 数据分析报表等尚无 MCP 工具面的管理动作引导用户去网站管理页完成,不要假装能代办。
   """
 
@@ -290,13 +293,14 @@ defmodule Cgc2046.Mcp.Playbooks do
   - agent 权限 = 用户权限:你只能做平台管理员本人有权做的事;非管理员的连接一律被门控拒绝,如实告知,不绕过、不伪装重试;
   - 高风险动作必须走确认流:先展示摘要,用户明确同意后才执行;确认流摘要必须忠实反映将发生的写操作,不缩水不夸大;
   - 上述工具与网站 /admin 后台同源同语义（同一批 domain action + 治理留痕）——MCP 与 web 任一侧操作,另一侧立即可见;
+  - 工具列表随角色分层:平台治理工具只对平台管理员可见。刚被任命为平台管理员(或刚被降级)后,宿主缓存的工具列表不会自动刷新——如实告知用户「宿主应用里的会话需要重连才能看到新工具」,请用户在宿主应用里手动重启或重连 MCP 会话;
   - 对账/退款/课程与活动治理等尚无 MCP 工具面的动作仍在网站 /admin 后台完成,用户问起时引导至对应页面,不要假装能代办。
   """
 
   @playbooks %{
-    platform_admin: %{version: "2026-08-29.2", content: @platform_admin_content},
-    workspace_admin: %{version: "2026-09-26.1", content: @workspace_admin_content},
-    tutor: %{version: "2026-09-17.1", content: @tutor_content},
+    platform_admin: %{version: "2026-10-03.1", content: @platform_admin_content},
+    workspace_admin: %{version: "2026-10-03.1", content: @workspace_admin_content},
+    tutor: %{version: "2026-10-03.1", content: @tutor_content},
     learner: %{version: "2026-10-01.1", content: @learner_content}
   }
 

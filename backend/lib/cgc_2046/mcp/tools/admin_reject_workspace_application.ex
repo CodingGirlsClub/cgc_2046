@@ -13,6 +13,7 @@ defmodule Cgc2046.Mcp.Tools.AdminRejectWorkspaceApplication do
   """
   use Anubis.Server.Component,
     type: :tool,
+    scopes: ["platform_admin"],
     meta: %{workspace_id: :optional, membership: :platform_admin}
 
   alias Cgc2046.Accounts.WorkspaceApplication

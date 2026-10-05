@@ -17,7 +17,7 @@ defmodule Cgc2046.Mcp.Tools.UpdatePrepPolicy do
   治理面；confirm 段由 Curriculum.Prep.update_policy/3 的 prep_state 前置断言
   兜底。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["workspace_admin"]
 
   alias Cgc2046.Courses.Course
   alias Cgc2046.Curriculum.Prep

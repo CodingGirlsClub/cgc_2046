@@ -11,7 +11,7 @@ defmodule Cgc2046.Mcp.Tools.ApproveJoinRequest do
   （第一段快速拒绝省 pending）；confirm 段由业务 action 的
   `WorkspaceActorIsOwnerOrAdmin` policy 兜底（审批人角色可能在确认窗口内被撤）。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["workspace_admin"]
 
   alias Cgc2046.Accounts.{JoinRequest, Rbac, Role}
   alias Cgc2046.Mcp.Confirmation

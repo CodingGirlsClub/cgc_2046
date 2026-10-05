@@ -22,7 +22,7 @@ defmodule Cgc2046.Mcp.Tools.CreateEvent do
   Owner/Admin 专属：默认 fail-closed member 门 + 工具层管理角色判定；
   业务 create action 的 `WorkspaceActorIsOwnerOrAdmin` policy 兜底。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["workspace_admin"]
 
   alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Events.Event

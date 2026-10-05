@@ -24,6 +24,7 @@
 
 - **定义**：网站暴露的、供用户 OpenClacky 调用的协议端点。技术选型 **anubis_mcp**（Elixir/Phoenix，活跃维护）。全平台**只暴露一个** MCP server（D6）。
 - **工具鉴权立场**（架构深化 C）：豁免声明 = 工具模块自身 `use Anubis.Server.Component` 的 `meta:` opt（`workspace_id: :optional` 免 workspace_id 必填｜`membership: :deferred` 成员门槛下沉工具层授权｜`membership: :public` 公开浏览族——任何持连接 token 的登录用户可用，匿名姿态读在工具层，KTD2/KTD3｜`membership: :platform_admin` 平台治理族——`is_platform_admin` 全局标记判定、无工作台作用域，role-agent-journeys-v2 S2）；Wrapper 经组件注册派生 name→meta 门控（`:persistent_term` 缓存 + Server 模块 md5 指纹防陈旧）。**未声明 meta 的工具 = member-only + workspace_id 必填（fail-closed 默认）**——例外不再维护于 Wrapper 静态清单。
+- **工具可见性分层**（#1085，ADR-0021）：门控之外，工具经 `use Anubis.Server.Component` 的 `scopes:`（`tutor`｜`workspace_admin`｜`platform_admin`｜缺省 = 全员可见）声明所属可见层；`tools/list` 只列调用者所属最高层累计可见的工具，越层 `tools/call` 在 anubis 层即拒绝（文案 `forbidden: <tool> requires <角色>`）并经 `Wrapper.record_denied/4` 补写 forbidden 审计。scope 由 `Cgc2046.Mcp.Scopes` 每请求按 `current_user` **跨工作台并集**重算（tutor = 任一台持 tutor/owner/admin；workspace_admin = 任一台持 owner/admin；平台管理员级联全部三层），角色变更下一个请求即生效，客户端缓存的工具列表需重连刷新。**分类原则：可见面不比授权更严**；scope 是粗检查，Wrapper / 工具层 / 数据层授权全部保留。各层精确名单钉死在 `test/support/mcp_tool_tiers.ex`——新增工具必须显式归层（anubis 默认「不声明 scope = 全员可见」，漏标不会自己报错）。
 - **架构位置**：B 通道主干（见下）。网站能力以"工具"形态暴露给 Agent。
 
 ### B 通道（网站 MCP server 通道）—— 主干
@@ -115,7 +116,7 @@
 ### workspace_id 作用域（Workspace Scope）
 
 - **定义**：无状态的租户作用域。**除豁免族外，所有 MCP 工具必填 `workspace_id`**：`meta: %{workspace_id: :optional}` 声明的工具（confirm_operation / cancel_operation / list_my_workspaces 等 actor 锚定族）、`meta: %{membership: :public}` 的公开浏览工具（list_public_offerings / get_public_offering——跨工作区公开白名单口径，workspace_id 传入也不收窄，KTD3），以及 `meta: %{membership: :platform_admin}` 的平台治理工具（admin_ 前缀族——跨租户治理面无工作台作用域，role-agent-journeys-v2 S2）。其余工具每次调用据此鉴权 + 审计；服务端不存"当前工作区"会话状态（D12）。
-- **meta 载体纪律**：`meta:` 仅存门控事实（workspace_id 必填性 / membership 豁免）——Anubis 会把非 nil meta 序列化进 tools/list 的 `_meta` 对 MCP 客户端可见，塞其他用途的键等于向客户端泄漏非门控信息（架构深化 C 遗留约定）。
+- **meta 载体纪律**：`meta:` 仅存门控事实（workspace_id 必填性 / membership 豁免）——Anubis 会把非 nil meta 序列化进 tools/list 的 `_meta` 对 MCP 客户端可见，塞其他用途的键等于向客户端泄漏非门控信息（架构深化 C 遗留约定）；可见性分层的 `scopes:` 不进 tools/list 序列化，不受此限，也不要塞进 `meta:`。
 - **架构位置**：决定性事实——OpenClacky 的 MCP client 是 server 级全局长连接（`@clients = {name => Client}`，进程级共享），服务端存会话状态会跨会话串。因此 scope 必须无状态、每调用判定。
 
 ### 当前工作区（Current Workspace，对话上下文概念）

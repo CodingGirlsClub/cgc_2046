@@ -15,7 +15,7 @@ defmodule Cgc2046.Mcp.Tools.ListAttendances do
   载荷封顶 100 行 + `total_count` 截断前小计（§B#16 语义，list_enrollments
   同款）。授权：默认 fail-closed member 门 + 工具层 `Rbac.manage?/2` 单源判定。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["workspace_admin"]
 
   alias Cgc2046.Accounts.{Rbac, User}
   alias Cgc2046.Admission.{Attendance, Enrollment}

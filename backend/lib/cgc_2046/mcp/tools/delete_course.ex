@@ -23,7 +23,7 @@ defmodule Cgc2046.Mcp.Tools.DeleteCourse do
   非 draft 课程快速失败（不建 pending）；并发竞态（确认窗内被 launch）由 domain
   的行锁守卫在 confirm 段兜底。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["workspace_admin"]
 
   alias Cgc2046.Accounts.Policies.PlatformAdmin
   alias Cgc2046.Accounts.Rbac

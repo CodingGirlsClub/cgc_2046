@@ -4,7 +4,7 @@ defmodule Cgc2046.Mcp.Tools.RemoveEventModerator do
   list_event_moderators 返回的记录 id，不是 user_id。非 Owner/Admin 返回 forbidden；记录不存在
   时返回错误。返回 removed + moderator_id。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["workspace_admin"]
   alias Cgc2046.Events.Moderators
   alias Cgc2046.Mcp.Wrapper
 

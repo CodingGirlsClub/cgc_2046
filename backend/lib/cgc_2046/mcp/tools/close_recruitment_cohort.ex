@@ -13,7 +13,7 @@ defmodule Cgc2046.Mcp.Tools.CloseRecruitmentCohort do
   Owner/Admin 专属（ADR-0001 D6/D7）：Wrapper 默认 fail-closed member 门 +
   工具层 Rbac.manage?/2 判定；业务 update action policy 兜底。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["workspace_admin"]
 
   alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Mcp.Tools.RecruitmentCohortHelpers, as: H

@@ -224,7 +224,7 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
 
       # #677 bump:tutor playbook 起草规则 3 补 checklist/materials 嵌套位置口径
       assert payload["content"] =~ "嵌在 story 内"
-      assert payload["version"] == "2026-09-17.1"
+      assert payload["version"] == "2026-10-03.1"
     end
 
     test "tutor：owner 成员可取" do
@@ -344,7 +344,7 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
       assert payload["content"] =~ "摘要写明押金单/报名单"
 
       # #511 bump:batch_create_events 条目 + 确认流纪律句更新
-      assert payload["version"] == "2026-09-26.1"
+      assert payload["version"] == "2026-10-03.1"
     end
 
     test "platform_admin：非管理员拒绝；平台管理员可取（无需 workspace_id）" do
@@ -365,7 +365,7 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
       payload = decode_reply(reply)
       assert payload["role"] == "platform_admin"
       assert payload["content"] =~ "平台治理模式"
-      assert payload["version"] == "2026-08-29.2"
+      assert payload["version"] == "2026-10-03.1"
     end
 
     test "未知 role → 错误并列明合法角色" do

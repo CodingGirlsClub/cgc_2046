@@ -19,6 +19,7 @@ defmodule Cgc2046.Mcp.Tools.AdminListAuditLogs do
   """
   use Anubis.Server.Component,
     type: :tool,
+    scopes: ["platform_admin"],
     meta: %{workspace_id: :optional, membership: :platform_admin}
 
   alias Cgc2046.Accounts.AdminActionLog
