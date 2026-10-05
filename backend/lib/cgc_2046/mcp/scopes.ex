@@ -80,10 +80,10 @@ defmodule Cgc2046.Mcp.Scopes do
   守卫——防止 scope 层级忘记跟随 Rbac 收紧/放宽。返回 `Enum.sort` 结果与
   `Rbac.workspace_manage_roles/0`、`staff_roles/0` 对齐比较。
   """
-  @spec scope_role_names() :: [Role.name()]
+  @spec scope_role_names() :: [atom()]
   def scope_role_names, do: Enum.sort([:owner, :admin])
 
-  @spec scope_tutor_role_names() :: [Role.name()]
+  @spec scope_tutor_role_names() :: [atom()]
   def scope_tutor_role_names, do: Enum.sort([:tutor, :owner, :admin])
 
   @doc """
@@ -115,9 +115,9 @@ defmodule Cgc2046.Mcp.Scopes do
   # Server 的 __before_compile__ 钩子：只拦 tools/list 与 tools/call，其余方法原样 super。
   #
   # tools/list：读失败用 internal_error 硬错误（评审 T1）——降级返回学员 32 子集会
-  # 让 agent 长时间看到错名单且不自愈；internal_error 会触发 agent 重连/重试。
-  # tools/call：仍走 fail-closed 的 with_scopes（读失败 → 只见 32），跨过这层还有
-  # Wrapper 的 membership 门与工具层授权。
+  # 让 agent 长时间看到错名单且不自愈。scope 每请求重算，下一次 tools/list 即
+  # 自愈（不需要重连）。tools/call：仍走 fail-closed 的 with_scopes——读失败
+  # 只见 32，跨过这层还有 Wrapper 的 membership 门与工具层授权。
   defmacro __before_compile__(_env) do
     quote do
       @impl Anubis.Server
@@ -155,16 +155,8 @@ defmodule Cgc2046.Mcp.Scopes do
 
   @doc false
   # 把当前请求的 scope 注入 frame.context.auth（anubis 的 visible?/check_scopes 读它）。
-  #
-  # T7 按需计算：先看 `frame.assigns[:captured_scopes]`（若上游 plug 已捕获），
-  # 未捕获才调用 `granted/1` ——按需计算只占一次 membership 查询的代价。
   def with_scopes(frame) do
-    scopes =
-      case frame.assigns[:captured_scopes] do
-        nil -> granted(frame.assigns[:current_user])
-        captured when is_list(captured) -> captured
-      end
-
+    scopes = granted(frame.assigns[:current_user])
     claims = Authorization.normalize_claims(%{"scopes" => scopes})
 
     put_in(frame.context.auth, claims)
@@ -189,7 +181,7 @@ defmodule Cgc2046.Mcp.Scopes do
 
   # 判定的正典出口：granted/1（fail-closed）与 granted_or_error/1（透传）共用一个
   # 主体逻辑。授权规则本身不变。
-  @spec granted_for_roles([Role.name()]) :: [String.t()]
+  @spec granted_for_roles([atom()]) :: [String.t()]
   defp granted_for_roles(roles) do
     cond do
       Enum.any?(roles, &Role.manage_role?/1) -> [@tutor, @workspace_admin]
@@ -207,10 +199,13 @@ defmodule Cgc2046.Mcp.Scopes do
   end
 
   @doc false
-  # anubis 的 scope 拒绝（message "insufficient_scope"，data 带 required/granted）→
-  # forbidden: 文案 + 补写审计。data 不外发（不泄露 granted 的 scope 命名）。
+  # anubis 的 scope 拒绝（reason :execution_error + data 双键 required/granted）→
+  # forbidden: 文案 + 补写审计。判据用 data shape 而非 message 字符串——anubis
+  # 升级可能改 message 字面量或拆成 atom；双键 shape 是协议契约。data 不外发
+  # （不泄露 granted 的 scope 命名）。
   def translate_denial(
-        {:error, %Error{message: "insufficient_scope", data: %{required: required}}, frame},
+        {:error, %Error{reason: :execution_error, data: %{required: required, granted: _granted}},
+         frame},
         %{"method" => "tools/call", "params" => params}
       ) do
     tool = params["name"]
