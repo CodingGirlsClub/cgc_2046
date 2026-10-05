@@ -60,6 +60,7 @@
 
 - **定义**：用户的一种认证方式（provider），与 User 多对一。
 - **架构位置**：全局资源，登录态来源。
+- **Web 登录边界（ADR-0019 R3，2026-09-30 已接受）**：**普通 Web 注册/登录主流程统一为微信快捷入口**（小程序确认）；已有账号保留手机号/邮箱＋密码登录，仅存量保留；普通短信登录/注册 UI 已移除且**不恢复邮箱注册**（无微信新用户不能通过 Web 主流程注册）；旧 OAuth 会话与后端 API、设置手机号换绑、闪念间短信用途仍视为**线上契约**（不可随登录主流程改动回收）。
 
 ### Token（登录令牌，全局资源）
 
@@ -355,6 +356,7 @@
 - **标记的清除（首改即清）**：场主显式改写标记内某字段（web / MCP `update_event`；判据 = `changing_attribute?` 且值确有变化——同值回传不算「场主的决定」）→ 只删该键；键空 → 整列 nil；改写未标记字段（标题 / 时间等）不动标记。**重挂载**（nil → 非空）→ 整列清空（值重新归新 Initiative 治理，旧标记是撒谎）并按既有 `merge_event_value/4` 语义覆盖旧强制值。规则传播只写「挂载中的非终态场」（`WHERE initiative_id = ...`），标记非 nil 的场必已 detach——两条路径在 `initiative_id` 上互斥。
 - **读面**：治理细节，不进公开面——GraphQL `Event.detachedRuleProvenance`（JsonString）经 field_policy 对匿名收窄（同 capacity/confirmed_count，公开宿主页恒 null）；web 编辑页据此渲染「来自已解除的倡导活动《name》」逐字段标记，并提供 `minAge` / `minParticipants` 输入（挂载中锁定规则、以及挂载预览——新规则保存时覆盖——下禁用；未改动不下发，避免分钟级重序列化截断秒并误清标记）。规则锁态读面仍是 Owner/Admin 专属 `initiativeMountPreview`（#596）。MCP 读面（#630）：`create_event` / `update_event` 写响应与 `list_workspace_events` 行投影恒带 `detached_rule_provenance`（无标记 `null`）；公开 MCP 工具（`list_public_offerings` / `get_public_offering` / `discover_offerings`）为显式 DTO 投影，不含该键。
 - **架构位置**：`Cgc2046.Initiatives.RuleInheritance`（唯一挂载边界）；标记列在 `events` 表（`writable?: false`，客户端不可直设；filterable/sortable 关闭）。
+- **跨工作台挂载边界（ADR-0013，2026-09-16 已接受）**：挂载是**引用**、不迁移所有权；被挂 Event 的授权**归属原 workspace**；跨工作台挂载**须双向确认**。**三规则均为治理愿景、当前并无代码载体**——当前实现同工作台挂载零校验即过，跨台挂载场景无入口（详见 ADR-0013）；触发条件 = 第一个真实跨台挂载请求出现，届时与治理流程（审批链/撤挂/仲裁）一并落地。**跨工作台挂载治理与 HQ 跨台报表两件下游能力当前均不立项**：治理再立项条件 = 第一个真实跨台挂载请求；HQ 报表再立项条件 = 真实组织需求且前置交付物 = 一页指标口径定义。
 
 ### Event / Course（活动 / 线上课程）
 
@@ -530,6 +532,13 @@
 - **定义**：**Event 级邀请**（D-A3）：Owner 创建 → 邀请 workflow（接受/拒绝 → 分享材料产出 → 结束）；分享完**关系结束**，不成为成员。
 - **架构位置**：活动 context 资源；邀请/接受状态由 Signal 驱动。
 
+### Wish（愿望 / 闪念间）与署名快照
+
+- **定义**：闪念间（Flashback）公开的许愿条目；**新愿望以 `user_id` 为账号归属，`person_id` 仅为可选档案关联**（ADR-0017，2026-09-25 已接受）。允许没有历史档案的新用户许愿，**不创建占位 Person**；存量仅关联 Person 的愿望与有效 token 写入口继续表达真实历史作者身份，认领后按该 Person 的账号归属展示/授权/合并年度额度。
+- **写入与额度**：新小程序提交带稳定 `requestId`，同账号同请求重放返回原记录，改动正文或选项必须换请求号；年度额度统计账号愿望与已认领历史愿望（含软删），写入按 Person → User 顺序同事务加锁。账号注销级联删除其愿望；档案删除仅清理关联该档案的愿望，独立账号愿望不受影响。
+- **署名隐私边界（ADR-0018，2026-09-25 已接受）**：`AlumniProjection.masked_name` 已生成的遮罩姓是快照，**不随 display_name 溯源回溯**；`flashback_people.full_name` **只能作为生成遮罩姓的输入，不能原文写入愿望署名快照**。`Wish.signature` = 愿望被创建那一刻写入的不可变快照（后续改 display_name / 档案资料不回冲）。
+- **架构位置**：`Cgc2046.Flashback` domain（公开读面）；治理面 = `admin_list_wishes` / `admin_get_wish` / `admin_soft_delete_wish` / `admin_soft_delete_wish_comment`（见 platform_admin 层 28）。
+
 ### ShareScheme（微信 URL Scheme 分享链接）
 
 - **定义**：微信分享深链缓存的存储/复用面（plan 011，spike D1-A/D2-A 拍板）：`miniprogram_share_schemes` 表（全局资源，Miniprogram domain（2026-08-28 自 Accounts 拆出；⑩ 方案 A 收缩后该 domain 仅剩本资源），无 GraphQL 面），UK `(target_kind, target_id, platform)`——同一目标/平台只留一份 scheme，未过期命中**复用零外呼**、过期重生成 upsert 覆盖（照 `Accounts.InvitationCode` 先例——原 Miniprogram.Code，⑩ 方案 A 迁域）。到期失效 = `min(registration_deadline + 7d, now + 30d)`，deadline 缺失 → `now + 30d`（30 天为官方临时 scheme 硬上限；时间源经 plan owner 2026-08-18 应答修正：Event/Course 均无 endsAt，统一以 registration_deadline 为 clamp 代理）。
@@ -610,6 +619,7 @@
 | Offering vs 课程设置 | Offering = 供给物（Event/Course 上位词，发布语言读端口）；course offerings 标准译法 = 开设的课程清单，非「课程设置」 |
 | Research vs Curriculum | 教研 context 英文定名 Curriculum（ADR-0009）；research_* 代码命名随重构 PR③ 退役 |
 | 活动现值 vs 订单快照 | 活动现值：创单前 `Enrollment.depositAmountCents` / `paymentMode` 是计算字段，每次读都取活动当下配置，组织者改价即跟随；订单快照：创单时钉死的 `tier_snapshot` / `order.amountCents`，此后不随改价漂移（#749）。「报名快照」「押金快照」是已废弃叫法——报名那一侧从不是快照 |
+| `miniprogram`（旧 commit scope）vs `mp-wechat` / `mp-xhs` / `mp-dy` | 旧 scope `miniprogram` 笼统指全部小程序平台（已废）；现 scope 按具体平台分化——`mp-wechat` 微信小程序、`mp-xhs` 小红书小程序、`mp-dy` 抖音小程序（ADR-0016 决 5；与发布账本的端标签平台同名词）。CHANGELOG 顶部「端标签节点与 commit scope 平台化」约定与本行同源同清单 |
 
 ## 10. 待细化/待办（编码阶段）
 - ~~ADR-0009 限界上下文重构序列~~ ✅ 已完成（2026-08-28，更正后五步：PR① Admission 抽出（含 Offering 端口化）→ PR② Courses/Events 分家 → PR③ Curriculum 独立 + research_* 改名 → PR④ Sponsorship 独立（原序列漏排，实施期更正）→ PR⑤ Payments 收敛 + 名额账本 + 展示投影回路 + Workflows/Learning/Reconciliation 归位、`Cgc2046.Api` 退役）
