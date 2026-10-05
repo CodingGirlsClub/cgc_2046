@@ -18,6 +18,14 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ## [Unreleased]
 
+### Added
+
+- [Backend] 新增用户私有的 30 天通知收件箱与服务端已读状态，换设备仍可查看保留期内记录；通知表示系统已生成并接受，不等于渠道已送达（#232）。
+- [微信 / 小红书小程序]「我的」展示服务端通知收件箱，本地缓存按账号隔离，仅在网络失败时兜底并明确标记缓存来源，支持刷新、分页与已读（#232，待客户端上传/过审/发布）。
+
+> #232 发布顺序：后端先部署；小程序上传前、全量发布前各通过既有 `pnpm check:release-schema`。
+
+
 ### Changed
 
 - CI、backend/web 部署和后端 release 验证的 TCR 镜像仓库密码统一使用 `TCR_PASSWORD`；切换前须在 GitHub Repository 与 `production` 环境分别配置同名 Secret，避免与 Docker Hub 凭证混用。

@@ -3551,6 +3551,40 @@ type User {
   joinedAt: DateTime
 }
 
+"The result of the :mark_notification_read mutation"
+type MarkNotificationReadResult {
+  "The successful result of the mutation"
+  result: Notification
+
+  "Any errors generated, if the mutation failed"
+  errors: [MutationError!]!
+}
+
+"A keyset page of :notification"
+type KeysetPageOfNotification {
+  "Total count on all pages"
+  count: Int
+
+  "The records contained in the page"
+  results: [Notification!]
+
+  "The first keyset in the results"
+  startKeyset: String
+
+  "The last keyset in the results"
+  endKeyset: String
+}
+
+type Notification {
+  id: ID!
+  type: String!
+  deepLink: String
+  readAt: DateTime
+  insertedAt: DateTime!
+  title: String!
+  body: String!
+}
+
 "The result of the :cancel_order mutation"
 type CancelOrderResult {
   "The successful result of the mutation"
@@ -5315,6 +5349,20 @@ type RootQueryType {
   "工作台收款统计（R24\/U4）：已收\/待收\/已退；可选 eventId\/courseId 收敛到单活动口径"
   workspacePaymentStats(workspaceId: ID!, eventId: ID, courseId: ID): JsonString!
 
+  notificationFeed(
+    "The number of records to return from the beginning. Maximum 50"
+    first: Int
+
+    "Show records before the specified keyset."
+    before: String
+
+    "Show records after the specified keyset."
+    after: String
+
+    "The number of records to return to the end. Maximum 50"
+    last: Int
+  ): KeysetPageOfNotification
+
   "按 slug 获取工作台（需登录）"
   getWorkspace(
     "A filter to limit the results"
@@ -6306,6 +6354,8 @@ type RootMutationType {
 
   "报名者取消自己的 pending 订单（报名保持 payment_pending 可再下单，R12）"
   cancelOrder(id: ID!): CancelOrderResult!
+
+  markNotificationRead(id: ID!): MarkNotificationReadResult!
 
   "创建工作台（仅平台管理员）"
   createWorkspace(input: CreateWorkspaceInput!): CreateWorkspaceResult!

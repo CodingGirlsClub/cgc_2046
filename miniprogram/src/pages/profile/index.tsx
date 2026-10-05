@@ -1,17 +1,18 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Button, Image, Input, ScrollView, Text, View } from '@tarojs/components'
 import Taro, { useDidShow, useShareAppMessage } from '@tarojs/taro'
 import { api } from '@/api'
 import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
+import { NotificationInbox } from '@/components/NotificationInbox'
+import { getActiveAccountId } from '@/state/accountState'
 import { canManageMembers } from '@/domain/format'
 import { buildJoinSharePath } from '@/domain/share-route'
-import type { MiniProgramCode, NotificationItem, SessionSnapshot, WorkspaceSummary } from '@/domain/models'
+import type { MiniProgramCode, SessionSnapshot, WorkspaceSummary } from '@/domain/models'
 import styles from './index.module.css'
 
 export default function ProfilePage() {
   const [session, setSession] = useState<SessionSnapshot | null>(null)
-  const [notifications, setNotifications] = useState<NotificationItem[]>([])
   const [scene, setScene] = useState('')
   const [sceneInputKey, setSceneInputKey] = useState(0)
   const [code, setCode] = useState<MiniProgramCode | null>(null)
@@ -19,18 +20,21 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [action, setAction] = useState('')
+  const sessionRequest = useRef(0)
 
   const load = useCallback(async () => {
+    const request = ++sessionRequest.current
     setLoading(true)
     setError('')
     try {
-      const [sessionValue, notificationValue] = await Promise.all([api.getSession(), api.getNotifications()])
-      setSession(sessionValue)
-      setNotifications(notificationValue)
+      const sessionValue = await api.getSession()
+      if (request !== sessionRequest.current) return
+      setSession(previous => !sessionValue.user && !sessionValue.authExpired && previous?.user?.id === getActiveAccountId() ? previous : sessionValue)
     } catch (reason) {
+      if (request !== sessionRequest.current) return
       setError(reason instanceof Error ? reason.message : '个人中心加载失败')
     } finally {
-      setLoading(false)
+      if (request === sessionRequest.current) setLoading(false)
     }
   }, [])
 
@@ -68,14 +72,14 @@ export default function ProfilePage() {
   }
 
   const logout = async () => {
+    sessionRequest.current += 1
+    setLoading(false)
+    setSession({ user: null, workspaces: [], approvals: [], authExpired: false })
     try {
       await api.signOut()
-      Taro.showToast({ title: '已退出登录', icon: 'success' })
+      if (!getActiveAccountId()) Taro.showToast({ title: '已退出登录', icon: 'success' })
     } catch {
-      Taro.showToast({ title: '已退出本机，服务端注销失败', icon: 'none' })
-    } finally {
-      setSession({ user: null, workspaces: [], approvals: [], authExpired: false })
-      setNotifications([])
+      if (!getActiveAccountId()) Taro.showToast({ title: '已退出本机，服务端注销失败', icon: 'none' })
     }
   }
 
@@ -141,20 +145,7 @@ export default function ProfilePage() {
               <Button className={styles.logout} size='mini' onClick={logout}>退出</Button>
             </View>
 
-            <Text className={styles.sectionTitle}>本机通知记录</Text>
-            <View className={styles.panel} data-testid='notification-list'>
-              {notifications.length === 0 ? (
-                <PageState kind='empty' message='还没有本机记录' />
-              ) : notifications.map((notification) => (
-                <View key={notification.id} className={styles.notification}>
-                  <View className={styles.dot} />
-                  <View className={styles.notificationMain}>
-                    <Text className={styles.notificationTitle}>{notification.title}</Text>
-                    <Text className={styles.notificationBody}>{notification.body}</Text>
-                  </View>
-                </View>
-              ))}
-            </View>
+            <NotificationInbox key={session.user.id} userId={session.user.id} />
 
             <Text className={styles.sectionTitle}>加入工作台</Text>
             <View className={styles.panel}>

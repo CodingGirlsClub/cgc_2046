@@ -802,6 +802,21 @@ export type UpsertResumeProfileInput = {
   weeklyHours?: number | null | undefined;
 };
 
+export type NotificationFeedQueryVariables = Exact<{
+  first?: number | null | undefined;
+  after?: string | null | undefined;
+}>;
+
+
+export type NotificationFeedQuery = { notificationFeed: { endKeyset: string | null, results: Array<{ id: string, type: string, title: string, body: string, deepLink: string | null, readAt: string | null, insertedAt: string }> | null } | null };
+
+export type MarkNotificationReadMutationVariables = Exact<{
+  id: string | number;
+}>;
+
+
+export type MarkNotificationReadMutation = { markNotificationRead: { result: { id: string, type: string, title: string, body: string, deepLink: string | null, readAt: string | null, insertedAt: string } | null, errors: Array<{ message: string | null, code: string | null, fields: Array<string> | null }> } };
+
 export type CatalogQueryVariables = Exact<{
   first?: number | null | undefined;
 }>;

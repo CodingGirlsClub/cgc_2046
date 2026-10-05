@@ -13,8 +13,6 @@ const mocks = vi.hoisted(() => ({
   rememberWorkspaceTab: vi.fn(),
   activateAccount: vi.fn(),
   clearAccountState: vi.fn(),
-  appendLocalNotification: vi.fn(),
-  readLocalNotifications: vi.fn()
 }))
 
 vi.mock('../src/api/client', () => ({
@@ -53,8 +51,7 @@ vi.mock('../src/state/silentLogin', () => ({
 vi.mock('../src/state/accountState', () => ({
   activateAccount: mocks.activateAccount,
   clearAccountState: mocks.clearAccountState,
-  appendLocalNotification: mocks.appendLocalNotification,
-  readLocalNotifications: mocks.readLocalNotifications
+  captureAccountScope: vi.fn(), accountScopeCurrent: vi.fn(), cacheNotificationFeed: vi.fn(), cachedNotificationFeed: vi.fn()
 }))
 
 // @/platform 顶层 import Taro（runtime 在 node 测试态不可用）——mock 掉
@@ -114,7 +111,6 @@ describe('canModerateEvent（#558 后续：主理人入口门）', () => {
     vi.clearAllMocks()
     mocks.getAuthToken.mockReturnValue('token-1')
     mocks.isAuthenticationError.mockReturnValue(false)
-    mocks.readLocalNotifications.mockReturnValue([])
   })
 
   it('未登录 → false（不发任何请求）', async () => {

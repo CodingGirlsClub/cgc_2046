@@ -42,6 +42,7 @@ defmodule Cgc2046.Notifications.FanoutTest do
     test "无管理角色成员 → 空 map" do
       owner = Fixtures.platform_admin("fanout-empty")
       workspace = Fixtures.create_workspace(owner)
+      Fixtures.remove_membership(workspace, owner)
 
       member =
         Fixtures.register_user("fanout-empty-member-#{System.unique_integer([:positive])}")
@@ -52,11 +53,12 @@ defmodule Cgc2046.Notifications.FanoutTest do
       assert Fanout.managers(workspace.id) == %{}
     end
 
-    test "管理成员无平台身份 → 空 map（调用方不区分「无人」与「有人无身份」）" do
+    test "管理成员无平台身份仍保留站内收件人" do
       owner = Fixtures.platform_admin("fanout-no-identity")
       workspace = Fixtures.create_workspace(owner)
 
-      assert Fanout.managers(workspace.id) == %{}
+      owner_id = owner.id
+      assert %{^owner_id => []} = Fanout.managers(workspace.id)
     end
 
     test "同用户多平台身份按 user_id 分组为一个列表（分组形状）" do
@@ -149,30 +151,6 @@ defmodule Cgc2046.Notifications.FanoutTest do
                ["e1", "e1", "e2", "e2"]
     end
 
-    test "args 形状：job_meta 与 identity_uid/platform/template_key/data 合并" do
-      user = Fixtures.register_user("fanout-deliver-args")
-      insert_identity(user.id, :wechat, "fanout-deliver-args-openid")
-      enrollment_id = Ecto.UUID.generate()
-
-      # flashback_wish_echo（唯一保留直插）的 args 合并形状
-      assert :ok =
-               Fanout.deliver(
-                 {user.id, Fanout.identities(user.id)},
-                 "flashback_wish_echo",
-                 %{"wish_id" => enrollment_id, "content_preview" => "p"},
-                 %{"wish_id" => enrollment_id}
-               )
-
-      assert [%{args: args}] = all_enqueued(worker: NotificationWorker)
-
-      assert args["user_id"] == user.id
-      assert args["identity_uid"] == "fanout-deliver-args-openid"
-      assert args["platform"] == "wechat"
-      assert args["template_key"] == "flashback_wish_echo"
-      assert args["wish_id"] == enrollment_id
-      assert args["data"] == %{"wish_id" => enrollment_id, "content_preview" => "p"}
-    end
-
     # flashback_wish_echo 是唯一保留直插的键（#834 回执契约，见 issue #847 PR-B 映射表）；已迁键零身份改落哨兵行（见批 1 钉测 describe）。
     # 收尾批次删除直插路径后本测试随之删除。
     test "空 recipients（无身份）未迁键 → 不入队，warning 日志 + telemetry status :skipped（#406）" do
@@ -245,6 +223,7 @@ defmodule Cgc2046.Notifications.FanoutTest do
 
       data = %{
         "wish_id" => Ecto.UUID.generate(),
+        "echo_id" => Ecto.UUID.generate(),
         "content_preview" => "p",
         "endorsement_id" => "e1"
       }
@@ -478,23 +457,6 @@ defmodule Cgc2046.Notifications.FanoutTest do
       assert is_nil(row.platform)
       assert is_nil(row.identity_uid)
       assert row.status == :pending
-    end
-
-    test "未迁键仍走 NotificationWorker 直插（过渡态）" do
-      user = Fixtures.register_user("prb1-legacy")
-      insert_identity(user.id, :wechat, "prb1-legacy-wx")
-
-      assert :ok =
-               Fanout.deliver(
-                 {user.id, Fanout.identities(user.id)},
-                 "flashback_wish_echo",
-                 %{"wish_id" => "w1"},
-                 %{"wish_id" => "w1"}
-               )
-
-      assert [%{args: args}] = all_enqueued(worker: NotificationWorker)
-      assert args["template_key"] == "flashback_wish_echo"
-      assert deliveries_for(user.id) == []
     end
   end
 

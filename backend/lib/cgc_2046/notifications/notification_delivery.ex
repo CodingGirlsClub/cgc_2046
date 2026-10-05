@@ -90,6 +90,13 @@ defmodule Cgc2046.Notifications.NotificationDelivery do
     references do
       reference(:user, on_delete: :delete)
     end
+
+    custom_indexes do
+      index([:user_id, :template_key, "jsonb_extract_path_text(job_meta, 'idempotency_key')"],
+        name: "notification_deliveries_source_index",
+        concurrently: true
+      )
+    end
   end
 
   policies do

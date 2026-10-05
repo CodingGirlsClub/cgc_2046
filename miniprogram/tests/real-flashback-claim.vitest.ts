@@ -31,8 +31,7 @@ vi.mock('../src/state/silentLogin', () => ({ silentLoginAllowed: () => true, set
 vi.mock('../src/state/accountState', () => ({
   activateAccount: vi.fn(),
   clearAccountState: vi.fn(),
-  appendLocalNotification: vi.fn(),
-  readLocalNotifications: vi.fn()
+  captureAccountScope: vi.fn(), accountScopeCurrent: vi.fn(), cacheNotificationFeed: vi.fn(), cachedNotificationFeed: vi.fn()
 }))
 vi.mock('../src/platform', () => ({ currentPlatform: () => 'wechat' }))
 

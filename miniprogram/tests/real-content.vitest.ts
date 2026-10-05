@@ -12,8 +12,6 @@ const mocks = vi.hoisted(() => ({
   rememberWorkspaceTab: vi.fn(),
   activateAccount: vi.fn(),
   clearAccountState: vi.fn(),
-  appendLocalNotification: vi.fn(),
-  readLocalNotifications: vi.fn(),
   currentPlatform: vi.fn()
 }))
 
@@ -59,9 +57,8 @@ vi.mock('../src/state/silentLogin', () => ({
 
 vi.mock('../src/state/accountState', () => ({
   activateAccount: mocks.activateAccount,
-  appendLocalNotification: mocks.appendLocalNotification,
   clearAccountState: mocks.clearAccountState,
-  readLocalNotifications: mocks.readLocalNotifications
+  captureAccountScope: vi.fn(), accountScopeCurrent: vi.fn(), cacheNotificationFeed: vi.fn(), cachedNotificationFeed: vi.fn()
 }))
 
 vi.mock('../src/platform', () => ({
