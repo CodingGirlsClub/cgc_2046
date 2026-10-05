@@ -537,7 +537,7 @@
 - **定义**：闪念间（Flashback）公开的许愿条目；**新愿望以 `user_id` 为账号归属，`person_id` 仅为可选档案关联**（ADR-0017，2026-09-25 已接受）。允许没有历史档案的新用户许愿，**不创建占位 Person**；存量仅关联 Person 的愿望与有效 token 写入口继续表达真实历史作者身份，认领后按该 Person 的账号归属展示/授权/合并年度额度。
 - **写入与额度**：新小程序提交带稳定 `requestId`，同账号同请求重放返回原记录，改动正文或选项必须换请求号；年度额度统计账号愿望与已认领历史愿望（含软删），写入按 Person → User 顺序同事务加锁。账号注销级联删除其愿望；档案删除仅清理关联该档案的愿望，独立账号愿望不受影响。
 - **署名隐私边界（ADR-0018，2026-09-25 已接受）**：`AlumniProjection.masked_name` 已生成的遮罩姓是快照，**不随 display_name 溯源回溯**；`flashback_people.full_name` **只能作为生成遮罩姓的输入，不能原文写入愿望署名快照**。`Wish.signature` = 愿望被创建那一刻写入的不可变快照（后续改 display_name / 档案资料不回冲）。
-- **架构位置**：`Cgc2046.Flashback` domain（read 面向公开 + server 写 `Flashback.WishWriting.create/4`，无 MCP / GraphQL 公开写面）；治理面 = `admin_list_wishes` / `admin_get_wish` / `admin_soft_delete_wish` / `admin_soft_delete_wish_comment`（见 platform_admin 层 28）。
+- **架构位置**：`Cgc2046.Flashback` domain。写面单源 = `Flashback.WishWriting.create/4`；无 MCP 写面；**公开 GraphQL 写面 = 手写 mutation `flashback_create_wish`**（`mutations.ex:294`，经 `import_fields(:flashback_mutations)` / `(:flashback_wish_mutations)` 进根 schema，调 `WishWriting.create`；Ash 自动生成的 create action 不进 GraphQL 写面——`wish.ex:78` 注释所指的「不进 GraphQL 写面」是这层）；治理面 = `admin_list_wishes` / `admin_get_wish` / `admin_soft_delete_wish` / `admin_soft_delete_wish_comment`（见 platform_admin 层 28）。
 
 ### ShareScheme（微信 URL Scheme 分享链接）
 
