@@ -1,4 +1,4 @@
-# ADR-0010:workers/ 与 changes/ 目录收尾——归位映射与遗留缺口登记
+# ADR-0010: workers/ 与 changes/ 目录收尾——归位映射与遗留缺口登记
 
 - 状态:已接受(2026-08-29)
 - 背景:ADR-0009 五步 PR 序列落地后,代码树残留两个跨域集中目录——`lib/cgc_2046/workers/`(15 个 Oban worker)与 `lib/cgc_2046/changes/`(7 个 Ash change/validation)。Fable 5 评审(ADR-0009 全量复审)要求:要么归位,要么成文登记决策与缺口。本 ADR 选择**先成文、后迁移**:ADR-0009 评审修复批已很大,目录搬迁是零行为机械操作,独立 PR 执行可回滚性更好。
