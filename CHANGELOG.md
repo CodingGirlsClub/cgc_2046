@@ -25,6 +25,13 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 > #232 发布顺序：后端先部署；小程序上传前、全量发布前各通过既有 `pnpm check:release-schema`。
 
+- [MCP] tools/list 按调用者角色分级暴露：学员 34（原 100）/ tutor 38 / Owner·Admin 72 / 平台管理员 100；越层 tools/call 在 anubis 层即拒并补写审计，角色变更下一请求即生效（#1085）。
+
+### Security
+
+- 账号密码登录新增跨账号 IP 总量限流，保留 IP + 账号限流；收银弹框与订单详情的支付跳转仅允许有效 HTTPS URL，非法凭据回退本地订单页并保留语言；CI 校验固定 gitleaks 官方 SHA-256 后才解压执行，plugin 同步将版本经环境变量写入 JSON，避免源码插值（#985）。
+
+## [2026-10-03]
 
 ### Changed
 
@@ -41,7 +48,6 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ### Security
 
 - 工作台数据隔离加固一批：赞助（#709）、招募批次（#708）、成员关系（#707）、加入申请与邀请的管理读面统一按行所属工作台过滤，阻止 Owner/Admin 借 GraphQL filter 跨台读取；本人读取和平台管理员跨台读取不受影响。
-- 账号密码登录新增跨账号 IP 总量限流，保留 IP + 账号限流；收银弹框与订单详情的支付跳转仅允许有效 HTTPS URL，非法凭据回退本地订单页并保留语言；CI 校验固定 gitleaks 官方 SHA-256 后才解压执行，plugin 同步将版本经环境变量写入 JSON，避免源码插值（#985）。
 
 ## [2026-10-01]
 
