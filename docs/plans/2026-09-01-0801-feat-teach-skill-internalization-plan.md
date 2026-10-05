@@ -264,7 +264,7 @@ AE15→T1+T2（skill 纪律 + 洞察）｜ AE16→T2 ｜ AE17→T2+T4 ｜ AE18�
 
 ## 变更影响（文档侧，随切片入册）
 
-- CONTEXT.md：新增 Insight / 复习笔记词条；「连接器扩展」词条补三个教学法 skill；「角色 Playbook」learner 段落版本同步；MCP 工具集词条 60→62。
+- GLOSSARY.md：新增 Insight / 复习笔记词条；「连接器扩展」词条补三个教学法 skill；「角色 Playbook」learner 段落版本同步；MCP 工具集词条 60→62。
 - ADR-0012 落 `docs/adr/0012-learning-insight-artifact-ledger.md`（随 T2 评审定稿）。
 - `领域模型定稿.md` §5.4 Learning 行追加 Insight/Artifact。
 - 扩展 README：三个 skill 的用途与更新说明。

@@ -149,7 +149,7 @@ flowchart TB
 - `backend/lib/cgc_2046/admission/changes/waive_pending_on_fee_slot_disable.ex`：定价/押金双槽 true→false 批量免缴（挂接 `course.ex:441` / `event.ex:614`；调用 `Enrollment.waive_pending_for_offering/4`，失败回滚整个 update）。
 - `docs/adr/0014-slug-immutability.md`：slug 非 draft 一律锁死，无 rename 后门。
 - `web/app/[locale]/admin/`：`layout.tsx:24-33` 导航单源、users/audit/initiatives 页面模式；`web/lib/admin.ts` + `web/lib/graphql/admin.ts` 数据面范式（`adminList()` 单模板、`MutationError` 信封）。
-- `CONTEXT.md`：Offering（供给物）词条、Event/Course 词条、平台管理员双面契约词条、#624 解除挂载来源标记。
+- `GLOSSARY.md`：Offering（供给物）词条、Event/Course 词条、平台管理员双面契约词条、#624 解除挂载来源标记。
 - 会话外 grounding dossier（transient scratch）：`/tmp/compound-engineering-501/ce-brainstorm/admin-offerings-governance/grounding.md`——150 行带 file:line 的证据表，本机可读。
 
 ---

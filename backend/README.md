@@ -1,6 +1,6 @@
 # Cgc2046 Backend
 
-CGC 平台后端：Elixir / Phoenix / Ash Framework，对外暴露 GraphQL（ash_graphql）与 MCP server（anubis_mcp）。架构范式（BYO：网站 = 业务中枢 + MCP server，用户自带 OpenClacky 做 Agent 执行）见仓库根 [CONTEXT.md](../CONTEXT.md) §0。
+CGC 平台后端：Elixir / Phoenix / Ash Framework，对外暴露 GraphQL（ash_graphql）与 MCP server（anubis_mcp）。架构范式（BYO：网站 = 业务中枢 + MCP server，用户自带 OpenClacky 做 Agent 执行）见仓库根 [GLOSSARY.md](../GLOSSARY.md) §0。
 
 ## 快速启动
 
@@ -32,7 +32,7 @@ GitHub Actions（`.github/workflows/deploy.yml`）：mix release + TCR 预编译
 
 ## 领域与约定
 
-- 领域术语单一事实源：根 [CONTEXT.md](../CONTEXT.md)
+- 领域术语单一事实源：根 [GLOSSARY.md](../GLOSSARY.md)
 - 架构决策：[docs/adr/](../docs/adr/)
 - 贡献流程与 CI gate 细节：[CONTRIBUTING.md](../CONTRIBUTING.md)
 - backend 专属约定：[backend/AGENTS.md](AGENTS.md)

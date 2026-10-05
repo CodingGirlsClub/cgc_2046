@@ -150,7 +150,7 @@ defmodule Cgc2046.Courses.Course do
       # ADR-0009 U7 起为展示投影（Courses 自订阅 capacity.synced 自写本列；权威计数
       # 在 Admission 名额账本 occupancy）。description 永久冻结旧文案（U8 裁决）：
       # 公开 SDL 零 diff 门（R8/KTD3）优先于文案更正，正确语义以本注释与
-      # CONTEXT.md 名额账本词条为准
+      # GLOSSARY.md 名额账本词条为准
       description: "已确认名额数（仅由 Enrollment 原子维护）"
     )
 

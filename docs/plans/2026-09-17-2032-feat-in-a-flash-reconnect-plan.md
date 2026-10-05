@@ -239,7 +239,7 @@ flowchart TB
 - 校园行（2018，9 城 10 场 148 教练 449 学员）：`https://codinggirlsclub.github.io/girlscodingdayinCollege/`
 - 系统接地：Workspace 三态加入策略与 Invitation 机制（`backend/lib/cgc_2046/accounts/invitation.ex`、`accounts/workspace.ex`）；WorkspaceProfile 三档可见性与仅本人读面（`accounts/workspace_profile.ex`、`backend/lib/cgc_2046_web/graphql_schema.ex:126-135`）；Initiative 平台级资源与公开投影（`backend/lib/cgc_2046/initiatives/`）；Enrollment 状态机无毕业态（`backend/lib/cgc_2046/admission/enrollment.ex:79-87`）；ADR-0004（per-workspace profile）、ADR-0014（slug 不可变）。
 - 交互原型（三变体实证）：`web/app/[locale]/prototype/in-a-flash`
-- 实施研究（ce-plan Phase 1）：仓库模式研究（SendCloud 双通道/Invitation 一次性语义/长期 token 模板/公开投影范式/CSP 策略/Oban crontab/小程序页面与订阅 registry/测试命令）；既有学习（token 身份房规 `plans/007-resend-renew-expiry.md`、订阅消息铁律 `docs/运维/小程序订阅消息构建与真机验证.md`、删除房规 `docs/adr/0015-draft-deletion.md`、公开投影纪律 `backend/lib/cgc_2046/courses/course.ex:881-884`、i18n 与错误文案纪律 `plans/009-error-copy-discipline.md`）。检索 `docs/solutions/`（不存在）→ 回退 ADR/plans/运维/CONTEXT 四层既有学习。
+- 实施研究（ce-plan Phase 1）：仓库模式研究（SendCloud 双通道/Invitation 一次性语义/长期 token 模板/公开投影范式/CSP 策略/Oban crontab/小程序页面与订阅 registry/测试命令）；既有学习（token 身份房规 `plans/007-resend-renew-expiry.md`、订阅消息铁律 `docs/运维/小程序订阅消息构建与真机验证.md`、删除房规 `docs/adr/0015-draft-deletion.md`、公开投影纪律 `backend/lib/cgc_2046/courses/course.ex:881-884`、i18n 与错误文案纪律 `plans/009-error-copy-discipline.md`）。检索 `docs/solutions/`（不存在）→ 回退 ADR/plans/运维/GLOSSARY 四层既有学习。
 
 ---
 

@@ -259,7 +259,7 @@ flowchart TB
 
 ### Sources / Research
 
-- `CONTEXT.md` — BYO、角色、Workflow、MCP、Course、Enrollment、学习记录、支付和通知的当前术语。
+- `GLOSSARY.md` — BYO、角色、Workflow、MCP、Course、Enrollment、学习记录、支付和通知的当前术语。
 - `docs/adr/0001-website-as-mcp-server-byo.md` — 本地 BYO、Website MCP server、确认流和任务指令模式。
 - `docs/adr/0002-workflow-first-jido.md` — WorkflowDefinition/Run、跨角色流程与 BYO 分工。
 - `docs/adr/0005-workflow-run-worthiness.md` — 实体事实源与 WorkflowRun 使用判据。

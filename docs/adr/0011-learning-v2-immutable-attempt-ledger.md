@@ -2,7 +2,7 @@
 
 - 状态:已接受(2026-08-30;随 role-agent-journeys-v2 S8 落地)
 - 决策者:product owner(计划 2026-08-29-1110 第五部分草案 → 本片实施定稿)
-- 对照:ADR-0009 §目标地图 Learning 行("Learning (core) —— LearningRecord(记忆挂人)、进度投影")与 CONTEXT.md 旧「学习记录」词条
+- 对照:ADR-0009 §目标地图 Learning 行("Learning (core) —— LearningRecord(记忆挂人)、进度投影")与 GLOSSARY.md 旧「学习记录」词条
 
 ## 背景
 
@@ -31,6 +31,6 @@
 
 ## 后果
 
-- `领域模型定稿.md` §5.4 Learning 行改写:`LearningRecord` → `Attempt(不可变评价账本)+ Mastery/ReviewSchedule/NextAction(派生投影与纯函数族)`;CONTEXT.md 词条同步(「学习记录」词条退役改写 + 新增 Attempt/Mastery/复习调度/NextAction/Runs 词条),随落地切片(S8/S9)入册。
+- `领域模型定稿.md` §5.4 Learning 行改写:`LearningRecord` → `Attempt(不可变评价账本)+ Mastery/ReviewSchedule/NextAction(派生投影与纯函数族)`;GLOSSARY.md 词条同步(「学习记录」词条退役改写 + 新增 Attempt/Mastery/复习调度/NextAction/Runs 词条),随落地切片(S8/S9)入册。
 - 对账规⑦ 停滞判据改"最新 attempt created_at"(detail 键 `last_activity_at`);规① 不变(仍按 input_snapshot enrollment 锚)。
 - 已知代价:完成判定与账本非同事务(一拍窗口,worker 兜底);succeeded run 无复习提交通道(v1 边界);GraphQL 学习类型破坏性变更(登录面,一次性切换)。
