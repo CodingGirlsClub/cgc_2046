@@ -20,7 +20,7 @@ date: 2026-10-03
 - **打开 anubis 的 OAuth `authorization:` 配置**：要授权服务器地址（我们没有）、校验 `aud`、校验函数拿不到请求，还会让每个请求校验两次 token。
 - **拆成多个 endpoint**（`/mcp` vs `/mcp/admin`）：多角色用户要装多个 URL，工具注册要维护两份。仅当需要网络层隔离时才值得。
 - **只过滤 `tools/list`、不拦 `tools/call`**：隐藏不是授权，agent 仍可按名调用；anubis 的 scopes 两边都做，且这一层之后仍有 Wrapper。
-- **把 scope 放进 `meta:`**：`meta` 会作为 `_meta` 序列化给客户端（CONTEXT.md「meta 载体纪律」），`scopes` 不会。
+- **把 scope 放进 `meta:`**：`meta` 会作为 `_meta` 序列化给客户端（GLOSSARY.md「meta 载体纪律」），`scopes` 不会。
 - **token 级 scope**（生成 token 时选「学习用 / 管理用」）：可叠加在本方案之上的加固，有「管理员 token 泄露」的真实担忧再做。
 
 残余风险：task 增强的 `tools/call`（`Session.Tasks`）直接走 `Handlers.handle`，不经 `Server.handle_request/2`，会绕过钩子——Server 当前只声明 `tools` capability，该路径不可达，`tool_scopes_test` 钉住不得声明 `tasks`，将来启用时必须把注入点下沉。`submit_prep_for_check` / `submit_prep_quality_report` 的工具层只判「被指派者 ∨ 管理角色」、不复查 tutor 角色：被指派后失去 tutor 角色的人会被 scope 挡住，接受——内容读写工具本就要求 `Rbac.staff?`，他们已无法做任何有意义的起草。钩子依赖 `__before_compile__` + `defoverridable handle_request/2` 的行为，升级 `anubis_mcp` 时靠 `mcp_tool_visibility_test` 兜底。每个 `tools/list` / `tools/call` 多一次成员资格查询，与 Wrapper 现有成本同量级。回滚：还原单个 PR，无迁移、无数据变更、无依赖变更。

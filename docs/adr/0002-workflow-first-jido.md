@@ -14,7 +14,7 @@
 
 ## 决策（Decision）
 
-> 与 CONTEXT.md 的 D-A 系列编号对应（D-A1–D-A7，workflow-first 追加决策）。
+> 与 GLOSSARY.md 的 D-A 系列编号对应（D-A1–D-A7，workflow-first 追加决策）。
 
 | # | 决策 | 本 ADR 对应 |
 |---|---|---|

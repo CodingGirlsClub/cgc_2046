@@ -1,7 +1,7 @@
 # ADR-0004: Profile / Theme 移植为 per-workspace 租户资源
 
 > 日期：2026-08-08 ｜ 状态：**已接受（Accepted）** ｜ 决策者：用户（方伯）+ Leader
-> 关联：CONTEXT.md §8（Profile 定义为租户资源）、workflows/research/2026-08-08-settings-workspace-scoped-profile.md、workflows/plans/2026-08-08-per-workspace-profile.md
+> 关联：GLOSSARY.md §8（Profile 定义为租户资源）、workflows/research/2026-08-08-settings-workspace-scoped-profile.md、workflows/plans/2026-08-08-per-workspace-profile.md
 > 触发：Settings 子页面多租户隔离诊断——"Personal"组（个人资料 / Preferences）当前为全局数据，与领域模型"Profile = 租户资源"声明不符。
 
 ---
@@ -10,7 +10,7 @@
 
 - 多租户设计以 workspace_id 无状态 scope 为核心（ADR-0003「现有架构保留项」）；全库 11 个业务资源均带 `multitenancy workspace_id`。
 - 唯一偏差：Profile 字段（头像/简介/技能/visibility）与主题偏好（ui_theme_preference）挂在全局 `users` 表；`portfolio_items` 仅 `user_id`、无租户维度，moduledoc 明写"非租户隔离"。
-- 但 CONTEXT.md §8 早已声明：**Profile（成员公开资料，租户资源）**——头像、简介、标签（含 Portfolio 作品展示）；"二期需要聚合展示时再拆"。
+- 但 GLOSSARY.md §8 早已声明：**Profile（成员公开资料，租户资源）**——头像、简介、标签（含 Portfolio 作品展示）；"二期需要聚合展示时再拆"。
 - 前端 Settings 侧栏已按 Linear 式分组 Personal / Workspace，但 Personal 组 URL 挂在 `/w/[slug]/settings/account/*` 下，操作的是全局数据——URL 暗示租户隔离、数据却是全局，语义错位。
 - 新用户注册不自动加入任何 workspace，per-workspace 化后无归属 workspace 则无 profile 编辑上下文。
 
@@ -28,7 +28,7 @@
 ### 拒绝的替代
 
 - **profile 字段挂 workspace_memberships**：成员资格变动会级联影响档案生命周期；受邀未加入/申请中无 membership。
-- **全局数据 + per-workspace 覆盖层**：两层模型复杂度高，与 CONTEXT.md 已声明的租户资源方向不符。
+- **全局数据 + per-workspace 覆盖层**：两层模型复杂度高，与 GLOSSARY.md 已声明的租户资源方向不符。
 - **主题保持全局**：用户已决策 per-workspace（与 profile 一致，URL 语义对齐）。
 
 ## 后果（Consequences）
@@ -45,5 +45,5 @@
 ## 决策依赖
 
 - ADR-0003（多租户设计保留项：workspace_id 无状态 scope）
-- CONTEXT.md §8（Profile 租户资源声明）
+- GLOSSARY.md §8（Profile 租户资源声明）
 - workflows/plans/2026-08-08-per-workspace-profile.md（实施分阶段）

@@ -14,7 +14,7 @@ Read the sections below before opening a PR. If your contribution clearly delive
 
 This project is **documentation-driven**. Before writing code, read:
 
-- **[CONTEXT.md](./CONTEXT.md)** — the **single source of truth for domain terminology**. All code, docs, issues, tests, and commit messages must use exactly these terms. Do not introduce synonyms. If you believe a term is missing, propose it separately and get it added to CONTEXT.md first.
+- **[GLOSSARY.md](./GLOSSARY.md)** — the **single source of truth for domain terminology**. All code, docs, issues, tests, and commit messages must use exactly these terms. Do not introduce synonyms. If you believe a term is missing, propose it separately and get it added to GLOSSARY.md first.
 - **[docs/adr/](./docs/adr/)** — Architecture Decision Records (why, including rejected options). In case of conflict, code wins; ADRs explain the why.
 - **[docs/adr/](./docs/adr/)** — Architecture Decision Records. Significant architectural choices go through an ADR, not just a PR.
 
@@ -60,7 +60,7 @@ mix test
 Conventions:
 
 - Always `mix format` before committing; `.formatter.exs` covers `lib`, `test`, and `priv/*/migrations`.
-- New Ash resources follow the existing templates: attribute multitenancy (`workspace_id`), `Ash.Policy.Authorizer` policies, AshGraphql exposure via the domain, and registration in its bounded-context domain (`Cgc2046.Accounts` / `Admission` / `Events` / `Courses` / …；领域地图见 CONTEXT.md——`GlobalApi` 已退役为 `Accounts`).
+- New Ash resources follow the existing templates: attribute multitenancy (`workspace_id`), `Ash.Policy.Authorizer` policies, AshGraphql exposure via the domain, and registration in its bounded-context domain (`Cgc2046.Accounts` / `Admission` / `Events` / `Courses` / …；领域地图见 GLOSSARY.md——`GlobalApi` 已退役为 `Accounts`).
 - New Oban workers / Ash changes follow the ownership mapping in `docs/adr/0010-workers-changes-directory-closure.md`(worker 归其状态机属主域;change 归其消费/数据属主域——根部不再有 workers/、changes/ 收容层)。
 - Migrations must be **idempotent** (`table_exists?` / `index_exists?` / `column_exists?` guards) and reversible (`down` drops).
 - Never store bearer credentials (tokens, secrets) in plaintext columns. Token-hash or return-once via metadata, following the existing `Invitation`/`TokenResource` patterns.
