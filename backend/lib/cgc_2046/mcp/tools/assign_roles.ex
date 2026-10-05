@@ -14,7 +14,7 @@ defmodule Cgc2046.Mcp.Tools.AssignRoles do
   （第一段快速拒绝省 pending）；confirm 段由业务 update policy 兜底
   （调用者角色可能在确认窗口内被撤）。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["workspace_admin"]
 
   alias Cgc2046.Accounts.{Rbac, Role, WorkspaceMembership}
   alias Cgc2046.Mcp.Confirmation

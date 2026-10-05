@@ -9,7 +9,7 @@ defmodule Cgc2046.Mcp.Tools.AssignPrepTutor do
 
   直接写依据：指派可逆、无资金/公开面副作用（create_course 同款 R12 纪律）。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["workspace_admin"]
 
   alias Cgc2046.Accounts.MembershipContext
   alias Cgc2046.Courses.Course

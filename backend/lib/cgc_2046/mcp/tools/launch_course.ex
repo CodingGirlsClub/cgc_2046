@@ -12,7 +12,7 @@ defmodule Cgc2046.Mcp.Tools.LaunchCourse do
   非 draft / 未命名课程快速失败（不建 pending，approve_join_request 同款纪律）；
   并发竞态由 domain 的 DB 级 CAS 在 confirm 段兜底。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["workspace_admin"]
 
   alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Courses.Course

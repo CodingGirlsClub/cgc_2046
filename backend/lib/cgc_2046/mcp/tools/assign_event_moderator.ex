@@ -6,7 +6,7 @@ defmodule Cgc2046.Mcp.Tools.AssignEventModerator do
   三种精确锚，透传域层 `Accounts.UserResolution` 单源解析后落 UUID（与 Web
   同口径，MCP 不做本地格式校验——非法格式在域内落统一「用户不存在」）。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["workspace_admin"]
   alias Cgc2046.Errors.BusinessError
   alias Cgc2046.Events.Moderators
   alias Cgc2046.Mcp.Wrapper

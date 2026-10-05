@@ -12,7 +12,7 @@ defmodule Cgc2046.Mcp.Tools.SaveCourseContent do
   授权(R6/KTD2):tutor ∪ owner/admin(membership roles 并集;owner/admin
     豁免语义同 StepAuthorization,成员角色 tutor 放行,learner/volunteer 拒)。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["tutor"]
 
   alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Courses.Course

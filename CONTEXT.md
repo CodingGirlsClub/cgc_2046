@@ -24,6 +24,7 @@
 
 - **定义**：网站暴露的、供用户 OpenClacky 调用的协议端点。技术选型 **anubis_mcp**（Elixir/Phoenix，活跃维护）。全平台**只暴露一个** MCP server（D6）。
 - **工具鉴权立场**（架构深化 C）：豁免声明 = 工具模块自身 `use Anubis.Server.Component` 的 `meta:` opt（`workspace_id: :optional` 免 workspace_id 必填｜`membership: :deferred` 成员门槛下沉工具层授权｜`membership: :public` 公开浏览族——任何持连接 token 的登录用户可用，匿名姿态读在工具层，KTD2/KTD3｜`membership: :platform_admin` 平台治理族——`is_platform_admin` 全局标记判定、无工作台作用域，role-agent-journeys-v2 S2）；Wrapper 经组件注册派生 name→meta 门控（`:persistent_term` 缓存 + Server 模块 md5 指纹防陈旧）。**未声明 meta 的工具 = member-only + workspace_id 必填（fail-closed 默认）**——例外不再维护于 Wrapper 静态清单。
+- **工具可见性分层**（#1085，ADR-0021）：门控之外，工具经 `use Anubis.Server.Component` 的 `scopes:`（`tutor`｜`workspace_admin`｜`platform_admin`｜缺省 = 全员可见）声明所属可见层；`tools/list` 只列调用者所属最高层累计可见的工具，越层 `tools/call` 在 anubis 层即拒绝（文案 `forbidden: <tool> requires <角色>`）并经 `Wrapper.record_denied/4` 补写 forbidden 审计。scope 由 `Cgc2046.Mcp.Scopes` 每请求按 `current_user` **跨工作台并集**重算（tutor = 任一台持 tutor/owner/admin；workspace_admin = 任一台持 owner/admin；平台管理员级联全部三层），角色变更下一个请求即生效，客户端缓存的工具列表需重连刷新。**分类原则：可见面不比授权更严**；scope 是粗检查，Wrapper / 工具层 / 数据层授权全部保留。各层精确名单钉死在 `test/support/mcp_tool_tiers.ex`——新增工具必须显式归层（anubis 默认「不声明 scope = 全员可见」，漏标不会自己报错）。
 - **架构位置**：B 通道主干（见下）。网站能力以"工具"形态暴露给 Agent。
 
 ### B 通道（网站 MCP server 通道）—— 主干
@@ -115,7 +116,7 @@
 ### workspace_id 作用域（Workspace Scope）
 
 - **定义**：无状态的租户作用域。**除豁免族外，所有 MCP 工具必填 `workspace_id`**：`meta: %{workspace_id: :optional}` 声明的工具（confirm_operation / cancel_operation / list_my_workspaces 等 actor 锚定族）、`meta: %{membership: :public}` 的公开浏览工具（list_public_offerings / get_public_offering——跨工作区公开白名单口径，workspace_id 传入也不收窄，KTD3），以及 `meta: %{membership: :platform_admin}` 的平台治理工具（admin_ 前缀族——跨租户治理面无工作台作用域，role-agent-journeys-v2 S2）。其余工具每次调用据此鉴权 + 审计；服务端不存"当前工作区"会话状态（D12）。
-- **meta 载体纪律**：`meta:` 仅存门控事实（workspace_id 必填性 / membership 豁免）——Anubis 会把非 nil meta 序列化进 tools/list 的 `_meta` 对 MCP 客户端可见，塞其他用途的键等于向客户端泄漏非门控信息（架构深化 C 遗留约定）。
+- **meta 载体纪律**：`meta:` 仅存门控事实（workspace_id 必填性 / membership 豁免）——Anubis 会把非 nil meta 序列化进 tools/list 的 `_meta` 对 MCP 客户端可见，塞其他用途的键等于向客户端泄漏非门控信息（架构深化 C 遗留约定）；可见性分层的 `scopes:` 不进 tools/list 序列化，不受此限，也不要塞进 `meta:`。
 - **架构位置**：决定性事实——OpenClacky 的 MCP client 是 server 级全局长连接（`@clients = {name => Client}`，进程级共享），服务端存会话状态会跨会话串。因此 scope 必须无状态、每调用判定。
 
 ### 当前工作区（Current Workspace，对话上下文概念）
@@ -548,6 +549,15 @@
 
 - **定义**：**收件人解析 + 通知入队的唯一归属**（2026-08-14 通知分发收敛，架构评审候选①，依赖异步链路 PR-B 合入后落地）。interface 三件套：`managers(workspace_id, selector)`（租户内目标角色成员 → `%{user_id => [identity]}` 平台身份分组）｜`identities(user_id)`（单用户全平台身份）｜`deliver(recipients, template_key, data, job_meta, unique)`（入队 args 形状 / identity_uid 展开 / unique 预设的唯一实现）。**收件人选择器是数据不是谓词**：`:manage`（走 `Role.manage_roles/0` 唯一真源）｜`{:roles, [...]}`（显式窄集，如赞助 Workspace 级仅 Owner，拍板 #4）；unique 用命名预设 `:default`｜`:reminder_7d`，未显式传参时按 template_key 查 `NotificationWorker.type/1` 的 unique 预设（缺省 `:default`，2026-08-18 架构深化候选 D D3）——Oban unique 语义不进 interface。**错误内化**：不崩、必 Logger + telemetry（`[:cgc2046, :notification_fanout, :deliver]`，失败可计数）。
 - **架构位置**：Notifications.Subscriber / SpeakerSubscriber（handle 体）与 ApprovalReminderWorker / LearningProgressWorker（按工作台预取分组复用，消 N+1——两段式 interface 的原因）四方调用的 seam；Notifications.Subscriber 退化纯订阅方（公共入队面删除，异步计划 Q4 backlog 落地）；发送侧 Notifications.Service 与 NotificationWorker 不动；`target_title` 的 Event/Course 分叉不在此面（属 offering seam 候选）。
+- **无身份收件人（#232）**：`managers` 保留已命中角色但身份列表为空的用户。耐久接受逐用户同事务写站内快照与渠道 outbox/jobs；真零身份保留既有哨兵，有身份但全无订阅能力仅写站内记录，channel count 仍为 0。`deliver` 的 best-effort/claim_first 失败边界不变，失败不冒充已接受。
+
+### 通知收件箱（Notification Inbox）
+
+- **定义**：用户本人最近 30 天内系统已生成并接受的通知及服务端已读状态，不是订阅授权余额、投递账本或送达回执。工作台管理者与平台管理员均无他人收件箱读取旁路。
+- **生命周期**：`inserted_at > now - 30 天` 才可读取或标记已读；日清理删除等于或早于截止时刻的正文。`read_at` 首次写入后不再覆盖，换设备仍一致；本机仅缓存账号隔离的服务端快照，认证错误不能恢复缓存。
+- **来源**：既有通知类型在接受事务中写精简用户文本；同类型、同来源、同用户的多身份扇出只有一条站内记录，写入和查询均不消耗 Consent，不触发发送。不回填旧 outbox/本机记录，也不保存核销码、认证密钥或原始渠道载荷。
+- **去重边界**：不保永久幂等墓碑。保留行去重，旧 durable outbox 不作为历史导入来源；纯站内记录清理后，同一来源被重新接受可能产生新记录，不称永久 exactly-once，也不恢复旧 `read_at`。
+
 
 ### 通知类型（Notification Types）
 

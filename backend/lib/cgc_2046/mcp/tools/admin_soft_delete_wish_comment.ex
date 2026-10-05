@@ -6,6 +6,7 @@ defmodule Cgc2046.Mcp.Tools.AdminSoftDeleteWishComment do
   """
   use Anubis.Server.Component,
     type: :tool,
+    scopes: ["platform_admin"],
     meta: %{workspace_id: :optional, membership: :platform_admin}
 
   alias Cgc2046.Flashback.{Wish, WishComment, Wishes}

@@ -3690,6 +3690,18 @@ export type KeysetPageOfJoinRequest = {
   startKeyset?: Maybe<Scalars['String']['output']>;
 };
 
+/** A keyset page of :notification */
+export type KeysetPageOfNotification = {
+  /** Total count on all pages */
+  count?: Maybe<Scalars['Int']['output']>;
+  /** The last keyset in the results */
+  endKeyset?: Maybe<Scalars['String']['output']>;
+  /** The records contained in the page */
+  results?: Maybe<Array<Notification>>;
+  /** The first keyset in the results */
+  startKeyset?: Maybe<Scalars['String']['output']>;
+};
+
 /** A keyset page of :order */
 export type KeysetPageOfOrder = {
   /** Total count on all pages */
@@ -3799,6 +3811,14 @@ export type LearningRunSummary = {
   status: Scalars['String']['output'];
 };
 
+/** The result of the :mark_notification_read mutation */
+export type MarkNotificationReadResult = {
+  /** Any errors generated, if the mutation failed */
+  errors: Array<MutationError>;
+  /** The successful result of the mutation */
+  result?: Maybe<Notification>;
+};
+
 export type McpToken = {
   /** MCP 连接 token（明文不可经此类型读回；hash 不落 GraphQL 面） */
   id: Scalars['ID']['output'];
@@ -3863,6 +3883,16 @@ export type MyLearningRun = {
   staleRevision: Scalars['Boolean']['output'];
   status: Scalars['String']['output'];
   targetTitle?: Maybe<Scalars['String']['output']>;
+};
+
+export type Notification = {
+  body: Scalars['String']['output'];
+  deepLink?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
+  readAt?: Maybe<Scalars['DateTime']['output']>;
+  title: Scalars['String']['output'];
+  type: Scalars['String']['output'];
 };
 
 export type OfferingReadinessItem = {
@@ -4876,6 +4906,7 @@ export type RootMutationType = {
   launchCourse: LaunchCourseResult;
   /** 发布活动：draft → open，发 event.launched 信号 */
   launchEvent: LaunchEventResult;
+  markNotificationRead: MarkNotificationReadResult;
   /** 平台管理员：设置倡导活动状态为进行中 */
   openInitiative?: Maybe<AdminInitiativePayload>;
   /** 开放批次：draft | closed → open（Owner/Admin ∪ platform_admin；同台已有一个 open → recruitment_cohort_open_conflict，DB 部分唯一索引兜底） */
@@ -5559,6 +5590,11 @@ export type RootMutationTypeLaunchEventArgs = {
 };
 
 
+export type RootMutationTypeMarkNotificationReadArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
 export type RootMutationTypeOpenInitiativeArgs = {
   id: Scalars['ID']['input'];
 };
@@ -5983,6 +6019,7 @@ export type RootQueryType = {
   myWorkspacePortfolio?: Maybe<Array<Maybe<PortfolioItem>>>;
   /** 当前用户在某工作台的 MCP 工具调用活动流（plan 020 U2.1；policy：workspace 成员 + 仅本人；params 摘要级不返回） */
   myWorkspaceToolCalls: Array<WorkspaceToolCall>;
+  notificationFeed?: Maybe<KeysetPageOfNotification>;
   offeringReadiness?: Maybe<OfferingReadinessPayload>;
   /** 订单状态轮询（2s×30s 轻量面，R14） */
   orderStatus?: Maybe<Order>;
@@ -6458,6 +6495,14 @@ export type RootQueryTypeMyWorkspacePortfolioArgs = {
 export type RootQueryTypeMyWorkspaceToolCallsArgs = {
   first?: InputMaybe<Scalars['Int']['input']>;
   workspaceId: Scalars['ID']['input'];
+};
+
+
+export type RootQueryTypeNotificationFeedArgs = {
+  after?: InputMaybe<Scalars['String']['input']>;
+  before?: InputMaybe<Scalars['String']['input']>;
+  first?: InputMaybe<Scalars['Int']['input']>;
+  last?: InputMaybe<Scalars['Int']['input']>;
 };
 
 

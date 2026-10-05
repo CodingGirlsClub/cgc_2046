@@ -80,12 +80,22 @@ defmodule Cgc2046.Mcp.Server do
   每工具调用经 `Cgc2046.Mcp.Wrapper` 做 workspace_id 必填校验（D12）+ membership
   鉴权 + ToolCallLog 审计（D9）。
 
+  可见性分层（#1085，ADR-0021）：`tools/list` 按调用者所属最高层（学员 / tutor /
+  workspace_admin / platform_admin）只列累计可见的工具，越层 `tools/call` 在 anubis 层即被
+  拒绝并补写审计；工具经 `scopes:` 声明所需层，`Cgc2046.Mcp.Scopes` 每请求重算调用者的
+  scope。scope 只是粗检查，下面的 Wrapper / 工具层授权全部保留。各层精确名单由
+  `test/support/mcp_tool_tiers.ex` 钉死，新增工具必须显式归层。
+
   elicitation 不启用（目标客户端均不支持，见 research §5b；D8 用 two-tool 模式）。
   """
   use Anubis.Server,
     name: "cgc-2046",
     version: "0.1.0",
     capabilities: [:tools]
+
+  # 工具可见性分层（#1085，ADR-0021）：必须晚于 use Anubis.Server 挂——anubis 在自己的
+  # __before_compile__ 里才定义 handle_request/2，本钩子在其后才拿得到 super。
+  @before_compile Cgc2046.Mcp.Scopes
 
   component(Cgc2046.Mcp.Tools.GetWorkspaceContext)
   component(Cgc2046.Mcp.Tools.ListMembers)

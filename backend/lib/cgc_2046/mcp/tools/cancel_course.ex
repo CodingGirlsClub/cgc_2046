@@ -11,7 +11,7 @@ defmodule Cgc2046.Mcp.Tools.CancelCourse do
   非 open 课程快速失败（不建 pending）；并发竞态由 domain 的 DB 级 CAS 在
   confirm 段兜底。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["workspace_admin"]
 
   alias Cgc2046.Accounts.Rbac
   alias Cgc2046.Courses.Course

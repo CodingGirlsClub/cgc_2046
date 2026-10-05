@@ -1,4 +1,8 @@
 import type {
+  NotificationFeedQuery,
+  NotificationFeedQueryVariables,
+  MarkNotificationReadMutation,
+  MarkNotificationReadMutationVariables,
   AdmitMemberByTokenMutation,
   AdmitMemberByTokenMutationVariables,
   ApproveJoinRequestMutation,
@@ -117,7 +121,9 @@ import type {
   UpsertResumeProfileMutationVariables
 } from './generated/graphql'
 import { BusinessError } from './business-error'
-import { clearExpiredAuthentication, getAuthToken, graphqlRequest, GraphQLRequestError, isAuthenticationError, setAuthToken } from './client'
+import { clearExpiredAuthentication, getAuthToken, graphqlRequest, GraphQLRequestError, GraphQLTransportError, isAuthenticationError, setAuthToken } from './client'
+import { NotificationFeedQueryDocument, MarkNotificationReadMutationDocument } from './operations'
+import { mergeNotifications, NOTIFICATION_PAGE_SIZE, validNotification } from '@/domain/notifications'
 import { FlashbackNotBoundError, FlashbackTokenInvalidError, type FlashbackTokenInvalidCode } from '@/domain/models'
 import { DELETE_COPY, RETRACT_COPY, type FlashbackDeletePreview } from '@/domain/flashback-retract'
 import { RECOVER_COPY, RECOVER_LINK_ERRORS } from '@/domain/flashback-recover'
@@ -210,6 +216,7 @@ import type {
   MiniProgramApi,
   MiniProgramCode,
   NotificationItem,
+  NotificationPage,
   PlatformPhonePayload,
   RecruitmentCohort,
   ResumeFileInput,
@@ -234,10 +241,13 @@ import {
 import { clearWorkspaceTab, rememberWorkspaceTab } from '@/state/workspaceTab'
 import {
   activateAccount,
-  appendLocalNotification,
   clearAccountState,
   clearFlashbackLinkIdentity,
-  readLocalNotifications
+  captureAccountScope,
+  accountScopeCurrent,
+  cacheNotificationFeed,
+  cachedNotificationFeed,
+  type AccountScope
 } from '@/state/accountState'
 
 type EventRecord = NonNullable<NonNullable<CatalogQuery['listEvents']>['results']>[number]
@@ -522,6 +532,37 @@ function mapSharedCard(card: {
 }
 
 export class RealMiniProgramApi implements MiniProgramApi {
+  private notificationSequence = 0
+  private notificationReadScope = ''
+  private notificationReads = new Map<string, { readAt: string; createdAt: string }>()
+
+  private notificationScope(): AccountScope {
+    const scope = captureAccountScope()
+    if (!scope || !getAuthToken()) throw new SessionExpiredError()
+    const key = `${scope.userId}:${scope.epoch}`
+    if (key !== this.notificationReadScope) {
+      this.notificationReadScope = key
+      this.notificationReads.clear()
+    }
+    const cutoff = Date.now() - 30 * 86_400_000
+    for (const [id, read] of this.notificationReads) {
+      if (Date.parse(read.createdAt) <= cutoff) this.notificationReads.delete(id)
+    }
+    return scope
+  }
+
+  private currentNotificationScope(scope: AccountScope): void {
+    if (!accountScopeCurrent(scope)) throw new Error('账号已变化，请重新加载通知')
+  }
+
+  private notificationItem(row: NonNullable<NonNullable<NotificationFeedQuery['notificationFeed']>['results']>[number]): NotificationItem {
+    if (!row) throw new GraphQLRequestError('通知数据格式错误', 200)
+    const acknowledged = this.notificationReads.get(row.id)
+    const item = { id: row.id, type: row.type, title: row.title, body: row.body,
+      createdAt: row.insertedAt, readAt: (acknowledged?.createdAt === row.insertedAt ? acknowledged.readAt : row.readAt) ?? null, deepLink: row.deepLink ?? null }
+    if (!validNotification(item)) throw new GraphQLRequestError('通知数据格式错误', 200)
+    return item
+  }
   /**
    * 招募三资源的租户 id 缓存（同一部署内恒定）。小程序没有 URL slug，入口工作台
    * 只能按 slug 解析一次（getWorkspace，需登录），三次读写面共用——避免每页每个
@@ -566,9 +607,16 @@ export class RealMiniProgramApi implements MiniProgramApi {
   }
 
   async getSession(): Promise<SessionSnapshot> {
+    const sentToken = getAuthToken()
+    const scope = captureAccountScope()
     try {
       return await this.fetchSession()
     } catch (error) {
+      const currentToken = getAuthToken()
+      const currentScope = captureAccountScope()
+      if ((currentToken && sentToken !== currentToken) || (currentScope && scope && !accountScopeCurrent(scope))) {
+        return { user: null, workspaces: [], approvals: [], authExpired: false }
+      }
       // 统一降级未登录快照:session 是装饰,任何失败都不该拖死公开目录
       // (模拟器残留坏 token → Forbidden → 发现页 Promise.all 全挂的真机事故)。
       // 认证错误 client.ts 已清 token;服务端返回非认证 errors(如 forbidden)
@@ -578,7 +626,6 @@ export class RealMiniProgramApi implements MiniProgramApi {
         if (serverError) clearExpiredAuthentication()
         else {
           clearWorkspaceTab()
-          clearAccountState()
         }
       }
       // 掉线标记（#355 P0-2）：此 catch 只在「曾有 token」时进入（fetchSession
@@ -597,10 +644,15 @@ export class RealMiniProgramApi implements MiniProgramApi {
       clearAccountState()
       return { user: null, workspaces: [], approvals: [], authExpired: false }
     }
+    const sentToken = getAuthToken()
+    const scope = captureAccountScope()
     const data: SessionQuery = await graphqlRequest<SessionQuery, SessionQueryVariables>(
       SessionQueryDocument,
       {}
     )
+    if (sentToken !== getAuthToken() || (scope && !accountScopeCurrent(scope))) {
+      return { user: null, workspaces: [], approvals: [], authExpired: false }
+    }
     const workspaces: WorkspaceSummary[] = data.meWorkspaces.map((workspace) => ({
       id: workspace.id,
       slug: workspace.slug,
@@ -724,18 +776,16 @@ export class RealMiniProgramApi implements MiniProgramApi {
   }
 
   async signOut(): Promise<void> {
-    try {
-      if (getAuthToken()) {
-        await graphqlRequest<SignOutMutation, SignOutMutationVariables>(SignOutMutationDocument, {})
-      }
-    } finally {
-      setAuthToken(null)
-      clearWorkspaceTab()
-      clearAccountState({ clearPendingScene: true })
-      clearFlashbackLinkIdentity()
-      // 主动退出：下一次登录走手机号（方便换账号），不静默回到刚退出的账号（#930）
-      setSilentLoginAllowed(false)
-    }
+    // graphqlRequest captures its Bearer header synchronously, before local cleanup.
+    const request = getAuthToken()
+      ? graphqlRequest<SignOutMutation, SignOutMutationVariables>(SignOutMutationDocument, {})
+      : Promise.resolve(null)
+    setAuthToken(null)
+    clearWorkspaceTab()
+    clearAccountState({ clearPendingScene: true })
+    clearFlashbackLinkIdentity()
+    setSilentLoginAllowed(false)
+    await request
   }
 
   async getEnrollments(): Promise<EnrollmentSummary[]> {
@@ -833,7 +883,6 @@ export class RealMiniProgramApi implements MiniProgramApi {
       { id }
     )
     if (!data.confirmEnrollment.result) mutationError(data.confirmEnrollment.errors)
-    appendLocalNotification('审批已完成', '已通过该报名申请。')
   }
 
   private async rejectEnrollment(id: string, reason?: string): Promise<void> {
@@ -842,7 +891,6 @@ export class RealMiniProgramApi implements MiniProgramApi {
       { id, input: reason ? { rejectionReason: reason } : undefined }
     )
     if (!data.rejectEnrollment.result) mutationError(data.rejectEnrollment.errors)
-    appendLocalNotification('审批已完成', reason ? `已拒绝该报名申请：${reason}` : '已拒绝该报名申请。')
   }
 
   async approvePending(approval: ApprovalSummary): Promise<void> {
@@ -852,7 +900,6 @@ export class RealMiniProgramApi implements MiniProgramApi {
       { id: approval.id }
     )
     if (!data.approveJoinRequest.result) mutationError(data.approveJoinRequest.errors)
-    appendLocalNotification('加入申请已通过', `${approval.workspaceName} 已接纳新成员。`)
   }
 
   async rejectPending(approval: ApprovalSummary, reason?: string): Promise<void> {
@@ -862,7 +909,6 @@ export class RealMiniProgramApi implements MiniProgramApi {
       { id: approval.id, input: reason ? { rejectionReason: reason } : undefined }
     )
     if (!data.rejectJoinRequest.result) mutationError(data.rejectJoinRequest.errors)
-    appendLocalNotification('加入申请未通过', reason || `${approval.workspaceName} 拒绝了加入申请。`)
   }
 
   async grantConsent(scenario: SubscriptionScenario): Promise<number> {
@@ -870,7 +916,6 @@ export class RealMiniProgramApi implements MiniProgramApi {
       GrantConsentMutationDocument,
       { platform: currentPlatform(), templateKey: scenario }
     )
-    appendLocalNotification('订阅授权已记录', '平台会在对应业务节点发送一次服务通知。')
     return data.grantMiniProgramNotificationConsent ?? 0
   }
 
@@ -972,8 +1017,49 @@ export class RealMiniProgramApi implements MiniProgramApi {
     }
   }
 
-  async getNotifications(): Promise<NotificationItem[]> {
-    return readLocalNotifications()
+  async getNotifications(after?: string): Promise<NotificationPage> {
+    const scope = this.notificationScope()
+    const sequence = ++this.notificationSequence
+    let data: NotificationFeedQuery
+    try {
+      data = await graphqlRequest<NotificationFeedQuery, NotificationFeedQueryVariables>(
+        NotificationFeedQueryDocument, { first: NOTIFICATION_PAGE_SIZE, after })
+    } catch (error) {
+      this.currentNotificationScope(scope)
+      if (sequence !== this.notificationSequence) throw new Error('通知请求已被更新')
+      if (isAuthenticationError(error)) { clearExpiredAuthentication(); throw new SessionExpiredError() }
+      if (!after && error instanceof GraphQLTransportError) {
+        const cached = cachedNotificationFeed(scope)
+        if (cached) return { items: cached, nextCursor: null, hasMore: false, source: 'cache' }
+      }
+      throw error
+    }
+    this.currentNotificationScope(scope)
+    if (sequence !== this.notificationSequence) throw new Error('通知请求已被更新')
+    if (!Array.isArray(data.notificationFeed?.results)) throw new GraphQLRequestError('通知数据格式错误', 200)
+    const items = data.notificationFeed.results.map(row => this.notificationItem(row))
+    if (!after) {
+      try { cacheNotificationFeed(scope, items) }
+      catch { console.warn('[notification-cache] feed cache persistence failed; server result retained') }
+    }
+    return { items, nextCursor: data.notificationFeed.endKeyset ?? null,
+      hasMore: items.length === NOTIFICATION_PAGE_SIZE && !!data.notificationFeed.endKeyset, source: 'server' }
+  }
+
+  async markNotificationRead(id: string): Promise<NotificationItem> {
+    const scope = this.notificationScope()
+    const data = await graphqlRequest<MarkNotificationReadMutation, MarkNotificationReadMutationVariables>(
+      MarkNotificationReadMutationDocument, { id })
+    this.currentNotificationScope(scope)
+    if (!data.markNotificationRead?.result) mutationError(data.markNotificationRead?.errors ?? [])
+    const item = this.notificationItem(data.markNotificationRead!.result!)
+    if (!item.readAt) throw new Error('服务端未确认已读，请重试')
+    this.notificationReads.set(item.id, { readAt: item.readAt, createdAt: item.createdAt })
+    try {
+      const cached = cachedNotificationFeed(scope)
+      if (cached) cacheNotificationFeed(scope, mergeNotifications(cached, [item]).filter(row => cached.some(c => c.id === row.id)))
+    } catch { console.warn('[notification-cache] read-mark cache persistence failed; server result retained') }
+    return item
   }
 
   // ── 闪念间「我的」（U9/R28：会话腿——登录账号绑定档案） ──────────────

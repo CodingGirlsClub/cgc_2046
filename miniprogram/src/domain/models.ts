@@ -384,10 +384,19 @@ export interface ResumeFileSelection {
 
 export interface NotificationItem {
   id: string
+  type: string
   title: string
   body: string
   createdAt: string
-  read: boolean
+  readAt: string | null
+  deepLink: string | null
+}
+
+export interface NotificationPage {
+  items: NotificationItem[]
+  nextCursor: string | null
+  hasMore: boolean
+  source: 'server' | 'cache'
 }
 
 export interface MiniProgramCode {
@@ -768,7 +777,8 @@ export interface MiniProgramApi {
   canModerateEvent(eventId: string): Promise<boolean>
   /** #508-A：主理人核销提交（扫码/手输共用）；业务失败进 CheckInOutcome 联合 */
   checkInEnrollment(eventId: string, code: string, method: CheckInMethod): Promise<CheckInOutcome>
-  getNotifications(): Promise<NotificationItem[]>
+  getNotifications(after?: string): Promise<NotificationPage>
+  markNotificationRead(id: string): Promise<NotificationItem>
   /**
    * U9/R28「我的闪念间」：登录账号绑定档案的时间胶囊投影（me + 行动板）。
    * 未绑定档案 → FlashbackNotBoundError（页面引导去 web 首程/自助找回）。

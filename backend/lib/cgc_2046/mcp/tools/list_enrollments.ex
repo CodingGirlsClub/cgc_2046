@@ -23,7 +23,7 @@ defmodule Cgc2046.Mcp.Tools.ListEnrollments do
   web 管理页经 Order `learner_email` SQL 计算列露出报名人邮箱同口径；
   save_course_content 工具层授权 + authorize?: false 读同款纪律）。
   """
-  use Anubis.Server.Component, type: :tool
+  use Anubis.Server.Component, type: :tool, scopes: ["workspace_admin"]
 
   alias Cgc2046.Accounts.{Rbac, User}
   alias Cgc2046.Admission.Enrollment

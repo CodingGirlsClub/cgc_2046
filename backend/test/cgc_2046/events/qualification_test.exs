@@ -36,6 +36,16 @@ defmodule Cgc2046.Events.QualificationTest do
     assert {:ok, :underfilled, _recipients, 1} = Qualification.qualify(event)
     assert :skip = Qualification.qualify(event)
     assert Ash.get!(Event, event.id, authorize?: false).qualification_status == :underfilled
+
+    assert [%{type: "event_qualification_underfilled"}] =
+             Cgc2046.Notifications.Notification
+             |> Ash.Query.for_read(:read, %{}, actor: learner)
+             |> Ash.read!(page: false)
+
+    assert [%{type: "event_qualification_manager"}] =
+             Cgc2046.Notifications.Notification
+             |> Ash.Query.for_read(:read, %{}, actor: admin)
+             |> Ash.read!(page: false)
   end
 
   # ── #585 R2：无截止场以 starts_at - 72h 兜底判定 ────────────────────────

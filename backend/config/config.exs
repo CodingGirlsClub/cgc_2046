@@ -242,6 +242,7 @@ config :cgc_2046, Oban,
        # #252 登录支撑表清理：验证码/扫码票 TTL 分钟级，保留 1 天排查窗，
        # 小时级清理粒度足够。
        {"41 * * * *", Cgc2046.Accounts.Workers.LoginArtifactPrunerWorker},
+       {"17 3 * * *", Cgc2046.Notifications.Workers.NotificationPrunerWorker},
        {"*/10 * * * *", Cgc2046.Reconciliation.ReconciliationScanWorker},
        # 缴费闭环 U8（R8/F2）：订单 2h 限时窗，分钟级扫描把超时未付订单
        # + 报名 + 名额一体释放（迟 1 分钟的占位泄漏可接受，KTD5）。

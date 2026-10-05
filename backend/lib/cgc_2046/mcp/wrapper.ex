@@ -95,6 +95,18 @@ defmodule Cgc2046.Mcp.Wrapper do
     result
   end
 
+  @doc """
+  scope 层拒绝的补写审计（#1085）：越层 `tools/call` 在 anubis 层即被 `Cgc2046.Mcp.Scopes`
+  拦下，到不了 `run/4`，不补写就丢审计（ADR-0001 D6「每次工具调用 = 审计记录」）。口径同
+  `run/4` 的 forbidden 行：params 脱敏并降为 metadata_only，归因维度（client / session）取自
+  frame。`params` 取自 tools/call 的 `arguments`：协议 schema 保证它是 map 或缺省（nil，
+  审计入口按空 map 处理）。
+  """
+  @spec record_denied(Anubis.Server.Frame.t(), String.t(), map() | nil, String.t()) :: :ok
+  def record_denied(frame, tool_name, params, message) do
+    log_call(frame, frame.assigns[:current_user], tool_name, params, {:error, message}, 0)
+  end
+
   # 键归一（2026-09-08 架构评审候选②）：Anubis 线上路径恒为 string 键（JSON
   # 解码），atom 键仅来自测试直调 Tool.execute。进 fun 前归一一次（仅顶层键），
   # 工具内不再 `params["x"] || params[:x]` 双键收参。

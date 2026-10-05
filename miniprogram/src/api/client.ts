@@ -30,6 +30,13 @@ export class GraphQLRequestError extends Error {
   }
 }
 
+export class GraphQLTransportError extends Error {
+  constructor(public readonly cause: unknown) {
+    super('网络请求失败，请稍后重试')
+    this.name = 'GraphQLTransportError'
+  }
+}
+
 
 export function isAuthenticationError(error: unknown): boolean {
   return error instanceof GraphQLRequestError && (
@@ -53,6 +60,8 @@ function clearIfStillCurrent(sentToken: string | null): void {
 }
 
 export function setAuthToken(token: string | null): void {
+  // A replacement credential has no verified account until Session hydration.
+  if (authToken !== token) clearAccountState()
   authToken = token
   if (token) Taro.setStorageSync(AUTH_TOKEN_KEY, token)
   else Taro.removeStorageSync(AUTH_TOKEN_KEY)
@@ -103,37 +112,47 @@ export async function graphqlRequest<TData, TVariables extends object>(
   const header: Record<string, string> = { 'Content-Type': 'application/json' }
   if (sentToken) header.Authorization = `Bearer ${sentToken}`
 
-  const response = await Taro.request<GraphQLResponse<TData>>({
+  const response = await Taro.request<unknown>({
     url: __GRAPHQL_ENDPOINT__,
     method: 'POST',
     // 默认 15s；大载荷（简历上传 base64 ~6.7MB）由调用方显式放宽（R20/U2）
     timeout: options.timeoutMs ?? 15_000,
     header,
     data: { query: String(document), variables }
-  })
-
-  // candidate token 只在 HTTP/GraphQL/data 三层校验全部通过后才提交（原子提交）
-  const candidateToken = options.captureAuthCookie
-    ? extractAuthToken(response.cookies, response.header as Record<string, unknown>)
-    : null
+  }).catch((cause: unknown) => { throw new GraphQLTransportError(cause) })
 
   if (response.statusCode < 200 || response.statusCode >= 300) {
     const error = new GraphQLRequestError(`请求失败（HTTP ${response.statusCode}）`, response.statusCode)
     if (isAuthenticationError(error)) clearIfStillCurrent(sentToken)
     throw error
   }
-  if (response.data.errors?.length) {
+  const envelope = response.data
+  if (envelope === null || typeof envelope !== 'object' || Array.isArray(envelope)) {
+    throw new GraphQLRequestError('服务端响应格式错误（GraphQL envelope）', response.statusCode)
+  }
+  const body = envelope as GraphQLResponse<TData>
+  const errors: unknown = body.errors
+  if (errors !== undefined && (!Array.isArray(errors) || errors.some(error =>
+    error === null || typeof error !== 'object' || Array.isArray(error) || typeof error.message !== 'string'
+  ))) {
+    throw new GraphQLRequestError('服务端响应格式错误（GraphQL errors）', response.statusCode)
+  }
+  if (body.errors?.length) {
     const error = new GraphQLRequestError(
-      response.data.errors.map(({ message }) => message).join('；'),
+      body.errors.map(({ message }) => message).join('；'),
       response.statusCode,
-      response.data.errors
+      body.errors
     )
     if (isAuthenticationError(error)) clearIfStillCurrent(sentToken)
     throw error
   }
-  if (!response.data.data) {
+  if (body.data === null || typeof body.data !== 'object' || Array.isArray(body.data)) {
     throw new GraphQLRequestError('服务端未返回数据', response.statusCode)
   }
+  // Commit a candidate login cookie only after the HTTP and GraphQL contract holds.
+  const candidateToken = options.captureAuthCookie
+    ? extractAuthToken(response.cookies, response.header as Record<string, unknown>)
+    : null
   if (candidateToken) setAuthToken(candidateToken)
-  return response.data.data
+  return body.data
 }
