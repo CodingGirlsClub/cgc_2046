@@ -81,37 +81,6 @@ defmodule Cgc2046.Events.PaymentModeValidation do
           is_nil(Ash.Changeset.get_attribute(changeset, :registration_deadline)) ->
         {:error, registration_deadline_required_error()}
 
-      # ends_at 是 no-show 结算的资金扳机（KTD7）：存在未终态押金单时禁止前移
-      # ——否则把 ends_at 改到 48h 前即触发下一拍全量不可逆没收（adversarial P1）。
-      # **判据只看存量押金单，不看活动当前的 `deposit_enabled`**：关掉开关不会
-      # 移除既有订单（订单口径由 `payments_orders.order_kind` 决定，与活动开关
-      # 解耦；`DepositForfeitWorker` 的候选查询同样只认 order_kind），而
-      # `CancelFlow` 判自助退款资格也仍按订单口径取活动**当前**的锚点。故
-      # 「同一次写入里关开关 + 前移」会绕过以开关为前提的守卫，必须按存量单判。
-      ends_at_moved_earlier?(changeset) and
-          has_active_deposit_orders?(Ash.Changeset.get_data(changeset, :id)) ->
-        {:error,
-         Cgc2046.Errors.BusinessError.exception(
-           message: "cannot move ends_at earlier while active deposit orders exist",
-           code: "event_ends_at_frozen",
-           fields: [:ends_at]
-         )}
-
-      # registration_deadline 是押金单**自助取消退款资格**的锚点（#543/#587：
-      # CancelFlow 对 :deposit 用 before_deadline? 判定，取消时锁行现算而非
-      # 下单快照）——前移会追溯性关闭既有押金单的退款窗口，且判定为假时静默
-      # 不打款不报错，订单停在 paid 而规则集无检测项。与 ends_at 同为「不可
-      # 追溯移动的资金锚点」，故用同一冻结形状（此处仅方向，不涉没收链），
-      # 且同样**只看存量押金单、不看当前开关**（理由同上）。
-      registration_deadline_moved_earlier?(changeset) and
-          has_active_deposit_orders?(Ash.Changeset.get_data(changeset, :id)) ->
-        {:error,
-         Cgc2046.Errors.BusinessError.exception(
-           message: "cannot move registration_deadline earlier while active deposit orders exist",
-           code: "event_registration_deadline_frozen",
-           fields: [:registration_deadline]
-         )}
-
       true ->
         :ok
     end
@@ -138,37 +107,23 @@ defmodule Cgc2046.Events.PaymentModeValidation do
   defp tiers_nonempty?(changeset),
     do: Ash.Changeset.get_attribute(changeset, :price_tiers) not in [nil, []]
 
-  # ends_at 前移 = 新值 < 旧值，**两侧都非空才比**。
+  # `ends_at` 前移判定（纯值对，供**锁内**守卫复用）。
   #
-  # 与 `registration_deadline` 的 nil 语义**相反**，不能共用：`ends_at` 为 nil
-  # 表示**不触发没收**（`DepositForfeitWorker` 候选查询要求 `ends_at IS NOT NULL`），
-  # 即「押金永久滞留」，属 KTD7 定义的**异常态**（由 `deposit_settlement_unanchored`
-  # Finding 暴露）。因此 `nil → 具体值`（含过去值）是**运维补锚的修复动作**，
-  # 必须放行——把它拦掉会永久锁死这类场的押金（`DepositForfeitWorkerTest`
-  # 「锚点补回后 Finding 自消」钉的正是这条路径）。
+  # 与 `registration_deadline` 的 nil 语义**相反**，不可共用：`ends_at` 为 nil 表示
+  # **不触发没收**（`DepositForfeitWorker` 候选查询要求 `ends_at IS NOT NULL`），
+  # 即押金永久滞留，属 KTD7 定义的异常态（由 `deposit_settlement_unanchored`
+  # Finding 暴露）。故 `nil → 具体值`（含过去值）是**运维补锚的修复动作**，必须
+  # 放行——拦掉会永久锁死这类场的押金（`DepositForfeitWorkerTest`「锚点补回后
+  # Finding 自消」钉的正是这条路径）。
   #
-  # 「先置空再设过去值」的两步绕过在 ends_at 上不构成额外风险：置空本身不改变
-  # 结算行为（仍不没收），且带押金开启态置空已被 `events_deposit_requires_ends_at`
-  # 校验与 DB CHECK 挡住。真正要拦的是「有锚点的场把锚点前移到 48h 前」→ 下一拍
-  # 全量不可逆没收，那正是下面这条比较。
-  defp ends_at_moved_earlier?(changeset) do
-    Ash.Changeset.changing_attribute?(changeset, :ends_at) and
-      not is_nil(Ash.Changeset.get_data(changeset, :ends_at)) and
-      not is_nil(Ash.Changeset.get_attribute(changeset, :ends_at)) and
-      DateTime.compare(
-        Ash.Changeset.get_attribute(changeset, :ends_at),
-        Ash.Changeset.get_data(changeset, :ends_at)
-      ) == :lt
-  end
-
-  # registration_deadline 前移：nil 语义与 ends_at 相反（见 `deadline_moved_earlier?/2`）
-  defp registration_deadline_moved_earlier?(changeset) do
-    Ash.Changeset.changing_attribute?(changeset, :registration_deadline) and
-      deadline_moved_earlier?(
-        Ash.Changeset.get_data(changeset, :registration_deadline),
-        Ash.Changeset.get_attribute(changeset, :registration_deadline)
-      )
-  end
+  # 「先置空再设过去值」在 ends_at 上不构成额外风险：置空本身不改变结算行为
+  # （仍不没收），且带押金开启态置空已被 `events_deposit_requires_ends_at` 校验与
+  # DB CHECK 挡住。真正要拦的是「有锚点的场把锚点前移到 48h 前」→ 下一拍全量
+  # 不可逆没收。
+  @spec ends_at_moved_earlier?(term(), term()) :: boolean()
+  def ends_at_moved_earlier?(nil, _new), do: false
+  def ends_at_moved_earlier?(_old, nil), do: false
+  def ends_at_moved_earlier?(old, new), do: compare_after_normalize(old, new)
 
   # 归一后比较：本判据被两条来源不同的路径共用——资源级 changeset 给 `DateTime`
   # （`:utc_datetime` 属性的 Ash 形态），而 `RuleInheritance` 的裸 SQL 行给
@@ -208,6 +163,17 @@ defmodule Cgc2046.Events.PaymentModeValidation do
     do: DateTime.compare(to_datetime(new), DateTime.utc_now()) == :lt
 
   def deadline_moved_earlier?(old, new), do: compare_after_normalize(old, new)
+
+  @doc """
+  `ends_at` 前移的稳定业务错误（形状同 `registration_deadline_frozen_error/1`）。
+  """
+  def ends_at_frozen_error(fields \\ [:ends_at]) do
+    BusinessError.exception(
+      message: "cannot move ends_at earlier while active deposit orders exist",
+      code: "event_ends_at_frozen",
+      fields: fields
+    )
+  end
 
   @doc "该活动是否存在未终态押金单（paid/refunding/refund_failed）——冻结守卫的触发条件。"
   @spec active_deposit_orders?(term()) :: boolean()
