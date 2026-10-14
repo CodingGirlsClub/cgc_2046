@@ -514,8 +514,11 @@ defmodule Cgc2046.Admission.Enrollment do
   end
 
   policies do
+    # #1097：PlatformAdmin 身份层不再设例外（原 plan 018 D5「治理审计者不应参与
+    # 业务流程」的 forbid_if 已撤除）——平台管理员可按普通用户规则报名：本人路径
+    # `user_id == actor.id` 不变，目标资格仍由 CreateFlow.eligible_target 判定
+    # （public 可报 / workspace-only 须为目标工作台成员）。
     policy action(:create_enrollment) do
-      forbid_if(Cgc2046.Accounts.Policies.PlatformAdmin)
       authorize_if(expr(user_id == ^actor(:id)))
     end
 
@@ -528,8 +531,9 @@ defmodule Cgc2046.Admission.Enrollment do
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
     end
 
+    # #1097：与 create_enrollment 同款撤除——报名与取消是一对本人路径，
+    # 只放 create 会让平台管理员「报得进、取不掉」。
     policy action(:cancel) do
-      forbid_if(Cgc2046.Accounts.Policies.PlatformAdmin)
       authorize_if(expr(user_id == ^actor(:id)))
     end
 

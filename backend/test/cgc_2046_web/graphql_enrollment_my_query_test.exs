@@ -172,7 +172,9 @@ defmodule Cgc2046Web.GraphqlEnrollmentMyQueryTest do
     assert Enum.any?(errors, &(&1["code"] in ["forbidden", "unauthorized", "not_found"]))
   end
 
-  test "PlatformAdmin 本人不能取消自己的报名" do
+  # #1097：cancel policy 的 `forbid_if(PlatformAdmin)` 撤除——报名与取消是一对
+  # 本人路径，若只放 create，平台管理员会「报得进、取不掉」。
+  test "PlatformAdmin 本人可取消自己的报名" do
     admin = Fixtures.platform_admin("my-enrollments-platform-admin")
     workspace = Fixtures.create_workspace(admin)
     event = EventFixtures.create_event(workspace, admin)
@@ -195,10 +197,11 @@ defmodule Cgc2046Web.GraphqlEnrollmentMyQueryTest do
         sign_in_token(admin)
       )
 
-    assert %{"data" => %{"cancelEnrollment" => %{"result" => nil, "errors" => errors}}} =
+    assert %{"data" => %{"cancelEnrollment" => %{"result" => result, "errors" => []}}} =
              response
 
-    assert Enum.any?(errors, &(&1["code"] in ["forbidden", "unauthorized"]))
+    assert result["id"] == enrollment.id
+    assert result["status"] == "cancelled"
   end
 
   test "Enrollment output type does not expose submission payload" do
