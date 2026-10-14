@@ -2331,10 +2331,14 @@ export function OfferingDetailPage({
 						    submitEnrollment，鉴权后端管）。P1-5：卡片渲染不再以
 						    open 为门——课程关闭后已报名状态仍可见；open 只约束
 						    「报名操作」分支（非 open 显示报名已关闭）。#575 后报名
-						    操作另受派生 enrollmentBadge 门（已满/已截止不出表单）。 */}
+						    操作另受派生 enrollmentBadge 门（已满/已截止不出表单）。
+						    #1097：平台管理员可按普通用户规则报名——非成员只读访客
+						    对 public 目标显示入口（资格层放行）；workspace-only
+						    目标仍须为目标工作台成员（后端 eligible_target 同判，
+						    此处仅避免露出必被拒的按钮）。 */}
             {!wsLoading &&
             ws &&
-            !readOnlyVisitor &&
+            (!readOnlyVisitor || offering?.visibility === "public") &&
             userId !== null &&
             enrollState.id === id &&
             enrollState.status === "ok" ? (
