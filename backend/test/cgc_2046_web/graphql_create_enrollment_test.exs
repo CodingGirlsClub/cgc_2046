@@ -134,17 +134,21 @@ defmodule Cgc2046Web.GraphqlCreateEnrollmentTest do
     end
   end
 
-  test "PlatformAdmin 本人不能经 HTTP createEnrollment 报名" do
+  # #1097 语义反转：PlatformAdmin 此前被 `forbid_if` 无条件拒绝（plan 018 D5
+  # 「治理审计者不应参与业务流程」）。现改回「平台管理员可按普通用户规则报名」
+  # ——身份层不设例外，资格层照旧（public 可报 / workspace-only 须为成员）。
+  test "PlatformAdmin 本人经 HTTP createEnrollment 报名成功" do
     admin = Fixtures.platform_admin("gql-enroll-platform-admin")
     workspace = Fixtures.create_workspace(admin)
     event = EventFixtures.create_event(workspace, admin, %{enrollment_policy: :open})
 
     response = graphql(create_mutation(event, admin), sign_in_token(admin))
 
-    assert %{"data" => %{"createEnrollment" => %{"result" => nil, "errors" => errors}}} =
+    assert %{"data" => %{"createEnrollment" => %{"result" => result, "errors" => []}}} =
              response
 
-    assert Enum.any?(errors, &(&1["message"] == "forbidden"))
+    assert result["status"] == "confirmed"
+    assert result["workspaceId"] == workspace.id
   end
 
   test "PlatformAdmin 非成员不能确认或拒绝报名，Owner 路径仍可用" do
