@@ -1,7 +1,7 @@
 # ADR-0009: 限界上下文重构——Events/Courses 分家、Admission 独立、Curriculum 命名
 
 > 日期：2026-08-28 ｜ 状态：**已接受（Accepted）· 实施完成（2026-08-28，更正后五步 PR 序列全部合入）** ｜ 决策者：用户（product owner）
-> 关联：ADR-0007（缴费架构）、`docs/01-定稿设计/领域模型定稿.md` §5.4、CONTEXT.md；缘起：`backend/lib/cgc_2046/events/course.ex` 归属质询引发的架构讨论（2026-08-28）
+> 关联：ADR-0007（缴费架构）、`docs/01-定稿设计/领域模型定稿.md` §5.4、GLOSSARY.md；缘起：`backend/lib/cgc_2046/events/course.ex` 归属质询引发的架构讨论（2026-08-28）
 > 方法依据：DDD 事件工作坊方法（事件风暴 → 命令风暴 → 寻找聚合 → 划分边界；边界三判据 = 聚合/业务相关性/概念完整性；上下文映射七关系）对现有代码的实证分析
 
 ---
@@ -76,7 +76,7 @@ MCP gateway (interface layer) —— 工具面/鉴权/审计（适配器，不�
    - **PR③ Curriculum 独立 + 改名**：ResearchOutput 家族迁 `curriculum/` 并改名；content 读契约归位；`research_*` 命名退役。
    - **PR④ Sponsorship 独立**：Sponsorship 家族迁 `sponsorship/` + `Cgc2046.Sponsorship` domain；Event 侧保持软引用。**（更正补记，2026-08-28 实施期：本步在原序列漏排——D4 已决策 Sponsorship 独立，D8 却未列入迁移序列；随实施计划 KTD8 更正单列。）**
    - **PR⑤ Payments 收敛 + 名额账本 + domain 收尾**：Order 引用收敛单 JOIN；名额账本表 + capacity 投影同步 + confirmed_count 展示投影化；Workflows / Learning / Reconciliation 各建 domain 归位，`Cgc2046.Api` 退役删除。
-   - 每步独立 PR、CI 全绿才走下一步；CONTEXT.md / 领域模型定稿随 PR 同步。
+   - 每步独立 PR、CI 全绿才走下一步；GLOSSARY.md / 领域模型定稿随 PR 同步。
    - **实施状态（2026-08-28）**：五步全部合入，本 ADR 落地完成。
 
 ### 拒绝的替代
@@ -95,4 +95,4 @@ MCP gateway (interface layer) —— 工具面/鉴权/审计（适配器，不�
   - D2 引入 capacity 投影同步窗口：极端场景（调小容量瞬间报名）由账本 CAS 拒单 + 对账规则兜底，不构成超卖。
   - 「我的报名」/admin 聚合/PendingApprovals 等 union 读面改经 Offering 端口，需防 N+1 退化（沿用 `fetch_titles_by_ids` 批量形状）。
   - 信号名（`enrollment.*`/`course.*`/`event.*`）是跨 context 发布语言，改名成本极高——本次**不动信号名**。
-- **文档落点**：本 ADR + `领域模型定稿.md` §5.4 + CONTEXT.md 术语同步（Admission/Curriculum/供给物词条）先行；代码随五步序列跟进（2026-08-28 全部完成，含名额账本词条与 KTD7 锁序成文）。
+- **文档落点**：本 ADR + `领域模型定稿.md` §5.4 + GLOSSARY.md 术语同步（Admission/Curriculum/供给物词条）先行；代码随五步序列跟进（2026-08-28 全部完成，含名额账本词条与 KTD7 锁序成文）。

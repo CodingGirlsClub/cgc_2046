@@ -59,7 +59,7 @@ Five canonical triage labels (`needs-triage`, `needs-info`, `ready-for-agent`, `
 
 ### Domain docs
 
-Single-context: one `CONTEXT.md` at the repo root plus `docs/adr/` for architecture decisions. See `docs/agents/domain.md`.
+Single-context: one `GLOSSARY.md` at the repo root plus `docs/adr/` for architecture decisions. See `docs/agents/domain.md`.
 
 ## 测试纪律（Testing principles）
 

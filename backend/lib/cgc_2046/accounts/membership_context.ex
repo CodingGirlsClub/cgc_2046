@@ -11,7 +11,7 @@ defmodule Cgc2046.Accounts.MembershipContext do
 
   ## 成员资格上下文（术语）
 
-  见 CONTEXT.md「成员资格上下文」：actor 在目标工作台（租户）的成员资格及角色
+  见 GLOSSARY.md「成员资格上下文」：actor 在目标工作台（租户）的成员资格及角色
   名字（原子列表）的读取面；`role_names/2` 等读取实现的唯一归属是本模块。
 
   ## 错误姿态（与收敛前一致）

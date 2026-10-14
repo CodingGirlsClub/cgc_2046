@@ -42,7 +42,7 @@ defmodule Cgc2046.Mcp.Wrapper do
     「双面契约」段与 `Cgc2046.Accounts.Rbac.abilities_for/2`）。
 
   修改任一面前先读对面——MCP 门若要放宽 admin 豁免，须与
-  `Policies.PlatformAdmin`、`Rbac.abilities_for/2`、CONTEXT.md「平台管理员」
+  `Policies.PlatformAdmin`、`Rbac.abilities_for/2`、GLOSSARY.md「平台管理员」
   一起裁决，不允许单面放宽（S2 的裁决 = 新增显式族而非动 member-only 门）。
 
   确认流工具（D-D3 two-tool）不在此处理 `needs_confirmation`——由

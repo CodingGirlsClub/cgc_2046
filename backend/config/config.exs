@@ -249,6 +249,10 @@ config :cgc_2046, Oban,
        {"*/1 * * * *", Cgc2046.Payments.Workers.PaymentExpiryWorker},
        # 缴费闭环 U13 对账规⑦（R23/KTD11）：T+1 账单（昨日）夜间核对，
        # 03:23 避整点渠道尖峰；拉取失败告警不阻塞。
+       # 注意时区：Oban.Plugins.Cron 默认 `Etc/UTC`（本部署亦为 UTC），故本行
+       # 实际运行于**北京时间 11:23**——已晚于微信侧「次日 9 点出账、建议 10 点
+       # 后获取」的窗口，无需为此改动时刻（曾误按 UTC 读作凌晨 3:23 而挪到
+       # 10:47，实际是往 18:47 挪、方向相反，已回退）。
        {"23 3 * * *", Cgc2046.Payments.Workers.PaymentReconciliationWorker},
        # 押金制 U8（R8/R9、KTD7）：no-show 结算——活动正常结束（ends_at）满 48h
        # 的 paid 押金单逐笔 CAS 为 forfeited；10 分钟粒度相对 48h 窗口足够，

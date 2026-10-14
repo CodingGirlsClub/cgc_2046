@@ -2,7 +2,7 @@ defmodule Cgc2046.Accounts.WorkspaceProfile do
   @moduledoc """
   工作台成员公开资料资源（ADR-0004，per-workspace profile）。
 
-  领域模型：Profile 为**租户资源**（CONTEXT.md §8）——头像/简介/技能/主题偏好
+  领域模型：Profile 为**租户资源**（GLOSSARY.md §8）——头像/简介/技能/主题偏好
   按 workspace 隔离（workspace_id），同一全局 User 在不同 Workspace 持有独立档案；
   `display_name`/`email` 为全局身份字段，不属于本资源。
 

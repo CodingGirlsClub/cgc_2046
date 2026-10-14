@@ -142,7 +142,7 @@ defmodule Cgc2046.Offering do
   def workspace_id(%Course{workspace_id: workspace_id}), do: workspace_id
 
   @doc """
-  供给物缴费槽三态（CONTEXT「缴费槽」/ event-deposit R1·R3·KTD2）：
+  供给物缴费槽三态（GLOSSARY「缴费槽」/ event-deposit R1·R3·KTD2）：
   `:deposit | :pricing | :free`。
 
   押金优先于定价参与判定——两列互斥由 `Events.PaymentModeValidation` 与 DB CHECK
@@ -189,7 +189,7 @@ defmodule Cgc2046.Offering do
     `true`，绝不掉回「免费」——把押金场说成免费的病根即「无信号 + 金额缺失」被读成
     免费。
   - `deposit.amount_cents` 只出正整数，否则 `nil`，绝不显示 `0`。
-  - `refundable_on_check_in` 押金态恒 `true`：平台规则「到场核销即退」（CONTEXT
+  - `refundable_on_check_in` 押金态恒 `true`：平台规则「到场核销即退」（GLOSSARY
     押金段），非每场可配；其余态 `nil`。
   - 非押金场形状恒定（`enabled: false` 而非整块 `nil`）：字段缺席正是 #586 的病根，
     恒定形状让「押金槽存在但未开」可见。

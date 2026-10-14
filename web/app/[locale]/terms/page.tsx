@@ -8,7 +8,7 @@ import SitePage from "@/components/site-page";
  *
  * 内容一字不差转写自源档 docs/合规上架/用户服务协议.md（v1.0，2026-08-20 定稿）。
  * 法务文本变更时必须同步更新源档与本页（评审义务，见 plan 2026-08-008）。
- * 法律文本仅中文（CONTEXT.md D 决策）：en locale 同样渲染本中文内容，
+ * 法律文本仅中文（GLOSSARY.md D 决策）：en locale 同样渲染本中文内容，
  * 头注明示以中文版本为准。
  */
 type PageProps = {

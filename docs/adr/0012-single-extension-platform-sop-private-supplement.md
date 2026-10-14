@@ -1,6 +1,6 @@
 # ADR-0012：单扩展与平台私有教研增量
 
-- 状态：已接受；生产部署验收待完成。**2026-09-06 注记**：issue-video 制作方法已迁入 tutor.md 私有增量（cgc-playbooks「issue 卡配套视频」章），扩展仅分发执行物料（`agents/cgc-tutor/video/`）；「拒绝方案」尾部「issue-video 是公开脚手架」一句自此过时。
+- 状态：已接受。**部署/流程落地已推进（2026-10-05 勘误）**：私有 playbook 生产 staging pipeline（`3d1e6889 feat(deploy): stage private tutor playbook with content version`）+ `workflow_dispatch --ref main` 触发链路（`a4502b09` / `321ff7a1`）与「Verify backend release (no deploy)」workflow（`.github/workflows/verify-backend-release.yml`，`83f67cf3`）已上线；issue-video 作为私有增量的一次实际迁移（2026-09-06 `303c6ae9`）表明流程至少走完一轮。剩余「生产发布验收」= 下次扩展发版时随同验证（发布流程离本仓，落定状态见运维《私有教研Playbook部署》）。**2026-09-06 注记**：issue-video 制作方法已迁入 tutor.md 私有增量（cgc-playbooks「issue 卡配套视频」章），扩展仅分发执行物料（`agents/cgc-tutor/video/`）；「拒绝方案」尾部「issue-video 是公开脚手架」一句自此过时。
 - 日期：2026-09-05
 - 关联：ADR-0001 D10、SOP 平台化与薄壳计划。
 

@@ -61,7 +61,7 @@ pnpm build
 
 ## Documentation
 
-- **[CONTEXT.md](./CONTEXT.md)** — single source of truth for domain terminology (all code, docs, issues, and tests must use exactly these terms)
+- **[GLOSSARY.md](./GLOSSARY.md)** — single source of truth for domain terminology (all code, docs, issues, and tests must use exactly these terms)
 - **[DESIGN.md](./DESIGN.md)** — design overview
 - **[docs/adr/](./docs/adr/)** — Architecture Decision Records (why, including rejected options)
 - **[docs/agents/](./docs/agents/)** — agent workflow conventions (issue tracker, triage labels, domain docs)

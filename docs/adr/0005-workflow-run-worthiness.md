@@ -40,4 +40,4 @@
   - workflow-first 叙事收紧为「workflow-where-it-earns」——引擎的适用范围缩小到真正需要编排的 workflow，ADR-0002 的解读随之更新。
   - 报名放弃统一 journal/StepAuthorization 可观测性；`Enrollment.status` + SignalLog + 审批审计字段承担审计。
   - 判据的证成理由若写宽会边缘化引擎，写窄会回到一切上引擎——措辞以本文件为准，修订走新 ADR。
-  - 判据在赞助设计上首次接受检验；赞助形态评估结论应回写总纲 §6 条目作为第二个先例。
+  - 判据在赞助设计上首次接受检验；赞助形态评估结论应回写总纲 §6 条目作为第二个先例。**回写记录（2026-10-05 勘误补记）**：v1 赞助采纳实体自序贯，不创建 WorkflowRun——`sponsorship.ex:227` 注释 「workflow_run_id 保留列与关系供二期引擎化（v1 实体自序贯不创建 run）」；DRY 信号经 `SignalEmitter` 事务内 outbox 入队（`sponsorship.ex:249+`）。该先例在 GLOSSARY.md §8「Sponsorship（赞助，两级）」（词条行 521）与 ADR-0009 PR④（赞助独立 context）中既有，总纲 §6 不再单列。

@@ -335,7 +335,7 @@ describe("OfferingDetailPage 错误态", () => {
     expect(await screen.findByText("加载失败")).toBeInTheDocument();
     expect(screen.queryByText(/Cannot query field/)).not.toBeInTheDocument();
   });
-  it("只读 PlatformAdmin 访客不显示报名写入口", async () => {
+  it("只读 PlatformAdmin 访客不显示 workspace-only 目标报名写入口", async () => {
     mocks.useWorkspaceBySlug.mockReturnValue({
       ws: { ...WORKSPACE, readOnlyVisitor: true },
       readOnlyVisitor: true,
@@ -362,6 +362,32 @@ describe("OfferingDetailPage 错误态", () => {
     expect(
       screen.queryByRole("button", { name: "报名" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("#1097：只读 PlatformAdmin 访客对 public 目标显示报名入口（资格层放行）", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue({
+      ws: { ...WORKSPACE, readOnlyVisitor: true },
+      readOnlyVisitor: true,
+      loading: false,
+      error: null,
+      retry: vi.fn(),
+    });
+    mocks.fetchOffering.mockResolvedValueOnce({
+      id: "event-public",
+      title: "公开活动",
+      status: "open",
+      visibility: "public",
+      enrollmentPolicy: "open",
+      registrationDeadline: null,
+      capacity: null,
+      confirmedCount: 0,
+    });
+
+    render(<OfferingDetailPage slug="demo" id="event-public" kind="event" />);
+
+    expect(
+      await screen.findByRole("button", { name: "报名" }),
+    ).toBeInTheDocument();
   });
 
   it("fallback 未解析（loading）时不闪现报名 CTA，resolve 为只读后仍不渲染", async () => {

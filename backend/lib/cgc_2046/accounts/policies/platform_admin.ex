@@ -2,7 +2,7 @@ defmodule Cgc2046.Accounts.Policies.PlatformAdmin do
   @moduledoc """
   判断 actor 是否为平台管理员（Platform Admin）——`is_platform_admin` 判定的唯一真源。
 
-  平台管理员 = User 上的全局布尔标记（非租户角色，可多人，见 CONTEXT.md「平台管理员」）。
+  平台管理员 = User 上的全局布尔标记（非租户角色，可多人，见 GLOSSARY.md「平台管理员」）。
   ≥1 名平台管理员不变量由 `User :demote_platform_admin` action 守卫，不在本模块。
 
   ## 双面契约（policy 面 vs 能力面，刻意不同答）

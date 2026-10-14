@@ -9,7 +9,7 @@
  *
  * 三资源都带 `workspace_id` 租户，GraphQL 入口是显式 argument（KTD2）。小程序没有
  * URL slug，故按 **slug 常量 + 已登录的 `getWorkspace(slug:)`** 解析（KTD2：所有
- * 倡导活动都在 2046 台；该工作台由部署 seed 固定，见 CONTEXT.md「默认 workspace」）。
+ * 倡导活动都在 2046 台；该工作台由部署 seed 固定，见 GLOSSARY.md「默认 workspace」）。
  *
  * `getWorkspace` 的策略是 `actor_present`（actor 定向读，匿名不可）——因此**匿名
  * 用户拿不到 workspaceId，批次区只能先登录**。这是本页与 web 申请页的**有意差异**：

@@ -5,6 +5,8 @@ date: 2026-10-01
 
 # ADR-0020：小程序上传前用线上部署的 schema 校验全部 operation
 
+> 日期：2026-10-01 ｜ 状态：**已接受（Accepted）**
+
 小程序发版走微信审核（数小时到数天），在 deploy 流水线之外，已发布版本不能即时回收。GraphQL 先校验后执行：「新小程序 + 旧后端」下，operation 里只要有一个后端尚未部署的字段，整条 document 就被拒（如 capsule 主 query 加一个 additive 字段，走廊整页挂）。web 由 `web` job 的 `needs: backend` 结构性保证先后顺序，小程序此前只靠「提审前人工确认 backend 已部署」的惯例。
 
 决定走路线 B「上传门」：上传前用**线上实际部署的后端 schema** 校验 `src/api/operations.ts` 的全部 operation，任一不兼容即拒绝上传（`pnpm check:release-schema`，见 `miniprogram/README.md` 发版流程）。后端 `/healthz` 以 `x-cgc-version` 头回传 Kamal 注入的 `KAMAL_VERSION`（`<sha>-pb<hash>`），脚本据此取得线上 SHA，再 `git show <sha>:backend/priv/graphql/schema.graphql`，不改 deploy 流水线。门 fail-closed：请求失败、缺头、SHA 解析失败、git 失败、任一校验错误都 exit 1。后端 deploy 失败时 kamal-proxy 不切流，healthz 仍报旧 SHA，校验自然失败，无需额外处理。

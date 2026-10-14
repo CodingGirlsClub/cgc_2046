@@ -70,7 +70,7 @@ defmodule Cgc2046.Flashback.Recover do
         end
 
       {:email, email} ->
-        case match_people(:email, email, nil) do
+        case match_people(:email, email, nil) |> Enum.reject(&(&1.user_id || &1.deleted_at)) do
           [] -> :ok
           people -> send_recovery_email(email, people)
         end

@@ -86,6 +86,7 @@
     "user_anchor_ambiguous": "该 CGC 编号前缀对应多位用户，请改用用户 ID。",
     "event_deposit_registration_deadline_required": "押金场需设置报名截止时间（自助取消锚点）。",
     "event_ends_at_frozen": "存在未结算的押金订单，不能提前结束时间。",
+    "event_registration_deadline_frozen": "存在未结算的押金订单，不能提前报名截止时间。",
     "order_deposit_amount_missing": "押金金额信息缺失，请重新报名。",
     "order_deposit_consent_required": "押金支付需先阅读并同意押金条款（到场核销后原路退回、未到场不退）；若小程序为旧版本，请更新后重试。",
     "order_deposit_consent_missing": "该订单创建于押金同意留痕上线前，暂不支持直接更换支付方式；请重新发起支付（重新确认押金条款后生成新单）。",

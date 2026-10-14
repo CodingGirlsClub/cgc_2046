@@ -421,7 +421,7 @@ profile-lite 中使用当前已有用户会话/退出边界，不新增登录路
   - 新建 `miniprogram/e2e/notification-inbox.e2e.mjs`，采用既有 E2E 执行与 CSS-module selector 约定，不另造 runner。
   - 更新 `miniprogram/e2e/journey.e2e.mjs`：删除依赖旧 local append 的 `/审批已完成/` 文案断言；新通知 E2E 改验真实收件人、feed ID 与 readAt 状态，不将该断言换成另一句 incidental wording。
   - 如需稳定锚点，更新现有 `miniprogram/e2e/anchors.mjs`，不用 data-testid。
-  - 更新 `CONTEXT.md` 通知分发/通知类型段，新增收件箱与 Delivery 的语义区分。
+  - 更新 `GLOSSARY.md` 通知分发/通知类型段，新增收件箱与 Delivery 的语义区分。
   - 更新既有 `docs/运维/小程序订阅消息构建与真机验证.md`：站内接受记录、30 天与已读、Consent 独立、后端先部署和无历史回填。
   - 根 CHANGELOG 不由本任务直接改；交编排者协调 #985 后整合本期 backend/mp-wechat/mp-xhs 条目。
 - **Test scenarios / Verification：** 完成下节真实 HTTP 与 GUI 脚本并保存脱敏摘要、截图；模拟错误及账号竞态，不以 mock 绿或截图有列表代替真实契约 proof。

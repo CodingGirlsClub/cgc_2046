@@ -11,7 +11,7 @@ import SitePage from "@/components/site-page";
  * - docs/合规上架/个人信息处理规则.md（全文，作为末节附录——PIPL 要求
  *   处理规则公开即可，与隐私政策同页呈现，见 plan 设计决策）。
  * 法务文本变更时必须同步更新源档与本页（评审义务）。
- * 法律文本仅中文（CONTEXT.md D 决策）：en locale 同样渲染本中文内容，
+ * 法律文本仅中文（GLOSSARY.md D 决策）：en locale 同样渲染本中文内容，
  * 头注明示以中文版本为准。
  */
 type PageProps = {
