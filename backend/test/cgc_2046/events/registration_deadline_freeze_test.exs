@@ -256,6 +256,37 @@ defmodule Cgc2046.Events.RegistrationDeadlineFreezeTest do
     end
   end
 
+  describe "错误 fields 归属（#1110 review）" do
+    test "直接编辑 deadline：fields 指向该字段本身", ctx do
+      event = mount_deposit_event_with_order(ctx)
+
+      result =
+        update_event(ctx, event, %{registration_deadline: EventFixtures.days_from_now(1)})
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} = result
+
+      error =
+        Enum.find(errors, &match?(%BusinessError{code: "event_registration_deadline_frozen"}, &1))
+
+      assert error, "期望 event_registration_deadline_frozen，实际：#{inspect(errors)}"
+      # 不得是包装层（`[deadline: [...]]`）或空列表
+      assert error.fields == [:registration_deadline]
+    end
+
+    test "直接编辑 ends_at：fields 指向该字段本身", ctx do
+      event = mount_deposit_event_with_order(ctx)
+
+      result = update_event(ctx, event, %{ends_at: EventFixtures.days_from_now(1)})
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} = result
+
+      error = Enum.find(errors, &match?(%BusinessError{code: "event_ends_at_frozen"}, &1))
+
+      assert error, "期望 event_ends_at_frozen，实际：#{inspect(errors)}"
+      assert error.fields == [:ends_at]
+    end
+  end
+
   test "无押金单时 registration_deadline 可前移（守卫不触发）", ctx do
     event = create_deposit_event(ctx)
 

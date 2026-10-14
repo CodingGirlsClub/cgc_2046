@@ -629,6 +629,14 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
     deadline? = anchor_moved_earlier?(changeset, locked, :registration_deadline)
     ends_at? = anchor_moved_earlier?(changeset, locked, :ends_at)
 
+    # 调用方传的是**包装** keyword（挂载路径用 `deadline: [event_id: id]` 指回是哪一场，
+    # 解除挂载路径不传），此处解析成各锚点自己的 fields——直接透传会把包装层写进
+    # 错误的 `fields`（`[deadline: [event_id: id]]`），破坏 GraphQL / MCP 消费方的
+    # 字段级归属（P2 review #1110）。ends_at 不由规则 force（`deadline_rule` 只映射
+    # `registration_deadline`），故其 fields 恒为该字段本身。
+    deadline_fields = Keyword.get(fields, :deadline, [:registration_deadline])
+    ends_at_fields = Keyword.get(fields, :ends_at, [:ends_at])
+
     # 两个锚点都没往前挪 → 与冻结无关（绝大多数编辑走这条），不取报名锁。
     if is_nil(event_id) or not (deadline? or ends_at?) do
       changeset
@@ -653,8 +661,8 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
 
       if PaymentModeValidation.active_deposit_orders?(event_id) do
         changeset
-        |> freeze_deadline(deadline?, fields)
-        |> freeze_ends_at(ends_at?, fields)
+        |> freeze_deadline(deadline?, deadline_fields)
+        |> freeze_ends_at(ends_at?, ends_at_fields)
       else
         changeset
       end
