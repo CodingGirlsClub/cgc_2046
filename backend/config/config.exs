@@ -247,9 +247,12 @@ config :cgc_2046, Oban,
        # 缴费闭环 U8（R8/F2）：订单 2h 限时窗，分钟级扫描把超时未付订单
        # + 报名 + 名额一体释放（迟 1 分钟的占位泄漏可接受，KTD5）。
        {"*/1 * * * *", Cgc2046.Payments.Workers.PaymentExpiryWorker},
-       # 缴费闭环 U13 对账规⑦（R23/KTD11）：T+1 账单（昨日）夜间核对，
-       # 03:23 避整点渠道尖峰；拉取失败告警不阻塞。
-       {"23 3 * * *", Cgc2046.Payments.Workers.PaymentReconciliationWorker},
+       # 缴费闭环 U13 对账规⑦（R23/KTD11）：T+1 账单（昨日）核对。
+       # 10:47 而非夜间：微信侧**次日 9 点**才开始生成前一天对账单、官方建议
+       # 10 点后获取（wechat_sdk `WeChat.Pay.Bill` 文档）——原 03:23 拉单恒得
+       # 渠道 400 `:bill_not_ready`（生产实证 2026-10-07~11 三次全数失败，
+       # 对账连续降级为纯本地面）。避开整点渠道尖峰，故取 :47。
+       {"47 10 * * *", Cgc2046.Payments.Workers.PaymentReconciliationWorker},
        # 押金制 U8（R8/R9、KTD7）：no-show 结算——活动正常结束（ends_at）满 48h
        # 的 paid 押金单逐笔 CAS 为 forfeited；10 分钟粒度相对 48h 窗口足够，
        # 兜底（worker 死信/停机）由下一拍自愈。
