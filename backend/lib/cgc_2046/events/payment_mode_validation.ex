@@ -205,15 +205,22 @@ defmodule Cgc2046.Events.PaymentModeValidation do
     )
   end
 
-  # 是否存在非终态押金单（paid/refunding/refund_failed）→ 冻结守卫的触发条件。
-  # 跨域只读（Events → Payments Order），单次点查（Event update 低频）。
+  # 是否存在未终态押金单 → 冻结守卫的触发条件。跨域只读（Events → Payments
+  # Order），单次点查（Event update 低频）。
+  #
+  # **含 `pending`**：待付单的 `expire_at = min(下单 + 2h, 下单时看到的
+  # registration_deadline)`（`Order.order_expire_at/1`）是**下单那刻算定的**，
+  # 改活动截止不会重算它。故「下单选待付 → 改早截止 → 2h 内付款到账」时，
+  # 结算路径的 CAS 只看 `status = 'pending'`（`prepare_mark_paid`，不复查活动
+  # 截止）照样落 `paid` —— 而该单的自助退款窗口已被追溯关闭。漏掉 pending
+  # 就等于给这条时序留门。
   defp has_active_deposit_orders?(event_id) do
     case Cgc2046.Repo.query(
            """
            SELECT 1 FROM payments_orders
            WHERE enrollment_id IN (SELECT id FROM enrollments WHERE event_id = $1)
              AND order_kind = 'deposit'
-             AND status IN ('paid', 'refunding', 'refund_failed')
+             AND status IN ('pending', 'paid', 'refunding', 'refund_failed')
            LIMIT 1
            """,
            [Cgc2046.Repo.uuid!(event_id)]

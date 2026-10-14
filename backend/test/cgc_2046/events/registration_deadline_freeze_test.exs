@@ -122,6 +122,38 @@ defmodule Cgc2046.Events.RegistrationDeadlineFreezeTest do
     assert_business_code(result, "event_ends_at_frozen")
   end
 
+  test "仅有 pending 押金单（尚未付款）时同样禁止前移 deadline（时序回归钉）", ctx do
+    # 原缺口：判据只认 paid/refunding/refund_failed，漏了 pending。而待付单的
+    # expire_at = min(下单+2h, 下单时看到的 deadline) 是**下单那刻算定的**，
+    # 改活动截止不重算；结算路径的 CAS 只看 status='pending'（不复查活动截止）
+    # → 「下单选待付 → 改早截止 → 2h 内付款到账」照样落 paid，而该单的自助
+    # 退款窗口已被追溯关闭。故 pending 必须计入。
+    event = create_deposit_event(ctx)
+
+    {:ok, enrollment} =
+      Enrollment
+      |> Ash.Changeset.for_create(:create_enrollment, %{
+        event_id: event.id,
+        user_id: ctx.admin.id
+      })
+      |> Ash.create(tenant: ctx.workspace.id, authorize?: false)
+
+    Cgc2046.Repo.query!(
+      """
+      INSERT INTO payments_orders (id, enrollment_id, order_kind, amount_cents,
+        provider, status, out_trade_no, expire_at, inserted_at, updated_at, workspace_id, tier_snapshot)
+      VALUES (gen_random_uuid(), $1::uuid, 'deposit', 6900, 'wechat_native', 'pending',
+        'deadline-freeze-pending', NOW() + INTERVAL '2 hours', NOW(), NOW(), $2::uuid,
+        '{"name":"押金","amount_cents":6900}')
+      """,
+      [Ecto.UUID.dump!(enrollment.id), Ecto.UUID.dump!(ctx.workspace.id)]
+    )
+
+    result = update_event(ctx, event, %{registration_deadline: EventFixtures.days_from_now(1)})
+
+    assert_business_code(result, "event_registration_deadline_frozen")
+  end
+
   test "无押金单时 registration_deadline 可前移（守卫不触发）", ctx do
     event = create_deposit_event(ctx)
 
