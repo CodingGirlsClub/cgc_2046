@@ -37,8 +37,8 @@ defmodule Cgc2046.Flashback.Recover do
   require Ash.Query
   require Logger
 
-  alias Cgc2046.Accounts.{PhoneNumber, PhoneVerificationCode, SignInFlow, TokenCredential, User}
-  alias Cgc2046.Flashback.{Binding, Person, Token, Tokens}
+  alias Cgc2046.Accounts.{PhoneNumber, PhoneVerificationCode, SignInFlow, User}
+  alias Cgc2046.Flashback.{Binding, Person, Tokens}
   alias Cgc2046.Mailer
 
   @recover_window_seconds 3_600
@@ -343,18 +343,32 @@ defmodule Cgc2046.Flashback.Recover do
 
   # 恢复邮件：每档案一行入口链接（KTD2：明文 token 只进邮件正文）
   defp send_recovery_email(email, people) do
+    # 铸 token 走 `Tokens.mint_for_open_person/2`（锁内复查归属，与绑定串行化，#1102）：
+    # 并发下刚被绑定的档案会返回 `:person_not_open`——跳过它、不铸不发（否则链接指向
+    # 已认领档案，且该 token 不会被 bind 的 claim 扫到）。
     links =
-      Enum.map(people, fn person ->
-        plain = "fb_" <> (:crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false))
-        {:ok, hash} = TokenCredential.hash(plain)
+      Enum.flat_map(people, fn person ->
+        case Tokens.mint_for_open_person(person.id) do
+          {:ok, plain} ->
+            [
+              "- #{masked(person)} · #{person.city || ""}：#{base_url()}/flashback/enter?token=#{plain}"
+            ]
 
-        Token
-        |> Ash.Changeset.for_create(:create, %{person_id: person.id, token_hash: hash})
-        |> Ash.create!(authorize?: false)
-
-        "- #{masked(person)} · #{person.city || ""}：#{base_url()}/flashback/enter?token=#{plain}"
+          {:error, :person_not_open} ->
+            []
+        end
       end)
 
+    # 全部档案都在并发中被人认领 → 无可发内容，静默结束（同 email 腿原有的
+    # 「无匹配档案即 :ok」语义）。
+    if links == [] do
+      :ok
+    else
+      deliver_recovery_email(email, links)
+    end
+  end
+
+  defp deliver_recovery_email(email, links) do
     body = """
     这里是闪念间（In a Flash）。
 

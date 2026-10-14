@@ -6,14 +6,15 @@ defmodule Cgc2046.Flashback.TokenBindRaceTest do
   「那一刻已存在」的 token（先 SELECT 再逐条改）；铸 token 的路径（找回邮件、outreach）
   与它们不在同一把锁上，之后提交的新 token 会漏网。
 
-  **这里不重放时序**（需要双连接卡点），而是钉住两条不变量与一处发送面的收口——
-  也就是这个竞态真正能被观察到的边界：
+  收口方式：所有铸点走 `Tokens.mint_for_open_person/2`——事务内先锁 person 行、锁内
+  复查归属与删除位，与绑定 / 删除串行化。真实并发（双连接卡点）见
+  `TokenMintBindConcurrencyTest`；本文件钉串行语义与既有不变量：
 
   1. 正常绑定/删除之后，档案名下不会有未作废的 token（夹具直接写 `user_id` 会绕过
      claim，那是测试构造态，不是生产可达态）；
-  2. 竞态漏网的那枚 token 不提供任何越权面——绑定检查读的是 `person.user_id`（真源），
-     不是 token 的 `claimed_by_user_id`，所以拿着它去绑定照样得到冲突；
-  3. 发送面收口：outreach worker 铸 token 之前判档案状态，绑定后不再铸、不再发。
+  2. `mint_for_open_person/2` 对已认领 / 已删除档案拒铸、不落行；
+  3. 即便有一枚漏网 token（以裸插构造），它也不提供越权面——绑定检查读的是
+     `person.user_id`（真源），不是 token 的 `claimed_by_user_id`。
   """
 
   use Cgc2046.DataCase, async: true
@@ -57,6 +58,15 @@ defmodule Cgc2046.Flashback.TokenBindRaceTest do
     plain
   end
 
+  defp token_count(person) do
+    require Ash.Query
+
+    Token
+    |> Ash.Query.filter(person_id == ^person.id)
+    |> Ash.read!(authorize?: false)
+    |> length()
+  end
+
   defp account do
     {:ok, user, _} =
       SignInFlow.find_or_create_user("+86139#{:rand.uniform(89_999_999) + 10_000_000}")
@@ -84,6 +94,43 @@ defmodule Cgc2046.Flashback.TokenBindRaceTest do
                Cgc2046.Flashback.Deletion.delete(%{person: person}, "DELETE")
 
       assert {:error, %{code: "flashback_token_revoked"}} = Tokens.fetch_valid(link)
+    end
+  end
+
+  describe "mint_for_open_person/2：锁内复查（#1102）" do
+    test "未认领、未删除 → 铸出可用 token" do
+      person = create_person()
+
+      assert {:ok, plain} = Tokens.mint_for_open_person(person.id)
+      assert String.starts_with?(plain, "fb_")
+      assert {:ok, %Token{person_id: id}} = Tokens.fetch_valid(plain)
+      assert id == person.id
+    end
+
+    test "前缀可定制（outreach 邀请不带 fb_）" do
+      person = create_person()
+
+      assert {:ok, plain} = Tokens.mint_for_open_person(person.id, "")
+      refute String.starts_with?(plain, "fb_")
+      assert {:ok, %Token{}} = Tokens.fetch_valid(plain)
+    end
+
+    test "已认领 → 拒铸、不落任何 token 行" do
+      person = create_person()
+      :ok = Binding.bind(person, account())
+      before = token_count(person)
+
+      assert {:error, :person_not_open} = Tokens.mint_for_open_person(person.id)
+      assert token_count(person) == before
+    end
+
+    test "已删除 → 拒铸、不落任何 token 行" do
+      person = create_person()
+      assert {:ok, _} = Cgc2046.Flashback.Deletion.delete(%{person: person}, "DELETE")
+      before = token_count(person)
+
+      assert {:error, :person_not_open} = Tokens.mint_for_open_person(person.id)
+      assert token_count(person) == before
     end
   end
 
