@@ -876,6 +876,7 @@ export type CourseLearningDetail = {
   slug?: Maybe<Scalars['String']['output']>;
   staleRevision: Scalars['Boolean']['output'];
   title: Scalars['String']['output'];
+  workspaceId: Scalars['ID']['output'];
 };
 
 export type CourseLearningDropOff = {

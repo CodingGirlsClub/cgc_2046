@@ -7906,6 +7906,7 @@ type MyLearningRun {
 
 type CourseLearningDetail {
   courseId: ID!
+  workspaceId: ID!
   title: String!
   slug: String
   run: LearningRunSummary

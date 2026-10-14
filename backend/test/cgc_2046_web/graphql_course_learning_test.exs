@@ -109,7 +109,7 @@ defmodule Cgc2046Web.GraphqlCourseLearningTest do
     """
     query {
       courseLearningDetail(courseId: "#{course_id}") {
-        courseId title slug staleRevision revisionNumber
+        courseId workspaceId title slug staleRevision revisionNumber
         reviewQueue { objectiveId dueAt milestoneDays needsReview }
         objectives { id title required mastery everMastered locked attemptCount
           missingPrereqIds { id title } }
@@ -669,13 +669,15 @@ defmodule Cgc2046Web.GraphqlCourseLearningTest do
       response = graphql(detail_query(course.id), sign_in_token(learner))
 
       assert %{"data" => %{"courseLearningDetail" => detail}} = response
+      # R11(U4):学员页上下文块的工作区标识 = 课程所属工作区
+      assert detail["workspaceId"] == workspace.id
       assert Enum.all?(detail["objectives"], &(&1["mastery"] == "unassessed"))
       assert detail["progress"]["complete"] == false
 
-      # 未报名非成员 → null(不泄存在性)
+      # 未报名非成员 → null(不泄存在性);整响应等值,选了 workspaceId 也不外泄
       outsider = Fixtures.register_user("u7-detail-outsider")
       response2 = graphql(detail_query(course.id), sign_in_token(outsider))
-      assert %{"data" => %{"courseLearningDetail" => nil}} = response2
+      assert response2 == %{"data" => %{"courseLearningDetail" => nil}}
     end
   end
 
