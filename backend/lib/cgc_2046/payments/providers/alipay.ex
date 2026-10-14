@@ -265,12 +265,18 @@ defmodule Cgc2046.Payments.Providers.Alipay do
   而返回 `{:ok, rows}` 会让 worker 当「账单完整」→ 假 local_paid_missing + 全量
   sweep 删真差异（破坏性后果远重于降级）。接入 GBK 转码（需先过依赖门禁）后
   可放开此闸。
+
+  **表头校验**：UTF-8 合法不等于账单有效——HTTP 200 的错误页（HTML）、空正文、
+  或架构变更后的陌生表头都能通过编码闸，却同样会让 worker 当「账单完整」。故
+  再校验一次**必需表头**：三者齐备才算识别成功。合法零交易账单**有表头无数据行**
+  （官方形态：说明行 + 表头 + 合计行），与「无法识别的响应」因此可区分。
   """
   def download_bill_file(url) do
     case Req.get(url, req_options()) do
       {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) ->
         with {:ok, csv} <- statement_csv(body),
-             :ok <- ensure_utf8(csv) do
+             :ok <- ensure_utf8(csv),
+             :ok <- ensure_recognizable_header(csv) do
           {:ok, parse_statement_csv(csv)}
         else
           _ -> {:error, :bill_fetch_failed}
@@ -279,6 +285,42 @@ defmodule Cgc2046.Payments.Providers.Alipay do
       _ ->
         {:error, :bill_fetch_failed}
     end
+  end
+
+  # worker 消费的三个表头（同 `PaymentReconciliationWorker` 的 @alipay_*_key）。
+  # 与 SQL 字段名同源——此处硬编码为字面量是刻意的：adapter 与 worker 的表头
+  # 契约就是这三个中文列名，写死能在外层改名时红（而非静默失配）。
+  @required_header_keys ["商户订单号", "订单金额", "交易状态"]
+
+  # 识别闸：非注释内容必须以**真表头**起头。取不到表头（HTML/空正文）或缺任一
+  # 必需列 → :error（该渠道 :skip → 对账降级），不把无法识别的正文化成账目。
+  defp ensure_recognizable_header(csv) do
+    csv
+    |> String.split("\n", trim: true)
+    |> Enum.reject(&String.starts_with?(&1, "#"))
+    |> List.first()
+    |> case do
+      nil ->
+        reject_unrecognizable("no header line")
+
+      header ->
+        cols = header |> String.trim_trailing("\r") |> String.split(",")
+
+        if Enum.all?(@required_header_keys, &(&1 in cols)) do
+          :ok
+        else
+          reject_unrecognizable("missing required columns in header")
+        end
+    end
+  end
+
+  defp reject_unrecognizable(why) do
+    Logger.warning(
+      "alipay bill file not recognized (#{why}); skipping this channel — " <>
+        "see Providers.Alipay.download_bill_file/1 docs"
+    )
+
+    :error
   end
 
   # 编码闸：账单解析只在 UTF-8 上成立（表头键与 worker 常量同编码才可能命中）。

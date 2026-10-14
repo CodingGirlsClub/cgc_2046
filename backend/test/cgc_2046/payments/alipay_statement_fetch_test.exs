@@ -102,6 +102,47 @@ defmodule Cgc2046.Payments.AlipayStatementFetchTest do
              Alipay.download_bill_file("http://cdn.example/bill.csv.zip")
   end
 
+  test "合法零交易账单（有表头无数据行）→ {:ok, []}，不得误判为拉取失败" do
+    # 官方形态：说明行 + 表头 + 合计行。有表头即「识别成功」，只是当日无交易。
+    zero_trade = """
+    #支付宝账单明细查询
+    #账号:[foo@example.com]
+    #---------------------------------交易记录明细列表---------------------------------
+    支付宝交易号,商户订单号,业务类型,商品名称,创建时间,完成时间,门店编号,门店名称,操作员,终端号,对方账户,订单金额,商家实收,支付宝红包,,用户支付的金额,,退费金额,交易状态
+    #合计:0笔    交易金额:0.00元
+    """
+
+    stub(fn conn -> Plug.Conn.send_resp(conn, 200, zero_trade) end)
+
+    assert {:ok, []} = Alipay.download_bill_file("http://cdn.example/bill.csv")
+  end
+
+  test "HTTP 200 + HTML 错误页 → :bill_fetch_failed（不得当成合法空账单）" do
+    # 实测：`String.valid?` 对 HTML 为 true，故编码闸挡不住它；若只看「解析出行集」
+    # 会得到 {:ok, []} → worker 当「账单完整」→ 假 local_paid_missing + 全量 sweep。
+    html = "<!DOCTYPE html><html><body>502 Bad Gateway</body></html>"
+
+    assert String.valid?(html), "前提：HTML 能通过编码闸"
+
+    stub(fn conn -> Plug.Conn.send_resp(conn, 200, html) end)
+
+    assert {:error, :bill_fetch_failed} = Alipay.download_bill_file("http://cdn.example/bill.csv")
+  end
+
+  test "HTTP 200 + 空正文 → :bill_fetch_failed" do
+    stub(fn conn -> Plug.Conn.send_resp(conn, 200, "") end)
+
+    assert {:error, :bill_fetch_failed} = Alipay.download_bill_file("http://cdn.example/bill.csv")
+  end
+
+  test "表头缺必需列（架构变更/错文件）→ :bill_fetch_failed" do
+    wrong = "交易号,金额,状态\n1,2,3\n"
+
+    stub(fn conn -> Plug.Conn.send_resp(conn, 200, wrong) end)
+
+    assert {:error, :bill_fetch_failed} = Alipay.download_bill_file("http://cdn.example/bill.csv")
+  end
+
   test "CDN 非 200 → :bill_fetch_failed" do
     stub(fn conn -> Plug.Conn.send_resp(conn, 500, "boom") end)
 

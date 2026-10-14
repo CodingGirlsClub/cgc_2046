@@ -557,10 +557,15 @@ defmodule Cgc2046.Flashback.Tokens do
     to_string(level) in ["anonymous", "credited"]
   end
 
+  # `Map.fetch` 而非 `Map.get`：GraphQL resolver 的契约是「**省略** = 保留原值，
+  # **显式 null** = 清空」（见 mutations.ex 该 field 的注释与实现）。`Map.get`
+  # 把 nil 与 absent 混为一谈 → 客户端显式传 `chosenQuoteSpans: null` 想清掉
+  # 历史 PII span 时，会被回退成库中原 spans 并被本校验拒绝（合法清理被挡）。
   defp effective_spans(params, existing) do
-    case Map.get(params, :chosen_quote_spans) do
-      nil -> (existing && existing.chosen_quote_spans) || []
-      spans -> List.wrap(spans)
+    case Map.fetch(params, :chosen_quote_spans) do
+      :error -> (existing && existing.chosen_quote_spans) || []
+      {:ok, nil} -> []
+      {:ok, spans} -> List.wrap(spans)
     end
   end
 

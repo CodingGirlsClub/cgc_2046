@@ -179,6 +179,34 @@ defmodule Cgc2046.Flashback.StructuredPiiQuoteTest do
       assert {:ok, _} = Tokens.set_quote_license_as_person(person.id, %{level: "credited"})
     end
 
+    test "显式 null 清空既有 PII 金句 → 允许（这是合法清理路径）" do
+      # resolver 契约：省略 = 保留原值，显式 null = 清空。`Map.get` 会把 nil 与
+      # absent 混为一谈 → 想清掉历史 PII span 的合法请求被新校验拒绝。
+      person = create_person()
+      answer = create_pii_answer(person, "phone", "13900000001")
+
+      license =
+        Cgc2046.Flashback.QuoteLicense
+        |> Ash.Changeset.for_create(:create, %{
+          person_id: person.id,
+          level: "anonymous",
+          chosen_quote_spans: [%{"question_key" => "phone", "start" => 0, "len" => 11}]
+        })
+        |> Ash.create!(authorize?: false)
+
+      assert license.level == :anonymous
+
+      # 显式传 nil（= resolver 的 chosenQuoteSpans: null）→ 清空，应放行
+      assert {:ok, updated} =
+               Tokens.set_quote_license_as_person(person.id, %{
+                 level: "anonymous",
+                 chosen_quote_spans: nil
+               })
+
+      assert updated.chosen_quote_spans in [nil, []]
+      assert quote_count(answer.id) == 0
+    end
+
     test "自由文本答案授权照旧成功（防过度收窄）" do
       person = create_person()
       _ = create_free_text_answer(person, "self_intro", "我爱写代码，也爱做饭")

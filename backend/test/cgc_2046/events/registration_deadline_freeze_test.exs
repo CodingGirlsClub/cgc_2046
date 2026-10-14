@@ -154,6 +154,51 @@ defmodule Cgc2046.Events.RegistrationDeadlineFreezeTest do
     assert_business_code(result, "event_registration_deadline_frozen")
   end
 
+  test "两步绕过：先置 null 再设过去值 → 第二步必须被拒（nil 语义回归钉）", ctx do
+    # 缺口的机制：`moved_earlier?` 原对 nil 恒返 false，而
+    # `Enrollment.before_deadline?(nil) == true`（nil = 无限期可退、最宽松）。
+    # 于是「先把 deadline 置 null（放宽，本身该放行）→ 再设成过去」的第二步
+    # 因 old=nil 被判定为「非前移」而跳过守卫 —— 实际把「永不关闭的窗口」
+    # 变成了已关闭。故 nil → 具体日期必须算前移。
+    event = mount_deposit_event_with_order(ctx)
+
+    # 第一步：关押金 + 置空 deadline（放宽，允许）
+    assert {:ok, _} =
+             update_event(ctx, event, %{deposit_enabled: false, registration_deadline: nil})
+
+    reloaded = Ash.get!(Event, event.id, authorize?: false)
+    assert reloaded.registration_deadline == nil
+
+    # 第二步：设成过去 —— 必须被拒
+    result =
+      update_event(ctx, reloaded, %{registration_deadline: EventFixtures.days_from_now(-3)})
+
+    assert_business_code(result, "event_registration_deadline_frozen")
+  end
+
+  test "ends_at：无锚点场补锚到过去值必须放行（修复路径，与 deadline 相反）", ctx do
+    # **刻意与上面的 deadline 用例方向相反**：ends_at 的 nil 不是「最宽松」而是
+    # 「异常」——nil = 不触发没收 = 押金永久滞留（KTD7 绝不静默滞留），由
+    # DepositForfeitWorker 落 deposit_settlement_unanchored Finding 暴露。
+    # 故 `nil → 过去值`（运维补锚）是**修复动作**，必须放行；拦掉会永久锁死
+    # 这类场的押金。DepositForfeitWorkerTest「锚点补回后 Finding 自消」钉的是
+    # 同一条路径（补锚后下一拍结算为 forfeited）。
+    #
+    # 风险面：补锚确实会触发下一拍没收，但入参必须由管理员显式填写，且触发的是
+    # 「修回正常态」，等价于「把 ends_at 设成现在再等 48h」——同一路径、同一终态。
+    event = mount_deposit_event_with_order(ctx)
+
+    assert {:ok, _} = update_event(ctx, event, %{deposit_enabled: false, ends_at: nil})
+
+    reloaded = Ash.get!(Event, event.id, authorize?: false)
+    assert reloaded.ends_at == nil
+
+    assert {:ok, repaired} =
+             update_event(ctx, reloaded, %{ends_at: EventFixtures.days_from_now(-3)})
+
+    assert repaired.ends_at != nil
+  end
+
   test "无押金单时 registration_deadline 可前移（守卫不触发）", ctx do
     event = create_deposit_event(ctx)
 
