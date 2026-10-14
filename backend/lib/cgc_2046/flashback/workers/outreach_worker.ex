@@ -86,10 +86,12 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
         person =
           if is_nil(person.outreach_email_bounced_at), do: person, else: %{person | email: nil}
 
-        if reachable?(person, channel) do
-          {:ok, person}
-        else
-          {:skip, "person_not_reachable"}
+        cond do
+          # 执行时认领闸（#1102）：入队面只在入队那刻滤掉已认领，入队后、执行前被绑定
+          # 的档案原会照常铸 token 发信——链接已被 Tokens.fetch_valid/1 判死，但不该再发。
+          not is_nil(person.user_id) -> {:skip, "person_claimed"}
+          reachable?(person, channel) -> {:ok, person}
+          true -> {:skip, "person_not_reachable"}
         end
 
       {:ok, nil} ->
