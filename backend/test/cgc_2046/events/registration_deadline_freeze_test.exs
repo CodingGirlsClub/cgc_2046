@@ -62,6 +62,13 @@ defmodule Cgc2046.Events.RegistrationDeadlineFreezeTest do
     enrollment
   end
 
+  # 押金场 + 一张未终态押金单（冻结守卫的触发条件）
+  defp mount_deposit_event_with_order(ctx) do
+    event = create_deposit_event(ctx)
+    _ = add_paid_deposit_order(ctx, event)
+    event
+  end
+
   defp update_event(ctx, event, attrs) do
     event
     |> Ash.Changeset.for_update(:update, attrs)
@@ -82,6 +89,37 @@ defmodule Cgc2046.Events.RegistrationDeadlineFreezeTest do
     result = update_event(ctx, event, %{registration_deadline: EventFixtures.days_from_now(1)})
 
     assert_business_code(result, "event_registration_deadline_frozen")
+  end
+
+  test "同一次写入关掉押金开关 + 前移 deadline → 仍被拒（开关绕过回归钉）", ctx do
+    # 原缺口：守卫写的是 `deposit_enabled == true and ...`，而该值取的是**写后
+    # 生效值**——同一 changeset 里把开关关掉 + 前移 deadline，前置条件即为假，
+    # 守卫整个跳过。但关掉开关**不移除既有押金单**（订单口径由
+    # `payments_orders.order_kind` 决定，与活动开关解耦），而 CancelFlow 判自助
+    # 退款资格仍取活动**当前**的 deadline → 存量押金单照样被追溯剥夺退款窗口。
+    # 故冻结判据必须只看存量单，不看当前开关。
+    event = mount_deposit_event_with_order(ctx)
+
+    result =
+      update_event(ctx, event, %{
+        deposit_enabled: false,
+        registration_deadline: EventFixtures.days_from_now(1)
+      })
+
+    assert_business_code(result, "event_registration_deadline_frozen")
+  end
+
+  test "同一次写入关掉押金开关 + 前移 ends_at → 同样被拒（兄弟实例）", ctx do
+    # Codex 只报了 deadline；ends_at 守卫当时同形同病，一并修正并钉住。
+    event = mount_deposit_event_with_order(ctx)
+
+    result =
+      update_event(ctx, event, %{
+        deposit_enabled: false,
+        ends_at: EventFixtures.days_from_now(1)
+      })
+
+    assert_business_code(result, "event_ends_at_frozen")
   end
 
   test "无押金单时 registration_deadline 可前移（守卫不触发）", ctx do

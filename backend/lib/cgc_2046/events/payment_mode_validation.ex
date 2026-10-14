@@ -82,8 +82,13 @@ defmodule Cgc2046.Events.PaymentModeValidation do
         {:error, registration_deadline_required_error()}
 
       # ends_at 是 no-show 结算的资金扳机（KTD7）：存在未终态押金单时禁止前移
-      # ——否则把 ends_at 改到 48h 前即触发下一拍全量不可逆没收（adversarial P1）
-      deposit_enabled == true and ends_at_moved_earlier?(changeset) and
+      # ——否则把 ends_at 改到 48h 前即触发下一拍全量不可逆没收（adversarial P1）。
+      # **判据只看存量押金单，不看活动当前的 `deposit_enabled`**：关掉开关不会
+      # 移除既有订单（订单口径由 `payments_orders.order_kind` 决定，与活动开关
+      # 解耦；`DepositForfeitWorker` 的候选查询同样只认 order_kind），而
+      # `CancelFlow` 判自助退款资格也仍按订单口径取活动**当前**的锚点。故
+      # 「同一次写入里关开关 + 前移」会绕过以开关为前提的守卫，必须按存量单判。
+      ends_at_moved_earlier?(changeset) and
           has_active_deposit_orders?(Ash.Changeset.get_data(changeset, :id)) ->
         {:error,
          Cgc2046.Errors.BusinessError.exception(
@@ -96,8 +101,9 @@ defmodule Cgc2046.Events.PaymentModeValidation do
       # CancelFlow 对 :deposit 用 before_deadline? 判定，取消时锁行现算而非
       # 下单快照）——前移会追溯性关闭既有押金单的退款窗口，且判定为假时静默
       # 不打款不报错，订单停在 paid 而规则集无检测项。与 ends_at 同为「不可
-      # 追溯移动的资金锚点」，故用同一冻结形状（此处仅方向，不涉没收链）。
-      deposit_enabled == true and registration_deadline_moved_earlier?(changeset) and
+      # 追溯移动的资金锚点」，故用同一冻结形状（此处仅方向，不涉没收链），
+      # 且同样**只看存量押金单、不看当前开关**（理由同上）。
+      registration_deadline_moved_earlier?(changeset) and
           has_active_deposit_orders?(Ash.Changeset.get_data(changeset, :id)) ->
         {:error,
          Cgc2046.Errors.BusinessError.exception(

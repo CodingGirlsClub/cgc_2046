@@ -257,17 +257,43 @@ defmodule Cgc2046.Payments.Providers.Alipay do
   `{:ok, []}`：worker 把「拉取成功但零行」当作**账单完整**，会据此判所有本地
   paid 单为 `local_paid_missing` 并跑全量 sweep 删掉真差异；`{:error, _}` 才
   走既有的降级路径（partial sweep，只跑纯本地规则）。
+
+  **编码**：支付宝账单明细为 **GBK 无 BOM**（官方帮助中心账单说明 + 多份实测
+  一致印证），本 adapter 目前**无 GBK 解码能力**（`:unicode` 不支持 gbk，仓库也
+  无编码库依赖）。故解码无法验证时一律按拉取失败处理，不把乱码字节喂进解析：
+  中文表头键会与 worker 消费的 UTF-8 常量不等，`normalize_rows/2` 静默丢全部行，
+  而返回 `{:ok, rows}` 会让 worker 当「账单完整」→ 假 local_paid_missing + 全量
+  sweep 删真差异（破坏性后果远重于降级）。接入 GBK 转码（需先过依赖门禁）后
+  可放开此闸。
   """
   def download_bill_file(url) do
     case Req.get(url, req_options()) do
       {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) ->
-        case statement_csv(body) do
-          {:ok, csv} -> {:ok, parse_statement_csv(csv)}
-          :error -> {:error, :bill_fetch_failed}
+        with {:ok, csv} <- statement_csv(body),
+             :ok <- ensure_utf8(csv) do
+          {:ok, parse_statement_csv(csv)}
+        else
+          _ -> {:error, :bill_fetch_failed}
         end
 
       _ ->
         {:error, :bill_fetch_failed}
+    end
+  end
+
+  # 编码闸：账单解析只在 UTF-8 上成立（表头键与 worker 常量同编码才可能命中）。
+  # GBK 字节在此被挡下 → 该渠道 :skip → 本次对账降级为纯本地面（可见的降级，
+  # 而非静默的错误结论）。见 `download_bill_file/1` 的 @doc 编码段。
+  defp ensure_utf8(csv) do
+    if String.valid?(csv) do
+      :ok
+    else
+      Logger.warning(
+        "alipay bill file is not valid UTF-8 (channel exports GBK); " <>
+          "skipping this channel for now — see Providers.Alipay.download_bill_file/1 docs"
+      )
+
+      :error
     end
   end
 

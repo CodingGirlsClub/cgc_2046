@@ -72,6 +72,36 @@ defmodule Cgc2046.Payments.AlipayStatementFetchTest do
              Alipay.download_bill_file("http://cdn.example/bill.csv.zip")
   end
 
+  test "GBK 编码账单（支付宝生产形态）→ :bill_fetch_failed，不得拿乱码行当账" do
+    # 支付宝账单明细为 **GBK 无 BOM**（官方帮助中心账单说明 + 多份实测印证），
+    # 而两个渠道共用的 parse_statement_csv 产出的是 UTF-8 中文表头键。若把 GBK
+    # 字节直接喂进解析，中文表头键不会等于 worker 消费的 UTF-8 常量
+    # （normalize_rows 的 `status when is_binary` 守卫恒失败）→ 整渠道行静默丢弃，
+    # 却返回 {:ok, rows} 让 worker 当「账单完整」→ 假 local_paid_missing + 全量
+    # sweep 删真差异。该破坏性后果比降级更差，故解码无法验证时一律按拉取失败。
+    # 「商户订单号」的 GBK 字节（手写，避免引入编码库依赖）
+    gbk =
+      <<0xC9, 0xCC, 0xBB, 0xA7, 0xB6, 0xA9, 0xB5, 0xA5, 0xBA, 0xC5>> <> ",199.00,TRADE_SUCCESS\n"
+
+    refute String.valid?(gbk), "构造的字节不是合法 UTF-8（GBK 形态）"
+
+    stub(fn conn -> Plug.Conn.send_resp(conn, 200, gbk) end)
+
+    assert {:error, :bill_fetch_failed} = Alipay.download_bill_file("http://cdn.example/bill.csv")
+  end
+
+  test "zip 内 CSV 为 GBK → 同样 :bill_fetch_failed（解包后仍要过编码关）" do
+    gbk =
+      <<0xC9, 0xCC, 0xBB, 0xA7, 0xB6, 0xA9, 0xB5, 0xA5, 0xBA, 0xC5>> <> ",199.00,TRADE_SUCCESS\n"
+
+    {:ok, {_, zip}} = :zip.create(~c"bill.zip", [{~c"a.csv", gbk}], [:memory])
+
+    stub(fn conn -> Plug.Conn.send_resp(conn, 200, zip) end)
+
+    assert {:error, :bill_fetch_failed} =
+             Alipay.download_bill_file("http://cdn.example/bill.csv.zip")
+  end
+
   test "CDN 非 200 → :bill_fetch_failed" do
     stub(fn conn -> Plug.Conn.send_resp(conn, 500, "boom") end)
 
