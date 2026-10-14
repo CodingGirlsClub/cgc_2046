@@ -20,6 +20,7 @@ HUMAN_SCOPE = [
   "backend/mix.lock",
   "web/pnpm-lock.yaml",
   "miniprogram/pnpm-lock.yaml",
+  "cgc-host/",
   ".github/",
   "AGENTS.md",
   "docs/agents/"
