@@ -53,12 +53,23 @@ defmodule Cgc2046.Payments.AlipayStatementFetchTest do
     assert row["商户订单号"] == "CGC-OTO-1"
   end
 
-  test "zip 内无 .csv 条目：返回空行集而非异常" do
+  test "zip 内无 .csv 条目 → :bill_fetch_failed（不得降级成「账单完整但零行」）" do
     {:ok, {_, zip}} = :zip.create(~c"bill.zip", [{~c"readme.txt", "nope"}], [:memory])
 
     stub(fn conn -> Plug.Conn.send_resp(conn, 200, zip) end)
 
-    assert {:ok, []} = Alipay.download_bill_file("http://cdn.example/bill.csv.zip")
+    assert {:error, :bill_fetch_failed} =
+             Alipay.download_bill_file("http://cdn.example/bill.csv.zip")
+  end
+
+  test "zip 损坏/截断 → :bill_fetch_failed（不得当成零行）" do
+    {:ok, {_, zip}} = :zip.create(~c"bill.zip", [{~c"a.csv", @csv}], [:memory])
+    truncated = binary_part(zip, 0, div(byte_size(zip), 2))
+
+    stub(fn conn -> Plug.Conn.send_resp(conn, 200, truncated) end)
+
+    assert {:error, :bill_fetch_failed} =
+             Alipay.download_bill_file("http://cdn.example/bill.csv.zip")
   end
 
   test "CDN 非 200 → :bill_fetch_failed" do

@@ -252,32 +252,38 @@ defmodule Cgc2046.Payments.Providers.Alipay do
   表现为 `:bill_fetch_failed`（生产实证 2026-10-05~14 每日 03:23 对账全数失败、
   连续降级为纯本地面）。下载物为渠道侧预签名 URL，无需我方签名。
 
-  渠道返回 zip（`downloadFileName=...csv.zip`）时解包取 CSV 条目。
+  渠道返回 zip（`downloadFileName=...csv.zip`）时解包取 CSV 条目。解包失败或
+  zip 内无 .csv 条目一律 **`{:error, :bill_fetch_failed}`**——不可降级成
+  `{:ok, []}`：worker 把「拉取成功但零行」当作**账单完整**，会据此判所有本地
+  paid 单为 `local_paid_missing` 并跑全量 sweep 删掉真差异；`{:error, _}` 才
+  走既有的降级路径（partial sweep，只跑纯本地规则）。
   """
   def download_bill_file(url) do
     case Req.get(url, req_options()) do
       {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) ->
-        {:ok, parse_statement_csv(maybe_unzip(body))}
+        case statement_csv(body) do
+          {:ok, csv} -> {:ok, parse_statement_csv(csv)}
+          :error -> {:error, :bill_fetch_failed}
+        end
 
       _ ->
         {:error, :bill_fetch_failed}
     end
   end
 
-  # zip 解包：magic "PK"。取首个 .csv 条目；解不出返回空串（parse_statement_csv
-  # 对空串返回 []，等价「账单无可比对行」——不把解包失败升级成整腿异常）。
-  defp maybe_unzip(<<"PK", _::binary>> = body) do
+  # zip 解包：magic "PK"。非 zip 正文按 CSV 原样返回。
+  defp statement_csv(<<"PK", _::binary>> = body) do
     case :zip.extract(body, [:memory]) do
       {:ok, entries} -> csv_entry(entries)
-      _ -> ""
+      _ -> :error
     end
   end
 
-  defp maybe_unzip(body), do: body
+  defp statement_csv(body), do: {:ok, body}
 
   defp csv_entry(entries) do
-    Enum.find_value(entries, "", fn {name, content} ->
-      if String.ends_with?(IO.chardata_to_string(name), ".csv"), do: content
+    Enum.find_value(entries, :error, fn {name, content} ->
+      if String.ends_with?(IO.chardata_to_string(name), ".csv"), do: {:ok, content}
     end)
   end
 
