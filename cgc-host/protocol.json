@@ -21,7 +21,8 @@
       "turn.card",
       "turn.card.closed",
       "turn.end",
-      "chat.evicted"
+      "chat.evicted",
+      "error"
     ]
   }
 }
