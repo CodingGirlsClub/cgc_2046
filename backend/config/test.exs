@@ -107,6 +107,11 @@ config :cgc_2046, :wechat_client_autostart, false
 # SDK 自带 test 分支在宿主构建不生效——见 wechat_client.ex 模块注释）。
 config :cgc_2046, :wechat_tesla_adapter, Tesla.Mock
 
+# 支付宝账单下载腿走 Req.Test stub（账单 CDN 为渠道预签名 URL，无需我方签名；
+# 未 stub 的请求直接失败——绝不发真实外网请求）。见 providers/alipay.ex
+# `download_bill_file/1` 的 moduledoc。
+config :cgc_2046, :alipay_bill_req_plug, {Req.Test, Cgc2046.AlipayBillStub}
+
 # 缴费闭环 U4（KTD3）：测试全量注入 FakeProvider——渠道密钥零依赖，
 # 绝不发真实外网请求（微信沙箱不可靠 #172，以 mock 为主）。
 config :cgc_2046, :payments_providers, %{

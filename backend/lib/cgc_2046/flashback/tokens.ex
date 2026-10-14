@@ -261,7 +261,8 @@ defmodule Cgc2046.Flashback.Tokens do
   @doc "雾面调整——会话面（U9/R28 小程序回访编辑）：与 token 面同规则。"
   @spec adjust_fog_as_person(String.t(), String.t(), [map()]) :: {:ok, map()} | {:error, term()}
   def adjust_fog_as_person(person_id, answer_id, spans) do
-    with {:ok, answer} <- owned_answer(person_id, answer_id) do
+    with {:ok, answer} <- owned_answer(person_id, answer_id),
+         :ok <- ensure_not_structured_pii(answer) do
       answer
       |> Ash.Changeset.for_update(:adjust_fog, %{fog_spans: spans})
       |> Ash.update(authorize?: false)
@@ -279,6 +280,17 @@ defmodule Cgc2046.Flashback.Tokens do
           {:error, reason}
       end
     end
+  end
+
+  # R16a：结构化 PII 答案（导入时平台托管整段雾）的雾由平台托管，任何面都不可改。
+  # 清雾后即可把手机号/邮箱/微信/姓名整段「授权」到匿名金句墙——同域其它对外面
+  # （me_answers 胶囊面、名册墙、分享卡）都硬编码排除了这四个键，此处补齐同一纪律。
+  @structured_pii_keys ~w(full_name phone email wechat)
+
+  defp ensure_not_structured_pii(%Answer{question_key: qk}) do
+    if qk in @structured_pii_keys,
+      do: {:error, invalid_input_error("structured PII answer is platform-managed")},
+      else: :ok
   end
 
   @doc """
@@ -531,10 +543,24 @@ defmodule Cgc2046.Flashback.Tokens do
 
   defp validate_quote_spans(_person_id, _), do: :ok
 
+  defp do_validate_quote_spans(person_id, %{chosen_quote_spans: spans}) do
+    if Enum.any?(spans, &pii_answer_key?/1) do
+      {:error, invalid_input_error("structured PII answers cannot be quoted")}
+    else
+      validate_quote_span_groups(person_id, spans)
+    end
+  end
+
+  # 金句面是唯一能往**匿名**墙发布内容的面；四个结构化 PII 键绝不作为金句宿主
+  # （同域 me_answers/名册墙/分享卡的键白名单纪律）。缺此白名单时，「先
+  # adjust_fog(spans: []) 清雾 → 再授权」两步即可把 PII 值发上匿名墙。
+  defp pii_answer_key?(span),
+    do: (span["question_key"] || span[:question_key]) in @structured_pii_keys
+
   # 金句候选只允许指向本人答案（person + question_key 双因子定位）；
   # 起 today.now/want/need/say 也是合法宿主（回落 flashback_todays 对应字段文本）。
   # 多句：按宿主分组一次取原文，逐组校验越界（首错即返）。
-  defp do_validate_quote_spans(person_id, %{chosen_quote_spans: spans}) do
+  defp validate_quote_span_groups(person_id, spans) do
     spans
     |> Enum.group_by(fn span -> span["question_key"] || span[:question_key] end)
     |> Enum.reduce_while(:ok, fn {qk, group_spans}, :ok ->
@@ -639,6 +665,13 @@ defmodule Cgc2046.Flashback.Tokens do
         people = Person |> Ash.Query.filter(id in ^ids) |> Ash.read!(authorize?: false)
 
         with :ok <- Binding.bind(people, actor) do
+          # H2（identifier custodian）：无 token 腿的手机号匹配只是「号码出现在
+          # 报名表上」的证据，不是「号码属于本人」的证据（代填/运营商二次放号）。
+          # token 腿绑定后有 notify_bound，此腿此前完全静默——数据主体对自己
+          # 档案被接管毫不知情。此处补齐通知对等（检测面，非根治：根治需产品层
+          # 把自动批量绑定改为逐档案显式确认）。
+          Enum.each(people, &notify_bound/1)
+
           {:ok, %{bound: true, bound_count: length(persons), masked_phone: mask_phone(phone)}}
         end
     end

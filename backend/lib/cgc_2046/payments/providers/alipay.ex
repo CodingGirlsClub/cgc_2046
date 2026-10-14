@@ -231,13 +231,7 @@ defmodule Cgc2046.Payments.Providers.Alipay do
              bill_date: Calendar.strftime(date, "%Y-%m-%d")
            ) do
         {:ok, %Tesla.Env{status: 200, body: %{"bill_download_url" => url}}} ->
-          case Client.get(url) do
-            {:ok, %Tesla.Env{status: 200, body: csv}} when is_binary(csv) ->
-              {:ok, parse_statement_csv(csv)}
-
-            _ ->
-              {:error, :bill_fetch_failed}
-          end
+          download_bill_file(url)
 
         {:ok, %Tesla.Env{}} ->
           {:error, :bill_not_ready}
@@ -245,6 +239,56 @@ defmodule Cgc2046.Payments.Providers.Alipay do
         {:error, _} = error ->
           error
       end
+    end
+  end
+
+  @doc """
+  下载并解析账单文件（公开面：U13 对账 worker 与契约测试共用）。
+
+  **必须用 Req，不能用 `Client.get/1`**：后者经 `Alipay.Requester` 的
+  `Alipay.Middleware.VerifySignature`——该中间件对 binary body 强制要求
+  alipay-nonce/signature/timestamp 三头并 JSON 解码，而账单 CDN
+  （`dwbillcenter.alipay.com`）响应两者皆无，一律 `{:error, :invaild_response}`，
+  表现为 `:bill_fetch_failed`（生产实证 2026-10-05~14 每日 03:23 对账全数失败、
+  连续降级为纯本地面）。下载物为渠道侧预签名 URL，无需我方签名。
+
+  渠道返回 zip（`downloadFileName=...csv.zip`）时解包取 CSV 条目。
+  """
+  def download_bill_file(url) do
+    case Req.get(url, req_options()) do
+      {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) ->
+        {:ok, parse_statement_csv(maybe_unzip(body))}
+
+      _ ->
+        {:error, :bill_fetch_failed}
+    end
+  end
+
+  # zip 解包：magic "PK"。取首个 .csv 条目；解不出返回空串（parse_statement_csv
+  # 对空串返回 []，等价「账单无可比对行」——不把解包失败升级成整腿异常）。
+  defp maybe_unzip(<<"PK", _::binary>> = body) do
+    case :zip.extract(body, [:memory]) do
+      {:ok, entries} -> csv_entry(entries)
+      _ -> ""
+    end
+  end
+
+  defp maybe_unzip(body), do: body
+
+  defp csv_entry(entries) do
+    Enum.find_value(entries, "", fn {name, content} ->
+      if String.ends_with?(IO.chardata_to_string(name), ".csv"), do: content
+    end)
+  end
+
+  defp req_options do
+    # retry: false——对账是日级 cron，重试交给下一拍；Req 默认重试会把
+    # 一次失败放大成 4 次外呼（对账失败告警不阻塞，KTD11）。
+    opts = [decode_body: false, receive_timeout: 30_000, retry: false]
+
+    case Application.get_env(:cgc_2046, :alipay_bill_req_plug) do
+      nil -> opts
+      plug -> Keyword.put(opts, :plug, plug)
     end
   end
 

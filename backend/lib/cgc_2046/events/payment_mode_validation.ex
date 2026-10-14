@@ -92,6 +92,20 @@ defmodule Cgc2046.Events.PaymentModeValidation do
            fields: [:ends_at]
          )}
 
+      # registration_deadline 是押金单**自助取消退款资格**的锚点（#543/#587：
+      # CancelFlow 对 :deposit 用 before_deadline? 判定，取消时锁行现算而非
+      # 下单快照）——前移会追溯性关闭既有押金单的退款窗口，且判定为假时静默
+      # 不打款不报错，订单停在 paid 而规则集无检测项。与 ends_at 同为「不可
+      # 追溯移动的资金锚点」，故用同一冻结形状（此处仅方向，不涉没收链）。
+      deposit_enabled == true and registration_deadline_moved_earlier?(changeset) and
+          not offering_matches?(changeset) ->
+        {:error,
+         Cgc2046.Errors.BusinessError.exception(
+           message: "cannot move registration_deadline earlier while active deposit orders exist",
+           code: "event_registration_deadline_frozen",
+           fields: [:registration_deadline]
+         )}
+
       true ->
         :ok
     end
@@ -126,6 +140,17 @@ defmodule Cgc2046.Events.PaymentModeValidation do
       DateTime.compare(
         Ash.Changeset.get_attribute(changeset, :ends_at),
         Ash.Changeset.get_data(changeset, :ends_at)
+      ) == :lt
+  end
+
+  # registration_deadline 前移 = 新值 < 旧值（形状同 ends_at_moved_earlier?）
+  defp registration_deadline_moved_earlier?(changeset) do
+    Ash.Changeset.changing_attribute?(changeset, :registration_deadline) and
+      not is_nil(Ash.Changeset.get_data(changeset, :registration_deadline)) and
+      not is_nil(Ash.Changeset.get_attribute(changeset, :registration_deadline)) and
+      DateTime.compare(
+        Ash.Changeset.get_attribute(changeset, :registration_deadline),
+        Ash.Changeset.get_data(changeset, :registration_deadline)
       ) == :lt
   end
 
