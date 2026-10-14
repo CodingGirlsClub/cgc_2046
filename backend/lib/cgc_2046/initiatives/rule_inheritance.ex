@@ -626,43 +626,88 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
   # create 无 id、无既有单，守卫自然不触发（`locked` 三值全 nil）。
   defp ensure_anchors_not_frozen(changeset, locked, fields) do
     event_id = Ash.Changeset.get_data(changeset, :id)
+    deadline? = anchor_moved_earlier?(changeset, locked, :registration_deadline)
+    ends_at? = anchor_moved_earlier?(changeset, locked, :ends_at)
 
-    if is_nil(event_id) or not PaymentModeValidation.active_deposit_orders?(event_id) do
+    # 两个锚点都没往前挪 → 与冻结无关（绝大多数编辑走这条），不取报名锁。
+    if is_nil(event_id) or not (deadline? or ends_at?) do
       changeset
     else
-      changeset
-      |> freeze_deadline(locked, Keyword.get(fields, :deadline, [:registration_deadline]))
-      |> freeze_ends_at(locked, Keyword.get(fields, :ends_at, [:ends_at]))
+      # #1103 其二（TOCTOU）：先取锁再判触发条件。
+      #
+      # 触发条件 `active_deposit_orders?/1` 是一次普通查询，而本路径持的是
+      # **events** 行锁、下单路径持的是 **enrollments** 行锁——两条路径原来不在
+      # 同一把锁上，于是这个交错可达：守卫查到「无单」放行 → 用户事务插入
+      # pending 押金单并提交 → 守卫写入更早的锚点。那笔单的 `expire_at` 仍按下单
+      # 那刻的旧锚点算定，退款窗口被追溯关闭。
+      #
+      # 锁住该场全部 `payment_pending` 报名行（下单唯一可能建单的报名态，
+      # `payment_pending_only/1` gate）即可串行化：下单插 `payments_orders` 时
+      # 外键会对父行取 `FOR KEY SHARE`，与 `FOR UPDATE` 冲突。
+      #
+      # 锁序仍是「events → enrollments」，与 `prepare_confirm` /
+      # `lock_qualification_target` / 批量免缴一致；下单侧只持 enrollments
+      # （不取 events 行锁），故不成环。**不要**改成给下单侧加 events 锁——
+      # 那会反转锁序与本文件其余路径死锁。
+      lock_pending_enrollments(event_id)
+
+      if PaymentModeValidation.active_deposit_orders?(event_id) do
+        changeset
+        |> freeze_deadline(deadline?, fields)
+        |> freeze_ends_at(ends_at?, fields)
+      else
+        changeset
+      end
     end
   end
 
-  # 前移才拦；未变更该字段直接跳过（否则会把与锚点无关的编辑误判——`locked` 与
-  # 生效值本就可能因并发而不同，但「没改」不是前移）。
-  defp freeze_deadline(changeset, locked, fields) do
-    if Ash.Changeset.changing_attribute?(changeset, :registration_deadline) and
-         PaymentModeValidation.deadline_moved_earlier?(
-           locked.registration_deadline,
-           Ash.Changeset.get_attribute(changeset, :registration_deadline)
-         ) do
-      Ash.Changeset.add_error(
-        changeset,
-        PaymentModeValidation.registration_deadline_frozen_error(fields)
+  # 该场「可能建单」的报名行加锁（见 `ensure_anchors_not_frozen/3`）。`ORDER BY id`
+  # 让多场并发时的取锁顺序确定，避免两笔改锚点互等成环。
+  defp lock_pending_enrollments(event_id) do
+    Repo.query!(
+      """
+      SELECT id FROM enrollments
+      WHERE event_id = $1 AND status = 'payment_pending'
+      ORDER BY id
+      FOR UPDATE
+      """,
+      [Repo.uuid!(event_id)]
+    )
+
+    :ok
+  end
+
+  # 该锚点是否被往前挪了（写后生效值 vs **锁内真值**）。未变更该字段 → false
+  # （「没改」不是前移：`locked` 与变更前的快照可能因并发而不同）。
+  defp anchor_moved_earlier?(changeset, locked, :registration_deadline) do
+    Ash.Changeset.changing_attribute?(changeset, :registration_deadline) and
+      PaymentModeValidation.deadline_moved_earlier?(
+        locked.registration_deadline,
+        Ash.Changeset.get_attribute(changeset, :registration_deadline)
       )
-    else
-      changeset
-    end
   end
 
-  defp freeze_ends_at(changeset, locked, fields) do
-    if Ash.Changeset.changing_attribute?(changeset, :ends_at) and
-         PaymentModeValidation.ends_at_moved_earlier?(
-           locked.ends_at,
-           Ash.Changeset.get_attribute(changeset, :ends_at)
-         ) do
-      Ash.Changeset.add_error(changeset, PaymentModeValidation.ends_at_frozen_error(fields))
-    else
-      changeset
-    end
+  defp anchor_moved_earlier?(changeset, locked, :ends_at) do
+    Ash.Changeset.changing_attribute?(changeset, :ends_at) and
+      PaymentModeValidation.ends_at_moved_earlier?(
+        locked.ends_at,
+        Ash.Changeset.get_attribute(changeset, :ends_at)
+      )
+  end
+
+  defp freeze_deadline(changeset, false, _fields), do: changeset
+
+  defp freeze_deadline(changeset, true, fields) do
+    Ash.Changeset.add_error(
+      changeset,
+      PaymentModeValidation.registration_deadline_frozen_error(fields)
+    )
+  end
+
+  defp freeze_ends_at(changeset, false, _fields), do: changeset
+
+  defp freeze_ends_at(changeset, true, fields) do
+    Ash.Changeset.add_error(changeset, PaymentModeValidation.ends_at_frozen_error(fields))
   end
 
   # create 时 Event 尚无 id（data.id = nil）→ 退回默认 fields（无场可指）。
