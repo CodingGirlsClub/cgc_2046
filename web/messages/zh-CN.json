@@ -72,6 +72,7 @@
     "reassignOwnerFailed": "重指派 Owner 失败",
     "issueMcpTokenFailed": "签发失败，请稍后重试",
     "revokeMcpTokenFailed": "撤销失败，请稍后重试",
+    "mcp_token_limit_reached": "有效的连接 token 已达上限（每人最多 10 个），请先撤销不再使用的 token 再签发。",
     "operation_confirm_failed": "确认执行失败或确认已过期，请重新发起操作。",
     "operation_cancel_failed": "取消失败：该操作可能已被确认或取消，请刷新后核对。",
     "operation_unavailable": "操作暂不可用，请稍后重试。",

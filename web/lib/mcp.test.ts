@@ -1,14 +1,79 @@
-import { describe, it, expect } from "vitest";
-import { mapMcpToken } from "./mcp";
-import type { McpToken } from "./graphql/mcp-token";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("./apollo-client", () => ({
+	client: { query: vi.fn(), mutate: vi.fn() },
+}));
+
+import { client } from "./apollo-client";
+import { mapMcpToken, issueMcpToken } from "./mcp";
+import { CREATE_MCP_TOKEN, type McpToken } from "./graphql/mcp-token";
 
 const BASE: McpToken = {
 	id: "tok_1",
 	name: "我的 Mac",
+	kind: "TERMINAL",
 	lastUsedAt: null,
 	revokedAt: null,
 	insertedAt: "2026-08-08T10:00:00Z",
 };
+
+describe("issueMcpToken", () => {
+	const mutate = vi.mocked(client.mutate);
+
+	beforeEach(() => mutate.mockReset());
+
+	it("不传 kind（既有调用方）→ 变量里没有 kind，由后端按 TERMINAL 签发", async () => {
+		mutate.mockResolvedValue({
+			data: { createMcpToken: { result: BASE, plainToken: "cgc_x", errors: [] } },
+		});
+
+		await issueMcpToken("我的 Mac");
+
+		expect(mutate).toHaveBeenCalledWith({ mutation: CREATE_MCP_TOKEN, variables: { name: "我的 Mac" } });
+	});
+
+	it("kind: LEARNING_HOST 透传给签发", async () => {
+		mutate.mockResolvedValue({
+			data: {
+				createMcpToken: {
+					result: { ...BASE, kind: "LEARNING_HOST" },
+					plainToken: "cgch_x",
+					errors: [],
+				},
+			},
+		});
+
+		const { plainToken } = await issueMcpToken("我的 Mac", "LEARNING_HOST");
+
+		expect(mutate).toHaveBeenCalledWith({
+			mutation: CREATE_MCP_TOKEN,
+			variables: { name: "我的 Mac", kind: "LEARNING_HOST" },
+		});
+		expect(plainToken).toBe("cgch_x");
+	});
+
+	it("达有效 token 上限 → errors.mcp_token_limit_reached；其余失败 → 通用文案", async () => {
+		mutate.mockResolvedValueOnce({
+			data: {
+				createMcpToken: {
+					result: null,
+					plainToken: null,
+					errors: [{ message: "active connection token limit reached", code: "mcp_token_limit_reached" }],
+				},
+			},
+		});
+		await expect(issueMcpToken("我的 Mac", "LEARNING_HOST")).rejects.toThrow(
+			"errors.mcp_token_limit_reached",
+		);
+
+		mutate.mockResolvedValueOnce({
+			data: {
+				createMcpToken: { result: null, plainToken: null, errors: [{ message: "is required", code: "required" }] },
+			},
+		});
+		await expect(issueMcpToken("")).rejects.toThrow("errors.issueMcpTokenFailed");
+	});
+});
 
 describe("mapMcpToken", () => {
 	it("revokedAt 为空 → active", () => {

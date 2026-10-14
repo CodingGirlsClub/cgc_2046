@@ -3,10 +3,12 @@ defmodule Cgc2046Web.Plugs.McpAuthPlug do
   MCP endpoint Bearer 鉴权（D13 / plan P1.4）。
 
   `Authorization: Bearer <plain_token>` → `Cgc2046.Mcp.Token.validate_token/1`：
-  - 有效：`assign(:current_user, user)` 与 `assign(:mcp_token_kind, kind)`（anubis transport
-    会把 conn.assigns 透传进 tool frame.assigns，见 `Cgc2046.Mcp.Wrapper`）。kind 每次鉴权都写
-    （ADR-0022）：anubis 把每个请求的 assigns 逐键并入长期存在的会话状态，某个键缺席时
-    沿用同一会话上一个请求的值——只要有一次不写，学习凭证就会继承终端 token 的 kind
+  - 有效：`assign(:current_user, user)`、`assign(:mcp_token_kind, kind)` 与
+    `assign(:mcp_token_id, id)`（anubis transport 会把 conn.assigns 透传进 tool frame.assigns，
+    见 `Cgc2046.Mcp.Wrapper`；`Cgc2046Web.McpTokenController` 凭 id 核实身份与自撤销）。
+    kind 与 id 每次鉴权都写（ADR-0022）：anubis 把每个请求的 assigns 逐键并入长期存在的会话
+    状态，某个键缺席时沿用同一会话上一个请求的值——只要有一次不写，学习凭证就会继承终端
+    token 的 kind
   - 无效/缺失：401 + `WWW-Authenticate`（RFC 6750）
 
   ## 失败认证节流（#214）
@@ -34,6 +36,7 @@ defmodule Cgc2046Web.Plugs.McpAuthPlug do
       conn
       |> assign(:current_user, user)
       |> assign(:mcp_token_kind, token.kind)
+      |> assign(:mcp_token_id, token.id)
     else
       _ -> unauthorized(conn)
     end

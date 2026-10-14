@@ -5773,11 +5773,19 @@ input UpdatePortfolioItemInput {
   icon: String
 }
 
+"连接 token 类型（ADR-0022）：TERMINAL 用户自建，权限随角色；LEARNING_HOST 配对签发给本机 Host，只能调学习工具"
+enum McpTokenKind {
+  TERMINAL
+  LEARNING_HOST
+}
+
 type McpToken {
   "MCP 连接 token（明文不可经此类型读回；hash 不落 GraphQL 面）"
   id: ID!
 
   name: String!
+
+  kind: McpTokenKind!
 
   lastUsedAt: DateTime
 
@@ -6328,8 +6336,8 @@ type RootMutationType {
   "删除某工作台自己的作品集条目（ADR-0004；tenant 隔离）"
   deletePortfolioItem(id: ID!, workspaceId: ID!): PortfolioItem
 
-  "签发 MCP 连接 token（切片 D #44；明文仅本次经 plainToken 返回一次，库中只存 SHA256 hash）"
-  createMcpToken(name: String!): CreateMcpTokenPayload
+  "签发 MCP 连接 token（切片 D #44；明文仅本次经 plainToken 返回一次，库中只存 SHA256 hash；kind 缺省 TERMINAL，LEARNING_HOST 签发学习凭证，ADR-0022）"
+  createMcpToken(name: String!, kind: McpTokenKind): CreateMcpTokenPayload
 
   "撤销 MCP 连接 token（切片 D #44；仅本人，置 revokedAt 保留审计行；他人 token 一律 not_found 不泄露存在性）"
   revokeMcpToken(id: ID!): McpToken

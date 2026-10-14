@@ -15,9 +15,13 @@ import type { MutationError } from "./shared";
 
 /* ---------------- 类型 ---------------- */
 
+/** 连接 token 类型（ADR-0022）：TERMINAL 用户自建；LEARNING_HOST 配对签发给本机 Host，只能调学习工具 */
+export type McpTokenKind = "TERMINAL" | "LEARNING_HOST";
+
 export interface McpToken {
 	id: string;
 	name: string;
+	kind: McpTokenKind;
 	lastUsedAt: string | null;
 	revokedAt: string | null;
 	insertedAt: string;
@@ -41,6 +45,7 @@ export const MY_MCP_TOKENS: TypedDocumentNode<
 		myMcpTokens {
 			id
 			name
+			kind
 			lastUsedAt
 			revokedAt
 			insertedAt
@@ -48,16 +53,17 @@ export const MY_MCP_TOKENS: TypedDocumentNode<
 	}
 `;
 
-/** createMcpToken：签发连接 token（明文仅本次返回） */
+/** createMcpToken：签发连接 token（明文仅本次返回；不传 kind 即 TERMINAL） */
 export const CREATE_MCP_TOKEN: TypedDocumentNode<
 	{ createMcpToken: CreateMcpTokenPayload },
-	{ name: string }
+	{ name: string; kind?: McpTokenKind }
 > = gql`
-	mutation CreateMcpToken($name: String!) {
-		createMcpToken(name: $name) {
+	mutation CreateMcpToken($name: String!, $kind: McpTokenKind) {
+		createMcpToken(name: $name, kind: $kind) {
 			result {
 				id
 				name
+				kind
 				lastUsedAt
 				revokedAt
 				insertedAt
@@ -80,6 +86,7 @@ export const REVOKE_MCP_TOKEN: TypedDocumentNode<
 		revokeMcpToken(id: $id) {
 			id
 			name
+			kind
 			lastUsedAt
 			revokedAt
 			insertedAt

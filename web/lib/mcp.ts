@@ -4,6 +4,7 @@ import {
 	CREATE_MCP_TOKEN,
 	REVOKE_MCP_TOKEN,
 	type McpToken,
+	type McpTokenKind,
 } from "./graphql/mcp-token";
 
 /**
@@ -57,17 +58,20 @@ export async function fetchMyMcpTokens(): Promise<McpTokenItem[]> {
 	return (data?.myMcpTokens ?? []).map(mapMcpToken);
 }
 
-/** 签发连接 token；明文仅本次返回，调用方负责一次性展示 */
+/** 签发连接 token；明文仅本次返回，调用方负责一次性展示。不传 kind 即 TERMINAL（后端缺省） */
 export async function issueMcpToken(
 	name: string,
+	kind?: McpTokenKind,
 ): Promise<{ token: McpTokenItem; plainToken: string }> {
 	const { data } = await client.mutate({
 		mutation: CREATE_MCP_TOKEN,
-		variables: { name },
+		variables: { name, kind },
 	});
 	const payload = data?.createMcpToken;
 	if (!payload?.result || !payload.plainToken) {
-		throw new Error("errors.issueMcpTokenFailed");
+		// 达有效 token 上限是可识别的业务 code（有专门文案）；其余失败走通用文案
+		const capped = payload?.errors?.some((e) => e.code === "mcp_token_limit_reached");
+		throw new Error(capped ? "errors.mcp_token_limit_reached" : "errors.issueMcpTokenFailed");
 	}
 	return { token: mapMcpToken(payload.result), plainToken: payload.plainToken };
 }

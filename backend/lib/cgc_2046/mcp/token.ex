@@ -161,13 +161,15 @@ defmodule Cgc2046.Mcp.Token do
             )
             |> Ash.count!(authorize?: false)
 
+          # 稳定业务 code：页面据此提示先撤销不用的 token；学习凭证（ADR-0022）与终端 token 共用此上限
           if active_count >= @max_active_tokens_per_user do
             Ash.Changeset.add_error(
               changeset,
-              Ash.Error.Changes.InvalidAttribute.exception(
-                field: :name,
+              Cgc2046.Errors.BusinessError.exception(
                 message:
-                  "active connection token limit reached (#{@max_active_tokens_per_user}; active = unrevoked and not idle-expired); revoke an unused token first"
+                  "active connection token limit reached (#{@max_active_tokens_per_user}; active = unrevoked and not idle-expired); revoke an unused token first",
+                code: "mcp_token_limit_reached",
+                fields: [:name]
               )
             )
           else
@@ -283,6 +285,7 @@ defmodule Cgc2046.Mcp.Token do
 
   - 未认证 actor（nil）返回 `{:error, %Ash.Error.Forbidden{}}`
   - active token 达 `@max_active_tokens_per_user` 上限返回 `{:error, %Ash.Error.Invalid{}}`
+    （内含业务 code `mcp_token_limit_reached`）
   """
   @spec issue(String.t(), Cgc2046.Accounts.User.t() | nil, :terminal | :learning_host) ::
           {:ok, __MODULE__.t(), String.t()} | {:error, term()}

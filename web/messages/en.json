@@ -72,6 +72,7 @@
     "reassignOwnerFailed": "Failed to reassign Owner",
     "issueMcpTokenFailed": "Failed to issue, please try again later",
     "revokeMcpTokenFailed": "Failed to revoke, please try again later",
+    "mcp_token_limit_reached": "You've reached the limit of 10 active connection tokens. Revoke one you no longer use, then issue again.",
     "operation_confirm_failed": "Confirmation failed or expired. Please start the operation again.",
     "operation_cancel_failed": "Failed to cancel. The operation may already be confirmed or cancelled — refresh to verify.",
     "operation_unavailable": "Operation unavailable. Please try again later.",
