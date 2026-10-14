@@ -18,6 +18,14 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ## [Unreleased]
 
+## [扩展 v0.1.7] - 2026-10-14
+
+随本日 develop→main 发布上线，明细见 [`openclacky-ext/cgc-2046/CHANGELOG.md`](openclacky-ext/cgc-2046/CHANGELOG.md)：
+
+- 包内文档引用对齐（`CONTEXT.md` 已改名 `GLOSSARY.md`）。扩展行为不变；因分发包内容指纹变化按版本纪律 bump，避免已安装用户的「升级」按钮不出现而静默停在旧构建。
+
+## [2026-10-14]
+
 ### Fixed
 
 - 支付对账（支付宝腿）修复整链失效：账单下载改走无需我方签名的独立请求并解包 zip，此前 VerifySignature 中间件对账单 CDN 的二进制响应强制校验三头，导致每日对账全数 `bill_fetch_failed`、T+1 跨渠道对账能力实际为零；状态列名修正为「交易状态」（原值在渠道明细中不存在，静默丢行后被判账单完整，会触发全量 sweep 删掉真实差异）；zip 解包失败或无 CSV 条目不再返回「成功但零行」而走降级路径；渠道账单为 GBK 编码、本地无转码能力时一律按拉取失败处理（该渠道本次跳过、出 warning，降级可见而非静默给出错误结论）（#1097）。

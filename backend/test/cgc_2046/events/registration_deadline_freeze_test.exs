@@ -199,6 +199,94 @@ defmodule Cgc2046.Events.RegistrationDeadlineFreezeTest do
     assert repaired.ends_at != nil
   end
 
+  describe "锁内真值判定（#1103：旧值不再取 changeset 快照）" do
+    test "并发放宽后，基于过期快照的写入仍被拦（此前漏判的前移）", ctx do
+      # 完整复现 #1103 描述的两步：
+      #   1) A 把 deadline 从 8 天放宽到 30 天并提交（合法，守卫放行）；
+      #   2) B 手里是「A 提交之前」读到的旧 struct（快照 = 8 天），提交 20 天。
+      # 旧实现用快照判：20 > 8 → 判为放宽 → 放行；实际库里是 30 天，20 是前移。
+      event = mount_deposit_event_with_order(ctx)
+
+      # 步骤 1：A 放宽到 30 天
+      assert {:ok, _} =
+               update_event(ctx, event, %{registration_deadline: EventFixtures.days_from_now(30)})
+
+      widened = reload(event).registration_deadline
+
+      # 前提：B 的快照（event 变量）必须已过期，否则这个用例测不到东西
+      assert DateTime.compare(
+               widened,
+               Ash.Changeset.get_data(
+                 Ash.Changeset.for_update(event, :update, %{}),
+                 :registration_deadline
+               )
+             ) == :gt
+
+      # 步骤 2：B 基于**旧快照**提交 20 天——相对快照是放宽，相对库中真值是前移
+      result =
+        update_event(ctx, event, %{registration_deadline: EventFixtures.days_from_now(20)})
+
+      assert_business_code(result, "event_registration_deadline_frozen")
+      # 库里仍是 A 写进去的值，B 的写入没落
+      assert DateTime.compare(reload(event).registration_deadline, widened) == :eq
+    end
+
+    test "快照未过期时正常前移仍被拦（回归：守卫本身没被削弱）", ctx do
+      event = mount_deposit_event_with_order(ctx)
+
+      result =
+        update_event(ctx, event, %{registration_deadline: EventFixtures.days_from_now(1)})
+
+      assert_business_code(result, "event_registration_deadline_frozen")
+    end
+
+    test "并发放宽不误伤：宽 → 更宽放行", ctx do
+      event = mount_deposit_event_with_order(ctx)
+
+      assert {:ok, _} =
+               update_event(ctx, event, %{registration_deadline: EventFixtures.days_from_now(30)})
+
+      assert {:ok, updated} =
+               update_event(ctx, reload(event), %{
+                 registration_deadline: EventFixtures.days_from_now(40)
+               })
+
+      assert DateTime.compare(updated.registration_deadline, EventFixtures.days_from_now(30)) ==
+               :gt
+    end
+  end
+
+  describe "错误 fields 归属（#1110 review）" do
+    test "直接编辑 deadline：fields 指向该字段本身", ctx do
+      event = mount_deposit_event_with_order(ctx)
+
+      result =
+        update_event(ctx, event, %{registration_deadline: EventFixtures.days_from_now(1)})
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} = result
+
+      error =
+        Enum.find(errors, &match?(%BusinessError{code: "event_registration_deadline_frozen"}, &1))
+
+      assert error, "期望 event_registration_deadline_frozen，实际：#{inspect(errors)}"
+      # 不得是包装层（`[deadline: [...]]`）或空列表
+      assert error.fields == [:registration_deadline]
+    end
+
+    test "直接编辑 ends_at：fields 指向该字段本身", ctx do
+      event = mount_deposit_event_with_order(ctx)
+
+      result = update_event(ctx, event, %{ends_at: EventFixtures.days_from_now(1)})
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} = result
+
+      error = Enum.find(errors, &match?(%BusinessError{code: "event_ends_at_frozen"}, &1))
+
+      assert error, "期望 event_ends_at_frozen，实际：#{inspect(errors)}"
+      assert error.fields == [:ends_at]
+    end
+  end
+
   test "无押金单时 registration_deadline 可前移（守卫不触发）", ctx do
     event = create_deposit_event(ctx)
 
