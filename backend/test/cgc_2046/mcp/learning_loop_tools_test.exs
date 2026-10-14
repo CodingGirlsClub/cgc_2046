@@ -12,6 +12,9 @@ defmodule Cgc2046.Mcp.LearningLoopToolsTest do
     (不等 worker)/ 无限重试写新行(不可变账本)
   - get_learning_state:全形状 / stale_revision(run 绑旧版)/ 授权三层
     (成员 ∪ confirmed enrollment ∪ run 持有者)
+  - 评分标准可达性(U12):直接报名 / 活动挂载报名 / run 绑旧版三类学员按 learner
+    playbook 经 get_course_revision 取 rubric criterion id 后提交成立;既非最新也非
+    本人 run 绑定的版本、未报名用户被拒
   """
   use Cgc2046.DataCase, async: true
 
@@ -24,6 +27,7 @@ defmodule Cgc2046.Mcp.LearningLoopToolsTest do
 
   alias Cgc2046.Mcp.Tools.{
     AdminListAuditLogs,
+    GetCourseRevision,
     GetLearningState,
     StartLearningRun,
     SubmitLearningAttempt
@@ -87,15 +91,24 @@ defmodule Cgc2046.Mcp.LearningLoopToolsTest do
     }
   end
 
+  # obj-run 的 rubric 换成两条带版本标签的 criterion(U12):提交方只能从
+  # get_course_revision 读到这些 id,猜不出来
+  defp rubric_content(tag) do
+    put_in(content_fixture(), ["issues", Access.at(0), "objectives", Access.at(0), "rubric"], [
+      %{"id" => "#{tag}-runs", "text" => "程序能运行"},
+      %{"id" => "#{tag}-output", "text" => "输出正确"}
+    ])
+  end
+
   # 学员侧完整布景:workspace + course + published revision(绑定当前)+
   # published learning 定义 + confirmed enrollment
-  defp learning_ctx(prefix) do
+  defp learning_ctx(prefix, content \\ content_fixture()) do
     admin = Fixtures.platform_admin(prefix)
     workspace = Fixtures.create_workspace(admin)
     course = EventFixtures.create_course(workspace, admin, %{title: "Python 入门"})
     learner = Fixtures.register_user("#{prefix}-learner")
     enrollment = enroll(course, learner)
-    revision = publish_revision(workspace, course, 1, content_fixture())
+    revision = publish_revision(workspace, course, 1, content)
     definition = create_learning_definition(workspace, admin)
 
     %{
@@ -197,6 +210,38 @@ defmodule Cgc2046.Mcp.LearningLoopToolsTest do
       %{"workspace_id" => ctx.workspace.id, "course_id" => ctx.course.id},
       frame_for(actor)
     )
+  end
+
+  defp read_revision(ctx, actor, revision_number) do
+    GetCourseRevision.execute(
+      %{
+        "workspace_id" => ctx.workspace.id,
+        "course_id" => ctx.course.id,
+        "revision_number" => revision_number
+      },
+      frame_for(actor)
+    )
+  end
+
+  # learner playbook 的评价链(U12):get_learning_state 的 run.revision_number →
+  # get_course_revision → next_action 目标的 rubric criterion id → 精确覆盖提交。
+  # 返回 {读到的 criterion id, submit 结果}
+  defp submit_with_revision_rubric(ctx, learner) do
+    state = decode(get_state(ctx, learner))
+    objective_id = state["next_action"]["objective_id"]
+
+    assert {:reply, _, _} =
+             reply = read_revision(ctx, learner, state["run"]["revision_number"])
+
+    criterion_ids =
+      for issue <- decode(reply)["issues"],
+          objective <- issue["objectives"],
+          objective["id"] == objective_id,
+          criterion <- objective["rubric"],
+          do: criterion["id"]
+
+    results = Enum.map(criterion_ids, &%{"criterion_id" => &1, "met" => true})
+    {criterion_ids, submit(ctx, learner, objective_id, %{"rubric_results" => results})}
   end
 
   defp fetch_run(run_id, workspace_id) do
@@ -620,6 +665,86 @@ defmodule Cgc2046.Mcp.LearningLoopToolsTest do
       |> Ash.update!(authorize?: false)
 
       assert {:reply, _, _} = get_state(ctx, ctx.learner)
+    end
+  end
+
+  describe "评分标准可达性(U12):按 playbook 经 get_course_revision 取 rubric id 后提交" do
+    test "直接报名的学员:读到 run 绑定版本的 rubric,精确覆盖提交 → 掌握" do
+      ctx = learning_ctx("ll-rubric-direct", rubric_content("v1"))
+      assert {:reply, _, _} = start(ctx, ctx.learner)
+
+      assert {["v1-runs", "v1-output"], {:reply, _, _} = reply} =
+               submit_with_revision_rubric(ctx, ctx.learner)
+
+      assert decode(reply)["mastery"] == "mastered"
+    end
+
+    test "活动挂载报名的学员:读最新版本并完成同样的提交" do
+      admin = Fixtures.platform_admin("ll-rubric-mount")
+      workspace = Fixtures.create_workspace(admin)
+      course = EventFixtures.create_course(workspace, admin, %{title: "Python 入门"})
+      revision = publish_revision(workspace, course, 1, rubric_content("v1"))
+      _definition = create_learning_definition(workspace, admin)
+
+      event =
+        EventFixtures.create_event(workspace, admin, %{
+          title: "配套宣讲",
+          course_revision_id: revision.id
+        })
+
+      learner = Fixtures.register_user("ll-rubric-mount-learner")
+
+      assert {:ok, %{status: :confirmed}} =
+               Enrollment
+               |> Ash.Changeset.for_create(:create_enrollment, %{
+                 event_id: event.id,
+                 user_id: learner.id
+               })
+               |> Ash.create(tenant: workspace.id, actor: learner)
+
+      ctx = %{workspace: workspace, course: course}
+      assert {:reply, _, _} = start(ctx, learner)
+
+      assert {["v1-runs", "v1-output"], {:reply, _, _} = reply} =
+               submit_with_revision_rubric(ctx, learner)
+
+      assert decode(reply)["mastery"] == "mastered"
+    end
+
+    test "run 绑旧版本的学员:读到旧版 rubric(不是最新版的),用它提交 → 掌握" do
+      ctx = learning_ctx("ll-rubric-stale", rubric_content("v1"))
+      assert {:reply, _, _} = start(ctx, ctx.learner)
+      _revision_2 = publish_revision(ctx.workspace, ctx.course, 2, rubric_content("v2"))
+
+      state = decode(get_state(ctx, ctx.learner))
+      assert state["stale_revision"] == true
+      assert state["revision_number"] == 2
+      assert state["run"]["revision_number"] == 1
+
+      assert {["v1-runs", "v1-output"], {:reply, _, _} = reply} =
+               submit_with_revision_rubric(ctx, ctx.learner)
+
+      assert decode(reply)["mastery"] == "mastered"
+    end
+
+    test "既不是最新、也不是本人 run 绑定的版本 → forbidden;未报名用户 → forbidden" do
+      ctx = learning_ctx("ll-rubric-deny")
+      _revision_2 = publish_revision(ctx.workspace, ctx.course, 2, content_fixture())
+      # run 绑 v2;随后发布 v3 成为最新
+      assert {:reply, _, _} = start(ctx, ctx.learner)
+      _revision_3 = publish_revision(ctx.workspace, ctx.course, 3, content_fixture())
+
+      assert {:reply, _, _} = read_revision(ctx, ctx.learner, 2)
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} = read_revision(ctx, ctx.learner, 1)
+      assert msg =~ "forbidden: learners can only read the latest published revision"
+
+      outsider = Fixtures.register_user("ll-rubric-deny-outsider")
+
+      assert {:error, %Anubis.MCP.Error{message: outsider_msg}, _} =
+               read_revision(ctx, outsider, nil)
+
+      assert outsider_msg =~ "forbidden: workspace member or enrolled learner required"
     end
   end
 

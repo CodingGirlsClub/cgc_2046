@@ -6,7 +6,8 @@ defmodule Cgc2046.Mcp.CourseRevisionToolTest do
   授权三段（deferred 族工具层判定）：
 
   - workspace 成员 → 任意版本（缺省 = 最新，显式可取旧版本）；
-  - 本人 confirmed enrollment（学员）→ 仅最新 published 版本，旧版本 forbidden；
+  - 学员 → 最新 published 版本与本人 run 绑定的版本；没有 run 的 confirmed 学员读旧版本
+    forbidden（活动挂载报名与 run 绑旧版的场景见 learning_loop_tools_test）；
   - outsider → forbidden 且 ToolCallLog 落行。
 
   发布布景直接建 CourseRevision（发布链路本身由 course_prep_tools_test
@@ -179,7 +180,7 @@ defmodule Cgc2046.Mcp.CourseRevisionToolTest do
       assert {:error, %Anubis.MCP.Error{message: msg}, _} =
                call(learner, workspace, course, %{"revision_number" => 1})
 
-      assert msg =~ "forbidden: enrolled learners can only read the latest published revision"
+      assert msg =~ "forbidden: learners can only read the latest published revision"
     end
   end
 
