@@ -35,6 +35,7 @@
     "event_moderator_already_assigned",
     "event_moderator_not_workspace_member",
     "event_payment_mode_exclusive",
+    "event_registration_deadline_frozen",
     "event_slug_locked",
     "event_slug_taken",
     "flashback_already_deleted",

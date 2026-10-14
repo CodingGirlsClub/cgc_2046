@@ -261,7 +261,8 @@ defmodule Cgc2046.Flashback.Tokens do
   @doc "雾面调整——会话面（U9/R28 小程序回访编辑）：与 token 面同规则。"
   @spec adjust_fog_as_person(String.t(), String.t(), [map()]) :: {:ok, map()} | {:error, term()}
   def adjust_fog_as_person(person_id, answer_id, spans) do
-    with {:ok, answer} <- owned_answer(person_id, answer_id) do
+    with {:ok, answer} <- owned_answer(person_id, answer_id),
+         :ok <- ensure_not_structured_pii(answer) do
       answer
       |> Ash.Changeset.for_update(:adjust_fog, %{fog_spans: spans})
       |> Ash.update(authorize?: false)
@@ -279,6 +280,17 @@ defmodule Cgc2046.Flashback.Tokens do
           {:error, reason}
       end
     end
+  end
+
+  # R16a：结构化 PII 答案（导入时平台托管整段雾）的雾由平台托管，任何面都不可改。
+  # 清雾后即可把手机号/邮箱/微信/姓名整段「授权」到匿名金句墙——同域其它对外面
+  # （me_answers 胶囊面、名册墙、分享卡）都硬编码排除了这四个键，此处补齐同一纪律。
+  @structured_pii_keys ~w(full_name phone email wechat)
+
+  defp ensure_not_structured_pii(%Answer{question_key: qk}) do
+    if qk in @structured_pii_keys,
+      do: {:error, invalid_input_error("structured PII answer is platform-managed")},
+      else: :ok
   end
 
   @doc """
@@ -484,12 +496,11 @@ defmodule Cgc2046.Flashback.Tokens do
   @doc "金句授权——会话面（U9/R31 端内入口）：与 token 面同规则同幂等。"
   @spec set_quote_license_as_person(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def set_quote_license_as_person(person_id, params) do
-    with :ok <- validate_quote_spans(person_id, params) do
-      case QuoteLicense
-           |> Ash.Query.for_read(:read)
-           |> Ash.Query.filter(person_id == ^person_id)
-           |> Ash.read_one(authorize?: false) do
-        {:ok, nil} ->
+    with {:ok, existing} <- read_quote_license(person_id),
+         :ok <- validate_quote_spans(person_id, params),
+         :ok <- ensure_effective_spans_clean(params, existing) do
+      case existing do
+        nil ->
           QuoteLicense
           |> Ash.Changeset.for_create(:create, Map.put(params, :person_id, person_id))
           |> Ash.create(authorize?: false)
@@ -498,7 +509,7 @@ defmodule Cgc2046.Flashback.Tokens do
             {:error, reason} -> {:error, reason}
           end
 
-        {:ok, license} ->
+        license ->
           license
           |> Ash.Changeset.for_update(:update, params)
           |> Ash.update(authorize?: false)
@@ -506,10 +517,55 @@ defmodule Cgc2046.Flashback.Tokens do
             {:ok, license} -> sync_and_payload(license)
             {:error, reason} -> {:error, reason}
           end
-
-        {:error, reason} ->
-          {:error, reason}
       end
+    end
+  end
+
+  defp read_quote_license(person_id) do
+    QuoteLicense
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(person_id == ^person_id)
+    |> Ash.read_one(authorize?: false)
+  end
+
+  # 生效 spans 校验（H2 绕过回归）：`update` 的 accept 含 chosen_quote_spans，
+  # **省略即保留库中原值**——客户端只改 level 时（GraphQL resolver 的
+  # `Map.take` 不传该参数正是此形状），validate_quote_spans/2 的 catch-all
+  # 覆盖不到既有 span，于是修复前已存库的 PII 金句会在 level 转 anonymous/
+  # credited 时被 sync_for_license 发上匿名墙。此处按**写后生效值**再校验一次：
+  # params 给了 spans 用 params 的，没给用库里的。
+  defp ensure_effective_spans_clean(params, existing) do
+    if publishing?(params, existing) do
+      spans = effective_spans(params, existing)
+
+      if Enum.any?(spans, &pii_answer_key?/1) do
+        {:error,
+         invalid_input_error(
+           "structured PII answers cannot be published; remove the span before enabling quotes"
+         )}
+      else
+        :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  # 仅 off 之外的两档才会被公共墙投影出来（Public.quotes 过滤 level in anonymous/credited）。
+  defp publishing?(params, existing) do
+    level = params[:level] || params["level"] || (existing && existing.level)
+    to_string(level) in ["anonymous", "credited"]
+  end
+
+  # `Map.fetch` 而非 `Map.get`：GraphQL resolver 的契约是「**省略** = 保留原值，
+  # **显式 null** = 清空」（见 mutations.ex 该 field 的注释与实现）。`Map.get`
+  # 把 nil 与 absent 混为一谈 → 客户端显式传 `chosenQuoteSpans: null` 想清掉
+  # 历史 PII span 时，会被回退成库中原 spans 并被本校验拒绝（合法清理被挡）。
+  defp effective_spans(params, existing) do
+    case Map.fetch(params, :chosen_quote_spans) do
+      :error -> (existing && existing.chosen_quote_spans) || []
+      {:ok, nil} -> []
+      {:ok, spans} -> List.wrap(spans)
     end
   end
 
@@ -531,10 +587,24 @@ defmodule Cgc2046.Flashback.Tokens do
 
   defp validate_quote_spans(_person_id, _), do: :ok
 
+  defp do_validate_quote_spans(person_id, %{chosen_quote_spans: spans}) do
+    if Enum.any?(spans, &pii_answer_key?/1) do
+      {:error, invalid_input_error("structured PII answers cannot be quoted")}
+    else
+      validate_quote_span_groups(person_id, spans)
+    end
+  end
+
+  # 金句面是唯一能往**匿名**墙发布内容的面；四个结构化 PII 键绝不作为金句宿主
+  # （同域 me_answers/名册墙/分享卡的键白名单纪律）。缺此白名单时，「先
+  # adjust_fog(spans: []) 清雾 → 再授权」两步即可把 PII 值发上匿名墙。
+  defp pii_answer_key?(span),
+    do: (span["question_key"] || span[:question_key]) in @structured_pii_keys
+
   # 金句候选只允许指向本人答案（person + question_key 双因子定位）；
   # 起 today.now/want/need/say 也是合法宿主（回落 flashback_todays 对应字段文本）。
   # 多句：按宿主分组一次取原文，逐组校验越界（首错即返）。
-  defp do_validate_quote_spans(person_id, %{chosen_quote_spans: spans}) do
+  defp validate_quote_span_groups(person_id, spans) do
     spans
     |> Enum.group_by(fn span -> span["question_key"] || span[:question_key] end)
     |> Enum.reduce_while(:ok, fn {qk, group_spans}, :ok ->
@@ -639,6 +709,13 @@ defmodule Cgc2046.Flashback.Tokens do
         people = Person |> Ash.Query.filter(id in ^ids) |> Ash.read!(authorize?: false)
 
         with :ok <- Binding.bind(people, actor) do
+          # H2（identifier custodian）：无 token 腿的手机号匹配只是「号码出现在
+          # 报名表上」的证据，不是「号码属于本人」的证据（代填/运营商二次放号）。
+          # token 腿绑定后有 notify_bound，此腿此前完全静默——数据主体对自己
+          # 档案被接管毫不知情。此处补齐通知对等（检测面，非根治：根治需产品层
+          # 把自动批量绑定改为逐档案显式确认）。
+          Enum.each(people, &notify_bound/1)
+
           {:ok, %{bound: true, bound_count: length(persons), masked_phone: mask_phone(phone)}}
         end
     end

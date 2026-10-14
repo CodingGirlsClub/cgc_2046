@@ -231,13 +231,7 @@ defmodule Cgc2046.Payments.Providers.Alipay do
              bill_date: Calendar.strftime(date, "%Y-%m-%d")
            ) do
         {:ok, %Tesla.Env{status: 200, body: %{"bill_download_url" => url}}} ->
-          case Client.get(url) do
-            {:ok, %Tesla.Env{status: 200, body: csv}} when is_binary(csv) ->
-              {:ok, parse_statement_csv(csv)}
-
-            _ ->
-              {:error, :bill_fetch_failed}
-          end
+          download_bill_file(url)
 
         {:ok, %Tesla.Env{}} ->
           {:error, :bill_not_ready}
@@ -245,6 +239,130 @@ defmodule Cgc2046.Payments.Providers.Alipay do
         {:error, _} = error ->
           error
       end
+    end
+  end
+
+  @doc """
+  下载并解析账单文件（公开面：U13 对账 worker 与契约测试共用）。
+
+  **必须用 Req，不能用 `Client.get/1`**：后者经 `Alipay.Requester` 的
+  `Alipay.Middleware.VerifySignature`——该中间件对 binary body 强制要求
+  alipay-nonce/signature/timestamp 三头并 JSON 解码，而账单 CDN
+  （`dwbillcenter.alipay.com`）响应两者皆无，一律 `{:error, :invaild_response}`，
+  表现为 `:bill_fetch_failed`（生产实证 2026-10-05~14 每日 03:23 对账全数失败、
+  连续降级为纯本地面）。下载物为渠道侧预签名 URL，无需我方签名。
+
+  渠道返回 zip（`downloadFileName=...csv.zip`）时解包取 CSV 条目。解包失败或
+  zip 内无 .csv 条目一律 **`{:error, :bill_fetch_failed}`**——不可降级成
+  `{:ok, []}`：worker 把「拉取成功但零行」当作**账单完整**，会据此判所有本地
+  paid 单为 `local_paid_missing` 并跑全量 sweep 删掉真差异；`{:error, _}` 才
+  走既有的降级路径（partial sweep，只跑纯本地规则）。
+
+  **编码**：支付宝账单明细为 **GBK 无 BOM**（官方帮助中心账单说明 + 多份实测
+  一致印证），本 adapter 目前**无 GBK 解码能力**（`:unicode` 不支持 gbk，仓库也
+  无编码库依赖）。故解码无法验证时一律按拉取失败处理，不把乱码字节喂进解析：
+  中文表头键会与 worker 消费的 UTF-8 常量不等，`normalize_rows/2` 静默丢全部行，
+  而返回 `{:ok, rows}` 会让 worker 当「账单完整」→ 假 local_paid_missing + 全量
+  sweep 删真差异（破坏性后果远重于降级）。接入 GBK 转码（需先过依赖门禁）后
+  可放开此闸。
+
+  **表头校验**：UTF-8 合法不等于账单有效——HTTP 200 的错误页（HTML）、空正文、
+  或架构变更后的陌生表头都能通过编码闸，却同样会让 worker 当「账单完整」。故
+  再校验一次**必需表头**：三者齐备才算识别成功。合法零交易账单**有表头无数据行**
+  （官方形态：说明行 + 表头 + 合计行），与「无法识别的响应」因此可区分。
+  """
+  def download_bill_file(url) do
+    case Req.get(url, req_options()) do
+      {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) ->
+        with {:ok, csv} <- statement_csv(body),
+             :ok <- ensure_utf8(csv),
+             :ok <- ensure_recognizable_header(csv) do
+          {:ok, parse_statement_csv(csv)}
+        else
+          _ -> {:error, :bill_fetch_failed}
+        end
+
+      _ ->
+        {:error, :bill_fetch_failed}
+    end
+  end
+
+  # worker 消费的三个表头（同 `PaymentReconciliationWorker` 的 @alipay_*_key）。
+  # 与 SQL 字段名同源——此处硬编码为字面量是刻意的：adapter 与 worker 的表头
+  # 契约就是这三个中文列名，写死能在外层改名时红（而非静默失配）。
+  @required_header_keys ["商户订单号", "订单金额", "交易状态"]
+
+  # 识别闸：非注释内容必须以**真表头**起头。取不到表头（HTML/空正文）或缺任一
+  # 必需列 → :error（该渠道 :skip → 对账降级），不把无法识别的正文化成账目。
+  defp ensure_recognizable_header(csv) do
+    csv
+    |> String.split("\n", trim: true)
+    |> Enum.reject(&String.starts_with?(&1, "#"))
+    |> List.first()
+    |> case do
+      nil ->
+        reject_unrecognizable("no header line")
+
+      header ->
+        cols = header |> String.trim_trailing("\r") |> String.split(",")
+
+        if Enum.all?(@required_header_keys, &(&1 in cols)) do
+          :ok
+        else
+          reject_unrecognizable("missing required columns in header")
+        end
+    end
+  end
+
+  defp reject_unrecognizable(why) do
+    Logger.warning(
+      "alipay bill file not recognized (#{why}); skipping this channel — " <>
+        "see Providers.Alipay.download_bill_file/1 docs"
+    )
+
+    :error
+  end
+
+  # 编码闸：账单解析只在 UTF-8 上成立（表头键与 worker 常量同编码才可能命中）。
+  # GBK 字节在此被挡下 → 该渠道 :skip → 本次对账降级为纯本地面（可见的降级，
+  # 而非静默的错误结论）。见 `download_bill_file/1` 的 @doc 编码段。
+  defp ensure_utf8(csv) do
+    if String.valid?(csv) do
+      :ok
+    else
+      Logger.warning(
+        "alipay bill file is not valid UTF-8 (channel exports GBK); " <>
+          "skipping this channel for now — see Providers.Alipay.download_bill_file/1 docs"
+      )
+
+      :error
+    end
+  end
+
+  # zip 解包：magic "PK"。非 zip 正文按 CSV 原样返回。
+  defp statement_csv(<<"PK", _::binary>> = body) do
+    case :zip.extract(body, [:memory]) do
+      {:ok, entries} -> csv_entry(entries)
+      _ -> :error
+    end
+  end
+
+  defp statement_csv(body), do: {:ok, body}
+
+  defp csv_entry(entries) do
+    Enum.find_value(entries, :error, fn {name, content} ->
+      if String.ends_with?(IO.chardata_to_string(name), ".csv"), do: {:ok, content}
+    end)
+  end
+
+  defp req_options do
+    # retry: false——对账是日级 cron，重试交给下一拍；Req 默认重试会把
+    # 一次失败放大成 4 次外呼（对账失败告警不阻塞，KTD11）。
+    opts = [decode_body: false, receive_timeout: 30_000, retry: false]
+
+    case Application.get_env(:cgc_2046, :alipay_bill_req_plug) do
+      nil -> opts
+      plug -> Keyword.put(opts, :plug, plug)
     end
   end
 

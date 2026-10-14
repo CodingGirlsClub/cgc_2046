@@ -71,7 +71,11 @@ defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorker do
   @wechat_status_key "交易状态"
   @alipay_trade_no_key "商户订单号"
   @alipay_amount_key "订单金额"
-  @alipay_status_key "订单状态"
+  # 支付宝账单明细表头末列为「交易状态」（样例文件与官方样例同）；原值
+  # 「订单状态」在真实账单里恒不存在 → normalize_rows/2 的 `status when is_binary`
+  # 守卫静默丢行 → 渠道被当成「已拉取且完整」，本地 paid 单全被判 local_paid_missing
+  # 并触发全量 sweep 删掉真差异。此前被 alipay 账单腿恒失败掩盖（见 provider 注释）。
+  @alipay_status_key "交易状态"
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do

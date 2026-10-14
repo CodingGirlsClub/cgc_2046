@@ -115,6 +115,44 @@ defmodule Cgc2046.Payments.Workers.PaymentReconciliationWorkerTest do
       Fake.reset!()
     end
 
+    test "支付宝账单行按**真实表头**解析后不被静默丢弃（P1 回归钉）" do
+      # 原缺陷：worker 的 @alipay_status_key 写的是「订单状态」，而支付宝账单明细
+      # 真实表头末列是「交易状态」（见 fixtures 样例）→ normalize_rows/2 的
+      # `status when is_binary(status)` 守卫恒失败 → 整渠道行静默丢弃 → 渠道被当成
+      # 「已拉取且完整」，本地 paid 单全被判 local_paid_missing 并触发全量 sweep。
+      # 本用例刻意用**真实样例文件**（而非手写行）驱动，堵住「测试喂的键名恰好
+      # 绕开缺陷」的缺口：原测试把 alipay 也喂「交易状态」，与实际表头不一致。
+      _base = setup_workspace()
+
+      rows =
+        (@samples_dir <> "/alipay_bill_detail.csv")
+        |> File.read!()
+        |> Alipay.parse_statement_csv()
+
+      # 样例文件的商户订单号不是本地单号 → 必然全部落 channel_only（本地无单）。
+      # 断言「行没被丢」：四条数据行各产生一条 channel_only。
+      Fake.script!(fetch_statement: {:ok, rows})
+
+      assert :ok = perform_job(PaymentReconciliationWorker, %{})
+
+      findings =
+        Ash.read!(Finding, authorize?: false) |> Enum.filter(&(&1.rule == :payment_recon))
+
+      # 样例 CSV 有 3 条交易行（表头 + 3 数据 + 1 合计注释行）
+      assert length(rows) == 3
+
+      channel_only =
+        Enum.filter(
+          findings,
+          &(&1.detail["kind"] == "channel_only" and &1.detail["no_local_order"])
+        )
+
+      assert length(channel_only) == 3,
+             "alipay 账单行被丢弃了（status 键不匹配）——期望 3 条 channel_only，实际 #{length(channel_only)}"
+    after
+      Fake.reset!()
+    end
+
     test "无差异 → 空报告（预置旧 finding 未命中删除）" do
       base = setup_workspace()
       healthy = insert_order(base, :paid, 19_900)
