@@ -147,7 +147,7 @@ defmodule Cgc2046Web.GraphqlMcpTokenTest do
       refute inspect(Map.from_struct(stored)) =~ plain
 
       # 签发的 token 立即可用于 MCP 鉴权前置校验
-      assert {:ok, %User{id: id}} = McpToken.validate_token(plain)
+      assert {:ok, %User{id: id}, _token} = McpToken.validate_token(plain)
       assert id == user.id
     end
 

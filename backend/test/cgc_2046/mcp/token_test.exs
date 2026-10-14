@@ -6,6 +6,7 @@ defmodule Cgc2046.Mcp.TokenTest do
   - 明文 token 仅创建时经 metadata 一次性返回，不落库；库中只存 SHA256 hash
   - 绑用户不绑工作区
   - 撤销后不可再用（validate_token 拒绝）
+  - learning_host（ADR-0022）：独立前缀 + 域分隔哈希，旧算法查不到；行上 kind 须与前缀相符
   - 用户只能读/撤自己的 token（越权 Forbidden）
   """
   use Cgc2046.DataCase, async: true
@@ -35,9 +36,10 @@ defmodule Cgc2046.Mcp.TokenTest do
       expected_hash = :crypto.hash(:sha256, plain) |> Base.encode16(case: :lower)
       assert token.token_hash == expected_hash
 
-      # 归属与默认值
+      # 归属与默认值（不传 kind 即 terminal）
       assert token.user_id == user.id
       assert token.name == "我的 Mac"
+      assert token.kind == :terminal
       assert is_nil(token.revoked_at)
       assert is_nil(token.last_used_at)
     end
@@ -129,14 +131,17 @@ defmodule Cgc2046.Mcp.TokenTest do
   end
 
   describe "validate_token（MCP 鉴权路径）" do
-    test "有效明文 token → 返回所属 user" do
+    test "有效明文 token → 返回所属 user 与 token 行（带 kind）" do
       user = Fixtures.register_user("mcp-token-3")
 
       {:ok, token} =
         Token |> Ash.Changeset.for_create(:issue, %{name: "A"}, actor: user) |> Ash.create()
 
-      assert {:ok, found} = Token.validate_token(token.__metadata__[:plain_token])
+      assert {:ok, found, %Token{kind: :terminal} = row} =
+               Token.validate_token(token.__metadata__[:plain_token])
+
       assert found.id == user.id
+      assert row.id == token.id
     end
 
     test "错误 token → :error" do
@@ -163,10 +168,46 @@ defmodule Cgc2046.Mcp.TokenTest do
       {:ok, token} =
         Token |> Ash.Changeset.for_create(:issue, %{name: "A"}, actor: user) |> Ash.create()
 
-      assert {:ok, _user} = Token.validate_token(token.__metadata__[:plain_token])
+      assert {:ok, _user, _token} = Token.validate_token(token.__metadata__[:plain_token])
 
       updated = Ash.get!(Token, token.id, authorize?: false)
       assert %DateTime{} = updated.last_used_at
+    end
+  end
+
+  describe "learning_host（学习凭证：独立前缀 + 域分隔哈希，ADR-0022）" do
+    test "签发：明文前缀 cgch_，存储哈希不是明文的 sha256；校验返回 learning_host 行" do
+      user = Fixtures.register_user("mcp-token-lh-1")
+
+      assert {:ok, token, plain} = Token.issue("我的 Mac", user, :learning_host)
+      assert token.kind == :learning_host
+      assert "cgch_" <> _ = plain
+      refute token.token_hash == :crypto.hash(:sha256, plain) |> Base.encode16(case: :lower)
+
+      assert {:ok, found, %Token{kind: :learning_host} = row} = Token.validate_token(plain)
+      assert found.id == user.id
+      assert row.id == token.id
+    end
+
+    test "旧算法（明文直接 sha256）查不到任何 learning_host 行" do
+      user = Fixtures.register_user("mcp-token-lh-2")
+      {:ok, _token, plain} = Token.issue("我的 Mac", user, :learning_host)
+
+      # 回滚到旧版后端时就是这样查：查不到，学习凭证只会失效，不会以全权 token 通过
+      old_hash = :crypto.hash(:sha256, plain) |> Base.encode16(case: :lower)
+
+      refute Token
+             |> Ash.Query.filter(token_hash == ^old_hash)
+             |> Ash.read_one!(authorize?: false)
+    end
+
+    test "learning_host 前缀的明文配上 terminal 行（签发时漏写 kind）→ 校验失败" do
+      user = Fixtures.register_user("mcp-token-lh-3")
+      {:ok, token, plain} = Token.issue("我的 Mac", user, :learning_host)
+
+      token |> change(kind: :terminal) |> Repo.update!()
+
+      assert :error = Token.validate_token(plain)
     end
   end
 
@@ -193,7 +234,7 @@ defmodule Cgc2046.Mcp.TokenTest do
       {:ok, token} =
         Token |> Ash.Changeset.for_create(:issue, %{name: "A"}, actor: user) |> Ash.create()
 
-      assert {:ok, found} = Token.validate_token(token.__metadata__[:plain_token])
+      assert {:ok, found, _token} = Token.validate_token(token.__metadata__[:plain_token])
       assert found.id == user.id
     end
 
@@ -225,7 +266,7 @@ defmodule Cgc2046.Mcp.TokenTest do
 
       backdate(token, inserted_at: -100, last_used_at: -1)
 
-      assert {:ok, found} = Token.validate_token(token.__metadata__[:plain_token])
+      assert {:ok, found, _token} = Token.validate_token(token.__metadata__[:plain_token])
       assert found.id == user.id
     end
 

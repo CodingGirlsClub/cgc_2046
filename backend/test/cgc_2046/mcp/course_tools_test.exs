@@ -16,7 +16,6 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
   """
   use Cgc2046.DataCase, async: true
 
-  alias Anubis.Server.Frame
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
@@ -24,10 +23,11 @@ defmodule Cgc2046.Mcp.CourseToolsTest do
   alias Cgc2046.Mcp.Tools.GetCourseContent
   alias Cgc2046.Mcp.Tools.ListWorkspaceCourses
   alias Cgc2046.Mcp.Tools.SaveCourseContent
+  alias Cgc2046.McpFrames
 
   require Ash.Query
 
-  defp frame_for(user), do: Frame.new(current_user: user)
+  defp frame_for(user), do: McpFrames.terminal(user)
 
   defp decode({:reply, response, _frame}) do
     [content] = response.content

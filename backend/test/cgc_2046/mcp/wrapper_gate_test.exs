@@ -15,6 +15,8 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
     （同理，S1 get_role_playbook）
   - 平台治理十工具（admin_ 前缀，双键 meta）命中 `:platform_admin` 分支——
     S2 新门控族，子句置于 `:optional` 之前而不吞掉 S1 双键工具
+  - 学习凭证收窄（ADR-0022）：frame 的 kind 不是 `terminal`（含缺失）时只放行学习工具名单，
+    审计行带上 kind
 
   新工具漏声明、豁免被误删均直接红（结构性消除 wrapper 时代「删清单条目无
   编译错误、无测试断言」的删除风险）。
@@ -27,6 +29,8 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
   alias Cgc2046.Mcp.Server
   alias Cgc2046.Mcp.ToolCallLog
   alias Cgc2046.Mcp.Wrapper
+  alias Cgc2046.McpFrames
+  alias Cgc2046.McpToolTiers, as: Tiers
 
   require Ash.Query
 
@@ -44,7 +48,7 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
                  ~w(preview_initiative_mount) ++
                  ~w(create_recruitment_cohort update_recruitment_cohort open_recruitment_cohort close_recruitment_cohort list_recruitment_cohorts)
 
-  defp frame_for(user), do: Frame.new(current_user: user)
+  defp frame_for(user), do: McpFrames.terminal(user)
 
   defp tool_meta_map do
     Server.__components__(:tool)
@@ -317,13 +321,57 @@ defmodule Cgc2046.Mcp.WrapperGateTest do
     end
   end
 
+  describe "学习凭证收窄（ADR-0022）：只有 terminal 不受限" do
+    test "同一用户扫全部注册工具：terminal 全部到达业务 fun；learning_host 与缺 kind 只放行学习工具，其余 forbidden" do
+      # 平台管理员 + 工作台 Owner：其余门（membership / platform_admin）对每个工具都放行，
+      # 拒绝只可能来自 kind 收窄
+      admin = Fixtures.platform_admin("mcp-gate-kind")
+      workspace = Fixtures.create_workspace(admin)
+      tools = Map.keys(tool_meta_map())
+
+      run_all = fn frame ->
+        Map.new(tools, fn tool ->
+          {tool,
+           Wrapper.run(frame, %{"workspace_id" => workspace.id}, tool, fn _, _, _ ->
+             {:ok, %{called: true}}
+           end)}
+        end)
+      end
+
+      reached = fn results -> for {tool, {:ok, %{called: true}}} <- results, do: tool end
+
+      assert Enum.sort(reached.(run_all.(frame_for(admin)))) == Enum.sort(tools)
+
+      for frame <- [
+            Frame.new(%{current_user: admin, mcp_token_kind: :learning_host}),
+            Frame.new(%{current_user: admin})
+          ] do
+        results = run_all.(frame)
+
+        assert Enum.sort(reached.(results)) == Tiers.learning_host()
+
+        for {tool, result} <- results, tool not in Tiers.learning_host() do
+          assert {:error, "forbidden: " <> _} = result, "#{tool} 应被收窄拒绝"
+        end
+      end
+
+      # 每次调用的审计都带上 frame 里的 kind（缺 kind 落 nil）
+      assert ToolCallLog |> Ash.read!(authorize?: false) |> Enum.frequencies_by(& &1.token_kind) ==
+               %{
+                 :terminal => length(tools),
+                 :learning_host => length(tools),
+                 nil => length(tools)
+               }
+    end
+  end
+
   describe "归因维度落库（#228：client_name / session_id 随审计行）" do
     test "frame.context 有 clientInfo / session_id → 审计行带两维度" do
       admin = Fixtures.platform_admin("mcp-attr-a")
       workspace = Fixtures.create_workspace(admin)
 
       frame = %Frame{
-        Frame.new(current_user: admin)
+        McpFrames.terminal(admin)
         | context: %Context{
             session_id: "sess-228",
             client_info: %{"name" => "omp", "version" => "9.9"}

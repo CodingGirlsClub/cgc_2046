@@ -4,7 +4,8 @@ defmodule Cgc2046.Mcp.ToolCallLog do
 
   每次 MCP 工具调用落一行：谁 / 工具 / 参数（redact 后）/ 结果状态 / 耗时 /
   关联 pending_id（确认流）/ 宿主 client_name + 会话 session_id（#228 归因维度，
-  多宿主 BYO 下「哪条调用来自哪个宿主 / 哪个会话」；流水维度不记则历史不可回填）。
+  多宿主 BYO 下「哪条调用来自哪个宿主 / 哪个会话」；流水维度不记则历史不可回填）/
+  连接 token 类型 token_kind（ADR-0022：让「学习凭证从未执行过名单外工具」可查，同样事后补不回来）。
   由服务端自动生成，不做用户侧上报（D9）。
 
   全局资源（不落 workspace_id 字段——params 内含，便于切片 F 审计聚合查询；
@@ -79,6 +80,13 @@ defmodule Cgc2046.Mcp.ToolCallLog do
       description: "MCP 会话 id（HTTP 为 Mcp-Session-Id，stdio 恒为 \"stdio\"）#228 归因维度；取不到或历史行为 nil"
     )
 
+    attribute(:token_kind, :atom,
+      allow_nil?: true,
+      public?: true,
+      constraints: [one_of: [:terminal, :learning_host]],
+      description: "调用所用连接 token 的类型（ADR-0022）；读不到或历史行为 nil"
+    )
+
     create_timestamp(:inserted_at)
   end
 
@@ -126,7 +134,8 @@ defmodule Cgc2046.Mcp.ToolCallLog do
         :latency_ms,
         :pending_operation_id,
         :client_name,
-        :session_id
+        :session_id,
+        :token_kind
       ])
     end
   end

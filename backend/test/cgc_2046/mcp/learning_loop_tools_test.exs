@@ -15,7 +15,6 @@ defmodule Cgc2046.Mcp.LearningLoopToolsTest do
   """
   use Cgc2046.DataCase, async: true
 
-  alias Anubis.Server.Frame
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Curriculum.CourseRevision
@@ -30,11 +29,12 @@ defmodule Cgc2046.Mcp.LearningLoopToolsTest do
     SubmitLearningAttempt
   }
 
+  alias Cgc2046.McpFrames
   alias Cgc2046.Workflows.{SignalSubscriber, WorkflowDefinition, WorkflowRun}
 
   require Ash.Query
 
-  defp frame_for(user), do: Frame.new(current_user: user)
+  defp frame_for(user), do: McpFrames.terminal(user)
 
   defp decode({:reply, response, _frame}) do
     [content] = response.content

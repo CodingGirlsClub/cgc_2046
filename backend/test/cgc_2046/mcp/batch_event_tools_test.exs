@@ -18,18 +18,18 @@ defmodule Cgc2046.Mcp.BatchEventToolsTest do
   """
   use Cgc2046.DataCase, async: true
 
-  alias Anubis.Server.Frame
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Events.Event
   alias Cgc2046.Initiatives.{Initiative, InitiativeRule}
   alias Cgc2046.Mcp.ToolCallLog
   alias Cgc2046.Mcp.Tools.BatchCreateEvents
+  alias Cgc2046.McpFrames
 
   require Ash.Query
 
   @venue %{"country" => "中国", "province" => "浙江省", "city" => "杭州市", "district" => "西湖区"}
 
-  defp frame_for(user), do: Frame.new(current_user: user)
+  defp frame_for(user), do: McpFrames.terminal(user)
 
   defp decode(reply) do
     {:reply, response, _frame} = reply

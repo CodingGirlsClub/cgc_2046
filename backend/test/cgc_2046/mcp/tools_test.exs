@@ -10,8 +10,6 @@ defmodule Cgc2046.Mcp.ToolsTest do
   """
   use Cgc2046.DataCase, async: true
 
-  alias Anubis.Server.Frame
-
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Mcp.{PendingOperation, ToolCallLog}
 
@@ -24,9 +22,11 @@ defmodule Cgc2046.Mcp.ToolsTest do
     GetWorkspaceContext
   }
 
+  alias Cgc2046.McpFrames
+
   require Ash.Query
 
-  defp frame_for(user), do: Frame.new(current_user: user)
+  defp frame_for(user), do: McpFrames.terminal(user)
 
   defp decode_reply({:reply, response, _frame}) do
     [content] = response.content

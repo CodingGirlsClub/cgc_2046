@@ -1,16 +1,16 @@
 defmodule Cgc2046.Mcp.AdminInitiativeListToolTest do
   use Cgc2046.DataCase, async: true
 
-  alias Anubis.Server.Frame
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Initiatives.Initiative
   alias Cgc2046.Mcp.Tools.AdminListInitiatives
+  alias Cgc2046.McpFrames
 
   defp decode({:reply, response, _frame}), do: Jason.decode!(hd(response.content)["text"])
 
   test "status 白名单过滤生效；未知值返回明确错误而不是抛异常" do
     admin = Fixtures.platform_admin("mcp-admin-init-list")
-    frame = Frame.new(current_user: admin)
+    frame = McpFrames.terminal(admin)
 
     Initiative
     |> Ash.Changeset.for_create(:create, %{

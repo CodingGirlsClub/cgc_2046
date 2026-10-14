@@ -16,17 +16,17 @@ defmodule Cgc2046.Accounts.WorkspaceDefinitionSeedTest do
   """
   use Cgc2046.DataCase, async: true
 
-  alias Anubis.Server.Frame
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Curriculum.PrepInstantiator
   alias Cgc2046.Learning.Runs
   alias Cgc2046.Mcp.Tools.{AdminApproveWorkspaceApplication, CreateCourse, ConfirmOperation}
   alias Cgc2046.Mcp.Tools.{AdminCreateWorkspace, StartLearningRun}
+  alias Cgc2046.McpFrames
   alias Cgc2046.Workflows.WorkflowDefinition
 
   require Ash.Query
 
-  defp frame_for(user), do: Frame.new(current_user: user)
+  defp frame_for(user), do: McpFrames.terminal(user)
 
   defp published_definitions(workspace_id) do
     WorkflowDefinition

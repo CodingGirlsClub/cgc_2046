@@ -27,7 +27,6 @@ defmodule Cgc2046.Mcp.EventToolsTest do
   use Cgc2046.DataCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
 
-  alias Anubis.Server.Frame
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Events.Event
@@ -54,6 +53,7 @@ defmodule Cgc2046.Mcp.EventToolsTest do
   }
 
   alias Cgc2046.Events.Moderators
+  alias Cgc2046.McpFrames
 
   require Ash.Query
 
@@ -72,7 +72,7 @@ defmodule Cgc2046.Mcp.EventToolsTest do
     "delete_event" => DeleteEvent
   }
 
-  defp frame_for(user), do: Frame.new(current_user: user)
+  defp frame_for(user), do: McpFrames.terminal(user)
 
   defp decode_reply({:reply, response, _frame}) do
     [content] = response.content

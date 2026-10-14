@@ -7,6 +7,9 @@ defmodule Cgc2046.McpToolTiers do
   与「可见面不比授权更严」原则见 `Cgc2046.Mcp.Scopes` 与 ADR-0021。
 
   四个互斥名单的并集 = 全部注册工具；`visible_for/1` 给出各调用者层级**累计**可见的名单。
+
+  `learning_host/0` 是学习凭证（ADR-0022）放行的工具名单，同样人工钉死。它不是第五层：
+  它是全员可见层的子集，不参与四层并集。
   """
 
   # Owner/Admin 层：工具层硬门是 Rbac.manage? / Prep.manage?（delete_course / delete_event 为
@@ -58,10 +61,17 @@ defmodule Cgc2046.McpToolTiers do
     submit_learning_attempt submit_prep_for_check submit_prep_quality_report
   )
 
+  # 学习凭证（learning_host）放行的工具：学员 playbook 与它的学习循环
+  @learning_host ~w(
+    get_course_revision get_learning_state get_role_playbook start_learning_run
+    submit_learning_attempt
+  )
+
   def all_visible, do: Enum.sort(@all_visible)
   def tutor, do: Enum.sort(@tutor)
   def workspace_admin, do: Enum.sort(@workspace_admin)
   def platform_admin, do: Enum.sort(@platform_admin)
+  def learning_host, do: Enum.sort(@learning_host)
 
   @doc "各调用者层级累计可见的工具名（已排序）。"
   @spec visible_for(:learner | :tutor | :workspace_admin | :platform_admin) :: [String.t()]

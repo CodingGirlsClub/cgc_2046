@@ -12,10 +12,11 @@ defmodule Cgc2046.Mcp.InitiativeMountPreviewToolTest do
   alias Cgc2046.Mcp.ToolCallLog
   alias Cgc2046.Mcp.Tools.PreviewInitiativeMount
   alias Cgc2046.Mcp.Wrapper
+  alias Cgc2046.McpFrames
 
   require Ash.Query
 
-  defp frame_for(user), do: Frame.new(current_user: user)
+  defp frame_for(user), do: McpFrames.terminal(user)
 
   defp decode({:reply, response, _frame}) do
     [content] = response.content

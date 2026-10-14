@@ -13,6 +13,7 @@ defmodule Cgc2046.Mcp.AdminOutreachToolsTest do
   alias Cgc2046.Flashback.Outreach.Dispatch
 
   alias Cgc2046.Mcp.Tools.{AdminResendFlashbackOutreach, AdminSendFlashbackOutreach}
+  alias Cgc2046.McpFrames
 
   require Ash.Query
 
@@ -67,13 +68,13 @@ defmodule Cgc2046.Mcp.AdminOutreachToolsTest do
   end
 
   defp run_ok(tool, params, user) do
-    {:reply, _, _} = reply = tool.execute(params, Frame.new(current_user: user))
+    {:reply, _, _} = reply = tool.execute(params, McpFrames.terminal(user))
     {:ok, decode(reply)}
   end
 
   defp run_error(tool, params, user) do
     {:error, %Anubis.MCP.Error{message: msg}, _} =
-      tool.execute(params, Frame.new(current_user: user))
+      tool.execute(params, McpFrames.terminal(user))
 
     msg
   end
@@ -106,7 +107,7 @@ defmodule Cgc2046.Mcp.AdminOutreachToolsTest do
       assert {:error, %Anubis.MCP.Error{message: msg2}, _} =
                AdminSendFlashbackOutreach.execute(
                  %{"archive_key" => "x", "template" => "reconnect"},
-                 Frame.new(current_user: member)
+                 McpFrames.terminal(member)
                )
 
       assert msg2 =~ "forbidden"
@@ -114,7 +115,7 @@ defmodule Cgc2046.Mcp.AdminOutreachToolsTest do
       assert {:error, %Anubis.MCP.Error{message: msg3}, _} =
                AdminResendFlashbackOutreach.execute(
                  %{"person_id" => Ecto.UUID.generate(), "template" => "reconnect"},
-                 Frame.new(current_user: member)
+                 McpFrames.terminal(member)
                )
 
       assert msg3 =~ "forbidden"
