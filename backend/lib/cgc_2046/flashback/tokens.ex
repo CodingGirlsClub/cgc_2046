@@ -496,12 +496,11 @@ defmodule Cgc2046.Flashback.Tokens do
   @doc "金句授权——会话面（U9/R31 端内入口）：与 token 面同规则同幂等。"
   @spec set_quote_license_as_person(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def set_quote_license_as_person(person_id, params) do
-    with :ok <- validate_quote_spans(person_id, params) do
-      case QuoteLicense
-           |> Ash.Query.for_read(:read)
-           |> Ash.Query.filter(person_id == ^person_id)
-           |> Ash.read_one(authorize?: false) do
-        {:ok, nil} ->
+    with {:ok, existing} <- read_quote_license(person_id),
+         :ok <- validate_quote_spans(person_id, params),
+         :ok <- ensure_effective_spans_clean(params, existing) do
+      case existing do
+        nil ->
           QuoteLicense
           |> Ash.Changeset.for_create(:create, Map.put(params, :person_id, person_id))
           |> Ash.create(authorize?: false)
@@ -510,7 +509,7 @@ defmodule Cgc2046.Flashback.Tokens do
             {:error, reason} -> {:error, reason}
           end
 
-        {:ok, license} ->
+        license ->
           license
           |> Ash.Changeset.for_update(:update, params)
           |> Ash.update(authorize?: false)
@@ -518,10 +517,50 @@ defmodule Cgc2046.Flashback.Tokens do
             {:ok, license} -> sync_and_payload(license)
             {:error, reason} -> {:error, reason}
           end
-
-        {:error, reason} ->
-          {:error, reason}
       end
+    end
+  end
+
+  defp read_quote_license(person_id) do
+    QuoteLicense
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(person_id == ^person_id)
+    |> Ash.read_one(authorize?: false)
+  end
+
+  # 生效 spans 校验（H2 绕过回归）：`update` 的 accept 含 chosen_quote_spans，
+  # **省略即保留库中原值**——客户端只改 level 时（GraphQL resolver 的
+  # `Map.take` 不传该参数正是此形状），validate_quote_spans/2 的 catch-all
+  # 覆盖不到既有 span，于是修复前已存库的 PII 金句会在 level 转 anonymous/
+  # credited 时被 sync_for_license 发上匿名墙。此处按**写后生效值**再校验一次：
+  # params 给了 spans 用 params 的，没给用库里的。
+  defp ensure_effective_spans_clean(params, existing) do
+    if publishing?(params, existing) do
+      spans = effective_spans(params, existing)
+
+      if Enum.any?(spans, &pii_answer_key?/1) do
+        {:error,
+         invalid_input_error(
+           "structured PII answers cannot be published; remove the span before enabling quotes"
+         )}
+      else
+        :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  # 仅 off 之外的两档才会被公共墙投影出来（Public.quotes 过滤 level in anonymous/credited）。
+  defp publishing?(params, existing) do
+    level = params[:level] || params["level"] || (existing && existing.level)
+    to_string(level) in ["anonymous", "credited"]
+  end
+
+  defp effective_spans(params, existing) do
+    case Map.get(params, :chosen_quote_spans) do
+      nil -> (existing && existing.chosen_quote_spans) || []
+      spans -> List.wrap(spans)
     end
   end
 

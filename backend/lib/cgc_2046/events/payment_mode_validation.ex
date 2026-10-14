@@ -84,7 +84,7 @@ defmodule Cgc2046.Events.PaymentModeValidation do
       # ends_at 是 no-show 结算的资金扳机（KTD7）：存在未终态押金单时禁止前移
       # ——否则把 ends_at 改到 48h 前即触发下一拍全量不可逆没收（adversarial P1）
       deposit_enabled == true and ends_at_moved_earlier?(changeset) and
-          not offering_matches?(changeset) ->
+          has_active_deposit_orders?(Ash.Changeset.get_data(changeset, :id)) ->
         {:error,
          Cgc2046.Errors.BusinessError.exception(
            message: "cannot move ends_at earlier while active deposit orders exist",
@@ -98,7 +98,7 @@ defmodule Cgc2046.Events.PaymentModeValidation do
       # 不打款不报错，订单停在 paid 而规则集无检测项。与 ends_at 同为「不可
       # 追溯移动的资金锚点」，故用同一冻结形状（此处仅方向，不涉没收链）。
       deposit_enabled == true and registration_deadline_moved_earlier?(changeset) and
-          not offering_matches?(changeset) ->
+          has_active_deposit_orders?(Ash.Changeset.get_data(changeset, :id)) ->
         {:error,
          Cgc2046.Errors.BusinessError.exception(
            message: "cannot move registration_deadline earlier while active deposit orders exist",
@@ -146,19 +146,62 @@ defmodule Cgc2046.Events.PaymentModeValidation do
   # registration_deadline 前移 = 新值 < 旧值（形状同 ends_at_moved_earlier?）
   defp registration_deadline_moved_earlier?(changeset) do
     Ash.Changeset.changing_attribute?(changeset, :registration_deadline) and
-      not is_nil(Ash.Changeset.get_data(changeset, :registration_deadline)) and
-      not is_nil(Ash.Changeset.get_attribute(changeset, :registration_deadline)) and
-      DateTime.compare(
-        Ash.Changeset.get_attribute(changeset, :registration_deadline),
-        Ash.Changeset.get_data(changeset, :registration_deadline)
-      ) == :lt
+      moved_earlier?(
+        Ash.Changeset.get_data(changeset, :registration_deadline),
+        Ash.Changeset.get_attribute(changeset, :registration_deadline)
+      )
   end
 
-  # 有无非终态押金单（paid/refunding/refund_failed）→ 冻结守卫的触发条件。
-  # 跨域只读（Events → Payments Order），单次点查（Event update 低频）。
-  defp offering_matches?(changeset) do
-    event_id = Ash.Changeset.get_data(changeset, :id)
+  defp moved_earlier?(nil, _), do: false
+  defp moved_earlier?(_, nil), do: false
 
+  # 归一后比较：本判据被两条来源不同的路径共用——资源级 changeset 给 `DateTime`
+  # （`:utc_datetime` 属性的 Ash 形态），而 `RuleInheritance` 的裸 SQL 行给
+  # Postgrex 解出的 `NaiveDateTime`。两者直接喂 `DateTime.compare/2` 会
+  # FunctionClauseError（实测踩坑），故统一归一到 DateTime（UTC）再比。
+  defp moved_earlier?(old, new),
+    do: DateTime.compare(to_datetime(new), to_datetime(old)) == :lt
+
+  defp to_datetime(%DateTime{} = dt), do: dt
+  defp to_datetime(%NaiveDateTime{} = ndt), do: DateTime.from_naive!(ndt, "Etc/UTC")
+
+  # ── 资金锚点冻结判据的共享面（RuleInheritance 复用）────────────────────────
+  #
+  # `RuleInheritance` 的两条写入路径（锁死规则传播走裸 SQL、挂载走
+  # before_action force）**都不经本模块的资源级 validate**（见 moduledoc 覆盖
+  # 边界），因此资源层的冻结守卫对它们无效。把判据与错误构造提到公开面，
+  # 让两条继承路径复用同一语义，避免两处各写一份而漂移。
+
+  @doc """
+  写后生效值前移判定（供继承路径复用的纯函数）。
+
+  `old`/`new` 任一为 nil 即非前移（与资源级 `moved_earlier?` 同语义：置空不在
+  本守卫覆盖内——置空由「押金开启要求非空」的既有不变量承担）。
+  """
+  @spec deadline_moved_earlier?(term(), term()) :: boolean()
+  def deadline_moved_earlier?(old, new), do: moved_earlier?(old, new)
+
+  @doc "该活动是否存在未终态押金单（paid/refunding/refund_failed）——冻结守卫的触发条件。"
+  @spec active_deposit_orders?(term()) :: boolean()
+  def active_deposit_orders?(event_id), do: has_active_deposit_orders?(event_id)
+
+  @doc """
+  报名截止前移的稳定业务错误（P1 单源，形状同 `registration_deadline_required_error/1`）。
+
+  `fields` 由调用方给——Event 写面 = `[:registration_deadline]`，规则写入 =
+  `[event_id: <被拒的场>]`（规则写入必须能定位是哪一场）。
+  """
+  def registration_deadline_frozen_error(fields \\ [:registration_deadline]) do
+    BusinessError.exception(
+      message: domain_error_message(:registration_deadline_frozen),
+      code: domain_error_code(:registration_deadline_frozen),
+      fields: fields
+    )
+  end
+
+  # 是否存在非终态押金单（paid/refunding/refund_failed）→ 冻结守卫的触发条件。
+  # 跨域只读（Events → Payments Order），单次点查（Event update 低频）。
+  defp has_active_deposit_orders?(event_id) do
     case Cgc2046.Repo.query(
            """
            SELECT 1 FROM payments_orders
@@ -169,9 +212,11 @@ defmodule Cgc2046.Events.PaymentModeValidation do
            """,
            [Cgc2046.Repo.uuid!(event_id)]
          ) do
-      {:ok, %{rows: []}} -> true
-      {:ok, %{rows: [_ | _]}} -> false
-      _ -> false
+      {:ok, %{rows: []}} -> false
+      {:ok, %{rows: [_ | _]}} -> true
+      # 查询失败按「有单」处理（fail-closed）：宁可挡住一次合法的锚点前移，
+      # 也不放行一次追溯性关闭退款窗口。
+      _ -> true
     end
   end
 
@@ -258,6 +303,9 @@ defmodule Cgc2046.Events.PaymentModeValidation do
   defp domain_error_message(:deposit_registration_deadline_required),
     do: "registration_deadline is required when deposit is enabled (self-cancel cutoff anchor)"
 
+  defp domain_error_message(:registration_deadline_frozen),
+    do: "cannot move registration_deadline earlier while active deposit orders exist"
+
   # 显式子句化（#241）：字面量 code 进错误码契约工件，前端文案表按 code 查
   defp domain_error_code(:payment_mode_exclusive), do: "event_payment_mode_exclusive"
 
@@ -273,4 +321,7 @@ defmodule Cgc2046.Events.PaymentModeValidation do
 
   defp domain_error_code(:deposit_registration_deadline_required),
     do: "event_deposit_registration_deadline_required"
+
+  defp domain_error_code(:registration_deadline_frozen),
+    do: "event_registration_deadline_frozen"
 end

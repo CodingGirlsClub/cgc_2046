@@ -115,6 +115,7 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
           changeset
           |> force_attrs(attrs)
           |> ensure_rule_deposit_invariant()
+          |> ensure_rule_deadline_not_frozen()
           # 挂载中的场不可能带「已解除」标记：重挂载（nil → 非空）时旧标记
           # 是撒谎（值已归新 Initiative 治理），整列清空。
           |> clear_detached_provenance(locked.marker)
@@ -399,6 +400,7 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
           end)
 
         :ok = ensure_deposit_invariant(propagated)
+        :ok = ensure_deadline_not_frozen(propagated)
 
         Enum.each(propagated, fn {event, attrs} -> write_propagated(event, attrs, key_atom) end)
       end
@@ -413,6 +415,9 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
       {:error, error}
 
     {:deposit_invariant_conflict, error} ->
+      {:error, error}
+
+    {:deadline_frozen, error} ->
       {:error, error}
 
     {:propagation_error, reason} ->
@@ -538,6 +543,26 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
   defp deposit_invariant_broken?(%{deposit_enabled: true, registration_deadline: nil}), do: true
   defp deposit_invariant_broken?(_state), do: false
 
+  # 报名截止前移冻结（与 `PaymentModeValidation` 的资源级守卫同语义）：本路径
+  # 走裸 SQL 写 `registration_deadline`（`write_propagated`），不经资源 validate
+  # ——见 `PaymentModeValidation` moduledoc 覆盖边界。deadline 是押金单自助
+  # 取消退款资格的锚点（取消时锁行现算），前移会追溯关闭既有押金单的退款窗口。
+  defp ensure_deadline_not_frozen(propagated) do
+    Enum.each(propagated, fn {event, attrs} ->
+      new_deadline = Map.get(attrs, :registration_deadline, event.registration_deadline)
+
+      if PaymentModeValidation.deadline_moved_earlier?(
+           event.registration_deadline,
+           new_deadline
+         ) and PaymentModeValidation.active_deposit_orders?(event.id) do
+        throw(
+          {:deadline_frozen,
+           PaymentModeValidation.registration_deadline_frozen_error(event_id: event.id)}
+        )
+      end
+    end)
+  end
+
   # 规则写入（挂载 / 锁死项 force）后检查同一条不变量：不得把 Event 从满足
   # 翻成违规。判据源是 changeset 的写前（data）与写后（attribute）状态——
   # 规则值在 before_action 里 force，域校验看不见它们（Ash 资源校验在
@@ -557,6 +582,28 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
       Ash.Changeset.add_error(
         changeset,
         PaymentModeValidation.registration_deadline_required_error(
+          rule_invariant_error_fields(changeset)
+        )
+      )
+    else
+      changeset
+    end
+  end
+
+  # 挂载路径的同一冻结守卫：规则值在 before_action 里 force，域校验看不见
+  # （Ash 资源校验在 changeset 构建期执行），故与押金不变量同法显式判。
+  # 仅 update 有在场单可比——create 时 data 无旧值，`deadline_moved_earlier?`
+  # 对新旧 nil 恒 false。
+  defp ensure_rule_deadline_not_frozen(changeset) do
+    old = Ash.Changeset.get_data(changeset, :registration_deadline)
+    new = Ash.Changeset.get_attribute(changeset, :registration_deadline)
+    event_id = Ash.Changeset.get_data(changeset, :id)
+
+    if not is_nil(event_id) and PaymentModeValidation.deadline_moved_earlier?(old, new) and
+         PaymentModeValidation.active_deposit_orders?(event_id) do
+      Ash.Changeset.add_error(
+        changeset,
+        PaymentModeValidation.registration_deadline_frozen_error(
           rule_invariant_error_fields(changeset)
         )
       )

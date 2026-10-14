@@ -128,6 +128,57 @@ defmodule Cgc2046.Flashback.StructuredPiiQuoteTest do
       assert quote_count(answer.id) == 0
     end
 
+    test "省略 chosen_quote_spans 只改 level 时，已存库的 PII 金句仍被拒（绕过回归钉）" do
+      # 原缺口：validate_quote_spans/2 的 catch-all `defp validate_quote_spans(_person_id, _), do: :ok`
+      # 覆盖了「params 里根本没有 chosen_quote_spans 键」的情形；GraphQL resolver 的
+      # `Map.take([:chosen_quote_spans, :credited_note])` 在客户端不传该参数时正是这个形状，
+      # 而 QuoteLicense :update 的 accept 含 chosen_quote_spans——省略即保留库中原值。
+      # 于是「先建一条含 PII span 的 license（level: off）→ 再单独把 level 改成 anonymous」
+      # 就能把 PII 发上匿名墙，绕过新增的白名单。
+      #
+      # 本用例直接构造该持久化形态（模拟「修复前已存在的带 PII 的 license」），
+      # 断言仅改 level 也被拒。
+      person = create_person()
+      answer = create_pii_answer(person, "phone", "13900000001")
+
+      # 直建含 PII span 的 license 行（绕过本次修复的写入校验，模拟历史数据）
+      license =
+        Cgc2046.Flashback.QuoteLicense
+        |> Ash.Changeset.for_create(:create, %{
+          person_id: person.id,
+          level: "off",
+          chosen_quote_spans: [
+            %{"question_key" => "phone", "start" => 0, "len" => 11}
+          ]
+        })
+        |> Ash.create!(authorize?: false)
+
+      assert license.level == :off
+
+      # 只改 level，不传 chosen_quote_spans（= GraphQL 客户端不传该参数的形状）
+      assert {:error, %{code: "flashback_invalid_input"}} =
+               Tokens.set_quote_license_as_person(person.id, %{level: "anonymous"})
+
+      # 且不得发上匿名墙
+      assert quote_count(answer.id) == 0
+    end
+
+    test "省略 spans 但只有自由文本 span 时，仅改 level 仍成功（防过度收窄）" do
+      person = create_person()
+      _ = create_free_text_answer(person, "self_intro", "我爱写代码，也爱做饭")
+
+      assert {:ok, _} =
+               Tokens.set_quote_license_as_person(person.id, %{
+                 level: "anonymous",
+                 chosen_quote_spans: [
+                   %{"question_key" => "self_intro", "start" => 0, "len" => 5}
+                 ]
+               })
+
+      # 只改 level（省略 spans）→ 沿用既有自由文本 span，不受白名单影响
+      assert {:ok, _} = Tokens.set_quote_license_as_person(person.id, %{level: "credited"})
+    end
+
     test "自由文本答案授权照旧成功（防过度收窄）" do
       person = create_person()
       _ = create_free_text_answer(person, "self_intro", "我爱写代码，也爱做饭")
