@@ -105,7 +105,9 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
          {:ok, locked} <- lock_current_event(changeset),
          :ok <- ensure_mount_state(changeset) do
       if is_nil(initiative_id) do
-        prepare_detached_changes(changeset, previous_id, mounting?, locked.marker)
+        changeset
+        |> prepare_detached_changes(previous_id, mounting?, locked.marker)
+        |> ensure_anchors_not_frozen(locked, [])
       else
         with {:ok, initiative} <- lock_initiative(initiative_id),
              :ok <- ensure_open_when_mounting(initiative, mounting?),
@@ -115,7 +117,7 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
           changeset
           |> force_attrs(attrs)
           |> ensure_rule_deposit_invariant()
-          |> ensure_rule_deadline_not_frozen()
+          |> ensure_anchors_not_frozen(locked, deadline: rule_invariant_error_fields(changeset))
           # 挂载中的场不可能带「已解除」标记：重挂载（nil → 非空）时旧标记
           # 是撒谎（值已归新 Initiative 治理），整列清空。
           |> clear_detached_provenance(locked.marker)
@@ -293,23 +295,34 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
     end)
   end
 
-  # create 尚无行：无标记可读（只有 update 才可能维护标记）
-  defp lock_current_event(%{action_type: :create}), do: {:ok, %{marker: nil}}
+  # create 尚无行：无标记可读、无锚点可比（只有 update 才可能维护标记）
+  defp lock_current_event(%{action_type: :create}),
+    do: {:ok, %{marker: nil, registration_deadline: nil, ends_at: nil}}
 
-  # 行锁 + 读回「锁后」的挂载归属与来源标记：归属/状态与 changeset 快照不一致即
-  # 判并发改写（拒绝，不部分生效）；标记一并取回，供 #624 整列读改写用（标记本身
-  # 是整列写，读必须与锁同源，否则并发清除会被旧快照复活）。
+  # 行锁 + 读回「锁后」的挂载归属、来源标记与**两个资金锚点**：归属/状态与
+  # changeset 快照不一致即判并发改写（拒绝，不部分生效）；标记一并取回，供 #624
+  # 整列读改写用（标记本身是整列写，读必须与锁同源，否则并发清除会被旧快照复活）。
+  #
+  # 锚点一并读回是 #1103 的要求：资源级冻结守卫在 changeset 构建期执行（事务外、
+  # 无锁），其「旧值」是载入快照——而 Event 无乐观锁、`update :update` 又
+  # `require_atomic?(false)`（UPDATE 只按主键过滤），并发写会静默覆盖。基于过期快照
+  # 判「前移」会**漏判**：A 把 20 日放宽到 25 日提交，B 基于 20 日快照写 22 日 →
+  # 相对快照是放宽、相对真值（25 日）却是前移。故判定移到锁内、用本函数返回值当旧值。
   defp lock_current_event(changeset) do
     case Repo.query(
-           "SELECT initiative_id, status, detached_rule_provenance FROM events WHERE id = $1 FOR UPDATE",
+           """
+           SELECT initiative_id, status, detached_rule_provenance,
+                  registration_deadline, ends_at
+           FROM events WHERE id = $1 FOR UPDATE
+           """,
            [Repo.uuid!(changeset.data.id)]
          ) do
-      {:ok, %{rows: [[parent_id, status, marker]]}} ->
+      {:ok, %{rows: [[parent_id, status, marker, deadline, ends_at]]}} ->
         parent_id = if parent_id, do: Ecto.UUID.load!(parent_id)
 
         if parent_id == changeset.data.initiative_id and
              status == to_string(changeset.data.status),
-           do: {:ok, %{marker: marker}},
+           do: {:ok, %{marker: marker, registration_deadline: deadline, ends_at: ends_at}},
            else: {:error, "event changed; reload before editing"}
 
       _ ->
@@ -590,26 +603,119 @@ defmodule Cgc2046.Initiatives.RuleInheritance do
     end
   end
 
-  # 挂载路径的同一冻结守卫：规则值在 before_action 里 force，域校验看不见
-  # （Ash 资源校验在 changeset 构建期执行），故与押金不变量同法显式判。
-  # 仅 update 有在场单可比——create 时 data 无旧值，`deadline_moved_earlier?`
-  # 对新旧 nil 恒 false。
-  defp ensure_rule_deadline_not_frozen(changeset) do
-    old = Ash.Changeset.get_data(changeset, :registration_deadline)
-    new = Ash.Changeset.get_attribute(changeset, :registration_deadline)
+  # 资金锚点冻结守卫（#1103）：**锁内真值 vs 写后生效值**。
+  #
+  # 原实现是资源级 `validate`（事务外），旧值取 `Ash.Changeset.get_data/2` 快照，
+  # 而 Event 无乐观锁、UPDATE 只按主键过滤，并发写会静默覆盖快照 → **漏判**前移
+  # （见 `lock_current_event/1` 注释）。挂载路径更早就有同一问题（规则值在
+  # before_action 里 force，资源校验根本看不见）。两条路径统一在这里判：`locked`
+  # 是 events 行 `FOR UPDATE` 读回的真值，`get_attribute` 是写后生效值。
+  #
+  # 触发条件只看**存量押金单**，不看活动当前 `deposit_enabled`：关掉开关不会移除
+  # 既有订单（订单口径由 `payments_orders.order_kind` 决定，与开关解耦），而
+  # `CancelFlow` 判自助退款资格仍按活动当前锚点取值——「同一次写入关开关 + 前移」
+  # 会绕过以开关为前提的守卫。
+  #
+  # 两个锚点的 `nil` 语义**相反**（见各自谓词注释）：`registration_deadline` 的 nil
+  # = 窗口永不关闭 = 最宽松，故「nil → 已过去」算前移；`ends_at` 的 nil = 不触发
+  # 没收 = 押金滞留（KTD7 异常态），故「nil → 具体值」是补锚修复，必须放行。
+  #
+  # `fields`：直接编辑走各自的默认字段名；规则路径传 `deadline: [event_id: <场>]`
+  # （`rule_invariant_error_fields/1`），让报错指回是哪一场。
+  #
+  # create 无 id、无既有单，守卫自然不触发（`locked` 三值全 nil）。
+  defp ensure_anchors_not_frozen(changeset, locked, fields) do
     event_id = Ash.Changeset.get_data(changeset, :id)
+    deadline? = anchor_moved_earlier?(changeset, locked, :registration_deadline)
+    ends_at? = anchor_moved_earlier?(changeset, locked, :ends_at)
 
-    if not is_nil(event_id) and PaymentModeValidation.deadline_moved_earlier?(old, new) and
-         PaymentModeValidation.active_deposit_orders?(event_id) do
-      Ash.Changeset.add_error(
-        changeset,
-        PaymentModeValidation.registration_deadline_frozen_error(
-          rule_invariant_error_fields(changeset)
-        )
-      )
-    else
+    # 调用方传的是**包装** keyword（挂载路径用 `deadline: [event_id: id]` 指回是哪一场，
+    # 解除挂载路径不传），此处解析成各锚点自己的 fields——直接透传会把包装层写进
+    # 错误的 `fields`（`[deadline: [event_id: id]]`），破坏 GraphQL / MCP 消费方的
+    # 字段级归属（P2 review #1110）。ends_at 不由规则 force（`deadline_rule` 只映射
+    # `registration_deadline`），故其 fields 恒为该字段本身。
+    deadline_fields = Keyword.get(fields, :deadline, [:registration_deadline])
+    ends_at_fields = Keyword.get(fields, :ends_at, [:ends_at])
+
+    # 两个锚点都没往前挪 → 与冻结无关（绝大多数编辑走这条），不取报名锁。
+    if is_nil(event_id) or not (deadline? or ends_at?) do
       changeset
+    else
+      # #1103 其二（TOCTOU）：先取锁再判触发条件。
+      #
+      # 触发条件 `active_deposit_orders?/1` 是一次普通查询，而本路径持的是
+      # **events** 行锁、下单路径持的是 **enrollments** 行锁——两条路径原来不在
+      # 同一把锁上，于是这个交错可达：守卫查到「无单」放行 → 用户事务插入
+      # pending 押金单并提交 → 守卫写入更早的锚点。那笔单的 `expire_at` 仍按下单
+      # 那刻的旧锚点算定，退款窗口被追溯关闭。
+      #
+      # 锁住该场全部 `payment_pending` 报名行（下单唯一可能建单的报名态，
+      # `payment_pending_only/1` gate）即可串行化：下单插 `payments_orders` 时
+      # 外键会对父行取 `FOR KEY SHARE`，与 `FOR UPDATE` 冲突。
+      #
+      # 锁序仍是「events → enrollments」，与 `prepare_confirm` /
+      # `lock_qualification_target` / 批量免缴一致；下单侧只持 enrollments
+      # （不取 events 行锁），故不成环。**不要**改成给下单侧加 events 锁——
+      # 那会反转锁序与本文件其余路径死锁。
+      lock_pending_enrollments(event_id)
+
+      if PaymentModeValidation.active_deposit_orders?(event_id) do
+        changeset
+        |> freeze_deadline(deadline?, deadline_fields)
+        |> freeze_ends_at(ends_at?, ends_at_fields)
+      else
+        changeset
+      end
     end
+  end
+
+  # 该场「可能建单」的报名行加锁（见 `ensure_anchors_not_frozen/3`）。`ORDER BY id`
+  # 让多场并发时的取锁顺序确定，避免两笔改锚点互等成环。
+  defp lock_pending_enrollments(event_id) do
+    Repo.query!(
+      """
+      SELECT id FROM enrollments
+      WHERE event_id = $1 AND status = 'payment_pending'
+      ORDER BY id
+      FOR UPDATE
+      """,
+      [Repo.uuid!(event_id)]
+    )
+
+    :ok
+  end
+
+  # 该锚点是否被往前挪了（写后生效值 vs **锁内真值**）。未变更该字段 → false
+  # （「没改」不是前移：`locked` 与变更前的快照可能因并发而不同）。
+  defp anchor_moved_earlier?(changeset, locked, :registration_deadline) do
+    Ash.Changeset.changing_attribute?(changeset, :registration_deadline) and
+      PaymentModeValidation.deadline_moved_earlier?(
+        locked.registration_deadline,
+        Ash.Changeset.get_attribute(changeset, :registration_deadline)
+      )
+  end
+
+  defp anchor_moved_earlier?(changeset, locked, :ends_at) do
+    Ash.Changeset.changing_attribute?(changeset, :ends_at) and
+      PaymentModeValidation.ends_at_moved_earlier?(
+        locked.ends_at,
+        Ash.Changeset.get_attribute(changeset, :ends_at)
+      )
+  end
+
+  defp freeze_deadline(changeset, false, _fields), do: changeset
+
+  defp freeze_deadline(changeset, true, fields) do
+    Ash.Changeset.add_error(
+      changeset,
+      PaymentModeValidation.registration_deadline_frozen_error(fields)
+    )
+  end
+
+  defp freeze_ends_at(changeset, false, _fields), do: changeset
+
+  defp freeze_ends_at(changeset, true, fields) do
+    Ash.Changeset.add_error(changeset, PaymentModeValidation.ends_at_frozen_error(fields))
   end
 
   # create 时 Event 尚无 id（data.id = nil）→ 退回默认 fields（无场可指）。
