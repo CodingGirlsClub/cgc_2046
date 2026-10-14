@@ -18,6 +18,12 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ## [Unreleased]
 
+## [扩展 v0.1.7] - 2026-10-14
+
+随本日 develop→main 发布上线，明细见 [`openclacky-ext/cgc-2046/CHANGELOG.md`](openclacky-ext/cgc-2046/CHANGELOG.md)：
+
+- 包内文档引用对齐（`CONTEXT.md` 已改名 `GLOSSARY.md`）。扩展行为不变；因分发包内容指纹变化按版本纪律 bump，避免已安装用户的「升级」按钮不出现而静默停在旧构建。
+
 ## [2026-10-14]
 
 ### Fixed
