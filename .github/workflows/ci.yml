@@ -22,8 +22,8 @@ concurrency:
 jobs:
   # 门禁前置:push 事件的 merge commit 去重。
   # 判据:merge commit(2 parents) 且 tree == 第二父 tree(零漂移合并——
-  #       base 未动、无冲突解决) 且第二父 SHA 上 5 个检查(backend/web/miniprogram/
-  #       secrets/ext)齐全、最新结论全 ∈ {success,skipped} 且 secrets 必为 success;
+  #       base 未动、无冲突解决) 且第二父 SHA 上 6 个检查(backend/web/miniprogram/
+  #       secrets/ext/host)齐全、最新结论全 ∈ {success,skipped} 且 secrets 必为 success;
   #       出现 skipped 时,还须 changes job 成功,且本 job 对第二父的改动
   #       (first...second)独立重算 docs_only=true——skipped 只在「确为纯文档」
   #       时才算已绿,workflow 写错/前置 job 被取消导致的 skipped 不放行
@@ -55,15 +55,15 @@ jobs:
           second_tree=$(gh api "repos/$REPO/commits/$second" --jq '.commit.tree.sha') || exit 0
           [ "$tree" = "$second_tree" ] || exit 0
 
-          # 第二父(被合入分支 head)上各 CI job 最新结论:5 个检查必须齐全,
+          # 第二父(被合入分支 head)上各 CI job 最新结论:6 个检查必须齐全,
           # 全部 ∈ {success,skipped},且 secrets 必须是 success——secrets 恒跑,
           # 它的 success 才证明那一轮 CI 真跑过。无记录/进行中(null)→ 跑(fail-closed)
           concls=$(gh api "repos/$REPO/commits/$second/check-runs?per_page=100" \
-            --jq '[.check_runs[] | select(.name == "backend" or .name == "web" or .name == "miniprogram" or .name == "secrets" or .name == "ext" or .name == "changes")]
+            --jq '[.check_runs[] | select(.name == "backend" or .name == "web" or .name == "miniprogram" or .name == "secrets" or .name == "ext" or .name == "host" or .name == "changes")]
                   | group_by(.name) | map(sort_by(.started_at) | last | "\(.name) \(.conclusion)") | .[]') || exit 0
           grep -qx 'secrets success' <<<"$concls" || exit 0
           ! grep -qvE ' (success|skipped)$' <<<"$concls" || exit 0
-          for n in backend web miniprogram ext; do
+          for n in backend web miniprogram ext host; do
             grep -qE "^$n (success|skipped)$" <<<"$concls" || exit 0
           done
 
@@ -85,7 +85,7 @@ jobs:
           echo "run=false" >> "$GITHUB_OUTPUT"
 
   # 纯文档判定(#1051):改动文件全部落在 docs/** 或仓库根 *.md 时 docs_only=true,
-  # backend/web/miniprogram/ext 据此 job 级跳过(secrets、agent-docs 照跑)。
+  # backend/web/miniprogram/ext/host 据此 job 级跳过(secrets、agent-docs 照跑)。
   # 必须 job 级 if 而非 workflow 级 paths:——前者跳过的 job 结论 skipped,按通过
   # 计入 required checks;后者整个 workflow 不触发,required checks 永远不出现,
   # PR 卡死。判定逻辑在 scripts/ci/docs-only.sh,本 job 每次先跑它的断言:
@@ -408,6 +408,41 @@ jobs:
       # GHA run 默认 bash -eo pipefail：任一测试文件失败即红
       - run: for f in test/*.rb; do ruby "$f"; done
       - run: bin/pack
+
+  # 本机 Host 质量门：cgc-host 常驻学员电脑、能驱动学员的 agent，测试与依赖许可
+  # 扫描从第一个 PR 起就把关。依赖由 pnpm 管理、复用 web 的全树许可扫描脚本；
+  # 测试由 Bun 跑。暂非必过检查（设为必过是仓库设置，由人执行），在那之前
+  # cgc-host/** 一律人工合并（见根 AGENTS.md）。
+  host:
+    needs: [gate, changes]
+    # 去重条件同 backend(gate + PR 侧 develop→main 跳过)
+    if: >
+      !cancelled() &&
+      needs.gate.outputs.run == 'true' &&
+      needs.changes.outputs.docs_only != 'true' &&
+      (github.event_name == 'push' ||
+       github.head_ref != 'develop' ||
+       github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: cgc-host
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.28.2  # 与 cgc-host/package.json 的 packageManager 对齐
+      - uses: actions/setup-node@v7
+        with:
+          # pnpm 与许可扫描脚本由 node 运行（与 web 同版本）
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3  # 对齐本地开发版本，避免版本漂移
+      - run: pnpm install --frozen-lockfile
+      - run: bun test
+      - run: pnpm check:licenses
 
   # deps 基础镜像前移：develop push 时 TCR 缺当前 mix.lock 对应的 amd64
   # 镜像则就地构建推送——merge 进 main 时镜像必然已就位，deploy 端 45min+
