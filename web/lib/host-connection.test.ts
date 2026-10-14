@@ -1,0 +1,187 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+import {
+	HOST_HTTP_ORIGIN,
+	HOST_PORT,
+	MIN_HOST_VERSION,
+	checkHost,
+	requestHostAccess,
+} from "./host-connection";
+
+/**
+ * U8 本机连接检测（R26 状态映射，AE12 版本下限）。
+ *
+ * 浏览器全局（location / navigator / fetch）整体用 vi.stubGlobal 替换：
+ * `navigator.userAgentData` 的有无与 platform、`navigator.permissions` 的有无本身就是判定分支。
+ * 端口契约同 `lib/error-codes.contract.test.ts`，跨目录直接读 `cgc-host/protocol.json`。
+ */
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const PROTOCOL_PATH = resolve(HERE, "../../cgc-host/protocol.json");
+
+const CANONICAL = "https://codingirlsclub.com";
+
+function stubBrowser({
+	origin = CANONICAL,
+	platform = "macOS" as string | null,
+	permissions = true,
+	permission = "granted" as PermissionState | "TypeError",
+	health = { version: MIN_HOST_VERSION, ompPresent: true, paired: true } as
+		| object
+		| "unreachable",
+} = {}) {
+	vi.stubEnv("NEXT_PUBLIC_WEB_BASE_URL", CANONICAL);
+	vi.stubGlobal("location", new URL(`${origin}/courses/c1/learn?unit=u1`));
+
+	const permissionQuery = vi.fn(async () => {
+		if (permission === "TypeError") throw new TypeError("not a valid enum value");
+		return { state: permission };
+	});
+	vi.stubGlobal("navigator", {
+		...(platform === null ? {} : { userAgentData: { platform } }),
+		...(permissions ? { permissions: { query: permissionQuery } } : {}),
+	});
+
+	const fetchMock = vi.fn(async () => {
+		if (health === "unreachable") throw new TypeError("Failed to fetch");
+		return new Response(JSON.stringify(health));
+	});
+	vi.stubGlobal("fetch", fetchMock);
+
+	return { permissionQuery, fetchMock };
+}
+
+afterEach(() => {
+	vi.unstubAllGlobals();
+	vi.unstubAllEnvs();
+});
+
+it("web 侧端口常量与 cgc-host/protocol.json 一致（改端口即改协议）", () => {
+	const { port } = JSON.parse(readFileSync(PROTOCOL_PATH, "utf8")) as {
+		port: number;
+	};
+
+	expect(HOST_PORT).toBe(port);
+});
+
+describe("checkHost（页面加载即可调用；未授权时不发本机请求）", () => {
+	it("非规范访问地址 → 不受支持（address），给出同一页面的规范地址", async () => {
+		const { permissionQuery, fetchMock } = stubBrowser({
+			origin: "http://127.0.0.1:3000",
+		});
+
+		expect(await checkHost()).toEqual({
+			state: "unsupported",
+			reason: "address",
+			canonicalUrl: `${CANONICAL}/courses/c1/learn?unit=u1`,
+		});
+		expect(permissionQuery).not.toHaveBeenCalled();
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		["无 userAgentData（Safari、Firefox；Safari 有 permissions API 也一样）", null],
+		["Windows 上的 Chromium（安装命令只支持 macOS）", "Windows"],
+	])("首期只支持 macOS 上的 Chrome：%s → 不受支持（browser），不查权限也不碰本机", async (_, platform) => {
+		const { permissionQuery, fetchMock } = stubBrowser({ platform });
+
+		expect(await checkHost()).toEqual({ state: "unsupported", reason: "browser" });
+		expect(permissionQuery).not.toHaveBeenCalled();
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("macOS 上的 Chromium → 进入本机访问权限判定", async () => {
+		const { permissionQuery } = stubBrowser({ platform: "macOS", permission: "prompt" });
+
+		expect(await checkHost()).toEqual({ state: "needsPermission" });
+		expect(permissionQuery).toHaveBeenCalledWith({ name: "loopback-network" });
+	});
+
+	it("navigator.permissions 不存在 → 不受支持（browser）", async () => {
+		const { fetchMock } = stubBrowser({ permissions: false });
+
+		expect(await checkHost()).toEqual({ state: "unsupported", reason: "browser" });
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("权限查询抛 TypeError → 需要授权，且不发本机请求", async () => {
+		const { fetchMock } = stubBrowser({ permission: "TypeError" });
+
+		expect(await checkHost()).toEqual({ state: "needsPermission" });
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("权限为 prompt → 需要授权，且不发本机请求（第一次请求留给用户手势）", async () => {
+		const { fetchMock } = stubBrowser({ permission: "prompt" });
+
+		expect(await checkHost()).toEqual({ state: "needsPermission" });
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("权限为 denied → 被浏览器阻止", async () => {
+		const { fetchMock } = stubBrowser({ permission: "denied" });
+
+		expect(await checkHost()).toEqual({ state: "blocked" });
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("已授权但探测失败 → 未检测到 Host；探测带 loopback 地址空间声明", async () => {
+		const { fetchMock } = stubBrowser({ health: "unreachable" });
+
+		expect(await checkHost()).toEqual({ state: "noHost" });
+		expect(fetchMock).toHaveBeenCalledWith(`${HOST_HTTP_ORIGIN}/health`, {
+			targetAddressSpace: "loopback",
+		});
+	});
+
+	it("Covers AE12：Host 版本低于下限 → Host 需要更新", async () => {
+		stubBrowser({ health: { version: "0.0.9", ompPresent: true, paired: true } });
+
+		expect(await checkHost()).toEqual({ state: "staleHost" });
+	});
+
+	it("版本满足下限 → 检测到 Host，并带回 OMP 与配对情况", async () => {
+		stubBrowser({
+			health: { version: MIN_HOST_VERSION, ompPresent: false, paired: true },
+		});
+
+		expect(await checkHost()).toEqual({
+			state: "detected",
+			ompPresent: false,
+			paired: true,
+		});
+	});
+});
+
+describe("requestHostAccess（从点击处理器调用：由用户手势发出第一次本机请求）", () => {
+	it("权限仍为 prompt 也直接探测，由这次请求触发浏览器的授权提示", async () => {
+		const { fetchMock } = stubBrowser({ permission: "prompt" });
+
+		expect(await requestHostAccess()).toEqual({
+			state: "detected",
+			ompPresent: true,
+			paired: true,
+		});
+		expect(fetchMock).toHaveBeenCalledOnce();
+	});
+
+	it("学员在提示里拒绝（探测失败后权限为 denied）→ 被浏览器阻止", async () => {
+		stubBrowser({ permission: "denied", health: "unreachable" });
+
+		expect(await requestHostAccess()).toEqual({ state: "blocked" });
+	});
+
+	it("学员关掉了提示（探测失败后权限仍为 prompt）→ 仍需授权", async () => {
+		stubBrowser({ permission: "prompt", health: "unreachable" });
+
+		expect(await requestHostAccess()).toEqual({ state: "needsPermission" });
+	});
+
+	it("权限名不被识别且探测失败 → 未检测到 Host（不再让学员反复点授权）", async () => {
+		stubBrowser({ permission: "TypeError", health: "unreachable" });
+
+		expect(await requestHostAccess()).toEqual({ state: "noHost" });
+	});
+});
