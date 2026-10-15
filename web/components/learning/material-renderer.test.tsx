@@ -125,6 +125,24 @@ describe("MaterialRenderer", () => {
     expect(el.innerHTML).not.toContain("javascript:");
   });
 
+  it("renders $…$ inline and $$…$$ block math with KaTeX", () => {
+    render(<MaterialRenderer material={{ kind: "markdown", body: "三边满足 $a+b>c$。\n\n$$\n|a-b|<x<a+b\n$$" }} />);
+    const el = screen.getByTestId("course-material-markdown");
+    expect(el.querySelectorAll(".katex")).toHaveLength(2);
+    expect(el.querySelector(".katex-display")).not.toBeNull();
+    expect(el.textContent).not.toContain("$");
+  });
+
+  it("math stays inert: \\href in a formula never becomes a link, raw HTML around it stays text", () => {
+    render(<MaterialRenderer material={{ kind: "markdown", body: "$\\href{javascript:alert(1)}{点我}$ <img src=x onerror=alert(1)>" }} />);
+    const el = screen.getByTestId("course-material-markdown");
+    expect(el.querySelector("a")).toBeNull();
+    expect(el.querySelector("img")).toBeNull();
+    // 公式源码作为 MathML 注释文本保留（不可执行）；要钉的是没有任何指向 javascript: 的属性
+    expect(el.querySelector('[href], [src]')).toBeNull();
+    expect(el.querySelector(".katex")).not.toBeNull();
+  });
+
   it("requires alt text and rejects unsafe image URLs", () => {
     render(<MaterialRenderer material={{ kind: "image", title: "图", url: "javascript:alert(1)" }} />);
     expect(screen.getByTestId("course-material-unavailable")).toHaveTextContent("图片材料缺少");

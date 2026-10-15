@@ -378,17 +378,34 @@ describe("Covers AE9 / R27：模型错误", () => {
 	});
 });
 
-it("agent 文字按纯文本渲染：HTML 与 javascript: 链接原样显示，不产生元素", async () => {
+it("agent 回复按安全 Markdown 渲染：粗体、表格、行内与块级公式", async () => {
+	const ws = await readyPanel();
+	await sendMessage(ws, "讲讲三边关系");
+	ws.pushEvent({ kind: "message", text: "**快捷判据**：$a+b>c$。\n\n| 三边 | 能否 |\n|---|---|\n| 3,4,8 | 否 |\n\n$$\n|a-b|<x<a+b\n$$" });
+
+	const log = screen.getByRole("log");
+	expect(within(log).getByText("快捷判据").tagName).toBe("STRONG");
+	expect(log.querySelector("table")).not.toBeNull();
+	expect(log.querySelectorAll(".katex")).toHaveLength(2);
+	expect(log.querySelector(".katex-display")).not.toBeNull();
+	expect(log.textContent).not.toMatch(/\*\*|\$|\|---/);
+});
+
+it("agent 回复是不可信内容：原始 HTML 转成文本、危险链接与公式里的 \\href 不产生链接；学员消息、工具输出仍是纯文本", async () => {
 	const ws = await readyPanel();
 	await sendMessage(ws, "<b>我的问题</b>");
-	const evil = '<img src=x onerror="window.__xss=1"> [点我](javascript:alert(1)) <a href="javascript:alert(1)">链接</a>';
-	ws.pushEvent({ kind: "message", text: evil });
+	ws.pushEvent({
+		kind: "message",
+		text: '<img src=x onerror="window.__xss=1"> [点我](javascript:alert(1)) <a href="javascript:alert(1)">链接</a> $\\href{javascript:alert(1)}{公式链接}$',
+	});
 	ws.pushEvent({ kind: "tool", toolCallId: "t1", title: "<img src=x onerror=alert(1)>", toolKind: "read", status: "completed", output: "<script>alert(1)</script>" });
 
 	const log = screen.getByRole("log");
-	expect(within(log).getByText(evil)).toBeInTheDocument();
 	expect(within(log).getByText("<b>我的问题</b>")).toBeInTheDocument();
+	expect(log.textContent).toContain('<img src=x onerror="window.__xss=1">');
 	expect(log.querySelector("img, script, a, b")).toBeNull();
+	expect(log.querySelector("[href], [src], [onerror]")).toBeNull();
+	expect(log.querySelector(".katex")).not.toBeNull();
 	expect((window as { __xss?: number }).__xss).toBeUndefined();
 });
 

@@ -12,6 +12,7 @@ import { useTranslations } from "next-intl";
 import { copyText } from "@/lib/clipboard";
 import HostChatCard from "./host-chat-cards";
 import HostPairingList from "./host-pairing-list";
+import { SafeMarkdown } from "./material-renderer";
 import type { PairingErrorReason } from "./use-host-pairing";
 import { useHostChat, type ChatEvent, type HostChat } from "./use-host-chat";
 
@@ -191,10 +192,11 @@ function Turn({ events }: { events: ChatEvent[] }) {
 					</p>
 				);
 			case "message":
+				// agent 的回复按讲义同一套安全 Markdown 渲染（含公式）；学员消息、思考与工具输出仍是纯文本
 				return misconfigured ? null : (
-					<p key={index} className="learning-chat__message">
-						{event.text}
-					</p>
+					<div key={index} className="learning-chat__message learning-material--markdown">
+						<SafeMarkdown>{event.text}</SafeMarkdown>
+					</div>
 				);
 			case "thought":
 				return (

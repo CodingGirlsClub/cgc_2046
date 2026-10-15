@@ -3473,6 +3473,8 @@ button:focus-visible,
 .learning-material--markdown { color: var(--ink-2); font-size: 15px; line-height: 1.8; }
 .learning-material--markdown > :first-child { margin-top: 0; }
 .learning-material--markdown > :last-child { margin-bottom: 0; }
+/* 块级公式（KaTeX）超出栏宽时横向滚动，不撑破三列布局 */
+.learning-material--markdown .katex-display { overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
 .learning-material--markdown h2,
 .learning-material--markdown h3,
 .learning-material--markdown h4 { margin: 26px 0 10px; color: var(--ink); font-weight: 590; letter-spacing: -.01em; line-height: 1.35; }
@@ -3651,11 +3653,24 @@ button:focus-visible,
 .learning-chat__banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--soft); color: var(--ink-2); font-size: 12px; line-height: 1.6; }
 /* agent 的文字一律是纯文本：保留换行，长串断行 */
 .learning-chat__user,
-.learning-chat__message,
 .learning-chat__fold p,
 .learning-chat__fold pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .learning-chat__user { align-self: flex-end; max-width: 85%; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: var(--soft); color: var(--ink); font-size: 13px; line-height: 1.65; }
 .learning-chat__message { color: var(--ink-2); font-size: 13px; line-height: 1.75; }
+/* agent 回复复用讲义的安全 Markdown 排版（SafeMarkdown），在 380px 的对话栏里收紧字号与间距；
+   块级元素自带换行，不再用 pre-wrap，否则元素之间会多出空行 */
+.learning-chat__message.learning-material--markdown { font-size: 13px; line-height: 1.75; overflow-wrap: anywhere; }
+.learning-chat__message.learning-material--markdown p,
+.learning-chat__message.learning-material--markdown li { margin: 6px 0; font-size: 13px; line-height: 1.75; }
+.learning-chat__message.learning-material--markdown h2,
+.learning-chat__message.learning-material--markdown h3,
+.learning-chat__message.learning-material--markdown h4 { margin: 14px 0 6px; font-size: 14px; }
+.learning-chat__message.learning-material--markdown ul,
+.learning-chat__message.learning-material--markdown ol { margin: 6px 0; padding-left: 18px; }
+.learning-chat__message.learning-material--markdown table { min-width: 0; font-size: 12px; }
+.learning-chat__message.learning-material--markdown th,
+.learning-chat__message.learning-material--markdown td { padding: 6px 8px; font-size: 12px; }
+.learning-chat__message.learning-material--markdown .katex-display { margin: 8px 0; overflow-x: auto; overflow-y: hidden; }
 .learning-chat__fold { color: var(--ink-3); font-size: 12px; }
 .learning-chat__fold summary { cursor: pointer; }
 .learning-chat__fold summary:hover { color: var(--ink-2); }
