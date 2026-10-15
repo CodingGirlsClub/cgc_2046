@@ -109,6 +109,56 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 
 KTD14：页面在 `turn.end`、`turn.card`、`history`（进入可对话状态）时重取学习详情。
 
+## 安装、卸载与分发
+
+安装与更新是同一条命令，重复执行即更新到最新版本，结果与装一次相同：
+
+```bash
+curl -fsSL https://api.codingirlsclub.com/ext/cgc-host/install.sh | bash
+```
+
+`install.sh` 依次：没有 Bun 就用官方安装器装到 `~/.bun` → 把包下载到临时目录，按清单校验 sha256，不符即中止、什么都不写 → `launchctl bootout` 旧的 → 落位、写 plist → `launchctl bootstrap`。只支持 macOS。
+
+学员电脑上的文件：
+
+| 路径 | 内容 | 卸载时 |
+| --- | --- | --- |
+| `~/.cgc2046/host/cgc-host.js` | 包 | 删 |
+| `~/.cgc2046/host/state.json` | 状态（含学习凭证，见 `src/state.ts`） | 先用凭证自撤销，再删 |
+| `~/Library/LaunchAgents/com.codingirlsclub.cgc-host.plist` | LaunchAgent：`ProgramArguments` 是 Bun 与包的绝对路径加 `serve`；`RunAtLoad`；`KeepAlive {SuccessfulExit: false}`；`ThrottleInterval` 30；0644；**不含任何环境变量**（OMP 的环境由 Host 运行时从登录 shell 解析，KTD12） | 删 |
+| `~/Library/Logs/cgc-host.log` | Host 的 stdout 与 stderr | 删 |
+| `~/.bun/` | 学员原本没有 Bun 时由官方安装器装的 | 不删：Bun 可能已被学员别处使用 |
+| `~/CGC/` | 课程工作目录，学员的作业 | **不碰**（安装也不碰） |
+
+两处路径一一对应：`install.sh` 写哪儿，`src/uninstall.ts` 就删哪儿，改一边就改另一边。
+
+卸载是包的 `uninstall` 子命令，只在本机执行、不下载任何东西，平台连不上也能卸。`install.sh` 结束时打印带实际 Bun 路径的这条命令，默认是：
+
+```bash
+~/.bun/bin/bun ~/.cgc2046/host/cgc-host.js uninstall
+```
+
+它依次：`launchctl bootout` → 用状态文件里的学习凭证自撤销（`revokeToken`，凭证不进 argv 与输出）→ 删除 plist、`~/.cgc2046/host/`（包与状态）、日志，`~/.cgc2046` 空了也删（cgc-play 的 socket 也在里面）。撤销失败（平台不可达、状态文件读不出）时照样删完，并提示学员到课程学习页对话栏的「已配对的电脑」撤销这台电脑。
+
+### 产物与部署
+
+`deploy.yml` 的 backend job 在扩展产物之后构建 Host 产物，写进部署时生成的 backend/priv/static/ext/cgc-host/ 目录（gitignored），随 backend 镜像在 `/ext/cgc-host/*` 服务；`changes` 过滤里 `cgc-host/*` 也触发 backend 部署：
+
+| 产物 | 来源 |
+| --- | --- |
+| `cgc-host.js` | `bun build src/main.ts --target=bun`，Bun 钉在 1.4.3、依赖 `pnpm install --frozen-lockfile` |
+| `install.sh` | 原样拷贝 |
+| `cgc-host.json` | `{version, download_path: "/ext/cgc-host/cgc-host.js", sha256}`：version 取 `package.json`，sha256 是包的 |
+
+生产常量经 `--define` 写入（KTD4）：`CGC_SITE_ORIGIN` 是 GitHub production 环境变量 `NEXT_PUBLIC_WEB_BASE_URL` 的 origin——与 web 判定规范来源的 `web/lib/host-connection.ts` 同源，只认 https；`CGC_API_BASE` 是 `https://api.codingirlsclub.com`（与扩展分发、MCP 同一主机）。产物缺失、清单畸形、包里出现 `http://localhost`、`http://127.0.0.1` 这类本机来源（即常量没写入），部署都失败。
+
+### 版本纪律（KTD15）
+
+`scripts/check-version-bump.ts` 比较线上清单与本次构建的包：sha256 变了而 `package.json` 的 version 没变，部署失败。包是单个 JS 文件、构建确定（同一份源码与锁文件构建出相同的字节，换个目录构建也一样），所以 sha256 就是内容指纹；线上清单 404（首次发布）、不可达或畸形时警告放行。生产常量也在包里：换了站点来源或 Bun 版本，同样要提高版本号。
+
+- **改了包就提高 `package.json` 的 version**；要让已装旧版的学员必须更新，同时提高 `web/lib/host-connection.ts` 的 `MIN_HOST_VERSION`——页面低于它就提示重装。
+- **`install.sh` 不计入门禁**：它每次安装、更新都现下载，改动对下一次执行立即生效；version 描述的是 `/health` 报告的那份包。若 `install.sh` 的改动要已装的学员重装才生效（例如 plist 变了），按上一条手动提高两个版本号。
+
 ## 测试与许可扫描
 
 在 `cgc-host/` 内执行（CI 的 `host` job 跑同一组命令，暂非必过检查）：
@@ -117,4 +167,7 @@ KTD14：页面在 `turn.end`、`turn.card`、`history`（进入可对话状态�
 | --- | --- |
 | 按锁文件安装依赖 | `pnpm install --frozen-lockfile` |
 | 测试 | `bun test` |
+| 安装、卸载与版本门禁（临时 HOME，`launchctl` 用垫片，不碰本机 launchd） | `bash test/install.test.sh` |
 | 依赖许可扫描（复用 `web/scripts/check-licenses.mjs`，扫本包的全依赖树） | `pnpm check:licenses` |
+
+单元测试覆盖不了 launchd 的环境与开机自启：改了 `install.sh` 或 plist，要在真机上装一次、重启一次，确认不手动启动也能从页面连上并完成一次模型对话。

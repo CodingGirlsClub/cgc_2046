@@ -1,0 +1,239 @@
+#!/usr/bin/env bash
+# cgc-host 安装、卸载与版本门禁测试（U7）：临时 HOME + PATH 垫片，不碰本机真实的 HOME 与 launchd。
+#
+# 覆盖：
+#   1. 临时 HOME 下装两次，结果一致，只有一个 LaunchAgent（launchctl 垫片像 launchd 一样：已加载的再 bootstrap 就失败）
+#   2. 校验和不符：安装中止，HOME 与临时目录里不写任何文件；已装的旧版原样在跑
+#   3. plist 不含环境变量与凭证，权限 0644
+#   4. 卸载（结束时打印的那条命令）：plist、包、状态目录与日志都不存在，课程工作目录原样保留；凭证经平台自撤销，不进 argv 与输出
+#   5. 版本门禁：包内容变了而版本号没变必须失败；其余分支放行
+#   6. 撤销接口不可达：卸载仍完成本地清理，并提示到「已配对的电脑」撤销
+#
+# 包按 deploy.yml 的方式构建（bun build --define），平台地址与下载地址都指向本测试起的本地服务器（端口由系统分配）。
+# 运行：bash cgc-host/test/install.test.sh；退出码 0 = 全绿
+set -euo pipefail
+
+HOST_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+T=$(mktemp -d)
+SERVER_PID=""
+cleanup() {
+  [ -z "$SERVER_PID" ] || kill "$SERVER_PID" 2>/dev/null || true
+  rm -rf "$T"
+}
+trap cleanup EXIT
+
+PASS=0
+FAIL=0
+ok() {
+  local desc="$1"
+  shift
+  if "$@"; then
+    echo "  ✓ $desc"
+    PASS=$((PASS + 1))
+  else
+    echo "  ✗ $desc"
+    FAIL=$((FAIL + 1))
+  fi
+}
+not() { ! "$@"; }
+mode() { stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"; }
+is_mode() { [ "$(mode "$1")" = "$2" ]; }
+is_empty_dir() { [ -d "$1" ] && [ -z "$(find "$1" -mindepth 1)" ]; }
+# 目录树与每个文件的内容
+snapshot() { (cd "$1" && find . | sort && find . -type f -exec shasum -a 256 {} + | sort); }
+
+# ── 垫片：launchctl 记下调用并模拟 launchd 的加载状态；uname 让 Linux 上的 CI 也走 macOS 分支 ──
+mkdir -p "$T/bin" "$T/www/ext/cgc-host"
+export LAUNCHCTL_LOG="$T/launchctl.log" LAUNCHD="$T/launchd"
+: >"$LAUNCHCTL_LOG"
+: >"$LAUNCHD"
+cat >"$T/bin/launchctl" <<'EOF'
+#!/usr/bin/env bash
+echo "$*" >>"$LAUNCHCTL_LOG"
+case "$1" in
+  bootout)
+    grep -qxF "$2" "$LAUNCHD" || { echo "Boot-out failed: 3: No such process" >&2; exit 3; }
+    grep -vxF "$2" "$LAUNCHD" >"$LAUNCHD.tmp" || true
+    mv "$LAUNCHD.tmp" "$LAUNCHD" ;;
+  bootstrap)
+    key="$2/$(basename "$3" .plist)"
+    [ -f "$3" ] || { echo "Bootstrap failed: 2: No such file or directory" >&2; exit 2; }
+    ! grep -qxF "$key" "$LAUNCHD" || { echo "Bootstrap failed: 5: Input/output error" >&2; exit 5; }
+    echo "$key" >>"$LAUNCHD" ;;
+esac
+EOF
+printf '#!/bin/sh\necho Darwin\n' >"$T/bin/uname"
+chmod +x "$T/bin/launchctl" "$T/bin/uname"
+SHIM_PATH="$T/bin:$PATH"
+
+# ── 本地服务器：/ext/** 是下载目录，DELETE /mcp/token 记下出示的凭证（平台的自撤销接口） ──
+cat >"$T/server.ts" <<'EOF'
+const server = Bun.serve({
+  hostname: "127.0.0.1",
+  port: 0,
+  async fetch(req) {
+    const { pathname } = new URL(req.url);
+    if (req.method === "DELETE" && pathname === "/mcp/token") {
+      await Bun.write(process.env.REVOKED!, req.headers.get("authorization") ?? "");
+      return new Response(null, { status: 204 });
+    }
+    const file = Bun.file(process.env.WWW + pathname);
+    return (await file.exists()) ? new Response(file) : new Response("not found", { status: 404 });
+  },
+});
+console.log(server.port);
+EOF
+WWW="$T/www" REVOKED="$T/revoked" bun "$T/server.ts" >"$T/port" &
+SERVER_PID=$!
+for _ in $(seq 100); do [ -s "$T/port" ] && break; sleep 0.1; done
+BASE="http://127.0.0.1:$(cat "$T/port")"
+
+# ── 构建与发布：同 deploy.yml，只是平台地址换成本地服务器 ──
+DIST="$T/www/ext/cgc-host"
+(cd "$HOST_SRC" && bun build src/main.ts --target=bun --outfile="$DIST/cgc-host.js" \
+  --define 'CGC_SITE_ORIGIN="https://codingirlsclub.com"' --define "CGC_API_BASE=\"$BASE\"" >/dev/null)
+VERSION=$(bun -e "console.log((await Bun.file('$HOST_SRC/package.json').json()).version)")
+sha() { shasum -a 256 "$1" | cut -d' ' -f1; }
+manifest() { printf '{"version":"%s","download_path":"/ext/cgc-host/cgc-host.js","sha256":"%s"}' "$1" "$2"; }
+manifest "$VERSION" "$(sha "$DIST/cgc-host.js")" >"$DIST/cgc-host.json"
+
+# 在给定 HOME 下跑 install.sh；第二个参数覆盖下载地址
+install_in() {
+  mkdir -p "$1" "$T/tmp"
+  env HOME="$1" TMPDIR="$T/tmp" PATH="$SHIM_PATH" CGC_HOST_DIST="${2:-$BASE/ext/cgc-host}" bash "$HOST_SRC/install.sh"
+}
+LABEL=com.codingirlsclub.cgc-host
+DOMAIN="gui/$(id -u)"
+TOKEN=cgch_test_secret_do_not_print
+USER_ID=11111111-1111-4111-8111-111111111111
+COURSE_ID=22222222-2222-4222-8222-222222222222
+# 配对后的本机状态（同 src/state.ts）、一份作业，以及 launchd 写的日志
+seed_paired() {
+  mkdir -p "$1/.cgc2046/host" "$1/CGC/$USER_ID/$COURSE_ID" "$1/Library/Logs"
+  printf '{"pairing":{"token":"%s","tokenId":"t1","userId":"%s","displayName":null,"maskedIdentifier":null,"browserKeyHash":"x"},"sessions":{}}' \
+    "$TOKEN" "$USER_ID" >"$1/.cgc2046/host/state.json"
+  echo "学员的作业" >"$1/CGC/$USER_ID/$COURSE_ID/homework.md"
+  echo "cgc-host 0.1.0 在 127.0.0.1:47823 上监听" >"$1/Library/Logs/cgc-host.log"
+}
+# 跑安装输出里打印的那条卸载命令
+uninstall_in() {
+  local cmd
+  cmd=$(sed -n 's/^卸载：//p' "$2")
+  env HOME="$1" PATH="$SHIM_PATH" bash -c "$cmd"
+}
+assert_uninstalled() {
+  ok "plist 已删除" not test -e "$1/Library/LaunchAgents/$LABEL.plist"
+  ok "包与状态目录已删除" not test -e "$1/.cgc2046/host"
+  ok "空的 ~/.cgc2046 一并删除" not test -e "$1/.cgc2046"
+  ok "日志已删除" not test -e "$1/Library/Logs/cgc-host.log"
+  ok "课程工作目录与作业原样保留" grep -qx "学员的作业" "$1/CGC/$USER_ID/$COURSE_ID/homework.md"
+  ok "LaunchAgent 已 bootout" not grep -qxF "$DOMAIN/$LABEL" "$LAUNCHD"
+}
+
+echo "== 场景 1：装两次，结果一致，只有一个 LaunchAgent =="
+H1="$T/h1"
+install_in "$H1" >"$T/out1"
+snapshot "$H1" >"$T/snap1"
+rc=0
+install_in "$H1" >"$T/out2" 2>&1 || rc=$?
+snapshot "$H1" >"$T/snap2"
+ok "第二次安装成功" [ "$rc" = 0 ]
+ok "两次安装后文件树与内容一致" cmp -s "$T/snap1" "$T/snap2"
+ok "LaunchAgents 下只有一个 plist" [ "$(find "$H1/Library/LaunchAgents" -type f | wc -l | tr -d ' ')" = 1 ]
+ok "launchd 里只加载了一个 cgc-host" [ "$(cat "$LAUNCHD")" = "$DOMAIN/$LABEL" ]
+ok "每次都先 bootout 再 bootstrap" [ "$(cut -d' ' -f1 "$LAUNCHCTL_LOG" | tr '\n' ' ')" = "bootout bootstrap bootout bootstrap " ]
+ok "包与发布的一致" cmp -s "$H1/.cgc2046/host/cgc-host.js" "$DIST/cgc-host.js"
+ok "状态目录 0700" is_mode "$H1/.cgc2046/host" 700
+ok "临时目录已清理" is_empty_dir "$T/tmp"
+ok "结束时打印卸载命令" grep -q "^卸载：.*cgc-host.js uninstall$" "$T/out2"
+
+echo "== 场景 2：校验和不符即中止，不写入任何文件 =="
+mkdir -p "$T/www/bad"
+cp "$DIST/cgc-host.json" "$T/www/bad/"
+{ cat "$DIST/cgc-host.js"; echo "// 被篡改"; } >"$T/www/bad/cgc-host.js"
+H2="$T/h2"
+calls=$(wc -l <"$LAUNCHCTL_LOG")
+rc=0
+install_in "$H2" "$BASE/bad" >"$T/out3" 2>&1 || rc=$?
+ok "安装以非 0 退出" [ "$rc" != 0 ]
+ok "提示 sha256 不符" grep -q "与清单的 sha256 不符" "$T/out3"
+ok "HOME 里什么都没写" is_empty_dir "$H2"
+ok "临时目录已清理" is_empty_dir "$T/tmp"
+ok "没有调用 launchctl" [ "$(wc -l <"$LAUNCHCTL_LOG")" = "$calls" ]
+rc=0
+install_in "$H1" "$BASE/bad" >/dev/null 2>&1 || rc=$?
+snapshot "$H1" >"$T/snap3"
+ok "更新时校验失败：已装的旧版一字未动" cmp -s "$T/snap1" "$T/snap3"
+ok "更新时校验失败：旧版仍在 launchd 里" [ "$(cat "$LAUNCHD")" = "$DOMAIN/$LABEL" ]
+
+echo "== 场景 3：plist 无密钥、权限 0644 =="
+PLIST="$H1/Library/LaunchAgents/$LABEL.plist"
+plist_has() {
+  local after
+  after=$(grep -A"$1" "<key>$2</key>" "$PLIST")
+  [[ "$after" == *"$3"* ]]
+}
+ok "权限 0644" is_mode "$PLIST" 644
+ok "不含 EnvironmentVariables" not grep -q EnvironmentVariables "$PLIST"
+ok "不含凭证" not grep -qi "cgch_\|token\|secret\|password" "$PLIST"
+ok "ProgramArguments 是 Bun、包的绝对路径与 serve" grep -qF "<string>$H1/.cgc2046/host/cgc-host.js</string>" "$PLIST"
+ok "第一个参数是 Bun 的绝对路径" grep -qF "<string>$(command -v bun)</string>" "$PLIST"
+ok "RunAtLoad" plist_has 1 RunAtLoad "<true/>"
+ok "KeepAlive 只在非 0 退出时拉起" plist_has 3 KeepAlive "<key>SuccessfulExit</key>"
+ok "KeepAlive.SuccessfulExit 为 false" plist_has 1 SuccessfulExit "<false/>"
+ok "ThrottleInterval 30" plist_has 1 ThrottleInterval "<integer>30</integer>"
+ok "日志写到 ~/Library/Logs/" [ "$(grep -c "<string>$H1/Library/Logs/cgc-host.log</string>" "$PLIST")" = 2 ]
+if command -v plutil >/dev/null; then ok "plutil -lint 通过" plutil -lint -s "$PLIST"; fi
+
+echo "== 场景 4：卸载删干净、保留作业，凭证自撤销且不外泄 =="
+seed_paired "$H1"
+rc=0
+uninstall_in "$H1" "$T/out2" >"$T/out4" 2>&1 || rc=$?
+ok "卸载成功" [ "$rc" = 0 ]
+assert_uninstalled "$H1"
+ok "向平台出示这枚凭证自撤销" [ "$(cat "$T/revoked")" = "Bearer $TOKEN" ]
+ok "凭证不进输出" not grep -q "$TOKEN" "$T/out4"
+ok "凭证不进 launchctl 的 argv" not grep -q "$TOKEN" "$LAUNCHCTL_LOG"
+ok "撤销成功时不提示手动撤销" not grep -q "已配对的电脑" "$T/out4"
+
+echo "== 场景 5：版本门禁 =="
+GATE="$T/www/gate"
+mkdir -p "$GATE"
+{ cat "$DIST/cgc-host.js"; echo "// 内容变了"; } >"$T/changed.js"
+gate() { env CGC_HOST_MANIFEST_URL="$BASE/gate/cgc-host.json" bun "$HOST_SRC/scripts/check-version-bump.ts" "$@"; }
+gate_rc() {
+  local rc=0
+  gate "$@" >"$T/gate.out" 2>&1 || rc=$?
+  echo "$rc"
+}
+gate_warns() { [ "$(gate_rc "$@")" = 0 ] && grep -q "WARN" "$T/gate.out"; }
+manifest "$VERSION" "$(sha "$DIST/cgc-host.js")" >"$GATE/cgc-host.json"
+ok "内容没变：放行" [ "$(gate_rc "$DIST/cgc-host.js")" = 0 ]
+ok "内容变了、版本号没变：失败" [ "$(gate_rc "$T/changed.js")" = 1 ]
+ok "失败时说明要提高版本号" grep -q "版本号没变" "$T/gate.out"
+manifest "0.0.0-published" "$(sha "$DIST/cgc-host.js")" >"$GATE/cgc-host.json"
+ok "内容变了、版本号也变了：放行" [ "$(gate_rc "$T/changed.js")" = 0 ]
+echo '{"version":"0.1.0"}' >"$GATE/cgc-host.json"
+ok "线上清单畸形：警告并放行" gate_warns "$T/changed.js"
+rm "$GATE/cgc-host.json"
+ok "线上还没有清单（首次发布）：警告并放行" gate_warns "$T/changed.js"
+ok "不给包路径：用法错误" [ "$(gate_rc)" = 2 ]
+
+echo "== 场景 6：撤销接口不可达，卸载仍完成本地清理并提示 =="
+H3="$T/h3"
+install_in "$H3" >"$T/out5"
+seed_paired "$H3"
+kill "$SERVER_PID"
+wait "$SERVER_PID" 2>/dev/null || true
+SERVER_PID=""
+rc=0
+uninstall_in "$H3" "$T/out5" >"$T/out6" 2>&1 || rc=$?
+ok "卸载成功" [ "$rc" = 0 ]
+assert_uninstalled "$H3"
+ok "提示到「已配对的电脑」撤销这台电脑" grep -q "已配对的电脑" "$T/out6"
+ok "凭证不进输出" not grep -q "$TOKEN" "$T/out6"
+ok "版本门禁：线上不可达也警告并放行" gate_warns "$T/changed.js"
+
+echo ""
+echo "== 结果：$PASS 通过，$FAIL 失败 =="
+[ "$FAIL" -eq 0 ]

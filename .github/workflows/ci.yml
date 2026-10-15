@@ -442,6 +442,8 @@ jobs:
           bun-version: 1.4.3  # 对齐本地开发版本，避免版本漂移
       - run: pnpm install --frozen-lockfile
       - run: bun test
+      # 安装、卸载与版本门禁：临时 HOME + launchctl/uname 垫片，Linux runner 上同样能跑
+      - run: bash test/install.test.sh
       - run: pnpm check:licenses
 
   # deps 基础镜像前移：develop push 时 TCR 缺当前 mix.lock 对应的 amd64

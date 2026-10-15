@@ -99,8 +99,11 @@ export async function verifyToken(apiBase: string, token: string): Promise<Ident
   };
 }
 
-/** 自撤销：DELETE /mcp/token 只作用于出示的这枚凭证。尽力而为——失败只记日志；401 表示它本就失效了 */
-export async function revokeToken(apiBase: string, token: string): Promise<void> {
+/**
+ * 自撤销：DELETE /mcp/token 只作用于出示的这枚凭证。尽力而为——失败只记日志、返回 false（卸载据此提示学员到页面撤销）；
+ * 401 表示它本就失效了，算成功
+ */
+export async function revokeToken(apiBase: string, token: string): Promise<boolean> {
   const status = await fetch(`${apiBase}/mcp/token`, {
     method: "DELETE",
     headers: { authorization: `Bearer ${token}` },
@@ -110,6 +113,7 @@ export async function revokeToken(apiBase: string, token: string): Promise<void>
     () => 0,
   );
   if (status !== 204 && status !== 401) console.error(`cgc-host: 自撤销凭证失败（${status ? `HTTP ${status}` : "网络错误"}）`);
+  return status === 204 || status === 401;
 }
 
 export type PairOutcome =

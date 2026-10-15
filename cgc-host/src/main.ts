@@ -1,4 +1,4 @@
-// main.ts — 入口：`serve` 子命令常驻（LaunchAgent 以它启动 Host，U7）
+// main.ts — 入口：`serve` 子命令常驻（LaunchAgent 以它启动 Host，U7）；`uninstall` 子命令卸载（install.sh 结束时打印这条命令）
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -8,13 +8,19 @@ import { API_BASE, HOST_VERSION, PORT } from "./config";
 import { ompLocator } from "./omp";
 import { runOsascript } from "./pairing";
 import { startServer } from "./server";
+import { uninstall } from "./uninstall";
 
+const home = homedir();
+
+if (process.argv[2] === "uninstall") {
+  await uninstall(home, API_BASE);
+  process.exit(0);
+}
 if (process.argv[2] !== "serve") {
-  console.error("用法：cgc-host serve");
+  console.error("用法：cgc-host serve | cgc-host uninstall");
   process.exit(2);
 }
 
-const home = homedir();
 const omp = ompLocator();
 const chat = createChat({
   home,

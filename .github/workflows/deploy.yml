@@ -91,8 +91,9 @@ jobs:
             case "$f" in
               # openclacky-ext/cgc-2046/ 也触发 backend：扩展分发 zip 寄生在
               # backend 镜像（priv/static/ext，由 backend job 在 docker build
-              # 前生成），扩展发版必须重建 backend 产物，否则线上 /ext/* 停在旧版
-              backend/*|scripts/stage-playbook.rb|.github/workflows/deploy.yml|openclacky-ext/cgc-2046/*) backend=true ;;
+              # 前生成），扩展发版必须重建 backend 产物，否则线上 /ext/* 停在旧版。
+              # cgc-host/ 同理：本机 Host 的包与安装脚本也在 priv/static/ext/cgc-host/
+              backend/*|scripts/stage-playbook.rb|.github/workflows/deploy.yml|openclacky-ext/cgc-2046/*|cgc-host/*) backend=true ;;
               web/*)     web=true ;;
             esac
           done <<<"$files"
@@ -185,6 +186,68 @@ jobs:
       # （环境问题不阻塞发布），细节与分支见脚本头注释。
       - name: Enforce extension version bump on content change
         run: openclacky-ext/cgc-2046/bin/check-version-bump
+
+      # 本机 Host 分发产物（KTD1、KTD4）：cgc-host.js + install.sh + cgc-host.json →
+      # backend/priv/static/ext/cgc-host/，与扩展产物同路随 backend 镜像在 /ext/cgc-host/* 服务
+      # （Plug.Static 的 only 只比对路径首段 "ext"）。学员的安装与更新命令：
+      #   curl -fsSL https://api.codingirlsclub.com/ext/cgc-host/install.sh | bash
+      # cgc-host-only 变更能走到这里，依赖 changes job 的同名 path 触发 backend=true。
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.28.2  # 与 cgc-host/package.json 的 packageManager 对齐
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"  # pnpm 由 node 运行（同 ci.yml 的 host job）
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # 钉死版本：同一份源码与锁文件构建出逐字节相同的包，版本门禁才能直接比包的 sha256
+          bun-version: 1.4.3
+      - name: Build cgc-host distribution artifacts
+        working-directory: cgc-host
+        env:
+          WEB_BASE_URL: ${{ vars.NEXT_PUBLIC_WEB_BASE_URL }}
+        run: |
+          pnpm install --frozen-lockfile
+          # 可信站点来源 = web 的规范来源：web/lib/host-connection.ts 同样取 NEXT_PUBLIC_WEB_BASE_URL
+          # 的 origin，两边不一致学员页就永远连不上 Host。只认 https 的裸 origin——空值或本机来源
+          # 进了包，任意本机网页都能抢先配对一台刚装好的 Host
+          SITE_ORIGIN=$(bun -e 'console.log(new URL(process.env.WEB_BASE_URL.trim()).origin)')
+          [[ "$SITE_ORIGIN" =~ ^https://[a-z0-9.-]+$ && "$SITE_ORIGIN" != *localhost* ]] \
+            || { echo "::error::NEXT_PUBLIC_WEB_BASE_URL 不是生产 https 站点：$SITE_ORIGIN"; exit 1; }
+          out=../backend/priv/static/ext/cgc-host
+          mkdir -p "$out"
+          # 平台 API 与扩展分发、MCP 同一主机
+          bun build src/main.ts --target=bun --outfile="$out/cgc-host.js" \
+            --define "CGC_SITE_ORIGIN=\"$SITE_ORIGIN\"" \
+            --define 'CGC_API_BASE="https://api.codingirlsclub.com"'
+          cp install.sh "$out/install.sh"
+          # 清单与包同源生成：version 取 package.json，sha256 算刚构建的包，install.sh 按它校验下载
+          OUT="$out" bun -e '
+            const out = process.env.OUT;
+            const { version } = await Bun.file("package.json").json();
+            const sha256 = new Bun.CryptoHasher("sha256").update(await Bun.file(`${out}/cgc-host.js`).bytes()).digest("hex");
+            await Bun.write(`${out}/cgc-host.json`, JSON.stringify({ version, download_path: "/ext/cgc-host/cgc-host.js", sha256 }));
+          '
+          # fail-closed 产物断言：缺产物却放行会让 /ext/cgc-host/* 404 上线，安装命令静默失败
+          test -s "$out/cgc-host.js"
+          test -s "$out/install.sh"
+          OUT="$out" bun -e '
+            const m = await Bun.file(`${process.env.OUT}/cgc-host.json`).json();
+            if (typeof m.version !== "string" || !m.version || m.download_path !== "/ext/cgc-host/cgc-host.js" || !/^[0-9a-f]{64}$/.test(m.sha256)) {
+              console.error("::error::cgc-host.json 畸形", m);
+              process.exit(1);
+            }
+          '
+          # 生产常量确已写入：未注入时 src/config.ts 退回本地开发来源，包里就会出现 http://localhost
+          if grep -qE '://(localhost|127\.0\.0\.1)' "$out/cgc-host.js"; then
+            echo "::error::cgc-host.js 含本机来源，生产常量没有写入"
+            exit 1
+          fi
+
+      # 版本纪律门禁（KTD15）：包内容变了就必须提高 cgc-host/package.json 的 version，
+      # 否则 /health 的版本号认不出是哪一份包；首次发布（线上 404）与不可达时警告放行，细节见脚本头注释
+      - name: Enforce cgc-host version bump on content change
+        run: bun cgc-host/scripts/check-version-bump.ts backend/priv/static/ext/cgc-host/cgc-host.js
 
       - run: gem install kamal --no-document
       - name: Setup SSH
