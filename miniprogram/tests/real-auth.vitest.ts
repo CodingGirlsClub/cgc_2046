@@ -211,6 +211,18 @@ describe('signInSilently 回访静默登录', () => {
     await api.signIn({ loginCode: 'c', encryptedData: 'e', iv: 'i' })
     expect(mocks.setSilentLoginAllowed).toHaveBeenLastCalledWith(true)
   })
+
+  it('wipeAccountLocal 抛错不阻断 mandatory cleanup（Codex P2回归守卫）', async () => {
+    mocks.getAuthToken.mockReturnValue('new-token')
+    mocks.wipeAccountLocal.mockImplementationOnce(() => {
+      throw new Error('storage removal failed')
+    })
+    const api = new RealMiniProgramApi()
+    await expect(api.signOut()).rejects.toThrow('storage removal failed')
+    expect(mocks.clearAccountState).toHaveBeenCalledWith({ clearPendingScene: true })
+    expect(mocks.clearFlashbackLinkIdentity).toHaveBeenCalled()
+    expect(mocks.setSilentLoginAllowed).toHaveBeenLastCalledWith(false)
+  })
 })
 
 describe('signIn phoneCode 新契约变量形状', () => {

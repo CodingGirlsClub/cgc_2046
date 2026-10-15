@@ -787,10 +787,22 @@ export class RealMiniProgramApi implements MiniProgramApi {
     // 不该看到上一账号的草稿（登录态隔离之外的本机草稿隔离）。
     // wipeAccountLocal 读取 getActiveAccountId()，必须在 clearAccountState 之前调，
     // 否则 userId 已被清、转换为只删 guest 桶，user-a 的草稿残留到 B。
-    wipeAccountLocal()
+    //
+    // Codex review P2：之前把 wipe 夹在 mandatory cleanup 中间——删除抛错会把
+    // clearAccountState / clearFlashbackLinkIdentity / setSilentLoginAllowed 全部跳过，
+    // profile-lite 已预先 putState 空 sessions、cane catch 吞错，用户看到 logged-out 但
+    // 下一个 login 仍会读回原账号（违背退出认证本身的语义）。先跑 wipe，
+    // 接着强制跑 mandatory cleanup，最后再 throw——profile-lite catch 的现有提示不再误报。
+    let wipeError: unknown = null
+    try {
+      wipeAccountLocal()
+    } catch (error) {
+      wipeError = error
+    }
     clearAccountState({ clearPendingScene: true })
     clearFlashbackLinkIdentity()
     setSilentLoginAllowed(false)
+    if (wipeError) throw wipeError
     await request
   }
 
