@@ -3463,6 +3463,48 @@ button:focus-visible,
 .learning-run-row-link { display: inline-flex; gap: 5px; margin: -3px 16px 11px 52px; color: var(--accent-strong); font-size: 12px; text-decoration: none; }
 .learning-run-row-link:hover { color: var(--ink); }
 .learning-home__state { padding: 60px 0; color: var(--ink-3); font-size: 14px; }
+/* 讲义正文（typed Material 的 markdown kind，见 components/learning/material-renderer.tsx）。
+   元素由 Markdown 渲染器产出、没有各自的类名，此前只有浏览器默认样式（表格既无边框也会
+   撑破窄栏），故按 .learning-material--markdown 的后代选择器统一定版。
+   层叠前提：阅读器上下文的三条规则改用**子选择器**（.learning-reader__chapter > h2、
+   .learning-reader__issue > h3、.learning-reader__objective > p），因此不再匹配嵌在
+   .learning-material 里的标题与段落——这里保持单类 (0,1,1) 即可，既不依赖源码顺序，
+   也不会反过来压掉本块的 :first-child/:last-child 边距复位。 */
+.learning-material--markdown { color: var(--ink-2); font-size: 15px; line-height: 1.8; }
+.learning-material--markdown > :first-child { margin-top: 0; }
+.learning-material--markdown > :last-child { margin-bottom: 0; }
+.learning-material--markdown h2,
+.learning-material--markdown h3,
+.learning-material--markdown h4 { margin: 26px 0 10px; color: var(--ink); font-weight: 590; letter-spacing: -.01em; line-height: 1.35; }
+.learning-material--markdown h2 { font-size: 21px; }
+.learning-material--markdown h3 { font-size: 18px; }
+.learning-material--markdown h4 { font-size: 16px; }
+.learning-material--markdown p { margin: 12px 0; color: var(--ink-2); font-size: 15px; line-height: 1.8; }
+.learning-material--markdown ul,
+.learning-material--markdown ol { margin: 12px 0; padding-left: 22px; }
+.learning-material--markdown ul { list-style: disc; }
+.learning-material--markdown ol { list-style: decimal; }
+.learning-material--markdown li { margin: 5px 0; }
+.learning-material--markdown li > p { margin: 0; }
+.learning-material--markdown a { color: var(--accent-strong); text-decoration: underline; text-underline-offset: 2px; }
+.learning-material--markdown a:hover { color: var(--ink); }
+.learning-material--markdown code { padding: 1px 5px; border: 1px solid var(--line); border-radius: 5px; background: var(--soft-2); font-family: var(--font-mono); font-size: .92em; }
+.learning-material--markdown pre { margin: 14px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft-2); overflow-x: auto; }
+.learning-material--markdown pre code { padding: 0; border: 0; background: none; font-size: .9em; }
+.learning-material--markdown blockquote { margin: 14px 0; padding: 4px 0 4px 14px; border-left: 2px solid var(--line-strong); color: var(--ink-3); }
+.learning-material--markdown hr { margin: 22px 0; border: 0; border-top: 1px solid var(--line); }
+.learning-material--markdown del { color: var(--ink-3); }
+/* 脚注（GFM）：标题与条目沿用讲义正文排版，锚点颜色而非链接蓝 */
+.learning-material--markdown .footnotes { margin-top: 26px; padding-top: 16px; border-top: 1px solid var(--line); }
+.learning-material--markdown .footnotes h3 { margin: 0 0 8px; font-size: 14px; font-weight: 590; }
+.learning-material--markdown .footnotes ol { font-size: 13px; }
+.learning-material__table-wrap { margin: 16px 0; overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+.learning-material--markdown table { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 14px; }
+.learning-material--markdown th,
+.learning-material--markdown td { padding: 10px 14px; text-align: left; vertical-align: top; line-height: 1.65; font-size: 14px; }
+.learning-material--markdown th { background: var(--soft-2); color: var(--ink); font-weight: 590; white-space: nowrap; }
+.learning-material--markdown td { border-top: 1px solid var(--line); color: var(--ink-2); }
+.learning-material--markdown tbody tr:hover { background: var(--soft-2); }
 .learning-home__state--error { color: var(--status-red); }
 .learning-course-page__back { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; color: var(--ink-3); font-size: 13px; }
 .learning-course-page__back a { color: var(--accent-strong); text-decoration: none; }
@@ -3501,9 +3543,9 @@ button:focus-visible,
 .learning-reader__issue-card-goal { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 8px; color: var(--ink-3); font-size: 12px; line-height: 1.6; }
 .learning-reader__content { min-width: 0; }
 .learning-reader__chapter + .learning-reader__chapter { margin-top: 70px; }
-.learning-reader__chapter h2 { margin-top: 8px; color: var(--ink); font-size: 25px; font-weight: 590; letter-spacing: -.018em; line-height: 1.2; }
+.learning-reader__chapter > h2 { margin-top: 8px; color: var(--ink); font-size: 25px; font-weight: 590; letter-spacing: -.018em; line-height: 1.2; }
 .learning-reader__issue { margin-top: 28px; padding-bottom: 28px; border-bottom: 1px solid var(--line); scroll-margin-top: 24px; }
-.learning-reader__issue h3 { margin-top: 7px; color: var(--ink); font-size: 19px; font-weight: 540; line-height: 1.35; }
+.learning-reader__issue > h3 { margin-top: 7px; color: var(--ink); font-size: 19px; font-weight: 540; line-height: 1.35; }
 .learning-reader__goal { max-width: 62ch; margin-top: 9px; color: var(--ink-2); font-size: 14px; line-height: 1.75; text-wrap: pretty; }
 .learning-reader__objective { margin-top: 22px; padding: 17px 18px; border: 1px solid var(--line); border-radius: 10px; background: color-mix(in srgb, var(--card) 88%, var(--accent) 12%); }
 .learning-reader__objective-title { display: flex; align-items: center; gap: 9px; color: var(--ink); font-size: 14px; font-weight: 540; }
@@ -3512,7 +3554,7 @@ button:focus-visible,
 .learning-reader__mastery--mastered { color: var(--status-green); }
 .learning-reader__mastery--developing { color: var(--accent-strong); }
 .learning-reader__mastery--needs_review { color: var(--status-amber); }
-.learning-reader__objective p { margin-top: 9px; color: var(--ink-3); font-size: 13px; line-height: 1.7; }
+.learning-reader__objective > p { margin-top: 9px; color: var(--ink-3); font-size: 13px; line-height: 1.7; }
 .learning-reader__assessment { display: flex; gap: 8px; color: var(--ink-2) !important; }
 .learning-reader__assessment strong { flex: none; color: var(--accent-strong); font-family: var(--font-mono); font-size: 10px; font-weight: 400; letter-spacing: .06em; text-transform: uppercase; }
 .learning-reader__rubric { display: grid; gap: 5px; margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: 12px; line-height: 1.6; }

@@ -94,9 +94,9 @@ LoopX 会话只按上方授权表把自己的 PR 合并到 `develop`；其余合
 
 ## Deploy deps 镜像节奏
 
-backend 部署依赖预编译镜像（`backend/Dockerfile.deps`，tag = `sha256(mix.lock)` 前 16 位）。deploy 命中 TCR 即跳过全部依赖编译（部署 ~4min）；未命中在 2 核 runner 上重建可超 45min（deploy 端 fallback 兜底，90min timeout，别依赖它）。
+backend 部署依赖预编译镜像（`backend/Dockerfile.deps`，tag = `sha256(mix.lock + Dockerfile.deps + config/config.exs + config/prod.exs)` 前 16 位，即 **deps 层全部编译输入**——后两者保证 Dockerfile 层调整与「影响依赖编译的编译期配置」（如 codepagex `:encodings` 编表过滤器，#1105）的 config-only 变更也会触发重建，而不是命中旧镜像）。deploy 命中 TCR 即跳过全部依赖编译（部署 ~4min）；未命中在 2 核 runner 上重建可超 45min（deploy 端 fallback 兜底，90min timeout，别依赖它）。
 
-**mix.lock 变更不用人工推镜像**：develop push 时 CI 的 `deps-image` job 检查 TCR，缺失或架构不符即构建推送（CI runner 恒 x86_64，产出即 amd64）。命中逻辑带架构校验，错架构按缺失处理自愈。
+**deps 层输入变更不用人工推镜像**：develop push 时 CI 的 `deps-image` job 检查 TCR，缺失或架构不符即构建推送（CI runner 恒 x86_64，产出即 amd64）。命中逻辑带架构校验，错架构按缺失处理自愈。
 
-唯一注意事项：**mix.lock 变更的 merge 别抢在 `deps-image` job 完成前合入 main**（job 绿了再合），否则 deploy 端 fallback 现场重建，白等 45min。
+唯一注意事项：**deps 层输入变更的 merge 别抢在 `deps-image` job 完成前合入 main**（job 绿了再合），否则 deploy 端 fallback 现场重建，白等 45min。
 

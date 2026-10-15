@@ -24,15 +24,14 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
   require Ash.Query
   require Logger
 
-  alias Cgc2046.Accounts.TokenCredential
+  alias Cgc2046.Flashback.Tokens
 
   alias Cgc2046.Flashback.{
     Outreach,
     Outreach.Dispatch,
     Outreach.Emails,
     OutreachLink,
-    Person,
-    Token
+    Person
   }
 
   alias Cgc2046.Integrations.Wechat.UrlLink
@@ -86,10 +85,12 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
         person =
           if is_nil(person.outreach_email_bounced_at), do: person, else: %{person | email: nil}
 
-        if reachable?(person, channel) do
-          {:ok, person}
-        else
-          {:skip, "person_not_reachable"}
+        cond do
+          # 执行时认领闸（#1102）：入队面只在入队那刻滤掉已认领，入队后、执行前被绑定
+          # 的档案原会照常铸 token 发信——链接已被 Tokens.fetch_valid/1 判死，但不该再发。
+          not is_nil(person.user_id) -> {:skip, "person_claimed"}
+          reachable?(person, channel) -> {:ok, person}
+          true -> {:skip, "person_not_reachable"}
         end
 
       {:ok, nil} ->
@@ -143,17 +144,10 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
 
   # ── token 铸造（KTD2：明文只在本进程内存存在过） ────────────────────
 
-  defp mint_token(person_id) do
-    plaintext = :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
-
-    with {:ok, hash} <- TokenCredential.hash(plaintext),
-         {:ok, _token} <-
-           Token
-           |> Ash.Changeset.for_create(:create, %{person_id: person_id, token_hash: hash})
-           |> Ash.create(authorize?: false) do
-      {:ok, plaintext}
-    end
-  end
+  # 铸 token 走 `Tokens.mint_for_open_person/2`（锁内复查归属，与绑定串行化，#1102）：
+  # `fetch_person/2` 的 `person_claimed` 闸只挡住「执行前就已完成绑定」的情况，本函数
+  # 关掉「判完到插 token 之间被绑定」的窗口。邀请链接不带 `fb_` 前缀（同既有形态）。
+  defp mint_token(person_id), do: Tokens.mint_for_open_person(person_id, "")
 
   # ── 渲染与发送（email / sms 双通道） ─────────────────────────────────
 
@@ -175,6 +169,7 @@ defmodule Cgc2046.Flashback.Workers.OutreachWorker do
          {:ok, _} <- Mailer.deliver(email) do
       {:ok, :email}
     else
+      {:error, :person_not_open} -> {:skip, "person_claimed"}
       {:error, reason} -> {:error, reason}
     end
   end

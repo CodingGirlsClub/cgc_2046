@@ -249,6 +249,27 @@ defmodule Cgc2046.Flashback.OutreachTest do
     end
   end
 
+  describe "认领抑制（#1102：入队后才被认领的档案）" do
+    test "worker 执行前档案已被绑定 → 静默不发、不铸 token" do
+      archive = create_archive()
+      person = create_person(archive)
+
+      {:ok, %{queued: 1}} = Dispatch.enqueue_for_archive(archive.key, "reconnect")
+
+      # 入队面只在入队那刻过滤已认领；之后被绑定的档案原会被照常铸 token 发信
+      {:ok, user, _} = Cgc2046.Accounts.SignInFlow.find_or_create_user("+8613900009102")
+      person = Ash.get!(Person, person.id, authorize?: false)
+      :ok = Cgc2046.Flashback.Binding.bind(person, user)
+
+      assert [%{args: args}] = enqueued_outreach_jobs("archive-" <> archive.key)
+      assert :ok = perform_job(OutreachWorker, args)
+
+      refute_receive {:email, _}, 50
+      assert token_count(person.id) == 0
+      assert outreach_row!(person.id, :email).status == :queued
+    end
+  end
+
   # ── 邮箱死信抑制（置位后 email 腿坏死、sms 腿照走；人不被整体抑制） ──
 
   describe "邮箱死信抑制（outreach_email_bounced_at 置位后 email 腿坏死）" do

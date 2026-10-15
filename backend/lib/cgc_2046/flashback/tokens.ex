@@ -33,6 +33,9 @@ defmodule Cgc2046.Flashback.Tokens do
   alias Cgc2046.Accounts.{PhoneNumber, PhoneVerificationCode, SignInFlow, TokenCredential}
   alias Cgc2046.Flashback.{Answer, Binding, FogSpans, Person, QuoteLicense, Today, Token, Touch}
   alias Cgc2046.Mailer
+  alias Cgc2046.Repo
+
+  import Ecto.Query, only: [from: 2]
 
   @touch_events [:link_opened, :revealed, :sent_to_wall, :intent_submitted]
 
@@ -64,6 +67,66 @@ defmodule Cgc2046.Flashback.Tokens do
 
       {:error, other} ->
         {:error, other}
+    end
+  end
+
+  @doc """
+  为**未认领且未删除**的档案铸一枚链接 token（#1102：与绑定/删除串行化）。
+
+  返回 `{:ok, plaintext}` / `{:error, :person_not_open}`。
+
+  ## 为什么必须走这里，而不是各自裸 `Ash.create`
+
+  绑定（`Binding.claim_tokens/2`）与删除（`Deletion.cascade!/1`）都只作废「执行那一刻
+  已存在」的 token（先 SELECT 再逐条改）。铸 token 的路径（找回邮件、outreach 邀请）若
+  在锁外裸插，这个交错就可达：
+
+      worker 读到 person.user_id 为 nil  →  绑定事务提交（扫不到任何 token）
+      →  worker 插入新 token  →  漏网 token 生效（可进入/改联系方式/走删除链）
+
+  故本函数在一个事务里先对 `flashback_people` 行取 `FOR UPDATE`，**锁内复查**归属与
+  删除位，只有仍为空才插入。绑定/删除同事务内会改该行（取 `FOR NO KEY UPDATE`，与
+  `FOR UPDATE` 冲突），于是两种交错都安全：
+
+  - 本函数先持锁 → 绑定的 UPDATE 等它提交，随后 `claim_tokens` 扫到这枚新 token 并作废；
+  - 绑定先持锁 → 本函数阻塞，拿到锁后复查发现已认领 → 拒铸（调用方不发送）。
+
+  `prefix` 由调用方定（找回邮件链接用 `fb_`，outreach 邀请裸 base64）——明文进 URL，
+  哈希只落 `token_hash`（KTD2：明文不落任何持久化载体）。
+  """
+  @spec mint_for_open_person(term(), String.t()) :: {:ok, String.t()} | {:error, :person_not_open}
+  def mint_for_open_person(person_id, prefix \\ "fb_") do
+    Repo.transaction(fn ->
+      case Repo.query(
+             "SELECT user_id, deleted_at FROM flashback_people WHERE id = $1 FOR UPDATE",
+             [Repo.uuid!(person_id)]
+           ) do
+        {:ok, %{rows: [[nil, nil]]}} ->
+          plaintext =
+            prefix <> (:crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false))
+
+          {:ok, hash} = TokenCredential.hash(plaintext)
+
+          Token
+          |> Ash.Changeset.for_create(:create, %{person_id: person_id, token_hash: hash})
+          |> Ash.create!(authorize?: false)
+
+          plaintext
+
+        {:ok, %{rows: [[_user_id, _deleted_at]]}} ->
+          Repo.rollback(:person_not_open)
+
+        {:ok, %{rows: []}} ->
+          Repo.rollback(:person_not_open)
+
+        {:error, reason} ->
+          Repo.rollback({:database, reason})
+      end
+    end)
+    |> case do
+      {:ok, plaintext} -> {:ok, plaintext}
+      {:error, :person_not_open} -> {:error, :person_not_open}
+      {:error, {:database, reason}} -> {:error, reason}
     end
   end
 
