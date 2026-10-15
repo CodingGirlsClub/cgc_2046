@@ -96,6 +96,21 @@ it("onUnitChange：挂载时为总览（null），进入单元回调单元 id，
 	expect(onUnitChange.mock.calls.map(([unitId]) => unitId)).toEqual([null, "issue-a", "issue-b", null]);
 });
 
+it("onUnitChange：单元 id 不是 Host 认的短 ASCII 标识（平台只要求非空）时按总览回调 null，对话不因上下文被拒而发不出去", () => {
+	const content = { ...CONTENT, issues: [{ ...CONTENT.issues[0], id: "第一课" }, CONTENT.issues[1]] };
+	useQuery.mockImplementation((query) =>
+		query === COURSE_CONTENT
+			? { loading: false, error: undefined, data: { courseContent: { courseId: "course-1", title: "Python 入门", description: null, revisionNumber: 3, publishedAt: null, content: JSON.stringify(content) } } }
+			: { loading: false, error: undefined, data: { courseLearningDetail: { objectives: [] } } },
+	);
+	const onUnitChange = vi.fn();
+	render(<CourseContentViewer courseId="course-1" onUnitChange={onUnitChange} />);
+
+	fireEvent.click(screen.getByRole("button", { name: /单元 A/ }));
+	fireEvent.click(screen.getByRole("button", { name: "下一单元 ›" }));
+	expect(onUnitChange.mock.calls.map(([unitId]) => unitId)).toEqual([null, "issue-b"]);
+});
+
 it("compact：带上紧凑布局的修饰类，进度栏仍在；单元页的「课程目录」打开大纲浮层，点选单元后收起", () => {
 	render(<CourseContentViewer courseId="course-1" compact />);
 	const article = screen.getByTestId("course-content-viewer");

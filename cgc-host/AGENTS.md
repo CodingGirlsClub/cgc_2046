@@ -55,7 +55,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 | `unknown_method` | 不在 `pageToHost` 白名单里 |
 | `unauthorized` | 没有 `hello`，或浏览器密钥、账号不符 |
 | `not_paired` | 不带凭证的 `pair.request`，但本机没有配对 |
-| `busy` | 已有一次配对在进行，或刚关弹窗、还在冷却；对话方法里指这门课已有一轮在跑（`chat.send`、`chat.new`） |
+| `busy` | 已有一次配对在进行，或刚关弹窗、还在冷却；对话方法里指这门课已有一轮在跑（`chat.send`、`chat.new`），或本机刚换了账号、上一个账号在这门课的回合正在取消（任一对话方法；稍后重试即接上新账号自己的对话） |
 | `invalid_token` | 平台对这枚凭证回 401 / 429，或它的 kind 不是 `learning_host` |
 | `platform_unavailable` | 平台连不上、回 5xx 或应答不合约 |
 | `not_holder` | 这门课已被另一个连接接管 |

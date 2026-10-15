@@ -289,6 +289,15 @@ export function createChat(opts: ChatOptions) {
   }
 
   async function handle(method: ChatMethod, params: Record<string, unknown> & { courseId: string }, ctx: ChatContext) {
+    // 本机换了账号（重新配对给另一个人）时上一个账号的回合还在跑：先取消它（卡片以取消作答），收尾期间它的事件不再发出——
+    // 消息只路由给这门课当前的持有者，也就是新账号。新账号这次回 busy，回合结束后重试即接上自己的对话
+    const previous = courses.get(params.courseId);
+    if (previous?.turn && previous.userId !== ctx.userId) {
+      previous.send = () => {};
+      previous.held = false;
+      stop(previous);
+      return ctx.send({ method: "error", id: ctx.id, params: { code: "busy" } });
+    }
     const c = course(params.courseId, ctx);
     const reply = (m: string, p: Record<string, unknown>) => ctx.send({ method: m, id: ctx.id, params: { courseId: c.id, ...p } });
     const fail = (code: string) => ctx.send({ method: "error", id: ctx.id, params: { code } });

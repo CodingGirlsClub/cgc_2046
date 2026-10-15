@@ -137,6 +137,37 @@ describe("加载会话（KTD6）", () => {
     expect(fake.calledWith("session/new").at(-1).cwd).toBe(workDir(host.home, USER_B, COURSE));
     expect(pointer(host.home)).toBe("session-2");
   });
+
+  test("上一个账号的回合还在跑时换了账号：新账号拿不到旧对话与待答卡片，旧回合被取消、卡片以 cancelled 作答，回合结束后新账号接上自己的对话", async () => {
+    const fake = fakeAgent();
+    const { host, page } = await chatPage(fake);
+    const normal = fake.script;
+    fake.script = async (t: Turn) => {
+      await t.emit({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "A 的私密回复" } });
+      void t.ask("session/request_permission", { sessionId: t.sessionId, toolCall: { toolCallId: "rm", title: "rm -rf A 的作业", kind: "execute" }, options: OPTIONS });
+      await t.cancelled;
+      await t.emit({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "A 回合收尾" } });
+      return { stopReason: "cancelled" };
+    };
+    await attach(page);
+    await send(page, "A 的对话");
+    await page.next((m) => m.method === "turn.card");
+
+    const b = await pair(host, USER_B);
+    const pageB = await helloed(host, b.browserKey, USER_B);
+    expect(await attach(pageB)).toMatchObject(refused("busy"));
+    await until(() => fake.answers.length === 1);
+    expect(fake.answers).toEqual([{ outcome: { outcome: "cancelled" } }]);
+    expect(fake.calledWith("session/cancel")).toEqual([{ sessionId: "session-1" }]);
+
+    fake.script = normal;
+    await Bun.sleep(50); // 旧回合以 cancelled 收尾（session/prompt 返回）
+    expect(await attach(pageB)).toMatchObject({ method: "history", params: { running: false, events: [] } });
+    expect(JSON.stringify(pageB.inbox)).not.toMatch(/A 的|rm -rf/);
+    await send(pageB, "B 的第一条");
+    await ended(pageB);
+    expect(fake.calledWith("session/new").at(-1).cwd).toBe(workDir(host.home, USER_B, COURSE));
+  });
 });
 
 test("AE5 新开对话：指针改指新会话；Host 重启后加载的是新会话而不是旧会话", async () => {

@@ -28,6 +28,9 @@ function groupCourseIssues(content: CourseContentDocument, chapterFallback: stri
   return { chapters, issues, chapterTitle, grouped };
 }
 
+/** 本机 Host 接受的单元 id（cgc-host/src/acp/session.ts 的 UNIT_ID，两边须一致） */
+const UNIT_ID = /^[A-Za-z0-9_.-]{1,64}$/;
+
 /** 单元卡片 key：与内容区锚点 #course-issue-* 的取值保持一致 */
 function issueKeyOf(issue: CourseContentIssue, issueIndex: number) {
   return String(issue.id || issueIndex);
@@ -189,8 +192,9 @@ export default function CourseContentViewer({
     }
     window.scrollTo({ top: 0 });
   }, [active]);
-  // 已发布的内容每个单元都有 id（后端校验），issueKey 即单元 id
-  const unitId = active?.issueKey ?? null;
+  // issueKey 即单元 id。平台只要求它非空；本机 Host 只认短的 ASCII 标识（cgc-host/AGENTS.md 的 context.unitId），
+  // 不符合就整条消息被拒——这类单元按课程总览（null）附上下文，学员照样能对话
+  const unitId = active && UNIT_ID.test(active.issueKey) ? active.issueKey : null;
   useEffect(() => {
     onUnitChange?.(unitId);
   }, [unitId, onUnitChange]);
