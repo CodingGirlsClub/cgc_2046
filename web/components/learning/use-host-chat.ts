@@ -255,10 +255,12 @@ export function useHostChat({
 		let cancelled = false;
 		let current: HostSocket | null = null;
 		let timer: ReturnType<typeof setTimeout> | undefined;
-		const check = () => void checkHost().then(apply);
+		let previouslyReachedHost = false;
+		const check = () => void checkHost({ previouslyReachedHost }).then(apply);
 		function apply(result: HostConnection) {
 			if (cancelled || current) return;
 			clearTimeout(timer);
+			if (result.state === "detected") previouslyReachedHost = true;
 			// 没连上时每 3 秒检测一次，结果多半没变：内容相同就沿用旧对象，对话栏不随轮询重渲染
 			setProbe((prev) => (prev && JSON.stringify(prev) === JSON.stringify(result) ? prev : result));
 			if (result.state === "detected" && result.ompPresent) {

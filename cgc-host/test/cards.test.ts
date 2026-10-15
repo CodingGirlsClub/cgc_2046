@@ -1,7 +1,7 @@
 // cards.test.ts — 审批与提问卡片（R19、R20）：假 OMP 发出录制转录里的真实请求，页面经 WS 作答；
 // 断言 OMP 收到的应答结构、谁能作答、刷新后卡片重现、无人在场的收尾从不按允许、非 form 模式被拒
 import { afterEach, describe, expect, test } from "bun:test";
-import { chatPage, cleanup, CONTEXT, COURSE, fakeAgent, fixture, helloed, type Msg, refused, type Turn, until } from "./helpers";
+import { chatPage, cleanup, connect, CONTEXT, COURSE, fakeAgent, fixture, helloed, pair, type Msg, refused, type Turn, until, USER_A } from "./helpers";
 
 afterEach(cleanup);
 
@@ -175,4 +175,55 @@ test("非 form 模式的提问一律拒绝（decline），不出卡片", async (
   await page.next((m) => m.method === "turn.end");
   expect(fake.answers).toEqual([{ action: "decline" }, { action: "decline" }]);
   expect(page.inbox.filter((m: Msg) => m.method === "turn.card")).toEqual([]);
+});
+
+// 配对消失或换发密钥后，旧连接仍然开着，但已不再是能回答卡片的持有者。
+test.each(["forget", "invalid", "replace"] as const)("配对 %s：释放持有权，已有卡片与之后才出现的卡片都会在宽限期后取消", async (change) => {
+  const fake = fakeAgent();
+  const { host, page, token, browserKey } = await chatPage(fake, { graceMs: 40 });
+  let showLater!: () => void;
+  const later = new Promise<void>((resolve) => { showLater = resolve; });
+  fake.script = async (t: Turn) => {
+    void t.ask("session/request_permission", { ...PERMISSION, sessionId: t.sessionId });
+    await later;
+    void t.ask("elicitation/create", { ...QUESTION, sessionId: t.sessionId });
+    await t.cancelled;
+    return { stopReason: "cancelled" };
+  };
+  await start(page);
+  const first = await card(page);
+  if (change === "forget") {
+    page.send({ method: "pair.forget" });
+  } else if (change === "invalid") {
+    host.platform.tokens.delete(token);
+    const checking = await connect(host.port);
+    expect(await checking.call("hello", { userId: USER_A, browserKey })).toMatchObject({ params: { state: "unpaired" } });
+  } else {
+    await pair(host);
+  }
+  await page.next((m) => m.method === "status" && m.params.state !== "ready");
+  expect(await answer(page, { cardId: first.params.cardId, optionId: "allow_once" })).toMatchObject(refused("unauthorized"));
+  showLater();
+  await until(() => fake.answers.length === 2);
+  expect(fake.answers).toContainEqual({ outcome: { outcome: "cancelled" } });
+  expect(fake.answers).toContainEqual({ action: "cancel" });
+  expect(fake.calledWith("session/cancel")).toEqual([{ sessionId: "session-1" }]);
+  expect(page.inbox.some((m) => m.method === "turn.card" && m.params.kind === "question")).toBe(false);
+});
+
+test("换发密钥后新连接重新 attach：恢复持有权，宽限期不取消待答卡片", async () => {
+  const fake = fakeAgent();
+  const { host, page } = await chatPage(fake, { graceMs: 100 });
+  fake.script = asking(["session/request_permission", PERMISSION]);
+  await start(page);
+  const first = await card(page);
+  const paired = await pair(host);
+  const back = await helloed(host, paired.browserKey);
+  await back.call("chat.attach", { courseId: COURSE });
+  expect((await card(back)).params.cardId).toBe(first.params.cardId);
+  await Bun.sleep(150);
+  expect(fake.answers).toEqual([]);
+  await answer(back, { cardId: first.params.cardId, optionId: "reject_once" });
+  await back.next((m) => m.method === "turn.end");
+  expect(fake.answers).toEqual([{ outcome: { outcome: "selected", optionId: "reject_once" } }]);
 });

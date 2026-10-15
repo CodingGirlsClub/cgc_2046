@@ -54,6 +54,11 @@ function token(over: Partial<McpTokenItem>): McpTokenItem {
 }
 
 describe("deriveOnboardingState（R1/R8 派生矩阵）", () => {
+  it("只有学习凭证（即使用过）也不算终端接入", () => {
+    expect(deriveOnboardingState([token({ kind: "LEARNING_HOST", lastUsedAt: "2026-08-20T08:00:00Z" })], null)).toEqual({ dismissed: false, hasActiveToken: false, connected: false });
+    expect(deriveOnboardingState([token({ kind: "LEARNING_HOST", lastUsedAt: "2026-08-20T08:00:00Z" }), token({ id: "terminal" })], null)).toEqual({ dismissed: false, hasActiveToken: true, connected: false });
+  });
+
 	it("无 token + 未拒绝 → 全 false（新成员，弹邀请）", () => {
 		expect(deriveOnboardingState([], null)).toEqual({
 			dismissed: false,
@@ -254,6 +259,17 @@ describe("useOnboardingState（KTD5：loading/error fail-closed）", () => {
 		expect(result.current.tokens).toHaveLength(1);
 		expect(typeof result.current.reload).toBe("function");
 	});
+
+
+  it("向导的 token 历史只包含终端凭证，学习配对不改变终端引导", async () => {
+    queryMock.mockResolvedValue({ data: { me: { id: "u1", onboardingInvitationDismissedAt: null } } });
+    fetchMyMcpTokensMock.mockResolvedValue([token({ kind: "LEARNING_HOST", lastUsedAt: "2026-10-15T00:00:00Z" })]);
+    const { result } = renderHook(() => useOnboardingState());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.tokens).toEqual([]);
+    expect(result.current.hasActiveToken).toBe(false);
+    expect(result.current.connected).toBe(false);
+  });
 
 	it("userId 就绪时快照 KTD4 旗标：本 session 该用户已展示 → inviteShownThisSession=true", async () => {
 		sessionStorage.setItem("cgc:onboarding-invite-shown:u1", "1");

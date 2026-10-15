@@ -36,7 +36,8 @@ ok() {
   fi
 }
 not() { ! "$@"; }
-mode() { stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"; }
+# GNU stat -f 失败时仍会输出文件系统信息，必须先试无此副作用的 GNU 格式。
+mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
 is_mode() { [ "$(mode "$1")" = "$2" ]; }
 is_empty_dir() { [ -d "$1" ] && [ -z "$(find "$1" -mindepth 1)" ]; }
 # 目录树与每个文件的内容

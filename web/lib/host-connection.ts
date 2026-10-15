@@ -5,7 +5,7 @@ import { resolveWebBaseUrl } from "./seo";
  *
  * 只产出 R26 的状态，不带文案：文案由对话栏（U10）用自己的 i18n 命名空间给出。
  * 两个入口，区别只在「未授权时发不发本机请求」：
- * - checkHost()：页面加载、自动重连时调用。本机访问未授权时只回报状态，不发请求。
+ * - checkHost()：页面加载、自动重连时调用。本机访问未授权且没有本页成功探测证据时只回报状态，不发请求。
  * - requestHostAccess()：只从点击处理器调用。第一次本机请求必须由用户手势发起，
  *   浏览器的本机访问授权提示由这次请求触发。
  */
@@ -73,7 +73,7 @@ async function probe(): Promise<HostConnection | null> {
 	}
 }
 
-async function detect(fromUserGesture: boolean): Promise<HostConnection> {
+async function detect(fromUserGesture: boolean, previouslyReachedHost = false): Promise<HostConnection> {
 	// Host 只认构建时写死的唯一来源（KTD4）；换个地址打开（127.0.0.1、预览域名）一律连不上
 	const canonicalOrigin = new URL(resolveWebBaseUrl()).origin;
 	if (location.origin !== canonicalOrigin) {
@@ -94,7 +94,7 @@ async function detect(fromUserGesture: boolean): Promise<HostConnection> {
 	if (!fromUserGesture) {
 		const permission = await loopbackPermission();
 		if (permission === "denied") return { state: "blocked" };
-		if (permission !== "granted") return { state: "needsPermission" };
+		if (permission !== "granted" && !previouslyReachedHost) return { state: "needsPermission" };
 	}
 
 	const probed = await probe();
@@ -104,12 +104,14 @@ async function detect(fromUserGesture: boolean): Promise<HostConnection> {
 	// 拒了是被浏览器阻止；关掉提示仍需授权；其余（含已授权）是本机没有在跑的 Host
 	const permission = await loopbackPermission();
 	if (permission === "denied") return { state: "blocked" };
-	if (permission === "prompt") return { state: "needsPermission" };
+	if (permission === "prompt" && !previouslyReachedHost) return { state: "needsPermission" };
 	return { state: "noHost" };
 }
 
-export function checkHost(): Promise<HostConnection> {
-	return detect(false);
+/** 本页曾成功探测到 Host 时，即使浏览器不认权限名或一直报告 prompt，也可重连；明确 denied 仍优先阻止请求。
+ * 证据只留在对话栏生命周期内，不持久化，不查询可能导致旧版 Chromium 崩溃的旧权限名。 */
+export function checkHost({ previouslyReachedHost = false }: { previouslyReachedHost?: boolean } = {}): Promise<HostConnection> {
+	return detect(false, previouslyReachedHost);
 }
 
 export function requestHostAccess(): Promise<HostConnection> {

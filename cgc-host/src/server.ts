@@ -187,8 +187,13 @@ export function startServer(opts: ServerOptions) {
   const state = loadState(opts.home);
   const conns = new Set<WS>();
   const setPairing = (pairing: Pairing | null) => {
+    const released = [...host.holders.keys()];
+    host.holders.clear();
     state.pairing = pairing;
     saveState(opts.home, state);
+    // 清除或换发配对会让旧连接失去授权，即使 socket 没断，也不能再算课程持有者。
+    // 通知对话层启动无人作答的宽限期；新连接 hello + attach 后可恢复持有权。
+    opts.onConnections?.(conns.size, released);
     for (const ws of conns) send(ws, status(host, ws));
   };
   const host: Host = {

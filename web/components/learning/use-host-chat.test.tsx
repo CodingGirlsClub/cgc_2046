@@ -165,6 +165,7 @@ describe("连接状态（R26）", () => {
 		await act(() => vi.advanceTimersByTimeAsync(POLL_MS));
 		expect(FakeWebSocket.all).toHaveLength(1);
 		expect(checkHost).toHaveBeenCalledTimes(3);
+		expect(checkHost).toHaveBeenLastCalledWith({ previouslyReachedHost: true });
 	});
 
 	it("不受支持的浏览器或地址：给出状态后不再轮询", async () => {
@@ -191,6 +192,7 @@ describe("连接状态（R26）", () => {
 
 		await act(() => vi.advanceTimersByTimeAsync(POLL_MS));
 		expect(FakeWebSocket.all).toHaveLength(2);
+		expect(checkHost).toHaveBeenLastCalledWith({ previouslyReachedHost: true });
 		const again = FakeWebSocket.all[1];
 		await attach(again, [{ kind: "user", text: "上次的问题" }]);
 		expect(hook.current.view).toEqual({ state: "ready" });

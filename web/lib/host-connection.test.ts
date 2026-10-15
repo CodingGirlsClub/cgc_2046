@@ -35,7 +35,8 @@ function stubBrowser({
 	vi.stubEnv("NEXT_PUBLIC_WEB_BASE_URL", CANONICAL);
 	vi.stubGlobal("location", new URL(`${origin}/courses/c1/learn?unit=u1`));
 
-	const permissionQuery = vi.fn(async () => {
+	const permissionQuery = vi.fn(async (_query: { name: string }) => {
+		if (_query.name !== "loopback-network") throw new Error("unexpected permission name");
 		if (permission === "TypeError") throw new TypeError("not a valid enum value");
 		return { state: permission };
 	});
@@ -184,4 +185,27 @@ describe("requestHostAccess（从点击处理器调用：由用户手势发出�
 
 		expect(await requestHostAccess()).toEqual({ state: "noHost" });
 	});
+});
+
+
+describe("成功访问过 Host 后自动重连（Chrome 142–144 及权限始终 prompt 的浏览器）", () => {
+  it.each(["TypeError", "prompt"] as const)("权限 %s：首次仍等手势；有成功探测证据后可自动重连", async (permission) => {
+    const { fetchMock, permissionQuery } = stubBrowser({ permission });
+    expect(await checkHost()).toEqual({ state: "needsPermission" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await requestHostAccess()).toMatchObject({ state: "detected" });
+    expect(await checkHost({ previouslyReachedHost: true })).toMatchObject({ state: "detected" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(permissionQuery.mock.calls.every(([q]) => q.name === "loopback-network")).toBe(true);
+  });
+  it("已有成功证据但权限被明确撤回：不请求本机", async () => {
+    const { fetchMock } = stubBrowser({ permission: "denied" });
+    expect(await checkHost({ previouslyReachedHost: true })).toEqual({ state: "blocked" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it("已有成功证据但 Host 暂停、权限仍为 prompt：回 noHost，后续轮询继续尝试", async () => {
+    const { fetchMock } = stubBrowser({ permission: "prompt", health: "unreachable" });
+    expect(await checkHost({ previouslyReachedHost: true })).toEqual({ state: "noHost" });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
 });
