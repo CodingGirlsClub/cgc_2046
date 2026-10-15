@@ -409,12 +409,13 @@ jobs:
       - run: for f in test/*.rb; do ruby "$f"; done
       - run: bin/pack
 
-  # deps 基础镜像前移：develop push 时 TCR 缺当前 mix.lock 对应的 amd64
+  # deps 基础镜像前移：develop push 时 TCR 缺当前 deps 层输入（mix.lock +
+  # Dockerfile.deps + config 编译期配置，见下方 DEPS_HASH）对应的 amd64
   # 镜像则就地构建推送——merge 进 main 时镜像必然已就位，deploy 端 45min+
-  # 现场重建（曾触发 timeout 击杀）与「mix.lock 变更后本地手动预推」的
-  # 人工步骤一并消失；CI runner 恒 x86_64，天然杜绝本地 Apple Silicon 漏
-  # --platform 推错架构的事故（run 32487795766 第二败）。deploy 端 fallback
-  # 构建保留（自愈兜底）。镜像命中时本 job ~30s。
+  # 现场重建（曾触发 timeout 击杀）与「手动预推」的人工步骤一并消失；
+  # CI runner 恒 x86_64，天然杜绝本地 Apple Silicon 漏 --platform 推错架构
+  # 的事故（run 32487795766 第二败）。deploy 端 fallback 构建保留（自愈兜底）。
+  # 镜像命中时本 job ~30s。
   # 凭证走 repo-level（production environment 的 branch policy 已限 main，
   # develop job 挂不上；也不该挂——只需 registry 凭证，不该够到整组生产
   # secrets）。不挂 gate：镜像存在性与 CI 去重无关。仅 push 事件跑：PR
@@ -438,9 +439,12 @@ jobs:
         run: |
           echo "$TCR_PASSWORD" | docker login "$TCR_REGISTRY" -u "$TCR_USERNAME" --password-stdin
           # 架构校验与 deploy.yml 同款：错架构（本地误推 arm64）按缺失处理，
-          # 原生 amd64 重建覆盖推送即自愈
-          LOCK_HASH=$(sha256sum mix.lock | cut -c1-16)
-          DEPS_IMAGE="${TCR_REGISTRY}/codingirlsclub/cgc2046-backend-deps:${LOCK_HASH}"
+          # 原生 amd64 重建覆盖推送即自愈。
+          # tag 输入与 deploy.yml 同款（保持两处同公式）：mix.lock + Dockerfile.deps
+          # + config/config.exs + config/prod.exs——后两者保证「影响依赖编译结果的
+          # 编译期配置」（codepagex `:encodings`，#1105）变更也触发重建
+          DEPS_HASH=$(cat mix.lock Dockerfile.deps config/config.exs config/prod.exs | sha256sum | cut -c1-16)
+          DEPS_IMAGE="${TCR_REGISTRY}/codingirlsclub/cgc2046-backend-deps:${DEPS_HASH}"
           DEPS_ARCH=$(docker manifest inspect -v "$DEPS_IMAGE" 2>/dev/null \
             | grep -m1 '"architecture"' | grep -o 'amd64\|arm64' || true)
           if [ "$DEPS_ARCH" = "amd64" ]; then
