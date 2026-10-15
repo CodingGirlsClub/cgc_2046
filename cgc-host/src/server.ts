@@ -5,7 +5,7 @@ import { hostname } from "node:os";
 import protocol from "../protocol.json";
 import { HOST_VERSION, SITE_ORIGIN } from "./config";
 import { createPairing, type DialogRunner, hashBrowserKey, revokeToken, verifyToken } from "./pairing";
-import { isAllowedRequest, isUuid, sanitizeDeviceName } from "./security";
+import { isAllowedRequest, isObject, isUuid, sanitizeDeviceName } from "./security";
 import { type HostState, loadState, type Pairing, saveState } from "./state";
 
 /** 两个方向共用的帧信封（cgc-host/AGENTS.md）；回复带上请求的 id */
@@ -67,7 +67,6 @@ interface Host {
 
 const send = (ws: WS, message: Message) => ws.send(JSON.stringify(message));
 const error = (id: string | undefined, code: string): Message => ({ method: "error", id, params: { code } });
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
 /** 出示过当前浏览器密钥的连接。密钥一换（重新配对、换发、清掉），已 hello 的旧连接随之失效 */
 const authorized = (host: Host, ws: WS) => ws.data.keyHash !== null && ws.data.keyHash === host.state.pairing?.browserKeyHash;

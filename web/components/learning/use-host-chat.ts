@@ -157,7 +157,10 @@ function reduce(state: ChatState, action: Action): ChatState {
 		case "card":
 			return state.cards.some((c) => c.cardId === action.card.cardId) ? state : { ...state, cards: [...state.cards, action.card] };
 		case "cardClosed":
-			return { ...state, cards: state.cards.filter((c) => c.cardId !== action.cardId) };
+			// 收起的可能是本页没显示过的卡片（别的标签页答的、回合结束统一收起的）：没有就原样返回，不触发重渲染
+			return state.cards.some((c) => c.cardId === action.cardId)
+				? { ...state, cards: state.cards.filter((c) => c.cardId !== action.cardId) }
+				: state;
 		case "end":
 			return {
 				...state,
@@ -256,7 +259,8 @@ export function useHostChat({
 		function apply(result: HostConnection) {
 			if (cancelled || current) return;
 			clearTimeout(timer);
-			setProbe(result);
+			// 没连上时每 3 秒检测一次，结果多半没变：内容相同就沿用旧对象，对话栏不随轮询重渲染
+			setProbe((prev) => (prev && JSON.stringify(prev) === JSON.stringify(result) ? prev : result));
 			if (result.state === "detected" && result.ompPresent) {
 				const opened = openHostSocket();
 				current = opened;

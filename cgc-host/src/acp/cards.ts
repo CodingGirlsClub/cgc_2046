@@ -7,6 +7,7 @@ import type {
   RequestPermissionRequest,
   RequestPermissionResponse,
 } from "@agentclientprotocol/sdk";
+import { isObject } from "../security";
 
 export type CardView =
   | {
@@ -32,7 +33,6 @@ type Pending = {
   cancelled: object;
 };
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isAnswerValue = (v: unknown) =>
   typeof v === "string" || typeof v === "number" || typeof v === "boolean" || (Array.isArray(v) && v.every((x) => typeof x === "string"));
 

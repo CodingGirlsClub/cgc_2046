@@ -115,7 +115,12 @@ export function createChat(opts: ChatOptions) {
         // 进程退出或被回收：会话随之卸下，下次需要时重新 session/load；在跑的 session/prompt 会以失败结束
         agent = null;
         bySession.clear();
-        for (const c of courses.values()) c.sessionId = null;
+        for (const [id, c] of courses) {
+          c.sessionId = null;
+          // Host 常驻数周：无人持有、没有在跑的回合与待答卡片的课程不再留在内存里（连同它的事件缓冲）；
+          // 下次 chat.attach 重新建，历史从 OMP 的会话存储回放
+          if (!c.held && !c.turn && c.cards.size === 0) courses.delete(id);
+        }
         checkIdle();
       });
       checkIdle();

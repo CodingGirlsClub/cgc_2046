@@ -19,3 +19,6 @@ export const isUuid = (value: unknown): value is string => typeof value === "str
 
 /** 设备名会成为平台上的 token 备注（平台上限 80 字符）：去掉控制字符，按码点截断，不切开代理对 */
 export const sanitizeDeviceName = (raw: string) => [...raw.replace(/\p{Cc}/gu, "")].slice(0, 80).join("");
+
+/** 外来 JSON 是不是普通对象（不是 null、不是数组）：页面帧的信封与提问卡片的作答都先过这一关 */
+export const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
