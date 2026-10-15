@@ -4106,5 +4106,97 @@
     "revoking": "Revoking…",
     "revoked": "Revoked {name}",
     "revokeFailed": "Couldn't revoke. Please try again later."
+  },
+  "hostChat": {
+    "title": "Local agent",
+    "computers": "Paired computers",
+    "newChat": "New chat",
+    "logLabel": "Conversation",
+    "attaching": "Resuming this course's conversation…",
+    "empty": "Ask your agent anything. It knows which course you're taking and which unit you're reading.",
+    "inputLabel": "Message to your agent",
+    "placeholder": "Enter to send, Shift+Enter for a new line",
+    "send": "Send",
+    "stop": "Stop",
+    "stopping": "Stopping…",
+    "workDir": "Work folder: {path}",
+    "thought": "Thinking",
+    "retry": "Retry",
+    "state": {
+      "checking": "Looking for CGC Host on this computer…",
+      "unsupportedBrowser": "The chat panel currently works only in Chrome on macOS.",
+      "unsupportedBrowserHint": "Open this page in Chrome on a Mac.",
+      "unsupportedAddress": "To connect to CGC Host on this computer, open this page from CGC's official address.",
+      "openCanonical": "Open at the official address",
+      "needsPermission": "This page needs permission to reach CGC Host on this computer.",
+      "needsPermissionHint": "After you click the button below, your browser will ask whether to allow access to devices on this computer. Choose Allow.",
+      "allowAccess": "Allow access to this computer",
+      "staleHost": "CGC Host on this computer is out of date and needs an update.",
+      "staleHostHint": "Run the command below in Terminal to update. This panel checks again automatically when it's done.",
+      "noHost": "CGC Host wasn't found.",
+      "noHostHint": "Run the command below in Terminal to install it. This panel detects it automatically, with no need to reload.",
+      "loginItemsHint": "Already installed? Check System Settings → General → Login Items to see whether CGC Host was turned off.",
+      "blocked": "Your browser is blocking this page from reaching this computer.",
+      "blockedHint": "Click the site information icon at the left of the address bar and allow this site to access your local network. This panel checks again automatically.",
+      "noOmp": "OMP wasn't found on this computer.",
+      "noOmpHint": "Once OMP is installed, this panel checks again automatically.",
+      "unpaired": "Pair CGC Host on this computer with your account to chat with your own agent here.",
+      "connect": "Connect",
+      "confirming": "Choose Allow in the confirmation that appeared on your computer.",
+      "cancel": "Cancel",
+      "denied": "You declined pairing on your computer.",
+      "retry": "Connect again",
+      "disconnected": "The connection to CGC Host was interrupted. It reconnects automatically once Host is back.",
+      "evicted": "This course's conversation is open somewhere else (another tab).",
+      "reclaim": "Continue here"
+    },
+    "pairingError": {
+      "busy": "A confirmation is already waiting on your computer. Please try again shortly.",
+      "invalidToken": "The platform no longer accepts this learning credential. Please connect again.",
+      "platformUnavailable": "Can't reach the CGC platform right now. Please try again later.",
+      "notPaired": "This computer isn't paired yet. Please connect again.",
+      "timeout": "Timed out waiting for the confirmation on your computer.",
+      "disconnected": "The connection to CGC Host dropped during pairing.",
+      "tokenLimit": "You've reached the limit of 10 active connection tokens. Revoke ones you no longer use under Paired computers or in MCP settings first.",
+      "failed": "Pairing didn't succeed. Please try again."
+    },
+    "error": {
+      "chatUnavailable": "Your local agent couldn't start. Make sure OMP runs normally in Terminal.",
+      "busy": "The previous turn hasn't finished yet. Please wait a moment.",
+      "timeout": "CGC Host didn't respond in time. Please try again.",
+      "failed": "Something went wrong. Please try again."
+    },
+    "toolStatus": {
+      "pending": "Waiting",
+      "in_progress": "Running",
+      "completed": "Done",
+      "failed": "Failed",
+      "stopped": "Stopped"
+    },
+    "end": {
+      "cancelled": "You stopped this turn.",
+      "error": "This turn ended unexpectedly."
+    },
+    "modelError": {
+      "authTitle": "Model authentication failed",
+      "authHint": "Your model's API key may no longer be valid. Open OMP in Terminal and check your model settings (API key or sign-in) before trying again.",
+      "quotaTitle": "Model quota used up or rate limited",
+      "quotaHint": "Check your model provider's quota and billing, or switch to another model in OMP, then try again.",
+      "raw": "Show original error",
+      "unknownHint": "This turn used no model tokens, which may point to a model configuration problem. You can check your model settings in OMP."
+    },
+    "card": {
+      "permission": "Needs your approval",
+      "input": "Command and arguments",
+      "alwaysAllowNote": "“{name}”: won't ask again for this kind of action in this conversation (asks again after a restart)",
+      "question": "Your agent is asking",
+      "submit": "Submit",
+      "skip": "Skip"
+    },
+    "command": {
+      "copy": "Copy command",
+      "copied": "Copied",
+      "copyFailed": "Couldn't copy. Please select the command and copy it manually."
+    }
   }
 }

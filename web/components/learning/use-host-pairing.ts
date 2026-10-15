@@ -164,7 +164,12 @@ export function useHostPairing({
 		() => null,
 	);
 
-	const [outcome, setOutcome] = useState<Outcome | null>(null);
+	/** 结局记在产生它的连接上：对话栏重连换了连接，上一条连接的 error(disconnected) 不再停留 */
+	const [settled, setSettled] = useState<{ socket: HostSocket | null; outcome: Outcome | null }>({
+		socket: null,
+		outcome: null,
+	});
+	const outcome = settled.socket === socket ? settled.outcome : null;
 	/** 已经有结果的 hello 发于哪个 status；还没结果时 phase 为 checking */
 	const [helloSettledFor, setHelloSettledFor] = useState<HostStatus | null>(null);
 	const helloSentFor = useRef<HostStatus | null>(null);
@@ -198,9 +203,10 @@ export function useHostPairing({
 		if (!socket || !status || runRef.current) return;
 		const run = { cancelled: false };
 		runRef.current = run;
-		setOutcome({ phase: "confirming" });
+		setSettled({ socket, outcome: { phase: "confirming" } });
 		try {
-			setOutcome(await pair(socket, status, userId, locale, run));
+			const result = await pair(socket, status, userId, locale, run);
+			setSettled({ socket, outcome: result });
 		} finally {
 			runRef.current = null;
 		}
@@ -216,7 +222,7 @@ export function useHostPairing({
 		// 未授权的连接发不了 pair.forget；Host 下次 hello 核实时遇 401 会自己清掉
 		if (status?.state === "ready") socket?.send("pair.forget");
 		forgetKey(userId);
-		setOutcome(null);
+		setSettled({ socket, outcome: null });
 	}, [socket, status, userId]);
 
 	return {

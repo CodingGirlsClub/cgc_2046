@@ -163,7 +163,17 @@ export function CourseContentSections({
   );
 }
 
-export default function CourseContentViewer({ courseId }: { courseId: string }) {
+export default function CourseContentViewer({
+  courseId,
+  onUnitChange,
+  compact = false,
+}: {
+  courseId: string;
+  /** 当前单元变化时回调（KTD11）：单元 id，总览为 null。学员页据此给对话附上下文（KTD8） */
+  onUnitChange?: (unitId: string | null) => void;
+  /** 带对话栏的紧凑布局（KTD11）：大纲改为浮层，进度保持可见。默认 false 时布局与行为不变 */
+  compact?: boolean;
+}) {
   const t = useTranslations("courseReader");
   const { data, loading, error } = useQuery(COURSE_CONTENT, { variables: { courseId } });
   const { data: learningData } = useQuery(COURSE_LEARNING_DETAIL, { variables: { courseId } });
@@ -179,6 +189,11 @@ export default function CourseContentViewer({ courseId }: { courseId: string }) 
     }
     window.scrollTo({ top: 0 });
   }, [active]);
+  // 已发布的内容每个单元都有 id（后端校验），issueKey 即单元 id
+  const unitId = active?.issueKey ?? null;
+  useEffect(() => {
+    onUnitChange?.(unitId);
+  }, [unitId, onUnitChange]);
   if (loading) return <p data-testid="course-content-loading">{t("loading")}</p>;
   if (error) return <p role="alert">{t("loadFailed")}</p>;
   const detail = data?.courseContent;
@@ -257,7 +272,7 @@ export default function CourseContentViewer({ courseId }: { courseId: string }) 
   );
 
   return (
-    <article className={`learning-reader${active ? " learning-reader--unit" : " learning-reader--overview"}`} data-testid="course-content-viewer">
+    <article className={`learning-reader${active ? " learning-reader--unit" : " learning-reader--overview"}${compact ? " learning-reader--compact" : ""}`} data-testid="course-content-viewer">
       <header className="learning-reader__hero">
         <div className="learning-reader__hero-row">
           <div>

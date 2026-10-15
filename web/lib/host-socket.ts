@@ -10,9 +10,29 @@ import { HOST_WS_URL } from "./host-connection";
  */
 
 /** 页面会发的方法；契约测试断言它们都在 protocol.json 的 pageToHost 里 */
-export const PAGE_TO_HOST = ["hello", "pair.request", "pair.cancel", "pair.forget"] as const;
+export const PAGE_TO_HOST = [
+	"hello",
+	"pair.request",
+	"pair.cancel",
+	"pair.forget",
+	"chat.attach",
+	"chat.send",
+	"chat.stop",
+	"chat.new",
+	"card.answer",
+] as const;
 /** 页面会处理的 Host 消息；契约测试断言它们都在 hostToPage 里 */
-export const HOST_TO_PAGE = ["status", "pair.result", "error"] as const;
+export const HOST_TO_PAGE = [
+	"status",
+	"pair.result",
+	"error",
+	"history",
+	"turn.delta",
+	"turn.card",
+	"turn.card.closed",
+	"turn.end",
+	"chat.evicted",
+] as const;
 
 export type PageMethod = (typeof PAGE_TO_HOST)[number];
 export type HostMethod = (typeof HOST_TO_PAGE)[number];
@@ -43,7 +63,7 @@ export type HostRequestFailure = "timeout" | "disconnected";
 export interface HostSocket {
 	/** 最近一次收到的 status：连接建立时 Host 立即推送一次，晚于它订阅的一方从这里取当前值 */
 	readonly status: HostStatus | null;
-	/** 不等回复的消息（pair.cancel、pair.forget）；连接不在打开状态时不发 */
+	/** 不等回复的消息（pair.cancel、pair.forget、chat.stop）；连接不在打开状态时不发 */
 	send(method: PageMethod, params?: Record<string, unknown>): void;
 	/** 按 id 等回复（可能是 error）；超时或连接断开时以 Error(HostRequestFailure) 拒绝 */
 	request(

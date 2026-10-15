@@ -194,6 +194,22 @@ describe("Covers AE2：拿不到「允许」的结果 → 用登录态撤销刚�
 	});
 });
 
+it("连接中断后对话栏换上新连接（R28 的重连）：上一条连接上的 error(disconnected) 不再停留，按新连接的 status 推导", async () => {
+	const first = connectHost(UNPAIRED);
+	const { result, rerender } = renderHook(({ socket }) => useHostPairing({ socket, userId: USER_A, locale: "zh-CN" }), {
+		initialProps: { socket: first.socket },
+	});
+	act(() => void result.current.connect());
+	await waitFor(() => expect(first.ws.sent).toHaveLength(1));
+	act(() => first.ws.close());
+	await waitFor(() => expect(result.current.reason).toBe("disconnected"));
+
+	const second = connectHost(UNPAIRED);
+	rerender({ socket: second.socket });
+	expect(result.current.phase).toBe("unpaired");
+	expect(result.current.reason).toBeNull();
+});
+
 it("等待本机确认时取消 → 发 pair.cancel；Host 按拒绝结束后回到未配对（不是「已拒绝」），刚签发的那一枚照样补撤销", async () => {
 	const { socket, ws } = connectHost(UNPAIRED);
 	const { result } = renderPairing(socket);
