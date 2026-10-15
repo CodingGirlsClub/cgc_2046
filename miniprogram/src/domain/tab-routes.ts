@@ -15,8 +15,8 @@
  * ## 形状
  *
  * 微信端 Tab 分三段：头部固定段 + 能力条件段（工作台，有权限才出现）+
- * 尾部固定段。裁剪端（tt/xhs）是独立的 2 项清单——未注册长廊故无闪念间、
- * 未注册「我的」页故我的报名仍是 Tab。
+ * 尾部固定段。裁剪端（tt/xhs）是独立的 3 项清单——#1079 Tab 收敛出「我的」、
+ * #1083 闪念间升 Tab（发现 / 闪念间 / 我的）；我的报名已降级普通页。
  *
  * 本模块零运行时依赖（可被 node --test 直跑、可被 app.config 安全 import）。
  */
@@ -81,16 +81,16 @@ export function toTabBarEntry(tab: TabDef): { pagePath: string; text: string } {
 /** 路由分流用：微信端 Tab 路径集合 */
 export const FULL_TAB_PATHS: readonly string[] = FULL_TABS.map((tab) => tab.path)
 
-/** 路由分流用：抖音端 Tab 路径集合（#1079：发现 / 我的） */
+/** 路由分流用：抖音端 Tab 路径集合（#1079 + #1083：发现 / 闪念间 / 我的） */
 export const TT_TAB_PATHS: readonly string[] = TT_TABS.map((tab) => tab.path)
 
-/** 路由分流用：小红书端 Tab 路径集合（D2a：发现 / 我的） */
+/** 路由分流用：小红书端 Tab 路径集合（P0-5：发现 / 闪念间 / 我的） */
 export const XHS_TAB_PATHS: readonly string[] = XHS_TABS.map((tab) => tab.path)
 
 /**
  * 按平台分派 Tab 集合（P0-4）。`(url)` 深链落 Tab 页时用 `switchTab`，
  * 判定必须用**本端** Tab 集合——固定按微信 tabs 会把裁剪端 tab 页
- * （发现/我的报名）误判成普通页 navigateTo（I6）。
+ * （发现 / 闪念间 / 我的）误判成普通页 navigateTo（I6）。
  * 返回引用不复制（只读消费）。
  */
 export function tabPathsForPlatform(platform: 'wechat' | 'tt' | 'xhs'): readonly string[] {

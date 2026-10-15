@@ -49,8 +49,9 @@ export const WEAPP_PAGES: readonly string[] = [
   'pages/flashback/index',
   'pages/flashback-event/index',
   'pages/flashback-today/index',
-  // #771：公开卡页（朋友视角）——微信端专属：它只由分享链接进入，裁剪端
-  // 无闪念间深度场景，且页内「卡片站外公开」文案含跨端词（check:diversion）
+  // #771：公开卡页（朋友视角）——只由分享链接进入；#1083 起 tt / xhs 同型注册。
+  // 此前注为「微信端专属」：当时裁剪端无闪念间深度场景、页内「卡片站外公开」
+  // 文案含跨端词（check:diversion）；#1083 注册后该注不再成立。
   'pages/flashback-shared-card/index',
   'pages/flashback-voices/index',
   'pages/flashback-wishes/index',

@@ -44,7 +44,7 @@ export function applyEntry(
       ;(result as Promise<unknown>).catch(() => Promise.resolve(taro.reLaunch({ url: target })).catch(() => {}))
     }
   }
-  // Tab 判定必须取本端 Tab 集合（裁剪端：发现/我的报名）——固定按微信 tabs
+  // Tab 判定必须取本端 Tab 集合（裁剪端 #1079 + #1083：发现 / 闪念间 / 我的）——固定按微信 tabs
   // 会把裁剪端 tab 页误判成普通页（switchTab 唯一合法入口，I6）
   if (isTabPath(path, tabPathsForPlatform(platform))) {
     settle(taro.switchTab({ url: path }), path)
