@@ -88,6 +88,11 @@ describe("mapMcpToken", () => {
 		expect(item.status).toBe("revoked");
 		expect(item.revokedAt).toBe("2026-08-08T11:00:00Z");
 	});
+
+	it("kind 原样带出（「已配对的电脑」据此只列学习凭证）", () => {
+		expect(mapMcpToken(BASE).kind).toBe("TERMINAL");
+		expect(mapMcpToken({ ...BASE, kind: "LEARNING_HOST" }).kind).toBe("LEARNING_HOST");
+	});
 });
 
 const DAY_MS = 86_400_000;

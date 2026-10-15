@@ -148,7 +148,7 @@ describe("Agents 工作面 /w/[slug]/agents（plan 020 U2）", () => {
 
 	it("有 active token → 连接引导不渲染", async () => {
 		fetchMyMcpTokens.mockResolvedValue([
-			{ id: "tok_1", name: "我的助手", lastUsedAt: null, revokedAt: null, insertedAt: "2026-08-10T00:00:00Z", status: "active" },
+			{ id: "tok_1", name: "我的助手", kind: "TERMINAL", lastUsedAt: null, revokedAt: null, insertedAt: "2026-08-10T00:00:00Z", status: "active" },
 		]);
 		render(<AgentsPage />);
 
@@ -158,7 +158,7 @@ describe("Agents 工作面 /w/[slug]/agents（plan 020 U2）", () => {
 
 	it("仅剩 idle_expired token → 连接引导重新出现（#226：闲置过期不再算 active）", async () => {
 		fetchMyMcpTokens.mockResolvedValue([
-			{ id: "tok_idle", name: "旧设备", lastUsedAt: null, revokedAt: null, insertedAt: "2026-05-01T00:00:00Z", status: "idle_expired" },
+			{ id: "tok_idle", name: "旧设备", kind: "TERMINAL", lastUsedAt: null, revokedAt: null, insertedAt: "2026-05-01T00:00:00Z", status: "idle_expired" },
 		]);
 		render(<AgentsPage />);
 

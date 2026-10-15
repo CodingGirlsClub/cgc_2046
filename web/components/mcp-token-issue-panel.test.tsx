@@ -22,6 +22,7 @@ const ISSUED = {
 	token: {
 		id: "tok_new",
 		name: "我的 Mac",
+		kind: "TERMINAL",
 		lastUsedAt: null,
 		revokedAt: null,
 		insertedAt: "2026-08-22T00:00:00.000Z",

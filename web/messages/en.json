@@ -4089,5 +4089,22 @@
     },
     "breadcrumbHome": "Workspace",
     "retry": "Retry"
+  },
+  "hostPairing": {
+    "title": "Paired computers",
+    "loading": "Loading paired computers…",
+    "loadFailed": "Couldn't load paired computers",
+    "retry": "Retry",
+    "empty": "No paired computers yet",
+    "thisComputer": "This computer",
+    "lastUsed": "Last used: {time}",
+    "revoke": "Revoke",
+    "revokeLabel": "Revoke {name}",
+    "confirmRevoke": "Confirm revoke",
+    "confirmRevokeLabel": "Confirm revoke: {name}",
+    "cancel": "Cancel",
+    "revoking": "Revoking…",
+    "revoked": "Revoked {name}",
+    "revokeFailed": "Couldn't revoke. Please try again later."
   }
 }

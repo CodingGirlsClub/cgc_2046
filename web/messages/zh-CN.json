@@ -4089,5 +4089,22 @@
     },
     "breadcrumbHome": "工作台",
     "retry": "重试"
+  },
+  "hostPairing": {
+    "title": "已配对的电脑",
+    "loading": "正在加载已配对的电脑…",
+    "loadFailed": "已配对的电脑加载失败",
+    "retry": "重试",
+    "empty": "还没有已配对的电脑",
+    "thisComputer": "本机这台",
+    "lastUsed": "最近使用：{time}",
+    "revoke": "撤销",
+    "revokeLabel": "撤销「{name}」",
+    "confirmRevoke": "确认撤销",
+    "confirmRevokeLabel": "确认撤销「{name}」",
+    "cancel": "取消",
+    "revoking": "撤销中…",
+    "revoked": "已撤销「{name}」",
+    "revokeFailed": "撤销失败，请稍后重试"
   }
 }

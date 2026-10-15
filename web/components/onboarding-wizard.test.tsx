@@ -27,6 +27,7 @@ beforeEach(() => {
 		token: {
 			id: "tok_new",
 			name: "新设备",
+			kind: "TERMINAL" as const,
 			lastUsedAt: null,
 			revokedAt: null,
 			insertedAt: "2026-08-22T18:00:00Z",

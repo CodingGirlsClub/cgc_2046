@@ -20,6 +20,7 @@ export type McpTokenStatus = "active" | "idle_expired" | "revoked";
 export interface McpTokenItem {
 	id: string;
 	name: string;
+	kind: McpTokenKind;
 	lastUsedAt: string | null;
 	revokedAt: string | null;
 	insertedAt: string;
@@ -42,6 +43,7 @@ export function mapMcpToken(t: McpToken): McpTokenItem {
 	return {
 		id: t.id,
 		name: t.name,
+		kind: t.kind,
 		lastUsedAt: t.lastUsedAt ?? null,
 		revokedAt: t.revokedAt ?? null,
 		insertedAt: t.insertedAt,

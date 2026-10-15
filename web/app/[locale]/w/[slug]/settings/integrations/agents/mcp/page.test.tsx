@@ -56,6 +56,7 @@ const TEST_TOKENS = [
 	{
 		id: "tok_1",
 		name: "我的 Mac",
+		kind: "TERMINAL" as const,
 		lastUsedAt: "2026-08-08T10:00:00Z",
 		revokedAt: null,
 		insertedAt: "2026-08-01T09:00:00Z",
@@ -64,6 +65,7 @@ const TEST_TOKENS = [
 	{
 		id: "tok_2",
 		name: "公司服务器",
+		kind: "TERMINAL" as const,
 		lastUsedAt: null,
 		revokedAt: "2026-08-05T12:00:00Z",
 		insertedAt: "2026-07-20T09:00:00Z",
@@ -74,6 +76,7 @@ const TEST_TOKENS = [
 const IDLE_EXPIRED_TOKEN = {
 	id: "tok_idle",
 	name: "寒假前的电脑",
+	kind: "TERMINAL" as const,
 	lastUsedAt: null,
 	revokedAt: null,
 	insertedAt: "2026-05-01T09:00:00Z",
@@ -90,6 +93,7 @@ beforeEach(() => {
 		token: {
 			id: "tok_new",
 			name: "新设备",
+			kind: "TERMINAL" as const,
 			lastUsedAt: null,
 			revokedAt: null,
 			insertedAt: "2026-08-08T18:00:00Z",

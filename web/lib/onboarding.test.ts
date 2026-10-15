@@ -44,6 +44,7 @@ function token(over: Partial<McpTokenItem>): McpTokenItem {
 	return {
 		id: "tok_1",
 		name: "我的 Mac",
+		kind: "TERMINAL",
 		lastUsedAt: null,
 		revokedAt: null,
 		insertedAt: "2026-08-01T10:00:00Z",
