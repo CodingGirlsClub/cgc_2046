@@ -21,6 +21,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ### Fixed
 
 - 课程阅读器讲义不再把 GFM 表格渲染成竖线纯文本：正文渲染器从自研小子集（仅标题 / `- ` 列表 / 行内粗体与代码）换成 `react-markdown` + `remark-gfm` + `rehype-sanitize`（均 MIT），表格 / 链接 / 嵌套列表 / 删除线一次补齐；安全契约不变（原始 HTML 仍是转义文本、非 https 图片降级为文本、外链统一 `rel=noopener`）。同时补上 `.learning-material--markdown` 的元素级样式（此前完全吃浏览器默认样式），表格包横向滚动容器以适配阅读器的窄正文列（#1118）。
+- web 依赖收敛以解锁 `pnpm audit` 门禁：next 16.3.5 → 16.3.8（清掉 4 条 next 公告，含 1 条 critical RCE），并按既有 overrides 先例收敛 `source-map-js` / `sharp` 两条传递依赖；审计从 9 条（3 high + 1 critical）降到零（#1118）。
 
 ## [2026-10-15]
 
