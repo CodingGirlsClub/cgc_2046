@@ -1,20 +1,24 @@
 // acp/session.ts — 对话处理器（U6）：每门课一条 ACP 会话（KTD6）；一个 OMP 进程服务全部会话，按需拉起、空闲回收（KTD13）；
 // session/update 归一化成页面事件（events.ts），审批与提问交给持有者作答（cards.ts）。载荷契约见 cgc-host/AGENTS.md。
 import { mkdirSync } from "node:fs";
-import { type ClientApp, type ContentBlock, type McpServer, PROTOCOL_VERSION, type PromptResponse } from "@agentclientprotocol/sdk";
+import { type ClientApp, type ContentBlock, type McpServer, type PromptResponse } from "@agentclientprotocol/sdk";
+import protocol from "../../protocol.json";
 import type { ChatContext, ChatMethod, Message } from "../server";
 import { isUuid } from "../security";
 import { workDir } from "../state";
 import { type Cards, createCards } from "./cards";
 import { type Agent, clientApp } from "./client";
 import { type ChatEvent, classifyModelError, createTranscript, type Transcript } from "./events";
+import { createRuntime, type Preparation } from "./runtime";
 
 export interface ChatOptions {
   home: string;
   /** 平台 API 地址：下发给 OMP 的 cgc-2046 MCP 服务器是 `${apiBase}/mcp` */
   apiBase: string;
   /** 连上 agent：main.ts 拉起 omp acp，测试接进程内的假 agent；找不到或起不来就抛错 */
-  start(app: ClientApp): Promise<Agent>;
+  start(app: ClientApp, signal: AbortSignal): Promise<Agent>;
+  /** 包含课程排队、进程启动、initialize 与 list/load/new 的总预算；测试可缩短 */
+  preparationTimeoutMs?: number;
   /** KTD13：没有页面持有这门课、卡片待答超过它，就取消本轮；默认 5 分钟 */
   graceMs?: number;
   /** KTD13：没有页面连着、也没有在跑的回合超过它，就回收 OMP 进程；默认 10 分钟 */
@@ -67,15 +71,14 @@ export function createChat(opts: ChatOptions) {
   const idleMs = opts.idleMs ?? 10 * 60_000;
   const courses = new Map<string, Course>();
   const bySession = new Map<string, Course>();
-  let agent: Agent | null = null;
-  let starting: Promise<Agent> | null = null;
   let connections = 0;
   let idleTimer: Timer | null = null;
 
   const delta = (c: Course, event: ChatEvent) => c.send({ method: "turn.delta", params: { courseId: c.id, ...event } });
 
-  const app = clientApp({
+  const runtime = createRuntime({ start: opts.start, ready: checkIdle, reset: resetAgent, app: (active) => clientApp({
     update({ sessionId, update }) {
+      if (!active()) return;
       const c = bySession.get(sessionId);
       const event = c?.transcript.apply(update);
       if (!c || !event || !c.turn?.sessionId) return;
@@ -83,6 +86,7 @@ export function createChat(opts: ChatOptions) {
       delta(c, event);
     },
     permission(req, signal) {
+      if (!active()) return Promise.resolve({ outcome: { outcome: "cancelled" } });
       const c = bySession.get(req.sessionId);
       if (!c) return Promise.resolve({ outcome: { outcome: "cancelled" } });
       const answer = c.cards.permission(req, signal);
@@ -90,45 +94,25 @@ export function createChat(opts: ChatOptions) {
       return answer;
     },
     question(req, signal) {
+      if (!active()) return Promise.resolve({ action: "decline" });
       const c = "sessionId" in req && typeof req.sessionId === "string" ? bySession.get(req.sessionId) : undefined;
       if (!c) return Promise.resolve({ action: "decline" });
       const answer = c.cards.question(req, signal);
       checkGrace(c);
       return answer;
     },
-  });
+  }) });
 
-  function ensureAgent(): Promise<Agent> {
-    if (agent) return Promise.resolve(agent);
-    starting ??= (async () => {
-      const a = await opts.start(app);
-      try {
-        // KTD5：只声明 elicitation.form（OMP 据此注册 ask 工具、经 elicitation/create 提问）
-        await a.rpc.request("initialize", { protocolVersion: PROTOCOL_VERSION, clientCapabilities: { elicitation: { form: {} } } });
-      } catch (e) {
-        a.close();
-        throw e;
-      }
-      agent = a;
-      void a.closed.then(() => {
-        if (agent !== a) return;
-        // 进程退出或被回收：会话随之卸下，下次需要时重新 session/load；在跑的 session/prompt 会以失败结束
-        agent = null;
-        bySession.clear();
-        for (const [id, c] of courses) {
-          c.sessionId = null;
-          // Host 常驻数周：无人持有、没有在跑的回合与待答卡片的课程不再留在内存里（连同它的事件缓冲）；
-          // 下次 chat.attach 重新建，历史从 OMP 的会话存储回放
-          if (!c.held && !c.turn && c.cards.size === 0) courses.delete(id);
-        }
-        checkIdle();
-      });
-      checkIdle();
-      return a;
-    })().finally(() => {
-      starting = null;
-    });
-    return starting;
+  function resetAgent() {
+    bySession.clear();
+    for (const [id, c] of courses) {
+      c.sessionId = null;
+      c.cards.cancelAll();
+      // 共享进程被废弃时，其他已开始的回合立即收尾；准备中的请求由其自身的取消路径回复失败。
+      if (c.turn?.sessionId) finish(c, c.turn, null);
+      if (!c.held && !c.turn && c.cards.size === 0) courses.delete(id);
+    }
+    checkIdle();
   }
 
   const cgcServer = (token: string): McpServer => ({
@@ -139,10 +123,10 @@ export function createChat(opts: ChatOptions) {
   });
 
   /** KTD6：指针指向的会话必须登记在这门课的工作目录下才加载——比如换了账号，指针还指着上一个账号的对话 */
-  async function belongs(a: Agent, cwd: string, sessionId: string): Promise<boolean> {
+  async function belongs(a: Agent, cwd: string, sessionId: string, run: Preparation): Promise<boolean> {
     let cursor: string | undefined;
     do {
-      const page = await a.rpc.request("session/list", { cwd, ...(cursor && { cursor }) });
+      const page = await run.wait("session/list", (signal) => a.rpc.request("session/list", { cwd, ...(cursor && { cursor }) }, { cancellationSignal: signal }));
       if (page.sessions.some((s) => s.sessionId === sessionId)) return true;
       cursor = page.nextCursor ?? undefined;
     } while (cursor);
@@ -156,10 +140,11 @@ export function createChat(opts: ChatOptions) {
    * - new：「新开对话」，总是 session/new，指针改指新会话。
    * session/new 与每次 session/load 都下发含当前凭证的 mcpServers；换了账号或凭证就重新加载。
    */
-  async function ensureSession(c: Course, ctx: ChatContext, mode: "attach" | "send" | "new"): Promise<{ a: Agent; sessionId: string } | null> {
+  async function ensureSession(c: Course, ctx: ChatContext, mode: "attach" | "send" | "new", run: Preparation) {
+    run.check();
     // 有一轮正在 OMP 里跑时不重新加载：重新 load 会让 OMP 把历史整段再回放一遍
-    const current = agent && c.sessionId && (c.turn?.sessionId || (c.userId === ctx.userId && c.token === ctx.token)) ? c.sessionId : null;
-    if (mode !== "new" && current) return { a: agent!, sessionId: current };
+    const current = runtime.agent && c.sessionId && (c.turn?.sessionId || (c.userId === ctx.userId && c.token === ctx.token)) ? c.sessionId : null;
+    if (mode !== "new" && current) return { a: await run.agent(), sessionId: current };
     // 不再沿用当前会话（新开、换了账号或凭证、OMP 重启过）：先卸下并清空缓冲——上一段对话不能出现在接下来的历史里
     if (c.sessionId) bySession.delete(c.sessionId);
     c.sessionId = null;
@@ -167,17 +152,21 @@ export function createChat(opts: ChatOptions) {
     c.transcript.reset();
     const pointer = mode === "new" ? undefined : ctx.sessions[c.id];
     if (mode === "attach" && !pointer) return null;
-    const a = await ensureAgent();
+    const a = await run.agent();
+    run.check();
     const cwd = workDir(opts.home, ctx.userId, c.id);
     const mcpServers = [cgcServer(ctx.token)];
-    if (pointer && (await belongs(a, cwd, pointer))) {
+    const load = pointer ? await belongs(a, cwd, pointer, run) : false;
+    run.check();
+    if (pointer && load) {
       bySession.set(pointer, c);
       try {
-        await a.rpc.request("session/load", { sessionId: pointer, cwd, mcpServers }); // 历史经 session/update 回放进缓冲
+        await run.wait("session/load", (signal) => a.rpc.request("session/load", { sessionId: pointer, cwd, mcpServers }, { cancellationSignal: signal }));
       } catch (e) {
         bySession.delete(pointer);
         throw e;
       }
+      run.check();
       Object.assign(c, { sessionId: pointer, userId: ctx.userId, token: ctx.token });
       return { a, sessionId: pointer };
     }
@@ -188,13 +177,22 @@ export function createChat(opts: ChatOptions) {
       if (mode === "attach") return null;
     }
     mkdirSync(cwd, { recursive: true });
-    const { sessionId } = await a.rpc.request("session/new", { cwd, mcpServers });
+    const { sessionId } = await run.wait("session/new", (signal) => a.rpc.request("session/new", { cwd, mcpServers }, { cancellationSignal: signal }));
+    run.check();
     bySession.set(sessionId, c);
     Object.assign(c, { sessionId, userId: ctx.userId, token: ctx.token });
     ctx.sessions[c.id] = sessionId;
     ctx.save();
     return { a, sessionId };
   }
+
+  // Keep preparation and its synchronous state/reply/prompt commit in the same course queue slot.
+  const prepare = (c: Course, ctx: ChatContext, mode: "attach" | "send" | "new", commit: (ready: Awaited<ReturnType<typeof ensureSession>>) => void) =>
+    runtime.prepare(opts.preparationTimeoutMs ?? protocol.preparationTimeoutMs, (run) => serial(c, async () => {
+      const ready = await ensureSession(c, ctx, mode, run);
+      run.check();
+      commit(ready);
+    }));
 
   function serial<T>(c: Course, op: () => Promise<T>): Promise<T> {
     const run = c.queue.then(op);
@@ -221,7 +219,7 @@ export function createChat(opts: ChatOptions) {
     const turn = c.turn;
     if (!turn || turn.stopping) return;
     turn.stopping = true;
-    if (agent && turn.sessionId) void agent.rpc.notify("session/cancel", { sessionId: turn.sessionId }).catch(() => {});
+    if (runtime.agent && turn.sessionId) void runtime.agent.rpc.notify("session/cancel", { sessionId: turn.sessionId }).catch(() => {});
     c.cards.cancelAll();
     for (const step of c.transcript.stopTools()) delta(c, step);
     checkGrace(c);
@@ -247,13 +245,13 @@ export function createChat(opts: ChatOptions) {
 
   /** KTD13：没有页面连着、也没有在跑的回合，超过空闲期就回收 OMP 进程；下次需要时再拉起并 session/load */
   function checkIdle() {
-    const idle = () => agent !== null && connections === 0 && ![...courses.values()].some((c) => c.turn);
+    const idle = () => runtime.agent !== null && connections === 0 && ![...courses.values()].some((c) => c.turn);
     if (idle() && !idleTimer) {
       idleTimer = setTimeout(() => {
         idleTimer = null;
         if (!idle()) return;
         console.log("cgc-host: 空闲，回收 OMP 进程");
-        agent!.close();
+        runtime.close();
       }, idleMs);
       idleTimer.unref();
     } else if (!idle() && idleTimer) {
@@ -304,13 +302,14 @@ export function createChat(opts: ChatOptions) {
 
     if (method === "chat.attach") {
       try {
-        await serial(c, () => ensureSession(c, ctx, "attach"));
+        await prepare(c, ctx, "attach", () => {
+          reply("history", { running: c.turn !== null, events: c.transcript.events });
+          for (const view of c.cards.views()) c.send({ method: "turn.card", params: { courseId: c.id, ...view } });
+        });
       } catch (e) {
         console.error(`cgc-host: 加载对话失败：${message(e)}`);
         return fail("chat_unavailable");
       }
-      reply("history", { running: c.turn !== null, events: c.transcript.events });
-      for (const view of c.cards.views()) c.send({ method: "turn.card", params: { courseId: c.id, ...view } }); // 未答的卡片重新出现
     } else if (method === "chat.send") {
       const { text } = params;
       const context = pageContext(params.context, c.id);
@@ -319,42 +318,41 @@ export function createChat(opts: ChatOptions) {
       const turn: Turn = { stopping: false, sessionId: null, text: "" };
       c.turn = turn;
       checkIdle();
-      let ready: { a: Agent; sessionId: string } | null;
       try {
-        ready = await serial(c, () => ensureSession(c, ctx, "send"));
+        await prepare(c, ctx, "send", (ready) => {
+          const { a, sessionId } = ready!;
+          // KTD8：上下文块只在会话的首条消息与单元切换时附带
+          const prompt: ContentBlock[] = [{ type: "text", text }];
+          if (context !== c.lastContext) prompt.unshift({ type: "text", text: `<cgc-page-context>${context}</cgc-page-context>` });
+          c.lastContext = context;
+          c.transcript.push({ kind: "user", text });
+          reply("turn.delta", { kind: "user", text });
+          if (turn.stopping) return finish(c, turn, { stopReason: "cancelled" });
+          turn.sessionId = sessionId;
+          a.rpc.request("session/prompt", { sessionId, prompt }).then(
+            (res) => finish(c, turn, res),
+            (e) => {
+              console.error(`cgc-host: 本轮对话失败：${message(e)}`);
+              finish(c, turn, null);
+            },
+          );
+        });
       } catch (e) {
         console.error(`cgc-host: 无法开始对话：${message(e)}`);
-        c.turn = null;
+        if (c.turn === turn) c.turn = null;
         checkIdle();
         return fail("chat_unavailable");
       }
-      const { a, sessionId } = ready!;
-      // KTD8：上下文块只在会话的首条消息与单元切换时附带
-      const prompt: ContentBlock[] = [{ type: "text", text }];
-      if (context !== c.lastContext) prompt.unshift({ type: "text", text: `<cgc-page-context>${context}</cgc-page-context>` });
-      c.lastContext = context;
-      c.transcript.push({ kind: "user", text });
-      reply("turn.delta", { kind: "user", text });
-      if (turn.stopping) return finish(c, turn, { stopReason: "cancelled" }); // 拉起会话期间学员已点停止
-      turn.sessionId = sessionId;
-      a.rpc.request("session/prompt", { sessionId, prompt }).then(
-        (res) => finish(c, turn, res),
-        (e) => {
-          console.error(`cgc-host: 本轮对话失败：${message(e)}`);
-          finish(c, turn, null);
-        },
-      );
     } else if (method === "chat.stop") {
       stop(c);
     } else if (method === "chat.new") {
       if (c.turn) return fail("busy");
       try {
-        await serial(c, () => ensureSession(c, ctx, "new"));
+        await prepare(c, ctx, "new", () => reply("history", { running: false, events: [] }));
       } catch (e) {
         console.error(`cgc-host: 新开对话失败：${message(e)}`);
         return fail("chat_unavailable");
       }
-      reply("history", { running: false, events: [] });
     } else if (method === "card.answer") {
       if (!c.cards.answer(params, reply)) return fail("bad_request");
       checkGrace(c);

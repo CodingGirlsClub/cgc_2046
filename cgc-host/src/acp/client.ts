@@ -42,13 +42,16 @@ export function clientApp(h: AgentHandlers): acp.ClientApp {
 }
 
 /** 拉起 `omp acp`：环境来自登录 shell（omp.ts，KTD12）；stderr 丢弃——里面可能有对话内容，不进 Host 日志（R25） */
-export function spawnOmp(omp: Omp & { path: string }, app: acp.ClientApp, cwd: string): Agent {
+export function spawnOmp(omp: Omp & { path: string }, app: acp.ClientApp, cwd: string, signal: AbortSignal): Agent {
+  signal.throwIfAborted();
   const proc = Bun.spawn([omp.path, `--append-system-prompt=${STARTUP_PROMPT}`, "acp"], {
     cwd,
     env: omp.env,
     stdin: "pipe",
     stdout: "pipe",
     stderr: "ignore",
+    signal,
+    killSignal: "SIGKILL",
   });
   // Bun 的 stdin 是 FileSink，SDK 要 WritableStream，包一层
   const input = new WritableStream<Uint8Array>({
@@ -67,7 +70,7 @@ export function spawnOmp(omp: Omp & { path: string }, app: acp.ClientApp, cwd: s
     closed: conn.closed,
     close() {
       conn.close();
-      proc.kill();
+      proc.kill("SIGKILL");
     },
   };
 }

@@ -4,7 +4,11 @@ import { MockedProvider } from "@apollo/client/testing/react";
 import { useQuery } from "@apollo/client/react";
 import { COURSE_LEARNING_DETAIL } from "@/lib/graphql/participations";
 import type { HostStatus } from "@/lib/host-socket";
-import { POLL_MS, useHostChat, type HostChat } from "./use-host-chat";
+import { CHAT_TIMEOUT_MS, POLL_MS, useHostChat, type HostChat } from "./use-host-chat";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+const protocol = JSON.parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../../../cgc-host/protocol.json"), "utf8"));
 
 /**
  * U10 对话栏的状态源（R26、R28；KTD8、KTD14）。
@@ -305,6 +309,14 @@ async function pendingHistory(method: "chat.attach" | "chat.new") {
 }
 
 describe("F1：持有权失效后的异步回复", () => {
+	it("页面请求使用协议等待预算，覆盖 Host 准备预算并留出余量", async () => {
+		const timers = vi.spyOn(globalThis, "setTimeout");
+		try {
+			await pendingHistory("chat.attach");
+			expect(timers).toHaveBeenCalledWith(expect.any(Function), CHAT_TIMEOUT_MS);
+			expect(CHAT_TIMEOUT_MS - protocol.preparationTimeoutMs).toBeGreaterThanOrEqual(15_000);
+		} finally { timers.mockRestore(); }
+	});
 	it.each(["chat.attach", "chat.new"] as const)("%s 的迟到 history 不能撤销 eviction，只有新 reclaim 可以恢复", async (method) => {
 		const { ws, id } = await pendingHistory(method);
 		act(() => ws.push({ method: "chat.evicted", params: { courseId: COURSE } }));

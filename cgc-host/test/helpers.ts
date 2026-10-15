@@ -241,6 +241,8 @@ export function fakeAgent() {
     calledWith: (method: string) => fake.calls.filter((c) => c.method === method).map((c) => c.params),
     start: async (app: acp.ClientApp): Promise<Agent> => {
       fake.starts++;
+      // OMP's persisted session list is not the set loaded in this process.
+      const loaded = new Set<string>();
       const cancels = new Map<string, () => void>();
       const record = (method: string, params: unknown) => fake.calls.push({ method, params });
       const agentApp = acp
@@ -253,6 +255,7 @@ export function fakeAgent() {
           record("session/new", c.params);
           const sessionId = `session-${++seq}`;
           fake.store.set(sessionId, { cwd: c.params.cwd, history: [] });
+          loaded.add(sessionId);
           return { sessionId };
         })
         .onRequest("session/list", (c) => {
@@ -264,12 +267,14 @@ export function fakeAgent() {
           record("session/load", c.params);
           const s = fake.store.get(c.params.sessionId);
           if (!s) throw acp.RequestError.resourceNotFound(c.params.sessionId);
+          loaded.add(c.params.sessionId);
           for (const update of s.history) await c.client.notify("session/update", { sessionId: c.params.sessionId, update });
           return {};
         })
         .onRequest("session/prompt", async (c) => {
           record("session/prompt", c.params);
           const { sessionId, prompt } = c.params;
+          if (!loaded.has(sessionId)) throw acp.RequestError.resourceNotFound(sessionId);
           const s = fake.store.get(sessionId)!;
           const text = prompt.map((b) => (b.type === "text" ? b.text : "")).join("\n");
           s.history.push({ sessionUpdate: "user_message_chunk", content: { type: "text", text } });
@@ -307,9 +312,9 @@ export type Fake = ReturnType<typeof fakeAgent>;
 export const API = "http://cgc.test";
 
 /** 接上假 OMP 的 Host：对话处理器是真的（createChat），home 可传入以模拟 Host 重启 */
-export function chatHost(fake: Fake, opts: { home?: string; graceMs?: number; idleMs?: number } = {}) {
+export function chatHost(fake: Fake, opts: { home?: string; graceMs?: number; idleMs?: number; preparationTimeoutMs?: number } = {}) {
   const home = opts.home ?? tempHome();
-  const chat = createChat({ home, apiBase: API, start: fake.start, graceMs: opts.graceMs, idleMs: opts.idleMs });
+  const chat = createChat({ home, apiBase: API, start: fake.start, graceMs: opts.graceMs, idleMs: opts.idleMs, preparationTimeoutMs: opts.preparationTimeoutMs });
   return startHost({ home, chat: chat.handle, onConnections: chat.connections });
 }
 

@@ -23,7 +23,7 @@ import { useHostPairing, type HostPairing, type PairingErrorReason } from "./use
 /** 没有连接时重新检测的间隔：装好 Host、装好 OMP、Host 恢复，都在这个时间内被发现 */
 export const POLL_MS = 3_000;
 /** chat.attach / chat.send / chat.new 可能要先拉起 OMP 并加载会话 */
-const CHAT_TIMEOUT_MS = 60_000;
+export const CHAT_TIMEOUT_MS = 60_000;
 const CARD_TIMEOUT_MS = 15_000;
 
 export type ToolStatus = "pending" | "in_progress" | "completed" | "failed" | "stopped";

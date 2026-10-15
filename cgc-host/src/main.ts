@@ -25,12 +25,13 @@ const omp = ompLocator();
 const chat = createChat({
   home,
   apiBase: API_BASE,
-  async start(app) {
+  async start(app, signal) {
     const found = await omp.locate();
+    signal.throwIfAborted();
     if (!found.path) throw new Error("找不到 omp");
     const cwd = join(home, "CGC"); // OMP 进程自己的目录；每个会话的 cwd 是各自课程的工作目录
     mkdirSync(cwd, { recursive: true });
-    return spawnOmp({ ...found, path: found.path }, app, cwd);
+    return spawnOmp({ ...found, path: found.path }, app, cwd, signal);
   },
 });
 
