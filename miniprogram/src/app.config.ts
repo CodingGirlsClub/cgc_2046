@@ -11,8 +11,8 @@ import { pagesForPlatform, type RoutePlatform } from './domain/platform-pages'
 const platform: RoutePlatform =
   process.env.TARO_ENV === 'tt' ? 'tt' : process.env.TARO_ENV === 'xhs' ? 'xhs' : 'wechat'
 
-// Tab 清单按平台分派：抖音 = 发现/我的（#1079；与 xhs D2a 同构的 2 Tab）；
-// 小红书 = 发现/闪念间/我的（P0-5+D2a）；微信 = 全量（含条件段工作台）。
+// Tab 清单按平台分派：抖音 = 发现/闪念间/我的（#1079 + #1083；与 xhs 同构 3 Tab）；
+// 小红书 = 发现/闪念间/我的（P0-5+D2a+P2）；微信 = 全量（含条件段工作台）。
 const tabsForPlatform = (env: RoutePlatform): readonly TabDef[] => {
   if (env === 'xhs') return XHS_TABS
   if (env === 'tt') return TT_TABS

@@ -1,6 +1,6 @@
 import Taro from '@tarojs/taro'
 import type { PlatformPhonePayload, SubscriptionScenario } from '@/domain/models'
-import { acceptedScenarios, configuredScenarios, subscriptionTransport } from '@/domain/subscription'
+import { acceptedScenarios, configuredScenarios, scenariosSupportedKeys, subscriptionTransport } from '@/domain/subscription'
 
 // 各平台订阅消息模板 ID 映射（构建期注入，见 config/index.ts；键集与
 // SubscriptionScenario 的双射由 tests/subscription-build.test.mjs 守卫）。
@@ -132,6 +132,21 @@ function finalizeXhsLogin(phonePayload: PlatformPhonePayload, stagedCode: string
  *   （不是静默成功，也绝不把空串递给微信）；
  * - `grantConsent` 由调用方对返回的每个场景分别上报（一次授权 = 后端 +1 配额）。
  */
+/**
+ * 订阅触点是否在该端构建下**结构性可用**（ability 是否配出来 = 键是否在本端构建的模板表里）。
+ * 单场景勾选触点（附议回响等）不允许差集：键不在 = 该场景代码面永远不可能配出来，
+ * 「可点但必然失败」的触点必须隐藏（不要把必缺的承诺摘到面板上）。
+ * 与 `configuredScenarios` 的分工：本函数用于**触点渲染前的渲染门**（preview）；
+ * 缺配 env 的通常错误反馈仍按原有 request 路径在——两个层次不重叠。
+ */
+export function subscriptionScenariosSupported(scenarios: SubscriptionScenario[]): boolean {
+  const transport = subscriptionTransport(__E2E_MOCK__, currentPlatform())
+  if (transport === 'unsupported') return false
+  if (transport === 'passthrough') return true
+  const table = currentPlatform() === 'tt' ? ttTemplateIds : wechatTemplateIds
+  return scenariosSupportedKeys(scenarios, table)
+}
+
 export async function requestPlatformSubscriptions(
   scenarios: SubscriptionScenario[]
 ): Promise<SubscriptionScenario[]> {

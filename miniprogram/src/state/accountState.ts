@@ -2,7 +2,7 @@ import Taro from '@tarojs/taro'
 import type { NotificationItem } from '@/domain/models'
 import { STORAGE_KEYS } from '@/state/storage'
 import { retainedNotifications, validNotification } from '@/domain/notifications'
-import { isAccountWipeKey } from '@/domain/account'
+import { wipeAccountKeys } from '@/domain/account'
 
 const ACTIVE_USER_KEY = 'cgc.active_user_id'
 const LEGACY_NOTIFICATION_KEY = 'cgc.local_notifications'
@@ -82,20 +82,18 @@ export function clearFlashbackLinkIdentity(): void {
 }
 
 /**
- * 主动退出时一并清掉「户主侧」账号持久键（#1079 账号切换隔离）：
- * 愿望草稿（按 owner 前缀）与闪念间入口意图 / 访客圈选残留不再落到下一账号。
- * 判据单源 `domain/account.ts`；登录事务的 `clearAccountState` 不变（登录成功后
- * 由真实 Session 水合，无需抢跑）。仅在主动退出面调用（api.signOut 唯一入口）。
+ * 主动退出时确定性清掉「户主侧」账号持久键（#1079 账号切换隔离）：
+ * 愿望草稿（活跃账号 + guest 两桶）与两闪念间意图/圈选残留不再落到下一账号。
+ * 键集单源 `domain/account.ts`（`wipeAccountKeys`）；**不用** `getStorageInfoSync`
+ * 枚举——枚举失败会把草稿留着而不报错，下一个登录者读到上一账号的草稿
+ * （本 review 找到的根因，见该模块头注）。删除抛错不吞——调用方（api.signOut）
+ * 会随 signOut 一起失败、把反馈吐到页面，而不是静默退出。
+ * 仅在主动退出面调用（api.signOut 唯一入口）；**必须在 clearAccountState 之前**调，
+ * 否则活跃账号 id 拿不到、把 user-a 的草稿桶留着。
  */
 export function wipeAccountLocal(): void {
-  try {
-    const info = Taro.getStorageInfoSync()
-    for (const key of info.keys) {
-      if (isAccountWipeKey(key)) Taro.removeStorageSync(key)
-    }
-  } catch {
-    /* 不支持 getStorageInfoSync 的环境就不会退出：本函数在最坏情况下失败只影响
-       本机草稿清除（账号隔离仍由 token 无效决定，服务端权威） */
+  for (const key of wipeAccountKeys(getActiveAccountId())) {
+    Taro.removeStorageSync(key)
   }
 }
 

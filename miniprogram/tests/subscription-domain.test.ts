@@ -14,6 +14,7 @@ import {
   MAX_TMPL_IDS_PER_REQUEST,
   acceptedScenarios,
   configuredScenarios,
+  scenariosSupportedKeys,
   courseCardTouchpoint,
   enrollmentCardTouchpoint,
   enrollmentResultTouchpoint,
@@ -555,6 +556,38 @@ describe('请求期 fail-closed：configuredScenarios', () => {
       configuredScenarios(['event_reminder', 'event_schedule_changed', 'learning_stagnation'], table),
       ['event_reminder', 'event_schedule_changed']
     )
+  })
+})
+
+describe('触点渲染门：scenariosSupportedKeys（#1079 review——必失败触点必须隐藏）', () => {
+  // 与 configuredScenarios 分工：configs 允许「场景部分补差集 → 部分请求」；
+  // 单场景勾选触点（附议回响、特别提醒）不允许差集——键不在表 = 代码面必失败
+  // （不是缺模板 ID），本判据先行隐藏。
+  const TT_TABLE = { approval_result: 'dou-a', event_reminder: 'dou-e' } as Record<string, string>
+  const WECHAT_TABLE = { approval_result: 'wx-a', event_reminder: 'wx-e', flashback_wish_echo: 'wx-f' } as Record<string, string>
+
+  test('tt 结构性缺键：flashback_wish_echo 不在 TT_SCENARIOS 派生表 → false', () => {
+    assert.equal(scenariosSupportedKeys(['flashback_wish_echo'], TT_TABLE), false)
+  })
+
+  test('wechat 表内键：flashback_wish_echo 在 WECHAT_SCENARIOS 派生表 → true', () => {
+    assert.equal(scenariosSupportedKeys(['flashback_wish_echo'], WECHAT_TABLE), true)
+  })
+
+  test('「键在表 = 结构性支持」不与模板 ID 是否配混淆：值为空串仍 true', () => {
+    // 配不配出是部署面问题；结构性支持 = 键在。值空串是后面 configuredScenarios 的事，
+    // 本判据只管触点该不该展示——值为空串时触点仍展示，request 走缺配可读错误路径。
+    const emptyEcho = { ...WECHAT_TABLE, flashback_wish_echo: '' }
+    assert.equal(scenariosSupportedKeys(['flashback_wish_echo'], emptyEcho), true)
+  })
+
+  test('多场景要求全部键在表（单场景触点不允许差集）', () => {
+    assert.equal(scenariosSupportedKeys(['approval_result', 'event_reminder'], TT_TABLE), true)
+    assert.equal(scenariosSupportedKeys(['flashback_wish_echo', 'approval_result'], TT_TABLE), false)
+  })
+
+  test('空场景集：恒 true（不阻碍 requestTransport 本身的 passthrough 模拟路径）', () => {
+    assert.equal(scenariosSupportedKeys([], {}), true)
   })
 })
 

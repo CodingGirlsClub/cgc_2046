@@ -15,8 +15,8 @@ import styles from './index.module.css'
 
 interface Props { selected: TabKey }
 
-// Tab 清单按平台分派：抖音 = 发现/我的（#1079；与 xhs 同构的 2 Tab）；
-// 小红书 = 发现/闪念间/我的（D2a）；微信 = 三段式（含条件段工作台）。
+// Tab 清单按平台分派：抖音 = 发现/闪念间/我的（#1079 + #1083；与 xhs 同构 3 Tab）；
+// 小红书 = 发现/闪念间/我的（D2a+P2）；微信 = 三段式（含条件段工作台）。
 const env = process.env.TARO_ENV
 const isCut = env === 'tt' || env === 'xhs'
 

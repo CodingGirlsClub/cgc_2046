@@ -1,9 +1,9 @@
 /**
- * 闪念间回访页(裁剪端 tt/xhs 载体,微信端主入口已归长廊 Tab)。
+ * 闪念间回访页(裁剪端 tt/xhs 薄壳载体,微信端主入口已归长廊 Tab)。
  * U2 完整化:卡面/圈选/授权全部在 components/MyCard 单源;本页只持
  * load/token 双入口状态机 + 分享 hooks + ShareSheet(微信端 corridor 共用)。
- * tt/xhs 未注册长廊(页面文案含微信专属词,过不了 diversion 词表)——
- * 裁剪端用户从「我的」入口与成场通知深链到这里。
+ * #1083 起 tt 与 xhs 同型注册长廊(发现/闪念间/我的 Tab)——本页保留
+ * 为深链回落目标(platformFallbackRoute)与旧分享链落点。
  */
 import { useCallback, useRef, useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'

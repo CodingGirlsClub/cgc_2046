@@ -1,36 +1,51 @@
-// 账号切换 / 退出登录的客户端持久键处置口径（#1079）：先写错判据示例，后钉住铁律。
-// 判据三类（互斥、MECE）：
-// - wish-draft 按 owner 前缀清（userId / 'guest'）——下一账号看不到自己的/上一账号的愿望草稿；
-// - 闪念间入口意图与访客圈选按精确名清；
-// - 交接协议键（login-handoff）与 pendingScene 不在内（防撤断扫码→登录交接）。
+// 账号切换 / 退出登录的客户端持久键（#1079）——确定性键集（不枚举）。
+//
+// 判据：主动退出必须确定性清除「当前活跃账号 + guest」两个愿望草稿桶、与两条
+// 闪念间 UI 意图/访客圈选；其余键（handoff 标记、pendingScene、通知缓存、token）
+// 不在 wipe 职责内——handoff 按交接协议保留（draft 已删，marker 剩余无害）。
+// 实现侧（state/accountState.ts）必须对以上每一键逐一 removeStorageSync，不得依赖
+// `getStorageInfoSync().keys` 枚举——枚举失败会把草稿留着而不报错（本次 review 找到的根因）。
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { isAccountWipeKey } from '../src/domain/account.ts'
+import { wipeAccountKeys } from '../src/domain/account.ts'
 
-describe('退出登录键口径（#1079 账号切换隔离）', () => {
-  test('愿望草稿按 owner 前缀清（userId / guest）', () => {
-    assert.equal(isAccountWipeKey('cgc.wish-draft.user-a'), true)
-    assert.equal(isAccountWipeKey('cgc.wish-draft.guest'), true)
-    assert.equal(isAccountWipeKey('cgc.wish-draft.'), true)
+describe('退出登录确定性键集（#1079 账号切换隔离）', () => {
+  test('活跃账号在场：current 账号草稿桶 + guest 草稿桶 + 两闪念间键', () => {
+    const keys = wipeAccountKeys('user-a')
+    assert.equal(keys.length, 4)
+    assert.ok(keys.includes('cgc.wish-draft.user-a'))
+    assert.ok(keys.includes('cgc.wish-draft.guest'))
+    assert.ok(keys.includes('cgc.flashback_entry_intent'))
+    assert.ok(keys.includes('cgc.flashback_last_guest_quote'))
   })
 
-  test('闪念间入口意图与访客圈选按精确名清', () => {
-    assert.equal(isAccountWipeKey('cgc.flashback_entry_intent'), true)
-    assert.equal(isAccountWipeKey('cgc.flashback_last_guest_quote'), true)
+  test('无活跃账号（已在未登录态登出）：只删 guest 草稿桶 + 两闪念间键', () => {
+    const keys = wipeAccountKeys(null)
+    assert.equal(keys.length, 3)
+    assert.ok(keys.includes('cgc.wish-draft.guest'))
+    assert.ok(keys.includes('cgc.flashback_entry_intent'))
+    assert.ok(keys.includes('cgc.flashback_last_guest_quote'))
   })
 
-  test('交接协议键/pendingScene 不在内（防撤断扫码→登录交接）', () => {
-    assert.equal(isAccountWipeKey('cgc.wish-draft.login-handoff'), false)
-    assert.equal(isAccountWipeKey('cgc.pending_scene'), false)
-    // 其他账号状态键（token / lastEnrollment / 通知缓存）由 clearAccountState 语义持有
-    assert.equal(isAccountWipeKey('cgc.auth_token'), false)
-    assert.equal(isAccountWipeKey('cgc.last_enrollment'), false)
+  test('login-handoff / pendingScene / 认证与通知缓存键不在内', () => {
+    const keys = wipeAccountKeys('user-a')
+    for (const excluded of [
+      'cgc.wish-draft.login-handoff',
+      'cgc.pending_scene',
+      'cgc.auth_token',
+      'cgc.last_enrollment',
+      'cgc.active_user_id',
+      'cgc.local_notifications'
+    ]) {
+      assert.ok(!keys.includes(excluded), `不应清理 ${excluded}`)
+    }
   })
 
-  test('非 cgc 键 / 无关前缀不受影响', () => {
-    assert.equal(isAccountWipeKey('cgc.e2e.wish-reminder-result'), false)
-    assert.equal(isAccountWipeKey(''), false)
-    assert.equal(isAccountWipeKey('other'), false)
+  test('键含义不漂：不同账号键独立（不是共享 guest 桶）', () => {
+    const a = wipeAccountKeys('user-a')
+    const b = wipeAccountKeys('user-b')
+    assert.ok(!a.includes('cgc.wish-draft.user-b'))
+    assert.ok(!b.includes('cgc.wish-draft.user-a'))
   })
 })

@@ -783,11 +783,13 @@ export class RealMiniProgramApi implements MiniProgramApi {
       : Promise.resolve(null)
     setAuthToken(null)
     clearWorkspaceTab()
+    // #1079 账号切换隔离：主动退出后本机不留愿望草稿/闪念间圈选残留——下一账号
+    // 不该看到上一账号的草稿（登录态隔离之外的本机草稿隔离）。
+    // wipeAccountLocal 读取 getActiveAccountId()，必须在 clearAccountState 之前调，
+    // 否则 userId 已被清、转换为只删 guest 桶，user-a 的草稿残留到 B。
+    wipeAccountLocal()
     clearAccountState({ clearPendingScene: true })
     clearFlashbackLinkIdentity()
-    // #1079 账号切换隔离：主动退出后本机不留愿望草稿/闪念间圈选残留——下一账号
-    // 不该看到上一账号的草稿（登录态隔离之外的本机草稿隔离）
-    wipeAccountLocal()
     setSilentLoginAllowed(false)
     await request
   }
