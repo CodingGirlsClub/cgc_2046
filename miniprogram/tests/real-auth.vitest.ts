@@ -211,11 +211,11 @@ describe('signInSilently 回访静默登录', () => {
     const api = new RealMiniProgramApi()
     await api.signOut()
     expect(mocks.setSilentLoginAllowed).toHaveBeenLastCalledWith(false)
-    // #1079 review：wipe 必须在 clearAccountState 之前（需要先拿到 active id）；还原之后
-    // 反序会变成只删 guest 桶、user-a 草稿残留——本断言钉住顺序防止回退。
-    expect(mocks.wipeAccountLocal.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.clearAccountState.mock.invocationCallOrder[0]
-    )
+    // 「wipe 先于一切会清 active id 的调用」这个真实顺序不能在本文件断言：
+    // 这里 setAuthToken / accountState 同时被 mock，只能断言「相对 api 自身的显式
+    // clearAccountState」的顺序，而真正的对手是 setAuthToken(null) 内部那条隐式
+    // clearAccountState——mock 层看不到它，断言照样绿（#1079 P2 评审抓到的假绿）。
+    // 真实链路守卫已迁到 tests/real-signout.vitest.ts（只 mock @tarojs/taro 与网络边界）。
     await api.signIn({ loginCode: 'c', encryptedData: 'e', iv: 'i' })
     expect(mocks.setSilentLoginAllowed).toHaveBeenLastCalledWith(true)
   })
