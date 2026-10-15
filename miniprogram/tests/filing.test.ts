@@ -1,6 +1,6 @@
 // ICP 备案号（#1079）。同一主体按小程序分别为不同备案记录：
 // weapp -6X、xhs/tt -7X（抖音开放平台控制台 2026-10-15 由主控核实，
-// AppID tt8792f12f19e9090101，状态「生效中」）。
+// AppID 见开放平台后台——公开代码不硬编码，状态「生效中」）。
 // 判据：tt 已到展示阶段（非 null）；weapp/xhs 回归；三平台各自独立取值（改一处不误伤对端）。
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
