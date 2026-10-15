@@ -30,7 +30,10 @@
 .historyHeader { display: flex; align-items: center; justify-content: space-between; }
 .historyTime { color: #8a8f98; font-size: 20rpx; }
 .historyReason { display: block; margin-top: 6rpx; color: #8a8f98; font-size: 20rpx; }
-.platformTip { position: fixed; left: 0; right: 0; bottom: 108rpx; padding: 12rpx; color: #4b4d54; background: #fff; text-align: center; font-size: 21rpx; }
+/* #1079 起 my-enrollments 在三端均已降级普通页（无 AppTabBar 在场）——
+   固定底部固定定位 bottom:108rpx 末张卡被覆盖（Codex review P2）。
+   改为普通文档流，与上方滚动尾部流程一致，不再需要.list/.listPlain 保留 padding。 */
+.platformTip { padding: 12rpx; margin: 16rpx 28rpx 0; color: #4b4d54; background: #fff; text-align: center; font-size: 21rpx; }
 .payment_pending { color: #b45309; background: #fffaeb; }
 .paymentHint { display: block; margin-top: 14rpx; color: #b45309; font-size: 22rpx; }
 .paymentStatus { display: block; margin-top: 12rpx; color: #4b4d54; font-size: 22rpx; }

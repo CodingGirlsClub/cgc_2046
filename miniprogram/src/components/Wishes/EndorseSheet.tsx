@@ -4,19 +4,16 @@ import { api } from '@/api'
 import { WISH_CONTRIBUTION_OPTIONS, WISH_ENDORSE_MESSAGE_MAX } from '@/domain/flashback'
 import { wishEchoTouchpoint } from '@/domain/subscription'
 import { endorseWithReminder, requestWishReminder, reminderReceipt, type WishReminderResult } from '@/domain/wish-reminder'
-import { currentPlatform, requestPlatformSubscriptions, subscriptionScenariosSupported } from '@/platform'
-import { subscriptionTouchpointsVisible } from '@/domain/subscription'
+import { requestPlatformSubscriptions, wishEchoReminderVisible } from '@/platform'
 import styles from './endorse-sheet.module.css'
 
 type Props = { wish: { id: string; content: string }; onClose: () => void; onSaved: () => void; paper?: boolean }
 export function EndorseWishSheet({ wish, onClose, onSaved, paper = false }: Props) {
   const [types, setTypes] = useState<string[]>([])
   const [message, setMessage] = useState('')
-  // 勾选可见 = 本端构建能请求回响场景（键在表）。tt #1083 起 TT_SCENARIOS 未列
-  // flashback_wish_echo（本 review 发现）——结构性必失败，不渲染，不替用户表达订阅意愿。
-  const wishEchoVisible =
-    subscriptionTouchpointsVisible(__E2E_MOCK__, currentPlatform()) &&
-    subscriptionScenariosSupported(['flashback_wish_echo'])
+  // 勾选可见性 = 回响提醒触点在本端结构性可用（键在表；tt 结构性缺 echo，来源
+  // platform `wishEchoReminderVisible`——与许愿树页面说明字同一份判据）。
+  const wishEchoVisible = wishEchoReminderVisible()
   const [notify, setNotify] = useState(wishEchoVisible)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')

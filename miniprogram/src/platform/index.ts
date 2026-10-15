@@ -1,6 +1,6 @@
 import Taro from '@tarojs/taro'
 import type { PlatformPhonePayload, SubscriptionScenario } from '@/domain/models'
-import { acceptedScenarios, configuredScenarios, scenariosSupportedKeys, subscriptionTransport } from '@/domain/subscription'
+import { acceptedScenarios, configuredScenarios, scenariosSupportedKeys, subscriptionTouchpointsVisible, subscriptionTransport } from '@/domain/subscription'
 
 // 各平台订阅消息模板 ID 映射（构建期注入，见 config/index.ts；键集与
 // SubscriptionScenario 的双射由 tests/subscription-build.test.mjs 守卫）。
@@ -145,6 +145,17 @@ export function subscriptionScenariosSupported(scenarios: SubscriptionScenario[]
   if (transport === 'passthrough') return true
   const table = currentPlatform() === 'tt' ? ttTemplateIds : wechatTemplateIds
   return scenariosSupportedKeys(scenarios, table)
+}
+
+/**
+ * 回响提醒触点（附议 Sheet 勾选 + 许愿树页面的说明文字）是否在本端结构性可用——单源。
+ * 与订阅 button 的「平台层能够提供请求」 + 「场景键在本端构建期的模板表里」同口径：
+ * tt（未列 `flashback_wish_echo`）与 xhs（无订阅能力） = 不可见；多场景 buttons 不按这个。
+ * Codex review：两个 UI 不地方同一件（薄片 Sheet 隐藏当盲目，许愿树文案还承诺）——单源收掉。
+ */
+export function wishEchoReminderVisible(): boolean {
+  if (!subscriptionTouchpointsVisible(__E2E_MOCK__, currentPlatform())) return false
+  return subscriptionScenariosSupported(['flashback_wish_echo'])
 }
 
 export async function requestPlatformSubscriptions(

@@ -788,11 +788,11 @@ export class RealMiniProgramApi implements MiniProgramApi {
     // wipeAccountLocal 读取 getActiveAccountId()，必须在 clearAccountState 之前调，
     // 否则 userId 已被清、转换为只删 guest 桶，user-a 的草稿残留到 B。
     //
-    // Codex review P2：之前把 wipe 夹在 mandatory cleanup 中间——删除抛错会把
-    // clearAccountState / clearFlashbackLinkIdentity / setSilentLoginAllowed 全部跳过，
-    // profile-lite 已预先 putState 空 sessions、cane catch 吞错，用户看到 logged-out 但
-    // 下一个 login 仍会读回原账号（违背退出认证本身的语义）。先跑 wipe，
-    // 接着强制跑 mandatory cleanup，最后再 throw——profile-lite catch 的现有提示不再误报。
+    // Codex review P2：wipe 的 storage 删除异常不能跳过 mandatory cleanup。
+    // 顺序：先跑 wipe（捕获其抛错，不丢）；随后跑 clearAccountState /
+    // clearFlashbackLinkIdentity / setSilentLoginAllowed(false)；最后 throw wipeError。
+    // 页面 catch 会据此报「服务端注销失败」——已知的文案粗糙点；
+    // 真实的服务端注销失败仍在后面 await request 时连接错误一样捕获。
     let wipeError: unknown = null
     try {
       wipeAccountLocal()
