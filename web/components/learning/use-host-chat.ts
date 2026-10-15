@@ -262,7 +262,11 @@ export function useHostChat({
 			clearTimeout(timer);
 			if (result.state === "detected") previouslyReachedHost = true;
 			// 没连上时每 3 秒检测一次，结果多半没变：内容相同就沿用旧对象，对话栏不随轮询重渲染
-			setProbe((prev) => (prev && JSON.stringify(prev) === JSON.stringify(result) ? prev : result));
+			setProbe((prev) => {
+				// 被动权限查询没有新探测结果，不能抹掉上次点击失败后的下一步指引。
+				if (result.state === "needsPermission" && prev?.state === "needsPermission" && prev.probeFailed) return prev;
+				return prev && JSON.stringify(prev) === JSON.stringify(result) ? prev : result;
+			});
 			if (result.state === "detected" && result.ompPresent) {
 				const opened = openHostSocket();
 				current = opened;

@@ -93,6 +93,10 @@ function StateMessage({ chat }: { chat: HostChat }) {
 			return (
 				<Notice title={t("needsPermission")} hint={t("needsPermissionHint")}>
 					{button(t("allowAccess"), chat.requestAccess)}
+					{view.probeFailed ? <p role="status" className="learning-chat__note">{t("accessProbeFailed")}</p> : null}
+					<strong>{t("notInstalled")}</strong>
+					<p className="learning-chat__hint">{t("installBeforeAccess")}</p>
+					<CommandCard />
 				</Notice>
 			);
 		case "staleHost":

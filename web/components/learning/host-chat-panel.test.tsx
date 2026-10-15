@@ -199,7 +199,55 @@ describe("连接状态（R26）", () => {
 		renderPanel();
 		fireEvent.click(await screen.findByRole("button", { name: "允许访问本机" }));
 		expect(requestHostAccess).toHaveBeenCalledOnce();
-		expect(await screen.findByText(INSTALL)).toBeInTheDocument();
+		expect(await screen.findByText("没有检测到 CGC Host。")).toBeInTheDocument();
+		expect(screen.getByText(INSTALL)).toBeInTheDocument();
+	});
+
+	it.each(["zh-CN", "en"] as const)("首次权限 prompt：提供安装入口但不主动请求本机（%s）", async (locale) => {
+		checkHost.mockResolvedValue({ state: "needsPermission" });
+		renderPanel(locale);
+		expect(await screen.findByText(locale === "zh-CN" ? "尚未安装？" : "Not installed yet?")).toBeInTheDocument();
+		expect(screen.getByText(INSTALL)).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: locale === "zh-CN" ? "复制命令" : "Copy command" })).toBeInTheDocument();
+		expect(requestHostAccess).not.toHaveBeenCalled();
+		expect(socketCount()).toBe(0);
+	});
+
+	it("点击后仍 prompt：给出失败反馈，轮询保留反馈；安装后再次点击成功进入连接状态", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		localStorage.clear();
+		checkHost.mockResolvedValue({ state: "needsPermission" });
+		requestHostAccess.mockResolvedValueOnce({ state: "needsPermission", probeFailed: true });
+		renderPanel();
+		fireEvent.click(await screen.findByRole("button", { name: "允许访问本机" }));
+		expect(await screen.findByRole("status")).toHaveTextContent("尚不能确认本机访问权限");
+		expect(screen.getByRole("status")).toHaveTextContent("安装并启动");
+		expect(screen.getByText(INSTALL)).toBeInTheDocument();
+		expect(screen.queryByText("浏览器阻止了本页访问本机。")).not.toBeInTheDocument();
+		expect(screen.queryByText("没有检测到 CGC Host。")).not.toBeInTheDocument();
+		await act(() => vi.advanceTimersByTimeAsync(POLL_MS));
+		expect(screen.getByRole("status")).toHaveTextContent("尚不能确认本机访问权限");
+		expect(requestHostAccess).toHaveBeenCalledOnce();
+		expect(socketCount()).toBe(0);
+
+		requestHostAccess.mockResolvedValueOnce(DETECTED);
+		fireEvent.click(screen.getByRole("button", { name: "允许访问本机" }));
+		await waitFor(() => expect(socketCount()).toBe(1));
+		FakeWebSocket.all[0].push({ method: "status", params: status("unpaired") });
+		expect(await screen.findByRole("button", { name: "连接" })).toBeInTheDocument();
+		expect(screen.queryByText(INSTALL)).not.toBeInTheDocument();
+		expect(screen.queryByText(/尚不能确认本机访问权限/)).not.toBeInTheDocument();
+	});
+
+	it("点击后权限明确 denied：显示网站设置指引，不把拒绝说成未安装", async () => {
+		checkHost.mockResolvedValue({ state: "needsPermission" });
+		requestHostAccess.mockResolvedValue({ state: "blocked" });
+		renderPanel();
+		fireEvent.click(await screen.findByRole("button", { name: "允许访问本机" }));
+		expect(await screen.findByText("浏览器阻止了本页访问本机。")).toBeInTheDocument();
+		expect(screen.getByText(/网站设置里允许本站访问本地网络/)).toBeInTheDocument();
+		expect(screen.queryByText(INSTALL)).not.toBeInTheDocument();
+		expect(socketCount()).toBe(0);
 	});
 
 	it("等待本机确认可以取消；被拒绝后显示「配对被拒绝」并可重新连接", async () => {

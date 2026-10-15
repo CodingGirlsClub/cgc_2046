@@ -33,7 +33,7 @@ export const MIN_HOST_VERSION = "0.1.0";
 export type HostConnection =
 	| { state: "unsupported"; reason: "browser" }
 	| { state: "unsupported"; reason: "address"; canonicalUrl: string }
-	| { state: "needsPermission" }
+	| { state: "needsPermission"; probeFailed?: true }
 	| { state: "blocked" }
 	| { state: "noHost" }
 	| { state: "staleHost" }
@@ -101,10 +101,10 @@ async function detect(fromUserGesture: boolean, previouslyReachedHost = false): 
 	if (probed) return probed;
 
 	// 被拒的失败是静默的（WebSocket 只见 close code 1006），只能回头问授权状态：
-	// 拒了是被浏览器阻止；关掉提示仍需授权；其余（含已授权）是本机没有在跑的 Host
+	// 只有明确 denied 才判定被阻止；prompt / unknown 无法区分权限未获批和 Host 未运行。
 	const permission = await loopbackPermission();
 	if (permission === "denied") return { state: "blocked" };
-	if (permission === "prompt" && !previouslyReachedHost) return { state: "needsPermission" };
+	if (permission !== "granted" && !previouslyReachedHost) return { state: "needsPermission", probeFailed: true };
 	return { state: "noHost" };
 }
 

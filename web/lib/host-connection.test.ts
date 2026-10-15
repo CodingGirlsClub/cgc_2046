@@ -174,16 +174,11 @@ describe("requestHostAccess（从点击处理器调用：由用户手势发出�
 		expect(await requestHostAccess()).toEqual({ state: "blocked" });
 	});
 
-	it("学员关掉了提示（探测失败后权限仍为 prompt）→ 仍需授权", async () => {
-		stubBrowser({ permission: "prompt", health: "unreachable" });
-
-		expect(await requestHostAccess()).toEqual({ state: "needsPermission" });
-	});
-
-	it("权限名不被识别且探测失败 → 未检测到 Host（不再让学员反复点授权）", async () => {
-		stubBrowser({ permission: "TypeError", health: "unreachable" });
-
-		expect(await requestHostAccess()).toEqual({ state: "noHost" });
+	it.each(["prompt", "TypeError"] as const)("点击探测失败且权限为 %s：保留未知状态与失败证据，后续自动检查不发请求", async (permission) => {
+		const { fetchMock } = stubBrowser({ permission, health: "unreachable" });
+		expect(await requestHostAccess()).toEqual({ state: "needsPermission", probeFailed: true });
+		expect(await checkHost()).toEqual({ state: "needsPermission" });
+		expect(fetchMock).toHaveBeenCalledOnce();
 	});
 });
 
