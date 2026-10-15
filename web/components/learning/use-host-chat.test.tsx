@@ -286,3 +286,135 @@ it("Covers R12：被另一个标签页接管 → evicted，不能发送；「在
 	await waitFor(() => expect(hook.current.view).toEqual({ state: "ready" }));
 	expect(hook.current.canSend).toBe(true);
 });
+
+/** 暂不回答 history，模拟 session/load 或 session/new/进程启动尚未结束。 */
+async function pendingHistory(method: "chat.attach" | "chat.new") {
+	if (method === "chat.new") {
+		const { ws } = await readyChat();
+		act(() => hook.current.newChat());
+		return { ws, id: ws.sent.at(-1)!.id };
+	}
+	mount();
+	await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+	const ws = FakeWebSocket.all[0];
+	act(() => ws.push({ method: "status", params: status("paired") }));
+	await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
+	await ws.reply("hello", "status", status("ready"));
+	await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
+	return { ws, id: ws.sent.at(-1)!.id };
+}
+
+describe("F1：持有权失效后的异步回复", () => {
+	it.each(["chat.attach", "chat.new"] as const)("%s 的迟到 history 不能撤销 eviction，只有新 reclaim 可以恢复", async (method) => {
+		const { ws, id } = await pendingHistory(method);
+		act(() => ws.push({ method: "chat.evicted", params: { courseId: COURSE } }));
+		expect(hook.current.view.state).toBe("evicted");
+		await act(async () => ws.push({ method: "history", id, params: { courseId: COURSE, running: true, events: [{ kind: "user", text: "过期历史" }] } }));
+		expect(hook.current.view.state).toBe("evicted");
+		expect(hook.current.canSend).toBe(false);
+		expect(hook.current.running).toBe(false);
+		expect(hook.current.events).toEqual([]);
+		const count = ws.sent.length;
+		act(() => hook.current.newChat());
+		expect(ws.sent).toHaveLength(count);
+		act(() => hook.current.reclaim());
+		await ws.reply("chat.attach", "history", { courseId: COURSE, running: false, events: [{ kind: "user", text: "最新历史" }] });
+		expect(hook.current.view.state).toBe("ready");
+		expect(hook.current.canSend).toBe(true);
+		expect(hook.current.events).toEqual([{ kind: "user", text: "最新历史" }]);
+	});
+
+	it.each(["history", "error"] as const)("reclaim 已成功后，旧请求的 %s 不能覆盖新状态", async (replyMethod) => {
+		const { ws, id } = await pendingHistory("chat.new");
+		act(() => ws.push({ method: "chat.evicted", params: { courseId: COURSE } }));
+		act(() => hook.current.reclaim());
+		await ws.reply("chat.attach", "history", { courseId: COURSE, running: false, events: [{ kind: "user", text: "新持有权" }] });
+		await act(async () => ws.push({ method: replyMethod, id, params: { courseId: COURSE, running: false, events: [], code: "not_holder" } }));
+		expect(hook.current.view.state).toBe("ready");
+		expect(hook.current.canSend).toBe(true);
+		expect(hook.current.error).toBeNull();
+		expect(hook.current.events).toEqual([{ kind: "user", text: "新持有权" }]);
+	});
+
+	it("reclaim 等待时再次被接管：该 reclaim 回复同样失效", async () => {
+		const { ws } = await readyChat();
+		act(() => ws.push({ method: "chat.evicted", params: { courseId: COURSE } }));
+		act(() => hook.current.reclaim());
+		act(() => ws.push({ method: "chat.evicted", params: { courseId: COURSE } }));
+		await ws.reply("chat.attach", "history", { courseId: COURSE, running: false, events: [] });
+		expect(hook.current.view.state).toBe("evicted");
+		expect(hook.current.canSend).toBe(false);
+	});
+
+	it("被后一次 reclaim 取代的请求超时不污染已恢复的对话", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		const { ws } = await pendingHistory("chat.attach");
+		act(() => hook.current.reclaim());
+		await ws.reply("chat.attach", "history", { courseId: COURSE, running: false, events: [] });
+		await act(() => vi.advanceTimersByTimeAsync(60_000));
+		expect(hook.current.view.state).toBe("ready");
+		expect(hook.current.error).toBeNull();
+	});
+
+	it.each([false, true])("连接关闭使挂起请求失效（history 已排入微任务：%s），重连正常恢复", async (queued) => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		const { ws, id } = await pendingHistory("chat.attach");
+		await act(async () => {
+			if (queued) ws.push({ method: "history", id, params: { courseId: COURSE, running: false, events: [{ kind: "user", text: "旧连接" }] } });
+			ws.close();
+		});
+		expect(hook.current.view.state).toBe("disconnected");
+		expect(hook.current.attached).toBe(false);
+		expect(hook.current.events).toEqual([]);
+		expect(hook.current.error).toBeNull();
+		await act(() => vi.advanceTimersByTimeAsync(POLL_MS));
+		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(2));
+		await attach(FakeWebSocket.all[1]);
+		expect(hook.current.canSend).toBe(true);
+	});
+
+	it("失去配对授权时丢弃旧 history；重新 hello 后的新 attach 可以恢复", async () => {
+		const { ws, id } = await pendingHistory("chat.attach");
+		act(() => ws.push({ method: "status", params: status("unpaired") }));
+		await act(async () => ws.push({ method: "history", id, params: { courseId: COURSE, running: false, events: [{ kind: "user", text: "旧配对" }] } }));
+		expect(hook.current.attached).toBe(false);
+		expect(hook.current.events).toEqual([]);
+		act(() => ws.push({ method: "status", params: status("ready") }));
+		await waitFor(() => expect(ws.sent.filter((m) => m.method === "chat.attach")).toHaveLength(2));
+		await ws.reply("chat.attach", "history", { courseId: COURSE, running: false, events: [] });
+		expect(hook.current.canSend).toBe(true);
+	});
+
+	it("当前请求的错误仍显示，重试成功后清除", async () => {
+		const { ws } = await pendingHistory("chat.attach");
+		await ws.reply("chat.attach", "error", { code: "chat_unavailable" });
+		expect(hook.current.error).toBe("chat_unavailable");
+		act(() => hook.current.reclaim());
+		await ws.reply("chat.attach", "history", { courseId: COURSE, running: false, events: [] });
+		expect(hook.current.canSend).toBe(true);
+		expect(hook.current.error).toBeNull();
+	});
+
+	it("被接管后迟到的发送确认不写回事件，也不报告本页发送成功", async () => {
+		const { ws } = await readyChat();
+		let sent!: Promise<boolean>;
+		act(() => { sent = hook.current.send("旧请求"); });
+		act(() => ws.push({ method: "chat.evicted", params: { courseId: COURSE } }));
+		await ws.reply("chat.send", "turn.delta", { courseId: COURSE, kind: "user", text: "旧请求" });
+		expect(await sent).toBe(false);
+		expect(hook.current.events).toEqual([]);
+		expect(hook.current.view.state).toBe("evicted");
+	});
+
+	it("当前作答被 not_holder 拒绝后，同代次的其他挂起作答不能再写入错误", async () => {
+		const { ws } = await readyChat();
+		act(() => { void hook.current.answer("card-1", { optionId: "reject_once" }); });
+		const first = ws.sent.at(-1)!;
+		act(() => { void hook.current.answer("card-2", { optionId: "reject_once" }); });
+		await act(async () => ws.push({ method: "error", id: first.id, params: { code: "not_holder" } }));
+		expect(hook.current.view.state).toBe("evicted");
+		await ws.reply("card.answer", "error", { code: "timeout" });
+		expect(hook.current.error).toBeNull();
+		expect(hook.current.view.state).toBe("evicted");
+	});
+});

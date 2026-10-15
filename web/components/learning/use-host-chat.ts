@@ -248,6 +248,7 @@ export function useHostChat({
 	/** 连接断过：之后连不上就显示「连接中断」而不是「未检测到 Host」 */
 	const [lost, setLost] = useState(false);
 	const accessRef = useRef<() => void>(() => {});
+	const ownership = useRef(0);
 	const pairing = useHostPairing({ socket, userId, locale });
 	const [chat, dispatch] = useReducer(reduce, INITIAL);
 
@@ -272,6 +273,7 @@ export function useHostChat({
 				current = opened;
 				opened.onClose(() => {
 					if (cancelled) return;
+					ownership.current += 1;
 					current = null;
 					setSocket(null);
 					setLost(true);
@@ -288,6 +290,7 @@ export function useHostChat({
 		check();
 		return () => {
 			cancelled = true;
+			ownership.current += 1;
 			clearTimeout(timer);
 			current?.close();
 		};
@@ -318,12 +321,26 @@ export function useHostChat({
 		},
 		[refetch],
 	);
-	const onFailure = useCallback((e: Error) => dispatch({ type: "error", code: e.message }), []);
+	// Host 回复仍回原 socket；接管、断线或重新 attach 后，旧请求不能再改本页状态。
+	const requestChat = useCallback(
+		async (method: "chat.attach" | "chat.new" | "chat.send" | "card.answer", params: Record<string, unknown>, timeoutMs = CHAT_TIMEOUT_MS) => {
+			if (!socket) return null;
+			const generation = ownership.current;
+			const reply = await socket.request(method, params, { timeoutMs })
+				.catch((e: Error): HostMessage => ({ method: "error", params: { code: e.message } }));
+			if (generation !== ownership.current) return null;
+			if (reply.method === "error" && reply.params?.code === "not_holder") ownership.current += 1;
+			onReply(reply);
+			return reply;
+		},
+		[socket, onReply],
+	);
 
 	const ready = pairing.phase === "ready";
 	const attach = useCallback(() => {
-		socket?.request("chat.attach", { courseId }, { timeoutMs: CHAT_TIMEOUT_MS }).then(onReply, onFailure);
-	}, [socket, courseId, onReply, onFailure]);
+		ownership.current += 1;
+		void requestChat("chat.attach", { courseId });
+	}, [requestChat, courseId]);
 	useEffect(() => {
 		if (ready) attach();
 	}, [ready, attach]);
@@ -334,6 +351,9 @@ export function useHostChat({
 			if (params.courseId === courseId) handler(params);
 		};
 		const offs = [
+			socket.on("status", (params) => {
+				if (params.state !== "ready") ownership.current += 1;
+			}),
 			socket.on(
 				"turn.delta",
 				mine((params) => {
@@ -356,7 +376,10 @@ export function useHostChat({
 					refetch();
 				}),
 			),
-			socket.on("chat.evicted", mine(() => dispatch({ type: "evicted" }))),
+			socket.on("chat.evicted", mine(() => {
+				ownership.current += 1;
+				dispatch({ type: "evicted" });
+			})),
 		];
 		return () => offs.forEach((off) => off());
 	}, [socket, courseId, refetch]);
@@ -367,17 +390,10 @@ export function useHostChat({
 		async (text: string) => {
 			if (!socket || !canSend || !text.trim()) return false;
 			dispatch({ type: "sending" });
-			const reply = await socket
-				.request(
-					"chat.send",
-					{ courseId, text, context: { workspaceId, courseVersion, unitId, locale } },
-					{ timeoutMs: CHAT_TIMEOUT_MS },
-				)
-				.catch((e: Error): HostMessage => ({ method: "error", params: { code: e.message } }));
-			onReply(reply);
-			return reply.method === "turn.delta";
+			const reply = await requestChat("chat.send", { courseId, text, context: { workspaceId, courseVersion, unitId, locale } });
+			return reply?.method === "turn.delta";
 		},
-		[socket, canSend, courseId, workspaceId, courseVersion, unitId, locale, onReply],
+		[socket, canSend, courseId, workspaceId, courseVersion, unitId, locale, requestChat],
 	);
 
 	const stop = useCallback(() => {
@@ -386,16 +402,16 @@ export function useHostChat({
 	}, [socket, courseId]);
 
 	const newChat = useCallback(() => {
-		socket?.request("chat.new", { courseId }, { timeoutMs: CHAT_TIMEOUT_MS }).then(onReply, onFailure);
-	}, [socket, courseId, onReply, onFailure]);
+		if (!canSend) return;
+		ownership.current += 1;
+		void requestChat("chat.new", { courseId });
+	}, [canSend, courseId, requestChat]);
 
 	const answer = useCallback(
 		async (cardId: string, value: CardAnswer) => {
-			await socket
-				?.request("card.answer", { courseId, cardId, ...value }, { timeoutMs: CARD_TIMEOUT_MS })
-				.then(onReply, onFailure);
+			await requestChat("card.answer", { courseId, cardId, ...value }, CARD_TIMEOUT_MS);
 		},
-		[socket, courseId, onReply, onFailure],
+		[courseId, requestChat],
 	);
 
 	const requestAccess = useCallback(() => accessRef.current(), []);

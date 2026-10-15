@@ -8,6 +8,8 @@
 
 内部 `ChatContext.reply` 和 `ChatContext.push` 分别承担这两个职责，不通过是否存在 `id` 猜测路由。`card.answer` 的成功关闭消息走本次请求的回复；取消产生的关闭消息走课程推送。配对对象每次换发都被替换，其引用身份作为内存中的配对代次，无需改状态文件。
 
+Web 为对话请求记录持有权代次。`chat.evicted`、`not_holder`、连接关闭或配对授权失效后，旧请求的回复、错误和超时均不再更新页面状态；新 attach/reclaim 或新开对话也使此前请求失效。被接管后只有新 reclaim 对应的有效 history 才解除 `evicted`，不能让原 socket 上晚到的 history 恢复发送权限。当前代次的正常错误仍显示，重试成功后清除。
+
 这项隔离只控制消息的发送目标，不改变 OMP 审批模式、持有权释放后的宽限期、会话持久化或线上的帧格式。可通过还原本次代码回滚，无数据迁移。
 
 回归：`bun test test/isolation.test.ts`（在 `cgc-host/` 执行），使用真实 Host WebSocket 与进程内假 ACP agent，不调用真实模型或使用真实凭证。
