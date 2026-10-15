@@ -518,13 +518,23 @@ describe('parsePublicWishEchoStatus / mapPublicWishEcho(#837)', () => {
   })
 })
 
-describe('分享面板入口（P0-6 小红书止血）', () => {
+describe('分享面板入口（P0-6 小红书止血 / #1079 review 抖音）', () => {
   test('xhs：只保留转发——朋友圈是微信概念、保存卡片依赖 Canvas 2D（xhs 无）', () => {
     assert.deepEqual(shareSheetEntries('xhs'), ['forward'])
   })
 
-  test('wechat/tt：三入口齐全（现状不动）', () => {
+  test('wechat：三入口齐全（朋友圈 = 微信概念；保存卡片 Canvas 2D 可用）', () => {
     assert.deepEqual(shareSheetEntries('wechat'), ['forward', 'timeline', 'saveCard'])
-    assert.deepEqual(shareSheetEntries('tt'), ['forward', 'timeline', 'saveCard'])
+  })
+
+  test('tt：双入口（去朋友圈，保留保存卡片）——review 判为平台错配', () => {
+    // #1079 review 找到：Taro `useShareTimeline` 标为 `@supported weapp`，
+    // 「朋友圈」是微信概念，抖音小程序没有 Timeline 语境——此前同 wechat 展示朋友圈
+    // 属未证实的平台声明。tt 保持「保存卡片」（Canvas 2D 原生支持）。
+    assert.deepEqual(shareSheetEntries('tt'), ['forward', 'saveCard'])
+    // 三端行业：朋友圈只留 wechat
+    assert.ok(!shareSheetEntries('xhs').includes('timeline'))
+    assert.ok(!shareSheetEntries('tt').includes('timeline'))
+    assert.ok(shareSheetEntries('wechat').includes('timeline'))
   })
 })

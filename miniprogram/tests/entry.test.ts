@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { applyEntry } from '../src/domain/entry.ts'
 import type { EntryPage } from '../src/domain/share-route.ts'
-import { CUT_TAB_PATHS, FULL_TAB_PATHS, tabPathsForPlatform } from '../src/domain/tab-routes.ts'
+import { TT_TAB_PATHS, FULL_TAB_PATHS, tabPathsForPlatform } from '../src/domain/tab-routes.ts'
 
 const PENDING_SCENE_KEY = 'cgc.pending_scene'
 
@@ -171,9 +171,9 @@ test('P2 xhs：wishId 已注册 → navigateTo 直达许愿树（非 Tab 页）'
   assert.deepEqual(result.switched, [])
 })
 
-test('P0-4 tt：wishId 仍未注册 → 回落薄壳页且 navigateTo（薄壳非 Tab）', () => {
+test('P0-4/P1 tt：闪念间家庭已注册（#1083）→ wishId 直通许愿树页', () => {
   const result = entryPlatform('tt', { query: { wishId: 'w-9' } }, [{ route: 'pages/discover/index' }])
-  assert.deepEqual(result.navigated, ['/pages/flashback/index'])
+  assert.deepEqual(result.navigated, ['/pages/flashback-wishes/index?wishId=w-9'])
   assert.deepEqual(result.switched, [])
 })
 
@@ -191,6 +191,20 @@ test('P2 xhs：热启动在别页、目标长廊（Tab）→ switchTab', () => {
   assert.deepEqual(result.switched, ['/pages/flashback-corridor/index'])
 })
 
+test('#1083 tt：冷启动入口即长廊（无定位参数）→ 抑制导航（#1083 后 tt 长廊已注册）', () => {
+  const result = entryPlatform('tt', { path: 'pages/flashback-corridor/index', query: {} }, [])
+  assert.deepEqual(result.navigated, [])
+  assert.deepEqual(result.switched, [])
+})
+
+test('#1083 tt：热启动在别页、目标长廊（Tab）→ switchTab', () => {
+  const result = entryPlatform('tt', { path: 'pages/flashback-corridor/index', query: {} }, [
+    { route: 'pages/discover/index' }
+  ])
+  assert.deepEqual(result.navigated, [])
+  assert.deepEqual(result.switched, ['/pages/flashback-corridor/index'])
+})
+
 test('P0-4 xhs：event id 深链照常 navigateTo（已注册目标不过滤）', () => {
   const result = entryPlatform('xhs', { query: { id: 'evt-1', kind: 'event' } }, [{ route: 'pages/discover/index' }])
   assert.deepEqual(result.navigated, ['/pages/event-detail/index?id=evt-1&kind=event'])
@@ -198,9 +212,11 @@ test('P0-4 xhs：event id 深链照常 navigateTo（已注册目标不过滤）'
 
 test('P0-4 tabPathsForPlatform：Tab 集合按平台分派（不再永远按微信 tabs）', () => {
   // 深链落 Tab 页时 switchTab 与否取决于本端 Tab 集合：profile 是微信 Tab；
-  // 抖音裁剪端 = 发现/我的报名；小红书（D2a）= 发现/我的
+  // 抖音（#1079）= 发现/我的；小红书（D2a）= 发现/闪念间/我的
   assert.deepEqual(tabPathsForPlatform('wechat'), FULL_TAB_PATHS)
-  assert.deepEqual(tabPathsForPlatform('tt'), CUT_TAB_PATHS)
+  assert.deepEqual(tabPathsForPlatform('tt'), TT_TAB_PATHS)
+  assert.equal(tabPathsForPlatform('tt').includes('/pages/profile-lite/index'), true)
+  assert.equal(tabPathsForPlatform('tt').includes('/pages/discover/index'), true)
   assert.equal(tabPathsForPlatform('xhs').includes('/pages/profile-lite/index'), true)
   assert.equal(tabPathsForPlatform('xhs').includes('/pages/discover/index'), true)
 })

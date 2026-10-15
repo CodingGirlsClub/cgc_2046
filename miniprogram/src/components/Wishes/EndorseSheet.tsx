@@ -4,16 +4,17 @@ import { api } from '@/api'
 import { WISH_CONTRIBUTION_OPTIONS, WISH_ENDORSE_MESSAGE_MAX } from '@/domain/flashback'
 import { wishEchoTouchpoint } from '@/domain/subscription'
 import { endorseWithReminder, requestWishReminder, reminderReceipt, type WishReminderResult } from '@/domain/wish-reminder'
-import { currentPlatform, requestPlatformSubscriptions } from '@/platform'
-import { subscriptionTouchpointsVisible } from '@/domain/subscription'
+import { requestPlatformSubscriptions, wishEchoReminderVisible } from '@/platform'
 import styles from './endorse-sheet.module.css'
 
 type Props = { wish: { id: string; content: string }; onClose: () => void; onSaved: () => void; paper?: boolean }
 export function EndorseWishSheet({ wish, onClose, onSaved, paper = false }: Props) {
   const [types, setTypes] = useState<string[]>([])
   const [message, setMessage] = useState('')
-  // 勾选不可见（无订阅消息能力的端）时默认 false——不替用户表达订阅意愿
-  const [notify, setNotify] = useState(subscriptionTouchpointsVisible(__E2E_MOCK__, currentPlatform()))
+  // 勾选可见性 = 回响提醒触点在本端结构性可用（键在表；tt 结构性缺 echo，来源
+  // platform `wishEchoReminderVisible`——与许愿树页面说明字同一份判据）。
+  const wishEchoVisible = wishEchoReminderVisible()
+  const [notify, setNotify] = useState(wishEchoVisible)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const lock = useRef(false)
@@ -21,8 +22,6 @@ export function EndorseWishSheet({ wish, onClose, onSaved, paper = false }: Prop
   const receipt = saved ? reminderReceipt(saved) : null
   const close = () => { if (!busy) { if (saved) onSaved(); else onClose() } }
   const reminderDeps = { request: requestPlatformSubscriptions, grant: (scenario: Parameters<typeof api.grantConsent>[0]) => api.grantConsent(scenario) }
-  // P0-2 同源判据：无订阅消息能力的端（xhs）整行不渲染
-  const visible = subscriptionTouchpointsVisible(__E2E_MOCK__, currentPlatform())
   const retryReminder = async () => {
     if (lock.current) return
     lock.current = true; setBusy(true)
@@ -56,7 +55,7 @@ export function EndorseWishSheet({ wish, onClose, onSaved, paper = false }: Prop
         onClick={() => setTypes(old => old.includes(option.type) ? old.filter(type => type !== option.type) : [...old, option.type])}>{option.label}</Button>)}</View>
       <Textarea className={styles.message} value={message} onInput={e => setMessage(e.detail.value)} disabled={busy} maxlength={WISH_ENDORSE_MESSAGE_MAX} placeholder='想对主办方说的（可选，500 字内）' />
       <Text className={styles.contact}>提交即同意主办方通过你账号绑定的手机号／邮箱与你联系对接，留言仅主办方可见。</Text>
-{visible && (
+{wishEchoVisible && (
         <Button className={styles.endorseNotify} disabled={busy} onClick={() => setNotify(!notify)}>{notify ? '☑' : '☐'} {wishEchoTouchpoint().label}</Button>
       )}
       {error && <Text className={styles.error}>{error}</Text>}

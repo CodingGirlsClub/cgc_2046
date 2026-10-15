@@ -3,24 +3,23 @@ import { Button, Image, Text, View } from '@tarojs/components'
 import Taro, { useRouter } from '@tarojs/taro'
 import { api } from '@/api'
 import type { PlatformPhonePayload } from '@/domain/models'
-import { CUT_TAB_PATHS, FULL_TAB_PATHS, XHS_TAB_PATHS, isTabPath } from '@/domain/tab-routes'
+import { TT_TAB_PATHS, FULL_TAB_PATHS, XHS_TAB_PATHS, isTabPath } from '@/domain/tab-routes'
 import { safeReturnUrl } from '@/domain/platform-pages'
 import { currentPlatform, platformLoginCode, preparePlatformLogin, stagePlatformLoginCode } from '@/platform'
 import styles from './index.module.css'
 import flameLogo from '@/assets/brand/cgc-flame.png'
 
-// 《隐私授权说明》可点开 = 本端注册了 privacy 页：微信全量端（原文）与小红书
-// （P0-5 起注册，正文为 D7 变体）；抖音端政策原文含「微信」等词过不了
-// check:diversion 词表，保持纯文本。
+// 《隐私授权说明》可点开 = 本端注册了 privacy 页：微信全量端（原文）、小红书
+// （P0-5 起注册，正文为 D7 变体）与抖音（#1079 起注册，正文为 D7 变体）。
 const env = process.env.TARO_ENV
 const isCut = env === 'tt' || env === 'xhs'
-const privacyLinkable = env === 'weapp' || env === 'xhs'
+const privacyLinkable = env === 'weapp' || env === 'xhs' || env === 'tt'
 
 /** Tab 页清单（单源 domain/tab-routes）：回跳目标若是 Tab 页须 switchTab */
-const TAB_PATHS = env === 'xhs' ? XHS_TAB_PATHS : isCut ? CUT_TAB_PATHS : FULL_TAB_PATHS
+const TAB_PATHS = env === 'xhs' ? XHS_TAB_PATHS : isCut ? TT_TAB_PATHS : FULL_TAB_PATHS
 
-// 登录成功默认落点（与原 finish() 分支一致）：xhs「我的」精简页 / 抖音「我的报名」/ 微信「我的」
-const DEFAULT_LANDING = env === 'xhs' ? '/pages/profile-lite/index' : isCut ? '/pages/my-enrollments/index' : '/pages/profile/index'
+// 登录成功默认落点（与原 finish() 分支一致）：xhs/tt「我的」精简页 / 微信「我的」
+const DEFAULT_LANDING = isCut ? '/pages/profile-lite/index' : '/pages/profile/index'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -40,8 +39,8 @@ export default function LoginPage() {
         if (isTabPath(target, TAB_PATHS)) await Taro.switchTab({ url: target })
         else await Taro.redirectTo({ url: target })
       } else if (Taro.getCurrentPages().length > 1) await Taro.navigateBack()
-      // 登录成功后落「我的」Tab：抖音未注册「我的」页，落「我的报名」Tab；
-      // 小红书（D2a）落精简「我的」（pages/profile-lite）；微信落全量「我的」
+      // 登录成功后落「我的」Tab：xhs/tt（D2a / #1079）落精简「我的」
+      // （pages/profile-lite）；微信落全量「我的」
       else await Taro.switchTab({ url: DEFAULT_LANDING })
     } catch {
       // 已登录，跳转失败只影响落点，不得表现为登录失败：reLaunch 兜底默认 Tab（可打开 Tab 页，并清掉可能已满的页面栈）

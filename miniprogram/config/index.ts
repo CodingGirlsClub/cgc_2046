@@ -49,7 +49,10 @@ const WECHAT_SCENARIOS = [
   'flashback_wish_echo'
 ] as const
 
-// 抖音裁剪端仅学习者两场景（裁剪端无工作台，见 src/app.config.ts cutPages）
+// 抖音端仅学习者两场景（裁剪端无工作台）；Tab 定型为发现/闪念间/我的
+// （页面注册单源 `src/domain/platform-pages.ts` / Tab 单源 `src/domain/tab-routes.ts`）。
+// 单场景订阅触点（附议回响）在构建期模板表里结构性缺键（`flashback_wish_echo` 不在本表）——
+// 触点渲染由 `scenariosSupportedKeys` / `subscriptionScenariosSupported` 隐藏，而不是「可点但必然失败」。
 const TT_SCENARIOS = ['approval_result', 'event_reminder'] as const
 
 // 场景键 → 模板 ID 映射。env 名 = 前缀 + 场景键的 SCREAMING_SNAKE，机械可推，
@@ -78,14 +81,18 @@ export default {
   sourceRoot: 'src',
   alias: {
     '@': resolve(__dirname, '..', 'src'),
-    // 隐私政策平台名枚举处（P0-5）：weapp/wechat 原文、xhs/D7 变体——构建期
-    // 只注入一份，xhs 产物物理不含「微信」字样，零导流扫描确定性通过。
-    // tt 不注册 privacy 页（本解析树不会进包），指向 wechat 无影响。
+    // 隐私政策平台名枚举处（P0-5 / #1079）：weapp/wechat 原文、xhs/D7 变体、
+    // tt/D7 变体（抖音）——构建期只注入一份，裁剪端产物物理不含「微信」字样，
+    // 零导流扫描确定性通过。
     'privacy-content$': resolve(
       __dirname,
       '..',
       'src',
-      process.env.TARO_ENV === 'xhs' ? 'domain/privacy-content-xhs' : 'domain/privacy-content-wechat'
+      process.env.TARO_ENV === 'xhs'
+        ? 'domain/privacy-content-xhs'
+        : process.env.TARO_ENV === 'tt'
+          ? 'domain/privacy-content-tt'
+          : 'domain/privacy-content-wechat'
     )
   },
   // 按平台分目录输出，便于三端产物并存比对

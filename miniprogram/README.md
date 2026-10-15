@@ -1,6 +1,6 @@
 # 程序媛汇 · 微信小程序
 
-CGC-2046 微信端，Taro 4 + React 18 + TypeScript。单码库三端构建：**weapp 全量端**（微信，全量页 + Tab 发现/闪念间/工作台（条件）/我的）+ **tt 裁剪端**（抖音，2 Tab 漏斗：发现/我的报名）+ **xhs 裁剪端**（小红书，3 Tab：发现/闪念间/我的——无订阅消息、无端内缴费）。页面注册名单单源 `src/domain/platform-pages.ts`（`src/app.config.ts` 与各深链过滤同源）。
+CGC-2046 微信端，Taro 4 + React 18 + TypeScript。单码库三端构建：**weapp 全量端**（微信，全量页 + Tab 发现/闪念间/工作台（条件）/我的）+ **tt 裁剪端**（抖音，3 Tab：发现/闪念间/我的——#1079 Tab 收敛、#1083 闪念间升 Tab；我的报名已降级普通页，入口收进 profile-lite；收费/押金报名 fail-closed、ICP 备案号 -7X）+ **xhs 裁剪端**（小红书，3 Tab：发现/闪念间/我的——无订阅消息、无端内缴费）。页面注册名单单源 `src/domain/platform-pages.ts`（`src/app.config.ts` 与各深链过滤同源）。
 
 工程约定、验证命令、e2e 纪律见 [AGENTS.md](./AGENTS.md)；面向用户的更新记录见 [CHANGELOG.md](./CHANGELOG.md)。
 
@@ -21,7 +21,7 @@ CGC-2046 微信端，Taro 4 + React 18 + TypeScript。单码库三端构建：**
 | `privacy` | 隐私政策与个人信息处理规则（微信审核硬要求） |
 | `openclacky` | OpenClacky 安装与连接指引（纯指引，无执行能力） |
 
-裁剪端页面面：**tt** 只保留漏斗页（发现、详情、登录、报名、我的报名、加入、闪念间薄壳）；**xhs** 页面清单以 `src/domain/platform-pages.ts` 的 `XHS_PAGES` 为准（当前含：漏斗页、「我的」精简页、隐私页 D7 变体、闪念间全家桶、Hacker Start 1024 campaign 与志愿者招募；组织者 / 管理页与支付页不注册）。
+裁剪端页面面：**tt**（#1079 #1083）与 **xhs** 均注册闪念间全家桶；tt（#1079 #1083）：发现、详情、登录、报名、我的/profile-lite（Tab「发现/闪念间/我的」）、隐私页 D7 变体（`privacy-content-tt`）、我的报名（普通页，非 Tab）、加入、闪念间长廊 / 首程 / 场次 / 今天 / 金句墙 / 公开愿望 / 公开 card / 写愿望 / 我的愿望 + 薄壳面。备案号单源 `domain/filing.ts`（tt = -7X，2026-10-15 控制台实测生效中）；xhs（D2a + P2）页面清单以 `src/domain/platform-pages.ts` 的 `XHS_PAGES` 为准（当前含：漏斗页、「我的」精简页、隐私页 D7 变体、闪念间全家桶、Hacker Start 1024 campaign 与志愿者招募；组织者 / 管理页与支付页不注册）。
 
 ## 发版流程（小红书端）
 

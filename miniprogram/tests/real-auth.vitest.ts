@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   activateAccount: vi.fn(),
   clearAccountState: vi.fn(),
   clearFlashbackLinkIdentity: vi.fn(),
+  wipeAccountLocal: vi.fn(),
   currentPlatform: vi.fn(),
   silentLoginAllowed: vi.fn(),
   setSilentLoginAllowed: vi.fn(),
@@ -70,11 +71,22 @@ vi.mock('../src/state/accountState', () => ({
   activateAccount: mocks.activateAccount,
   clearAccountState: mocks.clearAccountState,
   clearFlashbackLinkIdentity: mocks.clearFlashbackLinkIdentity,
+  // #1079：主动退出额外清户主侧账号持久键——mock 层钉住形状，真实实现在
+  // accountState.test.ts / domain account.ts 钉住键口径。
+  wipeAccountLocal: mocks.wipeAccountLocal,
   captureAccountScope: vi.fn(), accountScopeCurrent: vi.fn(), cacheNotificationFeed: vi.fn(), cachedNotificationFeed: vi.fn()
 }))
 
 vi.mock('../src/platform', () => ({
-  currentPlatform: mocks.currentPlatform
+  currentPlatform: mocks.currentPlatform,
+  // 与 src/platform/index.ts 的导出面形状：preparePlatformLogin / platformLoginCode /
+  // stagePlatformLoginCode / subscriptionScenariosSupported / wishEchoReminderVisible 在
+  // real 模块不动；未来测试间接引进 EndorseSheet / wishes 页时不会撞 undefined。
+  preparePlatformLogin: vi.fn(),
+  platformLoginCode: vi.fn(),
+  stagePlatformLoginCode: vi.fn(),
+  subscriptionScenariosSupported: vi.fn(),
+  wishEchoReminderVisible: vi.fn()
 }))
 
 vi.mock('../src/state/silentLogin', () => ({
@@ -199,8 +211,25 @@ describe('signInSilently 回访静默登录', () => {
     const api = new RealMiniProgramApi()
     await api.signOut()
     expect(mocks.setSilentLoginAllowed).toHaveBeenLastCalledWith(false)
+    // 「wipe 先于一切会清 active id 的调用」这个真实顺序不能在本文件断言：
+    // 这里 setAuthToken / accountState 同时被 mock，只能断言「相对 api 自身的显式
+    // clearAccountState」的顺序，而真正的对手是 setAuthToken(null) 内部那条隐式
+    // clearAccountState——mock 层看不到它，断言照样绿（#1079 P2 评审抓到的假绿）。
+    // 真实链路守卫已迁到 tests/real-signout.vitest.ts（只 mock @tarojs/taro 与网络边界）。
     await api.signIn({ loginCode: 'c', encryptedData: 'e', iv: 'i' })
     expect(mocks.setSilentLoginAllowed).toHaveBeenLastCalledWith(true)
+  })
+
+  it('wipeAccountLocal 抛错不阻断 mandatory cleanup（Codex P2回归守卫）', async () => {
+    mocks.getAuthToken.mockReturnValue('new-token')
+    mocks.wipeAccountLocal.mockImplementationOnce(() => {
+      throw new Error('storage removal failed')
+    })
+    const api = new RealMiniProgramApi()
+    await expect(api.signOut()).rejects.toThrow('storage removal failed')
+    expect(mocks.clearAccountState).toHaveBeenCalledWith({ clearPendingScene: true })
+    expect(mocks.clearFlashbackLinkIdentity).toHaveBeenCalled()
+    expect(mocks.setSilentLoginAllowed).toHaveBeenLastCalledWith(false)
   })
 })
 

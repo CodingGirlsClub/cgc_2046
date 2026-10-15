@@ -270,15 +270,19 @@ export function shareMessage(me: FlashbackMyCard, now: Date = new Date()): { tit
 }
 
 /**
- * 分享面板入口清单（P0-6 小红书止血）。
- * 「朋友圈」是微信概念（xhs 没有该入口）；「保存卡片」依赖 Canvas 2D（xhs 无
- * Canvas 2D 节点能力，保存静默失败）——xhs 只保留「转发」。P2-4 服务端出图
- * 落地后恢复（卡片图改 https 资源即可下载，恢复即把本函数收敛回全量）。
+ * 分享面板入口清单（P0-6 小红书止血 + #1079 review 抖音平台错配）。
+ * 「朋友圈」是微信概念：Taro `@supported weapp` 类型注释把 `useShareTimeline`
+ * 标为 weapp-only。xhs 无朋友圈概念、无 Canvas 2D——只留「转发」；
+ * tt 小程序有「分享给朋友」但没有「朋友圈/Timeline」语境——本分支此前沿用
+ * wechat 三入口被 review 判为平台错配，去掉 timeline，保留 Canvas 2D
+ * 的「保存卡片」。P2-4 服务端出图落地后恢复（卡片图改 https 资源即可下载，
+ * 恢复即把本函数收敛回全量）。
  */
 export type ShareSheetEntry = 'forward' | 'timeline' | 'saveCard'
 
 export function shareSheetEntries(platform: 'wechat' | 'tt' | 'xhs'): ShareSheetEntry[] {
   if (platform === 'xhs') return ['forward']
+  if (platform === 'tt') return ['forward', 'saveCard']
   return ['forward', 'timeline', 'saveCard']
 }
 
