@@ -34,6 +34,46 @@ describe("MaterialRenderer", () => {
     expect(el.innerHTML).toContain("&lt;b");
   });
 
+  it("renders a GFM table as a real table inside a scroll container (#1118)", () => {
+    const body = [
+      "| 流程步骤 | 使用普通 Chat AI | 使用本地 AI Agent |",
+      "|---|---|---|",
+      "| 1. 准备素材 | 手动找到文件 | 告诉 Agent：「读取当前文件夹下的 xx 文件」|",
+      "| 2. 生成内容 | 输出一堆文字 | 理解要求后规划并生成 |",
+    ].join("\n");
+    render(<MaterialRenderer material={{ kind: "markdown", body }} />);
+    const el = screen.getByTestId("course-material-markdown");
+    expect(el.querySelectorAll("table")).toHaveLength(1);
+    const header = el.querySelectorAll("thead th");
+    expect(header).toHaveLength(3);
+    expect(header[0]).toHaveTextContent("流程步骤");
+    expect(header[2]).toHaveTextContent("使用本地 AI Agent");
+    const rows = el.querySelectorAll("tbody tr");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].querySelectorAll("td")).toHaveLength(3);
+    expect(rows[1]).toHaveTextContent("理解要求后规划并生成");
+    // 窄栏里靠容器横向滚动，而不是把正文列撑破
+    expect(el.querySelector("table")!.closest(".learning-material__table-wrap")).not.toBeNull();
+    // 表格语法本身不再作为竖线纯文本漏进正文
+    expect(el.textContent).not.toContain("|---|");
+  });
+
+  it("strips unsafe link protocols and non-https images (#1118)", () => {
+    render(
+      <MaterialRenderer
+        material={{ kind: "markdown", body: "[恶意](javascript:alert(1)) [正常](https://example.com)\n![图](https://example.com/a.png)\n![非 https](http://example.com/b.png)" }}
+      />,
+    );
+    const el = screen.getByTestId("course-material-markdown");
+    expect(el.querySelector('a[href^="javascript"]')).toBeNull();
+    expect(el.innerHTML).not.toContain("javascript:");
+    expect(el.querySelector('a[href="https://example.com"]')).not.toBeNull();
+    // 图片不直连第三方，降级为指向原图的 https 外链
+    expect(el.querySelector("img")).toBeNull();
+    expect(el.querySelector('a[href="https://example.com/a.png"]')).not.toBeNull();
+    expect(el.querySelector('a[href^="http://"]')).toBeNull();
+  });
+
   it("requires alt text and rejects unsafe image URLs", () => {
     render(<MaterialRenderer material={{ kind: "image", title: "图", url: "javascript:alert(1)" }} />);
     expect(screen.getByTestId("course-material-unavailable")).toHaveTextContent("图片材料缺少");
