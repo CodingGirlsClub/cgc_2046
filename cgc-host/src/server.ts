@@ -19,6 +19,9 @@ export interface ChatContext {
   /** Host 向平台核实过的账号与学习凭证（KTD6：工作目录与下发给 OMP 的 mcpServers 用它们） */
   userId: string;
   token: string;
+  /** KTD6：每门课的会话指针（Host 状态文件里与配对记录同一份）；改完调 save() 落盘 */
+  sessions: Record<string, string>;
+  save(): void;
   /** 发给这门课当前的持有者：被别的连接接管后，后续消息自动转给新的持有者 */
   send(message: Message): void;
 }
@@ -36,9 +39,13 @@ export interface ServerOptions {
   /** 平台 API 地址：main.ts 只传 config.ts 的 API_BASE，测试传假平台 */
   apiBase: string;
   runDialog: DialogRunner;
-  /** U6 接上 omp 的解析；在那之前恒为 false */
+  /** 找得到 omp（omp.ts 的缓存，同步读） */
   ompPresent: () => boolean;
+  /** KTD12：登录 shell 环境解析失败的原因；非 null 时写进 status 的 ompEnvError */
+  ompEnvError?: () => string | null;
   chat: ChatHandler;
+  /** KTD13 的收尾依据：连接数变化时告诉对话处理器；断开时附上因此失去持有者的课程 */
+  onConnections?: (count: number, released: string[]) => void;
   /** 每次弹窗关闭后的冷却，pair.request 的限流；默认 3 秒 */
   cooldownMs?: number;
 }
@@ -67,6 +74,7 @@ const authorized = (host: Host, ws: WS) => ws.data.keyHash !== null && ws.data.k
 
 function status(host: Host, ws: WS, id?: string): Message {
   const p = host.state.pairing;
+  const envError = host.opts.ompEnvError?.();
   return {
     method: "status",
     id,
@@ -77,6 +85,7 @@ function status(host: Host, ws: WS, id?: string): Message {
       deviceName: host.deviceName,
       tokenId: p?.tokenId ?? null,
       ompPresent: host.opts.ompPresent(),
+      ...(envError && { ompEnvError: envError }),
       version: HOST_VERSION,
       protocolVersion: protocol.protocolVersion,
     },
@@ -98,6 +107,8 @@ async function chat(host: Host, ws: WS, { method, id, params }: Frame) {
     id,
     userId,
     token,
+    sessions: host.state.sessions,
+    save: () => saveState(host.opts.home, host.state),
     send(message) {
       const holder = host.holders.get(courseId);
       if (holder) send(holder, message);
@@ -218,10 +229,17 @@ export function startServer(opts: ServerOptions) {
       open(ws) {
         conns.add(ws);
         send(ws, status(host, ws));
+        opts.onConnections?.(conns.size, []);
       },
       close(ws) {
         conns.delete(ws);
-        for (const [courseId, holder] of host.holders) if (holder === ws) host.holders.delete(courseId);
+        const released: string[] = [];
+        for (const [courseId, holder] of host.holders) {
+          if (holder !== ws) continue;
+          host.holders.delete(courseId);
+          released.push(courseId);
+        }
+        opts.onConnections?.(conns.size, released);
       },
       message(ws, raw) {
         void dispatch(host, ws, raw);

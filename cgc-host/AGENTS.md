@@ -6,7 +6,9 @@
 
 - **只绑定 `127.0.0.1`**：Bun 默认绑定 `0.0.0.0`，会把能驱动 agent 的接口暴露到局域网，监听处必须显式指定回环地址。
 - **可信来源只来自构建配置**：站点来源与平台 API 地址只在 `src/config.ts` 定义，发布构建经 `bun build --define` 注入；任何 RPC、环境变量或页面传来的值都改不了它们。
-- **凭证与浏览器密钥不进日志、argv 与 HTTP 响应体**；浏览器密钥只在 `pair.result` 里交给发起这次配对的那一个连接，不发给其他连接。
+- **凭证与浏览器密钥不进日志、argv 与 HTTP 响应体**；浏览器密钥只在 `pair.result` 里交给发起这次配对的那一个连接，不发给其他连接。学习凭证只经 ACP 的 `mcpServers` 交给 OMP（U6 核验：OMP 的数据目录里没有 `cgch_`）。
+- **对话内容只在内存里（R25）**：事件缓冲不写盘；日志只记事件类型与错误消息，不记消息、思考、工具的输入输出；OMP 的 stderr 直接丢弃。
+- **不替学员审批**：卡片在无人作答时只会以取消结束，从不按允许；不注入 `--approval-mode`、不调 session/set_mode——审批沿用学员自己的 OMP 配置（KTD5、R18）。
 - **确认弹窗的文字只走 argv**：`osascript` 跑 `src/pairing.ts` 里固定的 `DIALOG_SCRIPT`，账号等文字作为 `--` 之后的参数传入，绝不拼进脚本源码；第一个按钮「拒绝」是默认按钮，限时不答按拒绝处理。
 - **协议改动先改 `protocol.json`**：它是页面 ↔ Host 的方法名、协议版本与端口的单一事实源，web 与 Host 两侧的测试都对它断言。
 - **本目录的改动由人合并**：`cgc-host/**`（含依赖与 `pnpm-lock.yaml`）在根 `AGENTS.md` 的人工合并范围内；新依赖同样过根 `AGENTS.md` 的 License 硬门禁。
@@ -41,26 +43,71 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 | `pair.request {token?, locale?}` | `pair.result {allowed: true, browserKey}` 或 `{allowed: false}`；没走到弹窗就结束的回 `error` |
 | `pair.cancel` | 无；本连接进行中的 `pair.request` 以 `pair.result {allowed: false}` 结束 |
 | `pair.forget` | 无；Host 向所有连接推送未配对的 `status` |
-| `chat.attach` / `chat.send` / `chat.stop` / `chat.new` / `card.answer`（`{courseId, …}`） | 由对话处理器（U6）回复；被另一个连接接管的连接收到 `chat.evicted {courseId}` |
+| `chat.attach` / `chat.send` / `chat.stop` / `chat.new` / `card.answer`（`{courseId, …}`） | 见下方「对话的载荷契约」；被另一个连接接管的连接收到 `chat.evicted {courseId}` |
 
-`status.params`：`state`（`unpaired` / `paired` / `ready`，`ready` 指这个连接已授权）、`pairedUserId`、`pairedDisplayName`、`deviceName`、`tokenId`、`ompPresent`、`version`、`protocolVersion`。
+`status.params`：`state`（`unpaired` / `paired` / `ready`，`ready` 指这个连接已授权）、`pairedUserId`、`pairedDisplayName`、`deviceName`、`tokenId`、`ompPresent`、`version`、`protocolVersion`；解析学员登录 shell 的环境失败时另有 `ompEnvError`（`timeout` / `failed`，此时 Host 退回 launchd 的最小环境，多半找不到 omp 或模型凭证）。`ompPresent` 为 false 时，Host 每次被读到都会在后台重新查找（至多 10 秒一次），学员装上 OMP 后不必重启 Host；页面可轮询 `/health`。
 
 `error.params.code`：
 
 | code | 含义 |
 | --- | --- |
-| `bad_request` | 坏帧或参数不合法（含 `courseId` 不是 UUID、`token` 不以 `cgch_` 开头） |
+| `bad_request` | 坏帧或参数不合法（含 `courseId` 不是 UUID、`token` 不以 `cgch_` 开头、`chat.send` 的 `text` 为空或 `context` 不合法、`card.answer` 的作答不合法或卡片已收起） |
 | `unknown_method` | 不在 `pageToHost` 白名单里 |
 | `unauthorized` | 没有 `hello`，或浏览器密钥、账号不符 |
 | `not_paired` | 不带凭证的 `pair.request`，但本机没有配对 |
-| `busy` | 已有一次配对在进行，或刚关弹窗、还在冷却 |
+| `busy` | 已有一次配对在进行，或刚关弹窗、还在冷却；对话方法里指这门课已有一轮在跑（`chat.send`、`chat.new`） |
 | `invalid_token` | 平台对这枚凭证回 401 / 429，或它的 kind 不是 `learning_host` |
 | `platform_unavailable` | 平台连不上、回 5xx 或应答不合约 |
 | `not_holder` | 这门课已被另一个连接接管 |
-| `chat_unavailable` | U6 接上 ACP 之前，对话方法一律回它 |
+| `chat_unavailable` | 找不到 omp、拉不起 OMP，或 ACP 握手、加载会话失败；详情只在 Host 日志里 |
 | `internal` | Host 内部出错，详情只在 Host 日志里 |
 
 `pair.request` 以 `error` 结束时，Host 没有动这枚凭证，页面用登录态补撤销；以 `pair.result {allowed: false}` 结束时，Host 已经用它自撤销（尽力而为）。
+
+## 对话的载荷契约（`src/acp/`）
+
+每门课对应 OMP 里的一条 ACP 会话，指针存在状态文件的 `sessions`（courseId → sessionId）。一个 `omp acp` 进程服务全部会话：第一次需要时才拉起（有历史要回放的 `chat.attach`，或 `chat.send`、`chat.new`）；没有页面连着、也没有在跑的回合超过 10 分钟就回收，下次需要时再拉起并 session/load。会话的工作目录是 `~/CGC/<userId>/<courseId>`；session/new 与每次 session/load 都下发含当前学习凭证的 `cgc-2046` MCP 服务器，指针指向的会话不在当前课程目录下（例如换了账号）就不加载、清掉指针。
+
+下面的消息都带 `courseId`，表里省略。
+
+| 页面 → Host | 其余 params | 回复与之后的推送 |
+| --- | --- | --- |
+| `chat.attach` | — | `history`；之后把未答的卡片逐张以 `turn.card` 重发 |
+| `chat.send` | `text`（非空字符串）、`context` | 回 `turn.delta {kind: "user", text}` 表示接下了；之后推 `turn.delta` / `turn.card` / `turn.card.closed`，最后 `turn.end` |
+| `chat.stop` | — | 不回复；在跑的一轮：待答卡片 `turn.card.closed {reason: "cancelled"}`，没跑完的工具步骤以 `status: "stopped"` 推一次 `turn.delta`，随后 `turn.end {stopReason: "cancelled"}`。停止前已提交到平台的结果照常生效 |
+| `chat.new` | — | `history`（空）：此后的消息进一条新会话，agent 不带之前的上下文；学习进度不受影响 |
+| `card.answer` | `cardId`，加审批的 `{optionId}` 或提问的 `{action, content?}` | `turn.card.closed {cardId, reason: "answered"}` |
+
+`context`（KTD8）：`{workspaceId, courseVersion, unitId, locale}`。`workspaceId` 是 UUID；`courseVersion` 是页面显示的课程版本号（正整数）或 `null`；`unitId` 是学员正在看的单元 id（只认 `^[A-Za-z0-9_.-]{1,64}$`），`null` 表示课程总览；`locale` 是 `zh-CN` 或 `en`。每条 `chat.send` 都带，Host 只在会话的首条消息和它变化时（例如切换单元）把它附给 agent，只带这些标识——课程、单元标题这类 tutor 撰写的文本不进提示。
+
+事件（`turn.delta` 的载荷，也是 `history.events` 的条目）：
+
+| `kind` | 字段 | 说明 |
+| --- | --- | --- |
+| `user` | `text`, `messageId?` | 学员的消息 |
+| `message` | `text`, `messageId?` | agent 回复的增量 |
+| `thought` | `text`, `messageId?` | 思考的增量，默认折叠 |
+| `tool` | `toolCallId`, `title`, `toolKind`, `status`, `input?`, `output?` | 一次工具调用合并后的整段步骤，页面按 `toolCallId` 替换；`status` 是 `pending` / `in_progress` / `completed` / `failed` / `stopped`；`input` 是参数的 JSON，`output` 是输出文字，各截到 16000 字符 |
+| `usage` | `used`, `size`, `cost?: {amount, currency}` | 上下文已用与总量（token），以及本会话累计费用 |
+| `end` | `stopReason`, `modelError?` | 只出现在 `history` 里：一轮的结束，字段同 `turn.end` |
+
+- 文字事件的拼接规则：与上一条事件 `kind` 相同、`messageId` 相同（都没有也算相同）就接在后面，否则另起一段。`history` 里的条目已经按这条规则拼好。
+- `history {running, events}`：`running` 表示有一轮正在跑。缓冲在 Host 内存里，只留最近 500 条，不写盘；Host 重启或 OMP 被回收后从 OMP 的会话存储回放，回放出的历史没有 `usage`、`end` 与模型错误归类。
+
+卡片（`turn.card`）：
+
+- 审批：`{cardId, kind: "permission", toolCallId, title, toolKind, input?, options: [{optionId, name, kind}]}`。选项原样来自学员的 OMP，与终端里一致：`kind` 是 `allow_once` / `allow_always` / `reject_once` / `reject_always`，OMP 18.10.4 的 `name` 是 Allow once / Always allow / Reject / Always reject。作答 `{cardId, optionId}`。
+- 「始终允许」只活在 OMP 进程内存里、只对这条会话有效，按工具种类记（命令类即这条对话里之后的所有命令），不写进学员的 OMP 配置；OMP 重启（空闲回收、Host 或电脑重启）后失效（U6 真机核验）。卡片文案建议：「本次对话中不再询问此类操作（重启后需重新确认）」。
+- 提问：`{cardId, kind: "question", message, schema}`。`schema` 是表单的 JSON Schema（object，`properties` 里是 string（`oneOf` / `enum` 为选项）、number / integer、boolean、array（`items.anyOf` / `items.enum` 为多选））。OMP 的 `ask` 工具：`q0` 是单选，`q0__other` 是自由输入。作答 `{cardId, action: "accept", content: {字段: 值}}`（值是字符串、数字、布尔或字符串数组，键必须在 `properties` 里），或 `{cardId, action: "decline" | "cancel"}`。只接受 form 模式，其余模式 Host 直接拒绝，不出卡片。
+- `turn.card.closed {cardId, reason}`：`answered` 是持有者答了；`cancelled` 是回合结束、停止、OMP 撤回请求或退出，或没有页面持有这门课、卡片又等了超过 5 分钟（KTD13：本轮随之取消）——都以取消作答，从不替学员选允许。
+
+`turn.end {stopReason, usage?, modelError?}`：
+
+- `stopReason`：ACP 的 `end_turn` / `max_tokens` / `max_turn_requests` / `refusal` / `cancelled`，以及 Host 的 `error`（OMP 退出或本轮请求失败）。
+- `usage`：本轮计费用量 `{inputTokens, outputTokens, totalTokens, cachedReadTokens?, cachedWriteTokens?, thoughtTokens?}`。
+- `modelError`（R27）：`auth`（密钥无效、认证失败）或 `quota`（额度用尽、限流）时，这一轮 agent 的文字其实是模型报错——页面改为显示看得懂的说明，并指引学员去 OMP 检查模型配置，原文可折叠在说明里；`unknown` 时照常显示原文，附一句「可能是模型配置问题」。判定口径与局限见 `src/acp/events.ts` 的 `classifyModelError`。
+
+KTD14：页面在 `turn.end`、`turn.card`、`history`（进入可对话状态）时重取学习详情。
 
 ## 测试与许可扫描
 
