@@ -50,13 +50,12 @@ export const FULL_TAIL_TABS: readonly TabDef[] = [
 ]
 
 /**
- * 抖音端（#1079 #P0）：发现 / 我的——「我的报名」收进「我的」页
- * （pages/profile-lite），与 xhs D2a 同构；我的报名页降级为普通页。
- * 此前是「发现 / 我的报名」2 Tab 漏斗：tt 没有可登录后退出的居所，
- * 退出必须能脱离报名面——本端注册 profile-lite 后同步收敛。
+ * 抖音端（#1079 #P0 + #1083 #P1）：发现 / 闪念间 / 我的——「我的报名」收进「我的」页
+ * （pages/profile-lite），与 xhs P2 后的 Tab 形状一致。
  */
 export const TT_TABS: readonly TabDef[] = [
   { key: 'discover', text: '发现', path: '/pages/discover/index' },
+  { key: 'flashback', text: '闪念间', path: '/pages/flashback-corridor/index' },
   { key: 'profile', text: '我的', path: '/pages/profile-lite/index' }
 ]
 

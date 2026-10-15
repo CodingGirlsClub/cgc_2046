@@ -7,13 +7,15 @@ import { describe, test } from 'node:test'
 import { TT_TABS, XHS_TABS, XHS_TAB_PATHS, TT_TAB_PATHS, cutJoinLanding, tabPathsForPlatform } from '../src/domain/tab-routes.ts'
 import { XHS_PAGES, TT_PAGES, pageRegistered, safeReturnUrl } from '../src/domain/platform-pages.ts'
 
-describe('抖音 Tab 结构（#1079：发现 / 我的）', () => {
-  test('TT_TABS = 发现 + 我的（我的报名收进「我的」），与 xhs D2a 同构但无闪念间 Tab（#1083 再加）', () => {
-    assert.equal(TT_TABS.length, 2)
+describe('抖音 Tab 结构（#1079 P0 + #1083 P1：发现 / 闪念间 / 我的）', () => {
+  test('TT_TABS = 发现 + 闪念间（长廊）+ 我的（我的报名收进「我的」）', () => {
+    assert.equal(TT_TABS.length, 3)
     assert.equal(TT_TABS[0].key, 'discover')
     assert.equal(TT_TABS[0].path, '/pages/discover/index')
-    assert.equal(TT_TABS[1].key, 'profile')
-    assert.equal(TT_TABS[1].path, '/pages/profile-lite/index')
+    assert.equal(TT_TABS[1].key, 'flashback')
+    assert.equal(TT_TABS[1].path, '/pages/flashback-corridor/index')
+    assert.equal(TT_TABS[2].key, 'profile')
+    assert.equal(TT_TABS[2].path, '/pages/profile-lite/index')
   })
 
   test('tabPathsForPlatform：tt 用自己的 Tab 集合（我的报名不在其中）', () => {
@@ -21,8 +23,8 @@ describe('抖音 Tab 结构（#1079：发现 / 我的）', () => {
     const paths = tabPathsForPlatform('tt')
     assert.ok(paths.includes('/pages/profile-lite/index'))
     assert.ok(paths.includes('/pages/discover/index'))
+    assert.ok(paths.includes('/pages/flashback-corridor/index'))
     assert.ok(!paths.includes('/pages/my-enrollments/index'))
-    assert.ok(!paths.includes('/pages/flashback-corridor/index'))
   })
 })
 
@@ -67,11 +69,21 @@ describe('Tab 指向页必须注册（switchTab 静默失败铁律）', () => {
     assert.ok(XHS_PAGES.includes('pages/flashback/index'))
   })
 
-  test('TT 注册集（#1079）包含「我的」精简页、隐私页、我的报名（非 Tab 普通页）与薄壳页', () => {
+  test('TT 注册集（#1079 #1083）包含「我的」精简页、隐私页、我的报名（非 Tab 普通页）与闪念间全家桶', () => {
     assert.ok(TT_PAGES.includes('pages/profile-lite/index'))
     assert.ok(TT_PAGES.includes('pages/privacy/index'))
     assert.ok(TT_PAGES.includes('pages/my-enrollments/index'))
     assert.ok(TT_PAGES.includes('pages/flashback/index'))
+    // #1083 闪念间家庭（本人面/公开面/写面）同 xhs P2
+    assert.ok(TT_PAGES.includes('pages/flashback-corridor/index'))
+    assert.ok(TT_PAGES.includes('pages/flashback-journey/index'))
+    assert.ok(TT_PAGES.includes('pages/flashback-event/index'))
+    assert.ok(TT_PAGES.includes('pages/flashback-today/index'))
+    assert.ok(TT_PAGES.includes('pages/flashback-voices/index'))
+    assert.ok(TT_PAGES.includes('pages/flashback-wishes/index'))
+    assert.ok(TT_PAGES.includes('pages/flashback-shared-card/index'))
+    assert.ok(TT_PAGES.includes('pages/flashback-wish-write/index'))
+    assert.ok(TT_PAGES.includes('pages/flashback-my-wishes/index'))
   })
 })
 

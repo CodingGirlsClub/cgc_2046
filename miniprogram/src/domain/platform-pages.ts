@@ -58,11 +58,12 @@ export const WEAPP_PAGES: readonly string[] = [
   'pages/flashback-my-wishes/index'
 ]
 
-/** 抖音端（tt）注册页面（#1079 P0：我的+隐私+免费参与） */
+/** 抖音端（tt）注册页面（#1079 P0 + #1083 P1 闪念间参与者旅程——同 xhs P2 的登记面） */
 export const TT_PAGES: readonly string[] = [
   'pages/discover/index',
   'pages/initiative-detail/index',
-  // #1079：Tab 收敛成「发现 / 我的」——我的报名降级普通页，入口收进 profile-lite
+  // #1079：我的报名收进 profile-lite（降级普通页）；#1083 闪念间升 Tab（长廊），
+  // Tab 定型为「发现 / 闪念间 / 我的」，此处 profile-lite 仍为「我的」Tab 页
   'pages/profile-lite/index',
   'pages/privacy/index',
   'pages/my-enrollments/index',
@@ -71,9 +72,18 @@ export const TT_PAGES: readonly string[] = [
   'pages/register-form/index',
   'pages/enrollment-result/index',
   'pages/join/index',
-  // U9/R28：闪念间回访页（薄壳，渲染 components/MyCard）——tt/xhs 漏斗端保留注册
-  // （成场通知深链落点与 platformFallbackRoute 的回落目标）。首程旅程/长廊/场次页
-  // 在本 issue P1（#1083）注册——届时「发现 / 闪念间 / 我的」三 Tab 成立。
+  // #1083（闪念间参与者旅程）：本人面（长廊/首程/场次/今天）+ 公开面（金句墙/许愿树/
+  // 公开卡）+ 写面（写愿望/我的愿望）。组织者与管理页仍不注册（原则①）。
+  'pages/flashback-corridor/index',
+  'pages/flashback-journey/index',
+  'pages/flashback-event/index',
+  'pages/flashback-today/index',
+  'pages/flashback-voices/index',
+  'pages/flashback-wishes/index',
+  'pages/flashback-shared-card/index',
+  'pages/flashback-wish-write/index',
+  'pages/flashback-my-wishes/index',
+  // U9/R28：旧回访薄壳页保留——深链回落目标（platformFallbackRoute）与旧分享链落点
   'pages/flashback/index'
 ]
 

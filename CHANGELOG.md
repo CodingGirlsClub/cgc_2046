@@ -43,6 +43,12 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 - [抖音] 退出登录打通账号切换隔离：`api.signOut()` 在 token/工作区/账号状态清除外加新「户主侧」键清除（愿望草稿按 `owner` 前缀、闪念间入口意图与访客圈选按精确名），本机不留上一账号草稿残留；判据单源 `domain/account.ts`、`node --test` 钉住。
 - [抖音] 加入工作台后落「我的」（此前 tt 落已降为普通页的「我的报名」，reLaunch 清栈后无 TabBar）。
 
+### Added（[抖音] P1 #1083）
+
+- [抖音] 闪念间参与者旅程迁到抖音（#1083 P1，复用 xhs P2 已迁移路径）：Tab 定型为「发现 / 闪念间 / 我的」，tt 注册闪念间长廊 / 首程 / 场次 / 今天 / 公开金句 / 公开愿望 / 公开卡 / 写愿望 / 我的愿望 / 公开 card 共 10 页—— 覆盖访客、无历史档案用户（公开浏览 → 许愿 → 附议 / 取消）、已认领校友（找回 / 认领 → 今天 → 公开授权 → 撤回）三类旅程。
+- [抖音] 分享链路不带本人访问凭证：分享 path 由 `buildFlashbackCardSharePath(shareId)` 保证只带 `shareId`；`token` / `shareId` / `quoteId` / `wishId` 深链按平台过滤单源不变（P0-4 / #1083 起，tt 已注册闪念间页直通），「找回 / 认领 / 登录回跳」用 `claim=1` 位标记与微信端同型。
+- [抖音] 分享面板三入站等价（转发 / 朋友圈 / 保存卡片）——抖音支持 `useShareTimeline` 与 Canvas 2D，附议「回响通知」勾选走「附议 → requestSubscribeMessage → grant upstream」同型，含缺模板 ID 的 fail-closed；撤回走「先冷静再重载」保持与微信端一致的 `unavailable` 终局态（不泄露受限正文）。
+
 ## [扩展 v0.1.7] - 2026-10-15
 
 随本次 develop→main 发布上线，明细见 [`openclacky-ext/cgc-2046/CHANGELOG.md`](openclacky-ext/cgc-2046/CHANGELOG.md)：
