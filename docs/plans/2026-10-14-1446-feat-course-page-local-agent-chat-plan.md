@@ -414,7 +414,7 @@ stateDiagram-v2
 ### Dependencies / Assumptions
 
 - 学员电脑上已经装好 OMP，并配置了可用的模型。以 OMP 18.10.4 的实测为基线（`omp acp`，ACP 协议版本 1）。
-- Host 由学员本机的 Bun 运行。学员没有 Bun 时，安装命令用 Bun 官方安装器装上；这一步需要访问 Bun 的官方下载源，部分网络下可能较慢。
+- Host 由学员本机的 Bun 运行。安装命令先下载并校验 Host 包，通过后才查找 Bun；学员没有 Bun 时，用 Bun 官方安装器装上。这一步需要访问 Bun 的官方下载源，部分网络下可能较慢。
 - 需要一份新 ADR 修订 ADR-0001：
   - D4：网站不做对话页，原文指向 OpenClacky；
   - D6：Agent 权限 = 用户权限；
@@ -683,7 +683,7 @@ cgc-host/
   pnpm-lock.yaml
   tsconfig.json
   protocol.json                # 页面 ↔ Host 的方法名、协议版本与端口（两侧测试的事实源）
-  install.sh                   # 一条命令安装：确保 Bun、下载并校验、写 plist、注册 LaunchAgent
+  install.sh                   # 一条命令安装：下载并校验、确保 Bun、写 plist、注册 LaunchAgent
   scripts/
     check-version-bump.ts      # 部署时的版本纪律门禁
   src/
@@ -1042,8 +1042,8 @@ cgc-host/
      - 产物缺失或清单畸形时，部署失败。
      - 包内容变了而版本号没变时，部署失败（KTD15）。
   2. `install.sh`：
-     - 学员没有 Bun 时，用 Bun 官方安装器装上。
-     - 从平台下载包并校验 sha256。
+     - 从平台下载清单和包到临时目录，用现有系统工具校验 sha256；失败清理临时文件退出，不安装 Bun，也不改已有 Host 或 LaunchAgent。
+     - 校验通过后才查找 Bun；学员没有 Bun 时，用 Bun 官方安装器装上。
      - 写 plist：`RunAtLoad`；`KeepAlive` 设为 `SuccessfulExit:false`；`ThrottleInterval` 30 秒；日志写到 `~/Library/Logs/`；`ProgramArguments` 用 Bun 与包的绝对路径；不含任何环境变量形式的密钥。
      - 先 `bootout` 再 `bootstrap`，重复执行结果不变。
   3. 卸载：
@@ -1057,7 +1057,8 @@ cgc-host/
   - `omp-plugin/cgc-2046/install.sh` 与 `install.test.sh`（使用临时 HOME）。
 - **Test scenarios：**
   - 在临时 HOME 下安装两次，结果一致，且只有一个 LaunchAgent。
-  - 校验和不符时安装中止，不写入任何文件。
+  - 隔离 HOME/PATH、确保找不到 Bun：校验和不符时不下载或执行 Bun 安装器，不改已有 Host/LaunchAgent，并清理临时文件。
+  - 校验成功后才下载并执行 Bun 安装器；PATH 或 `~/.bun/bin/bun` 中已有 Bun 时直接复用，重复安装结果不变。
   - 生成的 plist 不含环境变量形式的密钥，权限为 0644。
   - 卸载后，plist、包、状态目录与日志都不存在，课程工作目录原样保留。
   - 撤销接口不可达时，卸载仍完成本地清理，并给出提示。

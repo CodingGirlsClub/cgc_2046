@@ -117,7 +117,7 @@ KTD14：页面在 `turn.end`、`turn.card`、`history`（进入可对话状态�
 curl -fsSL https://api.codingirlsclub.com/ext/cgc-host/install.sh | bash
 ```
 
-`install.sh` 依次：没有 Bun 就用官方安装器装到 `~/.bun` → 把包下载到临时目录，按清单校验 sha256，不符即中止、什么都不写 → `launchctl bootout` 旧的 → 落位、写 plist → `launchctl bootstrap`。只支持 macOS。
+`install.sh` 依次：把清单和 Host 包下载到临时目录并校验 sha256，失败清理退出、不安装 Bun 或修改已有 Host/LaunchAgent → 校验成功后查找 Bun，没有则用官方安装器装到 `~/.bun` → `launchctl bootout` 旧的 → 落位、写 plist → `launchctl bootstrap`。只支持 macOS。
 
 学员电脑上的文件：
 

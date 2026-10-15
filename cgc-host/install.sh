@@ -3,8 +3,8 @@
 #   curl -fsSL https://api.codingirlsclub.com/ext/cgc-host/install.sh | bash
 # 重复执行即更新到最新版本，结果与装一次相同，始终只有一个 LaunchAgent。
 #
-# 依次：没有 Bun 就用官方安装器装到 ~/.bun → 把包下载到临时目录，按清单校验 sha256（不符即中止，什么都不写）
-# → 停掉旧的 Host → 包落到 ~/.cgc2046/host/cgc-host.js，写 LaunchAgent plist → 启动。
+# 依次：把清单和包下载到临时目录，校验 sha256（失败即清理退出，不安装 Bun、不改旧 Host）
+# → 查找 Bun，没有则用官方安装器装到 ~/.bun → 停掉旧 Host → 包落位、写 LaunchAgent plist → 启动。
 # plist 里只有 Bun 与包的绝对路径，不含任何环境变量：OMP 的环境由 Host 运行时从学员的登录 shell 解析（KTD12）。
 # 卸载命令在结束时打印：`<bun> ~/.cgc2046/host/cgc-host.js uninstall`，只在本机执行，平台连不上也能卸。
 #
@@ -29,17 +29,6 @@ main() {
 
   [ "$(uname -s)" = Darwin ] || die "目前只支持 macOS"
 
-  local bun
-  bun=$(command -v bun || true)
-  # 官方安装器装的 Bun 不一定已在当前 shell 的 PATH 里
-  if [ -z "$bun" ] && [ -x "$HOME/.bun/bin/bun" ]; then bun="$HOME/.bun/bin/bun"; fi
-  if [ -z "$bun" ]; then
-    echo "没有找到 Bun，用官方安装器安装到 ~/.bun …"
-    curl -fsSL https://bun.sh/install | bash
-    bun="$HOME/.bun/bin/bun"
-    [ -x "$bun" ] || die "Bun 安装失败"
-  fi
-
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' EXIT
   curl -fsSL "$dist/cgc-host.json" -o "$tmp/cgc-host.json" || die "下载清单失败：$dist/cgc-host.json"
@@ -50,7 +39,19 @@ main() {
   sha256=$(sed -nE 's/.*"sha256"[[:space:]]*:[[:space:]]*"([0-9a-f]{64})".*/\1/p' "$tmp/cgc-host.json")
   [ -n "$version" ] && [ -n "$sha256" ] || die "清单格式不对：$dist/cgc-host.json"
   actual=$(shasum -a 256 "$tmp/cgc-host.js" | cut -d' ' -f1)
-  [ "$actual" = "$sha256" ] || die "下载的包与清单的 sha256 不符，没有安装任何东西，请稍后重试"
+  [ "$actual" = "$sha256" ] || die "下载的包与清单的 sha256 不符，未安装 Bun，也未修改已有 Host，请稍后重试"
+
+  # 校验通过后才允许安装依赖，失败的包不能在学员电脑上留下 ~/.bun。
+  local bun
+  bun=$(command -v bun || true)
+  # 官方安装器装的 Bun 不一定已在当前 shell 的 PATH 里
+  if [ -z "$bun" ] && [ -x "$HOME/.bun/bin/bun" ]; then bun="$HOME/.bun/bin/bun"; fi
+  if [ -z "$bun" ]; then
+    echo "Host 包已通过校验；没有找到 Bun，用官方安装器安装到 ~/.bun …"
+    curl -fsSL https://bun.sh/install | bash
+    bun="$HOME/.bun/bin/bun"
+    [ -x "$bun" ] || die "Bun 安装失败"
+  fi
 
   # 先停旧的再启动新的，重复执行也只有一个 LaunchAgent；没装过时 bootout 报错，无妨
   launchctl bootout "$domain/$label" 2>/dev/null || true

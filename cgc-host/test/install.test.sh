@@ -8,6 +8,7 @@
 #   4. 卸载（结束时打印的那条命令）：plist、包、状态目录与日志都不存在，课程工作目录原样保留；凭证经平台自撤销，不进 argv 与输出
 #   5. 版本门禁：包内容变了而版本号没变必须失败；其余分支放行
 #   6. 撤销接口不可达：卸载仍完成本地清理，并提示到「已配对的电脑」撤销
+#   7. 无 Bun 的隔离 PATH：校验失败不调用安装器；校验成功才安装，已有 Bun 则复用
 #
 # 包按 deploy.yml 的方式构建（bun build --define），平台地址与下载地址都指向本测试起的本地服务器（端口由系统分配）。
 # 运行：bash cgc-host/test/install.test.sh；退出码 0 = 全绿
@@ -166,6 +167,108 @@ install_in "$H1" "$BASE/bad" >/dev/null 2>&1 || rc=$?
 snapshot "$H1" >"$T/snap3"
 ok "更新时校验失败：已装的旧版一字未动" cmp -s "$T/snap1" "$T/snap3"
 ok "更新时校验失败：旧版仍在 launchd 里" [ "$(cat "$LAUNCHD")" = "$DOMAIN/$LABEL" ]
+
+echo "== 场景 2b：无 Bun 时先校验，成功后才允许安装 Bun =="
+# 只放安装脚本需要的系统工具，避免开发机 PATH 里的 Bun 让无 Bun 场景假绿。
+NO_BUN_PATH="$T/no-bun-bin"
+mkdir -p "$NO_BUN_PATH"
+for tool in bash id mktemp rm sed cut mkdir dirname chmod mv cat grep basename; do
+  ln -s "$(command -v "$tool")" "$NO_BUN_PATH/$tool"
+done
+ln -s "$T/bin/uname" "$NO_BUN_PATH/uname"
+ln -s "$T/bin/launchctl" "$NO_BUN_PATH/launchctl"
+export INSTALL_ORDER="$T/install-order" TEST_CURL="$(command -v curl)" TEST_SHASUM="$(command -v shasum)"
+export TEST_BUN_INSTALLER="$T/bun-installer"
+cat >"$TEST_BUN_INSTALLER" <<'EOF'
+echo bun-installed >>"$INSTALL_ORDER"
+mkdir -p "$HOME/.bun/bin"
+printf '#!/bin/sh\nexit 0\n' >"$HOME/.bun/bin/bun"
+chmod +x "$HOME/.bun/bin/bun"
+EOF
+cat >"$NO_BUN_PATH/curl" <<'EOF'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  case "$arg" in
+    https://bun.sh/install)
+      echo bun-installer-downloaded >>"$INSTALL_ORDER"
+      cat "$TEST_BUN_INSTALLER"
+      exit 0 ;;
+    http://*/cgc-host.json) echo manifest >>"$INSTALL_ORDER" ;;
+    http://*/cgc-host.js) echo bundle >>"$INSTALL_ORDER" ;;
+  esac
+done
+exec "$TEST_CURL" "$@"
+EOF
+cat >"$NO_BUN_PATH/shasum" <<'EOF'
+#!/usr/bin/env bash
+echo checksum >>"$INSTALL_ORDER"
+exec "$TEST_SHASUM" "$@"
+EOF
+chmod +x "$NO_BUN_PATH/curl" "$NO_BUN_PATH/shasum"
+order_install_in() {
+  mkdir -p "$1" "$T/order-tmp"
+  env HOME="$1" TMPDIR="$T/order-tmp" PATH="${3:-$NO_BUN_PATH}" CGC_HOST_DIST="$2" \
+    LAUNCHCTL_LOG="$T/order-launchctl" LAUNCHD="$T/order-launchd" bash "$HOST_SRC/install.sh"
+}
+: >"$T/order-launchctl"
+: >"$T/order-launchd"
+: >"$INSTALL_ORDER"
+ok "隔离 PATH 中确实找不到 Bun" not env PATH="$NO_BUN_PATH" bash -c 'command -v bun'
+H_NO_BUN="$T/no-bun-home"
+rc=0
+order_install_in "$H_NO_BUN" "$BASE/bad" >"$T/order-bad.out" 2>&1 || rc=$?
+ok "无 Bun 且校验失败：以非 0 退出" [ "$rc" != 0 ]
+ok "无 Bun 且校验失败：提示 sha256 不符" grep -q "与清单的 sha256 不符" "$T/order-bad.out"
+ok "无 Bun 且校验失败：不下载或运行 Bun 安装器" not grep -q bun- "$INSTALL_ORDER"
+ok "无 Bun 且校验失败：HOME 没有任何安装副作用" is_empty_dir "$H_NO_BUN"
+ok "无 Bun 且校验失败：不调用 launchctl" not test -s "$T/order-launchctl"
+ok "无 Bun 且校验失败：临时文件清理" is_empty_dir "$T/order-tmp"
+
+H_OLD="$T/old-host-no-bun"
+cp -R "$H1" "$H_OLD"
+snapshot "$H_OLD" >"$T/order-old-before"
+printf '%s\n' "$DOMAIN/$LABEL" >"$T/order-launchd"
+: >"$INSTALL_ORDER"
+rc=0
+order_install_in "$H_OLD" "$BASE/bad" >"$T/order-old.out" 2>&1 || rc=$?
+snapshot "$H_OLD" >"$T/order-old-after"
+ok "旧 Host 缺 Bun 且校验失败：以非 0 退出" [ "$rc" != 0 ]
+ok "旧 Host 缺 Bun 且校验失败：不调用 Bun 安装器" not grep -q bun- "$INSTALL_ORDER"
+ok "旧 Host 缺 Bun 且校验失败：文件树与内容原样保留" cmp -s "$T/order-old-before" "$T/order-old-after"
+ok "旧 Host 缺 Bun 且校验失败：LaunchAgent 原样运行" [ "$(cat "$T/order-launchd")" = "$DOMAIN/$LABEL" ]
+ok "旧 Host 缺 Bun 且校验失败：不调用 launchctl" not test -s "$T/order-launchctl"
+ok "旧 Host 缺 Bun 且校验失败：临时文件清理" is_empty_dir "$T/order-tmp"
+
+H_NEW="$T/new-bun-home"
+: >"$INSTALL_ORDER"
+rc=0
+order_install_in "$H_NEW" "$BASE/ext/cgc-host" >"$T/order-good.out" 2>&1 || rc=$?
+ok "无 Bun 且校验成功：安装成功" [ "$rc" = 0 ]
+ok "顺序为下载清单、下载包、校验，再下载并执行 Bun 安装器" \
+  [ "$(tr '\n' ' ' <"$INSTALL_ORDER")" = "manifest bundle checksum bun-installer-downloaded bun-installed " ]
+ok "Bun 落在隔离 HOME 内" test -x "$H_NEW/.bun/bin/bun"
+ok "校验后的 Host 包正确落位" cmp -s "$H_NEW/.cgc2046/host/cgc-host.js" "$DIST/cgc-host.js"
+ok "plist 使用新安装的 Bun" grep -qF "<string>$H_NEW/.bun/bin/bun</string>" "$H_NEW/Library/LaunchAgents/$LABEL.plist"
+ok "成功安装后临时文件清理" is_empty_dir "$T/order-tmp"
+snapshot "$H_NEW" >"$T/order-new-before"
+: >"$INSTALL_ORDER"
+rc=0
+order_install_in "$H_NEW" "$BASE/ext/cgc-host" >"$T/order-repeat.out" 2>&1 || rc=$?
+snapshot "$H_NEW" >"$T/order-new-after"
+ok "Bun 仅在 ~/.bun 时重复安装成功" [ "$rc" = 0 ]
+ok "复用 ~/.bun，不重复调用安装器" not grep -q bun- "$INSTALL_ORDER"
+ok "重复安装文件树与内容一致" cmp -s "$T/order-new-before" "$T/order-new-after"
+
+mkdir -p "$T/existing-bun-bin"
+ln -s "$H_NEW/.bun/bin/bun" "$T/existing-bun-bin/bun"
+: >"$INSTALL_ORDER"
+H_PATH_BUN="$T/path-bun-home"
+rc=0
+order_install_in "$H_PATH_BUN" "$BASE/ext/cgc-host" "$T/existing-bun-bin:$NO_BUN_PATH" >"$T/order-path.out" 2>&1 || rc=$?
+ok "PATH 已有 Bun 时安装成功" [ "$rc" = 0 ]
+ok "PATH 已有 Bun 时不调用安装器" not grep -q bun- "$INSTALL_ORDER"
+ok "PATH 已有 Bun 时不创建 ~/.bun" not test -e "$H_PATH_BUN/.bun"
+ok "plist 使用 PATH 中的 Bun" grep -qF "<string>$T/existing-bun-bin/bun</string>" "$H_PATH_BUN/Library/LaunchAgents/$LABEL.plist"
 
 echo "== 场景 3：plist 无密钥、权限 0644 =="
 PLIST="$H1/Library/LaunchAgents/$LABEL.plist"
