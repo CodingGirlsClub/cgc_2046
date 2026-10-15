@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { assertHostVersionContract, compareHostVersions } from "./host-version";
 import {
 	HOST_HTTP_ORIGIN,
 	HOST_PORT,
@@ -65,6 +66,13 @@ it("web 侧端口常量与 cgc-host/protocol.json 一致（改端口即改协议
 	};
 
 	expect(HOST_PORT).toBe(port);
+});
+
+it("真实最低版本契约：Web 的最低版本不高于待发布 Host 包", () => {
+	const packaged = JSON.parse(readFileSync(resolve(HERE, "../../cgc-host/package.json"), "utf8"));
+	expect(() => assertHostVersionContract(MIN_HOST_VERSION, packaged.version)).not.toThrow();
+	expect(compareHostVersions(MIN_HOST_VERSION, packaged.version)).toBeLessThanOrEqual(0);
+		expect(() => assertHostVersionContract("9.9.9", packaged.version)).toThrow("MIN_HOST_VERSION exceeds");
 });
 
 describe("checkHost（页面加载即可调用；未授权时不发本机请求）", () => {
@@ -141,6 +149,11 @@ describe("checkHost（页面加载即可调用；未授权时不发本机请求�
 		stubBrowser({ health: { version: "0.0.9", ompPresent: true, paired: true } });
 
 		expect(await checkHost()).toEqual({ state: "staleHost" });
+	});
+
+	it.each(["0.1", "v0.1.10", "01.1.0", "0.1.0-beta", "0.1.0+build", "0.1.9007199254740992"])("非法 Host 版本 %s 不能被视为可连接", async (version) => {
+		stubBrowser({ health: { version, ompPresent: true, paired: true } });
+		expect(await checkHost()).toEqual({ state: "noHost" });
 	});
 
 	it("版本满足下限 → 检测到 Host，并带回 OMP 与配对情况", async () => {

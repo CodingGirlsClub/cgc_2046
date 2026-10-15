@@ -315,10 +315,10 @@ manifest "$VERSION" "$(sha "$DIST/cgc-host.js")" >"$GATE/cgc-host.json"
 ok "内容没变：放行" [ "$(gate_rc "$DIST/cgc-host.js")" = 0 ]
 ok "内容变了、版本号没变：失败" [ "$(gate_rc "$T/changed.js")" = 1 ]
 ok "失败时说明要提高版本号" grep -q "版本号没变" "$T/gate.out"
-manifest "0.0.0-published" "$(sha "$DIST/cgc-host.js")" >"$GATE/cgc-host.json"
+manifest "0.0.0" "$(sha "$DIST/cgc-host.js")" >"$GATE/cgc-host.json"
 ok "内容变了、版本号也变了：放行" [ "$(gate_rc "$T/changed.js")" = 0 ]
 echo '{"version":"0.1.0"}' >"$GATE/cgc-host.json"
-ok "线上清单畸形：警告并放行" gate_warns "$T/changed.js"
+ok "线上清单畸形：拒绝发布" [ "$(gate_rc "$T/changed.js")" = 1 ]
 rm "$GATE/cgc-host.json"
 ok "线上还没有清单（首次发布）：警告并放行" gate_warns "$T/changed.js"
 ok "不给包路径：用法错误" [ "$(gate_rc)" = 2 ]
@@ -336,7 +336,7 @@ ok "卸载成功" [ "$rc" = 0 ]
 assert_uninstalled "$H3"
 ok "提示到「已配对的电脑」撤销这台电脑" grep -q "已配对的电脑" "$T/out6"
 ok "凭证不进输出" not grep -q "$TOKEN" "$T/out6"
-ok "版本门禁：线上不可达也警告并放行" gate_warns "$T/changed.js"
+ok "版本门禁：线上不可达拒绝发布" [ "$(gate_rc "$T/changed.js")" = 1 ]
 
 echo ""
 echo "== 结果：$PASS 通过，$FAIL 失败 =="

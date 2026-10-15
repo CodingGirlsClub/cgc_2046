@@ -990,6 +990,7 @@ cgc-host/
      - 非 `form` 模式的 elicitation 一律拒绝：SDK 的校验器有兜底分支，不会替我们挡住。
   2. 启动语按 KTD7，经 `--append-system-prompt` 注入；上下文块按 KTD8 附在消息上。
   3. 会话按 KTD6 管理。`session/new` 与每次 `session/load` 都下发含当前凭证的 `mcpServers`，服务器名与终端插件一致（`cgc-2046`）。
+     - 准备总预算为 45 秒，包含排队、启动、initialize、list/load/new；页面等待 60 秒。超时废弃本次共享进程代次，其他已开始回合以 error 收尾，用户重试加载已有会话。队列中尚未使用进程的请求超时不关闭进程；旧结果不能写指针或启动 prompt。契约与清理边界见 `cgc-host/PROTOCOL.md`。
   4. 归一化 `session/update`：
      - 消息与思考分开，思考默认折叠；
      - 工具调用及其后续更新，折叠为一段步骤摘要；
@@ -1041,6 +1042,7 @@ cgc-host/
      - 在构建扩展产物的步骤旁新增一步：用 Bun 把 Host 构建成单个 JS 包并写入生产常量（KTD4），连同 `install.sh` 和清单 `{version, download_path, sha256}` 一起放进 `backend/priv/static/ext/cgc-host/`。
      - 产物缺失或清单畸形时，部署失败。
      - 包内容变了而版本号没变时，部署失败（KTD15）。
+     - 版本使用稳定的三段非负整数格式，最低版本来自 `web/lib/host-version.ts` 且不得高于待发布包；不要求两者相等。线上清单仅明确 404 可按首次发布放行，网络、HTTP、JSON 或字段验证失败一律阻止发布。
   2. `install.sh`：
      - 从平台下载清单和包到临时目录，用现有系统工具校验 sha256；失败清理临时文件退出，不安装 Bun，也不改已有 Host 或 LaunchAgent。
      - 校验通过后才查找 Bun；学员没有 Bun 时，用 Bun 官方安装器装上。

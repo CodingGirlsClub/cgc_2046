@@ -154,9 +154,9 @@ curl -fsSL https://api.codingirlsclub.com/ext/cgc-host/install.sh | bash
 
 ### 版本纪律（KTD15）
 
-`scripts/check-version-bump.ts` 比较线上清单与本次构建的包：sha256 变了而 `package.json` 的 version 没变，部署失败。包是单个 JS 文件、构建确定（同一份源码与锁文件构建出相同的字节，换个目录构建也一样），所以 sha256 就是内容指纹；线上清单 404（首次发布）、不可达或畸形时警告放行。生产常量也在包里：换了站点来源或 Bun 版本，同样要提高版本号。
+`scripts/check-version-bump.ts` 比较线上清单与本次构建的包：sha256 变了而 `package.json` 的 version 没变，部署失败。包是单个 JS 文件、构建确定（同一份源码与锁文件构建出相同的字节，换个目录构建也一样），所以 sha256 就是内容指纹；线上清单只有明确 404 按首次发布放行；不可达、超时、其他非 2xx 或畸形时失败，不能放行。生产常量也在包里：换了站点来源或 Bun 版本，同样要提高版本号。
 
-- **改了包就提高 `package.json` 的 version**；要让已装旧版的学员必须更新，同时提高 `web/lib/host-connection.ts` 的 `MIN_HOST_VERSION`——页面低于它就提示重装。
+- **改了包就提高 `package.json` 的 version**；要让已装旧版的学员必须更新，同时提高 `web/lib/host-version.ts` 的 `MIN_HOST_VERSION`——页面低于它就提示重装。
 - **`install.sh` 不计入门禁**：它每次安装、更新都现下载，改动对下一次执行立即生效；version 描述的是 `/health` 报告的那份包。若 `install.sh` 的改动要已装的学员重装才生效（例如 plist 变了），按上一条手动提高两个版本号。
 
 ## 测试与许可扫描

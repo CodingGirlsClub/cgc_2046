@@ -1,4 +1,5 @@
 import { resolveWebBaseUrl } from "./seo";
+import { MIN_HOST_VERSION, compareHostVersions } from "./host-version";
 
 /**
  * 课程学习页 ↔ 本机 Host 的连接检测（R26、R28；KTD4、KTD10、KTD15；ADR-0022）。
@@ -28,7 +29,7 @@ export const HOST_HTTP_ORIGIN = `http://127.0.0.1:${HOST_PORT}`;
 export const HOST_WS_URL = `ws://127.0.0.1:${HOST_PORT}`;
 
 /** KTD15：`/health` 报告的版本低于它，就进入「Host 需要更新」 */
-export const MIN_HOST_VERSION = "0.1.0";
+export { MIN_HOST_VERSION } from "./host-version";
 
 export type HostConnection =
 	| { state: "unsupported"; reason: "browser" }
@@ -64,7 +65,7 @@ async function probe(): Promise<HostConnection | null> {
 			ompPresent: boolean;
 			paired: boolean;
 		};
-		if (health.version.localeCompare(MIN_HOST_VERSION, "en", { numeric: true }) < 0) {
+		if (compareHostVersions(health.version, MIN_HOST_VERSION) < 0) {
 			return { state: "staleHost" };
 		}
 		return { state: "detected", ompPresent: health.ompPresent, paired: health.paired };
