@@ -496,6 +496,21 @@ export function configuredScenarios(
 }
 
 /**
+ * 场景是否被本端构建期模板表**结构上支持**（键在表里 = 场景名进入构建了 env 映射）。
+ * 键不在表 = 该场景永远不可能配出来——「可点但必然失败」的触点必须隐藏，
+ * 与「模板 ID 未配置」（`configuredScenarios` 过滤、按钮静静说 error）不同类：
+ * 前者代码面能修，后者部署面能修。
+ * 用法：request 的**多场景触点**（register-form etc.）不在此列——那些允许部分差集；
+ * 本判据面向**单场景勾选触点**（附议回响、特别提醒），不允许差集。
+ */
+export function scenariosSupportedKeys(
+  scenarios: SubscriptionScenario[],
+  templateIds: Record<string, string>
+): boolean {
+  return scenarios.every((scenario) => scenario in templateIds)
+}
+
+/**
  * 从微信回调里挑出被接受的场景。
  *
  * `requested` 与 `tmplIds` 是**同序平行数组**（由 configuredScenarios 过滤后 map

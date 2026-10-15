@@ -96,9 +96,9 @@ export function buildInitiativeSharePath(slug: string): string {
 
 /**
  * 深链按平台过滤（P0-4）：目标 url 必须是本端已注册页面（名单单源
- * `domain/platform-pages.ts`），否则稳态回落——闪念间族 → 薄壳页
- * `pages/flashback/index`；其余 → 发现页。回落目标即当前页时返回 null
- * （防重复叠壳）。weapp（缺省）直通不过滤。
+ * `domain/platform-pages.ts`），否则稳态回落——闪念间族 → 旧回访薄壳页
+ * `pages/flashback/index`（保留作为深链兼容回落目标）；其余 → 发现页。
+ * 回落目标即当前页时返回 null（防重复叠壳）。weapp（缺省）直通不过滤。
  */
 export function platformFallbackRoute(url: string | null, platform: RoutePlatform, currentRoute: string): string | null {
   if (!url || platform === 'wechat') return url

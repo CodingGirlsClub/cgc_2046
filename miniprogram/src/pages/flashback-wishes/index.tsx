@@ -11,6 +11,7 @@ import { EndorseWishSheet } from '@/components/Wishes/EndorseSheet'
 import WishEchoCard from '@/components/WishEchoCard'
 import { parseCityParam, wishTreeShare } from '@/domain/wish-tree'
 import type { ViewerWish } from '@/domain/flashback'
+import { wishEchoReminderVisible } from '@/platform'
 import shareImage from '@/assets/flashback/voices-map.jpg'
 import styles from './index.module.css'
 
@@ -68,7 +69,11 @@ export default function WishesPage() {
           <Button className={`${styles.expect} ${current.expectedByViewer ? styles.expected : ''}`} disabled={feed.expecting} loading={feed.expecting} onClick={() => void feed.toggleExpect()}>{current.expectedByViewer ? '已期待 · 取消' : '我也期待'}</Button>
           <Button className={styles.contribute} disabled={canceling} onClick={() => void contribute()}>{current.endorsedByViewer ? '已出力 · 取消' : '我能出力'}</Button>
         </View>
-        <Text className={styles.notice}>出力时，可选择接收新回响的提醒。</Text>
+        {/* 提示与本端构建期订阅场景表同一份判据（platform 的 wishEchoReminderVisible，
+            与 EndorseSheet 同形）。tt/xhs 结构性不配的触点时不再承诺提醒开关——Codex P2。 */}
+        {wishEchoReminderVisible() && (
+          <Text className={styles.notice}>出力时，可选择接收新回响的提醒。</Text>
+        )}
         <WishEchoCard key={current.id} echoes={current.echoes} />
         <View className={styles.pager}>
           <Button className={styles.previous} disabled={tree.appending || tree.rows.length < 2} onClick={() => feed.step(-1)}>← 上一个</Button>

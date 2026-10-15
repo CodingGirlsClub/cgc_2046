@@ -392,10 +392,10 @@ test('P2 xhs：回落仍兜底未注册页——workspace 未注册 → 发现�
   assert.equal(platformFallbackRoute('/pages/workspace/index', 'xhs', 'pages/event-detail/index'), '/pages/discover/index')
 })
 
-test('P0-4 tt 同款回落（tt 未注册闪念间族 → 薄壳页）', () => {
+test('P0-4/P1 tt 深链现在直通已注册闪念间页（#1083 家庭全量注册）', () => {
   assert.equal(
     resolveAppShowRoute({ shareId: 'abc123' }, 'pages/discover/index', {}, 'tt'),
-    '/pages/flashback/index'
+    '/pages/flashback-shared-card/index?shareId=abc123'
   )
 })
 
@@ -458,8 +458,8 @@ test('P2 xhs：resolveEntry 入口 path 是已注册闪念间页（wishId）→ 
   assert.equal(decision.url, '/pages/flashback-wishes/index?wishId=w-9')
 })
 
-test('P0-4 resolveEntry 热启动 link 目标未注册（tt）→ 回落薄壳（回落路径仍在）', () => {
+test('P0-4/P1 resolveEntry 热启动 link 目标现在已注册（tt）→ 直通闪念间页（不再回落薄壳）', () => {
   const decision = resolveEntry({ query: { wishId: 'w-9' } }, [{ route: 'pages/discover/index' }], 'tt')
-  assert.equal(decision.url, '/pages/flashback/index')
+  assert.equal(decision.url, '/pages/flashback-wishes/index?wishId=w-9')
   assert.equal(decision.navigate, true)
 })

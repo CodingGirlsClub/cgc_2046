@@ -243,6 +243,7 @@ import {
   activateAccount,
   clearAccountState,
   clearFlashbackLinkIdentity,
+  wipeAccountLocal,
   captureAccountScope,
   accountScopeCurrent,
   cacheNotificationFeed,
@@ -780,11 +781,30 @@ export class RealMiniProgramApi implements MiniProgramApi {
     const request = getAuthToken()
       ? graphqlRequest<SignOutMutation, SignOutMutationVariables>(SignOutMutationDocument, {})
       : Promise.resolve(null)
+    // #1079 账号切换隔离：主动退出后本机不留愿望草稿/闪念间圈选残留——下一账号
+    // 不该看到上一账号的草稿（登录态隔离之外的本机草稿隔离）。
+    // wipeAccountLocal 读取 getActiveAccountId()，必须先于一切会清 active id 的调用。
+    // 特别地 setAuthToken(null) 内部就会 clearAccountState()（token 变更视作账号失效），
+    // 所以 wipe 要在 setAuthToken(null) 之前，而不是仅先于本方法里那处显式
+    // clearAccountState——后者是 #1079 P2 评审抓到过的顺序缺陷（user-a 草稿桶残留）。
+    //
+    // Codex review P2：wipe 的 storage 删除异常不能跳过 mandatory cleanup。
+    // 顺序：先跑 wipe（捕获其抛错，不丢）；随后 setAuthToken/null + clearWorkspaceTab +
+    // clearAccountState / clearFlashbackLinkIdentity / setSilentLoginAllowed(false)；最后
+    // throw wipeError。页面 catch 会据此报「服务端注销失败」——已知的文案粗糙点；
+    // 真实的服务端注销失败仍在后面 await request 时连接错误一样捕获。
+    let wipeError: unknown = null
+    try {
+      wipeAccountLocal()
+    } catch (error) {
+      wipeError = error
+    }
     setAuthToken(null)
     clearWorkspaceTab()
     clearAccountState({ clearPendingScene: true })
     clearFlashbackLinkIdentity()
     setSilentLoginAllowed(false)
+    if (wipeError) throw wipeError
     await request
   }
 

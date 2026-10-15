@@ -118,6 +118,49 @@ describe('clearFlashbackLinkIdentity', () => {
   })
 })
 
+describe('wipeAccountLocal（#1079 确定性清理）', () => {
+  it('删 active+guest 两愿望草稿桶 + 两闪念间键，不碰 handoff/pending/token/其他账号草稿', () => {
+    accountState.activateAccount('user-a')
+    mocks.storage.set('cgc.wish-draft.user-a', { content: 'A 草稿' })
+    mocks.storage.set('cgc.wish-draft.guest', { content: 'guest 草稿' })
+    mocks.storage.set('cgc.wish-draft.login-handoff', { owner: null, requestId: 'r1' })
+    mocks.storage.set('cgc.wish-draft.user-b', { content: 'B 草稿' })
+    mocks.storage.set('cgc.flashback_entry_intent', 'welcome')
+    mocks.storage.set('cgc.flashback_last_guest_quote', '"上一轮圈选"')
+    mocks.storage.set(KEY.authToken, 'at-1')
+    mocks.storage.set(KEY.pendingScene, 's1')
+    mocks.storage.set('cgc.e2e.wish-reminder-result', 'denied')
+
+    accountState.wipeAccountLocal()
+
+    expect(mocks.storage.has('cgc.wish-draft.user-a')).toBe(false)
+    expect(mocks.storage.has('cgc.wish-draft.guest')).toBe(false)
+    expect(mocks.storage.has('cgc.flashback_entry_intent')).toBe(false)
+    expect(mocks.storage.has('cgc.flashback_last_guest_quote')).toBe(false)
+    expect(mocks.storage.get('cgc.wish-draft.user-b')).toEqual({ content: 'B 草稿' })
+    expect(mocks.storage.get('cgc.wish-draft.login-handoff')).toEqual({ owner: null, requestId: 'r1' })
+    expect(mocks.storage.get(KEY.authToken)).toBe('at-1')
+    expect(mocks.storage.get(KEY.pendingScene)).toBe('s1')
+    expect(mocks.storage.get('cgc.e2e.wish-reminder-result')).toBe('denied')
+  })
+
+  it('无活跃账号（未登录登出态）：只删 guest 桶 + 两闪念间键', () => {
+    mocks.storage.set('cgc.wish-draft.user-a', { content: 'A' })
+    mocks.storage.set('cgc.wish-draft.guest', { content: 'guest' })
+    accountState.wipeAccountLocal()
+    expect(mocks.storage.has('cgc.wish-draft.guest')).toBe(false)
+    expect(mocks.storage.get('cgc.wish-draft.user-a')).toEqual({ content: 'A' })
+  })
+
+  it('removeStorageSync 抛错不吞——让调用方（signOut）感知失败', () => {
+    accountState.activateAccount('user-a')
+    mocks.storage.set('cgc.wish-draft.user-a', { content: 'A' })
+    mocks.storage.set('cgc.wish-draft.guest', { content: 'guest' })
+    mocks.removeStorageSync.mockImplementation(() => { throw new Error('io error') })
+    expect(() => accountState.wipeAccountLocal()).toThrow('io error')
+  })
+})
+
 describe('takePendingScene', () => {
   it('优先 route 参数，返回前清空持久 scene', () => {
     mocks.storage.set(KEY.pendingScene, 'persisted')

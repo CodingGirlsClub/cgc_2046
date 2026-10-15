@@ -1,6 +1,6 @@
 import Taro from '@tarojs/taro'
 import type { PlatformPhonePayload, SubscriptionScenario } from '@/domain/models'
-import { acceptedScenarios, configuredScenarios, subscriptionTransport } from '@/domain/subscription'
+import { acceptedScenarios, configuredScenarios, scenariosSupportedKeys, subscriptionTouchpointsVisible, subscriptionTransport } from '@/domain/subscription'
 
 // 各平台订阅消息模板 ID 映射（构建期注入，见 config/index.ts；键集与
 // SubscriptionScenario 的双射由 tests/subscription-build.test.mjs 守卫）。
@@ -122,6 +122,33 @@ function finalizeXhsLogin(phonePayload: PlatformPhonePayload, stagedCode: string
     throw new Error('手机号授权数据不完整，请重新授权后重试')
   }
   return { ...phonePayload, loginCode: stagedCode, encryptedData: phonePayload.encryptedData, iv: phonePayload.iv }
+}
+
+/**
+ * 订阅触点是否在该端构建下**结构性可用**（ability 是否配出来 = 键是否在本端构建的模板表里）。
+ * 单场景勾选触点（附议回响等）不允许差集：键不在 = 该场景代码面永远不可能配出来，
+ * 「可点但必然失败」的触点必须隐藏（不要把必缺的承诺摘到面板上）。
+ * 与 `configuredScenarios` 的分工：本函数用于**触点渲染前的渲染门**（preview）；
+ * 缺配 env 的通常错误反馈仍按原有 request 路径在——两个层次不重叠。
+ */
+export function subscriptionScenariosSupported(scenarios: SubscriptionScenario[]): boolean {
+  const transport = subscriptionTransport(__E2E_MOCK__, currentPlatform())
+  if (transport === 'unsupported') return false
+  if (transport === 'passthrough') return true
+  const table = currentPlatform() === 'tt' ? ttTemplateIds : wechatTemplateIds
+  return scenariosSupportedKeys(scenarios, table)
+}
+
+/**
+ * 回响提醒触点（附议 Sheet 勾选 + 许愿树页面的说明文字）是否在本端结构性可用——单源。
+ * 与订阅 button 的「平台层能够提供请求」 + 「场景键在本端构建期的模板表里」同口径：
+ * tt（未列 `flashback_wish_echo`）与 xhs（无订阅能力） = 不可见；多场景 buttons 不按这个。
+ * Codex review：Sheet 隐藏勾选时，许愿树的说明字承诺让你取用不可交付的能力
+ * ——两处 UI 必须同源；Sheet 隐藏勾选 + 本页的说明字也一起隐藏。
+ */
+export function wishEchoReminderVisible(): boolean {
+  if (!subscriptionTouchpointsVisible(__E2E_MOCK__, currentPlatform())) return false
+  return subscriptionScenariosSupported(['flashback_wish_echo'])
 }
 
 /**

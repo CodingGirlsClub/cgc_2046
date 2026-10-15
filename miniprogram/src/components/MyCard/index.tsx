@@ -219,7 +219,8 @@ export default function MyCard({
               </>
             )}
             {sendError && <Text className={styles.sendError}>{sendError}。请再次点击寄出重试。</Text>}
-            {/* tt 裁剪端未注册金句墙页，链接会静默失败——只在本端注册了 voices 页时展示 */}
+            {/* 展示条件 = 本端注册金句墙页（页清单单源 platform-pages）。weapp/xhs/tt #1083 均
+                已注册，隐形门实际不落；保留 pageRegistered 门防止误挂未注册深链。 */}
             {sentWithQuote && pageRegistered('pages/flashback-voices/index', currentPlatform()) && (
               <Text className={styles.quoteSentLink}
                 onClick={() => void Taro.navigateTo({ url: '/pages/flashback-voices/index' })}>

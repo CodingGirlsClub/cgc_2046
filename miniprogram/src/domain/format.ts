@@ -67,9 +67,10 @@ export const enrollmentBadgeText: Record<EnrollmentBadge, string> = {
  *   register-form，而 badge 只看 capacity/截止，曾在此漏出报名表单（#574）；
  *   closed 按 endsAt 区分「活动已结束」与「报名已截止」。
  * - open 时沿用 badge 文案（与 web 端 closedHint/fullHint 逐字一致）。
- * - 缴费门（P0 小红书止血，D1a）：资质到位前小红书端无支付通道，收费/押金场
- *   阻断为中性说明「本端暂未开放缴费报名」——详情可看、零导流（不出现去网页端
- *   的引导）。wechat/tt 不拦（tt 维持既有路径）；缺省 platform 视为全量端。
+ * - 缴费门（#1079 抖音止血 / P0 小红书 D1a 同款）：资质到位前 tt/xhs 无支付通道，
+ *   收费/押金场阻断为中性说明「本端暂未开放缴费报名」——详情可看、不产生
+ *   payment_pending 死路（零导流，不出现「去网页端」等跨端引导）。仅 wechat 不拦；
+ *   缺省 platform 视为全量端。
  *
  * 详情页 CTA 与 register-form 表单页共用本函数（表单页此前只有 badge 门）。
  */
@@ -84,7 +85,7 @@ export function enrollmentBlockedNotice(
   }
   if (item.enrollmentBadge === 'closed') return '报名已截止，不再接受新的报名。'
   if (item.enrollmentBadge === 'full') return '名额已满，不再接受新的报名。'
-  if (platform === 'xhs' && (item.pricingEnabled || item.depositEnabled)) {
+  if ((platform === 'xhs' || platform === 'tt') && (item.pricingEnabled || item.depositEnabled)) {
     return '本端暂未开放缴费报名'
   }
   return null
