@@ -26,7 +26,7 @@ type Turn = { stopping: boolean; sessionId: string | null; text: string };
 
 interface Course {
   id: string;
-  /** 发给这门课当前的持有者（server.ts 的 ctx.send）；没有持有者时丢弃，事件仍在缓冲里 */
+  /** 发给这门课当前的持有者（server.ts 的 ctx.push）；绑定失效时丢弃，事件仍在缓冲里 */
   send(message: Message): void;
   held: boolean;
   /** 已在当前 OMP 进程里 new / load 的会话，以及加载它用的账号与凭证 */
@@ -267,13 +267,13 @@ export function createChat(opts: ChatOptions) {
     if (!c) {
       const created: Course = {
         id,
-        send: ctx.send,
+        send: ctx.push,
         held: true,
         sessionId: null,
         userId: ctx.userId,
         token: ctx.token,
         transcript: createTranscript(),
-        cards: createCards((method, params, replyId) => created.send({ method, id: replyId, params: { courseId: id, ...params } })),
+        cards: createCards((method, params) => created.send({ method, params: { courseId: id, ...params } })),
         turn: null,
         lastContext: null,
         graceTimer: null,
@@ -282,7 +282,7 @@ export function createChat(opts: ChatOptions) {
       courses.set(id, (c = created));
     }
     // 能调到这里的连接就是这门课的持有者（server.ts 已判定）
-    c.send = ctx.send;
+    c.send = ctx.push;
     c.held = true;
     checkGrace(c);
     return c;
@@ -296,11 +296,11 @@ export function createChat(opts: ChatOptions) {
       previous.send = () => {};
       previous.held = false;
       stop(previous);
-      return ctx.send({ method: "error", id: ctx.id, params: { code: "busy" } });
+      return ctx.reply({ method: "error", params: { code: "busy" } });
     }
     const c = course(params.courseId, ctx);
-    const reply = (m: string, p: Record<string, unknown>) => ctx.send({ method: m, id: ctx.id, params: { courseId: c.id, ...p } });
-    const fail = (code: string) => ctx.send({ method: "error", id: ctx.id, params: { code } });
+    const reply = (m: string, p: Record<string, unknown>) => ctx.reply({ method: m, params: { courseId: c.id, ...p } });
+    const fail = (code: string) => ctx.reply({ method: "error", params: { code } });
 
     if (method === "chat.attach") {
       try {
@@ -356,7 +356,7 @@ export function createChat(opts: ChatOptions) {
       }
       reply("history", { running: false, events: [] });
     } else if (method === "card.answer") {
-      if (!c.cards.answer(params, ctx.id)) return fail("bad_request");
+      if (!c.cards.answer(params, reply)) return fail("bad_request");
       checkGrace(c);
     }
   }

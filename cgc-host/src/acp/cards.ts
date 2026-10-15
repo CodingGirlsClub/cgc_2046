@@ -22,14 +22,14 @@ export type CardView =
     }
   | { cardId: string; kind: "question"; message: string; schema: ElicitationSchema };
 
-/** cards 只管卡片本身；turn.card / turn.card.closed 由调用方补上 courseId 发给持有者 */
-export type CardEmit = (method: "turn.card" | "turn.card.closed", params: Record<string, unknown>, id?: string) => void;
+/** 调用方补 courseId：创建与取消走推送，作答成功走该请求的回复 */
+export type CardEmit = (method: "turn.card" | "turn.card.closed", params: Record<string, unknown>) => void;
 
 type Pending = {
   view: CardView;
   /** 学员的作答 → 回给 OMP 的应答；不合法返回 null */
   accept(answer: Record<string, unknown>): object | null;
-  settle(response: object, reason: "answered" | "cancelled", id?: string): void;
+  settle(response: object, reason: "answered" | "cancelled", reply?: CardEmit): void;
   cancelled: object;
 };
 
@@ -49,11 +49,11 @@ export function createCards(emit: CardEmit) {
         view,
         accept,
         cancelled,
-        settle(response, reason, id) {
+        settle(response, reason, reply) {
           if (!pending.delete(view.cardId)) return;
           signal.removeEventListener("abort", abort);
           resolve(response as R);
-          emit("turn.card.closed", { cardId: view.cardId, reason }, id);
+          (reply ?? emit)("turn.card.closed", { cardId: view.cardId, reason });
         },
       });
       signal.addEventListener("abort", abort, { once: true });
@@ -103,11 +103,11 @@ export function createCards(emit: CardEmit) {
     },
 
     /** card.answer：卡片不存在（已收起）或作答不合法都返回 false，卡片保持原样 */
-    answer(params: Record<string, unknown>, id?: string): boolean {
+    answer(params: Record<string, unknown>, reply: CardEmit): boolean {
       const p = typeof params.cardId === "string" ? pending.get(params.cardId) : undefined;
       const response = p?.accept(params);
       if (!p || !response) return false;
-      p.settle(response, "answered", id);
+      p.settle(response, "answered", reply);
       return true;
     },
 

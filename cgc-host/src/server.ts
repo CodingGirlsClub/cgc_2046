@@ -14,16 +14,16 @@ export type Message = { method: string; id?: string; params?: Record<string, unk
 export type ChatMethod = "chat.attach" | "chat.send" | "chat.stop" | "chat.new" | "card.answer";
 
 export interface ChatContext {
-  /** 请求的 id，回复时带上 */
-  id?: string;
   /** Host 向平台核实过的账号与学习凭证（KTD6：工作目录与下发给 OMP 的 mcpServers 用它们） */
   userId: string;
   token: string;
   /** KTD6：每门课的会话指针（Host 状态文件里与配对记录同一份）；改完调 save() 落盘 */
   sessions: Record<string, string>;
   save(): void;
-  /** 发给这门课当前的持有者：被别的连接接管后，后续消息自动转给新的持有者 */
-  send(message: Message): void;
+  /** 只回原连接；原配对代次失效或连接断开后丢弃，不随课程接管迁移 */
+  reply(message: Message): void;
+  /** 当前配对代次内，推给这门课已授权的当前持有者；重新配对后须由新 attach 更新绑定 */
+  push(message: Message): void;
 }
 
 /** 对话处理器（U6 实现）：courseId 已校验为 UUID，发起连接已授权且持有这门课；其余参数由处理器自己校验 */
@@ -71,6 +71,10 @@ const error = (id: string | undefined, code: string): Message => ({ method: "err
 /** 出示过当前浏览器密钥的连接。密钥一换（重新配对、换发、清掉），已 hello 的旧连接随之失效 */
 const authorized = (host: Host, ws: WS) => ws.data.keyHash !== null && ws.data.keyHash === host.state.pairing?.browserKeyHash;
 
+// 配对记录每次换发都会替换对象：引用身份就是本次配对代次，即使同一 socket 又 hello 成功也不能复活旧回复。
+const canReply = (host: Host, ws: WS, pairing: Pairing | null) =>
+  host.state.pairing === pairing && host.conns.has(ws) && authorized(host, ws);
+
 function status(host: Host, ws: WS, id?: string): Message {
   const p = host.state.pairing;
   const envError = host.opts.ompEnvError?.();
@@ -101,16 +105,19 @@ async function chat(host: Host, ws: WS, { method, id, params }: Frame) {
   } else if (host.holders.get(courseId) !== ws) {
     return send(ws, error(id, "not_holder"));
   }
-  const { userId, token } = host.state.pairing!; // 已授权必然已配对
+  const pairing = host.state.pairing!; // 已授权必然已配对
+  const { userId, token } = pairing;
   await host.opts.chat(method as ChatMethod, { ...params, courseId }, {
-    id,
     userId,
     token,
     sessions: host.state.sessions,
     save: () => saveState(host.opts.home, host.state),
-    send(message) {
+    reply(message) {
+      if (canReply(host, ws, pairing)) send(ws, { ...message, id });
+    },
+    push(message) {
       const holder = host.holders.get(courseId);
-      if (holder) send(holder, message);
+      if (holder && canReply(host, holder, pairing)) send(holder, { ...message, id: undefined });
     },
   });
 }
@@ -173,12 +180,13 @@ async function dispatch(host: Host, ws: WS, raw: string | Buffer) {
   if (!frame) return send(ws, error(undefined, "bad_request"));
   if (!Object.hasOwn(handlers, frame.method)) return send(ws, error(frame.id, "unknown_method"));
   if (!OPEN_METHODS.has(frame.method) && !authorized(host, ws)) return send(ws, error(frame.id, "unauthorized"));
+  const pairing = host.state.pairing;
   try {
     await handlers[frame.method](host, ws, frame);
   } catch (e) {
     // 只记方法名与异常，不记帧内容：pair.* 与 hello 帧里有凭证与浏览器密钥（KTD16）
     console.error(`cgc-host: 处理 ${frame.method} 出错`, e);
-    send(ws, error(frame.id, "internal"));
+    if (OPEN_METHODS.has(frame.method) || canReply(host, ws, pairing)) send(ws, error(frame.id, "internal"));
   }
 }
 

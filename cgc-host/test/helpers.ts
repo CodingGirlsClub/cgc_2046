@@ -102,7 +102,7 @@ export function startHost(options: Partial<ServerOptions> = {}) {
     // 与 main.ts 在 U6 之前的处理器同一行为：记下调用，答「暂不可用」
     chat: (method, params, ctx) => {
       chatCalls.push({ method, params });
-      ctx.send({ method: "error", id: ctx.id, params: { code: "chat_unavailable" } });
+      ctx.reply({ method: "error", params: { code: "chat_unavailable" } });
     },
     cooldownMs: 0,
     ...options,
