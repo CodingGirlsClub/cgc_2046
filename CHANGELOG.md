@@ -24,7 +24,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ### Security
 
-- web 依赖收敛以解锁 `pnpm audit` 门禁：`next` 16.3.5 → 16.3.8（清掉 7 条 next 公告，含 1 条 critical RCE），并按既有 overrides 先例收敛 `source-map` / `sharp` 两条传递依赖（沿用 `788c5248` 的 `pnpm-workspace.yaml` 手法）。审计从 9 条（1 critical / 3 high / 4 moderate / 1 low）降到零（#1118）。
+- web 依赖收敛以解锁 `pnpm audit` 门禁：`next` 16.3.5 → 16.3.8（清掉 7 条 next 公告，含 1 条 critical RCE），并按既有 overrides 先例收敛 `source-map-js` / `sharp` 两条传递依赖（沿用 `788c5248` 的 `pnpm-workspace.yaml` 手法）。审计从 9 条（1 critical / 3 high / 4 moderate / 1 low）降到零（#1118）。
 
 ## [2026-10-15]
 
