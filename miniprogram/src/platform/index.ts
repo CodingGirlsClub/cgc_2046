@@ -125,14 +125,6 @@ function finalizeXhsLogin(phonePayload: PlatformPhonePayload, stagedCode: string
 }
 
 /**
- * 请求订阅授权，返回**被接受**的场景子集。
- *
- * - 一次可请求多个场景（微信 `tmplIds` 单次上限 3；必须由用户点击或支付回调触发）；
- * - 未配置模板 ID 的场景由 `configuredScenarios` 剔除；剔除后为空 → 抛可读错误
- *   （不是静默成功，也绝不把空串递给微信）；
- * - `grantConsent` 由调用方对返回的每个场景分别上报（一次授权 = 后端 +1 配额）。
- */
-/**
  * 订阅触点是否在该端构建下**结构性可用**（ability 是否配出来 = 键是否在本端构建的模板表里）。
  * 单场景勾选触点（附议回响等）不允许差集：键不在 = 该场景代码面永远不可能配出来，
  * 「可点但必然失败」的触点必须隐藏（不要把必缺的承诺摘到面板上）。
@@ -151,13 +143,22 @@ export function subscriptionScenariosSupported(scenarios: SubscriptionScenario[]
  * 回响提醒触点（附议 Sheet 勾选 + 许愿树页面的说明文字）是否在本端结构性可用——单源。
  * 与订阅 button 的「平台层能够提供请求」 + 「场景键在本端构建期的模板表里」同口径：
  * tt（未列 `flashback_wish_echo`）与 xhs（无订阅能力） = 不可见；多场景 buttons 不按这个。
- * Codex review：两个 UI 不地方同一件（薄片 Sheet 隐藏当盲目，许愿树文案还承诺）——单源收掉。
+ * Codex review：Sheet 隐藏勾选时，许愿树的说明字承诺让你取用不可交付的能力
+ * ——两处 UI 必须同源；Sheet 隐藏勾选 + 本页的说明字也一起隐藏。
  */
 export function wishEchoReminderVisible(): boolean {
   if (!subscriptionTouchpointsVisible(__E2E_MOCK__, currentPlatform())) return false
   return subscriptionScenariosSupported(['flashback_wish_echo'])
 }
 
+/**
+ * 请求订阅授权，返回**被接受**的场景子集。
+ *
+ * - 一次可请求多个场景（微信 `tmplIds` 单次上限 3；必须由用户点击或支付回调触发）；
+ * - 未配置模板 ID 的场景由 `configuredScenarios` 剔除；剔除后为空 → 抛可读错误
+ *   （不是静默成功，也绝不把空串递给微信）；
+ * - `grantConsent` 由调用方对返回的每个场景分别上报（一次授权 = 后端 +1 配额）。
+ */
 export async function requestPlatformSubscriptions(
   scenarios: SubscriptionScenario[]
 ): Promise<SubscriptionScenario[]> {

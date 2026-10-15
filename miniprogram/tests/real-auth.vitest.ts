@@ -78,7 +78,15 @@ vi.mock('../src/state/accountState', () => ({
 }))
 
 vi.mock('../src/platform', () => ({
-  currentPlatform: mocks.currentPlatform
+  currentPlatform: mocks.currentPlatform,
+  // 与 src/platform/index.ts 的导出面形状：preparePlatformLogin / platformLoginCode /
+  // stagePlatformLoginCode / subscriptionScenariosSupported / wishEchoReminderVisible 在
+  // real 模块不动；未来测试间接引进 EndorseSheet / wishes 页时不会撞 undefined。
+  preparePlatformLogin: vi.fn(),
+  platformLoginCode: vi.fn(),
+  stagePlatformLoginCode: vi.fn(),
+  subscriptionScenariosSupported: vi.fn(),
+  wishEchoReminderVisible: vi.fn()
 }))
 
 vi.mock('../src/state/silentLogin', () => ({
