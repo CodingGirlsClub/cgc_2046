@@ -3464,39 +3464,45 @@ button:focus-visible,
 .learning-run-row-link:hover { color: var(--ink); }
 .learning-home__state { padding: 60px 0; color: var(--ink-3); font-size: 14px; }
 /* 讲义正文（typed Material 的 markdown kind，见 components/learning/material-renderer.tsx）：
+   选择器统一写成 .learning-material.learning-material--markdown（同元素两个类，特异性提到
+   0-2-0 + 元素）——讲义挂在阅读器上下文里，而 .learning-reader__chapter h2 /
+   .learning-reader__issue h3 / .learning-reader__objective p 同为 0-1-1 且声明在本块之后，
+   只靠源码顺序会被盖掉（实测：讲义 h3 被渲染成 19px/540 的单元标题样式、目标卡里的正文
+   段落被压成 13px 灰字）。提高特异性而非依赖顺序，单元素视图 / 章节全量视图 / 教研 draft
+   预览三处上下文一致生效。
    元素由 Markdown 渲染器产出，没有各自的类名，故按后代选择器统一定版——
    此前只有浏览器默认样式，表格既无边框也会撑破窄栏。 */
-.learning-material--markdown { color: var(--ink-2); font-size: 15px; line-height: 1.8; }
-.learning-material--markdown > :first-child { margin-top: 0; }
-.learning-material--markdown > :last-child { margin-bottom: 0; }
-.learning-material--markdown h2,
-.learning-material--markdown h3,
-.learning-material--markdown h4 { margin: 26px 0 10px; color: var(--ink); font-weight: 590; letter-spacing: -.01em; line-height: 1.35; }
-.learning-material--markdown h2 { font-size: 21px; }
-.learning-material--markdown h3 { font-size: 18px; }
-.learning-material--markdown h4 { font-size: 16px; }
-.learning-material--markdown p { margin: 12px 0; }
-.learning-material--markdown ul,
-.learning-material--markdown ol { margin: 12px 0; padding-left: 22px; }
-.learning-material--markdown ul { list-style: disc; }
-.learning-material--markdown ol { list-style: decimal; }
-.learning-material--markdown li { margin: 5px 0; }
-.learning-material--markdown li > p { margin: 0; }
-.learning-material--markdown a { color: var(--accent-strong); text-decoration: underline; text-underline-offset: 2px; }
-.learning-material--markdown a:hover { color: var(--ink); }
-.learning-material--markdown code { padding: 1px 5px; border: 1px solid var(--line); border-radius: 5px; background: var(--soft-2); font-family: var(--font-mono); font-size: .92em; }
-.learning-material--markdown pre { margin: 14px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft-2); overflow-x: auto; }
-.learning-material--markdown pre code { padding: 0; border: 0; background: none; font-size: .9em; }
-.learning-material--markdown blockquote { margin: 14px 0; padding: 4px 0 4px 14px; border-left: 2px solid var(--line-strong); color: var(--ink-3); }
-.learning-material--markdown hr { margin: 22px 0; border: 0; border-top: 1px solid var(--line); }
-.learning-material--markdown del { color: var(--ink-3); }
+.learning-material.learning-material--markdown { color: var(--ink-2); font-size: 15px; line-height: 1.8; }
+.learning-material.learning-material--markdown > :first-child { margin-top: 0; }
+.learning-material.learning-material--markdown > :last-child { margin-bottom: 0; }
+.learning-material.learning-material--markdown h2,
+.learning-material.learning-material--markdown h3,
+.learning-material.learning-material--markdown h4 { margin: 26px 0 10px; color: var(--ink); font-weight: 590; letter-spacing: -.01em; line-height: 1.35; }
+.learning-material.learning-material--markdown h2 { font-size: 21px; }
+.learning-material.learning-material--markdown h3 { font-size: 18px; }
+.learning-material.learning-material--markdown h4 { font-size: 16px; }
+.learning-material.learning-material--markdown p { margin: 12px 0; color: var(--ink-2); font-size: 15px; line-height: 1.8; }
+.learning-material.learning-material--markdown ul,
+.learning-material.learning-material--markdown ol { margin: 12px 0; padding-left: 22px; }
+.learning-material.learning-material--markdown ul { list-style: disc; }
+.learning-material.learning-material--markdown ol { list-style: decimal; }
+.learning-material.learning-material--markdown li { margin: 5px 0; }
+.learning-material.learning-material--markdown li > p { margin: 0; }
+.learning-material.learning-material--markdown a { color: var(--accent-strong); text-decoration: underline; text-underline-offset: 2px; }
+.learning-material.learning-material--markdown a:hover { color: var(--ink); }
+.learning-material.learning-material--markdown code { padding: 1px 5px; border: 1px solid var(--line); border-radius: 5px; background: var(--soft-2); font-family: var(--font-mono); font-size: .92em; }
+.learning-material.learning-material--markdown pre { margin: 14px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft-2); overflow-x: auto; }
+.learning-material.learning-material--markdown pre code { padding: 0; border: 0; background: none; font-size: .9em; }
+.learning-material.learning-material--markdown blockquote { margin: 14px 0; padding: 4px 0 4px 14px; border-left: 2px solid var(--line-strong); color: var(--ink-3); }
+.learning-material.learning-material--markdown hr { margin: 22px 0; border: 0; border-top: 1px solid var(--line); }
+.learning-material.learning-material--markdown del { color: var(--ink-3); }
 .learning-material__table-wrap { margin: 16px 0; overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
-.learning-material--markdown table { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 14px; }
-.learning-material--markdown th,
-.learning-material--markdown td { padding: 10px 14px; text-align: left; vertical-align: top; line-height: 1.65; }
-.learning-material--markdown th { background: var(--soft-2); color: var(--ink); font-weight: 590; white-space: nowrap; }
-.learning-material--markdown td { border-top: 1px solid var(--line); color: var(--ink-2); }
-.learning-material--markdown tbody tr:hover { background: var(--soft-2); }
+.learning-material.learning-material--markdown table { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 14px; }
+.learning-material.learning-material--markdown th,
+.learning-material.learning-material--markdown td { padding: 10px 14px; text-align: left; vertical-align: top; line-height: 1.65; font-size: 14px; }
+.learning-material.learning-material--markdown th { background: var(--soft-2); color: var(--ink); font-weight: 590; white-space: nowrap; }
+.learning-material.learning-material--markdown td { border-top: 1px solid var(--line); color: var(--ink-2); }
+.learning-material.learning-material--markdown tbody tr:hover { background: var(--soft-2); }
 .learning-home__state--error { color: var(--status-red); }
 .learning-course-page__back { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; color: var(--ink-3); font-size: 13px; }
 .learning-course-page__back a { color: var(--accent-strong); text-decoration: none; }

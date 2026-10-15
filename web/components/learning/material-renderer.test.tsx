@@ -1,5 +1,7 @@
 import { render } from "@/test-utils";
 import { fireEvent, screen } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MaterialRenderer } from "./material-renderer";
 
@@ -72,6 +74,28 @@ describe("MaterialRenderer", () => {
     expect(el.querySelector("img")).toBeNull();
     expect(el.querySelector('a[href="https://example.com/a.png"]')).not.toBeNull();
     expect(el.querySelector('a[href^="http://"]')).toBeNull();
+  });
+
+  it("keeps markdown typography under reader context rules (#1118)", () => {
+    // 讲义挂在 .learning-reader__chapter / __issue / __objective 里，而这些上下文规则
+    // （.learning-reader__issue h3、.learning-reader__objective p，同为 0-1-1）声明在
+    // 讲义样式之后。happy-dom 不解终值，故按源断言：**任何** 单类
+    // `.learning-material--markdown` 选择器都不许出现——必须写成双类
+    // （`.learning-material.learning-material--markdown`）把特异性提到 0-2-0，
+    // 否则讲义 h3 会被渲染成 19px/540 的单元标题、目标卡正文被压成 13px 灰字。
+    // 这条不变量与源码顺序无关，新增单类规则即在此红。
+    const css = readFileSync(resolve(import.meta.dirname, "../../app/globals.css"), "utf8");
+    const singleClass = [...css.matchAll(/(^|[^\w.-])\.learning-material--markdown(?![-\w])/g)].map(
+      (match) => css.slice(match.index, match.index + 80).split("\n")[0],
+    );
+    expect(singleClass, "单类 .learning-material--markdown 会被阅读器上下文规则盖掉").toEqual([]);
+    // 守卫成立的前提：上下文规则确实存在且声明在讲义块之后
+    const markdownBlockAt = css.indexOf(".learning-material.learning-material--markdown");
+    for (const ctx of [".learning-reader__issue h3 {", ".learning-reader__objective p {"]) {
+      const at = css.indexOf(ctx);
+      expect(at, `${ctx} 应存在于 globals.css`).toBeGreaterThan(-1);
+      expect(at, `${ctx} 声明于讲义块之后，故讲义必须靠特异性取胜`).toBeGreaterThan(markdownBlockAt);
+    }
   });
 
   it("requires alt text and rejects unsafe image URLs", () => {
