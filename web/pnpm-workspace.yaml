@@ -4,6 +4,11 @@ overrides:
   # （range ^4 兼容）。同 miniprogram/pnpm-workspace.yaml 的 fast-uri/svgo
   # 先例：update 不触碰传递条目，overrides 强制收敛。纯开发期工具链。
   "js-yaml@>=4.0.0 <4.3.2": 4.3.2
+  # 2026-10-15：next 16.3.5 自带 4 条已知公告（含 1 条 critical RCE）——next 自身升 16.3.8，
+  # 其传递依赖再按本文件既有先例收敛：source-map-js（postcss 链）与 sharp（next 可选图像优化）
+  # 均为构建期/可选面，无运行时面。
+  "source-map-js@<1.2.2": 1.2.2
+  "sharp@<0.35.5": 0.35.5
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
