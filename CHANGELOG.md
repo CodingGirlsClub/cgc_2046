@@ -20,8 +20,11 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ### Fixed
 
-- 课程阅读器讲义不再把 GFM 表格渲染成竖线纯文本：正文渲染器从自研小子集（仅标题 / `- ` 列表 / 行内粗体与代码）换成 `react-markdown` + `remark-gfm` + `rehype-sanitize`（均 MIT），表格 / 链接 / 嵌套列表 / 删除线一次补齐；安全契约不变（原始 HTML 仍是转义文本、非 https 图片降级为文本、外链统一 `rel=noopener`）。同时补上 `.learning-material--markdown` 的元素级样式（此前完全吃浏览器默认样式），表格包横向滚动容器以适配阅读器的窄正文列（#1118）。
-- web 依赖收敛以解锁 `pnpm audit` 门禁：next 16.3.5 → 16.3.8（清掉 4 条 next 公告，含 1 条 critical RCE），并按既有 overrides 先例收敛 `source-map-js` / `sharp` 两条传递依赖；审计从 9 条（3 high + 1 critical）降到零（#1118）。
+- 课程阅读器讲义不再把 GFM 表格渲染成竖线纯文本：正文渲染器从自研小子集（仅标题 / `- ` 列表 / 行内粗体与代码）换成 `react-markdown` + `remark-gfm` + `remark-breaks` + `rehype-sanitize`（均 MIT），表格 / 链接 / 嵌套列表 / 删除线一次补齐。安全契约不变并更严：原始 HTML 仍是转义文本、非 https 图片降级为文本、危险协议链接退化为纯文本、外链统一 `rel=noopener`。同时补上 `.learning-material--markdown` 的元素级样式（此前完全吃浏览器默认样式）与表格横向滚动容器，并修掉讲义排版被阅读器上下文规则盖掉的问题（讲义标题与正文曾分别吃 19px/540 的单元标题样式、13px 灰字）——修法是给阅读器的三条元素规则改用子选择器，而非靠源码顺序或特异性叠加（#1118）。
+
+### Security
+
+- web 依赖收敛以解锁 `pnpm audit` 门禁：`next` 16.3.5 → 16.3.8（清掉 7 条 next 公告，含 1 条 critical RCE），并按既有 overrides 先例收敛 `source-map` / `sharp` 两条传递依赖（沿用 `788c5248` 的 `pnpm-workspace.yaml` 手法）。审计从 9 条（1 critical / 3 high / 4 moderate / 1 low）降到零（#1118）。
 
 ## [2026-10-15]
 

@@ -76,26 +76,53 @@ describe("MaterialRenderer", () => {
     expect(el.querySelector('a[href^="http://"]')).toBeNull();
   });
 
-  it("keeps markdown typography under reader context rules (#1118)", () => {
-    // 讲义挂在 .learning-reader__chapter / __issue / __objective 里，而这些上下文规则
-    // （.learning-reader__issue h3、.learning-reader__objective p，同为 0-1-1）声明在
-    // 讲义样式之后。happy-dom 不解终值，故按源断言：**任何** 单类
-    // `.learning-material--markdown` 选择器都不许出现——必须写成双类
-    // （`.learning-material.learning-material--markdown`）把特异性提到 0-2-0，
-    // 否则讲义 h3 会被渲染成 19px/540 的单元标题、目标卡正文被压成 13px 灰字。
-    // 这条不变量与源码顺序无关，新增单类规则即在此红。
+  it("keeps markdown typography safe from reader context rules (#1118)", () => {
+    // 讲义挂在 .learning-reader__chapter / __issue / __objective 内。这三处的元素规则
+    // 原先用后代选择器（.learning-reader__issue h3 等，(0,1,1)）且声明在讲义块之后，
+    // 于是把讲义自己的排版盖掉（实测：讲义 h3 吃 19px/540 的单元标题样式、目标卡正文
+    // 压成 13px 灰字）。根因修法是把它们收成**子选择器**（目标元素都是直接子节点），
+    // 不再匹配嵌在 .learning-material 里的标题/段落——而非让讲义做特异性军备竞赛
+    // （提权会反过来压掉本块 :first-child 的边距复位）。
+    // happy-dom 不解终值，故按源断言这两条不变量；修法被回退即在此红。
     const css = readFileSync(resolve(import.meta.dirname, "../../app/globals.css"), "utf8");
-    const singleClass = [...css.matchAll(/(^|[^\w.-])\.learning-material--markdown(?![-\w])/g)].map(
-      (match) => css.slice(match.index, match.index + 80).split("\n")[0],
-    );
-    expect(singleClass, "单类 .learning-material--markdown 会被阅读器上下文规则盖掉").toEqual([]);
-    // 守卫成立的前提：上下文规则确实存在且声明在讲义块之后
-    const markdownBlockAt = css.indexOf(".learning-material.learning-material--markdown");
-    for (const ctx of [".learning-reader__issue h3 {", ".learning-reader__objective p {"]) {
-      const at = css.indexOf(ctx);
-      expect(at, `${ctx} 应存在于 globals.css`).toBeGreaterThan(-1);
-      expect(at, `${ctx} 声明于讲义块之后，故讲义必须靠特异性取胜`).toBeGreaterThan(markdownBlockAt);
+    // 去掉注释：注释里会讨论这些选择器，不能当规则命中
+    const rules = css.replace(/\/\*[\s\S]*?\*\//g, "");
+
+    for (const ctx of [".learning-reader__chapter", ".learning-reader__issue", ".learning-reader__objective"]) {
+      for (const el of ["h2", "h3", "h4", "p"]) {
+        const descendant = new RegExp(`(^|[\\s,])${ctx.replace(/[.]/g, "\\.")} ${el}\\s*[,{]`, "m");
+        expect(
+          descendant.test(rules),
+          `${ctx} ${el} 必须是子选择器（>），否则会盖掉 .learning-material 内的 ${el}`,
+        ).toBe(false);
+      }
     }
+    expect(rules).toMatch(/\.learning-reader__chapter > h2\s*\{/);
+    expect(rules).toMatch(/\.learning-reader__issue > h3\s*\{/);
+    expect(rules).toMatch(/\.learning-reader__objective > p\s*\{/);
+  });
+
+  it("keeps footnote anchors resolvable and fragment links in-page (#1118)", () => {
+    // rehype-sanitize 默认 clobberPrefix 会给 id 二次加前缀，而脚注 href 已带一层
+    // → id 变 user-content-user-content-fn-a、href 仍是 #user-content-fn-a，跳转是死链。
+    // 另：a 覆写若一律 target=_blank，点脚注会在新标签页打开同一页。
+    render(
+      <MaterialRenderer
+        material={{ kind: "markdown", body: "脚注[^a]\n\n[^a]: 正文\n\n[跳](#sec)\n\n[外](https://example.com)\n\n[坏](javascript:alert(1))" }}
+      />,
+    );
+    const el = screen.getByTestId("course-material-markdown");
+    const item = el.querySelector("li[id]")!;
+    const ref = el.querySelector('a[href^="#user-content-fn"]')!;
+    expect(item.id).toBe("user-content-fn-a");
+    expect(ref.getAttribute("href")).toBe("#" + item.id);
+    expect(el.innerHTML).not.toContain("user-content-user-content");
+    // 同页片段不新窗口；外链仍新窗口
+    expect(el.querySelector('a[href="#sec"]')).not.toHaveAttribute("target");
+    expect(el.querySelector('a[href="https://example.com"]')).toHaveAttribute("target", "_blank");
+    // 危险协议不留空 href（空 href 会以新窗口打开当前页）——退化为纯文本
+    expect(el.querySelector('a[href=""]')).toBeNull();
+    expect(el.innerHTML).not.toContain("javascript:");
   });
 
   it("requires alt text and rejects unsafe image URLs", () => {

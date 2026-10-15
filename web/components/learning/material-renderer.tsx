@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useTranslations } from "next-intl";
-import ReactMarkdown, { type Components } from "react-markdown";
+import ReactMarkdown, { type Components, type Options as ReactMarkdownOptions } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -27,7 +27,9 @@ function safeHttpsUrl(value: string | undefined): string | null {
  *
  * 安全契约（沿用旧 escape-first 语义）：
  * - react-markdown 默认不渲染原始 HTML，`<script>` 之类只作为文本出现；
- *   sanitize 是第二道闸，挡住标签属性 / 协议面（`javascript:` 等）。
+ *   sanitize 再按白名单收窄标签、属性与 id。
+ * - 危险协议由 react-markdown 默认的 urlTransform 处理（`javascript:` 被换成空 href），
+ *   组件再把它降级为纯文本——空 href 会以新窗口打开当前页。
  * - 图片不直连第三方：`img` 覆写为指向原地址的 https 链接（外链统一 rel=noopener）。
  * - 标题降一级（`#` → h2），避免课程正文级联到页面 h1 语义。
  *
@@ -54,8 +56,15 @@ function rawHtmlAsText() {
   return (tree: HastNode) => walk(tree);
 }
 
-const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkBreaks];
-const MARKDOWN_REHYPE_PLUGINS = [rawHtmlAsText, rehypeSanitize];
+type MarkdownPlugins = NonNullable<ReactMarkdownOptions["remarkPlugins"]>;
+const MARKDOWN_REMARK_PLUGINS: MarkdownPlugins = [remarkGfm, remarkBreaks];
+// rehype-sanitize 的默认 clobberPrefix 会给 id/name 再加一层 `user-content-`，而 remark-gfm
+// 生成的脚注引用 href 已是 `#user-content-fn-1` —— 二次前缀让 id 变成
+// `user-content-user-content-fn-1`，脚注跳转变死链。前缀由库自己加好，这里置空。
+// 协议面不靠 sanitize：react-markdown 的默认 urlTransform 已把 `javascript:` 等危险
+// 协议替换为「空 href」（实测去掉 sanitize 后协议守卫仍绿），sanitize 承担的是标签、
+// 属性与 id 白名单。
+const MARKDOWN_REHYPE_PLUGINS: MarkdownPlugins = [rawHtmlAsText, [rehypeSanitize, { clobberPrefix: "" }]];
 
 // react-markdown 的组件覆写表（ElementType 契约）：标题降一级、外链统一新窗口、
 // 表格包横向滚动容器。className 由这里挂，不来自正文（sanitize 会剥掉正文属性）。
@@ -69,11 +78,19 @@ const MARKDOWN_COMPONENTS: Components = {
       <table>{children}</table>
     </div>
   ),
-  a: ({ href, children }) => (
-    <a href={href} target="_blank" rel="noopener noreferrer">
-      {children}
-    </a>
-  ),
+  // 外链统一新窗口；同页片段（脚注引用/回链、目录锚点）留在本页——否则点脚注会开一个
+  // 同页新标签。危险协议被 react-markdown 的默认 urlTransform 换成空 href，那种情况
+  // 不能渲染成会打开当前页的链接，退化为纯文本。
+  a: ({ href, children }) =>
+    !href ? (
+      <span>{children}</span>
+    ) : href.startsWith("#") ? (
+      <a href={href}>{children}</a>
+    ) : (
+      <a href={href} target="_blank" rel="noopener noreferrer">
+        {children}
+      </a>
+    ),
   img: ({ src, alt }) => {
     const url = safeHttpsUrl(typeof src === "string" ? src : undefined);
     const label = alt || url;
