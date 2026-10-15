@@ -146,6 +146,17 @@ defmodule Cgc2046.Flashback.Deletion do
   defp cascade!(person) do
     person = Repo.reload!(person)
 
+    # 0. person 行锁（#1102）：本链先作废 token、最后才改 person 行（第 9 步），
+    # 而 `Tokens.mint_for_open_person/2` 是「先锁 person 行、再插 token」——两者
+    # 顺序相反，并发时构成 AB-BA 环。这里统一取同一把行锁（`FOR UPDATE`），
+    # 把它变回「person → token」的单一顺序。
+    #
+    # 与删除本体同事务（`delete/2` 已包 `Repo.transaction`），锁存活至提交；
+    # 持锁窗口内只有行读写，无外部调用。
+    Repo.query!("SELECT id FROM flashback_people WHERE id = $1 FOR UPDATE", [
+      Repo.uuid!(person.id)
+    ])
+
     # 1. token 作废（链接失效）
     Token
     |> Ash.Query.for_read(:read)

@@ -277,6 +277,13 @@ config :cgc_2046, :flashback_sms, template_id: nil
 # web / 小程序的 PHONE_RECOVERY_ENABLED，并先补短信投递（见 Flashback.Recover 模块文档）。
 config :cgc_2046, :flashback_recover_phone_enabled, false
 
+# 支付宝账单 GBK 转码（#1105）：codepagex 的 :encodings 是**编译期**配置
+# （Application.compile_env，只编译命中的映射表）——默认过滤器是 ascii+iso8859
+# 不含 CP936，全量编译又白付 38s/3.4MB beam，故此处只编 CP936 一张表。注意：
+# Dockerfile.deps 的 deps 编译层必须能读到本文件（已 COPY backend/config/），
+# 否则 prod 镜像里的 codepagex 按默认过滤器编译、运行时 CP936 缺失。
+config :codepagex, :encodings, ["VENDORS/MICSFT/WINDOWS/CP936"]
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

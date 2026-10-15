@@ -12,7 +12,13 @@ defmodule Cgc2046.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
-      listeners: [Phoenix.CodeReloader]
+      listeners: [Phoenix.CodeReloader],
+      # hex.audit 已知项（#1112，human 拍板 2026-10-15）：bandit 1.12.5 的
+      # HTTP/2 WINDOW_UPDATE trickle DoS 上游**尚无修复版**（最新即 1.12.5）；
+      # 暴露面仅限 docker 内网直连 backend 端口的 h2c——公网经 kamal-proxy
+      # 以 HTTP/1 到 backend，到不了 H2 面。**移除条件**：bandit 发布修复版
+      # （>= 1.12.6 / 1.13.x）→ 升版并删除本条，不得作为永久降噪保留。
+      hex: [ignore_advisories: ["EEF-CVE-2026-105659"]]
     ]
   end
 
@@ -76,6 +82,11 @@ defmodule Cgc2046.MixProject do
       {:alipay, "~> 0.2.1", hex: :alipay_sdk},
       {:saxy, "~> 1.6"},
       {:x509, "~> 0.9"},
+      # 支付宝账单明细 CSV 为 **GBK 无 BOM**（#1105），Erlang 内置 :unicode 不支持
+      # GBK——候选中选 codepagex：纯 Elixir、Apache-2.0、零 NIF/零系统库/零 Rust
+      # 工具链，两个 Dockerfile 不用动（iconv 备选仅当将来要 GB18030 四字节）。
+      # config/config.exs 只编 CP936 一张表，控制编译时长与 beam 体积。
+      {:codepagex, "~> 0.2.0"},
       # 代理链真实 client IP 解析（#278）：kamal-proxy/Next 两跳后
       # conn.remote_ip 恒为代理容器 IP，per-IP 限流退化为全站共享桶
       {:remote_ip, "~> 1.2"}

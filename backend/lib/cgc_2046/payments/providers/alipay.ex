@@ -259,12 +259,13 @@ defmodule Cgc2046.Payments.Providers.Alipay do
   走既有的降级路径（partial sweep，只跑纯本地规则）。
 
   **编码**：支付宝账单明细为 **GBK 无 BOM**（官方帮助中心账单说明 + 多份实测
-  一致印证），本 adapter 目前**无 GBK 解码能力**（`:unicode` 不支持 gbk，仓库也
-  无编码库依赖）。故解码无法验证时一律按拉取失败处理，不把乱码字节喂进解析：
-  中文表头键会与 worker 消费的 UTF-8 常量不等，`normalize_rows/2` 静默丢全部行，
-  而返回 `{:ok, rows}` 会让 worker 当「账单完整」→ 假 local_paid_missing + 全量
-  sweep 删真差异（破坏性后果远重于降级）。接入 GBK 转码（需先过依赖门禁）后
-  可放开此闸。
+  一致印证），Erlang 内置 `:unicode` 不支持 GBK，转码走 codepagex 的 CP936
+  表（#1105，纯 Elixir/Apache-2.0/零 NIF）。UTF-8 字节原样放行（样例/人工重放
+  形态）；非 UTF-8 按 CP936 转码，仍失败（非 GBK 的乱字节）一律
+  **`{:error, :bill_fetch_failed}`**——不把无法识别的字节喂进解析：GBK 字节若
+  直接进 `parse_statement_csv`，中文表头键与 worker 消费的 UTF-8 常量不等，
+  `normalize_rows/2` 静默丢全部行，而返回 `{:ok, rows}` 会让 worker 当「账单
+  完整」→ 假 local_paid_missing + 全量 sweep 删真差异（破坏性后果远重于降级）。
 
   **表头校验**：UTF-8 合法不等于账单有效——HTTP 200 的错误页（HTML）、空正文、
   或架构变更后的陌生表头都能通过编码闸，却同样会让 worker 当「账单完整」。故
@@ -275,7 +276,7 @@ defmodule Cgc2046.Payments.Providers.Alipay do
     case Req.get(url, req_options()) do
       {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) ->
         with {:ok, csv} <- statement_csv(body),
-             :ok <- ensure_utf8(csv),
+             {:ok, csv} <- decode_statement_csv(csv),
              :ok <- ensure_recognizable_header(csv) do
           {:ok, parse_statement_csv(csv)}
         else
@@ -323,19 +324,32 @@ defmodule Cgc2046.Payments.Providers.Alipay do
     :error
   end
 
-  # 编码闸：账单解析只在 UTF-8 上成立（表头键与 worker 常量同编码才可能命中）。
-  # GBK 字节在此被挡下 → 该渠道 :skip → 本次对账降级为纯本地面（可见的降级，
-  # 而非静默的错误结论）。见 `download_bill_file/1` 的 @doc 编码段。
-  defp ensure_utf8(csv) do
-    if String.valid?(csv) do
-      :ok
-    else
-      Logger.warning(
-        "alipay bill file is not valid UTF-8 (channel exports GBK); " <>
-          "skipping this channel for now — see Providers.Alipay.download_bill_file/1 docs"
-      )
+  # GBK 转码（#1105）：codepagex 只编了 CP936 一张表（config/config.exs 的
+  # :encodings 过滤器，**编译期**配置——Dockerfile.deps 已 COPY backend/config/
+  # 保证 deps 编译层可见；若 prod 运行时此函数崩 UndefinedFunctionError，先查
+  # deps 镜像是否带配置编译）。CP936 对无法映射的字节返回 {:error, _}（默认
+  # missing_fun 不替换字符），故「非 UTF-8 非 GBK」的乱字节仍走降级语义。
+  @gbk_encoding "VENDORS/MICSFT/WINDOWS/CP936"
 
-      :error
+  # 编码闸 → 转码：账单解析只在 UTF-8 上成立（表头键与 worker 常量同编码才可能
+  # 命中）。UTF-8 原样放行；否则按 CP936 转码；仍不可解 → :error（该渠道 :skip →
+  # 对账降级为纯本地面，可见的降级，而非静默的错误结论）。
+  defp decode_statement_csv(csv) do
+    if String.valid?(csv) do
+      {:ok, csv}
+    else
+      case Codepagex.to_string(csv, @gbk_encoding) do
+        {:ok, utf8} ->
+          {:ok, utf8}
+
+        {:error, _} ->
+          Logger.warning(
+            "alipay bill file is neither valid UTF-8 nor decodable as GBK (CP936); " <>
+              "skipping this channel — see Providers.Alipay.download_bill_file/1 docs"
+          )
+
+          :error
+      end
     end
   end
 
