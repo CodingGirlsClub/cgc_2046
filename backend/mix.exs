@@ -76,6 +76,11 @@ defmodule Cgc2046.MixProject do
       {:alipay, "~> 0.2.1", hex: :alipay_sdk},
       {:saxy, "~> 1.6"},
       {:x509, "~> 0.9"},
+      # 支付宝账单明细 CSV 为 **GBK 无 BOM**（#1105），Erlang 内置 :unicode 不支持
+      # GBK——候选中选 codepagex：纯 Elixir、Apache-2.0、零 NIF/零系统库/零 Rust
+      # 工具链，两个 Dockerfile 不用动（iconv 备选仅当将来要 GB18030 四字节）。
+      # config/config.exs 只编 CP936 一张表，控制编译时长与 beam 体积。
+      {:codepagex, "~> 0.2.0"},
       # 代理链真实 client IP 解析（#278）：kamal-proxy/Next 两跳后
       # conn.remote_ip 恒为代理容器 IP，per-IP 限流退化为全站共享桶
       {:remote_ip, "~> 1.2"}
