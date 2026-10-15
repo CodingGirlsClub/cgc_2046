@@ -1,8 +1,13 @@
 # cgc_2046 backend deps 基础镜像（Elixir 依赖预编译层）
 #
 # 目的：把 mix deps.get + deps.compile 从每次部署的全量重来中摘出。
-# tag = sha256(backend/mix.lock) 前 16 位——mix.lock 不变则部署直接命中，
-# 变更时由 deploy workflow 自动重建推送，无人工维护。
+# tag = sha256(backend/mix.lock + backend/Dockerfile.deps + backend/config/
+# config.exs + backend/config/prod.exs) 前 16 位——即**deps 层的全部编译输入**
+# （backend/ 与 deploy/ci workflow 的 DEPS_HASH 三处同公式）。后两者不可缺：
+# Dockerfile 层调整、或影响依赖编译结果的编译期配置（codepagex `:encodings`
+# 编表过滤器，见下方 COPY backend/config/ 注释，#1105）只改 config 不改 lock
+# 时，仅 hash lock 会命中旧镜像、prod 拿到过期依赖产物。
+# 输入不变则部署直接命中，变更时由 deploy workflow 自动重建推送，无人工维护。
 #
 # 为什么不走 buildx cache：mode=max 导出 GB 级中间层到 GHA cache 已实证
 # 挂起（run 32375926425）；registry cache 每次部署都要付导出成本。
