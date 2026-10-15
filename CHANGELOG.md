@@ -30,6 +30,19 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 - 禁用 HTTP endpoint 的 H2 支持，消除 GHSA-69m6-wcv4-rwcf 攻击面（#1112）。
 
+### Added（[抖音] P0 #1079）
+
+- [抖音] 参与者基础端首发（#1079 P0）：Tab 收敛为「发现/我的」二项（我的报名降级普通页，入口收进「我的」profile-lite——与 xhs D2a 同构）；tt 注册 profile-lite / privacy（D7 变体正文 `privacy-content-tt`，构建期 alias 单源，tt 产物物理不含「微信」字样）；登录授权说明在 tt 与 xhs 两端均可点开；tt 注册集 = 11 页（发现/profile-lite/我的报名/隐私页/倡导详情/活动详情/登录/报名表单/报名结果/加入/闪念间薄壳）。
+- [抖音] ICP 备案号页脚渲染：domain `filing.ts` 单源（weapp=-6X / xhs=-7X / tt=-7X——同一主体备案记录覆盖两端，2026-10-15 控制台实测 AppID tt8792f12f19e9090101 生效中）；tt 与 xhs 各自独立取值，将来分叉只改一处。
+- [抖音] 缴费门 fail-closed：收费/押金报名在 tt 与 xhs 同款（详情可读、不产生待支付死路），阻断文案「本端暂未开放缴费报名」——与 xhs D1a 同口径、零导流（不出现「去网页端」）；`enrollmentBlockedNotice` 由 xhs 独有规则收敛成裁剪端 (tt, xhs) 共有。
+
+### Changed（[抖音] P0 #1079）
+
+- [抖音] 登录成功默认落「我的」Tab（此前 tt 落「我的报名」Tab）；`cutJoinLanding` 同步改为 profile-lite（tt/xhs 均保持一致）。
+- [抖音] 通知 deep-link `my-enrollments` 已非 Tab 页，落法由 `switchTab` 改为 `navigateTo`（`notificationRoute` 判据跟随 `tabPathsForPlatform`）。
+- [抖音] 退出登录打通账号切换隔离：`api.signOut()` 在 token/工作区/账号状态清除外加新「户主侧」键清除（愿望草稿按 `owner` 前缀、闪念间入口意图与访客圈选按精确名），本机不留上一账号草稿残留；判据单源 `domain/account.ts`、`node --test` 钉住。
+- [抖音] 加入工作台后落「我的」（此前 tt 落已降为普通页的「我的报名」，reLaunch 清栈后无 TabBar）。
+
 ## [扩展 v0.1.7] - 2026-10-15
 
 随本次 develop→main 发布上线，明细见 [`openclacky-ext/cgc-2046/CHANGELOG.md`](openclacky-ext/cgc-2046/CHANGELOG.md)：

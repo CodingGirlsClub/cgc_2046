@@ -7,7 +7,8 @@ test('30-day cutoff excludes the exact boundary', () => {
   assert.deepEqual(retainedNotifications([row, { ...row, id: 'b', createdAt: '2026-09-04T12:00:00.001Z' }], Date.parse('2026-10-04T12:00:00.000Z')).map(r => r.id), ['b'])
 })
 test('safe notification routes enforce exact pages and parameter shapes', () => {
-  assert.deepEqual(notificationRoute('/pages/my-enrollments/index', 'tt'), { method: 'switchTab', url: '/pages/my-enrollments/index' })
+  // #1079：tt 的 my-enrollments 已收进「我的」（不再是 Tab 页）——通知落点用 navigateTo
+  assert.deepEqual(notificationRoute('/pages/my-enrollments/index', 'tt'), { method: 'navigateTo', url: '/pages/my-enrollments/index' })
   assert.equal(notificationRoute('/pages/workspace/index', 'xhs'), null)
   for (const link of ['https://evil', '//evil', '/pages/login/index', '/pages/my-enrollments/index?token=secret', '/pages/event-detail/index?id=bad', '/pages/my-enrollments/index#claim']) assert.equal(notificationRoute(link, 'wechat'), null)
   assert.deepEqual(notificationRoute('/pages/event-detail/index?id=1ac8d8d6-4c3c-4f61-9364-6a4eb80ee23a', 'wechat'), { method: 'navigateTo', url: '/pages/event-detail/index?id=1ac8d8d6-4c3c-4f61-9364-6a4eb80ee23a' })

@@ -1,12 +1,13 @@
 /**
- * 小红书端「我的」精简页（P0-5，D2a：Tab = 发现/我的，我的报名收进本页）。
+ * 小红书端 + 抖音端 (#1079) 共用「我的」精简页（xhs D2a / tt #1079：我的报名收进本页）。
  *
  * 能力清单（只保留学习者/校友面；组织者面留在微信端与 web，原则①）：
  * 退出登录、我的报名入口、手输邀请码加入（X-5：scene 扫码进入的传参方式
- * 平台未文档化，P0 只做手输）、闪念间入口（薄壳页）、隐私政策（D7 变体正文）。
+ * 平台未文档化，P0 只做手输）、闪念间入口（薄壳页）、隐私政策（D7 变体正文，
+ * 按本端构建期 alias 选定 privacy-content-xhs / -tt）。
  *
- * 备案号：小红书小程序 ICP 备案号（D8，2026-09-22 通过）——与微信端
- * `pages/profile` 的 -6X 分属不同小程序主体记录，不要互抄。
+ * 备案号：单源 `domain/filing.ts`（tt #1079 与 xhs 同后缀 -7X、weapp -6X，
+ * 按本端取）——与微信端 `pages/profile` 的 -6X 分属不同小程序主体记录，不要互抄。
  */
 import { useCallback, useRef, useState } from 'react'
 import { Button, Input, ScrollView, Text, View } from '@tarojs/components'
@@ -16,6 +17,7 @@ import { AppTabBar } from '@/components/AppTabBar'
 import { PageState } from '@/components/PageState'
 import { NotificationInbox } from '@/components/NotificationInbox'
 import { getActiveAccountId } from '@/state/accountState'
+import { filingNumber } from '@/domain/filing'
 import type { SessionSnapshot } from '@/domain/models'
 import styles from './index.module.css'
 
@@ -157,7 +159,11 @@ export default function ProfileLitePage() {
             </View>
 
             <View className={styles.footer}>
-              <Text className={styles.footerText}>京ICP备16008426号-7X</Text>
+              {/* ICP 备案号（单源 domain/filing）：tt（#1079 控制台 2026-10-15 实测）与
+                  xhs 同后缀 -7X，weapp -6X——按本端取，将来分叉只改 filing.ts */}
+              <Text className={styles.footerText}>
+                {filingNumber(process.env.TARO_ENV === 'tt' ? 'tt' : process.env.TARO_ENV === 'xhs' ? 'xhs' : 'weapp') ?? ''}
+              </Text>
             </View>
           </View>
         )}

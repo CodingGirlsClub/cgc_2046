@@ -6,6 +6,8 @@ CGC-2046 微信端，Taro 4 + React 18 + TypeScript。单码库三端构建：**
 
 ## 功能清单（weapp 全量端）
 
+（#1079 #1083 抖音端 P0+P1 — `src/domain/platform-pages.ts` 的 `TT_PAGES`：发现/profile-lite/我的报名/隐私页+闪念间薄壳；后续见 #1083 注册闪念间全家桶。）
+
 | 页面 | 功能 |
 | --- | --- |
 | `discover` 发现 | 公开活动 / 课程（Initiative）浏览、筛选 |
@@ -21,7 +23,7 @@ CGC-2046 微信端，Taro 4 + React 18 + TypeScript。单码库三端构建：**
 | `privacy` | 隐私政策与个人信息处理规则（微信审核硬要求） |
 | `openclacky` | OpenClacky 安装与连接指引（纯指引，无执行能力） |
 
-裁剪端页面面：**tt** 只保留漏斗页（发现、详情、登录、报名、我的报名、加入、闪念间薄壳）；**xhs** 页面清单以 `src/domain/platform-pages.ts` 的 `XHS_PAGES` 为准（当前含：漏斗页、「我的」精简页、隐私页 D7 变体、闪念间全家桶、Hacker Start 1024 campaign 与志愿者招募；组织者 / 管理页与支付页不注册）。
+裁剪端页面面：**tt**（#1079 #1083）注册：发现、详情、登录、报名、我的/profile-lite（#1079；Tab 收敛「发现/我的」）、隐私页 D7 变体（`privacy-content-tt`）、我的报名（普通页，非 Tab）、加入、闪念间薄壳；后续 P1 #1083 注册闪念间全家桶。备案号单源 `domain/filing.ts`（tt = -7X，2026-10-15 控制台实测生效中）；**xhs** 页面清单以 `src/domain/platform-pages.ts` 的 `XHS_PAGES` 为准（当前含：漏斗页、「我的」精简页、隐私页 D7 变体、闪念间全家桶、Hacker Start 1024 campaign 与志愿者招募；组织者 / 管理页与支付页不注册）。
 
 ## 发版流程（小红书端）
 

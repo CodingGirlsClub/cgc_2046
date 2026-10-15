@@ -2,6 +2,7 @@ import Taro from '@tarojs/taro'
 import type { NotificationItem } from '@/domain/models'
 import { STORAGE_KEYS } from '@/state/storage'
 import { retainedNotifications, validNotification } from '@/domain/notifications'
+import { isAccountWipeKey } from '@/domain/account'
 
 const ACTIVE_USER_KEY = 'cgc.active_user_id'
 const LEGACY_NOTIFICATION_KEY = 'cgc.local_notifications'
@@ -78,6 +79,24 @@ export function clearAccountState(options?: { clearPendingScene?: boolean }): vo
  */
 export function clearFlashbackLinkIdentity(): void {
   Taro.removeStorageSync(STORAGE_KEYS.flashbackToken)
+}
+
+/**
+ * 主动退出时一并清掉「户主侧」账号持久键（#1079 账号切换隔离）：
+ * 愿望草稿（按 owner 前缀）与闪念间入口意图 / 访客圈选残留不再落到下一账号。
+ * 判据单源 `domain/account.ts`；登录事务的 `clearAccountState` 不变（登录成功后
+ * 由真实 Session 水合，无需抢跑）。仅在主动退出面调用（api.signOut 唯一入口）。
+ */
+export function wipeAccountLocal(): void {
+  try {
+    const info = Taro.getStorageInfoSync()
+    for (const key of info.keys) {
+      if (isAccountWipeKey(key)) Taro.removeStorageSync(key)
+    }
+  } catch {
+    /* 不支持 getStorageInfoSync 的环境就不会退出：本函数在最坏情况下失败只影响
+       本机草稿清除（账号隔离仍由 token 无效决定，服务端权威） */
+  }
 }
 
 

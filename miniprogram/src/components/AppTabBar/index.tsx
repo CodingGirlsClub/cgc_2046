@@ -3,7 +3,7 @@ import { Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { hasWorkspaceTab, subscribeWorkspaceTab } from '@/state/workspaceTab'
 import {
-  CUT_TABS,
+  TT_TABS,
   FULL_HEAD_TABS,
   FULL_TAIL_TABS,
   WORKSPACE_TAB,
@@ -15,8 +15,8 @@ import styles from './index.module.css'
 
 interface Props { selected: TabKey }
 
-// Tab 清单按平台分派：抖音 = 发现/我的报名（2 Tab 漏斗）；小红书 = 发现/我的
-// （D2a，我的报名收进精简「我的」页）；微信 = 三段式（含条件段工作台）。
+// Tab 清单按平台分派：抖音 = 发现/我的（#1079；与 xhs 同构的 2 Tab）；
+// 小红书 = 发现/闪念间/我的（D2a）；微信 = 三段式（含条件段工作台）。
 const env = process.env.TARO_ENV
 const isCut = env === 'tt' || env === 'xhs'
 
@@ -47,7 +47,7 @@ export function AppTabBar({ selected }: Props) {
     env === 'xhs'
       ? XHS_TABS
       : env === 'tt'
-        ? CUT_TABS
+        ? TT_TABS
         : [...FULL_HEAD_TABS, ...(showWorkspace ? [WORKSPACE_TAB] : []), ...FULL_TAIL_TABS]
 
   return (

@@ -58,19 +58,22 @@ export const WEAPP_PAGES: readonly string[] = [
   'pages/flashback-my-wishes/index'
 ]
 
-/** 抖音裁剪端（tt）注册页面 */
+/** 抖音端（tt）注册页面（#1079 P0：我的+隐私+免费参与） */
 export const TT_PAGES: readonly string[] = [
   'pages/discover/index',
   'pages/initiative-detail/index',
+  // #1079：Tab 收敛成「发现 / 我的」——我的报名降级普通页，入口收进 profile-lite
+  'pages/profile-lite/index',
+  'pages/privacy/index',
   'pages/my-enrollments/index',
   'pages/event-detail/index',
   'pages/login/index',
   'pages/register-form/index',
   'pages/enrollment-result/index',
   'pages/join/index',
-  // U9/R28：闪念间回访页（薄壳，渲染 components/MyCard）——tt/xhs 漏斗端注册
-  // （成场通知深链与「我的」入口）。首程旅程/长廊/场次页**只在微信全量端注册**：
-  // 闪念间深度场景不存在于裁剪端，且页面文案含跨端词（check:diversion）。
+  // U9/R28：闪念间回访页（薄壳，渲染 components/MyCard）——tt/xhs 漏斗端保留注册
+  // （成场通知深链落点与 platformFallbackRoute 的回落目标）。首程旅程/长廊/场次页
+  // 在本 issue P1（#1083）注册——届时「发现 / 闪念间 / 我的」三 Tab 成立。
   'pages/flashback/index'
 ]
 

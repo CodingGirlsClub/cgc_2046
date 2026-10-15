@@ -243,6 +243,7 @@ import {
   activateAccount,
   clearAccountState,
   clearFlashbackLinkIdentity,
+  wipeAccountLocal,
   captureAccountScope,
   accountScopeCurrent,
   cacheNotificationFeed,
@@ -784,6 +785,9 @@ export class RealMiniProgramApi implements MiniProgramApi {
     clearWorkspaceTab()
     clearAccountState({ clearPendingScene: true })
     clearFlashbackLinkIdentity()
+    // #1079 账号切换隔离：主动退出后本机不留愿望草稿/闪念间圈选残留——下一账号
+    // 不该看到上一账号的草稿（登录态隔离之外的本机草稿隔离）
+    wipeAccountLocal()
     setSilentLoginAllowed(false)
     await request
   }

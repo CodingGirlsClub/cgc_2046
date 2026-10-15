@@ -1,8 +1,10 @@
 # 抖音/小红书裁剪端真机验收 checklist
 
-> 抖音端：2 Tab 漏斗（发现/我的报名）。小红书端（P0，2026-09-25 止血版）：2 Tab（发现/我的），
-> 无订阅消息、无端内支付、闪念间为薄壳页。平台能力（tt.login/xhs.login、手机号授权）无自动化
-> 桩，真机清单验证不能由构建证明的平台边界。开发后端固定 `http://localhost:4001/api/graphql`。
+> 抖音端（#1079 P0）：2 Tab（发现/我的——我的报名降级普通页，入口收进 profile-lite）；
+> ICP 备案号 -7X（2026-10-15 控制台实测，生效中）已渲染于「我的」页脚；收费/押金报名 fail-closed。
+> 小红书端（P0，2026-09-25 止血版）：3 Tab（发现/闪念间/我的），无订阅消息、无端内支付、闪念间为全家桶。
+> 平台能力（tt.login/xhs.login、手机号授权）无自动化桩，真机清单验证不能由构建证明的平台边界。
+> 开发后端固定 `http://localhost:4001/api/graphql`。
 
 ## 准备
 
@@ -15,9 +17,9 @@
 
 ## 裁剪 IA（构建证据：dist/tt、dist/xhs 的 app.json）
 
-- [ ] 抖音端仅注册 9 页：发现/我的报名/倡导详情/活动详情/登录/报名表单/报名结果/加入/闪念间薄壳；tabBar 仅「发现/我的报名」
-- [ ] 小红书端注册 11 页：上述 + **「我的」精简页（profile-lite）+ 隐私页（privacy）**；tabBar「发现/我的」（D2a，我的报名已降级为普通页，入口收进「我的」）
-- [ ] 两裁剪端均无 工作台/OpenClacky/campaign/志愿者/核销/支付页（管理/协作/缴费功能不做）及闪念间深度页（长廊/写愿望等）
+- [ ] 抖音端（#1079）：注册 11 页（发现/profile-lite/我的报名/倡导详情/活动详情/登录/报名表单/报名结果/加入/隐私页/闪念间薄壳）；tabBar「发现/我的」（我的报名已降级为普通页，入口收进 profile-lite）
+- [ ] 小红书端注册 22 页（上述 11 页 + campaign / volunteer-apply / 闪念间全家桶 10 页）；tabBar「发现/闪念间/我的」（D2a + P2；我的报名已降级为普通页，入口收进「我的」）
+- [ ] 两裁剪端均无 工作台/OpenClacky/check-in/支付页（管理/协作/缴费功能不做）；小红书注册但抖音不注册 = campaign/volunteer-apply/闪念间深度页（长廊/写愿望等）
 - [ ] 微信端（weapp）仍是全量 Tab + 全部页面，无回归
 
 ## N1 登录
@@ -25,8 +27,9 @@
 - [ ] `tt.login` / `xhs.login` 拿到 code，后端 `signInWithPlatform` 三平台 code2session 成功建号/挂 Identity
 - [ ] 手机号授权：**抖音走 phoneCode 契约**（`phone_code` 直传，`data.phone_number` 为明文）；**小红书走 legacy `encryptedData/iv` 解密路径**（详情见 Q1——P0-1 已按官方 Java 示例修正解密算法，真机复核解密成功率）
 - [ ] 拒绝手机号授权时留在登录页显示可恢复错误，不创建账号
-- [ ] 登录页《隐私授权说明》：小红书端**可点开**（P0-5 起注册隐私页，D7 候选正文）；抖音端保持纯文本
-- [ ] 登录成功后，微信/小红书落「我的」Tab（小红书为精简页），抖音落「我的报名」Tab
+- [ ] 登录页《隐私授权说明》：小红书端**可点开**（P0-5，D7 候选正文）；抖音端**可点开**（#1079，注册隐私页 = privacy-content-tt 变体）
+- [ ] 登录成功后，微信/小红书/抖音均落「我的」Tab（xhs/tt 为 profile-lite 精简页）；tt 此前落「我的报名」Tab——#1079 起 tt 落 profile-lite
+- [ ] 「我的」页脚 ICP 备案号：抖音 = -7X（#1079 2026-10-15 控制台实测生效中）；小红书 = -7X（D8 同步）
 
 ## F2/F3 报名
 
@@ -43,7 +46,7 @@
 
 ## F8/N2 邀请加入
 
-- [ ] 手输 scene 确认加入；入座后：微信/小红书落「我的」Tab，抖音落「我的报名」Tab
+- [ ] 手输 scene 确认加入；入座后：微信/小红书/抖音均落「我的」Tab（#1079 cutJoinLanding 收敛为 profile-lite）
 - [ ] **小红书扫码进入（scene 传参方式平台未文档化，Q5）**：P0 先只做手输，扫码加入待真机验证后再补
 - [ ] 过期/二次使用 scene 显示无效，不泄露邀请状态
 
@@ -52,6 +55,15 @@
 - [ ] 从「我的」（小红书）/成场通知深链进入 `pages/flashback/index`，卡面渲染正常
 - [ ] 分享面板：微信/抖音 = 转发/朋友圈/保存卡片三入口；**小红书 = 仅「转发」**（P0-6：无朋友圈概念、无 Canvas 2D）
 - [ ] 未绑定档案的引导文案：小红书不提「网页端找回」（P0-3 零导流）
+
+## #1079 新增 — 账号退出/切换隔离、缴费门 tt 同款、profile-lite
+
+- [ ] 退出登录：profile-lite 卡的「退出」按钮走 `api.signOut()`，注销 token/工作区/账号状态，外加清「户主侧」账号持久键（愿望草稿（按 owner 前缀）+ 闪念间入口意图/访客圈选）——本机不留上一账号草稿残留；再从任一账号登录，愿望草稿与闪念间圈选不残留（包含「guest」未登录态）
+- [ ] 账号切换：A 退出 → B 登录 → A 的报名记录、通知与闪念间认卡不渲染（authToken 清；`active_user_id` 换 userId → `last_enrollment` 自动清；`notification_feed.v1.<userId>` 按 userId 命名空间隔离）
+- [ ] profile-lite「我的报名」入口：navigateTo（非 Tab）；进入面 / 回收面 / 「签到凭证」支持 confirmed 报名展示（#1079）
+- [ ] **抖音缴费门（#1079 同款 of xhs D1a）**：收费/押金场详情可看，报名按钮位置显示「本端暂未开放缴费报名」（register-form 深链同款阻断）；免费场报名正常；**任何页面不出现「网页端完成支付」字样**
+- [ ] notification deep-link：`my-enrollments` 现已非 Tab 页，落法 = `navigateTo` 到 /pages/my-enrollments/index（避免 switchTab 白白失败）
+- [ ] 订阅消息 fail-closed：未配置 `CGC_DOUYIN_TEMPLATE_*`（`CGC_DOUYIN_TEMPLATE_APPROVAL_RESULT` / `CGC_DOUYIN_TEMPLATE_EVENT_REMINDER`）时订阅按钮给出可读错误「缺少抖音订阅消息模板 ID…」，不白屏不崩木（模板申请中，ID 下发前预期可观察该错误）
 
 ## 零导流自检（合规红线）
 

@@ -3,7 +3,7 @@
 // 漂移，且漂移后果是 switchTab 静默失败（无编译期兜底）。
 // 页面注册名单唯一真源在 domain/platform-pages（P0-4：深链过滤与本声明同源，
 // 新增页面只改 platform-pages 一处）。
-import { CUT_TABS, FULL_TABS, XHS_TABS, toTabBarEntry, type TabDef } from './domain/tab-routes'
+import { TT_TABS, FULL_TABS, XHS_TABS, toTabBarEntry, type TabDef } from './domain/tab-routes'
 import { pagesForPlatform, type RoutePlatform } from './domain/platform-pages'
 
 // TARO_ENV（'weapp'/'tt'/'xhs'）→ domain 平台键（'wechat'/'tt'/'xhs'），与
@@ -11,11 +11,11 @@ import { pagesForPlatform, type RoutePlatform } from './domain/platform-pages'
 const platform: RoutePlatform =
   process.env.TARO_ENV === 'tt' ? 'tt' : process.env.TARO_ENV === 'xhs' ? 'xhs' : 'wechat'
 
-// Tab 清单按平台分派：抖音 = 发现/我的报名（2 Tab 漏斗）；小红书 = 发现/我的
-// （D2a，我的报名收进「我的」）；微信 = 全量（含条件段工作台）。
+// Tab 清单按平台分派：抖音 = 发现/我的（#1079；与 xhs D2a 同构的 2 Tab）；
+// 小红书 = 发现/闪念间/我的（P0-5+D2a）；微信 = 全量（含条件段工作台）。
 const tabsForPlatform = (env: RoutePlatform): readonly TabDef[] => {
   if (env === 'xhs') return XHS_TABS
-  if (env === 'tt') return CUT_TABS
+  if (env === 'tt') return TT_TABS
   return FULL_TABS
 }
 

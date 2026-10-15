@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   activateAccount: vi.fn(),
   clearAccountState: vi.fn(),
   clearFlashbackLinkIdentity: vi.fn(),
+  wipeAccountLocal: vi.fn(),
   currentPlatform: vi.fn(),
   silentLoginAllowed: vi.fn(),
   setSilentLoginAllowed: vi.fn(),
@@ -70,6 +71,9 @@ vi.mock('../src/state/accountState', () => ({
   activateAccount: mocks.activateAccount,
   clearAccountState: mocks.clearAccountState,
   clearFlashbackLinkIdentity: mocks.clearFlashbackLinkIdentity,
+  // #1079：主动退出额外清户主侧账号持久键——mock 层钉住形状，真实实现在
+  // accountState.test.ts / domain account.ts 钉住键口径。
+  wipeAccountLocal: mocks.wipeAccountLocal,
   captureAccountScope: vi.fn(), accountScopeCurrent: vi.fn(), cacheNotificationFeed: vi.fn(), cachedNotificationFeed: vi.fn()
 }))
 

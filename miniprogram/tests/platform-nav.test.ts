@@ -4,8 +4,27 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { CUT_TABS, XHS_TABS, XHS_TAB_PATHS, cutJoinLanding, tabPathsForPlatform } from '../src/domain/tab-routes.ts'
+import { TT_TABS, XHS_TABS, XHS_TAB_PATHS, TT_TAB_PATHS, cutJoinLanding, tabPathsForPlatform } from '../src/domain/tab-routes.ts'
 import { XHS_PAGES, TT_PAGES, pageRegistered, safeReturnUrl } from '../src/domain/platform-pages.ts'
+
+describe('抖音 Tab 结构（#1079：发现 / 我的）', () => {
+  test('TT_TABS = 发现 + 我的（我的报名收进「我的」），与 xhs D2a 同构但无闪念间 Tab（#1083 再加）', () => {
+    assert.equal(TT_TABS.length, 2)
+    assert.equal(TT_TABS[0].key, 'discover')
+    assert.equal(TT_TABS[0].path, '/pages/discover/index')
+    assert.equal(TT_TABS[1].key, 'profile')
+    assert.equal(TT_TABS[1].path, '/pages/profile-lite/index')
+  })
+
+  test('tabPathsForPlatform：tt 用自己的 Tab 集合（我的报名不在其中）', () => {
+    assert.deepEqual(tabPathsForPlatform('tt'), TT_TAB_PATHS)
+    const paths = tabPathsForPlatform('tt')
+    assert.ok(paths.includes('/pages/profile-lite/index'))
+    assert.ok(paths.includes('/pages/discover/index'))
+    assert.ok(!paths.includes('/pages/my-enrollments/index'))
+    assert.ok(!paths.includes('/pages/flashback-corridor/index'))
+  })
+})
 
 describe('小红书 Tab 结构（P2：发现 / 闪念间 / 我的）', () => {
   test('XHS_TABS = 发现 + 闪念间（长廊）+ 我的（我的报名收进「我的」）', () => {
@@ -26,12 +45,6 @@ describe('小红书 Tab 结构（P2：发现 / 闪念间 / 我的）', () => {
     assert.ok(paths.includes('/pages/flashback-corridor/index'))
     assert.ok(!paths.includes('/pages/my-enrollments/index'))
   })
-
-  test('tt 维持原 2 Tab（发现 / 我的报名）', () => {
-    const paths = tabPathsForPlatform('tt')
-    assert.ok(paths.includes('/pages/my-enrollments/index'))
-    assert.ok(!paths.includes('/pages/profile-lite/index'))
-  })
 })
 
 describe('Tab 指向页必须注册（switchTab 静默失败铁律）', () => {
@@ -41,8 +54,8 @@ describe('Tab 指向页必须注册（switchTab 静默失败铁律）', () => {
     }
   })
 
-  test('CUT_TABS 指向的页都在 TT_PAGES 里', () => {
-    for (const tab of CUT_TABS) {
+  test('TT_TABS 指向的页都在 TT_PAGES 里', () => {
+    for (const tab of TT_TABS) {
       assert.ok(pageRegistered(tab.path, 'tt'), `${tab.path} 未注册于 TT_PAGES`)
     }
   })
@@ -52,6 +65,13 @@ describe('Tab 指向页必须注册（switchTab 静默失败铁律）', () => {
     assert.ok(XHS_PAGES.includes('pages/privacy/index'))
     assert.ok(XHS_PAGES.includes('pages/my-enrollments/index'))
     assert.ok(XHS_PAGES.includes('pages/flashback/index'))
+  })
+
+  test('TT 注册集（#1079）包含「我的」精简页、隐私页、我的报名（非 Tab 普通页）与薄壳页', () => {
+    assert.ok(TT_PAGES.includes('pages/profile-lite/index'))
+    assert.ok(TT_PAGES.includes('pages/privacy/index'))
+    assert.ok(TT_PAGES.includes('pages/my-enrollments/index'))
+    assert.ok(TT_PAGES.includes('pages/flashback/index'))
   })
 })
 
@@ -69,7 +89,7 @@ describe('campaign + 志愿者招募页注册（advisor-plans/010：迁入小红
 
 describe('加入工作台后的落点（join 页 reLaunch 清栈）', () => {
   // reLaunch 清空页面栈：落点若不是 Tab 页，用户既无 TabBar 也无返回——死胡同。
-  // D2a 把小红书的「我的报名」降为普通页后，落点必须改为「我的」Tab。
+  // D2a + #1079：两端我的报名均已收进「我的」Tab，落点一致为「我的」。
   test('裁剪端落点必须是本端 Tab 页', () => {
     for (const platform of ['tt', 'xhs'] as const) {
       const landing = cutJoinLanding(platform)
@@ -77,9 +97,9 @@ describe('加入工作台后的落点（join 页 reLaunch 清栈）', () => {
     }
   })
 
-  test('xhs 落「我的」（我的报名入口在其中），tt 落「我的报名」', () => {
+  test('tt / xhs 落「我的」（我的报名入口在其中）', () => {
     assert.equal(cutJoinLanding('xhs'), '/pages/profile-lite/index')
-    assert.equal(cutJoinLanding('tt'), '/pages/my-enrollments/index')
+    assert.equal(cutJoinLanding('tt'), '/pages/profile-lite/index')
   })
 })
 
