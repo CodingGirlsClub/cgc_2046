@@ -49,7 +49,10 @@ const WECHAT_SCENARIOS = [
   'flashback_wish_echo'
 ] as const
 
-// 抖音裁剪端仅学习者两场景（裁剪端无工作台，见 src/app.config.ts cutPages）
+// 抖音端仅学习者两场景（裁剪端无工作台）；Tab 定型为发现/闪念间/我的
+// （页面注册单源 `src/domain/platform-pages.ts` / Tab 单源 `src/domain/tab-routes.ts`）。
+// 单场景订阅触点（附议回响）在构建期模板表里结构性缺键（`flashback_wish_echo` 不在本表）——
+// 触点渲染由 `scenariosSupportedKeys` / `subscriptionScenariosSupported` 隐藏，而不是「可点但必然失败」。
 const TT_SCENARIOS = ['approval_result', 'event_reminder'] as const
 
 // 场景键 → 模板 ID 映射。env 名 = 前缀 + 场景键的 SCREAMING_SNAKE，机械可推，

@@ -22,7 +22,9 @@ import MyCard from '@/components/MyCard'
 import ShareSheet from '@/components/MyCard/ShareSheet'
 import styles from '@/components/MyCard/index.module.css'
 
-// 裁剪端（抖音/小红书）未注册闪念间旅程页——分享卡片回落回访页自身
+// 裁剪端（抖音/小红书）闪念间旅程页已注册（#1083）——薄壳页保留作深链
+// 回落（platformFallbackRoute）与旧分享链落点；分享卡片落回本页自身（
+// 不走 buildFlashbackEntryPath()，避免「转发卡 → 长廊 view page」的深链误导）
 const isCut = process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
 
 type LoadState =

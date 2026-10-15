@@ -203,6 +203,11 @@ describe('signInSilently 回访静默登录', () => {
     const api = new RealMiniProgramApi()
     await api.signOut()
     expect(mocks.setSilentLoginAllowed).toHaveBeenLastCalledWith(false)
+    // #1079 review：wipe 必须在 clearAccountState 之前（需要先拿到 active id）；还原之后
+    // 反序会变成只删 guest 桶、user-a 草稿残留——本断言钉住顺序防止回退。
+    expect(mocks.wipeAccountLocal.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.clearAccountState.mock.invocationCallOrder[0]
+    )
     await api.signIn({ loginCode: 'c', encryptedData: 'e', iv: 'i' })
     expect(mocks.setSilentLoginAllowed).toHaveBeenLastCalledWith(true)
   })

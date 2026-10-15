@@ -50,7 +50,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 - [抖音] 闪念间参与者旅程迁到抖音（#1083 P1，复用 xhs P2 已迁移路径）：Tab 定型为「发现 / 闪念间 / 我的」，tt 注册闪念间长廊 / 首程 / 场次 / 今天 / 公开金句 / 公开愿望 / 公开卡 / 写愿望 / 我的愿望共 9 页—— 覆盖访客、无历史档案用户（公开浏览 → 许愿 → 附议 / 取消）、已认领校友（找回 / 认领 → 今天 → 公开授权 → 撤回）三类旅程。
 - [抖音] 分享链路不带本人访问凭证：分享 path 由 `buildFlashbackCardSharePath(shareId)` 保证只带 `shareId`；`token` / `shareId` / `quoteId` / `wishId` 深链按平台过滤单源不变（P0-4 / #1083 起，tt 已注册闪念间页直通），「找回 / 认领 / 登录回跳」用 `claim=1` 位标记与微信端同型。
 - [抖音] 分享面板按平台裁剪（#1079 review）：tt = 转发 + 保存卡片（Taro 的 `useShareTimeline` 标记 `@supported weapp`，抖音小程序没有「朋友圈」语境，不再展示误导入口）；xhs = 仅转发；wechat = 三入口齐全。
-- [抖音] 附议「回响通知」勾选触点由构建期模板表门控（`scenariosSupportedKeys`）：键不在本端模板表 = 结构性必失败 → 隐藏，替换「可点但必然失败」的假 fail-closed；tt 的 `TT_SCENARIOS` 未列 `flashback_wish_echo`，附议面板不渲染勾选行（首选项也不触发真实请求）。撤回走「先净受再重载」保持与微信端一致的 `unavailable` 终局态（不泄露受限正文）。
+- [抖音] 附议「回响通知」勾选触点由构建期模板表门控（`scenariosSupportedKeys`）：键不在本端模板表 = 结构性必失败 → 隐藏，替换「可点但必然失败」的假 fail-closed；tt 的 `TT_SCENARIOS` 未列 `flashback_wish_echo`，附议面板不渲染勾选行（首选项也不触发真实请求）。撤回仍走「先冷静再重载」保持与微信端一致的 `unavailable` 终局态（不泄露受限正文）。
 
 ## [扩展 v0.1.7] - 2026-10-15
 
