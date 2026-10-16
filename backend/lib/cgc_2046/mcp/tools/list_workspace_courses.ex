@@ -95,7 +95,8 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceCourses do
     end
   end
 
-  # prep_state = SQL 下推 facts["prep_state"]；nil run 或键缺失均 nil
+  # prep_state = SQL 下推 COALESCE(facts["prep_state"], 'draft')（与
+  # Prep.prep_state/1 同源，#1126）；nil run（无教研流程）为 nil
   defp workflow_run_projection do
     WorkflowRun
     |> Ash.Query.select([:id])
@@ -113,7 +114,8 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceCourses do
       status: course.status,
       visibility: course.visibility,
       current_revision_id: course.current_revision_id,
-      # prep_state = SQL 下推 facts["prep_state"]；nil run 或键缺失均 nil
+      # prep_state = SQL 下推 COALESCE(facts["prep_state"], 'draft')（缺省
+      # draft，与 get_prep_status 同源）；nil run（无教研流程）为 nil
       prep_state: course.workflow_run && course.workflow_run.prep_state
     }
   end
