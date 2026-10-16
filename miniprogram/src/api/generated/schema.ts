@@ -876,6 +876,7 @@ export type CourseLearningDetail = {
   slug?: Maybe<Scalars['String']['output']>;
   staleRevision: Scalars['Boolean']['output'];
   title: Scalars['String']['output'];
+  workspaceId: Scalars['ID']['output'];
 };
 
 export type CourseLearningDropOff = {
@@ -3823,10 +3824,16 @@ export type McpToken = {
   /** MCP 连接 token（明文不可经此类型读回；hash 不落 GraphQL 面） */
   id: Scalars['ID']['output'];
   insertedAt: Scalars['DateTime']['output'];
+  kind: McpTokenKind;
   lastUsedAt?: Maybe<Scalars['DateTime']['output']>;
   name: Scalars['String']['output'];
   revokedAt?: Maybe<Scalars['DateTime']['output']>;
 };
+
+/** 连接 token 类型（ADR-0022）：TERMINAL 用户自建，权限随角色；LEARNING_HOST 配对签发给本机 Host，只能调学习工具 */
+export type McpTokenKind =
+  | 'LEARNING_HOST'
+  | 'TERMINAL';
 
 export type MiniWebLoginMode =
   | 'LINK'
@@ -4785,7 +4792,7 @@ export type RootMutationType = {
   createInviteBatch: CreateInviteBatchResult;
   /** 提交加入申请 */
   createJoinRequest: CreateJoinRequestResult;
-  /** 签发 MCP 连接 token（切片 D #44；明文仅本次经 plainToken 返回一次，库中只存 SHA256 hash） */
+  /** 签发 MCP 连接 token（切片 D #44；明文仅本次经 plainToken 返回一次，库中只存 SHA256 hash；kind 缺省 TERMINAL，LEARNING_HOST 签发学习凭证，ADR-0022） */
   createMcpToken?: Maybe<CreateMcpTokenPayload>;
   /** 报名者下单：payment_pending 报名 → pending 订单 + 渠道凭据（R5/R6/R13） */
   createOrder: CreateOrderResult;
@@ -5229,6 +5236,7 @@ export type RootMutationTypeCreateJoinRequestArgs = {
 
 
 export type RootMutationTypeCreateMcpTokenArgs = {
+  kind?: InputMaybe<McpTokenKind>;
   name: Scalars['String']['input'];
 };
 

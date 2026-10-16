@@ -69,6 +69,19 @@ describe("resolveProxyPlan（F0 _ul / F1 x-pathname / CSP-REG malformed）", () 
 		expect(plan.cspHeader).toContain(`'nonce-${nonce}'`);
 	});
 
+	it("KTD10：任意路径的 connect-src 恰好放行本机 Host 的两个来源，端口精确、无通配", () => {
+		for (const path of ["/", "/courses/c1/learn", "/en/w/foo", "/%zz"]) {
+			const connectSrc = planFor(path)
+				.cspHeader.split("; ")
+				.find((directive) => directive.startsWith("connect-src "));
+			expect(connectSrc?.split(" ").slice(1)).toEqual([
+				"'self'",
+				"http://127.0.0.1:47823",
+				"ws://127.0.0.1:47823",
+			]);
+		}
+	});
+
 	it("CSP-REG：malformed 路径标记 malformed（编排层返回受控静态 404（零 script + 全安全头））", () => {
 		expect(planFor("/%zz").malformed).toBe(true);
 		expect(planFor("/%%").malformed).toBe(true);

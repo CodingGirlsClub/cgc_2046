@@ -14,18 +14,18 @@ defmodule Cgc2046.Mcp.DraftVersioningTest do
   """
   use Cgc2046.DataCase, async: false
 
-  alias Anubis.Server.Frame
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Curriculum.Output
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Mcp.ToolCallLog
   alias Cgc2046.Mcp.Tools.GetCourseContent
   alias Cgc2046.Mcp.Tools.SaveCourseContent
+  alias Cgc2046.McpFrames
   alias Cgc2046.MiniprogramFixtures.Barrier
 
   require Ash.Query
 
-  defp frame_for(user), do: Frame.new(current_user: user)
+  defp frame_for(user), do: McpFrames.terminal(user)
 
   defp decode({:reply, response, _frame}) do
     [content] = response.content

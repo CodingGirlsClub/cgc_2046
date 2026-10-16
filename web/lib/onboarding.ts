@@ -29,7 +29,7 @@ export interface DerivedOnboardingState {
 	dismissed: boolean;
 	/** 有 active 连接 token（revoked / idle_expired 视同未接入，per R1 回归成员规则） */
 	hasActiveToken: boolean;
-	/** 已发生首次 MCP 调用（任一 token lastUsedAt != null；R8 完成后卡消失） */
+	/** 已发生首次 MCP 调用（任一 terminal token lastUsedAt != null；R8 完成后卡消失） */
 	connected: boolean;
 }
 
@@ -44,15 +44,15 @@ export interface OnboardingState extends DerivedOnboardingState {
 	/** 本 session 当前用户是否已展示过邀请模态（userId 就绪时一次性快照；
 	    userId 缺失为 false = 当作未展示，fail toward showing 由消费方门控兜底） */
 	inviteShownThisSession: boolean;
-	/** 原始 token 列表（新→旧；loading/error 为 []）——向导页 hasTokenHistory
+	/** 终端 token 列表（新→旧；loading/error 为 []）——向导页 hasTokenHistory
 	    等存在性信号由此派生，消费方不得再行 fetch */
 	tokens: McpTokenItem[];
 }
 
 /**
  * 派生 onboarding 三布尔（纯函数，可测）：
- * - hasActiveToken = 任一 token status === "active"（status 派生见 lib/mcp.ts mapMcpToken）
- * - connected = 任一 token lastUsedAt != null（历史首联达成即算，不看当前 status）
+ * - hasActiveToken = 任一 terminal token status === "active"（status 派生见 lib/mcp.ts mapMcpToken）
+ * - connected = 任一 terminal token lastUsedAt != null（历史首联达成即算，不看当前 status）
  * - dismissed = dismissedAt != null
  */
 export function deriveOnboardingState(
@@ -61,8 +61,8 @@ export function deriveOnboardingState(
 ): DerivedOnboardingState {
 	return {
 		dismissed: dismissedAt != null,
-		hasActiveToken: tokens.some((t) => t.status === "active"),
-		connected: tokens.some((t) => t.lastUsedAt != null),
+		hasActiveToken: tokens.some((t) => t.kind === "TERMINAL" && t.status === "active"),
+		connected: tokens.some((t) => t.kind === "TERMINAL" && t.lastUsedAt != null),
 	};
 }
 
@@ -148,7 +148,7 @@ export function useOnboardingState(): OnboardingState & {
 					userId,
 					inviteShownThisSession:
 						userId != null && hasInviteShownThisSession(userId),
-					tokens,
+					tokens: tokens.filter((t) => t.kind === "TERMINAL"),
 				});
 			})
 			.catch((err: unknown) => {

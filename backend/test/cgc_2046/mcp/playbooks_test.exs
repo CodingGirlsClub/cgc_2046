@@ -3,7 +3,7 @@ defmodule Cgc2046.Mcp.PlaybooksTest do
 
   import ExUnit.CaptureLog
 
-  alias Cgc2046.Mcp.Playbooks
+  alias Cgc2046.Mcp.{Playbooks, Scopes, Server}
 
   @app :cgc_2046
   @config_key :playbooks_dir
@@ -195,6 +195,29 @@ defmodule Cgc2046.Mcp.PlaybooksTest do
     refute changed.version == first.version
   end
 
+  # 学习凭证（ADR-0022）只放行 Scopes.learning_host_tools/0：学员 playbook 的学习循环一旦点名
+  # 名单外的工具，课程页对话里的 agent 照做就会被平台拒绝。点名集合从 Server 注册的工具推导
+  test "学员 playbook 学习循环点名的工具都在学习凭证名单内，且点名 get_course_revision" do
+    loop = learner_loop_section()
+
+    mentioned =
+      for %{name: name} <- Server.__components__(:tool),
+          Regex.match?(~r/\b#{Regex.escape(name)}\b/, loop),
+          do: name
+
+    assert "get_course_revision" in mentioned
+
+    assert mentioned -- Scopes.learning_host_tools() == [],
+           "学习循环点名了学习凭证名单外的工具：#{inspect(mentioned -- Scopes.learning_host_tools())}"
+  end
+
+  # 网页课程页与 OpenClacky 扩展（面板与 system prompt）都写「learner playbook 的七步学习循环」：
+  # 改步数要同步改这两端，扩展还得随之发版
+  test "学员 playbook 学习循环恰好 7 个编号步骤" do
+    assert Regex.scan(~r/^(\d+)\. /m, learner_loop_section(), capture: :all_but_first) ==
+             Enum.map(1..7, &[to_string(&1)])
+  end
+
   test "未知角色保持 unknown_role 契约" do
     assert {:ok, :tutor} = Playbooks.normalize_role(:tutor)
     assert {:ok, :tutor} = Playbooks.normalize_role("tutor")
@@ -222,6 +245,12 @@ defmodule Cgc2046.Mcp.PlaybooksTest do
     assert {:ok, tutor} = Playbooks.fetch(:tutor)
     refute tutor.version =~ "+"
     refute tutor.content =~ "不应进入 test 的私有内容"
+  end
+
+  defp learner_loop_section do
+    assert {:ok, %{content: content}} = Playbooks.fetch(:learner)
+    assert [_, loop] = String.split(content, "三、学习循环", parts: 2)
+    loop
   end
 
   defp restore_env({:ok, value}), do: Application.put_env(@app, @config_key, value)

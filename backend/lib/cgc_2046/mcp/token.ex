@@ -7,8 +7,14 @@ defmodule Cgc2046.Mcp.Token do
   - 绑用户、不绑工作区；可访问用户加入的多个 Workspace，租户由每次调用的
     `workspace_id` 参数判定（D6/D12）
 
+  两类（`kind`，ADR-0022）：`terminal` 由用户自建，权限随其角色；`learning_host` 配对签发给
+  CGC 本机 Host，平台侧只放行学习工具（`Cgc2046.Mcp.Scopes.learning_host_tools/0`，由
+  `Cgc2046.Mcp.Wrapper` 强制）。
+
   安全约束：
   - 库中只存 SHA256 `token_hash`，不落明文（复刻 Invitation token_hash 模式）
+  - `learning_host` 用独立明文前缀 `cgch_`，哈希带域分隔（`sha256(域标签 <> 明文)`）：旧版代码
+    只算明文的 sha256，回滚期间校验不到它们——这类凭证只会失效，不会被当成全权 token
   - 明文仅 `:issue` 创建时经 `metadata.plain_token` 一次性返回
   - 撤销 = 置 `revoked_at`（保留审计行，不删记录）
   - 连续 90 天未使用即失效（滚动过期 `@idle_expiry_days`，#222；正常使用不断，
@@ -22,6 +28,9 @@ defmodule Cgc2046.Mcp.Token do
   @max_active_tokens_per_user 10
   # 滚动过期窗口（#222）：连续 90 天未使用即失效；正常使用不断，无需重签
   @idle_expiry_days 90
+  # learning_host 的明文前缀与哈希域标签（ADR-0022）。改动任一个都会让已签发的学习凭证全部失效
+  @learning_host_prefix "cgch_"
+  @learning_host_hash_domain "cgc-2046/mcp-token/learning_host\0"
   use Ash.Resource,
     data_layer: AshPostgres.DataLayer,
     extensions: [AshAdmin.Resource],
@@ -51,6 +60,15 @@ defmodule Cgc2046.Mcp.Token do
       public?: true,
       writable?: false,
       description: "所属用户（全局）ID"
+    )
+
+    attribute(:kind, :atom,
+      allow_nil?: false,
+      default: :terminal,
+      public?: true,
+      writable?: false,
+      constraints: [one_of: [:terminal, :learning_host]],
+      description: "凭证类型（ADR-0022）：terminal 用户自建；learning_host 配对签发给本机 Host，只能用学习工具"
     )
 
     attribute(:last_used_at, :utc_datetime,
@@ -98,6 +116,14 @@ defmodule Cgc2046.Mcp.Token do
       description("签发连接 token（仅本人；明文仅创建时经 metadata.plain_token 返回一次）")
       accept([:name])
 
+      argument(:kind, :atom,
+        allow_nil?: false,
+        default: :terminal,
+        constraints: [one_of: [:terminal, :learning_host]]
+      )
+
+      change(set_attribute(:kind, arg(:kind)))
+
       # 归属当前 actor；writable?: false 用 force_change_attribute 绕过（同 Invitation 范式）
       change(fn changeset, context ->
         case context.actor do
@@ -135,13 +161,15 @@ defmodule Cgc2046.Mcp.Token do
             )
             |> Ash.count!(authorize?: false)
 
+          # 稳定业务 code：页面据此提示先撤销不用的 token；学习凭证（ADR-0022）与终端 token 共用此上限
           if active_count >= @max_active_tokens_per_user do
             Ash.Changeset.add_error(
               changeset,
-              Ash.Error.Changes.InvalidAttribute.exception(
-                field: :name,
+              Cgc2046.Errors.BusinessError.exception(
                 message:
-                  "active connection token limit reached (#{@max_active_tokens_per_user}; active = unrevoked and not idle-expired); revoke an unused token first"
+                  "active connection token limit reached (#{@max_active_tokens_per_user}; active = unrevoked and not idle-expired); revoke an unused token first",
+                code: "mcp_token_limit_reached",
+                fields: [:name]
               )
             )
           else
@@ -150,13 +178,19 @@ defmodule Cgc2046.Mcp.Token do
         end
       end)
 
-      # 生成 token 并存储 hash；明文仅通过 metadata 一次性返回，不落库
+      # 生成 token 并存储 hash；明文仅通过 metadata 一次性返回，不落库。
+      # 明文前缀随 kind，哈希方式随前缀（hash_token/1，与 validate_token 同口径）
       change(fn changeset, _context ->
-        token = "cgc_" <> (:crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false))
-        token_hash = :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
+        prefix =
+          case Ash.Changeset.get_attribute(changeset, :kind) do
+            :learning_host -> @learning_host_prefix
+            _terminal -> "cgc_"
+          end
+
+        token = prefix <> (:crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false))
 
         changeset
-        |> Ash.Changeset.change_attribute(:token_hash, token_hash)
+        |> Ash.Changeset.change_attribute(:token_hash, hash_token(token))
         |> Ash.Changeset.put_context(:plain_token, token)
       end)
 
@@ -247,14 +281,17 @@ defmodule Cgc2046.Mcp.Token do
   @doc """
   签发连接 token，返回 `{:ok, token, plain}`——明文仅此一次交付，不落库。
 
+  `kind` 默认 `:terminal`；`:learning_host` 签发学习凭证（ADR-0022）。两类共用 active 上限。
+
   - 未认证 actor（nil）返回 `{:error, %Ash.Error.Forbidden{}}`
   - active token 达 `@max_active_tokens_per_user` 上限返回 `{:error, %Ash.Error.Invalid{}}`
+    （内含业务 code `mcp_token_limit_reached`）
   """
-  @spec issue(String.t(), Cgc2046.Accounts.User.t() | nil) ::
+  @spec issue(String.t(), Cgc2046.Accounts.User.t() | nil, :terminal | :learning_host) ::
           {:ok, __MODULE__.t(), String.t()} | {:error, term()}
-  def issue(name, actor) do
+  def issue(name, actor, kind \\ :terminal) do
     case __MODULE__
-         |> Ash.Changeset.for_create(:issue, %{name: name}, actor: actor)
+         |> Ash.Changeset.for_create(:issue, %{name: name, kind: kind}, actor: actor)
          |> Ash.create() do
       {:ok, token} ->
         {:ok, token, token.__metadata__[:plain_token]}
@@ -293,17 +330,23 @@ defmodule Cgc2046.Mcp.Token do
   end
 
   @doc """
-  按明文 token 校验并返回所属 user；无效/已撤销/连续闲置过期的 token 返回 `:error`。
+  按明文 token 校验，返回所属 user 与 token 行（调用方取 `kind` 与 `id`）；无效/已撤销/连续
+  闲置过期的 token 返回 `:error`。
+
+  哈希方式由明文前缀决定，且行上的 `kind` 必须与前缀相符（ADR-0022）：`cgch_` 明文只认
+  `learning_host` 行，其余明文只认 `terminal` 行。
 
   MCP 鉴权前置路径：token 本身即凭证，故绕 policy 查询（authorize?: false）。
   校验通过后异步触碰 `last_used_at`（失败不影响主路径）。
   """
-  @spec validate_token(String.t()) :: {:ok, Cgc2046.Accounts.User.t()} | :error
+  @spec validate_token(String.t()) ::
+          {:ok, Cgc2046.Accounts.User.t(), __MODULE__.t()} | :error
   def validate_token(plain) when is_binary(plain) do
-    hash = :crypto.hash(:sha256, plain) |> Base.encode16(case: :lower)
+    hash = hash_token(plain)
+    kind = kind_of(plain)
 
     case __MODULE__
-         |> Ash.Query.filter(token_hash == ^hash and is_nil(revoked_at))
+         |> Ash.Query.filter(token_hash == ^hash and kind == ^kind and is_nil(revoked_at))
          |> Ash.read_one(authorize?: false) do
       {:ok, nil} ->
         :error
@@ -315,7 +358,7 @@ defmodule Cgc2046.Mcp.Token do
           touch_last_used(token)
 
           case Ash.get(Cgc2046.Accounts.User, token.user_id, authorize?: false) do
-            {:ok, user} -> {:ok, user}
+            {:ok, user} -> {:ok, user, token}
             _ -> :error
           end
         end
@@ -326,6 +369,20 @@ defmodule Cgc2046.Mcp.Token do
   end
 
   def validate_token(_), do: :error
+
+  # 明文前缀 → kind；learning_host 的哈希带域分隔，terminal 保持明文直接 sha256（存量格式不变）
+  defp kind_of(@learning_host_prefix <> _), do: :learning_host
+  defp kind_of(_plain), do: :terminal
+
+  defp hash_token(plain) do
+    input =
+      case kind_of(plain) do
+        :learning_host -> @learning_host_hash_domain <> plain
+        :terminal -> plain
+      end
+
+    :crypto.hash(:sha256, input) |> Base.encode16(case: :lower)
+  end
 
   # 滚动过期（#222）：连续 @idle_expiry_days 天未使用即失效，锚点取 last_used_at
   # （从未使用回退 inserted_at）。过期为派生状态，惰性判定不写 revoked_at（那是

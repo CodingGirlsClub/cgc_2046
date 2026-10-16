@@ -72,6 +72,7 @@
     "reassignOwnerFailed": "重指派 Owner 失败",
     "issueMcpTokenFailed": "签发失败，请稍后重试",
     "revokeMcpTokenFailed": "撤销失败，请稍后重试",
+    "mcp_token_limit_reached": "有效的连接 token 已达上限（每人最多 10 个），请先撤销不再使用的 token 再签发。",
     "operation_confirm_failed": "确认执行失败或确认已过期，请重新发起操作。",
     "operation_cancel_failed": "取消失败：该操作可能已被确认或取消，请刷新后核对。",
     "operation_unavailable": "操作暂不可用，请稍后重试。",
@@ -4088,5 +4089,117 @@
     },
     "breadcrumbHome": "工作台",
     "retry": "重试"
+  },
+  "hostPairing": {
+    "title": "已配对的电脑",
+    "loading": "正在加载已配对的电脑…",
+    "loadFailed": "已配对的电脑加载失败",
+    "retry": "重试",
+    "empty": "还没有已配对的电脑",
+    "thisComputer": "本机这台",
+    "lastUsed": "最近使用：{time}",
+    "revoke": "撤销",
+    "revokeLabel": "撤销「{name}」",
+    "confirmRevoke": "确认撤销",
+    "confirmRevokeLabel": "确认撤销「{name}」",
+    "cancel": "取消",
+    "revoking": "撤销中…",
+    "revoked": "已撤销「{name}」",
+    "revokeFailed": "撤销失败，请稍后重试"
+  },
+  "hostChat": {
+    "title": "本机 agent",
+    "computers": "已配对的电脑",
+    "newChat": "新开对话",
+    "logLabel": "对话记录",
+    "attaching": "正在接上这门课的对话…",
+    "empty": "向你的 agent 提问吧。它知道你正在学这门课，以及你正在看的单元。",
+    "inputLabel": "发给 agent 的消息",
+    "placeholder": "Enter 发送，Shift+Enter 换行",
+    "send": "发送",
+    "stop": "停止",
+    "stopping": "正在停止…",
+    "workDir": "作业目录：{path}",
+    "thought": "思考过程",
+    "retry": "重试",
+    "state": {
+      "checking": "正在检测本机的 CGC Host…",
+      "unsupportedBrowser": "对话栏支持 macOS、Windows 与 Ubuntu 桌面上的 Chrome。",
+      "unsupportedBrowserHint": "请在 Chrome 里打开本页（macOS / Windows / Ubuntu 桌面）。",
+      "unsupportedAddress": "要连接本机的 CGC Host，请从 CGC 的正式地址打开本页。",
+      "openCanonical": "在正式地址打开",
+      "needsPermission": "需要允许本页访问这台电脑上的 CGC Host。",
+      "needsPermissionHint": "点击下面的按钮尝试连接；如果浏览器询问是否允许访问本机设备，请选择允许。",
+      "allowAccess": "允许访问本机",
+      "accessProbeFailed": "还没连上 CGC Host，尚不能确认本机访问权限。若出现权限提示，请选择允许；若没有提示，请确认已安装并启动 Host，再点击「允许访问本机」重试。",
+      "notInstalled": "尚未安装？",
+      "installBeforeAccess": "在终端运行下面的命令安装 CGC Host（Windows 请在 Git Bash 中运行），完成后点击「允许访问本机」重试。",
+      "staleHost": "这台电脑上的 CGC Host 版本过旧，需要更新。",
+      "staleHostHint": "在终端运行下面的命令更新（Windows 请在 Git Bash 中运行），完成后这里会自动重新检测。",
+      "noHost": "没有检测到 CGC Host。",
+      "noHostHint": "在终端运行下面的命令安装（Windows 请在 Git Bash 中运行），装好后这里会自动检测，不用刷新页面。",
+      "loginItemsHint": "已经装过？请检查系统里是否关掉了 CGC Host 的登录启动（macOS：系统设置 → 通用 → 登录项；Windows：任务管理器 → 启动）。",
+      "blocked": "浏览器阻止了本页访问本机。",
+      "blockedHint": "点击地址栏左侧的站点信息图标，在网站设置里允许本站访问本地网络，这里会自动重新检测。",
+      "noOmp": "这台电脑上找不到 OMP。",
+      "noOmpHint": "安装 OMP 后，这里会自动重新检测。",
+      "unpaired": "把这台电脑上的 CGC Host 与你的账号配对后，就能在这里和你自己的 agent 对话。",
+      "connect": "连接",
+      "confirming": "请在电脑上弹出的确认框里选择允许。",
+      "cancel": "取消",
+      "denied": "你在电脑上拒绝了配对。",
+      "retry": "重新连接",
+      "disconnected": "与本机 Host 的连接中断了，Host 恢复后会自动重连。",
+      "evicted": "这门课的对话已在别处（另一个标签页）打开。",
+      "reclaim": "在这里继续"
+    },
+    "pairingError": {
+      "busy": "电脑上已有一个确认在等待处理，请稍后再试。",
+      "invalidToken": "平台不认这枚学习凭证，请重新连接。",
+      "platformUnavailable": "暂时连不上 CGC 平台，请稍后再试。",
+      "notPaired": "这台电脑还没有配对，请重新连接。",
+      "timeout": "等待电脑上的确认超时了。",
+      "disconnected": "配对时与本机 Host 的连接断开了。",
+      "tokenLimit": "有效的连接 token 已达每人 10 枚的上限，请先在「已配对的电脑」或 MCP 设置里撤销不再使用的。",
+      "failed": "配对没有成功，请重试。"
+    },
+    "error": {
+      "chatUnavailable": "本机 agent 没能启动，请确认 OMP 能在终端里正常运行。",
+      "busy": "上一轮还没结束，请稍后再发。",
+      "timeout": "本机 Host 没有及时响应，请重试。",
+      "failed": "出错了，请重试。"
+    },
+    "toolStatus": {
+      "pending": "等待中",
+      "in_progress": "进行中",
+      "completed": "完成",
+      "failed": "失败",
+      "stopped": "已停止"
+    },
+    "end": {
+      "cancelled": "已停止这一轮。",
+      "error": "这一轮异常结束了。"
+    },
+    "modelError": {
+      "authTitle": "模型认证失败",
+      "authHint": "模型的 API 密钥可能已失效。请在终端打开 OMP，检查模型配置（API 密钥或登录状态）后再试。",
+      "quotaTitle": "模型额度用尽或被限流",
+      "quotaHint": "请检查模型服务的额度与账单，或在 OMP 里换一个模型后再试。",
+      "raw": "查看原始错误",
+      "unknownHint": "这一轮没有产生模型用量，可能是模型配置问题，可以在 OMP 里检查模型配置。"
+    },
+    "card": {
+      "permission": "需要你的确认",
+      "input": "命令与参数",
+      "alwaysAllowNote": "「{name}」：本次对话中不再询问此类操作（重启后需重新确认）",
+      "question": "agent 在问你",
+      "submit": "提交",
+      "skip": "跳过"
+    },
+    "command": {
+      "copy": "复制命令",
+      "copied": "已复制",
+      "copyFailed": "复制失败，请手动选中命令复制。"
+    }
   }
 }

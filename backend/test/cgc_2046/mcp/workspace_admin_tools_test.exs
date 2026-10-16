@@ -20,7 +20,6 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
   use Cgc2046.DataCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
 
-  alias Anubis.Server.Frame
   alias Cgc2046.Accounts.{AdminActionLog, Workspace}
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Admission.Enrollment
@@ -47,6 +46,7 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
     WaivePayment
   }
 
+  alias Cgc2046.McpFrames
   alias Cgc2046.Payments.Order
   alias Cgc2046.Payments.Workers.PaymentRefundWorker
 
@@ -72,7 +72,7 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
     "update_join_policy" => UpdateJoinPolicy
   }
 
-  defp frame_for(user), do: Frame.new(current_user: user)
+  defp frame_for(user), do: McpFrames.terminal(user)
 
   defp decode_reply({:reply, response, _frame}) do
     [content] = response.content

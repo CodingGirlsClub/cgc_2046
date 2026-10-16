@@ -146,7 +146,7 @@ export default function WorkspaceAgentsPage() {
 			.then(([activityResult, tokens]) => {
 				if (cancelled) return;
 				setActivity(activityResult);
-				setHasActiveToken(tokens.some((t: McpTokenItem) => t.status === "active"));
+				setHasActiveToken(tokens.some((t: McpTokenItem) => t.kind === "TERMINAL" && t.status === "active"));
 				setLoadedWsId(wsId);
 				setErrorMsg(null);
 			})

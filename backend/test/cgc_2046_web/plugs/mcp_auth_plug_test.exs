@@ -2,7 +2,7 @@ defmodule Cgc2046Web.Plugs.McpAuthPlugTest do
   @moduledoc """
   MCP Bearer 鉴权 plug 测试（D13）：
 
-  - 有效 token → assign(:current_user, user)
+  - 有效 token → assign(:current_user, user) 与 assign(:mcp_token_kind, kind)
   - 缺失/格式错误/无效/已撤销 → 401 + WWW-Authenticate
   """
   # async: false —— 401 失败路径会累计 McpAuthPlug 节流计数（全局 ETS 表），
@@ -36,6 +36,21 @@ defmodule Cgc2046Web.Plugs.McpAuthPlugTest do
 
     refute conn.halted
     assert conn.assigns[:current_user].id == user.id
+    assert conn.assigns[:mcp_token_kind] == :terminal
+  end
+
+  test "learning_host token → current_user 与 kind 一并注入" do
+    user = Fixtures.register_user("mcp-plug-learning-host")
+    {:ok, _token, plain} = Token.issue("plug test", user, :learning_host)
+
+    conn =
+      build_conn()
+      |> put_req_header("authorization", "Bearer #{plain}")
+      |> call()
+
+    refute conn.halted
+    assert conn.assigns[:current_user].id == user.id
+    assert conn.assigns[:mcp_token_kind] == :learning_host
   end
 
   test "无 Authorization header → 401 + WWW-Authenticate" do

@@ -28,7 +28,6 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
   use Cgc2046.DataCase, async: false
   use Oban.Testing, repo: Cgc2046.Repo
 
-  alias Anubis.Server.Frame
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Courses.Course
   alias Cgc2046.Curriculum.{CourseRevision, Output, Prep, PrepGate, PrepInstantiator}
@@ -53,6 +52,7 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
     UpdatePrepPolicy
   }
 
+  alias Cgc2046.McpFrames
   alias Cgc2046.MiniprogramFixtures.Barrier
   alias Cgc2046.Repo
 
@@ -78,7 +78,7 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
     "request_changes_prep" => RequestChangesPrep
   }
 
-  defp frame_for(user), do: Frame.new(current_user: user)
+  defp frame_for(user), do: McpFrames.terminal(user)
 
   defp decode({:reply, response, _frame}) do
     [content] = response.content

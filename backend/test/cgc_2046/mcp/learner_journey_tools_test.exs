@@ -25,7 +25,6 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
   """
   use Cgc2046.DataCase, async: false
 
-  alias Anubis.Server.Frame
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Courses.Course
@@ -42,6 +41,7 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
     GetOrderStatus
   }
 
+  alias Cgc2046.McpFrames
   alias Cgc2046.Payments.Order
   alias Cgc2046.Repo
 
@@ -49,7 +49,7 @@ defmodule Cgc2046.Mcp.LearnerJourneyToolsTest do
 
   @paid_tier_id "33333333-3333-3333-3333-333333333333"
 
-  defp frame_for(user), do: Frame.new(current_user: user)
+  defp frame_for(user), do: McpFrames.terminal(user)
 
   defp decode_reply({:reply, response, _frame}) do
     [content] = response.content

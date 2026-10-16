@@ -52,6 +52,7 @@ defmodule Cgc2046.Courses.CourseProjection do
       {:ok,
        %{
          course_id: course.id,
+         workspace_id: course.workspace_id,
          title: course.title,
          slug: course.slug,
          run: state.run,

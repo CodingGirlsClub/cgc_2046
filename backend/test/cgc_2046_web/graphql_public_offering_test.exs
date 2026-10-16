@@ -9,7 +9,6 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
 
   use Cgc2046Web.ConnCase, async: true
 
-  alias Anubis.Server.Frame
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Curriculum.CourseRevision
   alias Cgc2046.Events.Event
@@ -17,6 +16,7 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
   alias Cgc2046.Initiatives.{Initiative, InitiativeRule}
   alias Cgc2046.Mcp.Tools.GetPublicOffering
   alias Cgc2046.Mcp.Tools.ListPublicOfferings
+  alias Cgc2046.McpFrames
 
   defp event_query(slug) do
     """
@@ -763,7 +763,7 @@ defmodule Cgc2046Web.GraphqlPublicOfferingTest do
 
   # ── U3 parity 契约（KTD2：工具返回 == 匿名 GraphQL，逐字段同值）──
 
-  defp frame_for(user), do: Frame.new(current_user: user)
+  defp frame_for(user), do: McpFrames.terminal(user)
 
   defp decode_tool({:reply, response, _frame}) do
     [content] = response.content

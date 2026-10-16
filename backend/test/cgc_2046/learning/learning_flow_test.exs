@@ -19,13 +19,12 @@ defmodule Cgc2046.Learning.LearningFlowTest do
   use Cgc2046.DataCase, async: true
   use Oban.Testing, repo: Cgc2046.Repo
 
-  alias Anubis.Server.Frame
-
   alias Cgc2046.Accounts.Role
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Mcp.Tools.SaveStepOutput
+  alias Cgc2046.McpFrames
   alias Cgc2046.Workflows.SignalIdempotency
   alias Cgc2046.Workflows.SignalSubscriber
   alias Cgc2046.Learning.LearningProgressWorker
@@ -133,7 +132,7 @@ defmodule Cgc2046.Learning.LearningFlowTest do
 
     params = if reason, do: Map.put(params, "reason", reason), else: params
 
-    SaveStepOutput.execute(params, Frame.new(current_user: user))
+    SaveStepOutput.execute(params, McpFrames.terminal(user))
   end
 
   defp decode_reply({:reply, response, _frame}) do

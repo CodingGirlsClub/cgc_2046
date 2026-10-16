@@ -58,6 +58,7 @@ const RUN_STALE: MyLearningRun = {
 
 const DETAIL: CourseLearningDetail = {
 	courseId: "course-1",
+	workspaceId: "ws-1",
 	title: "Python 入门",
 	slug: "python-intro",
 	run: {

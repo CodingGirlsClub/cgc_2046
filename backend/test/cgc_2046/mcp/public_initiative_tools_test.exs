@@ -1,11 +1,11 @@
 defmodule Cgc2046.Mcp.PublicInitiativeToolsTest do
   use Cgc2046.DataCase, async: true
 
-  alias Anubis.Server.Frame
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Initiatives.{Initiative, InitiativeRule}
   alias Cgc2046.Mcp.Tools.{GetPublicInitiative, ListPublicInitiatives}
+  alias Cgc2046.McpFrames
 
   @venue %{"country" => "中国", "province" => "湖南", "city" => "长沙", "district" => "岳麓"}
 
@@ -43,7 +43,7 @@ defmodule Cgc2046.Mcp.PublicInitiativeToolsTest do
     admin = Fixtures.platform_admin("mcp-public-initiative")
     initiative = open_initiative(admin, "mcp-public-initiative")
     outsider = Fixtures.register_user("mcp-public-outsider")
-    frame = Frame.new(current_user: outsider)
+    frame = McpFrames.terminal(outsider)
 
     assert {:reply, _, _} = reply = ListPublicInitiatives.execute(%{}, frame)
     assert Enum.any?(decode(reply)["initiatives"], &(&1["slug"] == initiative.slug))
@@ -73,7 +73,7 @@ defmodule Cgc2046.Mcp.PublicInitiativeToolsTest do
       venue: @venue
     })
 
-    frame = Frame.new(current_user: Fixtures.register_user("mcp-public-parity-outsider"))
+    frame = McpFrames.terminal(Fixtures.register_user("mcp-public-parity-outsider"))
 
     assert {:reply, _, _} =
              mcp_reply = GetPublicInitiative.execute(%{"slug" => initiative.slug}, frame)
@@ -113,7 +113,7 @@ defmodule Cgc2046.Mcp.PublicInitiativeToolsTest do
       venue: @venue
     })
 
-    frame = Frame.new(current_user: Fixtures.register_user("mcp-public-privacy-outsider"))
+    frame = McpFrames.terminal(Fixtures.register_user("mcp-public-privacy-outsider"))
 
     assert {:reply, _, _} = list_reply = ListPublicInitiatives.execute(%{}, frame)
 

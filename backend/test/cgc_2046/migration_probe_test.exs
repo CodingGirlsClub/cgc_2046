@@ -14,6 +14,9 @@ defmodule Cgc2046.MigrationProbeTest do
   2. **T2 前置检查诊断 + 原子性**：删掉**最后一条**改名对的目标索引（两名皆缺）⇒
      `up` 抛错且消息含 `expected` / `actual` 两段；同迁移先成功的前几条改名必须整体
      回滚（5 条同事务，不留半改名中间态）。
+  3. **T3 回滚不提权（ADR-0022）**：`add_token_kind` 的 `down` 先撤销全部未撤销的
+     `learning_host` 凭证、再删 `kind` / `token_kind` 两列——删列后旧版代码分不出凭证类型；
+     重新 `up` 时存量行取默认值 `terminal`，已撤销的行保持撤销。
 
   ## 覆盖范围与 opt-in
 
@@ -135,6 +138,61 @@ defmodule Cgc2046.MigrationProbeTest do
     end
   end
 
+  test "T3 add_token_kind 的 down 先撤销 learning_host 凭证再删列；重新 up 后存量行取 terminal",
+       %{repo: repo, migrations: migrations} do
+    assert {version, _module} =
+             migration = List.keyfind(migrations, Cgc2046.Repo.Migrations.AddTokenKind, 1)
+
+    %{rows: [[user_id]]} =
+      with_repo(repo, fn ->
+        Cgc2046.Repo.query!("INSERT INTO users DEFAULT VALUES RETURNING id")
+      end)
+
+    revoked_before = ~N[2026-10-01 00:00:00]
+
+    for {hash, kind, revoked_at} <- [
+          {"probe-terminal", "terminal", nil},
+          {"probe-learning-host", "learning_host", nil},
+          {"probe-learning-host-revoked", "learning_host", revoked_before}
+        ] do
+      with_repo(repo, fn ->
+        Cgc2046.Repo.query!(
+          """
+          INSERT INTO mcp_tokens (id, token_hash, name, user_id, kind, revoked_at, inserted_at, updated_at)
+          VALUES (gen_random_uuid(), $1, 'probe', $2, $3, $4,
+                  now() AT TIME ZONE 'utc', now() AT TIME ZONE 'utc')
+          """,
+          [hash, user_id, kind, revoked_at]
+        )
+      end)
+    end
+
+    assert kind_columns(repo) == ["mcp_tokens.kind", "mcp_tool_call_logs.token_kind"]
+
+    assert [^version] =
+             Ecto.Migrator.run(Cgc2046.Repo, [migration], :down,
+               all: true,
+               dynamic_repo: repo,
+               log: false
+             )
+
+    assert kind_columns(repo) == []
+
+    revoked = token_revocations(repo)
+    assert is_nil(revoked["probe-terminal"])
+    assert %NaiveDateTime{} = revoked["probe-learning-host"]
+    # 已撤销的行不改写撤销时间（撤销时间是审计事实）
+    assert revoked["probe-learning-host-revoked"] == revoked_before
+
+    assert [^version] = migrate!(repo, [migration])
+
+    %{rows: kinds} =
+      with_repo(repo, fn -> Cgc2046.Repo.query!("SELECT DISTINCT kind FROM mcp_tokens") end)
+
+    assert kinds == [["terminal"]]
+    assert token_revocations(repo) == revoked
+  end
+
   # --- 探针基建 ----------------------------------------------------------------
 
   # 主 Repo 的管理面 DDL（CREATE/DROP DATABASE）须在 sandbox 包装事务外执行
@@ -206,6 +264,31 @@ defmodule Cgc2046.MigrationProbeTest do
     for {version, module} <- migrations, function_exported?(module, :renames, 0) do
       {version, module, apply(module, :renames, [])}
     end
+  end
+
+  # T3：add_token_kind 新增的两列（存在的才列出）
+  defp kind_columns(repo) do
+    %{rows: rows} =
+      with_repo(repo, fn ->
+        Cgc2046.Repo.query!("""
+        SELECT table_name || '.' || column_name FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND ((table_name = 'mcp_tokens' AND column_name = 'kind')
+            OR (table_name = 'mcp_tool_call_logs' AND column_name = 'token_kind'))
+        ORDER BY 1
+        """)
+      end)
+
+    List.flatten(rows)
+  end
+
+  defp token_revocations(repo) do
+    %{rows: rows} =
+      with_repo(repo, fn ->
+        Cgc2046.Repo.query!("SELECT token_hash, revoked_at FROM mcp_tokens")
+      end)
+
+    Map.new(rows, fn [hash, revoked_at] -> {hash, revoked_at} end)
   end
 
   defp renamed?(repo, table, from, to) do

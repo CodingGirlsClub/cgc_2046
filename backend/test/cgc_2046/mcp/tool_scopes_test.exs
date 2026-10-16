@@ -68,6 +68,16 @@ defmodule Cgc2046.Mcp.ToolScopesTest do
     end
   end
 
+  describe "学习凭证名单（ADR-0022）" do
+    test "实现常量 = 人工钉死的名单" do
+      assert Enum.sort(Scopes.learning_host_tools()) == Tiers.learning_host()
+    end
+
+    test "名单 ⊆ 全员可见层：任何角色的学习凭证都能看到全部学习工具" do
+      assert Tiers.learning_host() -- Tiers.all_visible() == []
+    end
+  end
+
   describe "两套声明不漂移" do
     test "meta: %{membership: :platform_admin} ⇔ scopes: [\"platform_admin\"]" do
       by_meta =
