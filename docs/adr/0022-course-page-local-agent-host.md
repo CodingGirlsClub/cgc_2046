@@ -19,7 +19,7 @@ BYO（ADR-0001）让学员用自己电脑上的 agent 和模型额度学习，�
 - **页面与 Host 之间是一条本机 WebSocket（KTD4、KTD10）。** Host 只监听 `127.0.0.1` 的固定端口；可信站点来源与平台 API 地址在构建时写死，任何 RPC 都改不了；方法是固定白名单，以 `cgc-host/protocol.json` 为准。网站 CSP 在站点级放行恰好两条 loopback 来源。
 - **Host 以 JS 包形态分发，由学员本机的 Bun 运行（KTD1）。** Bun 的单二进制会把 LGPL-2 的 JavaScriptCore 静态链接进发布物，违反 `docs/开源合规/依赖引入规则.md` §4；改用 JS 包后走进程边界，并沿用扩展的 `ext` 产物通道分发。
 - **课程工作目录与终端插件的工作区合并成一棵树（2026-10-16 修订 KTD6）。** 课程目录由 `~/CGC/<userId>/<courseId>` 改为 `~/cgc2046_workspace/courses/<userId>/<courseId>`：`~/cgc2046_workspace` 是终端插件引导学员使用的工作区，Host 的 OMP 进程 cwd 也在此，学员只需记一个目录。课程目录在其下单独一层，不落在工作区根——OMP 会话按 canonical cwd 分桶，若课程 cwd 等于工作区根，学员自己在终端开的会话会被 `session/list` 列为这门课的对话，正是 KTD6 否决过的做法。两个 id 仍取 Host 核实过的 UUID，页面给的字符串进不了路径。修订时 Host 尚未对外发布，无历史数据迁移。
-  - 工作区名与 `courses/` 这一层在 `cgc-host/src/state.ts`（`WORKSPACE_DIR` / `COURSES_DIR`）与 `omp-plugin/cgc-2046` 的 `/cgc` 引导里各写一份：跨包无编译期共享，路径契约由 `web/lib/host-connection.test.ts` 读 Host 源码钉住。
+  - 工作区名与 `courses/` 这一层在 `cgc-host/src/state.ts`（`WORKSPACE_DIR` / `COURSES_DIR`）与 `omp-plugin/cgc-2046` 的 `/cgc` 引导里各写一份：跨包无编译期共享，两侧的字面量由测试钉住——插件侧由 `cgc-host/test/security.test.ts` 读其源码断言同名，页面显示侧由 `web/lib/host-connection.test.ts` 读 Host 源码断言同一棵树。
 
 否决的路线：
 

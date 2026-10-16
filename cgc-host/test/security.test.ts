@@ -1,9 +1,10 @@
 // security.test.ts — 只服务本机、只服务 CGC 站点（R22、R23、KTD4；Covers AE8），以及进入路径与平台备注的值的校验
 import { afterEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { SITE_ORIGIN } from "../src/config";
 import { sanitizeDeviceName } from "../src/security";
-import { workDir } from "../src/state";
+import { WORKSPACE_DIR, workDir } from "../src/state";
 import { COURSE, cleanup, connect, HOST_ROOT, startHost, USER_A } from "./helpers";
 
 afterEach(cleanup);
@@ -91,6 +92,14 @@ test("KTD6. 课程工作目录 ~/cgc2046_workspace/courses/<userId>/<courseId> �
     expect(() => workDir("/home/x", USER_A, bad)).toThrow();
     expect(() => workDir("/home/x", bad, COURSE)).toThrow();
   }
+});
+
+test("KTD6. 终端插件的工作区名与 Host 的 WORKSPACE_DIR 一致（跨包无共享，读源码钉住）", () => {
+  const dir = new URL("../../omp-plugin/cgc-2046/extensions/", import.meta.url);
+  const source = readFileSync(new URL("cgc-command.ts", dir), "utf8");
+  // 插件的 /cgc 用这个字面量判断「在不在工作目录」，两边必须同名：否则学员按插件引导进去，Host 却把课程建在别处
+  expect(source).toContain(`const workspaceDir = "~/${WORKSPACE_DIR}";`);
+  expect(source).toContain(`currentDir.endsWith("/${WORKSPACE_DIR}")`);
 });
 
 test("设备名（成为平台 token 备注）去掉控制字符，按码点截到 80（平台备注上限）", () => {
