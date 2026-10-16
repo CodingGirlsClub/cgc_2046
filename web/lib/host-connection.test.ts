@@ -27,6 +27,7 @@ const CANONICAL = "https://codingirlsclub.com";
 function stubBrowser({
 	origin = CANONICAL,
 	platform = "macOS" as string | null,
+	userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
 	permissions = true,
 	permission = "granted" as PermissionState | "TypeError",
 	health = { version: MIN_HOST_VERSION, ompPresent: true, paired: true } as
@@ -42,6 +43,7 @@ function stubBrowser({
 		return { state: permission };
 	});
 	vi.stubGlobal("navigator", {
+		userAgent,
 		...(platform === null ? {} : { userAgentData: { platform } }),
 		...(permissions ? { permissions: { query: permissionQuery } } : {}),
 	});
@@ -98,7 +100,7 @@ describe("checkHost（页面加载即可调用；未授权时不发本机请求�
 	});
 
 	it.each([
-		["无 userAgentData（Safari、Firefox；Safari 有 permissions API 也一样）", null],
+		["无 userAgentData 且 UA 不含 Firefox（Safari 等；有 permissions API 也一样）", null],
 		["ChromeOS 或移动 Chromium", "Android"],
 	])("不支持的浏览器：%s → 不受支持（browser），不查权限也不碰本机", async (_, platform) => {
 		const { permissionQuery, fetchMock } = stubBrowser({ platform });
@@ -173,6 +175,42 @@ describe("checkHost（页面加载即可调用；未授权时不发本机请求�
 			ompPresent: false,
 			paired: true,
 		});
+	});
+});
+
+describe("桌面 Firefox（无 UA Client Hints、无浏览器级回环权限模型）", () => {
+	const FF = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:157.0) Gecko/20100101 Firefox/157.0";
+
+	it("不查权限、直接探测；Host 可达 → detected", async () => {
+		const { permissionQuery, fetchMock } = stubBrowser({ platform: null, userAgent: FF });
+		expect(await checkHost()).toMatchObject({ state: "detected" });
+		expect(permissionQuery).not.toHaveBeenCalled();
+		expect(fetchMock).toHaveBeenCalledOnce();
+	});
+
+	it("Host 未运行 → noHost（不是 needsPermission，不出现无意义的「允许访问本机」引导）", async () => {
+		const { permissionQuery, fetchMock } = stubBrowser({ platform: null, userAgent: FF, health: "unreachable" });
+		expect(await checkHost()).toEqual({ state: "noHost" });
+		expect(permissionQuery).not.toHaveBeenCalled();
+		expect(fetchMock).toHaveBeenCalledOnce();
+	});
+
+	it("requestHostAccess 同路径：直接探测，无权限查询", async () => {
+		const { permissionQuery } = stubBrowser({ platform: null, userAgent: FF });
+		expect(await requestHostAccess()).toMatchObject({ state: "detected" });
+		expect(permissionQuery).not.toHaveBeenCalled();
+	});
+
+	it("Firefox Android / Mobile → 不受支持（browser）", async () => {
+		const { fetchMock } = stubBrowser({ platform: null, userAgent: "Mozilla/5.0 (Android 14; Mobile; rv:157.0) Gecko/157.0 Firefox/157.0" });
+		expect(await checkHost()).toEqual({ state: "unsupported", reason: "browser" });
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("Safari（有 permissions、无 userAgentData、UA 无 Firefox 令牌）→ 不受支持", async () => {
+		const { fetchMock } = stubBrowser({ platform: null, userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/19.0 Safari/605.1.15" });
+		expect(await checkHost()).toEqual({ state: "unsupported", reason: "browser" });
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });
 

@@ -4124,8 +4124,8 @@
     "retry": "Retry",
     "state": {
       "checking": "Looking for CGC Host on this computer…",
-      "unsupportedBrowser": "The chat panel works in Chrome on macOS, Windows, and Ubuntu desktops.",
-      "unsupportedBrowserHint": "Open this page in Chrome on macOS, Windows, or an Ubuntu desktop.",
+      "unsupportedBrowser": "The chat panel works in Chrome on macOS, Windows, and Ubuntu desktops, and in desktop Firefox.",
+      "unsupportedBrowserHint": "Open this page in Chrome (macOS, Windows, or Ubuntu desktop) or in desktop Firefox.",
       "unsupportedAddress": "To connect to CGC Host on this computer, open this page from CGC's official address.",
       "openCanonical": "Open at the official address",
       "needsPermission": "This page needs permission to reach CGC Host on this computer.",

@@ -4124,8 +4124,8 @@
     "retry": "重试",
     "state": {
       "checking": "正在检测本机的 CGC Host…",
-      "unsupportedBrowser": "对话栏支持 macOS、Windows 与 Ubuntu 桌面上的 Chrome。",
-      "unsupportedBrowserHint": "请在 Chrome 里打开本页（macOS / Windows / Ubuntu 桌面）。",
+      "unsupportedBrowser": "对话栏支持 macOS、Windows 与 Ubuntu 桌面上的 Chrome，以及桌面版 Firefox。",
+      "unsupportedBrowserHint": "请在 Chrome（macOS / Windows / Ubuntu 桌面）或桌面版 Firefox 里打开本页。",
       "unsupportedAddress": "要连接本机的 CGC Host，请从 CGC 的正式地址打开本页。",
       "openCanonical": "在正式地址打开",
       "needsPermission": "需要允许本页访问这台电脑上的 CGC Host。",
