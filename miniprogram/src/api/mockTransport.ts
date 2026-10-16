@@ -5,6 +5,7 @@ import type { RequestDocument } from 'graphql-request'
 // 见 src/domain/entry.ts 的 './share-route.ts'。
 import { venueCityDistrictText } from '../domain/format.ts'
 import { TODAY_FIELDS } from '../domain/flashback.ts'
+import { hostWxStorage } from '../domain/host-storage.ts'
 
 const workspace = {
   id: 'workspace-1',
@@ -177,7 +178,7 @@ interface MockEnrollment {
   registrationDeadline: string | null
 }
 
-let loggedIn = wxStorage()?.getStorageSync('cgc.auth_token') === 'e2e-mock-token'
+let loggedIn = hostWxStorage()?.getStorageSync('cgc.auth_token') === 'e2e-mock-token'
 const inboxRows: Record<string, Array<{ id: string; type: string; title: string; body: string; insertedAt: string; readAt: string | null; deepLink: string | null }>> = {
   'user-1': Array.from({ length: 23 }, (_, i) => ({ id: `mock-inbox-a-${String(i).padStart(2, '0')}`, type: 'event_reminder',
     title: `活动提醒 ${i + 1}`, body: '合成验收数据：请查看活动的开始安排。', insertedAt: new Date(Date.now() - i * 60_000).toISOString(), readAt: null, deepLink: '/pages/my-enrollments/index' })),
@@ -185,7 +186,7 @@ const inboxRows: Record<string, Array<{ id: string; type: string; title: string;
 }
 const INBOX_MOCK_STATE = 'cgc.e2e.notification_backend.v1'
 function inboxState(): typeof inboxRows {
-  const saved = wxStorage()?.getStorageSync(INBOX_MOCK_STATE)
+  const saved = hostWxStorage()?.getStorageSync(INBOX_MOCK_STATE)
   return typeof saved === 'string' && saved ? JSON.parse(saved) as typeof inboxRows : inboxRows
 }
 
@@ -325,20 +326,10 @@ const FLASHBACK_INITIAL_STATE: FlashbackMockState = {
   wishComments: { 'w-1': [{ id: 'c-1', content: '算我一个', insertedAt: '2026-09-17T00:00:00Z' }] }
 }
 
-interface WxLikeStorage {
-  getStorageSync(key: string): unknown
-  setStorageSync(key: string, value: string): void
-}
-
-function wxStorage(): WxLikeStorage | null {
-  const scope = globalThis as { wx?: WxLikeStorage }
-  return scope.wx ?? null
-}
-
 // 持久态恢复：形状不符（旧版本/手改脏数据）整体回落初始——fail-closed，不做部分合并
 function loadFlashbackState(): FlashbackMockState {
   try {
-    const raw = wxStorage()?.getStorageSync(FLASHBACK_MOCK_STATE)
+    const raw = hostWxStorage()?.getStorageSync(FLASHBACK_MOCK_STATE)
     if (typeof raw !== 'string' || !raw) return FLASHBACK_INITIAL_STATE
     const parsed = JSON.parse(raw) as FlashbackMockState
     const valid =
@@ -382,7 +373,7 @@ function loadFlashbackState(): FlashbackMockState {
 
 function saveFlashbackState(state: FlashbackMockState): void {
   try {
-    wxStorage()?.setStorageSync(FLASHBACK_MOCK_STATE, JSON.stringify(state))
+    hostWxStorage()?.setStorageSync(FLASHBACK_MOCK_STATE, JSON.stringify(state))
   } catch {
     // 无 wx storage（node --test）：仅模块态，进程内仍一致
   }
@@ -410,7 +401,7 @@ function e2eFlag(key: string): boolean {
   // module-level override(node --test 优先,storage 兜底——e2e weapp 流程未起 wx 模块)
   if (e2eModuleFlags[key] !== undefined) return e2eModuleFlags[key] === true
   try {
-    return wxStorage()?.getStorageSync(key) === '1'
+    return hostWxStorage()?.getStorageSync(key) === '1'
   } catch {
     return false
   }
@@ -636,7 +627,7 @@ function flashbackRosterCities(mySentAt: string | null): string[] {
 // 清 storage 必须等价于完全重置——有 storage 时每次读都从 storage 载入；
 // node --test 无 storage，回落模块态（进程内一致）。
 function flashbackState(): FlashbackMockState {
-  return wxStorage() ? loadFlashbackState() : flashback
+  return hostWxStorage() ? loadFlashbackState() : flashback
 }
 
 function updateFlashbackState(patch: (state: FlashbackMockState) => FlashbackMockState): FlashbackMockState {
@@ -755,7 +746,7 @@ function responseFor(document: string, variables: object): unknown {
     const row = state[inboxAccount()].find(row => row.id === values.id)
     if (!row) return { markNotificationRead: { result: null, errors: [{ message: '记录不存在', code: 'not_found' }] } }
     row.readAt ??= new Date().toISOString()
-    wxStorage()?.setStorageSync(INBOX_MOCK_STATE, JSON.stringify(state))
+    hostWxStorage()?.setStorageSync(INBOX_MOCK_STATE, JSON.stringify(state))
     return { markNotificationRead: { result: row, errors: [] } }
   }
 
@@ -1250,7 +1241,7 @@ function responseFor(document: string, variables: object): unknown {
   }
   if (document.includes('query FlashbackCapsule')) {
     if (e2eFlag('cgc.e2e.flashback_capsule_fail_next')) {
-      wxStorage()?.setStorageSync('cgc.e2e.flashback_capsule_fail_next', '0')
+      hostWxStorage()?.setStorageSync('cgc.e2e.flashback_capsule_fail_next', '0')
       return { errors: [{ message: '合成档案读取失败', code: 'internal_error' }] }
     }
     const state = flashbackState()
@@ -1489,8 +1480,8 @@ function responseFor(document: string, variables: object): unknown {
     }
     flashbackUnclaimed = false
     try {
-      wxStorage()?.setStorageSync(FLASHBACK_UNCLAIMED_KEY, '0')
-      wxStorage()?.setStorageSync(FLASHBACK_CLAIM_MISS_KEY, '0')
+      hostWxStorage()?.setStorageSync(FLASHBACK_UNCLAIMED_KEY, '0')
+      hostWxStorage()?.setStorageSync(FLASHBACK_CLAIM_MISS_KEY, '0')
     } catch {
       // node --test 无 storage：模块态已置位
     }
@@ -1515,8 +1506,8 @@ function responseFor(document: string, variables: object): unknown {
     flashbackClaimedTokens.add(token)
     flashbackUnclaimed = false
     try {
-      wxStorage()?.setStorageSync(FLASHBACK_UNCLAIMED_KEY, '0')
-      wxStorage()?.setStorageSync(FLASHBACK_CLAIM_MISS_KEY, '0')
+      hostWxStorage()?.setStorageSync(FLASHBACK_UNCLAIMED_KEY, '0')
+      hostWxStorage()?.setStorageSync(FLASHBACK_CLAIM_MISS_KEY, '0')
     } catch {
       // node --test 无 storage：模块态已置位
     }
@@ -1534,8 +1525,8 @@ function responseFor(document: string, variables: object): unknown {
     // 删除后该账号再无档案：会话腿读胶囊报 not_bound、认领不命中（与后端同形）
     flashbackUnclaimed = true
     try {
-      wxStorage()?.setStorageSync(FLASHBACK_UNCLAIMED_KEY, '1')
-      wxStorage()?.setStorageSync(FLASHBACK_CLAIM_MISS_KEY, '1')
+      hostWxStorage()?.setStorageSync(FLASHBACK_UNCLAIMED_KEY, '1')
+      hostWxStorage()?.setStorageSync(FLASHBACK_CLAIM_MISS_KEY, '1')
     } catch {
       // node --test 无 storage：模块态已置位
     }
@@ -1566,8 +1557,8 @@ function responseFor(document: string, variables: object): unknown {
       return { errors: [{ message: '合成匹配请求失败', code: 'internal_error' }] }
     }
     if (e2eFlag('cgc.e2e.flashback_recovery_fail_after_claim')) {
-      wxStorage()?.setStorageSync('cgc.e2e.flashback_recovery_fail_after_claim', '0')
-      wxStorage()?.setStorageSync('cgc.e2e.flashback_capsule_fail_next', '1')
+      hostWxStorage()?.setStorageSync('cgc.e2e.flashback_recovery_fail_after_claim', '0')
+      hostWxStorage()?.setStorageSync('cgc.e2e.flashback_capsule_fail_next', '1')
     }
     // claim_miss 开关：模拟库里没有匹配（bound:false → 前端给找回引导）
     if (e2eFlag(FLASHBACK_CLAIM_MISS_KEY)) {
@@ -1579,7 +1570,7 @@ function responseFor(document: string, variables: object): unknown {
     // storage 不清会让后续 capsule 会话腿仍报 not_bound，前端认领循环）
     flashbackUnclaimed = false
     try {
-      wxStorage()?.setStorageSync(FLASHBACK_UNCLAIMED_KEY, '0')
+      hostWxStorage()?.setStorageSync(FLASHBACK_UNCLAIMED_KEY, '0')
     } catch {
       // node --test 无 storage：模块态已复位
     }

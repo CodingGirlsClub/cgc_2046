@@ -1,3 +1,5 @@
+import { hostWxStorage } from '../domain/host-storage.ts'
+
 /** Public, synthetic voices for deterministic simulator acceptance only. */
 const samples = [
   ['voice-beijing', '北京', '我想成为一个，敢说「我不会，但我可以学」的人。', '王** · 2014 · 北京', 32],
@@ -24,7 +26,7 @@ export function mockVoicesRequest(document: string, variables: object): unknown 
     { name: '上海', pinyin: 'shanghai', fullName: '上海市', lngLat: [121.474, 31.23] }
   ] }
   if (document.includes('query FlashbackVoices(')) {
-    const storage = (globalThis as unknown as { wx?: { getStorageSync: (key: string) => unknown; removeStorageSync: (key: string) => void } }).wx
+    const storage = hostWxStorage()
     if (storage?.getStorageSync('cgc.e2e.voices.fail-next-read')) {
       storage.removeStorageSync('cgc.e2e.voices.fail-next-read')
       return { errors: [{ message: '网络中断（验收场景），请重试' }] }
