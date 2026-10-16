@@ -131,7 +131,7 @@ curl -fsSL https://api.codingirlsclub.com/ext/cgc-host/install.sh | bash
 | 登录自启项 | macOS：`~/Library/LaunchAgents/com.codingirlsclub.cgc-host.plist`（`ProgramArguments` 是 Bun 与包的绝对路径加 `serve`；`RunAtLoad`；`KeepAlive {SuccessfulExit: false}`；`ThrottleInterval` 30；0644）。Ubuntu：`~/.config/systemd/user/com.codingirlsclub.cgc-host.service`（`ExecStart` 同上；`Restart=on-failure`；日志 append）。Windows：`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\CGC Host.cmd`（经系统自带 PowerShell `Start-Process -WindowStyle Hidden` 隐藏拉起）。**三者都不含任何环境变量**（OMP 的环境由 Host 运行时解析，KTD12） | 删 |
 | 日志 | macOS：`~/Library/Logs/cgc-host.log`。Ubuntu：`~/.local/state/cgc-host.log`。Windows：`%LOCALAPPDATA%\CGC\cgc-host.log` 与 `cgc-host.error.log`（stdout / stderr 分写） | 删 |
 | `~/.bun/` | 学员原本没有 Bun 时由官方安装器装的 | 不删：Bun 可能已被学员别处使用 |
-| `~/cgc2046_workspace/` | 学员的 CGC 工作区：终端插件与 Host 的 OMP 进程都在这儿，作业在 `courses/<userId>/<courseId>/` | **不碰**（安装也不碰） |
+| `~/cgc2046_workspace/` | 学员的 CGC 工作区：终端插件与 Host 的 OMP 进程都在这儿，作业在 `~/cgc2046_workspace/courses/<userId>/<courseId>/` | **不碰**（安装也不碰） |
 
 两处路径一一对应：`install.sh` 写哪儿，`src/uninstall.ts` 就删哪儿，改一边就改另一边。
 
