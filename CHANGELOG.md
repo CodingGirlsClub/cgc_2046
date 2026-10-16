@@ -47,12 +47,15 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 - [Web] 课程讲义与对话栏支持数学公式：`$…$` 行内、`$$…$$` 块级公式经 KaTeX 渲染（`remark-math` + `rehype-katex`，均 MIT），不再以 `$` 与 LaTeX 源码原样显示。
 - 课程阅读器讲义不再把 GFM 表格渲染成竖线纯文本：正文渲染器从自研小子集（仅标题 / `- ` 列表 / 行内粗体与代码）换成 `react-markdown` + `remark-gfm` + `remark-breaks` + `rehype-sanitize`（均 MIT），表格 / 链接 / 嵌套列表 / 删除线一次补齐。安全契约不变并更严：原始 HTML 仍是转义文本、非 https 图片降级为文本、危险协议链接退化为纯文本、外链统一 `rel=noopener`。同时补上 `.learning-material--markdown` 的元素级样式（此前完全吃浏览器默认样式）与表格横向滚动容器，并修掉讲义排版被阅读器上下文规则盖掉的问题（讲义标题与正文曾分别吃 19px/540 的单元标题样式、13px 灰字）——修法是给阅读器的三条元素规则改用子选择器，而非靠源码顺序或特异性叠加（#1118）。
+- [抖音] 修 tt 模拟器整页白屏：宿主存储取用不再直接读 `globalThis.wx`——抖音模块包装器把 `globalThis` 声明为形参却不传值（模块内为 undefined），原写法在**模块求值期**抛 `TypeError`，经 require 同步异常连坐 `Page()` 注册（`USER_PAGE_NOT_FOUND_ERROR`）。三处取用（mockTransport / flashback 投票键 / mockVoices）收敛为 `domain/host-storage.ts` 单源：typeof 守卫 + 可选链，取不到回落 null；weapp/xhs 行为不变（#1123）。
 
 ### Security
 
 - web 依赖收敛以解锁 `pnpm audit` 门禁：`next` 16.3.5 → 16.3.8（清掉 7 条 next 公告，含 1 条 critical RCE），并按既有 overrides 先例收敛 `source-map-js` / `sharp` 两条传递依赖（沿用 `788c5248` 的 `pnpm-workspace.yaml` 手法）。审计从 9 条（1 critical / 3 high / 4 moderate / 1 low）降到零（#1118）。
 - 学习凭证使用独立前缀与带域分隔的哈希：回滚到不认识它的旧版后端时，这类凭证一律校验失败，不会被当成全权 token；down 迁移先撤销全部学习凭证再删列。
 - 课程学习页能驱动学员电脑上的 agent 后，CGC 站点上的 XSS 一律按远程命令执行定级；agent 的回复与课程讲义共用同一个安全 Markdown 渲染入口，原始 HTML 转成文本、危险链接降级、公式不产生链接（ADR-0022 残余风险）。
+- backend 升级 `bandit` 1.12.5 → 1.13.1（传递依赖 `thousand_island` 1.5.0 → 1.6.0），修掉 `GHSA-v53v-9hvg-37jf`（HTTP/1 absolute-form / authority-form 的 request-target authority 未按 Host 头语法校验，客户端可自选 `conn.host` / `conn.port`）与 `GHSA-69m6-wcv4-rwcf`（H2 blocked-send deadline 被 WINDOW_UPDATE trickle 重置），并删除 `mix.exs` 的 `hex: [ignore_advisories: ...]`——`mix hex.audit` 恢复为退零退出、无忽略项（#1121）。
+
 ## [2026-10-15]
 
 ### Fixed

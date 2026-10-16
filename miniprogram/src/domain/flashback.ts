@@ -1,5 +1,6 @@
 import type { FlashbackCapsule, FlashbackFogSpan, FlashbackFutureFrame, FlashbackMeAnswer, FlashbackMyCard, FlashbackMyToday } from './models'
 import type { FlashbackPublicWishEcho } from './models'
+import { hostWxStorage } from './host-storage.ts'
 
 /**
  * 「我的闪念间」（U9/R28）页面判据与文案——页面无渲染测试（AGENTS.md），
@@ -589,14 +590,9 @@ export function futureEventCards(
 const VOTER_KEY_STORAGE = 'flashback.voterKey'
 const VOTER_KEY_PATTERN = /^[ua]:[A-Za-z0-9_-]{1,60}$/
 
-function wxLikeStorage(): { getStorageSync(k: string): unknown; setStorageSync(k: string, v: string): void } | null {
-  const scope = globalThis as { wx?: { getStorageSync(k: string): unknown; setStorageSync(k: string, v: string): void } }
-  return scope.wx ?? null
-}
-
 export function readWishVoterKey(): string | null {
   try {
-    const raw = wxLikeStorage()?.getStorageSync(VOTER_KEY_STORAGE)
+    const raw = hostWxStorage()?.getStorageSync(VOTER_KEY_STORAGE)
     const value = typeof raw === 'string' ? raw : null
     return value && VOTER_KEY_PATTERN.test(value) ? value : null
   } catch {
@@ -609,7 +605,7 @@ export function ensureWishVoterKey(): string {
   if (existing) return existing
   const created = `a:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
   try {
-    wxLikeStorage()?.setStorageSync(VOTER_KEY_STORAGE, created)
+    hostWxStorage()?.setStorageSync(VOTER_KEY_STORAGE, created)
   } catch {
     // 存储不可用：仅本次会话有效（期待按钮仍可用，跨会话可能重票——服务端幂等兜底）
   }
