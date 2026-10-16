@@ -43,6 +43,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ### Fixed
 
+- [MCP] 教研状态读面口径统一（#1126）：尚未迁移的教研流程（新建课程、发布后的新一轮周期）在课程列表不再显示为空，与 `get_prep_status` 同显 `draft`；后者响应新增 `run_id`，周期切换可辨（发布后再次读取会开启新一轮教研流程，`version` 属新一轮、不是回退）。
 - [本机 Host / Web] 清除或替换配对时释放课程持有权，避免待答卡片无限等待已失去授权的页面；终端接入引导排除学习凭证；浏览器不识别本机权限名或持续报告 `prompt` 时，本页成功连接过 Host 后仍可自动重连。Host 安装测试修正 GNU/BSD `stat` 差异，避免 Linux CI 误报文件权限错误。
 
 - [Web] 课程讲义与对话栏支持数学公式：`$…$` 行内、`$$…$$` 块级公式经 KaTeX 渲染（`remark-math` + `rehype-katex`，均 MIT），不再以 `$` 与 LaTeX 源码原样显示。
