@@ -4110,6 +4110,17 @@
   "hostChat": {
     "title": "Local agent",
     "computers": "Paired computers",
+      "history": {
+        "title": "History",
+        "loading": "Loading past conversations…",
+        "empty": "No earlier conversations yet.",
+        "entry": "{time} · {count} messages",
+        "current": "Current",
+        "more": "Load more",
+        "unavailable": "This conversation can't be opened right now (possibly an OMP update).",
+        "busy": "A reply is in progress; stop it or wait for it to finish.",
+        "failed": "Couldn't load past conversations. Try again later."
+      },
     "newChat": "New chat",
     "logLabel": "Conversation",
     "attaching": "Resuming this course's conversation…",

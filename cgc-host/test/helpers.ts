@@ -222,7 +222,13 @@ export type Turn = {
 export function fakeAgent() {
   let seq = 0;
   const fake = {
-    store: new Map<string, { cwd: string; history: acp.SessionUpdate[] }>(),
+    /** 测试取号：让不同段落的消息文案唯一 */
+    seqHint: 0,
+    store: new Map<string, { cwd: string; history: acp.SessionUpdate[]; updatedAt: string }>(),
+    /** 会话列表页大小（>0 时启用分页游标） */
+    listPageSize: 0,
+    /** session/load 对这些会话抛 Internal error（模拟跨 OMP 版本加载失败） */
+    failLoadFor: new Set<string>(),
     calls: [] as { method: string; params: any }[],
     answers: [] as any[],
     starts: 0,
@@ -256,17 +262,29 @@ export function fakeAgent() {
         .onRequest("session/new", (c) => {
           record("session/new", c.params);
           const sessionId = `session-${++seq}`;
-          fake.store.set(sessionId, { cwd: c.params.cwd, history: [] });
+          fake.store.set(sessionId, { cwd: c.params.cwd, history: [], updatedAt: new Date().toISOString() });
           loaded.add(sessionId);
           return { sessionId };
         })
         .onRequest("session/list", (c) => {
           record("session/list", c.params);
-          const sessions = [...fake.store].filter(([, s]) => s.cwd === c.params.cwd).map(([sessionId, s]) => ({ sessionId, cwd: s.cwd }));
-          return { sessions };
+          const all = [...fake.store].filter(([, s]) => s.cwd === c.params.cwd);
+          const size = fake.listPageSize > 0 ? fake.listPageSize : all.length || 1;
+          const offset = typeof c.params.cursor === "string" ? Number(c.params.cursor) || 0 : 0;
+          const next = offset + size < all.length ? String(offset + size) : undefined;
+          return {
+            sessions: all.slice(offset, offset + size).map(([sessionId, s]) => ({
+              sessionId,
+              cwd: s.cwd,
+              updatedAt: s.updatedAt,
+              _meta: { messageCount: s.history.filter((h) => h.sessionUpdate === "user_message_chunk").length },
+            })),
+            ...(next ? { nextCursor: next } : {}),
+          };
         })
         .onRequest("session/load", async (c) => {
           record("session/load", c.params);
+          if (fake.failLoadFor.has(c.params.sessionId)) throw acp.RequestError.internalError({ details: "fake restore failure" });
           const s = fake.store.get(c.params.sessionId);
           if (!s) throw acp.RequestError.resourceNotFound(c.params.sessionId);
           loaded.add(c.params.sessionId);
@@ -280,6 +298,7 @@ export function fakeAgent() {
           const s = fake.store.get(sessionId)!;
           const text = prompt.map((b) => (b.type === "text" ? b.text : "")).join("\n");
           s.history.push({ sessionUpdate: "user_message_chunk", content: { type: "text", text } });
+          s.updatedAt = new Date().toISOString();
           const cancelled = new Promise<void>((resolve) => cancels.set(sessionId, resolve));
           return fake.script({
             sessionId,

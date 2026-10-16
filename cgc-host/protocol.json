@@ -1,5 +1,5 @@
 {
-  "protocolVersion": 1,
+  "protocolVersion": 2,
   "port": 47823,
   "preparationTimeoutMs": 45000,
   "methods": {
@@ -12,12 +12,15 @@
       "chat.send",
       "chat.stop",
       "chat.new",
+      "chat.sessions",
+      "chat.open",
       "card.answer"
     ],
     "hostToPage": [
       "status",
       "pair.result",
       "history",
+      "sessions",
       "turn.delta",
       "turn.card",
       "turn.card.closed",

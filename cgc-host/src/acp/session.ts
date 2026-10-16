@@ -64,7 +64,26 @@ function pageContext(raw: unknown, courseId: string): string | null {
   return ok ? JSON.stringify({ workspace_id: workspaceId, course_id: courseId, course_version: courseVersion, unit_id: unitId, locale }) : null;
 }
 
-const message = (e: unknown) => String((e as Error)?.message ?? e);
+/** 一行错误摘要：message + ACP 错误的 data（诊断详情，如 load 失败的真实原因「Could not restore model …」），超长截断 */
+export const message = (e: unknown) => {
+  const base = String((e as Error)?.message ?? e);
+  const data = (e as { data?: unknown })?.data;
+  if (data === undefined) return base;
+  let details: string;
+  try {
+    details = JSON.stringify(data);
+  } catch {
+    details = String(data);
+  }
+  return `${base} ${details.length > 500 ? `${details.slice(0, 500)}…` : details}`;
+};
+
+/** chat.open 的可诊断失败：bad_request = 目标不属于本课程工作目录（客户端问题）；session_unavailable = load 失败（持久指针保持不变） */
+class OpenError extends Error {
+  constructor(public code: "bad_request" | "session_unavailable") {
+    super(code);
+  }
+}
 
 export function createChat(opts: ChatOptions) {
   const graceMs = opts.graceMs ?? 5 * 60_000;
@@ -140,37 +159,49 @@ export function createChat(opts: ChatOptions) {
    * - new：「新开对话」，总是 session/new，指针改指新会话。
    * session/new 与每次 session/load 都下发含当前凭证的 mcpServers；换了账号或凭证就重新加载。
    */
-  async function ensureSession(c: Course, ctx: ChatContext, mode: "attach" | "send" | "new", run: Preparation) {
+  async function ensureSession(c: Course, ctx: ChatContext, mode: "attach" | "send" | "new" | "open", run: Preparation, openTarget?: string) {
     run.check();
     // 有一轮正在 OMP 里跑时不重新加载：重新 load 会让 OMP 把历史整段再回放一遍
     const current = runtime.agent && c.sessionId && (c.turn?.sessionId || (c.userId === ctx.userId && c.token === ctx.token)) ? c.sessionId : null;
-    if (mode !== "new" && current) return { a: await run.agent(), sessionId: current };
-    // 不再沿用当前会话（新开、换了账号或凭证、OMP 重启过）：先卸下并清空缓冲——上一段对话不能出现在接下来的历史里
+    if (mode === "open" && current === openTarget) return { a: await run.agent(), sessionId: current }; // 打开的就是当前会话：短接，不再回放
+    if ((mode === "attach" || mode === "send") && current) return { a: await run.agent(), sessionId: current };
+    // 不再沿用当前会话（新开、切换、换了账号或凭证、OMP 重启过）：先卸下并清空缓冲——上一段对话不能出现在接下来的历史里
     if (c.sessionId) bySession.delete(c.sessionId);
     c.sessionId = null;
     c.lastContext = null;
     c.transcript.reset();
-    const pointer = mode === "new" ? undefined : ctx.sessions[c.id];
-    if (mode === "attach" && !pointer) return null;
+    const target = mode === "new" ? undefined : mode === "open" ? openTarget : ctx.sessions[c.id];
+    if (mode === "attach" && !target) return null;
     const a = await run.agent();
     run.check();
     const cwd = workDir(opts.home, ctx.userId, c.id);
     const mcpServers = [cgcServer(ctx.token)];
-    const load = pointer ? await belongs(a, cwd, pointer, run) : false;
+    const load = target ? await belongs(a, cwd, target, run) : false;
     run.check();
-    if (pointer && load) {
-      bySession.set(pointer, c);
+    if (target && load) {
+      bySession.set(target, c);
       try {
-        await run.wait("session/load", (signal) => a.rpc.request("session/load", { sessionId: pointer, cwd, mcpServers }, { cancellationSignal: signal }));
+        await run.wait("session/load", (signal) => a.rpc.request("session/load", { sessionId: target, cwd, mcpServers }, { cancellationSignal: signal }));
       } catch (e) {
-        bySession.delete(pointer);
+        bySession.delete(target);
+        // chat.open 的目标加载失败：报可诊断的错误；持久指针不动，原会话不受影响。
+        // 原始 ACP 错误（如「Could not restore model …」）会随 OpenError 丢失，所以先记日志
+        if (mode === "open") {
+          console.error(`cgc-host: 切换对话失败：${message(e)}`);
+          throw new OpenError("session_unavailable");
+        }
         throw e;
       }
       run.check();
-      Object.assign(c, { sessionId: pointer, userId: ctx.userId, token: ctx.token });
-      return { a, sessionId: pointer };
+      Object.assign(c, { sessionId: target, userId: ctx.userId, token: ctx.token });
+      if (mode === "open") {
+        ctx.sessions[c.id] = target;
+        ctx.save();
+      }
+      return { a, sessionId: target };
     }
-    if (pointer) {
+    if (mode === "open") throw new OpenError("bad_request"); // 目标不属于这门课的工作目录
+    if (target) {
       console.error("cgc-host: 会话指针不在这门课的工作目录下，拒绝加载");
       delete ctx.sessions[c.id];
       ctx.save();
@@ -187,9 +218,9 @@ export function createChat(opts: ChatOptions) {
   }
 
   // Keep preparation and its synchronous state/reply/prompt commit in the same course queue slot.
-  const prepare = (c: Course, ctx: ChatContext, mode: "attach" | "send" | "new", commit: (ready: Awaited<ReturnType<typeof ensureSession>>) => void) =>
+  const prepare = (c: Course, ctx: ChatContext, mode: "attach" | "send" | "new" | "open", commit: (ready: Awaited<ReturnType<typeof ensureSession>>) => void, openTarget?: string) =>
     runtime.prepare(opts.preparationTimeoutMs ?? protocol.preparationTimeoutMs, (run) => serial(c, async () => {
-      const ready = await ensureSession(c, ctx, mode, run);
+      const ready = await ensureSession(c, ctx, mode, run, openTarget);
       run.check();
       commit(ready);
     }));
@@ -351,6 +382,40 @@ export function createChat(opts: ChatOptions) {
         await prepare(c, ctx, "new", () => reply("history", { running: false, events: [] }));
       } catch (e) {
         console.error(`cgc-host: 新开对话失败：${message(e)}`);
+        return fail("chat_unavailable");
+      }
+    } else if (method === "chat.sessions") {
+      // 历史对话列表：只读，可以在有回合在跑时查询；元数据字段缺省即 null（OMP 版本差异）
+      const { cursor } = params;
+      if (cursor !== undefined && (typeof cursor !== "string" || cursor.length > 256)) return fail("bad_request");
+      try {
+        const cwd = workDir(opts.home, ctx.userId, c.id);
+        const page = await runtime.prepare(opts.preparationTimeoutMs ?? protocol.preparationTimeoutMs, async (run) => {
+          const a = await run.agent();
+          return run.wait("session/list", (signal) =>
+            a.rpc.request("session/list", { cwd, ...(cursor ? { cursor } : {}) }, { cancellationSignal: signal }),
+          );
+        });
+        const sessions = (page.sessions ?? []).map((s) => ({
+          sessionId: s.sessionId,
+          updatedAt: (s as { updatedAt?: string }).updatedAt ?? null,
+          messageCount: (s as { _meta?: { messageCount?: number } })._meta?.messageCount ?? null,
+        }));
+        reply("sessions", { sessions, current: ctx.sessions[c.id] ?? null, nextCursor: page.nextCursor ?? null });
+      } catch (e) {
+        console.error(`cgc-host: 读取历史对话列表失败：${message(e)}`);
+        return fail("chat_unavailable");
+      }
+    } else if (method === "chat.open") {
+      // 切换到某个历史会话：只在 load 成功后推进持久指针；失败报 session_unavailable 且原会话保持可用
+      const { sessionId } = params;
+      if (typeof sessionId !== "string" || !sessionId || sessionId.length > 128) return fail("bad_request");
+      if (c.turn) return fail("busy");
+      try {
+        await prepare(c, ctx, "open", () => reply("history", { running: false, events: c.transcript.events }), sessionId);
+      } catch (e) {
+        if (e instanceof OpenError) return fail(e.code);
+        console.error(`cgc-host: 切换对话失败：${message(e)}`);
         return fail("chat_unavailable");
       }
     } else if (method === "card.answer") {

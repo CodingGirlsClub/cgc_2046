@@ -84,6 +84,13 @@ export type CardAnswer =
 /** Host 的 error.params.code（含义见 cgc-host/AGENTS.md），或拿不到回复（timeout / disconnected） */
 export type ChatErrorCode = string;
 
+/** chat.sessions 的返回：本课程的历史对话（updatedAt / messageCount 缺省为 null，OMP 版本差异） */
+export interface SessionsPage {
+	sessions: { sessionId: string; updatedAt: string | null; messageCount: number | null }[];
+	current: string | null;
+	nextCursor: string | null;
+}
+
 /** R26 的状态：一处状态源。ready / evicted 时对话可见 */
 export type ChatView =
 	| Exclude<HostConnection, { state: "detected" }>
@@ -223,6 +230,10 @@ export interface HostChat extends Omit<ChatState, "evicted"> {
 	answer(cardId: string, answer: CardAnswer): Promise<void>;
 	/** 被接管后「在这里继续」，或接上对话失败后重试 */
 	reclaim(): void;
+	/** 列出本课程的历史对话；Host 不认识这个方法（旧版）或读取失败时返回错误码 */
+	listSessions(cursor?: string): Promise<SessionsPage | { error: ChatErrorCode }>;
+	/** 切换到某个历史会话；成功即由 history 回复接管归约，失败返回错误码且不影响当前会话 */
+	openSession(sessionId: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }>;
 }
 
 export function useHostChat({
@@ -322,18 +333,34 @@ export function useHostChat({
 		[refetch],
 	);
 	// Host 回复仍回原 socket；接管、断线或重新 attach 后，旧请求不能再改本页状态。
-	const requestChat = useCallback(
-		async (method: "chat.attach" | "chat.new" | "chat.send" | "card.answer", params: Record<string, unknown>, timeoutMs = CHAT_TIMEOUT_MS) => {
+	// raw：只做代次校验与 not_holder 失效，不把回复交给归约——历史列表/切换失败要在调用方就地呈现。
+	const requestChatRaw = useCallback(
+		async (
+			method: "chat.attach" | "chat.new" | "chat.send" | "chat.sessions" | "chat.open" | "card.answer",
+			params: Record<string, unknown>,
+			timeoutMs = CHAT_TIMEOUT_MS,
+		) => {
 			if (!socket) return null;
 			const generation = ownership.current;
 			const reply = await socket.request(method, params, { timeoutMs })
 				.catch((e: Error): HostMessage => ({ method: "error", params: { code: e.message } }));
 			if (generation !== ownership.current) return null;
 			if (reply.method === "error" && reply.params?.code === "not_holder") ownership.current += 1;
-			onReply(reply);
 			return reply;
 		},
-		[socket, onReply],
+		[socket],
+	);
+	const requestChat = useCallback(
+		async (
+			method: "chat.attach" | "chat.new" | "chat.send" | "chat.open" | "card.answer",
+			params: Record<string, unknown>,
+			timeoutMs = CHAT_TIMEOUT_MS,
+		) => {
+			const reply = await requestChatRaw(method, params, timeoutMs);
+			if (reply) onReply(reply);
+			return reply;
+		},
+		[requestChatRaw, onReply],
 	);
 
 	const ready = pairing.phase === "ready";
@@ -416,6 +443,38 @@ export function useHostChat({
 
 	const requestAccess = useCallback(() => accessRef.current(), []);
 
+	// 历史对话：列表只读（失败不打扰对话，错误交给面板就地呈现）；切换成功由 history 归约接管。
+	const listSessions = useCallback(
+		async (cursor?: string): Promise<SessionsPage | { error: ChatErrorCode }> => {
+			const reply = await requestChatRaw("chat.sessions", { courseId, ...(cursor ? { cursor } : {}) });
+			if (!reply) return { error: "disconnected" };
+			if (reply.method === "sessions") {
+				const params = reply.params ?? {};
+				return {
+					sessions: (params.sessions as SessionsPage["sessions"]) ?? [],
+					current: (params.current as string | null) ?? null,
+					nextCursor: (params.nextCursor as string | null) ?? null,
+				};
+			}
+			if (reply.method === "error" && reply.params?.code === "not_holder") onReply(reply); // 被接管：与其他方法同语义
+			return { error: String(reply.params?.code ?? "unknown") };
+		},
+		[courseId, requestChatRaw, onReply],
+	);
+	const openSession = useCallback(
+		async (sessionId: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }> => {
+			const reply = await requestChatRaw("chat.open", { courseId, sessionId });
+			if (!reply) return { ok: false, code: "disconnected" };
+			if (reply.method === "history") {
+				onReply(reply);
+				return { ok: true };
+			}
+			if (reply.method === "error" && reply.params?.code === "not_holder") onReply(reply);
+			return { ok: false, code: String(reply.params?.code ?? "unknown") };
+		},
+		[courseId, requestChatRaw, onReply],
+	);
+
 	const { evicted, ...rest } = chat;
 	return {
 		...rest,
@@ -428,5 +487,7 @@ export function useHostChat({
 		newChat,
 		answer,
 		reclaim: attach,
+		listSessions,
+		openSession,
 	};
 }

@@ -430,3 +430,83 @@ describe("F1：持有权失效后的异步回复", () => {
 		expect(hook.current.view.state).toBe("evicted");
 	});
 });
+
+
+describe("历史对话（Session History）", () => {
+	it("listSessions：发出 chat.sessions 并解析列表；游标原样带上", async () => {
+		const { ws } = await readyChat();
+		let promise!: Promise<unknown>;
+		act(() => {
+			promise = hook.current.listSessions();
+		});
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.sessions", params: { courseId: COURSE } }));
+		await ws.reply("chat.sessions", "sessions", {
+			courseId: COURSE,
+			sessions: [{ sessionId: "s1", updatedAt: "2026-10-15T02:00:00Z", messageCount: 4 }],
+			current: "s1",
+			nextCursor: "1",
+		});
+		expect(await promise).toMatchObject({ current: "s1", nextCursor: "1", sessions: [{ sessionId: "s1", messageCount: 4 }] });
+
+		act(() => {
+			promise = hook.current.listSessions("1");
+		});
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.sessions", params: { courseId: COURSE, cursor: "1" } }));
+		await ws.reply("chat.sessions", "sessions", { courseId: COURSE, sessions: [], current: "s1", nextCursor: null });
+		expect(await promise).toMatchObject({ sessions: [] });
+	});
+
+	it("listSessions 失败：返回错误码，不进入全局错误态", async () => {
+		const { ws } = await readyChat();
+		let promise!: Promise<unknown>;
+		act(() => {
+			promise = hook.current.listSessions();
+		});
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.sessions"));
+		await ws.reply("chat.sessions", "error", { code: "chat_unavailable" });
+		expect(await promise).toEqual({ error: "chat_unavailable" });
+		expect(hook.current.canSend).toBe(true);
+	});
+
+	it("openSession 成功：history 回复接管归约，事件替换为切过去的会话", async () => {
+		const { ws } = await readyChat();
+		let promise!: Promise<unknown>;
+		act(() => {
+			promise = hook.current.openSession("session-9");
+		});
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.open", params: { courseId: COURSE, sessionId: "session-9" } }));
+		await ws.reply("chat.open", "history", { courseId: COURSE, running: false, events: [{ kind: "user", text: "切过去的会话" }] });
+		expect(await promise).toEqual({ ok: true });
+		await waitFor(() => expect(hook.current.events).toEqual([{ kind: "user", text: "切过去的会话" }]));
+	});
+
+	it("openSession 失败：返回错误码、不发全局错误态、原会话保持可发", async () => {
+		const { ws } = await readyChat();
+		let promise!: Promise<unknown>;
+		act(() => {
+			promise = hook.current.openSession("session-9");
+		});
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.open"));
+		await ws.reply("chat.open", "error", { code: "session_unavailable" });
+		expect(await promise).toEqual({ ok: false, code: "session_unavailable" });
+		expect(hook.current.error).toBeNull();
+		expect(hook.current.canSend).toBe(true);
+	});
+
+	it("Covers 持有权代次：被接管后迟到的列表/切换回复不再改写本页", async () => {
+		const { ws } = await readyChat();
+		let list!: Promise<unknown>;
+		let open!: Promise<unknown>;
+		act(() => {
+			list = hook.current.listSessions();
+			open = hook.current.openSession("s");
+		});
+		await waitFor(() => expect(ws.sent.some((f) => f.method === "chat.open")).toBe(true));
+		ws.push({ method: "chat.evicted", params: { courseId: COURSE } });
+		await ws.reply("chat.sessions", "sessions", { courseId: COURSE, sessions: [{ sessionId: "late", updatedAt: null, messageCount: 1 }], current: "late", nextCursor: null });
+		await ws.reply("chat.open", "history", { courseId: COURSE, running: false, events: [{ kind: "user", text: "不该出现" }] });
+		expect(await list).toEqual({ error: "disconnected" });
+		expect(await open).toEqual({ ok: false, code: "disconnected" });
+		expect(hook.current.events).toEqual([]);
+	});
+});

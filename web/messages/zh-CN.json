@@ -4110,6 +4110,17 @@
   "hostChat": {
     "title": "本机 agent",
     "computers": "已配对的电脑",
+      "history": {
+        "title": "历史对话",
+        "loading": "正在读取历史对话…",
+        "empty": "还没有更早的对话。",
+        "entry": "{time} · {count} 条消息",
+        "current": "当前",
+        "more": "加载更多",
+        "unavailable": "这段对话暂时无法打开（可能因 OMP 更新）。",
+        "busy": "有一轮回复正在进行，先停止或等它结束。",
+        "failed": "读取历史对话失败，稍后再试。"
+      },
     "newChat": "新开对话",
     "logLabel": "对话记录",
     "attaching": "正在接上这门课的对话…",

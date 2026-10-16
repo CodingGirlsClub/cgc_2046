@@ -11,6 +11,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import { copyText } from "@/lib/clipboard";
 import HostChatCard from "./host-chat-cards";
+import HostChatHistory from "./host-chat-history";
 import HostPairingList from "./host-pairing-list";
 import { SafeMarkdown } from "./material-renderer";
 import type { PairingErrorReason } from "./use-host-pairing";
@@ -336,6 +337,7 @@ export default function HostChatPanel(props: {
 			<header className="learning-chat__head">
 				<h2>{t("title")}</h2>
 				<div className="learning-chat__head-actions">
+					{conversation ? <HostChatHistory chat={chat} /> : null}
 					{conversation ? (
 						<button
 							type="button"

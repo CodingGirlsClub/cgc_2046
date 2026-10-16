@@ -30,4 +30,12 @@ Host 版本限定为三个无前导零的非负安全整数：`major.minor.patch
 
 一个 OMP 进程由多门课共享：废弃进程会使其他已开始的回合以 `turn.end {stopReason: "error"}` 收尾，未答卡片取消，内存中的已加载会话卸下。已有有效会话指针保留，下次用户重试启动新进程并加载；超时的新会话结果不会覆盖指针。已经完成的文件或平台副作用不回滚，OMP 可能保留超时前已创建的空会话。仅在课程队列等待、尚未取得进程的请求超时，不关闭其他课程的正常进程。
 
+## 历史对话（protocolVersion 2）
+
+`chat.sessions {courseId, cursor?}` → `sessions {sessions: [{sessionId, updatedAt, messageCount}], current, nextCursor}`：本课程工作目录下的会话列表（ACP session/list，`cursor` 原样透传分页）；只读，有回合在跑时同样可查。`updatedAt` / `messageCount` 缺省为 `null`（OMP 版本差异），页面自行降级展示。
+
+`chat.open {courseId, sessionId}` → `history`（同 `chat.attach` 的载荷）：切换到指定会话。目标必须在这门课的工作目录下（belongs 校验），否则回 `bad_request`；加载失败回 `session_unavailable`，且**持久指针保持不变**——原会话不受影响，重载即回到原对话；有回合在跑回 `busy`。切换成功才推进持久指针；打开的就是当前会话时不重复加载。
+
+页面按 `status.protocolVersion` 降级：低于 2 的旧 Host 不显示历史入口（不会发出 `chat.sessions` / `chat.open`）。
+
 这三项改动不改变 wire 方法、协议版本、审批模式或 playbook。测试使用假 ACP 与临时 HOME；进程取消测试只启动可丢弃的 shell/sleep 子进程，不启动真实模型。
