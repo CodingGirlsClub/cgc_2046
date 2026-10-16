@@ -298,7 +298,7 @@ it("Covers AE10：在「已配对的电脑」里撤销本机这台 → pair.forg
 it("KTD9：进入可对话状态不自动发消息；R15：显示这门课的工作目录", async () => {
 	const ws = await readyPanel();
 	expect(ws.sent.map((f) => f.method)).toEqual(["hello", "chat.attach"]);
-	expect(screen.getByText(`~/CGC/${USER}/${COURSE}`, { exact: false })).toBeInTheDocument();
+	expect(screen.getByText(`~/cgc2046_workspace/courses/${USER}/${COURSE}`, { exact: false })).toBeInTheDocument();
 	expect(screen.getByText("向你的 agent 提问吧。它知道你正在学这门课，以及你正在看的单元。")).toBeInTheDocument();
 });
 

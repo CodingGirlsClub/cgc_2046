@@ -85,8 +85,8 @@ test("发布构建经 --define 注入生产来源后，http://localhost:3000 同
   expect(JSON.parse(r.stdout.toString())).toEqual([false, true]);
 });
 
-test("KTD6. 课程工作目录 ~/CGC/<userId>/<courseId> 只接受 UUID", () => {
-  expect(workDir("/home/x", USER_A, COURSE)).toBe(`/home/x/CGC/${USER_A}/${COURSE}`);
+test("KTD6. 课程工作目录 ~/cgc2046_workspace/courses/<userId>/<courseId> 只接受 UUID", () => {
+  expect(workDir("/home/x", USER_A, COURSE)).toBe(`/home/x/cgc2046_workspace/courses/${USER_A}/${COURSE}`);
   for (const bad of ["../../etc", `${COURSE}/..`, COURSE.toUpperCase(), ""]) {
     expect(() => workDir("/home/x", USER_A, bad)).toThrow();
     expect(() => workDir("/home/x", bad, COURSE)).toThrow();

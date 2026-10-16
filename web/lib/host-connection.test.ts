@@ -8,6 +8,7 @@ import {
 	HOST_PORT,
 	MIN_HOST_VERSION,
 	checkHost,
+	courseDir,
 	requestHostAccess,
 } from "./host-connection";
 
@@ -75,6 +76,18 @@ it("真实最低版本契约：Web 的最低版本不高于待发布 Host 包", 
 	expect(() => assertHostVersionContract(MIN_HOST_VERSION, packaged.version)).not.toThrow();
 	expect(compareHostVersions(MIN_HOST_VERSION, packaged.version)).toBeLessThanOrEqual(0);
 		expect(() => assertHostVersionContract("9.9.9", packaged.version)).toThrow("MIN_HOST_VERSION exceeds");
+});
+
+it("R15 路径契约：对话栏显示的作业目录与 Host 的 workDir 同一棵树（跨包无共享，读源码钉住）", () => {
+	const source = readFileSync(resolve(HERE, "../../cgc-host/src/state.ts"), "utf8");
+	const dirs = {
+		workspace: /export const WORKSPACE_DIR = "([^"]+)";/.exec(source)?.[1],
+		courses: /export const COURSES_DIR = "([^"]+)";/.exec(source)?.[1],
+	};
+	const body = /return join\(home, WORKSPACE_DIR, COURSES_DIR, userId, courseId\);/.test(source);
+	expect(dirs).toEqual({ workspace: "cgc2046_workspace", courses: "courses" });
+	expect(body).toBe(true);
+	expect(courseDir("u", "c")).toBe(`~/${dirs.workspace}/${dirs.courses}/u/c`);
 });
 
 describe("checkHost（页面加载即可调用；未授权时不发本机请求）", () => {
