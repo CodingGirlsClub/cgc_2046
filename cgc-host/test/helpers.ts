@@ -284,7 +284,7 @@ export function fakeAgent() {
         })
         .onRequest("session/load", async (c) => {
           record("session/load", c.params);
-          if (fake.failLoadFor.has(c.params.sessionId)) throw acp.RequestError.internalError("Internal error");
+          if (fake.failLoadFor.has(c.params.sessionId)) throw acp.RequestError.internalError({ details: "fake restore failure" });
           const s = fake.store.get(c.params.sessionId);
           if (!s) throw acp.RequestError.resourceNotFound(c.params.sessionId);
           loaded.add(c.params.sessionId);

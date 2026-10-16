@@ -64,7 +64,19 @@ function pageContext(raw: unknown, courseId: string): string | null {
   return ok ? JSON.stringify({ workspace_id: workspaceId, course_id: courseId, course_version: courseVersion, unit_id: unitId, locale }) : null;
 }
 
-const message = (e: unknown) => String((e as Error)?.message ?? e);
+/** 一行错误摘要：message + ACP 错误的 data（诊断详情，如 load 失败的真实原因「Could not restore model …」），超长截断 */
+export const message = (e: unknown) => {
+  const base = String((e as Error)?.message ?? e);
+  const data = (e as { data?: unknown })?.data;
+  if (data === undefined) return base;
+  let details: string;
+  try {
+    details = JSON.stringify(data);
+  } catch {
+    details = String(data);
+  }
+  return `${base} ${details.length > 500 ? `${details.slice(0, 500)}…` : details}`;
+};
 
 /** chat.open 的可诊断失败：bad_request = 目标不属于本课程工作目录（客户端问题）；session_unavailable = load 失败（持久指针保持不变） */
 class OpenError extends Error {
@@ -172,8 +184,12 @@ export function createChat(opts: ChatOptions) {
         await run.wait("session/load", (signal) => a.rpc.request("session/load", { sessionId: target, cwd, mcpServers }, { cancellationSignal: signal }));
       } catch (e) {
         bySession.delete(target);
-        // chat.open 的目标加载失败：报可诊断的错误；持久指针不动，原会话不受影响
-        if (mode === "open") throw new OpenError("session_unavailable");
+        // chat.open 的目标加载失败：报可诊断的错误；持久指针不动，原会话不受影响。
+        // 原始 ACP 错误（如「Could not restore model …」）会随 OpenError 丢失，所以先记日志
+        if (mode === "open") {
+          console.error(`cgc-host: 切换对话失败：${message(e)}`);
+          throw new OpenError("session_unavailable");
+        }
         throw e;
       }
       run.check();

@@ -1,6 +1,6 @@
 // history.test.ts — 历史对话（Session History）：会话列表（归属过滤、元数据、分页）与切换
 // （chat.open：事务性——指针只在 load 成功后更新、失败报 session_unavailable 且原会话可用）。
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { loadState } from "../src/state";
 import { chatPage, cleanup, CONTEXT, COURSE, fakeAgent, helloed, refused, type Turn, until } from "./helpers";
 
@@ -115,7 +115,11 @@ test("chat.open 加载失败：回 session_unavailable、指针不动、原会�
   expect(loadState(host.home).sessions[COURSE]).toBe("session-2");
 
   fake.failLoadFor.add("session-1");
+  const errors = spyOn(console, "error");
   expect(await open(page, "session-1")).toMatchObject(refused("session_unavailable"));
+  // 原始 ACP 错误（含 data 详情）进日志，便于诊断「为什么打不开」（如 Could not restore model …）
+  expect(errors.mock.calls.some((c) => String(c[0]).includes('切换对话失败：Internal error {"details":"fake restore failure"}'))).toBe(true);
+  errors.mockRestore();
   expect(loadState(host.home).sessions[COURSE]).toBe("session-2"); // 指针保持
 
   // 原会话仍可用：新连接（同浏览器密钥）attach 会加载 session-2 并回放“当前这段”
