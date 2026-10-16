@@ -19,6 +19,11 @@ const ENV_TIMEOUT_MS = 10_000;
  * 只取标记之间的部分，避开 rc 文件启动时的输出噪音。超时就杀掉 shell，退回最小环境。
  */
 export async function resolveOmp(shell = userInfo().shell || "/bin/zsh", timeoutMs = ENV_TIMEOUT_MS): Promise<Omp> {
+  // Windows 没有「登录 shell」的等价物：自启项（Startup 快捷方式）已在完整用户环境里拉起 Host，
+  // 进程环境就是学员的 PATH；在这里解析 shell 只会白等一个注定失败的进程。
+  if (process.platform === "win32") {
+    return { path: Bun.which("omp"), env: process.env as Record<string, string>, envError: null };
+  }
   const mark = randomUUID();
   let env: Record<string, string> | null = null;
   let envError: EnvError | null = null;

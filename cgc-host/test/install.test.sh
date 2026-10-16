@@ -323,6 +323,93 @@ rm "$GATE/cgc-host.json"
 ok "线上还没有清单（首次发布）：警告并放行" gate_warns "$T/changed.js"
 ok "不给包路径：用法错误" [ "$(gate_rc)" = 2 ]
 
+echo "== 场景 5b：Ubuntu 分支（uname 报 Linux；zenity/systemctl 垫片） =="
+LINUX_BIN="$T/bin-linux"; mkdir -p "$LINUX_BIN"
+printf '#!/bin/sh\necho Linux\n' >"$LINUX_BIN/uname"
+printf '#!/bin/sh\nexit 1\n' >"$LINUX_BIN/zenity"
+cat >"$LINUX_BIN/systemctl" <<'EOF'
+#!/usr/bin/env bash
+echo "systemctl $*" >>"$SYSTEMCTL_LOG"
+EOF
+chmod +x "$LINUX_BIN"/*
+export SYSTEMCTL_LOG="$T/systemctl.log"
+LINUX_PATH="$LINUX_BIN:$NO_BUN_PATH" # NO_BUN_PATH 保证找不到 Bun，并只放安装脚本需要的系统工具
+install_linux() { # HOME 为 $1；XDG 目录固定到 HOME 之下，断言与机器环境无关
+  env HOME="$1" TMPDIR="$T/tmp" PATH="$LINUX_PATH" XDG_CONFIG_HOME="$1/udg-config" XDG_STATE_HOME="$1/udg-state" \
+    CGC_HOST_DIST="${2:-$BASE/ext/cgc-host}" bash "$HOST_SRC/install.sh"
+}
+H4="$T/h4"
+mkdir -p "$H4/.bun/bin"; printf '#!/bin/sh\nexec %s "$@"\n' "$(command -v bun)" >"$H4/.bun/bin/bun"; chmod +x "$H4/.bun/bin/bun"
+: >"$SYSTEMCTL_LOG"
+rc=0
+install_linux "$H4" >"$T/out-linux" 2>&1 || rc=$?
+UNIT="$H4/udg-config/systemd/user/$LABEL.service"
+ok "Linux：第一次安装成功" [ "$rc" = 0 ]
+ok "Linux：systemd 用户服务已写入" test -f "$UNIT"
+ok "Linux：ExecStart 指向 Bun 与包的绝对路径加 serve" grep -qF "ExecStart=\"$H4/.bun/bin/bun\" \"$H4/.cgc2046/host/cgc-host.js\" serve" "$UNIT"
+ok "Linux：异常才重启（对齐 plist 的 KeepAlive SuccessfulExit=false）" grep -qxF "Restart=on-failure" "$UNIT"
+ok "Linux：日志 append 到 XDG_STATE_HOME" grep -qF "StandardOutput=\"append:$H4/udg-state/cgc-host.log\"" "$UNIT"
+ok "Linux：服务里不含环境变量（OMP 环境由登录 shell 解析）" not grep -q Environment "$UNIT"
+ok "Linux：先 disable --now，再 daemon-reload 与 enable --now" [ "$(tr '\n' ' ' <"$SYSTEMCTL_LOG")" = "systemctl --user disable --now $LABEL systemctl --user daemon-reload systemctl --user enable --now $LABEL " ]
+ok "Linux：日志目录已建" test -d "$H4/udg-state"
+snapshot "$H4" >"$T/snap-h4a"
+install_linux "$H4" >"$T/out-linux2" 2>&1
+snapshot "$H4" >"$T/snap-h4b"
+ok "Linux：重复安装结果与装一次相同" cmp -s "$T/snap-h4a" "$T/snap-h4b"
+H4X="$T/h4x"; mkdir -p "$H4X/.bun/bin"; printf '#!/bin/sh\nexec %s "$@"\n' "$(command -v bun)" >"$H4X/.bun/bin/bun"; chmod +x "$H4X/.bun/bin/bun"
+LINUX_NOZENITY="$T/bin-linux-nozenity"; mkdir -p "$LINUX_NOZENITY"
+printf '#!/bin/sh\necho Linux\n' >"$LINUX_NOZENITY/uname"
+chmod +x "$LINUX_NOZENITY/uname"
+rc=0
+env HOME="$H4X" TMPDIR="$T/tmp" PATH="$LINUX_NOZENITY:$NO_BUN_PATH" XDG_CONFIG_HOME="$H4X/udg-config" CGC_HOST_DIST="$BASE/ext/cgc-host" bash "$HOST_SRC/install.sh" >"$T/out-linux-nozenity" 2>&1 || rc=$?
+ok "Linux：缺 zenity 时明确报错并中止" [ "$rc" != 0 ] && grep -q "apt install zenity" "$T/out-linux-nozenity"
+ok "Linux：缺 zenity 时不写任何文件" not test -e "$H4X/.cgc2046" && not test -e "$H4X/udg-config"
+cmd=$(sed -n 's/^卸载：//p' "$T/out-linux2")
+env HOME="$H4" PATH="$LINUX_PATH" XDG_CONFIG_HOME="$H4/udg-config" XDG_STATE_HOME="$H4/udg-state" bash -c "$cmd" >"$T/out-linux-rm" 2>&1
+ok "Linux：卸载删除自启服务与日志" not test -e "$UNIT" && not test -e "$H4/udg-state/cgc-host.log"
+ok "Linux：卸载删除包与状态目录" not test -e "$H4/.cgc2046/host"
+
+echo "== 场景 5c：Windows 分支（Git Bash 垫片：uname 报 MINGW、cygpath、powershell.exe） =="
+WIN_BIN="$T/bin-win"; mkdir -p "$WIN_BIN"
+printf '#!/bin/sh\necho MINGW64_NT-10.0\n' >"$WIN_BIN/uname"
+cat >"$WIN_BIN/cygpath" <<'EOF'
+#!/bin/sh
+# 垫片：-w 时原样返回最后一个参数（测试只断言路径出现在生成内容里）
+for last in "$@"; do :; done
+printf '%s' "$last"
+EOF
+cat >"$WIN_BIN/powershell.exe" <<'EOF'
+#!/usr/bin/env bash
+echo "powershell $*" >>"$POWERSHELL_LOG"
+EOF
+chmod +x "$WIN_BIN"/*
+export POWERSHELL_LOG="$T/powershell.log"
+WIN_PATH="$WIN_BIN:$NO_BUN_PATH"
+install_windows() {
+  env HOME="$1" TMPDIR="$T/tmp" PATH="$WIN_PATH" CGC_HOST_DIST="${2:-$BASE/ext/cgc-host}" bash "$HOST_SRC/install.sh"
+}
+H5="$T/h5"
+mkdir -p "$H5/.bun/bin"; printf '#!/bin/sh\nexec %s "$@"\n' "$(command -v bun)" >"$H5/.bun/bin/bun.exe"; chmod +x "$H5/.bun/bin/bun.exe"
+: >"$POWERSHELL_LOG"
+rc=0
+install_windows "$H5" >"$T/out-win" 2>&1 || rc=$?
+CMD5="$H5/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup/CGC Host.cmd"
+ok "Windows：第一次安装成功" [ "$rc" = 0 ]
+ok "Windows：自启 .cmd 已写入 Startup（$HOME 映射的路径）" test -f "$CMD5"
+ok "Windows：经系统自带 PowerShell 隐藏启动" grep -q "Start-Process -WindowStyle Hidden" "$CMD5"
+ok "Windows：stdout 与 stderr 分别重定向到日志" grep -q "cgc-host.log" "$CMD5" && grep -q "cgc-host.error.log" "$CMD5"
+ok "Windows：安装时先停旧实例（按命令行 Stop-Process）" grep -q "Stop-Process" "$POWERSHELL_LOG"
+ok "Windows：安装后立即拉起一次" grep -q "& '" "$POWERSHELL_LOG"
+ok "Windows：日志目录已建" test -d "$H5/AppData/Local/CGC"
+snapshot "$H5" >"$T/snap-h5a"
+install_windows "$H5" >"$T/out-win2" 2>&1
+snapshot "$H5" >"$T/snap-h5b"
+ok "Windows：重复安装结果与装一次相同" cmp -s "$T/snap-h5a" "$T/snap-h5b"
+cmd=$(sed -n 's/^卸载：//p' "$T/out-win2")
+env HOME="$H5" PATH="$WIN_PATH" bash -c "$cmd" >"$T/out-win-rm" 2>&1
+ok "Windows：卸载删除 Startup 自启项" not test -e "$CMD5"
+ok "Windows：卸载删除日志目录与包" not test -e "$H5/AppData/Local/CGC" && not test -e "$H5/.cgc2046/host"
+
 echo "== 场景 6：撤销接口不可达，卸载仍完成本地清理并提示 =="
 H3="$T/h3"
 install_in "$H3" >"$T/out5"

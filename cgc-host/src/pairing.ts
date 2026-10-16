@@ -1,60 +1,11 @@
 // pairing.ts — 配对（KTD3）：向平台核实学习凭证、本机确认弹窗、浏览器密钥；平台调用也供连接时的核实（KTD16）用
 import { createHash, randomBytes } from "node:crypto";
 import { isUuid } from "./security";
+import { dialogCommand } from "./platform-dialog";
 import type { Pairing } from "./state";
 
 /** 跑一次确认弹窗：argv 交给 Bun.spawn，返回 stdout；signal 中止即关掉弹窗。测试注入替身，不弹真窗 */
 export type DialogRunner = (argv: string[], signal: AbortSignal) => Promise<string>;
-
-/**
- * 固定的弹窗脚本：文字全部经 argv 传入（osascript 的 `--` 之后），从不拼进脚本源码——
- * 显示名里的引号、反斜杠或 AppleScript 语句只会被原样显示。
- * 第一个按钮「拒绝」既是默认按钮也是取消按钮（回车、Esc 都是拒绝；取消让 osascript 以 -128 退出，stdout 为空）；
- * 限时不答即 timeout，同样按拒绝处理。
- */
-export const DIALOG_SCRIPT = `on run argv
-	set answer to display dialog (item 1 of argv) with title (item 2 of argv) buttons {item 3 of argv, item 4 of argv} default button 1 cancel button 1 with icon caution giving up after ((item 5 of argv) as integer)
-	if gave up of answer then return "timeout"
-	if button returned of answer is (item 4 of argv) then return "allow"
-	return "deny"
-end run`;
-
-const DIALOG_SECONDS = 60;
-
-type Account = Pick<Pairing, "displayName" | "maskedIdentifier">;
-
-// locale 只选这里的文案；弹窗里唯一的变量是平台核实的账号
-const COPY = {
-  "zh-CN": {
-    title: "CGC 学习连接",
-    account: ({ displayName: n, maskedIdentifier: m }: Account) => (n && m ? `${n}（${m}）` : n || m || "（未设置名称）"),
-    body: (account: string) =>
-      `CGC 课程学习页请求连接这台电脑。\n\nCGC 账号：${account}\n\n允许后，这个浏览器里的课程页可以驱动你电脑上的 OMP，agent 以这个账号学习。如果不是你本人刚刚点了「连接」，请点「拒绝」。`,
-    deny: "拒绝",
-    allow: "允许",
-  },
-  en: {
-    title: "CGC learning connection",
-    account: ({ displayName: n, maskedIdentifier: m }: Account) => (n && m ? `${n} (${m})` : n || m || "(unnamed account)"),
-    body: (account: string) =>
-      `A CGC course page is asking to connect to this computer.\n\nCGC account: ${account}\n\nIf you allow it, the course page in this browser can drive OMP on this computer, and your agent will study as this account. If you did not just click "Connect", choose Deny.`,
-    deny: "Deny",
-    allow: "Allow",
-  },
-};
-
-export function dialogArgv(account: Account, locale: unknown): string[] {
-  const copy = COPY[locale === "en" ? "en" : "zh-CN"];
-  return ["/usr/bin/osascript", "-e", DIALOG_SCRIPT, "--", copy.body(copy.account(account)), copy.title, copy.deny, copy.allow, String(DIALOG_SECONDS)];
-}
-
-/** 真实的弹窗：LaunchAgent 下的 osascript 能弹出并置前（U5 真机核验）。取消、被杀、出错都不会得到 "allow" */
-export const runOsascript: DialogRunner = async (argv, signal) => {
-  const proc = Bun.spawn(argv, { stdout: "pipe", stderr: "pipe", signal });
-  const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-  if ((await proc.exited) !== 0 && !signal.aborted && !err.includes("(-128)")) console.error(`cgc-host: 确认弹窗出错：${err.trim()}`);
-  return out.trim();
-};
 
 export const newBrowserKey = () => randomBytes(32).toString("base64url");
 export const hashBrowserKey = (key: string) => createHash("sha256").update(key).digest("hex");
@@ -131,6 +82,8 @@ export type PairOutcome =
 export function createPairing(deps: {
   apiBase: string;
   runDialog: DialogRunner;
+  /** 弹窗按哪个系统挑（默认 process.platform）；测试注入固定值，跨平台断言不随测试机漂移 */
+  platform?: NodeJS.Platform;
   cooldownMs: number;
   getPairing(): Pairing | null;
   setPairing(pairing: Pairing | null): void;
@@ -165,7 +118,7 @@ export function createPairing(deps: {
         }
         const answer = signal.aborted
           ? "deny"
-          : await deps.runDialog(dialogArgv(identity ?? start!, params.locale), signal).catch((e) => {
+          : await deps.runDialog(dialogCommand(deps.platform ?? process.platform, identity ?? start!, params.locale), signal).catch((e) => {
               console.error("cgc-host: 确认弹窗无法启动", e);
               return "deny";
             });

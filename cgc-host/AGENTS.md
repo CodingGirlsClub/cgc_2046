@@ -9,7 +9,7 @@
 - **凭证与浏览器密钥不进日志、argv 与 HTTP 响应体**；浏览器密钥只在 `pair.result` 里交给发起这次配对的那一个连接，不发给其他连接。学习凭证只经 ACP 的 `mcpServers` 交给 OMP（U6 核验：OMP 的数据目录里没有 `cgch_`）。
 - **对话内容只在内存里（R25）**：事件缓冲不写盘；日志只记事件类型与错误消息，不记消息、思考、工具的输入输出；OMP 的 stderr 直接丢弃。
 - **不替学员审批**：卡片在无人作答时只会以取消结束，从不按允许；不注入 `--approval-mode`、不调 session/set_mode——审批沿用学员自己的 OMP 配置（KTD5、R18）。
-- **确认弹窗的文字只走 argv**：`osascript` 跑 `src/pairing.ts` 里固定的 `DIALOG_SCRIPT`，账号等文字作为 `--` 之后的参数传入，绝不拼进脚本源码；第一个按钮「拒绝」是默认按钮，限时不答按拒绝处理。
+- **确认弹窗的文字只走 argv**：按系统挑原装弹窗（`src/platform-dialog.ts`）——macOS 的 `osascript` 跑固定的 `DIALOG_SCRIPT`，账号等文字在 `--` 之后；Windows 的 `cscript` 跑固定的 `WINDOWS_SCRIPT`（运行时写入临时文件、用完即删，文字走 `WScript.Arguments`），弹窗默认按钮是「否」；Ubuntu 用 `zenity --question --default-cancel`。三者都绝不把文字拼进脚本源码，默认按钮/关闭/超时都不算「允许」。
 - **协议改动先改 `protocol.json`**：它是页面 ↔ Host 的方法名、协议版本与端口的单一事实源，web 与 Host 两侧的测试都对它断言。
 - **本目录的改动由人合并**：`cgc-host/**`（含依赖与 `pnpm-lock.yaml`）在根 `AGENTS.md` 的人工合并范围内；新依赖同样过根 `AGENTS.md` 的 License 硬门禁。
 
@@ -117,7 +117,7 @@ KTD14：页面在 `turn.end`、`turn.card`、`history`（进入可对话状态�
 curl -fsSL https://api.codingirlsclub.com/ext/cgc-host/install.sh | bash
 ```
 
-`install.sh` 依次：把清单和 Host 包下载到临时目录并校验 sha256，失败清理退出、不安装 Bun 或修改已有 Host/LaunchAgent → 校验成功后查找 Bun，没有则用官方安装器装到 `~/.bun` → `launchctl bootout` 旧的 → 落位、写 plist → `launchctl bootstrap`。只支持 macOS。
+`install.sh` 依次：把清单和 Host 包下载到临时目录并校验 sha256，失败清理退出、不安装 Bun 或修改已有 Host/自启项 → 校验成功后查找 Bun，没有则用官方安装器装到 `~/.bun` → 停掉旧的 → 落位、写当前系统的登录自启项 → 启动。支持 macOS（Terminal）、Ubuntu 桌面（Terminal）与 Windows（Git Bash；命令同样一条，Bun 用官方 PowerShell 安装器）。Ubuntu 分支硬依赖 `zenity`（缺了就地报错 `sudo apt install zenity`）；Windows 分支硬依赖 Git Bash 的 `cygpath` 与系统自带 `powershell.exe`。
 
 学员电脑上的文件：
 
@@ -125,8 +125,8 @@ curl -fsSL https://api.codingirlsclub.com/ext/cgc-host/install.sh | bash
 | --- | --- | --- |
 | `~/.cgc2046/host/cgc-host.js` | 包 | 删 |
 | `~/.cgc2046/host/state.json` | 状态（含学习凭证，见 `src/state.ts`） | 先用凭证自撤销，再删 |
-| `~/Library/LaunchAgents/com.codingirlsclub.cgc-host.plist` | LaunchAgent：`ProgramArguments` 是 Bun 与包的绝对路径加 `serve`；`RunAtLoad`；`KeepAlive {SuccessfulExit: false}`；`ThrottleInterval` 30；0644；**不含任何环境变量**（OMP 的环境由 Host 运行时从登录 shell 解析，KTD12） | 删 |
-| `~/Library/Logs/cgc-host.log` | Host 的 stdout 与 stderr | 删 |
+| 登录自启项 | macOS：`~/Library/LaunchAgents/com.codingirlsclub.cgc-host.plist`（`ProgramArguments` 是 Bun 与包的绝对路径加 `serve`；`RunAtLoad`；`KeepAlive {SuccessfulExit: false}`；`ThrottleInterval` 30；0644）。Ubuntu：`~/.config/systemd/user/com.codingirlsclub.cgc-host.service`（`ExecStart` 同上；`Restart=on-failure`；日志 append）。Windows：`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\CGC Host.cmd`（经系统自带 PowerShell `Start-Process -WindowStyle Hidden` 隐藏拉起）。**三者都不含任何环境变量**（OMP 的环境由 Host 运行时解析，KTD12） | 删 |
+| 日志 | macOS：`~/Library/Logs/cgc-host.log`。Ubuntu：`~/.local/state/cgc-host.log`。Windows：`%LOCALAPPDATA%\CGC\cgc-host.log` 与 `cgc-host.error.log`（stdout / stderr 分写） | 删 |
 | `~/.bun/` | 学员原本没有 Bun 时由官方安装器装的 | 不删：Bun 可能已被学员别处使用 |
 | `~/CGC/` | 课程工作目录，学员的作业 | **不碰**（安装也不碰） |
 
@@ -138,7 +138,7 @@ curl -fsSL https://api.codingirlsclub.com/ext/cgc-host/install.sh | bash
 ~/.bun/bin/bun ~/.cgc2046/host/cgc-host.js uninstall
 ```
 
-它依次：`launchctl bootout` → 用状态文件里的学习凭证自撤销（`revokeToken`，凭证不进 argv 与输出）→ 删除 plist、`~/.cgc2046/host/`（包与状态）、日志，`~/.cgc2046` 空了也删（cgc-play 的 socket 也在里面）。撤销失败（平台不可达、状态文件读不出）时照样删完，并提示学员到课程学习页对话栏的「已配对的电脑」撤销这台电脑。
+它依次：停掉自启的 Host（macOS `launchctl bootout` / Ubuntu `systemctl --user disable --now` / Windows 按命令行找到 `serve` 进程后 `Stop-Process`，三平台全部尽力尝试，本机不存在的命令或路径都是无声的 no-op）→ 用状态文件里的学习凭证自撤销（`revokeToken`，凭证不进 argv 与输出）→ 删除自启项、`~/.cgc2046/host/`（包与状态）、日志，`~/.cgc2046` 空了也删（cgc-play 的 socket 也在里面）。撤销失败（平台不可达、状态文件读不出）时照样删完，并提示学员到课程学习页对话栏的「已配对的电脑」撤销这台电脑。
 
 ### 产物与部署
 

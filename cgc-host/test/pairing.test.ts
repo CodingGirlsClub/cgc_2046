@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { DIALOG_SCRIPT } from "../src/pairing";
+import { DIALOG_SCRIPT } from "../src/platform-dialog";
 import { loadState, stateDir } from "../src/state";
 import {
   COURSE,
@@ -54,6 +54,20 @@ test("显示名里的引号、反斜杠与 AppleScript 原样作为一个 argv �
   expect(DIALOG_SCRIPT).toContain("default button 1 cancel button 1");
   expect(DIALOG_SCRIPT).toContain("giving up after");
   expect(argv[6]).toBe("拒绝");
+});
+
+test.each(["linux", "win32"] as const)("Covers 跨平台：%s 上按该系统的原装弹窗组命令；账号文字仍只经一个 argv 元素传入", async (platform) => {
+  const payload = `" & (do shell script "touch /tmp/pwned") & "\\ \\"`;
+  const host = startHost({ platform });
+  host.platform.tokens.set(TOKEN, identity(USER_A, "token-id-x", { display_name: payload }));
+  const c = await connect(host.port);
+  await c.call("pair.request", { token: TOKEN });
+
+  const [argv] = host.dialog.calls;
+  expect(argv[0]).toBe(platform === "linux" ? "zenity" : "cscript");
+  // 文字只出现在一个 argv 元素里，不拼进任何固定脚本
+  expect(argv.filter((a) => a.includes(payload))).toHaveLength(1);
+  expect(argv.join("\n")).toContain("a***@example.com");
 });
 
 test("locale 只选弹窗文案：en 出英文，白名单外的值退回 zh-CN", async () => {

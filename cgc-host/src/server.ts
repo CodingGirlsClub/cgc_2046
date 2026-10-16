@@ -39,6 +39,8 @@ export interface ServerOptions {
   /** 平台 API 地址：main.ts 只传 config.ts 的 API_BASE，测试传假平台 */
   apiBase: string;
   runDialog: DialogRunner;
+  /** 弹窗按哪个系统挑（默认 process.platform）；测试注入固定值 */
+  platform?: NodeJS.Platform;
   /** 找得到 omp（omp.ts 的缓存，同步读） */
   ompPresent: () => boolean;
   /** KTD12：登录 shell 环境解析失败的原因；非 null 时写进 status 的 ompEnvError */
@@ -214,6 +216,7 @@ export function startServer(opts: ServerOptions) {
     pairing: createPairing({
       apiBase: opts.apiBase,
       runDialog: opts.runDialog,
+      platform: opts.platform,
       cooldownMs: opts.cooldownMs ?? 3000,
       getPairing: () => state.pairing,
       setPairing,

@@ -1,4 +1,4 @@
-// main.ts — 入口：`serve` 子命令常驻（LaunchAgent 以它启动 Host，U7）；`uninstall` 子命令卸载（install.sh 结束时打印这条命令）
+// main.ts — 入口：`serve` 子命令常驻（各系统的登录自启项以它启动 Host，U7）；`uninstall` 子命令卸载（install.sh 结束时打印这条命令）
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -6,7 +6,7 @@ import { spawnOmp } from "./acp/client";
 import { createChat } from "./acp/session";
 import { API_BASE, HOST_VERSION, PORT } from "./config";
 import { ompLocator } from "./omp";
-import { runOsascript } from "./pairing";
+import { runPlatformDialog } from "./platform-dialog";
 import { startServer } from "./server";
 import { uninstall } from "./uninstall";
 
@@ -40,7 +40,7 @@ try {
     port: PORT,
     home,
     apiBase: API_BASE,
-    runDialog: runOsascript,
+    runDialog: runPlatformDialog,
     ompPresent: omp.present,
     ompEnvError: omp.envError,
     chat: chat.handle,
@@ -50,7 +50,7 @@ try {
   void omp.locate(); // 先解析一次登录 shell 环境；解析完成前 ompPresent 为 false
 } catch (e) {
   if ((e as { code?: string }).code !== "EADDRINUSE") throw e;
-  // 端口被占即判定已有实例在跑。退出码 0：LaunchAgent 的 KeepAlive（SuccessfulExit:false）不会反复拉起
+  // 端口被占即判定已有实例在跑。退出码 0：自启项的「异常才重启」不会反复拉起（launchd KeepAlive / systemd Restart=on-failure）
   console.error(`cgc-host: 127.0.0.1:${PORT} 已被占用，判定已有实例在运行，退出`);
   process.exit(0);
 }

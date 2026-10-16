@@ -99,6 +99,8 @@ export function startHost(options: Partial<ServerOptions> = {}) {
     apiBase: platform.url,
     runDialog: dialog.run,
     ompPresent: () => false,
+    // 弹窗命令形状的断言不随测试机漂移；跨平台形状在 pairing.test.ts 里各自注入
+    platform: "darwin",
     // 与 main.ts 在 U6 之前的处理器同一行为：记下调用，答「暂不可用」
     chat: (method, params, ctx) => {
       chatCalls.push({ method, params });
