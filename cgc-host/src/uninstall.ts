@@ -15,11 +15,12 @@ const servicePaths = (home: string) => [
   join(process.env.XDG_CONFIG_HOME ?? join(home, ".config"), "systemd", "user", `${LABEL}.service`), // Ubuntu
   join(process.env.APPDATA ?? join(home, "AppData", "Roaming"), "Microsoft", "Windows", "Start Menu", "Programs", "Startup", "CGC Host.cmd"), // Windows（Git Bash 路径同形）
 ];
+const windowsLogDir = (home: string) => join(process.env.LOCALAPPDATA ?? join(home, "AppData", "Local"), "CGC");
 const logPaths = (home: string) => [
   join(home, "Library", "Logs", "cgc-host.log"), // macOS
   join(process.env.XDG_STATE_HOME ?? join(home, ".local", "state"), "cgc-host.log"), // Ubuntu
-  join(process.env.LOCALAPPDATA ?? join(home, "AppData", "Local"), "CGC", "cgc-host.log"), // Windows：stdout
-  join(process.env.LOCALAPPDATA ?? join(home, "AppData", "Local"), "CGC", "cgc-host.error.log"), // Windows：stderr
+  join(windowsLogDir(home), "cgc-host.log"), // Windows：stdout
+  join(windowsLogDir(home), "cgc-host.error.log"), // Windows：stderr
 ];
 
 /** 尽力停掉常驻的 Host；命令不存在或没在跑都无所谓，返回后状态目录才会被删 */
@@ -53,7 +54,9 @@ export async function uninstall(home: string, apiBase: string) {
 
   for (const path of [...servicePaths(home), ...logPaths(home)]) rmSync(path, { force: true });
   rmSync(stateDir(home), { recursive: true, force: true }); // 包 cgc-host.js 也在这个目录里
-  rmSync(join(process.env.LOCALAPPDATA ?? join(home, "AppData", "Local"), "CGC"), { recursive: true, force: true }); // Windows 日志目录
+  try {
+    rmdirSync(windowsLogDir(home)); // 只删自己建的空目录；里面有学员别的文件就原样保留
+  } catch {}
   try {
     rmdirSync(dirname(stateDir(home))); // ~/.cgc2046 也放着 cgc-play 的 socket，空了才删
   } catch {}

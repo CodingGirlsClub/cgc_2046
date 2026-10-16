@@ -408,7 +408,16 @@ ok "Windows：重复安装结果与装一次相同" cmp -s "$T/snap-h5a" "$T/sna
 cmd=$(sed -n 's/^卸载：//p' "$T/out-win2")
 env HOME="$H5" PATH="$WIN_PATH" bash -c "$cmd" >"$T/out-win-rm" 2>&1
 ok "Windows：卸载删除 Startup 自启项" not test -e "$CMD5"
-ok "Windows：卸载删除日志目录与包" not test -e "$H5/AppData/Local/CGC" && not test -e "$H5/.cgc2046/host"
+ok "Windows：卸载删除日志与包" not test -e "$H5/AppData/Local/CGC/cgc-host.log" && not test -e "$H5/AppData/Local/CGC/cgc-host.error.log" && not test -e "$H5/.cgc2046/host"
+ok "Windows：日志目录空了也删" not test -e "$H5/AppData/Local/CGC"
+
+# 重装后在日志目录放一个外来文件：卸载只删自己写的东西，绝不能整目录递归删
+install_windows "$H5" >"$T/out-win3" 2>&1
+printf '别人的文件\n' >"$H5/AppData/Local/CGC/somebody-else.txt"
+cmd=$(sed -n 's/^卸载：//p' "$T/out-win3")
+env HOME="$H5" PATH="$WIN_PATH" bash -c "$cmd" >/dev/null 2>&1
+ok "Windows：卸载保留自带目录里的外来文件" grep -qx "别人的文件" "$H5/AppData/Local/CGC/somebody-else.txt"
+ok "Windows：卸载仍删掉自己写的日志" not test -e "$H5/AppData/Local/CGC/cgc-host.log"
 
 echo "== 场景 6：撤销接口不可达，卸载仍完成本地清理并提示 =="
 H3="$T/h3"
