@@ -111,6 +111,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ### Changed
 
+- [Web] 对话栏浏览器支持扩至桌面版 Firefox：检测按引擎分叉——Firefox 无回环权限模型，直接探测（可达即用、不出现「允许访问本机」假引导）；Safari 仍不支持（WebKit 无回环例外，评估见 ADR-0022）。
 - [本机 Host] 安装与运行扩展至 Windows（Git Bash）与 Ubuntu 桌面：登录自启按系统写入（LaunchAgent / systemd 用户服务 / 启动文件夹），本机确认框分别用 osascript / zenity / 系统自带 cscript 弹窗（默认按钮都是拒绝）；Windows 上 Bun 用官方 PowerShell 安装器。对话栏的浏览器检查同步放开三个桌面系统上的 Chrome（Safari、Firefox 仍不受支持）。安装脚本为 Ubuntu 增补 `sha256sum` 校验路径，卸载三平台产物全部尽力清理。
 - CI、backend/web 部署和后端 release 验证的 TCR 镜像仓库密码统一使用 `TCR_PASSWORD`；切换前须在 GitHub Repository 与 `production` 环境分别配置同名 Secret，避免与 Docker Hub 凭证混用。
 - [微信小程序] 闪念间寄出卡片时对已选金句显式征求授权；寄出失败重试如实保留已授权句；金句墙链接按平台注册门控（#1022 续批，随下一小程序版本过审上线）。

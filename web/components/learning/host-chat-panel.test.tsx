@@ -176,7 +176,7 @@ describe("连接状态（R26）", () => {
 	it.each<[string, HostConnection, RegExp | string]>([
 		["Covers AE12：Host 需要更新", { state: "staleHost" }, INSTALL],
 		["浏览器阻止访问本机", { state: "blocked" }, "浏览器阻止了本页访问本机。"],
-		["不受支持的浏览器", { state: "unsupported", reason: "browser" }, "对话栏支持 macOS、Windows 与 Ubuntu 桌面上的 Chrome。"],
+		["不受支持的浏览器", { state: "unsupported", reason: "browser" }, "对话栏支持 macOS、Windows 与 Ubuntu 桌面上的 Chrome，以及桌面版 Firefox。"],
 		["电脑上找不到 OMP", { state: "detected", ompPresent: false, paired: false }, "这台电脑上找不到 OMP。"],
 	])("%s：给出说明与下一步", async (_, probe, text) => {
 		checkHost.mockResolvedValue(probe);

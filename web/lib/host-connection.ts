@@ -85,11 +85,20 @@ async function detect(fromUserGesture: boolean, previouslyReachedHost = false): 
 		};
 	}
 
-	// ADR-0022：支持 macOS、Windows 与 Linux 桌面上的 Chrome。不能只看 permissions API：
-	// Safari 也有它，查这个权限名同样抛 TypeError，会被当成「需要授权」；而 Safari 把 https 页面
-	// 到 127.0.0.1 的请求当混用内容拦掉。userAgentData 只有 Chromium 有，一个条件同时排除两类。
-	if (!["macOS", "Windows", "Linux"].includes(navigator.userAgentData?.platform ?? "") || !navigator.permissions) {
+	// ADR-0022：支持 macOS、Windows 与 Linux 桌面上的 Chrome，以及桌面版 Firefox。
+	// 引擎判定用 userAgentData（UA Client Hints，只有 Chromium 实现；Safari 有 permissions API
+	// 但同样没有它，故一并排除）。桌面 Firefox 没有浏览器级回环权限模型（无提示、无需手势），
+	// 单独走「直接探测」路径：可达即 detected，不可达即 noHost，不出现「需要授权」的假状态。
+	const chromiumPlatform = navigator.userAgentData?.platform;
+	const chromeDesktop = chromiumPlatform !== undefined && ["macOS", "Windows", "Linux"].includes(chromiumPlatform) && !!navigator.permissions;
+	const firefoxDesktop =
+		chromiumPlatform === undefined && /Firefox\//.test(navigator.userAgent) && !/Android|Mobile/.test(navigator.userAgent);
+	if (!chromeDesktop && !firefoxDesktop) {
 		return { state: "unsupported", reason: "browser" };
+	}
+	if (firefoxDesktop) {
+		const probed = await probe();
+		return probed ?? { state: "noHost" };
 	}
 
 	if (!fromUserGesture) {
