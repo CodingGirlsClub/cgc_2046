@@ -42,6 +42,8 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ### Security
 
 - web 依赖收敛以解锁 `pnpm audit` 门禁：`next` 16.3.5 → 16.3.8（清掉 7 条 next 公告，含 1 条 critical RCE），并按既有 overrides 先例收敛 `source-map-js` / `sharp` 两条传递依赖（沿用 `788c5248` 的 `pnpm-workspace.yaml` 手法）。审计从 9 条（1 critical / 3 high / 4 moderate / 1 low）降到零（#1118）。
+- backend 升级 `bandit` 1.12.5 → 1.13.1（传递依赖 `thousand_island` 1.5.0 → 1.6.0），修掉 `GHSA-v53v-9hvg-37jf`（HTTP/1 absolute-form / authority-form 的 request-target authority 未按 Host 头语法校验，客户端可自选 `conn.host` / `conn.port`）与 `GHSA-69m6-wcv4-rwcf`（H2 blocked-send deadline 被 WINDOW_UPDATE trickle 重置），并删除 `mix.exs` 的 `hex: [ignore_advisories: ...]`——`mix hex.audit` 恢复为退零退出、无忽略项（#1121）。
+
 ## [2026-10-15]
 
 ### Fixed
