@@ -669,3 +669,115 @@ describe("学员课程页（page.tsx）", () => {
 		expect(screen.queryByRole("complementary", { name: "本机 agent" })).not.toBeInTheDocument();
 	});
 });
+
+
+describe("历史对话（Session History）", () => {
+	const v2 = (state: HostStatus["state"]): HostStatus => ({ ...status(state), protocolVersion: 2 });
+
+	async function readyV2() {
+		renderPanel();
+		await waitFor(() => expect(socketCount()).toBeGreaterThan(0));
+		const ws = FakeWebSocket.all.at(-1)!;
+		ws.push({ method: "status", params: v2("paired") });
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
+		await ws.reply("hello", "status", v2("ready"));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
+		await ws.reply("chat.attach", "history", { courseId: COURSE, running: false, events: [] });
+		await screen.findByRole("textbox", { name: "发给 agent 的消息" });
+		return ws;
+	}
+
+	it("旧 Host（协议 v1）：不显示「历史对话」入口", async () => {
+		await readyPanel();
+		expect(screen.queryByRole("button", { name: "历史对话" })).toBeNull();
+	});
+
+	it("打开下拉列出历史会话（时间·条数、当前标注且不可点）；点选切换后下拉关闭、对话换新", async () => {
+		const ws = await readyV2();
+		fireEvent.click(screen.getByRole("button", { name: "历史对话" }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.sessions"));
+		await ws.reply("chat.sessions", "sessions", {
+			courseId: COURSE,
+			sessions: [
+				{ sessionId: "session-1", updatedAt: "2026-10-15T02:00:00Z", messageCount: 4 },
+				{ sessionId: "session-2", updatedAt: "2026-10-16T02:00:00Z", messageCount: 2 },
+			],
+			current: "session-2",
+			nextCursor: null,
+		});
+		const items = await screen.findAllByRole("button", { name: /条消息/ });
+		expect(items).toHaveLength(2);
+		expect(items[0]).toHaveTextContent("4 条消息");
+		expect(items[1]).toHaveTextContent("当前");
+		expect(items[1]).toBeDisabled();
+		fireEvent.click(items[0]);
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.open"));
+		await ws.reply("chat.open", "history", { courseId: COURSE, running: false, events: [{ kind: "user", text: "旧会话的消息" }] });
+		await waitFor(() => expect(screen.queryByRole("button", { name: /条消息/ })).toBeNull());
+		expect(screen.getByText("旧会话的消息")).toBeInTheDocument();
+	});
+
+	it("切换失败（session_unavailable）：下拉内就地提示，对话不变", async () => {
+		const ws = await readyV2();
+		fireEvent.click(screen.getByRole("button", { name: "历史对话" }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.sessions"));
+		await ws.reply("chat.sessions", "sessions", {
+			courseId: COURSE,
+			sessions: [{ sessionId: "session-1", updatedAt: null, messageCount: null }],
+			current: "session-2",
+			nextCursor: null,
+		});
+		fireEvent.click((await screen.findAllByRole("button", { name: /条消息/ }))[0]);
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.open"));
+		await ws.reply("chat.open", "error", { code: "session_unavailable" });
+		await screen.findByText(/暂时无法打开/);
+		expect(screen.getByRole("textbox", { name: "发给 agent 的消息" })).toBeInTheDocument();
+	});
+
+	it("分页：加载更多带游标续页拼接；回合进行中历史行不可点", async () => {
+		const ws = await readyV2();
+		await sendMessage(ws, "先聊一句");
+		fireEvent.click(screen.getByRole("button", { name: "历史对话" }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.sessions"));
+		expect(ws.sent.at(-1)?.params).toEqual({ courseId: COURSE });
+		await ws.reply("chat.sessions", "sessions", {
+			courseId: COURSE,
+			sessions: [{ sessionId: "session-9", updatedAt: null, messageCount: 3 }],
+			current: null,
+			nextCursor: "1",
+		});
+		const first = await screen.findByRole("button", { name: /3 条消息/ });
+		expect(first).toBeDisabled();
+		fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.sessions", params: { courseId: COURSE, cursor: "1" } }));
+		await ws.reply("chat.sessions", "sessions", {
+			courseId: COURSE,
+			sessions: [{ sessionId: "session-8", updatedAt: null, messageCount: 1 }],
+			current: null,
+			nextCursor: null,
+		});
+		await screen.findByRole("button", { name: /1 条消息/ });
+		expect(screen.getAllByRole("button", { name: /条消息/ })).toHaveLength(2);
+	});
+
+	it("点面板与按钮以外的地方关闭；点面板内不关；重新打开重新拉列表", async () => {
+		const ws = await readyV2();
+		fireEvent.click(screen.getByRole("button", { name: "历史对话" }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.sessions"));
+		await ws.reply("chat.sessions", "sessions", {
+			courseId: COURSE,
+			sessions: [{ sessionId: "session-1", updatedAt: null, messageCount: 2 }],
+			current: null,
+			nextCursor: null,
+		});
+		const row = await screen.findByRole("button", { name: /2 条消息/ });
+		// 面板内按下（点行、滚动）：不关闭
+		fireEvent.mouseDown(row);
+		expect(screen.getByRole("button", { name: /2 条消息/ })).toBeInTheDocument();
+		// 面板外按下（例如「新开对话」）：关闭；再打开时重新拉一次列表
+		fireEvent.mouseDown(document.body);
+		expect(screen.queryByRole("button", { name: /2 条消息/ })).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "历史对话" }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.sessions"));
+	});
+});

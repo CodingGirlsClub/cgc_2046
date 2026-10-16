@@ -43,7 +43,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 | `pair.request {token?, locale?}` | `pair.result {allowed: true, browserKey}` 或 `{allowed: false}`；没走到弹窗就结束的回 `error` |
 | `pair.cancel` | 无；本连接进行中的 `pair.request` 以 `pair.result {allowed: false}` 结束 |
 | `pair.forget` | 无；Host 向所有连接推送未配对的 `status` |
-| `chat.attach` / `chat.send` / `chat.stop` / `chat.new` / `card.answer`（`{courseId, …}`） | 见下方「对话的载荷契约」；被另一个连接接管的连接收到 `chat.evicted {courseId}` |
+| `chat.attach` / `chat.send` / `chat.stop` / `chat.new` / `chat.sessions` / `chat.open` / `card.answer`（`{courseId, …}`） | 见下方「对话的载荷契约」；被另一个连接接管的连接收到 `chat.evicted {courseId}` |
 
 `status.params`：`state`（`unpaired` / `paired` / `ready`，`ready` 指这个连接已授权）、`pairedUserId`、`pairedDisplayName`、`deviceName`、`tokenId`、`ompPresent`、`version`、`protocolVersion`；解析学员登录 shell 的环境失败时另有 `ompEnvError`（`timeout` / `failed`，此时 Host 退回 launchd 的最小环境，多半找不到 omp 或模型凭证）。`ompPresent` 为 false 时，Host 每次被读到都会在后台重新查找（至多 10 秒一次），学员装上 OMP 后不必重启 Host；页面可轮询 `/health`。
 
@@ -59,6 +59,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 | `invalid_token` | 平台对这枚凭证回 401 / 429，或它的 kind 不是 `learning_host` |
 | `platform_unavailable` | 平台连不上、回 5xx 或应答不合约 |
 | `not_holder` | 这门课已被另一个连接接管 |
+| `session_unavailable` | `chat.open` 的目标会话加载失败；持久指针不动、原会话不受影响 |
 | `chat_unavailable` | 找不到 omp、拉不起 OMP，或 ACP 握手、加载会话失败；详情只在 Host 日志里 |
 | `internal` | Host 内部出错，详情只在 Host 日志里 |
 
@@ -76,6 +77,8 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 | `chat.send` | `text`（非空字符串）、`context` | 回 `turn.delta {kind: "user", text}` 表示接下了；之后推 `turn.delta` / `turn.card` / `turn.card.closed`，最后 `turn.end` |
 | `chat.stop` | — | 不回复；在跑的一轮：待答卡片 `turn.card.closed {reason: "cancelled"}`，没跑完的工具步骤以 `status: "stopped"` 推一次 `turn.delta`，随后 `turn.end {stopReason: "cancelled"}`。停止前已提交到平台的结果照常生效 |
 | `chat.new` | — | `history`（空）：此后的消息进一条新会话，agent 不带之前的上下文；学习进度不受影响 |
+| `chat.sessions` | `cursor?`（分页游标，原样透传 ACP） | `sessions {sessions: [{sessionId, updatedAt, messageCount}], current, nextCursor}`：本课程工作目录下的会话；只读，有回合在跑也可查；元数据缺省为 `null`（OMP 差异），页面降级展示 |
+| `chat.open` | `sessionId` | `history`：切换到指定会话；目标必须在本课程工作目录下（否则 `bad_request`）；加载失败 `session_unavailable` 且持久指针不动（原会话不受影响）；有回合在跑 `busy`；成功才推进指针，切当前会话不重复加载 |
 | `card.answer` | `cardId`，加审批的 `{optionId}` 或提问的 `{action, content?}` | `turn.card.closed {cardId, reason: "answered"}` |
 
 `context`（KTD8）：`{workspaceId, courseVersion, unitId, locale}`。`workspaceId` 是 UUID；`courseVersion` 是页面显示的课程版本号（正整数）或 `null`；`unitId` 是学员正在看的单元 id（只认 `^[A-Za-z0-9_.-]{1,64}$`），`null` 表示课程总览；`locale` 是 `zh-CN` 或 `en`。每条 `chat.send` 都带，Host 只在会话的首条消息和它变化时（例如切换单元）把它附给 agent，只带这些标识——课程、单元标题这类 tutor 撰写的文本不进提示。
