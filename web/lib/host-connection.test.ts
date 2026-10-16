@@ -90,10 +90,17 @@ describe("checkHost（页面加载即可调用；未授权时不发本机请求�
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
+	it.each(["macOS", "Windows", "Linux"])("%s 上的 Chrome 进入本机访问权限判定", async (platform) => {
+		const { permissionQuery, fetchMock } = stubBrowser({ platform, permission: "prompt" });
+		expect(await checkHost()).toEqual({ state: "needsPermission" });
+		expect(permissionQuery).toHaveBeenCalledOnce();
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
 	it.each([
 		["无 userAgentData（Safari、Firefox；Safari 有 permissions API 也一样）", null],
-		["Windows 上的 Chromium（安装命令只支持 macOS）", "Windows"],
-	])("首期只支持 macOS 上的 Chrome：%s → 不受支持（browser），不查权限也不碰本机", async (_, platform) => {
+		["ChromeOS 或移动 Chromium", "Android"],
+	])("不支持的浏览器：%s → 不受支持（browser），不查权限也不碰本机", async (_, platform) => {
 		const { permissionQuery, fetchMock } = stubBrowser({ platform });
 
 		expect(await checkHost()).toEqual({ state: "unsupported", reason: "browser" });

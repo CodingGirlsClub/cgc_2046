@@ -85,10 +85,10 @@ async function detect(fromUserGesture: boolean, previouslyReachedHost = false): 
 		};
 	}
 
-	// ADR-0022：首期只支持 macOS 上的 Chrome——安装命令只有 macOS 版。不能只看 permissions API：
+	// ADR-0022：支持 macOS、Windows 与 Linux 桌面上的 Chrome。不能只看 permissions API：
 	// Safari 也有它，查这个权限名同样抛 TypeError，会被当成「需要授权」；而 Safari 把 https 页面
 	// 到 127.0.0.1 的请求当混用内容拦掉。userAgentData 只有 Chromium 有，一个条件同时排除两类。
-	if (navigator.userAgentData?.platform !== "macOS" || !navigator.permissions) {
+	if (!["macOS", "Windows", "Linux"].includes(navigator.userAgentData?.platform ?? "") || !navigator.permissions) {
 		return { state: "unsupported", reason: "browser" };
 	}
 
