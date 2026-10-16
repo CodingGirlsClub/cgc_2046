@@ -156,13 +156,15 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       description: "run 绑定版本的步骤定义（step_key/title/type/output_schema，plan 020）"
     )
 
-    # 018 审计立项：prep_state 投影 = facts["prep_state"]（Curriculum.Prep.prep_state/1
-    # 的 SQL 下推形态，不 public——仅 MCP list 面内部 load）。**必须配合消费方
+    # 018 审计立项：prep_state 投影 = COALESCE(facts["prep_state"], 'draft')
+    # （#1126：Curriculum.Prep.prep_state/1 对缺键同样缺省 "draft"——两处
+    # 语义同源，避免「run 存在但从未迁移」被读成 NULL 与 get_prep_status
+    # 的 draft 分叉）。不 public——仅 MCP list 面内部 load；**必须配合消费方
     # 对 workflow_run 关系的 select 收窄使用**（Ash 关系 load 缺省 select 全部
     # 属性——不收窄则 facts JSONB 照样过网，见 list_workspace_courses）。
     # Elixir 侧既加载 struct 的同义读取 = Prep.prep_state/1（list_my_tasks 等整行
     # 在场场景），两处语义同源。
-    calculate(:prep_state, :string, expr(facts["prep_state"]))
+    calculate(:prep_state, :string, expr(fragment("COALESCE(?, 'draft')", facts["prep_state"])))
   end
 
   multitenancy do

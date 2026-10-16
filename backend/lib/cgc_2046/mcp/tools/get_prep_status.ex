@@ -7,8 +7,9 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
   实时计算的结构门禁违规清单（`gate_violations`）与软提示清单
   （`gate_warnings`，不阻断发布）/ run version（乐观锁版本，供并发对话）。
 
-  S6 起 run 读取经 `Prep.ensure_active_run/2` 懒开新 run——发布后编辑自动有
-  活动 run 驱动下一版本（次周期 assignee 沿用）。
+  S6 起 run 读取经 `Prep.ensure_active_run/2` 懒开新 run（读取即写：触发面 =
+  本工具与 submit_prep_for_check）——发布后首读即开新一轮周期，自动有活动
+  run 驱动下一版本（次周期 assignee 沿用）。
   """
   use Anubis.Server.Component, type: :tool
 
@@ -25,8 +26,9 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
     """
     工作台成员可读：读取课程教研流程的状态：prep_state（draft → authoring → quality_check → review →
     published）、生效的教研策略、被指派的 tutor、最新质量报告、当前阻断发布的问题清单 gate_violations、
-    不阻断发布的提示 gate_warnings，以及流程版本号（用于并发修改时比对）。课程发布后再次编辑时，会自动
-    开启新一轮教研流程，指派的 tutor 沿用。
+    不阻断发布的提示 gate_warnings、当前周期 run_id，以及流程版本号（乐观锁，用于并发修改时比对；跨周期
+    不可比）。课程发布后再次读取本工具或提交结构检查时，会自动开启新一轮教研流程（新一轮从 draft 开始），
+    指派的 tutor 沿用。
     """
   end
 
@@ -49,6 +51,8 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
           {:ok,
            %{
              course_id: course.id,
+             # 周期切换可辨（#1126）：发布后懒开的新 run 与旧 run 的 version 各自独立
+             run_id: run.id,
              prep_state: Prep.prep_state(run),
              policy: Prep.policy(run),
              assignee_user_id: assignee_id,

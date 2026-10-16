@@ -43,6 +43,7 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
     GetPrepStatus,
     LaunchCourse,
     ListMyTasks,
+    ListWorkspaceCourses,
     OverridePrepGate,
     RequestChangesPrep,
     SaveCourseContent,
@@ -848,6 +849,16 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
       assert run2.id != run1.id
       assert run2.status == :running
 
+      # 周期切换可辨（#1126）：响应带 run_id；list 面对同一 run 同显 draft
+      assert status["run_id"] == run2.id
+
+      {:reply, _, _} =
+        list_reply =
+        ListWorkspaceCourses.execute(%{"workspace_id" => workspace.id}, frame_for(tutor))
+
+      row = Enum.find(decode(list_reply)["courses"], &(&1["course_id"] == course.id))
+      assert row["prep_state"] == "draft"
+
       # 进 authoring：assignee 非空挡住认领（既定行为），Owner 重新指派同一 tutor
       assert {:reply, _, _} =
                AssignPrepTutor.execute(
@@ -915,6 +926,44 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
 
       assert reload_run(run2, workspace).facts["published_revision_number"] == 2
       assert reload_run(run1, workspace).facts["published_revision_number"] == 1
+    end
+
+    test "prep_state 读面一致：新 run 缺 prep_state 键时 list_workspace_courses 与 get_prep_status 同显 draft；无 run 课程为 null" do
+      owner = Fixtures.platform_admin("s6-readface-owner")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s6-readface-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+
+      # 首周期 run（facts 无 prep_state 键——创建后未迁移，缺省 draft）
+      {course, run} = course_with_prep(workspace, owner, %{title: "读面一致"})
+
+      {:reply, _, _} =
+        status_reply =
+        GetPrepStatus.execute(
+          %{"workspace_id" => workspace.id, "course_id" => course.id},
+          frame_for(tutor)
+        )
+
+      status = decode(status_reply)
+      assert status["prep_state"] == "draft"
+      assert status["run_id"] == run.id
+
+      {:reply, _, _} =
+        list_reply =
+        ListWorkspaceCourses.execute(%{"workspace_id" => workspace.id}, frame_for(tutor))
+
+      row = Enum.find(decode(list_reply)["courses"], &(&1["course_id"] == course.id))
+      assert row["prep_state"] == status["prep_state"]
+
+      # 无 run 课程（从未实例化/断流）：prep_state = null（「没有教研流程」语义）
+      legacy = draft_course(workspace, owner, %{title: "无 run 课程"})
+
+      {:reply, _, _} =
+        list_all =
+        ListWorkspaceCourses.execute(%{"workspace_id" => workspace.id}, frame_for(tutor))
+
+      legacy_row = Enum.find(decode(list_all)["courses"], &(&1["course_id"] == legacy.id))
+      assert legacy_row["prep_state"] == nil
     end
 
     test "并发发布撞号：恰一成一败（字符串错误，无 Invalid 泄漏），revision number 无重号" do
