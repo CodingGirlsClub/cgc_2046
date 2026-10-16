@@ -23,13 +23,16 @@ end
 # 端口取 PORT：生产/Kamal 与本地并行 worktree 共用，本地缺省 4000。
 # runtime 每次启动求值，覆盖 dev/test 的静态值。
 #
-# http_2_options.enabled = false（#1112）：bandit <= 1.12.5 的 blocked-send
-# deadline 可被 WINDOW_UPDATE trickle 重置（GHSA-69m6-wcv4-rwcf，HIGH，
-# 上游尚无修复版），连接级与 stream 级两条攻击路径**只存在于 H2 栈**；
-# advisory 官方列出的两条缓解之一就是禁用 H2。公网拓扑 = kamal-proxy 终止
-# TLS 并以 HTTP/1 打 backend，H2 面本就只在内网直连端口可达——禁用后对
-# 用户侧零影响。**恢复条件**：bandit 发布含修复的版本（预期 1.12.6+）并升级
-# 后，按 #1112 评估是否恢复 + 移除 mix.exs 的 ignore_advisories。
+# http_2_options.enabled = false（#1112，前提已由 #1121 更新）：H2 栈曾暴露
+# 两条 bandit 公告——GHSA-69m6-wcv4-rwcf（blocked-send deadline 可被
+# WINDOW_UPDATE trickle 重置，连接级与 stream 级）与 GHSA-v53v-9hvg-37jf
+# （HTTP/1 absolute-form authority 污染 conn.host/conn.port）。**两条均已在
+# bandit 1.13.1 修复**（#1121 升级），所以「等修复版」不再是保持关闭的理由。
+# 现在保持关闭是因为没有调用方需要 H2：公网经 kamal-proxy 以 HTTP/1 打
+# backend，GraphQL / MCP（streamable HTTP）/ healthz / LiveView WebSocket 全走
+# HTTP/1.1；H2 面只在内网直连端口可达，开启它只增加攻击面与一条未经产品需求
+# 验证的协议路径。**恢复条件**：出现真实需要 H2 的调用方（或明确要终止 H2
+# 到 backend 的拓扑），另开 issue 评估后再开。
 config :cgc_2046, Cgc2046Web.Endpoint,
   http: [
     port: String.to_integer(System.get_env("PORT", "4000")),
