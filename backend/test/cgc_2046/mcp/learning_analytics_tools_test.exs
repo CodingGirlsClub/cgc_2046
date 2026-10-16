@@ -20,18 +20,18 @@ defmodule Cgc2046.Mcp.LearningAnalyticsToolsTest do
   """
   use Cgc2046.DataCase, async: true
 
-  alias Anubis.Server.Frame
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Admission.Enrollment
   alias Cgc2046.Curriculum.CourseRevision
   alias Cgc2046.EventsFixtures, as: EventFixtures
   alias Cgc2046.Mcp.ToolCallLog
   alias Cgc2046.Mcp.Tools.{GetCourseLearningAnalytics, StartLearningRun, SubmitLearningAttempt}
+  alias Cgc2046.McpFrames
   alias Cgc2046.Workflows.WorkflowDefinition
 
   require Ash.Query
 
-  defp frame_for(user), do: Frame.new(current_user: user)
+  defp frame_for(user), do: McpFrames.terminal(user)
 
   defp reply_parts({:reply, response, _frame}) do
     [content] = response.content

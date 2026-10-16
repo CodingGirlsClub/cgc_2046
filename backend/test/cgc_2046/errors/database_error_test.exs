@@ -20,13 +20,13 @@ defmodule Cgc2046.Errors.DatabaseErrorTest do
 
   require Ash.Query
 
-  alias Anubis.Server.Frame
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Errors.{BusinessError, DatabaseError}
   alias Cgc2046.Events.PaymentModeValidation
   alias Cgc2046.Initiatives.Initiative
   alias Cgc2046.Mcp.Errors, as: McpErrors
   alias Cgc2046.Mcp.{ToolCallLog, Wrapper}
+  alias Cgc2046.McpFrames
 
   # 模拟 ash_postgres 未命中 resource DSL 声明时叶子携带的原文（索引名 / CHECK 名 /
   # 表名 / 冲突键值 / Ecto 教程文本）——真实来源见 database_error_db_test.exs
@@ -259,7 +259,7 @@ defmodule Cgc2046.Errors.DatabaseErrorTest do
   describe "审计列第二暴露通道（ToolCallLog.error_message 会被 MCP/GraphQL 二次读出）" do
     test "经 Wrapper 落库的 error_message 不含底层细节且保留 uuid" do
       actor = Fixtures.platform_admin("612-audit")
-      frame = Frame.new(current_user: actor)
+      frame = McpFrames.terminal(actor)
       error = unknown_class()
 
       assert {:error, _} =
@@ -282,7 +282,7 @@ defmodule Cgc2046.Errors.DatabaseErrorTest do
 
     test "非二进制原始错误（裸 Postgrex）落库也不含库内文本，且保留 uuid（#612 第二条通道）" do
       actor = Fixtures.platform_admin("612-audit-pg")
-      frame = Frame.new(current_user: actor)
+      frame = McpFrames.terminal(actor)
 
       pg = %Postgrex.Error{
         postgres: %{

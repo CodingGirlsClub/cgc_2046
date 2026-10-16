@@ -45,6 +45,13 @@ defmodule Cgc2046.Mcp.Scopes do
   「没权限时错误以 forbidden 开头」），并经 `Wrapper.record_denied/4` 补写 forbidden 审计
   （ADR-0001 D6「每次工具调用 = 审计记录」）。
 
+  ## 学习凭证（`learning_host`，ADR-0022）
+
+  配对签发给 CGC 本机 Host 的连接 token 只能用 `learning_host_tools/0` 这 5 个学习工具，与持有人
+  的角色无关。权威检查在 `Cgc2046.Mcp.Wrapper.run/4`：全员可见的工具 scope 为空，scope 机制挡不住
+  它们。本模块的 `tools/list` 钩子只负责隐藏名单外的工具。判据是 `McpAuthPlug` 每次鉴权写入的
+  `frame.assigns[:mcp_token_kind]`：只有 `:terminal` 不受限，读不到 kind 按学习凭证处理。
+
   ## 已知边界
 
   - task 增强的 `tools/call`（`Session.Tasks`）直接走 `Handlers.handle`，不经
@@ -67,6 +74,13 @@ defmodule Cgc2046.Mcp.Scopes do
   @workspace_admin "workspace_admin"
   @platform_admin "platform_admin"
 
+  # 学习凭证放行的工具：学员 playbook 与它的学习循环。不放进各工具的 meta:——meta 会作为 _meta
+  # 序列化给客户端（GLOSSARY「meta 载体纪律」）；集中在这里也便于审计
+  @learning_host_tools ~w(
+    get_role_playbook get_learning_state start_learning_run get_course_revision
+    submit_learning_attempt
+  )
+
   # scope → 拒绝文案里的角色描述（agent 据此向用户转述缺什么权限）
   @role_phrases %{
     @tutor => "tutor, owner or admin role in a workspace",
@@ -85,6 +99,18 @@ defmodule Cgc2046.Mcp.Scopes do
 
   @spec scope_tutor_role_names() :: [atom()]
   def scope_tutor_role_names, do: Enum.sort([:tutor, :owner, :admin])
+
+  @doc "学习凭证（`learning_host`）放行的工具名单（ADR-0022）。"
+  @spec learning_host_tools() :: [String.t()]
+  def learning_host_tools, do: @learning_host_tools
+
+  @doc """
+  该 frame 的连接 token 能否使用这个工具：`terminal` 不受限；`learning_host` 与读不到 kind
+  （缺失 / 未知）只放行 `learning_host_tools/0`。`Wrapper.run/4` 与 `tools/list` 钩子共用此判据。
+  """
+  @spec token_allows?(Anubis.Server.Frame.t(), String.t()) :: boolean()
+  def token_allows?(frame, tool_name),
+    do: frame.assigns[:mcp_token_kind] == :terminal or tool_name in @learning_host_tools
 
   @doc """
   调用者当前持有的 scope 列表（空 = 只见全员可见名单）。fail-closed：读失败返回 []。
@@ -126,7 +152,10 @@ defmodule Cgc2046.Mcp.Scopes do
           {:ok, scopes} ->
             claims = Anubis.Server.Authorization.normalize_claims(%{"scopes" => scopes})
             frame = put_in(frame.context.auth, claims)
-            super(request, frame)
+
+            request
+            |> super(frame)
+            |> Cgc2046.Mcp.Scopes.hide_disallowed_tools()
 
           {:error, error} ->
             require Logger
@@ -152,6 +181,15 @@ defmodule Cgc2046.Mcp.Scopes do
       def handle_request(request, frame), do: super(request, frame)
     end
   end
+
+  @doc false
+  # tools/list 结果按连接 token 的 kind 再过滤一遍：学习凭证只列学习工具（ADR-0022）。
+  # 只隐藏、不拒绝；拒绝在 Wrapper.run/4。
+  def hide_disallowed_tools({:reply, %{"tools" => tools} = result, frame}) do
+    {:reply, %{result | "tools" => Enum.filter(tools, &token_allows?(frame, &1.name))}, frame}
+  end
+
+  def hide_disallowed_tools(result), do: result
 
   @doc false
   # 把当前请求的 scope 注入 frame.context.auth（anubis 的 visible?/check_scopes 读它）。

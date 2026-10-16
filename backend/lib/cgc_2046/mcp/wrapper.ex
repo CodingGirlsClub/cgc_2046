@@ -4,7 +4,9 @@ defmodule Cgc2046.Mcp.Wrapper do
 
   每个 tool 的 `execute/2` 入口都经 `run/3`：
 
-  1. 从 frame.assigns 取 actor（McpAuthPlug 注入 `:current_user`）
+  1. 从 frame.assigns 取 actor（McpAuthPlug 注入 `:current_user`）；连接 token 的 kind
+     （`:mcp_token_kind`）不是 `terminal` 时只放行学习工具，读不到 kind 同样按学习凭证处理
+     （ADR-0022；名单与判据见 `Cgc2046.Mcp.Scopes.token_allows?/2`）
   2. 校验必填 `workspace_id`（D12 无状态作用域；`meta: %{workspace_id: :optional}` 的工具豁免）
   3. membership 鉴权：非成员直接 Forbidden（不经业务 action，快速拒绝）；
      `meta: %{membership: :deferred}` 的工具由工具层授权判定替代；
@@ -14,8 +16,9 @@ defmodule Cgc2046.Mcp.Wrapper do
      `is_platform_admin` 全局标记——非平台管理员一律 Forbidden，无工作台作用域
   4. 执行业务 fun（`fn actor, workspace_id, params -> {:ok, result} | {:error, msg} end`）
   5. 落 ToolCallLog 审计（ok / error / forbidden；带 client_name / session_id 归因维度
-     （#228），取不到时落 nil；失败不阻塞响应，记 Logger）。params 经 Redact 脱敏 +
-     字节上限截断（P2 防审计放大）；forbidden 行只落截断元数据（`Redact.metadata_only/1`）
+     （#228）与 token_kind（ADR-0022），取不到时落 nil；失败不阻塞响应，记 Logger）。
+     params 经 Redact 脱敏 + 字节上限截断（P2 防审计放大）；forbidden 行只落截断元数据
+     （`Redact.metadata_only/1`）
 
   鉴权立场随工具走（架构深化 C）：豁免声明 = 各工具模块 `use
   Anubis.Server.Component` 的 `meta:` opt，本模块经
@@ -53,6 +56,7 @@ defmodule Cgc2046.Mcp.Wrapper do
   alias Cgc2046.Accounts.MembershipContext
   alias Cgc2046.Accounts.Policies.PlatformAdmin
   alias Cgc2046.Mcp.Redact
+  alias Cgc2046.Mcp.Scopes
   alias Cgc2046.Mcp.ToolCallLog
 
   require Logger
@@ -78,6 +82,7 @@ defmodule Cgc2046.Mcp.Wrapper do
 
     result =
       with :ok <- check_actor(actor),
+           :ok <- check_token_kind(frame, tool_name),
            :ok <- check_workspace_id(tool_name, workspace_id),
            :ok <- check_membership(tool_name, actor, workspace_id) do
         fun.(actor, workspace_id, params)
@@ -181,6 +186,16 @@ defmodule Cgc2046.Mcp.Wrapper do
   defp check_actor(nil), do: {:error, "unauthenticated: valid MCP connection token required"}
   defp check_actor(_actor), do: :ok
 
+  # 学习凭证收窄（ADR-0022）：拒绝走 forbidden 前缀，由下面的 log_call 记为 forbidden 审计
+  defp check_token_kind(frame, tool_name) do
+    if Scopes.token_allows?(frame, tool_name) do
+      :ok
+    else
+      {:error,
+       "forbidden: #{tool_name} is not available to this connection token (learning tools only)"}
+    end
+  end
+
   defp check_workspace_id(tool_name, workspace_id) do
     if workspace_id_optional?(tool_name) or is_binary(workspace_id) do
       :ok
@@ -266,7 +281,8 @@ defmodule Cgc2046.Mcp.Wrapper do
         latency_ms: latency_ms,
         pending_operation_id: pending_id,
         client_name: client_name(frame),
-        session_id: mcp_session_id(frame)
+        session_id: mcp_session_id(frame),
+        token_kind: frame.assigns[:mcp_token_kind]
       },
       authorize?: false
     )

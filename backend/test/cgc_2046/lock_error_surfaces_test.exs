@@ -37,10 +37,10 @@ defmodule Cgc2046.LockErrorSurfacesTest do
 
   use Cgc2046Web.ConnCase, async: false
 
-  alias Anubis.Server.Frame
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Errors.BusinessError
   alias Cgc2046.Mcp.Tools.{AssignRoles, ConfirmOperation}
+  alias Cgc2046.McpFrames
   alias Cgc2046.Repo
 
   @lock_timeout_message "工作台操作暂时繁忙，请稍后重试"
@@ -227,7 +227,7 @@ defmodule Cgc2046.LockErrorSurfacesTest do
     |> json_response(200)
   end
 
-  defp frame_for(user), do: Frame.new(current_user: user)
+  defp frame_for(user), do: McpFrames.terminal(user)
 
   defp decode_reply({:reply, response, _frame}) do
     [content] = response.content

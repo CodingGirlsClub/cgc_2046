@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, ScrollView, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { api, SessionExpiredError } from '@/api'
-import { AppTabBar } from '@/components/AppTabBar'
 import { CheckInQr } from '@/components/CheckInQr'
 import { PageState } from '@/components/PageState'
 import { buildCheckInPayload } from '@/domain/checkin'
@@ -125,7 +124,7 @@ export default function MyEnrollmentsPage() {
         <Text className={styles.subtitle}>状态变化会同步到这里。</Text>
       </View>
 
-      <ScrollView scrollY className={`${styles.list} ${process.env.TARO_ENV === 'weapp' ? styles.listPlain : ''}`}>
+      <ScrollView scrollY className={`${styles.list} ${process.env.TARO_ENV === 'weapp' || process.env.TARO_ENV === 'tt' ? styles.listPlain : ''}`}>
         {loading ? (
           <PageState kind='loading' />
         ) : error ? (
@@ -277,14 +276,11 @@ export default function MyEnrollmentsPage() {
           )
         })}
       </ScrollView>
-      {/* 抖音端：仍是 tabBar 页（发现/我的报名），保留底部 TabBar；
-          小红书端（D2a）：我的报名降级为普通页（入口收进「我的」），
-          只留真机事实提示，不挂 TabBar；微信端同上（普通页） */}
+      {/* 三端均非 Tab 页（微信/xhs/tt #1079 我的报名均已收进「我的」）——
+          只留真机事实提示，不挂 TabBar。抖音（#1079）=「本端订阅消息」真机口径；
+          xhs =「会更新在本页」（平台无订阅消息能力）。 */}
       {process.env.TARO_ENV === 'tt' && (
-        <>
-          <Text className={styles.platformTip}>审批结果将通过本端订阅消息通知你</Text>
-          <AppTabBar selected='enrollments' />
-        </>
+        <Text className={styles.platformTip}>审批结果将通过本端订阅消息通知你</Text>
       )}
       {process.env.TARO_ENV === 'xhs' && (
         <Text className={styles.platformTip}>审批结果会更新在本页，可以随时回来查看</Text>

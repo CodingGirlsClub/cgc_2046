@@ -91,6 +91,10 @@ defmodule Cgc2046Web.Router do
   scope "/mcp" do
     pipe_through(:mcp)
 
+    # 连接 token 凭自身核实身份 / 自撤销（ADR-0022）：必须声明在 forward 之前，否则被 MCP 传输层吞掉
+    get("/token", Cgc2046Web.McpTokenController, :show)
+    delete("/token", Cgc2046Web.McpTokenController, :delete)
+
     forward("/", Anubis.Server.Transport.StreamableHTTP.Plug, server: Cgc2046.Mcp.Server)
   end
 

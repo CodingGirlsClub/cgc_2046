@@ -8,14 +8,19 @@
  * Scans every package under node_modules/.pnpm (full dependency tree,
  * including transitive deps). Blacklist hits or missing license fields
  * print a report and exit non-zero.
+ *
+ * Usage: node check-licenses.mjs [package-root]
+ * package-root defaults to web/; other pnpm packages (e.g. cgc-host) pass their own root.
  */
 
 import { readdirSync, readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const WEB_ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "..");
-const PNPM_DIR = join(WEB_ROOT, "node_modules", ".pnpm");
+const PACKAGE_ROOT = process.argv[2]
+	? resolve(process.argv[2])
+	: join(fileURLToPath(new URL(".", import.meta.url)), "..");
+const PNPM_DIR = join(PACKAGE_ROOT, "node_modules", ".pnpm");
 
 // Blacklist (rule file §3). Substring match after normalization (same as backend).
 const BLACKLIST = [

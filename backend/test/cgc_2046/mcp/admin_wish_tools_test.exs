@@ -17,6 +17,8 @@ defmodule Cgc2046.Mcp.AdminWishToolsTest do
     AdminSoftDeleteWishComment
   }
 
+  alias Cgc2046.McpFrames
+
   defp create_archive do
     Cgc2046.Flashback.EventArchive
     |> Ash.Changeset.for_create(:create, %{
@@ -56,7 +58,7 @@ defmodule Cgc2046.Mcp.AdminWishToolsTest do
   end
 
   defp run_ok(tool, params, user) do
-    {:reply, _, _} = reply = tool.execute(params, Frame.new(current_user: user))
+    {:reply, _, _} = reply = tool.execute(params, McpFrames.terminal(user))
     {:ok, decode(reply)}
   end
 
@@ -72,7 +74,7 @@ defmodule Cgc2046.Mcp.AdminWishToolsTest do
       member = Fixtures.register_user("wish-member")
 
       assert {:error, %Anubis.MCP.Error{message: msg}, _} =
-               AdminListWishes.execute(%{}, Frame.new(current_user: member))
+               AdminListWishes.execute(%{}, McpFrames.terminal(member))
 
       assert msg =~ "forbidden"
     end
@@ -133,7 +135,7 @@ defmodule Cgc2046.Mcp.AdminWishToolsTest do
       assert {:error, %Anubis.MCP.Error{message: m}, _} =
                AdminGetWish.execute(
                  %{"wish_id" => Ecto.UUID.generate()},
-                 Frame.new(current_user: admin())
+                 McpFrames.terminal(admin())
                )
 
       assert m =~ "wish not found"
@@ -150,7 +152,7 @@ defmodule Cgc2046.Mcp.AdminWishToolsTest do
       assert {:error, %Anubis.MCP.Error{message: e1}, _} =
                AdminSoftDeleteWish.execute(
                  %{"wish_id" => wish.id, "reason" => "  "},
-                 Frame.new(current_user: actor)
+                 McpFrames.terminal(actor)
                )
 
       assert e1 =~ "reason"
@@ -183,7 +185,7 @@ defmodule Cgc2046.Mcp.AdminWishToolsTest do
       assert {:error, %Anubis.MCP.Error{message: e}, _} =
                AdminSoftDeleteWish.execute(
                  %{"wish_id" => wish.id, "reason" => "再删"},
-                 Frame.new(current_user: admin())
+                 McpFrames.terminal(admin())
                )
 
       assert e =~ "already deleted"

@@ -291,6 +291,7 @@ export interface LearningObjectiveState {
 
 export interface CourseLearningDetail {
   courseId: string;
+  workspaceId: string;
   title: string;
   slug: string | null;
   run: LearningRunSummary | null;
@@ -308,6 +309,7 @@ export const COURSE_LEARNING_DETAIL: TypedDocumentNode<
   query CourseLearningDetail($courseId: ID!) {
     courseLearningDetail(courseId: $courseId) {
       courseId
+      workspaceId
       title
       slug
       run {

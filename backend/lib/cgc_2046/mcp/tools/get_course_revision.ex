@@ -11,7 +11,10 @@ defmodule Cgc2046.Mcp.Tools.GetCourseRevision do
   授权（`membership: :deferred`，工具层判定）：
 
   - workspace 成员（tutor/教研编辑/管理面）→ 任意版本；
-  - 本人 confirmed enrollment（学员）→ 仅最新 published 版本；
+  - 学员（`Learning.Authorization.authorize/3`：confirmed enrollment ∪ 活动挂载报名 ∪
+    run 持有者，与网页 courseContent 同一范围）→ 最新 published 版本，以及本人任一
+    learning run 绑定的版本。learner playbook 用 get_learning_state 的
+    `run.revision_number` 取 rubric criterion id，run 绑旧版时它不是最新号；
   - 其他 → forbidden。
 
   从未发布过的课程返回「无已发布版本」明确错误（不回退草稿——草稿读面是
@@ -19,19 +22,24 @@ defmodule Cgc2046.Mcp.Tools.GetCourseRevision do
   """
   use Anubis.Server.Component, type: :tool, meta: %{membership: :deferred}
 
+  require Ash.Query
+
   alias Cgc2046.Accounts.MembershipContext
   alias Cgc2046.Courses.Course
   alias Cgc2046.Curriculum
   alias Cgc2046.Learning.Authorization
   alias Cgc2046.Mcp.Wrapper
+  alias Cgc2046.Workflows.WorkflowRun
 
   # 发给调用方 agent 的工具描述（只写契约）；@moduledoc 留给维护者
   @impl true
   def description do
     """
     读取课程的已发布版本（发布时冻结、不可修改）：goals 与 issues（学习目标嵌在各 issue 内）。
-    revision_number 缺省为最新版本。工作台成员可读任意版本；已确认报名的学员只能读最新版本；其他人
-    返回 forbidden。课程从未发布时返回「无已发布版本」错误，不会退回读草稿（草稿用 get_course_content）。
+    revision_number 缺省为最新版本。工作台成员可读任意版本；学员（已确认报名本课程或其配套活动的人、
+    学过这门课的人）可读最新版本，以及自己学习流程绑定的版本（get_learning_state 返回的
+    run.revision_number）；其他版本与其他人返回 forbidden。课程从未发布时返回「无已发布版本」错误，
+    不会退回读草稿（草稿用 get_course_content）。
     """
   end
 
@@ -71,22 +79,43 @@ defmodule Cgc2046.Mcp.Tools.GetCourseRevision do
     Cgc2046.Mcp.Tools.Response.to_response(result, frame)
   end
 
-  # 授权三段：成员任意版本；confirmed 学员仅最新（缺省或显式等于最新号）；
+  # 授权三段：成员任意版本；学员读最新（缺省或显式等于最新号）或本人 run 绑定的版本；
   # 其余拒绝。latest 为 nil（从未发布）时学员只放行缺省读（随后报无版本）。
   defp authorize(actor, workspace_id, course_id, latest, revision_number) do
     cond do
       member?(actor, workspace_id) ->
         :ok
 
-      Authorization.confirmed_enrollment?(actor, workspace_id, course_id) ->
-        if revision_number == nil || (latest != nil && revision_number == latest.number) do
-          :ok
-        else
-          {:error, "forbidden: enrolled learners can only read the latest published revision"}
-        end
+      Authorization.authorize(actor, workspace_id, course_id) != :ok ->
+        {:error, "forbidden: workspace member or enrolled learner required"}
+
+      revision_number == nil || (latest != nil && revision_number == latest.number) ->
+        :ok
+
+      own_run_revision?(actor, workspace_id, course_id, revision_number) ->
+        :ok
 
       true ->
-        {:error, "forbidden: workspace member or enrolled learner required"}
+        {:error,
+         "forbidden: learners can only read the latest published revision or the revision " <>
+           "bound to their own learning run (run.revision_number from get_learning_state)"}
+    end
+  end
+
+  # 本人任一 learning run 绑定该版本：subject 列直查，与 Runs.resumable_run/3 同款但不限状态
+  # （同 learning_run_holder? 口径）。版本号不存在也返回 false 走 forbidden，不向学员区分「无此版本」
+  defp own_run_revision?(actor, workspace_id, course_id, revision_number) do
+    case Curriculum.revision_by_number(workspace_id, course_id, revision_number) do
+      {:ok, %{id: revision_id}} ->
+        WorkflowRun
+        |> Ash.Query.filter(
+          definition.type == :learning and subject_user_id == ^actor.id and
+            subject_course_revision_id == ^revision_id
+        )
+        |> Ash.exists?(authorize?: false, tenant: workspace_id)
+
+      _ ->
+        false
     end
   end
 

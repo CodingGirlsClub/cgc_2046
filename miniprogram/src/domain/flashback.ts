@@ -1,5 +1,6 @@
 import type { FlashbackCapsule, FlashbackFogSpan, FlashbackFutureFrame, FlashbackMeAnswer, FlashbackMyCard, FlashbackMyToday } from './models'
 import type { FlashbackPublicWishEcho } from './models'
+import { hostWxStorage } from './host-storage.ts'
 
 /**
  * 「我的闪念间」（U9/R28）页面判据与文案——页面无渲染测试（AGENTS.md），
@@ -270,15 +271,19 @@ export function shareMessage(me: FlashbackMyCard, now: Date = new Date()): { tit
 }
 
 /**
- * 分享面板入口清单（P0-6 小红书止血）。
- * 「朋友圈」是微信概念（xhs 没有该入口）；「保存卡片」依赖 Canvas 2D（xhs 无
- * Canvas 2D 节点能力，保存静默失败）——xhs 只保留「转发」。P2-4 服务端出图
- * 落地后恢复（卡片图改 https 资源即可下载，恢复即把本函数收敛回全量）。
+ * 分享面板入口清单（P0-6 小红书止血 + #1079 review 抖音平台错配）。
+ * 「朋友圈」是微信概念：Taro `@supported weapp` 类型注释把 `useShareTimeline`
+ * 标为 weapp-only。xhs 无朋友圈概念、无 Canvas 2D——只留「转发」；
+ * tt 小程序有「分享给朋友」但没有「朋友圈/Timeline」语境——本分支此前沿用
+ * wechat 三入口被 review 判为平台错配，去掉 timeline，保留 Canvas 2D
+ * 的「保存卡片」。P2-4 服务端出图落地后恢复（卡片图改 https 资源即可下载，
+ * 恢复即把本函数收敛回全量）。
  */
 export type ShareSheetEntry = 'forward' | 'timeline' | 'saveCard'
 
 export function shareSheetEntries(platform: 'wechat' | 'tt' | 'xhs'): ShareSheetEntry[] {
   if (platform === 'xhs') return ['forward']
+  if (platform === 'tt') return ['forward', 'saveCard']
   return ['forward', 'timeline', 'saveCard']
 }
 
@@ -585,14 +590,9 @@ export function futureEventCards(
 const VOTER_KEY_STORAGE = 'flashback.voterKey'
 const VOTER_KEY_PATTERN = /^[ua]:[A-Za-z0-9_-]{1,60}$/
 
-function wxLikeStorage(): { getStorageSync(k: string): unknown; setStorageSync(k: string, v: string): void } | null {
-  const scope = globalThis as { wx?: { getStorageSync(k: string): unknown; setStorageSync(k: string, v: string): void } }
-  return scope.wx ?? null
-}
-
 export function readWishVoterKey(): string | null {
   try {
-    const raw = wxLikeStorage()?.getStorageSync(VOTER_KEY_STORAGE)
+    const raw = hostWxStorage()?.getStorageSync(VOTER_KEY_STORAGE)
     const value = typeof raw === 'string' ? raw : null
     return value && VOTER_KEY_PATTERN.test(value) ? value : null
   } catch {
@@ -605,7 +605,7 @@ export function ensureWishVoterKey(): string {
   if (existing) return existing
   const created = `a:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
   try {
-    wxLikeStorage()?.setStorageSync(VOTER_KEY_STORAGE, created)
+    hostWxStorage()?.setStorageSync(VOTER_KEY_STORAGE, created)
   } catch {
     // 存储不可用：仅本次会话有效（期待按钮仍可用，跨会话可能重票——服务端幂等兜底）
   }

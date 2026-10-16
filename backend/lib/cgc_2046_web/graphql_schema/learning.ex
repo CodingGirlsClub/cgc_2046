@@ -209,6 +209,8 @@ defmodule Cgc2046Web.GraphqlSchema.Learning do
   # 破坏性变更有意（登录面一次性切换）：issue/checklist/story 学习语义删除。
   object :course_learning_detail do
     field(:course_id, non_null(:id))
+    # 学员页上下文块（KTD8）的工作区标识：学习工具需要它，agent 不必猜
+    field(:workspace_id, non_null(:id))
     field(:title, non_null(:string))
     field(:slug, :string)
     field(:run, :learning_run_summary)

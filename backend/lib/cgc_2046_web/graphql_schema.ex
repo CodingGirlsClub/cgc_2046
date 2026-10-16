@@ -603,13 +603,14 @@ defmodule Cgc2046Web.GraphqlSchema do
       end)
     end
 
-    @desc "签发 MCP 连接 token（切片 D #44；明文仅本次经 plainToken 返回一次，库中只存 SHA256 hash）"
+    @desc "签发 MCP 连接 token（切片 D #44；明文仅本次经 plainToken 返回一次，库中只存 SHA256 hash；kind 缺省 TERMINAL，LEARNING_HOST 签发学习凭证，ADR-0022）"
     field :create_mcp_token, :create_mcp_token_payload do
       arg(:name, non_null(:string))
+      arg(:kind, :mcp_token_kind, default_value: :terminal)
 
-      resolve(fn _, %{name: name}, %{context: context} ->
+      resolve(fn _, %{name: name, kind: kind}, %{context: context} ->
         with_actor(context, fn actor ->
-          case Cgc2046.Mcp.Token.issue(name, actor) do
+          case Cgc2046.Mcp.Token.issue(name, actor, kind) do
             {:ok, token, plain} ->
               {:ok, %{result: token, plain_token: plain, errors: []}}
 
@@ -833,10 +834,17 @@ defmodule Cgc2046Web.GraphqlSchema do
 
   # ── MCP 连接 token（切片 D #44；手写三入口，资源不经 AshGraphql 自动暴露）──
 
+  @desc "连接 token 类型（ADR-0022）：TERMINAL 用户自建，权限随角色；LEARNING_HOST 配对签发给本机 Host，只能调学习工具"
+  enum :mcp_token_kind do
+    value(:terminal)
+    value(:learning_host)
+  end
+
   object :mcp_token do
     @desc "MCP 连接 token（明文不可经此类型读回；hash 不落 GraphQL 面）"
     field(:id, non_null(:id))
     field(:name, non_null(:string))
+    field(:kind, non_null(:mcp_token_kind))
     field(:last_used_at, :datetime)
     field(:revoked_at, :datetime)
     field(:inserted_at, non_null(:datetime))

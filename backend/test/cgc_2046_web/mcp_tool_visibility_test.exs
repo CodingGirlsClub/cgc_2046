@@ -10,7 +10,9 @@ defmodule Cgc2046Web.McpToolVisibilityTest do
     承诺），并补写一行 `forbidden` ToolCallLog 审计（拒绝发生在 anubis 层，到不了
     `Wrapper.run/4`，没有这条补写就丢审计，违反 ADR-0001 D6）；
   - scope 只是粗检查：通过 scope 的调用仍由 Wrapper 的 membership 门 / 工具层判定（纵深）；
-  - 角色变更**下一个请求**即生效（scope 每请求重算，无需重发 token / 重开会话）。
+  - 角色变更**下一个请求**即生效（scope 每请求重算，无需重发 token / 重开会话）；
+  - 学习凭证（`learning_host`，ADR-0022）不论调用者角色，工具清单与可调用的工具都只有
+    学习工具名单；同一会话换用学习凭证，下一个请求即收窄。
   """
   use Cgc2046Web.ConnCase, async: false
 
@@ -18,6 +20,7 @@ defmodule Cgc2046Web.McpToolVisibilityTest do
 
   alias Cgc2046.Accounts.User
   alias Cgc2046.AccountsFixtures, as: Fixtures
+  alias Cgc2046.Courses.Course
   alias Cgc2046.Mcp.{Token, ToolCallLog}
   alias Cgc2046.McpToolTiers, as: Tiers
 
@@ -25,13 +28,18 @@ defmodule Cgc2046Web.McpToolVisibilityTest do
 
   # ---- endpoint helpers（真 token + 真 /mcp endpoint；与 mcp_readonly_tools_test 同款）----
 
-  defp issue_plain_token(user) do
+  defp issue_plain_token(user, :terminal) do
     {:ok, token} =
       Token
       |> Ash.Changeset.for_create(:issue, %{name: "tool visibility test"}, actor: user)
       |> Ash.create()
 
     token.__metadata__[:plain_token]
+  end
+
+  defp issue_plain_token(user, :learning_host) do
+    {:ok, _token, plain} = Token.issue("tool visibility test", user, :learning_host)
+    plain
   end
 
   defp post_mcp(plain_token, body, session_id \\ nil) do
@@ -51,8 +59,8 @@ defmodule Cgc2046Web.McpToolVisibilityTest do
   end
 
   # 连接 = 真 token + initialize 建好的会话；同一个 client 复用同一 token / 会话发后续请求
-  defp connect(user) do
-    plain_token = issue_plain_token(user)
+  defp mcp_session(user, kind \\ :terminal) do
+    plain_token = issue_plain_token(user, kind)
     conn = post_mcp(plain_token, @initialize_body)
     assert conn.status == 200
     [session_id] = get_resp_header(conn, "mcp-session-id")
@@ -119,7 +127,7 @@ defmodule Cgc2046Web.McpToolVisibilityTest do
             volunteer: volunteer,
             无成员资格: ctx.orphan
           ] do
-        names = user |> connect() |> list_names(2)
+        names = user |> mcp_session() |> list_names(2)
 
         assert names == Tiers.visible_for(:learner), "#{label} 的可见名单与预期不符"
         assert length(names) == 34
@@ -127,7 +135,7 @@ defmodule Cgc2046Web.McpToolVisibilityTest do
     end
 
     test "tutor：全员可见 + tutor 层（38）", ctx do
-      names = ctx.tutor |> connect() |> list_names(2)
+      names = ctx.tutor |> mcp_session() |> list_names(2)
 
       assert names == Tiers.visible_for(:tutor)
       assert length(names) == 38
@@ -135,7 +143,7 @@ defmodule Cgc2046Web.McpToolVisibilityTest do
 
     test "工作台 Admin 与 Owner：再加管理层（72）", ctx do
       for user <- [ctx.admin, ctx.owner] do
-        names = user |> connect() |> list_names(2)
+        names = user |> mcp_session() |> list_names(2)
 
         assert names == Tiers.visible_for(:workspace_admin)
         assert length(names) == 72
@@ -144,7 +152,7 @@ defmodule Cgc2046Web.McpToolVisibilityTest do
     end
 
     test "平台管理员（不属于任何工作台）：全部 100，与改动前一致", ctx do
-      names = ctx.platform_admin |> connect() |> list_names(2)
+      names = ctx.platform_admin |> mcp_session() |> list_names(2)
 
       assert names == Tiers.visible_for(:platform_admin)
       assert length(names) == 100
@@ -156,14 +164,14 @@ defmodule Cgc2046Web.McpToolVisibilityTest do
       Fixtures.add_member(ctx.workspace, user, [:learner])
       Fixtures.add_member(other_workspace, user, [:admin])
 
-      assert user |> connect() |> list_names(2) == Tiers.visible_for(:workspace_admin)
+      assert user |> mcp_session() |> list_names(2) == Tiers.visible_for(:workspace_admin)
     end
   end
 
   describe "越层 tools/call：scope 层拒绝 + forbidden 审计" do
     test "学员调平台治理工具：forbidden 前缀 + 一行 forbidden 审计，副作用未发生", ctx do
       target = Fixtures.register_user("vis-target")
-      client = connect(ctx.member)
+      client = mcp_session(ctx.member)
 
       assert %{"error" => %{"message" => "forbidden: " <> reason}} =
                call(client, 2, "admin_promote_user", %{"user_id" => target.id})
@@ -177,7 +185,7 @@ defmodule Cgc2046Web.McpToolVisibilityTest do
     end
 
     test "学员调管理层工具（本人是该工作台成员）：scope 层先拒，文案是 scope 口径", ctx do
-      client = connect(ctx.member)
+      client = mcp_session(ctx.member)
 
       assert %{"error" => %{"message" => "forbidden: " <> reason}} =
                call(client, 2, "create_course", %{"workspace_id" => ctx.workspace.id})
@@ -191,14 +199,14 @@ defmodule Cgc2046Web.McpToolVisibilityTest do
     end
 
     test "tutor 调管理层工具、Admin 调平台治理工具：同样被拒并留审计", ctx do
-      tutor_client = connect(ctx.tutor)
+      tutor_client = mcp_session(ctx.tutor)
 
       assert %{"error" => %{"message" => "forbidden: " <> _}} =
                call(tutor_client, 2, "create_course", %{"workspace_id" => ctx.workspace.id})
 
       assert [%{result_status: :forbidden}] = logs_for(ctx.tutor, "create_course")
 
-      admin_client = connect(ctx.admin)
+      admin_client = mcp_session(ctx.admin)
 
       assert %{"error" => %{"message" => "forbidden: " <> _}} =
                call(admin_client, 2, "admin_list_users", %{})
@@ -207,7 +215,7 @@ defmodule Cgc2046Web.McpToolVisibilityTest do
     end
 
     test "缺省 arguments 的越层调用同样被拦并留审计（协议 schema 里 arguments 非必填）", ctx do
-      client = connect(ctx.member)
+      client = mcp_session(ctx.member)
 
       assert %{"error" => %{"message" => "forbidden: " <> _}} =
                rpc(client, 2, "tools/call", %{"name" => "admin_list_users"})
@@ -216,18 +224,18 @@ defmodule Cgc2046Web.McpToolVisibilityTest do
     end
 
     test "同层调用不受影响：学员调全员可见工具 / 平台管理员调平台治理工具均放行", ctx do
-      learner_reply = ctx.member |> connect() |> call(2, "list_my_workspaces", %{})
+      learner_reply = ctx.member |> mcp_session() |> call(2, "list_my_workspaces", %{})
       refute Map.has_key?(learner_reply, "error")
       assert %{"result" => %{"isError" => false, "content" => [%{"text" => _}]}} = learner_reply
 
-      admin_reply = ctx.platform_admin |> connect() |> call(2, "admin_list_users", %{})
+      admin_reply = ctx.platform_admin |> mcp_session() |> call(2, "admin_list_users", %{})
       refute Map.has_key?(admin_reply, "error")
       assert %{"result" => %{"isError" => false, "content" => [%{"text" => _}]}} = admin_reply
     end
 
     test "纵深：通过 scope 不等于有授权——Admin 调他不在的工作台，仍被 Wrapper membership 门拒绝", ctx do
       %{workspace: other_workspace} = Fixtures.workspace_with_member()
-      client = connect(ctx.admin)
+      client = mcp_session(ctx.admin)
 
       assert %{"error" => %{"message" => "forbidden: not a member of workspace " <> _}} =
                call(client, 2, "list_join_requests", %{"workspace_id" => other_workspace.id})
@@ -241,7 +249,7 @@ defmodule Cgc2046Web.McpToolVisibilityTest do
     test "升级为 Admin → 管理层工具出现且可调用；降级回无角色 → 消失且被拒", ctx do
       user = Fixtures.register_user("vis-role-change")
       Fixtures.add_member(ctx.workspace, user, [])
-      client = connect(user)
+      client = mcp_session(user)
 
       assert list_names(client, 2) == Tiers.visible_for(:learner)
 
@@ -262,6 +270,74 @@ defmodule Cgc2046Web.McpToolVisibilityTest do
                call(client, 6, "list_join_requests", %{"workspace_id" => ctx.workspace.id})
 
       assert reason =~ "list_join_requests requires owner or admin role in a workspace"
+    end
+  end
+
+  describe "学习凭证（learning_host）只能用学习工具（ADR-0022）" do
+    test "对照（AE7）：同一位工作区 Admin 调 create_course——terminal 凭证建出课程，learning_host 凭证被拒并留审计",
+         ctx do
+      args = %{"workspace_id" => ctx.workspace.id}
+
+      # 对照组：同一个人、同一个工具，terminal 凭证真的建出了课程，所以下面的拒绝只可能来自
+      # 凭证类型。换成纯学员测不出收窄：学员的角色本来就调不了 create_course
+      assert %{"result" => %{"isError" => false}} =
+               ctx.admin |> mcp_session() |> call(2, "create_course", args)
+
+      assert %{"error" => %{"message" => "forbidden: " <> reason}} =
+               ctx.admin
+               |> mcp_session(:learning_host)
+               |> call(2, "create_course", args)
+
+      # Admin 过得了 scope 层，拒绝来自 Wrapper 的名单检查（文案不是 scope 口径）
+      assert reason =~ "create_course is not available to this connection token"
+
+      assert [_created_by_terminal] =
+               Ash.read!(Course, tenant: ctx.workspace.id, authorize?: false)
+
+      assert ctx.admin
+             |> logs_for("create_course")
+             |> Enum.map(&{&1.result_status, &1.token_kind})
+             |> Enum.sort() == [{:forbidden, :learning_host}, {:ok, :terminal}]
+    end
+
+    test "学员的学习凭证调管理类工具：scope 层先拒，补写的审计同样记 token_kind", ctx do
+      client = mcp_session(ctx.member, :learning_host)
+
+      assert %{"error" => %{"message" => "forbidden: " <> reason}} =
+               call(client, 2, "create_course", %{"workspace_id" => ctx.workspace.id})
+
+      assert reason =~ "create_course requires owner or admin role in a workspace"
+
+      assert [%{result_status: :forbidden, token_kind: :learning_host}] =
+               logs_for(ctx.member, "create_course")
+    end
+
+    test "tools/list 恰好是学习工具名单，与调用者角色无关；名单内的工具照常可调", ctx do
+      for user <- [ctx.member, ctx.admin, ctx.platform_admin] do
+        assert user |> mcp_session(:learning_host) |> list_names(2) ==
+                 Tiers.learning_host()
+      end
+
+      assert %{"result" => %{"isError" => false}} =
+               ctx.member
+               |> mcp_session(:learning_host)
+               |> call(2, "get_role_playbook", %{"role" => "learner"})
+    end
+
+    test "同一 MCP 会话先 terminal、后 learning_host：第二个请求被收窄，不沿用上一个请求的 kind", ctx do
+      terminal = mcp_session(ctx.admin)
+      assert list_names(terminal, 2) == Tiers.visible_for(:workspace_admin)
+
+      # 同一 Mcp-Session-Id，换成学习凭证
+      learning = %{terminal | token: issue_plain_token(ctx.admin, :learning_host)}
+
+      assert list_names(learning, 3) == Tiers.learning_host()
+
+      assert %{"error" => %{"message" => "forbidden: " <> _}} =
+               call(learning, 4, "create_course", %{"workspace_id" => ctx.workspace.id})
+
+      assert [%{result_status: :forbidden, token_kind: :learning_host}] =
+               logs_for(ctx.admin, "create_course")
     end
   end
 end

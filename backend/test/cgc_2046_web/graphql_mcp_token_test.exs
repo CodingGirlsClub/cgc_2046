@@ -4,7 +4,8 @@ defmodule Cgc2046Web.GraphqlMcpTokenTest do
 
   三个手写入口（不走 AshGraphql 自动生成，D-D4/D-D10）：
   - `myMcpTokens`：当前用户 token 列表（不含明文，新→旧）
-  - `createMcpToken(name:)`：签发；明文仅经 `plainToken` 一次性返回
+  - `createMcpToken(name:, kind:)`：签发；明文仅经 `plainToken` 一次性返回；`kind` 缺省 TERMINAL，
+    LEARNING_HOST 签发学习凭证（ADR-0022）；达有效 token 上限返回 `mcp_token_limit_reached`
   - `revokeMcpToken(id:)`：撤销（置 revoked_at，保留审计行）
   """
   use Cgc2046Web.ConnCase, async: true
@@ -17,7 +18,7 @@ defmodule Cgc2046Web.GraphqlMcpTokenTest do
 
   @password Fixtures.password()
 
-  defp graphql_post(conn, query, token \\ nil) do
+  defp graphql_post(conn, query, token \\ nil, variables \\ %{}) do
     conn =
       if token do
         put_req_header(conn, "authorization", "Bearer #{token}")
@@ -27,7 +28,7 @@ defmodule Cgc2046Web.GraphqlMcpTokenTest do
 
     conn
     |> put_req_header("content-type", "application/json")
-    |> post("/api/graphql", %{"query" => query})
+    |> post("/api/graphql", %{"query" => query, "variables" => variables})
     |> json_response(200)
   end
 
@@ -147,7 +148,7 @@ defmodule Cgc2046Web.GraphqlMcpTokenTest do
       refute inspect(Map.from_struct(stored)) =~ plain
 
       # 签发的 token 立即可用于 MCP 鉴权前置校验
-      assert {:ok, %User{id: id}} = McpToken.validate_token(plain)
+      assert {:ok, %User{id: id}, _token} = McpToken.validate_token(plain)
       assert id == user.id
     end
 
@@ -169,6 +170,87 @@ defmodule Cgc2046Web.GraphqlMcpTokenTest do
 
       # Ash 将 "" cast 为 nil → allow_nil?: false → Required 错误
       assert error["code"] == "required"
+    end
+  end
+
+  describe "createMcpToken kind（ADR-0022）" do
+    # 与 web/lib/graphql/mcp-token.ts 的 CREATE_MCP_TOKEN 同形：$kind 可选，既有调用方不传
+    @create_with_kind """
+    mutation CreateMcpToken($name: String!, $kind: McpTokenKind) {
+      createMcpToken(name: $name, kind: $kind) {
+        result { id kind }
+        plainToken
+        errors { message code }
+      }
+    }
+    """
+
+    test "kind: LEARNING_HOST 签发学习凭证，myMcpTokens 里 kind 为 LEARNING_HOST" do
+      user = Fixtures.register_user("gql-mcp-token-kind")
+      auth = sign_in_token(user.email, @password)
+
+      res =
+        graphql_post(build_conn(), @create_with_kind, auth, %{
+          "name" => "my-host",
+          "kind" => "LEARNING_HOST"
+        })
+
+      assert %{
+               "data" => %{
+                 "createMcpToken" => %{
+                   "result" => %{"id" => id, "kind" => "LEARNING_HOST"},
+                   "plainToken" => "cgch_" <> _,
+                   "errors" => []
+                 }
+               }
+             } = res
+
+      assert %{"data" => %{"myMcpTokens" => [%{"id" => ^id, "kind" => "LEARNING_HOST"}]}} =
+               graphql_post(build_conn(), "query { myMcpTokens { id kind } }", auth)
+    end
+
+    test "不传 kind（既有调用方）→ 仍签发 TERMINAL" do
+      user = Fixtures.register_user("gql-mcp-token-kind-default")
+      auth = sign_in_token(user.email, @password)
+
+      res = graphql_post(build_conn(), @create_with_kind, auth, %{"name" => "laptop"})
+
+      assert %{
+               "data" => %{
+                 "createMcpToken" => %{
+                   "result" => %{"kind" => "TERMINAL"},
+                   "plainToken" => "cgc_" <> _,
+                   "errors" => []
+                 }
+               }
+             } = res
+    end
+
+    test "达到每人有效凭证上限 → mcp_token_limit_reached，且没有多出凭证" do
+      user = Fixtures.register_user("gql-mcp-token-cap")
+      auth = sign_in_token(user.email, @password)
+
+      for i <- 1..10, do: {:ok, _, _} = McpToken.issue("t#{i}", user)
+
+      res =
+        graphql_post(build_conn(), @create_with_kind, auth, %{
+          "name" => "my-host",
+          "kind" => "LEARNING_HOST"
+        })
+
+      assert %{
+               "data" => %{
+                 "createMcpToken" => %{
+                   "result" => nil,
+                   "plainToken" => nil,
+                   "errors" => [%{"code" => "mcp_token_limit_reached"}]
+                 }
+               }
+             } = res
+
+      assert McpToken
+             |> Ash.Query.filter(user_id == ^user.id)
+             |> Ash.count!(authorize?: false) == 10
     end
   end
 

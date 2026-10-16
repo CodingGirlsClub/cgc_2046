@@ -1,9 +1,9 @@
 /**
- * 闪念间回访页(裁剪端 tt/xhs 载体,微信端主入口已归长廊 Tab)。
+ * 闪念间回访页(裁剪端 tt/xhs 薄壳载体,微信端主入口已归长廊 Tab)。
  * U2 完整化:卡面/圈选/授权全部在 components/MyCard 单源;本页只持
  * load/token 双入口状态机 + 分享 hooks + ShareSheet(微信端 corridor 共用)。
- * tt/xhs 未注册长廊(页面文案含微信专属词,过不了 diversion 词表)——
- * 裁剪端用户从「我的」入口与成场通知深链到这里。
+ * #1083 起 tt 与 xhs 同型注册长廊(发现/闪念间/我的 Tab)——本页保留
+ * 为深链回落目标(platformFallbackRoute)与旧分享链落点。
  */
 import { useCallback, useRef, useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
@@ -22,7 +22,9 @@ import MyCard from '@/components/MyCard'
 import ShareSheet from '@/components/MyCard/ShareSheet'
 import styles from '@/components/MyCard/index.module.css'
 
-// 裁剪端（抖音/小红书）未注册闪念间旅程页——分享卡片回落回访页自身
+// 裁剪端（抖音/小红书）闪念间旅程页已注册（#1083）——薄壳页保留作深链
+// 回落（platformFallbackRoute）与旧分享链落点；分享卡片落回本页自身（
+// 不走 buildFlashbackEntryPath()，避免「转发卡 → 长廊 view page」的深链误导）
 const isCut = process.env.TARO_ENV === 'tt' || process.env.TARO_ENV === 'xhs'
 
 type LoadState =

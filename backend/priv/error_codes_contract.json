@@ -100,6 +100,7 @@
     "join_request_open",
     "last_admin_denied",
     "lock_timeout",
+    "mcp_token_limit_reached",
     "membership_already_exists",
     "membership_check_failed",
     "mini_web_login_account_conflict",

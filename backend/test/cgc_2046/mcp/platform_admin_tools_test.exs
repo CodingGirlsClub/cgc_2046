@@ -19,8 +19,6 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
   """
   use Cgc2046.DataCase, async: false
 
-  alias Anubis.Server.Frame
-
   alias Cgc2046.Accounts.{
     AdminActionLog,
     MembershipContext,
@@ -32,6 +30,7 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
   alias Cgc2046.AccountsFixtures, as: Fixtures
   alias Cgc2046.Initiatives.{Initiative, InitiativeRule}
   alias Cgc2046.Mcp.{PendingOperation, ToolCallLog}
+  alias Cgc2046.McpFrames
   alias Cgc2046.Reconciliation.Finding
 
   alias Cgc2046.Mcp.Tools.{
@@ -59,7 +58,7 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
     :ok
   end
 
-  defp frame_for(user), do: Frame.new(current_user: user)
+  defp frame_for(user), do: McpFrames.terminal(user)
 
   defp decode_reply({:reply, response, _frame}) do
     [content] = response.content

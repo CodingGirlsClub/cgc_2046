@@ -21,6 +21,7 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
   alias Cgc2046.Mcp.ToolCallLog
   alias Cgc2046.Mcp.Tools.GetPublicOffering
   alias Cgc2046.Mcp.Tools.ListPublicOfferings
+  alias Cgc2046.McpFrames
 
   require Ash.Query
 
@@ -32,7 +33,7 @@ defmodule Cgc2046.Mcp.PublicOfferingToolsTest do
     "district" => "Pudong"
   }
 
-  defp frame_for(user), do: Frame.new(current_user: user)
+  defp frame_for(user), do: McpFrames.terminal(user)
 
   defp decode({:reply, response, _frame}) do
     [content] = response.content
