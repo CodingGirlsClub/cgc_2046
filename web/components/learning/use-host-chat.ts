@@ -358,6 +358,7 @@ export function useHostChat({
 		: (agents.find((entry) => entry.present)?.kind ?? "");
 	/** 本机能做什么（/health 的 capabilities，期 2 起有 "agent.install"）；旧 Host 不带、按空处理 */
 	const capabilities = probe?.state === "detected" ? (probe.capabilities ?? []) : [];
+	const anyAgent = agents.some((entry) => entry.present);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -384,6 +385,7 @@ export function useHostChat({
 					ownership.current += 1;
 					current = null;
 					setSocket(null);
+					setInstall(null); // 装到一半断线：别把「正在安装」永久留在按钮上
 					setLost(true);
 					dispatch({ type: "reset" });
 					timer = setTimeout(check, POLL_MS);
@@ -552,6 +554,17 @@ export function useHostChat({
 		];
 		return () => offs.forEach((off) => off());
 	}, [socket, courseId, refetch]);
+
+	// 连上以后整页轮询就停了；但一个 agent 都没有时仍要每 POLL_MS 探一次 /health——学员在终端里装好 OMP 后最多 3 秒自愈
+	useEffect(() => {
+		if (!socket || anyAgent) return;
+		const timer = setInterval(() => {
+			void checkHost({ previouslyReachedHost: true }).then((result) => {
+				if (result.state === "detected") setAgents(result.agents);
+			});
+		}, POLL_MS);
+		return () => clearInterval(timer);
+	}, [socket, anyAgent]);
 
 	const canSend = ready && chat.attached && !chat.evicted && !chat.running && !chat.sending;
 

@@ -1,12 +1,12 @@
 // agents/codex.ts — Codex 这条 agent 记录：学员自己装的 `@agentclientprotocol/codex-acp`（BYO，没人装就不出现）。
 // 启动语没有命令行等价物，改写成课程工作目录的 AGENTS.md（KTD5）；关闭走「优雅优先」（KTD9，实测直接 SIGKILL 会留孤儿 Codex 进程）。
 import type { ClientApp } from "@agentclientprotocol/sdk";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { spawnCodexAcp, STARTUP_PROMPT } from "../acp/client";
 import { resolveLoginShellEnv } from "../shell-env";
-import { managedCodexAcp } from "./install";
+import { managedCodex } from "./install";
 import { agentLocator, type AgentLocation, type AgentRecord, type Locator } from "./registry";
 
 /** PATH 上找的适配器可执行名（npm 包的 bin） */
@@ -24,10 +24,13 @@ export async function resolveCodexAcp(home: string, shell?: string, timeoutMs?: 
   return { path: pickCodexAcp(home, env.PATH), env, envError };
 }
 
-/** 选那个要跑的适配器：页面里装过的（Host 托管）优先，其次才是学员自己放在 PATH 上的 */
+/**
+ * 选那个要跑的适配器：页面里装过的（Host 托管、且版本与钉住的一致）优先，其次才是学员自己放在 PATH 上的。
+ * 版本门在校验里：Host 升级后旧托管副本不再被采用，页面会重新给安装入口。
+ */
 export function pickCodexAcp(home: string, path: string | undefined): string | null {
-  const managed = managedCodexAcp(home);
-  if (existsSync(managed)) return managed;
+  const managed = managedCodex(home);
+  if (managed) return managed;
   return Bun.which(CODEX_ACP_BIN, { PATH: path ?? "" }) ?? null;
 }
 

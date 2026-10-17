@@ -86,12 +86,14 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 | `chat.authenticate` | `methodId`（取自 `auth_required` 回包的 `methods`，如 `chat-gpt`） | `chat.authenticated {agent}`：登录成功（浏览器由适配器自己开）；`auth_failed` 失败、`busy` 登录期间进程被换掉（页面重试即可）、`bad_request` 参数不合法；`chat-gpt` 这类由适配器在本机开浏览器，不进课程队列 |
 | `chat.set_setting` | `configId`（`model` / `thinking`）、`value`（非空字符串） | `chat.settings {settings}`：改当前会话的设置，回复带这个 agent 的完整回包；有回合在跑 `busy`；当前没有已加载会话 `chat_unavailable`；值不被 agent 接受 `bad_request`（ACP 原文只进 Host 日志） |
 | `card.answer` | `cardId`，加审批的 `{optionId}` 或提问的 `{action, content?}` | `turn.card.closed {cardId, reason: "answered"}` |
-| `agent.install` | `kind`（当前只有 `codex`） | `agent.install.started {started: true}`；随后推 `agent.install.progress {kind, phase: "installing"}` 与 `agent.done {kind, ok: true, version}` / `{kind, ok: false, code}`（`install_failed` / `version_mismatch` / `timeout`）。同一时刻只允许一个安装（`busy`）；Host 没声明能力时 `unsupported` |
+| `agent.install` | `kind`（可安装的只有 `codex`，见 `installable`） | `agent.install.started {started: true}`；随后推 `agent.install.progress {kind, phase: "installing"}` 与 `agent.done {kind, ok: true, version}` / `{kind, ok: false, code}`（`install_failed` / `version_mismatch` / `timeout`）。同一时刻只允许一个安装（`busy`）；没声明安装能力或 kind 不可安装时 `unsupported`；参数不合法 `bad_request`。**已装着钉住的版本时幂等短路**：不再下载，直接回 done |
 | `agent.done` 之后 | — | Host 重解析定位器并给每个已授权连接推 `status`：页面不必等下一轮 `/health` |
 
 会话设置（`chat.set_setting`、`chat.settings`、`history` 的 `settings`）：Host 把 agent 的会话设置（ACP 的 config options）收窄成 `model`（模型）与 `thinking`（思考等级）两项，`mode`（plan）不透出。`settings` 是 `[{id, name, category, currentValue, options: [{value, name, description?}]}]`，`history`（`chat.attach` / `chat.new` / `chat.open`）带当前值，空数组表示这个 agent 没给可选项（旧版本或 id 不同名）——页面据此不渲染入口。改动只作用于当前会话：不写学员的 agent 配置、不影响终端；agent 自己改了设置（`config_option_update`）时 Host 推 `chat.settings`。切模型可能连带改动另一项（OMP 实测：不支持思考的模型会把思考等级重置为 `off`…
 
 `status` 与 `/health` 都带 `capabilities: string[]`（期 2 起含 `"agent.install"`）：页面只在声明了它时给「安装 Codex 支持」入口，旧 Host（0.2.0）不声明、页面继续只给手动命令。**不改 `protocolVersion`**——加方法靠能力探测，不靠版本门逼学员重装。
+
+`agent.install` 是**唯一不要求先配对**的安装类方法：全新机器上一个 agent 都没有、也就无法配对，安装正是解开这一步。边界：只接受官方站点 Origin 的连接（`isAllowedRequest`），kind 限于 `installable`，版本/URL/落位都在 Host 包内钉死——没有任意的下载地址、版本或路径参数；已装着钉住版本时幂等短路。它不碰凭证、不驱动 agent；残留风险是本机进程与站点来源页的 XSS，二者本就能直接运行安装器。
 
 `context`（KTD8）：`{workspaceId, courseVersion, unitId, locale}`。`workspaceId` 是 UUID；`courseVersion` 是页面显示的课程版本号（正整数）或 `null`；`unitId` 是学员正在看的单元 id（只认 `^[A-Za-z0-9_.-]{1,64}$`），`null` 表示课程总览；`locale` 是 `zh-CN` 或 `en`。每条 `chat.send` 都带，Host 只在会话的首条消息和它变化时（例如切换单元）把它附给 agent，只带这些标识——课程、单元标题这类 tutor 撰写的文本不进提示。
 
@@ -134,7 +136,7 @@ curl -fsSL https://api.codingirlsclub.com/ext/cgc-host/install.sh | bash
 
 `install.sh` 依次：把清单和 Host 包下载到临时目录并校验 sha256，失败清理退出、不安装 Bun 或修改已有 Host/自启项 → 校验成功后查找 Bun，没有则用官方安装器装到 `~/.bun` → 停掉旧的 → 落位、写当前系统的登录自启项 → 启动。支持 macOS（Terminal）、Ubuntu 桌面（Terminal）与 Windows（Git Bash；命令同样一条，Bun 用官方 PowerShell 安装器）。Ubuntu 分支硬依赖 `zenity`（缺了就地报错 `sudo apt install zenity`）；Windows 分支硬依赖 Git Bash 的 `cygpath` 与系统自带 `powershell.exe`。
 
-页面里的一键安装（期 2）：Host 把随包发布的 `src/agents/codex-acp.package.json` 与 `src/agents/codex-acp.lock`（Bun 的 text lock，每个包带 sha512）写进 `~/.cgc2046/agents/.tmp-*`，用**自己的 Bun** 跑 `bun install --frozen-lockfile --production`——不需要学员机器上有 npm/node，锁对不上或内容被篡改会被 Bun 拒绝；装完校验版本、rename 原子就位，失败只删临时目录。换适配器版本 = `bun scripts/gen-agent-lock.mjs <版本>` 重算锁与常量（随 Host 发版）；CI 的 `scripts/check-agent-lock.mjs` 校验钉住的版本仍可获取且 registry 的 integrity 与锁一致。锁文件用 `import ... with { type: "text" }` 内联进单包（deploy 的 `bun build` 之后包里没有额外文件）。
+页面里的一键安装（期 2）：Host 把随包发布的 `src/agents/codex-acp.package.json` 与 `src/agents/codex-acp.lock`（Bun 的 text lock，每个包带 sha512）写进 `~/.cgc2046/agents/.tmp-*`，用**自己的 Bun** 跑 `bun install --frozen-lockfile --production --ignore-scripts`——不需要学员机器上有 npm/node，锁对不上或内容被篡改会被 Bun 拒绝，第三方依赖的 postinstall 也不会在学员机器上执行。装完校验版本、rename 原子就位，失败只删临时目录；上次被 SIGKILL 留下的 `.tmp-*` / `.old-*` 在**下一次安装开头**清理（Host 平时不碰这个目录）。托管安装的**入口从包 manifest 的 `bin["codex-acp"]` 解析**（Windows 上 Bun 只有 `.exe`/`.bunx`，不能拼无扩展名路径）；托管副本的版本必须与 Host 钉住的 `CODEX_ACP_VERSION` 一致才会被采用——Host 升级后旧副本自动让位，页面重新给出安装入口。换适配器版本 = `bun scripts/gen-agent-lock.mjs <版本>` 重算锁与常量（随 Host 发版）；CI 的 `scripts/check-agent-lock.mjs` 校验钉住的版本仍可获取且 registry 的 integrity 与锁一致。锁文件用 `import ... with { type: "text" }` 内联进单包（deploy 的 `bun build` 之后包里没有额外文件）。
 
 学员电脑上的文件：
 

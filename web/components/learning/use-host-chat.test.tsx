@@ -827,3 +827,32 @@ describe("全新机器（一个 agent 都没有）", () => {
 		expect(hook.current.view).toEqual({ state: "noAgent" });
 	});
 });
+
+describe("无 agent 时的自愈（评审 M2）", () => {
+	it("连上后仍然每 POLL_MS 探一次 /health：学员在终端装好 OMP 后自动发现", async () => {
+		checkHost.mockResolvedValue({
+			state: "detected",
+			agents: [
+				{ kind: "omp", present: false },
+				{ kind: "codex", present: false },
+			],
+			paired: false,
+			capabilities: ["agent.install"],
+		});
+		mount();
+		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+		await waitFor(() => expect(hook.current.view).toEqual({ state: "noAgent" }));
+
+		// 学员在终端里装好了 OMP：下一次 /health 报告 present
+		checkHost.mockResolvedValue({
+			state: "detected",
+			agents: [
+				{ kind: "omp", present: true },
+				{ kind: "codex", present: false },
+			],
+			paired: false,
+			capabilities: ["agent.install"],
+		});
+		await waitFor(() => expect(hook.current.agents).toContainEqual({ kind: "omp", present: true }), { timeout: POLL_MS + 3000 });
+	});
+});

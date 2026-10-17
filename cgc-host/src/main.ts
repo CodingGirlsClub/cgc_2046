@@ -32,6 +32,7 @@ try {
     runDialog: runPlatformDialog,
     agents: registry.status,
     capabilities: ["agent.install"],
+    installable: ["codex"],
     install: (kind, progress) =>
       kind === "codex" ? installCodexAcp({ home, onPhase: progress }) : Promise.reject(new Error(`没有 ${kind} 的安装包`)),
     refresh: (kind) => registry.refresh(kind),

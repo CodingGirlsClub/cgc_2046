@@ -51,6 +51,8 @@ export interface ServerOptions {
   capabilities?: readonly string[];
   /** 安装某个 agent（缺省不支持）：进度经参数回调，失败抛错（InstallError 的 code 会回给页面） */
   install?(kind: AgentKind, progress: (phase: "installing") => void): Promise<{ version: string }>;
+  /** 可安装的 kind（缺省只有 codex）；其余的 kind 回 unsupported，而不是含糊的 install_failed */
+  installable?: readonly AgentKind[];
   /** 装完刷新定位器（否则页面要等缓存过期才看到新 agent） */
   refresh?(kind: AgentKind): Promise<void>;
   chat: ChatHandler;
@@ -185,7 +187,10 @@ const handlers: Record<string, (host: Host, ws: WS, frame: Frame) => unknown> = 
   "card.answer": chat,
   async "agent.install"(host, ws, { id, params }) {
     if (!isAgentKind(params.kind)) return send(ws, error(id, "bad_request"));
-    if (!host.opts.install) return send(ws, error(id, "unsupported"));
+    // 未配对的全新机器必须能装（这正是解开「没有 agent → 无法配对」的那一步）；这台机器一旦有配对记录，
+    // 安装只给已 hello 的页面——不再让任意本机进程或站点来源页借未授权连接写盘、占住安装位。
+    if (host.state.pairing && !authorized(host, ws)) return send(ws, error(id, "unauthorized"));
+    if (!host.opts.install || !(host.opts.installable ?? ["codex"]).includes(params.kind)) return send(ws, error(id, "unsupported"));
     if (host.installing) return send(ws, error(id, "busy"));
     const kind = params.kind;
     host.installing = true;
@@ -209,8 +214,10 @@ const handlers: Record<string, (host: Host, ws: WS, frame: Frame) => unknown> = 
 export const PAGE_METHODS = Object.keys(handlers);
 /**
  * KTD4：未授权的连接只能调用这几个；status 不是页面可调的方法，由 Host 在连接时与状态变化时推送。
- * `agent.install` 也在里面：全新机器上还没有任何 agent、也就无法配对，而安装正是为了解开这一步；
- * 它只装随包钉住并校验过的产物，不碰凭证、不驱动 agent（与 pair.request 同一道 Host/Origin 关）。
+ * `agent.install` 也在里面：全新机器上还没有任何 agent、也就无法配对，而安装正是为了解开这一步。
+ * 边界：只接受官方站点 Origin 的连接（isAllowedRequest），kind 限于 `installable`（目前只有 codex），
+ * 版本/URL/落位都在 Host 包内钉死——没有任意的下载地址、版本或路径参数；已经装着钉住版本时幂等短路。
+ * 它不碰凭证、不驱动 agent。残留风险是本机进程与站点来源页的 XSS，二者本就能直接运行安装器。
  */
 const OPEN_METHODS = new Set(["hello", "pair.request", "pair.cancel", "agent.install"]);
 

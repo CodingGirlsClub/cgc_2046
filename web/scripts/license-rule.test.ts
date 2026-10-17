@@ -28,6 +28,21 @@ describe("licenseAllows（规则 §2 白名单）", () => {
 		expect(licenseAllows("BSD-3-Clause / ISC / BSD-4-Clause")).toBe(true); // 规则里的多选写法：任选其一
 	});
 
+	it("CC-BY 只对数据包窄名单放行（§2「仅用于数据」）", () => {
+		expect(licenseAllows("CC-BY-4.0")).toBe(false); // 没有包名 = 不放行
+		expect(licenseAllows("CC-BY-4.0", { packageName: "some-code-pkg" })).toBe(false);
+		expect(licenseAllows("CC-BY-4.0", { packageName: "caniuse-lite" })).toBe(true);
+		expect(licenseAllows("CC-BY-3.0", { packageName: "spdx-exceptions" })).toBe(true);
+		expect(licenseAllows("CC-BY-SA-4.0", { packageName: "caniuse-lite" })).toBe(false); // SA 不在允许的 CC-BY 系
+	});
+
+	it("无空格的多选写法与畸形表达式", () => {
+		expect(licenseAllows("MIT/Apache-2.0")).toBe(true); // npm 常见的无空格多选
+		for (const bad of ["(MIT", "MIT OR", "GPL-2.0-only OR", "+MIT", "MIT WITH LLVM-exception", "AND MIT", ""]) {
+			expect(licenseAllows(bad), bad).toBe(false);
+		}
+	});
+
 	it("数组与 {type} 形态按同一规则判定", () => {
 		expect(licenseAllows([{ type: "MIT" }, { type: "GPL-2.0-only" }])).toBe(true);
 		expect(licenseAllows([{ type: "GPL-2.0-only" }])).toBe(false);

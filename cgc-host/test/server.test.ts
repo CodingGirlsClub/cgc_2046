@@ -231,6 +231,21 @@ describe("一键安装（期 2 / R2）", () => {
     expect((await c.next((m) => m.method === "status")).params.state).toBe("unpaired");
   });
 
+  test("已配对的机器：没 hello 的连接不能安装（未配对的全新机器仍可）", async () => {
+    const host = startHost({
+      capabilities: INSTALL_CAPS,
+      install: async () => ({ version: "2.2.2" }),
+      refresh: async () => {},
+    });
+    const { browserKey } = await pair(host); // 这台机器已经有配对记录
+    const stranger = await connect(host.port); // 只连上、没有 hello
+    expect(await stranger.call("agent.install", { kind: "codex" })).toMatchObject({ method: "error", params: { code: "unauthorized" } });
+
+    // 同一台机器上已 hello 的页面照常能装
+    const page = await helloed(host, browserKey);
+    expect(await page.call("agent.install", { kind: "codex" })).toMatchObject({ method: "agent.install.started", params: { started: true } });
+  });
+
   test("并发安装拿 busy；没声明能力拿 unsupported；kind 不认识拿 bad_request", async () => {
     const host = startHost({
       capabilities: INSTALL_CAPS,
@@ -242,6 +257,9 @@ describe("一键安装（期 2 / R2）", () => {
     await c.call("agent.install", { kind: "codex" });
     expect(await c.call("agent.install", { kind: "codex" })).toMatchObject({ method: "error", params: { code: "busy" } });
     expect(await c.call("agent.install", { kind: "nope" })).toMatchObject({ method: "error", params: { code: "bad_request" } });
+
+    // 合法但不可安装的 kind：unsupported（不是含糊的 install_failed）
+    expect(await c.call("agent.install", { kind: "omp" })).toMatchObject({ method: "error", params: { code: "unsupported" } });
 
     const plain = startHost({});
     const p = await pair(plain);

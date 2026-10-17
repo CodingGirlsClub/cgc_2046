@@ -2,8 +2,9 @@
 // 依据是随 Host 包发布的 `codex-acp.package.json` + `codex-acp.lock`：版本与整棵依赖树的 sha512 都在锁里，
 // 用 Host 自己的 Bun 跑 `bun install --frozen-lockfile --production`——锁对不上或下载内容不符即中止。
 // 安装在 `~/.cgc2046/agents/.tmp-*` 里做完再 rename 就位：失败只会删掉那个临时目录，已有的安装与课程作业不受影响。
+// 上次被 SIGKILL 留下的 `.tmp-*` / `.old-*` 在**下一次安装开头**清理（不在启动时扫，Host 平时不碰这个目录）。
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import codexLock from "./codex-acp.lock" with { type: "text" };
 
 /** 钉住的适配器版本：与 codex-acp.lock / codex-acp.package.json 同源，改一处必须同时重算锁（scripts/gen-agent-lock.mjs） */
@@ -36,9 +37,8 @@ export const CODEX_ACP_PACKAGE_JSON = `${JSON.stringify(
 export const stateRoot = (home: string) => join(home, ".cgc2046");
 export const agentsDir = (home: string) => join(stateRoot(home), AGENTS_DIR);
 export const codexAgentDir = (home: string) => join(agentsDir(home), CODEX_AGENT_DIR);
-/** 托管安装的 bin 目录：定位器把它排在 PATH 之前（agents/codex.ts） */
-export const codexBinDir = (home: string) => join(codexAgentDir(home), "node_modules", ".bin");
-export const managedCodexAcp = (home: string) => join(codexBinDir(home), "codex-acp");
+/** 装好的适配器包目录 */
+export const codexPackageDir = (home: string) => join(codexAgentDir(home), "node_modules", "@agentclientprotocol", "codex-acp");
 
 export interface InstallOptions {
   home: string;
@@ -57,21 +57,51 @@ let inflight: Promise<InstalledAgent> | null = null;
 
 /** 安装 Codex 适配器；正在装时再调一次拿同一个结果（single-flight），装完返回版本 */
 export function installCodexAcp(opts: InstallOptions): Promise<InstalledAgent> {
+  // 幂等短路：已经装着钉住的版本就不再下载（重复点击、两个标签页、恶意页面都只能触发一次）
+  if (managedCodex(opts.home)) return Promise.resolve({ version: CODEX_ACP_VERSION });
   return (inflight ??= runInstall(opts).finally(() => {
     inflight = null;
   }));
 }
 
-/** 已装版本；没装或读不出来返回 null（不抛错：调用方在探测路径上） */
-export function installedVersion(home: string): string | null {
+interface CodexPackageJson {
+  version?: unknown;
+  bin?: unknown;
+}
+
+function readPackageJson(home: string): CodexPackageJson | null {
   try {
-    const raw = readFileSync(join(codexAgentDir(home), "node_modules", "@agentclientprotocol", "codex-acp", "package.json"), "utf8");
-    const parsed: unknown = JSON.parse(raw);
-    const version = (parsed as { version?: unknown }).version;
-    return typeof version === "string" ? version : null;
+    return JSON.parse(readFileSync(join(codexPackageDir(home), "package.json"), "utf8")) as CodexPackageJson;
   } catch {
     return null;
   }
+}
+
+/** 已装版本；没装或读不出来返回 null（不抛错：调用方在探测路径上） */
+export function installedVersion(home: string): string | null {
+  const version = readPackageJson(home)?.version;
+  return typeof version === "string" ? version : null;
+}
+
+/**
+ * 托管安装的入口文件。从包 manifest 的 `bin["codex-acp"]` 解析，而不是拼 `node_modules/.bin/codex-acp`：
+ * Windows 上 Bun 生成的是 `codex-acp.exe` / `codex-acp.bunx`，没有无扩展名文件；`codexCommand` 会把 JS 入口交给 Bun 跑。
+ */
+export function managedCodexEntry(home: string): string | null {
+  const pkg = readPackageJson(home);
+  const bin = pkg?.bin;
+  const relative = typeof bin === "string" ? bin : bin && typeof bin === "object" ? (bin as Record<string, unknown>)["codex-acp"] : undefined;
+  if (typeof relative !== "string") return null;
+  const entry = resolve(codexPackageDir(home), relative);
+  return existsSync(entry) ? entry : null;
+}
+
+/**
+ * 可用的托管安装：版本必须与 Host 钉住的一致。Host 升级 `CODEX_ACP_VERSION` 后，旧副本自动让位（页面重新给出安装入口），
+ * 否则存量学员永远停在旧适配器上。
+ */
+export function managedCodex(home: string): string | null {
+  return installedVersion(home) === CODEX_ACP_VERSION ? managedCodexEntry(home) : null;
 }
 
 function withTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
