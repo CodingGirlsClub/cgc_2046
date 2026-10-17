@@ -283,6 +283,12 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm check:licenses
+      # 一键安装的锁门禁（期 2）：许可按规则 §2 白名单 + registry integrity 一致。
+      # host job 里也跑一次，但 host 暂非必过项；放在必过的 web job 里才真正拦合并
+      # （changes 只区分 docs-only，cgc-host 变更同样会跑 web job）。
+      - name: Check agent install lock
+        working-directory: cgc-host
+        run: node scripts/check-agent-lock.mjs
       - run: pnpm audit --prod --audit-level high
         if: steps.web_dep_changed.outputs.changed == 'true'
       - run: pnpm test

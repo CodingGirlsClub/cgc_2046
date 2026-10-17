@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 // check-agent-lock.mjs — CI 门禁（期 2）：一键安装的锁仍可获取、可校验、许可合规。
 // 覆盖：① 三处版本（install.ts 常量 / package.json / 锁里的条目）一致；② registry 仍提供该版本且 dist.integrity 与锁相同；
 // ③ 锁里每个包（含 @openai/codex 的 6 个平台二进制包）的许可证都按规则 §2 的白名单放行（未列出/UNKNOWN 一律拒绝）——这些包不进 cgc-host 的
@@ -7,7 +7,10 @@
 // 整棵依赖树的 integrity 校验发生在学员机器上（bun install --frozen-lockfile 逐个按 sha512 校验），CI 不下载 337MB。
 import { licenseAllows } from "../../web/scripts/license-rule.mjs";
 import { parseBunLock } from "./lib/bun-lock.mjs";
-const read = (p) => Bun.file(p).text();
+import { readFile } from "node:fs/promises";
+
+const read = (p) => readFile(p, "utf8");
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const pkg = JSON.parse(await read("src/agents/codex-acp.package.json"));
 const pinned = pkg.dependencies?.["@agentclientprotocol/codex-acp"];
