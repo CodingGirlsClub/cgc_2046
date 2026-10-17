@@ -956,6 +956,9 @@
   .settings-policy-option:has(input:disabled) { cursor: not-allowed; opacity: 0.72; }
   .settings-policy-option__label { color: var(--ink-2); font-size: 14px; font-weight: 510; line-height: 20px; }
   .settings-policy-option__hint { grid-column: 2; color: var(--ink-3); font-size: 12px; line-height: 18px; }
+  .settings-field { display: grid; gap: 6px; margin-top: 18px; }
+  .settings-field__label { color: var(--ink-2); font-size: 13px; line-height: 20px; }
+  .settings-field .l-input { width: 100%; max-width: 420px; }
   .settings-note { margin-top: 16px; padding: 11px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-medium); background: var(--soft-2); color: var(--ink-3); font-size: 13px; line-height: 20px; }
   .settings-saved { margin-top: 14px; padding: 11px 14px; border: 1px solid color-mix(in srgb, var(--status-green) 40%, var(--line)); border-radius: var(--radius-medium); background: color-mix(in srgb, var(--status-green) 8%, var(--card)); color: var(--status-green); font-size: 13px; line-height: 20px; }
   .settings-actions { display: flex; justify-content: flex-end; margin-top: 22px; }

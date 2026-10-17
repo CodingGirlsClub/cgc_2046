@@ -16,6 +16,9 @@ describe("MembersTabs（plan 016 门控单源：消费 SETTINGS_NAV）", () => {
 		);
 		const tabs = screen.getByRole("navigation", { name: "工作区设置页签" });
 		expect(
+			within(tabs).getByRole("link", { name: "工作台设置" }),
+		).toHaveAttribute("href", "/w/cgc-academy/settings/general");
+		expect(
 			within(tabs).getByRole("link", { name: "成员与角色" }),
 		).toHaveAttribute("href", "/w/cgc-academy/settings/members");
 		expect(
@@ -63,6 +66,7 @@ describe("MembersTabs（plan 016 门控单源：消费 SETTINGS_NAV）", () => {
 		const tabs = screen.getByRole("navigation", { name: "工作区设置页签" });
 		// 成员/权限 = list_members，加入策略 = update_join_policy，审批/邀请/缴费 = manage_members
 		for (const name of [
+			"工作台设置",
 			"成员与角色",
 			"权限映射",
 			"加入策略",
