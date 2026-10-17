@@ -91,7 +91,8 @@ function withTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
 }
 
 async function bunInstall(cwd: string, timeoutMs: number): Promise<number> {
-  const proc = Bun.spawn([process.execPath, "install", "--frozen-lockfile", "--production"], {
+  // --ignore-scripts：第三方依赖的 postinstall 不在学员机器上跑（平台二进制由包本身携带，不需要脚本）
+  const proc = Bun.spawn([process.execPath, "install", "--frozen-lockfile", "--production", "--ignore-scripts"], {
     cwd,
     env: process.env,
     stdin: "ignore",
