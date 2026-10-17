@@ -1,4 +1,4 @@
-import { type ClientApp, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
+import { type ClientApp, type InitializeResponse, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import type { Agent } from "./client";
 
 /** SDK cancellation is cooperative; stop waiting locally even if the peer never responds. */
@@ -28,13 +28,25 @@ export interface Preparation {
   check(): void;
 }
 
+/** 一个 agent 进程代的对外形状：会话层按 kind 各持一个（KTD1） */
+export interface Runtime {
+  /** 已握完手、可用的 agent 进程；没有就为 null */
+  readonly agent: Agent | null;
+  /** 回收当前进程代（空闲回收、换代）；退代的收尾由 createRuntime 的 reset 回调负责 */
+  close(): void;
+  /** 在总预算内准备一条可用通道：拉起进程、initialize、list/load/new 都算在里面；超时即废弃这一代 */
+  prepare<T>(timeoutMs: number, operation: (run: Preparation) => Promise<T>): Promise<T>;
+}
+
 /** One shared process generation. Retiring it cannot affect a later replacement. */
 export function createRuntime(opts: {
   start(app: ClientApp, signal: AbortSignal): Promise<Agent>;
   app(active: () => boolean): ClientApp;
   reset(): void;
   ready(): void;
-}) {
+  /** 握手应答：会话层用它取这个 agent 播报的登录方式（chat.authenticate 的取值来源） */
+  initialized?(response: InitializeResponse): void;
+}): Runtime {
   let current: Generation | null = null;
 
   function retire(g: Generation, reason: unknown) {
@@ -55,13 +67,14 @@ export function createRuntime(opts: {
       const a = await opts.start(opts.app(active), g.abort.signal);
       if (!active()) { a.close(); throw g.abort.signal.reason; }
       g.agent = a;
-      void a.closed.then(() => retire(g, new Error("OMP connection closed")));
+      void a.closed.then(() => retire(g, new Error("agent connection closed")));
       g.phase = "initialize";
-      await abortable(a.rpc.request("initialize", {
+      const init = await abortable(a.rpc.request("initialize", {
         protocolVersion: PROTOCOL_VERSION, clientCapabilities: { elicitation: { form: {} } },
       }, { cancellationSignal: g.abort.signal }), g.abort.signal);
       g.abort.signal.throwIfAborted();
       g.initialized = true;
+      opts.initialized?.(init);
       opts.ready();
       return a;
     })().catch((error) => { retire(g, error); throw error; });

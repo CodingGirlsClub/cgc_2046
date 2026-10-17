@@ -26,6 +26,7 @@ interface HistoryState {
 
 export default function HostChatHistory({ chat }: { chat: HostChat }) {
 	const t = useTranslations("hostChat.history");
+	const tAgent = useTranslations("hostChat.agent");
 	const [open, setOpen] = useState(false);
 	const [state, setState] = useState<HistoryState | null>(null);
 	const panelRef = useRef<HTMLDivElement>(null);
@@ -43,6 +44,10 @@ export default function HostChatHistory({ chat }: { chat: HostChat }) {
 	}, [open]);
 	// 旧版 Host：协议里没有 chat.sessions，不显示入口
 	if ((chat.pairing.status?.protocolVersion ?? 0) < 2) return null;
+
+	/** 装好 ≥2 个 agent 时列出 chips：与标题行的选择器是同一份状态（点它就是切 agent） */
+	const agentNames: Record<string, string> = { omp: "OMP", codex: "Codex" };
+	const presentAgents = chat.agents.filter((agent) => agent.present);
 
 	async function load(cursor?: string) {
 		setState((prev) => ({
@@ -89,6 +94,25 @@ export default function HostChatHistory({ chat }: { chat: HostChat }) {
 			</button>
 			{open ? (
 				<div ref={panelRef} className="learning-chat__history">
+					{presentAgents.length > 1 ? (
+						<div className="learning-chat__history-agents" role="group" aria-label={tAgent("switch")}>
+							{presentAgents.map((agent) => (
+								<button
+									key={agent.kind}
+									type="button"
+									className="learning-chat__option"
+									aria-pressed={agent.kind === chat.agent}
+									disabled={!chat.canSend}
+									onClick={() => {
+										setOpen(false);
+										chat.chooseAgent(agent.kind);
+									}}
+								>
+									{agentNames[agent.kind] ?? agent.kind}
+								</button>
+							))}
+						</div>
+					) : null}
 					{state?.loading ? <p className="learning-chat__hint">{t("loading")}</p> : null}
 					{state?.error ? (
 						<p role="status" className="learning-chat__note">

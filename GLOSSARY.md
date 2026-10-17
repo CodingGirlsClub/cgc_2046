@@ -246,6 +246,12 @@
 
 ## 5. Agent 与 MCP 工具集
 
+### 本机 agent（Local agent）
+
+- **定义**：跑在学员自己电脑上、由该学员自己的账号与额度驱动的那一类 agent（BYO，ADR-0001；ADR-0023）。当前两种：**OMP**（`omp acp`）与 **Codex**（`@agentclientprotocol/codex-acp`），都由 CGC 本机 Host 经 ACP 启动与驱动（ADR-0022）。
+- **架构位置**：**类别名，不是某个具体 agent 的名字**——个体的名字出现在课程页对话栏的选择器里（「由 OMP 驱动」/「由 Codex 驱动」），「本机 agent 对话」指对话栏这个面。平台不运行模型、不代管学员的 agent 登录；学习凭证经 ACP 的 `mcpServers` 下发，平台只按 token 类型收窄权限。
+- **扩展方式**：在 Host 的注册表（`cgc-host/src/agents/`）加一条记录、页面按 `status.agents` 自适应——第三个 agent（如 Claude Code）不改路由与页面结构。
+
 ### Agent（授权/配置登记，租户资源）
 
 - **定义**：两种形态——**个人 Agent**（角色分身，仅本人可见可用）与**公共 Agent**（Workspace 级，按 Workflow 协作）。在 BYO 架构下，Agent 只是授权与配置登记：`type / allowed_roles / owner` + OpenClacky 配置引用（`openclacky_profile / model / system_prompt / skills`）（D2）。**不包含执行逻辑**——执行发生在用户本地 OpenClacky。

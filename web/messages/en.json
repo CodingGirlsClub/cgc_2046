@@ -4126,24 +4126,24 @@
     "revokeFailed": "Couldn't revoke. Please try again later."
   },
   "hostChat": {
-    "title": "Local agent",
+    "title": "Local agent chat",
     "computers": "Paired computers",
-      "history": {
-        "title": "History",
-        "loading": "Loading past conversations…",
-        "empty": "No earlier conversations yet.",
-        "entry": "{time} · {count} messages",
-        "current": "Current",
-        "more": "Load more",
-        "unavailable": "This conversation can't be opened right now (possibly an OMP update).",
-        "busy": "A reply is in progress; stop it or wait for it to finish.",
-        "failed": "Couldn't load past conversations. Try again later."
-      },
+    "history": {
+      "title": "History",
+      "loading": "Loading past conversations…",
+      "empty": "No earlier conversations yet.",
+      "entry": "{time} · {count} messages",
+      "current": "Current",
+      "more": "Load more",
+      "unavailable": "This conversation can't be opened right now (possibly an agent update).",
+      "busy": "A reply is in progress; stop it or wait for it to finish.",
+      "failed": "Couldn't load past conversations. Try again later."
+    },
     "settings": {
       "model": "Model",
       "thinking": "Thinking level",
       "busy": "A reply is in progress. Wait for it to finish, then change this.",
-      "unavailable": "The local agent could not start, so this cannot change yet. Check that OMP runs in your terminal.",
+      "unavailable": "This agent couldn't start, so the setting can't change yet. Check that its entry point runs, then retry.",
       "staleHost": "The CGC Host on this computer is out of date. Update it to change the model and thinking level here.",
       "failed": "Could not change it. Try again."
     },
@@ -4178,8 +4178,6 @@
       "loginItemsHint": "Already installed? Check that CGC Host's login item is still enabled (macOS: System Settings → General → Login Items; Windows: Task Manager → Startup).",
       "blocked": "Your browser is blocking this page from reaching this computer.",
       "blockedHint": "Click the site information icon at the left of the address bar and allow this site to access your local network. This panel checks again automatically.",
-      "noOmp": "OMP wasn't found on this computer.",
-      "noOmpHint": "Once OMP is installed, this panel checks again automatically.",
       "unpaired": "Pair CGC Host on this computer with your account to chat with your own agent here.",
       "connect": "Connect",
       "confirming": "Choose Allow in the confirmation that appeared on your computer.",
@@ -4188,7 +4186,9 @@
       "retry": "Connect again",
       "disconnected": "The connection to CGC Host was interrupted. It reconnects automatically once Host is back.",
       "evicted": "This course's conversation is open somewhere else (another tab).",
-      "reclaim": "Continue here"
+      "reclaim": "Continue here",
+      "noAgent": "No local agent is available on this computer yet.",
+      "noAgentHint": "Install either one below and this panel checks again automatically."
     },
     "pairingError": {
       "busy": "A confirmation is already waiting on your computer. Please try again shortly.",
@@ -4201,7 +4201,7 @@
       "failed": "Pairing didn't succeed. Please try again."
     },
     "error": {
-      "chatUnavailable": "Your local agent couldn't start. Make sure OMP runs normally in Terminal.",
+      "chatUnavailable": "This agent couldn't start or failed its handshake. Check that OMP runs in Terminal and that codex-acp is installed, then retry.",
       "busy": "The previous turn hasn't finished yet. Please wait a moment.",
       "timeout": "CGC Host didn't respond in time. Please try again.",
       "failed": "Something went wrong. Please try again."
@@ -4237,6 +4237,25 @@
       "copy": "Copy command",
       "copied": "Copied",
       "copyFailed": "Couldn't copy. Please select the command and copy it manually."
+    },
+    "agent": {
+      "label": "Driven by {name}",
+      "switch": "Switch agent",
+      "add": "Add agent",
+      "recheck": "Check again",
+      "installed": "Ready",
+      "missing": "Not installed",
+      "switchHint": "Switching starts a new conversation here; the other side keeps its own, so you can go back from history.",
+      "ompInstall": "Install OMP: see the OMP entry in this course page's setup notes",
+      "codexInstall": "Install Codex support (run once in a terminal):"
+    },
+    "login": {
+      "title": "{name} needs you to sign in first.",
+      "chatgpt": "Sign in with ChatGPT",
+      "hint": "Clicking opens the sign-in page in your own browser; this panel reconnects when it's done.",
+      "failed": "Sign-in didn't complete — you can try again.",
+      "manual": "This agent only offers sign-in outside this page: complete it with your own tooling (for example codex login in a terminal), then retry.",
+      "retry": "Try again"
     }
   }
 }
