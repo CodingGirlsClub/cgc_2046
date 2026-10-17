@@ -15,6 +15,7 @@ execution: code
 - **Objective：** 已经在自己电脑上装了别的 coding agent（先支持 Codex）的学员，也能在课程学习页用它学完一个学习目标——自己选 agent、自己选历史对话，学习进度与课程作业目录两边共用。
 - **Means：** 把 `cgc-host` 里写死的 OMP 抽成 agent 注册表（ADR-0022 否决私有 RPC 时就留下了 ACP 这条接缝），Codex 经 `@agentclientprotocol/codex-acp` 接入；页面在对话栏里给出 agent 选择与按 agent 分组的历史对话。
 - **Authority：** 2026-10-17 会话中用户确认的两条产品决策：① 期 1 先做 BYO 探测（学员自己装 `codex-acp`），期 2 再做 Host 一键安装；② 抬高 `MIN_HOST_VERSION` 强制更新。ADR-0023 记录方向性决定并修订 ADR-0022 的适用范围。
+- **落地情况（2026-10-17）：** A 与 B 一起落在 PR #1152（A 批包 `0.1.7`、B 批 `0.2.0` 并把 `MIN_HOST_VERSION` 抬到 `0.2.0`）；Host 侧真机冒烟（真 `omp acp` / 真 `codex-acp`，桩 MCP）都跑通了回合。页面侧的「上次用过的 agent」以**这台浏览器优先**（localStorage），其次才是 Host 记的 `history.agent`。
 - **Execution profile：** 两阶段：A Host 接缝（U1–U3）→ B Codex 与页面（U4–U5）→ C 文档与真机验收（U6–U7）。**版本号：A 批的包升 `0.1.7`（包内容变了，`MIN_HOST_VERSION` 不动）；B 批升 `0.2.0` 并把 `MIN_HOST_VERSION` 抬到 `0.2.0`（强制更新一次）。** `cgc-host/**` 与 `web/lib/host-version.ts` 在根 `AGENTS.md` 的人工合并范围内，实施 PR 由人合并。
 - **Stop conditions：** 出现以下任一条即停下重议：
   - 适配器升级后 node 入口在 Bun 下跑不起来，回退路线（`CODEX_PATH` 指原生二进制、仍由 Bun 跑适配器）也不成立——「Host 侧不新增 node 依赖」的前提不成立（macOS arm64 已在 2.2.2 上实测通过，见 Dependencies）。
@@ -58,7 +59,7 @@ execution: code
 **Agent 就绪与选择**
 
 - R1. 对话栏在本机有 ≥2 个可用 agent 时给出选择控件；只有 1 个时只显示当前 agent 的静态标签；一个都没有时显示「本机未安装可用的 agent」，并列给出各 agent 的安装指引。
-- R2. 默认选中的 agent 依次取：这门课上次用过的 → 这台电脑上次用过的 → 唯一可用的 → OMP。
+- R2. 默认选中的 agent 依次取：**这台浏览器上次选过的**（localStorage）→ Host 记的「这门课上次用过」（`history.agent`）→ 唯一可用的 → 省略（Host 按 OMP 处理）。
 - R3. 切换 agent 只切换这段对话的驱动者：不迁移上下文；每门课每个 agent 各保留自己的当前对话，切回时回到它自己的那条。
 - R4. 有回合正在跑时不切换（提示先停止）；切换完成后，页面上的设置项（模型、思考等级，见 #1145）整体换成新 agent 的值。
 
@@ -263,7 +264,7 @@ web/components/learning/
 
 - **Goal：** 学员能看见自己在用哪个 agent、切换它、翻每个 agent 的历史，并在需要时登录。
 - **Requirements：** R1, R2, R3, R4, R6, R8, R10, R13
-- **Files：** `web/components/learning/{use-host-chat.ts,host-chat-panel.tsx,host-chat-history.tsx}`、`web/lib/host-socket.ts`（`PAGE_TO_HOST` / `HOST_TO_PAGE` 两张表与方法名单的契约测试要对齐 `protocol.json`）、`web/lib/host-version.ts`、`web/messages/{zh-CN,en}.json`、对应测试文件
+- **Files：** `web/components/learning/{use-host-chat.ts,host-chat-panel.tsx,host-chat-history.tsx}`、`web/lib/host-connection.ts`（可用性判据从「有没有 OMP」换成「有没有可用的 agent」）、`web/lib/host-socket.ts`（`PAGE_TO_HOST` / `HOST_TO_PAGE` 两张表与方法名单的契约测试要对齐 `protocol.json`）、`web/lib/host-version.ts`、`web/messages/{zh-CN,en}.json`、对应测试文件
 - **Approach：**
   1. `use-host-chat`：读 `status.agents`；新增 `noAgent` / `agentNeedsAuth` / `agentUnavailable` 三态；`agent` 选择一处状态源，历史下拉的 chips 与标题行选择器共用它。
   2. `host-chat-panel`：≥2 个 agent 时出现选择器，否则静态标签；登录卡调用 `chat.authenticate`；「添加 agent」入口列出支持的 agent 与状态（期 1 给安装指引与复制按钮）。

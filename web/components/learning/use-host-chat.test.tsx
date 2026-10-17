@@ -206,6 +206,23 @@ describe("多 agent（#1148：选择、登录、重新检测）", () => {
 		expect(hook.current.events).toEqual([]);
 	});
 
+	it("只装了 Codex 的机器也连得上：可用性判据是「有没有可用的 agent」，不是「有没有 OMP」", async () => {
+		checkHost.mockResolvedValue({
+			state: "detected",
+			agents: [
+				{ kind: "omp", present: false },
+				{ kind: "codex", present: true },
+			],
+			paired: true,
+		});
+		mount();
+		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+		expect(hook.current.agents).toEqual([
+			{ kind: "omp", present: false },
+			{ kind: "codex", present: true },
+		]);
+	});
+
 	it("refreshAgents：重新探测 /health 后，新装好的 agent 进入可选列表", async () => {
 		await readyChat();
 		expect(hook.current.agents.map((a) => a.kind)).toEqual(["omp"]);

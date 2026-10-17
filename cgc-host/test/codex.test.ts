@@ -78,7 +78,9 @@ test("两种 agent 各走各的：MCP 服务器名不同、Codex 写课程目录
 
   await page.call("chat.send", { courseId: COURSE, agent: "codex", text: "用 Codex 学", context: CONTEXT });
   await page.next((m) => m.method === "turn.end");
-  expect(codex.calledWith("session/new")[0]).toMatchObject({ mcpServers: [{ name: CODEX_MCP_SERVER_NAME }] });
+  // 字面量：改名是为了避开学员自己 Codex 配置里的 cgc-2046（同名会被适配器整条跳过），断言不跟着常量走
+  expect(codex.calledWith("session/new")[0]).toMatchObject({ mcpServers: [{ name: "cgc-2046-learning" }] });
+  expect(CODEX_MCP_SERVER_NAME).not.toBe("cgc-2046");
   expect(readFileSync(join(workDir(home, USER_A, COURSE), "AGENTS.md"), "utf8")).toContain(AGENTS_MD_MARKER);
 
   const sessions = JSON.parse(readFileSync(join(stateDir(home), "state.json"), "utf8")).sessions;

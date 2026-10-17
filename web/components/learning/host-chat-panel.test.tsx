@@ -861,3 +861,60 @@ describe("对话设置（模型与思考等级）", () => {
 		expect((screen.getByRole("combobox", { name: "思考等级" }) as HTMLSelectElement).value).toBe("auto");
 	});
 });
+
+describe("多 agent（#1148）", () => {
+	it("装好 ≥2 个 agent：标题行出现选择器，切到另一个 agent 会用新 agent 重新 attach", async () => {
+		checkHost.mockResolvedValue({
+			state: "detected",
+			agents: [
+				{ kind: "omp", present: true },
+				{ kind: "codex", present: true },
+			],
+			paired: true,
+		});
+		renderPanel();
+		const ws = await attach();
+		await screen.findByRole("textbox", { name: "发给 agent 的消息" });
+
+		fireEvent.click(screen.getByRole("button", { name: /由 OMP 驱动/ }));
+		fireEvent.click(screen.getByRole("menuitemradio", { name: "Codex" }));
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.attach", params: { courseId: COURSE, agent: "codex" } }));
+	});
+
+	it("只装好 1 个 agent：静态标签 +「添加 agent」，没有选择器", async () => {
+		renderPanel();
+		await attach();
+		await screen.findByRole("textbox", { name: "发给 agent 的消息" });
+
+		expect(screen.getByText("由 OMP 驱动")).toBeInTheDocument();
+		expect(screen.queryByRole("menuitemradio")).toBeNull();
+		expect(screen.getByRole("button", { name: "添加 agent" })).toBeInTheDocument();
+	});
+
+	it("Covers R6：需要登录时只给 ChatGPT 登录（api-key 要密钥收集契约，首期不做）；成功后登录卡消失", async () => {
+		window.localStorage.setItem(`cgc-host-agent:${COURSE}`, "codex");
+		renderPanel();
+		// attach 就撞上「要求先登录」：Host 回 auth_required（带它播报的登录方式）
+		await waitFor(() => expect(socketCount()).toBeGreaterThan(0));
+		const ws = FakeWebSocket.all.at(-1)!;
+		ws.push({ method: "status", params: status("paired") });
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
+		await ws.reply("hello", "status", status("ready"));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
+		await ws.reply("chat.attach", "error", {
+			code: "auth_required",
+			methods: [
+				{ id: "api-key", name: "API Key" },
+				{ id: "chat-gpt", name: "ChatGPT" },
+			],
+		});
+
+		const chatgpt = await screen.findByRole("button", { name: "用 ChatGPT 登录" });
+		expect(screen.queryByRole("button", { name: "API Key" })).toBeNull();
+
+		fireEvent.click(chatgpt);
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.authenticate", params: { courseId: COURSE, methodId: "chat-gpt" } }));
+		await ws.reply("chat.authenticate", "chat.authenticated", { courseId: COURSE, agent: "codex" });
+		await waitFor(() => expect(screen.queryByRole("button", { name: "用 ChatGPT 登录" })).toBeNull());
+	});
+});
