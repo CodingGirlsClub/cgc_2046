@@ -2,6 +2,7 @@
 // session/update 归一化成页面事件（events.ts），审批与提问交给持有者作答（cards.ts）。载荷契约见 cgc-host/AGENTS.md。
 import { mkdirSync } from "node:fs";
 import {
+  RequestError,
   type ClientApp,
   type ContentBlock,
   type McpServer,
@@ -235,6 +236,9 @@ export function createChat(opts: ChatOptions) {
     if (c.sessionId) bySession.delete(c.sessionId);
     c.sessionId = null;
     c.lastContext = null;
+    // 设置也属于上一段会话：换账号时不能把上一个账号会话的当前值下发给新页面（等这一轮 load/new 刷新）
+    c.settings = [];
+    c.settingsKey = null;
     c.transcript.reset();
     const target = mode === "new" ? undefined : mode === "open" ? openTarget : ctx.sessions[c.id];
     if (mode === "attach" && !target) return null;
@@ -508,16 +512,22 @@ export function createChat(opts: ChatOptions) {
       }
       if (c.turn) return fail("busy");
       const active = runtime.agent;
-      if (!active || !c.sessionId) return fail("chat_unavailable");
+      const sessionId = c.sessionId;
+      if (!active || !sessionId) return fail("chat_unavailable");
+      // 不进课程队列：设置请求可能在 OMP 侧长时间没有应答，不能占住 new / load / send 的队列。改为回包后校验会话没被换掉。
       try {
-        const res = await active.rpc.request("session/set_config_option", { sessionId: c.sessionId, configId, value });
+        const res = await active.rpc.request("session/set_config_option", { sessionId, configId, value });
+        // 回包期间会话被换掉（新开 / 切换 / 换账号）：这份回包属于旧会话，作废并明确告诉页面，不写 c.settings
+        if (c.sessionId !== sessionId) return fail("busy");
         c.settings = pickSettings(res.configOptions);
         reply("chat.settings", { settings: c.settings });
         settingsSynced(c);
       } catch (e) {
-        // 值不被 OMP 接受（如 `Unknown ACP model: …`）：原文只进日志（R25），页面按设置未改动处理
+        // 会话已被换掉（新开 / 切换 / 换账号）：这是旧请求的失败，按作废处理，不能归到当前会话
+        if (c.sessionId !== sessionId) return fail("busy");
+        // OMP 明确拒绝这个值（如 `Unknown ACP model: …`）→ bad_request；传输中断、进程结束 → chat_unavailable
         console.error(`cgc-host: 修改对话设置失败：${message(e)}`);
-        return fail("bad_request");
+        return fail(e instanceof RequestError ? "bad_request" : "chat_unavailable");
       }
     } else if (method === "card.answer") {
       if (!c.cards.answer(params, reply)) return fail("bad_request");
