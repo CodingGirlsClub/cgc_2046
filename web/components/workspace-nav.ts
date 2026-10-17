@@ -20,6 +20,7 @@ export type NavSection =
 	| "events"
 	| "courses"
 	| "members"
+	| "settings-general"
 	| "settings-permissions"
 	| "settings-join-policy"
 	| "settings-requests"
@@ -45,6 +46,17 @@ export interface NavDestination {
 }
 
 export const SETTINGS_NAV: NavDestination[] = [
+	{
+		key: "general",
+		labelKey: "general",
+		href: (s) => `/w/${s}/settings/general`,
+		// 工作台元数据写权限沿用 update_join_policy（#78 放开时的最小面，
+		// 加入策略页同款）——新增独立能力要连锁改 Rbac / rbac_contract.json /
+		// 权限映射页 / 小程序 codegen，收益仅是命名更贴切。
+		ability: "update_join_policy",
+		active: "settings-general",
+		icon: "settings",
+	},
 	{
 		key: "members",
 		labelKey: "members",

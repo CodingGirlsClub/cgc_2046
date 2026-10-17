@@ -667,8 +667,19 @@ describe("成员与角色管理页 /w/[slug]/members (#65)", () => {
 		expect(
 			(await screen.findAllByText("flat.member@example.com")).length,
 		).toBeGreaterThan(0);
-		// ISO joinedAt 格式化为中文年月（P1）
-		expect(screen.getByText("2026 年 8 月")).toBeInTheDocument();
+		// ISO joinedAt 格式化为中文「年月日 + 时:分」两行（P1）；期望值现场按本地时区算，不写死偏移
+		const joined = new Date("2026-08-02T03:00:00Z");
+		const pad = (n: number) => String(n).padStart(2, "0");
+		expect(
+			screen.getByText(
+				`${joined.getFullYear()} 年 ${joined.getMonth() + 1} 月 ${joined.getDate()} 日`,
+			),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				`${pad(joined.getHours())}:${pad(joined.getMinutes())}`,
+			),
+		).toBeInTheDocument();
 	});
 
 	// #10：分页累积测试（hasMore 由累积已加载 < count 派生）
