@@ -422,6 +422,27 @@ describe("对话设置（模型与思考等级）", () => {
     expect(await attach(pageB)).toMatchObject({ method: "history", params: { settings: [] } });
   });
 
+  test("迟到的失败也按作废处理：会话换掉后旧请求报错回 busy，不误报 bad_request", async () => {
+    const fake = fakeAgent();
+    const { page } = await chatPage(fake);
+    await attach(page);
+    await send(page, "你好");
+    await ended(page);
+    await page.next((m) => m.method === "chat.settings"); // 首条消息建立会话后的补推
+
+    let release!: () => void;
+    fake.beforeSetConfig = new Promise<void>((resolve) => (release = resolve)); // 挂住应答
+    // 这次请求注定被 OMP 拒绝（未知值），且期间会话会被换掉
+    const setting = page.call("chat.set_setting", { courseId: COURSE, configId: "model", value: "gamma/three" });
+    await until(() => fake.calledWith("session/set_config_option").length === 1);
+
+    const fresh = page.call("chat.new", { courseId: COURSE });
+    await expect(fresh).resolves.toMatchObject({ method: "history" });
+
+    release();
+    await expect(setting).resolves.toMatchObject(refused("busy")); // 作废，而不是把旧会话的拒绝归到当前会话
+  });
+
   test("OMP 长时间不回设置请求时也不占课程队列：新开对话照常落地，迟到的回包作废（busy）", async () => {
     const fake = fakeAgent();
     const { page } = await chatPage(fake);

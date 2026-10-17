@@ -523,6 +523,8 @@ export function createChat(opts: ChatOptions) {
         reply("chat.settings", { settings: c.settings });
         settingsSynced(c);
       } catch (e) {
+        // 会话已被换掉（新开 / 切换 / 换账号）：这是旧请求的失败，按作废处理，不能归到当前会话
+        if (c.sessionId !== sessionId) return fail("busy");
         // OMP 明确拒绝这个值（如 `Unknown ACP model: …`）→ bad_request；传输中断、进程结束 → chat_unavailable
         console.error(`cgc-host: 修改对话设置失败：${message(e)}`);
         return fail(e instanceof RequestError ? "bad_request" : "chat_unavailable");
