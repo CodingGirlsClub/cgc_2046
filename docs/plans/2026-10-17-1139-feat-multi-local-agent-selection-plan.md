@@ -15,7 +15,8 @@ execution: code
 - **Objective：** 已经在自己电脑上装了别的 coding agent（先支持 Codex）的学员，也能在课程学习页用它学完一个学习目标——自己选 agent、自己选历史对话，学习进度与课程作业目录两边共用。
 - **Means：** 把 `cgc-host` 里写死的 OMP 抽成 agent 注册表（ADR-0022 否决私有 RPC 时就留下了 ACP 这条接缝），Codex 经 `@agentclientprotocol/codex-acp` 接入；页面在对话栏里给出 agent 选择与按 agent 分组的历史对话。
 - **Authority：** 2026-10-17 会话中用户确认的两条产品决策：① 期 1 先做 BYO 探测（学员自己装 `codex-acp`），期 2 再做 Host 一键安装；② 抬高 `MIN_HOST_VERSION` 强制更新。ADR-0023 记录方向性决定并修订 ADR-0022 的适用范围。
-- **落地情况（2026-10-17）：** A 与 B 一起落在 PR #1152（A 批包 `0.1.7`、B 批 `0.2.0` 并把 `MIN_HOST_VERSION` 抬到 `0.2.0`）；Host 侧真机冒烟（真 `omp acp` / 真 `codex-acp`，桩 MCP）都跑通了回合。页面侧的「上次用过的 agent」以**这台浏览器优先**（localStorage），其次才是 Host 记的 `history.agent`。
+- **落地情况（2026-10-17）：** A 与 B 一起落在 PR #1152（原计划的 A 批 `0.1.7` 与 B 批 `0.2.0` 合并成一次 `0.2.0`，`MIN_HOST_VERSION` 抬到 `0.2.0`）；Host 侧真机冒烟（真 `omp acp` / 真 `codex-acp`，桩 MCP）都跑通了回合。页面侧的「上次用过的 agent」以**这台浏览器优先**（localStorage），其次才是 Host 记的 `history.agent`。
+- **发布窗口（2026-10-17 追加决定）：** #1152 先只合入 `develop`、**不立即 develop→main 发布**；等 #1149（期 2 Host 一键安装）完成后一起发布，学员只需重装一次就拿到含安装能力的版本。由此给 #1149 一条约束：页面必须按能力探测决定是否给「安装」入口——0.2.0 这类没有 `agent.install` 的 Host 上显示现有的自装指引，绝不调用它没有的方法（也就不必为此再抬一次 `MIN_HOST_VERSION`）。
 - **Execution profile：** 两阶段：A Host 接缝（U1–U3）→ B Codex 与页面（U4–U5）→ C 文档与真机验收（U6–U7）。**版本号：A 批的包升 `0.1.7`（包内容变了，`MIN_HOST_VERSION` 不动）；B 批升 `0.2.0` 并把 `MIN_HOST_VERSION` 抬到 `0.2.0`（强制更新一次）。** `cgc-host/**` 与 `web/lib/host-version.ts` 在根 `AGENTS.md` 的人工合并范围内，实施 PR 由人合并。
 - **Stop conditions：** 出现以下任一条即停下重议：
   - 适配器升级后 node 入口在 Bun 下跑不起来，回退路线（`CODEX_PATH` 指原生二进制、仍由 Bun 跑适配器）也不成立——「Host 侧不新增 node 依赖」的前提不成立（macOS arm64 已在 2.2.2 上实测通过，见 Dependencies）。
