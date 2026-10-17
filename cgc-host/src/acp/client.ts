@@ -43,19 +43,23 @@ export function clientApp(h: AgentHandlers): acp.ClientApp {
 }
 
 /** 把子进程接成 ACP 连接（ndjson over stdio）：Bun 的 stdin 是 FileSink，SDK 要 WritableStream，包一层 */
-function connectProcess(proc: Bun.Subprocess<"ignore", "pipe", "pipe">, app: acp.ClientApp) {
+function connectProcess(proc: Bun.Subprocess<"pipe", "pipe", "ignore">, app: acp.ClientApp) {
+  let inputEnded = false;
+  const endInput = () => {
+    if (inputEnded) return;
+    inputEnded = true;
+    proc.stdin.end(); // 关 stdin = 给子进程 EOF（它据此收掉自己的子进程，见 spawnCodexAcp 的 KTD9 注释）
+  };
   const input = new WritableStream<Uint8Array>({
     async write(chunk) {
       proc.stdin.write(chunk);
       await proc.stdin.flush();
     },
-    close() {
-      proc.stdin.end();
-    },
+    close: endInput,
   });
   const conn = app.connect(acp.ndJsonStream(input, proc.stdout));
   void proc.exited.then(() => conn.close());
-  return { rpc: conn.agent, closed: conn.closed, conn };
+  return { rpc: conn.agent, closed: conn.closed, conn, endInput };
 }
 
 /** 拉起 `omp acp`：环境来自登录 shell（agents/omp.ts，KTD12）；stderr 丢弃——里面可能有对话内容，不进 Host 日志（R25） */
@@ -92,25 +96,27 @@ export const GRACEFUL_CLOSE_MS = 3_000;
  */
 export function spawnCodexAcp(command: readonly string[], env: Record<string, string>, app: acp.ClientApp, cwd: string, signal: AbortSignal): Agent {
   signal.throwIfAborted();
+  // 不把 signal 交给 Bun：它中止时直接 SIGKILL，会把适配器拉起的 Codex 子进程留成孤儿（KTD9）。
+  // 取消也走同一条优雅关闭路径（关连接、关 stdin、宽限后 SIGKILL），由下面的 abort 监听触发。
   const proc = Bun.spawn([...command], {
     cwd,
     env,
     stdin: "pipe",
     stdout: "pipe",
     stderr: "ignore",
-    signal,
-    killSignal: "SIGKILL",
   });
-  const { rpc, closed, conn } = connectProcess(proc, app);
-  return {
-    rpc,
-    closed,
-    close() {
-      conn.close();
-      proc.stdin.end(); // 关 stdin 让适配器连同它的 Codex 子进程一起退（实测 5 秒内退完）；宽限期内没退再 SIGKILL
-      void Promise.race([proc.exited.then(() => true), Bun.sleep(GRACEFUL_CLOSE_MS).then(() => false)]).then((exited) => {
-        if (!exited) proc.kill("SIGKILL");
-      });
-    },
+  const { rpc, closed, conn, endInput } = connectProcess(proc, app);
+  let shuttingDown = false;
+  const shutdown = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    signal.removeEventListener("abort", shutdown);
+    conn.close();
+    endInput(); // 关 stdin 让适配器连同它的 Codex 子进程一起退（实测 5 秒内退完）；宽限期内没退再 SIGKILL
+    void Promise.race([proc.exited.then(() => true), Bun.sleep(GRACEFUL_CLOSE_MS).then(() => false)]).then((exited) => {
+      if (!exited) proc.kill("SIGKILL");
+    });
   };
+  signal.addEventListener("abort", shutdown, { once: true });
+  return { rpc, closed, close: shutdown };
 }

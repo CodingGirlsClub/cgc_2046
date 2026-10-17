@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { clientApp, GRACEFUL_CLOSE_MS, spawnCodexAcp } from "../src/acp/client";
 import { AGENTS_MD_MARKER, CODEX_MCP_SERVER_NAME, codexCommand, writeLearningAgentsMd } from "../src/agents/codex";
 import { stateDir, workDir } from "../src/state";
-import { chatPage, cleanup, codexTestRecord, CONTEXT, COURSE, fakeAgent, ompTestRecord, tempHome, until, USER_A } from "./helpers";
+import { chatHost, chatPage, cleanup, codexTestRecord, CONTEXT, COURSE, fakeAgent, helloed, ompTestRecord, pair, tempHome, until, USER_A } from "./helpers";
 
 afterEach(cleanup);
 
@@ -125,7 +125,58 @@ test("Codex 未登录：回 auth_required + 登录方式；chat.authenticate 转
   await page.next((m) => m.method === "turn.end");
 });
 
+test("两个 agent 的第一条会话 id 相同也不串：事件只回到各自那门课", async () => {
+  const OTHER = "dddddddd-3333-4333-8333-333333333333";
+  const omp = fakeAgent();
+  const codex = fakeAgent();
+  const host = chatHost(codex, { records: [ompTestRecord(omp), codexTestRecord(codex)] });
+  const { browserKey } = await pair(host);
+  const pageA = await helloed(host, browserKey); // 课程 A：OMP
+  const pageB = await helloed(host, browserKey); // 课程 B：Codex
+
+  await pageA.call("chat.attach", { courseId: COURSE, agent: "omp" });
+  await pageB.call("chat.attach", { courseId: OTHER, agent: "codex" });
+  await pageA.call("chat.send", { courseId: COURSE, agent: "omp", text: "甲", context: CONTEXT });
+  await pageB.call("chat.send", { courseId: OTHER, agent: "codex", text: "乙", context: CONTEXT });
+
+  // 两个 agent 各自的第一条会话都叫 session-1（假 agent 的 id 空间互不相干，真实情况同理）
+  expect(omp.calledWith("session/new").length).toBe(1);
+  expect(codex.calledWith("session/new").length).toBe(1);
+
+  // 各自的回合都在自己那门课上收尾（串了的话，A 的 turn.end 会被推到 B 的连接上、这里就超时）
+  await pageA.next((m) => m.method === "turn.end" && m.params.courseId === COURSE);
+  await pageB.next((m) => m.method === "turn.end" && m.params.courseId === OTHER);
+});
+
+test("chat.open 遇到需要登录的 agent：原样回 auth_required（不是 session_unavailable）", async () => {
+  const omp = fakeAgent();
+  const codex = fakeAgent();
+  const { page } = await chatPage(omp, { records: [ompTestRecord(omp), codexTestRecord(codex)] });
+  await page.call("chat.attach", { courseId: COURSE, agent: "codex" });
+  await page.call("chat.send", { courseId: COURSE, agent: "codex", text: "先建一条会话", context: CONTEXT });
+  await page.next((m) => m.method === "turn.end");
+  await page.call("chat.new", { courseId: COURSE, agent: "codex" }); // 当前会话变成 session-2，下面才会真的去 load
+
+  codex.authFor.add("session/load");
+  // 假 agent 的第一条会话就叫 session-1（与真实 OMP/Codex 的不透明 id 同理）
+  const opened = await page.call("chat.open", { courseId: COURSE, agent: "codex", sessionId: "session-1" });
+  expect(opened).toMatchObject({ method: "error", params: { code: "auth_required" } });
+});
+
 describe("关闭（KTD9：优雅优先，SIGKILL 兜底）", () => {
+  test("启动阶段被取消也走优雅关闭：子进程收到 stdin EOF 并自己退出（不是被 Bun 直接 SIGKILL）", async () => {
+    const dir = tempHome();
+    const marker = join(dir, "exited");
+    const script = join(dir, "fake-codex-acp");
+    writeFileSync(script, '#!/bin/sh\ncat >/dev/null\necho exited > "$MARKER"\n', { mode: 0o700 });
+
+    const abort = new AbortController();
+    const a = spawnCodexAcp([script], { MARKER: marker, PATH: "/bin:/usr/bin" }, app(), dir, abort.signal);
+    abort.abort(); // 准备阶段超时/取消：不能把 signal 交给 Bun，那会 SIGKILL 掉适配器、留下它的 Codex 子进程
+    await until(() => existsSync(marker));
+    expect(existsSync(marker)).toBe(true);
+    a.close();
+  });
   test("关 stdin 后子进程自己退出（写了标记）——不是直接 SIGKILL", async () => {
     const dir = tempHome();
     const marker = join(dir, "exited");

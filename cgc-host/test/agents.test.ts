@@ -17,6 +17,7 @@ describe("agent 注册表", () => {
       {
         kind: "omp",
         label: "OMP",
+        mcpServerName: "cgc-2046",
         locator: { locate: async () => ({ path: null, env: {}, envError: "timeout" }), present: () => false, envError: () => "timeout" },
         start: async () => {
           throw new Error("这条用例不该拉起进程");

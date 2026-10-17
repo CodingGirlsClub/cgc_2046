@@ -296,7 +296,7 @@ export function fakeAgent() {
       return turn.response;
     },
     calledWith: (method: string) => fake.calls.filter((c) => c.method === method).map((c) => c.params),
-    start: async (app: acp.ClientApp): Promise<Agent> => {
+    start: async (app: acp.ClientApp, _signal?: AbortSignal): Promise<Agent> => {
       fake.starts++;
       // OMP's persisted session list is not the set loaded in this process.
       const loaded = new Set<string>();
@@ -338,6 +338,7 @@ export function fakeAgent() {
           };
         })
         .onRequest("session/load", async (c) => {
+          if (fake.authFor.has("session/load")) throw acp.RequestError.authRequired();
           record("session/load", c.params);
           if (fake.failLoadFor.has(c.params.sessionId)) throw acp.RequestError.internalError({ details: "fake restore failure" });
           const s = fake.store.get(c.params.sessionId);

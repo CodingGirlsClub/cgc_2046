@@ -13,12 +13,14 @@ import protocol from "../../protocol.json";
 import { type AgentKind, DEFAULT_AGENT, isAgentKind, type Registry } from "../agents/registry";
 import type { ChatContext, ChatMethod, Message } from "../server";
 import { setPointer, workDir } from "../state";
+import { createAgentRuntimes } from "./agent-runtimes";
+import { authenticateAgent, createAuthMethods } from "./auth";
 import { type Cards, createCards } from "./cards";
 import { type Agent, clientApp } from "./client";
 import { message, OpenError } from "./errors";
 import { type ChatEvent, classifyModelError, createTranscript, type Transcript } from "./events";
 import { pageContext } from "./page-context";
-import { createRuntime, type Preparation, type Runtime } from "./runtime";
+import { type Preparation } from "./runtime";
 import { pickSettings, SETTING_IDS, SETTING_VALUE_MAX, type ConfigOption } from "./settings";
 
 export interface ChatOptions {
@@ -65,6 +67,8 @@ interface Course {
 
 /** ACP 的 auth_required（-32000）：这个 agent 要求学员先登录（页面的登录卡与 chat.authenticate 都是围绕它） */
 const isAuthRequired = (e: unknown) => e instanceof RequestError && e.code === -32000;
+/** bySession 的键：sessionId 只在它自己的 agent 进程里有意义，两个 agent 的 id 空间互不相干 */
+const sessionKey = (kind: AgentKind, sessionId: string) => `${kind}:${sessionId}`;
 
 export function createChat(opts: ChatOptions) {
   const graceMs = opts.graceMs ?? 5 * 60_000;
@@ -72,8 +76,6 @@ export function createChat(opts: ChatOptions) {
   const courses = new Map<string, Course>();
   const bySession = new Map<string, Course>();
   let connections = 0;
-  /** 每个 agent kind 自己的空闲回收计时器（KTD13）：一种 agent 的空闲不回收另一种的进程 */
-  const idleTimers = new Map<AgentKind, Timer>();
 
   const delta = (c: Course, event: ChatEvent) => c.send({ method: "turn.delta", params: { courseId: c.id, ...event } });
 
@@ -90,22 +92,21 @@ export function createChat(opts: ChatOptions) {
     c.send({ method: "chat.settings", params: { courseId: c.id, settings: c.settings } });
   }
 
-  /** 每个 agent kind 一个进程代（KTD1）：拉起、回收、换代都按 kind 独立，一种 agent 崩了不影响另一种 */
-  const runtimes = new Map<AgentKind, Runtime>();
   /** 各 agent 握手时播报的登录方式：chat.authenticate 的取值来源，也是 auth_required 回包里的清单 */
-  const authMethods = new Map<AgentKind, { id: string; name: string }[]>();
-  function runtimeFor(kind: AgentKind) {
-    let runtime = runtimes.get(kind);
-    if (!runtime) {
-      runtime = createRuntime({
-        start: (app, signal) => opts.registry.start(kind, app, signal),
-        ready: checkIdle,
-        reset: () => resetAgent(kind),
-        initialized: (response) => authMethods.set(kind, (response.authMethods ?? []).map(({ id, name }) => ({ id, name }))),
-        app: (active) => clientApp({
+  const authMethods = createAuthMethods();
+  /** 每个 agent kind 一个进程代（KTD1）与各自的空闲回收（KTD13） */
+  const runtimes = createAgentRuntimes({
+    registry: opts.registry,
+    connections: () => connections,
+    busy: (kind) => [...courses.values()].some((c) => c.agent === kind && c.turn !== null),
+    retired: resetAgent,
+    initialized: (kind, response) => authMethods.remember(kind, response),
+    idleMs,
+    app: (kind, active) =>
+      clientApp({
         update({ sessionId, update }) {
           if (!active()) return;
-          const c = bySession.get(sessionId);
+          const c = bySession.get(sessionKey(kind, sessionId));
           // agent 改了会话设置（config_option_update）：转成 chat.settings 推给持有者，不落进对话缓冲
           if (c && update.sessionUpdate === "config_option_update") {
             c.settings = pickSettings(update.configOptions);
@@ -119,7 +120,7 @@ export function createChat(opts: ChatOptions) {
         },
         permission(req, signal) {
           if (!active()) return Promise.resolve({ outcome: { outcome: "cancelled" } });
-          const c = bySession.get(req.sessionId);
+          const c = bySession.get(sessionKey(kind, req.sessionId));
           if (!c) return Promise.resolve({ outcome: { outcome: "cancelled" } });
           const answer = c.cards.permission(req, signal);
           checkGrace(c);
@@ -127,23 +128,21 @@ export function createChat(opts: ChatOptions) {
         },
         question(req, signal) {
           if (!active()) return Promise.resolve({ action: "decline" });
-          const c = "sessionId" in req && typeof req.sessionId === "string" ? bySession.get(req.sessionId) : undefined;
+          const c = "sessionId" in req && typeof req.sessionId === "string" ? bySession.get(sessionKey(kind, req.sessionId)) : undefined;
           if (!c) return Promise.resolve({ action: "decline" });
           const answer = c.cards.question(req, signal);
           checkGrace(c);
           return answer;
         },
-      }) });
-      runtimes.set(kind, runtime);
-    }
-    return runtime;
-  }
+      }),
+  });
+  const { runtimeFor, checkIdle } = runtimes;
 
   /** 这个 kind 的进程被废弃（空闲回收、崩溃换代）：它名下课程的会话作废、在跑的事情收尾；其他 kind 不受影响 */
   function resetAgent(kind: AgentKind) {
     for (const [id, c] of courses) {
       if (c.agent !== kind) continue;
-      if (c.sessionId) bySession.delete(c.sessionId);
+      if (c.sessionId) bySession.delete(sessionKey(kind, c.sessionId));
       c.sessionId = null;
       // 下一个进程会重新给 settings（session/new 或 load 的回包），先清掉等它
       c.settings = [];
@@ -189,7 +188,7 @@ export function createChat(opts: ChatOptions) {
     if (mode === "open" && current === openTarget) return { a: await run.agent(), sessionId: current }; // 打开的就是当前会话：短接，不再回放
     if ((mode === "attach" || mode === "send") && current) return { a: await run.agent(), sessionId: current };
     // 不再沿用当前会话（新开、切换、换了账号或凭证、OMP 重启过）：先卸下并清空缓冲——上一段对话不能出现在接下来的历史里
-    if (c.sessionId) bySession.delete(c.sessionId);
+    if (c.sessionId) bySession.delete(sessionKey(c.agent, c.sessionId));
     c.sessionId = null;
     c.lastContext = null;
     // 设置也属于上一段会话：换账号时不能把上一个账号会话的当前值下发给新页面（等这一轮 load/new 刷新）
@@ -211,16 +210,17 @@ export function createChat(opts: ChatOptions) {
     const load = target ? await belongs(a, cwd, target, run) : false;
     run.check();
     if (target && load) {
-      bySession.set(target, c);
+      bySession.set(sessionKey(c.agent, target), c);
       try {
         const loaded = await run.wait("session/load", (signal) => a.rpc.request("session/load", { sessionId: target, cwd, mcpServers }, { cancellationSignal: signal }));
         c.settings = pickSettings(loaded.configOptions);
         c.settingsKey = null;
       } catch (e) {
-        bySession.delete(target);
+        bySession.delete(sessionKey(c.agent, target));
         // chat.open 的目标加载失败：报可诊断的错误；持久指针不动，原会话不受影响。
-        // 原始 ACP 错误（如「Could not restore model …」）会随 OpenError 丢失，所以先记日志
-        if (mode === "open") {
+        // 原始 ACP 错误（如「Could not restore model …」）会随 OpenError 丢失，所以先记日志。
+        // 「要求先登录」（auth_required）不算加载失败：原样冒泡，页面按登录卡处理。
+        if (mode === "open" && !isAuthRequired(e)) {
           console.error(`cgc-host: 切换对话失败：${message(e)}`);
           throw new OpenError("session_unavailable");
         }
@@ -246,7 +246,7 @@ export function createChat(opts: ChatOptions) {
     c.settings = pickSettings(created.configOptions);
     c.settingsKey = null;
     run.check();
-    bySession.set(sessionId, c);
+    bySession.set(sessionKey(c.agent, sessionId), c);
     Object.assign(c, { sessionId, userId: ctx.userId, token: ctx.token });
     setPointer(ctx.sessions, c.id, c.agent, sessionId);
     ctx.save();
@@ -311,27 +311,6 @@ export function createChat(opts: ChatOptions) {
     }
   }
 
-  /** KTD13：没有页面连着、也没有在跑的回合，超过空闲期就回收该 agent 的进程；下次需要时再拉起并 session/load */
-  function checkIdle() {
-    for (const [kind, runtime] of runtimes) {
-      const idle = () => runtime.agent !== null && connections === 0 && ![...courses.values()].some((c) => c.agent === kind && c.turn);
-      const timer = idleTimers.get(kind);
-      if (idle() && !timer) {
-        const armed = setTimeout(() => {
-          idleTimers.delete(kind);
-          if (!idle()) return;
-          console.log(`cgc-host: 空闲，回收 ${kind} 进程`);
-          runtime.close();
-        }, idleMs);
-        armed.unref();
-        idleTimers.set(kind, armed);
-      } else if (!idle() && timer) {
-        clearTimeout(timer);
-        idleTimers.delete(kind);
-      }
-    }
-  }
-
   function course(id: string, ctx: ChatContext, agent: AgentKind): Course {
     let c = courses.get(id);
     if (!c) {
@@ -356,7 +335,7 @@ export function createChat(opts: ChatOptions) {
     } else if (c.agent !== agent) {
       // 换 agent 就是换一段会话（KTD8）：旧进程里那条会话作废，缓冲、设置与待答卡片一起清掉；
       // 在跑的回合已由 handle 先停掉，这里只把它摘下来，免得旧回合的收尾再推一条 turn.end 给新页面。
-      if (c.sessionId) bySession.delete(c.sessionId);
+      if (c.sessionId) bySession.delete(sessionKey(c.agent, c.sessionId));
       c.agent = agent;
       c.sessionId = null;
       c.lastContext = null;
@@ -402,7 +381,7 @@ export function createChat(opts: ChatOptions) {
     const reply = (m: string, p: Record<string, unknown>) => ctx.reply({ method: m, params: { courseId: c.id, ...p } });
     const fail = (code: string) => ctx.reply({ method: "error", params: { code } });
     /** 这个 agent 要求先登录：回 auth_required + 它握手时播报的登录方式，页面据此出登录卡（chat.authenticate 完成登录） */
-    const failAuth = () => ctx.reply({ method: "error", params: { code: "auth_required", methods: authMethods.get(c.agent) ?? [] } });
+    const failAuth = () => ctx.reply({ method: "error", params: { code: "auth_required", methods: authMethods.of(c.agent) } });
 
     if (method === "chat.attach") {
       try {
@@ -526,21 +505,12 @@ export function createChat(opts: ChatOptions) {
         return fail(e instanceof RequestError ? "bad_request" : "chat_unavailable");
       }
     } else if (method === "chat.authenticate") {
-      // 学员在页面里发起登录（Codex 等）：转发给该 agent 的 ACP authenticate；浏览器由适配器自己开（KTD4）
+      // 学员在页面里发起登录（Codex 等）：转给该 agent 的 ACP authenticate；浏览器由适配器自己开（KTD4）
       const { methodId } = params;
       if (typeof methodId !== "string" || !methodId || methodId.length > 64) return fail("bad_request");
-      const runtime = runtimeFor(c.agent);
-      try {
-        // 不进课程队列：浏览器登录可能等学员几十秒，不能占住 new / load / send（#1151 的口径）
-        const a = await runtime.prepare(opts.preparationTimeoutMs ?? protocol.preparationTimeoutMs, (run) => run.agent());
-        await a.rpc.request("authenticate", { methodId });
-        // 登录期间进程被换掉（崩溃、空闲回收）：这次结果不作数，页面重试即可
-        if (runtime.agent !== a) return fail("busy");
-        reply("chat.authenticated", { agent: c.agent });
-      } catch (e) {
-        console.error(`cgc-host: ${c.agent} 登录失败：${message(e)}`);
-        return fail("auth_failed");
-      }
+      const result = await authenticateAgent(runtimeFor(c.agent), methodId, opts.preparationTimeoutMs ?? protocol.preparationTimeoutMs);
+      if (result === "ok") reply("chat.authenticated", { agent: c.agent });
+      else return fail(result === "busy" ? "busy" : "auth_failed");
     } else if (method === "card.answer") {
       if (!c.cards.answer(params, reply)) return fail("bad_request");
       checkGrace(c);

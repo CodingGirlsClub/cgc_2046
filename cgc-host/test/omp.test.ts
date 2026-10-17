@@ -28,11 +28,12 @@ test("rc 文件的输出噪音被标记隔开：环境取自登录 shell，omp �
 });
 
 test.each([
-  ["超时：杀掉 shell，退回 Host 自己的环境", "sleep 5", "timeout"],
-  ["没打出标记就退出", "exit 1", "failed"],
-] as const)("%s", async (_, body, envError) => {
+  ["超时：杀掉 shell，退回 Host 自己的环境", "sleep 5", "timeout", 200],
+  // 这台机器可能在跑别的测试（含子进程用例）：预算给宽一点，避免把「没打标记」误判成超时
+  ["没打出标记就退出", "exit 1", "failed", 2_000],
+] as const)("%s", async (_, body, envError, budget) => {
   const { shell } = fakeShell(body);
-  const found = await resolveOmp(shell, 200);
+  const found = await resolveOmp(shell, budget);
   expect(found.envError).toBe(envError);
   expect(found.env).toBe(process.env as Record<string, string>);
 });
