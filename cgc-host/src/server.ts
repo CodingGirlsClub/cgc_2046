@@ -3,6 +3,7 @@
 import type { ServerWebSocket } from "bun";
 import { hostname } from "node:os";
 import protocol from "../protocol.json";
+import { InstallError } from "./agents/install";
 import { type AgentKind, type AgentStatus, isAgentKind } from "./agents/registry";
 import { HOST_VERSION, SITE_ORIGIN } from "./config";
 import { createPairing, type DialogRunner, hashBrowserKey, revokeToken, verifyToken } from "./pairing";
@@ -46,6 +47,12 @@ export interface ServerOptions {
   platform?: NodeJS.Platform;
   /** 本机各 agent 的状态（注册表读缓存，同步）：status.agents 与 /health 都从这里取 */
   agents: () => AgentStatus[];
+  /** 本机支持的能力（页面据此决定给不给安装入口）；缺省没有 */
+  capabilities?: readonly string[];
+  /** 安装某个 agent（缺省不支持）：进度经参数回调，失败抛错（InstallError 的 code 会回给页面） */
+  install?(kind: AgentKind, progress: (phase: "installing") => void): Promise<{ version: string }>;
+  /** 装完刷新定位器（否则页面要等缓存过期才看到新 agent） */
+  refresh?(kind: AgentKind): Promise<void>;
   chat: ChatHandler;
   /** KTD13 的收尾依据：连接数变化时告诉对话处理器；断开时附上因此失去持有者的课程 */
   onConnections?: (count: number, released: string[]) => void;
@@ -65,10 +72,16 @@ interface Host {
   holders: Map<string, WS>;
   pairing: ReturnType<typeof createPairing>;
   deviceName: string;
+  /** 同一时刻只允许一个安装（第二次点会拿 busy） */
+  installing: boolean;
   setPairing(pairing: Pairing | null): void;
 }
 
 const send = (ws: WS, message: Message) => ws.send(JSON.stringify(message));
+/** 安装进度与结果推给所有已授权的连接（状态类事件，不分课程） */
+const broadcast = (host: Host, method: string, params: Record<string, unknown>) => {
+  for (const ws of host.conns) if (authorized(host, ws)) send(ws, { method, params });
+};
 const error = (id: string | undefined, code: string): Message => ({ method: "error", id, params: { code } });
 
 /** 出示过当前浏览器密钥的连接。密钥一换（重新配对、换发、清掉），已 hello 的旧连接随之失效 */
@@ -95,6 +108,7 @@ function status(host: Host, ws: WS, id?: string): Message {
       ompPresent: omp?.present ?? false,
       ...(omp?.envError && { ompEnvError: omp.envError }),
       agents,
+      capabilities: [...(host.opts.capabilities ?? [])],
       version: HOST_VERSION,
       protocolVersion: protocol.protocolVersion,
     },
@@ -168,6 +182,26 @@ const handlers: Record<string, (host: Host, ws: WS, frame: Frame) => unknown> = 
   "chat.set_setting": chat,
   "chat.authenticate": chat,
   "card.answer": chat,
+  async "agent.install"(host, ws, { id, params }) {
+    if (!isAgentKind(params.kind)) return send(ws, error(id, "bad_request"));
+    if (!host.opts.install) return send(ws, error(id, "unsupported"));
+    if (host.installing) return send(ws, error(id, "busy"));
+    const kind = params.kind;
+    host.installing = true;
+    send(ws, { method: "agent.install.started", id, params: { started: true } });
+    try {
+      const { version } = await host.opts.install(kind, (phase) => broadcast(host, "agent.install.progress", { kind, phase }));
+      await host.opts.refresh?.(kind);
+      broadcast(host, "agent.done", { kind, ok: true, version });
+    } catch (e) {
+      const code = e instanceof InstallError ? e.code : "install_failed";
+      console.error(`cgc-host: 安装 ${kind} 失败（${code}）`); // 只记错误码：安装输出里有本地路径
+      broadcast(host, "agent.done", { kind, ok: false, code });
+    } finally {
+      host.installing = false;
+      for (const conn of host.conns) if (authorized(host, conn)) send(conn, status(host, conn));
+    }
+  },
 };
 
 /** 白名单即 handlers 的键，测试断言它与 protocol.json 的 pageToHost 完全一致 */
@@ -223,6 +257,7 @@ export function startServer(opts: ServerOptions) {
     conns,
     holders: new Map(),
     deviceName: sanitizeDeviceName(hostname()),
+    installing: false,
     setPairing,
     pairing: createPairing({
       apiBase: opts.apiBase,
@@ -250,6 +285,7 @@ export function startServer(opts: ServerOptions) {
             ompPresent: agents.some((agent) => agent.kind === "omp" && agent.present),
             paired: state.pairing !== null,
             agents,
+            capabilities: [...(opts.capabilities ?? [])],
           },
           { headers: cors },
         );

@@ -1,11 +1,12 @@
 // agents/codex.ts — Codex 这条 agent 记录：学员自己装的 `@agentclientprotocol/codex-acp`（BYO，没人装就不出现）。
 // 启动语没有命令行等价物，改写成课程工作目录的 AGENTS.md（KTD5）；关闭走「优雅优先」（KTD9，实测直接 SIGKILL 会留孤儿 Codex 进程）。
 import type { ClientApp } from "@agentclientprotocol/sdk";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { spawnCodexAcp, STARTUP_PROMPT } from "../acp/client";
 import { resolveLoginShellEnv } from "../shell-env";
+import { managedCodexAcp } from "./install";
 import { agentLocator, type AgentLocation, type AgentRecord, type Locator } from "./registry";
 
 /** PATH 上找的适配器可执行名（npm 包的 bin） */
@@ -14,10 +15,20 @@ export const CODEX_ACP_BIN = "codex-acp";
 /** 下发给 Codex 的 CGC MCP 服务器名。学员自己的 Codex 配置里可能已有 `cgc-2046`（终端插件那份）：同名会被适配器整条跳过 */
 export const CODEX_MCP_SERVER_NAME = "cgc-2046-learning";
 
-/** 找到适配器（KTD12：从登录 shell 解析环境，再在它的 PATH 里找） */
-export async function resolveCodexAcp(shell?: string, timeoutMs?: number): Promise<AgentLocation> {
+/**
+ * 找到适配器（KTD12：从登录 shell 解析环境，再在它的 PATH 里找）。
+ * 页面里装过（期 2）就先用 Host 托管的那一份；学员自己装在 PATH 上的作为回退。
+ */
+export async function resolveCodexAcp(home: string, shell?: string, timeoutMs?: number): Promise<AgentLocation> {
   const { env, envError } = await resolveLoginShellEnv(shell, timeoutMs);
-  return { path: Bun.which(CODEX_ACP_BIN, { PATH: env.PATH ?? "" }), env, envError };
+  return { path: pickCodexAcp(home, env.PATH), env, envError };
+}
+
+/** 选那个要跑的适配器：页面里装过的（Host 托管）优先，其次才是学员自己放在 PATH 上的 */
+export function pickCodexAcp(home: string, path: string | undefined): string | null {
+  const managed = managedCodexAcp(home);
+  if (existsSync(managed)) return managed;
+  return Bun.which(CODEX_ACP_BIN, { PATH: path ?? "" }) ?? null;
 }
 
 /**
@@ -31,7 +42,7 @@ export async function codexCommand(bin: string): Promise<string[]> {
 }
 
 /** 缓存最近一次解析；找不到时按 retryMs 在后台重解析——学员装上适配器后不必重启 Host */
-export const codexLocator = (resolve: () => Promise<AgentLocation> = () => resolveCodexAcp(), retryMs = 10_000): Locator =>
+export const codexLocator = (home: string, resolve: () => Promise<AgentLocation> = () => resolveCodexAcp(home), retryMs = 10_000): Locator =>
   agentLocator(resolve, retryMs);
 
 /** AGENTS.md 的托管标记：Host 只覆盖这个标记之后的部分，标记之前的文字是学员自己的，原样保留 */

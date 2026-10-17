@@ -1,6 +1,7 @@
 // main.ts — 入口：`serve` 子命令常驻（各系统的登录自启项以它启动 Host，U7）；`uninstall` 子命令卸载（install.sh 结束时打印这条命令）
 import { homedir } from "node:os";
 import { builtinAgents } from "./agents/builtin";
+import { installCodexAcp } from "./agents/install";
 import { createRegistry } from "./agents/registry";
 import { createChat } from "./acp/session";
 import { API_BASE, HOST_VERSION, PORT } from "./config";
@@ -30,6 +31,10 @@ try {
     apiBase: API_BASE,
     runDialog: runPlatformDialog,
     agents: registry.status,
+    capabilities: ["agent.install"],
+    install: (kind, progress) =>
+      kind === "codex" ? installCodexAcp({ home, onPhase: progress }) : Promise.reject(new Error(`没有 ${kind} 的安装包`)),
+    refresh: (kind) => registry.refresh(kind),
     chat: chat.handle,
     onConnections: chat.connections,
   });

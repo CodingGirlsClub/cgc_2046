@@ -84,11 +84,30 @@ function AgentInstall({ chat }: { chat: HostChat }) {
 	const [checking, setChecking] = useState(false);
 	const omp = chat.agents.find((agent) => agent.kind === "omp");
 	const codex = chat.agents.find((agent) => agent.kind === "codex");
+	/** 期 2：Host 声明了安装能力就给「一键安装」；没声明（0.2.0 这类旧 Host）只有手动命令 */
+	const canInstall = codex && !codex.present && chat.capabilities.includes("agent.install");
+	const installing = chat.install === "installing";
+	const failure = chat.install && chat.install !== "installing" ? chat.install.error : null;
 	return (
 		<div className="learning-chat__agents">
 			<p className="learning-chat__hint">{t("ompInstall")}</p>
 			<p className="learning-chat__note">{`OMP：${omp?.present ? t("installed") : t("missing")}`}</p>
-			<p className="learning-chat__hint">{t("codexInstall")}</p>
+			{canInstall ? (
+				<>
+					<button type="button" className="learning-chat__option" disabled={installing} onClick={() => void chat.installAgent()}>
+						{installing ? t("installing") : t("installCodex")}
+					</button>
+					<p className="learning-chat__hint">{installing ? t("installHintRunning") : t("installHint")}</p>
+					{failure ? (
+						<p className="learning-chat__note" role="alert">
+							{t("installFailed")}
+						</p>
+					) : null}
+					<p className="learning-chat__hint">{t("codexInstallManual")}</p>
+				</>
+			) : (
+				<p className="learning-chat__hint">{t("codexInstall")}</p>
+			)}
 			<pre>
 				<code>{CODEX_ACP_INSTALL}</code>
 			</pre>

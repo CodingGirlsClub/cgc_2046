@@ -442,6 +442,8 @@ jobs:
           bun-version: 1.4.3  # 对齐本地开发版本，避免版本漂移
       - run: pnpm install --frozen-lockfile
       - run: bun test
+      # 锁门禁（期 2）：钉住的适配器版本仍可从 registry 获取，且 integrity 与随包发布的 bun.lock 一致
+      - run: bun scripts/check-agent-lock.mjs
       # 安装、卸载与版本门禁：临时 HOME + launchctl/uname 垫片，Linux runner 上同样能跑
       - run: bash test/install.test.sh
       - run: pnpm check:licenses

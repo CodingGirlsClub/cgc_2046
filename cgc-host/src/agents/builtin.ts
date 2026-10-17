@@ -24,6 +24,6 @@ export function builtinAgents(home: string): AgentRecord[] {
         return spawnOmp({ ...found, path: found.path }, app, workspace, signal);
       },
     },
-    codexRecord(codexLocator(), workspace),
+    codexRecord(codexLocator(home), workspace),
   ];
 }
