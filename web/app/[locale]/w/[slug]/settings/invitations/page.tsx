@@ -22,6 +22,7 @@ import {
 	invitationRoleLabel,
 } from "@/lib/invitations";
 import type { InvitationItem } from "@/lib/invitations";
+import { fromLocalInput } from "@/lib/format";
 import {
 	INVITATION_STATUS_LABEL,
 	INVITATION_STATUS_CLASS,
@@ -112,7 +113,10 @@ export default function InvitationsPage() {
 				inviterId: userId,
 				targetEmail: formTargetEmail.trim() || null,
 				preauthorizedRoleNames: formRoles.length > 0 ? formRoles : null,
-				expiresAt: formExpiresAt || null,
+				// datetime-local 原值是本地时间、不含时区；GraphQL DateTime 标量要求
+				// ISO8601（带 Z/偏移），裸传会被参数校验直接拒。fromLocalInput 统一
+				// 转 UTC ISO，空值/不可解析 → null（= 无过期时间）。
+				expiresAt: fromLocalInput(formExpiresAt),
 			});
 			setInvitations((prev) => [inv, ...prev]);
 			setShowForm(false);

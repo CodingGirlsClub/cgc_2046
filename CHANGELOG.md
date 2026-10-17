@@ -21,6 +21,9 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ### Changed（[本机 Host]）
 - [本机 Host] 课程工作目录由 `~/CGC/<userId>/<courseId>` 改为 `~/cgc2046_workspace/courses/<userId>/<courseId>`（ADR-0022 KTD6 修订）：与终端插件的工作区合成一棵树，学员只需记一个目录；课程目录在其下单独一层，网页课程会话与学员自己的终端会话仍按目录分桶、互不串入。无历史数据迁移——Host 此前未对外发布。Host 版本 `0.1.5`，`MIN_HOST_VERSION` 随之提高，已装旧包的学员会被提示重装。
 
+### Fixed
+- [Web] 工作台「邀请管理」填写过期时间后创建邀请必失败：`datetime-local` 输入的原值是本地时间、不带时区，之前被原样当 GraphQL `DateTime` 下发，参数校验直接拒（`Argument "input" has invalid value $input … Expected type "DateTime"`）。现经共享的 `fromLocalInput` 转成 UTC ISO8601；留空仍表示无过期时间。
+
 ## [2026-10-16]
 
 ### Added（[抖音] #1079 / #1083）

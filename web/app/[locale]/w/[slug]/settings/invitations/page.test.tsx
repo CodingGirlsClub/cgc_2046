@@ -240,6 +240,35 @@ describe("/w/[slug]/settings/invitations 邀请管理页", () => {
 		});
 	});
 
+	// 回归：datetime-local 的原值是本地时间不含时区，直接下发会被 GraphQL
+	// DateTime 标量拒绝（Argument "input" has invalid value $input）。
+	// 期望值现场按本地时区算，不写死偏移（CI 跑 UTC，开发机常是 UTC+8）。
+	it("创建表单：过期时间转成 UTC ISO 再下发，不裸传 datetime-local 原值", async () => {
+		render(<InvitationsPage />);
+
+		const createButtons = await screen.findAllByRole("button", {
+			name: /创建邀请/,
+		});
+		fireEvent.click(createButtons[0]);
+		expect(
+			await screen.findByRole("heading", { name: "创建新邀请" }),
+		).toBeInTheDocument();
+
+		const expiryInput = screen.getByLabelText("过期时间（可选）");
+		fireEvent.change(expiryInput, { target: { value: "2026-12-31T23:59" } });
+
+		const submitButtons = screen.getAllByRole("button", { name: "创建邀请" });
+		fireEvent.click(submitButtons[submitButtons.length - 1]);
+
+		await waitFor(() => {
+			expect(createInvitation).toHaveBeenCalledWith(
+				expect.objectContaining({
+					expiresAt: new Date("2026-12-31T23:59").toISOString(),
+				}),
+			);
+		});
+	});
+
 	it("撤销邀请", async () => {
 		render(<InvitationsPage />);
 
