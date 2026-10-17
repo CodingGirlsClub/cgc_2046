@@ -123,7 +123,7 @@ function RoleEditor({
 				))}
 			</div>
 			<div className="members-role-editor__footer">
-				<span>{memberName(member)}</span>
+				<span title={memberName(member)}>{memberName(member)}</span>
 				<div>
 					<button
 						type="button"
