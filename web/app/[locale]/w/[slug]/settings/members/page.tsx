@@ -71,10 +71,6 @@ function avatarLetter(member: WorkspaceMember) {
 	return Array.from(memberName(member).trim())[0]?.toUpperCase() ?? "?";
 }
 
-function memberJoinedAt(member: WorkspaceMember, locale: string) {
-	return formatJoinedDateTime(member.joinedAt, locale);
-}
-
 function MemberRoleChips({ roles }: { roles: MembershipRoleName[] }) {
 	const t = useTranslations("workspaceMembers");
 	const labelsT = useTranslations();
@@ -582,8 +578,8 @@ export default function WorkspaceMembersPage() {
 											const currentRoles =
 												draft[member.membershipId] ??
 												member.roles;
-											const joined = memberJoinedAt(
-												member,
+											const joined = formatJoinedDateTime(
+												member.joinedAt,
 												locale,
 											);
 											return (
