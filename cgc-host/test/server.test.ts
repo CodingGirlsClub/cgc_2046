@@ -111,7 +111,7 @@ test("courseId 不是 UUID（如 ../../etc）时拒绝，处理器不被调用�
     expect(await c.call("chat.attach", { courseId })).toMatchObject(refused("bad_request"));
   }
   expect(host.chatCalls).toEqual([]);
-  expect(existsSync(join(host.home, "CGC"))).toBe(false);
+  expect(existsSync(join(host.home, "cgc2046_workspace"))).toBe(false);
 });
 
 test("R12. 同一门课两个连接：后到者持有，先到者收到 chat.evicted、不能再发", async () => {

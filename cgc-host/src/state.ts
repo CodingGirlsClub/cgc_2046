@@ -44,8 +44,16 @@ export function saveState(home: string, state: HostState) {
   renameSync(tmp, statePath(home));
 }
 
-/** KTD6：课程工作目录 ~/CGC/<userId>/<courseId>。两个 id 都必须是 UUID，页面给的任意字符串进不了路径 */
+/** OMP 进程自己的目录，也是终端插件的工作区（`omp-plugin/cgc-2046` 的 `/cgc` 引导到同一处）：会话按目录分桶，两者共用一棵树 */
+export const WORKSPACE_DIR = "cgc2046_workspace";
+/** 工作区里放课程工作目录的那一层。刻意与工作区根隔开一层：终端会话的桶是工作区根，网页课程会话的桶是各自的课程目录，两者不重合 */
+export const COURSES_DIR = "courses";
+
+/**
+ * KTD6：课程工作目录 ~/cgc2046_workspace/courses/<userId>/<courseId>。两个 id 都必须是 UUID，页面给的任意字符串进不了路径。
+ * 工作区根的 cwd 归学员的终端会话；课程目录单独一层，Host 的 session/list 才不会把学员自己在终端开的会话列成这门课的对话。
+ */
 export function workDir(home: string, userId: string, courseId: string): string {
   if (!isUuid(userId) || !isUuid(courseId)) throw new Error("工作目录只接受 UUID 形式的 userId 与 courseId");
-  return join(home, "CGC", userId, courseId);
+  return join(home, WORKSPACE_DIR, COURSES_DIR, userId, courseId);
 }
