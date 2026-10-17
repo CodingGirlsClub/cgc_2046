@@ -123,6 +123,12 @@ env:
     # 抖音端上架启用，命名与 WECHAT_MP_* 对称）
     - DOUYIN_MP_APPID
     - DOUYIN_MP_SECRET
+    # 抖音订阅消息模板 ID（#371；2026-10-15 控制台过审两模板：参与活动提醒 /
+    # 活动开始提醒）。缺值 = 该模板 template_not_configured 静默跳过，不阻塞
+    # 其他通知。**必须登记在本名单**——workflow 只把变量写进 .kamal/secrets，
+    # kamal 只注入本名单，漏登记即容器 env 缺键（#974 同型事故）。
+    - DOUYIN_MP_TEMPLATE_APPROVAL_RESULT
+    - DOUYIN_MP_TEMPLATE_EVENT_REMINDER
     # 小红书小程序凭证（可选门禁：缺值 platform_not_configured，boot 不崩；
     # 命名与 DOUYIN_MP_* 对称。0.0.1 上线时漏登记本名单——workflow 注入了
     # .kamal/secrets 但 kamal 只注入此处名单，容器 env 缺键导致真机登录

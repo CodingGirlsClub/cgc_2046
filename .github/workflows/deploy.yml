@@ -307,15 +307,16 @@ jobs:
             WECHAT_MP_TEMPLATE_VOLUNTEER_APPLICATION_CANCELED \
             WECHAT_MP_TEMPLATE_FLASHBACK_WISH_ECHO \
             DOUYIN_MP_APPID DOUYIN_MP_SECRET \
+            DOUYIN_MP_TEMPLATE_APPROVAL_RESULT DOUYIN_MP_TEMPLATE_EVENT_REMINDER \
             XHS_MP_APPID XHS_MP_SECRET; do
-          # （原 31 项 + 26 模板 + 2 tt + 2 xhs = 61 项）
+          # （原 31 项 + 26 模板 + 2 tt 凭证 + 2 tt 模板 + 2 xhs = 63 项）
           [ -n "${!v}" ] || { missing="$missing $v"; continue; }
           printf '%s=%s\n' "$v" "${!v}" >> .kamal/secrets
           done
           # missing 累积后必须真断言（此前无条件 echo 成功，注释承诺的
           # 「本步红」实际靠 kamal 侧 missing secret 兜底、报错不指名键）
           [ -z "$missing" ] || { echo "::error::missing GitHub secrets/vars:$missing"; exit 1; }
-          echo "secrets 非空校验通过（61 项）"
+          echo "secrets 非空校验通过（63 项）"
         env:
           TCR_PASSWORD: ${{ secrets.TCR_PASSWORD }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -379,6 +380,11 @@ jobs:
           WECHAT_MP_TEMPLATE_FLASHBACK_WISH_ECHO: ${{ secrets.WECHAT_MP_TEMPLATE_FLASHBACK_WISH_ECHO }}
           DOUYIN_MP_APPID: ${{ vars.DOUYIN_MP_APPID }}
           DOUYIN_MP_SECRET: ${{ secrets.DOUYIN_MP_SECRET }}
+          # #371 抖音订阅消息两模板（2026-10-15 过审）：**合并前必须先建同名
+          # GitHub secrets**——本步非空断言 fail-closed，缺键会让 deploy 整步红
+          # （旧容器继续服务）。
+          DOUYIN_MP_TEMPLATE_APPROVAL_RESULT: ${{ secrets.DOUYIN_MP_TEMPLATE_APPROVAL_RESULT }}
+          DOUYIN_MP_TEMPLATE_EVENT_REMINDER: ${{ secrets.DOUYIN_MP_TEMPLATE_EVENT_REMINDER }}
           XHS_MP_APPID: ${{ vars.XHS_MP_APPID }}
           XHS_MP_SECRET: ${{ secrets.XHS_MP_SECRET }}
           WECHAT_WEB_SECRET: ${{ secrets.WECHAT_WEB_SECRET }}
