@@ -28,6 +28,14 @@ export const HOST_HTTP_ORIGIN = `http://127.0.0.1:${HOST_PORT}`;
 /** protocol.json 没有约定路径，WebSocket 升级走根路径 */
 export const HOST_WS_URL = `ws://127.0.0.1:${HOST_PORT}`;
 
+/**
+ * 课程作业目录的显示形态（R15）：与 `cgc-host/src/state.ts` 的 `workDir` 同一棵树——工作区根是终端插件的工作目录，
+ * 课程目录在其下单独一层。跨包无编译期共享，契约由 `host-connection.test.ts` 读 Host 源码钉住。
+ */
+export function courseDir(userId: string, courseId: string): string {
+	return `~/cgc2046_workspace/courses/${userId}/${courseId}`;
+}
+
 /** KTD15：`/health` 报告的版本低于它，就进入「Host 需要更新」 */
 export { MIN_HOST_VERSION } from "./host-version";
 

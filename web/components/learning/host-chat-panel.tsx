@@ -14,6 +14,7 @@ import HostChatCard from "./host-chat-cards";
 import HostChatHistory from "./host-chat-history";
 import HostPairingList from "./host-pairing-list";
 import { SafeMarkdown } from "./material-renderer";
+import { courseDir } from "@/lib/host-connection";
 import type { PairingErrorReason } from "./use-host-pairing";
 import { useHostChat, type ChatEvent, type HostChat } from "./use-host-chat";
 
@@ -364,8 +365,8 @@ export default function HostChatPanel(props: {
 				</div>
 			) : null}
 			{conversation ? (
-				// R15：这门课的作业目录（Host 按账号与课程建在学员电脑上）
-				<Conversation chat={chat} workDir={`~/CGC/${props.userId}/${props.courseId}`} />
+				// R15：这门课的作业目录（Host 按账号与课程建在学员电脑上；路径形态与 Host 的 workDir 同源，见 lib/host-connection.ts）
+				<Conversation chat={chat} workDir={courseDir(props.userId, props.courseId)} />
 			) : (
 				<div className="learning-chat__body">
 					<StateMessage chat={chat} />

@@ -65,7 +65,7 @@ test("没有对话时 attach 不拉起 OMP；首条消息才拉起、新建会�
   expect(fake.calledWith("initialize")).toMatchObject([
     { protocolVersion: 1, clientCapabilities: { elicitation: { form: {} }, fs: { readTextFile: false, writeTextFile: false }, terminal: false } },
   ]);
-  // KTD6：工作目录 ~/CGC/<userId>/<courseId>；mcpServers 带当前凭证，服务器名与终端插件一致
+  // KTD6：工作目录 ~/cgc2046_workspace/courses/<userId>/<courseId>；mcpServers 带当前凭证，服务器名与终端插件一致
   expect(fake.calledWith("session/new")).toEqual([{ cwd: workDir(host.home, USER_A, COURSE), mcpServers: cgcServer(token) }]);
   expect(pointer(host.home)).toBe("session-1");
 });

@@ -111,10 +111,12 @@ USER_ID=11111111-1111-4111-8111-111111111111
 COURSE_ID=22222222-2222-4222-8222-222222222222
 # 配对后的本机状态（同 src/state.ts）、一份作业，以及 launchd 写的日志
 seed_paired() {
-  mkdir -p "$1/.cgc2046/host" "$1/CGC/$USER_ID/$COURSE_ID" "$1/Library/Logs"
+  mkdir -p "$1/.cgc2046/host" "$1/cgc2046_workspace/courses/$USER_ID/$COURSE_ID" "$1/Library/Logs"
   printf '{"pairing":{"token":"%s","tokenId":"t1","userId":"%s","displayName":null,"maskedIdentifier":null,"browserKeyHash":"x"},"sessions":{}}' \
     "$TOKEN" "$USER_ID" >"$1/.cgc2046/host/state.json"
-  echo "学员的作业" >"$1/CGC/$USER_ID/$COURSE_ID/homework.md"
+  echo "学员的作业" >"$1/cgc2046_workspace/courses/$USER_ID/$COURSE_ID/homework.md"
+  # 工作区根与终端插件共用，里面还有学员自己的东西：卸载只删自己写的，这些必须原样
+  echo "学员自己的草稿" >"$1/cgc2046_workspace/notes.md"
   echo "cgc-host 0.1.0 在 127.0.0.1:47823 上监听" >"$1/Library/Logs/cgc-host.log"
 }
 # 跑安装输出里打印的那条卸载命令
@@ -128,7 +130,8 @@ assert_uninstalled() {
   ok "包与状态目录已删除" not test -e "$1/.cgc2046/host"
   ok "空的 ~/.cgc2046 一并删除" not test -e "$1/.cgc2046"
   ok "日志已删除" not test -e "$1/Library/Logs/cgc-host.log"
-  ok "课程工作目录与作业原样保留" grep -qx "学员的作业" "$1/CGC/$USER_ID/$COURSE_ID/homework.md"
+  ok "课程工作目录与作业原样保留" grep -qx "学员的作业" "$1/cgc2046_workspace/courses/$USER_ID/$COURSE_ID/homework.md"
+  ok "共用工作区根里学员自己的文件原样保留" grep -qx "学员自己的草稿" "$1/cgc2046_workspace/notes.md"
   ok "LaunchAgent 已 bootout" not grep -qxF "$DOMAIN/$LABEL" "$LAUNCHD"
 }
 

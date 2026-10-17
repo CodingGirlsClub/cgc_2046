@@ -67,7 +67,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 
 ## 对话的载荷契约（`src/acp/`）
 
-每门课对应 OMP 里的一条 ACP 会话，指针存在状态文件的 `sessions`（courseId → sessionId）。一个 `omp acp` 进程服务全部会话：第一次需要时才拉起（有历史要回放的 `chat.attach`，或 `chat.send`、`chat.new`）；没有页面连着、也没有在跑的回合超过 10 分钟就回收，下次需要时再拉起并 session/load。会话的工作目录是 `~/CGC/<userId>/<courseId>`；session/new 与每次 session/load 都下发含当前学习凭证的 `cgc-2046` MCP 服务器，指针指向的会话不在当前课程目录下（例如换了账号）就不加载、清掉指针。
+每门课对应 OMP 里的一条 ACP 会话，指针存在状态文件的 `sessions`（courseId → sessionId）。一个 `omp acp` 进程服务全部会话：第一次需要时才拉起（有历史要回放的 `chat.attach`，或 `chat.send`、`chat.new`）；没有页面连着、也没有在跑的回合超过 10 分钟就回收，下次需要时再拉起并 session/load。会话的工作目录是 `~/cgc2046_workspace/courses/<userId>/<courseId>`（`src/state.ts` 的 `workDir`，与终端插件的工作区同一棵树、隔一层 `courses/`）；session/new 与每次 session/load 都下发含当前学习凭证的 `cgc-2046` MCP 服务器，指针指向的会话不在当前课程目录下（例如换了账号）就不加载、清掉指针。
 
 下面的消息都带 `courseId`，表里省略。
 
@@ -131,7 +131,7 @@ curl -fsSL https://api.codingirlsclub.com/ext/cgc-host/install.sh | bash
 | 登录自启项 | macOS：`~/Library/LaunchAgents/com.codingirlsclub.cgc-host.plist`（`ProgramArguments` 是 Bun 与包的绝对路径加 `serve`；`RunAtLoad`；`KeepAlive {SuccessfulExit: false}`；`ThrottleInterval` 30；0644）。Ubuntu：`~/.config/systemd/user/com.codingirlsclub.cgc-host.service`（`ExecStart` 同上；`Restart=on-failure`；日志 append）。Windows：`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\CGC Host.cmd`（经系统自带 PowerShell `Start-Process -WindowStyle Hidden` 隐藏拉起）。**三者都不含任何环境变量**（OMP 的环境由 Host 运行时解析，KTD12） | 删 |
 | 日志 | macOS：`~/Library/Logs/cgc-host.log`。Ubuntu：`~/.local/state/cgc-host.log`。Windows：`%LOCALAPPDATA%\CGC\cgc-host.log` 与 `cgc-host.error.log`（stdout / stderr 分写） | 删 |
 | `~/.bun/` | 学员原本没有 Bun 时由官方安装器装的 | 不删：Bun 可能已被学员别处使用 |
-| `~/CGC/` | 课程工作目录，学员的作业 | **不碰**（安装也不碰） |
+| `~/cgc2046_workspace/` | 学员的 CGC 工作区：终端插件与 Host 的 OMP 进程都在这儿，作业在 `~/cgc2046_workspace/courses/<userId>/<courseId>/` | **不碰**（安装也不碰） |
 
 两处路径一一对应：`install.sh` 写哪儿，`src/uninstall.ts` 就删哪儿，改一边就改另一边。
 

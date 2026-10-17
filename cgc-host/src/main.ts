@@ -8,6 +8,7 @@ import { API_BASE, HOST_VERSION, PORT } from "./config";
 import { ompLocator } from "./omp";
 import { runPlatformDialog } from "./platform-dialog";
 import { startServer } from "./server";
+import { WORKSPACE_DIR } from "./state";
 import { uninstall } from "./uninstall";
 
 const home = homedir();
@@ -29,7 +30,7 @@ const chat = createChat({
     const found = await omp.locate();
     signal.throwIfAborted();
     if (!found.path) throw new Error("找不到 omp");
-    const cwd = join(home, "CGC"); // OMP 进程自己的目录；每个会话的 cwd 是各自课程的工作目录
+    const cwd = join(home, WORKSPACE_DIR); // OMP 进程自己的目录（与终端插件同一处）；每个会话的 cwd 是各自课程的工作目录
     mkdirSync(cwd, { recursive: true });
     return spawnOmp({ ...found, path: found.path }, app, cwd, signal);
   },
