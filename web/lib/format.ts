@@ -23,6 +23,37 @@ export function formatJoinedDate(
   }).format(date);
 }
 
+/**
+ * 把 ISO/日期字符串格式化为「日期 + 时:分」两段（本地时区）：
+ * zh-CN → { date: "2026 年 8 月 2 日", time: "11:00" }；其它 locale 用 Intl（time 恒为 HH:mm）。
+ * 空值 → { date: "—", time: "" }；无法解析（mock / 旧数据的 "2024 年 3 月"）→ 原样返回 date、time 为空。
+ * 拆两段是为了成员表窄列里分行排版（见 globals.css .members-date）。
+ */
+export function formatJoinedDateTime(
+  value?: string | null,
+  locale: string = "zh-CN",
+): { date: string; time: string } {
+  if (!value) return { date: "—", time: "" };
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return { date: value, time: "" };
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const time = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  if (locale === "zh-CN") {
+    return {
+      date: `${date.getFullYear()} 年 ${date.getMonth() + 1} 月 ${date.getDate()} 日`,
+      time,
+    };
+  }
+  return {
+    date: new Intl.DateTimeFormat(locale, {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    }).format(date),
+    time,
+  };
+}
+
 /** 把 ISO/日期字符串格式化为 "YYYY-MM-DD HH:mm"（本地时区）；空值 "—"，无法解析原样返回。 */
 export function formatDateTime(value?: string | null): string {
   if (!value) return "—";

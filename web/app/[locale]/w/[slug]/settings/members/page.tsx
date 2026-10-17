@@ -15,12 +15,19 @@
  * #10：keyset 分页累积 + 后端搜索/角色下推 + 加载更多按钮。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { Link } from "@/i18n/navigation";
 import { useParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useAuthed } from "@/lib/use-authed";
-import { formatJoinedDate } from "@/lib/format";
+import { formatJoinedDateTime } from "@/lib/format";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import {
 	assignMemberRoles,
@@ -47,6 +54,9 @@ const INLINE_ROLE_OPTIONS = PERMISSION_ROLE_ORDER.filter(
 	(role): role is Exclude<MembershipRoleName, "owner"> => role !== "owner",
 );
 
+/** 行内角色弹层与所在行的间距，与 globals.css 里 `calc(100% + 3px)` 一致。 */
+const ROLE_EDITOR_GAP = 3;
+
 type RoleFilter = MembershipRoleName | "all";
 
 function roleLabel(role: MembershipRoleName) {
@@ -59,10 +69,6 @@ function memberName(member: WorkspaceMember) {
 
 function avatarLetter(member: WorkspaceMember) {
 	return Array.from(memberName(member).trim())[0]?.toUpperCase() ?? "?";
-}
-
-function memberJoinedAt(member: WorkspaceMember, locale: string) {
-	return formatJoinedDate(member.joinedAt, locale);
 }
 
 function MemberRoleChips({ roles }: { roles: MembershipRoleName[] }) {
@@ -106,8 +112,59 @@ function RoleEditor({
 }: RoleEditorProps) {
 	const t = useTranslations("workspaceMembers");
 	const labelsT = useTranslations();
+	const editorRef = useRef<HTMLDivElement | null>(null);
+	// 展开方向与「容器放不下时的限高」在挂载后按实际几何量一次：
+	// 纯 CSS 只能按「倒数第 N 行」硬编码行数，搜索过滤到两三条成员时容器本身
+	// 比弹层还矮，硬编码会翻错方向；这里以会裁剪的滚动容器为界。
+	const [placement, setPlacement] = useState<{
+		up: boolean;
+		maxHeight: number | null;
+	}>({ up: false, maxHeight: null });
+
+	useLayoutEffect(() => {
+		const editor = editorRef.current;
+		const cell = editor?.closest(".members-role-cell");
+		// 以真正会裁剪的滚动容器为界（≤980px 断点它 overflow-x:auto，纵向也会裁）
+		const box = editor?.closest(".members-table-scroll");
+		if (!editor || !cell || !box) return;
+		// 量的是未限高时的自然高度；jsdom 等无布局环境为 0，保持默认向下展开
+		const height = editor.offsetHeight;
+		if (height === 0) return;
+		const cellRect = cell.getBoundingClientRect();
+		const boxRect = box.getBoundingClientRect();
+		const spaceDown = boxRect.bottom - cellRect.bottom - ROLE_EDITOR_GAP;
+		const spaceUp = cellRect.top - boxRect.top - ROLE_EDITOR_GAP;
+		if (spaceDown >= height) {
+			setPlacement({ up: false, maxHeight: null });
+			return;
+		}
+		if (spaceUp >= height) {
+			setPlacement({ up: true, maxHeight: null });
+			return;
+		}
+		// 卡片本身装不下整块弹层：翻到空间更大的一侧，内部滚动消化剩余高度
+		const space = Math.max(spaceUp, spaceDown);
+		setPlacement({
+			up: spaceUp > spaceDown,
+			maxHeight: space > 0 ? space : null,
+		});
+	}, []);
+
 	return (
-		<div className="members-role-editor" data-testid="role-editor">
+		<div
+			ref={editorRef}
+			className={
+				placement.up
+					? "members-role-editor members-role-editor--up"
+					: "members-role-editor"
+			}
+			style={
+				placement.maxHeight === null
+					? undefined
+					: { maxHeight: placement.maxHeight, overflowY: "auto" }
+			}
+			data-testid="role-editor"
+		>
 			<div className="members-role-editor__heading">{t("editHeading")}</div>
 			<div className="members-role-editor__options">
 				{INLINE_ROLE_OPTIONS.map((role) => (
@@ -123,7 +180,7 @@ function RoleEditor({
 				))}
 			</div>
 			<div className="members-role-editor__footer">
-				<span>{memberName(member)}</span>
+				<span title={memberName(member)}>{memberName(member)}</span>
 				<div>
 					<button
 						type="button"
@@ -521,6 +578,10 @@ export default function WorkspaceMembersPage() {
 											const currentRoles =
 												draft[member.membershipId] ??
 												member.roles;
+											const joined = formatJoinedDateTime(
+												member.joinedAt,
+												locale,
+											);
 											return (
 												<tr
 													key={member.membershipId}
@@ -580,7 +641,14 @@ export default function WorkspaceMembersPage() {
 													</td>
 													<td>
 														<span className="members-date">
-															{memberJoinedAt(member, locale)}
+															<span className="members-date__day">
+																{joined.date}
+															</span>
+															{joined.time ? (
+																<span className="members-date__time">
+																	{joined.time}
+																</span>
+															) : null}
 														</span>
 													</td>
 													<td>
