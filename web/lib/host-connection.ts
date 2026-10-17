@@ -54,7 +54,7 @@ export type HostConnection =
 	| { state: "noHost" }
 	| { state: "staleHost" }
 	/** agents / paired 由对话栏映射到「本机没有可用的 agent」「未配对」，再决定是否打开 WebSocket */
-	| { state: "detected"; agents: HostAgentStatus[]; paired: boolean };
+	| { state: "detected"; agents: HostAgentStatus[]; paired: boolean; capabilities: string[] };
 
 /** 浏览器不认 `loopback-network`（Chrome 145 之前）时返回 "unknown"。
  *  不改查旧名 `local-network-access`：老版本 Chrome 查它会让渲染进程崩溃，try/catch 拦不住。 */
@@ -80,13 +80,15 @@ async function probe(): Promise<HostConnection | null> {
 			ompPresent?: boolean;
 			paired: boolean;
 			agents?: HostAgentStatus[];
+			/** 本机支持的能力（期 2 起有 "agent.install"）；旧 Host 不带，按空数组处理 */
+			capabilities?: string[];
 		};
 		if (compareHostVersions(health.version, MIN_HOST_VERSION) < 0) {
 			return { state: "staleHost" };
 		}
 		// Host 0.1.x 只报 ompPresent（版本门会把它们判成需要更新）；0.2.0 起报 agents
 		const agents = health.agents ?? [{ kind: "omp", present: health.ompPresent === true }];
-		return { state: "detected", agents, paired: health.paired };
+		return { state: "detected", agents, paired: health.paired, capabilities: health.capabilities ?? [] };
 	} catch {
 		return null;
 	}

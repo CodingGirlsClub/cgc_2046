@@ -243,21 +243,30 @@ function settingsOf(params: Record<string, unknown>): HostChatSetting[] {
 /** 本机至少有一个装好的 agent（R1：一个都没有时给安装指引，而不是只提 OMP） */
 const hasAgent = (agents: readonly HostAgentStatus[]) => agents.some((agent) => agent.present);
 
+/** 要不要开连接：有 agent 就要（对话/配对）；一个都没有但 Host 能装，也要——安装请求得走这条连接 */
+const needsSocket = (probe: HostConnection) =>
+	probe.state === "detected" && (hasAgent(probe.agents) || (probe.capabilities ?? []).includes("agent.install"));
+
 function viewOf(
 	probe: HostConnection | null,
 	socket: HostSocket | null,
 	lost: boolean,
 	pairing: HostPairing,
 	evicted: boolean,
+	agents: readonly HostAgentStatus[],
 ): ChatView {
 	if (!socket) {
 		// 探到有可用的 agent 到连接打开之间、连接刚断还没重新检测，都只是过渡
-		if (!probe || (probe.state === "detected" && hasAgent(probe.agents))) return { state: lost ? "disconnected" : "checking" };
+		if (!probe || needsSocket(probe)) return { state: lost ? "disconnected" : "checking" };
 		if (lost && probe.state === "noHost") return { state: "disconnected" };
 		if (probe.state === "detected") return { state: "noAgent" };
 		return probe;
 	}
-	if (pairing.phase === "ready") return { state: evicted ? "evicted" : "ready" };
+	if (pairing.phase === "ready") {
+		// 配对之后还没有可用的 agent：停在「没有可用的 agent」，安装入口在这里（用活的 agents，装完由 status 推送刷新）
+		const liveAgents = agents.length > 0 ? agents : probe?.state === "detected" ? probe.agents : [];
+		return hasAgent(liveAgents) ? (evicted ? { state: "evicted" } : { state: "ready" }) : { state: "noAgent" };
+	}
 	if (pairing.phase === "error") return { state: "pairingFailed", reason: pairing.reason ?? "failed" };
 	return { state: pairing.phase };
 }
@@ -294,6 +303,12 @@ export interface HostChat extends Omit<ChatState, "evicted"> {
 	authenticate(methodId: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }>;
 	/** 重新探测 /health（学员刚装好另一个 agent 时用），返回最新的安装状态 */
 	refreshAgents(): Promise<HostAgentStatus[] | null>;
+	/** 本机声明的能力（如 "agent.install"）：页面据此决定给不给一键安装入口 */
+	capabilities: string[];
+	/** 一键安装的状态：null 没在装；"installing" 进行中；{ error } 失败可重试 */
+	install: "installing" | { error: string } | null;
+	/** 请 Host 装 Codex 适配器（只有 capabilities 含 agent.install 时才有意义） */
+	installAgent(): Promise<void>;
 }
 
 export function useHostChat({
@@ -324,6 +339,8 @@ export function useHostChat({
 	const [chat, dispatch] = useReducer(reduce, INITIAL);
 	/** 本机各 agent 的状态：探测结果更新它；选择器与「添加 agent」都读它 */
 	const [agents, setAgents] = useState<HostAgentStatus[]>([]);
+	/** 一键安装的状态（期 2）：null 没在装；"installing" 进行中；{ error } 失败可重试 */
+	const [install, setInstall] = useState<"installing" | { error: string } | null>(null);
 	/** 这台浏览器上次选过的 agent（只是偏好）：实际路由要看它在本机是否可用，见 effectiveAgent */
 	const [preferred, setPreferred] = useState(() => {
 		try {
@@ -339,6 +356,9 @@ export function useHostChat({
 	const agent = agents.some((entry) => entry.present && entry.kind === preferred)
 		? preferred
 		: (agents.find((entry) => entry.present)?.kind ?? "");
+	/** 本机能做什么（/health 的 capabilities，期 2 起有 "agent.install"）；旧 Host 不带、按空处理 */
+	const capabilities = probe?.state === "detected" ? (probe.capabilities ?? []) : [];
+	const anyAgent = agents.some((entry) => entry.present);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -357,7 +377,7 @@ export function useHostChat({
 				return prev && JSON.stringify(prev) === JSON.stringify(result) ? prev : result;
 			});
 			if (result.state === "detected") setAgents(result.agents);
-			if (result.state === "detected" && hasAgent(result.agents)) {
+			if (result.state === "detected" && needsSocket(result)) {
 				const opened = openHostSocket();
 				current = opened;
 				opened.onClose(() => {
@@ -365,6 +385,7 @@ export function useHostChat({
 					ownership.current += 1;
 					current = null;
 					setSocket(null);
+					setInstall(null); // 装到一半断线：别把「正在安装」永久留在按钮上
 					setLost(true);
 					dispatch({ type: "reset" });
 					timer = setTimeout(check, POLL_MS);
@@ -486,6 +507,22 @@ export function useHostChat({
 		const offs = [
 			socket.on("status", (params) => {
 				if (params.state !== "ready") ownership.current += 1;
+				// 装完 agent 后 Host 会主动推一次 status：不必等下一次 /health 轮询
+				if (Array.isArray(params.agents)) setAgents(params.agents as HostAgentStatus[]);
+			}),
+			socket.on("agent.install.progress", (params) => {
+				if (params.kind === "codex") setInstall("installing");
+			}),
+			socket.on("agent.done", (params) => {
+				if (params.kind !== "codex") return;
+				if (params.ok) {
+					setInstall(null);
+					void checkHost({ previouslyReachedHost: true }).then((result) => {
+						if (result.state === "detected") setAgents(result.agents);
+					});
+				} else {
+					setInstall({ error: String(params.code ?? "install_failed") });
+				}
 			}),
 			socket.on(
 				"turn.delta",
@@ -517,6 +554,17 @@ export function useHostChat({
 		];
 		return () => offs.forEach((off) => off());
 	}, [socket, courseId, refetch]);
+
+	// 连上以后整页轮询就停了；但一个 agent 都没有时仍要每 POLL_MS 探一次 /health——学员在终端里装好 OMP 后最多 3 秒自愈
+	useEffect(() => {
+		if (!socket || anyAgent) return;
+		const timer = setInterval(() => {
+			void checkHost({ previouslyReachedHost: true }).then((result) => {
+				if (result.state === "detected") setAgents(result.agents);
+			});
+		}, POLL_MS);
+		return () => clearInterval(timer);
+	}, [socket, anyAgent]);
 
 	const canSend = ready && chat.attached && !chat.evicted && !chat.running && !chat.sending;
 
@@ -631,6 +679,16 @@ export function useHostChat({
 		[courseId, requestChat, requestChatRaw],
 	);
 
+	/** 请 Host 装 Codex 适配器（期 2）：安装是长任务，先回 started，进度与结果走 agent.install.progress / agent.done */
+	const installAgent = useCallback(async () => {
+		if (!socket) return;
+		setInstall("installing");
+		const reply = await socket
+			.request("agent.install", { kind: "codex" }, { timeoutMs: CARD_TIMEOUT_MS })
+			.catch((e: Error): HostMessage => ({ method: "error", params: { code: e.message } }));
+		if (reply.method === "error") setInstall({ error: String(reply.params?.code ?? "install_failed") });
+	}, [socket]);
+
 	/** 重新探测 /health：学员刚装好另一个 agent 时用（本页已经连上过，权限已给，不需要手势） */
 	const refreshAgents = useCallback(async () => {
 		const result = await checkHost({ previouslyReachedHost: true });
@@ -642,7 +700,7 @@ export function useHostChat({
 	const { evicted, ...rest } = chat;
 	return {
 		...rest,
-		view: viewOf(probe, socket, lost, pairing, evicted),
+		view: viewOf(probe, socket, lost, pairing, evicted, agents),
 		pairing,
 		canSend,
 		requestAccess,
@@ -660,5 +718,8 @@ export function useHostChat({
 		login,
 		authenticate,
 		refreshAgents,
+		capabilities,
+		install,
+		installAgent,
 	};
 }

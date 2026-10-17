@@ -4247,7 +4247,17 @@
       "missing": "未安装",
       "switchHint": "切换后是一段新的对话：另一边原来的对话还在，翻历史可以回去。",
       "ompInstall": "安装 OMP：见课程页安装说明里的 OMP 安装入口",
-      "codexInstall": "安装 Codex 支持（在终端执行一次）："
+      "codexInstall": "安装 Codex 支持（在终端执行一次）：",
+      "installCodex": "安装 Codex 支持",
+      "installHint": "约 350MB，需要几分钟；装好后回到这里就能选 Codex。",
+      "installing": "正在安装 Codex 支持…",
+      "installHintRunning": "安装期间可以继续用 OMP。",
+      "installFailed": "安装没有完成，检查网络后再试一次。",
+      "installFailedBusy": "另一个页面正在安装，稍等一下再试。",
+      "installFailedTimeout": "安装超时了，检查网络后再试一次。",
+      "installFailedVersion": "装上的版本和预期不一致，请再试一次。",
+      "installFailedUnsupported": "这个 Host 不支持在页面里安装，请用下面的手动命令。",
+      "codexInstallManual": "也可以自己装（在终端执行一次）："
     },
     "login": {
       "title": "{name} 需要先登录。",

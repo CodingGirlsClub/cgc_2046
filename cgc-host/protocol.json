@@ -16,7 +16,8 @@
       "chat.open",
       "chat.set_setting",
       "chat.authenticate",
-      "card.answer"
+      "card.answer",
+      "agent.install"
     ],
     "hostToPage": [
       "status",
@@ -30,6 +31,9 @@
       "turn.card.closed",
       "turn.end",
       "chat.evicted",
+      "agent.install.started",
+      "agent.install.progress",
+      "agent.done",
       "error"
     ]
   }

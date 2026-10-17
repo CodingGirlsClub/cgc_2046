@@ -18,14 +18,14 @@ test("分发白名单与 protocol.json 的 pageToHost 完全一致", () => {
 });
 
 describe("/health", () => {
-  test("返回 {version, ompPresent, paired, agents}，CORS 只给站点来源", async () => {
+  test("返回 {version, ompPresent, paired, agents, capabilities}，CORS 只给站点来源", async () => {
     const host = startHost({ agents: () => [{ kind: "omp", present: true }] });
     const get = () => fetch(`http://127.0.0.1:${host.port}/health`, { headers: { Origin: SITE_ORIGIN } });
     const res = await get();
     expect(res.status).toBe(200);
     expect(res.headers.get("access-control-allow-origin")).toBe(SITE_ORIGIN);
     expect(res.headers.get("vary")).toBe("Origin");
-    expect(await res.json()).toEqual({ version: HOST_VERSION, ompPresent: true, paired: false, agents: [{ kind: "omp", present: true }] });
+    expect(await res.json()).toEqual({ version: HOST_VERSION, ompPresent: true, paired: false, agents: [{ kind: "omp", present: true }], capabilities: [] });
 
     await pair(host);
     expect(await (await get()).json()).toMatchObject({ paired: true });
@@ -64,6 +64,7 @@ test("连接后先推送 status：未配对的连接也读得到", async () => {
       tokenId: null,
       ompPresent: true,
       agents: [{ kind: "omp", present: true }],
+      capabilities: [],
       version: HOST_VERSION,
       protocolVersion: protocol.protocolVersion,
     },
@@ -91,7 +92,7 @@ test("未知方法与坏帧一律拒绝，不产生任何副作用", async () =>
   expect(host.chatCalls).toEqual([]);
 });
 
-test("R24. 未配对的连接只能 hello / pair.request / pair.cancel：chat.send 被拒，pair.request 被受理", async () => {
+test("R24. 未配对的连接只能 hello / pair.request / pair.cancel：chat.send 与 agent.install 都被拒，pair.request 被受理", async () => {
   const host = startHost();
   const c = await connect(host.port);
   for (const method of PAGE_METHODS.filter((m) => !OPEN.includes(m))) {
@@ -148,4 +149,108 @@ test("端口被占：判定已有实例在跑，记下原因并以 0 退出（la
     blocker?.stop(true);
     rmSync(home, { recursive: true, force: true });
   }
+});
+
+describe("一键安装（期 2 / R2）", () => {
+  const INSTALL_CAPS = ["agent.install"];
+
+  test("能力只在声明时出现：/health 与 status 都带上它", async () => {
+    const host = startHost({ capabilities: INSTALL_CAPS });
+    const res = await fetch(`http://127.0.0.1:${host.port}/health`, { headers: { Origin: SITE_ORIGIN } });
+    expect(await res.json()).toMatchObject({ capabilities: INSTALL_CAPS });
+
+    // status（hello 的应答）也带着它：页面据此决定给不给「安装」入口
+    const { browserKey } = await pair(host);
+    const c = await helloed(host, browserKey);
+    const status = await c.call("hello", { userId: USER_A, browserKey });
+    expect(status.params.capabilities).toEqual(INSTALL_CAPS);
+  });
+
+  test("agent.install：先回 started，再推进度与结果；装完刷新定位器并推 status", async () => {
+    let refreshed = false;
+    const host = startHost({
+      capabilities: INSTALL_CAPS,
+      agents: () => [{ kind: "codex", present: refreshed }],
+      install: async (_kind, progress) => {
+        progress("installing");
+        await Bun.sleep(10);
+        refreshed = true;
+        return { version: "2.2.2" };
+      },
+      refresh: async () => {
+        refreshed = true;
+      },
+    });
+    const { browserKey } = await pair(host);
+    const c = await helloed(host, browserKey);
+
+    expect(await c.call("agent.install", { kind: "codex" })).toMatchObject({ method: "agent.install.started", params: { started: true } });
+    expect(await c.next((m) => m.method === "agent.install.progress")).toMatchObject({
+      method: "agent.install.progress",
+      params: { kind: "codex", phase: "installing" },
+    });
+    expect(await c.next((m) => m.method === "agent.done")).toMatchObject({
+      method: "agent.done",
+      params: { kind: "codex", ok: true, version: "2.2.2" },
+    });
+    // 装完的 status 让页面不必自己猜：codex 已 present
+    const status = await c.next((m) => m.method === "status" && (m.params?.agents as { kind: string; present: boolean }[] | undefined)?.some((a) => a.kind === "codex" && a.present) === true);
+    expect(status.params.agents).toEqual([{ kind: "codex", present: true }]);
+  });
+
+  test("安装失败：done 带错误码（InstallError 的 code 原样回给页面）", async () => {
+    const { InstallError } = await import("../src/agents/install");
+    const host = startHost({
+      capabilities: INSTALL_CAPS,
+      install: async () => {
+        throw new InstallError("version_mismatch", "x");
+      },
+      refresh: async () => {},
+    });
+    const { browserKey } = await pair(host);
+    const c = await helloed(host, browserKey);
+    await c.call("agent.install", { kind: "codex" });
+    expect(await c.next((m) => m.method === "agent.done")).toMatchObject({ params: { ok: false, code: "version_mismatch" } });
+  });
+
+  test("安装要求先配对：未配对的连接拿 unauthorized，配对后才能装", async () => {
+    const host = startHost({
+      capabilities: INSTALL_CAPS,
+      install: async (_kind, progress) => {
+        progress("installing");
+        return { version: "2.2.2" };
+      },
+      refresh: async () => {},
+    });
+    // 未配对（只 hello 前的裸连接）：安装被授权关挡住——否则任意站点来源页都能静默触发 337MB 的下载
+    const bare = await connect(host.port);
+    expect(await bare.call("agent.install", { kind: "codex" })).toMatchObject(refused("unauthorized"));
+
+    const { browserKey } = await pair(host);
+    const c = await helloed(host, browserKey);
+    expect(await c.call("agent.install", { kind: "codex" })).toMatchObject({ method: "agent.install.started", params: { started: true } });
+    expect(await c.next((m) => m.method === "agent.install.progress")).toMatchObject({ params: { phase: "installing" } });
+    expect(await c.next((m) => m.method === "agent.done")).toMatchObject({ params: { ok: true, version: "2.2.2" } });
+  });
+
+  test("并发安装拿 busy；没声明能力拿 unsupported；kind 不认识拿 bad_request", async () => {
+    const host = startHost({
+      capabilities: INSTALL_CAPS,
+      install: () => new Promise(() => {}), // 永不结束：占住安装位
+      refresh: async () => {},
+    });
+    const { browserKey } = await pair(host);
+    const c = await helloed(host, browserKey);
+    await c.call("agent.install", { kind: "codex" });
+    expect(await c.call("agent.install", { kind: "codex" })).toMatchObject({ method: "error", params: { code: "busy" } });
+    expect(await c.call("agent.install", { kind: "nope" })).toMatchObject({ method: "error", params: { code: "bad_request" } });
+
+    // 合法但不可安装的 kind：unsupported（不是含糊的 install_failed）
+    expect(await c.call("agent.install", { kind: "omp" })).toMatchObject({ method: "error", params: { code: "unsupported" } });
+
+    const plain = startHost({});
+    const p = await pair(plain);
+    const pc = await helloed(plain, p.browserKey);
+    expect(await pc.call("agent.install", { kind: "codex" })).toMatchObject({ method: "error", params: { code: "unsupported" } });
+  });
 });

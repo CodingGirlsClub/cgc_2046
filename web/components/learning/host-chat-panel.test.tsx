@@ -83,16 +83,17 @@ const COURSE = "11111111-1111-4111-8111-111111111111";
 const WORKSPACE = "33333333-3333-4333-8333-333333333333";
 const USER = "user-a";
 const INSTALL = "curl -fsSL https://api.codingirlsclub.com/ext/cgc-host/install.sh | bash";
-const DETECTED: HostConnection = { state: "detected", agents: [{ kind: "omp", present: true }], paired: true };
+const DETECTED: HostConnection = { state: "detected", agents: [{ kind: "omp", present: true }], paired: true, capabilities: [] };
 const keyOf = (userId: string) => `cgc:host-browser-key:${userId}`;
 
-const status = (state: HostStatus["state"]): HostStatus => ({
+const OMP_ONLY = [{ kind: "omp", present: true }];
+const status = (state: HostStatus["state"], agents: { kind: string; present: boolean }[] = OMP_ONLY): HostStatus => ({
 	state,
 	pairedUserId: state === "unpaired" ? null : USER,
 	pairedDisplayName: state === "unpaired" ? null : "学员甲",
 	deviceName: "Ada 的 MacBook",
 	tokenId: state === "unpaired" ? null : "tok_this",
-	agents: [{ kind: "omp", present: true }],
+	agents,
 	ompPresent: true,
 	version: "0.2.0",
 	protocolVersion: 1,
@@ -110,12 +111,12 @@ function renderPanel(locale: "zh-CN" | "en" = "zh-CN") {
 const socketCount = () => FakeWebSocket.all.length;
 
 /** 已存浏览器密钥：连接 → hello → ready → chat.attach → history；返回这条连接 */
-async function attach(events: object[] = [], running = false, settings?: object[]) {
+async function attach(events: object[] = [], running = false, settings?: object[], agents: { kind: string; present: boolean }[] = OMP_ONLY) {
 	await waitFor(() => expect(socketCount()).toBeGreaterThan(0));
 	const ws = FakeWebSocket.all.at(-1)!;
-	ws.push({ method: "status", params: status("paired") });
+	ws.push({ method: "status", params: status("paired", agents) });
 	await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
-	await ws.reply("hello", "status", status("ready"));
+	await ws.reply("hello", "status", status("ready", agents));
 	await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
 	await ws.reply("chat.attach", "history", { courseId: COURSE, running, events, ...(settings ? { settings } : {}) });
 	return ws;
@@ -178,7 +179,7 @@ describe("连接状态（R26）", () => {
 		["Covers AE12：Host 需要更新", { state: "staleHost" }, INSTALL],
 		["浏览器阻止访问本机", { state: "blocked" }, "浏览器阻止了本页访问本机。"],
 		["不受支持的浏览器", { state: "unsupported", reason: "browser" }, "对话栏支持 macOS、Windows 与 Ubuntu 桌面上的 Chrome，以及桌面版 Firefox。"],
-		["本机没有可用的 agent", { state: "detected", agents: [{ kind: "omp", present: false }], paired: false }, "这台电脑上还没有可用的 agent。"],
+		["本机没有可用的 agent", { state: "detected", agents: [{ kind: "omp", present: false }], paired: false, capabilities: [] }, "这台电脑上还没有可用的 agent。"],
 	])("%s：给出说明与下一步", async (_, probe, text) => {
 		checkHost.mockResolvedValue(probe);
 		renderPanel();
@@ -872,9 +873,13 @@ describe("多 agent（#1148）", () => {
 				{ kind: "codex", present: true },
 			],
 			paired: true,
+			capabilities: [],
 		});
 		renderPanel();
-		const ws = await attach();
+		const ws = await attach([], false, undefined, [
+			{ kind: "omp", present: true },
+			{ kind: "codex", present: true },
+		]);
 		await screen.findByRole("textbox", { name: "发给 agent 的消息" });
 
 		fireEvent.click(screen.getByRole("button", { name: /由 OMP 驱动/ }));
@@ -949,7 +954,10 @@ describe("多 agent 的评审修复（M1 / M2 / M4）", () => {
 	it("M2：回合进行中不提供切换（选择器项不可点，与历史 chips 同一规则）", async () => {
 		checkHost.mockResolvedValue(both);
 		renderPanel();
-		await attach([], true); // running = true → canSend 为 false
+		await attach([], true, undefined, [
+			{ kind: "omp", present: true },
+			{ kind: "codex", present: true },
+		]); // running = true → canSend 为 false
 		await screen.findByRole("textbox", { name: "发给 agent 的消息" });
 
 		fireEvent.click(screen.getByRole("button", { name: /由 OMP 驱动/ }));
@@ -973,5 +981,123 @@ describe("多 agent 的评审修复（M1 / M2 / M4）", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "重试" }));
 		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
+	});
+});
+
+describe("一键安装（期 2 / #1149）", () => {
+	/** Host 声明了安装能力、OMP 已就绪而 Codex 缺：选择器里的「添加 agent」入口 */
+	const CAN_INSTALL = {
+		state: "detected",
+		agents: [
+			{ kind: "omp", present: true },
+			{ kind: "codex", present: false },
+		],
+		paired: true,
+		capabilities: ["agent.install"],
+	} as const;
+	const ompOnly = [
+		{ kind: "omp", present: true },
+		{ kind: "codex", present: false },
+	];
+
+	it("没有 agent + 声明能力：未配对先给「连接」；配对后才有安装按钮，点击发请求、装完入口消失", async () => {
+		window.localStorage.clear(); // 隔离前序用例留下的浏览器密钥（有它就会先走 hello，停在 checking）
+		checkHost.mockResolvedValue({
+			state: "detected",
+			agents: [
+				{ kind: "omp", present: false },
+				{ kind: "codex", present: false },
+			],
+			paired: false,
+			capabilities: ["agent.install"],
+		});
+		renderPanel();
+		await waitFor(() => expect(socketCount()).toBeGreaterThan(0));
+		const ws = FakeWebSocket.all.at(-1)!;
+
+		// 未配对：安装与 chat.* 同一道授权，先给「连接」
+		act(() => ws.push({ method: "status", params: status("unpaired", [{ kind: "omp", present: false }, { kind: "codex", present: false }]) }));
+		expect(await screen.findByRole("button", { name: "连接" })).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "安装 Codex 支持" })).toBeNull();
+
+		// 配对完成：没有 agent → 安装入口
+		act(() => ws.push({ method: "status", params: status("ready", [{ kind: "omp", present: false }, { kind: "codex", present: false }]) }));
+		fireEvent.click(await screen.findByRole("button", { name: "安装 Codex 支持" }));
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "agent.install", params: { kind: "codex" } }));
+		await ws.reply("agent.install", "agent.install.started", { started: true });
+		act(() => ws.push({ method: "agent.install.progress", params: { kind: "codex", phase: "installing" } }));
+		expect(await screen.findByRole("button", { name: "正在安装 Codex 支持…" })).toBeDisabled();
+
+		// 装完：Host 推 status（codex 已 present），入口消失
+		act(() =>
+			ws.push({
+				method: "status",
+				params: status("ready", [
+					{ kind: "omp", present: false },
+					{ kind: "codex", present: true },
+				]),
+			}),
+		);
+		act(() => ws.push({ method: "agent.done", params: { kind: "codex", ok: true, version: "2.2.2" } }));
+		await waitFor(() => expect(screen.queryByRole("button", { name: /安装 Codex 支持|正在安装/ })).toBeNull());
+	});
+
+	it("安装失败：就地给出可重试的提示，按钮恢复可点", async () => {
+		checkHost.mockResolvedValue(CAN_INSTALL);
+		renderPanel();
+		const ws = await attach([], false, undefined, ompOnly);
+
+		fireEvent.click(screen.getByRole("button", { name: "添加 agent" }));
+		fireEvent.click(await screen.findByRole("button", { name: "安装 Codex 支持" }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("agent.install"));
+		await ws.reply("agent.install", "agent.install.started", { started: true });
+		act(() => ws.push({ method: "agent.done", params: { kind: "codex", ok: false, code: "install_failed" } }));
+
+		expect(await screen.findByText("安装没有完成，检查网络后再试一次。")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "安装 Codex 支持" })).toBeEnabled();
+	});
+
+	it.each([
+		["version_mismatch", "装上的版本和预期不一致，请再试一次。"],
+		["timeout", "安装超时了，检查网络后再试一次。"],
+	] as const)("安装失败按 code 给下一步（%s）", async (code, text) => {
+		checkHost.mockResolvedValue(CAN_INSTALL);
+		renderPanel();
+		const ws = await attach([], false, undefined, ompOnly);
+
+		fireEvent.click(screen.getByRole("button", { name: "添加 agent" }));
+		fireEvent.click(await screen.findByRole("button", { name: "安装 Codex 支持" }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("agent.install"));
+		await ws.reply("agent.install", "agent.install.started", { started: true });
+		act(() => ws.push({ method: "agent.done", params: { kind: "codex", ok: false, code } }));
+
+		expect(await screen.findByText(text)).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "安装 Codex 支持" })).toBeEnabled();
+	});
+
+	it.each([
+		["busy", "另一个页面正在安装，稍等一下再试。"],
+		["unsupported", "这个 Host 不支持在页面里安装，请用下面的手动命令。"],
+	] as const)("安装请求被拒按 code 给下一步（%s）", async (code, text) => {
+		checkHost.mockResolvedValue(CAN_INSTALL);
+		renderPanel();
+		const ws = await attach([], false, undefined, ompOnly);
+
+		fireEvent.click(screen.getByRole("button", { name: "添加 agent" }));
+		fireEvent.click(await screen.findByRole("button", { name: "安装 Codex 支持" }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("agent.install"));
+		await ws.reply("agent.install", "error", { code });
+
+		expect(await screen.findByText(text)).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "安装 Codex 支持" })).toBeEnabled();
+	});
+
+	it("旧 Host 没声明能力（0.2.0）：即使缺 Codex 也只给手动命令，不出现一键安装按钮", async () => {
+		renderPanel();
+		await attach([], false, undefined, ompOnly);
+		fireEvent.click(screen.getByRole("button", { name: "添加 agent" }));
+		expect(await screen.findByRole("button", { name: "重新检测" })).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "安装 Codex 支持" })).toBeNull();
+		expect(screen.getByText("bun add -g @agentclientprotocol/codex-acp")).toBeInTheDocument();
 	});
 });

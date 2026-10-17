@@ -24,6 +24,7 @@ export const PAGE_TO_HOST = [
 	"chat.set_setting",
 	"chat.authenticate",
 	"card.answer",
+	"agent.install",
 ] as const;
 /** 页面会处理的 Host 消息；契约测试断言它们都在 hostToPage 里 */
 export const HOST_TO_PAGE = [
@@ -39,6 +40,9 @@ export const HOST_TO_PAGE = [
 	"turn.card.closed",
 	"turn.end",
 	"chat.evicted",
+	"agent.install.started",
+	"agent.install.progress",
+	"agent.done",
 ] as const;
 
 export type PageMethod = (typeof PAGE_TO_HOST)[number];

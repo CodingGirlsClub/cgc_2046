@@ -187,6 +187,7 @@ describe("checkHost（页面加载即可调用；未授权时不发本机请求�
 			state: "detected",
 			agents: [{ kind: "omp", present: false }],
 			paired: true,
+			capabilities: [],
 		});
 	});
 
@@ -199,6 +200,7 @@ describe("checkHost（页面加载即可调用；未授权时不发本机请求�
 			state: "detected",
 			agents: [{ kind: "omp", present: false }, { kind: "codex", present: true }],
 			paired: true,
+			capabilities: [],
 		});
 	});
 
@@ -209,7 +211,15 @@ describe("checkHost（页面加载即可调用；未授权时不发本机请求�
 			state: "detected",
 			agents: [{ kind: "omp", present: true }],
 			paired: true,
+			capabilities: [],
 		});
+	});
+
+	it("Host 声明了能力就原样带回（期 2：agent.install）；没声明按空数组", async () => {
+		stubBrowser({
+			health: { version: MIN_HOST_VERSION, agents: [{ kind: "omp", present: true }], paired: true, capabilities: ["agent.install"] },
+		});
+		expect(await checkHost()).toMatchObject({ state: "detected", capabilities: ["agent.install"] });
 	});
 });
 
@@ -257,6 +267,7 @@ describe("requestHostAccess（从点击处理器调用：由用户手势发出�
 			state: "detected",
 			agents: [{ kind: "omp", present: true }],
 			paired: true,
+			capabilities: [],
 		});
 		expect(fetchMock).toHaveBeenCalledOnce();
 	});
