@@ -17,7 +17,7 @@ execution: code
 - **Authority：** 2026-10-17 会话中用户确认的两条产品决策：① 期 1 先做 BYO 探测（学员自己装 `codex-acp`），期 2 再做 Host 一键安装；② 抬高 `MIN_HOST_VERSION` 强制更新。ADR-0023 记录方向性决定并修订 ADR-0022 的适用范围。
 - **Execution profile：** 两阶段：A Host 接缝（U1–U4）→ B 网页（U5、U6）→ C 真机验收（U7）。`cgc-host/**` 与 `web/lib/host-version.ts` 在根 `AGENTS.md` 的人工合并范围内，实施 PR 由人合并。
 - **Stop conditions：** 出现以下任一条即停下重议：
-  - `codex-acp` 的 node 入口在 Bun 下跑不起来，回退路线（`CODEX_PATH` 指原生二进制、仍由 Bun 跑适配器）也不成立——「Host 侧不新增 node 依赖」的前提不成立。
+  - 适配器升级后 node 入口在 Bun 下跑不起来，回退路线（`CODEX_PATH` 指原生二进制、仍由 Bun 跑适配器）也不成立——「Host 侧不新增 node 依赖」的前提不成立（macOS arm64 已在 2.2.2 上实测通过，见 Dependencies）。
   - 学习凭证出现在 Codex 自己的会话存储里，而处置口径无法接受——R12 不成立。
   - 学员 Codex 配置里的同名 MCP 服务器无法用改名避开（去重行为随适配器版本变化）——R9 不成立。
 - **Who finishes：** 本计划执行到 U7 的验收与变更记录。`develop → main` 发布、`MIN_HOST_VERSION` 的抬高随发布一起发生，由人执行。
@@ -123,7 +123,7 @@ execution: code
 ### Dependencies / Assumptions
 
 - 学员机器上由学员自己装好 `codex-acp`（取证基线：`@agentclientprotocol/codex-acp` 2.2.2，Apache-2.0；ACP `protocolVersion 1`，`loadSession: true`，`sessionCapabilities {list, close, delete, fork}`，`mcpCapabilities {http: true}`）。适配器升级后，本计划假定的能力面需重新核对。
-- 适配器默认用 `require.resolve("@openai/codex/bin/codex.js")` + `process.execPath` 拉起 Codex；Host 由 Bun 运行，因此 `process.execPath` 是 Bun——**本计划假设 Bun 能跑通该入口**，由 U1 用一次真机握手证明；不成立时的回退见 Risks。
+- 适配器默认用 `require.resolve("@openai/codex/bin/codex.js")` + `process.execPath` 拉起 Codex；Host 由 Bun 运行，因此 `process.execPath` 就是 Bun。**已实测（2026-10-17，macOS arm64，Bun 1.4.3，`@agentclientprotocol/codex-acp` 2.2.2）：Bun 跑通适配器入口并完成 ACP `initialize` 握手**——`protocolVersion 1`、`agentInfo.title = Codex`、`loadSession: true`、`sessionCapabilities {resume, list, close, delete, fork, additionalDirectories, subagents}`、`mcpCapabilities {http: true}`、`authMethods = [api-key, chat-gpt]`（device-code 需要 url elicitation，Host 不声明故不出现），并由 Bun 拉起 `@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex app-server`。Windows / Ubuntu 未测，适配器升级后须重跑探针（回退路线见 Risks）。
 - 学员的 ChatGPT / OpenAI 账号与模型额度归学员自己（BYO，ADR-0001 不变）；平台不运行模型。
 - #1145（模型与思考等级）与本期的耦合：`history.settings` 随所选 agent 的会话返回，切 agent 即整体重取。
 
@@ -133,6 +133,7 @@ execution: code
 - `docs/plans/2026-10-14-1446-feat-course-page-local-agent-chat-plan.md`：R7–R29 的对话栏契约与状态机。
 - #1145：模型/思考等级（`history.settings`、`chat.set_setting`、不升 protocolVersion 的纪律）。
 - `@agentclientprotocol/codex-acp@2.2.2` 发布包 `dist/index.js` 本地解包核对：`initialize` 响应、`newSession`/`loadSessionOnce`、`listSessions`（按 cwd 过滤）、`createSessionConfig`（`mcp_servers` + 同名去重）、`CodexAuthMethod.ts`（`api-key` / `chat-gpt` / `chat-gpt-device-code`）、`authenticateWithChatGpt`（`open` 开浏览器）、`AirExtension.ts`（`customInstructions`）、`DEFAULT_AGENT_MODE = Agent`。
+- 2026-10-17 本机 stdio 握手探针（macOS arm64、Bun 1.4.3、`bun add @agentclientprotocol/codex-acp@2.2.2` 装进 `/tmp/codex-probe`）：ACP `initialize` 成功，回 `protocolVersion 1` / `loadSession: true` / `sessionCapabilities {resume, list, close, delete, fork, additionalDirectories, subagents}` / `mcpCapabilities {http: true}` / `authMethods = [api-key, chat-gpt]`；`process.execPath`（Bun）成功拉起 `codex.js` 与原生 `codex app-server`；**`SIGKILL` 适配器后 app-server 变孤儿，正常关 stdin 后 5 秒内两者都退出**（KTD9 的来源）。
 
 ---
 
@@ -148,6 +149,7 @@ execution: code
 - KTD6. **Codex 会话下发的 MCP 服务器名是 `cgc-2046-learning`。** 适配器会把「学员 Codex 配置里已存在的同名服务器」整条跳过（`shouldDeduplicateMcpConflicts`），同名会让带学习凭证的那份被学员的终端配置顶掉。
 - KTD7. **能力差异如实降级，不做假控件。** Codex 没有 form elicitation（提问卡片不出现），上下文用量/费用未验证（不显示时不占位）；审批卡片与停止照常。页面按「字段存在与否」探测，不做版本号比较（与 #1145 同一纪律）。
 - KTD8. **切换 agent 的收尾沿用既有路径。** 切 agent 时该课程在旧 agent 上正在跑的回合按「本机换了账号」那条既有收尾逻辑处理：待答卡片以取消作答、回合以 `cancelled` 结束，收尾期间的事件不再发给页面。
+- KTD9. **Codex 的回收优雅优先，不直接 `SIGKILL`。** 实测（macOS arm64）：`SIGKILL` 适配器进程后，它拉起的 Codex app-server 仍存活（孤儿）；正常关 stdin 后两者都退出。所以 agent 记录的关闭分两步——先关 stdin / 走协议关闭，宽限期内没退再 `SIGKILL`；Windows 上 Bun 的 `kill` 不连带子进程，兜底用 `taskkill /T` 收整棵树（该分支以真机实测为准）。性质由 U4 的断言钉住：关闭后本机不残留 Codex 进程。
 
 ### High-Level Technical Design
 
@@ -183,7 +185,8 @@ web/components/learning/
 
 | 风险 | 影响 | 处理 |
 |---|---|---|
-| Bun 跑不通适配器的 node 入口 | 期 1 的 Codex 路径整体不成立 | U1 的第一步就用真机 `initialize` 握手证明；不成立则回退 `CODEX_PATH` 指原生二进制（仍需 Bun 跑适配器），再不行按 Stop conditions 停下重议 |
+| 适配器升级后入口不再能在 Bun 下运行 | 期 1 的 Codex 路径整体不成立 | 已在 macOS arm64 实测通过（见 Dependencies / Sources）；`cgc-host/scripts/probe-codex-acp.ts` 把这条握手固化成可重跑的探针，**每次升适配器版本跑一次**。真跑不动时回退 `CODEX_PATH` 直指 `@openai/codex-<平台>/vendor/<target>/bin/codex`（仍由 Bun 跑适配器），再不行按 Stop conditions 停下重议 |
+| `SIGKILL` 适配器会留下孤儿 Codex 进程 | 学员机器上残留进程、白占内存 | 实测：`SIGKILL` 适配器后 app-server 子进程仍存活；正常关 stdin 后 5 秒内两者都退出。所以 Codex 的回收走「优雅优先」（KTD9），U4 用「关闭后不留孤儿」的断言钉住 |
 | 学习凭证落进 `~/.codex` 的会话存储 | 凭证在本机多一处静态副本 | U7 做只读磁盘扫描（沿用 ADR-0022 U6 做法）；落盘则记入残余风险并给出轮换口径，不得静默放过 |
 | 强制更新打断存量学员 | 部署当天全员进入「Host 需要更新」 | 强制更新前先完成 OMP 路径回归；CHANGELOG 与页面文案都带那一条更新命令；回滚桥保留 `ompPresent` |
 | 适配器默认审批模式盖过学员 Codex 配置 | R7 的「沿用适配器默认」需如实说明 | 真机实测后把口径写进 ADR-0022 的修订与 `cgc-host/AGENTS.md`；不接受「页面里看起来一致」的自证 |
@@ -208,11 +211,12 @@ web/components/learning/
 
 - **Goal：** Host 能把「驱动哪个 agent」当作注册表里的一条记录来处理，OMP 的行为零变化。
 - **Requirements：** R5, R11
-- **Files：** `cgc-host/src/agents/registry.ts`（新）、`cgc-host/src/agents/omp.ts`（由 `src/omp.ts` 迁移）、`cgc-host/src/shell-env.ts`（新，拆出登录 shell 环境解析）、`cgc-host/src/main.ts`、`cgc-host/test/{omp,agent-registry}.test.ts`
+- **Files：** `cgc-host/src/agents/registry.ts`（新）、`cgc-host/src/agents/omp.ts`（由 `src/omp.ts` 迁移）、`cgc-host/src/shell-env.ts`（新，拆出登录 shell 环境解析）、`cgc-host/src/main.ts`、`cgc-host/scripts/probe-codex-acp.ts`（新，可重跑的握手探针）、`cgc-host/test/{omp,agent-registry}.test.ts`
 - **Approach：**
   1. 记录形状：`{ id, label, locate(): Promise<{ path: string | null; env; envError }>, spawn(app, cwd, signal): Agent, prepare(cwd): Promise<void>, capabilities }`。
   2. `acp/runtime.ts` 不改抽象，按 kind 各建一个实例；`main.ts` 只做组装与组装后的 `status` 上报。
-  3. 先证明 Bun 能拉起 `codex-acp`（真机 `initialize` 握手），再往下做 U2–U4；证明结果写进 PR。
+  3. Bun 拉 `codex-acp` 已在 macOS arm64 实测通过（见 Dependencies / Sources）；这条握手固化成 `cgc-host/scripts/probe-codex-acp.ts`（手动跑、不进 CI 必过门禁；升级适配器版本时跑一次），之后再做 U2–U4。
+  4. 探针脚本只做 `initialize` 与一次会话握手，不携带任何凭证（与 R12 的纪律一致）。
 - **Test scenarios：** 两种 kind 的 `locate` 命中/未命中；未命中时该 kind 在上报里 `present: false`；一个 kind 的进程崩溃不影响另一个 kind 的进程代（fake agent 各一）。
 - **Verification：** `cd cgc-host && bun test`；现有 `omp.test.ts` / `session.test.ts` 断言不改即通过。
 
@@ -251,7 +255,8 @@ web/components/learning/
   2. 登录：`initialize` 后读 `authMethods`；把 ACP `-32000` 映射成 `auth_required`；`chat.authenticate` 转发 `authenticate`，`chat-gpt` 由适配器开浏览器；成功后页面重新 attach。
   3. 会话：`session/new` / `session/load` 下发 `mcpServers`（`cgc-2046-learning` + `authorization` 头）；`prepare(cwd)` 写 `AGENTS.md`（幂等，带托管标记）。
   4. 启动语文本与 OMP 侧**同一常量**（与 agent 无关的措辞，不写死某家的工具命名）。
-- **Test scenarios：** 未登录 → `auth_required` 带方法列表；`authenticate` 成功后同一课程可跑回合；`AGENTS.md` 幂等（二次调用不改内容）；下发的服务器名不是 `cgc-2046`；凭证不出现在 Host 日志与响应体（fixture 断言 `cgch_` 不出现）。
+  5. 关闭按 KTD9：先关 stdin 让适配器连同 app-server 一起退出，宽限期内没退再 `SIGKILL`（Windows 分支用 `taskkill /T` 收整棵树）。
+- **Test scenarios：** 未登录 → `auth_required` 带方法列表，且方法只有 `api-key` 与 `chat-gpt`（device-code 需要 url elicitation，Host 不声明故不出现）；`authenticate` 成功后同一课程可跑回合；`AGENTS.md` 幂等（二次调用不改内容）；下发的服务器名不是 `cgc-2046`；凭证不出现在 Host 日志与响应体（fixture 断言 `cgch_` 不出现）；按 KTD9 关闭后不留孤儿（真机以 `pgrep` 归零断言）。
 - **Verification：** `bun test`；真机：选 Codex → 登录 → 一轮对话（调用 `get_role_playbook`）→ 一次评价 → 徽章变化。
 
 ### U5. 页面：选择器、历史与登录卡

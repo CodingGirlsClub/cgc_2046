@@ -35,7 +35,7 @@ ADR-0022 让课程学习页经 CGC 本机 Host 驱动学员自己的 agent，接
 - **强制更新打断正在学习的存量学员。** 部署当天，所有 0.1.5 的 Host 都会让对话栏进入「Host 需要更新」直到重跑一次安装命令。缓解：更新前先跑完 OMP 路径的真机回归（新 Host 的 OMP 路径行为不变）；页面文案与 CHANGELOG 都带那一条命令；web 回滚时旧页面靠保留的 `ompPresent` 继续可用。
 - **学员 Codex 配置里预置了同名 MCP 服务器。** 已用改名规避，但「同名去重」的行为随适配器版本变化，升级适配器时要重跑变异用例。
 - **适配器默认审批模式与学员终端习惯不一致。** 学员在终端里设成「免审批」时，页面里的 Codex 可能仍弹审批卡（反向也可能）。这不算越权（沙箱仍是 workspace-write），但需要在页面文案与文档里说清。
-- **`codex-acp` 的 node 入口要在 Bun 下运行。** 适配器用 `process.execPath` 拉起 Codex，Host 的 `process.execPath` 是 Bun；真机握手证明前，这条是计划里最脆弱的假设（回退见计划的 Stop conditions）。
+- **`codex-acp` 的 node 入口要在 Bun 下运行，且 `SIGKILL` 会留孤儿。** 入口已实测通过（2026-10-17，macOS arm64，Bun 1.4.3 + `codex-acp` 2.2.2：`initialize` 握手成功、`authMethods = [api-key, chat-gpt]`、Bun 成功拉起 `codex.js` 与原生 `codex app-server`），Windows / Ubuntu 未测、适配器升级后须重跑探针。同一轮实测量到：`SIGKILL` 适配器会让 Codex app-server 变成孤儿，正常关 stdin 才会连带退出——回收必须优雅优先（计划 KTD9）。
 - **Claude Code 未取证。** `@agentclientprotocol/claude-code-acp` 与 Codex 适配器同族，但本 ADR 只对 Codex 做过包内核对；接入前要重做一遍同等取证。
 
 回滚：按 PR 还原（Host 与 web 同一次部署）。协议改动是纯增量的，回滚 web 不影响新 Host 上的旧页面（`ompPresent` 仍在）；只回滚 Host、不跑数据迁移时，新版 `state.json` 的会话分桶形状对旧 Host 不可用——旧 `ensureSession` 拿对象形状的指针去 `session/list` 里比对必然匹配不到，于是判为「指针不在这门课的工作目录下」：删掉这条指针，`chat.send` 落回 `session/new`、`chat.attach` 回空历史，即 KTD6 既有的「丢了就从新对话开始」口径（旧 Host 写回状态文件时也保留 `agents` 这类它不认识的键）。学员不会卡住，也不会拿到更宽的权限。学员侧的 `codex-acp` 与 `~/.codex` 不由 CGC 安装、卸载也不碰它们。
