@@ -1,15 +1,11 @@
 // main.ts — 入口：`serve` 子命令常驻（各系统的登录自启项以它启动 Host，U7）；`uninstall` 子命令卸载（install.sh 结束时打印这条命令）
-import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
-import { type AgentRecord, createRegistry } from "./agents/registry";
-import { ompLocator } from "./agents/omp";
-import { spawnOmp } from "./acp/client";
+import { builtinAgents } from "./agents/builtin";
+import { createRegistry } from "./agents/registry";
 import { createChat } from "./acp/session";
 import { API_BASE, HOST_VERSION, PORT } from "./config";
 import { runPlatformDialog } from "./platform-dialog";
 import { startServer } from "./server";
-import { WORKSPACE_DIR } from "./state";
 import { uninstall } from "./uninstall";
 
 const home = homedir();
@@ -23,23 +19,8 @@ if (process.argv[2] !== "serve") {
   process.exit(2);
 }
 
-const omp = ompLocator();
-/** OMP 这条 agent 记录；加一种 agent 就是在注册表里加一条记录（KTD1） */
-const ompRecord: AgentRecord = {
-  kind: "omp",
-  label: "OMP",
-  mcpServerName: "cgc-2046", // 与终端插件同名（学员的 OMP 配置里那份）；Codex 侧才需要换名字避开撞名
-  locator: omp,
-  async start(app, signal) {
-    const found = await omp.locate();
-    signal.throwIfAborted();
-    if (!found.path) throw new Error("找不到 omp");
-    const cwd = join(home, WORKSPACE_DIR); // agent 进程自己的目录（与终端插件同一处）；每个会话的 cwd 是各自课程的工作目录
-    mkdirSync(cwd, { recursive: true });
-    return spawnOmp({ ...found, path: found.path }, app, cwd, signal);
-  },
-};
-const registry = createRegistry([ompRecord]);
+const agents = builtinAgents(home);
+const registry = createRegistry(agents);
 const chat = createChat({ home, apiBase: API_BASE, registry });
 
 try {
@@ -53,7 +34,7 @@ try {
     onConnections: chat.connections,
   });
   console.log(`cgc-host ${HOST_VERSION} 在 127.0.0.1:${PORT} 上监听`);
-  void omp.locate(); // 先解析一次登录 shell 环境；解析完成前这个 agent 的 present 为 false
+  for (const record of agents) void record.locator.locate(); // 先解析一次，present 在解析完成前为 false
 } catch (e) {
   const errno = e as NodeJS.ErrnoException; // Bun.serve 端口被占时的错误形状（只读一个字段）
   if (errno.code !== "EADDRINUSE") throw e;
