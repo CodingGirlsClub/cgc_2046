@@ -66,6 +66,7 @@ function navSection(pathname: string, slug: string): NavSection {
 	) {
 		return "members";
 	}
+	if (pathname === `/w/${slug}/settings/general`) return "settings-general";
 	if (pathname.startsWith(`/w/${slug}/settings/permissions`)) {
 		return "settings-permissions";
 	}

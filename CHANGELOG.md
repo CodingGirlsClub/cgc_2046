@@ -19,8 +19,8 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ## [Unreleased]
 
 ### Added
+- [抖音] 订阅消息接入抖音端（#371）：两个模板过审后，backend 按抖音的 `data` 格式渲染——抖音用**模板关键词名做 key**（`approval_result` 参与结果/活动名称/参与编号；`event_reminder` 活动名称/开始时间/活动地点），与微信的 `thing1/number3` 槽位编号是两套渲染子句；模板 ID 经 `DOUYIN_MP_TEMPLATE_*` 进容器（部署链路此前完全没登记，本次补齐 workflow 注入循环 + kamal env.secret，并加登记守卫防 #974 同型复发）。小程序侧订阅触点已在抖音首发版本内。
 - [本机 Host / Web] 课程页对话栏可直接选本机 OMP 的模型与思考等级（#1145）：Host 把 `omp acp` 的会话设置（ACP config options）收窄成模型与思考等级两项随对话下发（`mode` 不透出），选择只作用于当前会话——不写学员的 OMP 配置、不影响终端；OMP 的连带调整（实测：切到不支持思考的模型会把思考等级重置为 `off`）按完整回包刷新到页面；OMP 主动改设置时同步推给页面。旧版 Host 与旧版 OMP 看不到入口，对话其余行为不变。Host 版本 `0.1.6`（`MIN_HOST_VERSION` 不变，不强制旧学员重装）。
-
 ### Changed（[本机 Host]）
 - [本机 Host] 课程工作目录由 `~/CGC/<userId>/<courseId>` 改为 `~/cgc2046_workspace/courses/<userId>/<courseId>`（ADR-0022 KTD6 修订）：与终端插件的工作区合成一棵树，学员只需记一个目录；课程目录在其下单独一层，网页课程会话与学员自己的终端会话仍按目录分桶、互不串入。无历史数据迁移——Host 此前未对外发布。Host 版本 `0.1.5`，`MIN_HOST_VERSION` 随之提高，已装旧包的学员会被提示重装。
 

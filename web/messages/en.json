@@ -1036,6 +1036,23 @@
     "saving": "Saving…",
     "saveChanges": "Save changes"
   },
+  "workspaceGeneral": {
+    "saved": "Workspace name updated",
+    "saveFailed": "Failed to save. Please try again later.",
+    "breadcrumbHome": "Workspaces",
+    "breadcrumbSettings": "Settings",
+    "breadcrumbTitle": "Workspace settings",
+    "title": "Workspace settings",
+    "subtitle": "Name and public identity of this workspace",
+    "nameCardTitle": "Workspace name",
+    "nameCardHint": "Shown in the sidebar, breadcrumbs and the workspace switcher. The public link /w/{slug} is unaffected.",
+    "nameLabel": "Name",
+    "readonlyAdmin": "Platform admin read-only audit view; cannot modify the workspace name.",
+    "readonlyOwner": "Only Owner / Admin can modify the workspace name; currently read-only.",
+    "saving": "Saving…",
+    "saveChanges": "Save changes",
+    "loadingAria": "Loading"
+  },
   "workspaceAgents": {
     "activityStatusOk": "Success",
     "activityStatusError": "Failed",
@@ -1240,6 +1257,7 @@
     "breadcrumbSettings": "Settings"
   },
   "workspaceNav": {
+    "general": "Workspace settings",
     "members": "Members & roles",
     "permissions": "Permission mapping",
     "policy": "Join policy",

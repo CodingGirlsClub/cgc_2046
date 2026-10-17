@@ -1036,6 +1036,23 @@
     "saving": "保存中…",
     "saveChanges": "保存更改"
   },
+  "workspaceGeneral": {
+    "saved": "工作台名称已更新",
+    "saveFailed": "保存失败，请稍后重试",
+    "breadcrumbHome": "工作台",
+    "breadcrumbSettings": "设置",
+    "breadcrumbTitle": "工作台设置",
+    "title": "工作台设置",
+    "subtitle": "工作台的名称与公开身份",
+    "nameCardTitle": "工作台名称",
+    "nameCardHint": "显示在侧栏、面包屑与工作台切换器中；公开链接 /w/{slug} 不受影响。",
+    "nameLabel": "名称",
+    "readonlyAdmin": "平台管理员只读审计视图，无法修改工作台名称。",
+    "readonlyOwner": "仅 Owner / Admin 可修改工作台名称；当前为只读展示。",
+    "saving": "保存中…",
+    "saveChanges": "保存更改",
+    "loadingAria": "加载中"
+  },
   "workspaceAgents": {
     "activityStatusOk": "成功",
     "activityStatusError": "失败",
@@ -1240,6 +1257,7 @@
     "breadcrumbSettings": "设置"
   },
   "workspaceNav": {
+    "general": "工作台设置",
     "members": "成员与角色",
     "permissions": "权限映射",
     "policy": "加入策略",

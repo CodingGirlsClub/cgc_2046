@@ -457,6 +457,42 @@ defmodule Cgc2046.Accounts.WorkspaceTest do
     end
   end
 
+  describe "name 非空守卫（GraphQL / web 设置页 / AshAdmin 共用写路径）" do
+    setup do
+      admin = Fixtures.platform_admin("ws-admin")
+      owner = Fixtures.register_user("ws-name-owner")
+
+      {:ok, workspace} =
+        Workspace
+        |> Ash.Changeset.for_create(:create, %{
+          slug: "ws-name-#{System.unique_integer([:positive])}",
+          name: "原名",
+          owner_user_id: owner.id
+        })
+        |> Ash.create(actor: admin)
+
+      {:ok, admin: admin, owner: owner, workspace: workspace}
+    end
+
+    test "Owner 改名成功；再改空名被拒", %{owner: owner, workspace: workspace} do
+      assert {:ok, renamed} =
+               workspace
+               |> Ash.Changeset.for_update(:update, %{name: "新名"})
+               |> Ash.update(actor: owner)
+
+      assert renamed.name == "新名"
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               renamed
+               |> Ash.Changeset.for_update(:update, %{name: ""})
+               |> Ash.update(actor: owner)
+
+      assert Enum.any?(errors, fn error ->
+               Exception.message(error) =~ "name must not be empty"
+             end)
+    end
+  end
+
   describe "join_policy" do
     setup do
       {:ok, admin: Fixtures.platform_admin("ws-admin")}
