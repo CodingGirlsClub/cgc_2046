@@ -22,49 +22,7 @@ const PACKAGE_ROOT = process.argv[2]
 	: join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const PNPM_DIR = join(PACKAGE_ROOT, "node_modules", ".pnpm");
 
-// Blacklist (rule file §3). Substring match after normalization (same as backend).
-const BLACKLIST = [
-	"gpl-2-0",
-	"sspl",
-	"busl",
-	"elastic",
-	"proprietary",
-	"commercial",
-];
-
-function normalize(license) {
-	return license.toLowerCase().replace(/[^a-z0-9]/g, "-");
-}
-
-function isBlacklisted(candidate) {
-	const norm = normalize(candidate);
-	return BLACKLIST.some((bad) => norm.includes(bad));
-}
-
-/**
- * Normalize a package.json `license` field into a list of candidate
- * licenses. Handles: string, SPDX "A OR B" expressions（含外层括号分组）,
- * {type,url} objects. Returns null when no license is declared.
- */
-function candidatesOf(license) {
-	if (!license) return null;
-	if (typeof license === "string") {
-		// 剥离 SPDX 分组括号，如 "(BSD-3-Clause OR GPL-2.0)" → ["BSD-3-Clause", "GPL-2.0"]
-		const stripped = license.trim().replace(/^\(+/, "").replace(/\)+$/, "");
-		return stripped
-			.split(/\s+OR\s+/i)
-			.map((s) => s.trim())
-			.filter(Boolean);
-	}
-	if (typeof license === "object" && typeof license.type === "string") {
-		return [license.type];
-	}
-	if (Array.isArray(license)) {
-		const flat = license.flatMap((l) => candidatesOf(l) ?? []);
-		return flat.length ? flat : null;
-	}
-	return null;
-}
+import { BLACKLIST, candidatesOf, isBlacklisted, normalize } from "./license-rule.mjs";
 
 function scan() {
 	if (!existsSync(PNPM_DIR)) {
