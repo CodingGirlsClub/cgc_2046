@@ -3,6 +3,7 @@
 import type { ServerWebSocket } from "bun";
 import { hostname } from "node:os";
 import protocol from "../protocol.json";
+import { InstallError } from "./agents/install";
 import { type AgentKind, type AgentStatus, isAgentKind } from "./agents/registry";
 import { HOST_VERSION, SITE_ORIGIN } from "./config";
 import { createPairing, type DialogRunner, hashBrowserKey, revokeToken, verifyToken } from "./pairing";
@@ -46,6 +47,14 @@ export interface ServerOptions {
   platform?: NodeJS.Platform;
   /** 本机各 agent 的状态（注册表读缓存，同步）：status.agents 与 /health 都从这里取 */
   agents: () => AgentStatus[];
+  /** 本机支持的能力（页面据此决定给不给安装入口）；缺省没有 */
+  capabilities?: readonly string[];
+  /** 安装某个 agent（缺省不支持）：进度经参数回调，失败抛错（InstallError 的 code 会回给页面） */
+  install?(kind: AgentKind, progress: (phase: "installing") => void): Promise<{ version: string }>;
+  /** 可安装的 kind（缺省只有 codex）；其余的 kind 回 unsupported，而不是含糊的 install_failed */
+  installable?: readonly AgentKind[];
+  /** 装完刷新定位器（否则页面要等缓存过期才看到新 agent） */
+  refresh?(kind: AgentKind): Promise<void>;
   chat: ChatHandler;
   /** KTD13 的收尾依据：连接数变化时告诉对话处理器；断开时附上因此失去持有者的课程 */
   onConnections?: (count: number, released: string[]) => void;
@@ -65,10 +74,17 @@ interface Host {
   holders: Map<string, WS>;
   pairing: ReturnType<typeof createPairing>;
   deviceName: string;
+  /** 同一时刻只允许一个安装（第二次点会拿 busy） */
+  installing: boolean;
   setPairing(pairing: Pairing | null): void;
 }
 
 const send = (ws: WS, message: Message) => ws.send(JSON.stringify(message));
+/** 安装进度与结果：发起安装的连接一定要收到（全新机器上它还没配对过），其余已授权的连接一并收到 */
+const broadcast = (host: Host, requester: WS, method: string, params: Record<string, unknown>) => {
+  send(requester, { method, params });
+  for (const ws of host.conns) if (ws !== requester && authorized(host, ws)) send(ws, { method, params });
+};
 const error = (id: string | undefined, code: string): Message => ({ method: "error", id, params: { code } });
 
 /** 出示过当前浏览器密钥的连接。密钥一换（重新配对、换发、清掉），已 hello 的旧连接随之失效 */
@@ -95,6 +111,7 @@ function status(host: Host, ws: WS, id?: string): Message {
       ompPresent: omp?.present ?? false,
       ...(omp?.envError && { ompEnvError: omp.envError }),
       agents,
+      capabilities: [...(host.opts.capabilities ?? [])],
       version: HOST_VERSION,
       protocolVersion: protocol.protocolVersion,
     },
@@ -168,12 +185,41 @@ const handlers: Record<string, (host: Host, ws: WS, frame: Frame) => unknown> = 
   "chat.set_setting": chat,
   "chat.authenticate": chat,
   "card.answer": chat,
+  async "agent.install"(host, ws, { id, params }) {
+    if (!isAgentKind(params.kind)) return send(ws, error(id, "bad_request"));
+    // 未配对的全新机器必须能装（这正是解开「没有 agent → 无法配对」的那一步）；这台机器一旦有配对记录，
+    // 安装只给已 hello 的页面——不再让任意本机进程或站点来源页借未授权连接写盘、占住安装位。
+    if (host.state.pairing && !authorized(host, ws)) return send(ws, error(id, "unauthorized"));
+    if (!host.opts.install || !(host.opts.installable ?? ["codex"]).includes(params.kind)) return send(ws, error(id, "unsupported"));
+    if (host.installing) return send(ws, error(id, "busy"));
+    const kind = params.kind;
+    host.installing = true;
+    send(ws, { method: "agent.install.started", id, params: { started: true } });
+    try {
+      const { version } = await host.opts.install(kind, (phase) => broadcast(host, ws, "agent.install.progress", { kind, phase }));
+      await host.opts.refresh?.(kind);
+      broadcast(host, ws, "agent.done", { kind, ok: true, version });
+    } catch (e) {
+      const code = e instanceof InstallError ? e.code : "install_failed";
+      console.error(`cgc-host: 安装 ${kind} 失败（${code}）`); // 只记错误码：安装输出里有本地路径
+      broadcast(host, ws, "agent.done", { kind, ok: false, code });
+    } finally {
+      host.installing = false;
+      for (const conn of host.conns) if (conn === ws || authorized(host, conn)) send(conn, status(host, conn));
+    }
+  },
 };
 
 /** 白名单即 handlers 的键，测试断言它与 protocol.json 的 pageToHost 完全一致 */
 export const PAGE_METHODS = Object.keys(handlers);
-/** KTD4：未授权的连接只能调用这几个；status 不是页面可调的方法，由 Host 在连接时与状态变化时推送 */
-const OPEN_METHODS = new Set(["hello", "pair.request", "pair.cancel"]);
+/**
+ * KTD4：未授权的连接只能调用这几个；status 不是页面可调的方法，由 Host 在连接时与状态变化时推送。
+ * `agent.install` 也在里面：全新机器上还没有任何 agent、也就无法配对，而安装正是为了解开这一步。
+ * 边界：只接受官方站点 Origin 的连接（isAllowedRequest），kind 限于 `installable`（目前只有 codex），
+ * 版本/URL/落位都在 Host 包内钉死——没有任意的下载地址、版本或路径参数；已经装着钉住版本时幂等短路。
+ * 它不碰凭证、不驱动 agent。残留风险是本机进程与站点来源页的 XSS，二者本就能直接运行安装器。
+ */
+const OPEN_METHODS = new Set(["hello", "pair.request", "pair.cancel", "agent.install"]);
 
 function parse(raw: string | Buffer): Frame | null {
   let m: unknown;
@@ -223,6 +269,7 @@ export function startServer(opts: ServerOptions) {
     conns,
     holders: new Map(),
     deviceName: sanitizeDeviceName(hostname()),
+    installing: false,
     setPairing,
     pairing: createPairing({
       apiBase: opts.apiBase,
@@ -250,6 +297,7 @@ export function startServer(opts: ServerOptions) {
             ompPresent: agents.some((agent) => agent.kind === "omp" && agent.present),
             paired: state.pairing !== null,
             agents,
+            capabilities: [...(opts.capabilities ?? [])],
           },
           { headers: cors },
         );

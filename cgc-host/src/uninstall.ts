@@ -1,10 +1,12 @@
 // uninstall.ts — `uninstall` 子命令（R6）：停掉登录自启的 Host → 用学习凭证自撤销 → 删除自启项、包、状态目录与日志。
-// 只在本机执行、不下载任何东西，所以平台连不上时照样能卸。课程工作目录 ~/cgc2046_workspace/ 是学员的作业，从不碰。
+// 只在本机执行、不下载任何东西，所以平台连不上时照样能卸。课程工作目录 ~/cgc2046_workspace/ 是学员的作业、
+// 学员自己的 ~/.codex 是他的账号与配置，两者都从不碰；删的只有 Host 的包、状态与页面里装的 agent。
 //
 // 停止与删除都按「三平台全部尽力尝试」来做：本机不存在的路径/命令删不到也停不到，都是无声的 no-op。
 // 这样同一份包在任何系统上都卸得干净，测试机（macOS/CI Linux）也不必假装自己是别的系统。
 import { rmdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { agentsDir } from "./agents/install";
 import { revokeToken } from "./pairing";
 import { loadState, stateDir } from "./state";
 
@@ -53,6 +55,8 @@ export async function uninstall(home: string, apiBase: string) {
   }
 
   for (const path of [...servicePaths(home), ...logPaths(home)]) rmSync(path, { force: true });
+  // 页面里装的 agent（期 2）：只删 Host 自己管的那份；学员的 ~/.codex 是他的账号与配置，从不碰
+  rmSync(agentsDir(home), { recursive: true, force: true });
   rmSync(stateDir(home), { recursive: true, force: true }); // 包 cgc-host.js 也在这个目录里
   try {
     rmdirSync(windowsLogDir(home)); // 只删自己建的空目录；里面有学员别的文件就原样保留

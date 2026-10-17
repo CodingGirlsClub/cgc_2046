@@ -4247,7 +4247,13 @@
       "missing": "Not installed",
       "switchHint": "Switching starts a new conversation here; the other side keeps its own, so you can go back from history.",
       "ompInstall": "Install OMP: see the OMP entry in this course page's setup notes",
-      "codexInstall": "Install Codex support (run once in a terminal):"
+      "codexInstall": "Install Codex support (run once in a terminal):",
+      "installCodex": "Install Codex support",
+      "installHint": "About 350 MB and a few minutes; Codex appears here when it finishes.",
+      "installing": "Installing Codex support…",
+      "installHintRunning": "You can keep using OMP while it installs.",
+      "installFailed": "The install did not finish. Check your connection and try again.",
+      "codexInstallManual": "Or install it yourself (run once in a terminal):"
     },
     "login": {
       "title": "{name} needs you to sign in first.",

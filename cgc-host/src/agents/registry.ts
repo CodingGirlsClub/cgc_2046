@@ -81,6 +81,8 @@ export interface Registry {
   setup(kind: AgentKind): AgentSetup;
   /** 拉起指定 agent 的进程；这个 kind 没有记录就抛错 */
   start(kind: AgentKind, app: ClientApp, signal: AbortSignal): Promise<Agent>;
+  /** 装完 agent 后强制重解析：定位器平时缓存 10 秒，不刷新的话页面要等下一轮才看到它 */
+  refresh(kind: AgentKind): Promise<void>;
 }
 
 export function createRegistry(records: readonly AgentRecord[]): Registry {
@@ -103,5 +105,8 @@ export function createRegistry(records: readonly AgentRecord[]): Registry {
       return { mcpServerName, prepare };
     },
     start: (kind, app, signal) => recordFor(kind).start(app, signal),
+    refresh: async (kind) => {
+      await recordFor(kind).locator.locate();
+    },
   };
 }
