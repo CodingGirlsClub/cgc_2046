@@ -1485,6 +1485,24 @@ export function OfferingDetailPage({
     const registrationDeadlineDirty =
       activeDraft.deadline !== toLocalInput(offering.registrationDeadline ?? null);
 
+    // #543 定价锚点前端对称门（与押金的 depositEndsAtRequired 对称）：后端
+    // PriceTiersValidation 只拦「本次改动触及定价锚」（pricing_anchor_touched?），
+    // 前端同口径——仅当缴费槽本次写入（paymentDirty）或开始时间本次变动
+    // （startsAtDirty）时要求 starts_at 在位；否则存量「定价已开 + 开始时间空」
+    // 的课程改标题会被新门误锁死（后端本可放行，见 offering-pages.test.tsx 的
+    // 反向用例）。文案与后端 pricing_starts_at_required 同句。
+    const startsAtDirty =
+      activeDraft.startsAt !== toLocalInput(offering.startsAt ?? null);
+
+    if (
+      draftPricing &&
+      activeDraft.startsAt.trim() === "" &&
+      (paymentDirty || startsAtDirty)
+    ) {
+      setSaveMessage(t("pricingStartsAtRequired"));
+      return;
+    }
+
     if (activeDraft.mode === "deposit") {
       if (depositCents === null) {
         setSaveMessage(t("depositAmountRequired"));
@@ -2829,6 +2847,12 @@ export function OfferingNewPage({
     const validTiers = tierDrafts.map(fromDraft).filter((x) => x !== null);
     if (mode === "pricing" && validTiers.length === 0) {
       setError(t("pricingTierRequired"));
+      return;
+    }
+    // #543 定价 ⇒ starts_at 锚点（后端 pricing_starts_at_required 同口径）：
+    // 新建必属「触及定价锚」，开始时间为空即就地拦截
+    if (mode === "pricing" && startsAt.trim() === "") {
+      setError(t("pricingStartsAtRequired"));
       return;
     }
     // 押金态：正金额 + ends_at 结算锚点 + 报名截止（自助取消锚点，B② 后端同款判据）

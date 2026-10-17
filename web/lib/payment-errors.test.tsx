@@ -69,6 +69,14 @@ describe("usePaymentErrorTranslator（i18n Phase 3：errors namespace 迁移）"
 		);
 	});
 
+	it("定价锚点 code（#543 定价 ⇒ starts_at 锚点）→ 文案表文案", () => {
+		const translate = setup();
+
+		expect(translate("pricing_starts_at_required", "兜底")).toBe(
+			"开启收费需填写开始时间（自助取消退款的锚点）。",
+		);
+	});
+
 	it("未知 code 走调用方兜底，不透传原文", () => {
 		const translate = setup();
 		expect(translate("some_unknown_code", "提交失败")).toBe("提交失败");

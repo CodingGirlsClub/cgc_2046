@@ -1475,6 +1475,65 @@ describe("OfferingDetailPage 保存元数据调用链", () => {
       screen.getByRole("button", { name: "保存元数据" }),
     ).not.toBeDisabled();
   });
+
+  // #543 定价锚点（starts_at）前端对称门：押金槽有 depositEndsAtRequired 前置
+  // 拦截，定价槽同款——后端 pricing_starts_at_required（PriceTiersValidation）
+  // 由前端先拦，用户不再白跑一次网络往返再吃「保存失败，请重试」兜底文案。
+  it.each(["event", "course"] as const)(
+    "%s 开启定价但开始时间为空 → 就地拦截，updateOffering 不发",
+    async (kind) => {
+      await renderManageDetail(
+        kind,
+        offeringRow({ pricingEnabled: false, priceTiers: [], startsAt: null }),
+      );
+
+      fireEvent.click(screen.getByTestId("payment-mode-pricing"));
+      fireEvent.click(screen.getByTestId("tier-add"));
+      const nameInput = document.querySelector(
+        '[data-testid^="tier-name-"]',
+      ) as HTMLInputElement;
+      const amountInput = document.querySelector(
+        '[data-testid^="tier-amount-"]',
+      ) as HTMLInputElement;
+      fireEvent.change(nameInput, { target: { value: "标准" } });
+      fireEvent.change(amountInput, { target: { value: "199" } });
+
+      fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+      expect(
+        await screen.findByText(
+          "开启收费需填写开始时间（自助取消退款的锚点）。",
+        ),
+      ).toBeInTheDocument();
+      expect(mocks.updateOffering).not.toHaveBeenCalled();
+    },
+  );
+
+  // 反向守卫：后端只拦「本次改动触及定价锚」（PriceTiersValidation
+  // pricing_anchor_touched?），前端判据同口径——存量「定价已开 + 开始时间空」
+  // 的课程改标题仍须可保存，不得被新前置门锁死。
+  it("存量定价已开 + 开始时间空：只改标题仍可保存（不锁死无关编辑）", async () => {
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        pricingEnabled: true,
+        priceTiers: [
+          JSON.stringify({ id: "t1", name: "标准", amount_cents: 9900 }),
+        ],
+        startsAt: null,
+      }),
+    );
+
+    fireEvent.change(screen.getByLabelText(/标题/), {
+      target: { value: "改名" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    await waitFor(() => expect(mocks.updateOffering).toHaveBeenCalledTimes(1));
+    expect(
+      screen.queryByText(/开启收费需填写开始时间/),
+    ).not.toBeInTheDocument();
+  });
 });
 
 describe("OfferingDetailPage 可见性双向切换（D9）", () => {
@@ -2056,6 +2115,35 @@ describe("收费设置表单（U6/R1/R2，AE4/KTD9）", () => {
     expect(mocks.createOffering).not.toHaveBeenCalled();
   });
 
+  // #543 B②：新建走定价但未填开始时间 → 就地拦截（后端 pricing_starts_at_required
+  // 同口径；新建必属「触及定价锚」）
+  it("开启收费未填开始时间 → 就地拦截，不提交", async () => {
+    mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
+
+    render(<OfferingNewPage slug="demo" kind="event" />);
+
+    fireEvent.change(await screen.findByLabelText(/标题/), {
+      target: { value: "收费工作坊" },
+    });
+    fireEvent.click(screen.getByText("缴费模式（可选）"));
+    fireEvent.click(screen.getByTestId("payment-mode-pricing"));
+    fireEvent.click(screen.getByTestId("tier-add"));
+    const nameInput = document.querySelector(
+      '[data-testid^="tier-name-"]',
+    ) as HTMLInputElement;
+    const amountInput = document.querySelector(
+      '[data-testid^="tier-amount-"]',
+    ) as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: "标准" } });
+    fireEvent.change(amountInput, { target: { value: "199" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建活动" }));
+
+    expect(
+      await screen.findByText("开启收费需填写开始时间（自助取消退款的锚点）。"),
+    ).toBeInTheDocument();
+    expect(mocks.createOffering).not.toHaveBeenCalled();
+  });
+
   it("收费创建：payload 含 pricingEnabled + 序列化档位", async () => {
     mocks.useWorkspaceBySlug.mockReturnValue(OWNER_WS_MOCK);
     mocks.createOffering.mockResolvedValueOnce({ result: { id: "offering-1" }, errors: [] });
@@ -2064,6 +2152,10 @@ describe("收费设置表单（U6/R1/R2，AE4/KTD9）", () => {
 
     fireEvent.change(await screen.findByLabelText(/标题/), {
       target: { value: "收费课程" },
+    });
+    // #543 定价 ⇒ starts_at（fixture 负责合法形状；前端前置门与后端同口径）
+    fireEvent.change(screen.getByLabelText(/^开始时间/), {
+      target: { value: "2026-11-01T09:00" },
     });
     fireEvent.click(screen.getByText("缴费模式（可选）"));
     fireEvent.click(screen.getByTestId("payment-mode-pricing"));
@@ -2098,7 +2190,15 @@ describe("收费设置表单（U6/R1/R2，AE4/KTD9）", () => {
       }),
     ];
 
-    await renderManageDetail("event", offeringRow({ pricingEnabled: true, priceTiers: tiers }));
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        pricingEnabled: true,
+        priceTiers: tiers,
+        // #543 定价锚：定价场合法形状（自助取消退款锚）；缺失会被前端前置门拦
+        startsAt: "2026-11-01T01:00:00.000Z",
+      }),
+    );
 
     // 编辑区三态选中定价且两档全部进入编辑器（含过期档）
     expect(screen.getByTestId("payment-mode-pricing")).toBeChecked();
@@ -2637,6 +2737,8 @@ describe("资金守卫与披露（U8，R9/R10/R11/R16/R17，AE1/AE2/AE3/AE8 前�
       offeringRow({
         pricingEnabled: false,
         priceTiers: [JSON.stringify({ id: "t1", name: "标准", amount_cents: 19900 })],
+        // #543 定价锚：开收费前开始时间须在位（fixture 负责合法形状）
+        startsAt: "2026-11-01T01:00:00.000Z",
       }),
     );
 
