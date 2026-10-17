@@ -22,7 +22,7 @@ const PACKAGE_ROOT = process.argv[2]
 	: join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const PNPM_DIR = join(PACKAGE_ROOT, "node_modules", ".pnpm");
 
-import { BLACKLIST, candidatesOf, isBlacklisted, normalize } from "./license-rule.mjs";
+import { candidatesOf, isBlacklisted } from "./license-rule.mjs";
 
 function scan() {
 	if (!existsSync(PNPM_DIR)) {
