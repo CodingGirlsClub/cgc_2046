@@ -28,6 +28,10 @@ const webRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const SCAN_DIRS = ["app", "components", "lib", "i18n"];
 const CJK = /[\u4e00-\u9fff]/;
 
+// zh-CN 日期格式字符（lib/format.ts formatJoinedDate / formatJoinedDateTime）：
+// 「 年 」「 月 」「 日 」是本地化格式字符而非 UI 文案，不进 messages。
+const DATE_FORMAT_FRAGMENTS = new Set([" 年 ", " 月", " 月 ", " 日"]);
+
 // 法务文本以中文为准（plan 2026-08-20-008 设计决策），locale 无关、不迁移 messages；
 // 内容同步义务：docs/合规上架/*.md ↔ 页面。
 const LEGAL_PAGE_EXEMPT = [
@@ -116,9 +120,10 @@ function isWhitelisted(node, parent, file) {
 		}
 	}
 	// TemplateExpression：format.ts 的 `${date.getFullYear()} 年 ${date.getMonth() + 1} 月`
+	// 与 formatJoinedDateTime 的 `… 月 ${date.getDate()} 日`
 	if (ts.isTemplateExpression(node) && file.includes("lib/format.ts")) {
 		const frags = templateTextFragments(node).filter(Boolean);
-		if (frags.length > 0 && frags.every((f) => f === " 年 " || f === " 月")) return true;
+		if (frags.length > 0 && frags.every((f) => DATE_FORMAT_FRAGMENTS.has(f))) return true;
 	}
 	return false;
 }
