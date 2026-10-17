@@ -787,7 +787,8 @@
   .members-table td { padding: 0 24px; text-align: left; }
   .members-table th { height: 52px; background: var(--soft-2); color: var(--ink-3); font-size: 12px; font-weight: 510; line-height: 18px; }
   /* 列宽预算：加入时间列要容纳「2026 年 12 月 28 日 / 23:59」两行（12px mono 最宽 ≈130px）；
-     min-width 880 时该列 21% − 32px padding ≈ 153px。别为其他列挤占这 21%。 */
+     min-width 880 时该列内容宽 137px（>980px 断点 padding 24）/ 153px（≤980px padding 16），
+     都留有余量。别为其他列挤占这 21%。 */
   .members-table th:nth-child(1) { width: 20%; }
   .members-table th:nth-child(2) { width: 23%; }
   .members-table th:nth-child(3) { width: 23%; }

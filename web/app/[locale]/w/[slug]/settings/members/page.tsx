@@ -113,9 +113,9 @@ function RoleEditor({
 	const t = useTranslations("workspaceMembers");
 	const labelsT = useTranslations();
 	const editorRef = useRef<HTMLDivElement | null>(null);
-	// 展开方向与「卡片放不下时的限高」在挂载后按实际几何量一次：
-	// 纯 CSS 只能按「倒数第 N 行」硬编码行数，搜索过滤到两三条成员时卡片本身
-	// 比弹层还矮，硬编码会翻错方向；这里以表格卡片（.members-table-shell）为界。
+	// 展开方向与「容器放不下时的限高」在挂载后按实际几何量一次：
+	// 纯 CSS 只能按「倒数第 N 行」硬编码行数，搜索过滤到两三条成员时容器本身
+	// 比弹层还矮，硬编码会翻错方向；这里以会裁剪的滚动容器为界。
 	const [placement, setPlacement] = useState<{
 		up: boolean;
 		maxHeight: number | null;
