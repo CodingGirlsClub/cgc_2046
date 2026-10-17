@@ -466,6 +466,9 @@ export function useHostChat({
 		void requestChat("chat.attach", { courseId });
 	}, [requestChat, courseId]);
 	useEffect(() => {
+		// attach 只发起异步 I/O（等 Host 的 history 回复才改状态）；规则把「effect 里调到的函数最终会 setState」一律当成同步级联，
+		// 这一处是它认不出的形状，指向的是既有的「配对就绪 → 接上对话」行为
+		// eslint-disable-next-line react-hooks/set-state-in-effect
 		if (ready) attach();
 	}, [ready, attach]);
 
