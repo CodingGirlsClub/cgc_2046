@@ -297,6 +297,32 @@ export async function updateWorkspaceJoinPolicy(
 }
 
 /**
+ * 工作台改名（工作台设置页 /w/[slug]/settings/general）。
+ * 唯一真实路径：updateWorkspace mutation（id = workspace id，input.name；
+ * 仅具备 update_join_policy 能力的用户应调用，无权限时后端返回 forbidden error；
+ * 空名由后端 present(:name) 校验拒绝）。
+ * 成功后刷新 meWorkspaces 缓存 —— 概览页/面包屑/切换器消费同一查询，
+ * 下次挂载即显示新名（本页自身另用本地 state 即时回显）。
+ */
+export async function updateWorkspaceName(
+	workspaceId: string,
+	name: string,
+): Promise<{ name: string }> {
+	const { data } = await client.mutate({
+		mutation: UPDATE_WORKSPACE,
+		variables: { id: workspaceId, input: { name } },
+	});
+	const result = data?.updateWorkspace?.result;
+	if (!result) {
+		const msg =
+			data?.updateWorkspace?.errors?.[0]?.message ?? "updateWorkspace failed";
+		throw new Error(msg);
+	}
+	await client.refetchQueries({ include: [ME_WORKSPACES] });
+	return { name: result.name };
+}
+
+/**
  * E-3 #48：保存工作台级赞助档位配置（tiersJson 为每项 JSON.stringify
  * 后的 JsonString 数组，对齐后端 sponsorship_tiers: {:array, :map}）。
  */

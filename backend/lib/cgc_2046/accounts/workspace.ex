@@ -134,6 +134,11 @@ defmodule Cgc2046.Accounts.Workspace do
       message: "slug must only contain lowercase letters, numbers and hyphens"
     )
 
+    # 名称非空：三条写路径（GraphQL updateWorkspace / web 工作台设置页 /
+    # /ops/admin AshAdmin 表单）共用此守卫。空名会让侧栏 brand、面包屑与
+    # 工作台切换器渲染空白——前端 trim 只在 UI 层，挡不住 API 直写。
+    validate(present(:name), message: "name must not be empty")
+
     validate({Cgc2046.Accounts.SponsorshipTiersValidation, []})
   end
 

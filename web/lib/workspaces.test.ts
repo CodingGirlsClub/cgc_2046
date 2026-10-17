@@ -16,6 +16,7 @@ import {
 	fetchMyWorkspaces,
 	fetchWorkspaceMembers,
 	updateWorkspaceJoinPolicy,
+	updateWorkspaceName,
 } from "./workspaces";
 
 describe("mapRoleObjectsToNames（后端 roles{id,name} → 角色名并集）", () => {
@@ -704,6 +705,66 @@ describe("updateWorkspaceJoinPolicy（#78：mutation + 跨页缓存刷新）", (
 
 		await expect(updateWorkspaceJoinPolicy("ws_1", "open")).rejects.toThrow(
 			"forbidden",
+		);
+		expect(refetchMock).not.toHaveBeenCalled();
+	});
+});
+
+describe("updateWorkspaceName（工作台设置页改名）", () => {
+	const mutateMock = vi.mocked(client.mutate);
+	const refetchMock = vi.mocked(client.refetchQueries);
+
+	const opName = (query: unknown): string | undefined => {
+		const q = query as { definitions?: Array<{ name?: { value?: string } }> };
+		return q.definitions?.[0]?.name?.value;
+	};
+
+	beforeEach(() => {
+		mutateMock.mockReset();
+		refetchMock.mockReset();
+	});
+
+	it("提交 UpdateWorkspace mutation（id + name），成功后刷新 meWorkspaces 缓存并返回新名", async () => {
+		mutateMock.mockImplementation(({ mutation, variables }) => {
+			expect(opName(mutation)).toBe("UpdateWorkspace");
+			expect(variables).toEqual({ id: "ws_1", input: { name: "新名" } });
+			return Promise.resolve({
+				data: {
+					updateWorkspace: {
+						result: {
+							id: "ws_1",
+							slug: "s",
+							name: "新名",
+							joinPolicy: "open",
+							sponsorshipEnabled: true,
+						},
+						errors: [],
+					},
+				},
+			} as never);
+		});
+		refetchMock.mockResolvedValue({ data: {} } as never);
+
+		const result = await updateWorkspaceName("ws_1", "新名");
+
+		expect(result.name).toBe("新名");
+		// 跨页同步契约：概览/面包屑/切换器消费同一 meWorkspaces 查询
+		expect(refetchMock).toHaveBeenCalledWith({ include: [ME_WORKSPACES] });
+		expect(refetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("mutation 返回 errors（无 result）→ 抛错且不刷新缓存", async () => {
+		mutateMock.mockResolvedValue({
+			data: {
+				updateWorkspace: {
+					result: null,
+					errors: [{ message: "name must not be empty" }],
+				},
+			},
+		} as never);
+
+		await expect(updateWorkspaceName("ws_1", "")).rejects.toThrow(
+			"name must not be empty",
 		);
 		expect(refetchMock).not.toHaveBeenCalled();
 	});
