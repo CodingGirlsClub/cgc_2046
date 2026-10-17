@@ -8,6 +8,7 @@ import { spawnCodexAcp, STARTUP_PROMPT } from "../acp/client";
 import { resolveLoginShellEnv } from "../shell-env";
 import { managedCodex } from "./install";
 import { agentLocator, type AgentLocation, type AgentRecord, type Locator } from "./registry";
+import { detectCodexSources } from "./sources";
 
 /** PATH 上找的适配器可执行名（npm 包的 bin） */
 export const CODEX_ACP_BIN = "codex-acp";
@@ -21,7 +22,9 @@ export const CODEX_MCP_SERVER_NAME = "cgc-2046-learning";
  */
 export async function resolveCodexAcp(home: string, shell?: string, timeoutMs?: number): Promise<AgentLocation> {
   const { env, envError } = await resolveLoginShellEnv(shell, timeoutMs);
-  return { path: pickCodexAcp(home, env.PATH), env, envError };
+  // 只读探测「有哪些可复用的 Codex 来源」并随定位结果一起上报；启动仍走 pickCodexAcp 的既有优先级。
+  const sources = detectCodexSources(home, env.PATH).map(({ source, version }) => ({ source, version }));
+  return { path: pickCodexAcp(home, env.PATH), env, envError, sources };
 }
 
 /**

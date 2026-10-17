@@ -19,6 +19,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ## [Unreleased]
 
 ### Added
+- [本机 Host] 对话栏的 Codex 状态新增**只读**的「可复用来源」上报（#1154 前置）：`status` 与 `/health` 的 `agents` 条目多一个 `sources: [{source, version}]`，`source` 为 `managed` / `codex-acp` / `chatgpt-app` / `codex-cli`（ChatGPT 桌面 App 内置 Codex 的探测目前只含 macOS）。**只上报，不改变安装与启动优先级**，旧页面忽略即可；为后续「复用学员已有的 ChatGPT App / Codex CLI、只装约 2MB 适配器」做准备。Host 版本 `0.2.2`（`MIN_HOST_VERSION` 不变，不必重装）。
 - [本机 Host / Web] 课程页对话栏可以一键装 Codex 支持（#1149）：Host 声明 `agent.install` 能力后，「添加 agent」里出现「安装 Codex 支持」——Host 用随包发布的 `bun.lock`（整棵依赖树带 sha512）经自带 Bun 装到 `~/.cgc2046/agents/`，学员机器上不需要 npm/node；装完选择器里直接出现 Codex（页面由 Host 推的 `status` 立即刷新）。失败就地重试、不留残留；约 337MB（大头是 Codex 的平台二进制）。旧 Host 没有这个能力，页面继续只给手动命令；卸载 Host 会删掉页面装的 agent，学员自己的 `~/.codex` 不碰。`MIN_HOST_VERSION` 保持 `0.2.0`，Host 版本 `0.2.1`（已装 0.2.0 的学员不必为此重装）。
 - [抖音] 订阅消息接入抖音端（#371）：两个模板过审后，backend 按抖音的 `data` 格式渲染——抖音用**模板关键词名做 key**（`approval_result` 参与结果/活动名称/参与编号；`event_reminder` 活动名称/开始时间/活动地点），与微信的 `thing1/number3` 槽位编号是两套渲染子句；模板 ID 经 `DOUYIN_MP_TEMPLATE_*` 进容器（部署链路此前完全没登记，本次补齐 workflow 注入循环 + kamal env.secret，并加登记守卫防 #974 同型复发）。小程序侧订阅触点已在抖音首发版本内。
 - [本机 Host / Web] 课程页对话栏可直接选本机 OMP 的模型与思考等级（#1145）：Host 把 `omp acp` 的会话设置（ACP config options）收窄成模型与思考等级两项随对话下发（`mode` 不透出），选择只作用于当前会话——不写学员的 OMP 配置、不影响终端；OMP 的连带调整（实测：切到不支持思考的模型会把思考等级重置为 `off`）按完整回包刷新到页面；OMP 主动改设置时同步推给页面。旧版 Host 与旧版 OMP 看不到入口，对话其余行为不变。Host 版本 `0.1.6`（`MIN_HOST_VERSION` 不变，不强制旧学员重装）。

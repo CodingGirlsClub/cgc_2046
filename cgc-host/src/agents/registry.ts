@@ -18,6 +18,14 @@ export interface AgentLocation {
   path: string | null;
   env: Record<string, string>;
   envError: EnvError | null;
+  /** 可复用的来源（目前只有 Codex 探测；缺省不上报） */
+  sources?: readonly AgentSourceStatus[];
+}
+
+/** 上报给页面的一个可复用来源：kind 是来源种类（如 chatgpt-app），version 取不到时为 null */
+export interface AgentSourceStatus {
+  source: string;
+  version: string | null;
 }
 
 /** 上报给页面的 agent 状态（status.agents / /health.agents）；envError 只在解析失败时出现 */
@@ -25,6 +33,8 @@ export interface AgentStatus {
   kind: AgentKind;
   present: boolean;
   envError?: EnvError;
+  /** 只读探测：只上报、不改变安装与启动优先级 */
+  sources?: readonly AgentSourceStatus[];
 }
 
 /** 缓存最近一次解析的定位器：status 与 /health 同步读缓存；还没找到时在后台按需重解析并限频——学员装上后不必重启 Host */
@@ -32,6 +42,8 @@ export interface Locator {
   locate(): Promise<AgentLocation>;
   present(): boolean;
   envError(): EnvError | null;
+  /** 可复用来源（缺省不带；目前在 codex 定位器上提供） */
+  sources?(): readonly AgentSourceStatus[] | null;
 }
 
 export function agentLocator(resolve: () => Promise<AgentLocation>, retryMs = 10_000): Locator {
@@ -55,6 +67,7 @@ export function agentLocator(resolve: () => Promise<AgentLocation>, retryMs = 10
       return Boolean(last?.path);
     },
     envError: () => last?.envError ?? null,
+    sources: () => last?.sources ?? null,
   };
 }
 
@@ -98,7 +111,8 @@ export function createRegistry(records: readonly AgentRecord[]): Registry {
     status: () =>
       records.map(({ kind, locator }) => {
         const envError = locator.envError();
-        return { kind, present: locator.present(), ...(envError && { envError }) };
+        const sources = locator.sources?.() ?? null;
+        return { kind, present: locator.present(), ...(envError && { envError }), ...(sources && { sources }) };
       }),
     setup: (kind) => {
       const { mcpServerName, prepare } = recordFor(kind);

@@ -24,7 +24,7 @@
 
 ## 页面 ↔ Host 帧信封
 
-HTTP 只有 `GET /health`（`{version, ompPresent, paired, agents}`；`agents` 是 `[{kind, present, envError?}]`，`ompPresent` 是它里 OMP 那条的派生值，留给只认它的旧页面）；WebSocket 在根路径 `/`。两者都先过关口：`Host` 必须是 `127.0.0.1:<端口>` 或 `localhost:<端口>`，`Origin` 必须精确等于 `SITE_ORIGIN`，否则 403、无响应体。
+HTTP 只有 `GET /health`（`{version, ompPresent, paired, agents}`；`agents` 是 `[{kind, present, envError?, sources?}]`，`ompPresent` 是它里 OMP 那条的派生值，留给只认它的旧页面）；WebSocket 在根路径 `/`。两者都先过关口：`Host` 必须是 `127.0.0.1:<端口>` 或 `localhost:<端口>`，`Origin` 必须精确等于 `SITE_ORIGIN`，否则 403、无响应体。`sources` 是只读探测出的「可复用来源」（目前在 Codex 上给）：`[{source, version}]`，`source` ∈ `managed` / `codex-acp` / `chatgpt-app` / `codex-cli`，版本取不到为 `null`；**只上报，不改变安装与启动优先级**（#1154 / #1155；ChatGPT App 内置路径目前只探测 macOS）。
 
 WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 
@@ -47,7 +47,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 
 `agent` 是对话方法的可选参数（`omp` 等注册表里的 kind）：页面要驱动哪个本机 agent，就带哪个；**缺省恒为 `omp`**，与状态文件里的记忆值无关——回滚期的旧页面不可能带这个字段，不能让它被改道到别的 agent（记忆值只作为页面的初选，见 `history` 的 `agent` 字段）。取值不在注册表里一律 `bad_request`。
 
-`status.params`：`state`（`unpaired` / `paired` / `ready`，`ready` 指这个连接已授权）、`pairedUserId`、`pairedDisplayName`、`deviceName`、`tokenId`、`agents`（本机各 agent 的 `{kind, present, envError?}`）、`ompPresent`、`version`、`protocolVersion`；解析学员登录 shell 的环境失败时另有 `ompEnvError`（`timeout` / `failed`，此时 Host 退回 launchd 的最小环境，多半找不到 omp 或模型凭证）。`ompPresent` 与 `ompEnvError` 是 `agents` 里 OMP 那条的派生值，留给只认它们的旧页面，移除条件是下一个 Host 大版本。某个 agent 的 `present` 为 false 时，Host 每次被读到都会在后台重新查找（至多 10 秒一次），学员装上它的入口后不必重启 Host；页面可轮询 `/health`。
+`status.params`：`state`（`unpaired` / `paired` / `ready`，`ready` 指这个连接已授权）、`pairedUserId`、`pairedDisplayName`、`deviceName`、`tokenId`、`agents`（本机各 agent 的 `{kind, present, envError?, sources?}`，`sources` 含义同 `/health`）、`ompPresent`、`version`、`protocolVersion`；解析学员登录 shell 的环境失败时另有 `ompEnvError`（`timeout` / `failed`，此时 Host 退回 launchd 的最小环境，多半找不到 omp 或模型凭证）。`ompPresent` 与 `ompEnvError` 是 `agents` 里 OMP 那条的派生值，留给只认它们的旧页面，移除条件是下一个 Host 大版本。某个 agent 的 `present` 为 false 时，Host 每次被读到都会在后台重新查找（至多 10 秒一次），学员装上它的入口后不必重启 Host；页面可轮询 `/health`。
 
 `error.params.code`：
 
