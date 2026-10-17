@@ -12,7 +12,7 @@ import { type HostState, loadState, type Pairing, saveState, type SessionPointer
 /** 两个方向共用的帧信封（cgc-host/AGENTS.md）；回复带上请求的 id */
 export type Message = { method: string; id?: string; params?: Record<string, unknown> };
 
-export type ChatMethod = "chat.attach" | "chat.send" | "chat.stop" | "chat.new" | "chat.sessions" | "chat.open" | "chat.set_setting" | "card.answer";
+export type ChatMethod = "chat.attach" | "chat.send" | "chat.stop" | "chat.new" | "chat.sessions" | "chat.open" | "chat.set_setting" | "chat.authenticate" | "card.answer";
 
 export interface ChatContext {
   /** Host 向平台核实过的账号与学习凭证（KTD6：工作目录与下发给 agent 的 mcpServers 用它们） */
@@ -166,6 +166,7 @@ const handlers: Record<string, (host: Host, ws: WS, frame: Frame) => unknown> = 
   "chat.sessions": chat,
   "chat.open": chat,
   "chat.set_setting": chat,
+  "chat.authenticate": chat,
   "card.answer": chat,
 };
 

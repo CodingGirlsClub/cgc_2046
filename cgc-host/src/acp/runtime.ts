@@ -1,4 +1,4 @@
-import { type ClientApp, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
+import { type ClientApp, type InitializeResponse, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import type { Agent } from "./client";
 
 /** SDK cancellation is cooperative; stop waiting locally even if the peer never responds. */
@@ -44,6 +44,8 @@ export function createRuntime(opts: {
   app(active: () => boolean): ClientApp;
   reset(): void;
   ready(): void;
+  /** 握手应答：会话层用它取这个 agent 播报的登录方式（chat.authenticate 的取值来源） */
+  initialized?(response: InitializeResponse): void;
 }): Runtime {
   let current: Generation | null = null;
 
@@ -67,11 +69,12 @@ export function createRuntime(opts: {
       g.agent = a;
       void a.closed.then(() => retire(g, new Error("OMP connection closed")));
       g.phase = "initialize";
-      await abortable(a.rpc.request("initialize", {
+      const init = await abortable(a.rpc.request("initialize", {
         protocolVersion: PROTOCOL_VERSION, clientCapabilities: { elicitation: { form: {} } },
       }, { cancellationSignal: g.abort.signal }), g.abort.signal);
       g.abort.signal.throwIfAborted();
       g.initialized = true;
+      opts.initialized?.(init);
       opts.ready();
       return a;
     })().catch((error) => { retire(g, error); throw error; });

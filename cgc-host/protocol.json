@@ -15,6 +15,7 @@
       "chat.sessions",
       "chat.open",
       "chat.set_setting",
+      "chat.authenticate",
       "card.answer"
     ],
     "hostToPage": [
@@ -23,6 +24,7 @@
       "history",
       "sessions",
       "chat.settings",
+      "chat.authenticated",
       "turn.delta",
       "turn.card",
       "turn.card.closed",

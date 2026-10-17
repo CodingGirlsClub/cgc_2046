@@ -4,8 +4,8 @@ import type { ClientApp } from "@agentclientprotocol/sdk";
 import type { Agent } from "../acp/client";
 import type { EnvError } from "../shell-env";
 
-/** 支持的 agent。协议与状态文件都用这些字符串做键（Codex 随它自己的记录一起加入） */
-export const AGENT_KINDS = ["omp"] as const;
+/** 支持的 agent。协议与状态文件都用这些字符串做键；加一种 agent = 加一条记录 */
+export const AGENT_KINDS = ["omp", "codex"] as const;
 export type AgentKind = (typeof AGENT_KINDS)[number];
 /** 页面不带 agent 时的缺省：存量页面与只装 OMP 的学员行为不变 */
 export const DEFAULT_AGENT: AgentKind = "omp";
@@ -62,14 +62,25 @@ export interface AgentRecord {
   kind: AgentKind;
   /** 人读的名字：日志与页面标签 */
   label: string;
+  /** 下发给这个 agent 的 CGC MCP 服务器名（必填）：学员机器上可能已有同名配置（终端用同一台平台），撞名会让带学习凭证的那份被跳过 */
+  mcpServerName: string;
   locator: Locator;
+  /** 会话建立前的准备（Codex 要在课程工作目录写 AGENTS.md）；缺省什么都不做 */
+  prepare?(cwd: string): Promise<void>;
   /** 拉起该 agent 的进程；找不到或起不来就抛错（详情只进 Host 日志） */
   start(app: ClientApp, signal: AbortSignal): Promise<Agent>;
+}
+
+/** 会话层要用的「这台机器上怎么跟这个 agent 打交道」：与具体实现无关的那部分 */
+export interface AgentSetup {
+  mcpServerName: string;
+  prepare?(cwd: string): Promise<void>;
 }
 
 export interface Registry {
   kinds(): readonly AgentKind[];
   status(): AgentStatus[];
+  setup(kind: AgentKind): AgentSetup;
   /** 拉起指定 agent 的进程；这个 kind 没有记录就抛错 */
   start(kind: AgentKind, app: ClientApp, signal: AbortSignal): Promise<Agent>;
 }
@@ -77,6 +88,11 @@ export interface Registry {
 export function createRegistry(records: readonly AgentRecord[]): Registry {
   const byKind: Partial<Record<AgentKind, AgentRecord>> = {};
   for (const record of records) byKind[record.kind] = record;
+  const recordFor = (kind: AgentKind): AgentRecord => {
+    const record = byKind[kind];
+    if (!record) throw new Error(`没有 ${kind} 这条 agent 记录`);
+    return record;
+  };
   return {
     kinds: () => records.map((record) => record.kind),
     status: () =>
@@ -84,10 +100,10 @@ export function createRegistry(records: readonly AgentRecord[]): Registry {
         const envError = locator.envError();
         return { kind, present: locator.present(), ...(envError && { envError }) };
       }),
-    start(kind, app, signal) {
-      const record = byKind[kind];
-      if (!record) throw new Error(`没有 ${kind} 这条 agent 记录`);
-      return record.start(app, signal);
+    setup: (kind) => {
+      const { mcpServerName, prepare } = recordFor(kind);
+      return { mcpServerName, prepare };
     },
+    start: (kind, app, signal) => recordFor(kind).start(app, signal),
   };
 }

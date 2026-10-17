@@ -6,7 +6,8 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import protocol from "../protocol.json";
-import { createRegistry } from "../src/agents/registry";
+import { CODEX_MCP_SERVER_NAME, writeLearningAgentsMd } from "../src/agents/codex";
+import { createRegistry, type AgentRecord, type Locator } from "../src/agents/registry";
 import type { Agent } from "../src/acp/client";
 import { createChat } from "../src/acp/session";
 import { SITE_ORIGIN } from "../src/config";
@@ -273,6 +274,12 @@ export function fakeAgent() {
     onSetConfig: null as ((configId: string, value: string) => void) | null,
     /** 测试可注入：set_config_option 的应答前先等它，构造「设置请求在飞时又触发新开对话」的竞态 */
     beforeSetConfig: null as Promise<void> | null,
+    /** initialize 播报的登录方式（chat.authenticate 的取值来源） */
+    authMethods: [] as { id: string; name: string }[],
+    /** 握手要求先登录时，这些 ACP 方法（如 "session/new"）抛 auth_required（-32000） */
+    authFor: new Set<string>(),
+    /** authenticate 失败（页面按 auth_failed 处理） */
+    authFails: false,
     starts: 0,
     conn: null as acp.ClientConnection | null,
     /** 默认：回一句话，带用量 */
@@ -299,10 +306,16 @@ export function fakeAgent() {
         .agent({ name: "fake-omp" })
         .onRequest("initialize", (c) => {
           record("initialize", c.params);
-          return { protocolVersion: acp.PROTOCOL_VERSION, agentCapabilities: { loadSession: true, sessionCapabilities: { list: {} } } };
+          return { protocolVersion: acp.PROTOCOL_VERSION, agentCapabilities: { loadSession: true, sessionCapabilities: { list: {} } }, authMethods: fake.authMethods };
+        })
+        .onRequest("authenticate", (c) => {
+          record("authenticate", c.params);
+          if (fake.authFails) throw acp.RequestError.authRequired();
+          return {};
         })
         .onRequest("session/new", (c) => {
           record("session/new", c.params);
+          if (fake.authFor.has("session/new")) throw acp.RequestError.authRequired();
           const sessionId = `session-${++seq}`;
           fake.store.set(sessionId, { cwd: c.params.cwd, history: [], updatedAt: new Date().toISOString() });
           loaded.add(sessionId);
@@ -387,18 +400,35 @@ export type Fake = ReturnType<typeof fakeAgent>;
 
 export const API = "http://cgc.test";
 
+/** 测试里的定位器不找任何东西：present 由 startHost 的 agents 选项单独注入 */
+const absentLocator = (): Locator => ({ locate: async () => ({ path: null, env: {}, envError: null }), present: () => false, envError: () => null });
+
+/** 假 OMP 那条记录（mcpServerName 与真实记录一致：终端插件同名） */
+export const ompTestRecord = (fake: Fake): AgentRecord => ({
+  kind: "omp",
+  label: "OMP",
+  mcpServerName: "cgc-2046",
+  locator: absentLocator(),
+  start: (app, signal) => fake.start(app, signal),
+});
+
+/** 假 Codex 那条记录：名字与 prepare 用真实值，只有进程是进程内的假 agent */
+export const codexTestRecord = (fake: Fake): AgentRecord => ({
+  kind: "codex",
+  label: "Codex",
+  mcpServerName: CODEX_MCP_SERVER_NAME,
+  locator: absentLocator(),
+  prepare: async (courseDir) => writeLearningAgentsMd(courseDir),
+  start: (app, signal) => fake.start(app, signal),
+});
+
 /** 接上假 OMP 的 Host：对话处理器是真的（createChat），home 可传入以模拟 Host 重启 */
-export function chatHost(fake: Fake, opts: { home?: string; graceMs?: number; idleMs?: number; preparationTimeoutMs?: number } = {}) {
+export function chatHost(
+  fake: Fake,
+  opts: { home?: string; graceMs?: number; idleMs?: number; preparationTimeoutMs?: number; records?: AgentRecord[] } = {},
+) {
   const home = opts.home ?? tempHome();
-  const registry = createRegistry([
-    {
-      kind: "omp",
-      label: "OMP",
-      // 测试里的定位器不找任何东西：present 由 startHost 的 agents 选项单独注入
-      locator: { locate: async () => ({ path: null, env: {}, envError: null }), present: () => false, envError: () => null },
-      start: (app, signal) => fake.start(app, signal),
-    },
-  ]);
+  const registry = createRegistry(opts.records ?? [ompTestRecord(fake)]);
   const chat = createChat({ home, apiBase: API, registry, graceMs: opts.graceMs, idleMs: opts.idleMs, preparationTimeoutMs: opts.preparationTimeoutMs });
   return startHost({ home, chat: chat.handle, onConnections: chat.connections });
 }

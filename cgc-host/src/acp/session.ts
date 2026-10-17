@@ -1,5 +1,6 @@
-// acp/session.ts — 对话处理器（U6）：每门课一条 ACP 会话（KTD6）；一个 OMP 进程服务全部会话，按需拉起、空闲回收（KTD13）；
-// session/update 归一化成页面事件（events.ts），审批与提问交给持有者作答（cards.ts）。载荷契约见 cgc-host/AGENTS.md。
+// acp/session.ts — 对话处理器（U6）：每门课每个 agent 一条 ACP 会话（KTD6）；每个 agent kind 一个进程，按需拉起、空闲回收（KTD13）；
+// session/update 归一化成页面事件（events.ts），审批与提问交给持有者作答（cards.ts），设置项见 settings.ts，页面上下文见 page-context.ts。
+// 载荷契约见 cgc-host/AGENTS.md。
 import { mkdirSync } from "node:fs";
 import {
   RequestError,
@@ -7,17 +8,18 @@ import {
   type ContentBlock,
   type McpServer,
   type PromptResponse,
-  type SessionConfigOption,
 } from "@agentclientprotocol/sdk";
 import protocol from "../../protocol.json";
 import { type AgentKind, DEFAULT_AGENT, isAgentKind, type Registry } from "../agents/registry";
 import type { ChatContext, ChatMethod, Message } from "../server";
-import { isUuid } from "../security";
 import { setPointer, workDir } from "../state";
 import { type Cards, createCards } from "./cards";
 import { type Agent, clientApp } from "./client";
+import { message, OpenError } from "./errors";
 import { type ChatEvent, classifyModelError, createTranscript, type Transcript } from "./events";
+import { pageContext } from "./page-context";
 import { createRuntime, type Preparation, type Runtime } from "./runtime";
+import { pickSettings, SETTING_IDS, SETTING_VALUE_MAX, type ConfigOption } from "./settings";
 
 export interface ChatOptions {
   home: string;
@@ -61,77 +63,8 @@ interface Course {
   queue: Promise<unknown>;
 }
 
-const UNIT_ID = /^[A-Za-z0-9_.-]{1,64}$/;
-
-/** 页面可改的会话设置（OMP 的 configId）：模型与思考等级；mode（plan）是 agent 执行策略，不透出 */
-const SETTING_IDS: Record<string, true> = { model: true, thinking: true };
-/** 单个设置项的取值上限：OMP 的值是 provider/model 这类短标识 */
-const SETTING_VALUE_MAX = 256;
-
-/**
- * 透给页面的会话设置项：ACP 的 configOptions 收窄成只剩模型与思考等级，分组形状摊平成一层
- * （页面自己按 provider 前缀分组显示），值只取 string。
- */
-export interface ConfigOption {
-  id: string;
-  name: string;
-  category: string;
-  currentValue: string;
-  options: { value: string; name: string; description?: string }[];
-}
-
-/** OMP 没给 configOptions（旧版本）或项目的形状不合约时返回空数组：页面据此不渲染设置控件 */
-function pickSettings(configOptions: readonly SessionConfigOption[] | null | undefined): ConfigOption[] {
-  const picked: ConfigOption[] = [];
-  for (const option of configOptions ?? []) {
-    if (option.type !== "select" || !Object.hasOwn(SETTING_IDS, option.id)) continue;
-    const items = option.options.flatMap((item) => ("group" in item ? item.options : [item]));
-    picked.push({
-      id: option.id,
-      name: option.name,
-      category: option.category ?? option.id,
-      currentValue: option.currentValue,
-      options: items.map(({ value, name, description }) => ({ value, name, ...(description ? { description } : {}) })),
-    });
-  }
-  return picked;
-}
-
-/**
- * KTD8 的页面上下文：只带标识，不带 tutor 撰写的文本（如课程、单元标题）。单元 id 只认短的 ASCII 标识，
- * null 表示课程总览；courseVersion 是页面显示的课程版本号，null 表示未知。返回块内的 JSON，不合法返回 null。
- */
-function pageContext(raw: unknown, courseId: string): string | null {
-  if (typeof raw !== "object" || raw === null) return null;
-  const { workspaceId, courseVersion, unitId, locale } = raw as Record<string, unknown>;
-  const ok =
-    isUuid(workspaceId) &&
-    (courseVersion === null || (Number.isInteger(courseVersion) && (courseVersion as number) > 0)) &&
-    (unitId === null || (typeof unitId === "string" && UNIT_ID.test(unitId))) &&
-    (locale === "zh-CN" || locale === "en");
-  return ok ? JSON.stringify({ workspace_id: workspaceId, course_id: courseId, course_version: courseVersion, unit_id: unitId, locale }) : null;
-}
-
-/** 一行错误摘要：message + ACP 错误的 data（诊断详情，如 load 失败的真实原因「Could not restore model …」），超长截断 */
-export const message = (e: unknown) => {
-  const base = String((e as Error)?.message ?? e);
-  const data = (e as { data?: unknown })?.data;
-  if (data === undefined) return base;
-  let details: string;
-  try {
-    details = JSON.stringify(data);
-  } catch {
-    details = String(data);
-  }
-  return `${base} ${details.length > 500 ? `${details.slice(0, 500)}…` : details}`;
-};
-
-/** chat.open 的可诊断失败：bad_request = 目标不属于本课程工作目录（客户端问题）；session_unavailable = load 失败（持久指针保持不变） */
-class OpenError extends Error {
-  constructor(public code: "bad_request" | "session_unavailable") {
-    super(code);
-  }
-}
+/** ACP 的 auth_required（-32000）：这个 agent 要求学员先登录（页面的登录卡与 chat.authenticate 都是围绕它） */
+const isAuthRequired = (e: unknown) => e instanceof RequestError && e.code === -32000;
 
 export function createChat(opts: ChatOptions) {
   const graceMs = opts.graceMs ?? 5 * 60_000;
@@ -159,10 +92,17 @@ export function createChat(opts: ChatOptions) {
 
   /** 每个 agent kind 一个进程代（KTD1）：拉起、回收、换代都按 kind 独立，一种 agent 崩了不影响另一种 */
   const runtimes = new Map<AgentKind, Runtime>();
+  /** 各 agent 握手时播报的登录方式：chat.authenticate 的取值来源，也是 auth_required 回包里的清单 */
+  const authMethods = new Map<AgentKind, { id: string; name: string }[]>();
   function runtimeFor(kind: AgentKind) {
     let runtime = runtimes.get(kind);
     if (!runtime) {
-      runtime = createRuntime({ start: (app, signal) => opts.registry.start(kind, app, signal), ready: checkIdle, reset: () => resetAgent(kind), app: (active) => clientApp({
+      runtime = createRuntime({
+        start: (app, signal) => opts.registry.start(kind, app, signal),
+        ready: checkIdle,
+        reset: () => resetAgent(kind),
+        initialized: (response) => authMethods.set(kind, (response.authMethods ?? []).map(({ id, name }) => ({ id, name }))),
+        app: (active) => clientApp({
         update({ sessionId, update }) {
           if (!active()) return;
           const c = bySession.get(sessionId);
@@ -216,9 +156,9 @@ export function createChat(opts: ChatOptions) {
     checkIdle();
   }
 
-  const cgcServer = (token: string): McpServer => ({
+  const cgcServer = (token: string, name: string): McpServer => ({
     type: "http",
-    name: "cgc-2046", // 与终端插件同名
+    name, // Codex 侧不能用 cgc-2046：学员自己的 Codex 配置里已有同名服务器时，适配器会整条跳过带学习凭证的这份
     url: `${opts.apiBase}/mcp`,
     headers: [{ name: "authorization", value: `Bearer ${token}` }],
   });
@@ -261,7 +201,13 @@ export function createChat(opts: ChatOptions) {
     const a = await run.agent();
     run.check();
     const cwd = workDir(opts.home, ctx.userId, c.id);
-    const mcpServers = [cgcServer(ctx.token)];
+    const setup = opts.registry.setup(c.agent);
+    const mcpServers = [cgcServer(ctx.token, setup.mcpServerName)];
+    // 会话前的准备（Codex 要在课程目录写 AGENTS.md）：load 与 new 都要，写入是幂等的
+    await run.wait("agent/prepare", async () => {
+      mkdirSync(cwd, { recursive: true });
+      await setup.prepare?.(cwd);
+    });
     const load = target ? await belongs(a, cwd, target, run) : false;
     run.check();
     if (target && load) {
@@ -295,7 +241,6 @@ export function createChat(opts: ChatOptions) {
       ctx.save();
       if (mode === "attach") return null;
     }
-    mkdirSync(cwd, { recursive: true });
     const created = await run.wait("session/new", (signal) => a.rpc.request("session/new", { cwd, mcpServers }, { cancellationSignal: signal }));
     const { sessionId } = created;
     c.settings = pickSettings(created.configOptions);
@@ -456,6 +401,8 @@ export function createChat(opts: ChatOptions) {
     }
     const reply = (m: string, p: Record<string, unknown>) => ctx.reply({ method: m, params: { courseId: c.id, ...p } });
     const fail = (code: string) => ctx.reply({ method: "error", params: { code } });
+    /** 这个 agent 要求先登录：回 auth_required + 它握手时播报的登录方式，页面据此出登录卡（chat.authenticate 完成登录） */
+    const failAuth = () => ctx.reply({ method: "error", params: { code: "auth_required", methods: authMethods.get(c.agent) ?? [] } });
 
     if (method === "chat.attach") {
       try {
@@ -466,7 +413,7 @@ export function createChat(opts: ChatOptions) {
         });
       } catch (e) {
         console.error(`cgc-host: 加载对话失败：${message(e)}`);
-        return fail("chat_unavailable");
+        return isAuthRequired(e) ? failAuth() : fail("chat_unavailable");
       }
     } else if (method === "chat.send") {
       const { text } = params;
@@ -501,7 +448,7 @@ export function createChat(opts: ChatOptions) {
         console.error(`cgc-host: 无法开始对话：${message(e)}`);
         if (c.turn === turn) c.turn = null;
         checkIdle();
-        return fail("chat_unavailable");
+        return isAuthRequired(e) ? failAuth() : fail("chat_unavailable");
       }
     } else if (method === "chat.stop") {
       stop(c);
@@ -514,7 +461,7 @@ export function createChat(opts: ChatOptions) {
         });
       } catch (e) {
         console.error(`cgc-host: 新开对话失败：${message(e)}`);
-        return fail("chat_unavailable");
+        return isAuthRequired(e) ? failAuth() : fail("chat_unavailable");
       }
     } else if (method === "chat.sessions") {
       // 历史对话列表：只读，可以在有回合在跑时查询；元数据字段缺省即 null（OMP 版本差异）
@@ -536,7 +483,7 @@ export function createChat(opts: ChatOptions) {
         reply("sessions", { sessions, current: ctx.sessions[c.id]?.[c.agent] ?? null, nextCursor: page.nextCursor ?? null });
       } catch (e) {
         console.error(`cgc-host: 读取历史对话列表失败：${message(e)}`);
-        return fail("chat_unavailable");
+        return isAuthRequired(e) ? failAuth() : fail("chat_unavailable");
       }
     } else if (method === "chat.open") {
       // 切换到某个历史会话：只在 load 成功后推进持久指针；失败报 session_unavailable 且原会话保持可用
@@ -551,7 +498,7 @@ export function createChat(opts: ChatOptions) {
       } catch (e) {
         if (e instanceof OpenError) return fail(e.code);
         console.error(`cgc-host: 切换对话失败：${message(e)}`);
-        return fail("chat_unavailable");
+        return isAuthRequired(e) ? failAuth() : fail("chat_unavailable");
       }
     } else if (method === "chat.set_setting") {
       // 学员在对话栏改本机 OMP 的设置（模型、思考等级）：只作用于当前会话，不写学员的 OMP 配置
@@ -577,6 +524,22 @@ export function createChat(opts: ChatOptions) {
         // OMP 明确拒绝这个值（如 `Unknown ACP model: …`）→ bad_request；传输中断、进程结束 → chat_unavailable
         console.error(`cgc-host: 修改对话设置失败：${message(e)}`);
         return fail(e instanceof RequestError ? "bad_request" : "chat_unavailable");
+      }
+    } else if (method === "chat.authenticate") {
+      // 学员在页面里发起登录（Codex 等）：转发给该 agent 的 ACP authenticate；浏览器由适配器自己开（KTD4）
+      const { methodId } = params;
+      if (typeof methodId !== "string" || !methodId || methodId.length > 64) return fail("bad_request");
+      const runtime = runtimeFor(c.agent);
+      try {
+        // 不进课程队列：浏览器登录可能等学员几十秒，不能占住 new / load / send（#1151 的口径）
+        const a = await runtime.prepare(opts.preparationTimeoutMs ?? protocol.preparationTimeoutMs, (run) => run.agent());
+        await a.rpc.request("authenticate", { methodId });
+        // 登录期间进程被换掉（崩溃、空闲回收）：这次结果不作数，页面重试即可
+        if (runtime.agent !== a) return fail("busy");
+        reply("chat.authenticated", { agent: c.agent });
+      } catch (e) {
+        console.error(`cgc-host: ${c.agent} 登录失败：${message(e)}`);
+        return fail("auth_failed");
       }
     } else if (method === "card.answer") {
       if (!c.cards.answer(params, reply)) return fail("bad_request");

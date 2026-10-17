@@ -51,8 +51,8 @@ test("缺省走 omp 且不写记忆值；页面显式选过的 agent 才落盘�
   await until(() => stateOf(host.home).agents[COURSE] === "omp");
   expect(await page.call("chat.attach", { courseId: COURSE })).toMatchObject({ params: { agent: "omp" } });
 
-  // 白名单外（本批还没有 Codex 这条记录）：协议层直接拒，不进对话层
-  expect(await page.call("chat.send", { courseId: COURSE, agent: "codex", text: "喂", context: CONTEXT })).toMatchObject({
+  // 白名单外的 kind：协议层直接拒，不进对话层（codex 现在已经是合法 kind，这里用一个不存在的）
+  expect(await page.call("chat.send", { courseId: COURSE, agent: "plug", text: "喂", context: CONTEXT })).toMatchObject({
     method: "error",
     params: { code: "bad_request" },
   });
