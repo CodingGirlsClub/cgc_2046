@@ -20,7 +20,7 @@ import { Link } from "@/i18n/navigation";
 import { useParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useAuthed } from "@/lib/use-authed";
-import { formatJoinedDate } from "@/lib/format";
+import { formatJoinedDateTime } from "@/lib/format";
 import { useWorkspaceBySlug } from "@/lib/use-workspace-by-slug";
 import {
 	assignMemberRoles,
@@ -62,7 +62,7 @@ function avatarLetter(member: WorkspaceMember) {
 }
 
 function memberJoinedAt(member: WorkspaceMember, locale: string) {
-	return formatJoinedDate(member.joinedAt, locale);
+	return formatJoinedDateTime(member.joinedAt, locale);
 }
 
 function MemberRoleChips({ roles }: { roles: MembershipRoleName[] }) {
@@ -521,6 +521,10 @@ export default function WorkspaceMembersPage() {
 											const currentRoles =
 												draft[member.membershipId] ??
 												member.roles;
+											const joined = memberJoinedAt(
+												member,
+												locale,
+											);
 											return (
 												<tr
 													key={member.membershipId}
@@ -580,7 +584,14 @@ export default function WorkspaceMembersPage() {
 													</td>
 													<td>
 														<span className="members-date">
-															{memberJoinedAt(member, locale)}
+															<span className="members-date__day">
+																{joined.date}
+															</span>
+															{joined.time ? (
+																<span className="members-date__time">
+																	{joined.time}
+																</span>
+															) : null}
 														</span>
 													</td>
 													<td>

@@ -786,11 +786,13 @@
   .members-table th,
   .members-table td { padding: 0 24px; text-align: left; }
   .members-table th { height: 52px; background: var(--soft-2); color: var(--ink-3); font-size: 12px; font-weight: 510; line-height: 18px; }
-  .members-table th:nth-child(1) { width: 21%; }
-  .members-table th:nth-child(2) { width: 24%; }
-  .members-table th:nth-child(3) { width: 26%; }
-  .members-table th:nth-child(4) { width: 17%; }
-  .members-table th:nth-child(5) { width: 12%; }
+  /* 列宽预算：加入时间列要容纳「2026 年 12 月 28 日 / 23:59」两行（12px mono 最宽 ≈130px）；
+     min-width 880 时该列 21% − 32px padding ≈ 153px。别为其他列挤占这 21%。 */
+  .members-table th:nth-child(1) { width: 20%; }
+  .members-table th:nth-child(2) { width: 23%; }
+  .members-table th:nth-child(3) { width: 23%; }
+  .members-table th:nth-child(4) { width: 21%; }
+  .members-table th:nth-child(5) { width: 13%; }
   .members-table td { height: 80px; border-top: 1px solid var(--line); color: var(--ink-2); font-size: 14px; line-height: 20px; vertical-align: middle; }
   .members-table tbody tr { transition: background-color 120ms ease; }
   .members-table tbody tr:hover,
@@ -802,7 +804,8 @@
   .members-account { display: block; overflow: hidden; color: var(--ink-2); font-family: var(--font-mono); font-size: 12px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
   .members-th-with-icon { display: inline-flex; align-items: center; gap: 6px; }
   .members-th-with-icon svg { color: var(--ink-3); }
-  .members-date { color: var(--ink-2); font-family: var(--font-mono); font-size: 12px; }
+  .members-date { display: grid; gap: 2px; color: var(--ink-2); font-family: var(--font-mono); font-size: 12px; line-height: 18px; white-space: nowrap; }
+  .members-date__time { color: var(--ink-3); }
   .members-role-cell { position: relative; min-height: 30px; padding: 8px 0; }
   .members-role-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
   .members-role-chip__zh { display: none; }
