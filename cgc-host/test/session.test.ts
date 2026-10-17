@@ -408,6 +408,44 @@ describe("对话设置（模型与思考等级）", () => {
     expect(await page.call("chat.set_setting", { courseId: COURSE, configId: "thinking", value: "high" })).toMatchObject({ method: "chat.settings" });
   });
 
+  test("换账号后 attach：带的是空 settings，不把上一个账号会话的设置下发给新页面", async () => {
+    const fake = fakeAgent();
+    const host = chatHost(fake);
+    const a = await pair(host);
+    const pageA = await helloed(host, a.browserKey);
+    await attach(pageA);
+    await send(pageA, "一");
+    await ended(pageA);
+
+    const b = await pair(host, USER_B);
+    const pageB = await helloed(host, b.browserKey, USER_B);
+    expect(await attach(pageB)).toMatchObject({ method: "history", params: { settings: [] } });
+  });
+
+  test("OMP 长时间不回设置请求时也不占课程队列：新开对话照常落地，迟到的回包作废（busy）", async () => {
+    const fake = fakeAgent();
+    const { page } = await chatPage(fake);
+    await attach(page);
+    await send(page, "你好");
+    await ended(page);
+    await page.next((m) => m.method === "chat.settings"); // 首条消息建立会话后的补推
+
+    let release!: () => void;
+    fake.beforeSetConfig = new Promise<void>((resolve) => (release = resolve)); // 模拟 OMP 迟迟不回
+    const setting = page.call("chat.set_setting", { courseId: COURSE, configId: "thinking", value: "high" });
+    await until(() => fake.calledWith("session/set_config_option").length === 1);
+
+    // 设置请求还挂着时点「新开对话」：设置不占课程队列，新会话照常落地
+    const fresh = page.call("chat.new", { courseId: COURSE });
+    await expect(fresh).resolves.toMatchObject({ method: "history" });
+    expect(fake.calledWith("session/new")).toHaveLength(2);
+
+    release();
+    // 迟到的回包属于已换掉的会话：作废，不回 chat.settings、不写 c.settings
+    await expect(setting).resolves.toMatchObject(refused("busy"));
+    expect((await attach(page)).params.settings).toMatchObject([{ id: "model" }, { id: "thinking" }]);
+  });
+
   test("OMP 在会话里改了设置：推给页面（config_option_update），不进对话缓冲（含 session/load 回放）", async () => {
     const fake = fakeAgent();
     const { host, page, token, tokenId, browserKey } = await chatPage(fake);

@@ -270,6 +270,8 @@ export function fakeAgent() {
     ] as FakeConfigOption[],
     /** 应用 set_config_option 后由测试改写 configOptions（模拟 OMP 的连带调整，如切模型后思考等级回退） */
     onSetConfig: null as ((configId: string, value: string) => void) | null,
+    /** 测试可注入：set_config_option 的应答前先等它，构造「设置请求在飞时又触发新开对话」的竞态 */
+    beforeSetConfig: null as Promise<void> | null,
     starts: 0,
     conn: null as acp.ClientConnection | null,
     /** 默认：回一句话，带用量 */
@@ -330,8 +332,9 @@ export function fakeAgent() {
           for (const update of s.history) await c.client.notify("session/update", { sessionId: c.params.sessionId, update });
           return { configOptions: fake.configOptions };
         })
-        .onRequest("session/set_config_option", (c) => {
+        .onRequest("session/set_config_option", async (c) => {
           record("session/set_config_option", c.params);
+          if (fake.beforeSetConfig) await fake.beforeSetConfig;
           const { configId, value } = c.params;
           const option = fake.configOptions.find((o) => o.id === configId);
           // OMP 对不认识的值回 Internal error，细节正是页面看到 bad_request 时该记进日志的那句
