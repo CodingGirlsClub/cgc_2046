@@ -18,6 +18,9 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ## [Unreleased]
 
+### Added
+- [抖音] 订阅消息接入抖音端（#371）：两个模板过审后，backend 按抖音的 `data` 格式渲染——抖音用**模板关键词名做 key**（`approval_result` 参与结果/活动名称/参与编号；`event_reminder` 活动名称/开始时间/活动地点），与微信的 `thing1/number3` 槽位编号是两套渲染子句；模板 ID 经 `DOUYIN_MP_TEMPLATE_*` 进容器（部署链路此前完全没登记，本次补齐 workflow 注入循环 + kamal env.secret，并加登记守卫防 #974 同型复发）。小程序侧订阅触点已在抖音首发版本内。
+
 ### Changed（[本机 Host]）
 - [本机 Host] 课程工作目录由 `~/CGC/<userId>/<courseId>` 改为 `~/cgc2046_workspace/courses/<userId>/<courseId>`（ADR-0022 KTD6 修订）：与终端插件的工作区合成一棵树，学员只需记一个目录；课程目录在其下单独一层，网页课程会话与学员自己的终端会话仍按目录分桶、互不串入。无历史数据迁移——Host 此前未对外发布。Host 版本 `0.1.5`，`MIN_HOST_VERSION` 随之提高，已装旧包的学员会被提示重装。
 

@@ -48,11 +48,28 @@ defmodule Cgc2046.Notifications.TemplateAllowlistTest do
     end
   end
 
+  # #371：tt 已接入渲染子句的模板键（当前两个，控制台 2026-10-15 过审）必须在
+  # 部署链路三处登记：workflow 注入循环（写 .kamal/secrets）、kamal
+  # config/deploy.yml 的 env.secret 名单（决定容器 env）、runtime.exs（消费侧）。
+  # tt 侧此前部署链路完全没登记——workflow 把变量写进 .kamal/secrets，但 kamal
+  # 只注入 env.secret 名单，容器 env 缺键即静默取不到模板 ID（#974 小红书登录
+  # authentication_failed 的同型根因：登记漏一处，事故到真机才现形）。
+  # .env.example 不在断言内：它是本地开发文档、非部署面，且受仓库策略保护
+  # （agent 不可读写）。新增 tt 模板接入渲染子句时，把键名补进本名单即可。
+  @tt_wired ~w(DOUYIN_MP_TEMPLATE_APPROVAL_RESULT DOUYIN_MP_TEMPLATE_EVENT_REMINDER)
+
+  test "tt 已接入的模板键在部署链路三处登记（#371）" do
+    for path <- [@workflow, @kamal, @runtime], key <- @tt_wired do
+      assert key in keys_in(path, ~r/DOUYIN_MP_TEMPLATE_[A-Z0-9_]+/),
+             "#{path} 缺 #{key}——tt 模板 ID 到不了容器（#371，同 #974 形态）"
+    end
+  end
+
   # 名单里的键名（去重 + 排序）；同文件多处出现（workflow 循环 + env）自动收敛
-  defp keys_in(path) do
+  defp keys_in(path, pattern \\ ~r/WECHAT_MP_TEMPLATE_[A-Z0-9_]+/) do
     path
     |> File.read!()
-    |> then(&Regex.scan(~r/WECHAT_MP_TEMPLATE_[A-Z0-9_]+/, &1))
+    |> then(&Regex.scan(pattern, &1))
     |> List.flatten()
     |> Enum.uniq()
     |> Enum.sort()
