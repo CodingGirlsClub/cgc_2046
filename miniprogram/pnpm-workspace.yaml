@@ -39,6 +39,20 @@ overrides:
   "minimist@<0.2.4": 1.2.8
   "glob@>=10.2.0 <10.5.0": 10.5.0
   "postcss@7": 8.5.26
+  # 2026-10-17：Taro webpack-dev-server / postcss 传递链的 4 条新公告收敛。
+  # 全部同 major 补丁位，API 无破坏；均构建期工具链，无运行时面。
+  # - GHSA-jqcg-44mw-7w3h（proxy-addr IP 伪造，critical）：express 传递依赖，
+  #   2.0.7 → 2.0.8（2.x 内补丁）。
+  # - GHSA-pqg4-j6r4-53mv（shell-quote 命令注入，critical）：launch-editor
+  #   传递依赖，1.10.0 → 1.11.0（1.x 内补丁）。
+  # - GHSA-68fv-2mgg-jv7q（source-map-js 事件循环 DoS，high）：postcss 传递依赖，
+  #   1.2.1 → 1.2.2（1.x 内补丁）。
+  # - GHSA-vc2v-76pw-4v95（compression 内存泄漏 DoS，high）：1.8.1 → 1.8.2。
+  # 上游解析自然收敛到补丁版后各条可逐一移除。
+  "proxy-addr@>=1.1.0 <2.0.8": 2.0.8
+  "shell-quote@>=1.8.4 <1.11.0": 1.11.0
+  "source-map-js@>=1.0.0 <1.2.2": 1.2.2
+  "compression@<1.8.2": 1.8.2
 # pnpm 设置真源。pnpm 11 起不再读 package.json 的 "pnpm" 字段（本地 11 实证
 # 连 onlyBuiltDependencies 都被静默忽略）；pnpm 10（CI）与 11 都读本文件，
 # 本地/CI 行为一致。
@@ -50,6 +64,18 @@ auditConfig:
     # 开发者写死，实际可利用性低。修复需跨大版本升 12.x（Taro 上游锁 11），
     # 单独批次验证后移除本豁免。
     - GHSA-hmx5-qpq5-p643
+    # 2026-10-17：两条**无修复版**的构建期传递依赖公告（上游尚无补丁，
+    # overrides 无处收敛，只能显式豁免并写明可利用面）。
+    # - GHSA-86w9-cpqp-85rv（node-forge RSA PKCS#1 v1.5 签名校验接受多余
+    #   嵌套 DigestAlgorithm，high）：路径 webpack-dev-server>selfsigned>
+    #   node-forge，仅用于开发服务器生成自签名证书，不解析外部证书、不参与
+    #   小程序产物与生产请求。
+    # - GHSA-vfj7-8cjw-p6xm（braces 深层嵌套模式导致栈耗尽 DoS，high）：
+    #   路径 @tarojs/helper>chokidar>braces 与 micromatch>braces，仅用于
+    #   构建期文件监听/glob 匹配，模式串由仓库自身写死，不接受用户输入。
+    # 上游发布补丁版后改为 overrides 收敛并移除本豁免。
+    - GHSA-86w9-cpqp-85rv
+    - GHSA-vfj7-8cjw-p6xm
 onlyBuiltDependencies:
   - "@parcel/watcher"
   - "@swc/core"
