@@ -4139,6 +4139,14 @@
         "busy": "A reply is in progress; stop it or wait for it to finish.",
         "failed": "Couldn't load past conversations. Try again later."
       },
+    "settings": {
+      "model": "Model",
+      "thinking": "Thinking level",
+      "busy": "A reply is in progress. Wait for it to finish, then change this.",
+      "unavailable": "The local agent could not start, so this cannot change yet. Check that OMP runs in your terminal.",
+      "staleHost": "The CGC Host on this computer is out of date. Update it to change the model and thinking level here.",
+      "failed": "Could not change it. Try again."
+    },
     "newChat": "New chat",
     "logLabel": "Conversation",
     "attaching": "Resuming this course's conversation…",

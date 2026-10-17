@@ -300,3 +300,135 @@ test("KTD13 空闲回收：没有页面、没有在跑的回合，超过空闲�
   await ended(page2);
   expect(fake.calledWith("session/prompt").map((p) => p.sessionId)).toEqual(["session-1", "session-1"]);
 });
+
+describe("对话设置（模型与思考等级）", () => {
+  test("attach 时还没有会话：settings 为空；首条消息建立会话后补推；再 attach 随 history 下发，mode 不透出", async () => {
+    const fake = fakeAgent();
+    const { page } = await chatPage(fake);
+    expect(await attach(page)).toMatchObject({ method: "history", params: { settings: [] } });
+
+    await send(page, "你好");
+    const pushed = await page.next((m) => m.method === "chat.settings");
+    expect(pushed.params.settings).toEqual([
+      {
+        id: "model",
+        name: "Model",
+        category: "model",
+        currentValue: "alpha/one",
+        options: [
+          { value: "alpha/one", name: "Alpha One", description: "alpha/one" },
+          { value: "beta/two", name: "Beta Two", description: "beta/two" },
+        ],
+      },
+      {
+        id: "thinking",
+        name: "Thinking",
+        category: "thought_level",
+        currentValue: "auto",
+        options: [
+          { value: "off", name: "Off" },
+          { value: "auto", name: "Auto", description: "Auto-detect per prompt" },
+          { value: "high", name: "high" },
+        ],
+      },
+    ]);
+    await ended(page);
+
+    const history = await attach(page);
+    expect(history.params.settings).toMatchObject([{ id: "model" }, { id: "thinking" }]);
+    // mode（plan）是 agent 执行策略，不透出给页面
+    expect(JSON.stringify(history.params.settings)).not.toMatch(/"mode"|plan/);
+  });
+
+  test("set_setting 改模型：Host 发 session/set_config_option，页面按 OMP 的完整回包刷新（连带调整一并到位）", async () => {
+    const fake = fakeAgent();
+    const { page } = await chatPage(fake);
+    await attach(page);
+    await send(page, "你好");
+    await ended(page);
+    await page.next((m) => m.method === "chat.settings"); // 首条消息建立会话后的补推
+    fake.onSetConfig = (configId) => {
+      if (configId !== "model") return;
+      // OMP 实测行为：切到不支持思考的模型后，思考等级回退、可选值收窄
+      const thinking = fake.configOptions.find((o) => o.id === "thinking")!;
+      thinking.currentValue = "off";
+      thinking.options = [
+        { value: "off", name: "Off" },
+        { value: "auto", name: "Auto" },
+      ];
+    };
+
+    const reply = await page.call("chat.set_setting", { courseId: COURSE, configId: "model", value: "beta/two" });
+    expect(fake.calledWith("session/set_config_option")).toEqual([{ sessionId: "session-1", configId: "model", value: "beta/two" }]);
+    expect(reply).toMatchObject({ method: "chat.settings", params: { courseId: COURSE } });
+    expect(reply.params.settings).toEqual([
+      expect.objectContaining({ id: "model", currentValue: "beta/two" }),
+      expect.objectContaining({ id: "thinking", currentValue: "off", options: [{ value: "off", name: "Off" }, { value: "auto", name: "Auto" }] }),
+    ]);
+  });
+
+  test("参数与状态校验：没有会话回 chat_unavailable；非法参数不转达；OMP 拒绝的值回 bad_request", async () => {
+    const fake = fakeAgent();
+    const { page } = await chatPage(fake);
+    await attach(page);
+    // 空历史不拉起 OMP：还没有会话
+    expect(await page.call("chat.set_setting", { courseId: COURSE, configId: "model", value: "beta/two" })).toMatchObject(refused("chat_unavailable"));
+
+    await send(page, "你好");
+    await ended(page);
+    for (const params of [
+      { configId: "mode", value: "plan" }, // 白名单外：plan 模式不面向学员
+      { configId: "model", value: "" },
+      { configId: "model", value: "x".repeat(257) },
+      { configId: 42, value: "beta/two" },
+      { configId: "model" },
+    ]) {
+      expect(await page.call("chat.set_setting", { courseId: COURSE, ...params })).toMatchObject(refused("bad_request"));
+    }
+    // OMP 对不认识的值回 Internal error（Unknown ACP model: …）：细节只进日志，页面按未改动处理
+    expect(await page.call("chat.set_setting", { courseId: COURSE, configId: "model", value: "gamma/three" })).toMatchObject(refused("bad_request"));
+    expect(fake.calledWith("session/set_config_option")).toEqual([{ sessionId: "session-1", configId: "model", value: "gamma/three" }]);
+  });
+
+  test("一轮在跑时 set_setting 回 busy，回合结束后可改", async () => {
+    const fake = fakeAgent();
+    const { page } = await chatPage(fake);
+    const normal = fake.script;
+    fake.script = async (t) => {
+      await t.cancelled;
+      return { stopReason: "cancelled" };
+    };
+    await attach(page);
+    await send(page, "一");
+    expect(await page.call("chat.set_setting", { courseId: COURSE, configId: "thinking", value: "high" })).toMatchObject(refused("busy"));
+    page.send({ method: "chat.stop", params: { courseId: COURSE } });
+    await ended(page);
+
+    fake.script = normal;
+    expect(await page.call("chat.set_setting", { courseId: COURSE, configId: "thinking", value: "high" })).toMatchObject({ method: "chat.settings" });
+  });
+
+  test("OMP 在会话里改了设置：推给页面（config_option_update），不进对话缓冲（含 session/load 回放）", async () => {
+    const fake = fakeAgent();
+    const { host, page, token, tokenId, browserKey } = await chatPage(fake);
+    const normal = fake.script;
+    fake.script = async (t) => {
+      const thinking = fake.configOptions.find((o) => o.id === "thinking")!;
+      thinking.currentValue = "high";
+      await t.emit({ sessionUpdate: "config_option_update", configOptions: fake.configOptions });
+      return normal(t);
+    };
+    await attach(page);
+    await send(page, "你好");
+    await ended(page);
+    // 两条推送：首条消息建立会话（OMP 的初值），随后 OMP 自己改了设置
+    const pushed = page.inbox.filter((m) => m.method === "chat.settings");
+    expect(
+      pushed.map((m) => (m.params.settings as { id: string; currentValue: string }[]).find((o) => o.id === "thinking")!.currentValue),
+    ).toEqual(["auto", "high"]);
+
+    const restarted = restart(fake, host, { token, tokenId });
+    const page2 = await helloed(restarted, browserKey);
+    expect((await attach(page2)).params.events.map((e: { kind: string }) => e.kind)).toEqual(["user", "message"]);
+  });
+});

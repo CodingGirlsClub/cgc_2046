@@ -21,6 +21,7 @@ export const PAGE_TO_HOST = [
 	"chat.new",
 	"chat.sessions",
 	"chat.open",
+	"chat.set_setting",
 	"card.answer",
 ] as const;
 /** 页面会处理的 Host 消息；契约测试断言它们都在 hostToPage 里 */
@@ -30,6 +31,7 @@ export const HOST_TO_PAGE = [
 	"error",
 	"history",
 	"sessions",
+	"chat.settings",
 	"turn.delta",
 	"turn.card",
 	"turn.card.closed",

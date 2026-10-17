@@ -109,20 +109,20 @@ function renderPanel(locale: "zh-CN" | "en" = "zh-CN") {
 const socketCount = () => FakeWebSocket.all.length;
 
 /** 已存浏览器密钥：连接 → hello → ready → chat.attach → history；返回这条连接 */
-async function attach(events: object[] = [], running = false) {
+async function attach(events: object[] = [], running = false, settings?: object[]) {
 	await waitFor(() => expect(socketCount()).toBeGreaterThan(0));
 	const ws = FakeWebSocket.all.at(-1)!;
 	ws.push({ method: "status", params: status("paired") });
 	await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
 	await ws.reply("hello", "status", status("ready"));
 	await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
-	await ws.reply("chat.attach", "history", { courseId: COURSE, running, events });
+	await ws.reply("chat.attach", "history", { courseId: COURSE, running, events, ...(settings ? { settings } : {}) });
 	return ws;
 }
 
-async function readyPanel(events: object[] = [], running = false) {
+async function readyPanel(events: object[] = [], running = false, settings?: object[]) {
 	renderPanel();
-	const ws = await attach(events, running);
+	const ws = await attach(events, running, settings);
 	await screen.findByRole("textbox", { name: "发给 agent 的消息" });
 	return ws;
 }
@@ -779,5 +779,84 @@ describe("历史对话（Session History）", () => {
 		expect(screen.queryByRole("button", { name: /2 条消息/ })).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "历史对话" }));
 		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.sessions"));
+	});
+});
+
+describe("对话设置（模型与思考等级）", () => {
+	const SETTINGS = [
+		{
+			id: "model",
+			name: "Model",
+			category: "model",
+			currentValue: "alpha/one",
+			options: [
+				{ value: "alpha/one", name: "Alpha One", description: "alpha/one" },
+				{ value: "beta/two", name: "Beta Two", description: "beta/two" },
+			],
+		},
+		{
+			id: "thinking",
+			name: "Thinking",
+			category: "thought_level",
+			currentValue: "auto",
+			options: [
+				{ value: "off", name: "Off" },
+				{ value: "auto", name: "Auto", description: "Auto-detect per prompt" },
+			],
+		},
+	];
+
+	it("history 带 settings 时渲染两个下拉：模型按 provider 分组、思考等级平铺；没有 settings（旧版 Host）时整块不渲染", async () => {
+		const bare = renderPanel();
+		await attach();
+		await screen.findByRole("textbox", { name: "发给 agent 的消息" });
+		expect(bare.container.querySelector(".learning-chat__settings")).toBeNull();
+		cleanup();
+		FakeWebSocket.all = [];
+
+		const view = renderPanel();
+		await attach([], false, SETTINGS);
+		await screen.findByRole("textbox", { name: "发给 agent 的消息" });
+		expect(view.container.querySelector(".learning-chat__settings")).not.toBeNull();
+		const model = screen.getByRole("combobox", { name: "模型" }) as HTMLSelectElement;
+		const thinking = screen.getByRole("combobox", { name: "思考等级" }) as HTMLSelectElement;
+		expect(model.value).toBe("alpha/one");
+		expect(thinking.value).toBe("auto");
+		expect(within(model).getByRole("group", { name: "alpha" })).toBeInTheDocument();
+		expect(within(model).getByRole("group", { name: "beta" })).toBeInTheDocument();
+		expect(within(thinking).queryByRole("group")).toBeNull();
+	});
+
+	it("改模型：发 chat.set_setting，chat.settings 的回复把两个下拉一起刷新", async () => {
+		const ws = await readyPanel([], false, SETTINGS);
+		fireEvent.change(screen.getByRole("combobox", { name: "模型" }), { target: { value: "beta/two" } });
+		await waitFor(() =>
+			expect(ws.sent.at(-1)).toMatchObject({ method: "chat.set_setting", params: { courseId: COURSE, configId: "model", value: "beta/two" } }),
+		);
+		// OMP 的连带调整：切模型后思考等级回退、可选值收窄 —— 一起到位
+		await ws.reply("chat.set_setting", "chat.settings", {
+			courseId: COURSE,
+			settings: [
+				{ ...SETTINGS[0], currentValue: "beta/two" },
+				{ ...SETTINGS[1], currentValue: "off", options: [{ value: "off", name: "Off" }] },
+			],
+		});
+		await waitFor(() => expect((screen.getByRole("combobox", { name: "模型" }) as HTMLSelectElement).value).toBe("beta/two"));
+		expect((screen.getByRole("combobox", { name: "思考等级" }) as HTMLSelectElement).value).toBe("off");
+	});
+
+	it("改设置失败：busy 就地提示（不打扰对话）；旧版 Host 的 unknown_method 提示更新 Host", async () => {
+		const ws = await readyPanel([], false, SETTINGS);
+		fireEvent.change(screen.getByRole("combobox", { name: "思考等级" }), { target: { value: "off" } });
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.set_setting"));
+		await ws.reply("chat.set_setting", "error", { code: "busy" });
+		expect(await screen.findByRole("alert")).toHaveTextContent("有一轮回复正在进行，先等它结束再改。");
+
+		fireEvent.change(screen.getByRole("combobox", { name: "思考等级" }), { target: { value: "auto" } });
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.set_setting"));
+		await ws.reply("chat.set_setting", "error", { code: "unknown_method" });
+		await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("这台电脑上的 CGC Host 版本过旧"));
+		// 值没被改走：仍是 Host 给的当前值
+		expect((screen.getByRole("combobox", { name: "思考等级" }) as HTMLSelectElement).value).toBe("auto");
 	});
 });

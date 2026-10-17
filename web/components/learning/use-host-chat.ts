@@ -91,6 +91,15 @@ export interface SessionsPage {
 	nextCursor: string | null;
 }
 
+/** history 的 settings 与 chat.settings 的载荷：Host 收窄后的 OMP 会话设置（模型、思考等级） */
+export interface HostChatSetting {
+	id: string;
+	name: string;
+	category: string;
+	currentValue: string;
+	options: { value: string; name: string; description?: string }[];
+}
+
 /** R26 的状态：一处状态源。ready / evicted 时对话可见 */
 export type ChatView =
 	| Exclude<HostConnection, { state: "detected" }>
@@ -102,6 +111,8 @@ interface ChatState {
 	attached: boolean;
 	events: ChatEvent[];
 	cards: ChatCard[];
+	/** 本机 OMP 的会话设置（模型、思考等级）；空数组表示不渲染入口（旧版 Host 或 OMP 不给） */
+	settings: HostChatSetting[];
 	running: boolean;
 	sending: boolean;
 	stopping: boolean;
@@ -113,6 +124,7 @@ const INITIAL: ChatState = {
 	attached: false,
 	events: [],
 	cards: [],
+	settings: [],
 	running: false,
 	sending: false,
 	stopping: false,
@@ -122,7 +134,8 @@ const INITIAL: ChatState = {
 
 type Action =
 	| { type: "reset" }
-	| { type: "history"; running: boolean; events: ChatEvent[] }
+	| { type: "history"; running: boolean; events: ChatEvent[]; settings: HostChatSetting[] }
+	| { type: "settings"; settings: HostChatSetting[] }
 	| { type: "delta"; event: ChatEvent }
 	| { type: "card"; card: ChatCard }
 	| { type: "cardClosed"; cardId: string }
@@ -155,7 +168,11 @@ function reduce(state: ChatState, action: Action): ChatState {
 				attached: true,
 				running: action.running,
 				events: action.events.reduce(append, []),
+				settings: action.settings,
 			};
+		case "settings":
+			// 设置不进对话记录，只刷新入口的当前值与可选值
+			return { ...state, settings: action.settings };
 		case "delta":
 			// kind: user 是 chat.send 的回复：Host 接下了这一轮
 			return action.event.kind === "user"
@@ -197,6 +214,30 @@ function eventOf(params: Record<string, unknown>): ChatEvent | null {
 	return event.kind === "usage" ? null : (event as unknown as ChatEvent);
 }
 
+/** settings 载荷只应来自 Host：形状不合就按空处理（旧版 Host 不带这个字段，页面据此不渲染入口） */
+function settingsOf(params: Record<string, unknown>): HostChatSetting[] {
+	if (!Array.isArray(params.settings)) return [];
+	return params.settings.flatMap((item) => {
+		if (typeof item !== "object" || item === null) return [];
+		const option = item as Record<string, unknown>;
+		if (typeof option.id !== "string" || typeof option.currentValue !== "string" || !Array.isArray(option.options)) return [];
+		return [
+			{
+				id: option.id,
+				name: typeof option.name === "string" ? option.name : option.id,
+				category: typeof option.category === "string" ? option.category : option.id,
+				currentValue: option.currentValue,
+				options: option.options.flatMap((raw) => {
+					if (typeof raw !== "object" || raw === null) return [];
+					const value = raw as Record<string, unknown>;
+					if (typeof value.value !== "string" || typeof value.name !== "string") return [];
+					return [{ value: value.value, name: value.name, ...(typeof value.description === "string" ? { description: value.description } : {}) }];
+				}),
+			},
+		];
+	});
+}
+
 function viewOf(
 	probe: HostConnection | null,
 	socket: HostSocket | null,
@@ -234,6 +275,8 @@ export interface HostChat extends Omit<ChatState, "evicted"> {
 	listSessions(cursor?: string): Promise<SessionsPage | { error: ChatErrorCode }>;
 	/** 切换到某个历史会话；成功即由 history 回复接管归约，失败返回错误码且不影响当前会话 */
 	openSession(sessionId: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }>;
+	/** 改当前会话的 OMP 设置（模型、思考等级）；成功即由 chat.settings 回复接管归约，失败返回错误码 */
+	setSetting(configId: string, value: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }>;
 }
 
 export function useHostChat({
@@ -323,8 +366,12 @@ export function useHostChat({
 			if (reply.method === "error") return dispatch({ type: "error", code: String(params.code) });
 			if (reply.method === "history") {
 				const events = ((params.events as Record<string, unknown>[]) ?? []).flatMap((e) => eventOf(e) ?? []);
-				dispatch({ type: "history", running: params.running === true, events });
+				dispatch({ type: "history", running: params.running === true, events, settings: settingsOf(params) });
 				return refetch();
+			}
+			if (reply.method === "chat.settings") {
+				dispatch({ type: "settings", settings: settingsOf(params) });
+				return;
 			}
 			if (reply.method === "turn.card.closed") return dispatch({ type: "cardClosed", cardId: String(params.cardId) });
 			const event = reply.method === "turn.delta" ? eventOf(params) : null;
@@ -336,7 +383,7 @@ export function useHostChat({
 	// raw：只做代次校验与 not_holder 失效，不把回复交给归约——历史列表/切换失败要在调用方就地呈现。
 	const requestChatRaw = useCallback(
 		async (
-			method: "chat.attach" | "chat.new" | "chat.send" | "chat.sessions" | "chat.open" | "card.answer",
+			method: "chat.attach" | "chat.new" | "chat.send" | "chat.sessions" | "chat.open" | "chat.set_setting" | "card.answer",
 			params: Record<string, unknown>,
 			timeoutMs = CHAT_TIMEOUT_MS,
 		) => {
@@ -407,6 +454,7 @@ export function useHostChat({
 				ownership.current += 1;
 				dispatch({ type: "evicted" });
 			})),
+			socket.on("chat.settings", mine((params) => dispatch({ type: "settings", settings: settingsOf(params) }))),
 		];
 		return () => offs.forEach((off) => off());
 	}, [socket, courseId, refetch]);
@@ -475,6 +523,21 @@ export function useHostChat({
 		[courseId, requestChatRaw, onReply],
 	);
 
+	// 改本机 OMP 的会话设置：成功由 chat.settings 回复接管归约；busy / chat_unavailable / bad_request 原样回给调用方
+	const setSetting = useCallback(
+		async (configId: string, value: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }> => {
+			const reply = await requestChatRaw("chat.set_setting", { courseId, configId, value });
+			if (!reply) return { ok: false, code: "disconnected" };
+			if (reply.method === "chat.settings") {
+				onReply(reply);
+				return { ok: true };
+			}
+			if (reply.method === "error" && reply.params?.code === "not_holder") onReply(reply);
+			return { ok: false, code: String(reply.params?.code ?? "unknown") };
+		},
+		[courseId, requestChatRaw, onReply],
+	);
+
 	const { evicted, ...rest } = chat;
 	return {
 		...rest,
@@ -489,5 +552,6 @@ export function useHostChat({
 		reclaim: attach,
 		listSessions,
 		openSession,
+		setSetting,
 	};
 }

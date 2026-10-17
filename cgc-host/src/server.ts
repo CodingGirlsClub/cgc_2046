@@ -11,7 +11,7 @@ import { type HostState, loadState, type Pairing, saveState } from "./state";
 /** 两个方向共用的帧信封（cgc-host/AGENTS.md）；回复带上请求的 id */
 export type Message = { method: string; id?: string; params?: Record<string, unknown> };
 
-export type ChatMethod = "chat.attach" | "chat.send" | "chat.stop" | "chat.new" | "chat.sessions" | "chat.open" | "card.answer";
+export type ChatMethod = "chat.attach" | "chat.send" | "chat.stop" | "chat.new" | "chat.sessions" | "chat.open" | "chat.set_setting" | "card.answer";
 
 export interface ChatContext {
   /** Host 向平台核实过的账号与学习凭证（KTD6：工作目录与下发给 OMP 的 mcpServers 用它们） */
@@ -158,6 +158,7 @@ const handlers: Record<string, (host: Host, ws: WS, frame: Frame) => unknown> = 
   "chat.new": chat,
   "chat.sessions": chat,
   "chat.open": chat,
+  "chat.set_setting": chat,
   "card.answer": chat,
 };
 

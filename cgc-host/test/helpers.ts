@@ -215,6 +215,16 @@ export type Turn = {
   cancelled: Promise<void>;
 };
 
+/** 假 OMP 的会话设置：形状与 OMP 实测一致（mode / model / thinking 三项 select） */
+export type FakeConfigOption = {
+  id: string;
+  name: string;
+  category: string;
+  type: "select";
+  currentValue: string;
+  options: { value: string; name: string; description?: string }[];
+};
+
 /**
  * 假 OMP：会话存储跨连接保留（模拟 OMP 的会话文件），每次 start 是一条新连接（模拟拉起新进程）。
  * session/load 回放历史；session/prompt 交给 fake.script。calls 记下 agent 收到的每个请求与通知。
@@ -231,6 +241,35 @@ export function fakeAgent() {
     failLoadFor: new Set<string>(),
     calls: [] as { method: string; params: any }[],
     answers: [] as any[],
+    /** OMP 的会话设置（ACP configOptions）：session/new、session/load 的回包带它；set_config_option 按它校验并更新 */
+    configOptions: [
+      { id: "mode", name: "Mode", category: "mode", type: "select", currentValue: "default", options: [{ value: "default", name: "Default" }, { value: "plan", name: "Plan" }] },
+      {
+        id: "model",
+        name: "Model",
+        category: "model",
+        type: "select",
+        currentValue: "alpha/one",
+        options: [
+          { value: "alpha/one", name: "Alpha One", description: "alpha/one" },
+          { value: "beta/two", name: "Beta Two", description: "beta/two" },
+        ],
+      },
+      {
+        id: "thinking",
+        name: "Thinking",
+        category: "thought_level",
+        type: "select",
+        currentValue: "auto",
+        options: [
+          { value: "off", name: "Off" },
+          { value: "auto", name: "Auto", description: "Auto-detect per prompt" },
+          { value: "high", name: "high" },
+        ],
+      },
+    ] as FakeConfigOption[],
+    /** 应用 set_config_option 后由测试改写 configOptions（模拟 OMP 的连带调整，如切模型后思考等级回退） */
+    onSetConfig: null as ((configId: string, value: string) => void) | null,
     starts: 0,
     conn: null as acp.ClientConnection | null,
     /** 默认：回一句话，带用量 */
@@ -264,7 +303,7 @@ export function fakeAgent() {
           const sessionId = `session-${++seq}`;
           fake.store.set(sessionId, { cwd: c.params.cwd, history: [], updatedAt: new Date().toISOString() });
           loaded.add(sessionId);
-          return { sessionId };
+          return { sessionId, configOptions: fake.configOptions };
         })
         .onRequest("session/list", (c) => {
           record("session/list", c.params);
@@ -289,7 +328,19 @@ export function fakeAgent() {
           if (!s) throw acp.RequestError.resourceNotFound(c.params.sessionId);
           loaded.add(c.params.sessionId);
           for (const update of s.history) await c.client.notify("session/update", { sessionId: c.params.sessionId, update });
-          return {};
+          return { configOptions: fake.configOptions };
+        })
+        .onRequest("session/set_config_option", (c) => {
+          record("session/set_config_option", c.params);
+          const { configId, value } = c.params;
+          const option = fake.configOptions.find((o) => o.id === configId);
+          // OMP 对不认识的值回 Internal error，细节正是页面看到 bad_request 时该记进日志的那句
+          if (!option || typeof value !== "string" || !option.options.some((o) => o.value === value)) {
+            throw acp.RequestError.internalError({ details: `Unknown ACP ${configId}: ${String(value)}` });
+          }
+          option.currentValue = value;
+          fake.onSetConfig?.(configId, value);
+          return { configOptions: fake.configOptions };
         })
         .onRequest("session/prompt", async (c) => {
           record("session/prompt", c.params);
