@@ -438,6 +438,50 @@ defmodule Cgc2046.Notifications.ServiceTest do
                     }}
   end
 
+  # #371：抖音发送接口的 data 是「模板关键词名 → 值」的 map（官方《发送订阅消息》
+  # notify-user-v2：`_key`=模板关键词、`_val`=对应值），**不是**微信的
+  # thing1/number3 槽位编号——渲染分支因此不能共用微信子句。关键词名取自控制台
+  # 「我的模板」（2026-10-15 过审）：参与结果/活动名称/参与编号。
+  test "tt approval_result 渲染：关键词名做 key（参与结果/活动名称/参与编号）" do
+    user = Fixtures.register_user("notification-tt-approval")
+    insert_identity(user.id, :tt, "tt-openid-approval")
+    {:ok, _} = Consent.grant(user.id, :tt, "approval_result")
+
+    assert :ok =
+             Service.send_to_user(user.id, :tt, "approval_result", %{
+               "status" => "approved",
+               "title" => "AI 入门工作坊",
+               "capacity_seq" => 7
+             })
+
+    assert_receive {:notification, :tt, %{"data" => data}}
+
+    assert data == %{
+             "参与结果" => "已通过",
+             "活动名称" => "AI 入门工作坊",
+             "参与编号" => "7"
+           }
+  end
+
+  test "tt event_reminder 渲染：开始时间北京时间（跨日），缺 venue 跳过该关键词" do
+    user = Fixtures.register_user("notification-tt-event")
+    insert_identity(user.id, :tt, "tt-openid-event")
+    {:ok, _} = Consent.grant(user.id, :tt, "event_reminder")
+
+    assert :ok =
+             Service.send_to_user(user.id, :tt, "event_reminder", %{
+               "title" => "AI 入门工作坊",
+               "starts_at" => "2026-09-20T17:30:00Z",
+               "venue" => nil
+             })
+
+    assert_receive {:notification, :tt, %{"data" => data}}
+
+    # UTC 17:30 → 北京时间次日 01:30；venue 缺值不下发（drop_nils）
+    assert data == %{"活动名称" => "AI 入门工作坊", "开始时间" => "2026-09-21 01:30"}
+    refute Map.has_key?(data, "活动地点")
+  end
+
   test "payment_received 渲染：thing6/thing8/amount2/character_string1，空档位跳过" do
     user = Fixtures.register_user("notification-receipt-render")
     insert_identity(user.id, :wechat, "wx-receipt-openid")
