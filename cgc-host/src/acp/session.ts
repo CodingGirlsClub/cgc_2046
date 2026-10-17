@@ -15,13 +15,13 @@ import type { ChatContext, ChatMethod, Message } from "../server";
 import { setPointer, workDir } from "../state";
 import { createAgentRuntimes } from "./agent-runtimes";
 import { authenticateAgent, createAuthMethods } from "./auth";
-import { type Cards, createCards } from "./cards";
+import { type Course, createCourse, type Turn } from "./course";
 import { type Agent, clientApp } from "./client";
 import { message, OpenError } from "./errors";
-import { type ChatEvent, classifyModelError, createTranscript, type Transcript } from "./events";
+import { classifyModelError, type ChatEvent } from "./events";
 import { pageContext } from "./page-context";
 import { type Preparation } from "./runtime";
-import { pickSettings, SETTING_IDS, SETTING_VALUE_MAX, type ConfigOption } from "./settings";
+import { pickSettings, SETTING_IDS, SETTING_VALUE_MAX } from "./settings";
 
 export interface ChatOptions {
   home: string;
@@ -35,34 +35,6 @@ export interface ChatOptions {
   graceMs?: number;
   /** KTD13：没有页面连着、也没有在跑的回合超过它，就回收 OMP 进程；默认 10 分钟 */
   idleMs?: number;
-}
-
-/** sessionId 在 session/prompt 发出时才填：之前（含拉起会话时 session/load 的回放）收到的更新只进缓冲，不推给页面 */
-type Turn = { stopping: boolean; sessionId: string | null; text: string };
-
-interface Course {
-  id: string;
-  /** 这段对话现在由哪个 agent 驱动；换成另一个 agent 就是换一段会话（见 handle 与 course） */
-  agent: AgentKind;
-  /** 发给这门课当前的持有者（server.ts 的 ctx.push）；绑定失效时丢弃，事件仍在缓冲里 */
-  send(message: Message): void;
-  held: boolean;
-  /** 已在当前 agent 进程里 new / load 的会话，以及加载它用的账号与凭证 */
-  sessionId: string | null;
-  userId: string;
-  token: string;
-  transcript: Transcript;
-  cards: Cards;
-  turn: Turn | null;
-  /** 上一次随消息附带的页面上下文（KTD8）：没变就不再附 */
-  lastContext: string | null;
-  /** OMP 给的会话设置项（模型、思考等级，收窄后）：新一轮会话从 OMP 回包里刷新 */
-  settings: ConfigOption[];
-  /** 上一次推给页面的设置（JSON）：内容没变就不重复推；null 表示还没同步过 */
-  settingsKey: string | null;
-  graceTimer: Timer | null;
-  /** 同一门课的会话操作（new / load）排队执行 */
-  queue: Promise<unknown>;
 }
 
 /** ACP 的 auth_required（-32000）：这个 agent 要求学员先登录（页面的登录卡与 chat.authenticate 都是围绕它） */
@@ -314,24 +286,7 @@ export function createChat(opts: ChatOptions) {
   function course(id: string, ctx: ChatContext, agent: AgentKind): Course {
     let c = courses.get(id);
     if (!c) {
-      const created: Course = {
-        id,
-        agent,
-        send: ctx.push,
-        held: true,
-        sessionId: null,
-        userId: ctx.userId,
-        token: ctx.token,
-        transcript: createTranscript(),
-        cards: createCards((method, params) => created.send({ method, params: { courseId: id, ...params } })),
-        turn: null,
-        lastContext: null,
-        settings: [],
-        settingsKey: null,
-        graceTimer: null,
-        queue: Promise.resolve(),
-      };
-      courses.set(id, (c = created));
+      courses.set(id, (c = createCourse(id, agent, ctx)));
     } else if (c.agent !== agent) {
       // 换 agent 就是换一段会话（KTD8）：旧进程里那条会话作废，缓冲、设置与待答卡片一起清掉；
       // 在跑的回合已由 handle 先停掉，这里只把它摘下来，免得旧回合的收尾再推一条 turn.end 给新页面。

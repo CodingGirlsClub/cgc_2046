@@ -4128,17 +4128,17 @@
   "hostChat": {
     "title": "本机 agent",
     "computers": "已配对的电脑",
-      "history": {
-        "title": "历史对话",
-        "loading": "正在读取历史对话…",
-        "empty": "还没有更早的对话。",
-        "entry": "{time} · {count} 条消息",
-        "current": "当前",
-        "more": "加载更多",
-        "unavailable": "这段对话暂时无法打开（可能因 OMP 更新）。",
-        "busy": "有一轮回复正在进行，先停止或等它结束。",
-        "failed": "读取历史对话失败，稍后再试。"
-      },
+    "history": {
+      "title": "历史对话",
+      "loading": "正在读取历史对话…",
+      "empty": "还没有更早的对话。",
+      "entry": "{time} · {count} 条消息",
+      "current": "当前",
+      "more": "加载更多",
+      "unavailable": "这段对话暂时无法打开（可能因 OMP 更新）。",
+      "busy": "有一轮回复正在进行，先停止或等它结束。",
+      "failed": "读取历史对话失败，稍后再试。"
+    },
     "settings": {
       "model": "模型",
       "thinking": "思考等级",
@@ -4178,8 +4178,6 @@
       "loginItemsHint": "已经装过？请检查系统里是否关掉了 CGC Host 的登录启动（macOS：系统设置 → 通用 → 登录项；Windows：任务管理器 → 启动）。",
       "blocked": "浏览器阻止了本页访问本机。",
       "blockedHint": "点击地址栏左侧的站点信息图标，在网站设置里允许本站访问本地网络，这里会自动重新检测。",
-      "noOmp": "这台电脑上找不到 OMP。",
-      "noOmpHint": "安装 OMP 后，这里会自动重新检测。",
       "unpaired": "把这台电脑上的 CGC Host 与你的账号配对后，就能在这里和你自己的 agent 对话。",
       "connect": "连接",
       "confirming": "请在电脑上弹出的确认框里选择允许。",
@@ -4188,7 +4186,9 @@
       "retry": "重新连接",
       "disconnected": "与本机 Host 的连接中断了，Host 恢复后会自动重连。",
       "evicted": "这门课的对话已在别处（另一个标签页）打开。",
-      "reclaim": "在这里继续"
+      "reclaim": "在这里继续",
+      "noAgent": "这台电脑上还没有可用的 agent。",
+      "noAgentHint": "装好下面任意一个后，这里会自动重新检测。"
     },
     "pairingError": {
       "busy": "电脑上已有一个确认在等待处理，请稍后再试。",
@@ -4237,6 +4237,23 @@
       "copy": "复制命令",
       "copied": "已复制",
       "copyFailed": "复制失败，请手动选中命令复制。"
+    },
+    "agent": {
+      "label": "由 {name} 驱动",
+      "switch": "切换 agent",
+      "add": "添加 agent",
+      "recheck": "重新检测",
+      "installed": "已就绪",
+      "missing": "未安装",
+      "switchHint": "切换后是一段新的对话：另一边原来的对话还在，翻历史可以回去。",
+      "ompInstall": "安装 OMP：见课程页安装说明里的 OMP 安装入口",
+      "codexInstall": "安装 Codex 支持（在终端执行一次）："
+    },
+    "login": {
+      "title": "{name} 需要先登录。",
+      "chatgpt": "用 ChatGPT 登录",
+      "hint": "点一下会在你自己的浏览器里打开登录页；完成后这里会自动接上。",
+      "failed": "登录没成功，可以再试一次。"
     }
   }
 }

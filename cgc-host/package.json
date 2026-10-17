@@ -1,6 +1,6 @@
 {
   "name": "cgc-host",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "private": true,
   "description": "CGC 本机 Host：学员电脑上常驻，替课程学习页经 ACP 驱动学员自己的 OMP（由学员本机的 Bun 运行）",
   "license": "AGPL-3.0-only",

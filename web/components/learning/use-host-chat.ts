@@ -16,14 +16,16 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { useApolloClient } from "@apollo/client/react";
 import { COURSE_LEARNING_DETAIL } from "@/lib/graphql/participations";
-import { checkHost, requestHostAccess, type HostConnection } from "@/lib/host-connection";
+import { checkHost, requestHostAccess, type HostAgentStatus, type HostConnection } from "@/lib/host-connection";
 import { openHostSocket, type HostMessage, type HostSocket } from "@/lib/host-socket";
 import { useHostPairing, type HostPairing, type PairingErrorReason } from "./use-host-pairing";
 
 /** 没有连接时重新检测的间隔：装好 Host、装好 OMP、Host 恢复，都在这个时间内被发现 */
 export const POLL_MS = 3_000;
-/** chat.attach / chat.send / chat.new 可能要先拉起 OMP 并加载会话 */
+/** chat.attach / chat.send / chat.new 可能要先拉起 agent 并加载会话 */
 export const CHAT_TIMEOUT_MS = 60_000;
+/** 登录可能在浏览器里停留很久（ChatGPT 登录跳转 + 学员操作） */
+export const AUTH_TIMEOUT_MS = 120_000;
 const CARD_TIMEOUT_MS = 15_000;
 
 export type ToolStatus = "pending" | "in_progress" | "completed" | "failed" | "stopped";
@@ -103,7 +105,7 @@ export interface HostChatSetting {
 /** R26 的状态：一处状态源。ready / evicted 时对话可见 */
 export type ChatView =
 	| Exclude<HostConnection, { state: "detected" }>
-	| { state: "checking" | "noOmp" | "disconnected" | "unpaired" | "confirming" | "denied" | "ready" | "evicted" }
+	| { state: "checking" | "noAgent" | "disconnected" | "unpaired" | "confirming" | "denied" | "ready" | "evicted" }
 	| { state: "pairingFailed"; reason: PairingErrorReason };
 
 interface ChatState {
@@ -238,6 +240,9 @@ function settingsOf(params: Record<string, unknown>): HostChatSetting[] {
 	});
 }
 
+/** 本机至少有一个装好的 agent（R1：一个都没有时给安装指引，而不是只提 OMP） */
+const hasAgent = (agents: readonly HostAgentStatus[]) => agents.some((agent) => agent.present);
+
 function viewOf(
 	probe: HostConnection | null,
 	socket: HostSocket | null,
@@ -246,10 +251,10 @@ function viewOf(
 	evicted: boolean,
 ): ChatView {
 	if (!socket) {
-		// 探到可用的 Host 到连接打开之间、连接刚断还没重新检测，都只是过渡
-		if (!probe || (probe.state === "detected" && probe.ompPresent)) return { state: lost ? "disconnected" : "checking" };
+		// 探到有可用的 agent 到连接打开之间、连接刚断还没重新检测，都只是过渡
+		if (!probe || (probe.state === "detected" && hasAgent(probe.agents))) return { state: lost ? "disconnected" : "checking" };
 		if (lost && probe.state === "noHost") return { state: "disconnected" };
-		if (probe.state === "detected") return { state: "noOmp" };
+		if (probe.state === "detected") return { state: "noAgent" };
 		return probe;
 	}
 	if (pairing.phase === "ready") return { state: evicted ? "evicted" : "ready" };
@@ -275,8 +280,20 @@ export interface HostChat extends Omit<ChatState, "evicted"> {
 	listSessions(cursor?: string): Promise<SessionsPage | { error: ChatErrorCode }>;
 	/** 切换到某个历史会话；成功即由 history 回复接管归约，失败返回错误码且不影响当前会话 */
 	openSession(sessionId: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }>;
-	/** 改当前会话的 OMP 设置（模型、思考等级）；成功即由 chat.settings 回复接管归约，失败返回错误码 */
+	/** 改当前会话的设置（模型、思考等级）；成功即由 chat.settings 回复接管归约，失败返回错误码 */
 	setSetting(configId: string, value: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }>;
+	/** 本机各 agent 的安装状态（KTD1）：选择器与「添加 agent」都读它 */
+	agents: HostAgentStatus[];
+	/** 这段对话由哪个 agent 驱动（R2：这门课上次用过的 → 这台浏览器上次选过的 → 唯一可用的 → omp） */
+	agent: string;
+	/** 切到另一个 agent：换一段会话（KTD8），旧的在跑回合由 Host 先按取消收尾，这里随后重新 attach */
+	chooseAgent(kind: string): void;
+	/** 这个 agent 要求先登录时的登录方式（协商得来的清单）；null 表示当前不需要登录 */
+	login: { id: string; name: string }[] | null;
+	/** 发起登录（Codex 的 chat-gpt 会在学员本机开浏览器）；成功后自动重新 attach */
+	authenticate(methodId: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }>;
+	/** 重新探测 /health（学员刚装好另一个 agent 时用），返回最新的安装状态 */
+	refreshAgents(): Promise<HostAgentStatus[] | null>;
 }
 
 export function useHostChat({
@@ -305,6 +322,18 @@ export function useHostChat({
 	const ownership = useRef(0);
 	const pairing = useHostPairing({ socket, userId, locale });
 	const [chat, dispatch] = useReducer(reduce, INITIAL);
+	/** 本机各 agent 的状态：探测结果更新它；选择器与「添加 agent」都读它 */
+	const [agents, setAgents] = useState<HostAgentStatus[]>([]);
+	/** 这段对话由哪个 agent 驱动：先取这台浏览器上次的选择，其次 Host 记的「这门课上次用过」（history 回包） */
+	const [agent, setAgent] = useState(() => {
+		try {
+			return window.localStorage.getItem(`cgc-host-agent:${courseId}`) ?? "";
+		} catch {
+			return ""; // 隐私模式下不可读：少一层记忆，不影响默认（Host 会按 omp 处理）
+		}
+	});
+	/** agent 要求先登录时的登录方式（auth_required 带回）；成功后清掉 */
+	const [login, setLogin] = useState<{ id: string; name: string }[] | null>(null);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -322,7 +351,8 @@ export function useHostChat({
 				if (result.state === "needsPermission" && prev?.state === "needsPermission" && prev.probeFailed) return prev;
 				return prev && JSON.stringify(prev) === JSON.stringify(result) ? prev : result;
 			});
-			if (result.state === "detected" && result.ompPresent) {
+			if (result.state === "detected") setAgents(result.agents);
+			if (result.state === "detected" && hasAgent(result.agents)) {
 				const opened = openHostSocket();
 				current = opened;
 				opened.onClose(() => {
@@ -363,9 +393,19 @@ export function useHostChat({
 	const onReply = useCallback(
 		(reply: HostMessage) => {
 			const params = reply.params ?? {};
-			if (reply.method === "error") return dispatch({ type: "error", code: String(params.code) });
+			if (reply.method === "error") {
+				// agent 要求先登录：出登录卡（登录方式由它的握手协商得来），其余错误照旧
+				if (params.code === "auth_required") {
+					setLogin(((params.methods as { id: string; name: string }[]) ?? []).filter((m) => typeof m?.id === "string"));
+					return;
+				}
+				return dispatch({ type: "error", code: String(params.code) });
+			}
 			if (reply.method === "history") {
 				const events = ((params.events as Record<string, unknown>[]) ?? []).flatMap((e) => eventOf(e) ?? []);
+				// R2：没选过就用 Host 记的「这门课上次用过」（这台浏览器的记忆在初始值里，已经用过就不覆盖）
+				const remembered = typeof params.agent === "string" ? params.agent : "";
+				if (remembered) setAgent((current) => current || remembered);
 				dispatch({ type: "history", running: params.running === true, events, settings: settingsOf(params) });
 				return refetch();
 			}
@@ -383,19 +423,29 @@ export function useHostChat({
 	// raw：只做代次校验与 not_holder 失效，不把回复交给归约——历史列表/切换失败要在调用方就地呈现。
 	const requestChatRaw = useCallback(
 		async (
-			method: "chat.attach" | "chat.new" | "chat.send" | "chat.sessions" | "chat.open" | "chat.set_setting" | "card.answer",
+			method:
+				| "chat.attach"
+				| "chat.new"
+				| "chat.send"
+				| "chat.sessions"
+				| "chat.open"
+				| "chat.set_setting"
+				| "chat.authenticate"
+				| "card.answer",
 			params: Record<string, unknown>,
 			timeoutMs = CHAT_TIMEOUT_MS,
 		) => {
 			if (!socket) return null;
 			const generation = ownership.current;
-			const reply = await socket.request(method, params, { timeoutMs })
+			// 页面选的 agent 跟着每个对话方法走；调用方显式给了就以它为准（切换那一刻要立刻带新的）
+			const withAgent = agent && !("agent" in params) ? { agent, ...params } : params;
+			const reply = await socket.request(method, withAgent, { timeoutMs })
 				.catch((e: Error): HostMessage => ({ method: "error", params: { code: e.message } }));
 			if (generation !== ownership.current) return null;
 			if (reply.method === "error" && reply.params?.code === "not_holder") ownership.current += 1;
 			return reply;
 		},
-		[socket],
+		[socket, agent],
 	);
 	const requestChat = useCallback(
 		async (
@@ -538,6 +588,48 @@ export function useHostChat({
 		[courseId, requestChatRaw, onReply],
 	);
 
+	// 切 agent（R3、KTD8）：换一段会话——清空本页缓冲与登录态，再用新 agent 重新 attach；
+	// 旧 agent 上有回合在跑时 Host 会先按取消收尾并回一次 busy，重试即接上新的那段。
+	const chooseAgent = useCallback(
+		(kind: string) => {
+			if (kind === agent) return;
+			setLogin(null);
+			setAgent(kind);
+			try {
+				window.localStorage.setItem(`cgc-host-agent:${courseId}`, kind);
+			} catch {
+				// 隐私模式：只是少一层本浏览器的记忆
+			}
+			ownership.current += 1;
+			dispatch({ type: "reset" });
+			void requestChat("chat.attach", { courseId, agent: kind });
+		},
+		[agent, courseId, requestChat],
+	);
+
+	// 登录（KTD4）：页面只发起，浏览器由这个 agent 的适配器自己开；成功后重新 attach 接上对话
+	const authenticate = useCallback(
+		async (methodId: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }> => {
+			const reply = await requestChatRaw("chat.authenticate", { courseId, methodId }, AUTH_TIMEOUT_MS);
+			if (!reply) return { ok: false, code: "disconnected" };
+			if (reply.method === "chat.authenticated") {
+				setLogin(null);
+				void requestChat("chat.attach", { courseId });
+				return { ok: true };
+			}
+			return { ok: false, code: String(reply.params?.code ?? "unknown") };
+		},
+		[courseId, requestChat, requestChatRaw],
+	);
+
+	/** 重新探测 /health：学员刚装好另一个 agent 时用（本页已经连上过，权限已给，不需要手势） */
+	const refreshAgents = useCallback(async () => {
+		const result = await checkHost({ previouslyReachedHost: true });
+		if (result.state !== "detected") return null;
+		setAgents(result.agents);
+		return result.agents;
+	}, []);
+
 	const { evicted, ...rest } = chat;
 	return {
 		...rest,
@@ -553,5 +645,11 @@ export function useHostChat({
 		listSessions,
 		openSession,
 		setSetting,
+		agents,
+		agent,
+		chooseAgent,
+		login,
+		authenticate,
+		refreshAgents,
 	};
 }

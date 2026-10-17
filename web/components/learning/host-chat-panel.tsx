@@ -32,6 +32,13 @@ const PAIRING_ERROR_KEYS: Record<PairingErrorReason, string> = {
 	failed: "pairingError.failed",
 };
 
+/** agent 的显示名：Host 只报 kind（KTD1），名字属于页面文案 */
+const AGENT_NAMES: Record<string, string> = { omp: "OMP", codex: "Codex" };
+const agentName = (kind: string) => AGENT_NAMES[kind] ?? kind;
+
+/** 期 1 是 BYO：适配器由学员自己装（Host 只探测）。这条命令装了 Bun 就有——Host 安装时已经保证 Bun 在 PATH 上 */
+const CODEX_ACP_INSTALL = "bun add -g @agentclientprotocol/codex-acp";
+
 /** 对话方法的 error.params.code（cgc-host/AGENTS.md）；其余归「出错了，请重试」 */
 const CHAT_ERROR_KEYS: Record<string, string> = {
 	chat_unavailable: "error.chatUnavailable",
@@ -71,6 +78,126 @@ function Notice({ title, hint, children }: { title: string; hint?: string; child
 }
 
 /** R26：对话以外的每种连接状态，给出说明与下一步 */
+/** 支持的 agent 与安装状态（期 1 BYO）+「重新检测」：noAgent 视图与「添加 agent」共用同一块 */
+function AgentInstall({ chat }: { chat: HostChat }) {
+	const t = useTranslations("hostChat.agent");
+	const [checking, setChecking] = useState(false);
+	const codex = chat.agents.find((agent) => agent.kind === "codex");
+	return (
+		<div className="learning-chat__agents">
+			<p className="learning-chat__hint">{t("codexInstall")}</p>
+			<pre>
+				<code>{CODEX_ACP_INSTALL}</code>
+			</pre>
+			<p className="learning-chat__note">{`Codex：${codex?.present ? t("installed") : t("missing")}`}</p>
+			<button
+				type="button"
+				className="learning-chat__option"
+				disabled={checking}
+				onClick={() => {
+					setChecking(true);
+					void chat.refreshAgents().finally(() => setChecking(false));
+				}}
+			>
+				{t("recheck")}
+			</button>
+		</div>
+	);
+}
+
+/** R1、R2：装好 ≥2 个 agent 时给选择器；只有 1 个时是静态标签 +「添加 agent」；一个都没有时由 noAgent 视图接管 */
+function AgentPicker({ chat }: { chat: HostChat }) {
+	const t = useTranslations("hostChat.agent");
+	const [open, setOpen] = useState(false);
+	const present = chat.agents.filter((agent) => agent.present);
+	if (present.length === 0) return null;
+	const current = present.some((agent) => agent.kind === chat.agent) ? chat.agent : present[0].kind;
+	const label = t("label", { name: agentName(current) });
+
+	if (present.length === 1) {
+		return (
+			<span className="learning-chat__agent">
+				<span className="learning-chat__agent-label">{label}</span>
+				<button type="button" className="learning-chat__text-button" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+					{t("add")}
+				</button>
+				{open ? (
+					<div className="learning-chat__agent-menu">
+						<AgentInstall chat={chat} />
+					</div>
+				) : null}
+			</span>
+		);
+	}
+	return (
+		<span className="learning-chat__agent">
+			<button type="button" className="learning-chat__text-button" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+				{label}
+			</button>
+			{open ? (
+				<div className="learning-chat__agent-menu" role="menu">
+					{present.map((agent) => (
+						<button
+							key={agent.kind}
+							type="button"
+							role="menuitemradio"
+							aria-checked={agent.kind === current}
+							className="learning-chat__option"
+							onClick={() => {
+								setOpen(false);
+								chat.chooseAgent(agent.kind);
+							}}
+						>
+							{agentName(agent.kind)}
+						</button>
+					))}
+					<p className="learning-chat__hint">{t("switchHint")}</p>
+					<AgentInstall chat={chat} />
+				</div>
+			) : null}
+		</span>
+	);
+}
+
+/**
+ * 登录卡（KTD4、R6）：只列页面能真正走完的方式——Codex 适配器的 api-key 分支要的是 `_meta.apiKey` 或
+ * `OPENAI_API_KEY`，页面没有安全收集并转交密钥的契约，所以首期只开放 ChatGPT 登录（学员自己的账号）。
+ */
+function HostChatLogin({ chat }: { chat: HostChat }) {
+	const t = useTranslations("hostChat.login");
+	const [busy, setBusy] = useState(false);
+	const [failed, setFailed] = useState(false);
+	const chatgpt = chat.login?.find((method) => method.id === "chat-gpt");
+	return (
+		<div className="learning-chat__login" role="status">
+			<p>{t("title", { name: agentName(chat.agent) })}</p>
+			{chatgpt ? (
+				<button
+					type="button"
+					className="learning-chat__primary"
+					disabled={busy}
+					onClick={() => {
+						setBusy(true);
+						setFailed(false);
+						void chat.authenticate(chatgpt.id).then((result) => {
+							setBusy(false);
+							setFailed(!result.ok);
+						});
+					}}
+				>
+					{t("chatgpt")}
+				</button>
+			) : null}
+			<p className="learning-chat__hint">{t("hint")}</p>
+			{failed ? (
+				<p role="alert" className="learning-chat__note">
+					{t("failed")}
+				</p>
+			) : null}
+		</div>
+	);
+}
+
 function StateMessage({ chat }: { chat: HostChat }) {
 	const t = useTranslations("hostChat.state");
 	const tPairing = useTranslations("hostChat");
@@ -116,8 +243,12 @@ function StateMessage({ chat }: { chat: HostChat }) {
 			);
 		case "blocked":
 			return <Notice title={t("blocked")} hint={t("blockedHint")} />;
-		case "noOmp":
-			return <Notice title={t("noOmp")} hint={t("noOmpHint")} />;
+		case "noAgent":
+			return (
+				<Notice title={t("noAgent")} hint={t("noAgentHint")}>
+					<AgentInstall chat={chat} />
+				</Notice>
+			);
 		case "unpaired":
 			return <Notice title={t("unpaired")}>{button(t("connect"), () => void pairing.connect())}</Notice>;
 		case "confirming":
@@ -355,6 +486,7 @@ function Conversation({ chat, workDir }: { chat: HostChat; workDir: string }) {
 			{chat.cards.map((card) => (
 				<HostChatCard key={card.cardId} card={card} onAnswer={(answer) => chat.answer(card.cardId, answer)} />
 			))}
+			{chat.login ? <HostChatLogin chat={chat} /> : null}
 			<form
 				className="learning-chat__composer"
 				onSubmit={(e) => {
@@ -419,6 +551,7 @@ export default function HostChatPanel(props: {
 			<header className="learning-chat__head">
 				<h2>{t("title")}</h2>
 				<div className="learning-chat__head-actions">
+					{conversation ? <AgentPicker chat={chat} /> : null}
 					{conversation ? <HostChatHistory chat={chat} /> : null}
 					{conversation ? (
 						<button

@@ -62,7 +62,7 @@ const COURSE = "11111111-1111-4111-8111-111111111111";
 const OTHER_COURSE = "22222222-2222-4222-8222-222222222222";
 const WORKSPACE = "33333333-3333-4333-8333-333333333333";
 const USER = "user-a";
-const DETECTED = { state: "detected", ompPresent: true, paired: true } as const;
+const DETECTED = { state: "detected", agents: [{ kind: "omp", present: true }], paired: true } as const;
 
 const status = (state: HostStatus["state"]): HostStatus => ({
 	state,
@@ -70,6 +70,7 @@ const status = (state: HostStatus["state"]): HostStatus => ({
 	pairedDisplayName: "学员甲",
 	deviceName: "Ada 的 MacBook",
 	tokenId: "tok_this",
+	agents: [{ kind: "omp", present: true }],
 	ompPresent: true,
 	version: "0.1.0",
 	protocolVersion: 1,
@@ -141,6 +142,82 @@ afterEach(() => {
 	vi.useRealTimers();
 });
 
+/** 指定这门课上次用的 agent（模拟这台浏览器记得的选择） */
+const rememberAgent = (kind: string) => window.localStorage.setItem(`cgc-host-agent:${COURSE}`, kind);
+
+describe("多 agent（#1148：选择、登录、重新检测）", () => {
+	it("history 带回的 agent 成为这段对话的驱动者，之后的对话方法都带上它", async () => {
+		mount();
+		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+		const ws = FakeWebSocket.all[0];
+		act(() => ws.push({ method: "status", params: status("paired") }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
+		await ws.reply("hello", "status", status("ready"));
+		await ws.reply("chat.attach", "history", { courseId: COURSE, running: false, events: [], agent: "codex" });
+		await waitFor(() => expect(hook.current.agent).toBe("codex"));
+
+		act(() => void hook.current.send("你好"));
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.send", params: { courseId: COURSE, agent: "codex" } }));
+	});
+
+	it("auth_required：出登录卡（带登录方式）；authenticate 成功后清掉并重新 attach", async () => {
+		rememberAgent("codex");
+		mount();
+		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+		const ws = FakeWebSocket.all[0];
+		act(() => ws.push({ method: "status", params: status("paired") }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
+		await ws.reply("hello", "status", status("ready"));
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.attach", params: { agent: "codex" } }));
+		await ws.reply("chat.attach", "history", { courseId: COURSE, running: false, events: [], agent: "codex" });
+
+		act(() => void hook.current.send("在吗"));
+		await ws.reply("chat.send", "error", {
+			code: "auth_required",
+			methods: [
+				{ id: "api-key", name: "API Key" },
+				{ id: "chat-gpt", name: "ChatGPT" },
+			],
+		});
+		await waitFor(() => expect(hook.current.login).toEqual([
+			{ id: "api-key", name: "API Key" },
+			{ id: "chat-gpt", name: "ChatGPT" },
+		]));
+
+		let result: { ok: boolean } | undefined;
+		await act(async () => {
+			result = await (async () => {
+				const pending = hook.current.authenticate("chat-gpt");
+				await ws.reply("chat.authenticate", "chat.authenticated", { courseId: COURSE, agent: "codex" });
+				return pending;
+			})();
+		});
+		expect(result).toEqual({ ok: true });
+		expect(hook.current.login).toBeNull();
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.attach", params: { agent: "codex" } }));
+	});
+
+	it("chooseAgent：写本浏览器的记忆、清空这段缓冲，并用新 agent 重新 attach", async () => {
+		const { ws } = await readyChat();
+
+		await act(async () => hook.current.chooseAgent("codex"));
+		expect(window.localStorage.getItem(`cgc-host-agent:${COURSE}`)).toBe("codex");
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.attach", params: { courseId: COURSE, agent: "codex" } }));
+		expect(hook.current.events).toEqual([]);
+	});
+
+	it("refreshAgents：重新探测 /health 后，新装好的 agent 进入可选列表", async () => {
+		await readyChat();
+		expect(hook.current.agents.map((a) => a.kind)).toEqual(["omp"]);
+
+		checkHost.mockResolvedValueOnce({ state: "detected", agents: [{ kind: "omp", present: true }, { kind: "codex", present: true }], paired: true });
+		await act(async () => {
+			await hook.current.refreshAgents();
+		});
+		expect(hook.current.agents.map((a) => a.kind)).toEqual(["omp", "codex"]);
+	});
+});
+
 describe("连接状态（R26）", () => {
 	it("检测完成前为 checking；本机访问未授权时不开连接，点击后经 requestHostAccess 发起第一次本机请求", async () => {
 		checkHost.mockResolvedValue({ state: "needsPermission" });
@@ -155,15 +232,15 @@ describe("连接状态（R26）", () => {
 		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
 	});
 
-	it("Covers AE1：未检测到 Host 时每 POLL_MS 重新检测，装好 Host 后无需刷新即开连接；电脑上没有 OMP 时停在 noOmp", async () => {
+	it("Covers AE1：未检测到 Host 时每 POLL_MS 重新检测，装好 Host 后无需刷新即开连接；电脑上没有可用的 agent 时停在 noAgent", async () => {
 		vi.useFakeTimers({ shouldAdvanceTime: true });
 		checkHost.mockResolvedValueOnce({ state: "noHost" });
-		checkHost.mockResolvedValueOnce({ state: "detected", ompPresent: false, paired: false });
+		checkHost.mockResolvedValueOnce({ state: "detected", agents: [{ kind: "omp", present: false }], paired: false });
 		mount();
 		await waitFor(() => expect(hook.current.view).toEqual({ state: "noHost" }));
 
 		await act(() => vi.advanceTimersByTimeAsync(POLL_MS));
-		expect(hook.current.view).toEqual({ state: "noOmp" });
+		expect(hook.current.view).toEqual({ state: "noAgent" });
 		expect(FakeWebSocket.all).toEqual([]);
 
 		await act(() => vi.advanceTimersByTimeAsync(POLL_MS));

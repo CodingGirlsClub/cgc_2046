@@ -83,7 +83,7 @@ const COURSE = "11111111-1111-4111-8111-111111111111";
 const WORKSPACE = "33333333-3333-4333-8333-333333333333";
 const USER = "user-a";
 const INSTALL = "curl -fsSL https://api.codingirlsclub.com/ext/cgc-host/install.sh | bash";
-const DETECTED: HostConnection = { state: "detected", ompPresent: true, paired: true };
+const DETECTED: HostConnection = { state: "detected", agents: [{ kind: "omp", present: true }], paired: true };
 const keyOf = (userId: string) => `cgc:host-browser-key:${userId}`;
 
 const status = (state: HostStatus["state"]): HostStatus => ({
@@ -92,8 +92,9 @@ const status = (state: HostStatus["state"]): HostStatus => ({
 	pairedDisplayName: state === "unpaired" ? null : "学员甲",
 	deviceName: "Ada 的 MacBook",
 	tokenId: state === "unpaired" ? null : "tok_this",
+	agents: [{ kind: "omp", present: true }],
 	ompPresent: true,
-	version: "0.1.0",
+	version: "0.2.0",
 	protocolVersion: 1,
 });
 
@@ -177,7 +178,7 @@ describe("连接状态（R26）", () => {
 		["Covers AE12：Host 需要更新", { state: "staleHost" }, INSTALL],
 		["浏览器阻止访问本机", { state: "blocked" }, "浏览器阻止了本页访问本机。"],
 		["不受支持的浏览器", { state: "unsupported", reason: "browser" }, "对话栏支持 macOS、Windows 与 Ubuntu 桌面上的 Chrome，以及桌面版 Firefox。"],
-		["电脑上找不到 OMP", { state: "detected", ompPresent: false, paired: false }, "这台电脑上找不到 OMP。"],
+		["本机没有可用的 agent", { state: "detected", agents: [{ kind: "omp", present: false }], paired: false }, "这台电脑上还没有可用的 agent。"],
 	])("%s：给出说明与下一步", async (_, probe, text) => {
 		checkHost.mockResolvedValue(probe);
 		renderPanel();

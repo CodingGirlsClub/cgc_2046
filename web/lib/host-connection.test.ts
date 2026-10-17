@@ -31,7 +31,7 @@ function stubBrowser({
 	userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
 	permissions = true,
 	permission = "granted" as PermissionState | "TypeError",
-	health = { version: MIN_HOST_VERSION, ompPresent: true, paired: true } as
+	health = { version: MIN_HOST_VERSION, agents: [{ kind: "omp", present: true }], paired: true } as
 		| object
 		| "unreachable",
 } = {}) {
@@ -168,24 +168,46 @@ describe("checkHost（页面加载即可调用；未授权时不发本机请求�
 	});
 
 	it("Covers AE12：Host 版本低于下限 → Host 需要更新", async () => {
-		stubBrowser({ health: { version: "0.0.9", ompPresent: true, paired: true } });
+		stubBrowser({ health: { version: "0.0.9", agents: [{ kind: "omp", present: true }], paired: true } });
 
 		expect(await checkHost()).toEqual({ state: "staleHost" });
 	});
 
 	it.each(["0.1", "v0.1.10", "01.1.0", "0.1.0-beta", "0.1.0+build", "0.1.9007199254740992"])("非法 Host 版本 %s 不能被视为可连接", async (version) => {
-		stubBrowser({ health: { version, ompPresent: true, paired: true } });
+		stubBrowser({ health: { version, agents: [{ kind: "omp", present: true }], paired: true } });
 		expect(await checkHost()).toEqual({ state: "noHost" });
 	});
 
-	it("版本满足下限 → 检测到 Host，并带回 OMP 与配对情况", async () => {
+	it("版本满足下限 → 检测到 Host，并带回各 agent 与配对情况", async () => {
 		stubBrowser({
-			health: { version: MIN_HOST_VERSION, ompPresent: false, paired: true },
+			health: { version: MIN_HOST_VERSION, agents: [{ kind: "omp", present: false }], paired: true },
 		});
 
 		expect(await checkHost()).toEqual({
 			state: "detected",
-			ompPresent: false,
+			agents: [{ kind: "omp", present: false }],
+			paired: true,
+		});
+	});
+
+	it("只装了 Codex 的机器也算「有可用的 agent」（ompPresent 为 false 不代表不可用）", async () => {
+		stubBrowser({
+			health: { version: MIN_HOST_VERSION, ompPresent: false, paired: true, agents: [{ kind: "omp", present: false }, { kind: "codex", present: true }] },
+		});
+
+		expect(await checkHost()).toEqual({
+			state: "detected",
+			agents: [{ kind: "omp", present: false }, { kind: "codex", present: true }],
+			paired: true,
+		});
+	});
+
+	it("旧 Host 只报 ompPresent（没有 agents 字段）时按 OMP 回落：结构化数据缺失不等于不可连", async () => {
+		stubBrowser({ health: { version: MIN_HOST_VERSION, ompPresent: true, paired: true } });
+
+		expect(await checkHost()).toEqual({
+			state: "detected",
+			agents: [{ kind: "omp", present: true }],
 			paired: true,
 		});
 	});
@@ -233,7 +255,7 @@ describe("requestHostAccess（从点击处理器调用：由用户手势发出�
 
 		expect(await requestHostAccess()).toEqual({
 			state: "detected",
-			ompPresent: true,
+			agents: [{ kind: "omp", present: true }],
 			paired: true,
 		});
 		expect(fetchMock).toHaveBeenCalledOnce();

@@ -43,7 +43,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 | `pair.request {token?, locale?}` | `pair.result {allowed: true, browserKey}` 或 `{allowed: false}`；没走到弹窗就结束的回 `error` |
 | `pair.cancel` | 无；本连接进行中的 `pair.request` 以 `pair.result {allowed: false}` 结束 |
 | `pair.forget` | 无；Host 向所有连接推送未配对的 `status` |
-| `chat.attach` / `chat.send` / `chat.stop` / `chat.new` / `chat.sessions` / `chat.open` / `chat.set_setting` / `card.answer`（`{courseId, agent?, …}`） | 见下方「对话的载荷契约」；被另一个连接接管的连接收到 `chat.evicted {courseId}` |
+| `chat.attach` / `chat.send` / `chat.stop` / `chat.new` / `chat.sessions` / `chat.open` / `chat.set_setting` / `chat.authenticate` / `card.answer`（`{courseId, agent?, …}`） | 见下方「对话的载荷契约」；被另一个连接接管的连接收到 `chat.evicted {courseId}` |
 
 `agent` 是对话方法的可选参数（`omp` 等注册表里的 kind）：页面要驱动哪个本机 agent，就带哪个；**缺省恒为 `omp`**，与状态文件里的记忆值无关——回滚期的旧页面不可能带这个字段，不能让它被改道到别的 agent（记忆值只作为页面的初选，见 `history` 的 `agent` 字段）。取值不在注册表里一律 `bad_request`。
 
@@ -53,6 +53,8 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 
 | code | 含义 |
 | --- | --- |
+| `auth_required` | 这个 agent 要求学员先登录（ACP `-32000`）：回包另带 `methods: [{id, name}]`（它握手时播报的登录方式），页面的登录卡据此渲染；`chat.authenticate` 完成后即可重试 |
+| `auth_failed` | `chat.authenticate` 没成功（适配器报错、超时）；详情只在 Host 日志里 |
 | `bad_request` | 坏帧或参数不合法（含 `courseId` 不是 UUID、`agent` 不在本机注册表里、`token` 不以 `cgch_` 开头、`chat.send` 的 `text` 为空或 `context` 不合法、`card.answer` 的作答不合法或卡片已收起、`chat.set_setting` 的 `configId` 不在白名单或 `value` 为空、超长、被 agent 拒绝） |
 | `unknown_method` | 不在 `pageToHost` 白名单里 |
 | `unauthorized` | 没有 `hello`，或浏览器密钥、账号不符 |
@@ -81,6 +83,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 | `chat.new` | — | `history`（空）：此后的消息进一条新会话，agent 不带之前的上下文；学习进度不受影响 |
 | `chat.sessions` | `cursor?`（分页游标，原样透传 ACP） | `sessions {sessions: [{sessionId, updatedAt, messageCount}], current, nextCursor}`：本课程工作目录下的会话；只读，有回合在跑也可查；元数据缺省为 `null`（OMP 差异），页面降级展示 |
 | `chat.open` | `sessionId` | `history`：切换到指定会话；目标必须在本课程工作目录下（否则 `bad_request`）；加载失败 `session_unavailable` 且持久指针不动（原会话不受影响）；有回合在跑 `busy`；成功才推进指针，切当前会话不重复加载 |
+| `chat.authenticate` | `methodId`（取自 `auth_required` 回包的 `methods`，如 `chat-gpt`） | `chat.authenticated {agent}`：登录成功（浏览器由适配器自己开）；`auth_failed` 失败、`busy` 登录期间进程被换掉（页面重试即可）、`bad_request` 参数不合法；`chat-gpt` 这类由适配器在本机开浏览器，不进课程队列 |
 | `chat.set_setting` | `configId`（`model` / `thinking`）、`value`（非空字符串） | `chat.settings {settings}`：改当前会话的 OMP 设置，回复带 OMP 的完整回包；有回合在跑 `busy`；当前没有已加载会话 `chat_unavailable`；值不被 OMP 接受 `bad_request`（ACP 原文只进 Host 日志） |
 | `card.answer` | `cardId`，加审批的 `{optionId}` 或提问的 `{action, content?}` | `turn.card.closed {cardId, reason: "answered"}` |
 
