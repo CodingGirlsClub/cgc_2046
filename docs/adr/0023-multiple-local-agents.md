@@ -34,6 +34,7 @@ ADR-0022 让课程学习页经 CGC 本机 Host 驱动学员自己的 agent，接
 - **学习凭证可能落进 Codex 自己的会话存储。** 适配器把 `mcp_servers`（含 `authorization` 头）交给 Codex，Codex 的线程存储是否原样落盘未验证。真机按 ADR-0022 U6 的做法做只读扫描（只看文件名与凭证前缀是否出现）；若落盘，如实记入本 ADR 并给出轮换口径，不得静默放过。
 - **强制更新打断正在学习的存量学员。** 部署当天，所有 0.1.5 的 Host 都会让对话栏进入「Host 需要更新」直到重跑一次安装命令。缓解：更新前先跑完 OMP 路径的真机回归（新 Host 的 OMP 路径行为不变）；页面文案与 CHANGELOG 都带那一条命令；web 回滚时旧页面靠保留的 `ompPresent` 继续可用。
 - **学员 Codex 配置里预置了同名 MCP 服务器。** 已用改名规避，但「同名去重」的行为随适配器版本变化，升级适配器时要重跑变异用例。
+- **默认模式（Agent / auto review）在自定义网关下会挡住 MCP 工具调用。** 2026-10-17 实机：学员的 Codex 走自定义网关（`opencode-go/…`）时，适配器把 CGC 的 MCP 调用送去「Guardian Review」，复核本身撞额度 → 工具调用失败，agent 只能回一句「被用量限制拦截」。把会话模式改成 `workspace-write`（审批送回页面）后正常：页面上出现审批卡（Allow / Allow for this session / Always allow / Cancel），允许后 `get_role_playbook` / `get_learning_state` / `get_course_revision` 全部执行成功。Host 仍不注入模式（R18）；遇到该报错时在 Codex 侧换模式即可，页面会把失败如实显示出来。
 - **适配器默认审批模式与学员终端习惯不一致。** 学员在终端里设成「免审批」时，页面里的 Codex 可能仍弹审批卡（反向也可能）。这不算越权（沙箱仍是 workspace-write），但需要在页面文案与文档里说清。
 - **登录是 agent 进程级的，与某一条会话无关。** `chat.authenticate` 的作废键是**进程代**（不是 sessionId）：登录期间进程被换掉才报 busy，同一 agent 换会话不影响登录结果；它也不占课程队列（学员可能在浏览器里停留几十秒）。
 - **页面首期只开放 ChatGPT 登录。** 适配器的 `api-key` 分支要的是 `_meta.apiKey` 或 `OPENAI_API_KEY`，页面没有安全收集并转交密钥的契约——与其给一个必然失败的选项，不如只列能走完的那条。
