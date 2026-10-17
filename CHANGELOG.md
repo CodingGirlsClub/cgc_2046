@@ -18,6 +18,9 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ## [Unreleased]
 
+### Added
+- [本机 Host / Web] 课程页对话栏可直接选本机 OMP 的模型与思考等级（#1145）：Host 把 `omp acp` 的会话设置（ACP config options）收窄成模型与思考等级两项随对话下发（`mode` 不透出），选择只作用于当前会话——不写学员的 OMP 配置、不影响终端；OMP 的连带调整（实测：切到不支持思考的模型会把思考等级重置为 `off`）按完整回包刷新到页面；OMP 主动改设置时同步推给页面。旧版 Host 与旧版 OMP 看不到入口，对话其余行为不变。Host 版本 `0.1.6`（`MIN_HOST_VERSION` 不变，不强制旧学员重装）。
+
 ### Changed（[本机 Host]）
 - [本机 Host] 课程工作目录由 `~/CGC/<userId>/<courseId>` 改为 `~/cgc2046_workspace/courses/<userId>/<courseId>`（ADR-0022 KTD6 修订）：与终端插件的工作区合成一棵树，学员只需记一个目录；课程目录在其下单独一层，网页课程会话与学员自己的终端会话仍按目录分桶、互不串入。无历史数据迁移——Host 此前未对外发布。Host 版本 `0.1.5`，`MIN_HOST_VERSION` 随之提高，已装旧包的学员会被提示重装。
 

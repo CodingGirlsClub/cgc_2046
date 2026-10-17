@@ -16,7 +16,7 @@ import HostPairingList from "./host-pairing-list";
 import { SafeMarkdown } from "./material-renderer";
 import { courseDir } from "@/lib/host-connection";
 import type { PairingErrorReason } from "./use-host-pairing";
-import { useHostChat, type ChatEvent, type HostChat } from "./use-host-chat";
+import { useHostChat, type ChatEvent, type HostChat, type HostChatSetting } from "./use-host-chat";
 
 /** 安装与更新同一条命令（U7）：install.sh 覆盖安装即更新 */
 const INSTALL_COMMAND = "curl -fsSL https://api.codingirlsclub.com/ext/cgc-host/install.sh | bash";
@@ -219,6 +219,86 @@ function Turn({ events }: { events: ChatEvent[] }) {
 	});
 }
 
+/** 模型选项多（实测 69 个）：按 provider 分组展示；选项值是 `provider/model` 形状 */
+function groupByProvider(options: HostChatSetting["options"]) {
+	const groups = new Map<string, HostChatSetting["options"]>();
+	for (const option of options) {
+		const provider = option.value.split("/")[0] || option.value;
+		const list = groups.get(provider);
+		if (list) list.push(option);
+		else groups.set(provider, [option]);
+	}
+	return [...groups];
+}
+
+/** R18 修订：学员可在对话栏按会话改本机 OMP 的模型与思考等级；Host 或 OMP 不给可选项时（旧版本）整行不渲染 */
+function ChatSettings({ chat }: { chat: HostChat }) {
+	const t = useTranslations("hostChat");
+	/** 改一次要等 OMP 回包：期间禁用两个下拉，避免与回包赛跑 */
+	const [pending, setPending] = useState(false);
+	const [failure, setFailure] = useState<string | null>(null);
+
+	const errorText = (code: string) => {
+		switch (code) {
+			case "unknown_method":
+				return t("settings.staleHost");
+			case "busy":
+				return t("settings.busy");
+			case "chat_unavailable":
+				return t("settings.unavailable");
+			default:
+				return t("settings.failed");
+		}
+	};
+
+	const change = async (configId: string, value: string) => {
+		setPending(true);
+		setFailure(null);
+		const result = await chat.setSetting(configId, value);
+		setPending(false);
+		if (!result.ok) setFailure(errorText(result.code));
+	};
+
+	if (chat.settings.length === 0) return null;
+	return (
+		<div className="learning-chat__settings">
+			{chat.settings.map((option) => (
+				<label key={option.id} className="learning-chat__setting">
+					<span className="learning-chat__setting-label">
+						{option.id === "model" ? t("settings.model") : option.id === "thinking" ? t("settings.thinking") : option.name}
+					</span>
+					<select
+						value={option.currentValue}
+						disabled={pending || chat.running}
+						onChange={(event) => void change(option.id, event.target.value)}
+					>
+						{option.id === "model"
+							? groupByProvider(option.options).map(([provider, options]) => (
+									<optgroup key={provider} label={provider}>
+										{options.map((value) => (
+											<option key={value.value} value={value.value}>
+												{value.name}
+											</option>
+										))}
+									</optgroup>
+								))
+							: option.options.map((value) => (
+									<option key={value.value} value={value.value}>
+										{value.name}
+									</option>
+								))}
+					</select>
+				</label>
+			))}
+			{failure ? (
+				<p role="alert" className="learning-chat__note">
+					{failure}
+				</p>
+			) : null}
+		</div>
+	);
+}
+
 function Conversation({ chat, workDir }: { chat: HostChat; workDir: string }) {
 	const t = useTranslations("hostChat");
 	const [draft, setDraft] = useState("");
@@ -275,6 +355,7 @@ function Conversation({ chat, workDir }: { chat: HostChat; workDir: string }) {
 			{chat.cards.map((card) => (
 				<HostChatCard key={card.cardId} card={card} onAnswer={(answer) => chat.answer(card.cardId, answer)} />
 			))}
+			<ChatSettings chat={chat} />
 			<form
 				className="learning-chat__composer"
 				onSubmit={(e) => {

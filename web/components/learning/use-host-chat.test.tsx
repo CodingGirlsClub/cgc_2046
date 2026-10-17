@@ -510,3 +510,80 @@ describe("历史对话（Session History）", () => {
 		expect(hook.current.events).toEqual([]);
 	});
 });
+
+describe("对话设置（模型与思考等级）", () => {
+	const SETTINGS = [
+		{
+			id: "model",
+			name: "Model",
+			category: "model",
+			currentValue: "alpha/one",
+			options: [
+				{ value: "alpha/one", name: "Alpha One", description: "alpha/one" },
+				{ value: "beta/two", name: "Beta Two", description: "beta/two" },
+			],
+		},
+		{
+			id: "thinking",
+			name: "Thinking",
+			category: "thought_level",
+			currentValue: "auto",
+			options: [
+				{ value: "off", name: "Off" },
+				{ value: "auto", name: "Auto", description: "Auto-detect per prompt" },
+			],
+		},
+	];
+
+	it("history 带的 settings 进入状态；没有这个字段（旧版 Host）时是空数组，页面据此不渲染入口", async () => {
+		const { ws } = await readyChat();
+		expect(hook.current.settings).toEqual([]);
+
+		act(() => hook.current.reclaim());
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
+		await ws.reply("chat.attach", "history", { courseId: COURSE, running: false, events: [], settings: SETTINGS });
+		await waitFor(() => expect(hook.current.settings).toEqual(SETTINGS));
+	});
+
+	it("Host 主动推 chat.settings（OMP 自己改了设置）时刷新；形状不合的载荷按空处理", async () => {
+		const { ws } = await readyChat();
+		act(() => ws.push({ method: "chat.settings", params: { courseId: COURSE, settings: SETTINGS } }));
+		await waitFor(() => expect(hook.current.settings).toEqual(SETTINGS));
+
+		act(() => ws.push({ method: "chat.settings", params: { courseId: COURSE, settings: [{ id: "model", currentValue: 3 }] } }));
+		await waitFor(() => expect(hook.current.settings).toEqual([]));
+	});
+
+	it("setSetting 成功：发 chat.set_setting，chat.settings 的回复接管归约（整体刷新）", async () => {
+		const { ws } = await readyChat();
+		act(() => ws.push({ method: "chat.settings", params: { courseId: COURSE, settings: SETTINGS } }));
+		let promise!: Promise<unknown>;
+		act(() => {
+			promise = hook.current.setSetting("model", "beta/two");
+		});
+		await waitFor(() =>
+			expect(ws.sent.at(-1)).toMatchObject({ method: "chat.set_setting", params: { courseId: COURSE, configId: "model", value: "beta/two" } }),
+		);
+		await ws.reply("chat.set_setting", "chat.settings", {
+			courseId: COURSE,
+			settings: [{ ...SETTINGS[0], currentValue: "beta/two" }, SETTINGS[1]],
+		});
+		expect(await promise).toEqual({ ok: true });
+		expect(hook.current.settings[0].currentValue).toBe("beta/two");
+	});
+
+	it("setSetting 失败：返回错误码、状态不变、不进全局错误态（旧版 Host 回 unknown_method）", async () => {
+		const { ws } = await readyChat();
+		act(() => ws.push({ method: "chat.settings", params: { courseId: COURSE, settings: SETTINGS } }));
+		let promise!: Promise<unknown>;
+		act(() => {
+			promise = hook.current.setSetting("thinking", "off");
+		});
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.set_setting"));
+		await ws.reply("chat.set_setting", "error", { code: "unknown_method" });
+		expect(await promise).toEqual({ ok: false, code: "unknown_method" });
+		expect(hook.current.settings[1].currentValue).toBe("auto");
+		expect(hook.current.error).toBeNull();
+		expect(hook.current.canSend).toBe(true);
+	});
+});

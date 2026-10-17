@@ -1,7 +1,13 @@
 // acp/session.ts — 对话处理器（U6）：每门课一条 ACP 会话（KTD6）；一个 OMP 进程服务全部会话，按需拉起、空闲回收（KTD13）；
 // session/update 归一化成页面事件（events.ts），审批与提问交给持有者作答（cards.ts）。载荷契约见 cgc-host/AGENTS.md。
 import { mkdirSync } from "node:fs";
-import { type ClientApp, type ContentBlock, type McpServer, type PromptResponse } from "@agentclientprotocol/sdk";
+import {
+  type ClientApp,
+  type ContentBlock,
+  type McpServer,
+  type PromptResponse,
+  type SessionConfigOption,
+} from "@agentclientprotocol/sdk";
 import protocol from "../../protocol.json";
 import type { ChatContext, ChatMethod, Message } from "../server";
 import { isUuid } from "../security";
@@ -42,12 +48,50 @@ interface Course {
   turn: Turn | null;
   /** 上一次随消息附带的页面上下文（KTD8）：没变就不再附 */
   lastContext: string | null;
+  /** OMP 给的会话设置项（模型、思考等级，收窄后）：新一轮会话从 OMP 回包里刷新 */
+  settings: ConfigOption[];
+  /** 上一次推给页面的设置（JSON）：内容没变就不重复推；null 表示还没同步过 */
+  settingsKey: string | null;
   graceTimer: Timer | null;
   /** 同一门课的会话操作（new / load）排队执行 */
   queue: Promise<unknown>;
 }
 
 const UNIT_ID = /^[A-Za-z0-9_.-]{1,64}$/;
+
+/** 页面可改的会话设置（OMP 的 configId）：模型与思考等级；mode（plan）是 agent 执行策略，不透出 */
+const SETTING_IDS: Record<string, true> = { model: true, thinking: true };
+/** 单个设置项的取值上限：OMP 的值是 provider/model 这类短标识 */
+const SETTING_VALUE_MAX = 256;
+
+/**
+ * 透给页面的会话设置项：ACP 的 configOptions 收窄成只剩模型与思考等级，分组形状摊平成一层
+ * （页面自己按 provider 前缀分组显示），值只取 string。
+ */
+export interface ConfigOption {
+  id: string;
+  name: string;
+  category: string;
+  currentValue: string;
+  options: { value: string; name: string; description?: string }[];
+}
+
+/** OMP 没给 configOptions（旧版本）或项目的形状不合约时返回空数组：页面据此不渲染设置控件 */
+function pickSettings(configOptions: readonly SessionConfigOption[] | null | undefined): ConfigOption[] {
+  const picked: ConfigOption[] = [];
+  for (const option of configOptions ?? []) {
+    if (option.type !== "select" || !Object.hasOwn(SETTING_IDS, option.id)) continue;
+    const items = option.options.flatMap((item) => ("group" in item ? item.options : [item]));
+    picked.push({
+      id: option.id,
+      name: option.name,
+      category: option.category ?? option.id,
+      currentValue: option.currentValue,
+      options: items.map(({ value, name, description }) => ({ value, name, ...(description ? { description } : {}) })),
+    });
+  }
+  return picked;
+}
 
 /**
  * KTD8 的页面上下文：只带标识，不带 tutor 撰写的文本（如课程、单元标题）。单元 id 只认短的 ASCII 标识，
@@ -95,10 +139,29 @@ export function createChat(opts: ChatOptions) {
 
   const delta = (c: Course, event: ChatEvent) => c.send({ method: "turn.delta", params: { courseId: c.id, ...event } });
 
+  /** 设置已随 history 的回复同步给页面（attach / new / open）：记下内容，避免随后重复推 */
+  const settingsSynced = (c: Course) => {
+    c.settingsKey = JSON.stringify(c.settings);
+  };
+
+  /** 会话设置变化时推给这门课的持有者；与上一次同步的内容相同就不推 */
+  function publishSettings(c: Course) {
+    const key = JSON.stringify(c.settings);
+    if (key === c.settingsKey) return;
+    c.settingsKey = key;
+    c.send({ method: "chat.settings", params: { courseId: c.id, settings: c.settings } });
+  }
+
   const runtime = createRuntime({ start: opts.start, ready: checkIdle, reset: resetAgent, app: (active) => clientApp({
     update({ sessionId, update }) {
       if (!active()) return;
       const c = bySession.get(sessionId);
+      // OMP 改了会话设置（config_option_update）：转成 chat.settings 推给持有者，不落进对话缓冲
+      if (c && update.sessionUpdate === "config_option_update") {
+        c.settings = pickSettings(update.configOptions);
+        publishSettings(c);
+        return;
+      }
       const event = c?.transcript.apply(update);
       if (!c || !event || !c.turn?.sessionId) return;
       if (event.kind === "message") c.turn.text += event.text;
@@ -126,6 +189,9 @@ export function createChat(opts: ChatOptions) {
     bySession.clear();
     for (const [id, c] of courses) {
       c.sessionId = null;
+      // 下一个 OMP 进程会重新给 settings（session/load 的回包），先清掉等它
+      c.settings = [];
+      c.settingsKey = null;
       c.cards.cancelAll();
       // 共享进程被废弃时，其他已开始的回合立即收尾；准备中的请求由其自身的取消路径回复失败。
       if (c.turn?.sessionId) finish(c, c.turn, null);
@@ -181,7 +247,9 @@ export function createChat(opts: ChatOptions) {
     if (target && load) {
       bySession.set(target, c);
       try {
-        await run.wait("session/load", (signal) => a.rpc.request("session/load", { sessionId: target, cwd, mcpServers }, { cancellationSignal: signal }));
+        const loaded = await run.wait("session/load", (signal) => a.rpc.request("session/load", { sessionId: target, cwd, mcpServers }, { cancellationSignal: signal }));
+        c.settings = pickSettings(loaded.configOptions);
+        c.settingsKey = null;
       } catch (e) {
         bySession.delete(target);
         // chat.open 的目标加载失败：报可诊断的错误；持久指针不动，原会话不受影响。
@@ -208,7 +276,10 @@ export function createChat(opts: ChatOptions) {
       if (mode === "attach") return null;
     }
     mkdirSync(cwd, { recursive: true });
-    const { sessionId } = await run.wait("session/new", (signal) => a.rpc.request("session/new", { cwd, mcpServers }, { cancellationSignal: signal }));
+    const created = await run.wait("session/new", (signal) => a.rpc.request("session/new", { cwd, mcpServers }, { cancellationSignal: signal }));
+    const { sessionId } = created;
+    c.settings = pickSettings(created.configOptions);
+    c.settingsKey = null;
     run.check();
     bySession.set(sessionId, c);
     Object.assign(c, { sessionId, userId: ctx.userId, token: ctx.token });
@@ -305,6 +376,8 @@ export function createChat(opts: ChatOptions) {
         cards: createCards((method, params) => created.send({ method, params: { courseId: id, ...params } })),
         turn: null,
         lastContext: null,
+        settings: [],
+        settingsKey: null,
         graceTimer: null,
         queue: Promise.resolve(),
       };
@@ -334,7 +407,8 @@ export function createChat(opts: ChatOptions) {
     if (method === "chat.attach") {
       try {
         await prepare(c, ctx, "attach", () => {
-          reply("history", { running: c.turn !== null, events: c.transcript.events });
+          reply("history", { running: c.turn !== null, events: c.transcript.events, settings: c.settings });
+          settingsSynced(c);
           for (const view of c.cards.views()) c.send({ method: "turn.card", params: { courseId: c.id, ...view } });
         });
       } catch (e) {
@@ -360,6 +434,8 @@ export function createChat(opts: ChatOptions) {
           reply("turn.delta", { kind: "user", text });
           if (turn.stopping) return finish(c, turn, { stopReason: "cancelled" });
           turn.sessionId = sessionId;
+          // attach 时还没有会话（空历史不拉起 OMP）：新建后把设置补推给页面
+          publishSettings(c);
           a.rpc.request("session/prompt", { sessionId, prompt }).then(
             (res) => finish(c, turn, res),
             (e) => {
@@ -379,7 +455,10 @@ export function createChat(opts: ChatOptions) {
     } else if (method === "chat.new") {
       if (c.turn) return fail("busy");
       try {
-        await prepare(c, ctx, "new", () => reply("history", { running: false, events: [] }));
+        await prepare(c, ctx, "new", () => {
+          reply("history", { running: false, events: [], settings: c.settings });
+          settingsSynced(c);
+        });
       } catch (e) {
         console.error(`cgc-host: 新开对话失败：${message(e)}`);
         return fail("chat_unavailable");
@@ -412,11 +491,33 @@ export function createChat(opts: ChatOptions) {
       if (typeof sessionId !== "string" || !sessionId || sessionId.length > 128) return fail("bad_request");
       if (c.turn) return fail("busy");
       try {
-        await prepare(c, ctx, "open", () => reply("history", { running: false, events: c.transcript.events }), sessionId);
+        await prepare(c, ctx, "open", () => {
+          reply("history", { running: false, events: c.transcript.events, settings: c.settings });
+          settingsSynced(c);
+        }, sessionId);
       } catch (e) {
         if (e instanceof OpenError) return fail(e.code);
         console.error(`cgc-host: 切换对话失败：${message(e)}`);
         return fail("chat_unavailable");
+      }
+    } else if (method === "chat.set_setting") {
+      // 学员在对话栏改本机 OMP 的设置（模型、思考等级）：只作用于当前会话，不写学员的 OMP 配置
+      const { configId, value } = params;
+      if (typeof configId !== "string" || !Object.hasOwn(SETTING_IDS, configId) || typeof value !== "string" || !value || value.length > SETTING_VALUE_MAX) {
+        return fail("bad_request");
+      }
+      if (c.turn) return fail("busy");
+      const active = runtime.agent;
+      if (!active || !c.sessionId) return fail("chat_unavailable");
+      try {
+        const res = await active.rpc.request("session/set_config_option", { sessionId: c.sessionId, configId, value });
+        c.settings = pickSettings(res.configOptions);
+        reply("chat.settings", { settings: c.settings });
+        settingsSynced(c);
+      } catch (e) {
+        // 值不被 OMP 接受（如 `Unknown ACP model: …`）：原文只进日志（R25），页面按设置未改动处理
+        console.error(`cgc-host: 修改对话设置失败：${message(e)}`);
+        return fail("bad_request");
       }
     } else if (method === "card.answer") {
       if (!c.cards.answer(params, reply)) return fail("bad_request");

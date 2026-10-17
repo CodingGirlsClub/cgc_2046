@@ -43,7 +43,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 | `pair.request {token?, locale?}` | `pair.result {allowed: true, browserKey}` 或 `{allowed: false}`；没走到弹窗就结束的回 `error` |
 | `pair.cancel` | 无；本连接进行中的 `pair.request` 以 `pair.result {allowed: false}` 结束 |
 | `pair.forget` | 无；Host 向所有连接推送未配对的 `status` |
-| `chat.attach` / `chat.send` / `chat.stop` / `chat.new` / `chat.sessions` / `chat.open` / `card.answer`（`{courseId, …}`） | 见下方「对话的载荷契约」；被另一个连接接管的连接收到 `chat.evicted {courseId}` |
+| `chat.attach` / `chat.send` / `chat.stop` / `chat.new` / `chat.sessions` / `chat.open` / `chat.set_setting` / `card.answer`（`{courseId, …}`） | 见下方「对话的载荷契约」；被另一个连接接管的连接收到 `chat.evicted {courseId}` |
 
 `status.params`：`state`（`unpaired` / `paired` / `ready`，`ready` 指这个连接已授权）、`pairedUserId`、`pairedDisplayName`、`deviceName`、`tokenId`、`ompPresent`、`version`、`protocolVersion`；解析学员登录 shell 的环境失败时另有 `ompEnvError`（`timeout` / `failed`，此时 Host 退回 launchd 的最小环境，多半找不到 omp 或模型凭证）。`ompPresent` 为 false 时，Host 每次被读到都会在后台重新查找（至多 10 秒一次），学员装上 OMP 后不必重启 Host；页面可轮询 `/health`。
 
@@ -51,16 +51,16 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 
 | code | 含义 |
 | --- | --- |
-| `bad_request` | 坏帧或参数不合法（含 `courseId` 不是 UUID、`token` 不以 `cgch_` 开头、`chat.send` 的 `text` 为空或 `context` 不合法、`card.answer` 的作答不合法或卡片已收起） |
+| `bad_request` | 坏帧或参数不合法（含 `courseId` 不是 UUID、`token` 不以 `cgch_` 开头、`chat.send` 的 `text` 为空或 `context` 不合法、`card.answer` 的作答不合法或卡片已收起、`chat.set_setting` 的 `configId` 不在白名单或 `value` 为空、超长、被 OMP 拒绝） |
 | `unknown_method` | 不在 `pageToHost` 白名单里 |
 | `unauthorized` | 没有 `hello`，或浏览器密钥、账号不符 |
 | `not_paired` | 不带凭证的 `pair.request`，但本机没有配对 |
-| `busy` | 已有一次配对在进行，或刚关弹窗、还在冷却；对话方法里指这门课已有一轮在跑（`chat.send`、`chat.new`），或本机刚换了账号、上一个账号在这门课的回合正在取消（任一对话方法；稍后重试即接上新账号自己的对话） |
+| `busy` | 已有一次配对在进行，或刚关弹窗、还在冷却；对话方法里指这门课已有一轮在跑（`chat.send`、`chat.new`、`chat.set_setting`），或本机刚换了账号、上一个账号在这门课的回合正在取消（任一对话方法；稍后重试即接上新账号自己的对话） |
 | `invalid_token` | 平台对这枚凭证回 401 / 429，或它的 kind 不是 `learning_host` |
 | `platform_unavailable` | 平台连不上、回 5xx 或应答不合约 |
 | `not_holder` | 这门课已被另一个连接接管 |
 | `session_unavailable` | `chat.open` 的目标会话加载失败；持久指针不动、原会话不受影响 |
-| `chat_unavailable` | 找不到 omp、拉不起 OMP，或 ACP 握手、加载会话失败；详情只在 Host 日志里 |
+| `chat_unavailable` | 找不到 omp、拉不起 OMP，或 ACP 握手、加载会话失败；`chat.set_setting` 在当前没有已加载会话时也回它；详情只在 Host 日志里 |
 | `internal` | Host 内部出错，详情只在 Host 日志里 |
 
 `pair.request` 以 `error` 结束时，Host 没有动这枚凭证，页面用登录态补撤销；以 `pair.result {allowed: false}` 结束时，Host 已经用它自撤销（尽力而为）。
@@ -79,7 +79,10 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 | `chat.new` | — | `history`（空）：此后的消息进一条新会话，agent 不带之前的上下文；学习进度不受影响 |
 | `chat.sessions` | `cursor?`（分页游标，原样透传 ACP） | `sessions {sessions: [{sessionId, updatedAt, messageCount}], current, nextCursor}`：本课程工作目录下的会话；只读，有回合在跑也可查；元数据缺省为 `null`（OMP 差异），页面降级展示 |
 | `chat.open` | `sessionId` | `history`：切换到指定会话；目标必须在本课程工作目录下（否则 `bad_request`）；加载失败 `session_unavailable` 且持久指针不动（原会话不受影响）；有回合在跑 `busy`；成功才推进指针，切当前会话不重复加载 |
+| `chat.set_setting` | `configId`（`model` / `thinking`）、`value`（非空字符串） | `chat.settings {settings}`：改当前会话的 OMP 设置，回复带 OMP 的完整回包；有回合在跑 `busy`；当前没有已加载会话 `chat_unavailable`；值不被 OMP 接受 `bad_request`（ACP 原文只进 Host 日志） |
 | `card.answer` | `cardId`，加审批的 `{optionId}` 或提问的 `{action, content?}` | `turn.card.closed {cardId, reason: "answered"}` |
+
+会话设置（`chat.set_setting`、`chat.settings`、`history` 的 `settings`）：Host 把 OMP 的会话设置（ACP 的 config options）收窄成 `model`（模型）与 `thinking`（思考等级）两项，`mode`（plan）不透出。`settings` 是 `[{id, name, category, currentValue, options: [{value, name, description?}]}]`，`history`（`chat.attach` / `chat.new` / `chat.open`）带当前值，空数组表示 OMP 没给可选项（旧版本）——页面据此不渲染入口。改动只作用于当前会话：不写学员的 OMP 配置、不影响终端；OMP 自己改了设置（`config_option_update`）时 Host 推 `chat.settings`。切模型可能连带改动另一项（OMP 实测：不支持思考的模型会把思考等级重置为 `off`），页面要按回包整体刷新。
 
 `context`（KTD8）：`{workspaceId, courseVersion, unitId, locale}`。`workspaceId` 是 UUID；`courseVersion` 是页面显示的课程版本号（正整数）或 `null`；`unitId` 是学员正在看的单元 id（只认 `^[A-Za-z0-9_.-]{1,64}$`），`null` 表示课程总览；`locale` 是 `zh-CN` 或 `en`。每条 `chat.send` 都带，Host 只在会话的首条消息和它变化时（例如切换单元）把它附给 agent，只带这些标识——课程、单元标题这类 tutor 撰写的文本不进提示。
 
