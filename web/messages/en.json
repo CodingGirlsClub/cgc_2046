@@ -4126,7 +4126,7 @@
     "revokeFailed": "Couldn't revoke. Please try again later."
   },
   "hostChat": {
-    "title": "Local agent",
+    "title": "Local agent chat",
     "computers": "Paired computers",
     "history": {
       "title": "History",
@@ -4143,7 +4143,7 @@
       "model": "Model",
       "thinking": "Thinking level",
       "busy": "A reply is in progress. Wait for it to finish, then change this.",
-      "unavailable": "The local agent could not start, so this cannot change yet. Check that OMP runs in your terminal.",
+      "unavailable": "This agent couldn't start, so the setting can't change yet. Check that its entry point runs, then retry.",
       "staleHost": "The CGC Host on this computer is out of date. Update it to change the model and thinking level here.",
       "failed": "Could not change it. Try again."
     },
@@ -4201,7 +4201,7 @@
       "failed": "Pairing didn't succeed. Please try again."
     },
     "error": {
-      "chatUnavailable": "Your local agent couldn't start. Make sure OMP runs normally in Terminal.",
+      "chatUnavailable": "This agent couldn't start or failed its handshake. Check that OMP runs in Terminal and that codex-acp is installed, then retry.",
       "busy": "The previous turn hasn't finished yet. Please wait a moment.",
       "timeout": "CGC Host didn't respond in time. Please try again.",
       "failed": "Something went wrong. Please try again."

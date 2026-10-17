@@ -667,7 +667,7 @@ describe("学员课程页（page.tsx）", () => {
 		const viewer = await screen.findByTestId("course-content-viewer");
 		expect(viewer).not.toHaveClass("learning-reader--compact");
 		expect(checkHost).not.toHaveBeenCalled();
-		expect(screen.queryByRole("complementary", { name: "本机 agent" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("complementary", { name: "本机 agent 对话" })).not.toBeInTheDocument();
 	});
 });
 

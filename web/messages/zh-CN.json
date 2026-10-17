@@ -4126,7 +4126,7 @@
     "revokeFailed": "撤销失败，请稍后重试"
   },
   "hostChat": {
-    "title": "本机 agent",
+    "title": "本机 agent 对话",
     "computers": "已配对的电脑",
     "history": {
       "title": "历史对话",
@@ -4143,7 +4143,7 @@
       "model": "模型",
       "thinking": "思考等级",
       "busy": "有一轮回复正在进行，先等它结束再改。",
-      "unavailable": "本机 agent 没能启动，现在改不了。请确认 OMP 能在终端里正常运行。",
+      "unavailable": "这个 agent 没能启动，所以现在改不了设置。确认它的入口能运行后重试。",
       "staleHost": "这台电脑上的 CGC Host 版本过旧，更新后才能在这里改模型与思考等级。",
       "failed": "没能改过来，请重试。"
     },
@@ -4201,7 +4201,7 @@
       "failed": "配对没有成功，请重试。"
     },
     "error": {
-      "chatUnavailable": "本机 agent 没能启动，请确认 OMP 能在终端里正常运行。",
+      "chatUnavailable": "这个 agent 没能启动或握手失败。确认 OMP 在终端里能运行、Codex 的 codex-acp 已安装后重试。",
       "busy": "上一轮还没结束，请稍后再发。",
       "timeout": "本机 Host 没有及时响应，请重试。",
       "failed": "出错了，请重试。"
