@@ -4135,7 +4135,7 @@
       "entry": "{time} · {count} messages",
       "current": "Current",
       "more": "Load more",
-      "unavailable": "This conversation can't be opened right now (possibly an OMP update).",
+      "unavailable": "This conversation can't be opened right now (possibly an agent update).",
       "busy": "A reply is in progress; stop it or wait for it to finish.",
       "failed": "Couldn't load past conversations. Try again later."
     },
@@ -4253,7 +4253,9 @@
       "title": "{name} needs you to sign in first.",
       "chatgpt": "Sign in with ChatGPT",
       "hint": "Clicking opens the sign-in page in your own browser; this panel reconnects when it's done.",
-      "failed": "Sign-in didn't complete — you can try again."
+      "failed": "Sign-in didn't complete — you can try again.",
+      "manual": "This agent only offers sign-in outside this page: complete it with your own tooling (for example codex login in a terminal), then retry.",
+      "retry": "Try again"
     }
   }
 }

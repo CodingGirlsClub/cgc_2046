@@ -284,7 +284,7 @@ export interface HostChat extends Omit<ChatState, "evicted"> {
 	setSetting(configId: string, value: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }>;
 	/** 本机各 agent 的安装状态（KTD1）：选择器与「添加 agent」都读它 */
 	agents: HostAgentStatus[];
-	/** 这段对话由哪个 agent 驱动（R2：这门课上次用过的 → 这台浏览器上次选过的 → 唯一可用的 → omp） */
+	/** 这段对话由哪个 agent 驱动（R2：这台浏览器上次选过的 → Host 记的这门课上次用过的 → 唯一可用的 → 省略、由 Host 按 omp 处理）；偏好不在本机时回落到可用的那个 */
 	agent: string;
 	/** 切到另一个 agent：换一段会话（KTD8），旧的在跑回合由 Host 先按取消收尾，这里随后重新 attach */
 	chooseAgent(kind: string): void;
@@ -324,16 +324,21 @@ export function useHostChat({
 	const [chat, dispatch] = useReducer(reduce, INITIAL);
 	/** 本机各 agent 的状态：探测结果更新它；选择器与「添加 agent」都读它 */
 	const [agents, setAgents] = useState<HostAgentStatus[]>([]);
-	/** 这段对话由哪个 agent 驱动：先取这台浏览器上次的选择，其次 Host 记的「这门课上次用过」（history 回包） */
-	const [agent, setAgent] = useState(() => {
+	/** 这台浏览器上次选过的 agent（只是偏好）：实际路由要看它在本机是否可用，见 effectiveAgent */
+	const [preferred, setPreferred] = useState(() => {
 		try {
 			return window.localStorage.getItem(`cgc-host-agent:${courseId}`) ?? "";
 		} catch {
 			return ""; // 隐私模式下不可读：少一层记忆，不影响默认（Host 会按 omp 处理）
 		}
 	});
-	/** agent 要求先登录时的登录方式（auth_required 带回）；成功后清掉 */
+	/** agent 要求先登录时的登录方式（auth_required 带回）；登录成功或重新接上对话后清掉 */
 	const [login, setLogin] = useState<{ id: string; name: string }[] | null>(null);
+	/** 本机当前能用的那个 agent（R2 的回落）：记忆里那个装好了就用它，否则用第一个装好的；都没有就留空（Host 按 omp 处理）。
+	 *  展示与路由共用这一个值——不出现「标题写着 OMP、请求却带着另一个 agent」的分叉。 */
+	const agent = agents.some((entry) => entry.present && entry.kind === preferred)
+		? preferred
+		: (agents.find((entry) => entry.present)?.kind ?? "");
 
 	useEffect(() => {
 		let cancelled = false;
@@ -405,7 +410,8 @@ export function useHostChat({
 				const events = ((params.events as Record<string, unknown>[]) ?? []).flatMap((e) => eventOf(e) ?? []);
 				// R2：没选过就用 Host 记的「这门课上次用过」（这台浏览器的记忆在初始值里，已经用过就不覆盖）
 				const remembered = typeof params.agent === "string" ? params.agent : "";
-				if (remembered) setAgent((current) => current || remembered);
+				if (remembered) setPreferred((current) => current || remembered);
+				setLogin(null); // 会话接上了就说明现在不需要登录（学员可能刚在页面外完成）
 				dispatch({ type: "history", running: params.running === true, events, settings: settingsOf(params) });
 				return refetch();
 			}
@@ -437,7 +443,7 @@ export function useHostChat({
 		) => {
 			if (!socket) return null;
 			const generation = ownership.current;
-			// 页面选的 agent 跟着每个对话方法走；调用方显式给了就以它为准（切换那一刻要立刻带新的）
+			// 带的是本机实际能用的 agent（记忆不在本机时已回落）；调用方显式给了就以它为准（切换那一刻要立刻带新的）
 			const withAgent = agent && !("agent" in params) ? { agent, ...params } : params;
 			const reply = await socket.request(method, withAgent, { timeoutMs })
 				.catch((e: Error): HostMessage => ({ method: "error", params: { code: e.message } }));
@@ -595,9 +601,9 @@ export function useHostChat({
 	// 旧 agent 上有回合在跑时 Host 会先按取消收尾并回一次 busy，重试即接上新的那段。
 	const chooseAgent = useCallback(
 		(kind: string) => {
-			if (kind === agent) return;
+			if (kind === preferred) return;
 			setLogin(null);
-			setAgent(kind);
+			setPreferred(kind);
 			try {
 				window.localStorage.setItem(`cgc-host-agent:${courseId}`, kind);
 			} catch {
@@ -607,7 +613,7 @@ export function useHostChat({
 			dispatch({ type: "reset" });
 			void requestChat("chat.attach", { courseId, agent: kind });
 		},
-		[agent, courseId, requestChat],
+		[preferred, courseId, requestChat],
 	);
 
 	// 登录（KTD4）：页面只发起，浏览器由这个 agent 的适配器自己开；成功后重新 attach 接上对话

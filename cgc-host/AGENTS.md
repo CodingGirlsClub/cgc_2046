@@ -1,6 +1,6 @@
 # cgc-host（CGC 本机 Host）
 
-学员电脑上常驻的 CGC 本机 Host：课程学习页经本机 WebSocket 连到它，它替页面经 ACP 驱动学员自己的 OMP（`omp acp`）。TypeScript 写成，由学员本机的 Bun 运行，测试也用 Bun；依赖由 pnpm 管理（独立的 pnpm 项目，锁文件就是本目录的 `pnpm-lock.yaml`，不加入 `web/` 的 workspace）。决策与否决的路线见 `docs/adr/0022-course-page-local-agent-host.md`。
+学员电脑上常驻的 CGC 本机 Host：课程学习页经本机 WebSocket 连到它，它替页面经 ACP 驱动学员自己的本机 agent（当前两种：OMP 的 `omp acp`、Codex 的 `codex-acp`）。TypeScript 写成，由学员本机的 Bun 运行，测试也用 Bun；依赖由 pnpm 管理（独立的 pnpm 项目，锁文件就是本目录的 `pnpm-lock.yaml`，不加入 `web/` 的 workspace）。决策与否决的路线见 `docs/adr/0022-course-page-local-agent-host.md`。
 
 ## 安全红线
 
@@ -84,7 +84,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 | `chat.sessions` | `cursor?`（分页游标，原样透传 ACP） | `sessions {sessions: [{sessionId, updatedAt, messageCount}], current, nextCursor}`：本课程工作目录下的会话；只读，有回合在跑也可查；元数据缺省为 `null`（OMP 差异），页面降级展示 |
 | `chat.open` | `sessionId` | `history`：切换到指定会话；目标必须在本课程工作目录下（否则 `bad_request`）；加载失败 `session_unavailable` 且持久指针不动（原会话不受影响）；有回合在跑 `busy`；成功才推进指针，切当前会话不重复加载 |
 | `chat.authenticate` | `methodId`（取自 `auth_required` 回包的 `methods`，如 `chat-gpt`） | `chat.authenticated {agent}`：登录成功（浏览器由适配器自己开）；`auth_failed` 失败、`busy` 登录期间进程被换掉（页面重试即可）、`bad_request` 参数不合法；`chat-gpt` 这类由适配器在本机开浏览器，不进课程队列 |
-| `chat.set_setting` | `configId`（`model` / `thinking`）、`value`（非空字符串） | `chat.settings {settings}`：改当前会话的 OMP 设置，回复带 OMP 的完整回包；有回合在跑 `busy`；当前没有已加载会话 `chat_unavailable`；值不被 OMP 接受 `bad_request`（ACP 原文只进 Host 日志） |
+| `chat.set_setting` | `configId`（`model` / `thinking`）、`value`（非空字符串） | `chat.settings {settings}`：改当前会话的设置，回复带这个 agent 的完整回包；有回合在跑 `busy`；当前没有已加载会话 `chat_unavailable`；值不被 agent 接受 `bad_request`（ACP 原文只进 Host 日志） |
 | `card.answer` | `cardId`，加审批的 `{optionId}` 或提问的 `{action, content?}` | `turn.card.closed {cardId, reason: "answered"}` |
 
 会话设置（`chat.set_setting`、`chat.settings`、`history` 的 `settings`）：Host 把 agent 的会话设置（ACP 的 config options）收窄成 `model`（模型）与 `thinking`（思考等级）两项，`mode`（plan）不透出。`settings` 是 `[{id, name, category, currentValue, options: [{value, name, description?}]}]`，`history`（`chat.attach` / `chat.new` / `chat.open`）带当前值，空数组表示这个 agent 没给可选项（旧版本或 id 不同名）——页面据此不渲染入口。改动只作用于当前会话：不写学员的 agent 配置、不影响终端；agent 自己改了设置（`config_option_update`）时 Host 推 `chat.settings`。切模型可能连带改动另一项（OMP 实测：不支持思考的模型会把思考等级重置为 `off`…

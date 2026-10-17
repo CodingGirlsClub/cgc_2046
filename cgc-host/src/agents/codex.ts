@@ -61,7 +61,6 @@ export function writeLearningAgentsMd(cwd: string, prompt = STARTUP_PROMPT): voi
 export function codexRecord(locator: Locator, cwd: string): AgentRecord {
   return {
     kind: "codex",
-    label: "Codex",
     mcpServerName: CODEX_MCP_SERVER_NAME,
     locator,
     prepare: async (courseDir) => writeLearningAgentsMd(courseDir),

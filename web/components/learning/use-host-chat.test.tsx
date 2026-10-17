@@ -142,11 +142,21 @@ afterEach(() => {
 	vi.useRealTimers();
 });
 
+const BOTH_AGENTS = {
+	state: "detected",
+	agents: [
+		{ kind: "omp", present: true },
+		{ kind: "codex", present: true },
+	],
+	paired: true,
+} as const;
+
 /** 指定这门课上次用的 agent（模拟这台浏览器记得的选择） */
 const rememberAgent = (kind: string) => window.localStorage.setItem(`cgc-host-agent:${COURSE}`, kind);
 
 describe("多 agent（#1148：选择、登录、重新检测）", () => {
 	it("history 带回的 agent 成为这段对话的驱动者，之后的对话方法都带上它", async () => {
+		checkHost.mockResolvedValue(BOTH_AGENTS);
 		mount();
 		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
 		const ws = FakeWebSocket.all[0];
@@ -162,6 +172,7 @@ describe("多 agent（#1148：选择、登录、重新检测）", () => {
 
 	it("auth_required：出登录卡（带登录方式）；authenticate 成功后清掉并重新 attach", async () => {
 		rememberAgent("codex");
+		checkHost.mockResolvedValue(BOTH_AGENTS);
 		mount();
 		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
 		const ws = FakeWebSocket.all[0];
@@ -198,6 +209,7 @@ describe("多 agent（#1148：选择、登录、重新检测）", () => {
 	});
 
 	it("chooseAgent：写本浏览器的记忆、清空这段缓冲，并用新 agent 重新 attach", async () => {
+		checkHost.mockResolvedValue(BOTH_AGENTS);
 		const { ws } = await readyChat();
 
 		await act(async () => hook.current.chooseAgent("codex"));
@@ -332,6 +344,7 @@ describe("KTD8：每条 chat.send 带页面上下文", () => {
 				id: expect.any(String),
 				params: {
 					courseId: COURSE,
+					agent: "omp", // 页面现在显式点名它正在用的 agent（展示与路由同一个值）
 					text: "这一单元讲什么？",
 					context: { workspaceId: WORKSPACE, courseVersion: 3, unitId: "issue-b", locale: "zh-CN" },
 				},
@@ -679,5 +692,40 @@ describe("对话设置（模型与思考等级）", () => {
 		expect(hook.current.settings[1].currentValue).toBe("auto");
 		expect(hook.current.error).toBeNull();
 		expect(hook.current.canSend).toBe(true);
+	});
+});
+
+describe("多 agent 的回落与登录态（评审修复）", () => {
+	it("记住的 agent 不在本机时，回落到可用的那个：路由与历史都不再撞 chat_unavailable", async () => {
+		rememberAgent("codex"); // 这台浏览器记着 codex，但本机只装了 omp（例如适配器被卸载）
+		mount();
+		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+		const ws = FakeWebSocket.all[0];
+		act(() => ws.push({ method: "status", params: status("paired") }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
+		await ws.reply("hello", "status", status("ready"));
+
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.attach", params: { agent: "omp" } }));
+		await ws.reply("chat.attach", "history", { courseId: COURSE, running: false, events: [] });
+		await waitFor(() => expect(hook.current.attached).toBe(true));
+
+		expect(hook.current.agent).toBe("omp");
+		act(() => void hook.current.send("你好"));
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.send", params: { agent: "omp" } }));
+	});
+
+	it("重新接上对话就清掉登录卡（学员可能在页面外完成了登录）", async () => {
+		mount();
+		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+		const ws = FakeWebSocket.all[0];
+		act(() => ws.push({ method: "status", params: status("paired") }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
+		await ws.reply("hello", "status", status("ready"));
+		await ws.reply("chat.attach", "error", { code: "auth_required", methods: [{ id: "chat-gpt", name: "ChatGPT" }] });
+		await waitFor(() => expect(hook.current.login).toEqual([{ id: "chat-gpt", name: "ChatGPT" }]));
+
+		act(() => hook.current.reclaim());
+		await ws.reply("chat.attach", "history", { courseId: COURSE, running: false, events: [] });
+		await waitFor(() => expect(hook.current.login).toBeNull());
 	});
 });

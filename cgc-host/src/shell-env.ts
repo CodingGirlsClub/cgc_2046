@@ -11,7 +11,7 @@ export interface LoginShellEnv {
   envError: EnvError | null;
 }
 
-export const ENV_TIMEOUT_MS = 10_000;
+const ENV_TIMEOUT_MS = 10_000;
 
 /**
  * 与 VS Code 解析 shell 环境同法：起一个交互式登录 shell，在两个随机标记之间打印 `env -0`，

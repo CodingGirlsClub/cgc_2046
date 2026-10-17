@@ -82,9 +82,12 @@ function Notice({ title, hint, children }: { title: string; hint?: string; child
 function AgentInstall({ chat }: { chat: HostChat }) {
 	const t = useTranslations("hostChat.agent");
 	const [checking, setChecking] = useState(false);
+	const omp = chat.agents.find((agent) => agent.kind === "omp");
 	const codex = chat.agents.find((agent) => agent.kind === "codex");
 	return (
 		<div className="learning-chat__agents">
+			<p className="learning-chat__hint">{t("ompInstall")}</p>
+			<p className="learning-chat__note">{`OMP：${omp?.present ? t("installed") : t("missing")}`}</p>
 			<p className="learning-chat__hint">{t("codexInstall")}</p>
 			<pre>
 				<code>{CODEX_ACP_INSTALL}</code>
@@ -142,6 +145,7 @@ function AgentPicker({ chat }: { chat: HostChat }) {
 							type="button"
 							role="menuitemradio"
 							aria-checked={agent.kind === current}
+							disabled={!chat.canSend}
 							className="learning-chat__option"
 							onClick={() => {
 								setOpen(false);
@@ -187,8 +191,16 @@ function HostChatLogin({ chat }: { chat: HostChat }) {
 				>
 					{t("chatgpt")}
 				</button>
-			) : null}
-			<p className="learning-chat__hint">{t("hint")}</p>
+			) : (
+				// 页面拿不到可走完的登录方式（例如只播报 api-key）：给出页面外的做法，并允许重新接一次
+				<>
+					<p className="learning-chat__note">{t("manual")}</p>
+					<button type="button" className="learning-chat__option" onClick={chat.reclaim}>
+						{t("retry")}
+					</button>
+				</>
+			)}
+			{chatgpt ? <p className="learning-chat__hint">{t("hint")}</p> : null}
 			{failed ? (
 				<p role="alert" className="learning-chat__note">
 					{t("failed")}

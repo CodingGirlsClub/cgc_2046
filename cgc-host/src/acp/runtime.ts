@@ -67,7 +67,7 @@ export function createRuntime(opts: {
       const a = await opts.start(opts.app(active), g.abort.signal);
       if (!active()) { a.close(); throw g.abort.signal.reason; }
       g.agent = a;
-      void a.closed.then(() => retire(g, new Error("OMP connection closed")));
+      void a.closed.then(() => retire(g, new Error("agent connection closed")));
       g.phase = "initialize";
       const init = await abortable(a.rpc.request("initialize", {
         protocolVersion: PROTOCOL_VERSION, clientCapabilities: { elicitation: { form: {} } },

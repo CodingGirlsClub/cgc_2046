@@ -14,7 +14,6 @@ export function builtinAgents(home: string): AgentRecord[] {
   return [
     {
       kind: "omp",
-      label: "OMP",
       mcpServerName: "cgc-2046", // 与终端插件同名（学员的 OMP 配置里那份）；Codex 侧才需要换名字避开撞名
       locator: omp,
       async start(app, signal) {

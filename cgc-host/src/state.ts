@@ -52,11 +52,14 @@ export function loadState(home: string): HostState {
     if ((e as NodeJS.ErrnoException).code === "ENOENT") return { pairing: null, sessions: {}, agents: {} };
     throw e;
   }
-  const parsed = (isObject(raw) ? raw : {}) as { pairing?: Pairing | null; sessions?: Record<string, unknown>; agents?: Record<string, unknown> };
+  const parsed = (isObject(raw) ? raw : {}) as { pairing?: Pairing | null; sessions?: unknown; agents?: unknown };
+  // 畸形字段（字符串、数组）当作「没有」：按索引建桶会把垃圾写回文件，KTD6 的口径是从新对话开始
+  const rawSessions = isObject(parsed.sessions) ? parsed.sessions : {};
+  const rawAgents = isObject(parsed.agents) ? parsed.agents : {};
   // 旧形状（多 agent 之前）：整份 sessions 是 courseId → sessionId 字符串，也没有 agents 这一段
-  const legacy = !isObject(parsed.sessions) || !isObject(parsed.agents) || Object.values(parsed.sessions ?? {}).some((pointer) => typeof pointer === "string");
+  const legacy = !isObject(parsed.sessions) || !isObject(parsed.agents) || Object.values(rawSessions).some((pointer) => typeof pointer === "string");
   const sessions: SessionPointers = {};
-  for (const [courseId, pointer] of Object.entries(parsed.sessions ?? {})) {
+  for (const [courseId, pointer] of Object.entries(rawSessions)) {
     if (typeof pointer === "string") {
       sessions[courseId] = { [DEFAULT_AGENT]: pointer };
       continue;
@@ -69,10 +72,10 @@ export function loadState(home: string): HostState {
     if (Object.keys(buckets).length > 0) sessions[courseId] = buckets;
   }
   const agents: Record<string, AgentKind> = {};
-  for (const [courseId, kind] of Object.entries(parsed.agents ?? {})) {
+  for (const [courseId, kind] of Object.entries(rawAgents)) {
     if (isAgentKind(kind)) agents[courseId] = kind;
   }
-  const state: HostState = { pairing: parsed.pairing ?? null, sessions, agents };
+  const state: HostState = { pairing: (parsed.pairing as Pairing | null | undefined) ?? null, sessions, agents };
   // 读时迁移一次并落盘：之后无论谁读到都是新形状（旧 Host 读到新形状只退化为「从新对话开始」，KTD6 口径）
   if (legacy) saveState(home, state);
   return state;

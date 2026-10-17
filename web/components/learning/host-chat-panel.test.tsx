@@ -338,7 +338,7 @@ describe("卡片（R19、R20）", () => {
 
 		fireEvent.click(within(card).getByRole("button", { name: "Reject" }));
 		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("card.answer"));
-		expect(ws.sent.at(-1)?.params).toEqual({ courseId: COURSE, cardId: "card-p", optionId: "reject_once" });
+		expect(ws.sent.at(-1)?.params).toEqual({ agent: "omp", courseId: COURSE, cardId: "card-p", optionId: "reject_once" });
 		await ws.reply("card.answer", "turn.card.closed", { courseId: COURSE, cardId: "card-p", reason: "answered" });
 		expect(screen.queryByRole("group", { name: "需要你的确认" })).not.toBeInTheDocument();
 	});
@@ -368,6 +368,7 @@ describe("卡片（R19、R20）", () => {
 		fireEvent.click(within(card).getByRole("button", { name: "提交" }));
 		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("card.answer"));
 		expect(ws.sent.at(-1)?.params).toEqual({
+			agent: "omp",
 			courseId: COURSE,
 			cardId: "card-q",
 			action: "accept",
@@ -376,7 +377,7 @@ describe("卡片（R19、R20）", () => {
 
 		await ws.reply("card.answer", "error", { code: "bad_request" });
 		fireEvent.click(within(card).getByRole("button", { name: "跳过" }));
-		await waitFor(() => expect(ws.sent.at(-1)?.params).toEqual({ courseId: COURSE, cardId: "card-q", action: "decline" }));
+		await waitFor(() => expect(ws.sent.at(-1)?.params).toEqual({ agent: "omp", courseId: COURSE, cardId: "card-q", action: "decline" }));
 	});
 
 	it("Covers AE11：停止 → 发 chat.stop，等待回答的卡片立刻收起；Host 结束本轮后工具标为已停止，输入恢复可用", async () => {
@@ -740,7 +741,7 @@ describe("历史对话（Session History）", () => {
 		await sendMessage(ws, "先聊一句");
 		fireEvent.click(screen.getByRole("button", { name: "历史对话" }));
 		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.sessions"));
-		expect(ws.sent.at(-1)?.params).toEqual({ courseId: COURSE });
+		expect(ws.sent.at(-1)?.params).toEqual({ agent: "omp", courseId: COURSE });
 		await ws.reply("chat.sessions", "sessions", {
 			courseId: COURSE,
 			sessions: [{ sessionId: "session-9", updatedAt: null, messageCount: 3 }],
@@ -916,5 +917,61 @@ describe("多 agent（#1148）", () => {
 		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.authenticate", params: { courseId: COURSE, methodId: "chat-gpt" } }));
 		await ws.reply("chat.authenticate", "chat.authenticated", { courseId: COURSE, agent: "codex" });
 		await waitFor(() => expect(screen.queryByRole("button", { name: "用 ChatGPT 登录" })).toBeNull());
+	});
+});
+
+describe("多 agent 的评审修复（M1 / M2 / M4）", () => {
+	const both = {
+		state: "detected",
+		agents: [
+			{ kind: "omp", present: true },
+			{ kind: "codex", present: true },
+		],
+		paired: true,
+	} as const;
+
+	it("M1：noAgent 并列给出两个 agent 的安装指引（R1），不是只提 Codex", async () => {
+		checkHost.mockResolvedValue({
+			state: "detected",
+			agents: [
+				{ kind: "omp", present: false },
+				{ kind: "codex", present: false },
+			],
+			paired: false,
+		});
+		renderPanel();
+
+		await screen.findByText("这台电脑上还没有可用的 agent。");
+		expect(screen.getByText(/安装 OMP/)).toBeInTheDocument();
+		expect(screen.getByText("bun add -g @agentclientprotocol/codex-acp")).toBeInTheDocument();
+	});
+
+	it("M2：回合进行中不提供切换（选择器项不可点，与历史 chips 同一规则）", async () => {
+		checkHost.mockResolvedValue(both);
+		renderPanel();
+		await attach([], true); // running = true → canSend 为 false
+		await screen.findByRole("textbox", { name: "发给 agent 的消息" });
+
+		fireEvent.click(screen.getByRole("button", { name: /由 OMP 驱动/ }));
+		expect(screen.getByRole("menuitemradio", { name: "Codex" })).toBeDisabled();
+	});
+
+	it("M4：没有可点的登录方式时给页面外登录说明与重试，不留死卡", async () => {
+		window.localStorage.setItem(`cgc-host-agent:${COURSE}`, "codex");
+		checkHost.mockResolvedValue(both);
+		renderPanel();
+		await waitFor(() => expect(socketCount()).toBeGreaterThan(0));
+		const ws = FakeWebSocket.all.at(-1)!;
+		ws.push({ method: "status", params: status("paired") });
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
+		await ws.reply("hello", "status", status("ready"));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
+		await ws.reply("chat.attach", "error", { code: "auth_required", methods: [{ id: "api-key", name: "API Key" }] });
+
+		expect(await screen.findByText(/只提供页面外的登录方式/)).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "用 ChatGPT 登录" })).toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: "重试" }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
 	});
 });

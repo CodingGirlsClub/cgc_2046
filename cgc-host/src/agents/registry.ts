@@ -60,8 +60,6 @@ export function agentLocator(resolve: () => Promise<AgentLocation>, retryMs = 10
 
 export interface AgentRecord {
   kind: AgentKind;
-  /** 人读的名字：日志与页面标签 */
-  label: string;
   /** 下发给这个 agent 的 CGC MCP 服务器名（必填）：学员机器上可能已有同名配置（终端用同一台平台），撞名会让带学习凭证的那份被跳过 */
   mcpServerName: string;
   locator: Locator;

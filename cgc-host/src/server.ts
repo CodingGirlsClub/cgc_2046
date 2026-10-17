@@ -20,7 +20,7 @@ export interface ChatContext {
   token: string;
   /** KTD6：每门课每个 agent 的会话指针（Host 状态文件里与配对记录同一份）；改完调 save() 落盘 */
   sessions: SessionPointers;
-  /** 这门课上次用的 agent；页面不带 agent 时由对话层按它取值 */
+  /** 每门课上次显式选过的 agent（只用于 history 回包给页面做初选）；对话层的路由缺省恒为 DEFAULT_AGENT，不看它 */
   agents: Record<string, AgentKind>;
   save(): void;
   /** 只回原连接；原配对代次失效或连接断开后丢弃，不随课程接管迁移 */

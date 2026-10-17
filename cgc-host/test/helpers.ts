@@ -407,7 +407,6 @@ const absentLocator = (): Locator => ({ locate: async () => ({ path: null, env: 
 /** 假 OMP 那条记录（mcpServerName 与真实记录一致：终端插件同名） */
 export const ompTestRecord = (fake: Fake): AgentRecord => ({
   kind: "omp",
-  label: "OMP",
   mcpServerName: "cgc-2046",
   locator: absentLocator(),
   start: (app, signal) => fake.start(app, signal),
@@ -416,7 +415,6 @@ export const ompTestRecord = (fake: Fake): AgentRecord => ({
 /** 假 Codex 那条记录：名字与 prepare 用真实值，只有进程是进程内的假 agent */
 export const codexTestRecord = (fake: Fake): AgentRecord => ({
   kind: "codex",
-  label: "Codex",
   mcpServerName: CODEX_MCP_SERVER_NAME,
   locator: absentLocator(),
   prepare: async (courseDir) => writeLearningAgentsMd(courseDir),

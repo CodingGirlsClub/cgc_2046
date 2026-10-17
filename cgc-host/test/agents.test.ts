@@ -16,7 +16,6 @@ describe("agent 注册表", () => {
     const registry = createRegistry([
       {
         kind: "omp",
-        label: "OMP",
         mcpServerName: "cgc-2046",
         locator: { locate: async () => ({ path: null, env: {}, envError: "timeout" }), present: () => false, envError: () => "timeout" },
         start: async () => {
