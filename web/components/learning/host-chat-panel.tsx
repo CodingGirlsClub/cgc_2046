@@ -231,7 +231,7 @@ function groupByProvider(options: HostChatSetting["options"]) {
 	return [...groups];
 }
 
-/** R18 修订：学员可在对话栏按会话改本机 OMP 的模型与思考等级；Host 或 OMP 不给可选项时（旧版本）整行不渲染 */
+/** R18 修订：学员可在对话栏按会话改本机 OMP 的模型与思考等级（与发送按钮同排，作业目录另起一行）；Host 或 OMP 不给可选项时（旧版本）整块不渲染 */
 function ChatSettings({ chat }: { chat: HostChat }) {
 	const t = useTranslations("hostChat");
 	/** 改一次要等 OMP 回包：期间禁用两个下拉，避免与回包赛跑 */
@@ -261,13 +261,13 @@ function ChatSettings({ chat }: { chat: HostChat }) {
 
 	if (chat.settings.length === 0) return null;
 	return (
-		<div className="learning-chat__settings">
-			{chat.settings.map((option) => (
-				<label key={option.id} className="learning-chat__setting">
-					<span className="learning-chat__setting-label">
-						{option.id === "model" ? t("settings.model") : option.id === "thinking" ? t("settings.thinking") : option.name}
-					</span>
+		<>
+			<div className="learning-chat__settings">
+				{chat.settings.map((option) => (
 					<select
+						key={option.id}
+						className="learning-chat__setting"
+						aria-label={option.id === "model" ? t("settings.model") : option.id === "thinking" ? t("settings.thinking") : option.name}
 						value={option.currentValue}
 						disabled={pending || chat.running}
 						onChange={(event) => void change(option.id, event.target.value)}
@@ -288,14 +288,14 @@ function ChatSettings({ chat }: { chat: HostChat }) {
 									</option>
 								))}
 					</select>
-				</label>
-			))}
+				))}
+			</div>
 			{failure ? (
 				<p role="alert" className="learning-chat__note">
 					{failure}
 				</p>
 			) : null}
-		</div>
+		</>
 	);
 }
 
@@ -355,7 +355,6 @@ function Conversation({ chat, workDir }: { chat: HostChat; workDir: string }) {
 			{chat.cards.map((card) => (
 				<HostChatCard key={card.cardId} card={card} onAnswer={(answer) => chat.answer(card.cardId, answer)} />
 			))}
-			<ChatSettings chat={chat} />
 			<form
 				className="learning-chat__composer"
 				onSubmit={(e) => {
@@ -382,9 +381,7 @@ function Conversation({ chat, workDir }: { chat: HostChat; workDir: string }) {
 					}}
 				/>
 				<div className="learning-chat__composer-row">
-					<span className="learning-chat__workdir" title={workDir}>
-						{t("workDir", { path: workDir })}
-					</span>
+					<ChatSettings chat={chat} />
 					{chat.running ? (
 						<button type="button" className="learning-chat__option" disabled={chat.stopping} onClick={chat.stop}>
 							{chat.stopping ? t("stopping") : t("stop")}
@@ -395,6 +392,9 @@ function Conversation({ chat, workDir }: { chat: HostChat; workDir: string }) {
 						</button>
 					)}
 				</div>
+				<span className="learning-chat__workdir" title={workDir}>
+					{t("workDir", { path: workDir })}
+				</span>
 			</form>
 		</>
 	);

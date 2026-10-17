@@ -3717,14 +3717,13 @@ button:focus-visible,
 .learning-chat__composer { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 12px 14px; border-top: 1px solid var(--line); }
 .learning-chat__composer textarea { width: 100%; min-height: 64px; max-height: 180px; padding: 9px 11px; resize: vertical; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--canvas); color: var(--ink); font: inherit; font-size: 13px; line-height: 1.6; }
 .learning-chat__composer textarea:focus { border-color: var(--accent); outline: none; }
-.learning-chat__composer-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.learning-chat__composer-row button { flex: none; white-space: nowrap; }
+.learning-chat__composer-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.learning-chat__composer-row button { flex: none; margin-left: auto; white-space: nowrap; }
 .learning-chat__workdir { min-width: 0; overflow: hidden; color: var(--ink-3); font-family: var(--font-mono); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
-/* R18 修订：模型与思考等级（Host 不给可选项时整行不渲染） */
-.learning-chat__settings { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 14px 0; }
-.learning-chat__setting { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--ink-3); font-size: 11px; }
-.learning-chat__setting select { max-width: 260px; padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--canvas); color: var(--ink); font: inherit; font-size: 12px; }
-.learning-chat__setting select:disabled { opacity: 0.6; }
+/* R18 修订：模型与思考等级与发送按钮同排（Host 不给可选项时整块不渲染） */
+.learning-chat__settings { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
+.learning-chat__setting { max-width: 9.5rem; padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--canvas); color: var(--ink); font: inherit; font-size: 11.5px; }
+.learning-chat__setting:disabled { opacity: 0.6; }
 .learning-chat__settings .learning-chat__note { flex-basis: 100%; margin: 0; }
 
 /* ── 招募审核面板（/w/[slug]/recruitment；U8）────────────────────────────── */
