@@ -3,7 +3,8 @@
 // 覆盖：① 三处版本（install.ts 常量 / package.json / 锁里的条目）一致；② registry 仍提供该版本且 dist.integrity 与锁相同；
 // ③ 锁里每个包（含 @openai/codex 的 6 个平台二进制包）的许可证都按规则 §2 的白名单放行（未列出/UNKNOWN 一律拒绝）——这些包不进 cgc-host 的
 // package.json，pnpm check:licenses 扫不到它们；④ 六个平台包都在锁里（否则别的平台 --frozen-lockfile 会失败）；⑤ 每个条目都带 sha512；
-// ⑥ 每个 registry 条目的 integrity 都与 registry 现价一致（改坏任一传递依赖也会红）。
+// ⑥ 每个 registry 条目的 integrity 都与 registry 现价一致（改坏任一传递依赖也会红）；
+// ⑦ 复用变体锁（#1154）只装适配器、@openai/codex 被本地 stub 顶掉，其余包与全量锁一致。
 // 锁按 JSONC 解析、按 packages 的键逐条走，不按行正则——排版变化（多空格、多行数组）不能让条目被静默漏查。
 // 整棵依赖树的 integrity 校验发生在学员机器上（bun install --frozen-lockfile 逐个按 sha512 校验），CI 不下载 337MB。
 import { licenseAllows } from "../../web/scripts/license-rule.mjs";
@@ -50,6 +51,30 @@ if (missingPlatforms.length > 0) fail(`锁里缺少平台包：${missingPlatform
 // ② registry 仍提供钉住版本，且 integrity 与锁一致
 const meta = await fetchMeta(ADAPTER, pinned, `${ADAPTER}@${pinned}`);
 if (meta.dist?.integrity !== locked) fail(`registry 的 integrity 与锁不一致：${meta.dist?.integrity} ≠ ${locked}`);
+
+// ⑦ 复用变体锁（#1154）：只装适配器，`@openai/codex` 被本地 stub 顶掉；其余包必须与全量锁完全一致
+const reusePkg = JSON.parse(await read("src/agents/codex-acp-reuse.package.json"));
+if (reusePkg.overrides?.["@openai/codex"] !== "file:./stub") fail("复用变体的 package.json 没有把 @openai/codex 指到本地 stub");
+let reuseLock;
+try {
+	reuseLock = parseBunLock(await read("src/agents/codex-acp-reuse.lock"));
+} catch (e) {
+	fail(`复用变体锁解析失败：${e.message}`);
+}
+const reuseAt = reuseLock.keys.indexOf(ADAPTER);
+if (reuseAt < 0) fail(`复用变体锁里没有 ${ADAPTER}`);
+if (reuseLock.specs[reuseAt] !== `${ADAPTER}@${pinned}`) fail(`复用变体锁里的适配器不是钉住版本：${reuseLock.specs[reuseAt]}`);
+if (reuseLock.integrities[reuseAt] !== locked) fail("复用变体锁里的适配器 integrity 与全量锁不一致");
+const STUB_SPEC = "@openai/codex@file:./stub";
+const stubEntries = reuseLock.specs.filter((spec) => spec === STUB_SPEC);
+if (stubEntries.length !== 1) fail(`复用变体锁里应恰好有一条 ${STUB_SPEC}，实际 ${stubEntries.length}`);
+const leftoverCodex = reuseLock.keys.filter((key, index) => reuseLock.specs[index] !== STUB_SPEC && (key === "@openai/codex" || key.startsWith("@openai/codex-")));
+if (leftoverCodex.length > 0) fail(`复用变体锁里仍有 Codex 本体条目：${leftoverCodex.join(", ")}`);
+const missingReuseIntegrity = reuseLock.keys.filter((key, index) => !reuseLock.integrities[index] && reuseLock.specs[index] !== STUB_SPEC);
+if (missingReuseIntegrity.length > 0) fail(`复用变体锁里这些条目没有 sha512：${missingReuseIntegrity.join(", ")}`);
+const fullSpecs = new Set(specs);
+const unexpected = reuseLock.specs.filter((spec) => spec !== STUB_SPEC && !fullSpecs.has(spec));
+if (unexpected.length > 0) fail(`复用变体锁里出现了全量锁没有的包：${unexpected.join(", ")}`);
 
 // ③ 锁里每个包：许可按 §2 白名单判定（平台二进制包也在内；它们不经过 pnpm，必须在这里把关）
 const nameOf = (spec) => spec.slice(0, spec.lastIndexOf("@"));

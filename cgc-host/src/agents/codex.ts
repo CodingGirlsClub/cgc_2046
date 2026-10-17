@@ -5,10 +5,10 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { spawnCodexAcp, STARTUP_PROMPT } from "../acp/client";
-import { resolveLoginShellEnv } from "../shell-env";
-import { managedCodex } from "./install";
+import { resolveLoginShellEnv, type EnvError } from "../shell-env";
+import { managedCodex, installVariant } from "./install";
 import { agentLocator, type AgentLocation, type AgentRecord, type Locator } from "./registry";
-import { detectCodexSources } from "./sources";
+import { detectCodexSources, reuseEnginePath, type CodexSourceHit } from "./sources";
 
 /** PATH 上找的适配器可执行名（npm 包的 bin） */
 export const CODEX_ACP_BIN = "codex-acp";
@@ -20,11 +20,24 @@ export const CODEX_MCP_SERVER_NAME = "cgc-2046-learning";
  * 找到适配器（KTD12：从登录 shell 解析环境，再在它的 PATH 里找）。
  * 页面里装过（期 2）就先用 Host 托管的那一份；学员自己装在 PATH 上的作为回退。
  */
+/** 由「已登录 shell 的环境 + 探测到的来源」算出定位结果；拆成纯函数方便测运行期变体选择 */
+export function codexLocation(home: string, env: Record<string, string>, envError: EnvError | null, hits: readonly CodexSourceHit[]): AgentLocation {
+  const sources = hits.map(({ source, version }) => ({ source, version }));
+  const managed = managedCodex(home);
+  if (managed && installVariant(home) === "reuse") {
+    // reuse 变体不带 Codex 本体：用学员已有的 engine（App 内置 / PATH codex）跑；
+    // 它没了就让 present=false，页面重新给安装入口（下次安装探针失败会自动回退 full）。
+    const engine = reuseEnginePath(hits);
+    if (!engine) return { path: null, env, envError, sources };
+    env.CODEX_PATH = engine;
+    return { path: managed, env, envError, sources };
+  }
+  return { path: pickCodexAcp(home, env.PATH), env, envError, sources };
+}
+
 export async function resolveCodexAcp(home: string, shell?: string, timeoutMs?: number): Promise<AgentLocation> {
   const { env, envError } = await resolveLoginShellEnv(shell, timeoutMs);
-  // 只读探测「有哪些可复用的 Codex 来源」并随定位结果一起上报；启动仍走 pickCodexAcp 的既有优先级。
-  const sources = detectCodexSources(home, env.PATH).map(({ source, version }) => ({ source, version }));
-  return { path: pickCodexAcp(home, env.PATH), env, envError, sources };
+  return codexLocation(home, env, envError, detectCodexSources(home, env.PATH));
 }
 
 /**

@@ -2,17 +2,20 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { pickCodexAcp } from "../src/agents/codex";
+import { codexLocation, pickCodexAcp } from "../src/agents/codex";
 import {
   CODEX_ACP_VERSION,
   InstallError,
+  VARIANT_FILE,
   agentsDir,
   codexAgentDir,
   codexPackageDir,
   installCodexAcp,
+  installVariant,
   installedVersion,
   managedCodex,
   managedCodexEntry,
+  probeCodexAcp,
 } from "../src/agents/install";
 import { uninstall } from "../src/uninstall";
 import { cleanup, tempHome } from "./helpers";
@@ -41,7 +44,7 @@ const managedCodexAcpEntry = (home: string) => managedCodexEntry(home);
 describe("installCodexAcp", () => {
   test("装到 ~/.cgc2046/agents/codex-acp：版本可读、不留临时目录、探测立刻看得到", async () => {
     const home = tempHome();
-    expect(await installCodexAcp({ home, run: fakeInstaller() })).toEqual({ version: CODEX_ACP_VERSION });
+    expect(await installCodexAcp({ home, run: fakeInstaller() })).toMatchObject({ version: CODEX_ACP_VERSION, variant: "full" });
     expect(installedVersion(home)).toBe(CODEX_ACP_VERSION);
     expect(managedCodexAcpEntry(home)).not.toBeNull();
     expect(leftovers(home)).toEqual([]);
@@ -158,5 +161,83 @@ describe("Windows 布局与版本门", () => {
 		expect(Bun.which("codex-acp", { PATH: pathDir })).toBe(pathBin); // 前提成立：PATH 里确实有
 
 		expect(pickCodexAcp(home, pathDir)).toBe(managedCodex(home));
+	});
+});
+
+describe("reuse 变体（#1154）", () => {
+	const engine = "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex";
+
+	test("有可复用 engine + 探针通过：只装适配器，记录 variant，不带 Codex 本体", async () => {
+		const home = tempHome();
+		let probedEntry = "";
+		let probedCodexPath = "";
+		const result = await installCodexAcp({
+			home,
+			run: fakeInstaller(),
+			reuseEngine: engine,
+			probe: async (entry, codexPath) => {
+				probedEntry = entry;
+				probedCodexPath = codexPath;
+				return true;
+			},
+		});
+
+		expect(result).toMatchObject({ version: CODEX_ACP_VERSION, variant: "reuse" });
+		expect(installVariant(home)).toBe("reuse");
+		expect(existsSync(join(codexAgentDir(home), "node_modules", "@openai", "codex"))).toBe(false); // 没装 Codex 本体
+		expect(probedCodexPath).toBe(engine);
+		expect(probedEntry.endsWith("dist/index.js")).toBe(true);
+		expect(JSON.parse(readFileSync(join(codexAgentDir(home), VARIANT_FILE), "utf8")).variant).toBe("reuse");
+	});
+
+	test("探针失败：自动回退 full 安装，最终照常可用", async () => {
+		const home = tempHome();
+		let calls = 0;
+		const result = await installCodexAcp({
+			home,
+			run: async (cwd) => {
+				calls += 1;
+				return fakeInstaller()(cwd);
+			},
+			reuseEngine: engine,
+			probe: async () => false,
+		});
+
+		expect(result).toMatchObject({ version: CODEX_ACP_VERSION, variant: "full" });
+		expect(calls).toBe(2); // 先 reuse，探针失败后 full
+		expect(installVariant(home)).toBe("full");
+		expect(managedCodex(home)).not.toBeNull();
+		expect(leftovers(home)).toEqual([]);
+	});
+
+	test("运行期：reuse 变体把 CODEX_PATH 指向已有 engine；engine 消失则 present=false", async () => {
+		const home = tempHome();
+		await installCodexAcp({ home, run: fakeInstaller(), reuseEngine: engine, probe: async () => true });
+		const hits = [{ source: "chatgpt-app" as const, path: engine, version: "0.163.0" }];
+
+		const withEngine = codexLocation(home, { PATH: "" }, null, hits);
+		expect(withEngine.path).toBe(managedCodex(home));
+		expect(withEngine.env.CODEX_PATH).toBe(engine);
+		expect(withEngine.sources).toEqual([{ source: "chatgpt-app", version: "0.163.0" }]);
+
+		const withoutEngine = codexLocation(home, { PATH: "" }, null, []);
+		expect(withoutEngine.path).toBeNull(); // 页面会重新给安装入口
+		expect(withoutEngine.sources).toEqual([]);
+	});
+
+	test("probeCodexAcp：适配器回 initialize 即通过；不回则超时失败", async () => {
+		const home = tempHome();
+		const dir = join(home, "probe");
+		mkdirSync(dir, { recursive: true });
+		const ok = join(dir, "ok.js");
+		writeFileSync(
+			ok,
+			`process.stdin.once("data", () => { process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: 1, result: {} }) + "\\n"); setTimeout(() => process.exit(0), 50); });`,
+		);
+		expect(await probeCodexAcp(ok, engine, 3000)).toBe(true);
+
+		const silent = join(dir, "silent.js");
+		writeFileSync(silent, `setTimeout(() => process.exit(0), 1500);`);
+		expect(await probeCodexAcp(silent, engine, 300)).toBe(false);
 	});
 });

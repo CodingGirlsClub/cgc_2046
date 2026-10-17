@@ -49,8 +49,8 @@ export interface ServerOptions {
   agents: () => AgentStatus[];
   /** 本机支持的能力（页面据此决定给不给安装入口）；缺省没有 */
   capabilities?: readonly string[];
-  /** 安装某个 agent（缺省不支持）：进度经参数回调，失败抛错（InstallError 的 code 会回给页面） */
-  install?(kind: AgentKind, progress: (phase: "installing") => void): Promise<{ version: string }>;
+  /** 安装某个 agent（缺省不支持）：进度经参数回调，失败抛错（InstallError 的 code 会回给页面）。variant 用于页面区分「复用」与「全量」 */
+  install?(kind: AgentKind, progress: (phase: "installing") => void): Promise<{ version: string; variant?: "full" | "reuse" }>;
   /** 可安装的 kind（缺省只有 codex）；其余的 kind 回 unsupported，而不是含糊的 install_failed */
   installable?: readonly AgentKind[];
   /** 装完刷新定位器（否则页面要等缓存过期才看到新 agent） */
@@ -196,9 +196,9 @@ const handlers: Record<string, (host: Host, ws: WS, frame: Frame) => unknown> = 
     host.installing = true;
     send(ws, { method: "agent.install.started", id, params: { started: true } });
     try {
-      const { version } = await host.opts.install(kind, (phase) => broadcast(host, ws, "agent.install.progress", { kind, phase }));
+      const { version, variant } = await host.opts.install(kind, (phase) => broadcast(host, ws, "agent.install.progress", { kind, phase }));
       await host.opts.refresh?.(kind);
-      broadcast(host, ws, "agent.done", { kind, ok: true, version });
+      broadcast(host, ws, "agent.done", { kind, ok: true, version, ...(variant && { reused: variant === "reuse" }) });
     } catch (e) {
       const code = e instanceof InstallError ? e.code : "install_failed";
       console.error(`cgc-host: 安装 ${kind} 失败（${code}）`); // 只记错误码：安装输出里有本地路径

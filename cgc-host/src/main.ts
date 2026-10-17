@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { builtinAgents } from "./agents/builtin";
 import { installCodexAcp } from "./agents/install";
 import { createRegistry } from "./agents/registry";
+import { findReuseCodexEngine } from "./agents/sources";
 import { createChat } from "./acp/session";
 import { API_BASE, HOST_VERSION, PORT } from "./config";
 import { runPlatformDialog } from "./platform-dialog";
@@ -33,8 +34,13 @@ try {
     agents: registry.status,
     capabilities: ["agent.install"],
     installable: ["codex"],
-    install: (kind, progress) =>
-      kind === "codex" ? installCodexAcp({ home, onPhase: progress }) : Promise.reject(new Error(`没有 ${kind} 的安装包`)),
+    install: async (kind, progress) => {
+      if (kind !== "codex") throw new Error(`没有 ${kind} 的安装包`);
+      // 有可复用的 Codex engine（ChatGPT App 内置 / PATH codex）就先试 reuse：只装约 2MB 适配器；
+      // 探针失败时 installCodexAcp 内部回退 full，这里不用再判断。
+      const reuse = await findReuseCodexEngine(home);
+      return installCodexAcp({ home, onPhase: progress, reuseEngine: reuse?.path });
+    },
     refresh: (kind) => registry.refresh(kind),
     chat: chat.handle,
     onConnections: chat.connections,

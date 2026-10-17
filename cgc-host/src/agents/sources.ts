@@ -1,8 +1,8 @@
 // agents/sources.ts — Codex「来源」的只读探测（期 3 前置，见 #1154 / #1155）。
-// 只回答「这台机器上已有哪些可复用的 Codex 来源」，不改变安装与启动优先级：
-// install/start 仍走 codex.ts 的既有选择（托管安装优先、其次 PATH 上的 codex-acp）。
+// 探测本身只读；安装决策（是否走 reuse 变体）与启动决策（CODEX_PATH 注入）在 install.ts / codex.ts 读取结果后做。
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
+import { resolveLoginShellEnv } from "../shell-env";
 import { installedVersion, managedCodex } from "./install";
 
 /** 上报给页面的来源种类；数组顺序即推荐优先级 */
@@ -87,4 +87,20 @@ export function detectCodexSources(
   if (cli) add({ source: "codex-cli", path: cli, version: null });
 
   return hits;
+}
+
+/** 复用安装时优先选哪条：App 内置 engine 优先于 PATH 上的 codex（App 与学员登录/配置共享得最完整） */
+export function reuseEnginePath(hits: readonly CodexSourceHit[]): string | null {
+  return hits.find((hit) => hit.source === "chatgpt-app")?.path ?? hits.find((hit) => hit.source === "codex-cli")?.path ?? null;
+}
+
+/**
+ * 安装前解析可复用的 engine（登录 shell 的 PATH，与 Host 启动 agent 用同一份环境）。
+ * 只用于「要不要走 reuse 变体」；真正启动时 codex.ts 会重新探测，engine 消失就让 present=false。
+ */
+export async function findReuseCodexEngine(home: string): Promise<{ path: string; source: CodexSource } | null> {
+  const { env } = await resolveLoginShellEnv();
+  const hits = detectCodexSources(home, env.PATH);
+  const hit = hits.find((entry) => entry.source === "chatgpt-app") ?? hits.find((entry) => entry.source === "codex-cli");
+  return hit ? { path: hit.path, source: hit.source } : null;
 }
