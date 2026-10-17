@@ -3,10 +3,11 @@
 import type { ServerWebSocket } from "bun";
 import { hostname } from "node:os";
 import protocol from "../protocol.json";
+import { type AgentKind, type AgentStatus, isAgentKind } from "./agents/registry";
 import { HOST_VERSION, SITE_ORIGIN } from "./config";
 import { createPairing, type DialogRunner, hashBrowserKey, revokeToken, verifyToken } from "./pairing";
 import { isAllowedRequest, isObject, isUuid, sanitizeDeviceName } from "./security";
-import { type HostState, loadState, type Pairing, saveState } from "./state";
+import { type HostState, loadState, type Pairing, saveState, type SessionPointers } from "./state";
 
 /** 两个方向共用的帧信封（cgc-host/AGENTS.md）；回复带上请求的 id */
 export type Message = { method: string; id?: string; params?: Record<string, unknown> };
@@ -14,11 +15,13 @@ export type Message = { method: string; id?: string; params?: Record<string, unk
 export type ChatMethod = "chat.attach" | "chat.send" | "chat.stop" | "chat.new" | "chat.sessions" | "chat.open" | "chat.set_setting" | "card.answer";
 
 export interface ChatContext {
-  /** Host 向平台核实过的账号与学习凭证（KTD6：工作目录与下发给 OMP 的 mcpServers 用它们） */
+  /** Host 向平台核实过的账号与学习凭证（KTD6：工作目录与下发给 agent 的 mcpServers 用它们） */
   userId: string;
   token: string;
-  /** KTD6：每门课的会话指针（Host 状态文件里与配对记录同一份）；改完调 save() 落盘 */
-  sessions: Record<string, string>;
+  /** KTD6：每门课每个 agent 的会话指针（Host 状态文件里与配对记录同一份）；改完调 save() 落盘 */
+  sessions: SessionPointers;
+  /** 这门课上次用的 agent；页面不带 agent 时由对话层按它取值 */
+  agents: Record<string, AgentKind>;
   save(): void;
   /** 只回原连接；原配对代次失效或连接断开后丢弃，不随课程接管迁移 */
   reply(message: Message): void;
@@ -41,10 +44,8 @@ export interface ServerOptions {
   runDialog: DialogRunner;
   /** 弹窗按哪个系统挑（默认 process.platform）；测试注入固定值 */
   platform?: NodeJS.Platform;
-  /** 找得到 omp（omp.ts 的缓存，同步读） */
-  ompPresent: () => boolean;
-  /** KTD12：登录 shell 环境解析失败的原因；非 null 时写进 status 的 ompEnvError */
-  ompEnvError?: () => string | null;
+  /** 本机各 agent 的状态（注册表读缓存，同步）：status.agents 与 /health 都从这里取 */
+  agents: () => AgentStatus[];
   chat: ChatHandler;
   /** KTD13 的收尾依据：连接数变化时告诉对话处理器；断开时附上因此失去持有者的课程 */
   onConnections?: (count: number, released: string[]) => void;
@@ -79,7 +80,8 @@ const canReply = (host: Host, ws: WS, pairing: Pairing | null) =>
 
 function status(host: Host, ws: WS, id?: string): Message {
   const p = host.state.pairing;
-  const envError = host.opts.ompEnvError?.();
+  const agents = host.opts.agents();
+  const omp = agents.find((agent) => agent.kind === "omp");
   return {
     method: "status",
     id,
@@ -89,8 +91,10 @@ function status(host: Host, ws: WS, id?: string): Message {
       pairedDisplayName: p?.displayName ?? null,
       deviceName: host.deviceName,
       tokenId: p?.tokenId ?? null,
-      ompPresent: host.opts.ompPresent(),
-      ...(envError && { ompEnvError: envError }),
+      // 回滚桥：只认 ompPresent 的旧页面靠它继续工作；移除条件是下一个 Host 大版本
+      ompPresent: omp?.present ?? false,
+      ...(omp?.envError && { ompEnvError: omp.envError }),
+      agents,
       version: HOST_VERSION,
       protocolVersion: protocol.protocolVersion,
     },
@@ -98,8 +102,10 @@ function status(host: Host, ws: WS, id?: string): Message {
 }
 
 async function chat(host: Host, ws: WS, { method, id, params }: Frame) {
-  const { courseId } = params;
+  const { courseId, agent } = params;
   if (!isUuid(courseId)) return send(ws, error(id, "bad_request"));
+  // 页面指定的 agent 必须在本机支持的 kind 里；不带就由对话层按「这门课上次用的」取值
+  if (agent !== undefined && !isAgentKind(agent)) return send(ws, error(id, "bad_request"));
   if (method === "chat.attach") {
     const previous = host.holders.get(courseId);
     host.holders.set(courseId, ws);
@@ -113,6 +119,7 @@ async function chat(host: Host, ws: WS, { method, id, params }: Frame) {
     userId,
     token,
     sessions: host.state.sessions,
+    agents: host.state.agents,
     save: () => saveState(host.opts.home, host.state),
     reply(message) {
       if (canReply(host, ws, pairing)) send(ws, { ...message, id });
@@ -234,7 +241,17 @@ export function startServer(opts: ServerOptions) {
       if (!isAllowedRequest(req, server.port!)) return new Response(null, { status: 403 });
       const { pathname } = new URL(req.url);
       if (pathname === "/health" && req.method === "GET") {
-        return Response.json({ version: HOST_VERSION, ompPresent: opts.ompPresent(), paired: state.pairing !== null }, { headers: cors });
+        const agents = opts.agents();
+        return Response.json(
+          {
+            version: HOST_VERSION,
+            // 回滚桥：只认 ompPresent 的旧页面靠它继续工作（与 status 同一口径）
+            ompPresent: agents.some((agent) => agent.kind === "omp" && agent.present),
+            paired: state.pairing !== null,
+            agents,
+          },
+          { headers: cors },
+        );
       }
       if (pathname === "/health" && req.method === "OPTIONS") {
         return new Response(null, { status: 204, headers: { ...cors, "access-control-allow-methods": "GET" } });

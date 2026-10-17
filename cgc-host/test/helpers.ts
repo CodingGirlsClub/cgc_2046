@@ -6,6 +6,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import protocol from "../protocol.json";
+import { createRegistry } from "../src/agents/registry";
 import type { Agent } from "../src/acp/client";
 import { createChat } from "../src/acp/session";
 import { SITE_ORIGIN } from "../src/config";
@@ -98,7 +99,7 @@ export function startHost(options: Partial<ServerOptions> = {}) {
     home,
     apiBase: platform.url,
     runDialog: dialog.run,
-    ompPresent: () => false,
+    agents: () => [{ kind: "omp", present: false }],
     // 弹窗命令形状的断言不随测试机漂移；跨平台形状在 pairing.test.ts 里各自注入
     platform: "darwin",
     // 与 main.ts 在 U6 之前的处理器同一行为：记下调用，答「暂不可用」
@@ -389,7 +390,16 @@ export const API = "http://cgc.test";
 /** 接上假 OMP 的 Host：对话处理器是真的（createChat），home 可传入以模拟 Host 重启 */
 export function chatHost(fake: Fake, opts: { home?: string; graceMs?: number; idleMs?: number; preparationTimeoutMs?: number } = {}) {
   const home = opts.home ?? tempHome();
-  const chat = createChat({ home, apiBase: API, start: fake.start, graceMs: opts.graceMs, idleMs: opts.idleMs, preparationTimeoutMs: opts.preparationTimeoutMs });
+  const registry = createRegistry([
+    {
+      kind: "omp",
+      label: "OMP",
+      // 测试里的定位器不找任何东西：present 由 startHost 的 agents 选项单独注入
+      locator: { locate: async () => ({ path: null, env: {}, envError: null }), present: () => false, envError: () => null },
+      start: (app, signal) => fake.start(app, signal),
+    },
+  ]);
+  const chat = createChat({ home, apiBase: API, registry, graceMs: opts.graceMs, idleMs: opts.idleMs, preparationTimeoutMs: opts.preparationTimeoutMs });
   return startHost({ home, chat: chat.handle, onConnections: chat.connections });
 }
 

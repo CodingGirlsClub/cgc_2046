@@ -1,8 +1,9 @@
-// state.ts — Host 的本机状态 ~/.cgc2046/host/state.json：配对记录与每门课的会话指针。
+// state.ts — Host 的本机状态 ~/.cgc2046/host/state.json：配对记录、每门课每个 agent 的会话指针，以及这门课上次用的 agent。
 // 目录 0700、文件 0600；先写临时文件再改名，写到一半断电也不会留下半个文件。
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { isUuid } from "./security";
+import { DEFAULT_AGENT, isAgentKind, type AgentKind } from "./agents/registry";
+import { isObject, isUuid } from "./security";
 
 /** 一台 Host 同一时间只为一个账号、一个浏览器工作（术语表「已配对的电脑」）。除 token 外都来自平台的 GET /mcp/token */
 export interface Pairing {
@@ -16,23 +17,65 @@ export interface Pairing {
   browserKeyHash: string;
 }
 
+/** KTD6：courseId → { <agent kind>: sessionId }——每门课每个 agent 各记一条当前对话 */
+export type SessionPointers = Record<string, Partial<Record<AgentKind, string>>>;
+
 export interface HostState {
   pairing: Pairing | null;
-  /** KTD6：courseId → 当前 sessionId，由 U6 读写 */
-  sessions: Record<string, string>;
+  /** 每门课每个 agent 的会话指针（KTD6） */
+  sessions: SessionPointers;
+  /** 这门课上次用的 agent；页面不带 agent 时用它 */
+  agents: Record<string, AgentKind>;
 }
 
 export const stateDir = (home: string) => join(home, ".cgc2046", "host");
 const statePath = (home: string) => join(stateDir(home), "state.json");
 
-/** 状态文件不存在即未配对（KTD6：丢了就从新对话开始）；其他读取错误照常抛出 */
+/** 写会话指针；sessionId 为 null 即删掉这个 agent 那条（一个都不剩时连桶一起删，状态文件不留空壳） */
+export function setPointer(sessions: SessionPointers, courseId: string, agent: AgentKind, sessionId: string | null): void {
+  const buckets = sessions[courseId] ?? {};
+  if (sessionId === null) delete buckets[agent];
+  else buckets[agent] = sessionId;
+  if (Object.keys(buckets).length === 0) delete sessions[courseId];
+  else sessions[courseId] = buckets;
+}
+
+/**
+ * 读状态文件（不存在即未配对，KTD6：丢了就从新对话开始）；其他读取错误照常抛出。
+ * 旧形状（多 agent 之前：courseId → sessionId 字符串）读成 { <缺省 agent>: sessionId }；文件本身在下次 save 时落成新形状。
+ */
 export function loadState(home: string): HostState {
+  let raw: unknown;
   try {
-    return JSON.parse(readFileSync(statePath(home), "utf8"));
+    raw = JSON.parse(readFileSync(statePath(home), "utf8"));
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") return { pairing: null, sessions: {} };
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return { pairing: null, sessions: {}, agents: {} };
     throw e;
   }
+  const parsed = (isObject(raw) ? raw : {}) as { pairing?: Pairing | null; sessions?: Record<string, unknown>; agents?: Record<string, unknown> };
+  // 旧形状（多 agent 之前）：整份 sessions 是 courseId → sessionId 字符串，也没有 agents 这一段
+  const legacy = !isObject(parsed.sessions) || !isObject(parsed.agents) || Object.values(parsed.sessions ?? {}).some((pointer) => typeof pointer === "string");
+  const sessions: SessionPointers = {};
+  for (const [courseId, pointer] of Object.entries(parsed.sessions ?? {})) {
+    if (typeof pointer === "string") {
+      sessions[courseId] = { [DEFAULT_AGENT]: pointer };
+      continue;
+    }
+    if (!isObject(pointer)) continue;
+    const buckets: Partial<Record<AgentKind, string>> = {};
+    for (const [kind, sessionId] of Object.entries(pointer)) {
+      if (isAgentKind(kind) && typeof sessionId === "string" && sessionId) buckets[kind] = sessionId;
+    }
+    if (Object.keys(buckets).length > 0) sessions[courseId] = buckets;
+  }
+  const agents: Record<string, AgentKind> = {};
+  for (const [courseId, kind] of Object.entries(parsed.agents ?? {})) {
+    if (isAgentKind(kind)) agents[courseId] = kind;
+  }
+  const state: HostState = { pairing: parsed.pairing ?? null, sessions, agents };
+  // 读时迁移一次并落盘：之后无论谁读到都是新形状（旧 Host 读到新形状只退化为「从新对话开始」，KTD6 口径）
+  if (legacy) saveState(home, state);
+  return state;
 }
 
 export function saveState(home: string, state: HostState) {

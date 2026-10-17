@@ -33,7 +33,7 @@ type Page = Awaited<ReturnType<typeof helloed>>;
 const attach = (page: Page) => page.call("chat.attach", { courseId: COURSE });
 const send = (page: Page, text: string, context: unknown = CONTEXT) => page.call("chat.send", { courseId: COURSE, text, context });
 const ended = (page: Page) => page.next((m) => m.method === "turn.end");
-const pointer = (home: string): string | undefined => JSON.parse(readFileSync(join(stateDir(home), "state.json"), "utf8")).sessions[COURSE];
+const pointer = (home: string): string | undefined => JSON.parse(readFileSync(join(stateDir(home), "state.json"), "utf8")).sessions[COURSE]?.omp;
 const cgcServer = (token: string) => [{ type: "http", name: "cgc-2046", url: `${API}/mcp`, headers: [{ name: "authorization", value: `Bearer ${token}` }] }];
 /** 录制转录里审批请求的四个选项（终端里看到的同一组） */
 const OPTIONS = fixture("live-turn.ndjson").find((l) => l.msg.method === "session/request_permission")!.msg.params.options;

@@ -15,7 +15,7 @@ execution: code
 - **Objective：** 已经在自己电脑上装了别的 coding agent（先支持 Codex）的学员，也能在课程学习页用它学完一个学习目标——自己选 agent、自己选历史对话，学习进度与课程作业目录两边共用。
 - **Means：** 把 `cgc-host` 里写死的 OMP 抽成 agent 注册表（ADR-0022 否决私有 RPC 时就留下了 ACP 这条接缝），Codex 经 `@agentclientprotocol/codex-acp` 接入；页面在对话栏里给出 agent 选择与按 agent 分组的历史对话。
 - **Authority：** 2026-10-17 会话中用户确认的两条产品决策：① 期 1 先做 BYO 探测（学员自己装 `codex-acp`），期 2 再做 Host 一键安装；② 抬高 `MIN_HOST_VERSION` 强制更新。ADR-0023 记录方向性决定并修订 ADR-0022 的适用范围。
-- **Execution profile：** 两阶段：A Host 接缝（U1–U4）→ B 网页（U5、U6）→ C 真机验收（U7）。`cgc-host/**` 与 `web/lib/host-version.ts` 在根 `AGENTS.md` 的人工合并范围内，实施 PR 由人合并。
+- **Execution profile：** 两阶段：A Host 接缝（U1–U3）→ B Codex 与页面（U4–U5）→ C 文档与真机验收（U6–U7）。**版本号：A 批的包升 `0.1.7`（包内容变了，`MIN_HOST_VERSION` 不动）；B 批升 `0.2.0` 并把 `MIN_HOST_VERSION` 抬到 `0.2.0`（强制更新一次）。** `cgc-host/**` 与 `web/lib/host-version.ts` 在根 `AGENTS.md` 的人工合并范围内，实施 PR 由人合并。
 - **Stop conditions：** 出现以下任一条即停下重议：
   - 适配器升级后 node 入口在 Bun 下跑不起来，回退路线（`CODEX_PATH` 指原生二进制、仍由 Bun 跑适配器）也不成立——「Host 侧不新增 node 依赖」的前提不成立（macOS arm64 已在 2.2.2 上实测通过，见 Dependencies）。
   - 学习凭证出现在 Codex 自己的会话存储里，而处置口径无法接受——R12 不成立。
@@ -142,8 +142,8 @@ execution: code
 ### Key Technical Decisions
 
 - KTD1. **agent 注册表 + 每 agent 一个进程代。** `AgentKind = "omp" | "codex"`，每条记录提供「定位、环境、启动、启动语注入、能力标记」；`acp/runtime.ts` 的进程代抽象按 kind 各建一个实例，空闲回收沿用 KTD13。
-- KTD2. **会话指针按 (course, agent) 存，旧形状读时迁移。** `state.json` 的 `sessions` 变 `courseId → { <kind>: sessionId }`，另加 `agents: courseId → kind`（这门课的默认 agent）；读到旧形状（`courseId → sessionId`）时当作 `{ omp: 旧值 }` 并落盘一次。指针是「上次聊到哪儿」，不是唯一真相——丢了就从新对话开始（KTD6 既有口径）。
-- KTD3. **协议纯增量：`status.params.agents: [{kind, present, envError?}]`、`/health.agents`、`chat.*` 的可选 `agent`（缺省 `omp`）、新方法 `chat.authenticate`。** 保留 `ompPresent` / `ompEnvError` 作为回滚桥（新 Host + 回滚后的旧页面），移除条件是下一个 Host 大版本。
+- KTD2. **会话指针按 (course, agent) 存，旧形状读时迁移。** `state.json` 的 `sessions` 变 `courseId → { <kind>: sessionId }`，另加 `agents: courseId → kind`（这门课**上次显式选过**的 agent：只作为页面的初选，经 `history` 回包给出；Host 的路由缺省恒为 `DEFAULT_AGENT`，不看它——回滚期的旧页面不带 `agent`，不能被改道）；读到旧形状（`courseId → sessionId`）时当作 `{ omp: 旧值 }` 并落盘一次。指针是「上次聊到哪儿」，不是唯一真相——丢了就从新对话开始（KTD6 既有口径）。
+- KTD3. **协议纯增量：`status.params.agents: [{kind, present, envError?}]`、`/health.agents`、`chat.*` 的可选 `agent`、按 agent 分桶的会话指针先在 A 批落地（不碰页面，OMP 行为不变）；`chat.authenticate` 与错误码 `agent_unavailable` / `auth_required` / `auth_failed` 随 Codex 一起进 B 批**——A 批不出现「协议里有方法、实现里没有 handler」的中间态。`agent` 的缺省恒为 `DEFAULT_AGENT`（`omp`），与记忆值无关。保留 `ompPresent` / `ompEnvError` 作为回滚桥（新 Host + 回滚后的旧页面），移除条件是下一个 Host 大版本。
 - KTD4. **Codex 的登录走 ACP `authenticate`，不在页面里搬凭证。** ACP 错误 `-32000 auth_required` 映射成 `error {code: "auth_required", methods}`；`chat.authenticate {courseId, agent, methodId}` 转发给适配器，`chat-gpt` 方法由适配器在学员本机打开浏览器并等待回调。
 - KTD5. **Codex 的启动语写课程工作目录的 `AGENTS.md`。** OMP 用进程级 `--append-system-prompt`；适配器的 `_meta.jetbrains.air.customInstructions` 只在 `session/new` 生效、`session/load` 不带，`AGENTS.md` 是唯一同时覆盖两者的通道。写入幂等（内容不变则不重写），只落在 `~/cgc2046_workspace/courses/<userId>/<courseId>/`。
 - KTD6. **Codex 会话下发的 MCP 服务器名是 `cgc-2046-learning`。** 适配器会把「学员 Codex 配置里已存在的同名服务器」整条跳过（`shouldDeduplicateMcpConflicts`），同名会让带学习凭证的那份被学员的终端配置顶掉。
@@ -227,8 +227,8 @@ web/components/learning/
 - **Files：** `cgc-host/protocol.json`、`cgc-host/src/server.ts`、`cgc-host/src/state.ts`、`cgc-host/test/{protocol,state,server}.test.ts`
 - **Approach：**
   1. `status.params` 增 `agents`，OMP 那条仍附旧字段 `ompPresent` / `ompEnvError`；`/health` 增 `agents`。
-  2. `chat.*` 收可选 `agent`（缺省 `omp`；不在注册表 → `bad_request`）；`chat.authenticate` 进 `pageToHost` 白名单。
-  3. 错误码增 `agent_unavailable`、`auth_required`（带可选 `methods`）、`auth_failed`。
+  2. `chat.*` 收可选 `agent`（缺省 `omp`；不在注册表 → `bad_request`）。`chat.authenticate` 与它的方法白名单随 Codex 在 B 批加入。
+  3. 未知 `agent` 由 `bad_request` 拒（协议层的 kind 白名单）；`agent_unavailable` / `auth_required` / `auth_failed` 随 Codex 在 B 批加入。
   4. `state.ts`：`sessions` 分桶 + `agents` 默认值 + 旧形状迁移（一次性落盘）；文件权限不变（0700/0600）。
 - **Test scenarios：** 旧形状状态文件 → 读出旧对话、迁移后写回新形状；未知 agent → `bad_request`；不带 `agent` 的调用走 OMP（回滚桥）；协议契约测试两侧对齐 `protocol.json`。
 - **Verification：** `bun test`；`bun test test/protocol.test.ts` 与 web 侧 `pnpm test web/lib/host-connection.test.ts`。
@@ -241,7 +241,7 @@ web/components/learning/
 - **Approach：**
   1. `Course` 记录当前 `agent`；`attach` / `send` / `new` / `sessions` / `open` / `stop` / `card.answer` 按 (courseId, agent) 找 runtime 与指针。
   2. 切 agent 时对旧 agent 的在跑回合走 KTD8 的收尾；`chat.sessions` 只列所选 agent 在课程目录下的会话；`history` 的 `settings`（#1145）随该 agent 的会话返回。
-  3. 页面首次打开时的默认 agent：若请求未带 `agent`，用 `state.agents[courseId]`。
+  3. 缺省路由恒为 `DEFAULT_AGENT`：请求不带 `agent` 时**绝不看记忆值**（回滚期的旧页面安全）；`state.agents[courseId]` 只随页面的**显式选择**写入，并经 `history` 回包的 `agent` 字段交给页面做初选。
 - **Test scenarios：** 双 kind 各跑一轮、事件不串（fake agent 两个实例，同一 courseId）；切 agent 时旧回合收尾且卡片按取消作答；`chat.sessions` 不混两个 agent 的会话；`chat.new` 只动当前 agent 的指针。
 - **Verification：** `bun test test/session.test.ts test/agents.test.ts`。
 
@@ -263,7 +263,7 @@ web/components/learning/
 
 - **Goal：** 学员能看见自己在用哪个 agent、切换它、翻每个 agent 的历史，并在需要时登录。
 - **Requirements：** R1, R2, R3, R4, R6, R8, R10, R13
-- **Files：** `web/components/learning/{use-host-chat.ts,host-chat-panel.tsx,host-chat-history.tsx}`、`web/lib/host-version.ts`、`web/messages/{zh-CN,en}.json`、对应测试文件
+- **Files：** `web/components/learning/{use-host-chat.ts,host-chat-panel.tsx,host-chat-history.tsx}`、`web/lib/host-socket.ts`（`PAGE_TO_HOST` / `HOST_TO_PAGE` 两张表与方法名单的契约测试要对齐 `protocol.json`）、`web/lib/host-version.ts`、`web/messages/{zh-CN,en}.json`、对应测试文件
 - **Approach：**
   1. `use-host-chat`：读 `status.agents`；新增 `noAgent` / `agentNeedsAuth` / `agentUnavailable` 三态；`agent` 选择一处状态源，历史下拉的 chips 与标题行选择器共用它。
   2. `host-chat-panel`：≥2 个 agent 时出现选择器，否则静态标签；登录卡调用 `chat.authenticate`；「添加 agent」入口列出支持的 agent 与状态（期 1 给安装指引与复制按钮）。

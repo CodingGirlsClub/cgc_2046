@@ -28,13 +28,23 @@ export interface Preparation {
   check(): void;
 }
 
+/** 一个 agent 进程代的对外形状：会话层按 kind 各持一个（KTD1） */
+export interface Runtime {
+  /** 已握完手、可用的 agent 进程；没有就为 null */
+  readonly agent: Agent | null;
+  /** 回收当前进程代（空闲回收、换代）；退代的收尾由 createRuntime 的 reset 回调负责 */
+  close(): void;
+  /** 在总预算内准备一条可用通道：拉起进程、initialize、list/load/new 都算在里面；超时即废弃这一代 */
+  prepare<T>(timeoutMs: number, operation: (run: Preparation) => Promise<T>): Promise<T>;
+}
+
 /** One shared process generation. Retiring it cannot affect a later replacement. */
 export function createRuntime(opts: {
   start(app: ClientApp, signal: AbortSignal): Promise<Agent>;
   app(active: () => boolean): ClientApp;
   reset(): void;
   ready(): void;
-}) {
+}): Runtime {
   let current: Generation | null = null;
 
   function retire(g: Generation, reason: unknown) {

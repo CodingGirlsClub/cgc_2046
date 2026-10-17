@@ -18,14 +18,14 @@ test("分发白名单与 protocol.json 的 pageToHost 完全一致", () => {
 });
 
 describe("/health", () => {
-  test("返回 {version, ompPresent, paired}，CORS 只给站点来源", async () => {
-    const host = startHost({ ompPresent: () => true });
+  test("返回 {version, ompPresent, paired, agents}，CORS 只给站点来源", async () => {
+    const host = startHost({ agents: () => [{ kind: "omp", present: true }] });
     const get = () => fetch(`http://127.0.0.1:${host.port}/health`, { headers: { Origin: SITE_ORIGIN } });
     const res = await get();
     expect(res.status).toBe(200);
     expect(res.headers.get("access-control-allow-origin")).toBe(SITE_ORIGIN);
     expect(res.headers.get("vary")).toBe("Origin");
-    expect(await res.json()).toEqual({ version: HOST_VERSION, ompPresent: true, paired: false });
+    expect(await res.json()).toEqual({ version: HOST_VERSION, ompPresent: true, paired: false, agents: [{ kind: "omp", present: true }] });
 
     await pair(host);
     expect(await (await get()).json()).toMatchObject({ paired: true });
@@ -52,7 +52,7 @@ describe("/health", () => {
 });
 
 test("连接后先推送 status：未配对的连接也读得到", async () => {
-  const host = startHost({ ompPresent: () => true });
+  const host = startHost({ agents: () => [{ kind: "omp", present: true }] });
   const c = await connect(host.port);
   expect(await c.next((m) => m.method === "status")).toEqual({
     method: "status",
@@ -63,6 +63,7 @@ test("连接后先推送 status：未配对的连接也读得到", async () => {
       deviceName: sanitizeDeviceName(hostname()),
       tokenId: null,
       ompPresent: true,
+      agents: [{ kind: "omp", present: true }],
       version: HOST_VERSION,
       protocolVersion: protocol.protocolVersion,
     },

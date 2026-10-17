@@ -1,7 +1,7 @@
 // acp/client.ts — Host 作为 ACP 客户端驱动 `omp acp`（KTD5）：只声明 elicitation.form，不声明 fs / terminal（OMP 就在本机，
 // 自己读写文件）；不注入 --approval-mode、不调 session/set_mode——审批沿用学员自己的 OMP 配置（R18）。
 import * as acp from "@agentclientprotocol/sdk";
-import type { Omp } from "../omp";
+import type { AgentLocation } from "../agents/registry";
 
 /**
  * 启动语（KTD7）：只放进程级不变的内容，经 --append-system-prompt 注入（ACP 会话不加载终端插件的 agents/cgc.md）。
@@ -41,12 +41,12 @@ export function clientApp(h: AgentHandlers): acp.ClientApp {
     .onRequest("elicitation/create", (c) => h.question(c.params, c.signal));
 }
 
-/** 拉起 `omp acp`：环境来自登录 shell（omp.ts，KTD12）；stderr 丢弃——里面可能有对话内容，不进 Host 日志（R25） */
-export function spawnOmp(omp: Omp & { path: string }, app: acp.ClientApp, cwd: string, signal: AbortSignal): Agent {
+/** 拉起 `omp acp`：环境来自登录 shell（agents/omp.ts，KTD12）；stderr 丢弃——里面可能有对话内容，不进 Host 日志（R25） */
+export function spawnOmp(location: AgentLocation & { path: string }, app: acp.ClientApp, cwd: string, signal: AbortSignal): Agent {
   signal.throwIfAborted();
-  const proc = Bun.spawn([omp.path, `--append-system-prompt=${STARTUP_PROMPT}`, "acp"], {
+  const proc = Bun.spawn([location.path, `--append-system-prompt=${STARTUP_PROMPT}`, "acp"], {
     cwd,
-    env: omp.env,
+    env: location.env,
     stdin: "pipe",
     stdout: "pipe",
     stderr: "ignore",

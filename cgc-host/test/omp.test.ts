@@ -2,7 +2,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ompLocator, resolveOmp } from "../src/omp";
+import { ompLocator, resolveOmp } from "../src/agents/omp";
 import { cleanup, tempHome } from "./helpers";
 
 afterEach(cleanup);
