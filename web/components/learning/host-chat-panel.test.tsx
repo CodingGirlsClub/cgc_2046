@@ -985,6 +985,7 @@ describe("多 agent 的评审修复（M1 / M2 / M4）", () => {
 });
 
 describe("一键安装（期 2 / #1149）", () => {
+	/** Host 声明了安装能力、OMP 已就绪而 Codex 缺：选择器里的「添加 agent」入口 */
 	const CAN_INSTALL = {
 		state: "detected",
 		agents: [
@@ -994,75 +995,12 @@ describe("一键安装（期 2 / #1149）", () => {
 		paired: true,
 		capabilities: ["agent.install"],
 	} as const;
-
-	const noAgent = [
+	const ompOnly = [
 		{ kind: "omp", present: true },
 		{ kind: "codex", present: false },
 	];
 
-	it("Host 声明能力：给「安装 Codex 支持」；点击发 agent.install，安装中禁用，成功后入口消失", async () => {
-		checkHost.mockResolvedValue(CAN_INSTALL);
-		renderPanel();
-		const ws = await attach([], false, undefined, noAgent);
-
-		fireEvent.click(screen.getByRole("button", { name: "添加 agent" }));
-		fireEvent.click(await screen.findByRole("button", { name: "安装 Codex 支持" }));
-		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "agent.install", params: { kind: "codex" } }));
-		await ws.reply("agent.install", "agent.install.started", { started: true });
-
-		act(() => ws.push({ method: "agent.install.progress", params: { kind: "codex", phase: "installing" } }));
-		expect(await screen.findByRole("button", { name: "正在安装 Codex 支持…" })).toBeDisabled();
-
-		// 装完：Host 推 status（codex 已 present），入口随之消失
-		act(() =>
-			ws.push({
-				method: "status",
-				params: status("ready", [
-					{ kind: "omp", present: true },
-					{ kind: "codex", present: true },
-				]),
-			}),
-		);
-		act(() => ws.push({ method: "agent.done", params: { kind: "codex", ok: true, version: "2.2.2" } }));
-		await waitFor(() => expect(screen.queryByRole("button", { name: /安装 Codex 支持|正在安装/ })).toBeNull());
-	});
-
-	it("安装失败：就地给出可重试的提示，按钮恢复可点", async () => {
-		checkHost.mockResolvedValue(CAN_INSTALL);
-		renderPanel();
-		const ws = await attach([], false, undefined, noAgent);
-
-		fireEvent.click(screen.getByRole("button", { name: "添加 agent" }));
-		fireEvent.click(await screen.findByRole("button", { name: "安装 Codex 支持" }));
-		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("agent.install"));
-		await ws.reply("agent.install", "agent.install.started", { started: true });
-		act(() => ws.push({ method: "agent.done", params: { kind: "codex", ok: false, code: "install_failed" } }));
-
-		expect(await screen.findByText("安装没有完成，检查网络后再试一次。")).toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "安装 Codex 支持" })).toBeEnabled();
-	});
-
-	it("旧 Host 没声明能力（0.2.0）：即使缺 Codex 也只给手动命令，不出现一键安装按钮", async () => {
-		checkHost.mockResolvedValue({
-			state: "detected",
-			agents: [
-				{ kind: "omp", present: true },
-				{ kind: "codex", present: false },
-			],
-			paired: true,
-			capabilities: [],
-		});
-		renderPanel();
-		await attach([], false, undefined, noAgent);
-		fireEvent.click(screen.getByRole("button", { name: "添加 agent" }));
-		expect(await screen.findByRole("button", { name: "重新检测" })).toBeInTheDocument();
-		expect(screen.queryByRole("button", { name: "安装 Codex 支持" })).toBeNull();
-		expect(screen.getByText("bun add -g @agentclientprotocol/codex-acp")).toBeInTheDocument();
-	});
-});
-
-describe("全新机器的一键安装（#1149）", () => {
-	it("没有 agent + 声明能力：noAgent 视图里给安装按钮，点击发请求；装完后转为配对", async () => {
+	it("没有 agent + 声明能力：未配对先给「连接」；配对后才有安装按钮，点击发请求、装完入口消失", async () => {
 		window.localStorage.clear(); // 隔离前序用例留下的浏览器密钥（有它就会先走 hello，停在 checking）
 		checkHost.mockResolvedValue({
 			state: "detected",
@@ -1077,26 +1015,89 @@ describe("全新机器的一键安装（#1149）", () => {
 		await waitFor(() => expect(socketCount()).toBeGreaterThan(0));
 		const ws = FakeWebSocket.all.at(-1)!;
 
-		expect(await screen.findByText("这台电脑上还没有可用的 agent。")).toBeInTheDocument();
-		fireEvent.click(screen.getByRole("button", { name: "安装 Codex 支持" }));
+		// 未配对：安装与 chat.* 同一道授权，先给「连接」
+		act(() => ws.push({ method: "status", params: status("unpaired", [{ kind: "omp", present: false }, { kind: "codex", present: false }]) }));
+		expect(await screen.findByRole("button", { name: "连接" })).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "安装 Codex 支持" })).toBeNull();
+
+		// 配对完成：没有 agent → 安装入口
+		act(() => ws.push({ method: "status", params: status("ready", [{ kind: "omp", present: false }, { kind: "codex", present: false }]) }));
+		fireEvent.click(await screen.findByRole("button", { name: "安装 Codex 支持" }));
 		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "agent.install", params: { kind: "codex" } }));
 		await ws.reply("agent.install", "agent.install.started", { started: true });
 		act(() => ws.push({ method: "agent.install.progress", params: { kind: "codex", phase: "installing" } }));
 		expect(await screen.findByRole("button", { name: "正在安装 Codex 支持…" })).toBeDisabled();
 
-		// 装完：codex 可用 → 安装入口让位给配对
+		// 装完：Host 推 status（codex 已 present），入口消失
 		act(() =>
 			ws.push({
 				method: "status",
-				params: {
-					...status("unpaired", [
-						{ kind: "omp", present: false },
-						{ kind: "codex", present: true },
-					]),
-				},
+				params: status("ready", [
+					{ kind: "omp", present: false },
+					{ kind: "codex", present: true },
+				]),
 			}),
 		);
 		act(() => ws.push({ method: "agent.done", params: { kind: "codex", ok: true, version: "2.2.2" } }));
-		expect(await screen.findByText("把这台电脑上的 CGC Host 与你的账号配对后，就能在这里和你自己的 agent 对话。")).toBeInTheDocument();
+		await waitFor(() => expect(screen.queryByRole("button", { name: /安装 Codex 支持|正在安装/ })).toBeNull());
+	});
+
+	it("安装失败：就地给出可重试的提示，按钮恢复可点", async () => {
+		checkHost.mockResolvedValue(CAN_INSTALL);
+		renderPanel();
+		const ws = await attach([], false, undefined, ompOnly);
+
+		fireEvent.click(screen.getByRole("button", { name: "添加 agent" }));
+		fireEvent.click(await screen.findByRole("button", { name: "安装 Codex 支持" }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("agent.install"));
+		await ws.reply("agent.install", "agent.install.started", { started: true });
+		act(() => ws.push({ method: "agent.done", params: { kind: "codex", ok: false, code: "install_failed" } }));
+
+		expect(await screen.findByText("安装没有完成，检查网络后再试一次。")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "安装 Codex 支持" })).toBeEnabled();
+	});
+
+	it.each([
+		["version_mismatch", "装上的版本和预期不一致，请再试一次。"],
+		["timeout", "安装超时了，检查网络后再试一次。"],
+	] as const)("安装失败按 code 给下一步（%s）", async (code, text) => {
+		checkHost.mockResolvedValue(CAN_INSTALL);
+		renderPanel();
+		const ws = await attach([], false, undefined, ompOnly);
+
+		fireEvent.click(screen.getByRole("button", { name: "添加 agent" }));
+		fireEvent.click(await screen.findByRole("button", { name: "安装 Codex 支持" }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("agent.install"));
+		await ws.reply("agent.install", "agent.install.started", { started: true });
+		act(() => ws.push({ method: "agent.done", params: { kind: "codex", ok: false, code } }));
+
+		expect(await screen.findByText(text)).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "安装 Codex 支持" })).toBeEnabled();
+	});
+
+	it.each([
+		["busy", "另一个页面正在安装，稍等一下再试。"],
+		["unsupported", "这个 Host 不支持在页面里安装，请用下面的手动命令。"],
+	] as const)("安装请求被拒按 code 给下一步（%s）", async (code, text) => {
+		checkHost.mockResolvedValue(CAN_INSTALL);
+		renderPanel();
+		const ws = await attach([], false, undefined, ompOnly);
+
+		fireEvent.click(screen.getByRole("button", { name: "添加 agent" }));
+		fireEvent.click(await screen.findByRole("button", { name: "安装 Codex 支持" }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("agent.install"));
+		await ws.reply("agent.install", "error", { code });
+
+		expect(await screen.findByText(text)).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "安装 Codex 支持" })).toBeEnabled();
+	});
+
+	it("旧 Host 没声明能力（0.2.0）：即使缺 Codex 也只给手动命令，不出现一键安装按钮", async () => {
+		renderPanel();
+		await attach([], false, undefined, ompOnly);
+		fireEvent.click(screen.getByRole("button", { name: "添加 agent" }));
+		expect(await screen.findByRole("button", { name: "重新检测" })).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "安装 Codex 支持" })).toBeNull();
+		expect(screen.getByText("bun add -g @agentclientprotocol/codex-acp")).toBeInTheDocument();
 	});
 });

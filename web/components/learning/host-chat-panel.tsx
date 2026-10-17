@@ -46,6 +46,14 @@ const CHAT_ERROR_KEYS: Record<string, string> = {
 	timeout: "error.timeout",
 };
 
+/** 安装失败的 code → 下一步：只有网络类才引导「检查网络」，其余有各自的处置 */
+const INSTALL_ERROR_KEYS: Record<string, string> = {
+	busy: "installFailedBusy",
+	timeout: "installFailedTimeout",
+	version_mismatch: "installFailedVersion",
+	unsupported: "installFailedUnsupported",
+};
+
 function CommandCard() {
 	const t = useTranslations("hostChat.command");
 	/** null：还没复制 */
@@ -100,7 +108,7 @@ function AgentInstall({ chat }: { chat: HostChat }) {
 					<p className="learning-chat__hint">{installing ? t("installHintRunning") : t("installHint")}</p>
 					{failure ? (
 						<p className="learning-chat__note" role="alert">
-							{t("installFailed")}
+							{t(INSTALL_ERROR_KEYS[failure] ?? "installFailed")}
 						</p>
 					) : null}
 					<p className="learning-chat__hint">{t("codexInstallManual")}</p>

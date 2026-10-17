@@ -4253,6 +4253,10 @@
       "installing": "Installing Codex support…",
       "installHintRunning": "You can keep using OMP while it installs.",
       "installFailed": "The install did not finish. Check your connection and try again.",
+      "installFailedBusy": "Another page is installing right now. Try again in a moment.",
+      "installFailedTimeout": "The install timed out. Check your connection and try again.",
+      "installFailedVersion": "The installed version does not match. Please try again.",
+      "installFailedUnsupported": "This Host cannot install from the page. Use the manual command below.",
       "codexInstallManual": "Or install it yourself (run once in a terminal):"
     },
     "login": {

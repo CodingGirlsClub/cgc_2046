@@ -4253,6 +4253,10 @@
       "installing": "正在安装 Codex 支持…",
       "installHintRunning": "安装期间可以继续用 OMP。",
       "installFailed": "安装没有完成，检查网络后再试一次。",
+      "installFailedBusy": "另一个页面正在安装，稍等一下再试。",
+      "installFailedTimeout": "安装超时了，检查网络后再试一次。",
+      "installFailedVersion": "装上的版本和预期不一致，请再试一次。",
+      "installFailedUnsupported": "这个 Host 不支持在页面里安装，请用下面的手动命令。",
       "codexInstallManual": "也可以自己装（在终端执行一次）："
     },
     "login": {

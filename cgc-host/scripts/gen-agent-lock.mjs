@@ -15,18 +15,21 @@ if (!version || !/^\d+\.\d+\.\d+$/.test(version)) {
 }
 
 const dir = mkdtempSync(join(tmpdir(), "cgc-agent-lock-"));
-writeFileSync(join(dir, "package.json"), `${JSON.stringify({ name: "cgc-codex-agent", private: true, dependencies: { "@agentclientprotocol/codex-acp": version } }, null, 2)}\n`);
+// 与仓里提交的 codex-acp.package.json 同格式（紧凑），避免重算时产生无关格式 diff
+writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "cgc-codex-agent", private: true, dependencies: { "@agentclientprotocol/codex-acp": version } }));
 const proc = Bun.spawnSync([process.execPath, "install", "--lockfile-only", "--save-text-lockfile"], { cwd: dir, stdout: "inherit", stderr: "inherit" });
 if (proc.exitCode !== 0) process.exit(proc.exitCode ?? 1);
 
 copyFileSync(join(dir, "bun.lock"), "src/agents/codex-acp.lock");
 copyFileSync(join(dir, "package.json"), "src/agents/codex-acp.package.json");
 
+// 同版本重跑是幂等的：只重算锁，不动常量（之前用「replace 后是否变化」判断，会把同版本重跑误报成找不到常量）
+const CONSTANT = /export const CODEX_ACP_VERSION = "([^"]+)";/;
 const src = readFileSync("src/agents/install.ts", "utf8");
-const next = src.replace(/export const CODEX_ACP_VERSION = "[^"]+";/, `export const CODEX_ACP_VERSION = "${version}";`);
-if (next === src) {
+const match = src.match(CONSTANT);
+if (!match) {
   console.error("没找到 CODEX_ACP_VERSION，请手工核对 install.ts");
   process.exit(1);
 }
-writeFileSync("src/agents/install.ts", next);
-console.log(`已生成 codex-acp ${version} 的锁，并更新 install.ts 的常量`);
+if (match[1] !== version) writeFileSync("src/agents/install.ts", src.replace(CONSTANT, `export const CODEX_ACP_VERSION = "${version}";`));
+console.log(match[1] === version ? `锁已重算；install.ts 的常量已是 ${version}（未改动）` : `已生成 codex-acp ${version} 的锁，并更新 install.ts 的常量`);

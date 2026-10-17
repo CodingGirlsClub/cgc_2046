@@ -11,8 +11,7 @@ import { COURSE, cleanup, connect, helloed, HOST_ROOT, identity, pair, refused, 
 
 afterEach(cleanup);
 
-// agent.install 也在开放集里：全新机器上一个 agent 都没有、无法配对，安装正是解开这一步的方式（见 server.ts 注释）
-const OPEN = ["hello", "pair.request", "pair.cancel", "agent.install"];
+const OPEN = ["hello", "pair.request", "pair.cancel"];
 
 test("分发白名单与 protocol.json 的 pageToHost 完全一致", () => {
   expect(new Set(PAGE_METHODS)).toEqual(new Set(protocol.methods.pageToHost));
@@ -93,7 +92,7 @@ test("未知方法与坏帧一律拒绝，不产生任何副作用", async () =>
   expect(host.chatCalls).toEqual([]);
 });
 
-test("R24. 未配对的连接只能 hello / pair.request / pair.cancel / agent.install：chat.send 被拒，pair.request 被受理", async () => {
+test("R24. 未配对的连接只能 hello / pair.request / pair.cancel：chat.send 与 agent.install 都被拒，pair.request 被受理", async () => {
   const host = startHost();
   const c = await connect(host.port);
   for (const method of PAGE_METHODS.filter((m) => !OPEN.includes(m))) {
@@ -214,7 +213,7 @@ describe("一键安装（期 2 / R2）", () => {
     expect(await c.next((m) => m.method === "agent.done")).toMatchObject({ params: { ok: false, code: "version_mismatch" } });
   });
 
-  test("安装不要求先配对：全新机器还没有 agent、也无法配对，仍能一键装并收到结果", async () => {
+  test("安装要求先配对：未配对的连接拿 unauthorized，配对后才能装", async () => {
     const host = startHost({
       capabilities: INSTALL_CAPS,
       install: async (_kind, progress) => {
@@ -223,27 +222,15 @@ describe("一键安装（期 2 / R2）", () => {
       },
       refresh: async () => {},
     });
-    const c = await connect(host.port); // 没有 hello（未配对）
+    // 未配对（只 hello 前的裸连接）：安装被授权关挡住——否则任意站点来源页都能静默触发 337MB 的下载
+    const bare = await connect(host.port);
+    expect(await bare.call("agent.install", { kind: "codex" })).toMatchObject(refused("unauthorized"));
+
+    const { browserKey } = await pair(host);
+    const c = await helloed(host, browserKey);
     expect(await c.call("agent.install", { kind: "codex" })).toMatchObject({ method: "agent.install.started", params: { started: true } });
     expect(await c.next((m) => m.method === "agent.install.progress")).toMatchObject({ params: { phase: "installing" } });
     expect(await c.next((m) => m.method === "agent.done")).toMatchObject({ params: { ok: true, version: "2.2.2" } });
-    // 装完的 status 也回给发起者（它没配对，只靠这条连接知道 codex 现在可用）
-    expect((await c.next((m) => m.method === "status")).params.state).toBe("unpaired");
-  });
-
-  test("已配对的机器：没 hello 的连接不能安装（未配对的全新机器仍可）", async () => {
-    const host = startHost({
-      capabilities: INSTALL_CAPS,
-      install: async () => ({ version: "2.2.2" }),
-      refresh: async () => {},
-    });
-    const { browserKey } = await pair(host); // 这台机器已经有配对记录
-    const stranger = await connect(host.port); // 只连上、没有 hello
-    expect(await stranger.call("agent.install", { kind: "codex" })).toMatchObject({ method: "error", params: { code: "unauthorized" } });
-
-    // 同一台机器上已 hello 的页面照常能装
-    const page = await helloed(host, browserKey);
-    expect(await page.call("agent.install", { kind: "codex" })).toMatchObject({ method: "agent.install.started", params: { started: true } });
   });
 
   test("并发安装拿 busy；没声明能力拿 unsupported；kind 不认识拿 bad_request", async () => {

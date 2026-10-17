@@ -1,6 +1,6 @@
 // install.test.ts — 页面一键安装（期 2）：在临时目录里装、失败不留残留、单飞、版本校验、卸载清理
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pickCodexAcp } from "../src/agents/codex";
 import {
@@ -144,5 +144,19 @@ describe("Windows 布局与版本门", () => {
 		const second = await installCodexAcp({ home, run: async () => { calls += 1; return 0; } });
 		expect(second.version).toBe(CODEX_ACP_VERSION);
 		expect(calls).toBe(0);
+	});
+
+	test("PATH 上也有 codex-acp 时，版本匹配的托管安装优先（BYO 回退只在托管不可用时生效）", async () => {
+		const home = tempHome();
+		await installCodexAcp({ home, run: fakeInstaller() });
+		// 造一个真实可执行的 PATH 项：Bun.which 会找到它，但托管安装应该仍然胜出
+		const pathDir = join(home, "fake-path");
+		mkdirSync(pathDir, { recursive: true });
+		const pathBin = join(pathDir, "codex-acp");
+		writeFileSync(pathBin, "#!/bin/sh\nexit 0\n");
+		chmodSync(pathBin, 0o755);
+		expect(Bun.which("codex-acp", { PATH: pathDir })).toBe(pathBin); // 前提成立：PATH 里确实有
+
+		expect(pickCodexAcp(home, pathDir)).toBe(managedCodex(home));
 	});
 });

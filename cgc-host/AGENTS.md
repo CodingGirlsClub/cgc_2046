@@ -93,7 +93,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 
 `status` 与 `/health` 都带 `capabilities: string[]`（期 2 起含 `"agent.install"`）：页面只在声明了它时给「安装 Codex 支持」入口，旧 Host（0.2.0）不声明、页面继续只给手动命令。**不改 `protocolVersion`**——加方法靠能力探测，不靠版本门逼学员重装。
 
-`agent.install` 是**唯一不要求先配对**的安装类方法：全新机器上一个 agent 都没有、也就无法配对，安装正是解开这一步。边界：只接受官方站点 Origin 的连接（`isAllowedRequest`），kind 限于 `installable`，版本/URL/落位都在 Host 包内钉死——没有任意的下载地址、版本或路径参数；已装着钉住版本时幂等短路。它不碰凭证、不驱动 agent；残留风险是本机进程与站点来源页的 XSS，二者本就能直接运行安装器。
+`agent.install` **要求先配对**（与 `chat.*` 同一道授权）：否则任意能连上本机 Host 的站点来源页都能静默触发约 337MB 的下载，幂等短路只挡重复、挡不住第一次。页面在无 agent 时先给「连接这台电脑」，配对完成后才出现安装入口。其余边界：只接受官方站点 Origin 的连接（`isAllowedRequest`），kind 限于 `installable`，版本/URL/落位都在 Host 包内钉死——没有任意的下载地址、版本或路径参数；已装着钉住版本时幂等短路。它不碰凭证、不驱动 agent。
 
 `context`（KTD8）：`{workspaceId, courseVersion, unitId, locale}`。`workspaceId` 是 UUID；`courseVersion` 是页面显示的课程版本号（正整数）或 `null`；`unitId` 是学员正在看的单元 id（只认 `^[A-Za-z0-9_.-]{1,64}$`），`null` 表示课程总览；`locale` 是 `zh-CN` 或 `en`。每条 `chat.send` 都带，Host 只在会话的首条消息和它变化时（例如切换单元）把它附给 agent，只带这些标识——课程、单元标题这类 tutor 撰写的文本不进提示。
 
@@ -189,7 +189,7 @@ curl -fsSL https://api.codingirlsclub.com/ext/cgc-host/install.sh | bash
 | 按锁文件安装依赖 | `pnpm install --frozen-lockfile` |
 | 测试 | `bun test` |
 | 安装、卸载与版本门禁（临时 HOME，`launchctl` 用垫片，不碰本机 launchd） | `bash test/install.test.sh` |
-| 钉住的适配器版本/integrity 仍与 registry 一致（需要网络；CI 的 host job 同一命令） | `bun scripts/check-agent-lock.mjs` |
+| 锁里每个 registry 条目的版本/integrity 仍与 registry 一致，且许可按 §2 白名单（需要网络；CI 的 host job 同一命令） | `bun scripts/check-agent-lock.mjs` |
 | 依赖许可扫描（复用 `web/scripts/check-licenses.mjs`，扫本包的全依赖树） | `pnpm check:licenses` |
 
 单元测试覆盖不了 launchd 的环境与开机自启：改了 `install.sh` 或 plist，要在真机上装一次、重启一次，确认不手动启动也能从页面连上并完成一次模型对话。

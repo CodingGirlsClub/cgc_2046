@@ -794,6 +794,22 @@ describe("一键安装（期 2 / #1149）", () => {
 		act(() => ws.push({ method: "agent.done", params: { kind: "codex", ok: false, code: "install_failed" } }));
 		await waitFor(() => expect(hook.current.install).toEqual({ error: "install_failed" }));
 	});
+
+	it("安装中断线：install 复位，不把「正在安装」永久留在按钮上", async () => {
+		checkHost.mockResolvedValue(WITH_INSTALL);
+		mount();
+		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+		const ws = FakeWebSocket.all[0];
+		await attach(ws);
+		act(() => void hook.current.installAgent());
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "agent.install" }));
+		await ws.reply("agent.install", "agent.install.started", { started: true });
+		expect(hook.current.install).toBe("installing");
+
+		// Host 在安装中途消失/网络断开：done 永远不会到
+		act(() => ws.close());
+		await waitFor(() => expect(hook.current.install).toBeNull());
+	});
 });
 
 describe("全新机器（一个 agent 都没有）", () => {
@@ -807,12 +823,19 @@ describe("全新机器（一个 agent 都没有）", () => {
 		capabilities: ["agent.install"],
 	};
 
-	it("仍然开连接（否则安装按钮点不动），视图停在「没有可用的 agent」", async () => {
+	it("仍然开连接（否则装不了），但先走配对：未配对时视图是 unpaired，配对后才是「没有可用的 agent」", async () => {
+		window.localStorage.clear(); // 隔离前序用例留下的浏览器密钥（有它就会先走 hello，停在 checking）
 		checkHost.mockResolvedValue(EMPTY_WITH_INSTALL);
 		mount();
 		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
 		const ws = FakeWebSocket.all[0];
 
+		// 未配对：给「连接这台电脑」，不给安装入口（安装与 chat.* 同一道授权）
+		act(() => ws.push({ method: "status", params: status("unpaired", EMPTY_WITH_INSTALL.agents) }));
+		await waitFor(() => expect(hook.current.view).toEqual({ state: "unpaired" }));
+
+		// 配对完成（Host 推 ready 的 status）：没有 agent → 安装入口出现
+		act(() => ws.push({ method: "status", params: { ...status("ready"), agents: EMPTY_WITH_INSTALL.agents, capabilities: ["agent.install"] } }));
 		await waitFor(() => expect(hook.current.view).toEqual({ state: "noAgent" }));
 		act(() => void hook.current.installAgent());
 		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "agent.install", params: { kind: "codex" } }));
@@ -841,6 +864,8 @@ describe("无 agent 时的自愈（评审 M2）", () => {
 		});
 		mount();
 		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+		const wsM2 = FakeWebSocket.all[0];
+		act(() => wsM2.push({ method: "status", params: status("ready", [{ kind: "omp", present: false }, { kind: "codex", present: false }]) }));
 		await waitFor(() => expect(hook.current.view).toEqual({ state: "noAgent" }));
 
 		// 学员在终端里装好了 OMP：下一次 /health 报告 present

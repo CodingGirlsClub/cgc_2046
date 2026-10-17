@@ -214,12 +214,10 @@ const handlers: Record<string, (host: Host, ws: WS, frame: Frame) => unknown> = 
 export const PAGE_METHODS = Object.keys(handlers);
 /**
  * KTD4：未授权的连接只能调用这几个；status 不是页面可调的方法，由 Host 在连接时与状态变化时推送。
- * `agent.install` 也在里面：全新机器上还没有任何 agent、也就无法配对，而安装正是为了解开这一步。
- * 边界：只接受官方站点 Origin 的连接（isAllowedRequest），kind 限于 `installable`（目前只有 codex），
- * 版本/URL/落位都在 Host 包内钉死——没有任意的下载地址、版本或路径参数；已经装着钉住版本时幂等短路。
- * 它不碰凭证、不驱动 agent。残留风险是本机进程与站点来源页的 XSS，二者本就能直接运行安装器。
+ * 安装也要先配对（与 chat.* 同一道授权）：否则任意能连上本机 Host 的站点来源页都能静默触发 337MB 的安装，
+ * 幂等短路只挡重复、挡不住第一次；页面在配对前先给「连接这台电脑」。
  */
-const OPEN_METHODS = new Set(["hello", "pair.request", "pair.cancel", "agent.install"]);
+const OPEN_METHODS = new Set(["hello", "pair.request", "pair.cancel"]);
 
 function parse(raw: string | Buffer): Frame | null {
   let m: unknown;

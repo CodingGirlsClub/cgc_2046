@@ -262,11 +262,11 @@ function viewOf(
 		if (probe.state === "detected") return { state: "noAgent" };
 		return probe;
 	}
-	// 有连接但没有可用的 agent：仍然停在「没有可用的 agent」——安装入口在这里，装完 agents 一变就进配对。
-	// 用活的 agents（会被 status 推送刷新），而不是探测快照：装完不必等下一轮 /health
-	const liveAgents = agents.length > 0 ? agents : probe?.state === "detected" ? probe.agents : [];
-	if (!hasAgent(liveAgents)) return { state: "noAgent" };
-	if (pairing.phase === "ready") return { state: evicted ? "evicted" : "ready" };
+	if (pairing.phase === "ready") {
+		// 配对之后还没有可用的 agent：停在「没有可用的 agent」，安装入口在这里（用活的 agents，装完由 status 推送刷新）
+		const liveAgents = agents.length > 0 ? agents : probe?.state === "detected" ? probe.agents : [];
+		return hasAgent(liveAgents) ? (evicted ? { state: "evicted" } : { state: "ready" }) : { state: "noAgent" };
+	}
 	if (pairing.phase === "error") return { state: "pairingFailed", reason: pairing.reason ?? "failed" };
 	return { state: pairing.phase };
 }

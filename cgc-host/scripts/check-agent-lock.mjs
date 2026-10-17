@@ -2,7 +2,8 @@
 // check-agent-lock.mjs — CI 门禁（期 2）：一键安装的锁仍可获取、可校验、许可合规。
 // 覆盖：① 三处版本（install.ts 常量 / package.json / 锁里的条目）一致；② registry 仍提供该版本且 dist.integrity 与锁相同；
 // ③ 锁里每个包（含 @openai/codex 的 6 个平台二进制包）的许可证都按规则 §2 的白名单放行（未列出/UNKNOWN 一律拒绝）——这些包不进 cgc-host 的
-// package.json，pnpm check:licenses 扫不到它们；④ 六个平台包都在锁里（否则别的平台 --frozen-lockfile 会失败）；⑤ 每个条目都带 sha512。
+// package.json，pnpm check:licenses 扫不到它们；④ 六个平台包都在锁里（否则别的平台 --frozen-lockfile 会失败）；⑤ 每个条目都带 sha512；
+// ⑥ 每个 registry 条目的 integrity 都与 registry 现价一致（改坏任一传递依赖也会红）。
 // 锁按 JSONC 解析、按 packages 的键逐条走，不按行正则——排版变化（多空格、多行数组）不能让条目被静默漏查。
 // 整棵依赖树的 integrity 校验发生在学员机器上（bun install --frozen-lockfile 逐个按 sha512 校验），CI 不下载 337MB。
 import { licenseAllows } from "../../web/scripts/license-rule.mjs";
@@ -47,40 +48,37 @@ const missingPlatforms = PLATFORMS.filter(
 if (missingPlatforms.length > 0) fail(`锁里缺少平台包：${missingPlatforms.join(", ")}（用 --os='*' --cpu='*' 重算锁）`);
 
 // ② registry 仍提供钉住版本，且 integrity 与锁一致
-const meta = await withRetry(async () => {
-	const res = await fetch(`https://registry.npmjs.org/${ADAPTER}/${pinned}`, { headers: { accept: "application/json" } });
-	if (!res.ok) throw new Error(`HTTP ${res.status}`);
-	return res.json();
-});
+const meta = await fetchMeta(ADAPTER, pinned, `${ADAPTER}@${pinned}`);
 if (meta.dist?.integrity !== locked) fail(`registry 的 integrity 与锁不一致：${meta.dist?.integrity} ≠ ${locked}`);
 
 // ③ 锁里每个包：许可按 §2 白名单判定（平台二进制包也在内；它们不经过 pnpm，必须在这里把关）
 const nameOf = (spec) => spec.slice(0, spec.lastIndexOf("@"));
-const licenseBySpec = new Map();
+const metaBySpec = new Map();
 for (const spec of new Set(specs)) {
 	const name = nameOf(spec);
 	const version = spec.slice(spec.lastIndexOf("@") + 1);
 	if (!name || !version) fail(`锁里的 spec 无法解析：${spec}`);
-	licenseBySpec.set(
-		spec,
-		await withRetry(async () => {
-			const res = await fetch(`https://registry.npmjs.org/${name}/${version}`, { headers: { accept: "application/json" } });
-			if (!res.ok) throw new Error(`HTTP ${res.status} for ${name}@${version}`);
-			return (await res.json()).license;
-		}),
-	);
+	metaBySpec.set(spec, await fetchMeta(name, version, spec));
 }
 
 const violations = [];
 for (let i = 0; i < keys.length; i += 1) {
 	const spec = specs[i];
-	const license = licenseBySpec.get(spec);
+	const license = metaBySpec.get(spec)?.license;
 	// 白名单（规则 §2）：未列出的许可证按 §6 不得直接引入；UNKNOWN 同样失败
 	if (!licenseAllows(license, { packageName: nameOf(spec) })) {
 		violations.push(`${spec}: ${typeof license === "string" ? license : JSON.stringify(license ?? null)}`);
 	}
 }
 if (violations.length > 0) fail(`一键安装的依赖许可不合规（docs/开源合规/依赖引入规则.md）：\n  ${violations.join("\n  ")}`);
+
+// ⑥ 每个条目的 integrity 都要与 registry 一致：只查适配器那条时，改坏传递依赖的 sha512 会漏过
+const integrityMismatch = [];
+for (let i = 0; i < keys.length; i += 1) {
+	const actual = metaBySpec.get(specs[i])?.dist?.integrity;
+	if (actual !== integrities[i]) integrityMismatch.push(`${specs[i]}: 锁=${integrities[i] ?? "无"} registry=${actual ?? "无"}`);
+}
+if (integrityMismatch.length > 0) fail(`锁里的 integrity 与 registry 不一致（锁被改坏或版本被重新发布）：\n  ${integrityMismatch.join("\n  ")}`);
 
 console.log(
 	`agent 锁校验通过：@agentclientprotocol/codex-acp@${pinned}（${locked.slice(0, 24)}…），${keys.length} 个包的许可均合规（含 ${PLATFORMS.length} 个平台包）`,
@@ -91,6 +89,18 @@ function fail(message) {
 	process.exit(1);
 }
 
+/** 取 registry 元数据：15 秒超时 + 3 次重试（网络挂起时不让 CI 干等 job 超时） */
+function fetchMeta(name, version, what) {
+	return withRetry(async () => {
+		const res = await fetch(`https://registry.npmjs.org/${name}/${version}`, {
+			headers: { accept: "application/json" },
+			signal: AbortSignal.timeout(15_000),
+		});
+		if (!res.ok) throw new Error(`HTTP ${res.status} for ${what}`);
+		return res.json();
+	});
+}
+
 async function withRetry(fn, attempts = 3) {
 	let last;
 	for (let i = 0; i < attempts; i += 1) {
@@ -98,7 +108,7 @@ async function withRetry(fn, attempts = 3) {
 			return await fn();
 		} catch (e) {
 			last = e;
-			await Bun.sleep(500 * (i + 1));
+			await sleep(500 * (i + 1));
 		}
 	}
 	throw last;
