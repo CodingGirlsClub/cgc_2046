@@ -1060,3 +1060,43 @@ describe("一键安装（期 2 / #1149）", () => {
 		expect(screen.getByText("bun add -g @agentclientprotocol/codex-acp")).toBeInTheDocument();
 	});
 });
+
+describe("全新机器的一键安装（#1149）", () => {
+	it("没有 agent + 声明能力：noAgent 视图里给安装按钮，点击发请求；装完后转为配对", async () => {
+		window.localStorage.clear(); // 隔离前序用例留下的浏览器密钥（有它就会先走 hello，停在 checking）
+		checkHost.mockResolvedValue({
+			state: "detected",
+			agents: [
+				{ kind: "omp", present: false },
+				{ kind: "codex", present: false },
+			],
+			paired: false,
+			capabilities: ["agent.install"],
+		});
+		renderPanel();
+		await waitFor(() => expect(socketCount()).toBeGreaterThan(0));
+		const ws = FakeWebSocket.all.at(-1)!;
+
+		expect(await screen.findByText("这台电脑上还没有可用的 agent。")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "安装 Codex 支持" }));
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "agent.install", params: { kind: "codex" } }));
+		await ws.reply("agent.install", "agent.install.started", { started: true });
+		act(() => ws.push({ method: "agent.install.progress", params: { kind: "codex", phase: "installing" } }));
+		expect(await screen.findByRole("button", { name: "正在安装 Codex 支持…" })).toBeDisabled();
+
+		// 装完：codex 可用 → 安装入口让位给配对
+		act(() =>
+			ws.push({
+				method: "status",
+				params: {
+					...status("unpaired", [
+						{ kind: "omp", present: false },
+						{ kind: "codex", present: true },
+					]),
+				},
+			}),
+		);
+		act(() => ws.push({ method: "agent.done", params: { kind: "codex", ok: true, version: "2.2.2" } }));
+		expect(await screen.findByText("把这台电脑上的 CGC Host 与你的账号配对后，就能在这里和你自己的 agent 对话。")).toBeInTheDocument();
+	});
+});

@@ -243,20 +243,29 @@ function settingsOf(params: Record<string, unknown>): HostChatSetting[] {
 /** 本机至少有一个装好的 agent（R1：一个都没有时给安装指引，而不是只提 OMP） */
 const hasAgent = (agents: readonly HostAgentStatus[]) => agents.some((agent) => agent.present);
 
+/** 要不要开连接：有 agent 就要（对话/配对）；一个都没有但 Host 能装，也要——安装请求得走这条连接 */
+const needsSocket = (probe: HostConnection) =>
+	probe.state === "detected" && (hasAgent(probe.agents) || (probe.capabilities ?? []).includes("agent.install"));
+
 function viewOf(
 	probe: HostConnection | null,
 	socket: HostSocket | null,
 	lost: boolean,
 	pairing: HostPairing,
 	evicted: boolean,
+	agents: readonly HostAgentStatus[],
 ): ChatView {
 	if (!socket) {
 		// 探到有可用的 agent 到连接打开之间、连接刚断还没重新检测，都只是过渡
-		if (!probe || (probe.state === "detected" && hasAgent(probe.agents))) return { state: lost ? "disconnected" : "checking" };
+		if (!probe || needsSocket(probe)) return { state: lost ? "disconnected" : "checking" };
 		if (lost && probe.state === "noHost") return { state: "disconnected" };
 		if (probe.state === "detected") return { state: "noAgent" };
 		return probe;
 	}
+	// 有连接但没有可用的 agent：仍然停在「没有可用的 agent」——安装入口在这里，装完 agents 一变就进配对。
+	// 用活的 agents（会被 status 推送刷新），而不是探测快照：装完不必等下一轮 /health
+	const liveAgents = agents.length > 0 ? agents : probe?.state === "detected" ? probe.agents : [];
+	if (!hasAgent(liveAgents)) return { state: "noAgent" };
 	if (pairing.phase === "ready") return { state: evicted ? "evicted" : "ready" };
 	if (pairing.phase === "error") return { state: "pairingFailed", reason: pairing.reason ?? "failed" };
 	return { state: pairing.phase };
@@ -367,7 +376,7 @@ export function useHostChat({
 				return prev && JSON.stringify(prev) === JSON.stringify(result) ? prev : result;
 			});
 			if (result.state === "detected") setAgents(result.agents);
-			if (result.state === "detected" && hasAgent(result.agents)) {
+			if (result.state === "detected" && needsSocket(result)) {
 				const opened = openHostSocket();
 				current = opened;
 				opened.onClose(() => {
@@ -678,7 +687,7 @@ export function useHostChat({
 	const { evicted, ...rest } = chat;
 	return {
 		...rest,
-		view: viewOf(probe, socket, lost, pairing, evicted),
+		view: viewOf(probe, socket, lost, pairing, evicted, agents),
 		pairing,
 		canSend,
 		requestAccess,

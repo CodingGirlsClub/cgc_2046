@@ -795,3 +795,35 @@ describe("一键安装（期 2 / #1149）", () => {
 		await waitFor(() => expect(hook.current.install).toEqual({ error: "install_failed" }));
 	});
 });
+
+describe("全新机器（一个 agent 都没有）", () => {
+	const EMPTY_WITH_INSTALL = {
+		state: "detected",
+		agents: [
+			{ kind: "omp", present: false },
+			{ kind: "codex", present: false },
+		],
+		paired: false,
+		capabilities: ["agent.install"],
+	};
+
+	it("仍然开连接（否则安装按钮点不动），视图停在「没有可用的 agent」", async () => {
+		checkHost.mockResolvedValue(EMPTY_WITH_INSTALL);
+		mount();
+		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+		const ws = FakeWebSocket.all[0];
+
+		await waitFor(() => expect(hook.current.view).toEqual({ state: "noAgent" }));
+		act(() => void hook.current.installAgent());
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "agent.install", params: { kind: "codex" } }));
+	});
+
+	it("旧 Host（没声明安装能力）且没有 agent：不开连接（行为与之前一致）", async () => {
+		checkHost.mockResolvedValue({ ...EMPTY_WITH_INSTALL, capabilities: [] });
+		const before = FakeWebSocket.all.length;
+		mount();
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(FakeWebSocket.all.length).toBe(before); // 没有新开连接
+		expect(hook.current.view).toEqual({ state: "noAgent" });
+	});
+});

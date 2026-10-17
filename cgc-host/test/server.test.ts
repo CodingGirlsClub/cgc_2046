@@ -11,7 +11,8 @@ import { COURSE, cleanup, connect, helloed, HOST_ROOT, identity, pair, refused, 
 
 afterEach(cleanup);
 
-const OPEN = ["hello", "pair.request", "pair.cancel"];
+// agent.install 也在开放集里：全新机器上一个 agent 都没有、无法配对，安装正是解开这一步的方式（见 server.ts 注释）
+const OPEN = ["hello", "pair.request", "pair.cancel", "agent.install"];
 
 test("分发白名单与 protocol.json 的 pageToHost 完全一致", () => {
   expect(new Set(PAGE_METHODS)).toEqual(new Set(protocol.methods.pageToHost));
@@ -92,7 +93,7 @@ test("未知方法与坏帧一律拒绝，不产生任何副作用", async () =>
   expect(host.chatCalls).toEqual([]);
 });
 
-test("R24. 未配对的连接只能 hello / pair.request / pair.cancel：chat.send 被拒，pair.request 被受理", async () => {
+test("R24. 未配对的连接只能 hello / pair.request / pair.cancel / agent.install：chat.send 被拒，pair.request 被受理", async () => {
   const host = startHost();
   const c = await connect(host.port);
   for (const method of PAGE_METHODS.filter((m) => !OPEN.includes(m))) {
@@ -211,6 +212,23 @@ describe("一键安装（期 2 / R2）", () => {
     const c = await helloed(host, browserKey);
     await c.call("agent.install", { kind: "codex" });
     expect(await c.next((m) => m.method === "agent.done")).toMatchObject({ params: { ok: false, code: "version_mismatch" } });
+  });
+
+  test("安装不要求先配对：全新机器还没有 agent、也无法配对，仍能一键装并收到结果", async () => {
+    const host = startHost({
+      capabilities: INSTALL_CAPS,
+      install: async (_kind, progress) => {
+        progress("installing");
+        return { version: "2.2.2" };
+      },
+      refresh: async () => {},
+    });
+    const c = await connect(host.port); // 没有 hello（未配对）
+    expect(await c.call("agent.install", { kind: "codex" })).toMatchObject({ method: "agent.install.started", params: { started: true } });
+    expect(await c.next((m) => m.method === "agent.install.progress")).toMatchObject({ params: { phase: "installing" } });
+    expect(await c.next((m) => m.method === "agent.done")).toMatchObject({ params: { ok: true, version: "2.2.2" } });
+    // 装完的 status 也回给发起者（它没配对，只靠这条连接知道 codex 现在可用）
+    expect((await c.next((m) => m.method === "status")).params.state).toBe("unpaired");
   });
 
   test("并发安装拿 busy；没声明能力拿 unsupported；kind 不认识拿 bad_request", async () => {

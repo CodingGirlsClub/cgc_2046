@@ -78,9 +78,10 @@ interface Host {
 }
 
 const send = (ws: WS, message: Message) => ws.send(JSON.stringify(message));
-/** 安装进度与结果推给所有已授权的连接（状态类事件，不分课程） */
-const broadcast = (host: Host, method: string, params: Record<string, unknown>) => {
-  for (const ws of host.conns) if (authorized(host, ws)) send(ws, { method, params });
+/** 安装进度与结果：发起安装的连接一定要收到（全新机器上它还没配对过），其余已授权的连接一并收到 */
+const broadcast = (host: Host, requester: WS, method: string, params: Record<string, unknown>) => {
+  send(requester, { method, params });
+  for (const ws of host.conns) if (ws !== requester && authorized(host, ws)) send(ws, { method, params });
 };
 const error = (id: string | undefined, code: string): Message => ({ method: "error", id, params: { code } });
 
@@ -190,24 +191,28 @@ const handlers: Record<string, (host: Host, ws: WS, frame: Frame) => unknown> = 
     host.installing = true;
     send(ws, { method: "agent.install.started", id, params: { started: true } });
     try {
-      const { version } = await host.opts.install(kind, (phase) => broadcast(host, "agent.install.progress", { kind, phase }));
+      const { version } = await host.opts.install(kind, (phase) => broadcast(host, ws, "agent.install.progress", { kind, phase }));
       await host.opts.refresh?.(kind);
-      broadcast(host, "agent.done", { kind, ok: true, version });
+      broadcast(host, ws, "agent.done", { kind, ok: true, version });
     } catch (e) {
       const code = e instanceof InstallError ? e.code : "install_failed";
       console.error(`cgc-host: 安装 ${kind} 失败（${code}）`); // 只记错误码：安装输出里有本地路径
-      broadcast(host, "agent.done", { kind, ok: false, code });
+      broadcast(host, ws, "agent.done", { kind, ok: false, code });
     } finally {
       host.installing = false;
-      for (const conn of host.conns) if (authorized(host, conn)) send(conn, status(host, conn));
+      for (const conn of host.conns) if (conn === ws || authorized(host, conn)) send(conn, status(host, conn));
     }
   },
 };
 
 /** 白名单即 handlers 的键，测试断言它与 protocol.json 的 pageToHost 完全一致 */
 export const PAGE_METHODS = Object.keys(handlers);
-/** KTD4：未授权的连接只能调用这几个；status 不是页面可调的方法，由 Host 在连接时与状态变化时推送 */
-const OPEN_METHODS = new Set(["hello", "pair.request", "pair.cancel"]);
+/**
+ * KTD4：未授权的连接只能调用这几个；status 不是页面可调的方法，由 Host 在连接时与状态变化时推送。
+ * `agent.install` 也在里面：全新机器上还没有任何 agent、也就无法配对，而安装正是为了解开这一步；
+ * 它只装随包钉住并校验过的产物，不碰凭证、不驱动 agent（与 pair.request 同一道 Host/Origin 关）。
+ */
+const OPEN_METHODS = new Set(["hello", "pair.request", "pair.cancel", "agent.install"]);
 
 function parse(raw: string | Buffer): Frame | null {
   let m: unknown;
