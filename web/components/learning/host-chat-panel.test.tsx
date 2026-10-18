@@ -1018,18 +1018,18 @@ describe("对话设置（模型、思考等级与推理强度）", () => {
 		);
 	});
 
-	it("真机实测的 Codex 形状：模型值带 provider 前缀（如 group/…、opencode-go/…）时照常按 provider 分组", async () => {
-		// 2026-10-19 真机（codex-acp 2.2.2 + 自定义网关）attach 回包的形状：81 个模型、值都是 provider/model，
-		// 推理强度 low/high/max。与「裸 id 平铺」是两种都要支持的形状。
-		const REAL_CODEX_SETTINGS = [
+	it("真机实测的 Codex 形状：模型值带 provider 前缀（gateway-a/…、gateway-b/…）时照常按 provider 分组", async () => {
+		// 2026-10-19 真机（codex-acp 2.2.2 + 自定义网关）回包的形状：模型值都是 provider/model，
+		// 推理强度是 low/high/max。网关与模型标识已中性化；与「裸 id 平铺」是两种都要支持的形状。
+		const PREFIXED_CODEX_SETTINGS = [
 			{
 				id: "model",
 				name: "Model",
 				category: "model",
-				currentValue: "opencode-go/deepseek-v4.1-flash",
+				currentValue: "gateway-b/model-b",
 				options: [
-					{ value: "group/auto-gpt-6-1-sol", name: "Auto GPT 6.1 Sol" },
-					{ value: "opencode-go/deepseek-v4.1-flash", name: "Deepseek V4.1 Flash" },
+					{ value: "gateway-a/model-a", name: "Model A" },
+					{ value: "gateway-b/model-b", name: "Model B" },
 				],
 			},
 			{
@@ -1044,11 +1044,11 @@ describe("对话设置（模型、思考等级与推理强度）", () => {
 				],
 			},
 		];
-		const ws = await readyPanel([], false, REAL_CODEX_SETTINGS);
+		const ws = await readyPanel([], false, PREFIXED_CODEX_SETTINGS);
 		const model = screen.getByRole("combobox", { name: "模型" }) as HTMLSelectElement;
-		expect(model.value).toBe("opencode-go/deepseek-v4.1-flash");
-		expect(within(model).getByRole("group", { name: "group" })).toBeInTheDocument();
-		expect(within(model).getByRole("group", { name: "opencode-go" })).toBeInTheDocument();
+		expect(model.value).toBe("gateway-b/model-b");
+		expect(within(model).getByRole("group", { name: "gateway-a" })).toBeInTheDocument();
+		expect(within(model).getByRole("group", { name: "gateway-b" })).toBeInTheDocument();
 		expect((screen.getByRole("combobox", { name: "推理强度" }) as HTMLSelectElement).value).toBe("max");
 
 		// 未发消息：只发过 hello + chat.attach
@@ -1114,6 +1114,8 @@ describe("多 agent（#1148）", () => {
 
 		const chatgpt = await screen.findByRole("button", { name: "用 ChatGPT 登录" });
 		expect(screen.queryByRole("button", { name: "API Key" })).toBeNull();
+		// 登录卡已经说明了下一步：不再同时显示「正在接上这门课的对话…」（attach 撞 auth_required 是常规首屏）
+		expect(screen.queryByText("正在接上这门课的对话…")).toBeNull();
 
 		fireEvent.click(chatgpt);
 		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.authenticate", params: { courseId: COURSE, methodId: "chat-gpt" } }));

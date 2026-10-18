@@ -93,7 +93,7 @@ export interface SessionsPage {
 	nextCursor: string | null;
 }
 
-/** history 的 settings 与 chat.settings 的载荷：Host 收窄后的 OMP 会话设置（模型、思考等级） */
+/** history 的 settings 与 chat.settings 的载荷：Host 收窄后的会话设置（模型、OMP 的思考等级 / Codex 的推理强度） */
 export interface HostChatSetting {
 	id: string;
 	name: string;
@@ -289,7 +289,7 @@ export interface HostChat extends Omit<ChatState, "evicted"> {
 	listSessions(cursor?: string): Promise<SessionsPage | { error: ChatErrorCode }>;
 	/** 切换到某个历史会话；成功即由 history 回复接管归约，失败返回错误码且不影响当前会话 */
 	openSession(sessionId: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }>;
-	/** 改当前会话的设置（模型、思考等级）；成功即由 chat.settings 回复接管归约，失败返回错误码 */
+	/** 改当前会话的设置（模型、思考/推理强度）；成功即由 chat.settings 回复接管归约，失败返回错误码 */
 	setSetting(configId: string, value: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }>;
 	/** 本机各 agent 的安装状态（KTD1）：选择器与「添加 agent」都读它 */
 	agents: HostAgentStatus[];

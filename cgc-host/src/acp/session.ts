@@ -438,7 +438,7 @@ export function createChat(opts: ChatOptions) {
         return isAuthRequired(e) ? failAuth() : fail("chat_unavailable");
       }
     } else if (method === "chat.set_setting") {
-      // 学员在对话栏改本机 OMP 的设置（模型、思考等级）：只作用于当前会话，不写学员的 OMP 配置
+      // 学员在对话栏改本机 agent 的设置（模型、OMP 的思考等级 / Codex 的推理强度）：只作用于当前会话，不写学员的 agent 配置
       const { configId, value } = params;
       if (typeof configId !== "string" || !Object.hasOwn(SETTING_IDS, configId) || typeof value !== "string" || !value || value.length > SETTING_VALUE_MAX) {
         return fail("bad_request");

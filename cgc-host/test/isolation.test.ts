@@ -64,8 +64,9 @@ test("cold start cannot deliver A's send acknowledgement to B after B attaches",
   const start = fake.start;
   fake.start = async (app) => { started = true; await starting.promise; return start(app); };
   const { host, page } = await chatPage(fake);
-  // attach 现在自己就会拉起进程：不 await（重新配对后它的 history 回包会作废），先把冷启动挂住再发消息
-  void attach(page);
+  // attach 现在自己就会拉起进程：不 await（重新配对后它的 history 回包会作废），先把冷启动挂住再发消息。
+  // catch 掉可能的 rejection：这里只关心「发出去了」，回复由后续断言接管，不能让悬空 promise 变成未处理异常。
+  void attach(page).catch(() => {});
   page.send({ method: "chat.send", id: "old-send", params: { courseId: COURSE, text: "PRIVATE_USER_A_MESSAGE", context: CONTEXT } });
   await until(() => started);
   try {
@@ -123,8 +124,9 @@ test.each(["old-send", undefined])("same socket re-paired to A drops old-generat
   const start = fake.start;
   fake.start = async (app) => { started = true; await starting.promise; return start(app); };
   const { host, page } = await chatPage(fake);
-  // attach 自己会拉起进程：不 await（重新配对后它的 history 回包作废），先把冷启动挂住再发消息
-  void attach(page);
+  // attach 自己会拉起进程：不 await（重新配对后它的 history 回包作废），先把冷启动挂住再发消息。
+  // catch 掉可能的 rejection：这里只关心「发出去了」，回复由后续断言接管。
+  void attach(page).catch(() => {});
   page.send({ method: "chat.send", id, params: { courseId: COURSE, text: "old generation", context: CONTEXT } });
   await until(() => started);
   try {

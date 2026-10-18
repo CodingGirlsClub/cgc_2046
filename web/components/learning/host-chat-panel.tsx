@@ -657,7 +657,9 @@ function Conversation({ chat, workDir, unitId }: { chat: HostChat; workDir: stri
 								{t("retry")}
 							</button>
 						</div>
-					) : (
+					) : chat.login ? null : (
+						// 登录卡自己会说清下一步：attach 撞 auth_required 时两条 status 会同时出现、互相矛盾，
+						// 这里只留登录卡（卡片在正文之后、输入框之前）
 						<p role="status" className="learning-chat__hint">
 							{t("attaching")}
 						</p>
