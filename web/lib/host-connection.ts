@@ -39,6 +39,15 @@ export function courseDir(userId: string, courseId: string): string {
 /** KTD15：`/health` 报告的版本低于它，就进入「Host 需要更新」 */
 export { MIN_HOST_VERSION } from "./host-version";
 
+/** `/health` 的 agents 条目：本机装了哪些 agent（KTD1）。页面据此决定连不连、给不给选择器 */
+export interface HostAgentStatus {
+	kind: string;
+	present: boolean;
+	envError?: string;
+	/** 可复用来源（目前只有 Codex 上报）：managed / codex-acp / chatgpt-app / codex-cli；只读，不改路由 */
+	sources?: { source: string; version: string | null }[];
+}
+
 export type HostConnection =
 	| { state: "unsupported"; reason: "browser" }
 	| { state: "unsupported"; reason: "address"; canonicalUrl: string }
@@ -46,8 +55,8 @@ export type HostConnection =
 	| { state: "blocked" }
 	| { state: "noHost" }
 	| { state: "staleHost" }
-	/** ompPresent / paired 由对话栏映射到「电脑上找不到 OMP」「未配对」，再决定是否打开 WebSocket */
-	| { state: "detected"; ompPresent: boolean; paired: boolean };
+	/** agents / paired 由对话栏映射到「本机没有可用的 agent」「未配对」，再决定是否打开 WebSocket */
+	| { state: "detected"; agents: HostAgentStatus[]; paired: boolean; capabilities: string[] };
 
 /** 浏览器不认 `loopback-network`（Chrome 145 之前）时返回 "unknown"。
  *  不改查旧名 `local-network-access`：老版本 Chrome 查它会让渲染进程崩溃，try/catch 拦不住。 */
@@ -70,13 +79,18 @@ async function probe(): Promise<HostConnection | null> {
 		});
 		const health = (await response.json()) as {
 			version: string;
-			ompPresent: boolean;
+			ompPresent?: boolean;
 			paired: boolean;
+			agents?: HostAgentStatus[];
+			/** 本机支持的能力（期 2 起有 "agent.install"）；旧 Host 不带，按空数组处理 */
+			capabilities?: string[];
 		};
 		if (compareHostVersions(health.version, MIN_HOST_VERSION) < 0) {
 			return { state: "staleHost" };
 		}
-		return { state: "detected", ompPresent: health.ompPresent, paired: health.paired };
+		// Host 0.1.x 只报 ompPresent（版本门会把它们判成需要更新）；0.2.0 起报 agents
+		const agents = health.agents ?? [{ kind: "omp", present: health.ompPresent === true }];
+		return { state: "detected", agents, paired: health.paired, capabilities: health.capabilities ?? [] };
 	} catch {
 		return null;
 	}

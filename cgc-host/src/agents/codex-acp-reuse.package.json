@@ -1,0 +1,1 @@
+{"name":"cgc-codex-agent-reuse","private":true,"dependencies":{"@agentclientprotocol/codex-acp":"2.2.2"},"overrides":{"@openai/codex":"file:./stub"}}

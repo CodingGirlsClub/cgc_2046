@@ -1485,6 +1485,17 @@ export function OfferingDetailPage({
     const registrationDeadlineDirty =
       activeDraft.deadline !== toLocalInput(offering.registrationDeadline ?? null);
 
+    // #543 定价锚点前端门（与押金的 depositEndsAtRequired 对称）：定价态 +
+    // 开始时间空即就地拦，判据与 DB 边界一致——events/courses 的
+    // *_pricing_requires_starts_at CHECK（NOT VALID 只豁免存量扫描）让存量
+    // 「定价已开 + 开始时间空」的脏行整行不可 UPDATE，任何保存（含只改标题）
+    // 都得先补 starts_at，否则只白跑一次请求再吃后端 code
+    // pricing_starts_at_required。文案与后端 code 同句。
+    if (draftPricing && activeDraft.startsAt.trim() === "") {
+      setSaveMessage(t("pricingStartsAtRequired"));
+      return;
+    }
+
     if (activeDraft.mode === "deposit") {
       if (depositCents === null) {
         setSaveMessage(t("depositAmountRequired"));
@@ -2829,6 +2840,12 @@ export function OfferingNewPage({
     const validTiers = tierDrafts.map(fromDraft).filter((x) => x !== null);
     if (mode === "pricing" && validTiers.length === 0) {
       setError(t("pricingTierRequired"));
+      return;
+    }
+    // #543 定价 ⇒ starts_at 锚点（后端 pricing_starts_at_required 同口径）：
+    // 新建必属「触及定价锚」，开始时间为空即就地拦截
+    if (mode === "pricing" && startsAt.trim() === "") {
+      setError(t("pricingStartsAtRequired"));
       return;
     }
     // 押金态：正金额 + ends_at 结算锚点 + 报名截止（自助取消锚点，B② 后端同款判据）

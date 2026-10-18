@@ -55,6 +55,7 @@ const UNPAIRED: HostStatus = {
 	pairedDisplayName: null,
 	deviceName: "Ada 的 MacBook",
 	tokenId: null,
+	agents: [{ kind: "omp", present: true }],
 	ompPresent: true,
 	version: "0.1.0",
 	protocolVersion: 1,

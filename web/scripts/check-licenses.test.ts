@@ -13,6 +13,7 @@ describe("check-licenses", () => {
 		try {
 			mkdirSync(join(root, "scripts"));
 			copyFileSync(new URL("./check-licenses.mjs", import.meta.url), join(root, "scripts/check-licenses.mjs"));
+			copyFileSync(new URL("./license-rule.mjs", import.meta.url), join(root, "scripts/license-rule.mjs")); // 判定规则已抽成共享模块
 			mkdirSync(join(root, "node_modules/.pnpm/node_modules"), { recursive: true });
 			writeFileSync(join(root, "node_modules/.pnpm/lock.yaml"), "");
 

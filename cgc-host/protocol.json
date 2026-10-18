@@ -14,18 +14,26 @@
       "chat.new",
       "chat.sessions",
       "chat.open",
-      "card.answer"
+      "chat.set_setting",
+      "chat.authenticate",
+      "card.answer",
+      "agent.install"
     ],
     "hostToPage": [
       "status",
       "pair.result",
       "history",
       "sessions",
+      "chat.settings",
+      "chat.authenticated",
       "turn.delta",
       "turn.card",
       "turn.card.closed",
       "turn.end",
       "chat.evicted",
+      "agent.install.started",
+      "agent.install.progress",
+      "agent.done",
       "error"
     ]
   }

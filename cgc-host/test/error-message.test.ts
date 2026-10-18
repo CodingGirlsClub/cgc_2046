@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import * as acp from "@agentclientprotocol/sdk";
-import { message } from "../src/acp/session";
+import { message } from "../src/acp/errors";
 
 describe("错误摘要（Host 日志）", () => {
 	test("ACP 错误带 data：message 后附上 data 详情（如 load 失败的真实原因）", () => {

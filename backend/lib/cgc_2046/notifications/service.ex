@@ -106,8 +106,9 @@ defmodule Cgc2046.Notifications.Service do
   #   「长时间未继续学习，记得回来完成学习」）；enrollment_id / run_id 不下发
   #   （平台无 character_string 槽位，本就是 job meta）
   #
-  # 缺值字段跳过（微信允许少传）；无映射的平台/模板键原样透传（tt/xhs 模板
-  # 未申请，template_not_configured 在更早已拦截，透传仅为不炸兜底路径）。
+  # 缺值字段跳过（微信允许少传）；无映射的平台/模板键原样透传（xhs 平台无订阅
+  # 消息能力、tt 其余模板未申请——template_not_configured 在更早已拦截，透传仅
+  # 为不炸兜底路径）。tt 已接入的两个模板见下方 render(:tt, ...) 子句。
   defp render(:wechat, "approval_result", %{} = data) do
     %{
       "thing2" => approval_result_text(data["status"]),
@@ -364,6 +365,39 @@ defmodule Cgc2046.Notifications.Service do
       "thing1" => thing(data["cohort_name"]),
       "thing4" => thing(data["cancel_note"]),
       "thing9" => "申请已取消"
+    }
+    |> drop_nils()
+  end
+
+  # --- 抖音（tt）模板字段渲染（#371；2026-10-15 控制台过审） ------------------
+  #
+  # 与微信的根本差异：抖音《发送订阅消息》（notify-user-v2）的 data 是
+  # 「模板关键词名 → 值」的 map（字段表：`_key`=模板关键词、`_val`=对应值），
+  # **不是**微信的 thing1/number3 槽位编号——故这里用中文关键词名做 key。
+  # 关键词名与顺序以控制台「我的模板」为准：
+  #
+  # - approval_result「参与活动提醒」：参与结果 / 活动名称 / 参与编号
+  # - event_reminder「活动开始提醒」：活动名称 / 开始时间 / 活动地点
+  #
+  # 值语义沿用微信侧 helper（thing ≤20 字、number 纯数字、time 北京时间
+  # "YYYY-MM-DD HH:MM"）。**该格式假设未经真机验证**——抖音文档只声明 _val 为
+  # 字符串，未给每类关键词的长度/格式约束；暴露点 = 上线后首次真发送（发送需
+  # 小程序已上线，错误码 28014042）。若平台按关键词类型拒收，回退点即这三个
+  # helper 的格式串，子句结构不动。缺值跳过（drop_nils），与微信侧同款。
+  defp render(:tt, "approval_result", %{} = data) do
+    %{
+      "参与结果" => approval_result_text(data["status"]),
+      "活动名称" => thing(data["title"]),
+      "参与编号" => number(data["capacity_seq"])
+    }
+    |> drop_nils()
+  end
+
+  defp render(:tt, "event_reminder", %{} = data) do
+    %{
+      "活动名称" => thing(data["title"]),
+      "开始时间" => time(data["starts_at"]),
+      "活动地点" => thing(data["venue"])
     }
     |> drop_nils()
   end

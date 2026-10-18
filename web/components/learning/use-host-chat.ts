@@ -16,14 +16,16 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { useApolloClient } from "@apollo/client/react";
 import { COURSE_LEARNING_DETAIL } from "@/lib/graphql/participations";
-import { checkHost, requestHostAccess, type HostConnection } from "@/lib/host-connection";
+import { checkHost, requestHostAccess, type HostAgentStatus, type HostConnection } from "@/lib/host-connection";
 import { openHostSocket, type HostMessage, type HostSocket } from "@/lib/host-socket";
 import { useHostPairing, type HostPairing, type PairingErrorReason } from "./use-host-pairing";
 
 /** 没有连接时重新检测的间隔：装好 Host、装好 OMP、Host 恢复，都在这个时间内被发现 */
 export const POLL_MS = 3_000;
-/** chat.attach / chat.send / chat.new 可能要先拉起 OMP 并加载会话 */
+/** chat.attach / chat.send / chat.new 可能要先拉起 agent 并加载会话 */
 export const CHAT_TIMEOUT_MS = 60_000;
+/** 登录可能在浏览器里停留很久（ChatGPT 登录跳转 + 学员操作） */
+export const AUTH_TIMEOUT_MS = 120_000;
 const CARD_TIMEOUT_MS = 15_000;
 
 export type ToolStatus = "pending" | "in_progress" | "completed" | "failed" | "stopped";
@@ -91,10 +93,19 @@ export interface SessionsPage {
 	nextCursor: string | null;
 }
 
+/** history 的 settings 与 chat.settings 的载荷：Host 收窄后的 OMP 会话设置（模型、思考等级） */
+export interface HostChatSetting {
+	id: string;
+	name: string;
+	category: string;
+	currentValue: string;
+	options: { value: string; name: string; description?: string }[];
+}
+
 /** R26 的状态：一处状态源。ready / evicted 时对话可见 */
 export type ChatView =
 	| Exclude<HostConnection, { state: "detected" }>
-	| { state: "checking" | "noOmp" | "disconnected" | "unpaired" | "confirming" | "denied" | "ready" | "evicted" }
+	| { state: "checking" | "noAgent" | "disconnected" | "unpaired" | "confirming" | "denied" | "ready" | "evicted" }
 	| { state: "pairingFailed"; reason: PairingErrorReason };
 
 interface ChatState {
@@ -102,6 +113,8 @@ interface ChatState {
 	attached: boolean;
 	events: ChatEvent[];
 	cards: ChatCard[];
+	/** 本机 OMP 的会话设置（模型、思考等级）；空数组表示不渲染入口（旧版 Host 或 OMP 不给） */
+	settings: HostChatSetting[];
 	running: boolean;
 	sending: boolean;
 	stopping: boolean;
@@ -113,6 +126,7 @@ const INITIAL: ChatState = {
 	attached: false,
 	events: [],
 	cards: [],
+	settings: [],
 	running: false,
 	sending: false,
 	stopping: false,
@@ -122,7 +136,8 @@ const INITIAL: ChatState = {
 
 type Action =
 	| { type: "reset" }
-	| { type: "history"; running: boolean; events: ChatEvent[] }
+	| { type: "history"; running: boolean; events: ChatEvent[]; settings: HostChatSetting[] }
+	| { type: "settings"; settings: HostChatSetting[] }
 	| { type: "delta"; event: ChatEvent }
 	| { type: "card"; card: ChatCard }
 	| { type: "cardClosed"; cardId: string }
@@ -155,7 +170,11 @@ function reduce(state: ChatState, action: Action): ChatState {
 				attached: true,
 				running: action.running,
 				events: action.events.reduce(append, []),
+				settings: action.settings,
 			};
+		case "settings":
+			// 设置不进对话记录，只刷新入口的当前值与可选值
+			return { ...state, settings: action.settings };
 		case "delta":
 			// kind: user 是 chat.send 的回复：Host 接下了这一轮
 			return action.event.kind === "user"
@@ -197,21 +216,57 @@ function eventOf(params: Record<string, unknown>): ChatEvent | null {
 	return event.kind === "usage" ? null : (event as unknown as ChatEvent);
 }
 
+/** settings 载荷只应来自 Host：形状不合就按空处理（旧版 Host 不带这个字段，页面据此不渲染入口） */
+function settingsOf(params: Record<string, unknown>): HostChatSetting[] {
+	if (!Array.isArray(params.settings)) return [];
+	return params.settings.flatMap((item) => {
+		if (typeof item !== "object" || item === null) return [];
+		const option = item as Record<string, unknown>;
+		if (typeof option.id !== "string" || typeof option.currentValue !== "string" || !Array.isArray(option.options)) return [];
+		return [
+			{
+				id: option.id,
+				name: typeof option.name === "string" ? option.name : option.id,
+				category: typeof option.category === "string" ? option.category : option.id,
+				currentValue: option.currentValue,
+				options: option.options.flatMap((raw) => {
+					if (typeof raw !== "object" || raw === null) return [];
+					const value = raw as Record<string, unknown>;
+					if (typeof value.value !== "string" || typeof value.name !== "string") return [];
+					return [{ value: value.value, name: value.name, ...(typeof value.description === "string" ? { description: value.description } : {}) }];
+				}),
+			},
+		];
+	});
+}
+
+/** 本机至少有一个装好的 agent（R1：一个都没有时给安装指引，而不是只提 OMP） */
+const hasAgent = (agents: readonly HostAgentStatus[]) => agents.some((agent) => agent.present);
+
+/** 要不要开连接：有 agent 就要（对话/配对）；一个都没有但 Host 能装，也要——安装请求得走这条连接 */
+const needsSocket = (probe: HostConnection) =>
+	probe.state === "detected" && (hasAgent(probe.agents) || (probe.capabilities ?? []).includes("agent.install"));
+
 function viewOf(
 	probe: HostConnection | null,
 	socket: HostSocket | null,
 	lost: boolean,
 	pairing: HostPairing,
 	evicted: boolean,
+	agents: readonly HostAgentStatus[],
 ): ChatView {
 	if (!socket) {
-		// 探到可用的 Host 到连接打开之间、连接刚断还没重新检测，都只是过渡
-		if (!probe || (probe.state === "detected" && probe.ompPresent)) return { state: lost ? "disconnected" : "checking" };
+		// 探到有可用的 agent 到连接打开之间、连接刚断还没重新检测，都只是过渡
+		if (!probe || needsSocket(probe)) return { state: lost ? "disconnected" : "checking" };
 		if (lost && probe.state === "noHost") return { state: "disconnected" };
-		if (probe.state === "detected") return { state: "noOmp" };
+		if (probe.state === "detected") return { state: "noAgent" };
 		return probe;
 	}
-	if (pairing.phase === "ready") return { state: evicted ? "evicted" : "ready" };
+	if (pairing.phase === "ready") {
+		// 配对之后还没有可用的 agent：停在「没有可用的 agent」，安装入口在这里（用活的 agents，装完由 status 推送刷新）
+		const liveAgents = agents.length > 0 ? agents : probe?.state === "detected" ? probe.agents : [];
+		return hasAgent(liveAgents) ? (evicted ? { state: "evicted" } : { state: "ready" }) : { state: "noAgent" };
+	}
 	if (pairing.phase === "error") return { state: "pairingFailed", reason: pairing.reason ?? "failed" };
 	return { state: pairing.phase };
 }
@@ -234,6 +289,28 @@ export interface HostChat extends Omit<ChatState, "evicted"> {
 	listSessions(cursor?: string): Promise<SessionsPage | { error: ChatErrorCode }>;
 	/** 切换到某个历史会话；成功即由 history 回复接管归约，失败返回错误码且不影响当前会话 */
 	openSession(sessionId: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }>;
+	/** 改当前会话的设置（模型、思考等级）；成功即由 chat.settings 回复接管归约，失败返回错误码 */
+	setSetting(configId: string, value: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }>;
+	/** 本机各 agent 的安装状态（KTD1）：选择器与「添加 agent」都读它 */
+	agents: HostAgentStatus[];
+	/** 这段对话由哪个 agent 驱动（R2：这台浏览器上次选过的 → Host 记的这门课上次用过的 → 唯一可用的 → 省略、由 Host 按 omp 处理）；偏好不在本机时回落到可用的那个 */
+	agent: string;
+	/** 切到另一个 agent：换一段会话（KTD8），旧的在跑回合由 Host 先按取消收尾，这里随后重新 attach */
+	chooseAgent(kind: string): void;
+	/** 这个 agent 要求先登录时的登录方式（协商得来的清单）；null 表示当前不需要登录 */
+	login: { id: string; name: string }[] | null;
+	/** 发起登录（Codex 的 chat-gpt 会在学员本机开浏览器）；成功后自动重新 attach */
+	authenticate(methodId: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }>;
+	/** 重新探测 /health（学员刚装好另一个 agent 时用），返回最新的安装状态 */
+	refreshAgents(): Promise<HostAgentStatus[] | null>;
+	/** 本机声明的能力（如 "agent.install"）：页面据此决定给不给一键安装入口 */
+	capabilities: string[];
+	/** 一键安装的状态：null 没在装；"installing" 进行中；{ error } 失败可重试 */
+	install: "installing" | { error: string } | null;
+	/** 最近一次安装的结果：reuse = 复用学员已有 Codex（只装适配器）；null 未知 */
+	installOutcome: "reuse" | "full" | null;
+	/** 请 Host 装 Codex 适配器（只有 capabilities 含 agent.install 时才有意义） */
+	installAgent(): Promise<void>;
 }
 
 export function useHostChat({
@@ -262,6 +339,30 @@ export function useHostChat({
 	const ownership = useRef(0);
 	const pairing = useHostPairing({ socket, userId, locale });
 	const [chat, dispatch] = useReducer(reduce, INITIAL);
+	/** 本机各 agent 的状态：探测结果更新它；选择器与「添加 agent」都读它 */
+	const [agents, setAgents] = useState<HostAgentStatus[]>([]);
+	/** 一键安装的状态（期 2）：null 没在装；"installing" 进行中；{ error } 失败可重试 */
+	const [install, setInstall] = useState<"installing" | { error: string } | null>(null);
+	/** 最近一次安装的结果（Host 的 agent.done.reused）：复用已有 Codex 还是全量安装 */
+	const [installOutcome, setInstallOutcome] = useState<"reuse" | "full" | null>(null);
+	/** 这台浏览器上次选过的 agent（只是偏好）：实际路由要看它在本机是否可用，见 effectiveAgent */
+	const [preferred, setPreferred] = useState(() => {
+		try {
+			return window.localStorage.getItem(`cgc-host-agent:${courseId}`) ?? "";
+		} catch {
+			return ""; // 隐私模式下不可读：少一层记忆，不影响默认（Host 会按 omp 处理）
+		}
+	});
+	/** agent 要求先登录时的登录方式（auth_required 带回）；登录成功或重新接上对话后清掉 */
+	const [login, setLogin] = useState<{ id: string; name: string }[] | null>(null);
+	/** 本机当前能用的那个 agent（R2 的回落）：记忆里那个装好了就用它，否则用第一个装好的；都没有就留空（Host 按 omp 处理）。
+	 *  展示与路由共用这一个值——不出现「标题写着 OMP、请求却带着另一个 agent」的分叉。 */
+	const agent = agents.some((entry) => entry.present && entry.kind === preferred)
+		? preferred
+		: (agents.find((entry) => entry.present)?.kind ?? "");
+	/** 本机能做什么（/health 的 capabilities，期 2 起有 "agent.install"）；旧 Host 不带、按空处理 */
+	const capabilities = probe?.state === "detected" ? (probe.capabilities ?? []) : [];
+	const anyAgent = agents.some((entry) => entry.present);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -279,7 +380,8 @@ export function useHostChat({
 				if (result.state === "needsPermission" && prev?.state === "needsPermission" && prev.probeFailed) return prev;
 				return prev && JSON.stringify(prev) === JSON.stringify(result) ? prev : result;
 			});
-			if (result.state === "detected" && result.ompPresent) {
+			if (result.state === "detected") setAgents(result.agents);
+			if (result.state === "detected" && needsSocket(result)) {
 				const opened = openHostSocket();
 				current = opened;
 				opened.onClose(() => {
@@ -287,6 +389,8 @@ export function useHostChat({
 					ownership.current += 1;
 					current = null;
 					setSocket(null);
+					setInstall(null); // 装到一半断线：别把「正在安装」永久留在按钮上
+					setInstallOutcome(null);
 					setLost(true);
 					dispatch({ type: "reset" });
 					timer = setTimeout(check, POLL_MS);
@@ -320,11 +424,26 @@ export function useHostChat({
 	const onReply = useCallback(
 		(reply: HostMessage) => {
 			const params = reply.params ?? {};
-			if (reply.method === "error") return dispatch({ type: "error", code: String(params.code) });
+			if (reply.method === "error") {
+				// agent 要求先登录：出登录卡（登录方式由它的握手协商得来），其余错误照旧
+				if (params.code === "auth_required") {
+					setLogin(((params.methods as { id: string; name: string }[]) ?? []).filter((m) => typeof m?.id === "string"));
+					return;
+				}
+				return dispatch({ type: "error", code: String(params.code) });
+			}
 			if (reply.method === "history") {
 				const events = ((params.events as Record<string, unknown>[]) ?? []).flatMap((e) => eventOf(e) ?? []);
-				dispatch({ type: "history", running: params.running === true, events });
+				// R2：没选过就用 Host 记的「这门课上次用过」（这台浏览器的记忆在初始值里，已经用过就不覆盖）
+				const remembered = typeof params.agent === "string" ? params.agent : "";
+				if (remembered) setPreferred((current) => current || remembered);
+				setLogin(null); // 会话接上了就说明现在不需要登录（学员可能刚在页面外完成）
+				dispatch({ type: "history", running: params.running === true, events, settings: settingsOf(params) });
 				return refetch();
+			}
+			if (reply.method === "chat.settings") {
+				dispatch({ type: "settings", settings: settingsOf(params) });
+				return;
 			}
 			if (reply.method === "turn.card.closed") return dispatch({ type: "cardClosed", cardId: String(params.cardId) });
 			const event = reply.method === "turn.delta" ? eventOf(params) : null;
@@ -336,19 +455,29 @@ export function useHostChat({
 	// raw：只做代次校验与 not_holder 失效，不把回复交给归约——历史列表/切换失败要在调用方就地呈现。
 	const requestChatRaw = useCallback(
 		async (
-			method: "chat.attach" | "chat.new" | "chat.send" | "chat.sessions" | "chat.open" | "card.answer",
+			method:
+				| "chat.attach"
+				| "chat.new"
+				| "chat.send"
+				| "chat.sessions"
+				| "chat.open"
+				| "chat.set_setting"
+				| "chat.authenticate"
+				| "card.answer",
 			params: Record<string, unknown>,
 			timeoutMs = CHAT_TIMEOUT_MS,
 		) => {
 			if (!socket) return null;
 			const generation = ownership.current;
-			const reply = await socket.request(method, params, { timeoutMs })
+			// 带的是本机实际能用的 agent（记忆不在本机时已回落）；调用方显式给了就以它为准（切换那一刻要立刻带新的）
+			const withAgent = agent && !("agent" in params) ? { agent, ...params } : params;
+			const reply = await socket.request(method, withAgent, { timeoutMs })
 				.catch((e: Error): HostMessage => ({ method: "error", params: { code: e.message } }));
 			if (generation !== ownership.current) return null;
 			if (reply.method === "error" && reply.params?.code === "not_holder") ownership.current += 1;
 			return reply;
 		},
-		[socket],
+		[socket, agent],
 	);
 	const requestChat = useCallback(
 		async (
@@ -369,6 +498,9 @@ export function useHostChat({
 		void requestChat("chat.attach", { courseId });
 	}, [requestChat, courseId]);
 	useEffect(() => {
+		// attach 只发起异步 I/O（等 Host 的 history 回复才改状态）；规则把「effect 里调到的函数最终会 setState」一律当成同步级联，
+		// 这一处是它认不出的形状，指向的是既有的「配对就绪 → 接上对话」行为
+		// eslint-disable-next-line react-hooks/set-state-in-effect
 		if (ready) attach();
 	}, [ready, attach]);
 
@@ -380,6 +512,24 @@ export function useHostChat({
 		const offs = [
 			socket.on("status", (params) => {
 				if (params.state !== "ready") ownership.current += 1;
+				// 装完 agent 后 Host 会主动推一次 status：不必等下一次 /health 轮询
+				if (Array.isArray(params.agents)) setAgents(params.agents as HostAgentStatus[]);
+			}),
+			socket.on("agent.install.progress", (params) => {
+				if (params.kind === "codex") setInstall("installing");
+			}),
+			socket.on("agent.done", (params) => {
+				if (params.kind !== "codex") return;
+				if (params.ok) {
+					setInstall(null);
+					setInstallOutcome(params.reused === true ? "reuse" : "full");
+					void checkHost({ previouslyReachedHost: true }).then((result) => {
+						if (result.state === "detected") setAgents(result.agents);
+					});
+				} else {
+					setInstallOutcome(null);
+					setInstall({ error: String(params.code ?? "install_failed") });
+				}
 			}),
 			socket.on(
 				"turn.delta",
@@ -407,9 +557,21 @@ export function useHostChat({
 				ownership.current += 1;
 				dispatch({ type: "evicted" });
 			})),
+			socket.on("chat.settings", mine((params) => dispatch({ type: "settings", settings: settingsOf(params) }))),
 		];
 		return () => offs.forEach((off) => off());
 	}, [socket, courseId, refetch]);
+
+	// 连上以后整页轮询就停了；但一个 agent 都没有时仍要每 POLL_MS 探一次 /health——学员在终端里装好 OMP 后最多 3 秒自愈
+	useEffect(() => {
+		if (!socket || anyAgent) return;
+		const timer = setInterval(() => {
+			void checkHost({ previouslyReachedHost: true }).then((result) => {
+				if (result.state === "detected") setAgents(result.agents);
+			});
+		}, POLL_MS);
+		return () => clearInterval(timer);
+	}, [socket, anyAgent]);
 
 	const canSend = ready && chat.attached && !chat.evicted && !chat.running && !chat.sending;
 
@@ -475,10 +637,78 @@ export function useHostChat({
 		[courseId, requestChatRaw, onReply],
 	);
 
+	// 改本机 OMP 的会话设置：成功由 chat.settings 回复接管归约；busy / chat_unavailable / bad_request 原样回给调用方
+	const setSetting = useCallback(
+		async (configId: string, value: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }> => {
+			const reply = await requestChatRaw("chat.set_setting", { courseId, configId, value });
+			if (!reply) return { ok: false, code: "disconnected" };
+			if (reply.method === "chat.settings") {
+				onReply(reply);
+				return { ok: true };
+			}
+			if (reply.method === "error" && reply.params?.code === "not_holder") onReply(reply);
+			return { ok: false, code: String(reply.params?.code ?? "unknown") };
+		},
+		[courseId, requestChatRaw, onReply],
+	);
+
+	// 切 agent（R3、KTD8）：换一段会话——清空本页缓冲与登录态，再用新 agent 重新 attach；
+	// 旧 agent 上有回合在跑时 Host 会先按取消收尾并回一次 busy，重试即接上新的那段。
+	const chooseAgent = useCallback(
+		(kind: string) => {
+			if (kind === preferred) return;
+			setLogin(null);
+			setPreferred(kind);
+			try {
+				window.localStorage.setItem(`cgc-host-agent:${courseId}`, kind);
+			} catch {
+				// 隐私模式：只是少一层本浏览器的记忆
+			}
+			ownership.current += 1;
+			dispatch({ type: "reset" });
+			void requestChat("chat.attach", { courseId, agent: kind });
+		},
+		[preferred, courseId, requestChat],
+	);
+
+	// 登录（KTD4）：页面只发起，浏览器由这个 agent 的适配器自己开；成功后重新 attach 接上对话
+	const authenticate = useCallback(
+		async (methodId: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }> => {
+			const reply = await requestChatRaw("chat.authenticate", { courseId, methodId }, AUTH_TIMEOUT_MS);
+			if (!reply) return { ok: false, code: "disconnected" };
+			if (reply.method === "chat.authenticated") {
+				setLogin(null);
+				void requestChat("chat.attach", { courseId });
+				return { ok: true };
+			}
+			return { ok: false, code: String(reply.params?.code ?? "unknown") };
+		},
+		[courseId, requestChat, requestChatRaw],
+	);
+
+	/** 请 Host 装 Codex 适配器（期 2）：安装是长任务，先回 started，进度与结果走 agent.install.progress / agent.done */
+	const installAgent = useCallback(async () => {
+		if (!socket) return;
+		setInstallOutcome(null);
+		setInstall("installing");
+		const reply = await socket
+			.request("agent.install", { kind: "codex" }, { timeoutMs: CARD_TIMEOUT_MS })
+			.catch((e: Error): HostMessage => ({ method: "error", params: { code: e.message } }));
+		if (reply.method === "error") setInstall({ error: String(reply.params?.code ?? "install_failed") });
+	}, [socket]);
+
+	/** 重新探测 /health：学员刚装好另一个 agent 时用（本页已经连上过，权限已给，不需要手势） */
+	const refreshAgents = useCallback(async () => {
+		const result = await checkHost({ previouslyReachedHost: true });
+		if (result.state !== "detected") return null;
+		setAgents(result.agents);
+		return result.agents;
+	}, []);
+
 	const { evicted, ...rest } = chat;
 	return {
 		...rest,
-		view: viewOf(probe, socket, lost, pairing, evicted),
+		view: viewOf(probe, socket, lost, pairing, evicted, agents),
 		pairing,
 		canSend,
 		requestAccess,
@@ -489,5 +719,16 @@ export function useHostChat({
 		reclaim: attach,
 		listSessions,
 		openSession,
+		setSetting,
+		agents,
+		agent,
+		chooseAgent,
+		login,
+		authenticate,
+		refreshAgents,
+		capabilities,
+		install,
+		installOutcome,
+		installAgent,
 	};
 }

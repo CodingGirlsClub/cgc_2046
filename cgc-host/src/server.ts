@@ -3,22 +3,26 @@
 import type { ServerWebSocket } from "bun";
 import { hostname } from "node:os";
 import protocol from "../protocol.json";
+import { InstallError } from "./agents/install";
+import { type AgentKind, type AgentStatus, isAgentKind } from "./agents/registry";
 import { HOST_VERSION, SITE_ORIGIN } from "./config";
 import { createPairing, type DialogRunner, hashBrowserKey, revokeToken, verifyToken } from "./pairing";
 import { isAllowedRequest, isObject, isUuid, sanitizeDeviceName } from "./security";
-import { type HostState, loadState, type Pairing, saveState } from "./state";
+import { type HostState, loadState, type Pairing, saveState, type SessionPointers } from "./state";
 
 /** 两个方向共用的帧信封（cgc-host/AGENTS.md）；回复带上请求的 id */
 export type Message = { method: string; id?: string; params?: Record<string, unknown> };
 
-export type ChatMethod = "chat.attach" | "chat.send" | "chat.stop" | "chat.new" | "chat.sessions" | "chat.open" | "card.answer";
+export type ChatMethod = "chat.attach" | "chat.send" | "chat.stop" | "chat.new" | "chat.sessions" | "chat.open" | "chat.set_setting" | "chat.authenticate" | "card.answer";
 
 export interface ChatContext {
-  /** Host 向平台核实过的账号与学习凭证（KTD6：工作目录与下发给 OMP 的 mcpServers 用它们） */
+  /** Host 向平台核实过的账号与学习凭证（KTD6：工作目录与下发给 agent 的 mcpServers 用它们） */
   userId: string;
   token: string;
-  /** KTD6：每门课的会话指针（Host 状态文件里与配对记录同一份）；改完调 save() 落盘 */
-  sessions: Record<string, string>;
+  /** KTD6：每门课每个 agent 的会话指针（Host 状态文件里与配对记录同一份）；改完调 save() 落盘 */
+  sessions: SessionPointers;
+  /** 每门课上次显式选过的 agent（只用于 history 回包给页面做初选）；对话层的路由缺省恒为 DEFAULT_AGENT，不看它 */
+  agents: Record<string, AgentKind>;
   save(): void;
   /** 只回原连接；原配对代次失效或连接断开后丢弃，不随课程接管迁移 */
   reply(message: Message): void;
@@ -41,10 +45,16 @@ export interface ServerOptions {
   runDialog: DialogRunner;
   /** 弹窗按哪个系统挑（默认 process.platform）；测试注入固定值 */
   platform?: NodeJS.Platform;
-  /** 找得到 omp（omp.ts 的缓存，同步读） */
-  ompPresent: () => boolean;
-  /** KTD12：登录 shell 环境解析失败的原因；非 null 时写进 status 的 ompEnvError */
-  ompEnvError?: () => string | null;
+  /** 本机各 agent 的状态（注册表读缓存，同步）：status.agents 与 /health 都从这里取 */
+  agents: () => AgentStatus[];
+  /** 本机支持的能力（页面据此决定给不给安装入口）；缺省没有 */
+  capabilities?: readonly string[];
+  /** 安装某个 agent（缺省不支持）：进度经参数回调，失败抛错（InstallError 的 code 会回给页面）。variant 用于页面区分「复用」与「全量」 */
+  install?(kind: AgentKind, progress: (phase: "installing") => void): Promise<{ version: string; variant?: "full" | "reuse" }>;
+  /** 可安装的 kind（缺省只有 codex）；其余的 kind 回 unsupported，而不是含糊的 install_failed */
+  installable?: readonly AgentKind[];
+  /** 装完刷新定位器（否则页面要等缓存过期才看到新 agent） */
+  refresh?(kind: AgentKind): Promise<void>;
   chat: ChatHandler;
   /** KTD13 的收尾依据：连接数变化时告诉对话处理器；断开时附上因此失去持有者的课程 */
   onConnections?: (count: number, released: string[]) => void;
@@ -64,10 +74,17 @@ interface Host {
   holders: Map<string, WS>;
   pairing: ReturnType<typeof createPairing>;
   deviceName: string;
+  /** 同一时刻只允许一个安装（第二次点会拿 busy） */
+  installing: boolean;
   setPairing(pairing: Pairing | null): void;
 }
 
 const send = (ws: WS, message: Message) => ws.send(JSON.stringify(message));
+/** 安装进度与结果：发起安装的连接一定要收到（全新机器上它还没配对过），其余已授权的连接一并收到 */
+const broadcast = (host: Host, requester: WS, method: string, params: Record<string, unknown>) => {
+  send(requester, { method, params });
+  for (const ws of host.conns) if (ws !== requester && authorized(host, ws)) send(ws, { method, params });
+};
 const error = (id: string | undefined, code: string): Message => ({ method: "error", id, params: { code } });
 
 /** 出示过当前浏览器密钥的连接。密钥一换（重新配对、换发、清掉），已 hello 的旧连接随之失效 */
@@ -79,7 +96,8 @@ const canReply = (host: Host, ws: WS, pairing: Pairing | null) =>
 
 function status(host: Host, ws: WS, id?: string): Message {
   const p = host.state.pairing;
-  const envError = host.opts.ompEnvError?.();
+  const agents = host.opts.agents();
+  const omp = agents.find((agent) => agent.kind === "omp");
   return {
     method: "status",
     id,
@@ -89,8 +107,11 @@ function status(host: Host, ws: WS, id?: string): Message {
       pairedDisplayName: p?.displayName ?? null,
       deviceName: host.deviceName,
       tokenId: p?.tokenId ?? null,
-      ompPresent: host.opts.ompPresent(),
-      ...(envError && { ompEnvError: envError }),
+      // 回滚桥：只认 ompPresent 的旧页面靠它继续工作；移除条件是下一个 Host 大版本
+      ompPresent: omp?.present ?? false,
+      ...(omp?.envError && { ompEnvError: omp.envError }),
+      agents,
+      capabilities: [...(host.opts.capabilities ?? [])],
       version: HOST_VERSION,
       protocolVersion: protocol.protocolVersion,
     },
@@ -98,8 +119,10 @@ function status(host: Host, ws: WS, id?: string): Message {
 }
 
 async function chat(host: Host, ws: WS, { method, id, params }: Frame) {
-  const { courseId } = params;
+  const { courseId, agent } = params;
   if (!isUuid(courseId)) return send(ws, error(id, "bad_request"));
+  // 页面指定的 agent 必须在本机支持的 kind 里；不带就由对话层按「这门课上次用的」取值
+  if (agent !== undefined && !isAgentKind(agent)) return send(ws, error(id, "bad_request"));
   if (method === "chat.attach") {
     const previous = host.holders.get(courseId);
     host.holders.set(courseId, ws);
@@ -113,6 +136,7 @@ async function chat(host: Host, ws: WS, { method, id, params }: Frame) {
     userId,
     token,
     sessions: host.state.sessions,
+    agents: host.state.agents,
     save: () => saveState(host.opts.home, host.state),
     reply(message) {
       if (canReply(host, ws, pairing)) send(ws, { ...message, id });
@@ -158,12 +182,41 @@ const handlers: Record<string, (host: Host, ws: WS, frame: Frame) => unknown> = 
   "chat.new": chat,
   "chat.sessions": chat,
   "chat.open": chat,
+  "chat.set_setting": chat,
+  "chat.authenticate": chat,
   "card.answer": chat,
+  async "agent.install"(host, ws, { id, params }) {
+    if (!isAgentKind(params.kind)) return send(ws, error(id, "bad_request"));
+    // 未配对的全新机器必须能装（这正是解开「没有 agent → 无法配对」的那一步）；这台机器一旦有配对记录，
+    // 安装只给已 hello 的页面——不再让任意本机进程或站点来源页借未授权连接写盘、占住安装位。
+    if (host.state.pairing && !authorized(host, ws)) return send(ws, error(id, "unauthorized"));
+    if (!host.opts.install || !(host.opts.installable ?? ["codex"]).includes(params.kind)) return send(ws, error(id, "unsupported"));
+    if (host.installing) return send(ws, error(id, "busy"));
+    const kind = params.kind;
+    host.installing = true;
+    send(ws, { method: "agent.install.started", id, params: { started: true } });
+    try {
+      const { version, variant } = await host.opts.install(kind, (phase) => broadcast(host, ws, "agent.install.progress", { kind, phase }));
+      await host.opts.refresh?.(kind);
+      broadcast(host, ws, "agent.done", { kind, ok: true, version, ...(variant && { reused: variant === "reuse" }) });
+    } catch (e) {
+      const code = e instanceof InstallError ? e.code : "install_failed";
+      console.error(`cgc-host: 安装 ${kind} 失败（${code}）`); // 只记错误码：安装输出里有本地路径
+      broadcast(host, ws, "agent.done", { kind, ok: false, code });
+    } finally {
+      host.installing = false;
+      for (const conn of host.conns) if (conn === ws || authorized(host, conn)) send(conn, status(host, conn));
+    }
+  },
 };
 
 /** 白名单即 handlers 的键，测试断言它与 protocol.json 的 pageToHost 完全一致 */
 export const PAGE_METHODS = Object.keys(handlers);
-/** KTD4：未授权的连接只能调用这几个；status 不是页面可调的方法，由 Host 在连接时与状态变化时推送 */
+/**
+ * KTD4：未授权的连接只能调用这几个；status 不是页面可调的方法，由 Host 在连接时与状态变化时推送。
+ * 安装也要先配对（与 chat.* 同一道授权）：否则任意能连上本机 Host 的站点来源页都能静默触发 337MB 的安装，
+ * 幂等短路只挡重复、挡不住第一次；页面在配对前先给「连接这台电脑」。
+ */
 const OPEN_METHODS = new Set(["hello", "pair.request", "pair.cancel"]);
 
 function parse(raw: string | Buffer): Frame | null {
@@ -214,6 +267,7 @@ export function startServer(opts: ServerOptions) {
     conns,
     holders: new Map(),
     deviceName: sanitizeDeviceName(hostname()),
+    installing: false,
     setPairing,
     pairing: createPairing({
       apiBase: opts.apiBase,
@@ -233,7 +287,18 @@ export function startServer(opts: ServerOptions) {
       if (!isAllowedRequest(req, server.port!)) return new Response(null, { status: 403 });
       const { pathname } = new URL(req.url);
       if (pathname === "/health" && req.method === "GET") {
-        return Response.json({ version: HOST_VERSION, ompPresent: opts.ompPresent(), paired: state.pairing !== null }, { headers: cors });
+        const agents = opts.agents();
+        return Response.json(
+          {
+            version: HOST_VERSION,
+            // 回滚桥：只认 ompPresent 的旧页面靠它继续工作（与 status 同一口径）
+            ompPresent: agents.some((agent) => agent.kind === "omp" && agent.present),
+            paired: state.pairing !== null,
+            agents,
+            capabilities: [...(opts.capabilities ?? [])],
+          },
+          { headers: cors },
+        );
       }
       if (pathname === "/health" && req.method === "OPTIONS") {
         return new Response(null, { status: 204, headers: { ...cors, "access-control-allow-methods": "GET" } });

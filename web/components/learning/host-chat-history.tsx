@@ -14,6 +14,8 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { formatDateTime } from "@/lib/format";
 import type { ChatErrorCode, HostChat } from "./use-host-chat";
+import { ClockIcon } from "./chat-icons";
+import TooltipButton from "./chat-tooltip";
 
 interface HistoryState {
 	rows: { sessionId: string; updatedAt: string | null; messageCount: number | null }[];
@@ -24,12 +26,13 @@ interface HistoryState {
 	error: ChatErrorCode | null;
 }
 
-export default function HostChatHistory({ chat }: { chat: HostChat }) {
+export default function HostChatHistory({ chat, compact = false }: { chat: HostChat; compact?: boolean }) {
 	const t = useTranslations("hostChat.history");
+	const tAgent = useTranslations("hostChat.agent");
 	const [open, setOpen] = useState(false);
 	const [state, setState] = useState<HistoryState | null>(null);
 	const panelRef = useRef<HTMLDivElement>(null);
-	const buttonRef = useRef<HTMLButtonElement>(null);
+	const buttonRef = useRef<HTMLSpanElement>(null);
 	// 点面板与按钮以外的地方关闭：覆盖「开着下拉又去点了新开对话」这类情况，重新打开时列表与「当前」一起刷新
 	useEffect(() => {
 		if (!open) return;
@@ -43,6 +46,10 @@ export default function HostChatHistory({ chat }: { chat: HostChat }) {
 	}, [open]);
 	// 旧版 Host：协议里没有 chat.sessions，不显示入口
 	if ((chat.pairing.status?.protocolVersion ?? 0) < 2) return null;
+
+	/** 装好 ≥2 个 agent 时列出 chips：与标题行的选择器是同一份状态（点它就是切 agent） */
+	const agentNames: Record<string, string> = { omp: "OMP", codex: "Codex" };
+	const presentAgents = chat.agents.filter((agent) => agent.present);
 
 	async function load(cursor?: string) {
 		setState((prev) => ({
@@ -84,11 +91,38 @@ export default function HostChatHistory({ chat }: { chat: HostChat }) {
 
 	return (
 		<>
-			<button ref={buttonRef} type="button" className="learning-chat__text-button" aria-expanded={open} onClick={toggle}>
-				{t("title")}
-			</button>
+			<span ref={buttonRef} className="learning-chat__history-trigger">
+				{compact ? (
+					<TooltipButton label={t("title")} className="learning-chat__icon-button" aria-expanded={open} onClick={toggle}>
+						<ClockIcon />
+					</TooltipButton>
+				) : (
+					<button type="button" className="learning-chat__text-button" aria-label={t("title")} aria-expanded={open} onClick={toggle}>
+						{t("title")}
+					</button>
+				)}
+			</span>
 			{open ? (
 				<div ref={panelRef} className="learning-chat__history">
+					{presentAgents.length > 1 ? (
+						<div className="learning-chat__history-agents" role="group" aria-label={tAgent("switch")}>
+							{presentAgents.map((agent) => (
+								<button
+									key={agent.kind}
+									type="button"
+									className="learning-chat__option"
+									aria-pressed={agent.kind === chat.agent}
+									disabled={!chat.canSend}
+									onClick={() => {
+										setOpen(false);
+										chat.chooseAgent(agent.kind);
+									}}
+								>
+									{agentNames[agent.kind] ?? agent.kind}
+								</button>
+							))}
+						</div>
+					) : null}
 					{state?.loading ? <p className="learning-chat__hint">{t("loading")}</p> : null}
 					{state?.error ? (
 						<p role="status" className="learning-chat__note">

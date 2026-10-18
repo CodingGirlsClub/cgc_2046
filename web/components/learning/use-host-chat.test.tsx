@@ -62,14 +62,16 @@ const COURSE = "11111111-1111-4111-8111-111111111111";
 const OTHER_COURSE = "22222222-2222-4222-8222-222222222222";
 const WORKSPACE = "33333333-3333-4333-8333-333333333333";
 const USER = "user-a";
-const DETECTED = { state: "detected", ompPresent: true, paired: true } as const;
+const DETECTED = { state: "detected", agents: [{ kind: "omp", present: true }], paired: true } as const;
 
-const status = (state: HostStatus["state"]): HostStatus => ({
+const OMP_ONLY = [{ kind: "omp", present: true }];
+const status = (state: HostStatus["state"], agents: { kind: string; present: boolean }[] = OMP_ONLY): HostStatus => ({
 	state,
 	pairedUserId: USER,
 	pairedDisplayName: "学员甲",
 	deviceName: "Ada 的 MacBook",
 	tokenId: "tok_this",
+	agents,
 	ompPresent: true,
 	version: "0.1.0",
 	protocolVersion: 1,
@@ -141,6 +143,111 @@ afterEach(() => {
 	vi.useRealTimers();
 });
 
+const BOTH_AGENTS = {
+	state: "detected",
+	agents: [
+		{ kind: "omp", present: true },
+		{ kind: "codex", present: true },
+	],
+	paired: true,
+} as const;
+
+/** 指定这门课上次用的 agent（模拟这台浏览器记得的选择） */
+const rememberAgent = (kind: string) => window.localStorage.setItem(`cgc-host-agent:${COURSE}`, kind);
+
+describe("多 agent（#1148：选择、登录、重新检测）", () => {
+	it("history 带回的 agent 成为这段对话的驱动者，之后的对话方法都带上它", async () => {
+		checkHost.mockResolvedValue(BOTH_AGENTS);
+		mount();
+		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+		const ws = FakeWebSocket.all[0];
+		act(() => ws.push({ method: "status", params: status("paired", [...BOTH_AGENTS.agents]) }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
+		await ws.reply("hello", "status", status("ready", [...BOTH_AGENTS.agents]));
+		await ws.reply("chat.attach", "history", { courseId: COURSE, running: false, events: [], agent: "codex" });
+		await waitFor(() => expect(hook.current.agent).toBe("codex"));
+
+		act(() => void hook.current.send("你好"));
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.send", params: { courseId: COURSE, agent: "codex" } }));
+	});
+
+	it("auth_required：出登录卡（带登录方式）；authenticate 成功后清掉并重新 attach", async () => {
+		rememberAgent("codex");
+		checkHost.mockResolvedValue(BOTH_AGENTS);
+		mount();
+		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+		const ws = FakeWebSocket.all[0];
+		act(() => ws.push({ method: "status", params: status("paired", [...BOTH_AGENTS.agents]) }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
+		await ws.reply("hello", "status", status("ready", [...BOTH_AGENTS.agents]));
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.attach", params: { agent: "codex" } }));
+		await ws.reply("chat.attach", "history", { courseId: COURSE, running: false, events: [], agent: "codex" });
+
+		act(() => void hook.current.send("在吗"));
+		await ws.reply("chat.send", "error", {
+			code: "auth_required",
+			methods: [
+				{ id: "api-key", name: "API Key" },
+				{ id: "chat-gpt", name: "ChatGPT" },
+			],
+		});
+		await waitFor(() => expect(hook.current.login).toEqual([
+			{ id: "api-key", name: "API Key" },
+			{ id: "chat-gpt", name: "ChatGPT" },
+		]));
+
+		let result: { ok: boolean } | undefined;
+		await act(async () => {
+			result = await (async () => {
+				const pending = hook.current.authenticate("chat-gpt");
+				await ws.reply("chat.authenticate", "chat.authenticated", { courseId: COURSE, agent: "codex" });
+				return pending;
+			})();
+		});
+		expect(result).toEqual({ ok: true });
+		expect(hook.current.login).toBeNull();
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.attach", params: { agent: "codex" } }));
+	});
+
+	it("chooseAgent：写本浏览器的记忆、清空这段缓冲，并用新 agent 重新 attach", async () => {
+		checkHost.mockResolvedValue(BOTH_AGENTS);
+		const { ws } = await readyChat();
+
+		await act(async () => hook.current.chooseAgent("codex"));
+		expect(window.localStorage.getItem(`cgc-host-agent:${COURSE}`)).toBe("codex");
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.attach", params: { courseId: COURSE, agent: "codex" } }));
+		expect(hook.current.events).toEqual([]);
+	});
+
+	it("只装了 Codex 的机器也连得上：可用性判据是「有没有可用的 agent」，不是「有没有 OMP」", async () => {
+		checkHost.mockResolvedValue({
+			state: "detected",
+			agents: [
+				{ kind: "omp", present: false },
+				{ kind: "codex", present: true },
+			],
+			paired: true,
+		});
+		mount();
+		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+		expect(hook.current.agents).toEqual([
+			{ kind: "omp", present: false },
+			{ kind: "codex", present: true },
+		]);
+	});
+
+	it("refreshAgents：重新探测 /health 后，新装好的 agent 进入可选列表", async () => {
+		await readyChat();
+		expect(hook.current.agents.map((a) => a.kind)).toEqual(["omp"]);
+
+		checkHost.mockResolvedValueOnce({ state: "detected", agents: [{ kind: "omp", present: true }, { kind: "codex", present: true }], paired: true });
+		await act(async () => {
+			await hook.current.refreshAgents();
+		});
+		expect(hook.current.agents.map((a) => a.kind)).toEqual(["omp", "codex"]);
+	});
+});
+
 describe("连接状态（R26）", () => {
 	it("检测完成前为 checking；本机访问未授权时不开连接，点击后经 requestHostAccess 发起第一次本机请求", async () => {
 		checkHost.mockResolvedValue({ state: "needsPermission" });
@@ -155,15 +262,15 @@ describe("连接状态（R26）", () => {
 		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
 	});
 
-	it("Covers AE1：未检测到 Host 时每 POLL_MS 重新检测，装好 Host 后无需刷新即开连接；电脑上没有 OMP 时停在 noOmp", async () => {
+	it("Covers AE1：未检测到 Host 时每 POLL_MS 重新检测，装好 Host 后无需刷新即开连接；电脑上没有可用的 agent 时停在 noAgent", async () => {
 		vi.useFakeTimers({ shouldAdvanceTime: true });
 		checkHost.mockResolvedValueOnce({ state: "noHost" });
-		checkHost.mockResolvedValueOnce({ state: "detected", ompPresent: false, paired: false });
+		checkHost.mockResolvedValueOnce({ state: "detected", agents: [{ kind: "omp", present: false }], paired: false });
 		mount();
 		await waitFor(() => expect(hook.current.view).toEqual({ state: "noHost" }));
 
 		await act(() => vi.advanceTimersByTimeAsync(POLL_MS));
-		expect(hook.current.view).toEqual({ state: "noOmp" });
+		expect(hook.current.view).toEqual({ state: "noAgent" });
 		expect(FakeWebSocket.all).toEqual([]);
 
 		await act(() => vi.advanceTimersByTimeAsync(POLL_MS));
@@ -238,6 +345,7 @@ describe("KTD8：每条 chat.send 带页面上下文", () => {
 				id: expect.any(String),
 				params: {
 					courseId: COURSE,
+					agent: "omp", // 页面现在显式点名它正在用的 agent（展示与路由同一个值）
 					text: "这一单元讲什么？",
 					context: { workspaceId: WORKSPACE, courseVersion: 3, unitId: "issue-b", locale: "zh-CN" },
 				},
@@ -508,5 +616,283 @@ describe("历史对话（Session History）", () => {
 		expect(await list).toEqual({ error: "disconnected" });
 		expect(await open).toEqual({ ok: false, code: "disconnected" });
 		expect(hook.current.events).toEqual([]);
+	});
+});
+
+describe("对话设置（模型与思考等级）", () => {
+	const SETTINGS = [
+		{
+			id: "model",
+			name: "Model",
+			category: "model",
+			currentValue: "alpha/one",
+			options: [
+				{ value: "alpha/one", name: "Alpha One", description: "alpha/one" },
+				{ value: "beta/two", name: "Beta Two", description: "beta/two" },
+			],
+		},
+		{
+			id: "thinking",
+			name: "Thinking",
+			category: "thought_level",
+			currentValue: "auto",
+			options: [
+				{ value: "off", name: "Off" },
+				{ value: "auto", name: "Auto", description: "Auto-detect per prompt" },
+			],
+		},
+	];
+
+	it("history 带的 settings 进入状态；没有这个字段（旧版 Host）时是空数组，页面据此不渲染入口", async () => {
+		const { ws } = await readyChat();
+		expect(hook.current.settings).toEqual([]);
+
+		act(() => hook.current.reclaim());
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
+		await ws.reply("chat.attach", "history", { courseId: COURSE, running: false, events: [], settings: SETTINGS });
+		await waitFor(() => expect(hook.current.settings).toEqual(SETTINGS));
+	});
+
+	it("Host 主动推 chat.settings（OMP 自己改了设置）时刷新；形状不合的载荷按空处理", async () => {
+		const { ws } = await readyChat();
+		act(() => ws.push({ method: "chat.settings", params: { courseId: COURSE, settings: SETTINGS } }));
+		await waitFor(() => expect(hook.current.settings).toEqual(SETTINGS));
+
+		act(() => ws.push({ method: "chat.settings", params: { courseId: COURSE, settings: [{ id: "model", currentValue: 3 }] } }));
+		await waitFor(() => expect(hook.current.settings).toEqual([]));
+	});
+
+	it("setSetting 成功：发 chat.set_setting，chat.settings 的回复接管归约（整体刷新）", async () => {
+		const { ws } = await readyChat();
+		act(() => ws.push({ method: "chat.settings", params: { courseId: COURSE, settings: SETTINGS } }));
+		let promise!: Promise<unknown>;
+		act(() => {
+			promise = hook.current.setSetting("model", "beta/two");
+		});
+		await waitFor(() =>
+			expect(ws.sent.at(-1)).toMatchObject({ method: "chat.set_setting", params: { courseId: COURSE, configId: "model", value: "beta/two" } }),
+		);
+		await ws.reply("chat.set_setting", "chat.settings", {
+			courseId: COURSE,
+			settings: [{ ...SETTINGS[0], currentValue: "beta/two" }, SETTINGS[1]],
+		});
+		expect(await promise).toEqual({ ok: true });
+		expect(hook.current.settings[0].currentValue).toBe("beta/two");
+	});
+
+	it("setSetting 失败：返回错误码、状态不变、不进全局错误态（旧版 Host 回 unknown_method）", async () => {
+		const { ws } = await readyChat();
+		act(() => ws.push({ method: "chat.settings", params: { courseId: COURSE, settings: SETTINGS } }));
+		let promise!: Promise<unknown>;
+		act(() => {
+			promise = hook.current.setSetting("thinking", "off");
+		});
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.set_setting"));
+		await ws.reply("chat.set_setting", "error", { code: "unknown_method" });
+		expect(await promise).toEqual({ ok: false, code: "unknown_method" });
+		expect(hook.current.settings[1].currentValue).toBe("auto");
+		expect(hook.current.error).toBeNull();
+		expect(hook.current.canSend).toBe(true);
+	});
+});
+
+describe("多 agent 的回落与登录态（评审修复）", () => {
+	it("记住的 agent 不在本机时，回落到可用的那个：路由与历史都不再撞 chat_unavailable", async () => {
+		rememberAgent("codex"); // 这台浏览器记着 codex，但本机只装了 omp（例如适配器被卸载）
+		mount();
+		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+		const ws = FakeWebSocket.all[0];
+		act(() => ws.push({ method: "status", params: status("paired") }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
+		await ws.reply("hello", "status", status("ready"));
+
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.attach", params: { agent: "omp" } }));
+		await ws.reply("chat.attach", "history", { courseId: COURSE, running: false, events: [] });
+		await waitFor(() => expect(hook.current.attached).toBe(true));
+
+		expect(hook.current.agent).toBe("omp");
+		act(() => void hook.current.send("你好"));
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.send", params: { agent: "omp" } }));
+	});
+
+	it("重新接上对话就清掉登录卡（学员可能在页面外完成了登录）", async () => {
+		mount();
+		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+		const ws = FakeWebSocket.all[0];
+		act(() => ws.push({ method: "status", params: status("paired") }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
+		await ws.reply("hello", "status", status("ready"));
+		await ws.reply("chat.attach", "error", { code: "auth_required", methods: [{ id: "chat-gpt", name: "ChatGPT" }] });
+		await waitFor(() => expect(hook.current.login).toEqual([{ id: "chat-gpt", name: "ChatGPT" }]));
+
+		act(() => hook.current.reclaim());
+		await ws.reply("chat.attach", "history", { courseId: COURSE, running: false, events: [] });
+		await waitFor(() => expect(hook.current.login).toBeNull());
+	});
+});
+
+describe("一键安装（期 2 / #1149）", () => {
+	const WITH_INSTALL = {
+		state: "detected",
+		agents: [
+			{ kind: "omp", present: true },
+			{ kind: "codex", present: false },
+		],
+		paired: true,
+		capabilities: ["agent.install"],
+	};
+
+	it("capabilities 暴露给页面；agent.install 回 started；进度、成功分别落到 install 与 agents", async () => {
+		checkHost.mockResolvedValue(WITH_INSTALL);
+		mount();
+		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+		const ws = FakeWebSocket.all[0];
+		expect(hook.current.capabilities).toEqual(["agent.install"]);
+
+		await attach(ws);
+		act(() => void hook.current.installAgent());
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "agent.install", params: { kind: "codex" } }));
+		expect(hook.current.install).toBe("installing");
+
+		await ws.reply("agent.install", "agent.install.started", { started: true });
+		act(() => ws.push({ method: "agent.install.progress", params: { kind: "codex", phase: "installing" } }));
+		expect(hook.current.install).toBe("installing");
+
+		// 装完：Host 推 status（两个 agent 都 present）——不必等下一次 /health 轮询
+		act(() =>
+			ws.push({
+				method: "status",
+				params: status("ready", [
+					{ kind: "omp", present: true },
+					{ kind: "codex", present: true },
+				]),
+			}),
+		);
+		expect(hook.current.agents).toContainEqual({ kind: "codex", present: true });
+		// 装完的 done 会让页面再探一次 /health（那时 Host 已经报 present）
+		checkHost.mockResolvedValue({
+			...WITH_INSTALL,
+			agents: [
+				{ kind: "omp", present: true },
+				{ kind: "codex", present: true },
+			],
+		});
+		act(() => ws.push({ method: "agent.done", params: { kind: "codex", ok: true, version: "2.2.2", reused: true } }));
+		await waitFor(() => expect(hook.current.install).toBeNull());
+		expect(hook.current.installOutcome).toBe("reuse");
+		expect(hook.current.agents).toContainEqual({ kind: "codex", present: true });
+	});
+
+	it("失败：install 变回可重试的错误态（带 Host 的错误码）", async () => {
+		checkHost.mockResolvedValue(WITH_INSTALL);
+		mount();
+		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+		const ws = FakeWebSocket.all[0];
+		await attach(ws);
+		act(() => void hook.current.installAgent());
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("agent.install"));
+		await ws.reply("agent.install", "agent.install.started", { started: true });
+		act(() => ws.push({ method: "agent.done", params: { kind: "codex", ok: false, code: "install_failed" } }));
+		await waitFor(() => expect(hook.current.install).toEqual({ error: "install_failed" }));
+		expect(hook.current.installOutcome).toBeNull();
+	});
+
+	it("全量安装（done 不带 reused）→ installOutcome 为 full", async () => {
+		checkHost.mockResolvedValue(WITH_INSTALL);
+		mount();
+		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+		const ws = FakeWebSocket.all[0];
+		await attach(ws);
+		act(() => void hook.current.installAgent());
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("agent.install"));
+		await ws.reply("agent.install", "agent.install.started", { started: true });
+		act(() => ws.push({ method: "agent.done", params: { kind: "codex", ok: true, version: "2.2.2" } }));
+		await waitFor(() => expect(hook.current.installOutcome).toBe("full"));
+	});
+
+	it("安装中断线：install 复位，不把「正在安装」永久留在按钮上", async () => {
+		checkHost.mockResolvedValue(WITH_INSTALL);
+		mount();
+		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+		const ws = FakeWebSocket.all[0];
+		await attach(ws);
+		act(() => void hook.current.installAgent());
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "agent.install" }));
+		await ws.reply("agent.install", "agent.install.started", { started: true });
+		expect(hook.current.install).toBe("installing");
+
+		// Host 在安装中途消失/网络断开：done 永远不会到
+		act(() => ws.close());
+		await waitFor(() => expect(hook.current.install).toBeNull());
+	});
+});
+
+describe("全新机器（一个 agent 都没有）", () => {
+	const EMPTY_WITH_INSTALL = {
+		state: "detected",
+		agents: [
+			{ kind: "omp", present: false },
+			{ kind: "codex", present: false },
+		],
+		paired: false,
+		capabilities: ["agent.install"],
+	};
+
+	it("仍然开连接（否则装不了），但先走配对：未配对时视图是 unpaired，配对后才是「没有可用的 agent」", async () => {
+		window.localStorage.clear(); // 隔离前序用例留下的浏览器密钥（有它就会先走 hello，停在 checking）
+		checkHost.mockResolvedValue(EMPTY_WITH_INSTALL);
+		mount();
+		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+		const ws = FakeWebSocket.all[0];
+
+		// 未配对：给「连接这台电脑」，不给安装入口（安装与 chat.* 同一道授权）
+		act(() => ws.push({ method: "status", params: status("unpaired", EMPTY_WITH_INSTALL.agents) }));
+		await waitFor(() => expect(hook.current.view).toEqual({ state: "unpaired" }));
+
+		// 配对完成（Host 推 ready 的 status）：没有 agent → 安装入口出现
+		act(() => ws.push({ method: "status", params: { ...status("ready"), agents: EMPTY_WITH_INSTALL.agents, capabilities: ["agent.install"] } }));
+		await waitFor(() => expect(hook.current.view).toEqual({ state: "noAgent" }));
+		act(() => void hook.current.installAgent());
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "agent.install", params: { kind: "codex" } }));
+	});
+
+	it("旧 Host（没声明安装能力）且没有 agent：不开连接（行为与之前一致）", async () => {
+		checkHost.mockResolvedValue({ ...EMPTY_WITH_INSTALL, capabilities: [] });
+		const before = FakeWebSocket.all.length;
+		mount();
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(FakeWebSocket.all.length).toBe(before); // 没有新开连接
+		expect(hook.current.view).toEqual({ state: "noAgent" });
+	});
+});
+
+describe("无 agent 时的自愈（评审 M2）", () => {
+	it("连上后仍然每 POLL_MS 探一次 /health：学员在终端装好 OMP 后自动发现", async () => {
+		checkHost.mockResolvedValue({
+			state: "detected",
+			agents: [
+				{ kind: "omp", present: false },
+				{ kind: "codex", present: false },
+			],
+			paired: false,
+			capabilities: ["agent.install"],
+		});
+		mount();
+		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+		const wsM2 = FakeWebSocket.all[0];
+		act(() => wsM2.push({ method: "status", params: status("ready", [{ kind: "omp", present: false }, { kind: "codex", present: false }]) }));
+		await waitFor(() => expect(hook.current.view).toEqual({ state: "noAgent" }));
+
+		// 学员在终端里装好了 OMP：下一次 /health 报告 present
+		checkHost.mockResolvedValue({
+			state: "detected",
+			agents: [
+				{ kind: "omp", present: true },
+				{ kind: "codex", present: false },
+			],
+			paired: false,
+			capabilities: ["agent.install"],
+		});
+		await waitFor(() => expect(hook.current.agents).toContainEqual({ kind: "omp", present: true }), { timeout: POLL_MS + 3000 });
 	});
 });

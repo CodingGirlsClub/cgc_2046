@@ -1,4 +1,4 @@
-import { HOST_WS_URL } from "./host-connection";
+import { HOST_WS_URL, type HostAgentStatus } from "./host-connection";
 
 /**
  * 页面 ↔ 本机 Host 的 WebSocket 客户端（KTD4；ADR-0022）。帧信封、status 字段与错误码见
@@ -21,7 +21,10 @@ export const PAGE_TO_HOST = [
 	"chat.new",
 	"chat.sessions",
 	"chat.open",
+	"chat.set_setting",
+	"chat.authenticate",
 	"card.answer",
+	"agent.install",
 ] as const;
 /** 页面会处理的 Host 消息；契约测试断言它们都在 hostToPage 里 */
 export const HOST_TO_PAGE = [
@@ -30,11 +33,16 @@ export const HOST_TO_PAGE = [
 	"error",
 	"history",
 	"sessions",
+	"chat.settings",
+	"chat.authenticated",
 	"turn.delta",
 	"turn.card",
 	"turn.card.closed",
 	"turn.end",
 	"chat.evicted",
+	"agent.install.started",
+	"agent.install.progress",
+	"agent.done",
 ] as const;
 
 export type PageMethod = (typeof PAGE_TO_HOST)[number];
@@ -55,6 +63,8 @@ export interface HostStatus {
 	deviceName: string;
 	/** 本机所持学习凭证的记录 id：「已配对的电脑」据此标出本机这台 */
 	tokenId: string | null;
+	/** 本机各 agent 的状态（KTD1）：页面据此判「有没有可用的 agent」与渲染选择器 */
+	agents?: HostAgentStatus[];
 	ompPresent: boolean;
 	version: string;
 	protocolVersion: number;

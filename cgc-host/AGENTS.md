@@ -1,6 +1,6 @@
 # cgc-host（CGC 本机 Host）
 
-学员电脑上常驻的 CGC 本机 Host：课程学习页经本机 WebSocket 连到它，它替页面经 ACP 驱动学员自己的 OMP（`omp acp`）。TypeScript 写成，由学员本机的 Bun 运行，测试也用 Bun；依赖由 pnpm 管理（独立的 pnpm 项目，锁文件就是本目录的 `pnpm-lock.yaml`，不加入 `web/` 的 workspace）。决策与否决的路线见 `docs/adr/0022-course-page-local-agent-host.md`。
+学员电脑上常驻的 CGC 本机 Host：课程学习页经本机 WebSocket 连到它，它替页面经 ACP 驱动学员自己的本机 agent（当前两种：OMP 的 `omp acp`、Codex 的 `codex-acp`）。TypeScript 写成，由学员本机的 Bun 运行，测试也用 Bun；依赖由 pnpm 管理（独立的 pnpm 项目，锁文件就是本目录的 `pnpm-lock.yaml`，不加入 `web/` 的 workspace）。决策与否决的路线见 `docs/adr/0022-course-page-local-agent-host.md`。
 
 ## 安全红线
 
@@ -24,7 +24,7 @@
 
 ## 页面 ↔ Host 帧信封
 
-HTTP 只有 `GET /health`（`{version, ompPresent, paired}`）；WebSocket 在根路径 `/`。两者都先过关口：`Host` 必须是 `127.0.0.1:<端口>` 或 `localhost:<端口>`，`Origin` 必须精确等于 `SITE_ORIGIN`，否则 403、无响应体。
+HTTP 只有 `GET /health`（`{version, ompPresent, paired, agents}`；`agents` 是 `[{kind, present, envError?, sources?}]`，`ompPresent` 是它里 OMP 那条的派生值，留给只认它的旧页面）；WebSocket 在根路径 `/`。两者都先过关口：`Host` 必须是 `127.0.0.1:<端口>` 或 `localhost:<端口>`，`Origin` 必须精确等于 `SITE_ORIGIN`，否则 403、无响应体。`sources` 是只读探测出的「可复用来源」（目前在 Codex 上给）：`[{source, version}]`，`source` ∈ `managed` / `codex-acp` / `chatgpt-app` / `codex-cli`，版本取不到为 `null`；**只上报，不改变安装与启动优先级**（#1154 / #1155；ChatGPT App 内置路径目前只探测 macOS）。
 
 WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 
@@ -43,43 +43,57 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 | `pair.request {token?, locale?}` | `pair.result {allowed: true, browserKey}` 或 `{allowed: false}`；没走到弹窗就结束的回 `error` |
 | `pair.cancel` | 无；本连接进行中的 `pair.request` 以 `pair.result {allowed: false}` 结束 |
 | `pair.forget` | 无；Host 向所有连接推送未配对的 `status` |
-| `chat.attach` / `chat.send` / `chat.stop` / `chat.new` / `chat.sessions` / `chat.open` / `card.answer`（`{courseId, …}`） | 见下方「对话的载荷契约」；被另一个连接接管的连接收到 `chat.evicted {courseId}` |
+| `chat.attach` / `chat.send` / `chat.stop` / `chat.new` / `chat.sessions` / `chat.open` / `chat.set_setting` / `chat.authenticate` / `card.answer`（`{courseId, agent?, …}`） | 见下方「对话的载荷契约」；被另一个连接接管的连接收到 `chat.evicted {courseId}` |
 
-`status.params`：`state`（`unpaired` / `paired` / `ready`，`ready` 指这个连接已授权）、`pairedUserId`、`pairedDisplayName`、`deviceName`、`tokenId`、`ompPresent`、`version`、`protocolVersion`；解析学员登录 shell 的环境失败时另有 `ompEnvError`（`timeout` / `failed`，此时 Host 退回 launchd 的最小环境，多半找不到 omp 或模型凭证）。`ompPresent` 为 false 时，Host 每次被读到都会在后台重新查找（至多 10 秒一次），学员装上 OMP 后不必重启 Host；页面可轮询 `/health`。
+`agent` 是对话方法的可选参数（`omp` 等注册表里的 kind）：页面要驱动哪个本机 agent，就带哪个；**缺省恒为 `omp`**，与状态文件里的记忆值无关——回滚期的旧页面不可能带这个字段，不能让它被改道到别的 agent（记忆值只作为页面的初选，见 `history` 的 `agent` 字段）。取值不在注册表里一律 `bad_request`。
+
+`status.params`：`state`（`unpaired` / `paired` / `ready`，`ready` 指这个连接已授权）、`pairedUserId`、`pairedDisplayName`、`deviceName`、`tokenId`、`agents`（本机各 agent 的 `{kind, present, envError?, sources?}`，`sources` 含义同 `/health`）、`ompPresent`、`version`、`protocolVersion`；解析学员登录 shell 的环境失败时另有 `ompEnvError`（`timeout` / `failed`，此时 Host 退回 launchd 的最小环境，多半找不到 omp 或模型凭证）。`ompPresent` 与 `ompEnvError` 是 `agents` 里 OMP 那条的派生值，留给只认它们的旧页面，移除条件是下一个 Host 大版本。某个 agent 的 `present` 为 false 时，Host 每次被读到都会在后台重新查找（至多 10 秒一次），学员装上它的入口后不必重启 Host；页面可轮询 `/health`。
 
 `error.params.code`：
 
 | code | 含义 |
 | --- | --- |
-| `bad_request` | 坏帧或参数不合法（含 `courseId` 不是 UUID、`token` 不以 `cgch_` 开头、`chat.send` 的 `text` 为空或 `context` 不合法、`card.answer` 的作答不合法或卡片已收起） |
+| `auth_required` | 这个 agent 要求学员先登录（ACP `-32000`）：回包另带 `methods: [{id, name}]`（它握手时播报的登录方式），页面的登录卡据此渲染；`chat.authenticate` 完成后即可重试 |
+| `auth_failed` | `chat.authenticate` 没成功（适配器报错、超时）；详情只在 Host 日志里 |
+| `bad_request` | 坏帧或参数不合法（含 `courseId` 不是 UUID、`agent` 不在本机注册表里、`token` 不以 `cgch_` 开头、`chat.send` 的 `text` 为空或 `context` 不合法、`card.answer` 的作答不合法或卡片已收起、`chat.set_setting` 的 `configId` 不在白名单或 `value` 为空、超长、被 agent 拒绝） |
 | `unknown_method` | 不在 `pageToHost` 白名单里 |
 | `unauthorized` | 没有 `hello`，或浏览器密钥、账号不符 |
 | `not_paired` | 不带凭证的 `pair.request`，但本机没有配对 |
-| `busy` | 已有一次配对在进行，或刚关弹窗、还在冷却；对话方法里指这门课已有一轮在跑（`chat.send`、`chat.new`），或本机刚换了账号、上一个账号在这门课的回合正在取消（任一对话方法；稍后重试即接上新账号自己的对话） |
+| `busy` | 已有一次配对在进行，或刚关弹窗、还在冷却；对话方法里指这门课已有一轮在跑（`chat.send`、`chat.new`、`chat.open`、`chat.set_setting`），或本机刚换了账号 / 换了 agent、上一轮正在取消（任一对话方法；稍后重试即接上新的那段对话） |
 | `invalid_token` | 平台对这枚凭证回 401 / 429，或它的 kind 不是 `learning_host` |
 | `platform_unavailable` | 平台连不上、回 5xx 或应答不合约 |
 | `not_holder` | 这门课已被另一个连接接管 |
 | `session_unavailable` | `chat.open` 的目标会话加载失败；持久指针不动、原会话不受影响 |
-| `chat_unavailable` | 找不到 omp、拉不起 OMP，或 ACP 握手、加载会话失败；详情只在 Host 日志里 |
+| `chat_unavailable` | 这个 agent 的入口找不到（例如没装 OMP）、拉不起进程，或 ACP 握手、加载会话失败；`chat.set_setting` 在当前没有已加载会话时也回它；详情只在 Host 日志里 |
 | `internal` | Host 内部出错，详情只在 Host 日志里 |
 
 `pair.request` 以 `error` 结束时，Host 没有动这枚凭证，页面用登录态补撤销；以 `pair.result {allowed: false}` 结束时，Host 已经用它自撤销（尽力而为）。
 
-## 对话的载荷契约（`src/acp/`）
+## 对话的载荷契约（`src/acp/`、`src/agents/`）
 
-每门课对应 OMP 里的一条 ACP 会话，指针存在状态文件的 `sessions`（courseId → sessionId）。一个 `omp acp` 进程服务全部会话：第一次需要时才拉起（有历史要回放的 `chat.attach`，或 `chat.send`、`chat.new`）；没有页面连着、也没有在跑的回合超过 10 分钟就回收，下次需要时再拉起并 session/load。会话的工作目录是 `~/cgc2046_workspace/courses/<userId>/<courseId>`（`src/state.ts` 的 `workDir`，与终端插件的工作区同一棵树、隔一层 `courses/`）；session/new 与每次 session/load 都下发含当前学习凭证的 `cgc-2046` MCP 服务器，指针指向的会话不在当前课程目录下（例如换了账号）就不加载、清掉指针。
+每门课对应**每个 agent 各一条** ACP 会话，指针存在状态文件的 `sessions`（courseId → `{<agent kind>: sessionId}`；多 agent 之前的旧形状是 courseId → sessionId，读时按缺省 agent 迁移并落盘）。**每个 agent kind 一个进程**：第一次需要时才拉起（有历史要回放的 `chat.attach`，或 `chat.send`、`chat.new`）；没有页面连着、也没有在跑的回合超过 10 分钟就回收，下次需要时再拉起并 session/load。会话的工作目录是 `~/cgc2046_workspace/courses/<userId>/<courseId>`（`src/state.ts` 的 `workDir`，与终端插件的工作区同一棵树、隔一层 `courses/`）；session/new 与每次 session/load 都下发含当前学习凭证的 `cgc-2046` MCP 服务器，指针指向的会话不在当前课程目录下（例如换了账号）就不加载、清掉指针。换 agent 就是换一段会话：旧 agent 在跑的回合先按取消收尾、本次回 `busy`，页面重试才切换；切换后缓冲、设置与待答卡片都清空。
 
 下面的消息都带 `courseId`，表里省略。
 
 | 页面 → Host | 其余 params | 回复与之后的推送 |
 | --- | --- | --- |
-| `chat.attach` | — | `history`；之后把未答的卡片逐张以 `turn.card` 重发 |
+| `chat.attach` | `agent?` | `history`；之后把未答的卡片逐张以 `turn.card` 重发 |
 | `chat.send` | `text`（非空字符串）、`context` | 回 `turn.delta {kind: "user", text}` 表示接下了；之后推 `turn.delta` / `turn.card` / `turn.card.closed`，最后 `turn.end` |
 | `chat.stop` | — | 不回复；在跑的一轮：待答卡片 `turn.card.closed {reason: "cancelled"}`，没跑完的工具步骤以 `status: "stopped"` 推一次 `turn.delta`，随后 `turn.end {stopReason: "cancelled"}`。停止前已提交到平台的结果照常生效 |
 | `chat.new` | — | `history`（空）：此后的消息进一条新会话，agent 不带之前的上下文；学习进度不受影响 |
 | `chat.sessions` | `cursor?`（分页游标，原样透传 ACP） | `sessions {sessions: [{sessionId, updatedAt, messageCount}], current, nextCursor}`：本课程工作目录下的会话；只读，有回合在跑也可查；元数据缺省为 `null`（OMP 差异），页面降级展示 |
 | `chat.open` | `sessionId` | `history`：切换到指定会话；目标必须在本课程工作目录下（否则 `bad_request`）；加载失败 `session_unavailable` 且持久指针不动（原会话不受影响）；有回合在跑 `busy`；成功才推进指针，切当前会话不重复加载 |
+| `chat.authenticate` | `methodId`（取自 `auth_required` 回包的 `methods`，如 `chat-gpt`） | `chat.authenticated {agent}`：登录成功（浏览器由适配器自己开）；`auth_failed` 失败、`busy` 登录期间进程被换掉（页面重试即可）、`bad_request` 参数不合法；`chat-gpt` 这类由适配器在本机开浏览器，不进课程队列 |
+| `chat.set_setting` | `configId`（`model` / `thinking`）、`value`（非空字符串） | `chat.settings {settings}`：改当前会话的设置，回复带这个 agent 的完整回包；有回合在跑 `busy`；当前没有已加载会话 `chat_unavailable`；值不被 agent 接受 `bad_request`（ACP 原文只进 Host 日志） |
 | `card.answer` | `cardId`，加审批的 `{optionId}` 或提问的 `{action, content?}` | `turn.card.closed {cardId, reason: "answered"}` |
+| `agent.install` | `kind`（可安装的只有 `codex`，见 `installable`） | `agent.install.started {started: true}`；随后推 `agent.install.progress {kind, phase: "installing"}` 与 `agent.done {kind, ok: true, version, reused?}` / `{kind, ok: false, code}`（`install_failed` / `version_mismatch` / `timeout`）。`reused: true` 表示本次装的是「只装适配器、复用学员已有 Codex engine」的变体（#1154）；缺省/旧 Host 不报。同一时刻只允许一个安装（`busy`）；没声明安装能力或 kind 不可安装时 `unsupported`；参数不合法 `bad_request`。**已装着钉住的版本时幂等短路**：不再下载，直接回 done |
+| `agent.done` 之后 | — | Host 重解析定位器并给每个已授权连接推 `status`：页面不必等下一轮 `/health` |
+
+会话设置（`chat.set_setting`、`chat.settings`、`history` 的 `settings`）：Host 把 agent 的会话设置（ACP 的 config options）收窄成 `model`（模型）与 `thinking`（思考等级）两项，`mode`（plan）不透出。`settings` 是 `[{id, name, category, currentValue, options: [{value, name, description?}]}]`，`history`（`chat.attach` / `chat.new` / `chat.open`）带当前值，空数组表示这个 agent 没给可选项（旧版本或 id 不同名）——页面据此不渲染入口。改动只作用于当前会话：不写学员的 agent 配置、不影响终端；agent 自己改了设置（`config_option_update`）时 Host 推 `chat.settings`。切模型可能连带改动另一项（OMP 实测：不支持思考的模型会把思考等级重置为 `off`…
+
+`status` 与 `/health` 都带 `capabilities: string[]`（期 2 起含 `"agent.install"`）：页面只在声明了它时给「安装 Codex 支持」入口，旧 Host（0.2.0）不声明、页面继续只给手动命令。**不改 `protocolVersion`**——加方法靠能力探测，不靠版本门逼学员重装。
+
+`agent.install` **要求先配对**（与 `chat.*` 同一道授权）：否则任意能连上本机 Host 的站点来源页都能静默触发约 337MB 的下载，幂等短路只挡重复、挡不住第一次。页面在无 agent 时先给「连接这台电脑」，配对完成后才出现安装入口。其余边界：只接受官方站点 Origin 的连接（`isAllowedRequest`），kind 限于 `installable`，版本/URL/落位都在 Host 包内钉死——没有任意的下载地址、版本或路径参数；已装着钉住版本时幂等短路。它不碰凭证、不驱动 agent。
 
 `context`（KTD8）：`{workspaceId, courseVersion, unitId, locale}`。`workspaceId` 是 UUID；`courseVersion` 是页面显示的课程版本号（正整数）或 `null`；`unitId` 是学员正在看的单元 id（只认 `^[A-Za-z0-9_.-]{1,64}$`），`null` 表示课程总览；`locale` 是 `zh-CN` 或 `en`。每条 `chat.send` 都带，Host 只在会话的首条消息和它变化时（例如切换单元）把它附给 agent，只带这些标识——课程、单元标题这类 tutor 撰写的文本不进提示。
 
@@ -95,7 +109,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 | `end` | `stopReason`, `modelError?` | 只出现在 `history` 里：一轮的结束，字段同 `turn.end` |
 
 - 文字事件的拼接规则：与上一条事件 `kind` 相同、`messageId` 相同（都没有也算相同）就接在后面，否则另起一段。`history` 里的条目已经按这条规则拼好。
-- `history {running, events}`：`running` 表示有一轮正在跑。缓冲在 Host 内存里，只留最近 500 条，不写盘；Host 重启或 OMP 被回收后从 OMP 的会话存储回放，回放出的历史没有 `usage`、`end` 与模型错误归类。
+- `history {running, events, settings, agent}`：`running` 表示有一轮正在跑；`agent` 是这门课**上次显式选过**的 agent kind（`null` 表示没记过），只供页面做初选——Host 的路由缺省恒为 `omp`，不看它。缓冲在 Host 内存里，只留最近 500 条，不写盘；Host 重启或 agent 进程被回收后从它的会话存储回放，回放出的历史没有 `usage`、`end` 与模型错误归类。
 
 卡片（`turn.card`）：
 
@@ -122,12 +136,18 @@ curl -fsSL https://api.codingirlsclub.com/ext/cgc-host/install.sh | bash
 
 `install.sh` 依次：把清单和 Host 包下载到临时目录并校验 sha256，失败清理退出、不安装 Bun 或修改已有 Host/自启项 → 校验成功后查找 Bun，没有则用官方安装器装到 `~/.bun` → 停掉旧的 → 落位、写当前系统的登录自启项 → 启动。支持 macOS（Terminal）、Ubuntu 桌面（Terminal）与 Windows（Git Bash；命令同样一条，Bun 用官方 PowerShell 安装器）。Ubuntu 分支硬依赖 `zenity`（缺了就地报错 `sudo apt install zenity`）；Windows 分支硬依赖 Git Bash 的 `cygpath` 与系统自带 `powershell.exe`。
 
+页面里的一键安装（期 2）：Host 把随包发布的 `src/agents/codex-acp.package.json` 与 `src/agents/codex-acp.lock`（Bun 的 text lock，每个包带 sha512）写进 `~/.cgc2046/agents/.tmp-*`，用**自己的 Bun** 跑 `bun install --frozen-lockfile --production --ignore-scripts`——不需要学员机器上有 npm/node，锁对不上或内容被篡改会被 Bun 拒绝，第三方依赖的 postinstall 也不会在学员机器上执行。装完校验版本、rename 原子就位，失败只删临时目录；上次被 SIGKILL 留下的 `.tmp-*` / `.old-*` 在**下一次安装开头**清理（Host 平时不碰这个目录）。托管安装的**入口从包 manifest 的 `bin["codex-acp"]` 解析**（Windows 上 Bun 只有 `.exe`/`.bunx`，不能拼无扩展名路径）；托管副本的版本必须与 Host 钉住的 `CODEX_ACP_VERSION` 一致才会被采用——Host 升级后旧副本自动让位，页面重新给出安装入口。换适配器版本 = `bun scripts/gen-agent-lock.mjs <版本>` 重算两份锁与常量（随 Host 发版）；CI 的 `scripts/check-agent-lock.mjs` 校验钉住的版本仍可获取、registry 的 integrity 与锁一致，以及复用变体锁的约束。锁文件用 `import ... with { type: "text" }` 内联进单包（deploy 的 `bun build` 之后包里没有额外文件）。
+
+**复用变体（#1154）**：检测到学员已有可复用的 Codex engine（ChatGPT App 内置 / PATH 上的 `codex`，见 `agents/sources.ts`）时，优先装 `codex-acp-reuse.*`：用 `overrides` 把 `@openai/codex` 指向 Host 写进临时目录的本地 stub，只装适配器（约 18MB 落盘 / 2MB 下载），装完做一次 ACP `initialize` 探针（不发 prompt、不建会话、不消耗额度）确认 engine 兼容；探针失败自动回退全量安装。安装目录里 `variant.json` 记录变体；运行期 `codex.ts` 对 reuse 变体重新探测 engine 并注入 `CODEX_PATH`，engine 消失则 `present=false`、页面重新给安装入口。
+
 学员电脑上的文件：
 
 | 路径 | 内容 | 卸载时 |
 | --- | --- | --- |
 | `~/.cgc2046/host/cgc-host.js` | 包 | 删 |
 | `~/.cgc2046/host/state.json` | 状态（含学习凭证，见 `src/state.ts`） | 先用凭证自撤销，再删 |
+| `~/.cgc2046/agents/codex-acp/` | 页面里点「安装 Codex 支持」装上的适配器（`node_modules/` + 钉住的 `package.json`/`bun.lock`，约 337MB；`src/agents/install.ts`） | 删 |
+| `~/.codex/` | 学员自己的 Codex 配置与登录 | **不碰**（安装也不碰） |
 | 登录自启项 | macOS：`~/Library/LaunchAgents/com.codingirlsclub.cgc-host.plist`（`ProgramArguments` 是 Bun 与包的绝对路径加 `serve`；`RunAtLoad`；`KeepAlive {SuccessfulExit: false}`；`ThrottleInterval` 30；0644）。Ubuntu：`~/.config/systemd/user/com.codingirlsclub.cgc-host.service`（`ExecStart` 同上；`Restart=on-failure`；日志 append）。Windows：`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\CGC Host.cmd`（经系统自带 PowerShell `Start-Process -WindowStyle Hidden` 隐藏拉起）。**三者都不含任何环境变量**（OMP 的环境由 Host 运行时解析，KTD12） | 删 |
 | 日志 | macOS：`~/Library/Logs/cgc-host.log`。Ubuntu：`~/.local/state/cgc-host.log`。Windows：`%LOCALAPPDATA%\CGC\cgc-host.log` 与 `cgc-host.error.log`（stdout / stderr 分写） | 删 |
 | `~/.bun/` | 学员原本没有 Bun 时由官方安装器装的 | 不删：Bun 可能已被学员别处使用 |
@@ -141,7 +161,7 @@ curl -fsSL https://api.codingirlsclub.com/ext/cgc-host/install.sh | bash
 ~/.bun/bin/bun ~/.cgc2046/host/cgc-host.js uninstall
 ```
 
-它依次：停掉自启的 Host（macOS `launchctl bootout` / Ubuntu `systemctl --user disable --now` / Windows 按命令行找到 `serve` 进程后 `Stop-Process`，三平台全部尽力尝试，本机不存在的命令或路径都是无声的 no-op）→ 用状态文件里的学习凭证自撤销（`revokeToken`，凭证不进 argv 与输出）→ 删除自启项、`~/.cgc2046/host/`（包与状态）、日志，`~/.cgc2046` 空了也删（cgc-play 的 socket 也在里面）。撤销失败（平台不可达、状态文件读不出）时照样删完，并提示学员到课程学习页对话栏的「已配对的电脑」撤销这台电脑。
+它依次：停掉自启的 Host（macOS `launchctl bootout` / Ubuntu `systemctl --user disable --now` / Windows 按命令行找到 `serve` 进程后 `Stop-Process`，三平台全部尽力尝试，本机不存在的命令或路径都是无声的 no-op）→ 用状态文件里的学习凭证自撤销（`revokeToken`，凭证不进 argv 与输出）→ 删除自启项、`~/.cgc2046/host/`（包与状态）、`~/.cgc2046/agents/`（页面里装的 agent）、日志，`~/.cgc2046` 空了也删（cgc-play 的 socket 也在里面）。撤销失败（平台不可达、状态文件读不出）时照样删完，并提示学员到课程学习页对话栏的「已配对的电脑」撤销这台电脑。
 
 ### 产物与部署
 
@@ -171,6 +191,7 @@ curl -fsSL https://api.codingirlsclub.com/ext/cgc-host/install.sh | bash
 | 按锁文件安装依赖 | `pnpm install --frozen-lockfile` |
 | 测试 | `bun test` |
 | 安装、卸载与版本门禁（临时 HOME，`launchctl` 用垫片，不碰本机 launchd） | `bash test/install.test.sh` |
+| 锁里每个 registry 条目的版本/integrity 仍与 registry 一致，且许可按 §2 白名单（需要网络；CI 的 host job 同一命令） | `bun scripts/check-agent-lock.mjs` |
 | 依赖许可扫描（复用 `web/scripts/check-licenses.mjs`，扫本包的全依赖树） | `pnpm check:licenses` |
 
 单元测试覆盖不了 launchd 的环境与开机自启：改了 `install.sh` 或 plist，要在真机上装一次、重启一次，确认不手动启动也能从页面连上并完成一次模型对话。

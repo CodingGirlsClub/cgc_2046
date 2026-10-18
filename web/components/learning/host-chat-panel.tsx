@@ -12,11 +12,13 @@ import { useTranslations } from "next-intl";
 import { copyText } from "@/lib/clipboard";
 import HostChatCard from "./host-chat-cards";
 import HostChatHistory from "./host-chat-history";
+import { CloseIcon, PinIcon, PlusIcon } from "./chat-icons";
+import TooltipButton from "./chat-tooltip";
 import HostPairingList from "./host-pairing-list";
 import { SafeMarkdown } from "./material-renderer";
-import { courseDir } from "@/lib/host-connection";
+import { courseDir, type HostAgentStatus } from "@/lib/host-connection";
 import type { PairingErrorReason } from "./use-host-pairing";
-import { useHostChat, type ChatEvent, type HostChat } from "./use-host-chat";
+import { useHostChat, type ChatEvent, type HostChat, type HostChatSetting } from "./use-host-chat";
 
 /** 安装与更新同一条命令（U7）：install.sh 覆盖安装即更新 */
 const INSTALL_COMMAND = "curl -fsSL https://api.codingirlsclub.com/ext/cgc-host/install.sh | bash";
@@ -32,11 +34,26 @@ const PAIRING_ERROR_KEYS: Record<PairingErrorReason, string> = {
 	failed: "pairingError.failed",
 };
 
+/** agent 的显示名：Host 只报 kind（KTD1），名字属于页面文案 */
+const AGENT_NAMES: Record<string, string> = { omp: "OMP", codex: "Codex" };
+const agentName = (kind: string) => AGENT_NAMES[kind] ?? kind;
+
+/** 期 1 是 BYO：适配器由学员自己装（Host 只探测）。这条命令装了 Bun 就有——Host 安装时已经保证 Bun 在 PATH 上 */
+const CODEX_ACP_INSTALL = "bun add -g @agentclientprotocol/codex-acp";
+
 /** 对话方法的 error.params.code（cgc-host/AGENTS.md）；其余归「出错了，请重试」 */
 const CHAT_ERROR_KEYS: Record<string, string> = {
 	chat_unavailable: "error.chatUnavailable",
 	busy: "error.busy",
 	timeout: "error.timeout",
+};
+
+/** 安装失败的 code → 下一步：只有网络类才引导「检查网络」，其余有各自的处置 */
+const INSTALL_ERROR_KEYS: Record<string, string> = {
+	busy: "installFailedBusy",
+	timeout: "installFailedTimeout",
+	version_mismatch: "installFailedVersion",
+	unsupported: "installFailedUnsupported",
 };
 
 function CommandCard() {
@@ -71,6 +88,283 @@ function Notice({ title, hint, children }: { title: string; hint?: string; child
 }
 
 /** R26：对话以外的每种连接状态，给出说明与下一步 */
+/** Host 上报的可复用来源（#1154）：页面只展示；装复用还是装全量由 Host 探测决定 */
+const REUSE_SOURCE_KEYS: Record<string, string> = {
+	"chatgpt-app": "sourceChatgptApp",
+	"codex-cli": "sourceCodexCli",
+};
+
+function reuseSourceOf(agent: HostAgentStatus | undefined): { source: string; version: string | null } | null {
+	return agent?.sources?.find((entry) => entry.source === "chatgpt-app" || entry.source === "codex-cli") ?? null;
+}
+
+/** 支持的 agent 与安装状态（期 1 BYO）+「重新检测」：noAgent 视图与「添加 agent」共用同一块 */
+function AgentInstall({ chat }: { chat: HostChat }) {
+	const t = useTranslations("hostChat.agent");
+	const [checking, setChecking] = useState(false);
+	const omp = chat.agents.find((agent) => agent.kind === "omp");
+	const codex = chat.agents.find((agent) => agent.kind === "codex");
+	/** 期 2：Host 声明了安装能力就给「一键安装」；没声明（0.2.0 这类旧 Host）只有手动命令 */
+	const canInstall = codex && !codex.present && chat.capabilities.includes("agent.install");
+	const installing = chat.install === "installing";
+	const failure = chat.install && chat.install !== "installing" ? chat.install.error : null;
+	/** 已检测到的可复用来源（ChatGPT App / 命令行 codex）：用来把安装体积说清楚（约 2MB vs 约 337MB） */
+	const reuseSource = reuseSourceOf(codex);
+	const reuseName = reuseSource ? t(REUSE_SOURCE_KEYS[reuseSource.source] ?? "sourceCodexCli") : "";
+	const reuseVersion = reuseSource?.version ? ` ${reuseSource.version}` : "";
+	const sourceList = (codex?.sources ?? [])
+		.filter((entry) => entry.source === "chatgpt-app" || entry.source === "codex-cli")
+		.map((entry) => `${t(REUSE_SOURCE_KEYS[entry.source] ?? entry.source)}${entry.version ? ` ${entry.version}` : ""}`)
+		.join("、");
+	return (
+		<div className="learning-chat__agents">
+			<p className="learning-chat__hint">{t("ompInstall")}</p>
+			<p className="learning-chat__note">{`OMP：${omp?.present ? t("installed") : t("missing")}`}</p>
+			{canInstall ? (
+				<>
+					{!reuseSource ? (
+						<>
+							<p className="learning-chat__hint">{t("appFirstHint")}</p>
+							<a className="learning-chat__option" href="https://chatgpt.com/download" target="_blank" rel="noreferrer">
+								{t("appDownload")}
+							</a>
+						</>
+					) : null}
+					<button type="button" className="learning-chat__option" disabled={installing} onClick={() => void chat.installAgent()}>
+						{installing ? t("installing") : t("installCodex")}
+					</button>
+					<p className="learning-chat__hint">
+						{installing
+							? t("installHintRunning")
+							: reuseSource
+								? t("installHintReuse", { name: reuseName, version: reuseVersion })
+								: t("installHint")}
+					</p>
+					{reuseSource && !installing ? <p className="learning-chat__note">{t("reuseFallbackNote")}</p> : null}
+					{failure ? (
+						<p className="learning-chat__note" role="alert">
+							{t(INSTALL_ERROR_KEYS[failure] ?? "installFailed")}
+						</p>
+					) : null}
+					<p className="learning-chat__hint">{t("codexInstallManual")}</p>
+				</>
+			) : (
+				<p className="learning-chat__hint">{t("codexInstall")}</p>
+			)}
+			<pre>
+				<code>{CODEX_ACP_INSTALL}</code>
+			</pre>
+			<p className="learning-chat__note">{`Codex：${codex?.present ? t("installed") : t("missing")}`}</p>
+			{sourceList ? <p className="learning-chat__note">{t("sourcesDetected", { list: sourceList })}</p> : null}
+			{chat.installOutcome === "reuse" ? <p className="learning-chat__note">{t("installReused")}</p> : null}
+			<button
+				type="button"
+				className="learning-chat__option"
+				disabled={checking}
+				onClick={() => {
+					setChecking(true);
+					void chat.refreshAgents().finally(() => setChecking(false));
+				}}
+			>
+				{t("recheck")}
+			</button>
+		</div>
+	);
+}
+
+
+/**
+ * 还差一个引擎（OMP / Codex 都没有）：两条路径并列。
+ * OMP 默认推荐（用的人多、装好后自动检测）；检测到 ChatGPT App / 命令行 Codex 时 Codex 卡置顶并说明约 2MB。
+ */
+function EngineChoices({ chat }: { chat: HostChat }) {
+	const t = useTranslations("hostChat.engine");
+	const tAgent = useTranslations("hostChat.agent");
+	const [checking, setChecking] = useState(false);
+	const codex = chat.agents.find((agent) => agent.kind === "codex");
+	const reuseSource = reuseSourceOf(codex);
+	const canInstall = codex && !codex.present && chat.capabilities.includes("agent.install");
+	const installing = chat.install === "installing";
+	const failure = chat.install && chat.install !== "installing" ? chat.install.error : null;
+	const reuseName = reuseSource ? tAgent(REUSE_SOURCE_KEYS[reuseSource.source] ?? "sourceCodexCli") : "";
+	const reuseVersion = reuseSource?.version ? ` ${reuseSource.version}` : "";
+	const recheck = () => {
+		setChecking(true);
+		void chat.refreshAgents().finally(() => setChecking(false));
+	};
+	return (
+		<div className="learning-chat__engines">
+			<div className="learning-chat__engine" data-engine="omp" data-recommended={reuseSource ? undefined : true}>
+				{reuseSource ? null : <span className="learning-chat__kicker">{t("recommended")}</span>}
+				<strong>{t("ompTitle")}</strong>
+				<p className="learning-chat__hint">{t("ompBody")}</p>
+				<button type="button" className="learning-chat__option" disabled={checking} onClick={recheck}>
+					{checking ? t("checking") : t("ompRecheck")}
+				</button>
+			</div>
+			<div className="learning-chat__engine" data-engine="codex" data-recommended={reuseSource ? true : undefined}>
+				{reuseSource ? <span className="learning-chat__kicker">{t("recommended")}</span> : null}
+				<strong>{t("codexTitle")}</strong>
+				{canInstall ? (
+					<>
+						<p className="learning-chat__hint">
+							{reuseSource ? t("codexReuseBody", { name: reuseName, version: reuseVersion }) : t("codexNoAppBody")}
+						</p>
+						{reuseSource ? <p className="learning-chat__note">{tAgent("reuseFallbackNote")}</p> : null}
+						{reuseSource ? null : (
+							<a className="learning-chat__option" href="https://chatgpt.com/download" target="_blank" rel="noreferrer">
+								{t("appDownload")}
+							</a>
+						)}
+						<button type="button" className="learning-chat__primary" disabled={installing} onClick={() => void chat.installAgent()}>
+							{installing ? t("installing") : reuseSource ? t("codexInstall") : t("codexFullInstall")}
+						</button>
+						{failure ? (
+							<p className="learning-chat__note" role="alert">
+								{tAgent(INSTALL_ERROR_KEYS[failure] ?? "installFailed")}
+							</p>
+						) : null}
+					</>
+				) : (
+					<>
+						<p className="learning-chat__hint">{t("codexManual")}</p>
+						<pre>
+							<code>{CODEX_ACP_INSTALL}</code>
+						</pre>
+						<button type="button" className="learning-chat__option" disabled={checking} onClick={recheck}>
+							{checking ? t("checking") : tAgent("recheck")}
+						</button>
+					</>
+				)}
+			</div>
+		</div>
+	);
+}
+
+/** R1、R2：装好 ≥2 个 agent 时给选择器；只有 1 个时是静态标签 +「添加 agent」；一个都没有时由 noAgent 视图接管 */
+function AgentPicker({ chat }: { chat: HostChat }) {
+	const t = useTranslations("hostChat.agent");
+	const [open, setOpen] = useState(false);
+	const present = chat.agents.filter((agent) => agent.present);
+	if (present.length === 0) return null;
+	const current = present.some((agent) => agent.kind === chat.agent) ? chat.agent : present[0].kind;
+	const label = t("label", { name: agentName(current) });
+
+	if (present.length === 1) {
+		return (
+			<span className="learning-chat__agent">
+				<span className="learning-chat__agent-label">{agentName(current)}</span>
+				<TooltipButton label={t("add")} className="learning-chat__icon-button" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+					<PlusIcon />
+				</TooltipButton>
+				{open ? (
+					<div className="learning-chat__agent-menu">
+						<AgentInstall chat={chat} />
+					</div>
+				) : null}
+			</span>
+		);
+	}
+	return (
+		<span className="learning-chat__agent">
+			<button
+				type="button"
+				className="learning-chat__agent-chip"
+				aria-label={label}
+				title={label}
+				aria-expanded={open}
+				onClick={() => setOpen((v) => !v)}
+			>
+				{agentName(current)}
+				<span aria-hidden>▾</span>
+			</button>
+			{open ? (
+				<div className="learning-chat__agent-menu" role="menu">
+					{present.map((agent) => (
+						<button
+							key={agent.kind}
+							type="button"
+							role="menuitemradio"
+							aria-checked={agent.kind === current}
+							disabled={!chat.canSend}
+							className="learning-chat__option"
+							onClick={() => {
+								setOpen(false);
+								chat.chooseAgent(agent.kind);
+							}}
+						>
+							{agentName(agent.kind)}
+						</button>
+					))}
+					<p className="learning-chat__hint">{t("switchHint")}</p>
+					<AgentInstall chat={chat} />
+				</div>
+			) : null}
+		</span>
+	);
+}
+
+/**
+ * 登录卡（KTD4、R6）：只列页面能真正走完的方式——Codex 适配器的 api-key 分支要的是 `_meta.apiKey` 或
+ * `OPENAI_API_KEY`，页面没有安全收集并转交密钥的契约，所以首期只开放 ChatGPT 登录（学员自己的账号）。
+ */
+function HostChatLogin({ chat }: { chat: HostChat }) {
+	const t = useTranslations("hostChat.login");
+	const [busy, setBusy] = useState(false);
+	const [failed, setFailed] = useState(false);
+	const chatgpt = chat.login?.find((method) => method.id === "chat-gpt");
+	const isCodex = chat.agent === "codex";
+	/** #1155：ChatGPT/Codex 桌面 App 已装时优先引导在 App 里登录（登录态与 ~/.codex 共享），网页 OAuth 只兜底 */
+	const appInstalled =
+		isCodex &&
+		chat.agents.some((agent) => agent.kind === "codex" && (agent.sources ?? []).some((entry) => entry.source === "chatgpt-app"));
+	const browserLogin = () => {
+		if (!chatgpt) return;
+		setBusy(true);
+		setFailed(false);
+		void chat.authenticate(chatgpt.id).then((result) => {
+			setBusy(false);
+			setFailed(!result.ok);
+		});
+	};
+	return (
+		<div className="learning-chat__login" role="status">
+			<p>{t("title", { name: agentName(chat.agent) })}</p>
+			{appInstalled ? (
+				<>
+					<p className="learning-chat__note">{t("appHint")}</p>
+					<button type="button" className="learning-chat__primary" onClick={chat.reclaim}>
+						{t("appRetry")}
+					</button>
+					{chatgpt ? (
+						<button type="button" className="learning-chat__option" disabled={busy} onClick={browserLogin}>
+							{t("browserLogin")}
+						</button>
+					) : null}
+				</>
+			) : isCodex && chatgpt ? (
+				<button type="button" className="learning-chat__primary" disabled={busy} onClick={browserLogin}>
+					{t("chatgpt")}
+				</button>
+			) : (
+				// 页面拿不到可走完的登录方式（OMP 的登录在它自己的终端里；Codex 只播报 api-key 同理）：给出页面外做法
+				<>
+					<p className="learning-chat__note">{isCodex ? t("manual") : t("manualOmp")}</p>
+					<button type="button" className="learning-chat__option" onClick={chat.reclaim}>
+						{t("retry")}
+					</button>
+				</>
+			)}
+			{!appInstalled && isCodex && chatgpt ? <p className="learning-chat__hint">{t("hint")}</p> : null}
+			{failed ? (
+				<p role="alert" className="learning-chat__note">
+					{t("failed")}
+				</p>
+			) : null}
+		</div>
+	);
+}
+
 function StateMessage({ chat }: { chat: HostChat }) {
 	const t = useTranslations("hostChat.state");
 	const tPairing = useTranslations("hostChat");
@@ -116,8 +410,12 @@ function StateMessage({ chat }: { chat: HostChat }) {
 			);
 		case "blocked":
 			return <Notice title={t("blocked")} hint={t("blockedHint")} />;
-		case "noOmp":
-			return <Notice title={t("noOmp")} hint={t("noOmpHint")} />;
+		case "noAgent":
+			return (
+				<Notice title={t("noAgent")} hint={t("noAgentHint")}>
+					<EngineChoices chat={chat} />
+				</Notice>
+			);
 		case "unpaired":
 			return <Notice title={t("unpaired")}>{button(t("connect"), () => void pairing.connect())}</Notice>;
 		case "confirming":
@@ -219,7 +517,87 @@ function Turn({ events }: { events: ChatEvent[] }) {
 	});
 }
 
-function Conversation({ chat, workDir }: { chat: HostChat; workDir: string }) {
+/** 模型选项多（实测 69 个）：按 provider 分组展示；选项值是 `provider/model` 形状 */
+function groupByProvider(options: HostChatSetting["options"]) {
+	const groups = new Map<string, HostChatSetting["options"]>();
+	for (const option of options) {
+		const provider = option.value.split("/")[0] || option.value;
+		const list = groups.get(provider);
+		if (list) list.push(option);
+		else groups.set(provider, [option]);
+	}
+	return [...groups];
+}
+
+/** R18 修订：学员可在对话栏按会话改本机 OMP 的模型与思考等级（与发送按钮同排，作业目录另起一行）；Host 或 OMP 不给可选项时（旧版本）整块不渲染 */
+function ChatSettings({ chat }: { chat: HostChat }) {
+	const t = useTranslations("hostChat");
+	/** 改一次要等 OMP 回包：期间禁用两个下拉，避免与回包赛跑 */
+	const [pending, setPending] = useState(false);
+	const [failure, setFailure] = useState<string | null>(null);
+
+	const errorText = (code: string) => {
+		switch (code) {
+			case "unknown_method":
+				return t("settings.staleHost");
+			case "busy":
+				return t("settings.busy");
+			case "chat_unavailable":
+				return t("settings.unavailable");
+			default:
+				return t("settings.failed");
+		}
+	};
+
+	const change = async (configId: string, value: string) => {
+		setPending(true);
+		setFailure(null);
+		const result = await chat.setSetting(configId, value);
+		setPending(false);
+		if (!result.ok) setFailure(errorText(result.code));
+	};
+
+	if (chat.settings.length === 0) return null;
+	return (
+		<>
+			<div className="learning-chat__settings">
+				{chat.settings.map((option) => (
+					<select
+						key={option.id}
+						className="learning-chat__setting"
+						aria-label={option.id === "model" ? t("settings.model") : option.id === "thinking" ? t("settings.thinking") : option.name}
+						value={option.currentValue}
+						disabled={pending || chat.running}
+						onChange={(event) => void change(option.id, event.target.value)}
+					>
+						{option.id === "model"
+							? groupByProvider(option.options).map(([provider, options]) => (
+									<optgroup key={provider} label={provider}>
+										{options.map((value) => (
+											<option key={value.value} value={value.value}>
+												{value.name}
+											</option>
+										))}
+									</optgroup>
+								))
+							: option.options.map((value) => (
+									<option key={value.value} value={value.value}>
+										{value.name}
+									</option>
+								))}
+					</select>
+				))}
+			</div>
+			{failure ? (
+				<p role="alert" className="learning-chat__note">
+					{failure}
+				</p>
+			) : null}
+		</>
+	);
+}
+
+function Conversation({ chat, workDir, unitId }: { chat: HostChat; workDir: string; unitId: string | null }) {
 	const t = useTranslations("hostChat");
 	const [draft, setDraft] = useState("");
 	const logRef = useRef<HTMLDivElement>(null);
@@ -267,7 +645,16 @@ function Conversation({ chat, workDir }: { chat: HostChat; workDir: string }) {
 						</p>
 					)
 				) : chat.events.length === 0 ? (
-					<p className="learning-chat__hint">{t("empty")}</p>
+					<div className="learning-chat__welcome">
+						<p className="learning-chat__hint">{t("welcome")}</p>
+						<div className="learning-chat__prompts">
+							{(unitId ? [t("promptUnitDecompose"), t("promptUnitReview")] : [t("promptOverviewPlan"), t("promptOverviewStart")]).map((prompt) => (
+								<button key={prompt} type="button" className="learning-chat__option" onClick={() => setDraft(prompt)}>
+									{prompt}
+								</button>
+							))}
+						</div>
+					</div>
 				) : (
 					turns.map((events, index) => <Turn key={index} events={events} />)
 				)}
@@ -275,6 +662,7 @@ function Conversation({ chat, workDir }: { chat: HostChat; workDir: string }) {
 			{chat.cards.map((card) => (
 				<HostChatCard key={card.cardId} card={card} onAnswer={(answer) => chat.answer(card.cardId, answer)} />
 			))}
+			{chat.login ? <HostChatLogin chat={chat} /> : null}
 			<form
 				className="learning-chat__composer"
 				onSubmit={(e) => {
@@ -301,9 +689,7 @@ function Conversation({ chat, workDir }: { chat: HostChat; workDir: string }) {
 					}}
 				/>
 				<div className="learning-chat__composer-row">
-					<span className="learning-chat__workdir" title={workDir}>
-						{t("workDir", { path: workDir })}
-					</span>
+					<ChatSettings chat={chat} />
 					{chat.running ? (
 						<button type="button" className="learning-chat__option" disabled={chat.stopping} onClick={chat.stop}>
 							{chat.stopping ? t("stopping") : t("stop")}
@@ -314,8 +700,84 @@ function Conversation({ chat, workDir }: { chat: HostChat; workDir: string }) {
 						</button>
 					)}
 				</div>
+				<span className="learning-chat__workdir" title={workDir}>
+					{t("workDir", { path: workDir })}
+				</span>
 			</form>
 		</>
+	);
+}
+
+
+/** 头部「⋯」：技术控制项收在这里（已配对的电脑 / 固定 / 重新检测 / 关闭），主界面只留对话相关 */
+function MateMenu({
+	chat,
+	pinned,
+	onTogglePin,
+	onClose,
+	onToggleComputers,
+}: {
+	chat: HostChat;
+	pinned?: boolean;
+	onTogglePin?(): void;
+	onClose?(): void;
+	onToggleComputers(): void;
+}) {
+	const t = useTranslations("hostChat");
+	const [open, setOpen] = useState(false);
+	const [checking, setChecking] = useState(false);
+	const rootRef = useRef<HTMLSpanElement>(null);
+
+	useEffect(() => {
+		if (!open) return;
+		const onDown = (event: MouseEvent) => {
+			if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+		};
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key === "Escape") setOpen(false);
+		};
+		document.addEventListener("mousedown", onDown);
+		document.addEventListener("keydown", onKey);
+		return () => {
+			document.removeEventListener("mousedown", onDown);
+			document.removeEventListener("keydown", onKey);
+		};
+	}, [open]);
+
+	const item = (label: string, action: () => void) => (
+		<button
+			key={label}
+			type="button"
+			role="menuitem"
+			onClick={() => {
+				setOpen(false);
+				action();
+			}}
+		>
+			{label}
+		</button>
+	);
+
+	return (
+		<span className="learning-chat__menu" ref={rootRef}>
+			<TooltipButton label={t("more")} className="learning-chat__icon-button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+				<span aria-hidden>⋯</span>
+			</TooltipButton>
+			{open ? (
+				<div className="learning-chat__menu-panel" role="menu">
+					{item(t("computers"), onToggleComputers)}
+					{onTogglePin ? item(pinned ? t("mateUnpin") : t("matePin"), onTogglePin) : null}
+					{item(
+						checking ? t("checkingAction") : t("agent.recheck"),
+						() => {
+							setChecking(true);
+							void chat.refreshAgents().finally(() => setChecking(false));
+						},
+					)}
+					{onClose ? item(t("mateClose"), onClose) : null}
+				</div>
+			) : null}
+		</span>
 	);
 }
 
@@ -328,6 +790,11 @@ export default function HostChatPanel(props: {
 	courseVersion: number | null;
 	/** 学员正在看的单元 id，总览为 null */
 	unitId: string | null;
+	/** 从抽屉关闭时传入：头部出现关闭按钮（直接渲染面板的旧布局不传） */
+	onClose?(): void;
+	/** 固定到右侧（宽屏并排阅读）：只在抽屉里传 */
+	pinned?: boolean;
+	onTogglePin?(): void;
 }) {
 	const t = useTranslations("hostChat");
 	const chat = useHostChat(props);
@@ -336,27 +803,38 @@ export default function HostChatPanel(props: {
 	return (
 		<aside className="learning-chat" aria-label={t("title")}>
 			<header className="learning-chat__head">
-				<h2>{t("title")}</h2>
+				<h2 title={t("title")}>{t("title")}</h2>
+				{conversation ? <AgentPicker chat={chat} /> : null}
+				{props.pinned ? <span className="learning-chat__pinned-badge">{t("pinnedBadge")}</span> : null}
 				<div className="learning-chat__head-actions">
-					{conversation ? <HostChatHistory chat={chat} /> : null}
+					{conversation ? <HostChatHistory chat={chat} compact /> : null}
 					{conversation ? (
-						<button
-							type="button"
-							className="learning-chat__text-button"
-							disabled={!chat.canSend}
-							onClick={chat.newChat}
-						>
-							{t("newChat")}
-						</button>
+						<TooltipButton label={t("newChat")} className="learning-chat__icon-button" disabled={!chat.canSend} onClick={chat.newChat}>
+							<PlusIcon />
+						</TooltipButton>
 					) : null}
-					<button
-						type="button"
-						className="learning-chat__text-button"
-						aria-expanded={showComputers}
-						onClick={() => setShowComputers((open) => !open)}
-					>
-						{t("computers")}
-					</button>
+					{props.onTogglePin ? (
+						<TooltipButton
+							label={props.pinned ? t("mateUnpin") : t("matePin")}
+							className="learning-chat__icon-button learning-chat__pin"
+							aria-pressed={props.pinned === true}
+							onClick={props.onTogglePin}
+						>
+							<PinIcon filled={props.pinned === true} />
+						</TooltipButton>
+					) : null}
+					<MateMenu
+						chat={chat}
+						pinned={props.pinned}
+						onTogglePin={props.onTogglePin}
+						onClose={props.onClose}
+						onToggleComputers={() => setShowComputers((open) => !open)}
+					/>
+					{props.onClose ? (
+						<TooltipButton label={t("mateClose")} className="learning-chat__icon-button" onClick={props.onClose}>
+							<CloseIcon />
+						</TooltipButton>
+					) : null}
 				</div>
 			</header>
 			{showComputers ? (
@@ -366,7 +844,7 @@ export default function HostChatPanel(props: {
 			) : null}
 			{conversation ? (
 				// R15：这门课的作业目录（Host 按账号与课程建在学员电脑上；路径形态与 Host 的 workDir 同源，见 lib/host-connection.ts）
-				<Conversation chat={chat} workDir={courseDir(props.userId, props.courseId)} />
+				<Conversation chat={chat} workDir={courseDir(props.userId, props.courseId)} unitId={props.unitId} />
 			) : (
 				<div className="learning-chat__body">
 					<StateMessage chat={chat} />

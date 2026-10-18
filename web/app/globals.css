@@ -786,11 +786,14 @@
   .members-table th,
   .members-table td { padding: 0 24px; text-align: left; }
   .members-table th { height: 52px; background: var(--soft-2); color: var(--ink-3); font-size: 12px; font-weight: 510; line-height: 18px; }
-  .members-table th:nth-child(1) { width: 21%; }
-  .members-table th:nth-child(2) { width: 24%; }
-  .members-table th:nth-child(3) { width: 26%; }
-  .members-table th:nth-child(4) { width: 17%; }
-  .members-table th:nth-child(5) { width: 12%; }
+  /* 列宽预算：加入时间列要容纳「2026 年 12 月 28 日 / 23:59」两行（12px mono 最宽 ≈130px）；
+     min-width 880 时该列内容宽 137px（>980px 断点 padding 24）/ 153px（≤980px padding 16），
+     都留有余量。别为其他列挤占这 21%。 */
+  .members-table th:nth-child(1) { width: 20%; }
+  .members-table th:nth-child(2) { width: 23%; }
+  .members-table th:nth-child(3) { width: 23%; }
+  .members-table th:nth-child(4) { width: 21%; }
+  .members-table th:nth-child(5) { width: 13%; }
   .members-table td { height: 80px; border-top: 1px solid var(--line); color: var(--ink-2); font-size: 14px; line-height: 20px; vertical-align: middle; }
   .members-table tbody tr { transition: background-color 120ms ease; }
   .members-table tbody tr:hover,
@@ -802,7 +805,8 @@
   .members-account { display: block; overflow: hidden; color: var(--ink-2); font-family: var(--font-mono); font-size: 12px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
   .members-th-with-icon { display: inline-flex; align-items: center; gap: 6px; }
   .members-th-with-icon svg { color: var(--ink-3); }
-  .members-date { color: var(--ink-2); font-family: var(--font-mono); font-size: 12px; }
+  .members-date { display: grid; gap: 2px; color: var(--ink-2); font-family: var(--font-mono); font-size: 12px; line-height: 18px; white-space: nowrap; }
+  .members-date__time { color: var(--ink-3); }
   .members-role-cell { position: relative; min-height: 30px; padding: 8px 0; }
   .members-role-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
   .members-role-chip__zh { display: none; }
@@ -818,6 +822,8 @@
   .members-table-action:disabled { cursor: not-allowed; opacity: 0.78; }
 
   .members-role-editor { position: absolute; z-index: 12; top: calc(100% + 3px); left: 0; width: 260px; margin: 0; padding: 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-medium); background: var(--view); box-shadow: var(--shadow-elevated); }
+  /* 贴底的行走 .members-role-editor--up 向上展开（RoleEditor 量完可用空间后加） */
+  .members-role-editor--up { top: auto; bottom: calc(100% + 3px); }
   .members-role-editor__heading { color: var(--ink-3); font-size: 11px; line-height: 16px; }
   .members-role-editor__options { display: grid; gap: 3px; margin-top: 8px; }
   .members-role-option { display: flex; align-items: center; gap: 8px; min-height: 31px; padding: 0 5px; border-radius: var(--radius-small); color: var(--ink-2); font-size: 12px; line-height: 18px; cursor: pointer; }
@@ -825,7 +831,8 @@
   .members-role-option input { width: 14px; height: 14px; }
   .members-role-option__zh { margin-left: auto; color: var(--ink-3); font-size: 11px; }
   .members-role-editor__footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: 11px; line-height: 16px; }
-  .members-role-editor__footer > div { display: flex; gap: 6px; }
+  .members-role-editor__footer > span { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
+  .members-role-editor__footer > div { display: flex; flex: 0 0 auto; gap: 6px; }
 
   .members-table-loading { display: grid; gap: 1px; padding: 0; background: var(--line); }
   .members-skeleton-row { height: 79px; background: var(--card); animation: members-pulse 1.2s ease-in-out infinite alternate; }
@@ -949,6 +956,9 @@
   .settings-policy-option:has(input:disabled) { cursor: not-allowed; opacity: 0.72; }
   .settings-policy-option__label { color: var(--ink-2); font-size: 14px; font-weight: 510; line-height: 20px; }
   .settings-policy-option__hint { grid-column: 2; color: var(--ink-3); font-size: 12px; line-height: 18px; }
+  .settings-field { display: grid; gap: 6px; margin-top: 18px; }
+  .settings-field__label { color: var(--ink-2); font-size: 13px; line-height: 20px; }
+  .settings-field .l-input { width: 100%; max-width: 420px; }
   .settings-note { margin-top: 16px; padding: 11px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-medium); background: var(--soft-2); color: var(--ink-3); font-size: 13px; line-height: 20px; }
   .settings-saved { margin-top: 14px; padding: 11px 14px; border: 1px solid color-mix(in srgb, var(--status-green) 40%, var(--line)); border-radius: var(--radius-medium); background: color-mix(in srgb, var(--status-green) 8%, var(--card)); color: var(--status-green); font-size: 13px; line-height: 20px; }
   .settings-actions { display: flex; justify-content: flex-end; margin-top: 22px; }
@@ -3607,9 +3617,51 @@ button:focus-visible,
   .learning-reader__outline--overlay { position: static; margin-top: 10px; }
 }
 
-/* ── 课程页对话栏（U10；KTD11）：视口 ≥1280px 时与阅读区并排，更窄时不挂载 ─────────────── */
-.learning-course-page--chat { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 0 32px; align-items: start; width: min(100%, 1440px); }
-.learning-course-page--chat > :not(.learning-chat) { grid-column: 1; }
+/* ── 学习搭子（U10 重构）：课程页默认只留「问学习搭子」入口，点开才挂载对话抽屉 ─────────────── */
+.learning-mate__launcher { position: fixed; right: 24px; bottom: 24px; z-index: 40; display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border: 1px solid var(--accent); border-radius: 999px; background: var(--accent); color: #fff; font: inherit; font-size: 13px; font-weight: 510; cursor: pointer; box-shadow: 0 8px 24px rgb(0 0 0 / 28%); }
+.learning-mate__launcher:hover { background: var(--accent-mention); }
+.learning-mate__launcher-dot { width: 6px; height: 6px; border-radius: 50%; background: #fff; }
+.learning-mate { position: fixed; inset: 0; z-index: 60; }
+.learning-mate__backdrop { position: absolute; inset: 0; background: rgb(0 0 0 / 32%); }
+.learning-mate__panel { position: absolute; top: 80px; right: 24px; bottom: 24px; display: flex; width: min(420px, calc(100vw - 48px)); border: 1px solid var(--line); border-radius: 14px; background: var(--card); overflow: hidden; box-shadow: 0 20px 60px rgb(0 0 0 / 40%); }
+.learning-mate__panel .learning-chat { position: static; grid-column: auto; grid-row: auto; height: 100%; min-height: 0; border: 0; border-radius: 0; }
+.learning-chat__engines { display: grid; gap: 10px; width: 100%; }
+.learning-chat__agent { display: inline-flex; flex: none; align-items: center; gap: 2px; min-width: 0; }
+.learning-chat__agent-label { color: var(--ink-3); font-size: 11.5px; white-space: nowrap; }
+.learning-chat__agent-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--canvas); color: var(--ink-2); font: inherit; font-size: 11.5px; white-space: nowrap; cursor: pointer; }
+.learning-chat__agent-chip:hover { border-color: var(--accent-strong); color: var(--accent-strong); }
+.learning-chat__icon-button { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--ink-3); font: inherit; font-size: 14px; line-height: 1; cursor: pointer; }
+.learning-chat__icon-button:hover:not(:disabled) { background: var(--soft); color: var(--ink); }
+.learning-chat__icon-button:disabled { cursor: not-allowed; opacity: .5; }
+.learning-chat__icon-button[aria-pressed="true"] { background: color-mix(in srgb, var(--canvas) 78%, var(--accent) 22%); color: var(--accent-strong); }
+.learning-chat__pinned-badge { flex: none; padding: 1px 7px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 999px; color: var(--accent-strong); font-size: 10.5px; white-space: nowrap; }
+.learning-chat__history-trigger { display: inline-flex; }
+.learning-chat__tooltip { position: fixed; z-index: 80; transform: translateX(-50%); padding: 4px 8px; border-radius: 6px; background: var(--ink); color: var(--canvas); font-size: 11px; line-height: 1.4; white-space: nowrap; pointer-events: none; box-shadow: 0 4px 16px rgb(0 0 0 / 30%); }
+
+.learning-chat__menu { position: relative; display: inline-flex; }
+.learning-chat__menu-panel { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; display: grid; min-width: 168px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--view); box-shadow: 0 8px 24px rgb(0 0 0 / 18%); }
+.learning-chat__menu-panel button { padding: 7px 9px; border: 0; border-radius: 6px; background: none; color: var(--ink-2); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
+.learning-chat__menu-panel button:hover { background: var(--soft); color: var(--ink); }
+.learning-chat__welcome { display: grid; gap: 10px; }
+.learning-chat__prompts { display: flex; flex-wrap: wrap; gap: 6px; }
+.learning-chat__prompts .learning-chat__option { max-width: 100%; text-align: left; }
+
+.learning-chat__engine { display: grid; justify-items: start; gap: 8px; padding: 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--canvas); }
+.learning-chat__engine[data-recommended] { border-color: var(--accent); background: color-mix(in srgb, var(--canvas) 90%, var(--accent) 10%); }
+.learning-chat__engine strong { color: var(--ink); font-size: 13px; font-weight: 560; }
+.learning-chat__engine pre { width: 100%; margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--soft); font-family: var(--font-mono); font-size: 11px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+/* 固定到右侧：宽屏并排阅读，课程页让出与抽屉等宽的右栏；窄屏不提供固定 */
+@media (min-width: 1100px) {
+  /* 固定态不再用全屏容器吃掉页面点击：只有面板本身接收指针事件，课程内容照常可点 */
+  .learning-mate--pinned { pointer-events: none; }
+  .learning-mate--pinned .learning-mate__panel { pointer-events: auto; right: 12px; width: 380px; }
+  body.learning-mate-docked .learning-course-page { padding-right: 404px; }
+  .learning-course-page { transition: padding-right 180ms ease; }
+}
+@media (max-width: 720px) {
+  .learning-mate__launcher { right: 16px; left: 16px; justify-content: center; bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .learning-mate__panel { top: auto; right: 0; bottom: 0; left: 0; width: 100%; height: min(86dvh, 720px); border-right: 0; border-bottom: 0; border-left: 0; border-radius: 16px 16px 0 0; }
+}
 /* 紧凑布局（阅读组件 compact）：大纲改为浮层，由单元页导航条的「课程目录」打开；进度栏收窄但保持可见 */
 .learning-reader--compact .learning-reader__layout { grid-template-columns: minmax(0, 1fr) 160px; gap: 28px; }
 .learning-reader--compact .learning-reader__layout > .learning-reader__outline { display: none; }
@@ -3626,9 +3678,9 @@ button:focus-visible,
 /* 从返回链接那一行起占右栏，吸在站点导航（sticky，65px）下方。高度按页面顶部算（导航 65 + 页面上内边距 54 + 底部留白 16）：
    刚打开页面时输入框就在视口内 */
 .learning-chat { grid-column: 2; grid-row: 1 / span 2; position: sticky; top: 80px; display: flex; flex-direction: column; height: calc(100dvh - 135px); min-height: 480px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
-.learning-chat__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
-.learning-chat__head h2 { color: var(--ink); font-size: 14px; font-weight: 590; }
-.learning-chat__head-actions { display: flex; gap: 4px; }
+.learning-chat__head { display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.learning-chat__head h2 { min-width: 0; overflow: hidden; color: var(--ink); font-size: 14px; font-weight: 590; text-overflow: ellipsis; white-space: nowrap; }
+.learning-chat__head-actions { display: flex; flex: none; align-items: center; gap: 2px; }
 .learning-chat__text-button { padding: 4px 8px; border: 0; border-radius: 6px; background: none; color: var(--ink-3); font: inherit; font-size: 12px; cursor: pointer; }
 .learning-chat__text-button:hover { background: var(--soft); color: var(--ink); }
 .learning-chat__text-button[aria-expanded="true"] { color: var(--accent-strong); }
@@ -3707,9 +3759,14 @@ button:focus-visible,
 .learning-chat__composer { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 12px 14px; border-top: 1px solid var(--line); }
 .learning-chat__composer textarea { width: 100%; min-height: 64px; max-height: 180px; padding: 9px 11px; resize: vertical; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--canvas); color: var(--ink); font: inherit; font-size: 13px; line-height: 1.6; }
 .learning-chat__composer textarea:focus { border-color: var(--accent); outline: none; }
-.learning-chat__composer-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.learning-chat__composer-row button { flex: none; white-space: nowrap; }
+.learning-chat__composer-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.learning-chat__composer-row button { flex: none; margin-left: auto; white-space: nowrap; }
 .learning-chat__workdir { min-width: 0; overflow: hidden; color: var(--ink-3); font-family: var(--font-mono); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+/* R18 修订：模型与思考等级与发送按钮同排（Host 不给可选项时整块不渲染） */
+.learning-chat__settings { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
+.learning-chat__setting { max-width: 9.5rem; padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--canvas); color: var(--ink); font: inherit; font-size: 11.5px; }
+.learning-chat__setting:disabled { opacity: 0.6; }
+.learning-chat__composer-row > .learning-chat__note { flex-basis: 100%; margin: 0; }
 
 /* ── 招募审核面板（/w/[slug]/recruitment；U8）────────────────────────────── */
 .rp-section { margin-top: 28px; }
