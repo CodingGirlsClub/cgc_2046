@@ -9,6 +9,28 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslations } from "next-intl";
 import HostChatPanel from "./host-chat-panel";
 
+const FOCUSABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** 覆盖式抽屉是 aria-modal：Tab 只在面板内循环（固定成右栏时是非模态，不拦） */
+function trapTab(event: KeyboardEvent, container: HTMLElement): void {
+	const focusables = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((element) => element.offsetParent !== null);
+	if (focusables.length === 0) {
+		event.preventDefault();
+		container.focus();
+		return;
+	}
+	const first = focusables[0];
+	const last = focusables[focusables.length - 1];
+	const active = document.activeElement;
+	if (event.shiftKey && (active === first || active === container)) {
+		event.preventDefault();
+		last.focus();
+	} else if (!event.shiftKey && active === last) {
+		event.preventDefault();
+		first.focus();
+	}
+}
+
 /** 与 CSS 的 @media (min-width: 1100px) 保持一致：只有宽屏才有「固定成右栏」 */
 const PIN_QUERY = "(min-width: 1100px)";
 
@@ -45,6 +67,7 @@ export default function LearningMate(props: {
 	const wide = useWideLayout();
 	const effectivePinned = pinned && wide;
 	const launcherRef = useRef<HTMLButtonElement>(null);
+	const panelRef = useRef<HTMLDivElement>(null);
 
 	const docked = open && effectivePinned;
 	const show = () => {
@@ -64,6 +87,11 @@ export default function LearningMate(props: {
 		return () => document.body.classList.remove("learning-mate-docked");
 	}, [docked]);
 
+	// 覆盖式抽屉打开时把焦点移进对话框；否则焦点留在文档上，Tab 会跑到被遮住的课程控件里
+	useEffect(() => {
+		if (open && !effectivePinned) panelRef.current?.focus();
+	}, [open, effectivePinned]);
+
 	// 固定时正文被右栏挤窄：通知页面切到阅读区紧凑布局（大纲收成浮层、进度栏变窄）
 	useEffect(() => {
 		onDockChange?.(docked);
@@ -73,6 +101,7 @@ export default function LearningMate(props: {
 		if (!open) return;
 		const onKey = (event: KeyboardEvent) => {
 			if (event.key === "Escape") hide();
+			if (event.key === "Tab" && !effectivePinned && panelRef.current) trapTab(event, panelRef.current);
 		};
 		document.addEventListener("keydown", onKey);
 		// 覆盖式抽屉才锁页面滚动；固定成右栏时页面要能正常滚动阅读
@@ -102,7 +131,15 @@ export default function LearningMate(props: {
 			{mounted ? (
 				<div className={`learning-mate${docked ? " learning-mate--pinned" : ""}`} hidden={!open}>
 					{!effectivePinned ? <div className="learning-mate__backdrop" aria-hidden onClick={hide} /> : null}
-					<div id="learning-mate" className="learning-mate__panel" role="dialog" aria-modal={!effectivePinned} aria-label={t("title")}>
+					<div
+						ref={panelRef}
+						id="learning-mate"
+						className="learning-mate__panel"
+						role="dialog"
+						aria-modal={!effectivePinned}
+						aria-label={t("title")}
+						tabIndex={-1}
+					>
 						<HostChatPanel
 							{...props}
 							onClose={hide}

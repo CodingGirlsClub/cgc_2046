@@ -66,6 +66,24 @@ describe("学习搭子抽屉（课程页默认收起）", () => {
 		expect(document.body.style.overflow).toBe("");
 	});
 
+	it("打开覆盖式抽屉时焦点移入面板，Tab 在面板内循环", () => {
+		render(<LearningMate {...props} />);
+		fireEvent.click(screen.getByRole("button", { name: "问学习搭子" }));
+
+		const dialog = screen.getByRole("dialog", { name: "学习搭子" });
+		expect(dialog).toHaveFocus(); // 不是留在被遮住的课程页
+
+		const first = screen.getByRole("button", { name: "stub-close" });
+		const last = screen.getByRole("button", { name: "stub-pin" });
+		last.focus();
+		fireEvent.keyDown(document, { key: "Tab" });
+		expect(first).toHaveFocus();
+
+		first.focus();
+		fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+		expect(last).toHaveFocus();
+	});
+
 	it("收起后面板保持挂载：重开不重建连接（隐藏而不是卸载）", () => {
 		render(<LearningMate {...props} />);
 		fireEvent.click(screen.getByRole("button", { name: "问学习搭子" }));
