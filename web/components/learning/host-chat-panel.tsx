@@ -13,6 +13,7 @@ import { copyText } from "@/lib/clipboard";
 import HostChatCard from "./host-chat-cards";
 import HostChatHistory from "./host-chat-history";
 import { CloseIcon, PinIcon, PlusIcon } from "./chat-icons";
+import TooltipButton from "./chat-tooltip";
 import HostPairingList from "./host-pairing-list";
 import { SafeMarkdown } from "./material-renderer";
 import { courseDir, type HostAgentStatus } from "@/lib/host-connection";
@@ -251,16 +252,9 @@ function AgentPicker({ chat }: { chat: HostChat }) {
 		return (
 			<span className="learning-chat__agent">
 				<span className="learning-chat__agent-label">{agentName(current)}</span>
-				<button
-					type="button"
-					className="learning-chat__icon-button"
-					aria-label={t("add")}
-					title={t("add")}
-					aria-expanded={open}
-					onClick={() => setOpen((v) => !v)}
-				>
+				<TooltipButton label={t("add")} className="learning-chat__icon-button" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
 					<PlusIcon />
-				</button>
+				</TooltipButton>
 				{open ? (
 					<div className="learning-chat__agent-menu">
 						<AgentInstall chat={chat} />
@@ -764,16 +758,9 @@ function MateMenu({
 
 	return (
 		<span className="learning-chat__menu" ref={rootRef}>
-			<button
-				type="button"
-				className="learning-chat__icon-button"
-				aria-label={t("more")}
-				title={t("more")}
-				aria-expanded={open}
-				onClick={() => setOpen((value) => !value)}
-			>
+			<TooltipButton label={t("more")} className="learning-chat__icon-button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
 				<span aria-hidden>⋯</span>
-			</button>
+			</TooltipButton>
 			{open ? (
 				<div className="learning-chat__menu-panel" role="menu">
 					{item(t("computers"), onToggleComputers)}
@@ -820,28 +807,19 @@ export default function HostChatPanel(props: {
 				<div className="learning-chat__head-actions">
 					{conversation ? <HostChatHistory chat={chat} compact /> : null}
 					{conversation ? (
-						<button
-							type="button"
-							className="learning-chat__icon-button"
-							aria-label={t("newChat")}
-							title={t("newChat")}
-							disabled={!chat.canSend}
-							onClick={chat.newChat}
-						>
+						<TooltipButton label={t("newChat")} className="learning-chat__icon-button" disabled={!chat.canSend} onClick={chat.newChat}>
 							<PlusIcon />
-						</button>
+						</TooltipButton>
 					) : null}
 					{props.onTogglePin ? (
-						<button
-							type="button"
+						<TooltipButton
+							label={props.pinned ? t("mateUnpin") : t("matePin")}
 							className="learning-chat__icon-button learning-chat__pin"
-							aria-label={props.pinned ? t("mateUnpin") : t("matePin")}
-							title={props.pinned ? t("mateUnpin") : t("matePin")}
 							aria-pressed={props.pinned === true}
 							onClick={props.onTogglePin}
 						>
 							<PinIcon filled={props.pinned === true} />
-						</button>
+						</TooltipButton>
 					) : null}
 					<MateMenu
 						chat={chat}
@@ -851,15 +829,9 @@ export default function HostChatPanel(props: {
 						onToggleComputers={() => setShowComputers((open) => !open)}
 					/>
 					{props.onClose ? (
-						<button
-							type="button"
-							className="learning-chat__icon-button"
-							aria-label={t("mateClose")}
-							title={t("mateClose")}
-							onClick={props.onClose}
-						>
+						<TooltipButton label={t("mateClose")} className="learning-chat__icon-button" onClick={props.onClose}>
 							<CloseIcon />
-						</button>
+						</TooltipButton>
 					) : null}
 				</div>
 			</header>

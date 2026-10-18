@@ -306,6 +306,22 @@ it("Covers AE10：在「已配对的电脑」里撤销本机这台 → pair.forg
 	expect(screen.queryByRole("textbox", { name: "发给 agent 的消息" })).not.toBeInTheDocument();
 });
 
+it("头部图标悬停显示 Tooltip（标题栏常驻图标）", async () => {
+	renderPanel("zh-CN", { onTogglePin: () => {} });
+	await attach();
+	await screen.findByRole("textbox", { name: "发给 agent 的消息" });
+	const newChat = screen.getByRole("button", { name: "新开对话" });
+	fireEvent.mouseEnter(newChat);
+	expect(screen.getByRole("tooltip")).toHaveTextContent("新开对话");
+	fireEvent.mouseLeave(newChat);
+	expect(screen.queryByRole("tooltip")).toBeNull();
+
+	const pin = screen.getByRole("button", { name: "固定到右侧" });
+	fireEvent.focus(pin);
+	expect(screen.getByRole("tooltip")).toHaveTextContent("固定到右侧");
+	fireEvent.blur(pin);
+});
+
 it("头部「更多」菜单：收纳已配对的电脑/重新检测等控制项；点外部或选项后收起", async () => {
 	await readyPanel();
 	const trigger = screen.getByRole("button", { name: "更多" });
