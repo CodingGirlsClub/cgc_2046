@@ -120,6 +120,14 @@ function AgentInstall({ chat }: { chat: HostChat }) {
 			<p className="learning-chat__note">{`OMP：${omp?.present ? t("installed") : t("missing")}`}</p>
 			{canInstall ? (
 				<>
+					{!reuseSource ? (
+						<>
+							<p className="learning-chat__hint">{t("appFirstHint")}</p>
+							<a className="learning-chat__option" href="https://chatgpt.com/download" target="_blank" rel="noreferrer">
+								{t("appDownload")}
+							</a>
+						</>
+					) : null}
 					<button type="button" className="learning-chat__option" disabled={installing} onClick={() => void chat.installAgent()}>
 						{installing ? t("installing") : t("installCodex")}
 					</button>
@@ -225,23 +233,36 @@ function HostChatLogin({ chat }: { chat: HostChat }) {
 	const [busy, setBusy] = useState(false);
 	const [failed, setFailed] = useState(false);
 	const chatgpt = chat.login?.find((method) => method.id === "chat-gpt");
+	/** #1155：ChatGPT/Codex 桌面 App 已装时优先引导在 App 里登录（登录态与 ~/.codex 共享），网页 OAuth 只兜底 */
+	const appInstalled = chat.agents.some(
+		(agent) => agent.kind === "codex" && (agent.sources ?? []).some((entry) => entry.source === "chatgpt-app"),
+	);
+	const browserLogin = () => {
+		if (!chatgpt) return;
+		setBusy(true);
+		setFailed(false);
+		void chat.authenticate(chatgpt.id).then((result) => {
+			setBusy(false);
+			setFailed(!result.ok);
+		});
+	};
 	return (
 		<div className="learning-chat__login" role="status">
 			<p>{t("title", { name: agentName(chat.agent) })}</p>
-			{chatgpt ? (
-				<button
-					type="button"
-					className="learning-chat__primary"
-					disabled={busy}
-					onClick={() => {
-						setBusy(true);
-						setFailed(false);
-						void chat.authenticate(chatgpt.id).then((result) => {
-							setBusy(false);
-							setFailed(!result.ok);
-						});
-					}}
-				>
+			{appInstalled ? (
+				<>
+					<p className="learning-chat__note">{t("appHint")}</p>
+					<button type="button" className="learning-chat__primary" onClick={chat.reclaim}>
+						{t("appRetry")}
+					</button>
+					{chatgpt ? (
+						<button type="button" className="learning-chat__option" disabled={busy} onClick={browserLogin}>
+							{t("browserLogin")}
+						</button>
+					) : null}
+				</>
+			) : chatgpt ? (
+				<button type="button" className="learning-chat__primary" disabled={busy} onClick={browserLogin}>
 					{t("chatgpt")}
 				</button>
 			) : (
@@ -253,7 +274,7 @@ function HostChatLogin({ chat }: { chat: HostChat }) {
 					</button>
 				</>
 			)}
-			{chatgpt ? <p className="learning-chat__hint">{t("hint")}</p> : null}
+			{!appInstalled && chatgpt ? <p className="learning-chat__hint">{t("hint")}</p> : null}
 			{failed ? (
 				<p role="alert" className="learning-chat__note">
 					{t("failed")}

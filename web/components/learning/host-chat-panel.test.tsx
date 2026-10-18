@@ -180,7 +180,7 @@ describe("连接状态（R26）", () => {
 
 		await waitFor(() => expect(FakeWebSocket.all[0].sent.at(-1)?.method).toBe("pair.request"));
 		expect(issueMcpToken).toHaveBeenCalledWith("Ada 的 MacBook", "LEARNING_HOST");
-		expect(screen.getByText("请在电脑上弹出的确认框里选择允许。")).toBeInTheDocument();
+		expect(screen.getByText("请在电脑弹出的确认框里确认这次授权（配对）。")).toBeInTheDocument();
 	});
 
 	it.each<[string, HostConnection, RegExp | string]>([
@@ -931,6 +931,31 @@ describe("多 agent（#1148）", () => {
 		await ws.reply("chat.authenticate", "chat.authenticated", { courseId: COURSE, agent: "codex" });
 		await waitFor(() => expect(screen.queryByRole("button", { name: "用 ChatGPT 登录" })).toBeNull());
 	});
+
+	it("#1155：已装 ChatGPT App 时登录卡优先引导在 App 里登录，网页登录只兜底", async () => {
+		window.localStorage.setItem(`cgc-host-agent:${COURSE}`, "codex");
+		const agentsWithApp = [
+			{ kind: "omp", present: true },
+			{ kind: "codex", present: true, sources: [{ source: "chatgpt-app", version: "0.163.0" }] },
+		];
+		checkHost.mockResolvedValue({ state: "detected", agents: agentsWithApp, paired: true, capabilities: [] });
+		renderPanel();
+		await waitFor(() => expect(socketCount()).toBeGreaterThan(0));
+		const ws = FakeWebSocket.all.at(-1)!;
+		ws.push({ method: "status", params: status("paired", agentsWithApp) });
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
+		await ws.reply("hello", "status", status("ready", agentsWithApp));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
+		await ws.reply("chat.attach", "error", { code: "auth_required", methods: [{ id: "chat-gpt", name: "ChatGPT" }] });
+
+		expect(await screen.findByText(/在 ChatGPT App 里登录后回到这里/)).toBeInTheDocument();
+		const retry = screen.getByRole("button", { name: "我已登录，重试" });
+		expect(screen.getByRole("button", { name: "改用浏览器登录" })).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "用 ChatGPT 登录" })).toBeNull();
+
+		fireEvent.click(retry);
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
+	});
 });
 
 describe("多 agent 的评审修复（M1 / M2 / M4）", () => {
@@ -1035,6 +1060,19 @@ describe("一键安装（期 2 / #1149）", () => {
 			}),
 		);
 		expect(screen.getByText(/已复用你已有的 Codex/)).toBeInTheDocument();
+	});
+
+	it("#1155：没装 ChatGPT App 时先引导安装 App（默认路径），再给全量安装兜底", async () => {
+		checkHost.mockResolvedValue(CAN_INSTALL);
+		renderPanel();
+		await attach([], false, undefined, ompOnly);
+
+		fireEvent.click(screen.getByRole("button", { name: "添加 agent" }));
+		expect(await screen.findByText(/推荐先安装 ChatGPT App/)).toBeInTheDocument();
+		const download = screen.getByRole("link", { name: "下载 ChatGPT App" });
+		expect(download).toHaveAttribute("href", "https://chatgpt.com/download");
+		// 全量安装入口仍在（兜底），不是唯一路径
+		expect(screen.getByRole("button", { name: "安装 Codex 支持" })).toBeInTheDocument();
 	});
 
 	it("没有 agent + 声明能力：未配对先给「连接」；配对后才有安装按钮，点击发请求、装完入口消失", async () => {
