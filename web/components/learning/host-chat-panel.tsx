@@ -14,7 +14,7 @@ import HostChatCard from "./host-chat-cards";
 import HostChatHistory from "./host-chat-history";
 import HostPairingList from "./host-pairing-list";
 import { SafeMarkdown } from "./material-renderer";
-import { courseDir } from "@/lib/host-connection";
+import { courseDir, type HostAgentStatus } from "@/lib/host-connection";
 import type { PairingErrorReason } from "./use-host-pairing";
 import { useHostChat, type ChatEvent, type HostChat, type HostChatSetting } from "./use-host-chat";
 
@@ -86,6 +86,16 @@ function Notice({ title, hint, children }: { title: string; hint?: string; child
 }
 
 /** R26：对话以外的每种连接状态，给出说明与下一步 */
+/** Host 上报的可复用来源（#1154）：页面只展示；装复用还是装全量由 Host 探测决定 */
+const REUSE_SOURCE_KEYS: Record<string, string> = {
+	"chatgpt-app": "sourceChatgptApp",
+	"codex-cli": "sourceCodexCli",
+};
+
+function reuseSourceOf(agent: HostAgentStatus | undefined): { source: string; version: string | null } | null {
+	return agent?.sources?.find((entry) => entry.source === "chatgpt-app" || entry.source === "codex-cli") ?? null;
+}
+
 /** 支持的 agent 与安装状态（期 1 BYO）+「重新检测」：noAgent 视图与「添加 agent」共用同一块 */
 function AgentInstall({ chat }: { chat: HostChat }) {
 	const t = useTranslations("hostChat.agent");
@@ -96,6 +106,14 @@ function AgentInstall({ chat }: { chat: HostChat }) {
 	const canInstall = codex && !codex.present && chat.capabilities.includes("agent.install");
 	const installing = chat.install === "installing";
 	const failure = chat.install && chat.install !== "installing" ? chat.install.error : null;
+	/** 已检测到的可复用来源（ChatGPT App / 命令行 codex）：用来把安装体积说清楚（约 2MB vs 约 337MB） */
+	const reuseSource = reuseSourceOf(codex);
+	const reuseName = reuseSource ? t(REUSE_SOURCE_KEYS[reuseSource.source] ?? "sourceCodexCli") : "";
+	const reuseVersion = reuseSource?.version ? ` ${reuseSource.version}` : "";
+	const sourceList = (codex?.sources ?? [])
+		.filter((entry) => entry.source === "chatgpt-app" || entry.source === "codex-cli")
+		.map((entry) => `${t(REUSE_SOURCE_KEYS[entry.source] ?? entry.source)}${entry.version ? ` ${entry.version}` : ""}`)
+		.join("、");
 	return (
 		<div className="learning-chat__agents">
 			<p className="learning-chat__hint">{t("ompInstall")}</p>
@@ -105,7 +123,13 @@ function AgentInstall({ chat }: { chat: HostChat }) {
 					<button type="button" className="learning-chat__option" disabled={installing} onClick={() => void chat.installAgent()}>
 						{installing ? t("installing") : t("installCodex")}
 					</button>
-					<p className="learning-chat__hint">{installing ? t("installHintRunning") : t("installHint")}</p>
+					<p className="learning-chat__hint">
+						{installing
+							? t("installHintRunning")
+							: reuseSource
+								? t("installHintReuse", { name: reuseName, version: reuseVersion })
+								: t("installHint")}
+					</p>
 					{failure ? (
 						<p className="learning-chat__note" role="alert">
 							{t(INSTALL_ERROR_KEYS[failure] ?? "installFailed")}
@@ -120,6 +144,8 @@ function AgentInstall({ chat }: { chat: HostChat }) {
 				<code>{CODEX_ACP_INSTALL}</code>
 			</pre>
 			<p className="learning-chat__note">{`Codex：${codex?.present ? t("installed") : t("missing")}`}</p>
+			{sourceList ? <p className="learning-chat__note">{t("sourcesDetected", { list: sourceList })}</p> : null}
+			{chat.installOutcome === "reuse" ? <p className="learning-chat__note">{t("installReused")}</p> : null}
 			<button
 				type="button"
 				className="learning-chat__option"

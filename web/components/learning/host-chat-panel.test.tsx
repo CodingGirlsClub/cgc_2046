@@ -87,7 +87,10 @@ const DETECTED: HostConnection = { state: "detected", agents: [{ kind: "omp", pr
 const keyOf = (userId: string) => `cgc:host-browser-key:${userId}`;
 
 const OMP_ONLY = [{ kind: "omp", present: true }];
-const status = (state: HostStatus["state"], agents: { kind: string; present: boolean }[] = OMP_ONLY): HostStatus => ({
+const status = (
+	state: HostStatus["state"],
+	agents: { kind: string; present: boolean; sources?: { source: string; version: string | null }[] }[] = OMP_ONLY,
+): HostStatus => ({
 	state,
 	pairedUserId: state === "unpaired" ? null : USER,
 	pairedDisplayName: state === "unpaired" ? null : "学员甲",
@@ -111,7 +114,12 @@ function renderPanel(locale: "zh-CN" | "en" = "zh-CN") {
 const socketCount = () => FakeWebSocket.all.length;
 
 /** 已存浏览器密钥：连接 → hello → ready → chat.attach → history；返回这条连接 */
-async function attach(events: object[] = [], running = false, settings?: object[], agents: { kind: string; present: boolean }[] = OMP_ONLY) {
+async function attach(
+	events: object[] = [],
+	running = false,
+	settings?: object[],
+	agents: { kind: string; present: boolean; sources?: { source: string; version: string | null }[] }[] = OMP_ONLY,
+) {
 	await waitFor(() => expect(socketCount()).toBeGreaterThan(0));
 	const ws = FakeWebSocket.all.at(-1)!;
 	ws.push({ method: "status", params: status("paired", agents) });
@@ -999,6 +1007,35 @@ describe("一键安装（期 2 / #1149）", () => {
 		{ kind: "omp", present: true },
 		{ kind: "codex", present: false },
 	];
+
+	it("检测到可复用来源：提示约 2MB 并显示来源/版本；装完（reused）显示已复用", async () => {
+		const agentsWithApp = [
+			{ kind: "omp", present: true },
+			{ kind: "codex", present: false, sources: [{ source: "chatgpt-app", version: "0.163.0" }] },
+		];
+		checkHost.mockResolvedValue({ state: "detected", agents: agentsWithApp, paired: true, capabilities: ["agent.install"] });
+		renderPanel();
+		const ws = await attach([], false, undefined, agentsWithApp);
+
+		fireEvent.click(screen.getByRole("button", { name: "添加 agent" }));
+		expect(await screen.findByText(/安装只需约 2MB 适配器/)).toBeInTheDocument();
+		expect(screen.getByText(/已检测到：ChatGPT App 0\.163\.0/)).toBeInTheDocument();
+
+		fireEvent.click(await screen.findByRole("button", { name: "安装 Codex 支持" }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("agent.install"));
+		await ws.reply("agent.install", "agent.install.started", { started: true });
+		act(() => ws.push({ method: "agent.done", params: { kind: "codex", ok: true, version: "2.2.2", reused: true } }));
+		act(() =>
+			ws.push({
+				method: "status",
+				params: status("ready", [
+					{ kind: "omp", present: true },
+					{ kind: "codex", present: true, sources: [{ source: "chatgpt-app", version: "0.163.0" }] },
+				]),
+			}),
+		);
+		expect(screen.getByText(/已复用你已有的 Codex/)).toBeInTheDocument();
+	});
 
 	it("没有 agent + 声明能力：未配对先给「连接」；配对后才有安装按钮，点击发请求、装完入口消失", async () => {
 		window.localStorage.clear(); // 隔离前序用例留下的浏览器密钥（有它就会先走 hello，停在 checking）

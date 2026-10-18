@@ -4257,7 +4257,12 @@
       "installFailedTimeout": "The install timed out. Check your connection and try again.",
       "installFailedVersion": "The installed version does not match. Please try again.",
       "installFailedUnsupported": "This Host cannot install from the page. Use the manual command below.",
-      "codexInstallManual": "Or install it yourself (run once in a terminal):"
+      "codexInstallManual": "Or install it yourself (run once in a terminal):",
+      "installHintReuse": "Found {name}{version}: the install only needs a ~2 MB adapter and reuses its sign-in and model settings.",
+      "sourceChatgptApp": "ChatGPT App",
+      "sourceCodexCli": "Codex CLI",
+      "sourcesDetected": "Detected: {list}",
+      "installReused": "Reused your existing Codex — only the ~2 MB adapter was downloaded."
     },
     "login": {
       "title": "{name} needs you to sign in first.",

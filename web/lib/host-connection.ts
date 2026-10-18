@@ -44,6 +44,8 @@ export interface HostAgentStatus {
 	kind: string;
 	present: boolean;
 	envError?: string;
+	/** 可复用来源（目前只有 Codex 上报）：managed / codex-acp / chatgpt-app / codex-cli；只读，不改路由 */
+	sources?: { source: string; version: string | null }[];
 }
 
 export type HostConnection =

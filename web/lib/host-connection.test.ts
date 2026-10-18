@@ -221,6 +221,20 @@ describe("checkHost（页面加载即可调用；未授权时不发本机请求�
 		});
 		expect(await checkHost()).toMatchObject({ state: "detected", capabilities: ["agent.install"] });
 	});
+
+	it("Host 上报的 Codex sources 原样带回（#1154：ChatGPT App / 命令行 codex）", async () => {
+		stubBrowser({
+			health: {
+				version: MIN_HOST_VERSION,
+				agents: [{ kind: "codex", present: false, sources: [{ source: "chatgpt-app", version: "0.163.0" }] }],
+				paired: true,
+			},
+		});
+		expect(await checkHost()).toMatchObject({
+			state: "detected",
+			agents: [{ kind: "codex", present: false, sources: [{ source: "chatgpt-app", version: "0.163.0" }] }],
+		});
+	});
 });
 
 describe("桌面 Firefox（无 UA Client Hints、无浏览器级回环权限模型）", () => {

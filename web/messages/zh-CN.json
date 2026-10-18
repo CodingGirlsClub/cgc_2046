@@ -4257,7 +4257,12 @@
       "installFailedTimeout": "安装超时了，检查网络后再试一次。",
       "installFailedVersion": "装上的版本和预期不一致，请再试一次。",
       "installFailedUnsupported": "这个 Host 不支持在页面里安装，请用下面的手动命令。",
-      "codexInstallManual": "也可以自己装（在终端执行一次）："
+      "codexInstallManual": "也可以自己装（在终端执行一次）：",
+      "installHintReuse": "检测到你已安装 {name}{version}：安装只需约 2MB 适配器，会复用它的登录与模型设置。",
+      "sourceChatgptApp": "ChatGPT App",
+      "sourceCodexCli": "命令行 Codex",
+      "sourcesDetected": "已检测到：{list}",
+      "installReused": "已复用你已有的 Codex，只下载了约 2MB 适配器。"
     },
     "login": {
       "title": "{name} 需要先登录。",
