@@ -1100,19 +1100,23 @@ describe("多 agent 的评审修复（M1 / M2 / M4）", () => {
 		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
 	});
 
-	it("M4：没有可点的登录方式时给页面外登录说明与重试，不留死卡", async () => {
+	it("M4：Codex 没有可点的登录方式时给页面外登录说明与重试，不留死卡", async () => {
 		window.localStorage.setItem(`cgc-host-agent:${COURSE}`, "codex");
-		checkHost.mockResolvedValue(both);
+		const agents = [
+			{ kind: "omp", present: true },
+			{ kind: "codex", present: true },
+		];
+		checkHost.mockResolvedValue({ ...both, agents });
 		renderPanel();
 		await waitFor(() => expect(socketCount()).toBeGreaterThan(0));
 		const ws = FakeWebSocket.all.at(-1)!;
-		ws.push({ method: "status", params: status("paired") });
+		ws.push({ method: "status", params: status("paired", agents) });
 		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
-		await ws.reply("hello", "status", status("ready"));
-		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
+		await ws.reply("hello", "status", status("ready", agents));
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.attach", params: { agent: "codex" } }));
 		await ws.reply("chat.attach", "error", { code: "auth_required", methods: [{ id: "api-key", name: "API Key" }] });
 
-		expect(await screen.findByText(/OMP 只提供页面外登录/)).toBeInTheDocument();
+		expect(await screen.findByText(/只提供页面外的登录方式/)).toBeInTheDocument();
 		expect(screen.queryByRole("button", { name: "用 ChatGPT 登录" })).toBeNull();
 
 		fireEvent.click(screen.getByRole("button", { name: "重试" }));

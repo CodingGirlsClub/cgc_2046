@@ -29,8 +29,9 @@ export function codexLocation(home: string, env: Record<string, string>, envErro
     // 它没了就让 present=false，页面重新给安装入口（下次安装探针失败会自动回退 full）。
     const engine = reuseEnginePath(hits);
     if (!engine) return { path: null, env, envError, sources };
-    env.CODEX_PATH = engine;
-    return { path: managed, env, envError, sources };
+    // 不能原地改 env：Windows 的登录环境解析直接返回 process.env，写进去会污染整个 Host 进程，
+    // 之后换成 full 安装仍带着旧 CODEX_PATH，适配器会继续启动已失效的 engine。
+    return { path: managed, env: { ...env, CODEX_PATH: engine }, envError, sources };
   }
   return { path: pickCodexAcp(home, env.PATH), env, envError, sources };
 }

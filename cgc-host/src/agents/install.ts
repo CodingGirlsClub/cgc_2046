@@ -65,6 +65,8 @@ export interface InstallOptions {
   timeoutMs?: number;
   /** 可复用的 Codex engine（ChatGPT App 内置 / PATH codex）：给了就先试 reuse，失败回退 full */
   reuseEngine?: string;
+  /** 解析出的登录 shell 环境：探针要和实际启动用同一份 PATH，否则 npm 安装的 codex 在 launchd 下会误判不兼容 */
+  reuseEnv?: Record<string, string>;
   /** 测试注入：reuse 变体的 ACP initialize 探针；缺省 probeCodexAcp */
   probe?(entry: string, codexPath: string): Promise<boolean>;
 }
@@ -75,6 +77,11 @@ export interface InstalledAgent {
 }
 
 let inflight: Promise<InstalledAgent> | null = null;
+
+/** 探针要和实际启动用同一份环境：登录 shell 解析出的 PATH 常是 npm 安装的 codex 唯一能找到 node 的地方 */
+function runProbe(opts: InstallOptions, entry: string, engine: string): Promise<boolean> {
+  return opts.probe ? opts.probe(entry, engine) : probeCodexAcp(entry, engine, undefined, opts.reuseEnv);
+}
 
 /** 安装 Codex 适配器；正在装时再调一次拿同一个结果（single-flight），装完返回版本与变体 */
 export function installCodexAcp(opts: InstallOptions): Promise<InstalledAgent> {
@@ -90,7 +97,7 @@ export function installCodexAcp(opts: InstallOptions): Promise<InstalledAgent> {
     if (managed && reuseManaged && opts.reuseEngine) {
       let compatible = false;
       try {
-        compatible = await (opts.probe ?? probeCodexAcp)(managed, opts.reuseEngine);
+        compatible = await runProbe(opts, managed, opts.reuseEngine);
       } catch {
         compatible = false; // 探针本身失败也按不兼容处理，走重装
       }
@@ -199,9 +206,15 @@ async function readUntilId(stream: ReadableStream<Uint8Array>, id: number): Prom
  * 复用变体的兼容性探针：用刚装好的适配器 + 学员已有的 engine 做一次 ACP `initialize`。
  * 只握手、不建会话、不发 prompt（不消耗模型额度）；失败由调用方回退 full。
  */
-export async function probeCodexAcp(entry: string, codexPath: string, timeoutMs = 10_000): Promise<boolean> {
+export async function probeCodexAcp(
+  entry: string,
+  codexPath: string,
+  timeoutMs = 10_000,
+  extraEnv?: Record<string, string>,
+): Promise<boolean> {
   const proc = Bun.spawn([process.execPath, entry], {
-    env: { ...process.env, CODEX_PATH: codexPath },
+    // 与实际启动同一份环境（登录 shell 的 PATH），再覆盖 CODEX_PATH；否则 launchd 下会误判 CLI 不兼容
+    env: { ...process.env, ...extraEnv, CODEX_PATH: codexPath },
     stdin: "pipe",
     stdout: "pipe",
     stderr: "ignore",
@@ -293,8 +306,7 @@ async function runInstall(opts: InstallOptions, variant: InstallVariant, reuseEn
     if (variant === "reuse") {
       const entry = entryIn(tmp);
       if (!entry) throw new InstallError("install_failed", "复用安装缺少适配器入口");
-      const probe = opts.probe ?? probeCodexAcp;
-      if (!(await probe(entry, reuseEngine ?? ""))) throw new InstallError("install_failed", "复用探针未通过");
+      if (!(await runProbe(opts, entry, reuseEngine ?? ""))) throw new InstallError("install_failed", "复用探针未通过");
     }
     swap(tmp, codexAgentDir(opts.home), root);
     return { version, variant };

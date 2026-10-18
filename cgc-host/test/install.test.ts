@@ -215,9 +215,11 @@ describe("reuse 变体（#1154）", () => {
 		await installCodexAcp({ home, run: fakeInstaller(), reuseEngine: engine, probe: async () => true });
 		const hits = [{ source: "chatgpt-app" as const, path: engine, version: "0.163.0" }];
 
-		const withEngine = codexLocation(home, { PATH: "" }, null, hits);
+		const shellEnv = { PATH: "" };
+		const withEngine = codexLocation(home, shellEnv, null, hits);
 		expect(withEngine.path).toBe(managedCodex(home));
 		expect(withEngine.env.CODEX_PATH).toBe(engine);
+		expect(shellEnv).not.toHaveProperty("CODEX_PATH"); // 不能污染传入的共享环境（Windows 上就是 process.env）
 		expect(withEngine.sources).toEqual([{ source: "chatgpt-app", version: "0.163.0" }]);
 
 		const withoutEngine = codexLocation(home, { PATH: "" }, null, []);
@@ -330,5 +332,14 @@ describe("reuse 变体（#1154）", () => {
 		const silent = join(dir, "silent.js");
 		writeFileSync(silent, `setTimeout(() => process.exit(0), 1500);`);
 		expect(await probeCodexAcp(silent, engine, 300)).toBe(false);
+
+		// 探针要拿到登录 shell 环境：launchd 下 PATH 里没有 node 时，npm 安装的 codex 会启动失败
+		const envOnly = join(dir, "env.js");
+		writeFileSync(
+			envOnly,
+			`process.stdin.once("data", () => { if (process.env.CGC_PROBE_TEST !== "yes") { setTimeout(() => process.exit(2), 20); return; } process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: 1, result: {} }) + "\\n"); setTimeout(() => process.exit(0), 20); });`,
+		);
+		expect(await probeCodexAcp(envOnly, engine, 3000)).toBe(false);
+		expect(await probeCodexAcp(envOnly, engine, 3000, { CGC_PROBE_TEST: "yes" })).toBe(true);
 	});
 });

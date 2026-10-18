@@ -84,6 +84,20 @@ describe("学习搭子抽屉（课程页默认收起）", () => {
 		expect(last).toHaveFocus();
 	});
 
+	it("焦点被 disabled 按钮丢到 body 后，Tab/Shift+Tab 仍被拉回面板", () => {
+		render(<LearningMate {...props} />);
+		fireEvent.click(screen.getByRole("button", { name: "问学习搭子" }));
+		(document.activeElement as HTMLElement | null)?.blur();
+		expect(document.activeElement).toBe(document.body);
+
+		fireEvent.keyDown(document, { key: "Tab" });
+		expect(screen.getByRole("button", { name: "stub-close" })).toHaveFocus();
+
+		(document.activeElement as HTMLElement | null)?.blur();
+		fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+		expect(screen.getByRole("button", { name: "stub-pin" })).toHaveFocus();
+	});
+
 	it("收起后面板保持挂载：重开不重建连接（隐藏而不是卸载）", () => {
 		render(<LearningMate {...props} />);
 		fireEvent.click(screen.getByRole("button", { name: "问学习搭子" }));

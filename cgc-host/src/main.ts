@@ -39,7 +39,7 @@ try {
       // 有可复用的 Codex engine（ChatGPT App 内置 / PATH codex）就先试 reuse：只装约 2MB 适配器；
       // 探针失败时 installCodexAcp 内部回退 full，这里不用再判断。
       const reuse = await findReuseCodexEngine(home);
-      return installCodexAcp({ home, onPhase: progress, reuseEngine: reuse?.path });
+      return installCodexAcp({ home, onPhase: progress, reuseEngine: reuse?.path, reuseEnv: reuse?.env });
     },
     refresh: (kind) => registry.refresh(kind),
     chat: chat.handle,

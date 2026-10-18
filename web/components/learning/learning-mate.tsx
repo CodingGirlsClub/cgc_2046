@@ -4,7 +4,7 @@
 // 课程页默认只留一个「问学习搭子」按钮；点开后抽屉里才挂载对话面板——不打开就不探测 Host、不建连接。
 // 首次打开后保持挂载，收起只是隐藏：重开不重建连接，正在进行的回合不会因为关抽屉被切断。
 // 桌面是右侧覆盖式抽屉（不挤压正文），手机上变成底部抽屉；Esc / 点遮罩 / 关闭按钮都能收起。
-// 宽屏可「固定到右侧」：固定时页面让出右栏（并排阅读），不再锁页面滚动、不显示遮罩；固定偏好按课程记在本地。
+// 宽屏可「固定到右侧」：固定时页面让出右栏（并排阅读），不再锁页面滚动、不显示遮罩；固定只在本次打开有效，窄屏不提供。
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslations } from "next-intl";
 import HostChatPanel from "./host-chat-panel";
@@ -22,6 +22,12 @@ function trapTab(event: KeyboardEvent, container: HTMLElement): void {
 	const first = focusables[0];
 	const last = focusables[focusables.length - 1];
 	const active = document.activeElement;
+	// 发送/停止按钮变 disabled 时浏览器会把焦点退回 body：此时也要把 Tab 拉回面板
+	if (!container.contains(active) || active === container) {
+		event.preventDefault();
+		(event.shiftKey ? last : first).focus();
+		return;
+	}
 	if (event.shiftKey && (active === first || active === container)) {
 		event.preventDefault();
 		last.focus();

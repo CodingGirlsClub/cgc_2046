@@ -98,9 +98,11 @@ export function reuseEnginePath(hits: readonly CodexSourceHit[]): string | null 
  * 安装前解析可复用的 engine（登录 shell 的 PATH，与 Host 启动 agent 用同一份环境）。
  * 只用于「要不要走 reuse 变体」；真正启动时 codex.ts 会重新探测，engine 消失就让 present=false。
  */
-export async function findReuseCodexEngine(home: string): Promise<{ path: string; source: CodexSource } | null> {
+export async function findReuseCodexEngine(
+  home: string,
+): Promise<{ path: string; source: CodexSource; env: Record<string, string> } | null> {
   const { env } = await resolveLoginShellEnv();
   const hits = detectCodexSources(home, env.PATH);
   const hit = hits.find((entry) => entry.source === "chatgpt-app") ?? hits.find((entry) => entry.source === "codex-cli");
-  return hit ? { path: hit.path, source: hit.source } : null;
+  return hit ? { path: hit.path, source: hit.source, env } : null;
 }
