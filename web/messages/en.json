@@ -4129,6 +4129,8 @@
     "title": "Learning Mate",
     "mateOpen": "Ask Learning Mate",
     "mateClose": "Close Learning Mate",
+    "matePin": "Pin to the right",
+    "mateUnpin": "Unpin",
     "computers": "Paired computers",
     "history": {
       "title": "History",

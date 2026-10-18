@@ -3627,6 +3627,15 @@ button:focus-visible,
 .learning-mate__panel .learning-chat { position: static; grid-column: auto; grid-row: auto; height: 100%; min-height: 0; border: 0; border-radius: 0; }
 .learning-chat__close { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--ink-3); font: inherit; font-size: 16px; line-height: 1; cursor: pointer; }
 .learning-chat__close:hover { background: var(--soft); color: var(--ink); }
+/* 固定到右侧：宽屏并排阅读，课程页让出与抽屉等宽的右栏；窄屏不提供固定 */
+@media (min-width: 1100px) {
+  .learning-mate--pinned .learning-mate__panel { right: 12px; width: 380px; }
+  body.learning-mate-docked .learning-course-page { padding-right: 404px; }
+  .learning-course-page { transition: padding-right 180ms ease; }
+}
+@media (max-width: 1099px) {
+  .learning-chat__pin { display: none; }
+}
 @media (max-width: 720px) {
   .learning-mate__launcher { right: 16px; left: 16px; justify-content: center; bottom: calc(16px + env(safe-area-inset-bottom)); }
   .learning-mate__panel { top: auto; right: 0; bottom: 0; left: 0; width: 100%; height: min(86dvh, 720px); border-right: 0; border-bottom: 0; border-left: 0; border-radius: 16px 16px 0 0; }

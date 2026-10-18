@@ -629,6 +629,9 @@ export default function HostChatPanel(props: {
 	unitId: string | null;
 	/** 从抽屉关闭时传入：头部出现关闭按钮（直接渲染面板的旧布局不传） */
 	onClose?(): void;
+	/** 固定到右侧（宽屏并排阅读）：只在抽屉里传 */
+	pinned?: boolean;
+	onTogglePin?(): void;
 }) {
 	const t = useTranslations("hostChat");
 	const chat = useHostChat(props);
@@ -649,6 +652,16 @@ export default function HostChatPanel(props: {
 							onClick={chat.newChat}
 						>
 							{t("newChat")}
+						</button>
+					) : null}
+					{props.onTogglePin ? (
+						<button
+							type="button"
+							className="learning-chat__text-button learning-chat__pin"
+							aria-pressed={props.pinned === true}
+							onClick={props.onTogglePin}
+						>
+							{props.pinned ? t("mateUnpin") : t("matePin")}
 						</button>
 					) : null}
 					<button

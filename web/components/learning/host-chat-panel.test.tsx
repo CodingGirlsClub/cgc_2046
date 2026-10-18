@@ -102,10 +102,10 @@ const status = (
 	protocolVersion: 1,
 });
 
-function renderPanel(locale: "zh-CN" | "en" = "zh-CN") {
+function renderPanel(locale: "zh-CN" | "en" = "zh-CN", extra: Partial<Parameters<typeof HostChatPanel>[0]> = {}) {
 	return render(
 		<MockedProvider mocks={[]}>
-			<HostChatPanel courseId={COURSE} userId={USER} locale={locale} workspaceId={WORKSPACE} courseVersion={3} unitId={null} />
+			<HostChatPanel courseId={COURSE} userId={USER} locale={locale} workspaceId={WORKSPACE} courseVersion={3} unitId={null} {...extra} />
 		</MockedProvider>,
 		{ locale },
 	);
@@ -523,7 +523,22 @@ describe("i18n", () => {
 			v && typeof v === "object" ? keys(v as Record<string, unknown>, `${prefix}${k}.`) : [`${prefix}${k}`],
 		);
 
-	it("hostChat 命名空间 zh-CN 与 en 的键集合一致", () => {
+	it("学习搭子头部：传入 onTogglePin 才出现固定/关闭按钮；pinned 决定文案与 aria-pressed", () => {
+	const toggle = vi.fn();
+	const first = renderPanel("zh-CN", { pinned: false, onTogglePin: toggle });
+	const pin = screen.getByRole("button", { name: "固定到右侧" });
+	expect(pin).toHaveAttribute("aria-pressed", "false");
+	expect(screen.queryByRole("button", { name: "关闭学习搭子" })).toBeNull();
+	fireEvent.click(pin);
+	expect(toggle).toHaveBeenCalledTimes(1);
+	first.unmount();
+
+	renderPanel("zh-CN", { pinned: true, onTogglePin: toggle, onClose: () => {} });
+	expect(screen.getByRole("button", { name: "取消固定" })).toHaveAttribute("aria-pressed", "true");
+	expect(screen.getByRole("button", { name: "关闭学习搭子" })).toBeInTheDocument();
+});
+
+it("hostChat 命名空间 zh-CN 与 en 的键集合一致", () => {
 		expect(keys(messages("en")).sort()).toEqual(keys(messages("zh-CN")).sort());
 	});
 

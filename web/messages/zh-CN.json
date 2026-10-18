@@ -4129,6 +4129,8 @@
     "title": "学习搭子",
     "mateOpen": "问学习搭子",
     "mateClose": "关闭学习搭子",
+    "matePin": "固定到右侧",
+    "mateUnpin": "取消固定",
     "computers": "已配对的电脑",
     "history": {
       "title": "历史对话",
