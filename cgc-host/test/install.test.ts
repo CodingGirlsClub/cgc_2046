@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { codexLocation, pickCodexAcp } from "../src/agents/codex";
+import { codexLocation, pickCodexAcp, verifyReuseLocation } from "../src/agents/codex";
 import {
   CODEX_ACP_VERSION,
   InstallError,
@@ -290,6 +290,21 @@ describe("reuse 变体（#1154）", () => {
 		expect(calls).toBe(1);
 		expect(installVariant(home)).toBe("full");
 		expect(leftovers(home)).toEqual([]);
+	});
+
+	test("运行期：reuse 的 engine 被替换成不兼容版本 → present=false，页面能重新给安装入口", async () => {
+		const home = tempHome();
+		await installCodexAcp({ home, run: fakeInstaller(), reuseEngine: engine, probe: async () => true });
+		const hits = [{ source: "chatgpt-app" as const, path: engine, version: "0.163.0" }];
+		const located = codexLocation(home, { PATH: "" }, null, hits);
+		expect(located.path).not.toBeNull();
+
+		const incompatible = await verifyReuseLocation(located, home, async () => false);
+		expect(incompatible.path).toBeNull(); // 不再只凭 engine 存在就报可用
+		expect(incompatible.sources).toEqual([{ source: "chatgpt-app", version: "0.163.0" }]);
+
+		const compatible = await verifyReuseLocation(located, home, async () => true);
+		expect(compatible.path).toBe(located.path);
 	});
 
 	test("probeCodexAcp：适配器回 initialize 即通过；不回则超时失败", async () => {

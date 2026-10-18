@@ -4288,7 +4288,8 @@
       "sourcesDetected": "Detected: {list}",
       "installReused": "Reused your existing Codex — only the ~2 MB adapter was downloaded.",
       "appFirstHint": "Recommended: install the ChatGPT App (it includes Codex), then click Check again — it reuses the app's sign-in and model settings and only needs a ~2 MB adapter.",
-      "appDownload": "Download the ChatGPT App"
+      "appDownload": "Download the ChatGPT App",
+      "reuseFallbackNote": "If the app's Codex version is incompatible, it falls back to the full install (~337 MB)."
     },
     "login": {
       "title": "{name} needs you to sign in first.",

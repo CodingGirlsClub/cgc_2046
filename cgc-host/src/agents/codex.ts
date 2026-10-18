@@ -6,7 +6,7 @@ import { realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { spawnCodexAcp, STARTUP_PROMPT } from "../acp/client";
 import { resolveLoginShellEnv, type EnvError } from "../shell-env";
-import { managedCodex, installVariant } from "./install";
+import { managedCodex, installVariant, probeCodexAcp } from "./install";
 import { agentLocator, type AgentLocation, type AgentRecord, type Locator } from "./registry";
 import { detectCodexSources, reuseEnginePath, type CodexSourceHit } from "./sources";
 
@@ -35,9 +35,28 @@ export function codexLocation(home: string, env: Record<string, string>, envErro
   return { path: pickCodexAcp(home, env.PATH), env, envError, sources };
 }
 
+/**
+ * reuse 变体在运行期也要确认 engine 仍然兼容：engine 被替换/升级成不兼容版本时，
+ * 不能只凭「文件存在」就 present=true——否则页面藏起安装入口，每次对话都失败。
+ * 探针失败就把 path 置空（页面重新给安装入口；点安装会重新探针并回退 full）。
+ */
+export async function verifyReuseLocation(
+  location: AgentLocation,
+  home: string,
+  probe: (entry: string, codexPath: string) => Promise<boolean> = probeCodexAcp,
+): Promise<AgentLocation> {
+  if (!location.path || installVariant(home) !== "reuse" || !location.env.CODEX_PATH) return location;
+  try {
+    if (await probe(location.path, location.env.CODEX_PATH)) return location;
+  } catch {
+    // 探针自身异常也按不兼容处理
+  }
+  return { ...location, path: null };
+}
+
 export async function resolveCodexAcp(home: string, shell?: string, timeoutMs?: number): Promise<AgentLocation> {
   const { env, envError } = await resolveLoginShellEnv(shell, timeoutMs);
-  return codexLocation(home, env, envError, detectCodexSources(home, env.PATH));
+  return verifyReuseLocation(codexLocation(home, env, envError, detectCodexSources(home, env.PATH)), home);
 }
 
 /**

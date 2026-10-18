@@ -1152,6 +1152,7 @@ describe("一键安装（期 2 / #1149）", () => {
 
 		await screen.findByText("还差一个搭子引擎");
 		expect(screen.getByText(/检测到你已安装 ChatGPT App 0\.163\.0/)).toBeInTheDocument();
+		expect(screen.getByText(/若 App 里的 Codex 版本不兼容，会自动改为完整安装/)).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "安装 Codex 支持（约 2MB）" })).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "我已装好 OMP，重新检测" })).toBeInTheDocument();
 	});
@@ -1168,6 +1169,8 @@ describe("一键安装（期 2 / #1149）", () => {
 		fireEvent.click(screen.getByRole("button", { name: "添加 agent" }));
 		expect(await screen.findByText(/安装只需约 2MB 适配器/)).toBeInTheDocument();
 		expect(screen.getByText(/已检测到：ChatGPT App 0\.163\.0/)).toBeInTheDocument();
+		// 复用可能回退完整安装：必须在开始前披露体积，不能静默下 337MB
+		expect(screen.getByText(/若 App 里的 Codex 版本不兼容，会自动改为完整安装/)).toBeInTheDocument();
 
 		fireEvent.click(await screen.findByRole("button", { name: "安装 Codex 支持" }));
 		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("agent.install"));

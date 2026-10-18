@@ -140,6 +140,7 @@ function AgentInstall({ chat }: { chat: HostChat }) {
 								? t("installHintReuse", { name: reuseName, version: reuseVersion })
 								: t("installHint")}
 					</p>
+					{reuseSource && !installing ? <p className="learning-chat__note">{t("reuseFallbackNote")}</p> : null}
 					{failure ? (
 						<p className="learning-chat__note" role="alert">
 							{t(INSTALL_ERROR_KEYS[failure] ?? "installFailed")}
@@ -209,6 +210,7 @@ function EngineChoices({ chat }: { chat: HostChat }) {
 						<p className="learning-chat__hint">
 							{reuseSource ? t("codexReuseBody", { name: reuseName, version: reuseVersion }) : t("codexNoAppBody")}
 						</p>
+						{reuseSource ? <p className="learning-chat__note">{tAgent("reuseFallbackNote")}</p> : null}
 						{reuseSource ? null : (
 							<a className="learning-chat__option" href="https://chatgpt.com/download" target="_blank" rel="noreferrer">
 								{t("appDownload")}

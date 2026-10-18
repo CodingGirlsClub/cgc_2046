@@ -4288,7 +4288,8 @@
       "sourcesDetected": "已检测到：{list}",
       "installReused": "已复用你已有的 Codex，只下载了约 2MB 适配器。",
       "appFirstHint": "推荐先安装 ChatGPT App（含 Codex）：装好后点「重新检测」，会复用 App 的登录与模型设置，只需装约 2MB 适配器。",
-      "appDownload": "下载 ChatGPT App"
+      "appDownload": "下载 ChatGPT App",
+      "reuseFallbackNote": "若 App 里的 Codex 版本不兼容，会自动改为完整安装（约 337MB）。"
     },
     "login": {
       "title": "{name} 需要先登录。",
