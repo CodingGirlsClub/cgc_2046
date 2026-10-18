@@ -5,10 +5,10 @@ import { MIN_HOST_VERSION, compareHostVersions } from "./host-version";
  * 课程学习页 ↔ 本机 Host 的连接检测（R26、R28；KTD4、KTD10、KTD15；ADR-0022）。
  *
  * 只产出 R26 的状态，不带文案：文案由对话栏（U10）用自己的 i18n 命名空间给出。
- * 两个入口，区别只在「未授权时发不发本机请求」：
- * - checkHost()：页面加载、自动重连时调用。本机访问未授权且没有本页成功探测证据时只回报状态，不发请求。
- * - requestHostAccess()：只从点击处理器调用。第一次本机请求必须由用户手势发起，
- *   浏览器的本机访问授权提示由这次请求触发。
+ * 两个入口，区别只在「有没有用户手势可用」：
+ * - checkHost()：页面加载、自动重连时调用。权限被明确拒绝时只回报 blocked；prompt / unknown 时先静默探测一次
+ *   ——浏览器不放行时请求会被浏览器自己拦掉（不会发出去），失败再按权限状态给「需要授权」。
+ * - requestHostAccess()：只从点击处理器调用；有用户手势，浏览器的本机访问授权提示在这里触发。
  */
 
 declare global {
@@ -123,10 +123,12 @@ async function detect(fromUserGesture: boolean, previouslyReachedHost = false): 
 		return probed ?? { state: "noHost" };
 	}
 
+	// 只有明确 denied 才提前判 blocked。prompt / unknown 不等于「请求会被拦」：Chrome 154/155 实测
+	// （localhost 页面 → 127.0.0.1）权限查询报 prompt，而无手势 fetch 直接 200。先探测一次：
+	// 浏览器真的不放行时，请求由浏览器拦掉（不会发出去），失败后仍按权限状态给「需要授权」。
 	if (!fromUserGesture) {
 		const permission = await loopbackPermission();
 		if (permission === "denied") return { state: "blocked" };
-		if (permission !== "granted" && !previouslyReachedHost) return { state: "needsPermission" };
 	}
 
 	const probed = await probe();
