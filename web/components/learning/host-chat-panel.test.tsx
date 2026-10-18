@@ -187,7 +187,7 @@ describe("连接状态（R26）", () => {
 		["Covers AE12：Host 需要更新", { state: "staleHost" }, INSTALL],
 		["浏览器阻止访问本机", { state: "blocked" }, "浏览器阻止了本页访问本机。"],
 		["不受支持的浏览器", { state: "unsupported", reason: "browser" }, "对话栏支持 macOS、Windows 与 Ubuntu 桌面上的 Chrome，以及桌面版 Firefox。"],
-		["本机没有可用的 agent", { state: "detected", agents: [{ kind: "omp", present: false }], paired: false, capabilities: [] }, "这台电脑上还没有可用的 agent。"],
+		["本机没有可用的 agent", { state: "detected", agents: [{ kind: "omp", present: false }], paired: false, capabilities: [] }, "还差一个搭子引擎"],
 	])("%s：给出说明与下一步", async (_, probe, text) => {
 		checkHost.mockResolvedValue(probe);
 		renderPanel();
@@ -932,13 +932,18 @@ describe("多 agent（#1148）", () => {
 
 	it("Covers R6：需要登录时只给 ChatGPT 登录（api-key 要密钥收集契约，首期不做）；成功后登录卡消失", async () => {
 		window.localStorage.setItem(`cgc-host-agent:${COURSE}`, "codex");
+		const agents = [
+			{ kind: "omp", present: true },
+			{ kind: "codex", present: true },
+		];
+		checkHost.mockResolvedValue({ state: "detected", agents, paired: true, capabilities: [] });
 		renderPanel();
 		// attach 就撞上「要求先登录」：Host 回 auth_required（带它播报的登录方式）
 		await waitFor(() => expect(socketCount()).toBeGreaterThan(0));
 		const ws = FakeWebSocket.all.at(-1)!;
-		ws.push({ method: "status", params: status("paired") });
+		ws.push({ method: "status", params: status("paired", agents) });
 		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
-		await ws.reply("hello", "status", status("ready"));
+		await ws.reply("hello", "status", status("ready", agents));
 		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
 		await ws.reply("chat.attach", "error", {
 			code: "auth_required",
@@ -1004,8 +1009,11 @@ describe("多 agent 的评审修复（M1 / M2 / M4）", () => {
 		});
 		renderPanel();
 
-		await screen.findByText("这台电脑上还没有可用的 agent。");
-		expect(screen.getByText(/安装 OMP/)).toBeInTheDocument();
+		await screen.findByText("还差一个搭子引擎");
+		// OMP 卡（默认推荐）与 Codex 卡并列；旧 Host 不支持页面安装时给手动命令
+		expect(screen.getByText("OMP")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "我已装好 OMP，重新检测" })).toBeInTheDocument();
+		expect(screen.getByText(/这个 Host 不支持在页面里安装/)).toBeInTheDocument();
 		expect(screen.getByText("bun add -g @agentclientprotocol/codex-acp")).toBeInTheDocument();
 	});
 
@@ -1022,6 +1030,22 @@ describe("多 agent 的评审修复（M1 / M2 / M4）", () => {
 		expect(screen.getByRole("menuitemradio", { name: "Codex" })).toBeDisabled();
 	});
 
+	it("#1155：OMP 需要登录时给终端登录说明与重试，不出现 ChatGPT 登录按钮", async () => {
+		renderPanel(); // DETECTED：只有 OMP 可用，默认就是 OMP
+		await waitFor(() => expect(socketCount()).toBeGreaterThan(0));
+		const ws = FakeWebSocket.all.at(-1)!;
+		ws.push({ method: "status", params: status("paired") });
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
+		await ws.reply("hello", "status", status("ready"));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
+		await ws.reply("chat.attach", "error", { code: "auth_required", methods: [{ id: "api-key", name: "API Key" }] });
+
+		expect(await screen.findByText(/OMP 只提供页面外登录/)).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "用 ChatGPT 登录" })).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "重试" }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
+	});
+
 	it("M4：没有可点的登录方式时给页面外登录说明与重试，不留死卡", async () => {
 		window.localStorage.setItem(`cgc-host-agent:${COURSE}`, "codex");
 		checkHost.mockResolvedValue(both);
@@ -1034,7 +1058,7 @@ describe("多 agent 的评审修复（M1 / M2 / M4）", () => {
 		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
 		await ws.reply("chat.attach", "error", { code: "auth_required", methods: [{ id: "api-key", name: "API Key" }] });
 
-		expect(await screen.findByText(/只提供页面外的登录方式/)).toBeInTheDocument();
+		expect(await screen.findByText(/OMP 只提供页面外登录/)).toBeInTheDocument();
 		expect(screen.queryByRole("button", { name: "用 ChatGPT 登录" })).toBeNull();
 
 		fireEvent.click(screen.getByRole("button", { name: "重试" }));
@@ -1057,6 +1081,26 @@ describe("一键安装（期 2 / #1149）", () => {
 		{ kind: "omp", present: true },
 		{ kind: "codex", present: false },
 	];
+
+	it("没装引擎但检测到 ChatGPT App：Codex 卡置顶说明约 2MB，OMP 卡并列", async () => {
+		const agents = [
+			{ kind: "omp", present: false },
+			{ kind: "codex", present: false, sources: [{ source: "chatgpt-app", version: "0.163.0" }] },
+		];
+		checkHost.mockResolvedValue({ state: "detected", agents, paired: false, capabilities: ["agent.install"] });
+		renderPanel();
+		// 声明了安装能力：即使一个 agent 都没有也开连接，装完的 entry 要回推 status
+		await waitFor(() => expect(socketCount()).toBeGreaterThan(0));
+		const ws = FakeWebSocket.all.at(-1)!;
+		ws.push({ method: "status", params: status("paired", agents) });
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
+		await ws.reply("hello", "status", status("ready", agents));
+
+		await screen.findByText("还差一个搭子引擎");
+		expect(screen.getByText(/检测到你已安装 ChatGPT App 0\.163\.0/)).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "安装 Codex 支持（约 2MB）" })).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "我已装好 OMP，重新检测" })).toBeInTheDocument();
+	});
 
 	it("检测到可复用来源：提示约 2MB 并显示来源/版本；装完（reused）显示已复用", async () => {
 		const agentsWithApp = [
@@ -1122,11 +1166,11 @@ describe("一键安装（期 2 / #1149）", () => {
 
 		// 配对完成：没有 agent → 安装入口
 		act(() => ws.push({ method: "status", params: status("ready", [{ kind: "omp", present: false }, { kind: "codex", present: false }]) }));
-		fireEvent.click(await screen.findByRole("button", { name: "安装 Codex 支持" }));
+		fireEvent.click(await screen.findByRole("button", { name: "安装完整 Codex（约 337MB）" }));
 		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "agent.install", params: { kind: "codex" } }));
 		await ws.reply("agent.install", "agent.install.started", { started: true });
 		act(() => ws.push({ method: "agent.install.progress", params: { kind: "codex", phase: "installing" } }));
-		expect(await screen.findByRole("button", { name: "正在安装 Codex 支持…" })).toBeDisabled();
+		expect(await screen.findByRole("button", { name: "正在准备搭子…" })).toBeDisabled();
 
 		// 装完：Host 推 status（codex 已 present），入口消失
 		act(() =>
@@ -1139,7 +1183,7 @@ describe("一键安装（期 2 / #1149）", () => {
 			}),
 		);
 		act(() => ws.push({ method: "agent.done", params: { kind: "codex", ok: true, version: "2.2.2" } }));
-		await waitFor(() => expect(screen.queryByRole("button", { name: /安装 Codex 支持|正在安装/ })).toBeNull());
+		await waitFor(() => expect(screen.queryByRole("button", { name: /安装完整 Codex|正在准备搭子/ })).toBeNull());
 	});
 
 	it("安装失败：就地给出可重试的提示，按钮恢复可点", async () => {

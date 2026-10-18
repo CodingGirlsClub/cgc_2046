@@ -169,6 +169,74 @@ function AgentInstall({ chat }: { chat: HostChat }) {
 	);
 }
 
+
+/**
+ * 还差一个引擎（OMP / Codex 都没有）：两条路径并列。
+ * OMP 默认推荐（用的人多、装好后自动检测）；检测到 ChatGPT App / 命令行 Codex 时 Codex 卡置顶并说明约 2MB。
+ */
+function EngineChoices({ chat }: { chat: HostChat }) {
+	const t = useTranslations("hostChat.engine");
+	const tAgent = useTranslations("hostChat.agent");
+	const [checking, setChecking] = useState(false);
+	const codex = chat.agents.find((agent) => agent.kind === "codex");
+	const reuseSource = reuseSourceOf(codex);
+	const canInstall = codex && !codex.present && chat.capabilities.includes("agent.install");
+	const installing = chat.install === "installing";
+	const failure = chat.install && chat.install !== "installing" ? chat.install.error : null;
+	const reuseName = reuseSource ? tAgent(REUSE_SOURCE_KEYS[reuseSource.source] ?? "sourceCodexCli") : "";
+	const reuseVersion = reuseSource?.version ? ` ${reuseSource.version}` : "";
+	const recheck = () => {
+		setChecking(true);
+		void chat.refreshAgents().finally(() => setChecking(false));
+	};
+	return (
+		<div className="learning-chat__engines">
+			<div className="learning-chat__engine" data-engine="omp" data-recommended={reuseSource ? undefined : true}>
+				{reuseSource ? null : <span className="learning-chat__kicker">{t("recommended")}</span>}
+				<strong>{t("ompTitle")}</strong>
+				<p className="learning-chat__hint">{t("ompBody")}</p>
+				<button type="button" className="learning-chat__option" disabled={checking} onClick={recheck}>
+					{checking ? t("checking") : t("ompRecheck")}
+				</button>
+			</div>
+			<div className="learning-chat__engine" data-engine="codex" data-recommended={reuseSource ? true : undefined}>
+				{reuseSource ? <span className="learning-chat__kicker">{t("recommended")}</span> : null}
+				<strong>{t("codexTitle")}</strong>
+				{canInstall ? (
+					<>
+						<p className="learning-chat__hint">
+							{reuseSource ? t("codexReuseBody", { name: reuseName, version: reuseVersion }) : t("codexNoAppBody")}
+						</p>
+						{reuseSource ? null : (
+							<a className="learning-chat__option" href="https://chatgpt.com/download" target="_blank" rel="noreferrer">
+								{t("appDownload")}
+							</a>
+						)}
+						<button type="button" className="learning-chat__primary" disabled={installing} onClick={() => void chat.installAgent()}>
+							{installing ? t("installing") : reuseSource ? t("codexInstall") : t("codexFullInstall")}
+						</button>
+						{failure ? (
+							<p className="learning-chat__note" role="alert">
+								{tAgent(INSTALL_ERROR_KEYS[failure] ?? "installFailed")}
+							</p>
+						) : null}
+					</>
+				) : (
+					<>
+						<p className="learning-chat__hint">{t("codexManual")}</p>
+						<pre>
+							<code>{CODEX_ACP_INSTALL}</code>
+						</pre>
+						<button type="button" className="learning-chat__option" disabled={checking} onClick={recheck}>
+							{checking ? t("checking") : tAgent("recheck")}
+						</button>
+					</>
+				)}
+			</div>
+		</div>
+	);
+}
+
 /** R1、R2：装好 ≥2 个 agent 时给选择器；只有 1 个时是静态标签 +「添加 agent」；一个都没有时由 noAgent 视图接管 */
 function AgentPicker({ chat }: { chat: HostChat }) {
 	const t = useTranslations("hostChat.agent");
@@ -233,10 +301,11 @@ function HostChatLogin({ chat }: { chat: HostChat }) {
 	const [busy, setBusy] = useState(false);
 	const [failed, setFailed] = useState(false);
 	const chatgpt = chat.login?.find((method) => method.id === "chat-gpt");
+	const isCodex = chat.agent === "codex";
 	/** #1155：ChatGPT/Codex 桌面 App 已装时优先引导在 App 里登录（登录态与 ~/.codex 共享），网页 OAuth 只兜底 */
-	const appInstalled = chat.agents.some(
-		(agent) => agent.kind === "codex" && (agent.sources ?? []).some((entry) => entry.source === "chatgpt-app"),
-	);
+	const appInstalled =
+		isCodex &&
+		chat.agents.some((agent) => agent.kind === "codex" && (agent.sources ?? []).some((entry) => entry.source === "chatgpt-app"));
 	const browserLogin = () => {
 		if (!chatgpt) return;
 		setBusy(true);
@@ -261,20 +330,20 @@ function HostChatLogin({ chat }: { chat: HostChat }) {
 						</button>
 					) : null}
 				</>
-			) : chatgpt ? (
+			) : isCodex && chatgpt ? (
 				<button type="button" className="learning-chat__primary" disabled={busy} onClick={browserLogin}>
 					{t("chatgpt")}
 				</button>
 			) : (
-				// 页面拿不到可走完的登录方式（例如只播报 api-key）：给出页面外的做法，并允许重新接一次
+				// 页面拿不到可走完的登录方式（OMP 的登录在它自己的终端里；Codex 只播报 api-key 同理）：给出页面外做法
 				<>
-					<p className="learning-chat__note">{t("manual")}</p>
+					<p className="learning-chat__note">{isCodex ? t("manual") : t("manualOmp")}</p>
 					<button type="button" className="learning-chat__option" onClick={chat.reclaim}>
 						{t("retry")}
 					</button>
 				</>
 			)}
-			{!appInstalled && chatgpt ? <p className="learning-chat__hint">{t("hint")}</p> : null}
+			{!appInstalled && isCodex && chatgpt ? <p className="learning-chat__hint">{t("hint")}</p> : null}
 			{failed ? (
 				<p role="alert" className="learning-chat__note">
 					{t("failed")}
@@ -332,7 +401,7 @@ function StateMessage({ chat }: { chat: HostChat }) {
 		case "noAgent":
 			return (
 				<Notice title={t("noAgent")} hint={t("noAgentHint")}>
-					<AgentInstall chat={chat} />
+					<EngineChoices chat={chat} />
 				</Notice>
 			);
 		case "unpaired":

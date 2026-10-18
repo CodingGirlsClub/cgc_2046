@@ -4191,8 +4191,8 @@
       "disconnected": "与本机 Host 的连接中断了，Host 恢复后会自动重连。",
       "evicted": "这门课的对话已在别处（另一个标签页）打开。",
       "reclaim": "在这里继续",
-      "noAgent": "这台电脑上还没有可用的 agent。",
-      "noAgentHint": "推荐先安装 ChatGPT App（含 Codex）；装好 OMP 或 Codex 任一后，这里会自动重新检测。"
+      "noAgent": "还差一个搭子引擎",
+      "noAgentHint": "装好 OMP 或 Codex 任意一个就能开始；检测到 ChatGPT App 时，Codex 可以只装约 2MB。"
     },
     "pairingError": {
       "busy": "电脑上已有一个确认在等待处理，请稍后再试。",
@@ -4242,6 +4242,21 @@
       "copied": "已复制",
       "copyFailed": "复制失败，请手动选中命令复制。"
     },
+    "engine": {
+      "recommended": "推荐",
+      "ompTitle": "OMP",
+      "ompBody": "如果你已经在用 OMP：它会用你自己的登录；装好后点下面按钮，我会自动找到它。",
+      "ompRecheck": "我已装好 OMP，重新检测",
+      "checking": "正在检测…",
+      "codexTitle": "Codex",
+      "codexReuseBody": "检测到你已安装 {name}{version}：只需约 2MB 适配器，会复用它的登录与模型设置。",
+      "codexNoAppBody": "没检测到 ChatGPT App：可以先装 App（含 Codex）再回来，也可以直接装完整 Codex（约 337MB，兜底）。",
+      "appDownload": "下载 ChatGPT App",
+      "codexInstall": "安装 Codex 支持（约 2MB）",
+      "codexFullInstall": "安装完整 Codex（约 337MB）",
+      "codexManual": "这个 Host 不支持在页面里安装：在终端执行下面的命令，装好后点「重新检测」。",
+      "installing": "正在准备搭子…"
+    },
     "agent": {
       "label": "由 {name} 驱动",
       "switch": "切换 agent",
@@ -4279,7 +4294,8 @@
       "retry": "重试",
       "appHint": "在 ChatGPT App 里登录后回到这里；登录态会被复用，不需要在网页里再登一次。",
       "appRetry": "我已登录，重试",
-      "browserLogin": "改用浏览器登录"
+      "browserLogin": "改用浏览器登录",
+      "manualOmp": "OMP 只提供页面外登录：在终端完成 OMP 登录后回来点「重试」。"
     }
   }
 }

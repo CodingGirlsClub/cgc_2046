@@ -4191,8 +4191,8 @@
       "disconnected": "The connection to CGC Host was interrupted. It reconnects automatically once Host is back.",
       "evicted": "This course's conversation is open somewhere else (another tab).",
       "reclaim": "Continue here",
-      "noAgent": "No local agent is available on this computer yet.",
-      "noAgentHint": "We recommend installing the ChatGPT App (with Codex), or OMP; this panel re-checks automatically."
+      "noAgent": "One more piece: a learning engine",
+      "noAgentHint": "Install either OMP or Codex to start; if the ChatGPT App is detected, Codex only needs a ~2 MB adapter."
     },
     "pairingError": {
       "busy": "A confirmation is already waiting on your computer. Please try again shortly.",
@@ -4242,6 +4242,21 @@
       "copied": "Copied",
       "copyFailed": "Couldn't copy. Please select the command and copy it manually."
     },
+    "engine": {
+      "recommended": "Recommended",
+      "ompTitle": "OMP",
+      "ompBody": "Already using OMP? It uses your own sign-in; install it, then click below and I'll find it automatically.",
+      "ompRecheck": "I've installed OMP — check again",
+      "checking": "Checking…",
+      "codexTitle": "Codex",
+      "codexReuseBody": "Found {name}{version}: it only needs a ~2 MB adapter and reuses its sign-in and model settings.",
+      "codexNoAppBody": "ChatGPT App not found: install the app (which includes Codex) and come back, or install the full Codex (~337 MB) as a fallback.",
+      "appDownload": "Download the ChatGPT App",
+      "codexInstall": "Install Codex support (~2 MB)",
+      "codexFullInstall": "Install full Codex (~337 MB)",
+      "codexManual": "This Host can't install from the page: run the command below in a terminal, then check again.",
+      "installing": "Preparing your learning mate…"
+    },
     "agent": {
       "label": "Driven by {name}",
       "switch": "Switch agent",
@@ -4279,7 +4294,8 @@
       "retry": "Try again",
       "appHint": "Sign in inside the ChatGPT App, then come back here — the sign-in is reused, no web login needed.",
       "appRetry": "I've signed in — retry",
-      "browserLogin": "Sign in with the browser instead"
+      "browserLogin": "Sign in with the browser instead",
+      "manualOmp": "OMP signs in outside this page: complete the OMP sign-in in a terminal, then click Try again."
     }
   }
 }
