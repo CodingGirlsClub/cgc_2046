@@ -948,7 +948,7 @@ describe("多 agent（#1148）", () => {
 		await attach();
 		await screen.findByRole("textbox", { name: "发给 agent 的消息" });
 
-		expect(screen.getByText("由 OMP 驱动")).toBeInTheDocument();
+		expect(screen.getByText("OMP", { selector: ".learning-chat__agent-label" })).toBeInTheDocument();
 		expect(screen.queryByRole("menuitemradio")).toBeNull();
 		expect(screen.getByRole("button", { name: "添加 agent" })).toBeInTheDocument();
 	});

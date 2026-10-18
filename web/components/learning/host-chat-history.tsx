@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { formatDateTime } from "@/lib/format";
 import type { ChatErrorCode, HostChat } from "./use-host-chat";
+import { ClockIcon } from "./chat-icons";
 
 interface HistoryState {
 	rows: { sessionId: string; updatedAt: string | null; messageCount: number | null }[];
@@ -24,7 +25,7 @@ interface HistoryState {
 	error: ChatErrorCode | null;
 }
 
-export default function HostChatHistory({ chat }: { chat: HostChat }) {
+export default function HostChatHistory({ chat, compact = false }: { chat: HostChat; compact?: boolean }) {
 	const t = useTranslations("hostChat.history");
 	const tAgent = useTranslations("hostChat.agent");
 	const [open, setOpen] = useState(false);
@@ -89,8 +90,16 @@ export default function HostChatHistory({ chat }: { chat: HostChat }) {
 
 	return (
 		<>
-			<button ref={buttonRef} type="button" className="learning-chat__text-button" aria-expanded={open} onClick={toggle}>
-				{t("title")}
+			<button
+				ref={buttonRef}
+				type="button"
+				className={compact ? "learning-chat__icon-button" : "learning-chat__text-button"}
+				aria-label={t("title")}
+				title={t("title")}
+				aria-expanded={open}
+				onClick={toggle}
+			>
+				{compact ? <ClockIcon /> : t("title")}
 			</button>
 			{open ? (
 				<div ref={panelRef} className="learning-chat__history">

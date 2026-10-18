@@ -12,6 +12,7 @@ import { useTranslations } from "next-intl";
 import { copyText } from "@/lib/clipboard";
 import HostChatCard from "./host-chat-cards";
 import HostChatHistory from "./host-chat-history";
+import { CloseIcon, PinIcon, PlusIcon } from "./chat-icons";
 import HostPairingList from "./host-pairing-list";
 import { SafeMarkdown } from "./material-renderer";
 import { courseDir, type HostAgentStatus } from "@/lib/host-connection";
@@ -249,9 +250,16 @@ function AgentPicker({ chat }: { chat: HostChat }) {
 	if (present.length === 1) {
 		return (
 			<span className="learning-chat__agent">
-				<span className="learning-chat__agent-label">{label}</span>
-				<button type="button" className="learning-chat__text-button" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-					{t("add")}
+				<span className="learning-chat__agent-label">{agentName(current)}</span>
+				<button
+					type="button"
+					className="learning-chat__icon-button"
+					aria-label={t("add")}
+					title={t("add")}
+					aria-expanded={open}
+					onClick={() => setOpen((v) => !v)}
+				>
+					<PlusIcon />
 				</button>
 				{open ? (
 					<div className="learning-chat__agent-menu">
@@ -263,8 +271,16 @@ function AgentPicker({ chat }: { chat: HostChat }) {
 	}
 	return (
 		<span className="learning-chat__agent">
-			<button type="button" className="learning-chat__text-button" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-				{label}
+			<button
+				type="button"
+				className="learning-chat__agent-chip"
+				aria-label={label}
+				title={label}
+				aria-expanded={open}
+				onClick={() => setOpen((v) => !v)}
+			>
+				{agentName(current)}
+				<span aria-hidden>▾</span>
 			</button>
 			{open ? (
 				<div className="learning-chat__agent-menu" role="menu">
@@ -748,8 +764,15 @@ function MateMenu({
 
 	return (
 		<span className="learning-chat__menu" ref={rootRef}>
-			<button type="button" className="learning-chat__text-button" aria-label={t("more")} aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-				⋯
+			<button
+				type="button"
+				className="learning-chat__icon-button"
+				aria-label={t("more")}
+				title={t("more")}
+				aria-expanded={open}
+				onClick={() => setOpen((value) => !value)}
+			>
+				<span aria-hidden>⋯</span>
 			</button>
 			{open ? (
 				<div className="learning-chat__menu-panel" role="menu">
@@ -791,18 +814,33 @@ export default function HostChatPanel(props: {
 	return (
 		<aside className="learning-chat" aria-label={t("title")}>
 			<header className="learning-chat__head">
-				<h2>{t("title")}</h2>
+				<h2 title={t("title")}>{t("title")}</h2>
+				{conversation ? <AgentPicker chat={chat} /> : null}
+				{props.pinned ? <span className="learning-chat__pinned-badge">{t("pinnedBadge")}</span> : null}
 				<div className="learning-chat__head-actions">
-					{conversation ? <AgentPicker chat={chat} /> : null}
-					{conversation ? <HostChatHistory chat={chat} /> : null}
+					{conversation ? <HostChatHistory chat={chat} compact /> : null}
 					{conversation ? (
 						<button
 							type="button"
-							className="learning-chat__text-button"
+							className="learning-chat__icon-button"
+							aria-label={t("newChat")}
+							title={t("newChat")}
 							disabled={!chat.canSend}
 							onClick={chat.newChat}
 						>
-							{t("newChat")}
+							<PlusIcon />
+						</button>
+					) : null}
+					{props.onTogglePin ? (
+						<button
+							type="button"
+							className="learning-chat__icon-button learning-chat__pin"
+							aria-label={props.pinned ? t("mateUnpin") : t("matePin")}
+							title={props.pinned ? t("mateUnpin") : t("matePin")}
+							aria-pressed={props.pinned === true}
+							onClick={props.onTogglePin}
+						>
+							<PinIcon filled={props.pinned === true} />
 						</button>
 					) : null}
 					<MateMenu
@@ -813,8 +851,14 @@ export default function HostChatPanel(props: {
 						onToggleComputers={() => setShowComputers((open) => !open)}
 					/>
 					{props.onClose ? (
-						<button type="button" className="learning-chat__close" onClick={props.onClose} aria-label={t("mateClose")}>
-							×
+						<button
+							type="button"
+							className="learning-chat__icon-button"
+							aria-label={t("mateClose")}
+							title={t("mateClose")}
+							onClick={props.onClose}
+						>
+							<CloseIcon />
 						</button>
 					) : null}
 				</div>

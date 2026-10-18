@@ -4134,6 +4134,7 @@
     "mateClose": "关闭学习搭子",
     "matePin": "固定到右侧",
     "mateUnpin": "取消固定",
+    "pinnedBadge": "已固定",
     "computers": "已配对的电脑",
     "history": {
       "title": "历史对话",

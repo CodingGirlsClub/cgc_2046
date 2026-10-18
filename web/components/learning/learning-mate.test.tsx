@@ -60,7 +60,7 @@ describe("学习搭子抽屉（课程页默认收起）", () => {
 		expect(screen.getByTestId("mate-content")).toBe(content);
 	});
 
-	it("固定到右侧：body 让出右栏、不锁滚动、无遮罩；偏好按课程记进 localStorage", () => {
+	it("固定到右侧：body 让出右栏、不锁滚动、无遮罩；收起后恢复", () => {
 		render(<LearningMate {...props} />);
 		fireEvent.click(screen.getByRole("button", { name: "问学习搭子" }));
 		expect(document.body.style.overflow).toBe("hidden"); // 覆盖式才锁滚动
@@ -70,7 +70,6 @@ describe("学习搭子抽屉（课程页默认收起）", () => {
 		expect(document.body.style.overflow).toBe(""); // 固定成右栏后页面要能滚动
 		expect(document.querySelector(".learning-mate__backdrop")).toBeNull();
 		expect(screen.getByTestId("mate-content")).toHaveAttribute("data-pinned", "true");
-		expect(window.localStorage.getItem("cgc-learning-mate-pinned:course")).toBe("1");
 
 		// 收起时撤销让位；重新打开恢复固定（同一会话内）
 		fireEvent.click(screen.getByRole("button", { name: "stub-close" }));
@@ -82,15 +81,20 @@ describe("学习搭子抽屉（课程页默认收起）", () => {
 		fireEvent.click(screen.getByRole("button", { name: "stub-pin" }));
 		expect(document.body.classList.contains("learning-mate-docked")).toBe(false);
 		expect(document.body.style.overflow).toBe("hidden");
-		expect(window.localStorage.getItem("cgc-learning-mate-pinned:course")).toBe("0");
 	});
 
-	it("重新进入课程页：打开后按课程恢复固定偏好", () => {
-		window.localStorage.setItem("cgc-learning-mate-pinned:course", "1");
+	it("固定只在本次打开有效：重新挂载（刷新页面）后回到未固定的覆盖式抽屉", () => {
+		const first = render(<LearningMate {...props} />);
+		fireEvent.click(screen.getByRole("button", { name: "问学习搭子" }));
+		fireEvent.click(screen.getByRole("button", { name: "stub-pin" }));
+		expect(document.body.classList.contains("learning-mate-docked")).toBe(true);
+		first.unmount();
+
 		render(<LearningMate {...props} />);
 		fireEvent.click(screen.getByRole("button", { name: "问学习搭子" }));
-		expect(screen.getByTestId("mate-content")).toHaveAttribute("data-pinned", "true");
-		expect(document.body.classList.contains("learning-mate-docked")).toBe(true);
+		expect(screen.getByTestId("mate-content")).toHaveAttribute("data-pinned", "false");
+		expect(document.body.classList.contains("learning-mate-docked")).toBe(false);
+		expect(document.body.style.overflow).toBe("hidden"); // 回到覆盖式，重新锁滚动
 	});
 
 	it("点遮罩或关闭按钮也能收起，收起后入口重新出现", () => {
