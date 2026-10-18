@@ -67,6 +67,7 @@ describe("学习搭子抽屉（课程页默认收起）", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "stub-pin" }));
 		expect(document.body.classList.contains("learning-mate-docked")).toBe(true);
+		expect(document.querySelector(".learning-mate")).toHaveClass("learning-mate--pinned"); // 固定态靠这个类让全屏容器不接收点击
 		expect(document.body.style.overflow).toBe(""); // 固定成右栏后页面要能滚动
 		expect(document.querySelector(".learning-mate__backdrop")).toBeNull();
 		expect(screen.getByTestId("mate-content")).toHaveAttribute("data-pinned", "true");
@@ -88,6 +89,7 @@ describe("学习搭子抽屉（课程页默认收起）", () => {
 		fireEvent.click(screen.getByRole("button", { name: "问学习搭子" }));
 		fireEvent.click(screen.getByRole("button", { name: "stub-pin" }));
 		expect(document.body.classList.contains("learning-mate-docked")).toBe(true);
+		expect(document.querySelector(".learning-mate")).toHaveClass("learning-mate--pinned"); // 固定态靠这个类让全屏容器不接收点击
 		first.unmount();
 
 		render(<LearningMate {...props} />);
