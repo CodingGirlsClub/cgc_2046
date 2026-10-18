@@ -627,6 +627,8 @@ export default function HostChatPanel(props: {
 	courseVersion: number | null;
 	/** 学员正在看的单元 id，总览为 null */
 	unitId: string | null;
+	/** 从抽屉关闭时传入：头部出现关闭按钮（直接渲染面板的旧布局不传） */
+	onClose?(): void;
 }) {
 	const t = useTranslations("hostChat");
 	const chat = useHostChat(props);
@@ -657,6 +659,11 @@ export default function HostChatPanel(props: {
 					>
 						{t("computers")}
 					</button>
+					{props.onClose ? (
+						<button type="button" className="learning-chat__close" onClick={props.onClose} aria-label={t("mateClose")}>
+							×
+						</button>
+					) : null}
 				</div>
 			</header>
 			{showComputers ? (

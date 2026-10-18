@@ -631,7 +631,9 @@ describe("学员课程页（page.tsx）", () => {
 		wide(true);
 		renderPage();
 		const viewer = await screen.findByTestId("course-content-viewer");
-		await waitFor(() => expect(viewer).toHaveClass("learning-reader--compact"));
+		expect(viewer).not.toHaveClass("learning-reader--compact");
+		// 恢复后的交互：默认收起，点「问学习搭子」才挂载面板、连本机
+		fireEvent.click(await screen.findByRole("button", { name: "问学习搭子" }));
 		const ws = await attach();
 
 		fireEvent.click(within(viewer).getByRole("button", { name: /单元 A/ }));
@@ -657,6 +659,7 @@ describe("学员课程页（page.tsx）", () => {
 		wide(true);
 		localStorage.setItem(keyOf("user-b"), "bk-b");
 		const view = renderPage();
+		fireEvent.click(await screen.findByRole("button", { name: "问学习搭子" }));
 		const first = await attach();
 		useAuthed.mockReturnValue({ authed: true, confirmed: true, userId: "user-b" });
 		view.rerender(
@@ -664,6 +667,8 @@ describe("学员课程页（page.tsx）", () => {
 				<CourseLearningPage />
 			</MockedProvider>,
 		);
+		// 换账号后抽屉重新挂载为收起态：再点一次入口才会建新连接
+		fireEvent.click(await screen.findByRole("button", { name: "问学习搭子" }));
 		await waitFor(() => expect(socketCount()).toBe(2));
 		expect(first.readyState).toBe(FakeWebSocket.CLOSED);
 		const second = FakeWebSocket.all[1];
@@ -671,13 +676,18 @@ describe("学员课程页（page.tsx）", () => {
 		await waitFor(() => expect(second.sent.at(-1)).toMatchObject({ method: "hello", params: { userId: "user-b", browserKey: "bk-b" } }));
 	});
 
-	it("视口窄于 1280px：不挂载对话栏、不连本机，阅读组件保持默认布局", async () => {
-		wide(false);
+	it("默认收起：窄视口也有「问学习搭子」入口、不探测 Host；打开后才挂载面板并连本机", async () => {
+		wide(false); // 页面不再按视口挂载面板；保留 matchMedia 以证明窄视口也能用
 		renderPage();
 		const viewer = await screen.findByTestId("course-content-viewer");
 		expect(viewer).not.toHaveClass("learning-reader--compact");
+		const launcher = await screen.findByRole("button", { name: "问学习搭子" });
 		expect(checkHost).not.toHaveBeenCalled();
-		expect(screen.queryByRole("complementary", { name: "本机 agent 对话" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("complementary", { name: "学习搭子" })).not.toBeInTheDocument();
+
+		fireEvent.click(launcher);
+		await waitFor(() => expect(checkHost).toHaveBeenCalled());
+		expect(await screen.findByRole("dialog", { name: "学习搭子" })).toBeInTheDocument();
 	});
 });
 

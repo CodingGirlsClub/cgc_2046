@@ -3617,9 +3617,20 @@ button:focus-visible,
   .learning-reader__outline--overlay { position: static; margin-top: 10px; }
 }
 
-/* ── 课程页对话栏（U10；KTD11）：视口 ≥1280px 时与阅读区并排，更窄时不挂载 ─────────────── */
-.learning-course-page--chat { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 0 32px; align-items: start; width: min(100%, 1440px); }
-.learning-course-page--chat > :not(.learning-chat) { grid-column: 1; }
+/* ── 学习搭子（U10 重构）：课程页默认只留「问学习搭子」入口，点开才挂载对话抽屉 ─────────────── */
+.learning-mate__launcher { position: fixed; right: 24px; bottom: 24px; z-index: 40; display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border: 1px solid var(--accent); border-radius: 999px; background: var(--accent); color: #fff; font: inherit; font-size: 13px; font-weight: 510; cursor: pointer; box-shadow: 0 8px 24px rgb(0 0 0 / 28%); }
+.learning-mate__launcher:hover { background: var(--accent-mention); }
+.learning-mate__launcher-dot { width: 6px; height: 6px; border-radius: 50%; background: #fff; }
+.learning-mate { position: fixed; inset: 0; z-index: 60; }
+.learning-mate__backdrop { position: absolute; inset: 0; background: rgb(0 0 0 / 32%); }
+.learning-mate__panel { position: absolute; top: 80px; right: 24px; bottom: 24px; display: flex; width: min(420px, calc(100vw - 48px)); border: 1px solid var(--line); border-radius: 14px; background: var(--card); overflow: hidden; box-shadow: 0 20px 60px rgb(0 0 0 / 40%); }
+.learning-mate__panel .learning-chat { position: static; grid-column: auto; grid-row: auto; height: 100%; min-height: 0; border: 0; border-radius: 0; }
+.learning-chat__close { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--ink-3); font: inherit; font-size: 16px; line-height: 1; cursor: pointer; }
+.learning-chat__close:hover { background: var(--soft); color: var(--ink); }
+@media (max-width: 720px) {
+  .learning-mate__launcher { right: 16px; left: 16px; justify-content: center; bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .learning-mate__panel { top: auto; right: 0; bottom: 0; left: 0; width: 100%; height: min(86dvh, 720px); border-right: 0; border-bottom: 0; border-left: 0; border-radius: 16px 16px 0 0; }
+}
 /* 紧凑布局（阅读组件 compact）：大纲改为浮层，由单元页导航条的「课程目录」打开；进度栏收窄但保持可见 */
 .learning-reader--compact .learning-reader__layout { grid-template-columns: minmax(0, 1fr) 160px; gap: 28px; }
 .learning-reader--compact .learning-reader__layout > .learning-reader__outline { display: none; }

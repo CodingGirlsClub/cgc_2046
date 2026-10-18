@@ -4126,7 +4126,9 @@
     "revokeFailed": "撤销失败，请稍后重试"
   },
   "hostChat": {
-    "title": "本机 agent 对话",
+    "title": "学习搭子",
+    "mateOpen": "问学习搭子",
+    "mateClose": "关闭学习搭子",
     "computers": "已配对的电脑",
     "history": {
       "title": "历史对话",

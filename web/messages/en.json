@@ -4126,7 +4126,9 @@
     "revokeFailed": "Couldn't revoke. Please try again later."
   },
   "hostChat": {
-    "title": "Local agent chat",
+    "title": "Learning Mate",
+    "mateOpen": "Ask Learning Mate",
+    "mateClose": "Close Learning Mate",
     "computers": "Paired computers",
     "history": {
       "title": "History",
