@@ -219,6 +219,7 @@ export async function probeCodexAcp(
     stdout: "pipe",
     stderr: "ignore",
   });
+  let responded = false;
   try {
     const initialize = {
       jsonrpc: "2.0",
@@ -232,14 +233,17 @@ export async function probeCodexAcp(
     };
     proc.stdin.write(`${JSON.stringify(initialize)}\n`);
     await proc.stdin.flush();
-    return await Promise.race([readUntilId(proc.stdout, 1), sleep(timeoutMs).then(() => false)]);
+    responded = await Promise.race([readUntilId(proc.stdout, 1), sleep(timeoutMs).then(() => false)]);
+    return responded;
   } finally {
     try {
       proc.stdin.end(); // 关 stdin 让适配器把它拉起的 Codex 一起收掉（KTD9）
     } catch {
       // 进程可能已经退出
     }
-    await Promise.race([proc.exited.then(() => true), sleep(3_000).then(() => false)]);
+    // 成功时给适配器 3s 收掉 engine；失败（超时 / error 帧）没有可用 engine，最多等 500ms 就 SIGKILL，
+    // 否则每次失败探针都多等 3s——单测里会顶到 Bun 5s 的 per-test 超时，安装点击也白等。
+    await Promise.race([proc.exited.then(() => true), sleep(responded ? 3_000 : 500).then(() => false)]);
     try {
       proc.kill("SIGKILL");
     } catch {
