@@ -777,8 +777,9 @@ describe("一键安装（期 2 / #1149）", () => {
 				{ kind: "codex", present: true },
 			],
 		});
-		act(() => ws.push({ method: "agent.done", params: { kind: "codex", ok: true, version: "2.2.2" } }));
+		act(() => ws.push({ method: "agent.done", params: { kind: "codex", ok: true, version: "2.2.2", reused: true } }));
 		await waitFor(() => expect(hook.current.install).toBeNull());
+		expect(hook.current.installOutcome).toBe("reuse");
 		expect(hook.current.agents).toContainEqual({ kind: "codex", present: true });
 	});
 
@@ -793,6 +794,20 @@ describe("一键安装（期 2 / #1149）", () => {
 		await ws.reply("agent.install", "agent.install.started", { started: true });
 		act(() => ws.push({ method: "agent.done", params: { kind: "codex", ok: false, code: "install_failed" } }));
 		await waitFor(() => expect(hook.current.install).toEqual({ error: "install_failed" }));
+		expect(hook.current.installOutcome).toBeNull();
+	});
+
+	it("全量安装（done 不带 reused）→ installOutcome 为 full", async () => {
+		checkHost.mockResolvedValue(WITH_INSTALL);
+		mount();
+		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+		const ws = FakeWebSocket.all[0];
+		await attach(ws);
+		act(() => void hook.current.installAgent());
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("agent.install"));
+		await ws.reply("agent.install", "agent.install.started", { started: true });
+		act(() => ws.push({ method: "agent.done", params: { kind: "codex", ok: true, version: "2.2.2" } }));
+		await waitFor(() => expect(hook.current.installOutcome).toBe("full"));
 	});
 
 	it("安装中断线：install 复位，不把「正在安装」永久留在按钮上", async () => {

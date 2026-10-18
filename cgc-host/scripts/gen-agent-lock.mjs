@@ -4,7 +4,7 @@
 // 产出 src/agents/codex-acp.package.json + codex-acp.lock，并把 install.ts 的 CODEX_ACP_VERSION 改成同一个版本。
 // 锁是 Bun 的 text lock：每个包（含 @openai/codex 的当前平台包）都带 sha512，运行期用
 // `bun install --frozen-lockfile` 安装不接受任何偏离。换版本 = 重跑本脚本 + 提 PR（随 Host 发版）。
-import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -22,6 +22,26 @@ if (proc.exitCode !== 0) process.exit(proc.exitCode ?? 1);
 
 copyFileSync(join(dir, "bun.lock"), "src/agents/codex-acp.lock");
 copyFileSync(join(dir, "package.json"), "src/agents/codex-acp.package.json");
+
+// 复用变体：把 @openai/codex 换成本地 stub，只装适配器（约 2MB）；运行期用 CODEX_PATH 指向学员已有的 engine。
+// stub 由 Host 在安装时写进临时目录（内容与这里一致），锁里只记录 `file:./stub`。
+const REUSE_STUB_PACKAGE_JSON = JSON.stringify({ name: "@openai/codex", version: "0.0.0-stub" });
+const reuseDir = mkdtempSync(join(tmpdir(), "cgc-agent-lock-reuse-"));
+mkdirSync(join(reuseDir, "stub"), { recursive: true });
+writeFileSync(join(reuseDir, "stub", "package.json"), REUSE_STUB_PACKAGE_JSON);
+writeFileSync(
+  join(reuseDir, "package.json"),
+  JSON.stringify({
+    name: "cgc-codex-agent-reuse",
+    private: true,
+    dependencies: { "@agentclientprotocol/codex-acp": version },
+    overrides: { "@openai/codex": "file:./stub" },
+  }),
+);
+const reuseProc = Bun.spawnSync([process.execPath, "install", "--lockfile-only", "--save-text-lockfile"], { cwd: reuseDir, stdout: "inherit", stderr: "inherit" });
+if (reuseProc.exitCode !== 0) process.exit(reuseProc.exitCode ?? 1);
+copyFileSync(join(reuseDir, "bun.lock"), "src/agents/codex-acp-reuse.lock");
+copyFileSync(join(reuseDir, "package.json"), "src/agents/codex-acp-reuse.package.json");
 
 // 同版本重跑是幂等的：只重算锁，不动常量（之前用「replace 后是否变化」判断，会把同版本重跑误报成找不到常量）
 const CONSTANT = /export const CODEX_ACP_VERSION = "([^"]+)";/;

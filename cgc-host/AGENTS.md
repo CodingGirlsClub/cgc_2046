@@ -24,7 +24,7 @@
 
 ## 页面 ↔ Host 帧信封
 
-HTTP 只有 `GET /health`（`{version, ompPresent, paired, agents}`；`agents` 是 `[{kind, present, envError?}]`，`ompPresent` 是它里 OMP 那条的派生值，留给只认它的旧页面）；WebSocket 在根路径 `/`。两者都先过关口：`Host` 必须是 `127.0.0.1:<端口>` 或 `localhost:<端口>`，`Origin` 必须精确等于 `SITE_ORIGIN`，否则 403、无响应体。
+HTTP 只有 `GET /health`（`{version, ompPresent, paired, agents}`；`agents` 是 `[{kind, present, envError?, sources?}]`，`ompPresent` 是它里 OMP 那条的派生值，留给只认它的旧页面）；WebSocket 在根路径 `/`。两者都先过关口：`Host` 必须是 `127.0.0.1:<端口>` 或 `localhost:<端口>`，`Origin` 必须精确等于 `SITE_ORIGIN`，否则 403、无响应体。`sources` 是只读探测出的「可复用来源」（目前在 Codex 上给）：`[{source, version}]`，`source` ∈ `managed` / `codex-acp` / `chatgpt-app` / `codex-cli`，版本取不到为 `null`；**只上报，不改变安装与启动优先级**（#1154 / #1155；ChatGPT App 内置路径目前只探测 macOS）。
 
 WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 
@@ -47,7 +47,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 
 `agent` 是对话方法的可选参数（`omp` 等注册表里的 kind）：页面要驱动哪个本机 agent，就带哪个；**缺省恒为 `omp`**，与状态文件里的记忆值无关——回滚期的旧页面不可能带这个字段，不能让它被改道到别的 agent（记忆值只作为页面的初选，见 `history` 的 `agent` 字段）。取值不在注册表里一律 `bad_request`。
 
-`status.params`：`state`（`unpaired` / `paired` / `ready`，`ready` 指这个连接已授权）、`pairedUserId`、`pairedDisplayName`、`deviceName`、`tokenId`、`agents`（本机各 agent 的 `{kind, present, envError?}`）、`ompPresent`、`version`、`protocolVersion`；解析学员登录 shell 的环境失败时另有 `ompEnvError`（`timeout` / `failed`，此时 Host 退回 launchd 的最小环境，多半找不到 omp 或模型凭证）。`ompPresent` 与 `ompEnvError` 是 `agents` 里 OMP 那条的派生值，留给只认它们的旧页面，移除条件是下一个 Host 大版本。某个 agent 的 `present` 为 false 时，Host 每次被读到都会在后台重新查找（至多 10 秒一次），学员装上它的入口后不必重启 Host；页面可轮询 `/health`。
+`status.params`：`state`（`unpaired` / `paired` / `ready`，`ready` 指这个连接已授权）、`pairedUserId`、`pairedDisplayName`、`deviceName`、`tokenId`、`agents`（本机各 agent 的 `{kind, present, envError?, sources?}`，`sources` 含义同 `/health`）、`ompPresent`、`version`、`protocolVersion`；解析学员登录 shell 的环境失败时另有 `ompEnvError`（`timeout` / `failed`，此时 Host 退回 launchd 的最小环境，多半找不到 omp 或模型凭证）。`ompPresent` 与 `ompEnvError` 是 `agents` 里 OMP 那条的派生值，留给只认它们的旧页面，移除条件是下一个 Host 大版本。某个 agent 的 `present` 为 false 时，Host 每次被读到都会在后台重新查找（至多 10 秒一次），学员装上它的入口后不必重启 Host；页面可轮询 `/health`。
 
 `error.params.code`：
 
@@ -86,7 +86,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 | `chat.authenticate` | `methodId`（取自 `auth_required` 回包的 `methods`，如 `chat-gpt`） | `chat.authenticated {agent}`：登录成功（浏览器由适配器自己开）；`auth_failed` 失败、`busy` 登录期间进程被换掉（页面重试即可）、`bad_request` 参数不合法；`chat-gpt` 这类由适配器在本机开浏览器，不进课程队列 |
 | `chat.set_setting` | `configId`（`model` / `thinking`）、`value`（非空字符串） | `chat.settings {settings}`：改当前会话的设置，回复带这个 agent 的完整回包；有回合在跑 `busy`；当前没有已加载会话 `chat_unavailable`；值不被 agent 接受 `bad_request`（ACP 原文只进 Host 日志） |
 | `card.answer` | `cardId`，加审批的 `{optionId}` 或提问的 `{action, content?}` | `turn.card.closed {cardId, reason: "answered"}` |
-| `agent.install` | `kind`（可安装的只有 `codex`，见 `installable`） | `agent.install.started {started: true}`；随后推 `agent.install.progress {kind, phase: "installing"}` 与 `agent.done {kind, ok: true, version}` / `{kind, ok: false, code}`（`install_failed` / `version_mismatch` / `timeout`）。同一时刻只允许一个安装（`busy`）；没声明安装能力或 kind 不可安装时 `unsupported`；参数不合法 `bad_request`。**已装着钉住的版本时幂等短路**：不再下载，直接回 done |
+| `agent.install` | `kind`（可安装的只有 `codex`，见 `installable`） | `agent.install.started {started: true}`；随后推 `agent.install.progress {kind, phase: "installing"}` 与 `agent.done {kind, ok: true, version, reused?}` / `{kind, ok: false, code}`（`install_failed` / `version_mismatch` / `timeout`）。`reused: true` 表示本次装的是「只装适配器、复用学员已有 Codex engine」的变体（#1154）；缺省/旧 Host 不报。同一时刻只允许一个安装（`busy`）；没声明安装能力或 kind 不可安装时 `unsupported`；参数不合法 `bad_request`。**已装着钉住的版本时幂等短路**：不再下载，直接回 done |
 | `agent.done` 之后 | — | Host 重解析定位器并给每个已授权连接推 `status`：页面不必等下一轮 `/health` |
 
 会话设置（`chat.set_setting`、`chat.settings`、`history` 的 `settings`）：Host 把 agent 的会话设置（ACP 的 config options）收窄成 `model`（模型）与 `thinking`（思考等级）两项，`mode`（plan）不透出。`settings` 是 `[{id, name, category, currentValue, options: [{value, name, description?}]}]`，`history`（`chat.attach` / `chat.new` / `chat.open`）带当前值，空数组表示这个 agent 没给可选项（旧版本或 id 不同名）——页面据此不渲染入口。改动只作用于当前会话：不写学员的 agent 配置、不影响终端；agent 自己改了设置（`config_option_update`）时 Host 推 `chat.settings`。切模型可能连带改动另一项（OMP 实测：不支持思考的模型会把思考等级重置为 `off`…
@@ -136,7 +136,9 @@ curl -fsSL https://api.codingirlsclub.com/ext/cgc-host/install.sh | bash
 
 `install.sh` 依次：把清单和 Host 包下载到临时目录并校验 sha256，失败清理退出、不安装 Bun 或修改已有 Host/自启项 → 校验成功后查找 Bun，没有则用官方安装器装到 `~/.bun` → 停掉旧的 → 落位、写当前系统的登录自启项 → 启动。支持 macOS（Terminal）、Ubuntu 桌面（Terminal）与 Windows（Git Bash；命令同样一条，Bun 用官方 PowerShell 安装器）。Ubuntu 分支硬依赖 `zenity`（缺了就地报错 `sudo apt install zenity`）；Windows 分支硬依赖 Git Bash 的 `cygpath` 与系统自带 `powershell.exe`。
 
-页面里的一键安装（期 2）：Host 把随包发布的 `src/agents/codex-acp.package.json` 与 `src/agents/codex-acp.lock`（Bun 的 text lock，每个包带 sha512）写进 `~/.cgc2046/agents/.tmp-*`，用**自己的 Bun** 跑 `bun install --frozen-lockfile --production --ignore-scripts`——不需要学员机器上有 npm/node，锁对不上或内容被篡改会被 Bun 拒绝，第三方依赖的 postinstall 也不会在学员机器上执行。装完校验版本、rename 原子就位，失败只删临时目录；上次被 SIGKILL 留下的 `.tmp-*` / `.old-*` 在**下一次安装开头**清理（Host 平时不碰这个目录）。托管安装的**入口从包 manifest 的 `bin["codex-acp"]` 解析**（Windows 上 Bun 只有 `.exe`/`.bunx`，不能拼无扩展名路径）；托管副本的版本必须与 Host 钉住的 `CODEX_ACP_VERSION` 一致才会被采用——Host 升级后旧副本自动让位，页面重新给出安装入口。换适配器版本 = `bun scripts/gen-agent-lock.mjs <版本>` 重算锁与常量（随 Host 发版）；CI 的 `scripts/check-agent-lock.mjs` 校验钉住的版本仍可获取且 registry 的 integrity 与锁一致。锁文件用 `import ... with { type: "text" }` 内联进单包（deploy 的 `bun build` 之后包里没有额外文件）。
+页面里的一键安装（期 2）：Host 把随包发布的 `src/agents/codex-acp.package.json` 与 `src/agents/codex-acp.lock`（Bun 的 text lock，每个包带 sha512）写进 `~/.cgc2046/agents/.tmp-*`，用**自己的 Bun** 跑 `bun install --frozen-lockfile --production --ignore-scripts`——不需要学员机器上有 npm/node，锁对不上或内容被篡改会被 Bun 拒绝，第三方依赖的 postinstall 也不会在学员机器上执行。装完校验版本、rename 原子就位，失败只删临时目录；上次被 SIGKILL 留下的 `.tmp-*` / `.old-*` 在**下一次安装开头**清理（Host 平时不碰这个目录）。托管安装的**入口从包 manifest 的 `bin["codex-acp"]` 解析**（Windows 上 Bun 只有 `.exe`/`.bunx`，不能拼无扩展名路径）；托管副本的版本必须与 Host 钉住的 `CODEX_ACP_VERSION` 一致才会被采用——Host 升级后旧副本自动让位，页面重新给出安装入口。换适配器版本 = `bun scripts/gen-agent-lock.mjs <版本>` 重算两份锁与常量（随 Host 发版）；CI 的 `scripts/check-agent-lock.mjs` 校验钉住的版本仍可获取、registry 的 integrity 与锁一致，以及复用变体锁的约束。锁文件用 `import ... with { type: "text" }` 内联进单包（deploy 的 `bun build` 之后包里没有额外文件）。
+
+**复用变体（#1154）**：检测到学员已有可复用的 Codex engine（ChatGPT App 内置 / PATH 上的 `codex`，见 `agents/sources.ts`）时，优先装 `codex-acp-reuse.*`：用 `overrides` 把 `@openai/codex` 指向 Host 写进临时目录的本地 stub，只装适配器（约 18MB 落盘 / 2MB 下载），装完做一次 ACP `initialize` 探针（不发 prompt、不建会话、不消耗额度）确认 engine 兼容；探针失败自动回退全量安装。安装目录里 `variant.json` 记录变体；运行期 `codex.ts` 对 reuse 变体重新探测 engine 并注入 `CODEX_PATH`，engine 消失则 `present=false`、页面重新给安装入口。
 
 学员电脑上的文件：
 

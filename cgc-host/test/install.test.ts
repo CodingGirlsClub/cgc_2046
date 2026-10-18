@@ -2,17 +2,20 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { pickCodexAcp } from "../src/agents/codex";
+import { codexLocation, pickCodexAcp, verifyReuseLocation } from "../src/agents/codex";
 import {
   CODEX_ACP_VERSION,
   InstallError,
+  VARIANT_FILE,
   agentsDir,
   codexAgentDir,
   codexPackageDir,
   installCodexAcp,
+  installVariant,
   installedVersion,
   managedCodex,
   managedCodexEntry,
+  probeCodexAcp,
 } from "../src/agents/install";
 import { uninstall } from "../src/uninstall";
 import { cleanup, tempHome } from "./helpers";
@@ -41,7 +44,7 @@ const managedCodexAcpEntry = (home: string) => managedCodexEntry(home);
 describe("installCodexAcp", () => {
   test("装到 ~/.cgc2046/agents/codex-acp：版本可读、不留临时目录、探测立刻看得到", async () => {
     const home = tempHome();
-    expect(await installCodexAcp({ home, run: fakeInstaller() })).toEqual({ version: CODEX_ACP_VERSION });
+    expect(await installCodexAcp({ home, run: fakeInstaller() })).toMatchObject({ version: CODEX_ACP_VERSION, variant: "full" });
     expect(installedVersion(home)).toBe(CODEX_ACP_VERSION);
     expect(managedCodexAcpEntry(home)).not.toBeNull();
     expect(leftovers(home)).toEqual([]);
@@ -158,5 +161,185 @@ describe("Windows 布局与版本门", () => {
 		expect(Bun.which("codex-acp", { PATH: pathDir })).toBe(pathBin); // 前提成立：PATH 里确实有
 
 		expect(pickCodexAcp(home, pathDir)).toBe(managedCodex(home));
+	});
+});
+
+describe("reuse 变体（#1154）", () => {
+	const engine = "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex";
+
+	test("有可复用 engine + 探针通过：只装适配器，记录 variant，不带 Codex 本体", async () => {
+		const home = tempHome();
+		let probedEntry = "";
+		let probedCodexPath = "";
+		const result = await installCodexAcp({
+			home,
+			run: fakeInstaller(),
+			reuseEngine: engine,
+			probe: async (entry, codexPath) => {
+				probedEntry = entry;
+				probedCodexPath = codexPath;
+				return true;
+			},
+		});
+
+		expect(result).toMatchObject({ version: CODEX_ACP_VERSION, variant: "reuse" });
+		expect(installVariant(home)).toBe("reuse");
+		expect(existsSync(join(codexAgentDir(home), "node_modules", "@openai", "codex"))).toBe(false); // 没装 Codex 本体
+		expect(probedCodexPath).toBe(engine);
+		expect(probedEntry.endsWith("dist/index.js")).toBe(true);
+		expect(JSON.parse(readFileSync(join(codexAgentDir(home), VARIANT_FILE), "utf8")).variant).toBe("reuse");
+	});
+
+	test("探针失败：自动回退 full 安装，最终照常可用", async () => {
+		const home = tempHome();
+		let calls = 0;
+		const result = await installCodexAcp({
+			home,
+			run: async (cwd) => {
+				calls += 1;
+				return fakeInstaller()(cwd);
+			},
+			reuseEngine: engine,
+			probe: async () => false,
+		});
+
+		expect(result).toMatchObject({ version: CODEX_ACP_VERSION, variant: "full" });
+		expect(calls).toBe(2); // 先 reuse，探针失败后 full
+		expect(installVariant(home)).toBe("full");
+		expect(managedCodex(home)).not.toBeNull();
+		expect(leftovers(home)).toEqual([]);
+	});
+
+	test("运行期：reuse 变体把 CODEX_PATH 指向已有 engine；engine 消失则 present=false", async () => {
+		const home = tempHome();
+		await installCodexAcp({ home, run: fakeInstaller(), reuseEngine: engine, probe: async () => true });
+		const hits = [{ source: "chatgpt-app" as const, path: engine, version: "0.163.0" }];
+
+		const shellEnv = { PATH: "" };
+		const withEngine = codexLocation(home, shellEnv, null, hits);
+		expect(withEngine.path).toBe(managedCodex(home));
+		expect(withEngine.env.CODEX_PATH).toBe(engine);
+		expect(shellEnv).not.toHaveProperty("CODEX_PATH"); // 不能污染传入的共享环境（Windows 上就是 process.env）
+		expect(withEngine.sources).toEqual([{ source: "chatgpt-app", version: "0.163.0" }]);
+
+		const withoutEngine = codexLocation(home, { PATH: "" }, null, []);
+		expect(withoutEngine.path).toBeNull(); // 页面会重新给安装入口
+		expect(withoutEngine.sources).toEqual([]);
+	});
+
+	test("reuse 已装：再次点击安装会先用当前 engine 重新探针，兼容则幂等不下载", async () => {
+		const home = tempHome();
+		await installCodexAcp({ home, run: fakeInstaller(), reuseEngine: engine, probe: async () => true });
+
+		let runCalls = 0;
+		let probedEngine = "";
+		const result = await installCodexAcp({
+			home,
+			run: async () => {
+				runCalls += 1;
+				return 0;
+			},
+			reuseEngine: engine,
+			probe: async (_entry, codexPath) => {
+				probedEngine = codexPath;
+				return true;
+			},
+		});
+		expect(result).toMatchObject({ version: CODEX_ACP_VERSION, variant: "reuse" });
+		expect(runCalls).toBe(0); // 兼容时不重新下载
+		expect(probedEngine).toBe(engine);
+	});
+
+	test("reuse 已装但 engine 被替换且不兼容：重新探针失败 → 回退 full", async () => {
+		const home = tempHome();
+		await installCodexAcp({ home, run: fakeInstaller(), reuseEngine: engine, probe: async () => true });
+
+		let runCalls = 0;
+		const probes: string[] = [];
+		const result = await installCodexAcp({
+			home,
+			run: async (cwd) => {
+				runCalls += 1;
+				return fakeInstaller()(cwd);
+			},
+			reuseEngine: "/Applications/NewChatGPT.app/Contents/Resources/codex-cli/bin/codex",
+			probe: async (_entry, codexPath) => {
+				probes.push(codexPath);
+				return false;
+			},
+		});
+		expect(result).toMatchObject({ version: CODEX_ACP_VERSION, variant: "full" });
+		expect(probes[0]).toBe("/Applications/NewChatGPT.app/Contents/Resources/codex-cli/bin/codex"); // 换了的 engine 也要探针
+		expect(runCalls).toBe(2); // reuse 安装再探一次失败 → full
+		expect(installVariant(home)).toBe("full");
+	});
+
+	test("reuse 装好后 engine 消失：不再幂等短路，重装为 full", async () => {
+		const home = tempHome();
+		await installCodexAcp({ home, run: fakeInstaller(), reuseEngine: engine, probe: async () => true });
+		expect(installVariant(home)).toBe("reuse");
+
+		// 学员卸载了 ChatGPT App / 删掉 PATH codex：main 拿不到 reuseEngine，点击安装要能自愈
+		let calls = 0;
+		const result = await installCodexAcp({
+			home,
+			run: async (cwd) => {
+				calls += 1;
+				return fakeInstaller()(cwd);
+			},
+		});
+		expect(result).toMatchObject({ version: CODEX_ACP_VERSION, variant: "full" });
+		expect(calls).toBe(1);
+		expect(installVariant(home)).toBe("full");
+		expect(leftovers(home)).toEqual([]);
+	});
+
+	test("运行期：reuse 的 engine 被替换成不兼容版本 → present=false，页面能重新给安装入口", async () => {
+		const home = tempHome();
+		await installCodexAcp({ home, run: fakeInstaller(), reuseEngine: engine, probe: async () => true });
+		const hits = [{ source: "chatgpt-app" as const, path: engine, version: "0.163.0" }];
+		const located = codexLocation(home, { PATH: "" }, null, hits);
+		expect(located.path).not.toBeNull();
+
+		const incompatible = await verifyReuseLocation(located, home, async () => false);
+		expect(incompatible.path).toBeNull(); // 不再只凭 engine 存在就报可用
+		expect(incompatible.sources).toEqual([{ source: "chatgpt-app", version: "0.163.0" }]);
+
+		const compatible = await verifyReuseLocation(located, home, async () => true);
+		expect(compatible.path).toBe(located.path);
+	});
+
+	test("probeCodexAcp：适配器回 initialize 即通过；不回则超时失败", async () => {
+		const home = tempHome();
+		const dir = join(home, "probe");
+		mkdirSync(dir, { recursive: true });
+		const ok = join(dir, "ok.js");
+		writeFileSync(
+			ok,
+			`process.stdin.once("data", () => { process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: 1, result: {} }) + "\\n"); setTimeout(() => process.exit(0), 50); });`,
+		);
+		expect(await probeCodexAcp(ok, engine, 3000)).toBe(true);
+
+		// 旧 engine 不兼容时适配器会对 initialize 回 error；不能把「同 id 的 error」当成功
+		const rejected = join(dir, "error.js");
+		// 进程保持存活，确保 error 帧真的被读到（否则 fix 与 bug 都返回 false，测不出区别）
+		writeFileSync(
+			rejected,
+			`process.stdin.once("data", () => { process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: -32000, message: "incompatible" } }) + "\\n"); setInterval(() => {}, 1000); });`,
+		);
+		expect(await probeCodexAcp(rejected, engine, 500)).toBe(false);
+
+		const silent = join(dir, "silent.js");
+		writeFileSync(silent, `setTimeout(() => process.exit(0), 1500);`);
+		expect(await probeCodexAcp(silent, engine, 300)).toBe(false);
+
+		// 探针要拿到登录 shell 环境：launchd 下 PATH 里没有 node 时，npm 安装的 codex 会启动失败
+		const envOnly = join(dir, "env.js");
+		writeFileSync(
+			envOnly,
+			`process.stdin.once("data", () => { if (process.env.CGC_PROBE_TEST !== "yes") { setTimeout(() => process.exit(2), 20); return; } process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: 1, result: {} }) + "\\n"); setTimeout(() => process.exit(0), 20); });`,
+		);
+		expect(await probeCodexAcp(envOnly, engine, 3000)).toBe(false);
+		expect(await probeCodexAcp(envOnly, engine, 3000, { CGC_PROBE_TEST: "yes" })).toBe(true);
 	});
 });

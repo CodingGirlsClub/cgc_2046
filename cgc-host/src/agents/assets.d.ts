@@ -3,3 +3,7 @@ declare module "*.lock" {
   const text: string;
   export default text;
 }
+declare module "*.package.json" {
+  const text: string;
+  export default text;
+}

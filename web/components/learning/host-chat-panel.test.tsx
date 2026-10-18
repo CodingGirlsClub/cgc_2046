@@ -87,7 +87,10 @@ const DETECTED: HostConnection = { state: "detected", agents: [{ kind: "omp", pr
 const keyOf = (userId: string) => `cgc:host-browser-key:${userId}`;
 
 const OMP_ONLY = [{ kind: "omp", present: true }];
-const status = (state: HostStatus["state"], agents: { kind: string; present: boolean }[] = OMP_ONLY): HostStatus => ({
+const status = (
+	state: HostStatus["state"],
+	agents: { kind: string; present: boolean; sources?: { source: string; version: string | null }[] }[] = OMP_ONLY,
+): HostStatus => ({
 	state,
 	pairedUserId: state === "unpaired" ? null : USER,
 	pairedDisplayName: state === "unpaired" ? null : "学员甲",
@@ -99,10 +102,10 @@ const status = (state: HostStatus["state"], agents: { kind: string; present: boo
 	protocolVersion: 1,
 });
 
-function renderPanel(locale: "zh-CN" | "en" = "zh-CN") {
+function renderPanel(locale: "zh-CN" | "en" = "zh-CN", extra: Partial<Parameters<typeof HostChatPanel>[0]> = {}) {
 	return render(
 		<MockedProvider mocks={[]}>
-			<HostChatPanel courseId={COURSE} userId={USER} locale={locale} workspaceId={WORKSPACE} courseVersion={3} unitId={null} />
+			<HostChatPanel courseId={COURSE} userId={USER} locale={locale} workspaceId={WORKSPACE} courseVersion={3} unitId={null} {...extra} />
 		</MockedProvider>,
 		{ locale },
 	);
@@ -111,7 +114,12 @@ function renderPanel(locale: "zh-CN" | "en" = "zh-CN") {
 const socketCount = () => FakeWebSocket.all.length;
 
 /** 已存浏览器密钥：连接 → hello → ready → chat.attach → history；返回这条连接 */
-async function attach(events: object[] = [], running = false, settings?: object[], agents: { kind: string; present: boolean }[] = OMP_ONLY) {
+async function attach(
+	events: object[] = [],
+	running = false,
+	settings?: object[],
+	agents: { kind: string; present: boolean; sources?: { source: string; version: string | null }[] }[] = OMP_ONLY,
+) {
 	await waitFor(() => expect(socketCount()).toBeGreaterThan(0));
 	const ws = FakeWebSocket.all.at(-1)!;
 	ws.push({ method: "status", params: status("paired", agents) });
@@ -172,14 +180,14 @@ describe("连接状态（R26）", () => {
 
 		await waitFor(() => expect(FakeWebSocket.all[0].sent.at(-1)?.method).toBe("pair.request"));
 		expect(issueMcpToken).toHaveBeenCalledWith("Ada 的 MacBook", "LEARNING_HOST");
-		expect(screen.getByText("请在电脑上弹出的确认框里选择允许。")).toBeInTheDocument();
+		expect(screen.getByText("请在电脑弹出的确认框里确认这次授权（配对）。")).toBeInTheDocument();
 	});
 
 	it.each<[string, HostConnection, RegExp | string]>([
 		["Covers AE12：Host 需要更新", { state: "staleHost" }, INSTALL],
 		["浏览器阻止访问本机", { state: "blocked" }, "浏览器阻止了本页访问本机。"],
 		["不受支持的浏览器", { state: "unsupported", reason: "browser" }, "对话栏支持 macOS、Windows 与 Ubuntu 桌面上的 Chrome，以及桌面版 Firefox。"],
-		["本机没有可用的 agent", { state: "detected", agents: [{ kind: "omp", present: false }], paired: false, capabilities: [] }, "这台电脑上还没有可用的 agent。"],
+		["本机没有可用的 agent", { state: "detected", agents: [{ kind: "omp", present: false }], paired: false, capabilities: [] }, "还差一个搭子引擎"],
 	])("%s：给出说明与下一步", async (_, probe, text) => {
 		checkHost.mockResolvedValue(probe);
 		renderPanel();
@@ -287,7 +295,8 @@ it("Covers AE10：在「已配对的电脑」里撤销本机这台 → pair.forg
 		{ id: "tok_this", name: "Ada 的 MacBook", kind: "LEARNING_HOST", lastUsedAt: null, revokedAt: null, insertedAt: "2026-10-01T00:00:00Z", status: "active" },
 	]);
 	const ws = await readyPanel();
-	fireEvent.click(screen.getByRole("button", { name: "已配对的电脑" }));
+	fireEvent.click(screen.getByRole("button", { name: "更多" }));
+	fireEvent.click(screen.getByRole("menuitem", { name: "已配对的电脑" }));
 	fireEvent.click(await screen.findByRole("button", { name: "撤销「Ada 的 MacBook」" }));
 	fireEvent.click(screen.getByRole("button", { name: "确认撤销「Ada 的 MacBook」" }));
 	await waitFor(() => expect(ws.sent.at(-1)).toEqual({ method: "pair.forget" }));
@@ -297,11 +306,47 @@ it("Covers AE10：在「已配对的电脑」里撤销本机这台 → pair.forg
 	expect(screen.queryByRole("textbox", { name: "发给 agent 的消息" })).not.toBeInTheDocument();
 });
 
+it("头部图标悬停显示 Tooltip（标题栏常驻图标）", async () => {
+	renderPanel("zh-CN", { onTogglePin: () => {} });
+	await attach();
+	await screen.findByRole("textbox", { name: "发给 agent 的消息" });
+	const newChat = screen.getByRole("button", { name: "新开对话" });
+	fireEvent.mouseEnter(newChat);
+	expect(screen.getByRole("tooltip")).toHaveTextContent("新开对话");
+	fireEvent.mouseLeave(newChat);
+	expect(screen.queryByRole("tooltip")).toBeNull();
+
+	const pin = screen.getByRole("button", { name: "固定到右侧" });
+	fireEvent.focus(pin);
+	expect(screen.getByRole("tooltip")).toHaveTextContent("固定到右侧");
+	fireEvent.blur(pin);
+});
+
+it("头部「更多」菜单：收纳已配对的电脑/重新检测等控制项；点外部或选项后收起", async () => {
+	await readyPanel();
+	const trigger = screen.getByRole("button", { name: "更多" });
+	fireEvent.click(trigger);
+	expect(screen.getByRole("menuitem", { name: "已配对的电脑" })).toBeInTheDocument();
+	expect(screen.getByRole("menuitem", { name: "重新检测" })).toBeInTheDocument();
+	expect(screen.queryByRole("menu")).not.toBeNull();
+
+	fireEvent.mouseDown(document.body);
+	expect(screen.queryByRole("menu")).toBeNull();
+
+	fireEvent.click(trigger);
+	fireEvent.click(screen.getByRole("menuitem", { name: "已配对的电脑" }));
+	expect(screen.queryByRole("menu")).toBeNull();
+});
+
 it("KTD9：进入可对话状态不自动发消息；R15：显示这门课的工作目录", async () => {
 	const ws = await readyPanel();
 	expect(ws.sent.map((f) => f.method)).toEqual(["hello", "chat.attach"]);
 	expect(screen.getByText(`~/cgc2046_workspace/courses/${USER}/${COURSE}`, { exact: false })).toBeInTheDocument();
-	expect(screen.getByText("向你的 agent 提问吧。它知道你正在学这门课，以及你正在看的单元。")).toBeInTheDocument();
+	expect(screen.getByText(/我是你的学习搭子/)).toBeInTheDocument();
+	// 总览（unitId=null）给规划类情境入口；点一下把提示词填进输入框，不自动发送
+	fireEvent.click(screen.getByRole("button", { name: "帮我规划学习路径" }));
+	expect(screen.getByRole("textbox", { name: "发给 agent 的消息" })).toHaveValue("帮我规划学习路径");
+	expect(ws.sent.map((f) => f.method)).toEqual(["hello", "chat.attach"]);
 });
 
 describe("卡片（R19、R20）", () => {
@@ -515,7 +560,24 @@ describe("i18n", () => {
 			v && typeof v === "object" ? keys(v as Record<string, unknown>, `${prefix}${k}.`) : [`${prefix}${k}`],
 		);
 
-	it("hostChat 命名空间 zh-CN 与 en 的键集合一致", () => {
+	it("学习搭子头部：传入 onTogglePin 才出现固定/关闭菜单项；pinned 决定文案", () => {
+	const toggle = vi.fn();
+	const first = renderPanel("zh-CN", { pinned: false, onTogglePin: toggle });
+	fireEvent.click(screen.getByRole("button", { name: "更多" }));
+	const pin = screen.getByRole("menuitem", { name: "固定到右侧" });
+	expect(pin).toBeInTheDocument();
+	expect(screen.queryByRole("button", { name: "关闭学习搭子" })).toBeNull();
+	fireEvent.click(pin);
+	expect(toggle).toHaveBeenCalledTimes(1);
+	first.unmount();
+
+	renderPanel("zh-CN", { pinned: true, onTogglePin: toggle, onClose: () => {} });
+	fireEvent.click(screen.getByRole("button", { name: "更多" }));
+	expect(screen.getByRole("menuitem", { name: "取消固定" })).toBeInTheDocument();
+	expect(screen.getByRole("button", { name: "关闭学习搭子" })).toBeInTheDocument();
+});
+
+it("hostChat 命名空间 zh-CN 与 en 的键集合一致", () => {
 		expect(keys(messages("en")).sort()).toEqual(keys(messages("zh-CN")).sort());
 	});
 
@@ -623,7 +685,9 @@ describe("学员课程页（page.tsx）", () => {
 		wide(true);
 		renderPage();
 		const viewer = await screen.findByTestId("course-content-viewer");
-		await waitFor(() => expect(viewer).toHaveClass("learning-reader--compact"));
+		expect(viewer).not.toHaveClass("learning-reader--compact");
+		// 恢复后的交互：默认收起，点「问学习搭子」才挂载面板、连本机
+		fireEvent.click(await screen.findByRole("button", { name: "问学习搭子" }));
 		const ws = await attach();
 
 		fireEvent.click(within(viewer).getByRole("button", { name: /单元 A/ }));
@@ -645,10 +709,26 @@ describe("学员课程页（page.tsx）", () => {
 		expect(detailCalls).toBe(3);
 	});
 
+	it("固定学习搭子：阅读区切到紧凑布局，收起后恢复", async () => {
+		wide(true);
+		renderPage();
+		const viewer = await screen.findByTestId("course-content-viewer");
+		fireEvent.click(await screen.findByRole("button", { name: "问学习搭子" }));
+		await attach();
+
+		fireEvent.click(screen.getByRole("button", { name: "固定到右侧" }));
+		await waitFor(() => expect(viewer).toHaveClass("learning-reader--compact"));
+		expect(document.body.classList.contains("learning-mate-docked")).toBe(true);
+
+		fireEvent.click(screen.getByRole("button", { name: "关闭学习搭子" }));
+		await waitFor(() => expect(viewer).not.toHaveClass("learning-reader--compact"));
+	});
+
 	it("同一标签页换账号：关掉旧连接、开新连接，用新账号重新 hello", async () => {
 		wide(true);
 		localStorage.setItem(keyOf("user-b"), "bk-b");
 		const view = renderPage();
+		fireEvent.click(await screen.findByRole("button", { name: "问学习搭子" }));
 		const first = await attach();
 		useAuthed.mockReturnValue({ authed: true, confirmed: true, userId: "user-b" });
 		view.rerender(
@@ -656,6 +736,8 @@ describe("学员课程页（page.tsx）", () => {
 				<CourseLearningPage />
 			</MockedProvider>,
 		);
+		// 换账号后抽屉重新挂载为收起态：再点一次入口才会建新连接
+		fireEvent.click(await screen.findByRole("button", { name: "问学习搭子" }));
 		await waitFor(() => expect(socketCount()).toBe(2));
 		expect(first.readyState).toBe(FakeWebSocket.CLOSED);
 		const second = FakeWebSocket.all[1];
@@ -663,13 +745,18 @@ describe("学员课程页（page.tsx）", () => {
 		await waitFor(() => expect(second.sent.at(-1)).toMatchObject({ method: "hello", params: { userId: "user-b", browserKey: "bk-b" } }));
 	});
 
-	it("视口窄于 1280px：不挂载对话栏、不连本机，阅读组件保持默认布局", async () => {
-		wide(false);
+	it("默认收起：窄视口也有「问学习搭子」入口、不探测 Host；打开后才挂载面板并连本机", async () => {
+		wide(false); // 页面不再按视口挂载面板；保留 matchMedia 以证明窄视口也能用
 		renderPage();
 		const viewer = await screen.findByTestId("course-content-viewer");
 		expect(viewer).not.toHaveClass("learning-reader--compact");
+		const launcher = await screen.findByRole("button", { name: "问学习搭子" });
 		expect(checkHost).not.toHaveBeenCalled();
-		expect(screen.queryByRole("complementary", { name: "本机 agent 对话" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("complementary", { name: "学习搭子" })).not.toBeInTheDocument();
+
+		fireEvent.click(launcher);
+		await waitFor(() => expect(checkHost).toHaveBeenCalled());
+		expect(await screen.findByRole("dialog", { name: "学习搭子" })).toBeInTheDocument();
 	});
 });
 
@@ -892,20 +979,25 @@ describe("多 agent（#1148）", () => {
 		await attach();
 		await screen.findByRole("textbox", { name: "发给 agent 的消息" });
 
-		expect(screen.getByText("由 OMP 驱动")).toBeInTheDocument();
+		expect(screen.getByText("OMP", { selector: ".learning-chat__agent-label" })).toBeInTheDocument();
 		expect(screen.queryByRole("menuitemradio")).toBeNull();
 		expect(screen.getByRole("button", { name: "添加 agent" })).toBeInTheDocument();
 	});
 
 	it("Covers R6：需要登录时只给 ChatGPT 登录（api-key 要密钥收集契约，首期不做）；成功后登录卡消失", async () => {
 		window.localStorage.setItem(`cgc-host-agent:${COURSE}`, "codex");
+		const agents = [
+			{ kind: "omp", present: true },
+			{ kind: "codex", present: true },
+		];
+		checkHost.mockResolvedValue({ state: "detected", agents, paired: true, capabilities: [] });
 		renderPanel();
 		// attach 就撞上「要求先登录」：Host 回 auth_required（带它播报的登录方式）
 		await waitFor(() => expect(socketCount()).toBeGreaterThan(0));
 		const ws = FakeWebSocket.all.at(-1)!;
-		ws.push({ method: "status", params: status("paired") });
+		ws.push({ method: "status", params: status("paired", agents) });
 		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
-		await ws.reply("hello", "status", status("ready"));
+		await ws.reply("hello", "status", status("ready", agents));
 		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
 		await ws.reply("chat.attach", "error", {
 			code: "auth_required",
@@ -922,6 +1014,31 @@ describe("多 agent（#1148）", () => {
 		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.authenticate", params: { courseId: COURSE, methodId: "chat-gpt" } }));
 		await ws.reply("chat.authenticate", "chat.authenticated", { courseId: COURSE, agent: "codex" });
 		await waitFor(() => expect(screen.queryByRole("button", { name: "用 ChatGPT 登录" })).toBeNull());
+	});
+
+	it("#1155：已装 ChatGPT App 时登录卡优先引导在 App 里登录，网页登录只兜底", async () => {
+		window.localStorage.setItem(`cgc-host-agent:${COURSE}`, "codex");
+		const agentsWithApp = [
+			{ kind: "omp", present: true },
+			{ kind: "codex", present: true, sources: [{ source: "chatgpt-app", version: "0.163.0" }] },
+		];
+		checkHost.mockResolvedValue({ state: "detected", agents: agentsWithApp, paired: true, capabilities: [] });
+		renderPanel();
+		await waitFor(() => expect(socketCount()).toBeGreaterThan(0));
+		const ws = FakeWebSocket.all.at(-1)!;
+		ws.push({ method: "status", params: status("paired", agentsWithApp) });
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
+		await ws.reply("hello", "status", status("ready", agentsWithApp));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
+		await ws.reply("chat.attach", "error", { code: "auth_required", methods: [{ id: "chat-gpt", name: "ChatGPT" }] });
+
+		expect(await screen.findByText(/在 ChatGPT App 里登录后回到这里/)).toBeInTheDocument();
+		const retry = screen.getByRole("button", { name: "我已登录，重试" });
+		expect(screen.getByRole("button", { name: "改用浏览器登录" })).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "用 ChatGPT 登录" })).toBeNull();
+
+		fireEvent.click(retry);
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
 	});
 });
 
@@ -946,8 +1063,11 @@ describe("多 agent 的评审修复（M1 / M2 / M4）", () => {
 		});
 		renderPanel();
 
-		await screen.findByText("这台电脑上还没有可用的 agent。");
-		expect(screen.getByText(/安装 OMP/)).toBeInTheDocument();
+		await screen.findByText("还差一个搭子引擎");
+		// OMP 卡（默认推荐）与 Codex 卡并列；旧 Host 不支持页面安装时给手动命令
+		expect(screen.getByText("OMP")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "我已装好 OMP，重新检测" })).toBeInTheDocument();
+		expect(screen.getByText(/这个 Host 不支持在页面里安装/)).toBeInTheDocument();
 		expect(screen.getByText("bun add -g @agentclientprotocol/codex-acp")).toBeInTheDocument();
 	});
 
@@ -964,16 +1084,36 @@ describe("多 agent 的评审修复（M1 / M2 / M4）", () => {
 		expect(screen.getByRole("menuitemradio", { name: "Codex" })).toBeDisabled();
 	});
 
-	it("M4：没有可点的登录方式时给页面外登录说明与重试，不留死卡", async () => {
-		window.localStorage.setItem(`cgc-host-agent:${COURSE}`, "codex");
-		checkHost.mockResolvedValue(both);
-		renderPanel();
+	it("#1155：OMP 需要登录时给终端登录说明与重试，不出现 ChatGPT 登录按钮", async () => {
+		renderPanel(); // DETECTED：只有 OMP 可用，默认就是 OMP
 		await waitFor(() => expect(socketCount()).toBeGreaterThan(0));
 		const ws = FakeWebSocket.all.at(-1)!;
 		ws.push({ method: "status", params: status("paired") });
 		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
 		await ws.reply("hello", "status", status("ready"));
 		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
+		await ws.reply("chat.attach", "error", { code: "auth_required", methods: [{ id: "api-key", name: "API Key" }] });
+
+		expect(await screen.findByText(/OMP 只提供页面外登录/)).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "用 ChatGPT 登录" })).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "重试" }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.attach"));
+	});
+
+	it("M4：Codex 没有可点的登录方式时给页面外登录说明与重试，不留死卡", async () => {
+		window.localStorage.setItem(`cgc-host-agent:${COURSE}`, "codex");
+		const agents = [
+			{ kind: "omp", present: true },
+			{ kind: "codex", present: true },
+		];
+		checkHost.mockResolvedValue({ ...both, agents });
+		renderPanel();
+		await waitFor(() => expect(socketCount()).toBeGreaterThan(0));
+		const ws = FakeWebSocket.all.at(-1)!;
+		ws.push({ method: "status", params: status("paired", agents) });
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
+		await ws.reply("hello", "status", status("ready", agents));
+		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.attach", params: { agent: "codex" } }));
 		await ws.reply("chat.attach", "error", { code: "auth_required", methods: [{ id: "api-key", name: "API Key" }] });
 
 		expect(await screen.findByText(/只提供页面外的登录方式/)).toBeInTheDocument();
@@ -1000,6 +1140,71 @@ describe("一键安装（期 2 / #1149）", () => {
 		{ kind: "codex", present: false },
 	];
 
+	it("没装引擎但检测到 ChatGPT App：Codex 卡置顶说明约 2MB，OMP 卡并列", async () => {
+		const agents = [
+			{ kind: "omp", present: false },
+			{ kind: "codex", present: false, sources: [{ source: "chatgpt-app", version: "0.163.0" }] },
+		];
+		checkHost.mockResolvedValue({ state: "detected", agents, paired: false, capabilities: ["agent.install"] });
+		renderPanel();
+		// 声明了安装能力：即使一个 agent 都没有也开连接，装完的 entry 要回推 status
+		await waitFor(() => expect(socketCount()).toBeGreaterThan(0));
+		const ws = FakeWebSocket.all.at(-1)!;
+		ws.push({ method: "status", params: status("paired", agents) });
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("hello"));
+		await ws.reply("hello", "status", status("ready", agents));
+
+		await screen.findByText("还差一个搭子引擎");
+		expect(screen.getByText(/检测到你已安装 ChatGPT App 0\.163\.0/)).toBeInTheDocument();
+		expect(screen.getByText(/若 App 里的 Codex 版本不兼容，会自动改为完整安装/)).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "安装 Codex 支持（约 2MB）" })).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "我已装好 OMP，重新检测" })).toBeInTheDocument();
+	});
+
+	it("检测到可复用来源：提示约 2MB 并显示来源/版本；装完（reused）显示已复用", async () => {
+		const agentsWithApp = [
+			{ kind: "omp", present: true },
+			{ kind: "codex", present: false, sources: [{ source: "chatgpt-app", version: "0.163.0" }] },
+		];
+		checkHost.mockResolvedValue({ state: "detected", agents: agentsWithApp, paired: true, capabilities: ["agent.install"] });
+		renderPanel();
+		const ws = await attach([], false, undefined, agentsWithApp);
+
+		fireEvent.click(screen.getByRole("button", { name: "添加 agent" }));
+		expect(await screen.findByText(/安装只需约 2MB 适配器/)).toBeInTheDocument();
+		expect(screen.getByText(/已检测到：ChatGPT App 0\.163\.0/)).toBeInTheDocument();
+		// 复用可能回退完整安装：必须在开始前披露体积，不能静默下 337MB
+		expect(screen.getByText(/若 App 里的 Codex 版本不兼容，会自动改为完整安装/)).toBeInTheDocument();
+
+		fireEvent.click(await screen.findByRole("button", { name: "安装 Codex 支持" }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("agent.install"));
+		await ws.reply("agent.install", "agent.install.started", { started: true });
+		act(() => ws.push({ method: "agent.done", params: { kind: "codex", ok: true, version: "2.2.2", reused: true } }));
+		act(() =>
+			ws.push({
+				method: "status",
+				params: status("ready", [
+					{ kind: "omp", present: true },
+					{ kind: "codex", present: true, sources: [{ source: "chatgpt-app", version: "0.163.0" }] },
+				]),
+			}),
+		);
+		expect(screen.getByText(/已复用你已有的 Codex/)).toBeInTheDocument();
+	});
+
+	it("#1155：没装 ChatGPT App 时先引导安装 App（默认路径），再给全量安装兜底", async () => {
+		checkHost.mockResolvedValue(CAN_INSTALL);
+		renderPanel();
+		await attach([], false, undefined, ompOnly);
+
+		fireEvent.click(screen.getByRole("button", { name: "添加 agent" }));
+		expect(await screen.findByText(/推荐先安装 ChatGPT App/)).toBeInTheDocument();
+		const download = screen.getByRole("link", { name: "下载 ChatGPT App" });
+		expect(download).toHaveAttribute("href", "https://chatgpt.com/download");
+		// 全量安装入口仍在（兜底），不是唯一路径
+		expect(screen.getByRole("button", { name: "安装 Codex 支持" })).toBeInTheDocument();
+	});
+
 	it("没有 agent + 声明能力：未配对先给「连接」；配对后才有安装按钮，点击发请求、装完入口消失", async () => {
 		window.localStorage.clear(); // 隔离前序用例留下的浏览器密钥（有它就会先走 hello，停在 checking）
 		checkHost.mockResolvedValue({
@@ -1022,11 +1227,11 @@ describe("一键安装（期 2 / #1149）", () => {
 
 		// 配对完成：没有 agent → 安装入口
 		act(() => ws.push({ method: "status", params: status("ready", [{ kind: "omp", present: false }, { kind: "codex", present: false }]) }));
-		fireEvent.click(await screen.findByRole("button", { name: "安装 Codex 支持" }));
+		fireEvent.click(await screen.findByRole("button", { name: "安装完整 Codex（约 337MB）" }));
 		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "agent.install", params: { kind: "codex" } }));
 		await ws.reply("agent.install", "agent.install.started", { started: true });
 		act(() => ws.push({ method: "agent.install.progress", params: { kind: "codex", phase: "installing" } }));
-		expect(await screen.findByRole("button", { name: "正在安装 Codex 支持…" })).toBeDisabled();
+		expect(await screen.findByRole("button", { name: "正在准备搭子…" })).toBeDisabled();
 
 		// 装完：Host 推 status（codex 已 present），入口消失
 		act(() =>
@@ -1039,7 +1244,7 @@ describe("一键安装（期 2 / #1149）", () => {
 			}),
 		);
 		act(() => ws.push({ method: "agent.done", params: { kind: "codex", ok: true, version: "2.2.2" } }));
-		await waitFor(() => expect(screen.queryByRole("button", { name: /安装 Codex 支持|正在安装/ })).toBeNull());
+		await waitFor(() => expect(screen.queryByRole("button", { name: /安装完整 Codex|正在准备搭子/ })).toBeNull());
 	});
 
 	it("安装失败：就地给出可重试的提示，按钮恢复可点", async () => {

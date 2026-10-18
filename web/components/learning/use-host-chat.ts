@@ -307,6 +307,8 @@ export interface HostChat extends Omit<ChatState, "evicted"> {
 	capabilities: string[];
 	/** 一键安装的状态：null 没在装；"installing" 进行中；{ error } 失败可重试 */
 	install: "installing" | { error: string } | null;
+	/** 最近一次安装的结果：reuse = 复用学员已有 Codex（只装适配器）；null 未知 */
+	installOutcome: "reuse" | "full" | null;
 	/** 请 Host 装 Codex 适配器（只有 capabilities 含 agent.install 时才有意义） */
 	installAgent(): Promise<void>;
 }
@@ -341,6 +343,8 @@ export function useHostChat({
 	const [agents, setAgents] = useState<HostAgentStatus[]>([]);
 	/** 一键安装的状态（期 2）：null 没在装；"installing" 进行中；{ error } 失败可重试 */
 	const [install, setInstall] = useState<"installing" | { error: string } | null>(null);
+	/** 最近一次安装的结果（Host 的 agent.done.reused）：复用已有 Codex 还是全量安装 */
+	const [installOutcome, setInstallOutcome] = useState<"reuse" | "full" | null>(null);
 	/** 这台浏览器上次选过的 agent（只是偏好）：实际路由要看它在本机是否可用，见 effectiveAgent */
 	const [preferred, setPreferred] = useState(() => {
 		try {
@@ -386,6 +390,7 @@ export function useHostChat({
 					current = null;
 					setSocket(null);
 					setInstall(null); // 装到一半断线：别把「正在安装」永久留在按钮上
+					setInstallOutcome(null);
 					setLost(true);
 					dispatch({ type: "reset" });
 					timer = setTimeout(check, POLL_MS);
@@ -517,10 +522,12 @@ export function useHostChat({
 				if (params.kind !== "codex") return;
 				if (params.ok) {
 					setInstall(null);
+					setInstallOutcome(params.reused === true ? "reuse" : "full");
 					void checkHost({ previouslyReachedHost: true }).then((result) => {
 						if (result.state === "detected") setAgents(result.agents);
 					});
 				} else {
+					setInstallOutcome(null);
 					setInstall({ error: String(params.code ?? "install_failed") });
 				}
 			}),
@@ -682,6 +689,7 @@ export function useHostChat({
 	/** 请 Host 装 Codex 适配器（期 2）：安装是长任务，先回 started，进度与结果走 agent.install.progress / agent.done */
 	const installAgent = useCallback(async () => {
 		if (!socket) return;
+		setInstallOutcome(null);
 		setInstall("installing");
 		const reply = await socket
 			.request("agent.install", { kind: "codex" }, { timeoutMs: CARD_TIMEOUT_MS })
@@ -720,6 +728,7 @@ export function useHostChat({
 		refreshAgents,
 		capabilities,
 		install,
+		installOutcome,
 		installAgent,
 	};
 }
