@@ -32,6 +32,9 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ### Changed（[本机 Host]）
 - [本机 Host] 课程工作目录由 `~/CGC/<userId>/<courseId>` 改为 `~/cgc2046_workspace/courses/<userId>/<courseId>`（ADR-0022 KTD6 修订）：与终端插件的工作区合成一棵树，学员只需记一个目录；课程目录在其下单独一层，网页课程会话与学员自己的终端会话仍按目录分桶、互不串入。无历史数据迁移——Host 此前未对外发布。Host 版本 `0.1.5`，`MIN_HOST_VERSION` 随之提高，已装旧包的学员会被提示重装。
 
+### Changed（[本机 Host / Web]）
+- [本机 Host / Web] 学习搭子**打开就能选模型与思考/推理强度**：没有会话指针时，Host 在 `chat.attach` 先建一条空会话（`session/new`、指针落盘），`history` 随即可带 `settings`——下拉框不再等到发完首条消息才出现，首条消息直接复用这条会话（进程仍按 KTD13 空闲回收，下次 attach 走 session/load）。Codex 侧新增「推理强度」（ACP `reasoning_effort`，随模型给出 Low/High/Max 等档位；模型 id 没有 provider 前缀时下拉平铺、带前缀时照常按 provider 分组）。旧 Host（< 0.2.3）会被版本门挡在「Host 需要更新」，重跑一次安装命令后生效——页面整块不加载，不是静默降级；Host 包版本 `0.2.3`，`MIN_HOST_VERSION` 抬到 `0.2.3`（本次 deploy 需同批发布 Host 产物，否则提示更新也装不到新版）。
+
 ### Fixed
 - [Web] 工作台「邀请管理」填写过期时间后创建邀请必失败：`datetime-local` 输入的原值是本地时间、不带时区，之前被原样当 GraphQL `DateTime` 下发，参数校验直接拒（`Argument "input" has invalid value $input … Expected type "DateTime"`）。现经共享的 `fromLocalInput` 转成 UTC ISO8601；留空仍表示无过期时间。
 - [Web] 成员表行内角色弹层贴底时自动向上展开并按剩余空间限高：原来固定向下展开，最后几行越出表格卡片底沿（实测倒数第 1/2/3 行分别溢出 216/137/56px），≤980px 断点下滚动容器还会把这些内容裁掉；现按实际几何在挂载时判定方向，两侧都放不下时翻到空间更大的一侧并内部滚动，以真正会裁剪的 `.members-table-scroll` 为界。

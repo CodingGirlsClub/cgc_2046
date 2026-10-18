@@ -46,4 +46,6 @@ BYO（ADR-0001）让学员用自己电脑上的 agent 和模型额度学习，�
 - **会话与指针按 agent 分桶**：KTD6 的「每门课一条会话指针」变成「每门课每个 agent 各一条」；`~/.codex` 与 `~/.omp` 都只由各自 agent 自己维护，Host 不读也不写。
 - **残留风险补充**：Codex 侧的会话存储是否落学习凭证，实测（2026-10-17，假凭证、macOS、codex-acp 2.2.2 的桩 MCP 冒烟）**没有**命中凭证串；真机页面验收时要拿真凭证再扫一次。`SIGKILL` 适配器会留下孤儿 Codex 进程（实测），所以它的回收走「优雅优先」（ADR-0023）。
 
+**2026-10-19 修订（发送前可选模型与推理强度）：** `chat.attach` 在课程还没有会话指针时不再返回空历史，而是先 `session/new` 建一条空会话（指针落盘），`history` 随即可带 `settings`——ACP 的 config options 只在会话上返回，页面要在首条消息之前就能选模型/思考等级（Codex 为 `reasoning_effort`「推理强度」）没有别的通道。代价：打开对话栏会拉起该 agent 的进程，且学员自己 agent 的历史里会多一条空会话（`chat.new` 已有同类先例）；agent 的启动/登录错误（`chat_unavailable` / `auth_required`）也提前到打开面板时出现，页面用与发消息时同一套错误面展示。KTD13 的空闲回收不变——指针在状态文件里，回收后下次 attach 走 `session/load`。会话设置白名单在 OMP 的 `thinking` 之外增加 Codex 的 `reasoning_effort`；因入口体验依赖新 Host 行为，`MIN_HOST_VERSION` 抬到 `0.2.3`（与 ADR-0023 抬 `0.2.0` 同一口径）：旧 Host 在新页面被版本门挡在「Host 需要更新」，整块学习搭子不可用直到重跑安装命令——有意的取舍，入口级体验若静默降级等于对绝大多数存量学员不可见；本次 deploy 必须与 Host 包 `0.2.3` 产物同批发布，否则提示更新也装不到新版。凭证在 `session/new` 的 `mcpServers` 里下发的时点也随之前移到「打开面板」——ADR-0023 的「会话存储是否落学习凭证」真机扫描要把「只打开面板、不发消息」也纳入。
+
 回滚：按 PR 还原。`kind` 与审计 `token_kind` 两列的 down 迁移先撤销全部 `learning_host` 凭证再删列。只回滚后端镜像、不跑 down 迁移时，`learning_host` 凭证因独立前缀与域分隔哈希而校验失败，不会获得更宽的权限；重新部署新版后恢复。学员侧用 Host 自带的卸载命令移除 Host，课程工作目录（作业）保留。

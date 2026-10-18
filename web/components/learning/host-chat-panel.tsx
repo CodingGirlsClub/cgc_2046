@@ -517,11 +517,17 @@ function Turn({ events }: { events: ChatEvent[] }) {
 	});
 }
 
-/** 模型选项多（实测 69 个）：按 provider 分组展示；选项值是 `provider/model` 形状 */
-function groupByProvider(options: HostChatSetting["options"]) {
+/**
+ * 模型选项可能很多（OMP 实测上百个）：选项值都是 `provider/model` 形状时按 provider 分组展示。
+ * Codex 的模型值两种形状都出现过（真机实测带 `group/…`、`opencode-go/…` 前缀，也有裸 id）：
+ * 没有前缀时返回 null 交给调用方平铺——否则每个模型都会自成一个 provider，下拉里出现一排单选项的 optgroup。
+ * 混合形状也整体平铺：宁可少分组，也不把裸 id 拆成一堆单选项组。
+ */
+function groupByProvider(options: HostChatSetting["options"]): [string, HostChatSetting["options"]][] | null {
+	if (!options.every((option) => /^[^/]+\/.+$/.test(option.value))) return null;
 	const groups = new Map<string, HostChatSetting["options"]>();
 	for (const option of options) {
-		const provider = option.value.split("/")[0] || option.value;
+		const provider = option.value.split("/")[0];
 		const list = groups.get(provider);
 		if (list) list.push(option);
 		else groups.set(provider, [option]);
@@ -529,10 +535,17 @@ function groupByProvider(options: HostChatSetting["options"]) {
 	return [...groups];
 }
 
-/** R18 修订：学员可在对话栏按会话改本机 OMP 的模型与思考等级（与发送按钮同排，作业目录另起一行）；Host 或 OMP 不给可选项时（旧版本）整块不渲染 */
+/** 设置的读屏标签：模型、OMP 的思考等级、Codex 的推理强度都有页面文案；其余设置用 Host 给的名字 */
+const SETTING_LABEL_KEYS: Record<string, string> = {
+	model: "settings.model",
+	thinking: "settings.thinking",
+	reasoning_effort: "settings.reasoning",
+};
+
+/** R18 修订：学员可在对话栏按会话改本机 agent 的模型与思考等级（OMP: thinking / Codex: reasoning_effort；与发送按钮同排，作业目录另起一行）；Host 或 agent 不给可选项时（旧版本）整块不渲染 */
 function ChatSettings({ chat }: { chat: HostChat }) {
 	const t = useTranslations("hostChat");
-	/** 改一次要等 OMP 回包：期间禁用两个下拉，避免与回包赛跑 */
+	/** 改一次要等 agent 回包：期间禁用这些下拉，避免与回包赛跑 */
 	const [pending, setPending] = useState(false);
 	const [failure, setFailure] = useState<string | null>(null);
 
@@ -561,32 +574,37 @@ function ChatSettings({ chat }: { chat: HostChat }) {
 	return (
 		<>
 			<div className="learning-chat__settings">
-				{chat.settings.map((option) => (
-					<select
-						key={option.id}
-						className="learning-chat__setting"
-						aria-label={option.id === "model" ? t("settings.model") : option.id === "thinking" ? t("settings.thinking") : option.name}
-						value={option.currentValue}
-						disabled={pending || chat.running}
-						onChange={(event) => void change(option.id, event.target.value)}
-					>
-						{option.id === "model"
-							? groupByProvider(option.options).map(([provider, options]) => (
-									<optgroup key={provider} label={provider}>
-										{options.map((value) => (
-											<option key={value.value} value={value.value}>
-												{value.name}
-											</option>
-										))}
-									</optgroup>
-								))
-							: option.options.map((value) => (
-									<option key={value.value} value={value.value}>
-										{value.name}
-									</option>
-								))}
-					</select>
-				))}
+				{chat.settings.map((option) => {
+					/** 只有 `provider/model` 形状的模型选项分组；Codex 的裸 id 与思考等级/推理强度一样平铺 */
+					const groups = option.id === "model" ? groupByProvider(option.options) : null;
+					const labelKey = SETTING_LABEL_KEYS[option.id];
+					return (
+						<select
+							key={option.id}
+							className="learning-chat__setting"
+							aria-label={labelKey ? t(labelKey) : option.name}
+							value={option.currentValue}
+							disabled={pending || chat.running}
+							onChange={(event) => void change(option.id, event.target.value)}
+						>
+							{groups
+								? groups.map(([provider, options]) => (
+										<optgroup key={provider} label={provider}>
+											{options.map((value) => (
+												<option key={value.value} value={value.value}>
+													{value.name}
+												</option>
+											))}
+										</optgroup>
+									))
+								: option.options.map((value) => (
+										<option key={value.value} value={value.value}>
+											{value.name}
+										</option>
+									))}
+						</select>
+					);
+				})}
 			</div>
 			{failure ? (
 				<p role="alert" className="learning-chat__note">

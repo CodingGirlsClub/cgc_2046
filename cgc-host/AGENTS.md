@@ -71,25 +71,25 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 
 ## 对话的载荷契约（`src/acp/`、`src/agents/`）
 
-每门课对应**每个 agent 各一条** ACP 会话，指针存在状态文件的 `sessions`（courseId → `{<agent kind>: sessionId}`；多 agent 之前的旧形状是 courseId → sessionId，读时按缺省 agent 迁移并落盘）。**每个 agent kind 一个进程**：第一次需要时才拉起（有历史要回放的 `chat.attach`，或 `chat.send`、`chat.new`）；没有页面连着、也没有在跑的回合超过 10 分钟就回收，下次需要时再拉起并 session/load。会话的工作目录是 `~/cgc2046_workspace/courses/<userId>/<courseId>`（`src/state.ts` 的 `workDir`，与终端插件的工作区同一棵树、隔一层 `courses/`）；session/new 与每次 session/load 都下发含当前学习凭证的 `cgc-2046` MCP 服务器，指针指向的会话不在当前课程目录下（例如换了账号）就不加载、清掉指针。换 agent 就是换一段会话：旧 agent 在跑的回合先按取消收尾、本次回 `busy`，页面重试才切换；切换后缓冲、设置与待答卡片都清空。
+每门课对应**每个 agent 各一条** ACP 会话，指针存在状态文件的 `sessions`（courseId → `{<agent kind>: sessionId}`；多 agent 之前的旧形状是 courseId → sessionId，读时按缺省 agent 迁移并落盘）。**每个 agent kind 一个进程**：第一次需要时才拉起（`chat.attach`——回放历史，或没有指针时建一条会话好把设置随 `history` 下发；以及 `chat.send`、`chat.new`）；没有页面连着、也没有在跑的回合超过 10 分钟就回收，下次需要时再拉起并 session/load——attach 建的空会话只留指针，进程照常按 KTD13 回收。会话的工作目录是 `~/cgc2046_workspace/courses/<userId>/<courseId>`（`src/state.ts` 的 `workDir`，与终端插件的工作区同一棵树、隔一层 `courses/`）；session/new 与每次 session/load 都下发含当前学习凭证的 `cgc-2046` MCP 服务器，指针指向的会话不在当前课程目录下（例如换了账号）就不加载、清掉指针。换 agent 就是换一段会话：旧 agent 在跑的回合先按取消收尾、本次回 `busy`，页面重试才切换；切换后缓冲、设置与待答卡片都清空。
 
 下面的消息都带 `courseId`，表里省略。
 
 | 页面 → Host | 其余 params | 回复与之后的推送 |
 | --- | --- | --- |
-| `chat.attach` | `agent?` | `history`；之后把未答的卡片逐张以 `turn.card` 重发 |
+| `chat.attach` | `agent?` | `history`（没有会话指针时先建一条空会话，回包因此带设置）；之后把未答的卡片逐张以 `turn.card` 重发 |
 | `chat.send` | `text`（非空字符串）、`context` | 回 `turn.delta {kind: "user", text}` 表示接下了；之后推 `turn.delta` / `turn.card` / `turn.card.closed`，最后 `turn.end` |
 | `chat.stop` | — | 不回复；在跑的一轮：待答卡片 `turn.card.closed {reason: "cancelled"}`，没跑完的工具步骤以 `status: "stopped"` 推一次 `turn.delta`，随后 `turn.end {stopReason: "cancelled"}`。停止前已提交到平台的结果照常生效 |
 | `chat.new` | — | `history`（空）：此后的消息进一条新会话，agent 不带之前的上下文；学习进度不受影响 |
 | `chat.sessions` | `cursor?`（分页游标，原样透传 ACP） | `sessions {sessions: [{sessionId, updatedAt, messageCount}], current, nextCursor}`：本课程工作目录下的会话；只读，有回合在跑也可查；元数据缺省为 `null`（OMP 差异），页面降级展示 |
 | `chat.open` | `sessionId` | `history`：切换到指定会话；目标必须在本课程工作目录下（否则 `bad_request`）；加载失败 `session_unavailable` 且持久指针不动（原会话不受影响）；有回合在跑 `busy`；成功才推进指针，切当前会话不重复加载 |
 | `chat.authenticate` | `methodId`（取自 `auth_required` 回包的 `methods`，如 `chat-gpt`） | `chat.authenticated {agent}`：登录成功（浏览器由适配器自己开）；`auth_failed` 失败、`busy` 登录期间进程被换掉（页面重试即可）、`bad_request` 参数不合法；`chat-gpt` 这类由适配器在本机开浏览器，不进课程队列 |
-| `chat.set_setting` | `configId`（`model` / `thinking`）、`value`（非空字符串） | `chat.settings {settings}`：改当前会话的设置，回复带这个 agent 的完整回包；有回合在跑 `busy`；当前没有已加载会话 `chat_unavailable`；值不被 agent 接受 `bad_request`（ACP 原文只进 Host 日志） |
+| `chat.set_setting` | `configId`（`model` / `thinking` / `reasoning_effort`）、`value`（非空字符串） | `chat.settings {settings}`：改当前会话的设置，回复带这个 agent 的完整回包；有回合在跑 `busy`；当前没有已加载会话 `chat_unavailable`；值不被 agent 接受 `bad_request`（ACP 原文只进 Host 日志） |
 | `card.answer` | `cardId`，加审批的 `{optionId}` 或提问的 `{action, content?}` | `turn.card.closed {cardId, reason: "answered"}` |
 | `agent.install` | `kind`（可安装的只有 `codex`，见 `installable`） | `agent.install.started {started: true}`；随后推 `agent.install.progress {kind, phase: "installing"}` 与 `agent.done {kind, ok: true, version, reused?}` / `{kind, ok: false, code}`（`install_failed` / `version_mismatch` / `timeout`）。`reused: true` 表示本次装的是「只装适配器、复用学员已有 Codex engine」的变体（#1154）；缺省/旧 Host 不报。同一时刻只允许一个安装（`busy`）；没声明安装能力或 kind 不可安装时 `unsupported`；参数不合法 `bad_request`。**已装着钉住的版本时幂等短路**：不再下载，直接回 done |
 | `agent.done` 之后 | — | Host 重解析定位器并给每个已授权连接推 `status`：页面不必等下一轮 `/health` |
 
-会话设置（`chat.set_setting`、`chat.settings`、`history` 的 `settings`）：Host 把 agent 的会话设置（ACP 的 config options）收窄成 `model`（模型）与 `thinking`（思考等级）两项，`mode`（plan）不透出。`settings` 是 `[{id, name, category, currentValue, options: [{value, name, description?}]}]`，`history`（`chat.attach` / `chat.new` / `chat.open`）带当前值，空数组表示这个 agent 没给可选项（旧版本或 id 不同名）——页面据此不渲染入口。改动只作用于当前会话：不写学员的 agent 配置、不影响终端；agent 自己改了设置（`config_option_update`）时 Host 推 `chat.settings`。切模型可能连带改动另一项（OMP 实测：不支持思考的模型会把思考等级重置为 `off`…
+会话设置（`chat.set_setting`、`chat.settings`、`history` 的 `settings`）：Host 把 agent 的会话设置（ACP 的 config options）收窄成 `model`（模型）与思考/推理强度两项——OMP 的 id 是 `thinking`，Codex 的 id 是 `reasoning_effort`，两项的 category 都是 `thought_level`；`mode`（plan）不透出。`settings` 是 `[{id, name, category, currentValue, options: [{value, name, description?}]}]`，`history`（`chat.attach` / `chat.new` / `chat.open`）带当前值；`chat.attach` 在没有会话指针时会先建一条空会话，所以第一次打开面板就能拿到设置（进程仍按 KTD13 回收）。空数组表示这个 agent 没给可选项（旧版本或 id 不同名）——页面据此不渲染入口。改动只作用于当前会话：不写学员的 agent 配置、不影响终端；agent 自己改了设置（`config_option_update`）时 Host 推 `chat.settings`。切模型可能连带改动另一项（OMP 实测：不支持思考的模型会把思考等级重置为 `off`…
 
 `status` 与 `/health` 都带 `capabilities: string[]`（期 2 起含 `"agent.install"`）：页面只在声明了它时给「安装 Codex 支持」入口，旧 Host（0.2.0）不声明、页面继续只给手动命令。**不改 `protocolVersion`**——加方法靠能力探测，不靠版本门逼学员重装。
 

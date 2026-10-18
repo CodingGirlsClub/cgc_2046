@@ -46,14 +46,17 @@ test.each(["spawn", "initialize", "session/list", "session/load", "session/new"]
   const { fake, blocked, control } = stalledAgent(stage);
   control.armed = false;
   const { host, page } = await chatPage(fake, { preparationTimeoutMs: 80 });
+  // attach 现在就会建一条会话，进程也活着：先聊一句留下会话指针，再让这个进程换代，
+  // 使下一次 send 重新走「拉起进程 → initialize → list → load/new」，好把其中的某一阶段挂住。
   await page.call("chat.attach", { courseId: COURSE });
-  if (stage === "session/list" || stage === "session/load") {
-    await send(page, "seed history");
-    await ended(page);
-    const old = fake.conn!;
-    old.close();
-    await old.closed;
-  }
+  await send(page, "seed history");
+  await ended(page);
+  const seeded = pointers(host.home)[COURSE].omp;
+  const old = fake.conn!;
+  old.close();
+  await old.closed;
+  // session/new 分支：让 agent 的会话存储里没有这条会话，否则 send 会走 load 而不是 new
+  if (stage === "session/new") fake.store.delete(seeded);
   control.armed = true;
   const pending = send(page, "MUST_NOT_RUN");
   await until(() => control.entered);
@@ -94,7 +97,10 @@ test("a preparation timeout resets the shared agent, ends other active turns, an
   await page.call("chat.attach", { courseId: COURSE });
   await send(page, "active course");
   const other = await helloed(host, browserKey);
-  await other.call("chat.attach", { courseId: OTHER });
+  // 课程 B 先当上持有者但不留下会话（session/new 要求登录 → attach 失败），这样它的 send 会走 session/new
+  fake.authFor.add("session/new");
+  expect(await other.call("chat.attach", { courseId: OTHER })).toMatchObject({ method: "error", params: { code: "auth_required" } });
+  fake.authFor.delete("session/new");
   control.armed = true;
   const pending = send(other, "MUST_NOT_RUN", OTHER);
   await until(() => control.entered);

@@ -113,7 +113,7 @@ interface ChatState {
 	attached: boolean;
 	events: ChatEvent[];
 	cards: ChatCard[];
-	/** 本机 OMP 的会话设置（模型、思考等级）；空数组表示不渲染入口（旧版 Host 或 OMP 不给） */
+	/** 本机 agent 的会话设置（模型、OMP 的思考等级 / Codex 的推理强度）；空数组表示不渲染入口（旧版 Host 或 agent 不给） */
 	settings: HostChatSetting[];
 	running: boolean;
 	sending: boolean;
@@ -637,7 +637,7 @@ export function useHostChat({
 		[courseId, requestChatRaw, onReply],
 	);
 
-	// 改本机 OMP 的会话设置：成功由 chat.settings 回复接管归约；busy / chat_unavailable / bad_request 原样回给调用方
+	// 改本机 agent 的会话设置：成功由 chat.settings 回复接管归约；busy / chat_unavailable / bad_request 原样回给调用方
 	const setSetting = useCallback(
 		async (configId: string, value: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }> => {
 			const reply = await requestChatRaw("chat.set_setting", { courseId, configId, value });
