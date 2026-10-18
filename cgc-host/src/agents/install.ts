@@ -78,8 +78,14 @@ let inflight: Promise<InstalledAgent> | null = null;
 
 /** 安装 Codex 适配器；正在装时再调一次拿同一个结果（single-flight），装完返回版本与变体 */
 export function installCodexAcp(opts: InstallOptions): Promise<InstalledAgent> {
-  // 幂等短路：已经装着钉住的版本就不再下载（重复点击、两个标签页、恶意页面都只能触发一次）
-  if (managedCodex(opts.home)) return Promise.resolve({ version: CODEX_ACP_VERSION, variant: installVariant(opts.home) ?? "full" });
+  // 幂等短路：已经装着钉住的版本就不再下载（重复点击、两个标签页、恶意页面都只能触发一次）。
+  // reuse 变体例外：适配器还在但 engine 已经没了（App 卸载 / PATH codex 删除）时要允许重装，
+  // 否则会回报「成功」却永远没有可用的 Codex；没有 reuseEngine 时会走 full。
+  const managedVariant = installVariant(opts.home);
+  const managed = managedCodex(opts.home);
+  if (managed && !(managedVariant === "reuse" && !opts.reuseEngine)) {
+    return Promise.resolve({ version: CODEX_ACP_VERSION, variant: managedVariant ?? "full" });
+  }
   return (inflight ??= (async () => {
     if (opts.reuseEngine) {
       try {
@@ -170,7 +176,9 @@ async function readUntilId(stream: ReadableStream<Uint8Array>, id: number): Prom
       const line = buffer.slice(0, newline);
       buffer = buffer.slice(newline + 1);
       try {
-        if ((JSON.parse(line) as { id?: unknown }).id === id) return true;
+        // 只认成功的 result：适配器对 initialize 回 error（如旧 engine 不兼容）时不能当探针通过
+        const message = JSON.parse(line) as { id?: unknown; result?: unknown; error?: unknown };
+        if (message.id === id) return message.error === undefined && message.result !== undefined;
       } catch {
         // 非 JSON 行（适配器日志之类）忽略
       }

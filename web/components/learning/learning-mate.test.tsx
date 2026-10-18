@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { render } from "@/test-utils";
 import LearningMate from "./learning-mate";
@@ -6,7 +6,7 @@ import LearningMate from "./learning-mate";
 // 抽屉只负责入口/开合，不重复测对话面板本身：把子组件换成可观察的 stub
 vi.mock("./host-chat-panel", () => ({
 	default: ({ onClose, pinned, onTogglePin }: { onClose?: () => void; pinned?: boolean; onTogglePin?: () => void }) => (
-		<div data-testid="mate-content" data-pinned={pinned === true}>
+		<div data-testid="mate-content" data-pinned={pinned === true} data-can-pin={onTogglePin ? "true" : "false"}>
 			<button type="button" onClick={onClose}>
 				stub-close
 			</button>
@@ -17,11 +17,28 @@ vi.mock("./host-chat-panel", () => ({
 	),
 }));
 
+/** 与组件里 PIN_QUERY 对齐：默认宽屏，可切窄屏 */
+function mockWide(matches: boolean) {
+	vi.stubGlobal("matchMedia", (query: string) => ({
+		matches,
+		media: query,
+		onchange: null,
+		addEventListener: vi.fn(),
+		removeEventListener: vi.fn(),
+		addListener: vi.fn(),
+		removeListener: vi.fn(),
+		dispatchEvent: vi.fn(),
+	}));
+}
+
+beforeEach(() => mockWide(true));
+
 afterEach(() => {
 	cleanup();
 	document.body.style.overflow = "";
 	document.body.classList.remove("learning-mate-docked");
 	window.localStorage.clear();
+	vi.unstubAllGlobals();
 });
 
 const props = { courseId: "course", userId: "user", locale: "zh-CN", workspaceId: "ws", courseVersion: 1, unitId: null };
@@ -82,6 +99,18 @@ describe("学习搭子抽屉（课程页默认收起）", () => {
 		fireEvent.click(screen.getByRole("button", { name: "stub-pin" }));
 		expect(document.body.classList.contains("learning-mate-docked")).toBe(false);
 		expect(document.body.style.overflow).toBe("hidden");
+	});
+
+	it("窄屏不提供固定：点面板里的固定也不会进入固定态（避免全屏容器挡课程点击）", () => {
+		mockWide(false);
+		render(<LearningMate {...props} />);
+		fireEvent.click(screen.getByRole("button", { name: "问学习搭子" }));
+		fireEvent.click(screen.getByRole("button", { name: "stub-pin" }));
+
+		expect(screen.getByTestId("mate-content")).toHaveAttribute("data-can-pin", "false"); // 窄屏不把固定能力传给面板
+		expect(screen.getByTestId("mate-content")).toHaveAttribute("data-pinned", "false");
+		expect(document.body.classList.contains("learning-mate-docked")).toBe(false);
+		expect(document.body.style.overflow).toBe("hidden"); // 仍是覆盖式，正常锁滚动
 	});
 
 	it("固定只在本次打开有效：重新挂载（刷新页面）后回到未固定的覆盖式抽屉", () => {

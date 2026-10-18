@@ -225,6 +225,26 @@ describe("reuse 变体（#1154）", () => {
 		expect(withoutEngine.sources).toEqual([]);
 	});
 
+	test("reuse 装好后 engine 消失：不再幂等短路，重装为 full", async () => {
+		const home = tempHome();
+		await installCodexAcp({ home, run: fakeInstaller(), reuseEngine: engine, probe: async () => true });
+		expect(installVariant(home)).toBe("reuse");
+
+		// 学员卸载了 ChatGPT App / 删掉 PATH codex：main 拿不到 reuseEngine，点击安装要能自愈
+		let calls = 0;
+		const result = await installCodexAcp({
+			home,
+			run: async (cwd) => {
+				calls += 1;
+				return fakeInstaller()(cwd);
+			},
+		});
+		expect(result).toMatchObject({ version: CODEX_ACP_VERSION, variant: "full" });
+		expect(calls).toBe(1);
+		expect(installVariant(home)).toBe("full");
+		expect(leftovers(home)).toEqual([]);
+	});
+
 	test("probeCodexAcp：适配器回 initialize 即通过；不回则超时失败", async () => {
 		const home = tempHome();
 		const dir = join(home, "probe");
@@ -235,6 +255,15 @@ describe("reuse 变体（#1154）", () => {
 			`process.stdin.once("data", () => { process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: 1, result: {} }) + "\\n"); setTimeout(() => process.exit(0), 50); });`,
 		);
 		expect(await probeCodexAcp(ok, engine, 3000)).toBe(true);
+
+		// 旧 engine 不兼容时适配器会对 initialize 回 error；不能把「同 id 的 error」当成功
+		const rejected = join(dir, "error.js");
+		// 进程保持存活，确保 error 帧真的被读到（否则 fix 与 bug 都返回 false，测不出区别）
+		writeFileSync(
+			rejected,
+			`process.stdin.once("data", () => { process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: -32000, message: "incompatible" } }) + "\\n"); setInterval(() => {}, 1000); });`,
+		);
+		expect(await probeCodexAcp(rejected, engine, 500)).toBe(false);
 
 		const silent = join(dir, "silent.js");
 		writeFileSync(silent, `setTimeout(() => process.exit(0), 1500);`);

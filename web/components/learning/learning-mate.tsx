@@ -5,9 +5,25 @@
 // 首次打开后保持挂载，收起只是隐藏：重开不重建连接，正在进行的回合不会因为关抽屉被切断。
 // 桌面是右侧覆盖式抽屉（不挤压正文），手机上变成底部抽屉；Esc / 点遮罩 / 关闭按钮都能收起。
 // 宽屏可「固定到右侧」：固定时页面让出右栏（并排阅读），不再锁页面滚动、不显示遮罩；固定偏好按课程记在本地。
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslations } from "next-intl";
 import HostChatPanel from "./host-chat-panel";
+
+/** 与 CSS 的 @media (min-width: 1100px) 保持一致：只有宽屏才有「固定成右栏」 */
+const PIN_QUERY = "(min-width: 1100px)";
+
+function useWideLayout(): boolean {
+	return useSyncExternalStore(
+		(onChange) => {
+			if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => {};
+			const query = window.matchMedia(PIN_QUERY);
+			query.addEventListener("change", onChange);
+			return () => query.removeEventListener("change", onChange);
+		},
+		() => (typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia(PIN_QUERY).matches : false),
+		() => false,
+	);
+}
 
 export default function LearningMate(props: {
 	courseId: string;
@@ -23,9 +39,11 @@ export default function LearningMate(props: {
 	const [mounted, setMounted] = useState(false);
 	// 固定只对本次打开有效（不写 localStorage）：每次进入课程页都从覆盖式抽屉开始，行为可预期
 	const [pinned, setPinned] = useState(false);
+	const wide = useWideLayout();
+	const effectivePinned = pinned && wide;
 	const launcherRef = useRef<HTMLButtonElement>(null);
 
-	const docked = open && pinned;
+	const docked = open && effectivePinned;
 	const show = () => {
 		setMounted(true);
 		setOpen(true);
@@ -51,12 +69,12 @@ export default function LearningMate(props: {
 		document.addEventListener("keydown", onKey);
 		// 覆盖式抽屉才锁页面滚动；固定成右栏时页面要能正常滚动阅读
 		const previousOverflow = document.body.style.overflow;
-		if (!pinned) document.body.style.overflow = "hidden";
+		if (!effectivePinned) document.body.style.overflow = "hidden";
 		return () => {
 			document.removeEventListener("keydown", onKey);
 			document.body.style.overflow = previousOverflow;
 		};
-	}, [open, pinned]);
+	}, [open, effectivePinned]);
 
 	return (
 		<>
@@ -75,9 +93,14 @@ export default function LearningMate(props: {
 			) : null}
 			{mounted ? (
 				<div className={`learning-mate${docked ? " learning-mate--pinned" : ""}`} hidden={!open}>
-					{!pinned ? <div className="learning-mate__backdrop" aria-hidden onClick={hide} /> : null}
-					<div id="learning-mate" className="learning-mate__panel" role="dialog" aria-modal={!pinned} aria-label={t("title")}>
-						<HostChatPanel {...props} onClose={hide} pinned={pinned} onTogglePin={togglePin} />
+					{!effectivePinned ? <div className="learning-mate__backdrop" aria-hidden onClick={hide} /> : null}
+					<div id="learning-mate" className="learning-mate__panel" role="dialog" aria-modal={!effectivePinned} aria-label={t("title")}>
+						<HostChatPanel
+							{...props}
+							onClose={hide}
+							pinned={effectivePinned}
+							onTogglePin={wide ? togglePin : undefined}
+						/>
 					</div>
 				</div>
 			) : null}
