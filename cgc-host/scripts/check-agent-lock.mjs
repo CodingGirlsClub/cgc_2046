@@ -75,6 +75,13 @@ if (missingReuseIntegrity.length > 0) fail(`复用变体锁里这些条目没有
 const fullSpecs = new Set(specs);
 const unexpected = reuseLock.specs.filter((spec) => spec !== STUB_SPEC && !fullSpecs.has(spec));
 if (unexpected.length > 0) fail(`复用变体锁里出现了全量锁没有的包：${unexpected.join(", ")}`);
+// 每个非 stub 条目的 integrity 都必须与全量锁一致：只比 spec/适配器会漏掉传递依赖 sha512 被改坏，
+// 那样 CI 绿、学员机器上 frozen-lock 安装失败，最后还会静默回退 337MB 全量包。
+const fullIntegrityBySpec = new Map(specs.map((spec, index) => [spec, integrities[index]]));
+const reuseIntegrityMismatch = reuseLock.specs
+	.map((spec, index) => ({ spec, integrity: reuseLock.integrities[index] }))
+	.filter(({ spec, integrity }) => spec !== STUB_SPEC && fullIntegrityBySpec.get(spec) !== integrity);
+if (reuseIntegrityMismatch.length > 0) fail(`复用变体锁这些条目的 integrity 与全量锁不一致：${reuseIntegrityMismatch.map(({ spec }) => spec).join(", ")}`);
 
 // ③ 锁里每个包：许可按 §2 白名单判定（平台二进制包也在内；它们不经过 pnpm，必须在这里把关）
 const nameOf = (spec) => spec.slice(0, spec.lastIndexOf("@"));
