@@ -1485,20 +1485,13 @@ export function OfferingDetailPage({
     const registrationDeadlineDirty =
       activeDraft.deadline !== toLocalInput(offering.registrationDeadline ?? null);
 
-    // #543 定价锚点前端对称门（与押金的 depositEndsAtRequired 对称）：后端
-    // PriceTiersValidation 只拦「本次改动触及定价锚」（pricing_anchor_touched?），
-    // 前端同口径——仅当缴费槽本次写入（paymentDirty）或开始时间本次变动
-    // （startsAtDirty）时要求 starts_at 在位；否则存量「定价已开 + 开始时间空」
-    // 的课程改标题会被新门误锁死（后端本可放行，见 offering-pages.test.tsx 的
-    // 反向用例）。文案与后端 pricing_starts_at_required 同句。
-    const startsAtDirty =
-      activeDraft.startsAt !== toLocalInput(offering.startsAt ?? null);
-
-    if (
-      draftPricing &&
-      activeDraft.startsAt.trim() === "" &&
-      (paymentDirty || startsAtDirty)
-    ) {
+    // #543 定价锚点前端门（与押金的 depositEndsAtRequired 对称）：定价态 +
+    // 开始时间空即就地拦，判据与 DB 边界一致——events/courses 的
+    // *_pricing_requires_starts_at CHECK（NOT VALID 只豁免存量扫描）让存量
+    // 「定价已开 + 开始时间空」的脏行整行不可 UPDATE，任何保存（含只改标题）
+    // 都得先补 starts_at，否则只白跑一次请求再吃后端 code
+    // pricing_starts_at_required。文案与后端 code 同句。
+    if (draftPricing && activeDraft.startsAt.trim() === "") {
       setSaveMessage(t("pricingStartsAtRequired"));
       return;
     }

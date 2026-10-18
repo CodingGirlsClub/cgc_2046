@@ -1509,10 +1509,11 @@ describe("OfferingDetailPage 保存元数据调用链", () => {
     },
   );
 
-  // 反向守卫：后端只拦「本次改动触及定价锚」（PriceTiersValidation
-  // pricing_anchor_touched?），前端判据同口径——存量「定价已开 + 开始时间空」
-  // 的课程改标题仍须可保存，不得被新前置门锁死。
-  it("存量定价已开 + 开始时间空：只改标题仍可保存（不锁死无关编辑）", async () => {
+  // 存量脏行（定价已开 + 开始时间空）：events/courses 的
+  // *_pricing_requires_starts_at CHECK（NOT VALID 只豁免存量扫描）让这类行整行
+  // 不可 UPDATE，任何保存（含只改标题）在 DB 层都会被拒。前端因此同口径拦下，
+  // 而不是放行让用户白跑一次请求。
+  it("存量定价已开 + 开始时间空：只改标题也拦（与 DB 边界一致）", async () => {
     await renderManageDetail(
       "event",
       offeringRow({
@@ -1521,6 +1522,37 @@ describe("OfferingDetailPage 保存元数据调用链", () => {
           JSON.stringify({ id: "t1", name: "标准", amount_cents: 9900 }),
         ],
         startsAt: null,
+      }),
+    );
+
+    fireEvent.change(screen.getByLabelText(/标题/), {
+      target: { value: "改名" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存元数据" }));
+
+    expect(
+      await screen.findByText(
+        "开启收费需填写开始时间（自助取消退款的锚点）。",
+      ),
+    ).toBeInTheDocument();
+    expect(mocks.updateOffering).not.toHaveBeenCalled();
+  });
+
+  // 反向守卫：定价态的既有活动只要开始时间在位，普通元数据编辑不被新门影响。
+  it("定价已开 + 开始时间在位：只改标题仍可保存（不误伤无关编辑）", async () => {
+    mocks.updateOffering.mockResolvedValueOnce({
+      result: { id: "offering-1" },
+      errors: [],
+    });
+
+    await renderManageDetail(
+      "event",
+      offeringRow({
+        pricingEnabled: true,
+        priceTiers: [
+          JSON.stringify({ id: "t1", name: "标准", amount_cents: 9900 }),
+        ],
+        startsAt: "2026-11-01T01:00:00.000Z",
       }),
     );
 
