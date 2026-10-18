@@ -585,7 +585,7 @@ function ChatSettings({ chat }: { chat: HostChat }) {
 	);
 }
 
-function Conversation({ chat, workDir }: { chat: HostChat; workDir: string }) {
+function Conversation({ chat, workDir, unitId }: { chat: HostChat; workDir: string; unitId: string | null }) {
 	const t = useTranslations("hostChat");
 	const [draft, setDraft] = useState("");
 	const logRef = useRef<HTMLDivElement>(null);
@@ -633,7 +633,16 @@ function Conversation({ chat, workDir }: { chat: HostChat; workDir: string }) {
 						</p>
 					)
 				) : chat.events.length === 0 ? (
-					<p className="learning-chat__hint">{t("empty")}</p>
+					<div className="learning-chat__welcome">
+						<p className="learning-chat__hint">{t("welcome")}</p>
+						<div className="learning-chat__prompts">
+							{(unitId ? [t("promptUnitDecompose"), t("promptUnitReview")] : [t("promptOverviewPlan"), t("promptOverviewStart")]).map((prompt) => (
+								<button key={prompt} type="button" className="learning-chat__option" onClick={() => setDraft(prompt)}>
+									{prompt}
+								</button>
+							))}
+						</div>
+					</div>
 				) : (
 					turns.map((events, index) => <Turn key={index} events={events} />)
 				)}
@@ -687,6 +696,79 @@ function Conversation({ chat, workDir }: { chat: HostChat; workDir: string }) {
 	);
 }
 
+
+/** 头部「⋯」：技术控制项收在这里（已配对的电脑 / 固定 / 重新检测 / 关闭），主界面只留对话相关 */
+function MateMenu({
+	chat,
+	pinned,
+	onTogglePin,
+	onClose,
+	onToggleComputers,
+}: {
+	chat: HostChat;
+	pinned?: boolean;
+	onTogglePin?(): void;
+	onClose?(): void;
+	onToggleComputers(): void;
+}) {
+	const t = useTranslations("hostChat");
+	const [open, setOpen] = useState(false);
+	const [checking, setChecking] = useState(false);
+	const rootRef = useRef<HTMLSpanElement>(null);
+
+	useEffect(() => {
+		if (!open) return;
+		const onDown = (event: MouseEvent) => {
+			if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+		};
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key === "Escape") setOpen(false);
+		};
+		document.addEventListener("mousedown", onDown);
+		document.addEventListener("keydown", onKey);
+		return () => {
+			document.removeEventListener("mousedown", onDown);
+			document.removeEventListener("keydown", onKey);
+		};
+	}, [open]);
+
+	const item = (label: string, action: () => void) => (
+		<button
+			key={label}
+			type="button"
+			role="menuitem"
+			onClick={() => {
+				setOpen(false);
+				action();
+			}}
+		>
+			{label}
+		</button>
+	);
+
+	return (
+		<span className="learning-chat__menu" ref={rootRef}>
+			<button type="button" className="learning-chat__text-button" aria-label={t("more")} aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+				⋯
+			</button>
+			{open ? (
+				<div className="learning-chat__menu-panel" role="menu">
+					{item(t("computers"), onToggleComputers)}
+					{onTogglePin ? item(pinned ? t("mateUnpin") : t("matePin"), onTogglePin) : null}
+					{item(
+						checking ? t("checkingAction") : t("agent.recheck"),
+						() => {
+							setChecking(true);
+							void chat.refreshAgents().finally(() => setChecking(false));
+						},
+					)}
+					{onClose ? item(t("mateClose"), onClose) : null}
+				</div>
+			) : null}
+		</span>
+	);
+}
+
 export default function HostChatPanel(props: {
 	courseId: string;
 	userId: string;
@@ -723,24 +805,13 @@ export default function HostChatPanel(props: {
 							{t("newChat")}
 						</button>
 					) : null}
-					{props.onTogglePin ? (
-						<button
-							type="button"
-							className="learning-chat__text-button learning-chat__pin"
-							aria-pressed={props.pinned === true}
-							onClick={props.onTogglePin}
-						>
-							{props.pinned ? t("mateUnpin") : t("matePin")}
-						</button>
-					) : null}
-					<button
-						type="button"
-						className="learning-chat__text-button"
-						aria-expanded={showComputers}
-						onClick={() => setShowComputers((open) => !open)}
-					>
-						{t("computers")}
-					</button>
+					<MateMenu
+						chat={chat}
+						pinned={props.pinned}
+						onTogglePin={props.onTogglePin}
+						onClose={props.onClose}
+						onToggleComputers={() => setShowComputers((open) => !open)}
+					/>
 					{props.onClose ? (
 						<button type="button" className="learning-chat__close" onClick={props.onClose} aria-label={t("mateClose")}>
 							×
@@ -755,7 +826,7 @@ export default function HostChatPanel(props: {
 			) : null}
 			{conversation ? (
 				// R15：这门课的作业目录（Host 按账号与课程建在学员电脑上；路径形态与 Host 的 workDir 同源，见 lib/host-connection.ts）
-				<Conversation chat={chat} workDir={courseDir(props.userId, props.courseId)} />
+				<Conversation chat={chat} workDir={courseDir(props.userId, props.courseId)} unitId={props.unitId} />
 			) : (
 				<div className="learning-chat__body">
 					<StateMessage chat={chat} />

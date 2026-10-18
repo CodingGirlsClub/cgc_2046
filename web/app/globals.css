@@ -3628,6 +3628,14 @@ button:focus-visible,
 .learning-chat__close { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--ink-3); font: inherit; font-size: 16px; line-height: 1; cursor: pointer; }
 .learning-chat__close:hover { background: var(--soft); color: var(--ink); }
 .learning-chat__engines { display: grid; gap: 10px; width: 100%; }
+.learning-chat__menu { position: relative; display: inline-flex; }
+.learning-chat__menu-panel { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; display: grid; min-width: 168px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--view); box-shadow: 0 8px 24px rgb(0 0 0 / 18%); }
+.learning-chat__menu-panel button { padding: 7px 9px; border: 0; border-radius: 6px; background: none; color: var(--ink-2); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
+.learning-chat__menu-panel button:hover { background: var(--soft); color: var(--ink); }
+.learning-chat__welcome { display: grid; gap: 10px; }
+.learning-chat__prompts { display: flex; flex-wrap: wrap; gap: 6px; }
+.learning-chat__prompts .learning-chat__option { max-width: 100%; text-align: left; }
+
 .learning-chat__engine { display: grid; justify-items: start; gap: 8px; padding: 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--canvas); }
 .learning-chat__engine[data-recommended] { border-color: var(--accent); background: color-mix(in srgb, var(--canvas) 90%, var(--accent) 10%); }
 .learning-chat__engine strong { color: var(--ink); font-size: 13px; font-weight: 560; }
@@ -3637,9 +3645,6 @@ button:focus-visible,
   .learning-mate--pinned .learning-mate__panel { right: 12px; width: 380px; }
   body.learning-mate-docked .learning-course-page { padding-right: 404px; }
   .learning-course-page { transition: padding-right 180ms ease; }
-}
-@media (max-width: 1099px) {
-  .learning-chat__pin { display: none; }
 }
 @media (max-width: 720px) {
   .learning-mate__launcher { right: 16px; left: 16px; justify-content: center; bottom: calc(16px + env(safe-area-inset-bottom)); }

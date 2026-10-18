@@ -4127,6 +4127,9 @@
   },
   "hostChat": {
     "title": "学习搭子",
+    "more": "更多",
+    "checkingAction": "检测中…",
+    "welcome": "我是你的学习搭子，会陪你把这门课学完。先想从哪开始？",
     "mateOpen": "问学习搭子",
     "mateClose": "关闭学习搭子",
     "matePin": "固定到右侧",
@@ -4154,7 +4157,6 @@
     "newChat": "新开对话",
     "logLabel": "对话记录",
     "attaching": "正在接上这门课的对话…",
-    "empty": "向你的 agent 提问吧。它知道你正在学这门课，以及你正在看的单元。",
     "inputLabel": "发给 agent 的消息",
     "placeholder": "Enter 发送，Shift+Enter 换行",
     "send": "发送",
@@ -4296,6 +4298,10 @@
       "appRetry": "我已登录，重试",
       "browserLogin": "改用浏览器登录",
       "manualOmp": "OMP 只提供页面外登录：在终端完成 OMP 登录后回来点「重试」。"
-    }
+    },
+    "promptUnitDecompose": "帮我拆解这个目标",
+    "promptUnitReview": "陪我复盘这一单元",
+    "promptOverviewPlan": "帮我规划学习路径",
+    "promptOverviewStart": "从哪开始学？"
   }
 }

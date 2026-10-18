@@ -295,7 +295,8 @@ it("Covers AE10：在「已配对的电脑」里撤销本机这台 → pair.forg
 		{ id: "tok_this", name: "Ada 的 MacBook", kind: "LEARNING_HOST", lastUsedAt: null, revokedAt: null, insertedAt: "2026-10-01T00:00:00Z", status: "active" },
 	]);
 	const ws = await readyPanel();
-	fireEvent.click(screen.getByRole("button", { name: "已配对的电脑" }));
+	fireEvent.click(screen.getByRole("button", { name: "更多" }));
+	fireEvent.click(screen.getByRole("menuitem", { name: "已配对的电脑" }));
 	fireEvent.click(await screen.findByRole("button", { name: "撤销「Ada 的 MacBook」" }));
 	fireEvent.click(screen.getByRole("button", { name: "确认撤销「Ada 的 MacBook」" }));
 	await waitFor(() => expect(ws.sent.at(-1)).toEqual({ method: "pair.forget" }));
@@ -305,11 +306,31 @@ it("Covers AE10：在「已配对的电脑」里撤销本机这台 → pair.forg
 	expect(screen.queryByRole("textbox", { name: "发给 agent 的消息" })).not.toBeInTheDocument();
 });
 
+it("头部「更多」菜单：收纳已配对的电脑/重新检测等控制项；点外部或选项后收起", async () => {
+	await readyPanel();
+	const trigger = screen.getByRole("button", { name: "更多" });
+	fireEvent.click(trigger);
+	expect(screen.getByRole("menuitem", { name: "已配对的电脑" })).toBeInTheDocument();
+	expect(screen.getByRole("menuitem", { name: "重新检测" })).toBeInTheDocument();
+	expect(screen.queryByRole("menu")).not.toBeNull();
+
+	fireEvent.mouseDown(document.body);
+	expect(screen.queryByRole("menu")).toBeNull();
+
+	fireEvent.click(trigger);
+	fireEvent.click(screen.getByRole("menuitem", { name: "已配对的电脑" }));
+	expect(screen.queryByRole("menu")).toBeNull();
+});
+
 it("KTD9：进入可对话状态不自动发消息；R15：显示这门课的工作目录", async () => {
 	const ws = await readyPanel();
 	expect(ws.sent.map((f) => f.method)).toEqual(["hello", "chat.attach"]);
 	expect(screen.getByText(`~/cgc2046_workspace/courses/${USER}/${COURSE}`, { exact: false })).toBeInTheDocument();
-	expect(screen.getByText("向你的 agent 提问吧。它知道你正在学这门课，以及你正在看的单元。")).toBeInTheDocument();
+	expect(screen.getByText(/我是你的学习搭子/)).toBeInTheDocument();
+	// 总览（unitId=null）给规划类情境入口；点一下把提示词填进输入框，不自动发送
+	fireEvent.click(screen.getByRole("button", { name: "帮我规划学习路径" }));
+	expect(screen.getByRole("textbox", { name: "发给 agent 的消息" })).toHaveValue("帮我规划学习路径");
+	expect(ws.sent.map((f) => f.method)).toEqual(["hello", "chat.attach"]);
 });
 
 describe("卡片（R19、R20）", () => {
@@ -523,18 +544,20 @@ describe("i18n", () => {
 			v && typeof v === "object" ? keys(v as Record<string, unknown>, `${prefix}${k}.`) : [`${prefix}${k}`],
 		);
 
-	it("学习搭子头部：传入 onTogglePin 才出现固定/关闭按钮；pinned 决定文案与 aria-pressed", () => {
+	it("学习搭子头部：传入 onTogglePin 才出现固定/关闭菜单项；pinned 决定文案", () => {
 	const toggle = vi.fn();
 	const first = renderPanel("zh-CN", { pinned: false, onTogglePin: toggle });
-	const pin = screen.getByRole("button", { name: "固定到右侧" });
-	expect(pin).toHaveAttribute("aria-pressed", "false");
+	fireEvent.click(screen.getByRole("button", { name: "更多" }));
+	const pin = screen.getByRole("menuitem", { name: "固定到右侧" });
+	expect(pin).toBeInTheDocument();
 	expect(screen.queryByRole("button", { name: "关闭学习搭子" })).toBeNull();
 	fireEvent.click(pin);
 	expect(toggle).toHaveBeenCalledTimes(1);
 	first.unmount();
 
 	renderPanel("zh-CN", { pinned: true, onTogglePin: toggle, onClose: () => {} });
-	expect(screen.getByRole("button", { name: "取消固定" })).toHaveAttribute("aria-pressed", "true");
+	fireEvent.click(screen.getByRole("button", { name: "更多" }));
+	expect(screen.getByRole("menuitem", { name: "取消固定" })).toBeInTheDocument();
 	expect(screen.getByRole("button", { name: "关闭学习搭子" })).toBeInTheDocument();
 });
 
