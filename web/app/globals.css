@@ -3711,6 +3711,14 @@ button:focus-visible,
 .learning-chat__primary:disabled,
 .learning-chat__option:disabled { cursor: not-allowed; opacity: 0.5; }
 .learning-chat__banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--soft); color: var(--ink-2); font-size: 12px; line-height: 1.6; }
+/* 登录卡（KTD4/R6）：位于正文与输入区之间，是 .learning-chat 的直接子级——内边距与正文（__body）对齐，
+   标题/说明/按钮同列左对齐；此前无任何样式，内容与按钮顶着面板边框 */
+.learning-chat__login { display: grid; justify-items: start; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--line); color: var(--ink-2); font-size: 13px; line-height: 1.7; }
+/* 裸 p：Preflight（顶部 @import "tailwindcss"）已把 * 的 margin 归零，这里显式写出与面板内其他提示同写法
+   （见 __composer-row > __note），不依赖 Preflight 的副作用 */
+.learning-chat__login > p { margin: 0; }
+/* 标题是裸 p，字号继承 body 的 16px——比面板内提示（12–13px）大一档，按 __state strong 收齐 */
+.learning-chat__login > p:first-child { color: var(--ink); font-size: 14px; font-weight: 560; }
 /* agent 的文字一律是纯文本：保留换行，长串断行 */
 .learning-chat__user,
 .learning-chat__fold p,
