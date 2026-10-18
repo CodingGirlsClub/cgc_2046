@@ -225,6 +225,53 @@ describe("reuse 变体（#1154）", () => {
 		expect(withoutEngine.sources).toEqual([]);
 	});
 
+	test("reuse 已装：再次点击安装会先用当前 engine 重新探针，兼容则幂等不下载", async () => {
+		const home = tempHome();
+		await installCodexAcp({ home, run: fakeInstaller(), reuseEngine: engine, probe: async () => true });
+
+		let runCalls = 0;
+		let probedEngine = "";
+		const result = await installCodexAcp({
+			home,
+			run: async () => {
+				runCalls += 1;
+				return 0;
+			},
+			reuseEngine: engine,
+			probe: async (_entry, codexPath) => {
+				probedEngine = codexPath;
+				return true;
+			},
+		});
+		expect(result).toMatchObject({ version: CODEX_ACP_VERSION, variant: "reuse" });
+		expect(runCalls).toBe(0); // 兼容时不重新下载
+		expect(probedEngine).toBe(engine);
+	});
+
+	test("reuse 已装但 engine 被替换且不兼容：重新探针失败 → 回退 full", async () => {
+		const home = tempHome();
+		await installCodexAcp({ home, run: fakeInstaller(), reuseEngine: engine, probe: async () => true });
+
+		let runCalls = 0;
+		const probes: string[] = [];
+		const result = await installCodexAcp({
+			home,
+			run: async (cwd) => {
+				runCalls += 1;
+				return fakeInstaller()(cwd);
+			},
+			reuseEngine: "/Applications/NewChatGPT.app/Contents/Resources/codex-cli/bin/codex",
+			probe: async (_entry, codexPath) => {
+				probes.push(codexPath);
+				return false;
+			},
+		});
+		expect(result).toMatchObject({ version: CODEX_ACP_VERSION, variant: "full" });
+		expect(probes[0]).toBe("/Applications/NewChatGPT.app/Contents/Resources/codex-cli/bin/codex"); // 换了的 engine 也要探针
+		expect(runCalls).toBe(2); // reuse 安装再探一次失败 → full
+		expect(installVariant(home)).toBe("full");
+	});
+
 	test("reuse 装好后 engine 消失：不再幂等短路，重装为 full", async () => {
 		const home = tempHome();
 		await installCodexAcp({ home, run: fakeInstaller(), reuseEngine: engine, probe: async () => true });

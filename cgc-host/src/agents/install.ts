@@ -79,14 +79,23 @@ let inflight: Promise<InstalledAgent> | null = null;
 /** 安装 Codex 适配器；正在装时再调一次拿同一个结果（single-flight），装完返回版本与变体 */
 export function installCodexAcp(opts: InstallOptions): Promise<InstalledAgent> {
   // 幂等短路：已经装着钉住的版本就不再下载（重复点击、两个标签页、恶意页面都只能触发一次）。
-  // reuse 变体例外：适配器还在但 engine 已经没了（App 卸载 / PATH codex 删除）时要允许重装，
-  // 否则会回报「成功」却永远没有可用的 Codex；没有 reuseEngine 时会走 full。
+  // reuse 变体例外：engine 可能被卸载、替换或升级，必须先用安装好的适配器重新探针；
+  // 探针失败就继续走安装（reuse 再试一次，仍失败回退 full），不能只凭 reuseEngine 存在就回报成功。
   const managedVariant = installVariant(opts.home);
   const managed = managedCodex(opts.home);
-  if (managed && !(managedVariant === "reuse" && !opts.reuseEngine)) {
-    return Promise.resolve({ version: CODEX_ACP_VERSION, variant: managedVariant ?? "full" });
-  }
+  const reuseManaged = managed !== null && managedVariant === "reuse";
+  // full 变体可以安全短路；reuse 变体一律往下走：有 engine 先探针，没 engine 直接重装 full
+  if (managed && !reuseManaged) return Promise.resolve({ version: CODEX_ACP_VERSION, variant: managedVariant ?? "full" });
   return (inflight ??= (async () => {
+    if (managed && reuseManaged && opts.reuseEngine) {
+      let compatible = false;
+      try {
+        compatible = await (opts.probe ?? probeCodexAcp)(managed, opts.reuseEngine);
+      } catch {
+        compatible = false; // 探针本身失败也按不兼容处理，走重装
+      }
+      if (compatible) return { version: CODEX_ACP_VERSION, variant: "reuse" as const };
+    }
     if (opts.reuseEngine) {
       try {
         return await runInstall(opts, "reuse", opts.reuseEngine);

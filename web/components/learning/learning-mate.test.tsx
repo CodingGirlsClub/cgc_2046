@@ -78,13 +78,15 @@ describe("学习搭子抽屉（课程页默认收起）", () => {
 	});
 
 	it("固定到右侧：body 让出右栏、不锁滚动、无遮罩；收起后恢复", () => {
-		render(<LearningMate {...props} />);
+		const onDockChange = vi.fn();
+		render(<LearningMate {...props} onDockChange={onDockChange} />);
 		fireEvent.click(screen.getByRole("button", { name: "问学习搭子" }));
 		expect(document.body.style.overflow).toBe("hidden"); // 覆盖式才锁滚动
 
 		fireEvent.click(screen.getByRole("button", { name: "stub-pin" }));
 		expect(document.body.classList.contains("learning-mate-docked")).toBe(true);
 		expect(document.querySelector(".learning-mate")).toHaveClass("learning-mate--pinned"); // 固定态靠这个类让全屏容器不接收点击
+		expect(onDockChange).toHaveBeenLastCalledWith(true); // 页面据此把阅读区切紧凑布局
 		expect(document.body.style.overflow).toBe(""); // 固定成右栏后页面要能滚动
 		expect(document.querySelector(".learning-mate__backdrop")).toBeNull();
 		expect(screen.getByTestId("mate-content")).toHaveAttribute("data-pinned", "true");
@@ -92,6 +94,7 @@ describe("学习搭子抽屉（课程页默认收起）", () => {
 		// 收起时撤销让位；重新打开恢复固定（同一会话内）
 		fireEvent.click(screen.getByRole("button", { name: "stub-close" }));
 		expect(document.body.classList.contains("learning-mate-docked")).toBe(false);
+		expect(onDockChange).toHaveBeenLastCalledWith(false);
 		fireEvent.click(screen.getByRole("button", { name: "问学习搭子" }));
 		expect(document.body.classList.contains("learning-mate-docked")).toBe(true);
 

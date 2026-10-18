@@ -19,6 +19,8 @@ export default function CourseLearningPage() {
   const locale = useLocale();
   const { userId } = useAuthed();
   const [unitId, setUnitId] = useState<string | null>(null);
+  /** 学习搭子固定到右侧时，阅读区切紧凑布局，避免正文被挤得过窄 */
+  const [mateDocked, setMateDocked] = useState(false);
   // 与阅读组件同一查询、同一变量：共用 Apollo 缓存，不多发请求
   const { data: content } = useQuery(COURSE_CONTENT, { variables: { courseId } });
   const { data: learning } = useQuery(COURSE_LEARNING_DETAIL, { variables: { courseId } });
@@ -29,7 +31,7 @@ export default function CourseLearningPage() {
     <SitePage>
       <main className="learning-course-page">
         <p className="learning-course-page__back"><Link href="/learning">{t("home")}</Link><span>›</span>{t("outline")}</p>
-        <CourseContentViewer courseId={courseId} onUnitChange={setUnitId} />
+        <CourseContentViewer courseId={courseId} onUnitChange={setUnitId} compact={mateDocked} />
         {chat ? (
           // 换账号、换课程即重新挂载：连接与对话从头来过（同一标签页换账号要重新连 Host）
           <LearningMate
@@ -40,6 +42,7 @@ export default function CourseLearningPage() {
             workspaceId={chat.workspaceId}
             courseVersion={content?.courseContent?.revisionNumber ?? null}
             unitId={unitId}
+            onDockChange={setMateDocked}
           />
         ) : null}
       </main>

@@ -709,6 +709,21 @@ describe("学员课程页（page.tsx）", () => {
 		expect(detailCalls).toBe(3);
 	});
 
+	it("固定学习搭子：阅读区切到紧凑布局，收起后恢复", async () => {
+		wide(true);
+		renderPage();
+		const viewer = await screen.findByTestId("course-content-viewer");
+		fireEvent.click(await screen.findByRole("button", { name: "问学习搭子" }));
+		await attach();
+
+		fireEvent.click(screen.getByRole("button", { name: "固定到右侧" }));
+		await waitFor(() => expect(viewer).toHaveClass("learning-reader--compact"));
+		expect(document.body.classList.contains("learning-mate-docked")).toBe(true);
+
+		fireEvent.click(screen.getByRole("button", { name: "关闭学习搭子" }));
+		await waitFor(() => expect(viewer).not.toHaveClass("learning-reader--compact"));
+	});
+
 	it("同一标签页换账号：关掉旧连接、开新连接，用新账号重新 hello", async () => {
 		wide(true);
 		localStorage.setItem(keyOf("user-b"), "bk-b");

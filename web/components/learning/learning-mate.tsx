@@ -32,8 +32,11 @@ export default function LearningMate(props: {
 	workspaceId: string;
 	courseVersion: number | null;
 	unitId: string | null;
+	/** 固定态变化：页面据此把阅读区切成紧凑布局，保证 ≥1100px 时正文仍可读 */
+	onDockChange?(docked: boolean): void;
 }) {
 	const t = useTranslations("hostChat");
+	const onDockChange = props.onDockChange;
 	const [open, setOpen] = useState(false);
 	/** 首次打开前不挂载面板（避免页面一进来就探测 Host）；之后保持挂载，收起只是隐藏 */
 	const [mounted, setMounted] = useState(false);
@@ -60,6 +63,11 @@ export default function LearningMate(props: {
 		document.body.classList.toggle("learning-mate-docked", docked);
 		return () => document.body.classList.remove("learning-mate-docked");
 	}, [docked]);
+
+	// 固定时正文被右栏挤窄：通知页面切到阅读区紧凑布局（大纲收成浮层、进度栏变窄）
+	useEffect(() => {
+		onDockChange?.(docked);
+	}, [docked, onDockChange]);
 
 	useEffect(() => {
 		if (!open) return;
