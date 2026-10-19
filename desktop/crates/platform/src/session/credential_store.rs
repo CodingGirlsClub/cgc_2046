@@ -392,6 +392,19 @@ impl KeychainStore {
         }
     }
 
+    /// 通用命名 secret（如 learning_host）；不写明文文件。
+    pub fn save_secret(&self, account: &str, secret: &str) -> io::Result<()> {
+        self.backend.set(account, secret)
+    }
+
+    pub fn load_secret(&self, account: &str) -> Option<String> {
+        self.backend.get(account).ok().flatten()
+    }
+
+    pub fn clear_secret(&self, account: &str) -> io::Result<()> {
+        self.backend.delete(account)
+    }
+
     fn encode(session: &SignedInSession) -> String {
         serde_json::json!({
             "token": session.token,
