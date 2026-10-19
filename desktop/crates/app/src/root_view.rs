@@ -2164,34 +2164,48 @@ impl Render for RootView {
                                 .children(account_menu)
                         }),
                 )
-                .child(div().flex_1().w_full().p(space(6)).child(
-                    if matches!(self.workspaces.state(), WorkspaceListState::Empty) {
-                        self.render_workspace_empty(language, &palette)
-                    } else {
-                        match self
-                            .current
-                            .as_ref()
-                            .map(|route_match| route_match.route.id)
-                        {
-                            Some("events.list") => self.render_events_list(language, &palette, cx),
-                            Some("events.detail") => self.render_detail(language, &palette, cx),
-                            Some("events.mine") => {
-                                self.render_enrollments_list(language, &palette, cx)
-                            }
-                            Some("app.settings") => self.render_settings(language, &palette, cx),
-                            Some("courses.catalog") => {
-                                self.render_courses_list(language, &palette, cx)
-                            }
-                            Some("courses.detail") => {
-                                self.render_course_detail(language, &palette, cx)
-                            }
-                            Some("courses.learning") => {
-                                self.render_course_learning(language, &palette, cx)
-                            }
-                            _ => self.render_content(language, &palette, cx),
-                        }
-                    },
-                ))
+                .child(
+                    div()
+                        .id("content-scroll")
+                        .flex_1()
+                        .w_full()
+                        .p(space(6))
+                        .overflow_y_scroll()
+                        .child(
+                            if matches!(self.workspaces.state(), WorkspaceListState::Empty) {
+                                self.render_workspace_empty(language, &palette)
+                            } else {
+                                match self
+                                    .current
+                                    .as_ref()
+                                    .map(|route_match| route_match.route.id)
+                                {
+                                    Some("events.list") => {
+                                        self.render_events_list(language, &palette, cx)
+                                    }
+                                    Some("events.detail") => {
+                                        self.render_detail(language, &palette, cx)
+                                    }
+                                    Some("events.mine") => {
+                                        self.render_enrollments_list(language, &palette, cx)
+                                    }
+                                    Some("app.settings") => {
+                                        self.render_settings(language, &palette, cx)
+                                    }
+                                    Some("courses.catalog") => {
+                                        self.render_courses_list(language, &palette, cx)
+                                    }
+                                    Some("courses.detail") => {
+                                        self.render_course_detail(language, &palette, cx)
+                                    }
+                                    Some("courses.learning") => {
+                                        self.render_course_learning(language, &palette, cx)
+                                    }
+                                    _ => self.render_content(language, &palette, cx),
+                                }
+                            },
+                        ),
+                )
                 .child(self.render_footer(
                     language,
                     true,

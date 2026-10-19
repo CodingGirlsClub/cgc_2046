@@ -5,7 +5,11 @@
 //! 无需 WebView/KaTeX/网络字体；SVG 预渲染方案保留为备用（见决策记录）。
 
 use gpui_kit::component::text::TextView;
-use gpui_kit::{div, img, px, AnyElement, Hsla, IntoElement, ParentElement, Styled};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+
+use gpui_kit::{div, img, px, AnyElement, Hsla, IntoElement, ParentElement, RenderImage, Styled};
 
 use crate::safe_markdown::sanitize_markdown;
 
@@ -107,13 +111,89 @@ pub fn split_math(markdown: &str) -> Vec<MathSegment> {
     segments
 }
 
-/// 单个公式 → 图片元素；失败降级为原文（danger 色、等宽）。
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct FormulaKey {
+    latex: String,
+    font_size_bits: u32,
+    dpr_bits: u32,
+    color_bits: String,
+}
+
+struct CachedFormula {
+    image: Arc<RenderImage>,
+    width: f32,
+    height: f32,
+}
+
+static CACHE: OnceLock<Mutex<HashMap<FormulaKey, CachedFormula>>> = OnceLock::new();
+static CACHE_BYTES: AtomicU64 = AtomicU64::new(0);
+static CACHE_HITS: AtomicU64 = AtomicU64::new(0);
+static CACHE_MISSES: AtomicU64 = AtomicU64::new(0);
+const CACHE_CAPACITY: usize = 256;
+
+fn cache() -> &'static Mutex<HashMap<FormulaKey, CachedFormula>> {
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn render_latex_cached(
+    latex: &str,
+    font_size: f32,
+    dpr: f32,
+    color: Hsla,
+) -> Option<(Arc<RenderImage>, f32, f32)> {
+    let key = FormulaKey {
+        latex: latex.to_string(),
+        font_size_bits: font_size.to_bits(),
+        dpr_bits: dpr.to_bits(),
+        color_bits: format!("{color:?}"),
+    };
+    if let Some(hit) = cache().lock().expect("formula cache").get(&key) {
+        CACHE_HITS.fetch_add(1, Ordering::Relaxed);
+        return Some((Arc::clone(&hit.image), hit.width, hit.height));
+    }
+    CACHE_MISSES.fetch_add(1, Ordering::Relaxed);
+    let rendered = ratex_gpui::render::render_latex(latex, font_size, dpr, color)?;
+    let width = rendered.width;
+    let height = rendered.height;
+    let mut guard = cache().lock().expect("formula cache");
+    if guard.len() >= CACHE_CAPACITY {
+        guard.clear();
+        CACHE_BYTES.store(0, Ordering::Relaxed);
+    }
+    guard.insert(
+        key,
+        CachedFormula {
+            image: Arc::clone(&rendered.image),
+            width,
+            height,
+        },
+    );
+    CACHE_BYTES.fetch_add((width * height * 4.0) as u64, Ordering::Relaxed);
+    Some((rendered.image, width, height))
+}
+
+/// 清空公式图片缓存（测试/主题切换/内存回收）。
+pub fn clear_formula_cache() {
+    cache().lock().expect("formula cache").clear();
+    CACHE_BYTES.store(0, Ordering::Relaxed);
+    CACHE_HITS.store(0, Ordering::Relaxed);
+    CACHE_MISSES.store(0, Ordering::Relaxed);
+}
+
+/// `(hits, misses, approximate_bytes)`：供基准/诊断。
+pub fn formula_cache_stats() -> (u64, u64, u64) {
+    (
+        CACHE_HITS.load(Ordering::Relaxed),
+        CACHE_MISSES.load(Ordering::Relaxed),
+        CACHE_BYTES.load(Ordering::Relaxed),
+    )
+}
+
+/// 单个公式 → 图片元素；失败降级为原文（danger 色、等宽）。渲染结果按
+/// `(latex, font_size, dpr, color)` 缓存，长文重复公式不重复排版。
 pub fn render_formula(latex: &str, font_size: f32, dpr: f32, color: Hsla) -> AnyElement {
-    match ratex_gpui::render::render_latex(latex, font_size, dpr, color) {
-        Some(rendered) => img(rendered.image)
-            .w(px(rendered.width))
-            .h(px(rendered.height))
-            .into_any_element(),
+    match render_latex_cached(latex, font_size, dpr, color) {
+        Some((image, width, height)) => img(image).w(px(width)).h(px(height)).into_any_element(),
         None => div()
             .px(px(4.0))
             .py(px(2.0))
@@ -235,6 +315,27 @@ mod tests {
             split_math("价格 $5 不是公式"),
             vec![MathSegment::Text("价格 $5 不是公式".to_string())]
         );
+    }
+
+    #[test]
+    fn formula_cache_reuses_render_results() {
+        clear_formula_cache();
+        let color: Hsla = gpui_kit::rgb(0xffffff).into();
+        let first = render_latex_cached(r"\frac{1}{2}", 14.0, 2.0, color);
+        let second = render_latex_cached(r"\frac{1}{2}", 14.0, 2.0, color);
+        assert!(
+            first.is_some() && second.is_some(),
+            "formula renders headless"
+        );
+        assert!(Arc::ptr_eq(
+            &first.expect("first").0,
+            &second.expect("second").0
+        ));
+        let (hits, misses, _) = formula_cache_stats();
+        assert_eq!((hits, misses), (1, 1));
+        let other = render_latex_cached(r"E=mc^2", 14.0, 2.0, color);
+        assert!(other.is_some());
+        assert_eq!(formula_cache_stats().1, 2);
     }
 
     #[test]
