@@ -53,6 +53,7 @@ cargo install cargo-packager --locked --version =0.11.8
 cargo packager -p cgc-desktop-app --release -f dmg     # macOS；Windows 用 -f wix，Linux 用 -f deb,appimage
 bash scripts/name-artifacts.sh                          # 重命名为 CGC_<version>_<commit>_<arch>.*
 bash scripts/verify-package.sh                          # hdiutil / dpkg-deb / AppImage 结构校验
+bash scripts/smoke-package-runtime.sh                   # macOS：从 dmg 启动 release 二进制并确认存活
 bash scripts/verify-package.sh                          # Windows: pwsh scripts/verify-package.ps1
 ```
 
