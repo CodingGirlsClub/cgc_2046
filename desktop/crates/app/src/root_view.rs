@@ -10,6 +10,7 @@ use gpui_kit::*;
 
 use std::sync::Arc;
 
+use crate::formula::render_markdown_with_math;
 use crate::safe_markdown::sanitize_markdown;
 use cgc_courses::catalog::{
     learning_context, CourseCatalogService, CourseDetailService, CourseSummary, CoursesApi,
@@ -3271,11 +3272,10 @@ impl RootView {
                             continue;
                         }
                         let view_handle = cx.entity().downgrade();
-                        let body = sanitize_markdown(body);
                         materials.push(
                             TextView::markdown(
                                 format!("course-material-{}", materials.len()),
-                                body,
+                                sanitize_markdown(body),
                             )
                             .on_link_click(move |url, _, _, cx| {
                                 if crate::safe_markdown::is_safe_link(url) {
@@ -3288,6 +3288,13 @@ impl RootView {
                             })
                             .into_any_element(),
                         );
+                        materials.extend(render_markdown_with_math(
+                            body,
+                            &format!("course-math-{}", materials.len()),
+                            14.0,
+                            2.0,
+                            palette.ink,
+                        ));
                     }
                 }
                 if materials.is_empty() {
