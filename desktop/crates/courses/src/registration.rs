@@ -7,6 +7,7 @@ pub const ROUTES: &[Route] = &[Route::new(
     "courses.catalog",
     "/courses",
     "courses.catalog.title",
+    "▭",
 )];
 
 /// 本 feature 贡献的词表 key；key 命名规则 `feature.domain.key`。

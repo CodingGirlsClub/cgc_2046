@@ -9,7 +9,7 @@ use crate::i18n::{self, Language};
 use crate::routing::{DuplicateRoute, RouteRegistry};
 
 /// app 自己的首页路由；domain 路由由各 crate 的 `registration::ROUTES` 提供。
-pub const HOME: Route = Route::new("app.home", "/", "app.nav.home");
+pub const HOME: Route = Route::new("app.home", "/", "app.nav.home", "⌂");
 
 /// 所有 domain crate 的路由集合；新增 feature 时在这里加一行。
 pub fn domain_route_sets() -> Vec<(&'static str, &'static [Route])> {
@@ -126,8 +126,13 @@ fn ensure_translated(key: &'static str) -> Result<(), RegistrationError> {
 mod tests {
     use super::*;
 
-    const DUP_PATH_A: &[Route] = &[Route::new("a.one", "/workspace", "account.workspace.title")];
-    const DUP_PATH_B: &[Route] = &[Route::new("b.one", "/workspace", "events.list.title")];
+    const DUP_PATH_A: &[Route] = &[Route::new(
+        "a.one",
+        "/workspace",
+        "account.workspace.title",
+        "▤",
+    )];
+    const DUP_PATH_B: &[Route] = &[Route::new("b.one", "/workspace", "events.list.title", "▦")];
 
     #[test]
     fn aggregated_registry_contains_home_and_every_domain_route() {
@@ -191,8 +196,8 @@ mod tests {
 
     #[test]
     fn duplicate_route_title_key_is_reported() {
-        const TITLE_A: &[Route] = &[Route::new("a.one", "/a", "account.workspace.title")];
-        const TITLE_B: &[Route] = &[Route::new("b.one", "/b", "account.workspace.title")];
+        const TITLE_A: &[Route] = &[Route::new("a.one", "/a", "account.workspace.title", "▤")];
+        const TITLE_B: &[Route] = &[Route::new("b.one", "/b", "account.workspace.title", "▤")];
         let sets = [("a", TITLE_A), ("b", TITLE_B)];
         let registry = build_registry_with(&sets).expect("registry builds");
         let err = validate_with(&registry, &[]).unwrap_err();

@@ -71,7 +71,7 @@ impl RouteRegistry {
 mod tests {
     use super::*;
 
-    const HOME: Route = Route::new("home", "/", "app.nav.home");
+    const HOME: Route = Route::new("home", "/", "app.nav.home", "⌂");
 
     #[test]
     fn normal_startup_resolves_home() {
@@ -83,7 +83,7 @@ mod tests {
     #[test]
     fn register_keeps_insertion_order() {
         let mut registry = RouteRegistry::new();
-        let second = Route::new("second", "/second", "app.nav.second");
+        let second = Route::new("second", "/second", "app.nav.second", "◇");
         registry.register(HOME).expect("home registers");
         registry.register(second).expect("second registers");
         assert_eq!(registry.routes(), &[HOME, second]);
@@ -93,7 +93,7 @@ mod tests {
     fn duplicate_route_id_is_rejected() {
         let mut registry = RouteRegistry::new();
         registry.register(HOME).expect("home registers");
-        let dup = Route::new("home", "/home", "app.nav.home");
+        let dup = Route::new("home", "/home", "app.nav.home", "⌂");
         assert_eq!(registry.register(dup), Err(DuplicateRoute::Id("home")));
     }
 
@@ -101,14 +101,14 @@ mod tests {
     fn duplicate_path_is_rejected() {
         let mut registry = RouteRegistry::new();
         registry.register(HOME).expect("home registers");
-        let dup = Route::new("home-2", "/", "app.nav.home");
+        let dup = Route::new("home-2", "/", "app.nav.home", "⌂");
         assert_eq!(registry.register(dup), Err(DuplicateRoute::Path("/")));
     }
 
     #[test]
     fn dynamic_path_is_rejected_until_supported() {
         let mut registry = RouteRegistry::new();
-        let dynamic = Route::new("events.detail", "/events/:id", "events.list.title");
+        let dynamic = Route::new("events.detail", "/events/:id", "events.list.title", "▦");
         assert_eq!(
             registry.register(dynamic),
             Err(DuplicateRoute::DynamicPath("/events/:id"))

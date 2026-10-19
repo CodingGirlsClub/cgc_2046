@@ -482,7 +482,9 @@ impl Render for RootView {
                         .justify_center()
                         .child(login_card),
                 )
-                .child(Self::render_footer(
+                .child(self.render_footer(
+                    language,
+                    false,
                     theme_glyph,
                     theme_label,
                     theme_tooltip,
@@ -536,7 +538,11 @@ impl Render for RootView {
                                         .child(translate(language, Key::AppName)),
                                 ),
                         )
-                        .children(self.render_nav_items(language, &palette, cx))
+                        .child(div().w(px(1.0)).h(px(14.0)).bg(palette.line))
+                        .child(div().text_color(palette.ink_3).child(match self.current {
+                            Some(route) => translate_registered(language, route.title_key),
+                            None => translate(language, Key::AppNavLabel),
+                        }))
                         .child(div().flex_1())
                         .child({
                             let account_menu = account_menu.then(|| {
@@ -616,7 +622,9 @@ impl Render for RootView {
                         .p(space(6))
                         .child(self.render_content(language, &palette, cx)),
                 )
-                .child(Self::render_footer(
+                .child(self.render_footer(
+                    language,
+                    false,
                     theme_glyph,
                     theme_label,
                     theme_tooltip,
@@ -645,25 +653,27 @@ impl RootView {
             .map(|route| {
                 let route = *route;
                 let selected = current.is_some_and(|current| current.id == route.id);
-                let tab = div()
-                    .id(route.id)
+                let label = translate_registered(language, route.title_key);
+                div()
+                    .id(format!("footer-nav-{}", route.id))
+                    .size(px(22.0))
+                    .rounded(px(RADIUS_MEDIUM))
                     .flex()
                     .items_center()
-                    .h_full()
-                    .px(space(2))
-                    .text_color(if selected { palette.ink } else { palette.ink_2 })
-                    .child(translate_registered(language, route.title_key))
+                    .justify_center()
+                    .text_color(if selected {
+                        palette.accent
+                    } else {
+                        palette.ink_3
+                    })
+                    .hover(|style| style.bg(palette.soft))
+                    .child(route.icon)
+                    .tooltip(move |_, cx| cx.new(|_| TooltipText { text: label.into() }).into())
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.select(route);
                         cx.notify();
-                    }));
-                if selected {
-                    tab.border_b_2()
-                        .border_color(palette.accent)
-                        .into_any_element()
-                } else {
-                    tab.into_any_element()
-                }
+                    }))
+                    .into_any_element()
             })
             .collect()
     }
@@ -714,6 +724,9 @@ impl RootView {
 
     #[allow(clippy::too_many_arguments)]
     fn render_footer(
+        &self,
+        language: Language,
+        include_nav: bool,
         theme_glyph: &'static str,
         theme_label: &'static str,
         theme_tooltip: &'static str,
@@ -734,6 +747,11 @@ impl RootView {
             .border_t_1()
             .border_color(palette.line)
             .text_size(px(12.0))
+            .children(if include_nav {
+                self.render_nav_items(language, palette, cx)
+            } else {
+                Vec::new()
+            })
             .child(
                 div()
                     .id("theme-toggle")
