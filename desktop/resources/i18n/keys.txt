@@ -1,0 +1,20 @@
+# i18n 必需 key 清单（构建期真源）。
+# 规则：任何 UI 用到的 key 都必须在此登记；build.rs 会校验每个 key 在 zh/en
+# 两份词表都存在，且词表里不允许出现未登记的多余 key。key 命名 feature.domain.key。
+app.name
+app.nav.home
+app.nav.label
+app.empty.title
+app.empty.body
+app.placeholder.body
+app.theme.label
+app.theme.light
+app.theme.dark
+app.theme.system
+app.lang.label
+app.lang.zh
+app.lang.en
+account.workspace.title
+events.list.title
+courses.catalog.title
+agent_chat.panel.title

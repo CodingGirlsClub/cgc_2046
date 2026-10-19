@@ -8,7 +8,7 @@
 
 use gpui_kit::*;
 
-use crate::i18n::{default_language, translate, Language};
+use crate::i18n::{default_language, translate, translate_registered, Key, Language};
 use crate::routing::{Route, RouteRegistry};
 use crate::theme::{self, space, ThemePreference, RADIUS_MEDIUM};
 
@@ -64,6 +64,14 @@ impl RootView {
         self.preference = self.preference.cycle();
         self.preference
     }
+
+    /// 系统外观变化时由 `observe_window_appearance` 调用：只有「跟随系统」才重刷 kit 主题。
+    pub fn on_appearance_changed(&mut self, appearance: WindowAppearance, cx: &mut Context<Self>) {
+        if self.preference == ThemePreference::System {
+            theme::apply(theme::resolve(self.preference, appearance), cx);
+            cx.notify();
+        }
+    }
 }
 
 impl Render for RootView {
@@ -88,7 +96,7 @@ impl Render for RootView {
                     .h_full()
                     .px(space(2))
                     .text_color(if selected { palette.ink } else { palette.ink_2 })
-                    .child(translate(language, route.title_key))
+                    .child(translate_registered(language, route.title_key))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.select(route);
                         cx.notify();
@@ -110,12 +118,12 @@ impl Render for RootView {
                     div()
                         .text_size(px(24.0))
                         .text_color(palette.ink)
-                        .child(translate(language, route.title_key)),
+                        .child(translate_registered(language, route.title_key)),
                 )
                 .child(
                     div()
                         .text_color(palette.ink_3)
-                        .child(translate(language, "app.placeholder.body")),
+                        .child(translate(language, Key::AppPlaceholderBody)),
                 )
                 .into_any_element(),
             None => div()
@@ -128,12 +136,12 @@ impl Render for RootView {
                     div()
                         .text_size(px(22.0))
                         .text_color(palette.ink)
-                        .child(translate(language, "app.empty.title")),
+                        .child(translate(language, Key::AppEmptyTitle)),
                 )
                 .child(
                     div()
                         .text_color(palette.ink_3)
-                        .child(translate(language, "app.empty.body")),
+                        .child(translate(language, Key::AppEmptyBody)),
                 )
                 .into_any_element(),
         };
@@ -142,8 +150,8 @@ impl Render for RootView {
         let language_label = translate(
             language,
             match language {
-                Language::Zh => "app.lang.zh",
-                Language::En => "app.lang.en",
+                Language::Zh => Key::AppLangZh,
+                Language::En => Key::AppLangEn,
             },
         );
 
@@ -155,6 +163,7 @@ impl Render for RootView {
             .flex_col()
             .bg(palette.canvas)
             .text_color(palette.ink)
+            .font_family(theme::FONT_SANS)
             .text_size(px(14.0))
             .child(
                 div()
@@ -171,7 +180,7 @@ impl Render for RootView {
                         div()
                             .text_size(px(15.0))
                             .text_color(palette.ink)
-                            .child(translate(language, "app.name")),
+                            .child(translate(language, Key::AppName)),
                     )
                     .child(div().w(space(2)))
                     .children(nav_items)
@@ -230,8 +239,10 @@ impl Render for RootView {
 
 #[cfg(test)]
 mod tests {
+    // 注意：不要改成 `use super::*`——父模块的 `use gpui_kit::*` 会引入 gpui 的
+    // `test` 宏并遮蔽 std 的 `#[test]`；本模块只做显式导入。
     use super::RootView;
-    use crate::i18n::{translate, Language};
+    use crate::i18n::{translate, Key, Language};
     use crate::registration::build_registry;
     use crate::theme::ThemePreference;
 
@@ -254,12 +265,12 @@ mod tests {
     #[test]
     fn toggling_language_changes_labels() {
         let mut view = view();
-        let before = translate(view.language(), "app.empty.title");
+        let before = translate(view.language(), Key::AppEmptyTitle);
         view.toggle_language();
-        let after = translate(view.language(), "app.empty.title");
+        let after = translate(view.language(), Key::AppEmptyTitle);
         assert_ne!(before, after);
         view.toggle_language();
-        assert_eq!(translate(view.language(), "app.empty.title"), before);
+        assert_eq!(translate(view.language(), Key::AppEmptyTitle), before);
     }
 
     #[test]

@@ -8,6 +8,8 @@
 use gpui_kit::component::{Theme, ThemeMode};
 use gpui_kit::*;
 
+use crate::i18n::Key;
+
 /// 主题偏好：跟随系统或固定浅/深。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ThemePreference {
@@ -33,11 +35,11 @@ impl ThemePreference {
     }
 
     /// 切换按钮文案的 i18n key。
-    pub fn label_key(self) -> &'static str {
+    pub fn label_key(self) -> Key {
         match self {
-            ThemePreference::Light => "app.theme.light",
-            ThemePreference::Dark => "app.theme.dark",
-            ThemePreference::System => "app.theme.system",
+            ThemePreference::Light => Key::AppThemeLight,
+            ThemePreference::Dark => Key::AppThemeDark,
+            ThemePreference::System => Key::AppThemeSystem,
         }
     }
 }
@@ -88,7 +90,8 @@ pub struct Palette {
     pub soft: Hsla,
 }
 
-/// web 的间距刻度（4px 基准）。
+/// 间距刻度：web 的 `globals.css` 没有 spacing token，实际用的是 Tailwind 默认
+/// 4px 基准（`p-1`=4、`p-2`=8、`p-3`=12、`p-4`=16、`p-6`=24、`p-8`=32）。
 pub const SPACING: [f32; 7] = [4.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0];
 
 /// web 的圆角刻度：micro 2 / small 4 / base 5 / medium 6 / large 8。
@@ -158,20 +161,35 @@ pub fn palette(mode: ThemeMode) -> Palette {
     }
 }
 
-/// 把模式应用到 gpui-kit 的样式层（字体、圆角），并刷新窗口。
+/// 把模式与 web token 应用到 gpui-kit 的样式层（颜色、字体、圆角），并刷新窗口。
+///
+/// 组件库（gpui-kit component）后续使用的 Button/Input 等会读这些 `ThemeColor`
+/// 字段，因此色板必须写进 kit 主题，不能只留在本文件的 `Palette` 里。
 pub fn apply(mode: ThemeMode, cx: &mut App) {
     Theme::change(mode, None, cx);
+    let palette = palette(mode);
     Theme::update(cx, |theme| {
         theme.font_family = FONT_SANS.into();
         theme.mono_font_family = FONT_MONO.into();
         theme.radius = px(RADIUS_MEDIUM);
         theme.radius_lg = px(RADIUS_LARGE);
+        theme.colors.background = palette.canvas;
+        theme.colors.foreground = palette.ink;
+        theme.colors.border = palette.line_strong;
+        theme.colors.accent = palette.accent;
+        theme.colors.accent_foreground = col(0xff_ff_ff);
+        theme.colors.primary = palette.accent;
+        theme.colors.secondary = palette.card;
+        theme.colors.muted = palette.ink_3;
     });
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{col, palette, resolve, space, ThemePreference, RADIUS_LARGE, RADIUS_SMALL};
+    // 注意：不要改成 `use super::*`——父模块的 `use gpui_kit::*` 会引入 gpui 的
+    // `test` 宏并遮蔽 std 的 `#[test]`；本模块只做显式导入。
+    use super::{alpha, col, palette, resolve, space, ThemePreference, RADIUS_LARGE, RADIUS_SMALL};
+    use crate::i18n::Key;
     use gpui_kit::component::ThemeMode;
     use gpui_kit::px;
     use gpui_kit::WindowAppearance;
@@ -185,17 +203,39 @@ mod tests {
     }
 
     #[test]
-    fn brand_accent_matches_web_token_in_both_themes() {
-        // web: --accent: #ea5504（两主题一致）
-        assert_eq!(palette(ThemeMode::Dark).accent, col(0xea_55_04));
-        assert_eq!(palette(ThemeMode::Light).accent, col(0xea_55_04));
+    fn every_dark_token_matches_web_globals_css() {
+        let p = palette(ThemeMode::Dark);
+        assert_eq!(p.canvas, col(0x08_09_0a));
+        assert_eq!(p.frame, col(0x09_0a_0b));
+        assert_eq!(p.card, col(0x0f_10_11));
+        assert_eq!(p.view, col(0x12_13_14));
+        assert_eq!(p.divider, col(0x23_25_2a));
+        assert_eq!(p.ink, col(0xf7_f8_f8));
+        assert_eq!(p.ink_2, col(0xd0_d6_e0));
+        assert_eq!(p.ink_3, col(0x8a_8f_98));
+        assert_eq!(p.accent, col(0xea_55_04));
+        assert_eq!(p.accent_strong, col(0xff_a3_75));
+        assert_eq!(p.line, alpha(0xff_ff_ff, 0.08));
+        assert_eq!(p.line_strong, alpha(0xff_ff_ff, 0.15));
+        assert_eq!(p.soft, alpha(0xff_ff_ff, 0.05));
     }
 
     #[test]
-    fn canvas_matches_web_tokens() {
-        // web dark: --canvas #08090a；light: --canvas #f4f5f8
-        assert_eq!(palette(ThemeMode::Dark).canvas, col(0x08_09_0a));
-        assert_eq!(palette(ThemeMode::Light).canvas, col(0xf4_f5_f8));
+    fn every_light_token_matches_web_globals_css() {
+        let p = palette(ThemeMode::Light);
+        assert_eq!(p.canvas, col(0xf4_f5_f8));
+        assert_eq!(p.frame, col(0xfa_fa_fa));
+        assert_eq!(p.card, col(0xff_ff_ff));
+        assert_eq!(p.view, col(0xf7_f7_f8));
+        assert_eq!(p.divider, col(0xe4_e4_e7));
+        assert_eq!(p.ink, col(0x22_23_26));
+        assert_eq!(p.ink_2, col(0x4b_4d_54));
+        assert_eq!(p.ink_3, col(0x8a_8a_8d));
+        assert_eq!(p.accent, col(0xea_55_04));
+        assert_eq!(p.accent_strong, col(0xc2_4a_02));
+        assert_eq!(p.line, alpha(0x00_00_00, 0.08));
+        assert_eq!(p.line_strong, alpha(0x00_00_00, 0.15));
+        assert_eq!(p.soft, alpha(0x00_00_00, 0.05));
     }
 
     #[test]
@@ -254,6 +294,13 @@ mod tests {
             preference = preference.cycle();
         }
         assert_eq!(preference, ThemePreference::Light);
+    }
+
+    #[test]
+    fn theme_labels_are_registered_keys() {
+        assert_eq!(ThemePreference::Light.label_key(), Key::AppThemeLight);
+        assert_eq!(ThemePreference::Dark.label_key(), Key::AppThemeDark);
+        assert_eq!(ThemePreference::System.label_key(), Key::AppThemeSystem);
     }
 
     #[test]
