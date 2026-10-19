@@ -245,6 +245,14 @@ impl OrdersApi for FakeOrdersApi {
     }
 }
 
+/// 轮询终止条件（终态即停；pending/未知继续轮）。
+pub fn is_terminal_status(status: &str) -> bool {
+    matches!(
+        status,
+        "paid" | "refunding" | "refunded" | "refund_failed" | "cancelled" | "expired" | "forfeited"
+    )
+}
+
 /// 解析 credential JsonString 里的二维码 URL（typ=qr_code）；不支持形态返回 None。
 pub fn qr_code_url(credential: &str) -> Option<String> {
     let value: Value = serde_json::from_str(credential).ok()?;
@@ -305,6 +313,14 @@ mod tests {
             Some(1_792_411_200)
         );
         assert_eq!(parse_rfc3339_epoch("bad"), None);
+    }
+
+    #[test]
+    fn terminal_statuses_stop_polling() {
+        assert!(is_terminal_status("paid"));
+        assert!(is_terminal_status("expired"));
+        assert!(is_terminal_status("refunded"));
+        assert!(!is_terminal_status("pending"));
     }
 
     #[test]

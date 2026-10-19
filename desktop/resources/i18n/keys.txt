@@ -127,3 +127,12 @@ courses.learning.content_loading
 courses.learning.content_error
 courses.learning.content_retry
 courses.learning.content_empty
+events.pay.close
+events.pay.terminal.expired
+events.pay.terminal.cancelled
+events.pay.terminal.refunded
+events.pay.terminal.forfeited
+events.pay.terminal.refunding
+events.pay.terminal.refund_failed
+events.enroll.cancel
+events.enroll.cancel_failed

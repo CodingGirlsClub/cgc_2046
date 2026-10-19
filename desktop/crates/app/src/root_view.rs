@@ -22,7 +22,8 @@ use cgc_events::enroll::{enrollment_error_key, EnrollmentRequest};
 use cgc_events::list::{
     EventListService, EventsApi, FakeEventsApi, HttpEventsApi, ListState, StatusFilter,
 };
-use cgc_events::orders::{parse_rfc3339_epoch, qr_code_url, OrdersApi};
+use cgc_events::orders::{is_terminal_status, parse_rfc3339_epoch, qr_code_url, OrdersApi};
+use cgc_platform::events::{AppEvent, EventPublisher, MemoryEventBus};
 use cgc_platform::routes::NavIcon;
 use cgc_platform::session::{AuthError, SessionService, SessionState, SignedInSession};
 use cgc_platform::workspace::{
@@ -74,6 +75,7 @@ enum PaymentViewState {
         expire_at: Option<String>,
     },
     Paid,
+    Terminal(String),
     Failed(String),
 }
 
@@ -103,6 +105,7 @@ pub struct RootView {
     payment: PaymentViewState,
     payment_generation: u64,
     deposit_consent: bool,
+    events_bus: Arc<MemoryEventBus>,
     courses: CourseCatalogService,
     courses_started: bool,
     workspaces: WorkspaceService,
@@ -165,6 +168,7 @@ impl RootView {
             payment: PaymentViewState::Idle,
             payment_generation: 0,
             deposit_consent: false,
+            events_bus: Arc::new(MemoryEventBus::new()),
             courses,
             courses_started: false,
             course_detail,
@@ -530,7 +534,13 @@ impl RootView {
                                     order_id: order.id.clone(),
                                     expire_at: order.expire_at.clone(),
                                 };
-                                this.poll_payment(order.id, generation, cx);
+                                let enrollment_id = this
+                                    .detail
+                                    .enrollment()
+                                    .map(|enrollment| enrollment.id.clone())
+                                    .unwrap_or_default();
+                                let target = this.detail.detail().map(|detail| detail.id.clone());
+                                this.poll_payment(order.id, generation, enrollment_id, target, cx);
                             }
                             None => {
                                 this.payment =
@@ -549,9 +559,17 @@ impl RootView {
         .detach();
     }
 
-    fn poll_payment(&mut self, order_id: String, generation: u64, cx: &mut Context<Self>) {
+    fn poll_payment(
+        &mut self,
+        order_id: String,
+        generation: u64,
+        enrollment_id: String,
+        target_event_id: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         let api = Arc::clone(&self.orders);
         let token = self.session_token();
+        let bus = Arc::clone(&self.events_bus);
         cx.spawn(async move |this, cx| loop {
             cx.background_executor().timer(Duration::from_secs(2)).await;
             let poll_api = Arc::clone(&api);
@@ -569,17 +587,21 @@ impl RootView {
                     match result {
                         Ok(order) if order.status == "paid" => {
                             this.payment = PaymentViewState::Paid;
+                            (bus).publish(AppEvent::EnrollmentChanged {
+                                enrollment_id: enrollment_id.clone(),
+                                event_id: target_event_id.clone(),
+                                course_id: None,
+                            });
+                            this.events_started = false;
+                            this.events.reset();
+                            this.course_detail_started = false;
+                            this.course_detail.reset();
                             this.refresh_enrollment(cx);
                             cx.notify();
                             false
                         }
-                        Ok(order)
-                            if matches!(
-                                order.status.as_str(),
-                                "cancelled" | "expired" | "forfeited" | "refunded"
-                            ) =>
-                        {
-                            this.payment = PaymentViewState::Failed(order.status.clone());
+                        Ok(order) if is_terminal_status(&order.status) => {
+                            this.payment = PaymentViewState::Terminal(order.status.clone());
                             cx.notify();
                             false
                         }
@@ -595,6 +617,49 @@ impl RootView {
             if !keep {
                 break;
             }
+        })
+        .detach();
+    }
+
+    fn close_payment(&mut self, cx: &mut Context<Self>) {
+        self.payment = PaymentViewState::Idle;
+        self.payment_generation = self.payment_generation.saturating_add(1);
+        cx.notify();
+    }
+
+    fn cancel_enrollment_action(&mut self, cx: &mut Context<Self>) {
+        let Some(enrollment) = self.detail.enrollment().cloned() else {
+            return;
+        };
+        let api = self.detail.api_handle();
+        let token = self.session_token();
+        let bus = Arc::clone(&self.events_bus);
+        let target = self.detail.detail().map(|detail| detail.id.clone());
+        let enrollment_id = enrollment.id.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move { api.cancel_enrollment(token.as_deref(), &enrollment_id) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(enrollment) => {
+                        bus.publish(AppEvent::EnrollmentChanged {
+                            enrollment_id: enrollment.id.clone(),
+                            event_id: target.clone(),
+                            course_id: None,
+                        });
+                        this.detail.adopt_enrollment(Some(enrollment));
+                        this.payment = PaymentViewState::Idle;
+                        this.payment_generation = this.payment_generation.saturating_add(1);
+                        this.enrollment_error = None;
+                    }
+                    Err(_) => {
+                        this.enrollment_error = Some("generic".to_string());
+                    }
+                }
+                cx.notify();
+            });
         })
         .detach();
     }
@@ -2066,8 +2131,27 @@ impl RootView {
                                 ))
                                 .into_any_element()
                         }))
+                        .child(
+                            div()
+                                .id("pay-close")
+                                .px(space(1))
+                                .py(px(3.0))
+                                .rounded(px(RADIUS_SMALL))
+                                .bg(palette.soft)
+                                .text_size(px(12.0))
+                                .text_color(palette.ink_2)
+                                .child(translate(language, Key::EventsPayClose))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.close_payment(cx);
+                                })),
+                        )
                         .into_any_element()
                 }
+                PaymentViewState::Terminal(status) => div()
+                    .text_size(px(12.0))
+                    .text_color(palette.danger)
+                    .child(terminal_status_label(language, &status))
+                    .into_any_element(),
                 PaymentViewState::Paid => div()
                     .text_size(px(12.0))
                     .text_color(palette.accent)
@@ -2075,6 +2159,18 @@ impl RootView {
                     .into_any_element(),
             };
 
+            let cancel = div()
+                .id("enroll-cancel")
+                .px(space(1))
+                .py(px(3.0))
+                .rounded(px(RADIUS_SMALL))
+                .bg(palette.soft)
+                .text_size(px(12.0))
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::EventsEnrollCancel))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.cancel_enrollment_action(cx);
+                }));
             return div()
                 .mt(space(2))
                 .flex()
@@ -2082,6 +2178,7 @@ impl RootView {
                 .gap(space(1))
                 .child(status)
                 .child(payment_body)
+                .child(cancel)
                 .into_any_element();
         }
 
@@ -3074,6 +3171,21 @@ fn filter_key(filter: StatusFilter) -> Key {
         StatusFilter::Closed => Key::EventsFilterClosed,
         StatusFilter::Cancelled => Key::EventsFilterCancelled,
     }
+}
+
+fn terminal_status_label(language: Language, status: &str) -> &'static str {
+    translate(
+        language,
+        match status {
+            "expired" => Key::EventsPayTerminalExpired,
+            "cancelled" => Key::EventsPayTerminalCancelled,
+            "refunded" => Key::EventsPayTerminalRefunded,
+            "forfeited" => Key::EventsPayTerminalForfeited,
+            "refunding" => Key::EventsPayTerminalRefunding,
+            "refund_failed" => Key::EventsPayTerminalRefundFailed,
+            _ => Key::EventsPayFailed,
+        },
+    )
 }
 
 fn payment_remaining_secs(expire_at: &str) -> Option<u64> {

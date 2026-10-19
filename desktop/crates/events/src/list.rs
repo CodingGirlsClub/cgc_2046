@@ -141,6 +141,12 @@ pub trait EventsApi: Send + Sync {
         token: Option<&str>,
         request: &crate::enroll::EnrollmentRequest,
     ) -> Result<crate::enroll::MyEnrollment, EventsError>;
+
+    fn cancel_enrollment(
+        &self,
+        token: Option<&str>,
+        enrollment_id: &str,
+    ) -> Result<crate::enroll::MyEnrollment, EventsError>;
 }
 
 pub struct HttpEventsApi {
@@ -223,6 +229,15 @@ query GetEvent($id: ID!) {
 const MY_ENROLLMENT_QUERY: &str = r#"
 query MyEnrollment($kind: String!, $offeringId: ID!) {
   myEnrollment(kind: $kind, offeringId: $offeringId) { id status }
+}
+"#;
+
+const CANCEL_ENROLLMENT_MUTATION: &str = r#"
+mutation CancelEnrollment($id: ID!) {
+  cancelEnrollment(id: $id) {
+    result { id status }
+    errors { code message }
+  }
 }
 "#;
 
@@ -395,6 +410,46 @@ impl EventsApi for HttpEventsApi {
         data.get("result")
             .and_then(Self::parse_enrollment)
             .ok_or_else(|| EventsError::Server("missing enrollment result".to_string()))
+    }
+
+    fn cancel_enrollment(
+        &self,
+        token: Option<&str>,
+        enrollment_id: &str,
+    ) -> Result<crate::enroll::MyEnrollment, EventsError> {
+        let payload = self
+            .client
+            .post(
+                token,
+                CANCEL_ENROLLMENT_MUTATION,
+                json!({ "id": enrollment_id }),
+            )
+            .map_err(EventsError::from)?;
+        let data = payload
+            .get("data")
+            .and_then(|data| data.get("cancelEnrollment"))
+            .ok_or_else(|| EventsError::Server("missing cancelEnrollment payload".to_string()))?;
+        if let Some(error) = data
+            .get("errors")
+            .and_then(Value::as_array)
+            .and_then(|errors| errors.first())
+        {
+            return Err(EventsError::Domain {
+                code: error
+                    .get("code")
+                    .and_then(Value::as_str)
+                    .unwrap_or("enrollment_generic")
+                    .to_string(),
+                message: error
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("cancel failed")
+                    .to_string(),
+            });
+        }
+        data.get("result")
+            .and_then(Self::parse_enrollment)
+            .ok_or_else(|| EventsError::Server("missing cancel result".to_string()))
     }
 }
 
@@ -569,6 +624,28 @@ impl EventsApi for FakeEventsApi {
             .expect("enrollments lock")
             .insert(request.event_id.clone(), enrollment.clone());
         Ok(enrollment)
+    }
+
+    fn cancel_enrollment(
+        &self,
+        _token: Option<&str>,
+        enrollment_id: &str,
+    ) -> Result<crate::enroll::MyEnrollment, EventsError> {
+        if self.fail {
+            return Err(EventsError::Transport("fake network down".to_string()));
+        }
+        let mut enrollments = self.enrollments.lock().expect("enrollments lock");
+        let key = enrollments
+            .iter()
+            .find(|(_, enrollment)| enrollment.id == enrollment_id)
+            .map(|(key, _)| key.clone())
+            .ok_or(EventsError::NotFound)?;
+        let canceled = crate::enroll::MyEnrollment {
+            id: enrollment_id.to_string(),
+            status: "cancelled".to_string(),
+        };
+        enrollments.insert(key, canceled.clone());
+        Ok(canceled)
     }
 }
 
@@ -852,6 +929,26 @@ mod tests {
         assert_eq!(page.items[0].title, "Demo");
         assert_eq!(page.next_cursor.as_deref(), Some("cursor-2"));
         assert_eq!(page.total, Some(1));
+    }
+
+    #[test]
+    fn fake_cancel_enrollment_sets_cancelled() {
+        let api = FakeEventsApi::with_seed(2);
+        let request = crate::enroll::EnrollmentRequest {
+            event_id: "evt-001".to_string(),
+            user_id: "u-1".to_string(),
+            tier_id: None,
+            age_confirmed: false,
+        };
+        let created = api.create_enrollment(None, &request).expect("create");
+        let canceled = api.cancel_enrollment(None, &created.id).expect("cancel");
+        assert_eq!(canceled.status, "cancelled");
+        assert_eq!(
+            api.get_my_enrollment(None, "evt-001")
+                .expect("get")
+                .map(|enrollment| enrollment.status),
+            Some("cancelled".to_string())
+        );
     }
 
     #[test]
