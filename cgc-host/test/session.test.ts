@@ -328,6 +328,50 @@ test("找不到或起不来 OMP：对话方法回 chat_unavailable，不留下�
   expect(await send(page, "你好")).toMatchObject(refused("chat_unavailable")); // 不是 busy
 });
 
+test("R25：对话内容不落进 state.json，也不进 Host 日志", async () => {
+  const fake = fakeAgent();
+  const marker = "R25-MARKER-7f3c";
+  const logs: string[] = [];
+  const origLog = console.log;
+  const origError = console.error;
+  console.log = (...args: unknown[]) => void logs.push(args.map((a) => String(a)).join(" "));
+  console.error = (...args: unknown[]) => void logs.push(args.map((a) => String(a)).join(" "));
+  try {
+    fake.script = async (t) => {
+      await t.emit({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `${marker}-reply` } });
+      await t.emit({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: `${marker}-thought` } });
+      await t.emit({
+        sessionUpdate: "tool_call",
+        toolCallId: "r25",
+        title: `${marker}-tool`,
+        kind: "execute",
+        status: "completed",
+        rawInput: { cmd: `${marker}-cmd` },
+      });
+      return { stopReason: "end_turn", usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } };
+    };
+    const { host, page } = await chatPage(fake);
+    await attach(page);
+    await send(page, `${marker}-question`);
+    await ended(page);
+
+    // 防假绿：内容确实经过 Host 交给了页面
+    expect(JSON.stringify(page.inbox)).toContain(marker);
+    // 状态文件只有指针，没有对话
+    const state = readFileSync(join(stateDir(host.home), "state.json"), "utf8");
+    expect(state).not.toContain(marker);
+    // 日志没有消息/思考/工具内容
+    expect(logs.join("\n")).not.toContain(marker);
+
+    // 新开对话会重写状态文件（指针改指新会话），同样不得带出任何对话内容
+    await page.call("chat.new", { courseId: COURSE });
+    expect(readFileSync(join(stateDir(host.home), "state.json"), "utf8")).not.toContain(marker);
+  } finally {
+    console.log = origLog;
+    console.error = origError;
+  }
+});
+
 test("KTD13 空闲回收：没有页面、没有在跑的回合，超过空闲期结束进程；下次需要时拉起并 session/load 恢复", async () => {
   const fake = fakeAgent();
   const host = chatHost(fake, { idleMs: 50 });

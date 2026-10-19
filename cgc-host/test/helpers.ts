@@ -112,7 +112,10 @@ export function startHost(options: Partial<ServerOptions> = {}) {
     ...options,
   });
   cleanups.push(() => server.stop(true));
-  return { port: server.port as number, home, platform, dialog, chatCalls, stop: () => server.stop(true) };
+  // Bun.serve 的实际绑定地址（R23 断言用）；类型里没有 hostname 时从 url 兜底
+  const hostname =
+    (server as { hostname?: string }).hostname ?? new URL(String((server as { url?: string | URL }).url)).hostname;
+  return { port: server.port as number, hostname, home, platform, dialog, chatCalls, stop: () => server.stop(true) };
 }
 
 // Bun 的 WebSocket 客户端支持自定请求头（运行时有），但 tsconfig 未排除 lib.dom，DOM 的类型里没有这个重载
