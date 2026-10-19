@@ -76,7 +76,6 @@ courses.learning.retry
 courses.learning.context_required
 courses.learning.workspace
 courses.learning.revision
-courses.learning.content_soon
 courses.learning.keyboard_hint
 courses.detail.title
 courses.learning.title
@@ -154,7 +153,6 @@ app.workspace.empty_title
 app.workspace.empty_guidance
 app.auth.error.keychain
 courses.render.open_link
-courses.render.open_external
 courses.render.open
 courses.render.cancel
 agent_chat.chat.start
