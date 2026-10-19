@@ -59,7 +59,6 @@ export interface HostMessage {
 export interface HostStatus {
 	state: "unpaired" | "paired" | "ready";
 	pairedUserId: string | null;
-	pairedDisplayName: string | null;
 	deviceName: string;
 	/** 本机所持学习凭证的记录 id：「已配对的电脑」据此标出本机这台 */
 	tokenId: string | null;

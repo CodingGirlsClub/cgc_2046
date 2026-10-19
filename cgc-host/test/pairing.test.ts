@@ -93,7 +93,18 @@ describe("Covers AE2. 拒绝、超时、平台 401：Host 都不保存凭证", (
     expect(loadState(host.home).pairing).toBeNull();
   });
 
-  test("GET /mcp/token 回 401：拒收，不弹窗，也不调 DELETE", async () => {
+  test("pair.request 的冷却从受理开始：连续无效 token 不会反复打平台", async () => {
+  const host = startHost({ cooldownMs: 60 });
+  const c = await connect(host.port);
+  expect(await c.call("pair.request", { token: "cgch_unknown-token-1" })).toMatchObject(refused("invalid_token"));
+  expect(host.platform.calls).toEqual([{ method: "GET", token: "cgch_unknown-token-1" }]);
+
+  // 冷却期内第二次请求直接 busy，不再驱动平台核实
+  expect(await c.call("pair.request", { token: "cgch_unknown-token-2" })).toMatchObject(refused("busy"));
+  expect(host.platform.calls).toHaveLength(1);
+});
+
+test("GET /mcp/token 回 401：拒收，不弹窗，也不调 DELETE", async () => {
     const host = startHost();
     const c = await connect(host.port);
     expect(await c.call("pair.request", { token: TOKEN })).toMatchObject(refused("invalid_token"));

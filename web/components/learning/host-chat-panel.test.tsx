@@ -93,7 +93,6 @@ const status = (
 ): HostStatus => ({
 	state,
 	pairedUserId: state === "unpaired" ? null : USER,
-	pairedDisplayName: state === "unpaired" ? null : "学员甲",
 	deviceName: "Ada 的 MacBook",
 	tokenId: state === "unpaired" ? null : "tok_this",
 	agents,

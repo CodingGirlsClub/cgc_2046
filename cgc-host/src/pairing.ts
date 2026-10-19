@@ -104,6 +104,9 @@ export function createPairing(deps: {
       const start = deps.getPairing();
       if (token === undefined && !start) return { error: "not_paired" };
       if (pending || Date.now() < cooldownUntil) return { error: "busy" };
+      // 冷却从受理开始（而不是弹窗关闭）：无效 token / 平台不可达的早退同样受限，
+      // 避免同源页面反复驱动 Host 调平台 /mcp/token。
+      cooldownUntil = Date.now() + deps.cooldownMs;
 
       const controller = new AbortController();
       pending = { owner, controller };
@@ -122,8 +125,6 @@ export function createPairing(deps: {
               console.error("cgc-host: 确认弹窗无法启动", e);
               return "deny";
             });
-        cooldownUntil = Date.now() + deps.cooldownMs;
-
         if (answer !== "allow") {
           if (token !== undefined) await revokeToken(deps.apiBase, token);
           return { allowed: false };
