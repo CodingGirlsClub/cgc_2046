@@ -90,19 +90,46 @@ defmodule Cgc2046Web.GraphqlDesktopTokenTest do
     token = body["data"]["signInForDesktop"]["token"]
 
     {body, _} = graphql_post(conn, @learning_runs_query, token)
-    assert Map.has_key?(body["data"], "myLearningRuns")
+    assert is_list(body["data"]["myLearningRuns"]), "token must work before revoke"
 
     {body, _} = graphql_post(conn, "mutation { revokeToken }", token)
     assert %{"data" => %{"revokeToken" => true}} = body
 
     {body, _} = graphql_post(conn, @learning_runs_query, token)
-    assert body["data"] == nil or body["data"]["myLearningRuns"] == nil
-    assert body["errors"] != nil and body["errors"] != []
+    assert [%{"code" => "unauthorized"} | _] = body["errors"]
   end
 
   test "revokeToken without a Bearer token is rejected", %{conn: conn} do
     {body, _} = graphql_post(conn, "mutation { revokeToken }")
-    assert [%{"code" => "authentication_failed"} | _] = body["errors"]
+    assert [%{"code" => "unauthorized"} | _] = body["errors"]
+  end
+
+  test "revokeToken rejects a forged bearer without writing the tokens table", %{conn: conn} do
+    before = token_count()
+    forged = forged_jwt("forged-jti-#{Ecto.UUID.generate()}")
+    {body, _} = graphql_post(conn, "mutation { revokeToken }", forged)
+
+    assert [%{"code" => "unauthorized"} | _] = body["errors"]
+    assert token_count() == before, "forged Bearer must not create/overwrite a token row"
+  end
+
+  test "desktop token carries platform=desktop and survives web-face re-login revocation", %{
+    conn: conn
+  } do
+    user = Fixtures.register_user("desktop-platform")
+    {body, _} = sign_in_for_desktop(conn, to_string(user.email))
+    token = body["data"]["signInForDesktop"]["token"]
+
+    payload = jwt_payload(token)
+    assert payload["platform"] == "desktop"
+    assert is_integer(payload["exp"])
+
+    # web 面重登吊销只针对 platform IS NULL OR = 'web' 的 token：桌面 token 必须存活
+    assert :ok = Cgc2046.Accounts.SignInFlow.revoke_stored_tokens(user, :web)
+    {body, _} = graphql_post(conn, @learning_runs_query, token)
+
+    assert is_list(body["data"]["myLearningRuns"]),
+           "desktop token must survive web-face revocation"
   end
 
   test "invalid password returns the unified auth failure and no token", %{conn: conn} do
@@ -111,6 +138,33 @@ defmodule Cgc2046Web.GraphqlDesktopTokenTest do
 
     assert [%{"code" => "authentication_failed"} | _] = body["errors"]
     assert body["data"]["signInForDesktop"] == nil
+  end
+
+  defp token_count do
+    %{rows: [[count]]} = Cgc2046.Repo.query!("SELECT count(*) FROM tokens")
+    count
+  end
+
+  defp forged_jwt(jti) do
+    header = Base.url_encode64(Jason.encode!(%{"alg" => "HS256", "typ" => "JWT"}), padding: false)
+
+    payload =
+      Base.url_encode64(
+        Jason.encode!(%{
+          "jti" => jti,
+          "sub" => "forged",
+          "exp" => 9_999_999_999,
+          "purpose" => "user"
+        }),
+        padding: false
+      )
+
+    Enum.join([header, payload, "not-a-real-signature"], ".")
+  end
+
+  defp jwt_payload(token) do
+    [_, payload, _] = String.split(token, ".")
+    payload |> Base.url_decode64!(padding: false) |> Jason.decode!()
   end
 
   test "web signIn still delivers the httpOnly cookie (regression)", %{conn: conn} do

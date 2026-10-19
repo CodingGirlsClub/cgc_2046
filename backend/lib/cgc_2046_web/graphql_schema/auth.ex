@@ -84,8 +84,8 @@ defmodule Cgc2046Web.GraphqlSchema.Auth do
       resolve(fn _, %{login: login, password: password}, _ ->
         case sign_in_with_password_or_phone(login, password) do
           {:ok, user} ->
-            case user.__metadata__[:token] do
-              token when is_binary(token) and byte_size(token) > 0 ->
+            case issue_desktop_token(user) do
+              {:ok, token} ->
                 {:ok,
                  %{
                    token: token,
@@ -94,7 +94,8 @@ defmodule Cgc2046Web.GraphqlSchema.Auth do
                    is_platform_admin: user.is_platform_admin
                  }}
 
-              _ ->
+              {:error, reason} ->
+                Logger.error("signInForDesktop token generation failed: #{inspect(reason)}")
                 {:error, message: "Sign in failed", code: "authentication_failed"}
             end
 
@@ -510,26 +511,27 @@ defmodule Cgc2046Web.GraphqlSchema.Auth do
       end)
     end
 
-    @desc "撤销当前请求携带的 Bearer token（第一方客户端登出用；只撤销调用者自己的 token）"
+    @desc "撤销当前请求携带的 Bearer token（第一方客户端登出用；只撤销已通过校验的调用者 token）"
     field :revoke_token, :boolean do
+      middleware(Cgc2046Web.Plugs.RateLimit,
+        ip_bucket: "revoke-token",
+        ip_context_key: :mini_web_ip,
+        limit: :sign_in_ip,
+        window_seconds: 900
+      )
+
       resolve(fn _, _, %{context: context} ->
-        case context[:cgc_bearer_token] do
-          token when is_binary(token) and byte_size(token) > 0 ->
-            case AshAuthentication.TokenResource.Actions.revoke(
-                   Cgc2046.Accounts.Token,
-                   token,
-                   []
-                 ) do
-              :ok ->
-                {:ok, true}
+        # actor 非 nil 才说明 load_actor 已验签 header token；只凭 header 里的
+        # 任意字符串写库会让公开端点变成匿名写入口（review finding）。
+        case revoke_current_bearer(context) do
+          :ok ->
+            {:ok, true}
 
-              {:error, reason} ->
-                Logger.warning("revokeToken failed: #{inspect(reason)}")
-                {:error, message: "Revoke failed", code: "token_revoke_failed"}
-            end
+          :unauthenticated ->
+            {:error, message: "Not authenticated", code: "unauthorized"}
 
-          _ ->
-            {:error, message: "Not authenticated", code: "authentication_failed"}
+          {:error, _reason} ->
+            {:error, message: "Revoke failed", code: "token_revoke_failed"}
         end
       end)
     end

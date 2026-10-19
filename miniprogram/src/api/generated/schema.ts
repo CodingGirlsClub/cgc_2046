@@ -1309,6 +1309,14 @@ export type DeleteEventResult = {
   result?: Maybe<Event>;
 };
 
+/** 第一方客户端登录结果：JWT 直接经响应体交付（不写 cookie） */
+export type DesktopSignInResult = {
+  email?: Maybe<Scalars['String']['output']>;
+  isPlatformAdmin: Scalars['Boolean']['output'];
+  token: Scalars['String']['output'];
+  userId: Scalars['ID']['output'];
+};
+
 /** The result of the :disable_invite_batch mutation */
 export type DisableInviteBatchResult = {
   /** Any errors generated, if the mutation failed */
@@ -4951,12 +4959,19 @@ export type RootMutationType = {
   revokeInvitation: RevokeInvitationResult;
   /** 撤销 MCP 连接 token（切片 D #44；仅本人，置 revokedAt 保留审计行；他人 token 一律 not_found 不泄露存在性） */
   revokeMcpToken?: Maybe<McpToken>;
+  /** 撤销当前请求携带的 Bearer token（第一方客户端登出用；只撤销已通过校验的调用者 token） */
+  revokeToken?: Maybe<Scalars['Boolean']['output']>;
   /** Speaker 保存分享材料（落 WorkflowRun.facts[materials]；Speaker 本人自助或 Owner/Admin 兜底；materials 为 JSON 字符串） */
   saveSpeakerMaterials?: Maybe<SpeakerInvitationActionPayload>;
   /** 设置当前用户在某工作台的 UI 主题偏好（ADR-0004 per-workspace） */
   setWorkspaceTheme?: Maybe<WorkspaceProfile>;
   /** 账号密码登录（plan 002 U2：login 含 @ 走邮箱，否则手机号归一化；token 经 httpOnly cookie 交付） */
   signIn?: Maybe<SignInResult>;
+  /**
+   * 第一方客户端登录：直接返回 Bearer JWT（响应体交付，不写 httpOnly cookie）。
+   * 与 web 的 `signIn` 共用同一 AshAuthentication token；撤销用 `revokeToken`。
+   */
+  signInForDesktop?: Maybe<DesktopSignInResult>;
   /** 手机验证码登录（plan 002 U3；用户不存在自动建号；token 经 httpOnly cookie 交付） */
   signInWithPhoneCode?: Maybe<SignInWithPhoneCodeResult>;
   /** 小程序平台一键登录（N1，Phase 1）：code2session + 平台手机号锚定统一身份，token 经 httpOnly cookie 交付 */
@@ -5722,6 +5737,12 @@ export type RootMutationTypeSetWorkspaceThemeArgs = {
 
 
 export type RootMutationTypeSignInArgs = {
+  login: Scalars['String']['input'];
+  password: Scalars['String']['input'];
+};
+
+
+export type RootMutationTypeSignInForDesktopArgs = {
   login: Scalars['String']['input'];
   password: Scalars['String']['input'];
 };

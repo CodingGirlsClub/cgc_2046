@@ -5937,7 +5937,7 @@ type RootMutationType {
   "登出：服务端撤销当前 token 并清除 httpOnly cookie（token 被偷也无法重放）"
   signOut: String
 
-  "撤销当前请求携带的 Bearer token（第一方客户端登出用；只撤销调用者自己的 token）"
+  "撤销当前请求携带的 Bearer token（第一方客户端登出用；只撤销已通过校验的调用者 token）"
   revokeToken: Boolean
 
   wechatMiniWebLoginStart(mode: MiniWebLoginMode!): MiniWebLoginResult
