@@ -9,6 +9,7 @@ use gpui_kit::*;
 
 use std::sync::Arc;
 
+use cgc_events::detail::{EventDetailService, PriceMode};
 use cgc_events::list::{
     EventListService, EventsApi, FakeEventsApi, HttpEventsApi, ListState, StatusFilter,
 };
@@ -18,7 +19,7 @@ use gpui_kit::assets::IconName as AssetIcon;
 use gpui_kit::component::{Icon, Sizable as _};
 
 use crate::i18n::{default_language, translate, translate_registered, Key, Language};
-use crate::routing::{Route, RouteRegistry};
+use crate::routing::{Route, RouteMatch, RouteRegistry};
 use crate::theme::{self, space, ThemePreference, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,7 +52,7 @@ impl LoginError {
 
 pub struct RootView {
     registry: RouteRegistry,
-    current: Option<Route>,
+    current: Option<RouteMatch>,
     language: Language,
     preference: ThemePreference,
     session: SessionService,
@@ -65,6 +66,8 @@ pub struct RootView {
     key_focus: Option<FocusHandle>,
     events: EventListService,
     events_started: bool,
+    detail: EventDetailService,
+    detail_started: bool,
     selected_event: Option<String>,
 }
 
@@ -85,18 +88,11 @@ impl RootView {
         preference: ThemePreference,
         session: SessionService,
     ) -> Self {
-        let current = std::env::var("CGC_START_ROUTE")
-            .ok()
-            .and_then(|route_id| {
-                registry
-                    .routes()
-                    .iter()
-                    .find(|route| route.id == route_id)
-                    .copied()
-            })
-            .or_else(|| registry.routes().first().copied());
+        let current = initial_route(&registry);
         let is_fake_mode = std::env::var("CGC_AUTH").as_deref() != Ok("http")
             && std::env::var("CGC_API_URL").is_err();
+        let events = build_events_service();
+        let detail = EventDetailService::new(events.api_handle());
         Self {
             registry,
             current,
@@ -111,14 +107,20 @@ impl RootView {
             account_menu_open: false,
             is_fake_mode,
             key_focus: None,
-            events: build_events_service(),
+            events,
             events_started: false,
+            detail,
+            detail_started: false,
             selected_event: None,
         }
     }
 
     pub fn current(&self) -> Option<Route> {
-        self.current
+        self.current.as_ref().map(|route_match| route_match.route)
+    }
+
+    pub fn current_match(&self) -> Option<&RouteMatch> {
+        self.current.as_ref()
     }
 
     pub fn language(&self) -> Language {
@@ -151,7 +153,29 @@ impl RootView {
     }
 
     pub fn select(&mut self, route: Route) {
-        self.current = Some(route);
+        self.current = Some(RouteMatch {
+            route,
+            params: std::collections::BTreeMap::new(),
+        });
+    }
+
+    /// 按路径导航（动态路由在此完成参数解析）。
+    pub fn navigate(&mut self, path: &str) {
+        if let crate::routing::RouteSelection::Match(route_match) = self.registry.select(path) {
+            self.current = Some(route_match);
+            self.events_started = false;
+            self.detail_started = false;
+        }
+    }
+
+    fn navigate_to_event_detail(&mut self, event_id: &str) {
+        let Some(route) = self.registry.find("events.detail") else {
+            return;
+        };
+        let mut params = std::collections::BTreeMap::new();
+        params.insert("id", event_id.to_string());
+        self.current = Some(RouteMatch { route, params });
+        self.detail_started = false;
     }
 
     pub fn toggle_language(&mut self) -> Language {
@@ -180,7 +204,43 @@ impl RootView {
 
     fn reset_events(&mut self) {
         self.events_started = false;
+        self.detail_started = false;
         self.selected_event = None;
+    }
+
+    fn start_detail_load(&mut self, cx: &mut Context<Self>, event_id: String) {
+        self.detail.begin_load(&event_id);
+        self.detail_started = true;
+        let api = self.detail.api_handle();
+        let token = self.session_token();
+        let task = cx
+            .background_executor()
+            .spawn(async move { api.get_event(token.as_deref(), &event_id) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(detail) => this.detail.adopt(detail),
+                    Err(error) => this.detail.fail(&error),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn retry_detail(&mut self, cx: &mut Context<Self>) {
+        self.detail.retry_ready();
+        self.detail_started = false;
+        if let Some(event_id) = self
+            .current
+            .as_ref()
+            .and_then(|route_match| route_match.params.get("id"))
+            .cloned()
+        {
+            self.start_detail_load(cx, event_id);
+        }
+        cx.notify();
     }
 
     fn start_events_load(&mut self, cx: &mut Context<Self>, first: bool) {
@@ -390,12 +450,30 @@ impl Render for RootView {
         };
         let language_icon = AssetIcon::Languages;
 
-        if is_signed_in
-            && self.current.is_some_and(|route| route.id == "events.list")
-            && !self.events_started
-            && matches!(self.events.state(), ListState::Idle)
-        {
-            self.start_events_load(cx, true);
+        if is_signed_in {
+            let current_id = self
+                .current
+                .as_ref()
+                .map(|route_match| route_match.route.id);
+            if current_id == Some("events.list")
+                && !self.events_started
+                && matches!(self.events.state(), ListState::Idle)
+            {
+                self.start_events_load(cx, true);
+            }
+            if current_id == Some("events.detail")
+                && !self.detail_started
+                && matches!(self.detail.state(), ListState::Idle)
+            {
+                if let Some(event_id) = self
+                    .current
+                    .as_ref()
+                    .and_then(|route_match| route_match.params.get("id"))
+                    .cloned()
+                {
+                    self.start_detail_load(cx, event_id);
+                }
+            }
         }
 
         let key_focus = self.ensure_key_focus(cx);
@@ -624,8 +702,10 @@ impl Render for RootView {
                                 ),
                         )
                         .child(div().w(px(1.0)).h(px(14.0)).bg(palette.line))
-                        .child(div().text_color(palette.ink_3).child(match self.current {
-                            Some(route) => translate_registered(language, route.title_key),
+                        .child(div().text_color(palette.ink_3).child(match &self.current {
+                            Some(route_match) => {
+                                translate_registered(language, route_match.route.title_key)
+                            }
                             None => translate(language, Key::AppNavLabel),
                         }))
                         .child(div().flex_1())
@@ -700,13 +780,19 @@ impl Render for RootView {
                                 .children(account_menu)
                         }),
                 )
-                .child(div().flex_1().w_full().p(space(6)).child(
-                    if self.current.is_some_and(|route| route.id == "events.list") {
-                        self.render_events_list(language, &palette, cx)
-                    } else {
-                        self.render_content(language, &palette, cx)
-                    },
-                ))
+                .child(
+                    div().flex_1().w_full().p(space(6)).child(
+                        match self
+                            .current
+                            .as_ref()
+                            .map(|route_match| route_match.route.id)
+                        {
+                            Some("events.list") => self.render_events_list(language, &palette, cx),
+                            Some("events.detail") => self.render_detail(language, &palette, cx),
+                            _ => self.render_content(language, &palette, cx),
+                        },
+                    ),
+                )
                 .child(self.render_footer(
                     language,
                     true,
@@ -731,13 +817,17 @@ impl RootView {
         palette: &theme::Palette,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
-        let current = self.current;
+        let current_id = self
+            .current
+            .as_ref()
+            .map(|route_match| route_match.route.id);
         self.registry
             .routes()
             .iter()
+            .filter(|route| !route.has_dynamic_segment())
             .map(|route| {
                 let route = *route;
-                let selected = current.is_some_and(|current| current.id == route.id);
+                let selected = current_id == Some(route.id);
                 let label = translate_registered(language, route.title_key);
                 div()
                     .id(format!("footer-nav-{}", route.id))
@@ -778,8 +868,8 @@ impl RootView {
         palette: &theme::Palette,
         _cx: &mut Context<Self>,
     ) -> AnyElement {
-        match self.current {
-            Some(route) => div()
+        match &self.current {
+            Some(route_match) => div()
                 .flex()
                 .flex_col()
                 .gap(space(2))
@@ -787,7 +877,7 @@ impl RootView {
                     div()
                         .text_size(px(24.0))
                         .text_color(palette.ink)
-                        .child(translate_registered(language, route.title_key)),
+                        .child(translate_registered(language, route_match.route.title_key)),
                 )
                 .child(
                     div()
@@ -814,6 +904,188 @@ impl RootView {
                 )
                 .into_any_element(),
         }
+    }
+
+    fn render_detail(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let state = self.detail.state().clone();
+        let detail = self.detail.detail().cloned();
+
+        let back = div()
+            .id("detail-back")
+            .child(translate(language, Key::EventsDetailBack))
+            .text_color(palette.ink_3)
+            .text_size(px(12.0))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.navigate("/events");
+                cx.notify();
+            }));
+
+        let body: AnyElement = match state {
+            ListState::Idle | ListState::Loading => div()
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::EventsDetailLoading))
+                .into_any_element(),
+            ListState::Failed(message) => {
+                let not_found = message == "not found";
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(space(1))
+                    .child(div().text_color(palette.danger).child(if not_found {
+                        translate(language, Key::EventsDetailNotFound)
+                    } else {
+                        translate(language, Key::EventsDetailError)
+                    }))
+                    .children((!not_found).then(|| {
+                        div()
+                            .id("detail-retry")
+                            .px(space(2))
+                            .py(px(5.0))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .bg(palette.accent)
+                            .text_color(white())
+                            .child(translate(language, Key::EventsDetailRetry))
+                            .on_click(cx.listener(|this, _, _, cx| this.retry_detail(cx)))
+                            .into_any_element()
+                    }))
+                    .into_any_element()
+            }
+            ListState::Empty => div()
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::EventsDetailNotFound))
+                .into_any_element(),
+            ListState::Ready => match detail {
+                Some(detail) => {
+                    let starts = detail
+                        .starts_at
+                        .as_deref()
+                        .map(|value| value.chars().take(10).collect::<String>())
+                        .unwrap_or_default();
+                    let venue = detail
+                        .venue
+                        .as_deref()
+                        .and_then(cgc_events::detail::venue_city)
+                        .unwrap_or_default();
+                    let (price_label, price_detail) = match detail.price_mode() {
+                        PriceMode::Free => (
+                            translate(language, Key::EventsDetailFree).to_string(),
+                            String::new(),
+                        ),
+                        PriceMode::Paid {
+                            min_amount_cents,
+                            tiers,
+                        } => (
+                            translate(language, Key::EventsDetailPaid).to_string(),
+                            format!("¥{:.2} 起 · {tiers} 档", min_amount_cents as f64 / 100.0),
+                        ),
+                        PriceMode::Deposit { amount_cents } => (
+                            translate(language, Key::EventsDetailDeposit).to_string(),
+                            format!("押金 ¥{:.2}（可退）", amount_cents as f64 / 100.0),
+                        ),
+                    };
+                    let capacity = detail
+                        .capacity
+                        .map(|capacity| format!("{}/{}", detail.confirmed_count, capacity))
+                        .unwrap_or_else(|| format!("{}/∞", detail.confirmed_count));
+
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(space(2))
+                        .child(
+                            div()
+                                .text_size(px(24.0))
+                                .text_color(palette.ink)
+                                .child(detail.title.clone()),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(12.0))
+                                .text_color(palette.ink_3)
+                                .child(format!(
+                                    "{starts} · {} · {}",
+                                    translate(language, Key::EventsDetailVenue),
+                                    if venue.is_empty() {
+                                        "—".to_string()
+                                    } else {
+                                        venue
+                                    }
+                                )),
+                        )
+                        .children(detail.description.clone().map(|description| {
+                            div()
+                                .text_color(palette.ink_2)
+                                .child(description)
+                                .into_any_element()
+                        }))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(space(2))
+                                .child(
+                                    div()
+                                        .px(space(1))
+                                        .py(px(3.0))
+                                        .rounded(px(RADIUS_SMALL))
+                                        .bg(palette.soft)
+                                        .text_color(palette.ink_2)
+                                        .text_size(px(12.0))
+                                        .child(translate(
+                                            language,
+                                            status_key(detail.status.as_str()),
+                                        )),
+                                )
+                                .child(
+                                    div()
+                                        .px(space(1))
+                                        .py(px(3.0))
+                                        .rounded(px(RADIUS_SMALL))
+                                        .bg(palette.soft)
+                                        .text_color(palette.ink_2)
+                                        .text_size(px(12.0))
+                                        .child(format!("{price_label} {price_detail}")),
+                                )
+                                .child(div().text_size(px(12.0)).text_color(palette.ink_3).child(
+                                    format!(
+                                        "{} {capacity}",
+                                        translate(language, Key::EventsDetailCapacity)
+                                    ),
+                                )),
+                        )
+                        .child(
+                            div()
+                                .mt(space(2))
+                                .px(space(2))
+                                .py(px(6.0))
+                                .rounded(px(RADIUS_MEDIUM))
+                                .bg(palette.soft)
+                                .text_color(palette.ink_3)
+                                .text_size(px(12.0))
+                                .child(translate(language, Key::EventsDetailEnrollSoon)),
+                        )
+                        .into_any_element()
+                }
+                None => div()
+                    .text_color(palette.ink_3)
+                    .child(translate(language, Key::EventsDetailNotFound))
+                    .into_any_element(),
+            },
+        };
+
+        div()
+            .flex()
+            .flex_col()
+            .gap(space(2))
+            .child(back)
+            .child(body)
+            .into_any_element()
     }
 
     fn render_events_list(
@@ -951,7 +1223,7 @@ impl RootView {
                                     ),
                             )
                             .on_click(cx.listener(move |this, _, _, cx| {
-                                this.selected_event = Some(event.title.clone());
+                                this.navigate_to_event_detail(&event.id);
                                 cx.notify();
                             }))
                             .into_any_element()
@@ -1140,6 +1412,26 @@ impl Render for TooltipText {
     }
 }
 
+fn initial_route(registry: &RouteRegistry) -> Option<RouteMatch> {
+    if let Ok(path) = std::env::var("CGC_START_PATH") {
+        if let crate::routing::RouteSelection::Match(route_match) = registry.select(&path) {
+            return Some(route_match);
+        }
+    }
+    if let Ok(route_id) = std::env::var("CGC_START_ROUTE") {
+        if let Some(route) = registry.find(&route_id) {
+            return Some(RouteMatch {
+                route,
+                params: std::collections::BTreeMap::new(),
+            });
+        }
+    }
+    registry.routes().first().copied().map(|route| RouteMatch {
+        route,
+        params: std::collections::BTreeMap::new(),
+    })
+}
+
 fn build_events_service() -> EventListService {
     let use_http =
         std::env::var("CGC_AUTH").as_deref() == Ok("http") || std::env::var("CGC_API_URL").is_ok();
@@ -1294,6 +1586,19 @@ mod tests {
         assert!(view.toggle_account_menu());
         view.close_account_menu();
         assert!(!view.account_menu_open());
+    }
+
+    #[test]
+    fn navigate_to_event_detail_captures_id_param() {
+        let mut view = view();
+        view.navigate("/events/evt-007");
+        assert_eq!(view.current().map(|route| route.id), Some("events.detail"));
+        assert_eq!(
+            view.current_match()
+                .and_then(|route_match| route_match.params.get("id"))
+                .map(String::as_str),
+            Some("evt-007")
+        );
     }
 
     #[test]

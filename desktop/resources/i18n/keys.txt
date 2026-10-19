@@ -47,3 +47,15 @@ events.filter.cancelled
 events.list.paid
 events.list.free
 events.list.detail
+events.detail.title
+events.detail.back
+events.detail.loading
+events.detail.error
+events.detail.retry
+events.detail.not_found
+events.detail.free
+events.detail.paid
+events.detail.deposit
+events.detail.enroll_soon
+events.detail.venue
+events.detail.capacity

@@ -83,6 +83,7 @@ pub struct EventPage {
 pub enum EventsError {
     Transport(String),
     Server(String),
+    NotFound,
 }
 
 impl From<ApiError> for EventsError {
@@ -99,6 +100,7 @@ impl EventsError {
         match self {
             EventsError::Transport(reason) => format!("transport error: {reason}"),
             EventsError::Server(reason) => format!("server error: {reason}"),
+            EventsError::NotFound => "not found".to_string(),
         }
     }
 }
@@ -112,6 +114,12 @@ pub trait EventsApi: Send + Sync {
         after: Option<&str>,
         first: u32,
     ) -> Result<EventPage, EventsError>;
+
+    fn get_event(
+        &self,
+        token: Option<&str>,
+        id: &str,
+    ) -> Result<crate::detail::EventDetail, EventsError>;
 }
 
 pub struct HttpEventsApi {
@@ -167,6 +175,29 @@ impl HttpEventsApi {
     }
 }
 
+const GET_EVENT_QUERY: &str = r#"
+query GetEvent($id: ID!) {
+  getEvent(id: $id) {
+    id
+    title
+    description
+    status
+    visibility
+    enrollmentPolicy
+    capacity
+    confirmedCount
+    registrationDeadline
+    startsAt
+    endsAt
+    venue
+    pricingEnabled
+    availablePriceTiers
+    depositEnabled
+    depositAmountCents
+  }
+}
+"#;
+
 impl EventsApi for HttpEventsApi {
     fn list_events(
         &self,
@@ -208,6 +239,49 @@ impl EventsApi for HttpEventsApi {
                 .map(str::to_string),
             total: page.get("count").and_then(Value::as_i64),
         })
+    }
+
+    fn get_event(
+        &self,
+        token: Option<&str>,
+        id: &str,
+    ) -> Result<crate::detail::EventDetail, EventsError> {
+        let payload = self
+            .client
+            .post(token, GET_EVENT_QUERY, json!({ "id": id }))
+            .map_err(EventsError::from)?;
+
+        let value = payload
+            .get("data")
+            .and_then(|data| data.get("getEvent"))
+            .filter(|value| !value.is_null())
+            .ok_or(EventsError::NotFound)?;
+
+        let summary = Self::parse_event(value)
+            .ok_or_else(|| EventsError::Server("missing getEvent fields".to_string()))?;
+        let mut detail = crate::detail::EventDetail::from_summary(&summary);
+        detail.description = value
+            .get("description")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        detail.ends_at = value
+            .get("endsAt")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        detail.pricing_enabled = value
+            .get("pricingEnabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        detail.available_price_tiers = value
+            .get("availablePriceTiers")
+            .map(crate::detail::parse_price_tiers)
+            .unwrap_or_default();
+        detail.deposit_enabled = value
+            .get("depositEnabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        detail.deposit_amount_cents = value.get("depositAmountCents").and_then(Value::as_i64);
+        Ok(detail)
     }
 }
 
@@ -288,6 +362,42 @@ impl EventsApi for FakeEventsApi {
             next_cursor,
             total: Some(filtered.len() as i64),
         })
+    }
+
+    fn get_event(
+        &self,
+        _token: Option<&str>,
+        id: &str,
+    ) -> Result<crate::detail::EventDetail, EventsError> {
+        if self.fail {
+            return Err(EventsError::Transport("fake network down".to_string()));
+        }
+        let summary = self
+            .events
+            .iter()
+            .find(|event| event.id == id)
+            .ok_or(EventsError::NotFound)?;
+        let mut detail = crate::detail::EventDetail::from_summary(summary);
+        detail.description = Some(format!("{} 的详情（fake 数据）", summary.title));
+        if summary.pricing_enabled {
+            detail.available_price_tiers = vec![crate::detail::PriceTier {
+                id: "tier-early".to_string(),
+                name: "早鸟".to_string(),
+                amount_cents: 9900,
+            }];
+        }
+        // 每 5 条造一个押金场（evt-004/009/...），供三态 UI 与测试使用。
+        let numeric_id: usize = summary
+            .id
+            .rsplit('-')
+            .next()
+            .and_then(|digits| digits.parse().ok())
+            .unwrap_or(0);
+        if numeric_id % 5 == 4 {
+            detail.deposit_enabled = true;
+            detail.deposit_amount_cents = Some(5000);
+        }
+        Ok(detail)
     }
 }
 
