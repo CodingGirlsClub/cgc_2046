@@ -80,8 +80,7 @@ enum LoginMode {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BreadcrumbMenu {
-    Events,
-    Courses,
+    Sections,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -320,7 +319,7 @@ impl RootView {
             login_error: None,
             signing_in: false,
             account_menu_open: false,
-            agent_panel_open: false,
+            agent_panel_open: true,
             breadcrumb_menu: None,
             is_fake_mode,
             key_focus: None,
@@ -1216,36 +1215,20 @@ impl RootView {
         .ok();
     }
 
-    fn breadcrumb_section(
-        &self,
-    ) -> Option<(&'static str, &'static str, BreadcrumbMenu, Option<String>)> {
+    fn breadcrumb_context(&self) -> Option<(bool, Option<String>)> {
         let route_id = self
             .current
             .as_ref()
             .map(|route_match| route_match.route.id)?;
         match route_id {
-            "events.list" | "events.mine" => Some((
-                "events.list",
-                "events.list.title",
-                BreadcrumbMenu::Events,
-                None,
-            )),
+            "events.list" | "events.mine" => Some((false, None)),
             "events.detail" => Some((
-                "events.list",
-                "events.list.title",
-                BreadcrumbMenu::Events,
+                false,
                 self.detail.detail().map(|detail| detail.title.clone()),
             )),
-            "courses.catalog" => Some((
-                "courses.catalog",
-                "courses.catalog.title",
-                BreadcrumbMenu::Courses,
-                None,
-            )),
+            "courses.catalog" => Some((true, None)),
             "courses.detail" | "courses.learning" => Some((
-                "courses.catalog",
-                "courses.catalog.title",
-                BreadcrumbMenu::Courses,
+                true,
                 self.course_detail
                     .detail()
                     .map(|detail| detail.title.clone()),
@@ -1254,21 +1237,13 @@ impl RootView {
         }
     }
 
-    fn toggle_breadcrumb_menu(&mut self, menu: BreadcrumbMenu, cx: &mut Context<Self>) {
-        self.breadcrumb_menu = if self.breadcrumb_menu == Some(menu) {
+    fn toggle_breadcrumb_menu(&mut self, cx: &mut Context<Self>) {
+        self.breadcrumb_menu = if self.breadcrumb_menu.is_some() {
             None
         } else {
-            Some(menu)
+            Some(BreadcrumbMenu::Sections)
         };
-        match menu {
-            BreadcrumbMenu::Events if self.events.items().is_empty() => {
-                self.start_events_load(cx, true);
-            }
-            BreadcrumbMenu::Courses if self.courses.items().is_empty() => {
-                self.start_courses_load(cx, true);
-            }
-            _ => {}
-        }
+        self.workspace_menu_open = false;
         cx.notify();
     }
 
@@ -1278,12 +1253,7 @@ impl RootView {
         palette: &theme::Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let workspace = self
-            .workspaces
-            .current()
-            .map(|workspace| workspace.name.clone())
-            .unwrap_or_else(|| "—".to_string());
-        let section = self.breadcrumb_section();
+        let workspace_switcher = self.render_workspace_switcher(language, palette, cx);
         let mut bar = div()
             .flex()
             .flex_row()
@@ -1296,43 +1266,34 @@ impl RootView {
             .border_color(palette.line)
             .text_size(px(12.0))
             .text_color(palette.ink_3)
-            .child(div().child(workspace));
-        if let Some((_route_id, title_key, menu, item_title)) = section {
-            let selected = self.breadcrumb_menu == Some(menu);
-            let button = |id: String,
-                          label: String,
-                          menu: BreadcrumbMenu,
-                          palette: &theme::Palette,
-                          cx: &mut Context<Self>| {
+            .child(workspace_switcher);
+        if let Some((courses, title)) = self.breadcrumb_context() {
+            let section_label = if courses {
+                translate_registered(language, "courses.catalog.title")
+            } else {
+                translate_registered(language, "events.list.title")
+            };
+            let selected = self.breadcrumb_menu.is_some();
+            bar = bar.child(div().child("›")).child(
                 div()
-                    .id(id)
+                    .id("breadcrumb-section")
                     .role(Role::Button)
+                    .aria_label(section_label)
                     .px(space(1))
                     .py(px(2.0))
                     .rounded(px(RADIUS_SMALL))
                     .text_color(if selected { palette.ink } else { palette.ink_2 })
                     .bg(if selected { palette.soft } else { palette.card })
                     .hover(|style| style.bg(palette.soft))
-                    .child(format!("{label} ▾"))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.toggle_breadcrumb_menu(menu, cx);
-                    }))
-            };
-            bar = bar.child(div().child("›")).child(button(
-                "breadcrumb-section".to_string(),
-                translate_registered(language, title_key).to_string(),
-                menu,
-                palette,
-                cx,
-            ));
-            if let Some(item_title) = item_title {
-                bar = bar.child(div().child("›")).child(button(
-                    "breadcrumb-item".to_string(),
-                    item_title,
-                    menu,
-                    palette,
-                    cx,
-                ));
+                    .child(format!("{section_label} ▾"))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.toggle_breadcrumb_menu(cx);
+                    })),
+            );
+            if let Some(title) = title {
+                bar = bar
+                    .child(div().child("›"))
+                    .child(div().text_color(palette.ink_2).child(title));
             }
         }
         bar.into_any_element()
@@ -1342,84 +1303,60 @@ impl RootView {
         &mut self,
         language: Language,
         palette: &theme::Palette,
-        menu: BreadcrumbMenu,
+        _menu: BreadcrumbMenu,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let rows: Vec<AnyElement> = match menu {
-            BreadcrumbMenu::Events => {
-                let items = self.events.items().to_vec();
-                if items.is_empty() {
-                    vec![div()
-                        .px(space(1))
-                        .py(px(4.0))
-                        .text_color(palette.ink_3)
-                        .child(translate(language, Key::EventsListLoading))
-                        .into_any_element()]
-                } else {
-                    items
-                        .iter()
-                        .map(|event| {
-                            let event_id = event.id.clone();
-                            div()
-                                .id(format!("breadcrumb-event-{}", event.id))
-                                .px(space(1))
-                                .py(px(4.0))
-                                .rounded(px(RADIUS_SMALL))
-                                .text_size(px(12.0))
-                                .text_color(palette.ink_2)
-                                .hover(|style| style.bg(palette.soft))
-                                .child(event.title.clone())
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.navigate_to_event_detail(&event_id);
-                                    this.breadcrumb_menu = None;
-                                    cx.notify();
-                                }))
-                                .into_any_element()
-                        })
-                        .collect()
-                }
-            }
-            BreadcrumbMenu::Courses => {
-                let items = self.courses.items().to_vec();
-                if items.is_empty() {
-                    vec![div()
-                        .px(space(1))
-                        .py(px(4.0))
-                        .text_color(palette.ink_3)
-                        .child(translate(language, Key::CoursesCatalogLoading))
-                        .into_any_element()]
-                } else {
-                    items
-                        .iter()
-                        .map(|course| {
-                            let course_id = course.id.clone();
-                            div()
-                                .id(format!("breadcrumb-course-{}", course.id))
-                                .px(space(1))
-                                .py(px(4.0))
-                                .rounded(px(RADIUS_SMALL))
-                                .text_size(px(12.0))
-                                .text_color(palette.ink_2)
-                                .hover(|style| style.bg(palette.soft))
-                                .child(course.title.clone())
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.navigate(&format!("/courses/{course_id}"));
-                                    this.breadcrumb_menu = None;
-                                    cx.notify();
-                                }))
-                                .into_any_element()
-                        })
-                        .collect()
-                }
-            }
-        };
+        let current = self
+            .current
+            .as_ref()
+            .map(|route_match| route_match.route.id);
+        let rows = [
+            ("events.list", "events.list.title", false),
+            ("courses.catalog", "courses.catalog.title", true),
+        ]
+        .into_iter()
+        .map(|(route_id, title_key, _courses)| {
+            let selected = current.is_some_and(|id| {
+                id == route_id
+                    || id.starts_with(&format!("{route_id}."))
+                    || (route_id == "events.list" && id == "events.mine")
+            });
+            div()
+                .id(format!("breadcrumb-{}", route_id))
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .px(space(1))
+                .py(px(5.0))
+                .rounded(px(RADIUS_SMALL))
+                .text_size(px(12.0))
+                .text_color(palette.ink_2)
+                .hover(|style| style.bg(palette.soft))
+                .child(translate_registered(language, title_key))
+                .child(
+                    div()
+                        .text_color(palette.accent)
+                        .child(if selected { "✓" } else { "" }),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.breadcrumb_menu = None;
+                    if route_id == "events.list" {
+                        this.navigate("/events");
+                    } else {
+                        this.navigate("/courses");
+                    }
+                    cx.notify();
+                }))
+                .into_any_element()
+        })
+        .collect::<Vec<_>>();
         div()
             .id("breadcrumb-menu")
             .absolute()
             .top(px(72.0))
-            .left(px(260.0))
-            .w(px(340.0))
-            .max_h(px(340.0))
+            .left(px(230.0))
+            .w(px(220.0))
             .flex()
             .flex_col()
             .gap(px(1.0))
@@ -1429,7 +1366,6 @@ impl RootView {
             .border_color(palette.line_strong)
             .bg(palette.card)
             .occlude()
-            .overflow_y_scroll()
             .children(rows)
             .into_any_element()
     }
@@ -1488,8 +1424,8 @@ impl RootView {
     }
 
     fn is_agent_panel_shortcut(keystroke: &Keystroke) -> bool {
-        keystroke.key.eq_ignore_ascii_case("a")
-            && keystroke.modifiers.shift
+        keystroke.key.eq_ignore_ascii_case("j")
+            && !keystroke.modifiers.shift
             && (keystroke.modifiers.platform || keystroke.modifiers.control)
     }
 
@@ -2782,9 +2718,7 @@ impl Render for RootView {
             if current_id != Some("courses.learning") && self.chat.host.is_some() {
                 self.reset_chat_local();
             }
-            if current_id != Some("courses.learning") {
-                self.agent_panel_open = false;
-            }
+
             if workspaces_ready
                 && current_id == Some("courses.learning")
                 && matches!(self.course_detail.state(), CoursesListState::Ready)
@@ -2832,8 +2766,6 @@ impl Render for RootView {
         let focused = self.focused;
         let login_notice = self.login_notice;
         let is_fake_mode = self.is_fake_mode;
-
-        let workspace_switcher = self.render_workspace_switcher(language, &palette, cx);
 
         let mut root = div();
         if !is_signed_in {
@@ -3102,8 +3034,6 @@ impl Render for RootView {
                                 ),
                         )
                         .child(div().w(px(1.0)).h(px(14.0)).bg(palette.line))
-                        .child(workspace_switcher)
-                        .child(div().w(px(1.0)).h(px(14.0)).bg(palette.line))
                         .child(
                             div()
                                 .flex()
@@ -3207,6 +3137,9 @@ impl Render for RootView {
                     &palette,
                     cx,
                 ));
+            if self.workspace_menu_open {
+                root = root.child(self.render_workspace_menu(language, &palette, cx));
+            }
             if let Some(menu) = self.breadcrumb_menu {
                 root = root.child(self.render_breadcrumb_menu(language, &palette, menu, cx));
             }
@@ -4762,76 +4695,53 @@ impl RootView {
         palette: &theme::Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let menu_open = self.workspace_menu_open;
+        let label = self
+            .workspaces
+            .current()
+            .map(|workspace| workspace.name.clone())
+            .unwrap_or_else(|| translate(language, Key::AppWorkspaceSwitch).to_string());
+        div()
+            .id("workspace-menu-toggle")
+            .role(Role::Button)
+            .aria_label(translate(language, Key::AppWorkspaceSwitch))
+            .flex()
+            .items_center()
+            .gap(px(4.0))
+            .px(space(1))
+            .py(px(2.0))
+            .rounded(px(RADIUS_SMALL))
+            .hover(|style| style.bg(palette.soft))
+            .child(
+                div()
+                    .text_size(px(12.0))
+                    .text_color(palette.ink_2)
+                    .child(label),
+            )
+            .child(
+                Icon::default()
+                    .path(AssetIcon::ChevronDown.path())
+                    .text_color(palette.ink_3)
+                    .with_size(px(12.0)),
+            )
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.workspace_menu_open = !this.workspace_menu_open;
+                this.breadcrumb_menu = None;
+                cx.notify();
+            }))
+            .into_any_element()
+    }
+
+    /// 工作台下拉（根级 overlay，避免被内容区覆盖）。
+    fn render_workspace_menu(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let state = self.workspaces.state().clone();
         let current = self.workspaces.current().cloned();
         let workspaces = self.workspaces.workspaces().to_vec();
-        let label = current
-            .as_ref()
-            .map(|workspace| workspace.name.clone())
-            .unwrap_or_else(|| translate(language, Key::AppWorkspaceSwitch).to_string());
-
-        let options = workspaces
-            .iter()
-            .map(|workspace| {
-                let selected = current
-                    .as_ref()
-                    .is_some_and(|current| current.id == workspace.id);
-                let workspace_id = workspace.id.clone();
-                let roles = workspace
-                    .my_role_names
-                    .iter()
-                    .map(|role| workspace_role_label(language, role))
-                    .collect::<Vec<_>>()
-                    .join(" · ");
-                let members = workspace
-                    .member_count
-                    .map(|count| {
-                        format!("{} {count}", translate(language, Key::AppWorkspaceMembers))
-                    })
-                    .unwrap_or_default();
-                let meta = [roles, members]
-                    .into_iter()
-                    .filter(|part| !part.is_empty())
-                    .collect::<Vec<_>>()
-                    .join(" · ");
-                div()
-                    .id(format!("workspace-option-{}", workspace.id))
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.0))
-                    .px(space(1))
-                    .py(px(6.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .hover(|style| style.bg(palette.soft))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .justify_between()
-                            .child(div().text_color(palette.ink).child(workspace.name.clone()))
-                            .child(div().text_color(palette.accent).child(if selected {
-                                "✓"
-                            } else {
-                                ""
-                            })),
-                    )
-                    .children((!meta.is_empty()).then(|| {
-                        div()
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_3)
-                            .child(meta)
-                            .into_any_element()
-                    }))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.switch_workspace(&workspace_id, cx);
-                    }))
-                    .into_any_element()
-            })
-            .collect::<Vec<_>>();
-
-        let panel_body: AnyElement = match state {
+        let body: AnyElement = match state {
             WorkspaceListState::Idle | WorkspaceListState::Loading => div()
                 .px(space(1))
                 .py(px(4.0))
@@ -4840,32 +4750,11 @@ impl RootView {
                 .child(translate(language, Key::AppWorkspaceLoading))
                 .into_any_element(),
             WorkspaceListState::Failed(_) => div()
-                .flex()
-                .flex_col()
-                .gap(space(1))
                 .px(space(1))
                 .py(px(4.0))
-                .child(
-                    div()
-                        .text_size(px(12.0))
-                        .text_color(palette.danger)
-                        .child(translate(language, Key::AppWorkspaceError)),
-                )
-                .child(
-                    div()
-                        .id("workspace-retry")
-                        .px(space(1))
-                        .py(px(3.0))
-                        .rounded(px(RADIUS_SMALL))
-                        .bg(palette.accent)
-                        .text_color(white())
-                        .child(translate(language, Key::AppWorkspaceRetry))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.workspaces.retry_ready();
-                            this.workspaces_started = false;
-                            cx.notify();
-                        })),
-                )
+                .text_size(px(12.0))
+                .text_color(palette.danger)
+                .child(translate(language, Key::AppWorkspaceError))
                 .into_any_element(),
             WorkspaceListState::Empty => div()
                 .px(space(1))
@@ -4874,70 +4763,82 @@ impl RootView {
                 .text_color(palette.ink_3)
                 .child(translate(language, Key::AppWorkspaceEmpty))
                 .into_any_element(),
-            WorkspaceListState::Ready => {
-                div().flex().flex_col().children(options).into_any_element()
-            }
-        };
-
-        let panel = menu_open.then(|| {
-            div()
-                .id("workspace-menu")
-                .absolute()
-                .top(px(30.0))
-                .left_0()
-                .w(px(260.0))
+            WorkspaceListState::Ready => div()
                 .flex()
                 .flex_col()
-                .gap(px(2.0))
-                .p(space(1))
-                .rounded(px(RADIUS_MEDIUM))
-                .border_1()
-                .border_color(palette.line_strong)
-                .bg(palette.card)
-                .child(
+                .children(workspaces.iter().map(|workspace| {
+                    let selected = current
+                        .as_ref()
+                        .is_some_and(|current| current.id == workspace.id);
+                    let workspace_id = workspace.id.clone();
+                    let roles = workspace
+                        .my_role_names
+                        .iter()
+                        .map(|role| workspace_role_label(language, role))
+                        .collect::<Vec<_>>()
+                        .join(" · ");
                     div()
+                        .id(format!("workspace-option-{}", workspace.id))
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.0))
                         .px(space(1))
-                        .py(px(3.0))
-                        .text_size(px(10.0))
-                        .text_color(palette.ink_3)
-                        .child(translate(language, Key::AppWorkspaceSwitch)),
-                )
-                .child(panel_body)
-                .into_any_element()
-        });
-
+                        .py(px(6.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .hover(|style| style.bg(palette.soft))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .justify_between()
+                                .child(div().text_color(palette.ink).child(workspace.name.clone()))
+                                .child(div().text_color(palette.accent).child(if selected {
+                                    "✓"
+                                } else {
+                                    ""
+                                })),
+                        )
+                        .children((!roles.is_empty()).then(|| {
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_3)
+                                .child(roles)
+                                .into_any_element()
+                        }))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.switch_workspace(&workspace_id, cx);
+                            this.workspace_menu_open = false;
+                            cx.notify();
+                        }))
+                        .into_any_element()
+                }))
+                .into_any_element(),
+        };
         div()
-            .relative()
+            .id("workspace-menu")
+            .absolute()
+            .top(px(72.0))
+            .left(px(120.0))
+            .w(px(260.0))
             .flex()
-            .items_center()
+            .flex_col()
+            .gap(px(2.0))
+            .p(space(1))
+            .rounded(px(RADIUS_MEDIUM))
+            .border_1()
+            .border_color(palette.line_strong)
+            .bg(palette.card)
+            .occlude()
             .child(
                 div()
-                    .id("workspace-menu-toggle")
-                    .flex()
-                    .items_center()
-                    .gap(px(4.0))
                     .px(space(1))
                     .py(px(3.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .hover(|style| style.bg(palette.soft))
-                    .child(
-                        div()
-                            .text_size(px(13.0))
-                            .text_color(palette.ink_2)
-                            .child(label),
-                    )
-                    .child(
-                        Icon::default()
-                            .path(AssetIcon::ChevronDown.path())
-                            .text_color(palette.ink_3)
-                            .with_size(px(12.0)),
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.workspace_menu_open = !this.workspace_menu_open;
-                        cx.notify();
-                    })),
+                    .text_size(px(10.0))
+                    .text_color(palette.ink_3)
+                    .child(translate(language, Key::AppWorkspaceSwitch)),
             )
-            .children(panel)
+            .child(body)
             .into_any_element()
     }
 
@@ -5907,9 +5808,9 @@ impl RootView {
     ) -> AnyElement {
         // 左侧：一级导航图标；右侧：主题/语言工具。版本号只放设置/关于，不进 footer。
         let shortcut = if cfg!(target_os = "macos") {
-            "⌘⇧A"
+            "⌘J"
         } else {
-            "Ctrl+Shift+A"
+            "Ctrl+J"
         };
         let agent_toggle = include_nav.then(|| {
             div()
@@ -6323,7 +6224,7 @@ fn hsla_white() -> Hsla {
 
 #[cfg(test)]
 mod tests {
-    use super::{BreadcrumbMenu, RootView};
+    use super::RootView;
     use crate::i18n::{translate, Key, Language};
     use crate::registration::build_registry;
     use crate::theme::ThemePreference;
@@ -6357,15 +6258,13 @@ mod tests {
     fn breadcrumb_sections_follow_route() {
         let mut view = view();
         view.navigate("/events");
-        assert!(matches!(
-            view.breadcrumb_section().map(|section| section.2),
-            Some(BreadcrumbMenu::Events)
-        ));
+        assert!(view
+            .breadcrumb_context()
+            .is_some_and(|(courses, _)| !courses));
         view.navigate("/courses/00dcc9a9-3876-4018-ab52-bcf1f0e4e05c/learn");
-        assert!(matches!(
-            view.breadcrumb_section().map(|section| section.2),
-            Some(BreadcrumbMenu::Courses)
-        ));
+        assert!(view
+            .breadcrumb_context()
+            .is_some_and(|(courses, _)| courses));
     }
 
     #[test]
