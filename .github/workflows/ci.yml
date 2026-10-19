@@ -22,8 +22,8 @@ concurrency:
 jobs:
   # 门禁前置:push 事件的 merge commit 去重。
   # 判据:merge commit(2 parents) 且 tree == 第二父 tree(零漂移合并——
-  #       base 未动、无冲突解决) 且第二父 SHA 上 6 个检查(backend/web/miniprogram/
-  #       secrets/ext/host)齐全、最新结论全 ∈ {success,skipped} 且 secrets 必为 success;
+  #       base 未动、无冲突解决) 且第二父 SHA 上 7 个检查(backend/web/miniprogram/
+  #       secrets/ext/host/desktop)齐全、最新结论全 ∈ {success,skipped} 且 secrets 必为 success;
   #       出现 skipped 时,还须 changes job 成功,且本 job 对第二父的改动
   #       (first...second)独立重算 docs_only=true——skipped 只在「确为纯文档」
   #       时才算已绿,workflow 写错/前置 job 被取消导致的 skipped 不放行
@@ -457,7 +457,7 @@ jobs:
   # 桌面客户端质量门与三平台安装包（story 1.13）。未签名产物：证书暂无，
   # 签名/公证与自动更新归 epic-6（ADR-0027 决策 2/3）。job 名 desktop 同时进入
   # gate 的 merge 去重列表；设为 required check 是仓库设置，由人执行。
-  desktop:
+  desktop-build:
     needs: [gate, changes]
     if: >
       !cancelled() &&
@@ -483,7 +483,7 @@ jobs:
         working-directory: desktop
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8  # master @ 2026-10-16
         with:
           toolchain: "1.98.1"
           components: rustfmt, clippy
@@ -496,7 +496,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc g++ clang libfontconfig-dev libwayland-dev \
             libwebkit2gtk-4.1-dev libxkbcommon-x11-dev libx11-xcb-dev \
-            libssl-dev libzstd-dev libasound2-dev vulkan-validationlayers libvulkan1
+            libssl-dev libzstd-dev libasound2-dev vulkan-validationlayers libvulkan1 \
+            fuse libfuse2t64
       - name: 格式与 lint
         run: |
           cargo fmt --all -- --check
@@ -507,12 +508,15 @@ jobs:
         id: packager-cache
         uses: actions/cache@v6
         with:
-          path: ~/.cargo/bin/cargo-packager
-          key: cargo-packager-0.11.8-${{ runner.os }}
+          path: ~/.cargo/bin/cargo-packager*
+          key: cargo-packager-0.11.8-${{ runner.os }}-${{ runner.arch }}
       - name: 安装 cargo-packager
         if: steps.packager-cache.outputs.cache-hit != 'true'
-        run: cargo install cargo-packager --locked --version 0.11.8
+        run: cargo install cargo-packager --locked --version =0.11.8
       - name: 打包
+        env:
+          # AppImage 插件在无 FUSE 的运行器上用 extract-and-run 兜底
+          APPIMAGE_EXTRACT_AND_RUN: "1"
         run: cargo packager -p cgc-desktop-app --release -f ${{ matrix.formats }}
       - name: 校验产物（Unix）
         if: runner.os != 'Windows'
@@ -521,12 +525,35 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/verify-package.ps1
+      - name: 计算 short commit
+        id: meta
+        shell: bash
+        run: echo "short=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
-          name: cgc-desktop-${{ matrix.os }}
+          name: cgc-desktop-${{ matrix.os }}-${{ steps.meta.outputs.short }}
           path: desktop/dist/*
           if-no-files-found: error
           retention-days: 14
+
+  # gate 与 branch protection 需要稳定的 check 名 `desktop`；matrix 子任务的 check 名会带
+  # 组合值（如 `desktop-build (macos-15, dmg)`），因此用一个汇总 job 作为唯一 required check。
+  desktop:
+    needs: [gate, changes, desktop-build]
+    if: >
+      !cancelled() &&
+      needs.gate.outputs.run == 'true' &&
+      needs.changes.outputs.docs_only != 'true' &&
+      (github.event_name == 'push' ||
+       github.head_ref != 'develop' ||
+       github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 汇总三平台结果
+        run: |
+          echo "desktop-build: ${{ needs.desktop-build.result }}"
+          test "${{ needs.desktop-build.result }}" = "success"
 
   # deps 基础镜像前移：develop push 时 TCR 缺当前 deps 层输入（mix.lock +
   # Dockerfile.deps + config 编译期配置，见下方 DEPS_HASH）对应的 amd64

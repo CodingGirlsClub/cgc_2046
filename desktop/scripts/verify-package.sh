@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 校验 cargo-packager 产物「结构上可安装」。CI 与本地共用。
-# 未签名产物是预期状态（证书暂无，签名/公证归 epic-6），这里只记录不失败。
+# 未签名产物是预期状态（证书暂无，签名/公证归 epic-6）：这里记录真实签名状态，不因未签名失败。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -11,6 +11,22 @@ for f in dist/*.dmg; do
   echo "== dmg: $f"
   hdiutil verify "$f" >/dev/null
   echo "   hdiutil verify ok"
+
+  if codesign -dv "$f" >/dev/null 2>&1; then
+    echo "   signature: signed"
+  else
+    echo "   signature: unsigned（预期，epic-6 接管签名）"
+  fi
+
+  mnt=$(mktemp -d "${TMPDIR:-/tmp}/cgc-dmg.XXXXXX")
+  hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$f" >/dev/null
+  app=$(ls -d "$mnt"/*.app 2>/dev/null | head -1)
+  test -n "$app" || { hdiutil detach "$mnt" -force >/dev/null 2>&1 || true; echo "FAIL: dmg 内没有 .app" >&2; exit 1; }
+  echo "   app bundle ok: $(basename "$app")"
+  test -e "$mnt/Applications" || { hdiutil detach "$mnt" -force >/dev/null 2>&1 || true; echo "FAIL: dmg 内缺 Applications 链接" >&2; exit 1; }
+  echo "   Applications link ok"
+  hdiutil detach "$mnt" -force >/dev/null
+  rmdir "$mnt" 2>/dev/null || true
   found=1
 done
 
@@ -40,4 +56,4 @@ if [ "$found" -eq 0 ]; then
   exit 1
 fi
 
-echo "package verification passed（unsigned builds are expected until epic-6）"
+echo "package verification passed"
