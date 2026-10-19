@@ -5,6 +5,7 @@
 //! 整个窗口显示登录页（guard），登录成功后进入壳；登出在头像下拉里（同 Zed 的
 //! sign out）。网络调用放后台线程，结果回主线程刷新。
 
+use gpui_kit::InteractiveElement;
 use gpui_kit::*;
 
 use std::sync::Arc;
@@ -115,9 +116,18 @@ enum ChatPhase {
 }
 
 #[derive(Clone, Debug)]
-struct ChatMessage {
-    from_user: bool,
-    text: String,
+enum ChatEntry {
+    User(String),
+    Assistant(String),
+    Tool {
+        title: String,
+        kind: String,
+    },
+    Permission {
+        request_id: String,
+        title: String,
+        resolved: Option<bool>,
+    },
 }
 
 #[derive(Default)]
@@ -125,7 +135,7 @@ struct ChatUi {
     phase: ChatPhase,
     agent: String,
     version: Option<String>,
-    messages: Vec<ChatMessage>,
+    messages: Vec<ChatEntry>,
     input: String,
     focused: bool,
     host: Option<AcpHost>,
@@ -581,25 +591,23 @@ impl RootView {
                 HostEvent::Delta(chunk) => {
                     self.chat.phase = ChatPhase::Streaming;
                     match self.chat.messages.last_mut() {
-                        Some(message) if !message.from_user => message.text.push_str(&chunk),
-                        _ => self.chat.messages.push(ChatMessage {
-                            from_user: false,
-                            text: chunk,
-                        }),
+                        Some(ChatEntry::Assistant(text)) => text.push_str(&chunk),
+                        _ => self.chat.messages.push(ChatEntry::Assistant(chunk)),
                     }
                 }
-                HostEvent::ToolCall { title, .. } => {
+                HostEvent::ToolCall { title, kind } => {
                     self.chat.phase = ChatPhase::Streaming;
-                    self.chat.messages.push(ChatMessage {
-                        from_user: false,
-                        text: format!("🔧 {title}"),
-                    });
+                    self.chat.messages.push(ChatEntry::Tool { title, kind });
                 }
-                HostEvent::PermissionRequested { title } => {
-                    self.chat.messages.push(ChatMessage {
-                        from_user: false,
-                        text: format!("⏳ 审批请求（当前自动取消）：{title}"),
+                HostEvent::PermissionRequested { request_id, title } => {
+                    self.chat.messages.push(ChatEntry::Permission {
+                        request_id,
+                        title,
+                        resolved: None,
                     });
+                    if std::env::var("CGC_AUTO_APPROVE").as_deref() == Ok("1") {
+                        self.respond_chat_permission(true, cx);
+                    }
                 }
                 HostEvent::TurnEnd { .. } => {
                     self.chat.phase = ChatPhase::Ready;
@@ -651,10 +659,7 @@ impl RootView {
             self.chat.phase = ChatPhase::Failed("agent channel closed".to_string());
             return;
         }
-        self.chat.messages.push(ChatMessage {
-            from_user: true,
-            text,
-        });
+        self.chat.messages.push(ChatEntry::User(text));
         self.chat.phase = ChatPhase::Streaming;
         cx.notify();
     }
@@ -662,6 +667,33 @@ impl RootView {
     fn stop_chat_turn(&mut self, cx: &mut Context<Self>) {
         if let Some(host) = &self.chat.host {
             host.stop();
+        }
+        cx.notify();
+    }
+
+    fn respond_chat_permission(&mut self, allow: bool, cx: &mut Context<Self>) {
+        let Some((request_id, index)) =
+            self.chat
+                .messages
+                .iter()
+                .enumerate()
+                .rev()
+                .find_map(|(index, entry)| match entry {
+                    ChatEntry::Permission {
+                        request_id,
+                        resolved: None,
+                        ..
+                    } => Some((request_id.clone(), index)),
+                    _ => None,
+                })
+        else {
+            return;
+        };
+        if let Some(host) = &self.chat.host {
+            let _ = host.respond_permission(&request_id, allow);
+        }
+        if let Some(ChatEntry::Permission { resolved, .. }) = self.chat.messages.get_mut(index) {
+            *resolved = Some(allow);
         }
         cx.notify();
     }
@@ -2345,25 +2377,117 @@ impl RootView {
             ChatPhase::Ready | ChatPhase::Streaming => {
                 let rows = messages
                     .iter()
-                    .map(|message| {
-                        div()
+                    .map(|entry| match entry {
+                        ChatEntry::User(text) => div()
                             .flex()
                             .flex_col()
                             .gap(px(1.0))
                             .text_size(px(11.0))
                             .text_color(palette.ink_3)
-                            .child(if message.from_user {
-                                "你".to_string()
-                            } else {
-                                agent_label.clone()
-                            })
+                            .child("你".to_string())
                             .child(
                                 div()
                                     .text_size(px(13.0))
                                     .text_color(palette.ink)
-                                    .child(message.text.clone()),
+                                    .child(text.clone()),
                             )
-                            .into_any_element()
+                            .into_any_element(),
+                        ChatEntry::Assistant(text) => div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(1.0))
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_3)
+                            .child(agent_label.clone())
+                            .child(
+                                TextView::markdown(
+                                    format!("chat-markdown-{}", text.len()),
+                                    sanitize_markdown(text),
+                                )
+                                .into_any_element(),
+                            )
+                            .into_any_element(),
+                        ChatEntry::Tool { title, kind } => div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(1))
+                            .px(space(1))
+                            .py(px(3.0))
+                            .rounded(px(RADIUS_SMALL))
+                            .border_1()
+                            .border_color(palette.line)
+                            .text_size(px(12.0))
+                            .text_color(palette.ink_2)
+                            .child("🔧")
+                            .child(title.clone())
+                            .child(
+                                div()
+                                    .text_size(px(10.0))
+                                    .text_color(palette.ink_3)
+                                    .child(kind.clone()),
+                            )
+                            .into_any_element(),
+                        ChatEntry::Permission {
+                            request_id,
+                            title,
+                            resolved,
+                        } => {
+                            let status = match resolved {
+                                Some(true) => "已允许",
+                                Some(false) => "已拒绝",
+                                None => "等待你的决定",
+                            };
+                            let buttons: Vec<AnyElement> = if resolved.is_none() {
+                                vec![
+                                    div()
+                                        .id(format!("perm-allow-{request_id}"))
+                                        .px(space(1))
+                                        .py(px(3.0))
+                                        .rounded(px(RADIUS_SMALL))
+                                        .bg(palette.accent)
+                                        .text_color(palette.canvas)
+                                        .child("允许")
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.respond_chat_permission(true, cx);
+                                        }))
+                                        .into_any_element(),
+                                    div()
+                                        .id(format!("perm-deny-{request_id}"))
+                                        .px(space(1))
+                                        .py(px(3.0))
+                                        .rounded(px(RADIUS_SMALL))
+                                        .bg(palette.soft)
+                                        .text_color(palette.ink_2)
+                                        .child("拒绝")
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.respond_chat_permission(false, cx);
+                                        }))
+                                        .into_any_element(),
+                                ]
+                            } else {
+                                Vec::new()
+                            };
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(space(1))
+                                .p(space(1))
+                                .rounded(px(RADIUS_SMALL))
+                                .border_1()
+                                .border_color(palette.line_strong)
+                                .text_size(px(12.0))
+                                .text_color(palette.ink)
+                                .child(format!("需要你的同意 · {title}"))
+                                .child(
+                                    div()
+                                        .text_size(px(10.0))
+                                        .text_color(palette.ink_3)
+                                        .child(status),
+                                )
+                                .children(buttons)
+                                .into_any_element()
+                        }
                     })
                     .collect::<Vec<_>>();
                 let streaming = phase == ChatPhase::Streaming;
@@ -2376,7 +2500,16 @@ impl RootView {
                     .flex()
                     .flex_col()
                     .gap(space(2))
-                    .children(rows)
+                    .child(
+                        div()
+                            .id("chat-messages")
+                            .max_h(px(360.0))
+                            .overflow_y_scroll()
+                            .flex()
+                            .flex_col()
+                            .gap(space(2))
+                            .children(rows),
+                    )
                     .children((!status.is_empty()).then(|| {
                         div()
                             .text_size(px(11.0))

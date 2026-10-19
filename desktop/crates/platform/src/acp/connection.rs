@@ -7,15 +7,18 @@
 //! - 审批请求只转发给 UI，默认回 Cancelled（不默认允许）；
 //! - 日志不打印凭证/对话内容。
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
     CancelNotification, ContentBlock, InitializeRequest, McpServer, NewSessionRequest,
-    PromptRequest, RequestPermissionRequest, RequestPermissionResponse, SessionId,
-    SessionNotification, SessionUpdate, TextContent,
+    PromptRequest, RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+    SelectedPermissionOutcome, SessionId, SessionNotification, SessionUpdate, TextContent,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{
@@ -27,6 +30,7 @@ use futures::StreamExt;
 const INIT_TIMEOUT: Duration = Duration::from_secs(45);
 const TURN_TIMEOUT: Duration = Duration::from_secs(60);
 const EVENT_CAPACITY: usize = 256;
+static PERMISSION_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone)]
 pub struct AcpHostConfig {
@@ -82,8 +86,9 @@ pub enum HostEvent {
         title: String,
         kind: String,
     },
-    /// 审批请求只转发；5.2 阶段自动回 Cancelled（不默认允许），5.7 接审批卡。
+    /// 审批请求：UI 必须显式允许/拒绝（5.7）。request_id 用于回传决定。
     PermissionRequested {
+        request_id: String,
         title: String,
     },
     TurnEnd {
@@ -123,8 +128,15 @@ impl std::error::Error for HostError {}
 pub struct AcpHost {
     command_tx: UnboundedSender<HostCommand>,
     events: Receiver<HostEvent>,
+    pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
+
+pub(crate) struct PendingPermission {
+    pub(crate) sender: futures::channel::oneshot::Sender<bool>,
+}
+
+type PendingPermissions = Arc<Mutex<HashMap<String, PendingPermission>>>;
 
 impl AcpHost {
     pub fn start(config: AcpHostConfig) -> Result<Self, HostError> {
@@ -133,13 +145,16 @@ impl AcpHost {
         }
         let (command_tx, command_rx) = unbounded();
         let (event_tx, events) = sync_channel(EVENT_CAPACITY);
+        let pending_permissions: PendingPermissions = Arc::new(Mutex::new(HashMap::new()));
+        let pending_for_thread = Arc::clone(&pending_permissions);
         let thread = std::thread::Builder::new()
             .name("cgc-acp-host".to_string())
-            .spawn(move || run_thread(config, command_rx, event_tx))
+            .spawn(move || run_thread(config, command_rx, event_tx, pending_for_thread))
             .map_err(|error| HostError::Thread(error.to_string()))?;
         Ok(Self {
             command_tx,
             events,
+            pending_permissions,
             thread: Some(thread),
         })
     }
@@ -152,6 +167,18 @@ impl AcpHost {
 
     pub fn stop(&self) -> bool {
         self.command_tx.unbounded_send(HostCommand::Stop).is_ok()
+    }
+
+    /// 显式回答审批请求；allow=false 等价取消。返回是否找到该请求。
+    pub fn respond_permission(&self, request_id: &str, allow: bool) -> bool {
+        let pending = self
+            .pending_permissions
+            .lock()
+            .expect("pending permissions")
+            .remove(request_id);
+        pending
+            .map(|pending| pending.sender.send(allow).is_ok())
+            .unwrap_or(false)
     }
 
     pub fn try_recv(&self) -> Option<HostEvent> {
@@ -181,8 +208,14 @@ fn run_thread(
     config: AcpHostConfig,
     command_rx: UnboundedReceiver<HostCommand>,
     events: SyncSender<HostEvent>,
+    pending_permissions: PendingPermissions,
 ) {
-    let result = futures::executor::block_on(run_connection(config, command_rx, events.clone()));
+    let result = futures::executor::block_on(run_connection(
+        config,
+        command_rx,
+        events.clone(),
+        pending_permissions,
+    ));
     if let Err(message) = result {
         send_event(&events, HostEvent::Error { message });
     }
@@ -198,11 +231,13 @@ async fn run_connection(
     config: AcpHostConfig,
     mut command_rx: UnboundedReceiver<HostCommand>,
     events: SyncSender<HostEvent>,
+    pending_permissions: PendingPermissions,
 ) -> Result<(), String> {
     let agent =
         AcpAgent::from_str(&config.command).map_err(|error| format!("agent launch: {error}"))?;
     let events_for_notifications = events.clone();
     let events_for_permissions = events.clone();
+    let pending_for_permissions = Arc::clone(&pending_permissions);
 
     let result = Client
         .builder()
@@ -232,17 +267,58 @@ async fn run_connection(
         )
         .on_receive_request(
             async move |request: RequestPermissionRequest, responder, _connection| {
+                let counter = PERMISSION_COUNTER.fetch_add(1, Ordering::Relaxed);
+                let request_id = format!("perm-{counter}");
+                let title = request
+                    .tool_call
+                    .fields
+                    .title
+                    .clone()
+                    .or_else(|| request.options.first().map(|option| option.name.clone()))
+                    .unwrap_or_else(|| "tool approval".to_string());
+                let allow_option = request
+                    .options
+                    .iter()
+                    .find(|option| {
+                        matches!(
+                            option.kind,
+                            agent_client_protocol::schema::v1::PermissionOptionKind::AllowOnce
+                                | agent_client_protocol::schema::v1::PermissionOptionKind::AllowAlways
+                        )
+                    })
+                    .map(|option| option.option_id.0.to_string());
+                let (sender, receiver) = futures::channel::oneshot::channel();
+                pending_for_permissions
+                    .lock()
+                    .expect("pending permissions")
+                    .insert(
+                        request_id.clone(),
+                        PendingPermission { sender },
+                    );
                 send_event(
                     &events_for_permissions,
                     HostEvent::PermissionRequested {
-                        title: "tool approval".to_string(),
+                        request_id,
+                        title,
                     },
                 );
-                let _ = request;
-                // 5.2 不默认允许：审批卡接入前一律取消。
-                let _ = responder.respond(RequestPermissionResponse::new(
-                    agent_client_protocol::schema::v1::RequestPermissionOutcome::Cancelled,
-                ));
+                let timeout = sleep(Duration::from_secs(300));
+                futures::pin_mut!(receiver, timeout);
+                let allowed = match futures::future::select(receiver, timeout).await {
+                    futures::future::Either::Left((decision, _)) => decision.unwrap_or(false),
+                    futures::future::Either::Right(_) => false,
+                };
+                let outcome = if allowed {
+                    match allow_option {
+                        Some(option_id) => RequestPermissionOutcome::Selected(
+                            SelectedPermissionOutcome::new(option_id),
+                        ),
+                        None => RequestPermissionOutcome::Cancelled,
+                    }
+                } else {
+                    RequestPermissionOutcome::Cancelled
+                };
+                let _ = responder.respond(RequestPermissionResponse::new(outcome));
                 Ok(())
             },
             on_receive_request!(),
