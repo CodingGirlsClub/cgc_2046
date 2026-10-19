@@ -18,6 +18,32 @@ mutation SignInForDesktop($login: String!, $password: String!) {
 
 pub const VALIDATE_SESSION: &str = "query ValidateSession { me { id } }";
 
+const REQUEST_PHONE_CODE: &str = r#"
+mutation RequestPhoneCode($phone: String!, $purpose: PhoneCodePurpose!) {
+  requestPhoneCode(phone: $phone, purpose: $purpose) { sent retryAfterSeconds }
+}
+"#;
+
+const SIGN_IN_WITH_PHONE_CODE_DESKTOP: &str = r#"
+mutation SignInWithPhoneCodeForDesktop($phone: String!, $code: String!) {
+  signInWithPhoneCodeForDesktop(phone: $phone, code: $code) {
+    token userId email isPlatformAdmin
+  }
+}
+"#;
+
+const REQUEST_PASSWORD_RESET: &str = r#"
+mutation RequestPasswordReset($email: String!) {
+  requestPasswordReset(email: $email) { sent }
+}
+"#;
+
+const RESET_PASSWORD: &str = r#"
+mutation ResetPassword($resetToken: String!, $password: String!) {
+  resetPassword(resetToken: $resetToken, password: $password) { ok }
+}
+"#;
+
 const REVOKE_TOKEN: &str = r#"
 mutation RevokeToken {
   revokeToken
@@ -44,6 +70,8 @@ pub enum AuthError {
     Server(String),
     /// 本地凭证持久化失败（keychain 不可用等）：fail-closed，不进入 SignedIn。
     Storage(String),
+    /// 服务端业务错误码（验证码/限流/重置密码等），供 UI 映射 i18n。
+    Domain { code: String, message: String },
 }
 
 impl AuthError {
@@ -53,9 +81,31 @@ impl AuthError {
             AuthError::InvalidCredentials => "invalid credentials".to_string(),
             AuthError::Transport(reason) => format!("transport error: {reason}"),
             AuthError::Storage(reason) => format!("storage error: {reason}"),
+            AuthError::Domain { code, message } => format!("domain {code}: {message}"),
             AuthError::Server(reason) => format!("server error: {reason}"),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PhoneCodePurpose {
+    Login,
+    Register,
+}
+
+impl PhoneCodePurpose {
+    pub fn as_graphql(self) -> &'static str {
+        match self {
+            Self::Login => "LOGIN",
+            Self::Register => "REGISTER",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PhoneCodeSent {
+    pub sent: bool,
+    pub retry_after_seconds: i64,
 }
 
 pub trait AuthApi {
@@ -63,6 +113,18 @@ pub trait AuthApi {
     fn revoke(&self, token: &str) -> Result<(), AuthError>;
     /// 启动恢复时校验持久 token 是否仍有效（false=确定失效；Err=网络不确定，保留会话）。
     fn validate(&self, token: &str) -> Result<bool, AuthError>;
+    fn request_phone_code(
+        &self,
+        phone: &str,
+        purpose: PhoneCodePurpose,
+    ) -> Result<PhoneCodeSent, AuthError>;
+    fn sign_in_with_phone_code(
+        &self,
+        phone: &str,
+        code: &str,
+    ) -> Result<SignedInSession, AuthError>;
+    fn request_password_reset(&self, email: &str) -> Result<bool, AuthError>;
+    fn reset_password(&self, reset_token: &str, password: &str) -> Result<bool, AuthError>;
 }
 
 /// 真实后端：GraphQL over HTTP。
@@ -98,6 +160,22 @@ impl HttpAuthApi {
             .body_mut()
             .read_json::<Value>()
             .map_err(|err| AuthError::Transport(err.to_string()))
+    }
+
+    fn domain_error(body: &Value) -> Option<AuthError> {
+        let first = body.get("errors")?.as_array()?.first()?;
+        let code = first
+            .get("code")
+            .and_then(Value::as_str)
+            .or_else(|| first.get("extensions")?.get("code")?.as_str())?;
+        Some(AuthError::Domain {
+            code: code.to_string(),
+            message: first
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("request failed")
+                .to_string(),
+        })
     }
 
     fn parse_errors(body: &Value) -> Option<AuthError> {
@@ -182,6 +260,103 @@ impl AuthApi for HttpAuthApi {
             .is_some())
     }
 
+    fn request_phone_code(
+        &self,
+        phone: &str,
+        purpose: PhoneCodePurpose,
+    ) -> Result<PhoneCodeSent, AuthError> {
+        let body = self.post(
+            None,
+            REQUEST_PHONE_CODE,
+            serde_json::json!({ "phone": phone, "purpose": purpose.as_graphql() }),
+        )?;
+        if let Some(error) = Self::domain_error(&body) {
+            return Err(error);
+        }
+        let result = body
+            .get("data")
+            .and_then(|data| data.get("requestPhoneCode"))
+            .ok_or_else(|| AuthError::Server("missing requestPhoneCode payload".to_string()))?;
+        Ok(PhoneCodeSent {
+            sent: result.get("sent").and_then(Value::as_bool).unwrap_or(false),
+            retry_after_seconds: result
+                .get("retryAfterSeconds")
+                .and_then(Value::as_i64)
+                .unwrap_or(60),
+        })
+    }
+
+    fn sign_in_with_phone_code(
+        &self,
+        phone: &str,
+        code: &str,
+    ) -> Result<SignedInSession, AuthError> {
+        let body = self.post(
+            None,
+            SIGN_IN_WITH_PHONE_CODE_DESKTOP,
+            serde_json::json!({ "phone": phone, "code": code }),
+        )?;
+        if let Some(error) = Self::domain_error(&body) {
+            return Err(error);
+        }
+        let result = body
+            .get("data")
+            .and_then(|data| data.get("signInWithPhoneCodeForDesktop"))
+            .ok_or_else(|| {
+                AuthError::Server("missing signInWithPhoneCodeForDesktop payload".to_string())
+            })?;
+        let token = result
+            .get("token")
+            .and_then(Value::as_str)
+            .ok_or_else(|| AuthError::Server("missing token".to_string()))?;
+        Ok(SignedInSession {
+            token: token.to_string(),
+            user_id: result
+                .get("userId")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            email: result
+                .get("email")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            is_platform_admin: result
+                .get("isPlatformAdmin")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        })
+    }
+
+    fn request_password_reset(&self, email: &str) -> Result<bool, AuthError> {
+        let body = self.post(
+            None,
+            REQUEST_PASSWORD_RESET,
+            serde_json::json!({ "email": email }),
+        )?;
+        if let Some(error) = Self::domain_error(&body) {
+            return Err(error);
+        }
+        Ok(body
+            .pointer("/data/requestPasswordReset/sent")
+            .and_then(Value::as_bool)
+            .unwrap_or(false))
+    }
+
+    fn reset_password(&self, reset_token: &str, password: &str) -> Result<bool, AuthError> {
+        let body = self.post(
+            None,
+            RESET_PASSWORD,
+            serde_json::json!({ "resetToken": reset_token, "password": password }),
+        )?;
+        if let Some(error) = Self::domain_error(&body) {
+            return Err(error);
+        }
+        Ok(body
+            .pointer("/data/resetPassword/ok")
+            .and_then(Value::as_bool)
+            .unwrap_or(false))
+    }
+
     fn revoke(&self, token: &str) -> Result<(), AuthError> {
         let body = self.post(Some(token), REVOKE_TOKEN, serde_json::json!({}))?;
         if let Some(error) = Self::parse_errors(&body) {
@@ -247,6 +422,58 @@ impl AuthApi for FakeAuthApi {
 
     fn validate(&self, token: &str) -> Result<bool, AuthError> {
         Ok(!token.is_empty() && token != "expired")
+    }
+
+    fn request_phone_code(
+        &self,
+        phone: &str,
+        _purpose: PhoneCodePurpose,
+    ) -> Result<PhoneCodeSent, AuthError> {
+        if phone.trim().is_empty() {
+            return Err(AuthError::Domain {
+                code: "invalid_phone".to_string(),
+                message: "invalid phone".to_string(),
+            });
+        }
+        Ok(PhoneCodeSent {
+            sent: true,
+            retry_after_seconds: 60,
+        })
+    }
+
+    fn sign_in_with_phone_code(
+        &self,
+        phone: &str,
+        code: &str,
+    ) -> Result<SignedInSession, AuthError> {
+        if code == "123456" {
+            Ok(SignedInSession {
+                token: "fake-desktop-token".to_string(),
+                user_id: format!("user-phone-{phone}"),
+                email: None,
+                is_platform_admin: false,
+            })
+        } else {
+            Err(AuthError::Domain {
+                code: "invalid_or_expired_code".to_string(),
+                message: "invalid code".to_string(),
+            })
+        }
+    }
+
+    fn request_password_reset(&self, email: &str) -> Result<bool, AuthError> {
+        Ok(!email.trim().is_empty())
+    }
+
+    fn reset_password(&self, reset_token: &str, password: &str) -> Result<bool, AuthError> {
+        if reset_token == "reset-token" && password.len() >= 8 {
+            Ok(true)
+        } else {
+            Err(AuthError::Domain {
+                code: "invalid_or_expired_reset_token".to_string(),
+                message: "invalid reset token".to_string(),
+            })
+        }
     }
 }
 
@@ -362,6 +589,72 @@ mod tests {
         );
         let api = HttpAuthApi::new(endpoint);
         assert!(!api.validate("expired").expect("validate"));
+    }
+
+    #[test]
+    fn fake_phone_code_flow_and_password_reset() {
+        let api = FakeAuthApi::demo();
+        let sent = api
+            .request_phone_code("13800138000", PhoneCodePurpose::Login)
+            .expect("request code");
+        assert!(sent.sent);
+        let session = api
+            .sign_in_with_phone_code("13800138000", "123456")
+            .expect("phone login");
+        assert_eq!(session.token, "fake-desktop-token");
+        let error = api
+            .sign_in_with_phone_code("13800138000", "000000")
+            .unwrap_err();
+        assert!(matches!(error, AuthError::Domain { .. }));
+        assert!(api
+            .request_password_reset("demo@example.com")
+            .expect("reset mail"));
+        assert!(api
+            .reset_password("reset-token", "new-password")
+            .expect("reset"));
+    }
+
+    #[test]
+    fn http_phone_code_and_reset_parse_payloads() {
+        let (endpoint, received) = spawn_mock_server(
+            200,
+            r#"{"data":{"requestPhoneCode":{"sent":true,"retryAfterSeconds":30}}}"#,
+        );
+        let api = HttpAuthApi::new(endpoint);
+        let sent = api
+            .request_phone_code("13800138000", PhoneCodePurpose::Register)
+            .expect("request");
+        assert!(sent.sent);
+        assert_eq!(sent.retry_after_seconds, 30);
+        let request = received.recv().expect("captured");
+        assert!(request.contains("requestPhoneCode"));
+        assert!(request.contains("REGISTER"));
+
+        let (endpoint, _) = spawn_mock_server(
+            200,
+            r#"{"data":{"signInWithPhoneCodeForDesktop":{"token":"jwt.phone.token","userId":"u-1","email":null,"isPlatformAdmin":false}}}"#,
+        );
+        let api = HttpAuthApi::new(endpoint);
+        let session = api
+            .sign_in_with_phone_code("13800138000", "123456")
+            .expect("desktop phone login");
+        assert_eq!(session.token, "jwt.phone.token");
+
+        let (endpoint, _) = spawn_mock_server(
+            200,
+            r#"{"errors":[{"message":"Invalid or expired code","code":"invalid_or_expired_code"}]}"#,
+        );
+        let api = HttpAuthApi::new(endpoint);
+        let error = api
+            .sign_in_with_phone_code("13800138000", "000000")
+            .unwrap_err();
+        assert!(
+            matches!(error, AuthError::Domain { ref code, .. } if code == "invalid_or_expired_code")
+        );
+
+        let (endpoint, _) = spawn_mock_server(200, r#"{"data":{"resetPassword":{"ok":true}}}"#);
+        let api = HttpAuthApi::new(endpoint);
+        assert!(api.reset_password("token", "password123").expect("reset"));
     }
 
     #[test]

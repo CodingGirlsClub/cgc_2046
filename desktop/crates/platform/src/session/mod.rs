@@ -9,7 +9,9 @@ use std::sync::Arc;
 mod auth_api;
 mod credential_store;
 
-pub use auth_api::{AuthApi, AuthError, FakeAuthApi, HttpAuthApi, SignedInSession};
+pub use auth_api::{
+    AuthApi, AuthError, FakeAuthApi, HttpAuthApi, PhoneCodePurpose, PhoneCodeSent, SignedInSession,
+};
 pub use credential_store::{CredentialStore, FileStore, KeychainStore, MemoryStore};
 
 /// UI 可观察的会话状态。

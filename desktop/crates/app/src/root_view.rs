@@ -64,6 +64,17 @@ use crate::theme::{self, space, ThemePreference, RADIUS_LARGE, RADIUS_MEDIUM, RA
 enum LoginField {
     Email,
     Password,
+    Phone,
+    Code,
+    ResetToken,
+    NewPassword,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LoginMode {
+    Password,
+    Phone,
+    Reset,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,6 +82,9 @@ pub(crate) enum LoginError {
     Invalid,
     Network,
     Keychain,
+    Phone,
+    RateLimited,
+    Reset,
 }
 
 impl LoginError {
@@ -79,6 +93,14 @@ impl LoginError {
             AuthError::InvalidCredentials => LoginError::Invalid,
             AuthError::Transport(_) | AuthError::Server(_) => LoginError::Network,
             AuthError::Storage(_) => LoginError::Keychain,
+            AuthError::Domain { code, .. } => match code.as_str() {
+                "invalid_or_expired_code" | "invalid_phone" | "phone_code_sign_in_failed" => {
+                    LoginError::Phone
+                }
+                "rate_limited" => LoginError::RateLimited,
+                "invalid_or_expired_reset_token" => LoginError::Reset,
+                _ => LoginError::Network,
+            },
         }
     }
 
@@ -87,6 +109,9 @@ impl LoginError {
             LoginError::Invalid => Key::AppAuthErrorInvalid,
             LoginError::Network => Key::AppAuthErrorNetwork,
             LoginError::Keychain => Key::AppAuthErrorKeychain,
+            LoginError::Phone => Key::AppAuthErrorPhone,
+            LoginError::RateLimited => Key::AppAuthErrorRateLimited,
+            LoginError::Reset => Key::AppAuthErrorReset,
         }
     }
 }
@@ -189,7 +214,15 @@ pub struct RootView {
     preference: ThemePreference,
     session: SessionService,
     session_checked: bool,
+    login_mode: LoginMode,
     login_email: String,
+    login_phone: String,
+    login_code: String,
+    login_reset_token: String,
+    login_new_password: String,
+    phone_code_sent: bool,
+    reset_sent: bool,
+    login_notice: Option<Key>,
     login_password: String,
     focused: LoginField,
     login_error: Option<LoginError>,
@@ -264,7 +297,15 @@ impl RootView {
             preference,
             session,
             session_checked: false,
+            login_mode: LoginMode::Password,
             login_email: String::new(),
+            login_phone: String::new(),
+            login_code: String::new(),
+            login_reset_token: String::new(),
+            login_new_password: String::new(),
+            phone_code_sent: false,
+            reset_sent: false,
+            login_notice: None,
             login_password: String::new(),
             focused: LoginField::Email,
             login_error: None,
@@ -1636,15 +1677,344 @@ impl RootView {
         cx.notify();
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn login_input(
+        &self,
+        language: Language,
+        palette: &theme::Palette,
+        id: &str,
+        field: LoginField,
+        placeholder: Key,
+        value: String,
+        masked: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let focused = self.focused == field;
+        let empty = value.is_empty();
+        let display = if empty {
+            translate(language, placeholder).to_string()
+        } else if masked {
+            "•".repeat(value.chars().count().max(1))
+        } else {
+            value
+        };
+        let empty = empty || display.is_empty();
+        div()
+            .id(id.to_string())
+            .h(px(34.0))
+            .flex()
+            .items_center()
+            .px(space(2))
+            .rounded(px(RADIUS_MEDIUM))
+            .border_1()
+            .border_color(if focused {
+                palette.accent
+            } else {
+                palette.line_strong
+            })
+            .bg(palette.view)
+            .text_color(if empty { palette.ink_3 } else { palette.ink })
+            .child(display)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, window, cx| {
+                    this.focused = field;
+                    let focus = this.ensure_key_focus(cx);
+                    window.focus(&focus, cx);
+                    cx.notify();
+                }),
+            )
+            .into_any_element()
+    }
+
+    fn login_feedback(&self, language: Language, palette: &theme::Palette) -> Vec<AnyElement> {
+        let mut elements = Vec::new();
+        if let Some(key) = self.login_notice {
+            elements.push(
+                div()
+                    .text_size(px(12.0))
+                    .text_color(palette.accent)
+                    .child(translate(language, key))
+                    .into_any_element(),
+            );
+        }
+        if let Some(key) = self.login_error.map(LoginError::key) {
+            elements.push(
+                div()
+                    .text_size(px(12.0))
+                    .text_color(palette.danger)
+                    .child(translate(language, key))
+                    .into_any_element(),
+            );
+        }
+        elements
+    }
+
+    fn render_phone_login_card(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let phone = self.login_phone.clone();
+        let code = self.login_code.clone();
+        let sent = self.phone_code_sent;
+        let signing_in = self.signing_in;
+        let phone_input = self.login_input(
+            language,
+            palette,
+            "login-phone",
+            LoginField::Phone,
+            Key::AppAuthPhonePhone,
+            phone,
+            false,
+            cx,
+        );
+        let code_input = self.login_input(
+            language,
+            palette,
+            "login-code",
+            LoginField::Code,
+            Key::AppAuthPhoneCode,
+            code,
+            false,
+            cx,
+        );
+        let card = div()
+            .w(px(360.0))
+            .flex()
+            .flex_col()
+            .gap(space(2))
+            .p(space(5))
+            .rounded(px(RADIUS_LARGE))
+            .border_1()
+            .border_color(palette.line)
+            .bg(palette.card)
+            .child(
+                div()
+                    .text_size(px(22.0))
+                    .text_color(palette.ink)
+                    .child(translate(language, Key::AppName)),
+            )
+            .child(
+                div()
+                    .text_size(px(12.0))
+                    .text_color(palette.ink_3)
+                    .child(translate(language, Key::AppAuthPhoneTitle)),
+            )
+            .child(phone_input)
+            .children(sent.then_some(code_input))
+            .children(self.login_feedback(language, palette))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .gap(space(1))
+                    .child(
+                        div()
+                            .id("phone-send-code")
+                            .flex_1()
+                            .h(px(34.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(RADIUS_MEDIUM))
+                            .bg(palette.soft)
+                            .text_color(palette.ink_2)
+                            .child(translate(language, Key::AppAuthPhoneSendCode))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.request_phone_code(cx);
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("phone-submit")
+                            .flex_1()
+                            .h(px(34.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(RADIUS_MEDIUM))
+                            .bg(if signing_in {
+                                palette.soft
+                            } else {
+                                palette.accent
+                            })
+                            .text_color(if signing_in {
+                                palette.ink_3
+                            } else {
+                                palette.ink
+                            })
+                            .child(translate(language, Key::AppAuthPhoneSubmit))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.submit_phone_login(cx);
+                            })),
+                    ),
+            )
+            .child(
+                div()
+                    .id("phone-back")
+                    .text_size(px(12.0))
+                    .text_color(palette.ink_3)
+                    .child(translate(language, Key::AppAuthBack))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.switch_login_mode(LoginMode::Password);
+                        cx.notify();
+                    })),
+            );
+        card.into_any_element()
+    }
+
+    fn render_reset_login_card(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let email = self.login_email.clone();
+        let token = self.login_reset_token.clone();
+        let new_password = self.login_new_password.clone();
+        let reset_sent = self.reset_sent;
+        let signing_in = self.signing_in;
+        let email_input = self.login_input(
+            language,
+            palette,
+            "reset-email",
+            LoginField::Email,
+            Key::AppAuthResetEmail,
+            email,
+            false,
+            cx,
+        );
+        let token_input = self.login_input(
+            language,
+            palette,
+            "reset-token",
+            LoginField::ResetToken,
+            Key::AppAuthResetToken,
+            token,
+            false,
+            cx,
+        );
+        let password_input = self.login_input(
+            language,
+            palette,
+            "reset-password",
+            LoginField::NewPassword,
+            Key::AppAuthResetNewPassword,
+            new_password,
+            true,
+            cx,
+        );
+        let mut card = div()
+            .w(px(360.0))
+            .flex()
+            .flex_col()
+            .gap(space(2))
+            .p(space(5))
+            .rounded(px(RADIUS_LARGE))
+            .border_1()
+            .border_color(palette.line)
+            .bg(palette.card)
+            .child(
+                div()
+                    .text_size(px(22.0))
+                    .text_color(palette.ink)
+                    .child(translate(language, Key::AppName)),
+            )
+            .child(
+                div()
+                    .text_size(px(12.0))
+                    .text_color(palette.ink_3)
+                    .child(translate(language, Key::AppAuthResetTitle)),
+            );
+        if reset_sent {
+            card = card
+                .child(translate(language, Key::AppAuthResetSent))
+                .child(token_input)
+                .child(password_input)
+                .child(
+                    div()
+                        .id("reset-submit")
+                        .h(px(34.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(RADIUS_MEDIUM))
+                        .bg(if signing_in {
+                            palette.soft
+                        } else {
+                            palette.accent
+                        })
+                        .text_color(if signing_in {
+                            palette.ink_3
+                        } else {
+                            palette.ink
+                        })
+                        .child(translate(language, Key::AppAuthResetSubmit))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.submit_reset_password(cx);
+                        })),
+                );
+        } else {
+            card = card.child(email_input).child(
+                div()
+                    .id("reset-request")
+                    .h(px(34.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(RADIUS_MEDIUM))
+                    .bg(if signing_in {
+                        palette.soft
+                    } else {
+                        palette.accent
+                    })
+                    .text_color(if signing_in {
+                        palette.ink_3
+                    } else {
+                        palette.ink
+                    })
+                    .child(translate(language, Key::AppAuthResetRequest))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.request_password_reset(cx);
+                    })),
+            );
+        }
+        card = card.children(self.login_feedback(language, palette)).child(
+            div()
+                .id("reset-back")
+                .text_size(px(12.0))
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::AppAuthBack))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.switch_login_mode(LoginMode::Password);
+                    cx.notify();
+                })),
+        );
+        card.into_any_element()
+    }
+
     fn handle_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event.keystroke.key.as_str() {
-            "tab" => {
-                self.focused = match self.focused {
-                    LoginField::Email => LoginField::Password,
-                    LoginField::Password => LoginField::Email,
-                };
-            }
-            "enter" => self.submit_login(cx),
+            "tab" => self.cycle_login_field(),
+            "enter" => match self.login_mode {
+                LoginMode::Password => self.submit_login(cx),
+                LoginMode::Phone => {
+                    if self.phone_code_sent {
+                        self.submit_phone_login(cx)
+                    } else {
+                        self.request_phone_code(cx)
+                    }
+                }
+                LoginMode::Reset => {
+                    if self.reset_sent {
+                        self.submit_reset_password(cx)
+                    } else {
+                        self.request_password_reset(cx)
+                    }
+                }
+            },
             "backspace" => {
                 let buffer = self.field_mut();
                 buffer.pop();
@@ -1666,7 +2036,160 @@ impl RootView {
         match self.focused {
             LoginField::Email => &mut self.login_email,
             LoginField::Password => &mut self.login_password,
+            LoginField::Phone => &mut self.login_phone,
+            LoginField::Code => &mut self.login_code,
+            LoginField::ResetToken => &mut self.login_reset_token,
+            LoginField::NewPassword => &mut self.login_new_password,
         }
+    }
+
+    fn login_fields(&self) -> Vec<LoginField> {
+        match self.login_mode {
+            LoginMode::Password => vec![LoginField::Email, LoginField::Password],
+            LoginMode::Phone => vec![LoginField::Phone, LoginField::Code],
+            LoginMode::Reset => {
+                if self.reset_sent {
+                    vec![LoginField::ResetToken, LoginField::NewPassword]
+                } else {
+                    vec![LoginField::Email]
+                }
+            }
+        }
+    }
+
+    fn cycle_login_field(&mut self) {
+        let fields = self.login_fields();
+        let index = fields
+            .iter()
+            .position(|field| *field == self.focused)
+            .unwrap_or(0);
+        self.focused = fields[(index + 1) % fields.len()];
+    }
+
+    fn switch_login_mode(&mut self, mode: LoginMode) {
+        self.login_mode = mode;
+        self.login_error = None;
+        self.login_notice = None;
+        self.phone_code_sent = false;
+        self.reset_sent = false;
+        self.focused = match mode {
+            LoginMode::Password => LoginField::Email,
+            LoginMode::Phone => LoginField::Phone,
+            LoginMode::Reset => LoginField::Email,
+        };
+    }
+
+    fn request_phone_code(&mut self, cx: &mut Context<Self>) {
+        let phone = self.login_phone.trim().to_string();
+        if phone.is_empty() || self.signing_in {
+            return;
+        }
+        self.signing_in = true;
+        self.login_error = None;
+        let api = self.session.api_handle();
+        let task = cx.background_executor().spawn(async move {
+            api.request_phone_code(&phone, cgc_platform::session::PhoneCodePurpose::Login)
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.signing_in = false;
+                match result {
+                    Ok(sent) if sent.sent => {
+                        this.phone_code_sent = true;
+                        this.login_notice = Some(Key::AppAuthPhoneCodeSent);
+                        this.focused = LoginField::Code;
+                    }
+                    Ok(_) => this.login_error = Some(LoginError::Phone),
+                    Err(error) => this.login_error = Some(LoginError::from_auth_error(&error)),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn submit_phone_login(&mut self, cx: &mut Context<Self>) {
+        let phone = self.login_phone.trim().to_string();
+        let code = self.login_code.trim().to_string();
+        if phone.is_empty() || code.is_empty() || self.signing_in {
+            return;
+        }
+        self.signing_in = true;
+        self.login_error = None;
+        let api = self.session.api_handle();
+        let task = cx
+            .background_executor()
+            .spawn(async move { api.sign_in_with_phone_code(&phone, &code) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.finish_login(result);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn request_password_reset(&mut self, cx: &mut Context<Self>) {
+        let email = self.login_email.trim().to_string();
+        if email.is_empty() || self.signing_in {
+            return;
+        }
+        self.signing_in = true;
+        self.login_error = None;
+        let api = self.session.api_handle();
+        let task = cx
+            .background_executor()
+            .spawn(async move { api.request_password_reset(&email) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.signing_in = false;
+                match result {
+                    Ok(true) => {
+                        this.reset_sent = true;
+                        this.login_notice = Some(Key::AppAuthResetSent);
+                        this.focused = LoginField::ResetToken;
+                    }
+                    Ok(false) => this.login_error = Some(LoginError::Reset),
+                    Err(error) => this.login_error = Some(LoginError::from_auth_error(&error)),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn submit_reset_password(&mut self, cx: &mut Context<Self>) {
+        let token = self.login_reset_token.trim().to_string();
+        let password = self.login_new_password.clone();
+        if token.is_empty() || password.len() < 8 || self.signing_in {
+            self.login_error = Some(LoginError::Reset);
+            return;
+        }
+        self.signing_in = true;
+        self.login_error = None;
+        let api = self.session.api_handle();
+        let task = cx
+            .background_executor()
+            .spawn(async move { api.reset_password(&token, &password) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.signing_in = false;
+                match result {
+                    Ok(true) => {
+                        this.switch_login_mode(LoginMode::Password);
+                        this.login_notice = Some(Key::AppAuthResetSent);
+                    }
+                    Ok(false) => this.login_error = Some(LoginError::Reset),
+                    Err(error) => this.login_error = Some(LoginError::from_auth_error(&error)),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// 测试用：直接访问会话状态机（生产 UI 只通过按钮/异步回调驱动）。
@@ -1847,6 +2370,7 @@ impl Render for RootView {
         let login_email = self.login_email.clone();
         let login_password = self.login_password.clone();
         let focused = self.focused;
+        let login_notice = self.login_notice;
         let is_fake_mode = self.is_fake_mode;
 
         let workspace_switcher = self.render_workspace_switcher(language, &palette, cx);
@@ -1886,7 +2410,7 @@ impl Render for RootView {
                     .into_any_element()
             };
 
-            let login_card = div()
+            let password_card = div()
                 .w(px(360.0))
                 .flex()
                 .flex_col()
@@ -1990,8 +2514,47 @@ impl Render for RootView {
                     )
                 } else {
                     None
-                });
+                })
+                .children(login_notice.map(|key| {
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(palette.accent)
+                        .child(translate(language, key))
+                        .into_any_element()
+                }))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .justify_between()
+                        .text_size(px(12.0))
+                        .child(
+                            div()
+                                .id("login-mode-phone")
+                                .text_color(palette.accent)
+                                .child(translate(language, Key::AppAuthModePhone))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.switch_login_mode(LoginMode::Phone);
+                                    cx.notify();
+                                })),
+                        )
+                        .child(
+                            div()
+                                .id("login-forgot")
+                                .text_color(palette.ink_3)
+                                .child(translate(language, Key::AppAuthForgot))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.switch_login_mode(LoginMode::Reset);
+                                    cx.notify();
+                                })),
+                        ),
+                );
 
+            let login_card = match self.login_mode {
+                LoginMode::Password => password_card.into_any_element(),
+                LoginMode::Phone => self.render_phone_login_card(language, &palette, cx),
+                LoginMode::Reset => self.render_reset_login_card(language, &palette, cx),
+            };
             root = root
                 .size_full()
                 .flex()
