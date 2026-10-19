@@ -18,3 +18,16 @@ GPUI + gpui-kit 的原生桌面客户端。组织方式对齐 Zed：`crates/` �
 
 - 每个 story 必须有自动化检查（单测 / 快照 / CI）；纯 GUI 行为在 macOS/Windows 真机与 epic-7 汇总回归里补。
 - 本机命令：`cargo fmt --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`。
+
+## 模块地图（对齐 Zed）
+
+| 位置 | Zed 对应 | 职责 |
+| --- | --- | --- |
+| `crates/agent_chat` | `agent_ui` 的子集 | 课程页对话面板、会话视图、审批卡、历史、每 agent 设置 |
+| `crates/platform/src/acp` | `acp_thread` | 协议/连接/会话/审批桥 |
+| `crates/platform/src/agent` | `agent_servers` | 探测、启动、进程生命周期 |
+| `crates/platform/src/registry` | `agent_servers` 的安装部分 | 清单、checksum、安装 |
+| `crates/platform/src/mcp` | `context_server`（简化） | MCP 注入与 lease |
+
+故意不做：native agent、LLM 客户端、prompt/skills、工具沙箱（BYO，模型与工具在用户 agent 里）。
+拆 crate 的门槛：出现第二个消费者（如全局助手）、独立依赖面、或需要并行隔离时才拆；否则先在 crate 内加 module。
