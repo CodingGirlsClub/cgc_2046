@@ -194,14 +194,32 @@ impl OrdersApi for HttpOrdersApi {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FakeOrderScenario {
+    /// 前两次轮询 pending，随后 paid。
+    PaidAfterPolls,
+    /// 首次轮询即 expired。
+    Expired,
+    /// 首次轮询即 cancelled。
+    Cancelled,
+    /// 首次轮询即 refunded（模拟迟到退款）。
+    Refunded,
+}
+
 pub struct FakeOrdersApi {
     polls: std::sync::Mutex<u32>,
+    scenario: FakeOrderScenario,
 }
 
 impl FakeOrdersApi {
     pub fn demo() -> Self {
+        Self::with_scenario(FakeOrderScenario::PaidAfterPolls)
+    }
+
+    pub fn with_scenario(scenario: FakeOrderScenario) -> Self {
         Self {
             polls: std::sync::Mutex::new(0),
+            scenario,
         }
     }
 }
@@ -236,14 +254,21 @@ impl OrdersApi for FakeOrdersApi {
     ) -> Result<PaymentOrder, PaymentError> {
         let mut polls = self.polls.lock().expect("polls");
         *polls += 1;
-        let paid = *polls >= 2;
+        let status = match self.scenario {
+            FakeOrderScenario::PaidAfterPolls => {
+                if *polls >= 2 {
+                    "paid"
+                } else {
+                    "pending"
+                }
+            }
+            FakeOrderScenario::Expired => "expired",
+            FakeOrderScenario::Cancelled => "cancelled",
+            FakeOrderScenario::Refunded => "refunded",
+        };
         Ok(PaymentOrder {
             id: order_id.to_string(),
-            status: if paid {
-                "paid".to_string()
-            } else {
-                "pending".to_string()
-            },
+            status: status.to_string(),
             provider: "wechat_native".to_string(),
             amount_cents: 9900,
             expire_at: Some("2026-11-01T00:00:00Z".to_string()),
