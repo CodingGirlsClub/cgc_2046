@@ -61,20 +61,7 @@ pub fn current_artifact() -> Option<NodeArtifact> {
 
 /// runtime 根目录：`<data>/node24`，其下含 `bin/node`、`bin/npx`。
 pub fn default_root() -> PathBuf {
-    let base = if cfg!(target_os = "macos") {
-        std::env::var_os("HOME")
-            .map(|home| PathBuf::from(home).join("Library/Application Support/cgc-desktop"))
-    } else if cfg!(target_os = "windows") {
-        std::env::var_os("APPDATA").map(|base| PathBuf::from(base).join("cgc-desktop"))
-    } else {
-        std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .or_else(|| {
-                std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share"))
-            })
-            .map(|base| base.join("cgc-desktop"))
-    };
-    base.unwrap_or_else(std::env::temp_dir).join("node24")
+    crate::paths::AppPaths::from_env().node_runtime_root()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

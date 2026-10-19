@@ -186,3 +186,4 @@ courses.learning.projection_locked = 未解锁
 courses.learning.projection_error = 学习进度加载失败
 courses.learning.projection_retry = 重试
 agent_chat.chat.context_required = 课程上下文缺失或已过期，请返回课程页重试
+app.settings.build = 构建

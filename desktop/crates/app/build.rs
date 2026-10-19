@@ -17,6 +17,7 @@ use std::path::Path;
 const LOCALES: [(&str, &str); 2] = [("zh", "zh.lang"), ("en", "en.lang")];
 
 fn main() {
+    inject_build_info();
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
     let i18n_dir = Path::new(&manifest_dir).join("../../resources/i18n");
 
@@ -204,4 +205,42 @@ fn variant_name(key: &str) -> String {
             }
         })
         .collect()
+}
+
+fn build_version() -> String {
+    env::var("CGC_BUILD_VERSION")
+        .or_else(|_| env::var("CARGO_PKG_VERSION"))
+        .unwrap_or_else(|_| "0.0.0".to_string())
+}
+
+fn build_commit(manifest_dir: &str) -> String {
+    if let Ok(commit) = env::var("CGC_BUILD_COMMIT") {
+        return commit;
+    }
+    let repo = Path::new(manifest_dir).join("../..");
+    let output = std::process::Command::new("git")
+        .args([
+            "-C",
+            &repo.to_string_lossy(),
+            "rev-parse",
+            "--short",
+            "HEAD",
+        ])
+        .output();
+    match output {
+        Ok(output) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        }
+        _ => "unknown".to_string(),
+    }
+}
+
+fn inject_build_info() {
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
+    let version = build_version();
+    let commit = build_commit(&manifest_dir);
+    println!("cargo:rustc-env=CGC_BUILD_VERSION={version}");
+    println!("cargo:rustc-env=CGC_BUILD_COMMIT={commit}");
+    println!("cargo:rerun-if-env-changed=CGC_BUILD_VERSION");
+    println!("cargo:rerun-if-env-changed=CGC_BUILD_COMMIT");
 }

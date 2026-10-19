@@ -4,10 +4,7 @@ fn chat_state_path() -> std::path::PathBuf {
     if let Some(path) = std::env::var_os("CGC_CHAT_STATE_FILE") {
         return path.into();
     }
-    let base = std::env::var_os("HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
-    base.join(".local/share/cgc-desktop/chat_state.json")
+    cgc_platform::paths::AppPaths::from_env().chat_state_file()
 }
 
 pub(crate) fn read_chat_state() -> serde_json::Value {

@@ -3517,6 +3517,16 @@ impl RootView {
                                 "{} {workspace}",
                                 translate(language, Key::AppSettingsWorkspace)
                             )),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_3)
+                            .child(format!(
+                                "{} {}",
+                                translate(language, Key::AppSettingsBuild),
+                                crate::build_info::about_line()
+                            )),
                     ),
             )
             .child(

@@ -187,3 +187,4 @@ courses.learning.projection_locked
 courses.learning.projection_error
 courses.learning.projection_retry
 agent_chat.chat.context_required
+app.settings.build

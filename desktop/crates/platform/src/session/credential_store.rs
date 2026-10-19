@@ -53,26 +53,12 @@ impl FileStore {
         Self { path: path.into() }
     }
 
-    /// 默认路径：`CGC_SESSION_FILE` > macOS/Linux/Windows 的应用数据目录。
+    /// 默认路径：`CGC_SESSION_FILE` > 环境隔离的数据根（story 1.9）。
     pub fn default_path() -> PathBuf {
         if let Some(path) = std::env::var_os("CGC_SESSION_FILE") {
             return path.into();
         }
-        let base = if cfg!(target_os = "macos") {
-            std::env::var_os("HOME")
-                .map(|home| PathBuf::from(home).join("Library/Application Support/cgc-desktop"))
-        } else if cfg!(target_os = "windows") {
-            std::env::var_os("APPDATA").map(|base| PathBuf::from(base).join("cgc-desktop"))
-        } else {
-            std::env::var_os("XDG_DATA_HOME")
-                .map(PathBuf::from)
-                .or_else(|| {
-                    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share"))
-                })
-                .map(|base| base.join("cgc-desktop"))
-        };
-
-        base.unwrap_or_else(std::env::temp_dir).join("session.json")
+        crate::paths::AppPaths::from_env().session_file()
     }
 }
 
@@ -203,19 +189,24 @@ fn unavailable(reason: &str) -> io::Error {
 
 /// macOS Security.framework 通用密码（service=cgc-desktop）。
 #[cfg(target_os = "macos")]
-#[derive(Default)]
-pub struct MacKeychain;
+pub struct MacKeychain {
+    service: String,
+}
 
 #[cfg(target_os = "macos")]
 impl MacKeychain {
-    const SERVICE: &'static str = "cgc-desktop";
+    pub fn new(service: impl Into<String>) -> Self {
+        Self {
+            service: service.into(),
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
 impl SecretBackend for MacKeychain {
     fn set(&self, account: &str, secret: &str) -> io::Result<()> {
         security_framework::passwords::set_generic_password(
-            Self::SERVICE,
+            &self.service,
             account,
             secret.as_bytes(),
         )
@@ -223,7 +214,7 @@ impl SecretBackend for MacKeychain {
     }
 
     fn get(&self, account: &str) -> io::Result<Option<String>> {
-        match security_framework::passwords::get_generic_password(Self::SERVICE, account) {
+        match security_framework::passwords::get_generic_password(&self.service, account) {
             Ok(bytes) => String::from_utf8(bytes)
                 .map(Some)
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string())),
@@ -232,7 +223,7 @@ impl SecretBackend for MacKeychain {
     }
 
     fn delete(&self, account: &str) -> io::Result<()> {
-        match security_framework::passwords::delete_generic_password(Self::SERVICE, account) {
+        match security_framework::passwords::delete_generic_password(&self.service, account) {
             Ok(()) => Ok(()),
             Err(_) => Ok(()),
         }
@@ -241,11 +232,17 @@ impl SecretBackend for MacKeychain {
 
 /// Linux：`secret-tool`（libsecret）。secret 走 stdin，不进程参数/日志。
 #[cfg(target_os = "linux")]
-#[derive(Default)]
-pub struct LinuxSecretTool;
+pub struct LinuxSecretTool {
+    service: String,
+}
 
 #[cfg(target_os = "linux")]
 impl LinuxSecretTool {
+    pub fn new(service: impl Into<String>) -> Self {
+        Self {
+            service: service.into(),
+        }
+    }
     fn available() -> bool {
         Command::new("secret-tool")
             .arg("--version")
@@ -270,7 +267,7 @@ impl SecretBackend for LinuxSecretTool {
                 "--label",
                 "CGC Desktop session",
                 "service",
-                "cgc-desktop",
+                &self.service,
                 "account",
                 account,
             ])
@@ -296,7 +293,7 @@ impl SecretBackend for LinuxSecretTool {
             return Err(unavailable("secret-tool is not installed"));
         }
         let output = Command::new("secret-tool")
-            .args(["lookup", "service", "cgc-desktop", "account", account])
+            .args(["lookup", "service", &self.service, "account", account])
             .output()?;
         if !output.status.success() || output.stdout.is_empty() {
             return Ok(None);
@@ -311,7 +308,7 @@ impl SecretBackend for LinuxSecretTool {
             return Err(unavailable("secret-tool is not installed"));
         }
         let _ = Command::new("secret-tool")
-            .args(["clear", "service", "cgc-desktop", "account", account])
+            .args(["clear", "service", &self.service, "account", account])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()?;
@@ -378,13 +375,16 @@ impl KeychainStore {
         if std::env::var("CGC_KEYCHAIN").as_deref() == Ok("unavailable") {
             return Self::new(Arc::new(UnavailableKeychain));
         }
+        let service = crate::paths::AppPaths::from_env()
+            .keychain_service()
+            .to_string();
         #[cfg(target_os = "macos")]
         {
-            Self::new(Arc::new(MacKeychain))
+            Self::new(Arc::new(MacKeychain::new(service)))
         }
         #[cfg(target_os = "linux")]
         {
-            Self::new(Arc::new(LinuxSecretTool))
+            Self::new(Arc::new(LinuxSecretTool::new(service)))
         }
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {

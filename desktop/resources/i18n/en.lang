@@ -186,3 +186,4 @@ courses.learning.projection_locked = Locked
 courses.learning.projection_error = Failed to load learning progress
 courses.learning.projection_retry = Retry
 agent_chat.chat.context_required = Course context is missing or stale; return to the course page and retry
+app.settings.build = Build

@@ -9,6 +9,7 @@ pub mod agent;
 pub mod api;
 pub mod events;
 pub mod mcp;
+pub mod paths;
 pub mod registry;
 pub mod routes;
 pub mod session;
