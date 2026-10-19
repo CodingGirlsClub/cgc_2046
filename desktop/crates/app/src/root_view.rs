@@ -45,6 +45,7 @@ use cgc_platform::mcp::inject::{build_mcp_server, mcp_endpoint, McpServerConfig}
 use cgc_platform::registry::manifest::Registry;
 use cgc_platform::routes::NavIcon;
 use cgc_platform::session::{AuthError, SessionService, SessionState, SignedInSession};
+use cgc_platform::workspace::{CourseContext, CourseContextPort, CourseContextProvider};
 use cgc_platform::workspace::{
     FakeWorkspaceApi, HttpWorkspaceApi, WorkspaceApi, WorkspaceListState, WorkspaceService,
 };
@@ -527,6 +528,24 @@ impl RootView {
         .detach();
     }
 
+    fn chat_course_context(&self) -> Result<CourseContext, cgc_platform::workspace::ContextError> {
+        let detail = self.course_detail.detail();
+        let mut provider = CourseContextProvider::from_parts(
+            self.session
+                .signed_in()
+                .map(|session| session.user_id.clone()),
+            self.workspaces
+                .current()
+                .map(|workspace| workspace.id.clone()),
+            detail.map(|detail| detail.id.clone()),
+            detail
+                .and_then(|detail| detail.revision_number)
+                .map(|revision| revision.to_string()),
+        );
+        provider.workspace_epoch = Some(self.workspaces.epoch());
+        provider.current()
+    }
+
     fn start_chat(&mut self, cx: &mut Context<Self>) {
         if matches!(
             self.chat.phase,
@@ -537,14 +556,19 @@ impl RootView {
         let Some(token) = self.session_token() else {
             return;
         };
+        let context = match self.chat_course_context() {
+            Ok(context) => context,
+            Err(_) => {
+                self.chat.phase = ChatPhase::Failed(
+                    translate(self.language, Key::AgentChatChatContextRequired).to_string(),
+                );
+                return;
+            }
+        };
         let epoch = self.workspaces.epoch();
         let cwd = std::env::temp_dir().join("cgc-desktop-chat");
         let _ = std::fs::create_dir_all(&cwd);
-        let course_id = self
-            .current
-            .as_ref()
-            .and_then(|route_match| route_match.params.get("id"))
-            .cloned();
+        let course_id = Some(context.course_id.clone());
         let load_session = self
             .chat
             .restore_id
@@ -1740,6 +1764,7 @@ impl Render for RootView {
                 }
             }
             if current_id == Some("courses.learning")
+                && matches!(self.course_detail.state(), CoursesListState::Ready)
                 && std::env::var("CGC_AUTO_CHAT").as_deref() == Ok("1")
                 && matches!(self.chat.phase, ChatPhase::Idle)
             {

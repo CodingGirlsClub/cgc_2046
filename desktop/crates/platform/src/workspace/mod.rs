@@ -15,6 +15,18 @@ pub struct CourseContext {
     pub workspace_epoch: u64,
 }
 
+impl CourseContext {
+    /// 消费侧 epoch 守卫：账号/工作台任一 epoch 不一致即视为过期（fail-closed）。
+    pub fn is_current(&self, account_epoch: u64, workspace_epoch: u64) -> bool {
+        !self.user_id.trim().is_empty()
+            && !self.workspace_id.trim().is_empty()
+            && !self.course_id.trim().is_empty()
+            && !self.course_revision_id.trim().is_empty()
+            && self.account_epoch == account_epoch
+            && self.workspace_epoch == workspace_epoch
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContextError {
     MissingUser,
@@ -110,6 +122,21 @@ mod tests {
         let mut provider = complete();
         provider.workspace_id = None;
         assert_eq!(provider.current(), Err(ContextError::MissingWorkspace));
+    }
+
+    #[test]
+    fn missing_user_course_and_epochs_fail_closed() {
+        let mut provider = complete();
+        provider.user_id = None;
+        assert_eq!(provider.current(), Err(ContextError::MissingUser));
+        let mut provider = complete();
+        provider.course_id = Some("  ".to_string());
+        assert_eq!(provider.current(), Err(ContextError::MissingCourse));
+
+        let context = complete().current().expect("context");
+        assert!(context.is_current(1, 1));
+        assert!(!context.is_current(2, 1));
+        assert!(!context.is_current(1, 2));
     }
 
     #[test]
