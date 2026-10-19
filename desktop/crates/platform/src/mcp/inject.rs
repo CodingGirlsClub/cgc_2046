@@ -10,6 +10,9 @@ use std::path::Path;
 use crate::mcp::credential::LearningHostLease;
 use crate::registry::manifest::AgentEntry;
 
+/// app 层可用的 server 配置别名（不直接依赖 agent-client-protocol）。
+pub type McpServerConfig = McpServer;
+
 /// 由 GraphQL 端点推导 MCP 端点：`…/api/graphql` → `…/mcp`，否则补 `/mcp`。
 pub fn mcp_endpoint(api_url: Option<&str>) -> String {
     let base = api_url.unwrap_or("http://localhost:4000/api/graphql");

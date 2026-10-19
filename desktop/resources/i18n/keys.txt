@@ -159,3 +159,13 @@ courses.render.open_link
 courses.render.open_external
 courses.render.open
 courses.render.cancel
+agent_chat.chat.start
+agent_chat.chat.starting
+agent_chat.chat.no_agent
+agent_chat.chat.input_hint
+agent_chat.chat.send
+agent_chat.chat.stop
+agent_chat.chat.retry
+agent_chat.chat.thinking
+agent_chat.chat.failed
+agent_chat.chat.new

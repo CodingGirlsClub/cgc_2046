@@ -27,7 +27,16 @@ use cgc_events::list::{
     EventListService, EventsApi, FakeEventsApi, HttpEventsApi, ListState, StatusFilter,
 };
 use cgc_events::orders::{is_terminal_status, parse_rfc3339_epoch, qr_code_url, OrdersApi};
+use cgc_platform::acp::connection::{AcpHost, AcpHostConfig, HostEvent};
+use cgc_platform::agent::detect::{detect_all, AgentStatus, SystemProbe};
+use cgc_platform::agent::launch::{build_launch, LaunchPlan, NodeRuntime};
 use cgc_platform::events::{AppEvent, EventPublisher, MemoryEventBus};
+use cgc_platform::mcp::credential::{
+    issue_lease, FakeLearningHostApi, HttpLearningHostApi, KeychainVault, LearningHostApi,
+    LearningHostLease, MemoryVault, SecretVault,
+};
+use cgc_platform::mcp::inject::{build_mcp_server, mcp_endpoint, McpServerConfig};
+use cgc_platform::registry::manifest::Registry;
 use cgc_platform::routes::NavIcon;
 use cgc_platform::session::{AuthError, SessionService, SessionState, SignedInSession};
 use cgc_platform::workspace::{
@@ -95,6 +104,43 @@ enum EnrollmentsListState {
     Failed(String),
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+enum ChatPhase {
+    #[default]
+    Idle,
+    Starting,
+    Ready,
+    Streaming,
+    Failed(String),
+}
+
+#[derive(Clone, Debug)]
+struct ChatMessage {
+    from_user: bool,
+    text: String,
+}
+
+#[derive(Default)]
+struct ChatUi {
+    phase: ChatPhase,
+    agent: String,
+    version: Option<String>,
+    messages: Vec<ChatMessage>,
+    input: String,
+    focused: bool,
+    host: Option<AcpHost>,
+    lease: Option<LearningHostLease>,
+    poll_generation: u64,
+    auto_prompted: bool,
+}
+
+struct PreparedChat {
+    agent_name: String,
+    plan: LaunchPlan,
+    lease: LearningHostLease,
+    server: McpServerConfig,
+}
+
 pub struct RootView {
     registry: RouteRegistry,
     current: Option<RouteMatch>,
@@ -127,6 +173,7 @@ pub struct RootView {
     payment_generation: u64,
     deposit_consent: bool,
     events_bus: Arc<MemoryEventBus>,
+    chat: ChatUi,
     courses: CourseCatalogService,
     courses_started: bool,
     workspaces: WorkspaceService,
@@ -198,6 +245,7 @@ impl RootView {
             payment_generation: 0,
             deposit_consent: false,
             events_bus: Arc::new(MemoryEventBus::new()),
+            chat: ChatUi::default(),
             courses,
             courses_started: false,
             course_detail,
@@ -385,6 +433,7 @@ impl RootView {
         self.payment = PaymentViewState::Idle;
         self.payment_generation = self.payment_generation.saturating_add(1);
         self.deposit_consent = false;
+        self.reset_chat_local();
     }
 
     fn start_content_load(&mut self, cx: &mut Context<Self>, course_id: String) {
@@ -410,6 +459,224 @@ impl RootView {
             });
         })
         .detach();
+    }
+
+    fn start_chat(&mut self, cx: &mut Context<Self>) {
+        if matches!(
+            self.chat.phase,
+            ChatPhase::Starting | ChatPhase::Ready | ChatPhase::Streaming
+        ) {
+            return;
+        }
+        let Some(token) = self.session_token() else {
+            return;
+        };
+        let epoch = self.workspaces.epoch();
+        let cwd = std::env::temp_dir().join("cgc-desktop-chat");
+        let _ = std::fs::create_dir_all(&cwd);
+        self.chat.phase = ChatPhase::Starting;
+        self.chat.messages.clear();
+        self.chat.auto_prompted = false;
+        let task = cx.background_executor().spawn(async move {
+            let api = build_learning_host_api();
+            let vault = build_learning_host_vault();
+            let registry = Registry::builtin().map_err(|error| error.diagnostic())?;
+            let probe = SystemProbe;
+            let detected = detect_all(&registry, &probe);
+            let chosen = detected
+                .iter()
+                .find(|agent| {
+                    agent.entry.id == "omp" && matches!(agent.status, AgentStatus::Ready { .. })
+                })
+                .or_else(|| {
+                    detected
+                        .iter()
+                        .find(|agent| matches!(agent.status, AgentStatus::Ready { .. }))
+                })
+                .ok_or_else(|| "no local agent ready".to_string())?;
+            let lease = issue_lease(api.as_ref(), vault.as_ref(), &token, "cgc-desktop", epoch)
+                .map_err(|error| error.diagnostic())?;
+            let managed = std::env::var_os("CGC_MANAGED_NODE").map(NodeRuntime::new);
+            let plan = build_launch(&chosen.entry, managed.as_ref(), &cwd)
+                .map_err(|error| error.to_string())?;
+            let endpoint = mcp_endpoint(std::env::var("CGC_API_URL").ok().as_deref());
+            let server = build_mcp_server(&chosen.entry, &lease, &endpoint);
+            Ok::<PreparedChat, String>(PreparedChat {
+                agent_name: chosen.entry.display_name.clone(),
+                plan,
+                lease,
+                server,
+            })
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(prepared) => {
+                        let config = AcpHostConfig::new(
+                            prepared.plan.command_string(),
+                            prepared.plan.cwd.clone(),
+                        )
+                        .with_name("agent")
+                        .with_mcp_servers(vec![prepared.server]);
+                        match AcpHost::start(config) {
+                            Ok(host) => {
+                                this.chat.host = Some(host);
+                                this.chat.lease = Some(prepared.lease);
+                                this.chat.agent = prepared.agent_name;
+                                this.chat.phase = ChatPhase::Ready;
+                                this.chat.poll_generation += 1;
+                                let generation = this.chat.poll_generation;
+                                this.spawn_chat_poller(cx, generation);
+                            }
+                            Err(error) => {
+                                this.chat.phase = ChatPhase::Failed(error.to_string());
+                            }
+                        }
+                    }
+                    Err(message) => this.chat.phase = ChatPhase::Failed(message),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn spawn_chat_poller(&mut self, cx: &mut Context<Self>, generation: u64) {
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(100))
+                .await;
+            let keep = this
+                .update(cx, |this, cx| this.drain_chat_events(generation, cx))
+                .unwrap_or(false);
+            if !keep {
+                break;
+            }
+        })
+        .detach();
+    }
+
+    fn drain_chat_events(&mut self, generation: u64, cx: &mut Context<Self>) -> bool {
+        if generation != self.chat.poll_generation {
+            return false;
+        }
+        let mut events = Vec::new();
+        if let Some(host) = &self.chat.host {
+            while let Some(event) = host.try_recv() {
+                events.push(event);
+            }
+        }
+        for event in events {
+            match event {
+                HostEvent::Ready {
+                    agent_name,
+                    version,
+                    ..
+                } => {
+                    self.chat.agent = agent_name;
+                    self.chat.version = Some(version);
+                    self.chat.phase = ChatPhase::Ready;
+                }
+                HostEvent::Delta(chunk) => {
+                    self.chat.phase = ChatPhase::Streaming;
+                    match self.chat.messages.last_mut() {
+                        Some(message) if !message.from_user => message.text.push_str(&chunk),
+                        _ => self.chat.messages.push(ChatMessage {
+                            from_user: false,
+                            text: chunk,
+                        }),
+                    }
+                }
+                HostEvent::ToolCall { title, .. } => {
+                    self.chat.phase = ChatPhase::Streaming;
+                    self.chat.messages.push(ChatMessage {
+                        from_user: false,
+                        text: format!("🔧 {title}"),
+                    });
+                }
+                HostEvent::PermissionRequested { title } => {
+                    self.chat.messages.push(ChatMessage {
+                        from_user: false,
+                        text: format!("⏳ 审批请求（当前自动取消）：{title}"),
+                    });
+                }
+                HostEvent::TurnEnd { .. } => {
+                    self.chat.phase = ChatPhase::Ready;
+                }
+                HostEvent::Error { message } => {
+                    self.chat.phase = ChatPhase::Failed(message);
+                }
+                HostEvent::Exited => {
+                    if !matches!(self.chat.phase, ChatPhase::Idle) {
+                        self.chat.phase = ChatPhase::Failed("agent process exited".to_string());
+                    }
+                    self.chat.host = None;
+                }
+            }
+        }
+        // QA/截图：Ready 后自动发一条 prompt。
+        if matches!(self.chat.phase, ChatPhase::Ready)
+            && !self.chat.auto_prompted
+            && std::env::var("CGC_AUTO_CHAT").as_deref() == Ok("1")
+        {
+            self.chat.auto_prompted = true;
+            if let Ok(prompt) = std::env::var("CGC_AUTO_CHAT_PROMPT") {
+                if !prompt.trim().is_empty() {
+                    self.send_chat_text(prompt, cx);
+                }
+            }
+        }
+        cx.notify();
+        self.chat.host.is_some()
+    }
+
+    fn send_chat(&mut self, cx: &mut Context<Self>) {
+        let text = self.chat.input.trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        self.chat.input.clear();
+        self.send_chat_text(text, cx);
+    }
+
+    fn send_chat_text(&mut self, text: String, cx: &mut Context<Self>) {
+        if !matches!(self.chat.phase, ChatPhase::Ready) {
+            return;
+        }
+        let Some(host) = &self.chat.host else {
+            return;
+        };
+        if !host.prompt(text.clone()) {
+            self.chat.phase = ChatPhase::Failed("agent channel closed".to_string());
+            return;
+        }
+        self.chat.messages.push(ChatMessage {
+            from_user: true,
+            text,
+        });
+        self.chat.phase = ChatPhase::Streaming;
+        cx.notify();
+    }
+
+    fn stop_chat_turn(&mut self, cx: &mut Context<Self>) {
+        if let Some(host) = &self.chat.host {
+            host.stop();
+        }
+        cx.notify();
+    }
+
+    fn reset_chat_local(&mut self) {
+        self.chat.host.take();
+        self.chat.lease.take();
+        self.chat.poll_generation = self.chat.poll_generation.saturating_add(1);
+        self.chat.phase = ChatPhase::Idle;
+        self.chat.agent.clear();
+        self.chat.version = None;
+        self.chat.messages.clear();
+        self.chat.input.clear();
+        self.chat.focused = false;
+        self.chat.auto_prompted = false;
     }
 
     fn start_courses_load(&mut self, cx: &mut Context<Self>, first: bool) {
@@ -487,6 +754,25 @@ impl RootView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.chat.focused {
+            match event.keystroke.key.as_str() {
+                "enter" => self.send_chat(cx),
+                "backspace" => {
+                    self.chat.input.pop();
+                }
+                _ => {
+                    if let Some(text) = event.keystroke.key_char.as_deref() {
+                        if !event.keystroke.modifiers.modified() && !text.is_empty() {
+                            self.chat.input.push_str(text);
+                        }
+                    }
+                }
+            }
+            let focus = self.ensure_key_focus(cx);
+            _window.focus(&focus, cx);
+            cx.notify();
+            return;
+        }
         if event.keystroke.key != "enter" {
             return;
         }
@@ -1172,6 +1458,15 @@ impl Render for RootView {
                 {
                     self.start_course_detail_load(cx, course_id);
                 }
+            }
+            if current_id == Some("courses.learning")
+                && std::env::var("CGC_AUTO_CHAT").as_deref() == Ok("1")
+                && matches!(self.chat.phase, ChatPhase::Idle)
+            {
+                self.start_chat(cx);
+            }
+            if current_id != Some("courses.learning") && self.chat.host.is_some() {
+                self.reset_chat_local();
             }
             if workspaces_ready
                 && current_id == Some("courses.learning")
@@ -1972,6 +2267,253 @@ impl RootView {
             .flex_col()
             .gap(space(2))
             .child(back)
+            .child(body)
+            .into_any_element()
+    }
+
+    fn render_chat_panel(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let phase = self.chat.phase.clone();
+        let messages = self.chat.messages.clone();
+        let input = self.chat.input.clone();
+        let agent_label = if self.chat.agent.is_empty() {
+            "agent".to_string()
+        } else {
+            self.chat.agent.clone()
+        };
+        let body: AnyElement = match &phase {
+            ChatPhase::Idle => div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(space(2))
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(palette.ink_3)
+                        .child(format!("{agent_label} · 本机运行")),
+                )
+                .child(
+                    div()
+                        .id("chat-start")
+                        .px(space(2))
+                        .py(px(5.0))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .bg(palette.accent)
+                        .text_color(palette.canvas)
+                        .child(translate(language, Key::AgentChatChatStart))
+                        .on_click(cx.listener(|this, _, _, cx| this.start_chat(cx))),
+                )
+                .into_any_element(),
+            ChatPhase::Starting => div()
+                .text_size(px(12.0))
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::AgentChatChatStarting))
+                .into_any_element(),
+            ChatPhase::Failed(message) => div()
+                .flex()
+                .flex_col()
+                .gap(space(1))
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(palette.danger)
+                        .child(format!(
+                            "{}：{message}",
+                            translate(language, Key::AgentChatChatFailed)
+                        )),
+                )
+                .child(
+                    div()
+                        .id("chat-retry")
+                        .px(space(2))
+                        .py(px(5.0))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .bg(palette.accent)
+                        .text_color(palette.canvas)
+                        .child(translate(language, Key::AgentChatChatRetry))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.chat.phase = ChatPhase::Idle;
+                            this.start_chat(cx);
+                        })),
+                )
+                .into_any_element(),
+            ChatPhase::Ready | ChatPhase::Streaming => {
+                let rows = messages
+                    .iter()
+                    .map(|message| {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(1.0))
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_3)
+                            .child(if message.from_user {
+                                "你".to_string()
+                            } else {
+                                agent_label.clone()
+                            })
+                            .child(
+                                div()
+                                    .text_size(px(13.0))
+                                    .text_color(palette.ink)
+                                    .child(message.text.clone()),
+                            )
+                            .into_any_element()
+                    })
+                    .collect::<Vec<_>>();
+                let streaming = phase == ChatPhase::Streaming;
+                let status = if streaming {
+                    translate(language, Key::AgentChatChatThinking).to_string()
+                } else {
+                    String::new()
+                };
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(space(2))
+                    .children(rows)
+                    .children((!status.is_empty()).then(|| {
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_3)
+                            .child(status)
+                            .into_any_element()
+                    }))
+                    .child(
+                        div()
+                            .id("chat-input")
+                            .h(px(34.0))
+                            .flex()
+                            .items_center()
+                            .px(space(2))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .border_1()
+                            .border_color(if self.chat.focused {
+                                palette.accent
+                            } else {
+                                palette.line
+                            })
+                            .bg(palette.view)
+                            .text_size(px(13.0))
+                            .text_color(if input.is_empty() {
+                                palette.ink_3
+                            } else {
+                                palette.ink
+                            })
+                            .child(if input.is_empty() {
+                                translate(language, Key::AgentChatChatInputHint).to_string()
+                            } else {
+                                input.clone()
+                            })
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|this, _, window, cx| {
+                                    this.chat.focused = true;
+                                    let focus = this.ensure_key_focus(cx);
+                                    window.focus(&focus, cx);
+                                    cx.notify();
+                                }),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .gap(space(1))
+                            .child(
+                                div()
+                                    .id("chat-send")
+                                    .px(space(2))
+                                    .py(px(4.0))
+                                    .rounded(px(RADIUS_MEDIUM))
+                                    .bg(if streaming {
+                                        palette.soft
+                                    } else {
+                                        palette.accent
+                                    })
+                                    .text_color(if streaming {
+                                        palette.ink_3
+                                    } else {
+                                        palette.canvas
+                                    })
+                                    .child(translate(language, Key::AgentChatChatSend))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.chat.focused = true;
+                                        this.send_chat(cx);
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .id("chat-new")
+                                    .px(space(2))
+                                    .py(px(4.0))
+                                    .rounded(px(RADIUS_MEDIUM))
+                                    .bg(palette.soft)
+                                    .text_color(palette.ink_2)
+                                    .child(translate(language, Key::AgentChatChatNew))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.reset_chat_local();
+                                        this.start_chat(cx);
+                                    })),
+                            )
+                            .children(streaming.then(|| {
+                                div()
+                                    .id("chat-stop")
+                                    .px(space(2))
+                                    .py(px(4.0))
+                                    .rounded(px(RADIUS_MEDIUM))
+                                    .bg(palette.soft)
+                                    .text_color(palette.ink_2)
+                                    .child(translate(language, Key::AgentChatChatStop))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.stop_chat_turn(cx);
+                                    }))
+                                    .into_any_element()
+                            })),
+                    )
+                    .into_any_element()
+            }
+        };
+        let version = self
+            .chat
+            .version
+            .as_deref()
+            .map(|version| format!(" · {version}"))
+            .unwrap_or_default();
+        div()
+            .mt(space(4))
+            .flex()
+            .flex_col()
+            .gap(space(1))
+            .p(space(2))
+            .rounded(px(RADIUS_MEDIUM))
+            .border_1()
+            .border_color(palette.line)
+            .bg(palette.card)
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(space(1))
+                    .child(
+                        div()
+                            .text_size(px(15.0))
+                            .text_color(palette.ink)
+                            .child(translate_registered(language, "agent_chat.panel.title")),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_3)
+                            .child(format!("{agent_label}{version}")),
+                    ),
+            )
             .child(body)
             .into_any_element()
     }
@@ -3202,6 +3744,7 @@ impl RootView {
                                 )),
                         )
                         .child(self.render_course_materials(language, palette, cx))
+                        .child(self.render_chat_panel(language, palette, cx))
                         .into_any_element(),
                     Err(_) => div()
                         .px(space(2))
@@ -3653,6 +4196,26 @@ fn course_row(
             cx.notify();
         }))
         .into_any_element()
+}
+
+fn build_learning_host_api() -> Arc<dyn LearningHostApi> {
+    let use_http =
+        std::env::var("CGC_AUTH").as_deref() == Ok("http") || std::env::var("CGC_API_URL").is_ok();
+    if use_http {
+        Arc::new(HttpLearningHostApi::from_env())
+    } else {
+        Arc::new(FakeLearningHostApi::default())
+    }
+}
+
+fn build_learning_host_vault() -> Arc<dyn SecretVault> {
+    let use_http =
+        std::env::var("CGC_AUTH").as_deref() == Ok("http") || std::env::var("CGC_API_URL").is_ok();
+    if use_http {
+        Arc::new(KeychainVault::from_env())
+    } else {
+        Arc::new(MemoryVault::default())
+    }
 }
 
 fn build_enrollments_api() -> Arc<dyn EnrollmentsApi> {

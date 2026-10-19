@@ -258,6 +258,22 @@ impl SecretVault for MemoryVault {
     }
 }
 
+/// 独立签发（后台线程可调用）：issue + 写 vault，返回绑定 epoch 的 lease。
+pub fn issue_lease(
+    api: &dyn LearningHostApi,
+    vault: &dyn SecretVault,
+    session_token: &str,
+    name: &str,
+    epoch: u64,
+) -> Result<LearningHostLease, McpError> {
+    let mut lease = api.issue(session_token, name)?;
+    lease.epoch = epoch;
+    vault
+        .save(&lease.token)
+        .map_err(|error| McpError::Storage(error.to_string()))?;
+    Ok(lease)
+}
+
 /// 第一方凭证服务：issue 绑定 epoch；invalidate 先本地清 keychain 再返回旧 id 供撤销。
 pub struct LearningHostCredentialService {
     api: Arc<dyn LearningHostApi>,
@@ -296,11 +312,13 @@ impl LearningHostCredentialService {
         name: &str,
         epoch: u64,
     ) -> Result<&LearningHostLease, McpError> {
-        let mut lease = self.api.issue(session_token, name)?;
-        lease.epoch = epoch;
-        self.vault
-            .save(&lease.token)
-            .map_err(|error| McpError::Storage(error.to_string()))?;
+        let lease = issue_lease(
+            self.api.as_ref(),
+            self.vault.as_ref(),
+            session_token,
+            name,
+            epoch,
+        )?;
         self.lease = Some(lease);
         Ok(self.lease.as_ref().expect("lease set"))
     }
