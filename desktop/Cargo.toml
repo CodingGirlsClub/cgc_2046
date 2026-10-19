@@ -5,9 +5,11 @@ members = [
   "crates/account",
   "crates/events",
   "crates/courses",
-  "crates/companion",
+  "crates/agent_chat",
   "crates/platform",
-  "crates/platform-os",
+  "crates/platform-macos",
+  "crates/platform-windows",
+  "crates/platform-linux",
 ]
 
 [workspace.package]
@@ -21,6 +23,8 @@ gpui-kit = "0.7.3"
 cgc-account = { path = "crates/account" }
 cgc-events = { path = "crates/events" }
 cgc-courses = { path = "crates/courses" }
-cgc-companion = { path = "crates/companion" }
+cgc-agent-chat = { path = "crates/agent_chat" }
 cgc-platform = { path = "crates/platform" }
-cgc-platform-os = { path = "crates/platform-os" }
+cgc-platform-macos = { path = "crates/platform-macos" }
+cgc-platform-windows = { path = "crates/platform-windows" }
+cgc-platform-linux = { path = "crates/platform-linux" }

@@ -1,5 +1,5 @@
 [package]
-name = "cgc-platform-os"
+name = "cgc-platform-windows"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

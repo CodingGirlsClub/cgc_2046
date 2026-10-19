@@ -1,5 +1,5 @@
 [package]
-name = "cgc-companion"
+name = "cgc-agent-chat"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

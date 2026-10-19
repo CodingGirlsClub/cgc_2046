@@ -798,7 +798,7 @@ name = "cgc-account"
 version = "0.0.1"
 
 [[package]]
-name = "cgc-companion"
+name = "cgc-agent-chat"
 version = "0.0.1"
 
 [[package]]
@@ -821,7 +821,21 @@ name = "cgc-platform"
 version = "0.0.1"
 
 [[package]]
-name = "cgc-platform-os"
+name = "cgc-platform-linux"
+version = "0.0.1"
+dependencies = [
+ "cgc-platform",
+]
+
+[[package]]
+name = "cgc-platform-macos"
+version = "0.0.1"
+dependencies = [
+ "cgc-platform",
+]
+
+[[package]]
+name = "cgc-platform-windows"
 version = "0.0.1"
 dependencies = [
  "cgc-platform",
