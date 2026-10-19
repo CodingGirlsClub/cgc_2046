@@ -4152,9 +4152,10 @@
     "settings": {
       "model": "模型",
       "thinking": "思考等级",
+      "reasoning": "推理强度",
       "busy": "有一轮回复正在进行，先等它结束再改。",
       "unavailable": "这个 agent 没能启动，所以现在改不了设置。确认它的入口能运行后重试。",
-      "staleHost": "这台电脑上的 CGC Host 版本过旧，更新后才能在这里改模型与思考等级。",
+      "staleHost": "这台电脑上的 CGC Host 版本过旧，更新后才能在这里改模型与思考/推理强度。",
       "failed": "没能改过来，请重试。"
     },
     "newChat": "新开对话",

@@ -28,7 +28,7 @@ export interface Course {
   turn: Turn | null;
   /** 上一次随消息附带的页面上下文（KTD8）：没变就不再附 */
   lastContext: string | null;
-  /** agent 给的会话设置项（模型、思考等级，收窄后）：新一轮会话从它的回包里刷新 */
+  /** agent 给的会话设置项（模型、思考/推理强度，收窄后）：新一轮会话从它的回包里刷新 */
   settings: ConfigOption[];
   /** 上一次推给页面的设置（JSON）：内容没变就不重复推；null 表示还没同步过 */
   settingsKey: string | null;

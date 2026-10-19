@@ -93,7 +93,7 @@ export interface SessionsPage {
 	nextCursor: string | null;
 }
 
-/** history 的 settings 与 chat.settings 的载荷：Host 收窄后的 OMP 会话设置（模型、思考等级） */
+/** history 的 settings 与 chat.settings 的载荷：Host 收窄后的会话设置（模型、OMP 的思考等级 / Codex 的推理强度） */
 export interface HostChatSetting {
 	id: string;
 	name: string;
@@ -113,7 +113,7 @@ interface ChatState {
 	attached: boolean;
 	events: ChatEvent[];
 	cards: ChatCard[];
-	/** 本机 OMP 的会话设置（模型、思考等级）；空数组表示不渲染入口（旧版 Host 或 OMP 不给） */
+	/** 本机 agent 的会话设置（模型、OMP 的思考等级 / Codex 的推理强度）；空数组表示不渲染入口（旧版 Host 或 agent 不给） */
 	settings: HostChatSetting[];
 	running: boolean;
 	sending: boolean;
@@ -289,7 +289,7 @@ export interface HostChat extends Omit<ChatState, "evicted"> {
 	listSessions(cursor?: string): Promise<SessionsPage | { error: ChatErrorCode }>;
 	/** 切换到某个历史会话；成功即由 history 回复接管归约，失败返回错误码且不影响当前会话 */
 	openSession(sessionId: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }>;
-	/** 改当前会话的设置（模型、思考等级）；成功即由 chat.settings 回复接管归约，失败返回错误码 */
+	/** 改当前会话的设置（模型、思考/推理强度）；成功即由 chat.settings 回复接管归约，失败返回错误码 */
 	setSetting(configId: string, value: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }>;
 	/** 本机各 agent 的安装状态（KTD1）：选择器与「添加 agent」都读它 */
 	agents: HostAgentStatus[];
@@ -639,7 +639,7 @@ export function useHostChat({
 		[courseId, requestChatRaw, onReply],
 	);
 
-	// 改本机 OMP 的会话设置：成功由 chat.settings 回复接管归约；busy / chat_unavailable / bad_request 原样回给调用方
+	// 改本机 agent 的会话设置：成功由 chat.settings 回复接管归约；busy / chat_unavailable / bad_request 原样回给调用方
 	const setSetting = useCallback(
 		async (configId: string, value: string): Promise<{ ok: true } | { ok: false; code: ChatErrorCode }> => {
 			const reply = await requestChatRaw("chat.set_setting", { courseId, configId, value });

@@ -4152,9 +4152,10 @@
     "settings": {
       "model": "Model",
       "thinking": "Thinking level",
+      "reasoning": "Reasoning effort",
       "busy": "A reply is in progress. Wait for it to finish, then change this.",
       "unavailable": "This agent couldn't start, so the setting can't change yet. Check that its entry point runs, then retry.",
-      "staleHost": "The CGC Host on this computer is out of date. Update it to change the model and thinking level here.",
+      "staleHost": "The CGC Host on this computer is out of date. Update it to change the model and thinking/reasoning level here.",
       "failed": "Could not change it. Try again."
     },
     "newChat": "New chat",

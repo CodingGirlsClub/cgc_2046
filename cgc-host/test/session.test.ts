@@ -47,11 +47,18 @@ function restart(fake: ReturnType<typeof fakeAgent>, host: TestHost, paired: { t
   return next;
 }
 
-test("没有对话时 attach 不拉起 OMP；首条消息才拉起、新建会话、记下指针，回复逐条推送", async () => {
+test("打开学习搭子即建会话：attach 拉起 OMP、新建会话、记下指针并带设置；首条消息复用这条会话，不再重复 session/new", async () => {
   const fake = fakeAgent();
   const { host, page, token } = await chatPage(fake);
-  expect(await attach(page)).toMatchObject({ method: "history", params: { courseId: COURSE, running: false, events: [] } });
-  expect(fake.starts).toBe(0); // KTD13：空历史不值得拉起进程
+  // 首条消息之前页面就要能选模型/思考等级：没有会话指针时 attach 也建一条空会话
+  expect(await attach(page)).toMatchObject({
+    method: "history",
+    params: { courseId: COURSE, running: false, events: [], settings: [{ id: "model" }, { id: "thinking" }] },
+  });
+  expect(fake.starts).toBe(1);
+  // KTD6：工作目录 ~/cgc2046_workspace/courses/<userId>/<courseId>；mcpServers 带当前凭证，服务器名与终端插件一致
+  expect(fake.calledWith("session/new")).toEqual([{ cwd: workDir(host.home, USER_A, COURSE), mcpServers: cgcServer(token) }]);
+  expect(pointer(host.home)).toBe("session-1");
 
   expect(await send(page, "你好")).toMatchObject({ method: "turn.delta", params: { courseId: COURSE, kind: "user", text: "你好" } });
   expect(await page.next((m) => m.method === "turn.delta")).toMatchObject({ params: { kind: "message", text: "好的" } });
@@ -60,13 +67,30 @@ test("没有对话时 attach 不拉起 OMP；首条消息才拉起、新建会�
     params: { courseId: COURSE, stopReason: "end_turn", usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 } },
   });
 
+  // 首条消息复用 attach 建好的会话
   expect(fake.starts).toBe(1);
+  expect(fake.calledWith("session/new")).toHaveLength(1);
+  expect(fake.calledWith("session/prompt").map((p) => p.sessionId)).toEqual(["session-1"]);
   // KTD5：只声明 elicitation.form；fs / terminal 不声明（agent 侧看到的是 SDK 补上的默认值 false）
   expect(fake.calledWith("initialize")).toMatchObject([
     { protocolVersion: 1, clientCapabilities: { elicitation: { form: {} }, fs: { readTextFile: false, writeTextFile: false }, terminal: false } },
   ]);
-  // KTD6：工作目录 ~/cgc2046_workspace/courses/<userId>/<courseId>；mcpServers 带当前凭证，服务器名与终端插件一致
-  expect(fake.calledWith("session/new")).toEqual([{ cwd: workDir(host.home, USER_A, COURSE), mcpServers: cgcServer(token) }]);
+});
+
+test("attach 建会话时要求先登录：回 auth_required + 登录方式（不是 chat_unavailable）；登录后重试就拿到设置", async () => {
+  const fake = fakeAgent();
+  fake.authMethods = [{ id: "chat-gpt", name: "ChatGPT" }];
+  fake.authFor.add("session/new");
+  const { host, page } = await chatPage(fake);
+  expect(await attach(page)).toMatchObject({
+    method: "error",
+    params: { code: "auth_required", methods: [{ id: "chat-gpt", name: "ChatGPT" }] },
+  });
+  // 失败的那次没有留下指针
+  expect(pointer(host.home)).toBeUndefined();
+
+  fake.authFor.clear();
+  expect(await attach(page)).toMatchObject({ method: "history", params: { running: false, events: [], settings: [{ id: "model" }, { id: "thinking" }] } });
   expect(pointer(host.home)).toBe("session-1");
 });
 
@@ -130,7 +154,8 @@ describe("加载会话（KTD6）", () => {
     expect(await attach(pageB)).toMatchObject({ method: "history", params: { events: [] } });
     expect(fake.calledWith("session/list").at(-1)).toEqual({ cwd: workDir(host.home, USER_B, COURSE) });
     expect(fake.calledWith("session/load")).toEqual([]);
-    expect(pointer(host.home)).toBeUndefined();
+    // 旧指针清掉后照常为新账号建一条新会话（首条消息之前也要有设置可改）
+    expect(pointer(host.home)).toBe("session-2");
 
     await send(pageB, "B 的第一条");
     await ended(pageB);
@@ -301,15 +326,12 @@ test("KTD13 空闲回收：没有页面、没有在跑的回合，超过空闲�
   expect(fake.calledWith("session/prompt").map((p) => p.sessionId)).toEqual(["session-1", "session-1"]);
 });
 
-describe("对话设置（模型与思考等级）", () => {
-  test("attach 时还没有会话：settings 为空；首条消息建立会话后补推；再 attach 随 history 下发，mode 不透出", async () => {
+describe("对话设置（模型与思考/推理强度）", () => {
+  test("attach 即建会话：history 直接带 model 与 thinking；mode 不透出；首条消息复用，不重复 session/new", async () => {
     const fake = fakeAgent();
     const { page } = await chatPage(fake);
-    expect(await attach(page)).toMatchObject({ method: "history", params: { settings: [] } });
-
-    await send(page, "你好");
-    const pushed = await page.next((m) => m.method === "chat.settings");
-    expect(pushed.params.settings).toEqual([
+    const history = await attach(page);
+    expect(history.params.settings).toEqual([
       {
         id: "model",
         name: "Model",
@@ -332,12 +354,80 @@ describe("对话设置（模型与思考等级）", () => {
         ],
       },
     ]);
-    await ended(page);
-
-    const history = await attach(page);
-    expect(history.params.settings).toMatchObject([{ id: "model" }, { id: "thinking" }]);
     // mode（plan）是 agent 执行策略，不透出给页面
     expect(JSON.stringify(history.params.settings)).not.toMatch(/"mode"|plan/);
+
+    await send(page, "你好");
+    await ended(page);
+    // 首条消息复用 attach 建好的会话；设置已经随 history 同步过，不再重复推
+    expect(fake.starts).toBe(1);
+    expect(fake.calledWith("session/new")).toHaveLength(1);
+    expect(page.inbox.filter((m) => m.method === "chat.settings")).toEqual([]);
+
+    const again = await attach(page);
+    expect(again.params.settings).toMatchObject([{ id: "model" }, { id: "thinking" }]);
+  });
+
+  test("Codex 形状：裸 model id + reasoning_effort（category thought_level）+ mode → attach 就透出两项；set_setting 可改", async () => {
+    const fake = fakeAgent();
+    fake.configOptions = [
+      { id: "mode", name: "Mode", category: "mode", type: "select", currentValue: "default", options: [{ value: "default", name: "Default" }, { value: "plan", name: "Plan" }] },
+      {
+        id: "model",
+        name: "Model",
+        category: "model",
+        type: "select",
+        currentValue: "gpt-5.1-codex-max",
+        options: [
+          { value: "gpt-5.1-codex-max", name: "GPT-5.1-Codex-Max", description: "gpt-5.1-codex-max" },
+          { value: "gpt-5.1-codex", name: "GPT-5.1-Codex" },
+        ],
+      },
+      {
+        id: "reasoning_effort",
+        name: "Reasoning Effort",
+        category: "thought_level",
+        type: "select",
+        currentValue: "medium",
+        options: [
+          { value: "low", name: "Low" },
+          { value: "medium", name: "Medium" },
+          { value: "high", name: "High" },
+        ],
+      },
+    ];
+    const { page } = await chatPage(fake);
+    const history = await attach(page);
+    expect(history.params.settings).toEqual([
+      {
+        id: "model",
+        name: "Model",
+        category: "model",
+        currentValue: "gpt-5.1-codex-max",
+        options: [
+          { value: "gpt-5.1-codex-max", name: "GPT-5.1-Codex-Max", description: "gpt-5.1-codex-max" },
+          { value: "gpt-5.1-codex", name: "GPT-5.1-Codex" },
+        ],
+      },
+      {
+        id: "reasoning_effort",
+        name: "Reasoning Effort",
+        category: "thought_level",
+        currentValue: "medium",
+        options: [
+          { value: "low", name: "Low" },
+          { value: "medium", name: "Medium" },
+          { value: "high", name: "High" },
+        ],
+      },
+    ]);
+    // mode 是执行策略不透出；Codex 没有 thinking 这个 id
+    expect(JSON.stringify(history.params.settings)).not.toMatch(/"mode"|"thinking"|plan/);
+
+    const reply = await page.call("chat.set_setting", { courseId: COURSE, configId: "reasoning_effort", value: "high" });
+    expect(fake.calledWith("session/set_config_option")).toEqual([{ sessionId: "session-1", configId: "reasoning_effort", value: "high" }]);
+    expect(reply).toMatchObject({ method: "chat.settings", params: { courseId: COURSE } });
+    expect((reply.params.settings as { id: string; currentValue: string }[]).find((s) => s.id === "reasoning_effort")).toMatchObject({ currentValue: "high" });
   });
 
   test("set_setting 改模型：Host 发 session/set_config_option，页面按 OMP 的完整回包刷新（连带调整一并到位）", async () => {
@@ -346,7 +436,6 @@ describe("对话设置（模型与思考等级）", () => {
     await attach(page);
     await send(page, "你好");
     await ended(page);
-    await page.next((m) => m.method === "chat.settings"); // 首条消息建立会话后的补推
     fake.onSetConfig = (configId) => {
       if (configId !== "model") return;
       // OMP 实测行为：切到不支持思考的模型后，思考等级回退、可选值收窄
@@ -367,11 +456,13 @@ describe("对话设置（模型与思考等级）", () => {
     ]);
   });
 
-  test("参数与状态校验：没有会话回 chat_unavailable；非法参数不转达；OMP 拒绝的值回 bad_request", async () => {
+  test("参数与状态校验：没有已加载会话回 chat_unavailable；非法参数不转达；OMP 拒绝的值回 bad_request", async () => {
     const fake = fakeAgent();
     const { page } = await chatPage(fake);
     await attach(page);
-    // 空历史不拉起 OMP：还没有会话
+    // 进程退出 / 空闲回收后没有已加载会话（指针还在，下次需要时再拉起）
+    fake.conn!.close();
+    await fake.conn!.closed;
     expect(await page.call("chat.set_setting", { courseId: COURSE, configId: "model", value: "beta/two" })).toMatchObject(refused("chat_unavailable"));
 
     await send(page, "你好");
@@ -408,7 +499,7 @@ describe("对话设置（模型与思考等级）", () => {
     expect(await page.call("chat.set_setting", { courseId: COURSE, configId: "thinking", value: "high" })).toMatchObject({ method: "chat.settings" });
   });
 
-  test("换账号后 attach：带的是空 settings，不把上一个账号会话的设置下发给新页面", async () => {
+  test("换账号后 attach：不加载上一个账号的会话——清掉旧指针、建新会话，新页面拿到自己的设置与空历史", async () => {
     const fake = fakeAgent();
     const host = chatHost(fake);
     const a = await pair(host);
@@ -416,10 +507,16 @@ describe("对话设置（模型与思考等级）", () => {
     await attach(pageA);
     await send(pageA, "一");
     await ended(pageA);
+    expect(pointer(host.home)).toBe("session-1");
 
     const b = await pair(host, USER_B);
     const pageB = await helloed(host, b.browserKey, USER_B);
-    expect(await attach(pageB)).toMatchObject({ method: "history", params: { settings: [] } });
+    const history = await attach(pageB);
+    // 上一个账号的会话没有被加载（工作目录不同，belongs 不成立），新页面拿到的是自己的空会话 + 设置
+    expect(fake.calledWith("session/load")).toEqual([]);
+    expect(history).toMatchObject({ method: "history", params: { running: false, events: [] } });
+    expect((history.params.settings as { id: string }[]).map((setting) => setting.id)).toEqual(["model", "thinking"]);
+    expect(pointer(host.home)).toBe("session-2");
   });
 
   test("迟到的失败也按作废处理：会话换掉后旧请求报错回 busy，不误报 bad_request", async () => {
@@ -428,7 +525,6 @@ describe("对话设置（模型与思考等级）", () => {
     await attach(page);
     await send(page, "你好");
     await ended(page);
-    await page.next((m) => m.method === "chat.settings"); // 首条消息建立会话后的补推
 
     let release!: () => void;
     fake.beforeSetConfig = new Promise<void>((resolve) => (release = resolve)); // 挂住应答
@@ -449,7 +545,6 @@ describe("对话设置（模型与思考等级）", () => {
     await attach(page);
     await send(page, "你好");
     await ended(page);
-    await page.next((m) => m.method === "chat.settings"); // 首条消息建立会话后的补推
 
     let release!: () => void;
     fake.beforeSetConfig = new Promise<void>((resolve) => (release = resolve)); // 模拟 OMP 迟迟不回
@@ -480,11 +575,11 @@ describe("对话设置（模型与思考等级）", () => {
     await attach(page);
     await send(page, "你好");
     await ended(page);
-    // 两条推送：首条消息建立会话（OMP 的初值），随后 OMP 自己改了设置
+    // attach 的 history 已经同步了初值；这里只应有 OMP 自己改设置这一次推送
     const pushed = page.inbox.filter((m) => m.method === "chat.settings");
     expect(
       pushed.map((m) => (m.params.settings as { id: string; currentValue: string }[]).find((o) => o.id === "thinking")!.currentValue),
-    ).toEqual(["auto", "high"]);
+    ).toEqual(["high"]);
 
     const restarted = restart(fake, host, { token, tokenId });
     const page2 = await helloed(restarted, browserKey);

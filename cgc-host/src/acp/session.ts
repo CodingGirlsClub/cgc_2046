@@ -147,8 +147,9 @@ export function createChat(opts: ChatOptions) {
 
   /**
    * 让这门课在当前 agent 进程里有一条可用的会话（KTD6）：
-   * - attach：已有指针才拉起进程并 session/load（回放历史）；没有对话就不为空历史拉起进程（KTD13）；
-   * - send：有指针加载，没有就 session/new 并记下指针；
+   * - attach：有指针就拉起进程并 session/load（回放历史）；没有指针就 session/new——空历史也要建会话，
+   *   这样 attach 的 history 回包就能带上模型/思考强度设置，首条消息之前页面就能选；进程仍按 KTD13 空闲回收；
+   * - send：有指针加载，没有就 session/new 并记下指针；attach 建过的会话直接复用；
    * - new：「新开对话」，总是 session/new，指针改指新会话。
    * session/new 与每次 session/load 都下发含当前凭证的 mcpServers；换了账号或凭证就重新加载。
    */
@@ -168,7 +169,6 @@ export function createChat(opts: ChatOptions) {
     c.settingsKey = null;
     c.transcript.reset();
     const target = mode === "new" ? undefined : mode === "open" ? openTarget : ctx.sessions[c.id]?.[c.agent];
-    if (mode === "attach" && !target) return null;
     const a = await run.agent();
     run.check();
     const cwd = workDir(opts.home, ctx.userId, c.id);
@@ -208,10 +208,11 @@ export function createChat(opts: ChatOptions) {
     }
     if (mode === "open") throw new OpenError("bad_request"); // 目标不属于这门课的工作目录
     if (target) {
+      // KTD6：指针指向的会话不在课程目录下（例如换了账号）就不加载，清掉。attach 与 send 一样接着建新会话：
+      // 不把上一个账号的对话带给新页面（缓冲已清），同时首条消息之前也能拿到设置。
       console.error("cgc-host: 会话指针不在这门课的工作目录下，拒绝加载");
       setPointer(ctx.sessions, c.id, c.agent, null);
       ctx.save();
-      if (mode === "attach") return null;
     }
     const created = await run.wait("session/new", (signal) => a.rpc.request("session/new", { cwd, mcpServers }, { cancellationSignal: signal }));
     const { sessionId } = created;
@@ -340,6 +341,8 @@ export function createChat(opts: ChatOptions) {
 
     if (method === "chat.attach") {
       try {
+        // 没有会话指针时也会建一条空会话：history 回包要带模型/思考强度设置（首条消息之前页面就得能选）。
+        // 建会话失败（没装 agent、要求登录等）照旧回 chat_unavailable / auth_required；进程仍按 KTD13 空闲回收。
         await prepare(c, ctx, "attach", () => {
           reply("history", { running: c.turn !== null, events: c.transcript.events, settings: c.settings, agent: ctx.agents[c.id] ?? null });
           settingsSynced(c);
@@ -368,7 +371,7 @@ export function createChat(opts: ChatOptions) {
           reply("turn.delta", { kind: "user", text });
           if (turn.stopping) return finish(c, turn, { stopReason: "cancelled" });
           turn.sessionId = sessionId;
-          // attach 时还没有会话（空历史不拉起 OMP）：新建后把设置补推给页面
+          // 设置还没随 history 同步给页面（换账号后指针作废、进程被回收后重建等）：新建会话后补推
           publishSettings(c);
           a.rpc.request("session/prompt", { sessionId, prompt }).then(
             (res) => finish(c, turn, res),
@@ -435,7 +438,7 @@ export function createChat(opts: ChatOptions) {
         return isAuthRequired(e) ? failAuth() : fail("chat_unavailable");
       }
     } else if (method === "chat.set_setting") {
-      // 学员在对话栏改本机 OMP 的设置（模型、思考等级）：只作用于当前会话，不写学员的 OMP 配置
+      // 学员在对话栏改本机 agent 的设置（模型、OMP 的思考等级 / Codex 的推理强度）：只作用于当前会话，不写学员的 agent 配置
       const { configId, value } = params;
       if (typeof configId !== "string" || !Object.hasOwn(SETTING_IDS, configId) || typeof value !== "string" || !value || value.length > SETTING_VALUE_MAX) {
         return fail("bad_request");
