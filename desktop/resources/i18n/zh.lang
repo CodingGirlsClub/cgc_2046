@@ -153,3 +153,4 @@ app.settings.revoke_hint = 撤销后本机登录态立即失效，需要重新�
 app.settings.workspace = 当前工作台
 app.workspace.empty_title = 当前账号还没有工作台
 app.workspace.empty_guidance = 请联系管理员或使用网页端申请加入工作台后返回。
+app.auth.error.keychain = 无法安全保存登录凭证（系统钥匙串不可用），已拒绝持久登录

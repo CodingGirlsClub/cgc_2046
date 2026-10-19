@@ -840,6 +840,7 @@ dependencies = [
 name = "cgc-platform"
 version = "0.0.1"
 dependencies = [
+ "security-framework",
  "serde_json",
  "ureq",
 ]

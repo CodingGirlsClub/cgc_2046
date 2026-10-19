@@ -40,6 +40,8 @@ pub enum AuthError {
     Transport(String),
     /// 服务端返回非认证类错误。
     Server(String),
+    /// 本地凭证持久化失败（keychain 不可用等）：fail-closed，不进入 SignedIn。
+    Storage(String),
 }
 
 impl AuthError {
@@ -48,6 +50,7 @@ impl AuthError {
         match self {
             AuthError::InvalidCredentials => "invalid credentials".to_string(),
             AuthError::Transport(reason) => format!("transport error: {reason}"),
+            AuthError::Storage(reason) => format!("storage error: {reason}"),
             AuthError::Server(reason) => format!("server error: {reason}"),
         }
     }

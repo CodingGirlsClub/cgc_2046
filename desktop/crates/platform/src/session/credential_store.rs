@@ -182,3 +182,313 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 }
+
+// ---------------------------------------------------------------------------
+// 2.7：OS keychain 适配器（fail-closed；不可用时拒绝持久登录、不落明文）
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "linux")]
+use std::process::{Command, Stdio};
+
+/// 平台密钥后端；测试可注入内存/不可用实现。
+pub trait SecretBackend: Send + Sync {
+    fn set(&self, account: &str, secret: &str) -> io::Result<()>;
+    fn get(&self, account: &str) -> io::Result<Option<String>>;
+    fn delete(&self, account: &str) -> io::Result<()>;
+}
+
+fn unavailable(reason: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::Unsupported, reason.to_string())
+}
+
+/// macOS Security.framework 通用密码（service=cgc-desktop）。
+#[cfg(target_os = "macos")]
+#[derive(Default)]
+pub struct MacKeychain;
+
+#[cfg(target_os = "macos")]
+impl MacKeychain {
+    const SERVICE: &'static str = "cgc-desktop";
+}
+
+#[cfg(target_os = "macos")]
+impl SecretBackend for MacKeychain {
+    fn set(&self, account: &str, secret: &str) -> io::Result<()> {
+        security_framework::passwords::set_generic_password(
+            Self::SERVICE,
+            account,
+            secret.as_bytes(),
+        )
+        .map_err(|error| io::Error::other(error.to_string()))
+    }
+
+    fn get(&self, account: &str) -> io::Result<Option<String>> {
+        match security_framework::passwords::get_generic_password(Self::SERVICE, account) {
+            Ok(bytes) => String::from_utf8(bytes)
+                .map(Some)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string())),
+            Err(_) => Ok(None),
+        }
+    }
+
+    fn delete(&self, account: &str) -> io::Result<()> {
+        match security_framework::passwords::delete_generic_password(Self::SERVICE, account) {
+            Ok(()) => Ok(()),
+            Err(_) => Ok(()),
+        }
+    }
+}
+
+/// Linux：`secret-tool`（libsecret）。secret 走 stdin，不进程参数/日志。
+#[cfg(target_os = "linux")]
+#[derive(Default)]
+pub struct LinuxSecretTool;
+
+#[cfg(target_os = "linux")]
+impl LinuxSecretTool {
+    fn available() -> bool {
+        Command::new("secret-tool")
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl SecretBackend for LinuxSecretTool {
+    fn set(&self, account: &str, secret: &str) -> io::Result<()> {
+        if !Self::available() {
+            return Err(unavailable("secret-tool is not installed"));
+        }
+        use std::io::Write;
+        let mut child = Command::new("secret-tool")
+            .args([
+                "store",
+                "--label",
+                "CGC Desktop session",
+                "service",
+                "cgc-desktop",
+                "account",
+                account,
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?;
+        child
+            .stdin
+            .as_mut()
+            .ok_or_else(|| unavailable("cannot write secret to stdin"))?
+            .write_all(secret.as_bytes())?;
+        let status = child.wait()?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(io::Error::other("secret-tool store failed"))
+        }
+    }
+
+    fn get(&self, account: &str) -> io::Result<Option<String>> {
+        if !Self::available() {
+            return Err(unavailable("secret-tool is not installed"));
+        }
+        let output = Command::new("secret-tool")
+            .args(["lookup", "service", "cgc-desktop", "account", account])
+            .output()?;
+        if !output.status.success() || output.stdout.is_empty() {
+            return Ok(None);
+        }
+        String::from_utf8(output.stdout)
+            .map(Some)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
+    }
+
+    fn delete(&self, account: &str) -> io::Result<()> {
+        if !Self::available() {
+            return Err(unavailable("secret-tool is not installed"));
+        }
+        let _ = Command::new("secret-tool")
+            .args(["clear", "service", "cgc-desktop", "account", account])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()?;
+        Ok(())
+    }
+}
+
+/// 其它平台（Windows 等）：v1 fail-closed，不落明文；不伪装成可用。
+#[derive(Default)]
+pub struct UnavailableKeychain;
+
+impl SecretBackend for UnavailableKeychain {
+    fn set(&self, _account: &str, _secret: &str) -> io::Result<()> {
+        Err(unavailable("OS keychain is not available on this platform"))
+    }
+    fn get(&self, _account: &str) -> io::Result<Option<String>> {
+        Err(unavailable("OS keychain is not available on this platform"))
+    }
+    fn delete(&self, _account: &str) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// 测试/QA 用内存后端（不落盘；不是生产路径）。
+#[cfg(test)]
+#[derive(Default)]
+pub struct MemoryBackend {
+    secret: Mutex<Option<(String, String)>>,
+}
+
+#[cfg(test)]
+impl SecretBackend for MemoryBackend {
+    fn set(&self, account: &str, secret: &str) -> io::Result<()> {
+        *self.secret.lock().expect("secret") = Some((account.to_string(), secret.to_string()));
+        Ok(())
+    }
+    fn get(&self, account: &str) -> io::Result<Option<String>> {
+        Ok(self
+            .secret
+            .lock()
+            .expect("secret")
+            .as_ref()
+            .filter(|(stored, _)| stored == account)
+            .map(|(_, secret)| secret.clone()))
+    }
+    fn delete(&self, _account: &str) -> io::Result<()> {
+        *self.secret.lock().expect("secret") = None;
+        Ok(())
+    }
+}
+
+/// OS keychain 凭证存储：session JSON 整体存 keychain（service=cgc-desktop, account=user_id）。
+pub struct KeychainStore {
+    backend: Arc<dyn SecretBackend>,
+}
+
+impl KeychainStore {
+    pub fn new(backend: Arc<dyn SecretBackend>) -> Self {
+        Self { backend }
+    }
+
+    /// 运行时选择：`CGC_KEYCHAIN=unavailable` 仅供 QA 验证 fail-closed；否则平台后端。
+    pub fn from_env() -> Self {
+        if std::env::var("CGC_KEYCHAIN").as_deref() == Ok("unavailable") {
+            return Self::new(Arc::new(UnavailableKeychain));
+        }
+        #[cfg(target_os = "macos")]
+        {
+            Self::new(Arc::new(MacKeychain))
+        }
+        #[cfg(target_os = "linux")]
+        {
+            Self::new(Arc::new(LinuxSecretTool))
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        {
+            Self::new(Arc::new(UnavailableKeychain))
+        }
+    }
+
+    fn encode(session: &SignedInSession) -> String {
+        serde_json::json!({
+            "token": session.token,
+            "user_id": session.user_id,
+            "email": session.email,
+            "is_platform_admin": session.is_platform_admin,
+        })
+        .to_string()
+    }
+
+    fn decode(raw: &str) -> Option<SignedInSession> {
+        let value: serde_json::Value = serde_json::from_str(raw).ok()?;
+        Some(SignedInSession {
+            token: value.get("token")?.as_str()?.to_string(),
+            user_id: value.get("user_id")?.as_str()?.to_string(),
+            email: value
+                .get("email")
+                .and_then(|value| value.as_str())
+                .map(str::to_string),
+            is_platform_admin: value
+                .get("is_platform_admin")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false),
+        })
+    }
+}
+
+impl CredentialStore for KeychainStore {
+    fn load(&self) -> Option<SignedInSession> {
+        // load 无错误通道：任何 keychain 错误按「无会话」处理（不落明文、不崩溃）。
+        let account =
+            std::env::var("CGC_KEYCHAIN_ACCOUNT").unwrap_or_else(|_| "default".to_string());
+        self.backend
+            .get(&account)
+            .ok()
+            .flatten()
+            .and_then(|raw| Self::decode(&raw))
+    }
+
+    fn save(&self, session: &SignedInSession) -> io::Result<()> {
+        // 单会话应用：固定 account=default，load/clear 使用同一键。
+        self.backend.set("default", &Self::encode(session))
+    }
+
+    fn clear(&self) -> io::Result<()> {
+        let account =
+            std::env::var("CGC_KEYCHAIN_ACCOUNT").unwrap_or_else(|_| "default".to_string());
+        self.backend
+            .delete(&account)
+            .or_else(|_| self.backend.delete("default"))
+    }
+}
+
+#[cfg(test)]
+mod keychain_tests {
+    use super::*;
+
+    fn session(token: &str) -> SignedInSession {
+        SignedInSession {
+            token: token.to_string(),
+            user_id: "user-keychain".to_string(),
+            email: Some("demo@example.com".to_string()),
+            is_platform_admin: false,
+        }
+    }
+
+    #[test]
+    fn memory_backend_round_trips_without_plaintext_file() {
+        let store = KeychainStore::new(Arc::new(MemoryBackend::default()));
+        store.save(&session("t-keychain")).expect("save");
+        assert_eq!(
+            store.load().map(|session| session.token),
+            Some("t-keychain".to_string())
+        );
+        store.clear().expect("clear");
+        assert!(store.load().is_none());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "touches the real macOS keychain; run manually for HITL"]
+    fn real_mac_keychain_round_trip() {
+        let store = KeychainStore::from_env();
+        store.save(&session("t-real-keychain")).expect("save to real keychain");
+        assert_eq!(
+            store.load().map(|session| session.token),
+            Some("t-real-keychain".to_string())
+        );
+        store.clear().expect("clear real keychain");
+        assert!(store.load().is_none());
+    }
+
+    #[test]
+    fn unavailable_backend_fails_closed_on_save() {
+        let store = KeychainStore::new(Arc::new(UnavailableKeychain));
+        let error = store.save(&session("t")).expect_err("must fail");
+        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+        assert!(store.load().is_none());
+    }
+}

@@ -154,3 +154,4 @@ app.settings.revoke_hint
 app.settings.workspace
 app.workspace.empty_title
 app.workspace.empty_guidance
+app.auth.error.keychain

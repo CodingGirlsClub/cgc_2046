@@ -50,6 +50,7 @@ enum LoginField {
 pub(crate) enum LoginError {
     Invalid,
     Network,
+    Keychain,
 }
 
 impl LoginError {
@@ -57,6 +58,7 @@ impl LoginError {
         match error {
             AuthError::InvalidCredentials => LoginError::Invalid,
             AuthError::Transport(_) | AuthError::Server(_) => LoginError::Network,
+            AuthError::Storage(_) => LoginError::Keychain,
         }
     }
 
@@ -64,6 +66,7 @@ impl LoginError {
         match self {
             LoginError::Invalid => Key::AppAuthErrorInvalid,
             LoginError::Network => Key::AppAuthErrorNetwork,
+            LoginError::Keychain => Key::AppAuthErrorKeychain,
         }
     }
 }

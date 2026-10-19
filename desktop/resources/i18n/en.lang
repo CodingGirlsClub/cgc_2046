@@ -153,3 +153,4 @@ app.settings.revoke_hint = After revoking, this device signs out immediately; ot
 app.settings.workspace = Current workspace
 app.workspace.empty_title = This account has no workspace yet
 app.workspace.empty_guidance = Ask an admin or join a workspace in the web app, then return here.
+app.auth.error.keychain = Cannot securely store credentials (OS keychain unavailable); persistent login refused

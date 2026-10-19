@@ -10,7 +10,7 @@ mod auth_api;
 mod credential_store;
 
 pub use auth_api::{AuthApi, AuthError, FakeAuthApi, HttpAuthApi, SignedInSession};
-pub use credential_store::{CredentialStore, FileStore, MemoryStore};
+pub use credential_store::{CredentialStore, FileStore, KeychainStore, MemoryStore};
 
 /// UI 可观察的会话状态。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -40,7 +40,8 @@ impl SessionService {
     }
 
     /// 默认运行时装配：`CGC_AUTH=http`（或设置了 `CGC_API_URL`）走真实后端，
-    /// 否则用 fake auth（本地 UI 开发无需 backend）；凭证存 `FileStore`（默认路径）。
+    /// 否则用 fake auth（本地 UI 开发无需 backend）；凭证默认存 OS keychain（2.7 fail-closed），
+    /// `CGC_SESSION_FILE` 保留为 QA/离线演示覆盖。
     pub fn from_runtime() -> Self {
         let use_http = std::env::var("CGC_AUTH").as_deref() == Ok("http")
             || std::env::var("CGC_API_URL").is_ok();
@@ -49,7 +50,11 @@ impl SessionService {
         } else {
             Box::new(FakeAuthApi::demo())
         };
-        let store = Box::new(FileStore::new(FileStore::default_path()));
+        let store: Box<dyn CredentialStore + Send + Sync> =
+            match std::env::var_os("CGC_SESSION_FILE") {
+                Some(path) => Box::new(FileStore::new(path)),
+                None => Box::new(KeychainStore::from_env()),
+            };
         Self::new(api, store).restore()
     }
 
@@ -66,7 +71,7 @@ impl SessionService {
     pub fn adopt_signed_in(&mut self, session: SignedInSession) -> Result<(), AuthError> {
         if let Err(err) = self.store.save(&session) {
             self.state = SessionState::Failed(format!("cannot persist session: {err}"));
-            return Err(AuthError::Server("cannot persist session".to_string()));
+            return Err(AuthError::Storage(format!("cannot persist session: {err}")));
         }
         self.state = SessionState::SignedIn(session);
         Ok(())
@@ -112,7 +117,7 @@ impl SessionService {
             Ok(session) => {
                 if let Err(err) = self.store.save(&session) {
                     self.state = SessionState::Failed(format!("cannot persist session: {err}"));
-                    return Err(AuthError::Server("cannot persist session".to_string()));
+                    return Err(AuthError::Storage(format!("cannot persist session: {err}")));
                 }
                 self.state = SessionState::SignedIn(session);
                 match &self.state {
@@ -174,6 +179,34 @@ mod tests {
         ));
         assert!(matches!(service.state(), SessionState::Failed(_)));
         assert!(service.signed_in().is_none());
+    }
+
+    struct UnavailableStore;
+
+    impl CredentialStore for UnavailableStore {
+        fn load(&self) -> Option<SignedInSession> {
+            None
+        }
+        fn save(&self, _session: &SignedInSession) -> std::io::Result<()> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "keychain unavailable",
+            ))
+        }
+        fn clear(&self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn sign_in_fails_closed_when_store_unavailable() {
+        let mut service =
+            SessionService::new(Box::new(FakeAuthApi::demo()), Box::new(UnavailableStore));
+        let error = service.sign_in("demo@example.com", "demo").unwrap_err();
+        assert!(matches!(error, AuthError::Storage(_)));
+        assert!(service.signed_in().is_none());
+        assert!(matches!(service.state(), SessionState::Failed(_)));
+        assert!(!error.diagnostic().contains("jwt"));
     }
 
     #[test]
