@@ -55,15 +55,15 @@ jobs:
           second_tree=$(gh api "repos/$REPO/commits/$second" --jq '.commit.tree.sha') || exit 0
           [ "$tree" = "$second_tree" ] || exit 0
 
-          # 第二父(被合入分支 head)上各 CI job 最新结论:6 个检查必须齐全,
+          # 第二父(被合入分支 head)上各 CI job 最新结论:7 个检查必须齐全,
           # 全部 ∈ {success,skipped},且 secrets 必须是 success——secrets 恒跑,
           # 它的 success 才证明那一轮 CI 真跑过。无记录/进行中(null)→ 跑(fail-closed)
           concls=$(gh api "repos/$REPO/commits/$second/check-runs?per_page=100" \
-            --jq '[.check_runs[] | select(.name == "backend" or .name == "web" or .name == "miniprogram" or .name == "secrets" or .name == "ext" or .name == "host" or .name == "changes")]
+            --jq '[.check_runs[] | select(.name == "backend" or .name == "web" or .name == "miniprogram" or .name == "secrets" or .name == "ext" or .name == "host" or .name == "desktop" or .name == "changes")]
                   | group_by(.name) | map(sort_by(.started_at) | last | "\(.name) \(.conclusion)") | .[]') || exit 0
           grep -qx 'secrets success' <<<"$concls" || exit 0
           ! grep -qvE ' (success|skipped)$' <<<"$concls" || exit 0
-          for n in backend web miniprogram ext host; do
+          for n in backend web miniprogram ext host desktop; do
             grep -qE "^$n (success|skipped)$" <<<"$concls" || exit 0
           done
 
@@ -453,6 +453,80 @@ jobs:
       # 安装、卸载与版本门禁：临时 HOME + launchctl/uname 垫片，Linux runner 上同样能跑
       - run: bash test/install.test.sh
       - run: pnpm check:licenses
+
+  # 桌面客户端质量门与三平台安装包（story 1.13）。未签名产物：证书暂无，
+  # 签名/公证与自动更新归 epic-6（ADR-0027 决策 2/3）。job 名 desktop 同时进入
+  # gate 的 merge 去重列表；设为 required check 是仓库设置，由人执行。
+  desktop:
+    needs: [gate, changes]
+    if: >
+      !cancelled() &&
+      needs.gate.outputs.run == 'true' &&
+      needs.changes.outputs.docs_only != 'true' &&
+      (github.event_name == 'push' ||
+       github.head_ref != 'develop' ||
+       github.event.pull_request.head.repo.full_name != github.repository)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            formats: dmg
+          - os: windows-2022
+            formats: wix
+          - os: ubuntu-24.04
+            formats: deb,appimage
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.98.1"
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "desktop -> target"
+      - name: Linux 系统依赖
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc g++ clang libfontconfig-dev libwayland-dev \
+            libwebkit2gtk-4.1-dev libxkbcommon-x11-dev libx11-xcb-dev \
+            libssl-dev libzstd-dev libasound2-dev vulkan-validationlayers libvulkan1
+      - name: 格式与 lint
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets -- -D warnings
+      - name: 测试
+        run: cargo test --workspace
+      - name: 缓存 cargo-packager
+        id: packager-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/cargo-packager
+          key: cargo-packager-0.11.8-${{ runner.os }}
+      - name: 安装 cargo-packager
+        if: steps.packager-cache.outputs.cache-hit != 'true'
+        run: cargo install cargo-packager --locked --version 0.11.8
+      - name: 打包
+        run: cargo packager -p cgc-desktop-app --release -f ${{ matrix.formats }}
+      - name: 校验产物（Unix）
+        if: runner.os != 'Windows'
+        run: bash scripts/verify-package.sh
+      - name: 校验产物（Windows）
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/verify-package.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cgc-desktop-${{ matrix.os }}
+          path: desktop/dist/*
+          if-no-files-found: error
+          retention-days: 14
 
   # deps 基础镜像前移：develop push 时 TCR 缺当前 deps 层输入（mix.lock +
   # Dockerfile.deps + config 编译期配置，见下方 DEPS_HASH）对应的 amd64

@@ -16,7 +16,7 @@ date: 2026-10-19
 
 ## 决策（Decision）
 
-1. **技术栈 = Rust + GPUI，经 `gpui-kit` 0.7.3 使用**。工具链下限 **Rust 1.92+**（gpui-kit 安装要求，且 `gpui-pre-linux → oo7 0.6.0` 的 `rust_version = 1.92`），以 `rust-toolchain.toml` 固定。`gpui-kit` 以 `=0.3.9` 精确钉死 `gpui-pre`（zed@93d7456）；不得单独升级或覆盖其中某个 GPUI 包，也不得直接依赖 crates.io 的 `gpui` 0.2.2——两者不兼容，同时引入会产生两份 GPUI。
+1. **技术栈 = Rust + GPUI，经 `gpui-kit` 0.7.3 使用**。工具链下限 **Rust 1.98+**，以 `rust-toolchain.toml` 固定到 1.98.1。依据是实测而非文档：`gpui-pre 0.3.9` 用到 `slice_as_array`（1.94 才稳定）与 `cold_path`（1.95 才稳定），在 1.92 / 1.94 上分别以 E0658 编译失败；1.98.1 下 fmt / clippy / test / 打包全部验证通过。gpui-kit 安装文档写的「1.92+」不成立。`gpui-kit` 以 `=0.3.9` 精确钉死 `gpui-pre`（zed@93d7456）；不得单独升级或覆盖其中某个 GPUI 包，也不得直接依赖 crates.io 的 `gpui` 0.2.2——两者不兼容，同时引入会产生两份 GPUI。
 2. **分层与依赖方向**：`crates/app`（组合根）→ 各 domain crate（account / events / courses / companion）；domain crate 只依赖 `platform` 的端口 trait；OS 适配器按 Zed 的 `gpui_platform` + `gpui_macos/linux/windows` 同构拆成 `platform-{macos,windows,linux}`，各自实现端口并依赖 `platform` 的端口类型；domain crate 之间不互相 import（脊柱 AD-1）。布局对齐 Zed：`crates/` 下每个子系统一个 crate，`app` 是唯一 binary crate；加功能默认进已有 crate 的 module，不按功能清单建 crate。
 3. **业务数据单一来源 = 后端 GraphQL schema**：客户端用 schema 生成 Rust 类型，只写视图模型与可失效缓存（AD-2）；GraphQL 代码生成工具在 epic-2 选定并锁版（生成物只读）。
 4. **路由与 i18n 只追加**：并行 epic 向注册表追加条目，不修改共享文件的可变区域（AD-9）。
