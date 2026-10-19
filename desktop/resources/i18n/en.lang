@@ -188,3 +188,4 @@ app.settings.shortcut_hint = Shortcut to open settings
 app.settings.revoked = Revoked. Please sign in again.
 agent_chat.chat.threads = Threads
 agent_chat.chat.hide = Hide
+app.breadcrumb.sections = Events / Courses

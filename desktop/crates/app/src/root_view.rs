@@ -1134,20 +1134,6 @@ impl RootView {
         self.navigate(&format!("/courses/{course_id}/learn"));
     }
 
-    fn nav_shell_routes(&self) -> Vec<Route> {
-        self.registry
-            .routes()
-            .iter()
-            .filter(|route| {
-                route.nav
-                    && !route.has_dynamic_segment()
-                    && route.id != "app.settings"
-                    && (route.path == "/" || route.path.trim_matches('/').split('/').count() == 1)
-            })
-            .copied()
-            .collect()
-    }
-
     fn is_settings_shortcut(keystroke: &gpui_kit::Keystroke) -> bool {
         keystroke.key == "," && (keystroke.modifiers.platform || keystroke.modifiers.control)
     }
@@ -1259,22 +1245,19 @@ impl RootView {
             .flex_row()
             .items_center()
             .gap(px(4.0))
-            .h(px(28.0))
-            .px(space(3))
-            .bg(palette.canvas)
-            .border_b_1()
-            .border_color(palette.line)
             .text_size(px(12.0))
             .text_color(palette.ink_3)
             .child(workspace_switcher);
-        if let Some((courses, title)) = self.breadcrumb_context() {
-            let section_label = if courses {
-                translate_registered(language, "courses.catalog.title")
-            } else {
-                translate_registered(language, "events.list.title")
-            };
-            let selected = self.breadcrumb_menu.is_some();
-            bar = bar.child(div().child("›")).child(
+        let context = self.breadcrumb_context();
+        let section_label = match context {
+            Some((true, _)) => translate_registered(language, "courses.catalog.title"),
+            Some((false, _)) => translate_registered(language, "events.list.title"),
+            None => translate(language, Key::AppBreadcrumbSections),
+        };
+        let selected = self.breadcrumb_menu.is_some();
+        bar = bar
+            .child(div().child("›"))
+            .child(
                 div()
                     .id("breadcrumb-section")
                     .role(Role::Button)
@@ -1282,19 +1265,26 @@ impl RootView {
                     .px(space(1))
                     .py(px(2.0))
                     .rounded(px(RADIUS_SMALL))
-                    .text_color(if selected { palette.ink } else { palette.ink_2 })
-                    .bg(if selected { palette.soft } else { palette.card })
+                    .text_color(if selected {
+                        palette.ink
+                    } else {
+                        palette.ink_2
+                    })
+                    .bg(if selected {
+                        palette.soft
+                    } else {
+                        palette.card
+                    })
                     .hover(|style| style.bg(palette.soft))
                     .child(format!("{section_label} ▾"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.toggle_breadcrumb_menu(cx);
                     })),
             );
-            if let Some(title) = title {
-                bar = bar
-                    .child(div().child("›"))
-                    .child(div().text_color(palette.ink_2).child(title));
-            }
+        if let Some((_, Some(title))) = context {
+            bar = bar
+                .child(div().child("›"))
+                .child(div().text_color(palette.ink_2).child(title));
         }
         bar.into_any_element()
     }
@@ -1370,54 +1360,6 @@ impl RootView {
             .into_any_element()
     }
 
-    fn render_top_nav(
-        &self,
-        language: Language,
-        palette: &theme::Palette,
-        cx: &mut Context<Self>,
-    ) -> Vec<AnyElement> {
-        let current_id = self
-            .current
-            .as_ref()
-            .map(|route_match| route_match.route.id);
-        self.registry
-            .routes()
-            .iter()
-            .filter(|route| {
-                route.nav
-                    && route.id != "app.settings"
-                    && !route.has_dynamic_segment()
-                    && (route.path == "/" || route.path.trim_matches('/').split('/').count() == 1)
-            })
-            .map(|route| {
-                let route = *route;
-                let selected = current_id.is_some_and(|id| {
-                    id == route.id
-                        || id
-                            .strip_prefix(route.id)
-                            .is_some_and(|rest| rest.starts_with('.'))
-                });
-                div()
-                    .id(format!("top-nav-{}", route.id))
-                    .role(Role::Link)
-                    .aria_label(translate_registered(language, route.title_key))
-                    .px(space(2))
-                    .py(px(4.0))
-                    .rounded(px(RADIUS_MEDIUM))
-                    .text_size(px(13.0))
-                    .text_color(if selected { palette.ink } else { palette.ink_3 })
-                    .bg(if selected { palette.soft } else { palette.card })
-                    .hover(|style| style.bg(palette.soft))
-                    .child(translate_registered(language, route.title_key))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.select(route);
-                        cx.notify();
-                    }))
-                    .into_any_element()
-            })
-            .collect()
-    }
-
     fn toggle_agent_panel(&mut self, cx: &mut Context<Self>) {
         self.agent_panel_open = !self.agent_panel_open;
         cx.notify();
@@ -1477,19 +1419,6 @@ impl RootView {
         if Self::is_settings_shortcut(&event.keystroke) {
             self.open_settings_window(cx);
             return;
-        }
-        // 导航壳键盘路径：Ctrl+1..N 切换顶栏路由（与 footer 的 aria_keyshortcuts 对齐）。
-        if event.keystroke.modifiers.control && !event.keystroke.modifiers.shift {
-            if let Ok(index) = event.keystroke.key.parse::<usize>() {
-                let routes = self.nav_shell_routes();
-                if let Some(route) = routes.get(index.saturating_sub(1)) {
-                    self.select(*route);
-                    self.events_started = false;
-                    self.detail_started = false;
-                    cx.notify();
-                    return;
-                }
-            }
         }
         // 审批卡的键盘等价路径（显式组合键，避免与输入 y/n 冲突）。
         if event.keystroke.modifiers.control
@@ -3034,14 +2963,6 @@ impl Render for RootView {
                                 ),
                         )
                         .child(div().w(px(1.0)).h(px(14.0)).bg(palette.line))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .gap(px(2.0))
-                                .children(self.render_top_nav(language, &palette, cx)),
-                        )
                         .child(div().flex_1())
                         .child(
                             div().relative().flex().items_center().child(
@@ -6295,38 +6216,6 @@ mod tests {
             key_char: Some(",".to_string()),
         };
         assert!(!RootView::is_settings_shortcut(&plain));
-    }
-
-    #[test]
-    fn settings_route_is_hidden_from_nav_shell() {
-        let view = view();
-        let routes = view.nav_shell_routes();
-        assert!(
-            routes.iter().all(|route| route.id != "app.settings"),
-            "settings must be opened from avatar/shortcut, not footer nav"
-        );
-        // 路由本身仍保留给内部跳转/测试，只是不进导航壳。
-        assert!(view
-            .registry
-            .routes()
-            .iter()
-            .any(|route| route.id == "app.settings"));
-    }
-
-    #[test]
-    fn nav_shell_accessibility_metadata_is_complete() {
-        let view = view();
-        let routes = view.nav_shell_routes();
-        assert!(!routes.is_empty(), "nav shell routes");
-        for route in routes {
-            let label = crate::i18n::translate_registered(view.language(), route.title_key);
-            assert!(!label.trim().is_empty(), "aria label for {}", route.id);
-            assert!(
-                route.path == "/" || route.path.matches('/').count() >= 1,
-                "aria key shortcut index for {}",
-                route.id
-            );
-        }
     }
 
     #[test]

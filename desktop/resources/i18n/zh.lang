@@ -188,3 +188,4 @@ app.settings.shortcut_hint = 快捷键打开设置
 app.settings.revoked = 已撤销，请重新登录
 agent_chat.chat.threads = 对话
 agent_chat.chat.hide = 收起
+app.breadcrumb.sections = 场次 / 课程

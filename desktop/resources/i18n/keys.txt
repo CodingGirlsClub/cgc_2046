@@ -189,3 +189,4 @@ app.settings.shortcut_hint
 app.settings.revoked
 agent_chat.chat.threads
 agent_chat.chat.hide
+app.breadcrumb.sections
