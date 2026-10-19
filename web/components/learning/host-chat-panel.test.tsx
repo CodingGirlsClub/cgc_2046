@@ -444,6 +444,19 @@ describe("卡片（R19、R20）", () => {
 		expect(screen.getByRole("button", { name: "发送" })).toBeEnabled();
 	});
 
+	it("用量：usage 事件显示上下文与本会话累计费用", async () => {
+		const ws = await readyPanel();
+		ws.pushEvent({ kind: "usage", used: 12_345, size: 200_000, cost: { amount: 0.42, currency: "CNY" } });
+		await waitFor(() => expect(screen.getByText(/12\.3k \/ 200\.0k/)).toBeInTheDocument());
+		expect(screen.getByText(/0\.42/)).toBeInTheDocument();
+	});
+
+	it("用量：history 里回放的 usage 同样显示（重新接上对话后不丢）", async () => {
+		renderPanel();
+		await attach([{ kind: "usage", used: 6_000, size: 200_000 }]);
+		await waitFor(() => expect(screen.getByText(/6\.0k \/ 200\.0k/)).toBeInTheDocument());
+	});
+
 	it("Covers 停止不切走 agent：Codex 课程发 chat.stop 时带上当前 agent", async () => {
 		renderPanel();
 		const ws = await attach([], true, undefined, [

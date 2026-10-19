@@ -4307,6 +4307,10 @@
     "promptUnitDecompose": "Break down this objective",
     "promptUnitReview": "Review this unit with me",
     "promptOverviewPlan": "Plan my learning path",
-    "promptOverviewStart": "Where should I start?"
+    "promptOverviewStart": "Where should I start?",
+    "usage": {
+      "context": "Context {used} / {size}",
+      "cost": "This session {cost}"
+    }
   }
 }

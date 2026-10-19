@@ -3770,6 +3770,7 @@ button:focus-visible,
 .learning-chat__composer-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .learning-chat__composer-row button { flex: none; margin-left: auto; white-space: nowrap; }
 .learning-chat__workdir { min-width: 0; overflow: hidden; color: var(--ink-3); font-family: var(--font-mono); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+.learning-chat__usage { color: var(--ink-3); font-size: 10.5px; }
 /* R18 修订：模型与思考等级与发送按钮同排（Host 不给可选项时整块不渲染） */
 .learning-chat__settings { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
 .learning-chat__setting { max-width: 9.5rem; padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--canvas); color: var(--ink); font: inherit; font-size: 11.5px; }
