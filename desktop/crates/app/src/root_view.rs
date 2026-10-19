@@ -624,7 +624,7 @@ impl Render for RootView {
                 )
                 .child(self.render_footer(
                     language,
-                    false,
+                    true,
                     theme_glyph,
                     theme_label,
                     theme_tooltip,
