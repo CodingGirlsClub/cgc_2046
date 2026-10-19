@@ -2,4 +2,5 @@
 //!
 //! 约束（脊柱 AD-1）：feature 之间不互相依赖，只依赖 `platform` 的端口 trait。
 
+pub mod list;
 pub mod registration;

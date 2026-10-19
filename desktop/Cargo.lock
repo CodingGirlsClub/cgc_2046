@@ -831,6 +831,7 @@ name = "cgc-events"
 version = "0.0.1"
 dependencies = [
  "cgc-platform",
+ "serde_json",
 ]
 
 [[package]]

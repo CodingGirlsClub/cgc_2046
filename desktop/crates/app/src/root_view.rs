@@ -7,6 +7,11 @@
 
 use gpui_kit::*;
 
+use std::sync::Arc;
+
+use cgc_events::list::{
+    EventListService, EventsApi, FakeEventsApi, HttpEventsApi, ListState, StatusFilter,
+};
 use cgc_platform::routes::NavIcon;
 use cgc_platform::session::{AuthError, SessionService, SessionState, SignedInSession};
 use gpui_kit::assets::IconName as AssetIcon;
@@ -58,6 +63,9 @@ pub struct RootView {
     account_menu_open: bool,
     is_fake_mode: bool,
     key_focus: Option<FocusHandle>,
+    events: EventListService,
+    events_started: bool,
+    selected_event: Option<String>,
 }
 
 impl RootView {
@@ -77,7 +85,16 @@ impl RootView {
         preference: ThemePreference,
         session: SessionService,
     ) -> Self {
-        let current = registry.routes().first().copied();
+        let current = std::env::var("CGC_START_ROUTE")
+            .ok()
+            .and_then(|route_id| {
+                registry
+                    .routes()
+                    .iter()
+                    .find(|route| route.id == route_id)
+                    .copied()
+            })
+            .or_else(|| registry.routes().first().copied());
         let is_fake_mode = std::env::var("CGC_AUTH").as_deref() != Ok("http")
             && std::env::var("CGC_API_URL").is_err();
         Self {
@@ -94,6 +111,9 @@ impl RootView {
             account_menu_open: false,
             is_fake_mode,
             key_focus: None,
+            events: build_events_service(),
+            events_started: false,
+            selected_event: None,
         }
     }
 
@@ -152,6 +172,61 @@ impl RootView {
         }
     }
 
+    fn session_token(&self) -> Option<String> {
+        self.session
+            .signed_in()
+            .map(|session| session.token.clone())
+    }
+
+    fn reset_events(&mut self) {
+        self.events_started = false;
+        self.selected_event = None;
+    }
+
+    fn start_events_load(&mut self, cx: &mut Context<Self>, first: bool) {
+        if first {
+            self.events.begin_first_load();
+        } else {
+            self.events.begin_load_more();
+        }
+        self.events_started = true;
+
+        let api = self.events.api_handle();
+        let token = self.session_token();
+        let filter = self.events.filter();
+        let after = if first {
+            None
+        } else {
+            self.events.next_cursor().map(str::to_string)
+        };
+        let task = cx
+            .background_executor()
+            .spawn(async move { api.list_events(token.as_deref(), filter, after.as_deref(), 10) });
+
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(page) => this.events.adopt_page(page),
+                    Err(error) => this.events.fail(&error),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn select_events_filter(&mut self, filter: StatusFilter, cx: &mut Context<Self>) {
+        self.events.set_filter(filter);
+        self.events.retry_ready();
+        self.start_events_load(cx, true);
+    }
+
+    fn retry_events(&mut self, cx: &mut Context<Self>) {
+        self.events.retry_ready();
+        self.start_events_load(cx, true);
+    }
+
     fn ensure_key_focus(&mut self, cx: &mut Context<Self>) -> FocusHandle {
         self.key_focus
             .get_or_insert_with(|| cx.focus_handle())
@@ -201,6 +276,7 @@ impl RootView {
                 if self.session.adopt_signed_in(session).is_err() {
                     self.login_error = Some(LoginError::Network);
                 }
+                self.reset_events();
                 self.login_password.clear();
             }
             Err(error) => {
@@ -221,6 +297,7 @@ impl RootView {
                 .detach();
         }
         self.account_menu_open = false;
+        self.reset_events();
         self.login_email.clear();
         self.login_password.clear();
         self.login_error = None;
@@ -312,6 +389,14 @@ impl Render for RootView {
             ThemePreference::System => AssetIcon::Monitor,
         };
         let language_icon = AssetIcon::Languages;
+
+        if is_signed_in
+            && self.current.is_some_and(|route| route.id == "events.list")
+            && !self.events_started
+            && matches!(self.events.state(), ListState::Idle)
+        {
+            self.start_events_load(cx, true);
+        }
 
         let key_focus = self.ensure_key_focus(cx);
         if !is_signed_in {
@@ -615,13 +700,13 @@ impl Render for RootView {
                                 .children(account_menu)
                         }),
                 )
-                .child(
-                    div()
-                        .flex_1()
-                        .w_full()
-                        .p(space(6))
-                        .child(self.render_content(language, &palette, cx)),
-                )
+                .child(div().flex_1().w_full().p(space(6)).child(
+                    if self.current.is_some_and(|route| route.id == "events.list") {
+                        self.render_events_list(language, &palette, cx)
+                    } else {
+                        self.render_content(language, &palette, cx)
+                    },
+                ))
                 .child(self.render_footer(
                     language,
                     true,
@@ -729,6 +814,216 @@ impl RootView {
                 )
                 .into_any_element(),
         }
+    }
+
+    fn render_events_list(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let filter = self.events.filter();
+        let state = self.events.state().clone();
+        let items = self.events.items().to_vec();
+        let has_more = self.events.next_cursor().is_some();
+        let selected = self.selected_event.clone();
+
+        let filters = StatusFilter::ALL
+            .iter()
+            .map(|candidate| {
+                let candidate = *candidate;
+                let active = candidate == filter;
+                div()
+                    .id(format!("events-filter-{:?}", candidate).to_lowercase())
+                    .px(space(1))
+                    .py(px(3.0))
+                    .rounded(px(RADIUS_MEDIUM))
+                    .text_size(px(12.0))
+                    .text_color(if active {
+                        palette.canvas
+                    } else {
+                        palette.ink_2
+                    })
+                    .bg(if active { palette.accent } else { palette.soft })
+                    .child(translate(language, filter_key(candidate)))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.select_events_filter(candidate, cx);
+                    }))
+                    .into_any_element()
+            })
+            .collect::<Vec<_>>();
+
+        let body: AnyElement = match state {
+            ListState::Idle | ListState::Loading => div()
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::EventsListLoading))
+                .into_any_element(),
+            ListState::Failed(message) => div()
+                .flex()
+                .flex_col()
+                .gap(space(1))
+                .child(div().text_color(palette.danger).child(message))
+                .child(
+                    div()
+                        .id("events-retry")
+                        .px(space(2))
+                        .py(px(5.0))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .bg(palette.accent)
+                        .text_color(white())
+                        .child(translate(language, Key::EventsListRetry))
+                        .on_click(cx.listener(|this, _, _, cx| this.retry_events(cx))),
+                )
+                .into_any_element(),
+            ListState::Empty => div()
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::EventsListEmpty))
+                .into_any_element(),
+            ListState::Ready => {
+                let rows = items
+                    .iter()
+                    .map(|event| {
+                        let event = event.clone();
+                        let starts = event
+                            .starts_at
+                            .as_deref()
+                            .map(|value| value.chars().take(10).collect::<String>())
+                            .unwrap_or_default();
+                        let price = if event.pricing_enabled {
+                            translate(language, Key::EventsListPaid)
+                        } else {
+                            translate(language, Key::EventsListFree)
+                        };
+                        div()
+                            .id(format!("event-row-{}", event.id))
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_between()
+                            .gap(space(2))
+                            .px(space(2))
+                            .py(space(1))
+                            .border_b_1()
+                            .border_color(palette.line)
+                            .hover(|style| style.bg(palette.soft))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(2.0))
+                                    .child(div().text_color(palette.ink).child(event.title.clone()))
+                                    .child(
+                                        div()
+                                            .text_size(px(11.0))
+                                            .text_color(palette.ink_3)
+                                            .child(format!("{starts} · {price}")),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(space(1))
+                                    .child(
+                                        div()
+                                            .px(px(6.0))
+                                            .py(px(2.0))
+                                            .rounded(px(RADIUS_SMALL))
+                                            .bg(palette.soft)
+                                            .text_size(px(11.0))
+                                            .text_color(palette.ink_2)
+                                            .child(translate(
+                                                language,
+                                                status_key(event.status.as_str()),
+                                            )),
+                                    )
+                                    .child(
+                                        div().text_size(px(11.0)).text_color(palette.ink_3).child(
+                                            format!(
+                                                "{}/{}",
+                                                event.confirmed_count,
+                                                event
+                                                    .capacity
+                                                    .map(|capacity| capacity.to_string())
+                                                    .unwrap_or_else(|| "∞".to_string())
+                                            ),
+                                        ),
+                                    ),
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.selected_event = Some(event.title.clone());
+                                cx.notify();
+                            }))
+                            .into_any_element()
+                    })
+                    .collect::<Vec<_>>();
+
+                let detail_notice = selected.map(|title| {
+                    div()
+                        .mt(space(2))
+                        .text_size(px(12.0))
+                        .text_color(palette.ink_3)
+                        .child(format!(
+                            "{title} — {}",
+                            translate(language, Key::EventsListDetail)
+                        ))
+                        .into_any_element()
+                });
+
+                let load_more = has_more.then(|| {
+                    div()
+                        .id("events-load-more")
+                        .mt(space(2))
+                        .px(space(2))
+                        .py(px(5.0))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .border_1()
+                        .border_color(palette.line_strong)
+                        .text_color(palette.ink_2)
+                        .child(translate(language, Key::EventsListLoadMore))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.start_events_load(cx, false);
+                        }))
+                        .into_any_element()
+                });
+
+                div()
+                    .flex()
+                    .flex_col()
+                    .children(rows)
+                    .children(load_more)
+                    .children(detail_notice)
+                    .into_any_element()
+            }
+        };
+
+        div()
+            .flex()
+            .flex_col()
+            .gap(space(2))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .text_size(px(24.0))
+                            .text_color(palette.ink)
+                            .child(translate_registered(language, "events.list.title")),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(1))
+                            .children(filters),
+                    ),
+            )
+            .child(body)
+            .into_any_element()
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -842,6 +1137,35 @@ impl Render for TooltipText {
             .text_color(hsla_white())
             .text_size(px(11.0))
             .child(self.text.clone())
+    }
+}
+
+fn build_events_service() -> EventListService {
+    let use_http =
+        std::env::var("CGC_AUTH").as_deref() == Ok("http") || std::env::var("CGC_API_URL").is_ok();
+    let api: Arc<dyn EventsApi> = if use_http {
+        Arc::new(HttpEventsApi::from_env())
+    } else {
+        Arc::new(FakeEventsApi::with_seed(23))
+    };
+    EventListService::new(api)
+}
+
+fn status_key(status: &str) -> Key {
+    match status {
+        "open" => Key::EventsStatusOpen,
+        "closed" => Key::EventsStatusClosed,
+        "cancelled" => Key::EventsStatusCancelled,
+        _ => Key::EventsStatusDraft,
+    }
+}
+
+fn filter_key(filter: StatusFilter) -> Key {
+    match filter {
+        StatusFilter::All => Key::EventsFilterAll,
+        StatusFilter::Open => Key::EventsFilterOpen,
+        StatusFilter::Closed => Key::EventsFilterClosed,
+        StatusFilter::Cancelled => Key::EventsFilterCancelled,
     }
 }
 
