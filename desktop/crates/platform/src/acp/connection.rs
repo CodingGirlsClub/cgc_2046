@@ -13,9 +13,9 @@ use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
-    CancelNotification, ContentBlock, InitializeRequest, NewSessionRequest, PromptRequest,
-    RequestPermissionRequest, RequestPermissionResponse, SessionId, SessionNotification,
-    SessionUpdate, TextContent,
+    CancelNotification, ContentBlock, InitializeRequest, McpServer, NewSessionRequest,
+    PromptRequest, RequestPermissionRequest, RequestPermissionResponse, SessionId,
+    SessionNotification, SessionUpdate, TextContent,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{
@@ -28,11 +28,25 @@ const INIT_TIMEOUT: Duration = Duration::from_secs(45);
 const TURN_TIMEOUT: Duration = Duration::from_secs(60);
 const EVENT_CAPACITY: usize = 256;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AcpHostConfig {
     pub command: String,
     pub cwd: PathBuf,
     pub agent_name: String,
+    /// 只在 session/new 注入；含凭证，禁止 Debug/日志输出。
+    pub mcp_servers: Vec<McpServer>,
+}
+
+impl std::fmt::Debug for AcpHostConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AcpHostConfig")
+            .field("command", &self.command)
+            .field("cwd", &self.cwd)
+            .field("agent_name", &self.agent_name)
+            .field("mcp_servers", &self.mcp_servers.len())
+            .finish()
+    }
 }
 
 impl AcpHostConfig {
@@ -41,11 +55,17 @@ impl AcpHostConfig {
             command: command.into(),
             cwd,
             agent_name: "agent".to_string(),
+            mcp_servers: Vec::new(),
         }
     }
 
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.agent_name = name.into();
+        self
+    }
+
+    pub fn with_mcp_servers(mut self, servers: Vec<McpServer>) -> Self {
+        self.mcp_servers = servers;
         self
     }
 }
@@ -88,6 +108,17 @@ pub enum HostError {
     EmptyCommand,
     Thread(String),
 }
+
+impl std::fmt::Display for HostError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HostError::EmptyCommand => formatter.write_str("agent command is empty"),
+            HostError::Thread(reason) => write!(formatter, "cannot start host thread: {reason}"),
+        }
+    }
+}
+
+impl std::error::Error for HostError {}
 
 pub struct AcpHost {
     command_tx: UnboundedSender<HostCommand>,
@@ -237,10 +268,10 @@ async fn run_connection(
                     .map(|info| info.version.clone())
                     .unwrap_or_default();
 
+                let session_request = NewSessionRequest::new(config.cwd.clone())
+                    .mcp_servers(config.mcp_servers.clone());
                 let session = with_timeout(
-                    connection
-                        .send_request(NewSessionRequest::new(config.cwd.clone()))
-                        .block_task(),
+                    connection.send_request(session_request).block_task(),
                     INIT_TIMEOUT,
                     "session/new",
                 )
