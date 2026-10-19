@@ -373,7 +373,9 @@ export function useHostChat({
 		function apply(result: HostConnection) {
 			if (cancelled || current) return;
 			clearTimeout(timer);
-			if (result.state === "detected") previouslyReachedHost = true;
+			// 探测到 Host 的应答（detected / 版本过旧的 staleHost）都算「本轮连上过」：请求本身已经证明
+			// loopback 可达。sessionStorage 不可用时（隐私模式）只能靠它，否则下一次轮询会退回授权卡。
+			if (result.state === "detected" || result.state === "staleHost") previouslyReachedHost = true;
 			// 没连上时每 3 秒检测一次，结果多半没变：内容相同就沿用旧对象，对话栏不随轮询重渲染
 			setProbe((prev) => {
 				// 被动权限查询没有新探测结果，不能抹掉上次点击失败后的下一步指引。
