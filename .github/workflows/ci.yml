@@ -518,6 +518,13 @@ jobs:
           # AppImage 插件在无 FUSE 的运行器上用 extract-and-run 兜底
           APPIMAGE_EXTRACT_AND_RUN: "1"
         run: cargo packager -p cgc-desktop-app --release -f ${{ matrix.formats }}
+      - name: 重命名产物（版本+commit，Unix）
+        if: runner.os != 'Windows'
+        run: bash scripts/name-artifacts.sh
+      - name: 重命名产物（版本+commit，Windows）
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/name-artifacts.ps1
       - name: 校验产物（Unix）
         if: runner.os != 'Windows'
         run: bash scripts/verify-package.sh
