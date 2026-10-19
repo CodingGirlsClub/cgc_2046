@@ -121,10 +121,11 @@ async function probe(): Promise<HostConnection | null> {
 	}
 }
 
-/** 探测成功（检测到 Host）就记下「本页曾连上」的证据：刷新后的自动重连靠它 */
+/** 探测拿到 Host 的应答（detected / staleHost 都算）就记下「本页曾连上」的证据：刷新后的自动重连靠它。
+ *  旧版 Host 也证明 loopback 请求可达——刷新后仍应显示「Host 需要更新」，而不是退回授权卡。 */
 async function probeAndRemember(): Promise<HostConnection | null> {
 	const probed = await probe();
-	if (probed?.state === "detected") rememberReachedHost();
+	if (probed) rememberReachedHost();
 	return probed;
 }
 

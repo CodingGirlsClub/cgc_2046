@@ -353,6 +353,18 @@ describe("刷新后自动重连（sessionStorage 证据，2026-10-19 修订）",
 		expect(afterReload.fetchMock).toHaveBeenCalledOnce();
 	});
 
+	it("旧版 Host（staleHost）同样算「连上了」：刷新后仍显示「Host 需要更新」，不退回授权卡", async () => {
+		const stale = { version: "0.0.9", agents: [{ kind: "omp", present: true }], paired: true };
+		stubBrowser({ permission: "prompt", health: stale });
+		expect(await requestHostAccess()).toEqual({ state: "staleHost" });
+		expect(window.sessionStorage.getItem("cgc-host-reached")).toBe("1");
+
+		// 模拟刷新：权限仍报 prompt，但证据让 checkHost 直接探测到旧版 Host（而不是 needsPermission）
+		const afterReload = stubBrowser({ permission: "prompt", health: stale });
+		expect(await checkHost()).toEqual({ state: "staleHost" });
+		expect(afterReload.fetchMock).toHaveBeenCalledOnce();
+	});
+
 	it("sessionStorage 不可用（隐私模式抛错）按没有证据处理：不崩、首次仍不探测", async () => {
 		const { fetchMock } = stubBrowser({ permission: "prompt" });
 		const original = window.sessionStorage;
