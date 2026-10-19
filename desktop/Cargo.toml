@@ -1,0 +1,26 @@
+[workspace]
+resolver = "2"
+members = [
+  "app",
+  "features/account",
+  "features/events",
+  "features/courses",
+  "features/companion",
+  "platform",
+  "platform-os",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "AGPL-3.0-only"
+rust-version = "1.92"
+
+[workspace.dependencies]
+gpui-kit = "0.7.3"
+cgc-feature-account = { path = "features/account" }
+cgc-feature-events = { path = "features/events" }
+cgc-feature-courses = { path = "features/courses" }
+cgc-feature-companion = { path = "features/companion" }
+cgc-platform = { path = "platform" }
+cgc-platform-os = { path = "platform-os" }
