@@ -71,7 +71,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 
 ## 对话的载荷契约（`src/acp/`、`src/agents/`）
 
-每门课对应**每个 agent 各一条** ACP 会话，指针存在状态文件的 `sessions`（courseId → `{<agent kind>: sessionId}`；多 agent 之前的旧形状是 courseId → sessionId，读时按缺省 agent 迁移并落盘）。**每个 agent kind 一个进程**：第一次需要时才拉起（`chat.attach`——回放历史，或没有指针时建一条会话好把设置随 `history` 下发；以及 `chat.send`、`chat.new`）；没有页面连着、也没有在跑的回合超过 10 分钟就回收，下次需要时再拉起并 session/load——attach 建的空会话只留指针，进程照常按 KTD13 回收。会话的工作目录是 `~/cgc2046_workspace/courses/<userId>/<courseId>`（`src/state.ts` 的 `workDir`，与终端插件的工作区同一棵树、隔一层 `courses/`）；session/new 与每次 session/load 都下发含当前学习凭证的 `cgc-2046` MCP 服务器，指针指向的会话不在当前课程目录下（例如换了账号）就不加载、清掉指针。换 agent 就是换一段会话：旧 agent 在跑的回合先按取消收尾、本次回 `busy`，页面重试才切换；切换后缓冲、设置与待答卡片都清空。
+每门课对应**每个 agent 各一条** ACP 会话，指针存在状态文件的 `sessions`（courseId → `{<agent kind>: sessionId}`；多 agent 之前的旧形状是 courseId → sessionId，读时按缺省 agent 迁移并落盘）。**每个 agent kind 一个进程**：第一次需要时才拉起（`chat.attach`——回放历史，或没有指针时建一条会话好把设置随 `history` 下发；以及 `chat.send`、`chat.new`）；没有页面连着、也没有在跑的回合超过 10 分钟就回收，下次需要时再拉起并 session/load（另外，一轮从发出 prompt 起最多 30 分钟，到点 Host 本地按 `error` 收尾，不再等 agent）——attach 建的空会话只留指针，进程照常按 KTD13 回收。会话的工作目录是 `~/cgc2046_workspace/courses/<userId>/<courseId>`（`src/state.ts` 的 `workDir`，与终端插件的工作区同一棵树、隔一层 `courses/`）；session/new 与每次 session/load 都下发含当前学习凭证的 `cgc-2046` MCP 服务器，指针指向的会话不在当前课程目录下（例如换了账号）就不加载、清掉指针。换 agent 就是换一段会话：旧 agent 在跑的回合先按取消收尾、本次回 `busy`，页面重试才切换；切换后缓冲、设置与待答卡片都清空。
 
 下面的消息都带 `courseId`，表里省略。
 
@@ -79,7 +79,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 | --- | --- | --- |
 | `chat.attach` | `agent?` | `history`（没有会话指针时先建一条空会话，回包因此带设置）；之后把未答的卡片逐张以 `turn.card` 重发 |
 | `chat.send` | `text`（非空字符串）、`context` | 回 `turn.delta {kind: "user", text}` 表示接下了；之后推 `turn.delta` / `turn.card` / `turn.card.closed`，最后 `turn.end` |
-| `chat.stop` | — | 不回复；在跑的一轮：待答卡片 `turn.card.closed {reason: "cancelled"}`，没跑完的工具步骤以 `status: "stopped"` 推一次 `turn.delta`，随后 `turn.end {stopReason: "cancelled"}`。停止前已提交到平台的结果照常生效 |
+| `chat.stop` | — | 不回复；在跑的一轮：待答卡片 `turn.card.closed {reason: "cancelled"}`，没跑完的工具步骤以 `status: "stopped"` 推一次 `turn.delta`，随后 `turn.end {stopReason: "cancelled"}`。agent 在 15 秒内不应答取消时，Host 本地按 cancelled 收尾并推 `turn.end`（迟到的应答被忽略）。停止前已提交到平台的结果照常生效 |
 | `chat.new` | — | `history`（空）：此后的消息进一条新会话，agent 不带之前的上下文；学习进度不受影响 |
 | `chat.sessions` | `cursor?`（分页游标，原样透传 ACP） | `sessions {sessions: [{sessionId, updatedAt, messageCount}], current, nextCursor}`：本课程工作目录下的会话；只读，有回合在跑也可查；元数据缺省为 `null`（OMP 差异），页面降级展示 |
 | `chat.open` | `sessionId` | `history`：切换到指定会话；目标必须在本课程工作目录下（否则 `bad_request`）；加载失败 `session_unavailable` 且持久指针不动（原会话不受影响）；有回合在跑 `busy`；成功才推进指针，切当前会话不重复加载 |

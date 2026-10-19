@@ -10,6 +10,10 @@ export interface Turn {
   stopping: boolean;
   sessionId: string | null;
   text: string;
+  /** 绝对上限：从发出 prompt 起算；到点本地按 error 收尾（Host 日志记录） */
+  watchdog: Timer | null;
+  /** 已发 session/cancel，等 agent 应答的上限；到点本地按 cancelled 收尾 */
+  ackWatchdog: Timer | null;
 }
 
 export interface Course {

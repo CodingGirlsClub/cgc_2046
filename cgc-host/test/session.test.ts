@@ -33,6 +33,13 @@ type Page = Awaited<ReturnType<typeof helloed>>;
 const attach = (page: Page) => page.call("chat.attach", { courseId: COURSE });
 const send = (page: Page, text: string, context: unknown = CONTEXT) => page.call("chat.send", { courseId: COURSE, text, context });
 const ended = (page: Page) => page.next((m) => m.method === "turn.end");
+const endedWithin = (page: Page, ms: number) =>
+  Promise.race([
+    ended(page),
+    Bun.sleep(ms).then(() => {
+      throw new Error(`等待 turn.end 超时（${ms}ms）`);
+    }),
+  ]);
 const pointer = (home: string): string | undefined => JSON.parse(readFileSync(join(stateDir(home), "state.json"), "utf8")).sessions[COURSE]?.omp;
 const cgcServer = (token: string) => [{ type: "http", name: "cgc-2046", url: `${API}/mcp`, headers: [{ name: "authorization", value: `Bearer ${token}` }] }];
 /** 录制转录里审批请求的四个选项（终端里看到的同一组） */
@@ -284,6 +291,30 @@ test("一轮没结束时再发消息回 busy", async () => {
   expect(await page.call("chat.new", { courseId: COURSE })).toMatchObject(refused("busy"));
   page.send({ method: "chat.stop", params: { courseId: COURSE } });
   await ended(page);
+});
+
+test("看门狗：prompt 永远不 settle 时到点本地按 error 收尾，课程之后不再 busy", async () => {
+  const fake = fakeAgent();
+  const { page } = await chatPage(fake, { turnTimeoutMs: 40 });
+  const normal = fake.script;
+  fake.script = () => new Promise<never>(() => {}); // 永不 settle
+  await attach(page);
+  await send(page, "一");
+  expect(await endedWithin(page, 2000)).toMatchObject({ params: { courseId: COURSE, stopReason: "error" } });
+  // 本地收尾后课程可用：下一条消息照常跑完
+  fake.script = normal;
+  expect(await send(page, "二")).toMatchObject({ method: "turn.delta", params: { kind: "user", text: "二" } });
+  expect(await endedWithin(page, 2000)).toMatchObject({ params: { stopReason: "end_turn" } });
+});
+
+test("看门狗：agent 忽略 session/cancel 时，取消应答上限到点按 cancelled 收尾", async () => {
+  const fake = fakeAgent();
+  const { page } = await chatPage(fake, { cancelAckTimeoutMs: 40, turnTimeoutMs: 60_000 });
+  fake.script = () => new Promise<never>(() => {}); // 既不回 prompt，也不理会 cancel
+  await attach(page);
+  await send(page, "一");
+  page.send({ method: "chat.stop", params: { courseId: COURSE, agent: "omp" } });
+  expect(await endedWithin(page, 2000)).toMatchObject({ params: { courseId: COURSE, stopReason: "cancelled" } });
 });
 
 test("找不到或起不来 OMP：对话方法回 chat_unavailable，不留下进行中的回合", async () => {

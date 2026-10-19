@@ -35,6 +35,10 @@ export interface ChatOptions {
   graceMs?: number;
   /** KTD13：没有页面连着、也没有在跑的回合超过它，就回收 OMP 进程；默认 10 分钟 */
   idleMs?: number;
+  /** 一轮从发出 prompt 起的总上限（默认 30 分钟）；到点本地按 error 收尾。测试可缩短 */
+  turnTimeoutMs?: number;
+  /** 发出 session/cancel 后等 agent 应答的上限（默认 15 秒）；到点本地按 cancelled 收尾。测试可缩短 */
+  cancelAckTimeoutMs?: number;
 }
 
 /** ACP 的 auth_required（-32000）：这个 agent 要求学员先登录（页面的登录卡与 chat.authenticate 都是围绕它） */
@@ -45,6 +49,8 @@ const sessionKey = (kind: AgentKind, sessionId: string) => `${kind}:${sessionId}
 export function createChat(opts: ChatOptions) {
   const graceMs = opts.graceMs ?? 5 * 60_000;
   const idleMs = opts.idleMs ?? 10 * 60_000;
+  const turnTimeoutMs = opts.turnTimeoutMs ?? 30 * 60_000;
+  const cancelAckTimeoutMs = opts.cancelAckTimeoutMs ?? 15_000;
   const courses = new Map<string, Course>();
   const bySession = new Map<string, Course>();
   let connections = 0;
@@ -240,9 +246,18 @@ export function createChat(opts: ChatOptions) {
     return run;
   }
 
+  /** 清理回合的两个看门狗（正常收尾、换会话时调用；计时器必须跟着回合一起走） */
+  function clearTurnTimers(turn: Turn) {
+    if (turn.watchdog) clearTimeout(turn.watchdog);
+    if (turn.ackWatchdog) clearTimeout(turn.ackWatchdog);
+    turn.watchdog = null;
+    turn.ackWatchdog = null;
+  }
+
   /** 回合结束：未答的卡片以取消收起、没跑完的工具标为已停止，R27 归类，推 turn.end（KTD14 据此重取学习详情） */
   function finish(c: Course, turn: Turn, res: PromptResponse | null) {
     if (c.turn !== turn) return;
+    clearTurnTimers(turn);
     const stopReason = res?.stopReason ?? "error";
     c.cards.cancelAll();
     for (const step of c.transcript.stopTools()) delta(c, step);
@@ -261,6 +276,16 @@ export function createChat(opts: ChatOptions) {
     turn.stopping = true;
     const active = runtimeFor(c.agent).agent;
     if (active && turn.sessionId) void active.rpc.notify("session/cancel", { sessionId: turn.sessionId }).catch(() => {});
+    // 取消是通知，agent 不回也不会让 session/prompt 失败：给它一个应答期限，到点由 Host 本地收尾，
+    // 否则页面永远停在「停止中」、课程永远 busy（空闲回收也以 busy 为条件）。
+    if (!turn.ackWatchdog) {
+      turn.ackWatchdog = setTimeout(() => {
+        if (c.turn !== turn) return;
+        console.error("cgc-host: agent 未在取消宽限内应答，Host 本地按取消收尾");
+        finish(c, turn, { stopReason: "cancelled" });
+      }, cancelAckTimeoutMs);
+      turn.ackWatchdog.unref();
+    }
     c.cards.cancelAll();
     for (const step of c.transcript.stopTools()) delta(c, step);
     checkGrace(c);
@@ -298,6 +323,7 @@ export function createChat(opts: ChatOptions) {
       c.settings = [];
       c.settingsKey = null;
       c.transcript.reset();
+      if (c.turn) clearTurnTimers(c.turn);
       c.turn = null;
       c.cards.cancelAll();
     }
@@ -361,7 +387,7 @@ export function createChat(opts: ChatOptions) {
       const context = pageContext(params.context, c.id);
       if (typeof text !== "string" || !text.trim() || context === null) return fail("bad_request");
       if (c.turn) return fail("busy");
-      const turn: Turn = { stopping: false, sessionId: null, text: "" };
+      const turn: Turn = { stopping: false, sessionId: null, text: "", watchdog: null, ackWatchdog: null };
       c.turn = turn;
       checkIdle();
       try {
@@ -377,6 +403,13 @@ export function createChat(opts: ChatOptions) {
           turn.sessionId = sessionId;
           // 设置还没随 history 同步给页面（换账号后指针作废、进程被回收后重建等）：新建会话后补推
           publishSettings(c);
+          // 绝对上限：适配器/连接悬挂时，本轮不能永远占着课程（busy）与进程（空闲回收以 !busy 为条件）
+          turn.watchdog = setTimeout(() => {
+            if (c.turn !== turn) return;
+            console.error(`cgc-host: 本轮超过 ${turnTimeoutMs}ms 仍未收尾，Host 本地结束这一轮`);
+            finish(c, turn, null);
+          }, turnTimeoutMs);
+          turn.watchdog.unref();
           a.rpc.request("session/prompt", { sessionId, prompt }).then(
             (res) => finish(c, turn, res),
             (e) => {
@@ -387,6 +420,7 @@ export function createChat(opts: ChatOptions) {
         });
       } catch (e) {
         console.error(`cgc-host: 无法开始对话：${message(e)}`);
+        clearTurnTimers(turn);
         if (c.turn === turn) c.turn = null;
         checkIdle();
         return isAuthRequired(e) ? failAuth() : fail("chat_unavailable");

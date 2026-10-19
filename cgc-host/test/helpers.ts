@@ -424,11 +424,28 @@ export const codexTestRecord = (fake: Fake): AgentRecord => ({
 /** 接上假 OMP 的 Host：对话处理器是真的（createChat），home 可传入以模拟 Host 重启 */
 export function chatHost(
   fake: Fake,
-  opts: { home?: string; graceMs?: number; idleMs?: number; preparationTimeoutMs?: number; records?: AgentRecord[] } = {},
+  opts: {
+    home?: string;
+    graceMs?: number;
+    idleMs?: number;
+    preparationTimeoutMs?: number;
+    turnTimeoutMs?: number;
+    cancelAckTimeoutMs?: number;
+    records?: AgentRecord[];
+  } = {},
 ) {
   const home = opts.home ?? tempHome();
   const registry = createRegistry(opts.records ?? [ompTestRecord(fake)]);
-  const chat = createChat({ home, apiBase: API, registry, graceMs: opts.graceMs, idleMs: opts.idleMs, preparationTimeoutMs: opts.preparationTimeoutMs });
+  const chat = createChat({
+    home,
+    apiBase: API,
+    registry,
+    graceMs: opts.graceMs,
+    idleMs: opts.idleMs,
+    preparationTimeoutMs: opts.preparationTimeoutMs,
+    turnTimeoutMs: opts.turnTimeoutMs,
+    cancelAckTimeoutMs: opts.cancelAckTimeoutMs,
+  });
   return startHost({ home, chat: chat.handle, onConnections: chat.connections });
 }
 
