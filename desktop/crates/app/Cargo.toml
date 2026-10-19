@@ -7,6 +7,11 @@ rust-version.workspace = true
 
 [dependencies]
 gpui-kit.workspace = true
+cgc-account.workspace = true
+cgc-agent-chat.workspace = true
+cgc-courses.workspace = true
+cgc-events.workspace = true
+cgc-platform.workspace = true
 
 # cargo-packager 配置（story 1.13）；格式由 CI 的 --formats 指定（dmg / wix / deb,appimage）。
 # 未签名产物：签名与公证归 epic-6（ADR-0027 决策 2/3）。

@@ -1,19 +1,10 @@
-//! 可追加的路由注册表（脊柱 AD-9 的注册式 seam 的最小实现）。
+//! 可追加的路由注册表（脊柱 AD-9/AD-10 的注册式 seam）。
 //!
-//! app 只做聚合；feature 通过各自的 `routes()` 注册模块向这里追加条目，
-//! 不修改中央表。1.4 会把它扩展成完整的注册 seam 与 CI 检查。
+//! app 只做聚合；domain crate 通过各自的 `registration::ROUTES` 注册条目，
+//! 不修改中央表。注册时拒绝重复 id/path 与 v1 尚不支持的动态段（`:`），
+//! 避免「动态路由遮蔽」在未定义规则时悄悄出现。
 
-/// 路由的稳定标识；重复注册视为编程错误，由 `register` 返回错误。
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct RouteId(pub &'static str);
-
-/// 一条路由：id、路径与标题的词表 key。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Route {
-    pub id: RouteId,
-    pub path: &'static str,
-    pub title_key: &'static str,
-}
+pub use cgc_platform::routes::Route;
 
 /// 路由选择结果：命中某条路由，或落回空态页。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,6 +17,8 @@ pub enum RouteSelection {
 pub enum DuplicateRoute {
     Id(&'static str),
     Path(&'static str),
+    /// 动态段（`:`）在 v1 未支持：拒绝而不是让遮蔽规则缺失。
+    DynamicPath(&'static str),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -38,10 +31,13 @@ impl RouteRegistry {
         Self { routes: Vec::new() }
     }
 
-    /// 追加一条路由；id 或 path 重复时拒绝，保持注册表无冲突。
+    /// 追加一条路由；id 或 path 重复、或路径含动态段时拒绝。
     pub fn register(&mut self, route: Route) -> Result<(), DuplicateRoute> {
+        if route.has_dynamic_segment() {
+            return Err(DuplicateRoute::DynamicPath(route.path));
+        }
         if self.routes.iter().any(|r| r.id == route.id) {
-            return Err(DuplicateRoute::Id(route.id.0));
+            return Err(DuplicateRoute::Id(route.id));
         }
         if self.routes.iter().any(|r| r.path == route.path) {
             return Err(DuplicateRoute::Path(route.path));
@@ -75,11 +71,7 @@ impl RouteRegistry {
 mod tests {
     use super::*;
 
-    const HOME: Route = Route {
-        id: RouteId("home"),
-        path: "/",
-        title_key: "app.nav.home",
-    };
+    const HOME: Route = Route::new("home", "/", "app.nav.home");
 
     #[test]
     fn normal_startup_resolves_home() {
@@ -91,11 +83,7 @@ mod tests {
     #[test]
     fn register_keeps_insertion_order() {
         let mut registry = RouteRegistry::new();
-        let second = Route {
-            id: RouteId("second"),
-            path: "/second",
-            title_key: "app.nav.second",
-        };
+        let second = Route::new("second", "/second", "app.nav.second");
         registry.register(HOME).expect("home registers");
         registry.register(second).expect("second registers");
         assert_eq!(registry.routes(), &[HOME, second]);
@@ -105,10 +93,7 @@ mod tests {
     fn duplicate_route_id_is_rejected() {
         let mut registry = RouteRegistry::new();
         registry.register(HOME).expect("home registers");
-        let dup = Route {
-            path: "/home",
-            ..HOME
-        };
+        let dup = Route::new("home", "/home", "app.nav.home");
         assert_eq!(registry.register(dup), Err(DuplicateRoute::Id("home")));
     }
 
@@ -116,11 +101,18 @@ mod tests {
     fn duplicate_path_is_rejected() {
         let mut registry = RouteRegistry::new();
         registry.register(HOME).expect("home registers");
-        let dup = Route {
-            id: RouteId("home-2"),
-            ..HOME
-        };
+        let dup = Route::new("home-2", "/", "app.nav.home");
         assert_eq!(registry.register(dup), Err(DuplicateRoute::Path("/")));
+    }
+
+    #[test]
+    fn dynamic_path_is_rejected_until_supported() {
+        let mut registry = RouteRegistry::new();
+        let dynamic = Route::new("events.detail", "/events/:id", "events.list.title");
+        assert_eq!(
+            registry.register(dynamic),
+            Err(DuplicateRoute::DynamicPath("/events/:id"))
+        );
     }
 
     #[test]

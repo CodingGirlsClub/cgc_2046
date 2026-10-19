@@ -8,3 +8,5 @@ pub mod conversation;
 pub mod history;
 pub mod panel;
 pub mod settings;
+
+pub mod registration;

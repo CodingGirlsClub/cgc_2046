@@ -1,0 +1,19 @@
+# CGC Desktop English strings. Format: key = value; keys follow feature.domain.key.
+# crates/app/build.rs validates that zh/en key sets match exactly; a missing key fails the build.
+app.name = CGC
+app.nav.home = Home
+app.nav.label = Navigation
+app.empty.title = Welcome to CGC
+app.empty.body = Pick a module from the left to get started.
+app.placeholder.body = This module arrives in a later story.
+app.theme.label = Theme
+app.theme.light = Light
+app.theme.dark = Dark
+app.theme.system = System
+app.lang.label = Language
+app.lang.zh = 中文
+app.lang.en = English
+account.workspace.title = Workspace
+events.list.title = Events
+courses.catalog.title = Courses
+agent_chat.panel.title = Study Buddy

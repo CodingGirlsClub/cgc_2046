@@ -10,6 +10,7 @@ pub mod api;
 pub mod events;
 pub mod mcp;
 pub mod registry;
+pub mod routes;
 pub mod session;
 pub mod telemetry;
 pub mod workspace;

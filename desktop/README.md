@@ -56,3 +56,10 @@ bash scripts/verify-package.sh                          # Windows: pwsh scripts/
 
 - 产物未签名：证书暂无（ADR-0027 决策 2/3），签名、公证与自动更新归 epic-6（`epic-distribution-integration`）。
 - macOS 产物为 runner 原生架构（arm64）；x86_64 与 universal 留给 epic-6/7。
+
+## 设计与文案基座（stories 1.2–1.4）
+
+- **主题 token**：`crates/app/src/theme.rs` 把 `web/app/globals.css` 的色板 / 间距 / 圆角 / 字体映射成常量（Dark 来自 `:root`，Light 来自 `.light`），可选 `Light | Dark | System` 偏好并跟随系统外观。启动可用 `CGC_THEME=light|dark|system` 指定偏好（QA/调试，默认 `system`）。
+- **i18n**：词表在 `desktop/resources/i18n/{zh,en}.lang`，key 规则 `feature.domain.key`；`crates/app/build.rs` 构建期校验 zh/en 键集合一致、key 命名合法，缺 key 直接构建失败并指出 key。启动语言用 `CGC_LANG=zh|en`（默认 `zh`）。
+- **注册 seam**：每个 domain crate 的 `src/registration.rs` 声明 `ROUTES` 与 `I18N_KEYS`；app 启动时聚合（`registration::build_registry` / `validate`）并拒绝重复 RouteId/path、动态段 `:`（v1 未支持）与缺词条。cargo test 覆盖同一套校验，冲突会在 CI 变红并给出具体 id/path/key。
+- **字体**：Inter / Geist Mono 是 web 的目标字体，桌面端暂未随包（缺失时由 gpui 回退系统字体）；随包字体留到后续 story。

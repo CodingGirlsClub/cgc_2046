@@ -1,0 +1,19 @@
+# CGC Desktop 中文词表。格式：key = value；key 命名 feature.domain.key。
+# 构建期由 crates/app/build.rs 校验：zh/en 键集合必须完全一致，缺 key 构建失败。
+app.name = CGC
+app.nav.home = 首页
+app.nav.label = 导航
+app.empty.title = 欢迎来到 CGC
+app.empty.body = 从左侧选择一个模块开始。
+app.placeholder.body = 该模块的界面将在后续 story 中实现。
+app.theme.label = 主题
+app.theme.light = 浅色
+app.theme.dark = 深色
+app.theme.system = 跟随系统
+app.lang.label = 语言
+app.lang.zh = 中文
+app.lang.en = English
+account.workspace.title = 工作台
+events.list.title = 场次
+courses.catalog.title = 课程
+agent_chat.panel.title = 学习搭子
