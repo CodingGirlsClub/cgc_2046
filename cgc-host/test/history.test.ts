@@ -44,6 +44,18 @@ test("chat.sessions：只列本课程工作目录下的会话，带时间与消�
   expect(again.sessions.map((x) => x.sessionId).sort()).toEqual(["session-1", "session-2"]);
 });
 
+test("适配器忽略 session/list 的 cwd 过滤时，Host 仍只认本课程目录的会话", async () => {
+  const fake = fakeAgent();
+  const { page } = await chatPage(fake);
+  await say(page, "本课程的对话"); // session-1，cwd = 本课程目录
+  fake.store.set("foreign-1", { cwd: "/some/other/course", history: [], updatedAt: new Date().toISOString() });
+  fake.listIgnoresCwd = true;
+
+  const list = await listOf(page);
+  expect(list.sessions.map((s) => s.sessionId)).toEqual(["session-1"]); // foreign 不出现在列表
+  expect(await open(page, "foreign-1")).toMatchObject(refused("bad_request")); // 也不接受切换
+});
+
 test("chat.sessions：分页游标原样透传，最后一页没有 nextCursor", async () => {
   const fake = fakeAgent();
   fake.listPageSize = 1;

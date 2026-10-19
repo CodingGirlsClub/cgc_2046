@@ -239,6 +239,8 @@ export function fakeAgent() {
     store: new Map<string, { cwd: string; history: acp.SessionUpdate[]; updatedAt: string }>(),
     /** 会话列表页大小（>0 时启用分页游标） */
     listPageSize: 0,
+    /** true 时 session/list 忽略 cwd 过滤（模拟不合规适配器），用于验证 Host 自己的二次校验 */
+    listIgnoresCwd: false,
     /** session/load 对这些会话抛 Internal error（模拟跨 OMP 版本加载失败） */
     failLoadFor: new Set<string>(),
     calls: [] as { method: string; params: any }[],
@@ -323,7 +325,7 @@ export function fakeAgent() {
         })
         .onRequest("session/list", (c) => {
           record("session/list", c.params);
-          const all = [...fake.store].filter(([, s]) => s.cwd === c.params.cwd);
+          const all = [...fake.store].filter(([, s]) => fake.listIgnoresCwd || s.cwd === c.params.cwd);
           const size = fake.listPageSize > 0 ? fake.listPageSize : all.length || 1;
           const offset = typeof c.params.cursor === "string" ? Number(c.params.cursor) || 0 : 0;
           const next = offset + size < all.length ? String(offset + size) : undefined;

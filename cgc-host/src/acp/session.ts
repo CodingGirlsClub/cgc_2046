@@ -2,6 +2,8 @@
 // session/update 归一化成页面事件（events.ts），审批与提问交给持有者作答（cards.ts），设置项见 settings.ts，页面上下文见 page-context.ts。
 // 载荷契约见 cgc-host/AGENTS.md。
 import { mkdirSync } from "node:fs";
+import { realpath } from "node:fs/promises";
+import { resolve } from "node:path";
 import {
   RequestError,
   type ClientApp,
@@ -45,6 +47,17 @@ export interface ChatOptions {
 const isAuthRequired = (e: unknown) => e instanceof RequestError && e.code === -32000;
 /** bySession 的键：sessionId 只在它自己的 agent 进程里有意义，两个 agent 的 id 空间互不相干 */
 const sessionKey = (kind: AgentKind, sessionId: string) => `${kind}:${sessionId}`;
+
+/** 两个路径是否同一目录：先按字符串归一，再试 realpath（macOS 的 /var → /private/var 这类符号链接） */
+async function sameDir(a: unknown, b: string): Promise<boolean> {
+  if (typeof a !== "string" || !a) return false;
+  if (resolve(a) === resolve(b)) return true;
+  try {
+    return (await realpath(a)) === (await realpath(b));
+  } catch {
+    return false;
+  }
+}
 
 export function createChat(opts: ChatOptions) {
   const graceMs = opts.graceMs ?? 5 * 60_000;
@@ -107,7 +120,9 @@ export function createChat(opts: ChatOptions) {
         permission(req, signal) {
           if (!active()) return Promise.resolve({ outcome: { outcome: "cancelled" } });
           const c = bySession.get(sessionKey(kind, req.sessionId));
-          if (!c) return Promise.resolve({ outcome: { outcome: "cancelled" } });
+          // 回合结束后（例如 Codex 的异步任务）才到的审批不再开卡：直接按取消应答，
+          // 避免不属于任何回合的卡片被重放给下一个持有者。
+          if (!c || c.turn?.sessionId !== req.sessionId) return Promise.resolve({ outcome: { outcome: "cancelled" } });
           const answer = c.cards.permission(req, signal);
           checkGrace(c);
           return answer;
@@ -115,7 +130,8 @@ export function createChat(opts: ChatOptions) {
         question(req, signal) {
           if (!active()) return Promise.resolve({ action: "decline" });
           const c = "sessionId" in req && typeof req.sessionId === "string" ? bySession.get(sessionKey(kind, req.sessionId)) : undefined;
-          if (!c) return Promise.resolve({ action: "decline" });
+          // 与审批同理：只接受当前回合上的提问（不属于任何回合的请求直接拒绝）
+          if (!c || c.turn?.sessionId !== req.sessionId) return Promise.resolve({ action: "decline" });
           const answer = c.cards.question(req, signal);
           checkGrace(c);
           return answer;
@@ -153,7 +169,11 @@ export function createChat(opts: ChatOptions) {
     let cursor: string | undefined;
     do {
       const page = await run.wait("session/list", (signal) => a.rpc.request("session/list", { cwd, ...(cursor && { cursor }) }, { cancellationSignal: signal }));
-      if (page.sessions.some((s) => s.sessionId === sessionId)) return true;
+      // 不信任适配器的 cwd 过滤：每个条目都按 SessionInfo.cwd 与课程目录二次比对（KTD6 的隔离不能只剩 agent 自觉）
+      for (const s of page.sessions) {
+        if (!(await sameDir((s as { cwd?: unknown }).cwd, cwd))) continue;
+        if (s.sessionId === sessionId) return true;
+      }
       cursor = page.nextCursor ?? undefined;
     } while (cursor);
     return false;
@@ -492,11 +512,16 @@ export function createChat(opts: ChatOptions) {
             a.rpc.request("session/list", { cwd, ...(cursor ? { cursor } : {}) }, { cancellationSignal: signal }),
           );
         });
-        const sessions = (page.sessions ?? []).map((s) => ({
-          sessionId: s.sessionId,
-          updatedAt: (s as { updatedAt?: string }).updatedAt ?? null,
-          messageCount: (s as { _meta?: { messageCount?: number } })._meta?.messageCount ?? null,
-        }));
+        const sessions = [];
+        for (const s of page.sessions ?? []) {
+          // 适配器忽略 cwd 过滤时也不越界：只列本课程工作目录下的会话
+          if (!(await sameDir((s as { cwd?: unknown }).cwd, cwd))) continue;
+          sessions.push({
+            sessionId: s.sessionId,
+            updatedAt: (s as { updatedAt?: string }).updatedAt ?? null,
+            messageCount: (s as { _meta?: { messageCount?: number } })._meta?.messageCount ?? null,
+          });
+        }
         reply("sessions", { sessions, current: ctx.sessions[c.id]?.[c.agent] ?? null, nextCursor: page.nextCursor ?? null });
       } catch (e) {
         console.error(`cgc-host: 读取历史对话列表失败：${message(e)}`);
