@@ -24,6 +24,7 @@ pub struct EventDetail {
     pub capacity: Option<i64>,
     pub confirmed_count: Option<i64>,
     pub enrollment_badge: Option<String>,
+    pub min_age: Option<i64>,
     pub registration_deadline: Option<String>,
     pub starts_at: Option<String>,
     pub ends_at: Option<String>,
@@ -74,6 +75,7 @@ impl EventDetail {
             capacity: summary.capacity,
             confirmed_count: summary.confirmed_count,
             enrollment_badge: summary.enrollment_badge.clone(),
+            min_age: None,
             registration_deadline: summary.registration_deadline.clone(),
             starts_at: summary.starts_at.clone(),
             ends_at: None,
@@ -121,6 +123,7 @@ pub fn parse_price_tiers(raw: &Value) -> Vec<PriceTier> {
 pub struct EventDetailService {
     api: Arc<dyn EventsApi>,
     detail: Option<EventDetail>,
+    enrollment: Option<crate::enroll::MyEnrollment>,
     state: ListState,
     event_id: Option<String>,
 }
@@ -130,6 +133,7 @@ impl EventDetailService {
         Self {
             api,
             detail: None,
+            enrollment: None,
             state: ListState::Idle,
             event_id: None,
         }
@@ -149,6 +153,14 @@ impl EventDetailService {
 
     pub fn event_id(&self) -> Option<&str> {
         self.event_id.as_deref()
+    }
+
+    pub fn enrollment(&self) -> Option<&crate::enroll::MyEnrollment> {
+        self.enrollment.as_ref()
+    }
+
+    pub fn adopt_enrollment(&mut self, enrollment: Option<crate::enroll::MyEnrollment>) {
+        self.enrollment = enrollment;
     }
 
     pub fn begin_load(&mut self, event_id: &str) {
@@ -171,6 +183,7 @@ impl EventDetailService {
 
     pub fn reset(&mut self) {
         self.detail = None;
+        self.enrollment = None;
         self.event_id = None;
         self.state = ListState::Idle;
     }
@@ -197,6 +210,7 @@ mod tests {
             capacity: Some(10),
             confirmed_count: Some(2),
             enrollment_badge: None,
+            min_age: None,
             registration_deadline: None,
             starts_at: None,
             ends_at: None,

@@ -6,7 +6,8 @@
 
 use std::sync::Arc;
 
-use cgc_platform::api::{ApiError, GraphqlClient};
+use cgc_platform::api::{apply_workspace_scope, ApiError, GraphqlClient};
+use cgc_platform::workspace::WorkspaceScope;
 use serde_json::{json, Value};
 
 const LIST_EVENTS_QUERY: &str = r#"
@@ -84,12 +85,18 @@ pub enum EventsError {
     Transport(String),
     Server(String),
     NotFound,
+    /// 业务错误码（mutation 的 errors[] / 后端 code）。
+    Domain {
+        code: String,
+        message: String,
+    },
 }
 
 impl From<ApiError> for EventsError {
     fn from(error: ApiError) -> Self {
         match error {
             ApiError::Transport(reason) => EventsError::Transport(reason),
+            ApiError::Timeout(reason) => EventsError::Transport(format!("timeout: {reason}")),
             ApiError::Graphql { message, .. } => EventsError::Server(message),
         }
     }
@@ -101,6 +108,7 @@ impl EventsError {
             EventsError::Transport(reason) => format!("transport error: {reason}"),
             EventsError::Server(reason) => format!("server error: {reason}"),
             EventsError::NotFound => "not found".to_string(),
+            EventsError::Domain { code, message } => format!("domain {code}: {message}"),
         }
     }
 }
@@ -110,6 +118,7 @@ pub trait EventsApi: Send + Sync {
     fn list_events(
         &self,
         token: Option<&str>,
+        scope: Option<&WorkspaceScope>,
         filter: StatusFilter,
         after: Option<&str>,
         first: u32,
@@ -120,6 +129,18 @@ pub trait EventsApi: Send + Sync {
         token: Option<&str>,
         id: &str,
     ) -> Result<crate::detail::EventDetail, EventsError>;
+
+    fn get_my_enrollment(
+        &self,
+        token: Option<&str>,
+        event_id: &str,
+    ) -> Result<Option<crate::enroll::MyEnrollment>, EventsError>;
+
+    fn create_enrollment(
+        &self,
+        token: Option<&str>,
+        request: &crate::enroll::EnrollmentRequest,
+    ) -> Result<crate::enroll::MyEnrollment, EventsError>;
 }
 
 pub struct HttpEventsApi {
@@ -186,6 +207,7 @@ query GetEvent($id: ID!) {
     visibility
     enrollmentPolicy
     enrollmentBadge
+    minAge
     registrationDeadline
     startsAt
     endsAt
@@ -198,10 +220,39 @@ query GetEvent($id: ID!) {
 }
 "#;
 
+const MY_ENROLLMENT_QUERY: &str = r#"
+query MyEnrollment($kind: String!, $offeringId: ID!) {
+  myEnrollment(kind: $kind, offeringId: $offeringId) { id status }
+}
+"#;
+
+const CREATE_ENROLLMENT_MUTATION: &str = r#"
+mutation CreateEnrollment($input: CreateEnrollmentInput!) {
+  createEnrollment(input: $input) {
+    result { id status }
+    errors { code message }
+  }
+}
+"#;
+
+impl HttpEventsApi {
+    fn parse_enrollment(value: &Value) -> Option<crate::enroll::MyEnrollment> {
+        Some(crate::enroll::MyEnrollment {
+            id: value.get("id")?.as_str()?.to_string(),
+            status: value
+                .get("status")?
+                .as_str()
+                .unwrap_or("pending")
+                .to_string(),
+        })
+    }
+}
+
 impl EventsApi for HttpEventsApi {
     fn list_events(
         &self,
         token: Option<&str>,
+        scope: Option<&WorkspaceScope>,
         filter: StatusFilter,
         after: Option<&str>,
         first: u32,
@@ -213,6 +264,7 @@ impl EventsApi for HttpEventsApi {
         if let Some(status) = filter.status_value() {
             variables["filter"] = json!({ "status": { "eq": status } });
         }
+        apply_workspace_scope(&mut variables, scope);
 
         let payload = self
             .client
@@ -281,7 +333,68 @@ impl EventsApi for HttpEventsApi {
             .and_then(Value::as_bool)
             .unwrap_or(false);
         detail.deposit_amount_cents = value.get("depositAmountCents").and_then(Value::as_i64);
+        detail.min_age = value.get("minAge").and_then(Value::as_i64);
         Ok(detail)
+    }
+
+    fn get_my_enrollment(
+        &self,
+        token: Option<&str>,
+        event_id: &str,
+    ) -> Result<Option<crate::enroll::MyEnrollment>, EventsError> {
+        let payload = self
+            .client
+            .post(
+                token,
+                MY_ENROLLMENT_QUERY,
+                json!({ "kind": "event", "offeringId": event_id }),
+            )
+            .map_err(EventsError::from)?;
+        Ok(payload
+            .get("data")
+            .and_then(|data| data.get("myEnrollment"))
+            .filter(|value| !value.is_null())
+            .and_then(Self::parse_enrollment))
+    }
+
+    fn create_enrollment(
+        &self,
+        token: Option<&str>,
+        request: &crate::enroll::EnrollmentRequest,
+    ) -> Result<crate::enroll::MyEnrollment, EventsError> {
+        let payload = self
+            .client
+            .post(
+                token,
+                CREATE_ENROLLMENT_MUTATION,
+                json!({ "input": request.to_input() }),
+            )
+            .map_err(EventsError::from)?;
+        let data = payload
+            .get("data")
+            .and_then(|data| data.get("createEnrollment"))
+            .ok_or_else(|| EventsError::Server("missing createEnrollment payload".to_string()))?;
+        if let Some(error) = data
+            .get("errors")
+            .and_then(Value::as_array)
+            .and_then(|errors| errors.first())
+        {
+            return Err(EventsError::Domain {
+                code: error
+                    .get("code")
+                    .and_then(Value::as_str)
+                    .unwrap_or("enrollment_generic")
+                    .to_string(),
+                message: error
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("enrollment failed")
+                    .to_string(),
+            });
+        }
+        data.get("result")
+            .and_then(Self::parse_enrollment)
+            .ok_or_else(|| EventsError::Server("missing enrollment result".to_string()))
     }
 }
 
@@ -289,6 +402,7 @@ impl EventsApi for HttpEventsApi {
 pub struct FakeEventsApi {
     events: Vec<EventSummary>,
     fail: bool,
+    enrollments: std::sync::Mutex<std::collections::HashMap<String, crate::enroll::MyEnrollment>>,
 }
 
 impl FakeEventsApi {
@@ -321,6 +435,7 @@ impl FakeEventsApi {
         Self {
             events,
             fail: false,
+            enrollments: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -328,6 +443,7 @@ impl FakeEventsApi {
         Self {
             events: Vec::new(),
             fail: true,
+            enrollments: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 }
@@ -342,6 +458,7 @@ impl EventsApi for FakeEventsApi {
     fn list_events(
         &self,
         _token: Option<&str>,
+        _scope: Option<&WorkspaceScope>,
         filter: StatusFilter,
         after: Option<&str>,
         first: u32,
@@ -407,6 +524,51 @@ impl EventsApi for FakeEventsApi {
             detail.deposit_amount_cents = Some(5000);
         }
         Ok(detail)
+    }
+
+    fn get_my_enrollment(
+        &self,
+        _token: Option<&str>,
+        event_id: &str,
+    ) -> Result<Option<crate::enroll::MyEnrollment>, EventsError> {
+        if self.fail {
+            return Err(EventsError::Transport("fake network down".to_string()));
+        }
+        Ok(self
+            .enrollments
+            .lock()
+            .expect("enrollments lock")
+            .get(event_id)
+            .cloned())
+    }
+
+    fn create_enrollment(
+        &self,
+        _token: Option<&str>,
+        request: &crate::enroll::EnrollmentRequest,
+    ) -> Result<crate::enroll::MyEnrollment, EventsError> {
+        if self.fail {
+            return Err(EventsError::Transport("fake network down".to_string()));
+        }
+        let event = self
+            .events
+            .iter()
+            .find(|event| event.id == request.event_id)
+            .ok_or(EventsError::NotFound)?;
+        let status = if event.pricing_enabled {
+            "payment_pending"
+        } else {
+            "confirmed"
+        };
+        let enrollment = crate::enroll::MyEnrollment {
+            id: format!("enroll-{}", request.event_id),
+            status: status.to_string(),
+        };
+        self.enrollments
+            .lock()
+            .expect("enrollments lock")
+            .insert(request.event_id.clone(), enrollment.clone());
+        Ok(enrollment)
     }
 }
 
@@ -495,6 +657,7 @@ impl EventListService {
     pub fn fetch(&self, token: Option<&str>) -> Result<EventPage, EventsError> {
         self.api.list_events(
             token,
+            None,
             self.filter,
             if self.loading_more {
                 self.next_cursor.as_deref()
@@ -662,6 +825,7 @@ mod tests {
             }
             let request = String::from_utf8_lossy(&request).to_string();
             assert!(request.contains("listEvents"), "request: {request}");
+            assert!(request.contains("workspaceId"), "scope missing: {request}");
             let body = r#"{"data":{"listEvents":{"count":1,"endKeyset":"cursor-2","results":[{"id":"e-1","title":"Demo","status":"open","visibility":"public","enrollmentPolicy":"open","capacity":10,"confirmedCount":2,"startsAt":"2026-11-01T10:00:00Z","pricingEnabled":true}]}}}"#;
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -672,12 +836,138 @@ mod tests {
 
         let api = HttpEventsApi::new(GraphqlClient::new(format!("http://{addr}/api/graphql")));
         let page = api
-            .list_events(Some("token"), StatusFilter::Open, None, 10)
+            .list_events(
+                Some("token"),
+                Some(&WorkspaceScope {
+                    workspace_id: "ws-1".into(),
+                    epoch: 1,
+                }),
+                StatusFilter::Open,
+                None,
+                10,
+            )
             .expect("http page");
 
         assert_eq!(page.items.len(), 1);
         assert_eq!(page.items[0].title, "Demo");
         assert_eq!(page.next_cursor.as_deref(), Some("cursor-2"));
         assert_eq!(page.total, Some(1));
+    }
+
+    #[test]
+    fn fake_enrollment_flow_is_stateful() {
+        let api = FakeEventsApi::with_seed(4);
+        assert!(api
+            .get_my_enrollment(None, "evt-000")
+            .expect("none")
+            .is_none());
+        let request = crate::enroll::EnrollmentRequest {
+            event_id: "evt-000".to_string(),
+            user_id: "u-1".to_string(),
+            tier_id: None,
+            age_confirmed: false,
+        };
+        let created = api.create_enrollment(None, &request).expect("create");
+        assert_eq!(created.status, "payment_pending");
+        assert_eq!(
+            api.get_my_enrollment(None, "evt-000")
+                .expect("get")
+                .map(|enrollment| enrollment.status),
+            Some("payment_pending".to_string())
+        );
+        // 奇数 index 的 fake 场次免费 → confirmed
+        let priced = crate::enroll::EnrollmentRequest {
+            event_id: "evt-001".to_string(),
+            user_id: "u-1".to_string(),
+            tier_id: Some("tier-early".to_string()),
+            age_confirmed: false,
+        };
+        assert_eq!(
+            api.create_enrollment(None, &priced).expect("priced").status,
+            "confirmed"
+        );
+    }
+
+    #[test]
+    fn http_create_enrollment_sends_optional_fields_and_maps_domain_error() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        fn run_mock(body: &'static str) -> (String, std::sync::mpsc::Receiver<String>) {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+            let addr = listener.local_addr().expect("addr");
+            let (sender, receiver) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().expect("accept");
+                let mut request = Vec::new();
+                let mut buffer = [0u8; 4096];
+                let header_end = loop {
+                    let read = stream.read(&mut buffer).expect("read");
+                    if read == 0 {
+                        break request.len();
+                    }
+                    request.extend_from_slice(&buffer[..read]);
+                    if let Some(pos) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                        break pos + 4;
+                    }
+                };
+                let headers = String::from_utf8_lossy(&request[..header_end]).to_string();
+                let content_length = headers
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().ok())
+                            .flatten()
+                    })
+                    .unwrap_or(0);
+                while request.len() < header_end + content_length {
+                    let read = stream.read(&mut buffer).expect("read body");
+                    if read == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buffer[..read]);
+                }
+                let _ = sender.send(String::from_utf8_lossy(&request).to_string());
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).expect("write");
+            });
+            (format!("http://{addr}/api/graphql"), receiver)
+        }
+
+        let (endpoint, received) = run_mock(
+            r#"{"data":{"createEnrollment":{"result":{"id":"enr-1","status":"confirmed"},"errors":[]}}}"#,
+        );
+        let api = HttpEventsApi::new(GraphqlClient::new(endpoint));
+        let request = crate::enroll::EnrollmentRequest {
+            event_id: "e-1".into(),
+            user_id: "u-1".into(),
+            tier_id: Some("tier-early".into()),
+            age_confirmed: true,
+        };
+        let enrollment = api
+            .create_enrollment(Some("token"), &request)
+            .expect("enroll");
+        assert_eq!(enrollment.status, "confirmed");
+        let sent = received.recv().expect("request");
+        assert!(sent.contains("CreateEnrollment"));
+        assert!(sent.contains("tier-early"));
+        assert!(sent.contains("ageConfirmed"));
+
+        let (endpoint, _rx) = run_mock(
+            r#"{"data":{"createEnrollment":{"result":null,"errors":[{"code":"enrollment_duplicate_active","message":"Already enrolled"}]}}}"#,
+        );
+        let api = HttpEventsApi::new(GraphqlClient::new(endpoint));
+        let error = api.create_enrollment(None, &request).unwrap_err();
+        assert_eq!(
+            error,
+            EventsError::Domain {
+                code: "enrollment_duplicate_active".into(),
+                message: "Already enrolled".into()
+            }
+        );
     }
 }

@@ -13,7 +13,8 @@ use cgc_courses::catalog::{
     learning_context, CourseCatalogService, CourseDetailService, CourseSummary, CoursesApi,
     CoursesListState, FakeCoursesApi, HttpCoursesApi,
 };
-use cgc_events::detail::{EventDetailService, PriceMode};
+use cgc_events::detail::{EventDetail, EventDetailService, PriceMode};
+use cgc_events::enroll::{enrollment_error_key, EnrollmentRequest};
 use cgc_events::list::{
     EventListService, EventsApi, FakeEventsApi, HttpEventsApi, ListState, StatusFilter,
 };
@@ -75,6 +76,10 @@ pub struct RootView {
     events_started: bool,
     detail: EventDetailService,
     detail_started: bool,
+    selected_tier: Option<String>,
+    age_confirmed: bool,
+    enrolling: bool,
+    enrollment_error: Option<String>,
     courses: CourseCatalogService,
     courses_started: bool,
     workspaces: WorkspaceService,
@@ -127,6 +132,10 @@ impl RootView {
             events_started: false,
             detail,
             detail_started: false,
+            selected_tier: None,
+            age_confirmed: false,
+            enrolling: false,
+            enrollment_error: None,
             courses,
             courses_started: false,
             course_detail,
@@ -270,6 +279,10 @@ impl RootView {
         self.courses.reset();
         self.course_detail.reset();
         self.selected_event = None;
+        self.selected_tier = None;
+        self.age_confirmed = false;
+        self.enrolling = false;
+        self.enrollment_error = None;
     }
 
     fn start_courses_load(&mut self, cx: &mut Context<Self>, first: bool) {
@@ -287,9 +300,10 @@ impl RootView {
             self.courses.next_cursor().map(str::to_string)
         };
         let epoch = self.workspaces.epoch();
-        let task = cx
-            .background_executor()
-            .spawn(async move { api.list_courses(token.as_deref(), cursor.as_deref(), 10) });
+        let scope = self.workspaces.scope();
+        let task = cx.background_executor().spawn(async move {
+            api.list_courses(token.as_deref(), scope.as_ref(), cursor.as_deref(), 10)
+        });
 
         cx.spawn(async move |this, cx| {
             let result = task.await;
@@ -368,17 +382,125 @@ impl RootView {
     fn start_detail_load(&mut self, cx: &mut Context<Self>, event_id: String) {
         self.detail.begin_load(&event_id);
         self.detail_started = true;
+        self.selected_tier = None;
+        self.age_confirmed = false;
+        self.enrollment_error = None;
+        self.enrolling = false;
+        let api = self.detail.api_handle();
+        let token = self.session_token();
+        let epoch = self.workspaces.epoch();
+        let task = cx.background_executor().spawn(async move {
+            let detail = api.get_event(token.as_deref(), &event_id)?;
+            let enrollment = api
+                .get_my_enrollment(token.as_deref(), &event_id)
+                .unwrap_or(None);
+            Ok::<_, cgc_events::list::EventsError>((detail, enrollment))
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if !this.workspaces.is_current_epoch(epoch) {
+                    return;
+                }
+                match result {
+                    Ok((detail, enrollment)) => {
+                        this.detail.adopt(detail);
+                        this.detail.adopt_enrollment(enrollment);
+                    }
+                    Err(error) => this.detail.fail(&error),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn refresh_enrollment(&mut self, cx: &mut Context<Self>) {
+        let Some(event_id) = self
+            .current
+            .as_ref()
+            .and_then(|route_match| route_match.params.get("id"))
+            .cloned()
+        else {
+            return;
+        };
         let api = self.detail.api_handle();
         let token = self.session_token();
         let task = cx
             .background_executor()
-            .spawn(async move { api.get_event(token.as_deref(), &event_id) });
+            .spawn(async move { api.get_my_enrollment(token.as_deref(), &event_id) });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
+                if let Ok(enrollment) = result {
+                    this.detail.adopt_enrollment(enrollment);
+                    this.enrollment_error = None;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn submit_enrollment(&mut self, cx: &mut Context<Self>) {
+        if self.enrolling {
+            return;
+        }
+        let Some(detail) = self.detail.detail().cloned() else {
+            return;
+        };
+        let Some(user_id) = self
+            .session
+            .signed_in()
+            .map(|session| session.user_id.clone())
+        else {
+            return;
+        };
+        if detail.pricing_enabled
+            && !detail.available_price_tiers.is_empty()
+            && self.selected_tier.is_none()
+        {
+            self.enrollment_error = Some("tier_required".to_string());
+            cx.notify();
+            return;
+        }
+        if detail.min_age.is_some() && !self.age_confirmed {
+            self.enrollment_error = Some("age_required".to_string());
+            cx.notify();
+            return;
+        }
+        self.enrolling = true;
+        self.enrollment_error = None;
+        let request = EnrollmentRequest {
+            event_id: detail.id.clone(),
+            user_id,
+            tier_id: self.selected_tier.clone(),
+            age_confirmed: self.age_confirmed,
+        };
+        let api = self.detail.api_handle();
+        let token = self.session_token();
+        let task = cx
+            .background_executor()
+            .spawn(async move { api.create_enrollment(token.as_deref(), &request) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.enrolling = false;
                 match result {
-                    Ok(detail) => this.detail.adopt(detail),
-                    Err(error) => this.detail.fail(&error),
+                    Ok(enrollment) => {
+                        this.detail.adopt_enrollment(Some(enrollment));
+                        this.enrollment_error = None;
+                    }
+                    Err(cgc_events::list::EventsError::Domain { code, .. }) => {
+                        let suffix = enrollment_error_key(&code).to_string();
+                        this.enrollment_error = Some(suffix);
+                        if code == "enrollment_duplicate_active" {
+                            this.refresh_enrollment(cx);
+                        }
+                    }
+                    Err(_) => {
+                        this.enrollment_error = Some("generic".to_string());
+                    }
                 }
                 cx.notify();
             });
@@ -416,9 +538,16 @@ impl RootView {
         } else {
             self.events.next_cursor().map(str::to_string)
         };
-        let task = cx
-            .background_executor()
-            .spawn(async move { api.list_events(token.as_deref(), filter, after.as_deref(), 10) });
+        let scope = self.workspaces.scope();
+        let task = cx.background_executor().spawn(async move {
+            api.list_events(
+                token.as_deref(),
+                scope.as_ref(),
+                filter,
+                after.as_deref(),
+                10,
+            )
+        });
 
         cx.spawn(async move |this, cx| {
             let result = task.await;
@@ -1285,17 +1414,7 @@ impl RootView {
                                     ),
                                 )),
                         )
-                        .child(
-                            div()
-                                .mt(space(2))
-                                .px(space(2))
-                                .py(px(6.0))
-                                .rounded(px(RADIUS_MEDIUM))
-                                .bg(palette.soft)
-                                .text_color(palette.ink_3)
-                                .text_size(px(12.0))
-                                .child(translate(language, Key::EventsDetailEnrollSoon)),
-                        )
+                        .child(self.render_enrollment_area(language, palette, &detail, cx))
                         .into_any_element()
                 }
                 None => div()
@@ -1496,6 +1615,158 @@ impl RootView {
                     })),
             )
             .children(panel)
+            .into_any_element()
+    }
+
+    fn render_enrollment_area(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        detail: &EventDetail,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if let Some(enrollment) = self.detail.enrollment().cloned() {
+            return div()
+                .mt(space(2))
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(space(1))
+                .text_size(px(12.0))
+                .text_color(palette.ink_2)
+                .child(enroll_status_label(language, enrollment.status.as_str()))
+                .into_any_element();
+        }
+
+        if detail.enrollment_policy == "invite_only" {
+            return div()
+                .mt(space(2))
+                .text_size(px(12.0))
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::EventsEnrollInviteRequired))
+                .into_any_element();
+        }
+        if detail.status != "open" {
+            return div()
+                .mt(space(2))
+                .text_size(px(12.0))
+                .text_color(palette.danger)
+                .child(translate(language, Key::EventsEnrollErrorNotOpen))
+                .into_any_element();
+        }
+
+        let selected_tier = self.selected_tier.clone();
+        let tier_chips: Vec<AnyElement> = detail
+            .available_price_tiers
+            .iter()
+            .map(|tier| {
+                let selected = selected_tier.as_deref() == Some(tier.id.as_str());
+                let tier_id = tier.id.clone();
+                div()
+                    .id(format!("enroll-tier-{}", tier.id))
+                    .px(space(1))
+                    .py(px(3.0))
+                    .rounded(px(RADIUS_SMALL))
+                    .text_size(px(12.0))
+                    .bg(if selected {
+                        palette.accent
+                    } else {
+                        palette.soft
+                    })
+                    .text_color(if selected {
+                        palette.canvas
+                    } else {
+                        palette.ink_2
+                    })
+                    .child(format!(
+                        "{} ¥{:.2}",
+                        tier.name,
+                        tier.amount_cents as f64 / 100.0
+                    ))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.selected_tier = Some(tier_id.clone());
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            })
+            .collect();
+
+        let age_confirm = detail.min_age.map(|min_age| {
+            let checked = self.age_confirmed;
+            div()
+                .id("enroll-age-confirm")
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(4.0))
+                .text_size(px(12.0))
+                .text_color(palette.ink_2)
+                .child(if checked { "☑" } else { "☐" })
+                .child(format!(
+                    "{} ({min_age}+)",
+                    translate(language, Key::EventsEnrollAgeConfirm)
+                ))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.age_confirmed = !this.age_confirmed;
+                    cx.notify();
+                }))
+                .into_any_element()
+        });
+
+        let error = self.enrollment_error.as_deref().map(|suffix| {
+            div()
+                .text_size(px(12.0))
+                .text_color(palette.danger)
+                .child(enroll_error_label(language, suffix))
+                .into_any_element()
+        });
+
+        let submit = div()
+            .id("events-enroll-button")
+            .px(space(2))
+            .py(px(6.0))
+            .rounded(px(RADIUS_MEDIUM))
+            .bg(if self.enrolling {
+                palette.soft
+            } else {
+                palette.accent
+            })
+            .text_color(if self.enrolling {
+                palette.ink_3
+            } else {
+                palette.canvas
+            })
+            .child(if self.enrolling {
+                translate(language, Key::EventsEnrollEnrolling)
+            } else {
+                translate(language, Key::EventsEnrollButton)
+            })
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.submit_enrollment(cx);
+            }));
+
+        div()
+            .mt(space(2))
+            .flex()
+            .flex_col()
+            .gap(space(1))
+            .children((detail.pricing_enabled && !tier_chips.is_empty()).then(|| {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.0))
+                    .child(
+                        div()
+                            .text_size(px(12.0))
+                            .text_color(palette.ink_3)
+                            .child(translate(language, Key::EventsEnrollTier)),
+                    )
+                    .children(tier_chips)
+                    .into_any_element()
+            }))
+            .children(age_confirm)
+            .children(error)
+            .child(submit)
             .into_any_element()
     }
 
@@ -2356,6 +2627,38 @@ fn filter_key(filter: StatusFilter) -> Key {
         StatusFilter::Closed => Key::EventsFilterClosed,
         StatusFilter::Cancelled => Key::EventsFilterCancelled,
     }
+}
+
+fn enroll_status_label(language: Language, status: &str) -> &'static str {
+    translate(
+        language,
+        match status {
+            "confirmed" => Key::EventsEnrollStatusConfirmed,
+            "pending" => Key::EventsEnrollStatusPending,
+            "payment_pending" => Key::EventsEnrollStatusPaymentPending,
+            "cancelled" => Key::EventsEnrollStatusCancelled,
+            "rejected" => Key::EventsEnrollStatusRejected,
+            "expired" => Key::EventsEnrollStatusExpired,
+            _ => Key::EventsEnrollStatusPending,
+        },
+    )
+}
+
+fn enroll_error_label(language: Language, suffix: &str) -> &'static str {
+    translate(
+        language,
+        match suffix {
+            "duplicate" => Key::EventsEnrollErrorDuplicate,
+            "not_open" => Key::EventsEnrollErrorNotOpen,
+            "full" => Key::EventsEnrollErrorFull,
+            "invite_required" => Key::EventsEnrollErrorInviteRequired,
+            "tier_required" => Key::EventsEnrollErrorTierRequired,
+            "tier_unavailable" => Key::EventsEnrollErrorTierUnavailable,
+            "age_required" => Key::EventsEnrollErrorAgeRequired,
+            "auth" => Key::EventsEnrollErrorAuth,
+            _ => Key::EventsEnrollErrorGeneric,
+        },
+    )
 }
 
 fn nav_icon(icon: NavIcon) -> AssetIcon {

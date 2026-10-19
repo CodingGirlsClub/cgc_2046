@@ -3,12 +3,21 @@
 //! 只做「发请求 + 解 errors」，不解释业务实体；实体解析放在对应 domain crate，
 //! 保证 GraphQL 单一来源（脊柱 AD-2）且各 feature 不各写一套传输。
 
+use std::time::Duration;
+
 use serde_json::Value;
+
+use crate::workspace::WorkspaceScope;
+
+/// 2.5：当前需要注入 workspace 作用域的 operation 清单（新增 operation 必须登记）。
+pub const WORKSPACE_SCOPED_OPERATIONS: &[&str] = &["ListEvents", "ListCourses"];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ApiError {
-    /// 网络不可达 / 超时 / 响应不是合法 JSON。
+    /// 网络不可达 / 响应不是合法 JSON。
     Transport(String),
+    /// 请求超时（与网络失败区分，便于客户端给不同提示）。
+    Timeout(String),
     /// GraphQL errors 非空（带可选业务 code）。
     Graphql {
         code: Option<String>,
@@ -20,24 +29,67 @@ impl ApiError {
     pub fn diagnostic(&self) -> String {
         match self {
             ApiError::Transport(reason) => format!("transport error: {reason}"),
+            ApiError::Timeout(reason) => format!("timeout: {reason}"),
             ApiError::Graphql { code, message } => match code {
                 Some(code) => format!("graphql error {code}: {message}"),
                 None => format!("graphql error: {message}"),
             },
         }
     }
+
+    /// 统一错误 key（feature 展示/日志用）：`client.<code|transport|timeout>`。
+    pub fn client_key(&self) -> String {
+        match self {
+            ApiError::Transport(_) => "client.transport".to_string(),
+            ApiError::Timeout(_) => "client.timeout".to_string(),
+            ApiError::Graphql { code, .. } => match code {
+                Some(code) => format!("client.{code}"),
+                None => "client.graphql".to_string(),
+            },
+        }
+    }
+}
+
+/// 在 variables 里注入当前 workspace 作用域（仅对登记过的 scoped operation 调用）。
+pub fn apply_workspace_scope(variables: &mut Value, scope: Option<&WorkspaceScope>) {
+    let Some(scope) = scope else {
+        return;
+    };
+    let filter = variables.as_object_mut().and_then(|variables| {
+        variables
+            .entry("filter")
+            .or_insert_with(|| serde_json::json!({}))
+            .as_object_mut()
+    });
+    if let Some(filter) = filter {
+        filter.insert(
+            "workspaceId".to_string(),
+            serde_json::json!({ "eq": scope.workspace_id }),
+        );
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct GraphqlClient {
     endpoint: String,
+    timeout: Duration,
 }
 
 impl GraphqlClient {
     pub fn new(endpoint: impl Into<String>) -> Self {
         Self {
             endpoint: endpoint.into(),
+            timeout: Duration::from_secs(10),
         }
+    }
+
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    pub fn timeout(&self) -> Duration {
+        self.timeout
     }
 
     pub fn from_env() -> Self {
@@ -58,15 +110,26 @@ impl GraphqlClient {
         query: &str,
         variables: Value,
     ) -> Result<Value, ApiError> {
-        let mut request = ureq::post(&self.endpoint).header("content-type", "application/json");
+        let config = ureq::Agent::config_builder()
+            .timeout_global(Some(self.timeout))
+            .build();
+        let agent: ureq::Agent = config.into();
+        let mut request = agent
+            .post(&self.endpoint)
+            .header("content-type", "application/json");
         if let Some(token) = token {
             request = request.header("authorization", format!("Bearer {token}"));
         }
 
         let body = serde_json::json!({ "query": query, "variables": variables });
-        let mut response = request
-            .send_json(&body)
-            .map_err(|error| ApiError::Transport(error.to_string()))?;
+        let mut response = request.send_json(&body).map_err(|error| {
+            let reason = error.to_string();
+            if reason.contains("timeout") || reason.contains("timed out") {
+                ApiError::Timeout(reason)
+            } else {
+                ApiError::Transport(reason)
+            }
+        })?;
         let payload = response
             .body_mut()
             .read_json::<Value>()
@@ -177,6 +240,45 @@ mod tests {
                 code: Some("unauthorized".to_string()),
                 message: "Not authenticated".to_string(),
             }
+        );
+    }
+
+    #[test]
+    fn workspace_scope_is_merged_into_filter() {
+        let scope = WorkspaceScope {
+            workspace_id: "ws-1".to_string(),
+            epoch: 3,
+        };
+        let mut variables = serde_json::json!({ "filter": { "status": { "eq": "open" } } });
+        apply_workspace_scope(&mut variables, Some(&scope));
+        assert_eq!(variables["filter"]["workspaceId"]["eq"], "ws-1");
+        assert_eq!(variables["filter"]["status"]["eq"], "open");
+
+        let mut untouched = serde_json::json!({ "id": "x" });
+        apply_workspace_scope(&mut untouched, None);
+        assert!(untouched.get("filter").is_none());
+    }
+
+    #[test]
+    fn scoped_operation_registry_is_non_empty_and_named() {
+        assert!(WORKSPACE_SCOPED_OPERATIONS.contains(&"ListEvents"));
+        assert!(WORKSPACE_SCOPED_OPERATIONS.contains(&"ListCourses"));
+    }
+
+    #[test]
+    fn error_keys_are_stable() {
+        assert_eq!(
+            ApiError::Transport("x".into()).client_key(),
+            "client.transport"
+        );
+        assert_eq!(ApiError::Timeout("x".into()).client_key(), "client.timeout");
+        assert_eq!(
+            ApiError::Graphql {
+                code: Some("order_deposit_consent_required".into()),
+                message: "x".into()
+            }
+            .client_key(),
+            "client.order_deposit_consent_required"
         );
     }
 }

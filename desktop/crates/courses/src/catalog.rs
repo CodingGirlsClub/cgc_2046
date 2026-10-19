@@ -7,15 +7,18 @@
 
 use std::sync::Arc;
 
-use cgc_platform::api::{ApiError, GraphqlClient};
+use cgc_platform::api::{apply_workspace_scope, ApiError, GraphqlClient};
+use cgc_platform::workspace::WorkspaceScope;
 use cgc_platform::workspace::{
     ContextError, CourseContext, CourseContextPort, CourseContextProvider,
 };
 use serde_json::{json, Value};
 
+use crate::content::CourseContent;
+
 const LIST_COURSES_QUERY: &str = r#"
-query ListCourses($first: Int!, $after: String) {
-  listCourses(first: $first, after: $after) {
+query ListCourses($first: Int!, $after: String, $filter: CourseFilterInput) {
+  listCourses(first: $first, after: $after, filter: $filter) {
     count
     endKeyset
     results { id title status visibility registrationDeadline startsAt endsAt pricingEnabled }
@@ -87,6 +90,7 @@ impl From<ApiError> for CoursesError {
     fn from(error: ApiError) -> Self {
         match error {
             ApiError::Transport(reason) => CoursesError::Transport(reason),
+            ApiError::Timeout(reason) => CoursesError::Transport(format!("timeout: {reason}")),
             ApiError::Graphql { message, .. } => CoursesError::Server(message),
         }
     }
@@ -106,10 +110,17 @@ pub trait CoursesApi: Send + Sync {
     fn list_courses(
         &self,
         token: Option<&str>,
+        scope: Option<&WorkspaceScope>,
         after: Option<&str>,
         first: u32,
     ) -> Result<CoursePage, CoursesError>;
     fn get_course(&self, token: Option<&str>, id: &str) -> Result<CourseDetail, CoursesError>;
+    /// 已发布课程正文；未报名 / 课程不存在 / 未发布 → `CoursesError::NotFound`。
+    fn get_course_content(
+        &self,
+        token: Option<&str>,
+        course_id: &str,
+    ) -> Result<CourseContent, CoursesError>;
 }
 
 pub struct HttpCoursesApi {
@@ -150,6 +161,7 @@ impl CoursesApi for HttpCoursesApi {
     fn list_courses(
         &self,
         token: Option<&str>,
+        scope: Option<&WorkspaceScope>,
         after: Option<&str>,
         first: u32,
     ) -> Result<CoursePage, CoursesError> {
@@ -157,6 +169,7 @@ impl CoursesApi for HttpCoursesApi {
         if let Some(after) = after {
             variables["after"] = json!(after);
         }
+        apply_workspace_scope(&mut variables, scope);
         let payload = self
             .client
             .post(token, LIST_COURSES_QUERY, variables)
@@ -256,6 +269,14 @@ impl CoursesApi for HttpCoursesApi {
             revision_number,
         })
     }
+
+    fn get_course_content(
+        &self,
+        token: Option<&str>,
+        course_id: &str,
+    ) -> Result<CourseContent, CoursesError> {
+        crate::content::fetch_course_content(&self.client, token, course_id)
+    }
 }
 
 pub struct FakeCoursesApi {
@@ -303,6 +324,7 @@ impl CoursesApi for FakeCoursesApi {
     fn list_courses(
         &self,
         _token: Option<&str>,
+        _scope: Option<&WorkspaceScope>,
         after: Option<&str>,
         first: u32,
     ) -> Result<CoursePage, CoursesError> {
@@ -342,6 +364,30 @@ impl CoursesApi for FakeCoursesApi {
             enrollment_status: enrolled.then(|| "confirmed".to_string()),
             revision_number: enrolled.then(|| (index as i64) + 1),
         })
+    }
+
+    fn get_course_content(
+        &self,
+        _token: Option<&str>,
+        id: &str,
+    ) -> Result<CourseContent, CoursesError> {
+        if self.fail {
+            return Err(CoursesError::Transport("fake network down".to_string()));
+        }
+        let summary = self
+            .courses
+            .iter()
+            .find(|course| course.id == id)
+            .ok_or(CoursesError::NotFound)?;
+        let index = fake_index(&summary.id).unwrap_or(0);
+        if !index.is_multiple_of(2) {
+            return Err(CoursesError::NotFound);
+        }
+        Ok(crate::content::fake_course_content(
+            &summary.id,
+            &summary.title,
+            index,
+        ))
     }
 }
 
@@ -413,6 +459,7 @@ impl CourseCatalogService {
     pub fn fetch(&self, token: Option<&str>) -> Result<CoursePage, CoursesError> {
         self.api.list_courses(
             token,
+            None,
             if self.loading_more {
                 self.next_cursor.as_deref()
             } else {
@@ -540,6 +587,68 @@ mod tests {
         service.adopt_page(service.fetch(None).expect("page 2"));
         assert_eq!(service.items().len(), 15);
         assert!(service.next_cursor().is_none());
+    }
+
+    #[test]
+    fn http_list_courses_injects_workspace_scope() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 4096];
+            let header_end = loop {
+                let read = stream.read(&mut buffer).expect("read");
+                if read == 0 {
+                    break request.len();
+                }
+                request.extend_from_slice(&buffer[..read]);
+                if let Some(pos) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break pos + 4;
+                }
+            };
+            let headers = String::from_utf8_lossy(&request[..header_end]).to_string();
+            let content_length = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().ok())
+                        .flatten()
+                })
+                .unwrap_or(0);
+            while request.len() < header_end + content_length {
+                let read = stream.read(&mut buffer).expect("read body");
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..read]);
+            }
+            let _ = sender.send(String::from_utf8_lossy(&request).to_string());
+            let body = r#"{"data":{"listCourses":{"count":0,"endKeyset":null,"results":[]}}}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).expect("write");
+        });
+
+        let api = HttpCoursesApi::new(GraphqlClient::new(format!("http://{addr}/api/graphql")));
+        let scope = WorkspaceScope {
+            workspace_id: "ws-9".into(),
+            epoch: 2,
+        };
+        let _ = api
+            .list_courses(None, Some(&scope), None, 10)
+            .expect("page");
+        let sent = receiver.recv().expect("request");
+        assert!(sent.contains("ListCourses"));
+        assert!(sent.contains(r#""workspaceId""#), "scope missing: {sent}");
+        assert!(sent.contains("ws-9"));
     }
 
     #[test]

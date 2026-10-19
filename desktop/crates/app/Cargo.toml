@@ -7,6 +7,9 @@ rust-version.workspace = true
 
 [dependencies]
 gpui-kit.workspace = true
+# story 3.13：二维码矩阵生成。qrcode 0.14.1，license = MIT OR Apache-2.0（AGPL-3.0 兼容）。
+# 关闭默认 features（image/svg/pic）：只需要矩阵，不引入 image 等额外依赖。
+qrcode = { version = "0.14.1", default-features = false }
 cgc-account.workspace = true
 cgc-agent-chat.workspace = true
 cgc-courses.workspace = true

@@ -149,6 +149,13 @@ query MeWorkspaces {
 }
 "#;
 
+/// 当前 workspace 作用域（2.5）：id + 发送请求时的 epoch，响应按 epoch 守卫。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkspaceScope {
+    pub workspace_id: String,
+    pub epoch: u64,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WorkspaceSummary {
     pub id: String,
@@ -169,6 +176,7 @@ impl From<ApiError> for WorkspaceError {
     fn from(error: ApiError) -> Self {
         match error {
             ApiError::Transport(reason) => WorkspaceError::Transport(reason),
+            ApiError::Timeout(reason) => WorkspaceError::Transport(format!("timeout: {reason}")),
             ApiError::Graphql { message, .. } => WorkspaceError::Server(message),
         }
     }
@@ -410,6 +418,14 @@ impl WorkspaceService {
 
     pub fn epoch(&self) -> u64 {
         self.epoch
+    }
+
+    /// 当前请求作用域；无工作台时为 None（不伪造）。
+    pub fn scope(&self) -> Option<WorkspaceScope> {
+        self.current.as_ref().map(|workspace| WorkspaceScope {
+            workspace_id: workspace.id.clone(),
+            epoch: self.epoch,
+        })
     }
 
     pub fn state(&self) -> &WorkspaceListState {
