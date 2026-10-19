@@ -155,3 +155,7 @@ app.settings.workspace
 app.workspace.empty_title
 app.workspace.empty_guidance
 app.auth.error.keychain
+courses.render.open_link
+courses.render.open_external
+courses.render.open
+courses.render.cancel

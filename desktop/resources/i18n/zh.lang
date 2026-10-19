@@ -154,3 +154,7 @@ app.settings.workspace = 当前工作台
 app.workspace.empty_title = 当前账号还没有工作台
 app.workspace.empty_guidance = 请联系管理员或使用网页端申请加入工作台后返回。
 app.auth.error.keychain = 无法安全保存登录凭证（系统钥匙串不可用），已拒绝持久登录
+courses.render.open_link = 打开外部链接？
+courses.render.open_external = 外部链接：{url}
+courses.render.open = 打开
+courses.render.cancel = 取消

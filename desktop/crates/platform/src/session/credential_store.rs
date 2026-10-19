@@ -475,7 +475,9 @@ mod keychain_tests {
     #[ignore = "touches the real macOS keychain; run manually for HITL"]
     fn real_mac_keychain_round_trip() {
         let store = KeychainStore::from_env();
-        store.save(&session("t-real-keychain")).expect("save to real keychain");
+        store
+            .save(&session("t-real-keychain"))
+            .expect("save to real keychain");
         assert_eq!(
             store.load().map(|session| session.token),
             Some("t-real-keychain".to_string())

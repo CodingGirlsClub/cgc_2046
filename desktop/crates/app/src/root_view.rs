@@ -9,6 +9,7 @@ use gpui_kit::*;
 
 use std::sync::Arc;
 
+use crate::safe_markdown::sanitize_markdown;
 use cgc_courses::catalog::{
     learning_context, CourseCatalogService, CourseDetailService, CourseSummary, CoursesApi,
     CoursesListState, FakeCoursesApi, HttpCoursesApi,
@@ -135,6 +136,7 @@ pub struct RootView {
     course_detail: CourseDetailService,
     course_detail_started: bool,
     content: CourseContentService,
+    pending_link: Option<String>,
     selected_event: Option<String>,
 }
 
@@ -199,6 +201,7 @@ impl RootView {
             course_detail,
             course_detail_started: false,
             content,
+            pending_link: None,
             workspaces: build_workspace_service(),
             workspaces_started: false,
             workspace_menu_open: std::env::var("CGC_WORKSPACE_MENU").as_deref() == Ok("open"),
@@ -343,6 +346,7 @@ impl RootView {
         self.courses.reset();
         self.course_detail.reset();
         self.content.reset();
+        self.pending_link = None;
         self.selected_event = None;
         self.selected_tier = None;
         self.age_confirmed = false;
@@ -417,6 +421,7 @@ impl RootView {
         self.course_detail.begin_load();
         self.course_detail_started = true;
         self.content.reset();
+        self.pending_link = None;
         let api = self.course_detail.api_handle();
         let token = self.session_token();
         let task = cx
@@ -1991,11 +1996,22 @@ impl RootView {
                         if body.trim().is_empty() {
                             continue;
                         }
+                        let view_handle = cx.entity().downgrade();
+                        let body = sanitize_markdown(body);
                         materials.push(
                             TextView::markdown(
                                 format!("course-material-{}", materials.len()),
-                                body.to_string(),
+                                body,
                             )
+                            .on_link_click(move |url, _, _, cx| {
+                                if crate::safe_markdown::is_safe_link(url) {
+                                    let url = url.to_string();
+                                    let _ = view_handle.update(cx, |this, cx| {
+                                        this.pending_link = Some(url);
+                                        cx.notify();
+                                    });
+                                }
+                            })
                             .into_any_element(),
                         );
                     }
@@ -2006,11 +2022,57 @@ impl RootView {
                         .child(translate(language, Key::CoursesLearningContentEmpty))
                         .into_any_element();
                 }
+                let confirm = self.pending_link.clone().map(|url| {
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(space(1))
+                        .p(space(1))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .bg(palette.soft)
+                        .text_size(px(12.0))
+                        .child(div().text_color(palette.ink_2).child(format!(
+                            "{} {url}",
+                            translate(language, Key::CoursesRenderOpenLink)
+                        )))
+                        .child(
+                            div()
+                                .id("open-external-link")
+                                .px(space(1))
+                                .py(px(2.0))
+                                .rounded(px(RADIUS_SMALL))
+                                .bg(palette.accent)
+                                .text_color(palette.canvas)
+                                .child(translate(language, Key::CoursesRenderOpen))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    if let Some(url) = this.pending_link.take() {
+                                        cx.open_url(&url);
+                                    }
+                                    cx.notify();
+                                })),
+                        )
+                        .child(
+                            div()
+                                .id("cancel-external-link")
+                                .px(space(1))
+                                .py(px(2.0))
+                                .rounded(px(RADIUS_SMALL))
+                                .text_color(palette.ink_3)
+                                .child(translate(language, Key::CoursesRenderCancel))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.pending_link = None;
+                                    cx.notify();
+                                })),
+                        )
+                        .into_any_element()
+                });
                 div()
                     .mt(space(2))
                     .flex()
                     .flex_col()
                     .gap(space(2))
+                    .children(confirm)
                     .children(materials)
                     .into_any_element()
             }
