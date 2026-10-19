@@ -14,7 +14,7 @@ import {
 import protocol from "../../protocol.json";
 import { type AgentKind, DEFAULT_AGENT, isAgentKind, type Registry } from "../agents/registry";
 import type { ChatContext, ChatMethod, Message } from "../server";
-import { setPointer, workDir } from "../state";
+import { ownerHash, setPointer, workDir } from "../state";
 import { createAgentRuntimes } from "./agent-runtimes";
 import { createAgentCapabilities } from "./capabilities";
 import { authenticateAgent, createAuthMethods } from "./auth";
@@ -60,15 +60,25 @@ async function sameDir(a: unknown, b: string): Promise<boolean> {
   }
 }
 
+/** 一轮从发出 prompt 起的绝对上限（AGENTS 契约：30 分钟）；导出供测试断言，改这里同时改文档 */
+export const TURN_TIMEOUT_MS = 30 * 60_000;
+/** 取消通知后等 agent 应答的上限（AGENTS 契约：15 秒） */
+export const CANCEL_ACK_TIMEOUT_MS = 15_000;
+
 export function createChat(opts: ChatOptions) {
   const graceMs = opts.graceMs ?? 5 * 60_000;
   const idleMs = opts.idleMs ?? 10 * 60_000;
-  const turnTimeoutMs = opts.turnTimeoutMs ?? 30 * 60_000;
-  const cancelAckTimeoutMs = opts.cancelAckTimeoutMs ?? 15_000;
+  const turnTimeoutMs = opts.turnTimeoutMs ?? TURN_TIMEOUT_MS;
+  const cancelAckTimeoutMs = opts.cancelAckTimeoutMs ?? CANCEL_ACK_TIMEOUT_MS;
   const courses = new Map<string, Course>();
   const bySession = new Map<string, Course>();
   /** chat.open 的旁路回放：load 成功前不进课程缓冲（失败时原会话原样） */
   const staging = new Map<string, Transcript>();
+  /**
+   * 每条会话最后一条 usage：进程回收/重启后的真实回放不含它（ACP 只回放消息与工具），
+   * history 回包时补一条，页面重新接上后仍能显示上下文与费用。按会话记，课程对象被回收也不丢。
+   */
+  const lastUsageBySession = new Map<string, Extract<ChatEvent, { kind: "usage" }>>();
   let connections = 0;
 
   const delta = (c: Course, event: ChatEvent) => c.send({ method: "turn.delta", params: { courseId: c.id, ...event } });
@@ -77,6 +87,14 @@ export function createChat(opts: ChatOptions) {
   const settingsSynced = (c: Course) => {
     c.settingsKey = JSON.stringify(c.settings);
   };
+
+  /** history 的事件：进程回收后的真实回放没有 usage 时补最后一条已知用量（页面据此显示上下文） */
+  function historyEvents(c: Course): readonly ChatEvent[] {
+    if (!c.sessionId) return c.transcript.events;
+    if (c.transcript.events.some((e) => e.kind === "usage")) return c.transcript.events;
+    const last = lastUsageBySession.get(ownerKey(c.agent, c.sessionId));
+    return last ? [...c.transcript.events, last] : c.transcript.events;
+  }
 
   /** 会话设置变化时推给这门课的持有者；与上一次同步的内容相同就不推 */
   function publishSettings(c: Course) {
@@ -90,6 +108,15 @@ export function createChat(opts: ChatOptions) {
   const authMethods = createAuthMethods();
   /** 各 agent 握手时播报的能力（协议版本 / session load+list / HTTP MCP）；用哪项先看哪项 */
   const capabilities = createAgentCapabilities();
+  /** 会话归属：命中的记录与当前账号不符就拒绝加载（旧状态没有记录时不拦，保持兼容） */
+  const ownerKey = (kind: AgentKind, sessionId: string) => `${kind}:${sessionId}`;
+  const foreignSession = (ctx: ChatContext, kind: AgentKind, sessionId: string) => {
+    const owner = ctx.owners[ownerKey(kind, sessionId)];
+    return owner !== undefined && owner !== ownerHash(ctx.userId);
+  };
+  const claimSession = (ctx: ChatContext, kind: AgentKind, sessionId: string) => {
+    ctx.owners[ownerKey(kind, sessionId)] = ownerHash(ctx.userId);
+  };
   /** 每个 agent kind 一个进程代（KTD1）与各自的空闲回收（KTD13） */
   const runtimes = createAgentRuntimes({
     registry: opts.registry,
@@ -119,7 +146,9 @@ export function createChat(opts: ChatOptions) {
             return;
           }
           const event = c?.transcript.apply(update);
-          if (!c || !event || !c.turn?.sessionId) return;
+          if (!c || !event) return;
+          if (event.kind === "usage") lastUsageBySession.set(key, event); // 记下来：进程回收后的真实回放不含 usage
+          if (!c.turn?.sessionId) return;
           if (event.kind === "message") c.turn.text += event.text;
           delta(c, event);
         },
@@ -200,7 +229,7 @@ export function createChat(opts: ChatOptions) {
     run.check();
     const runtime = runtimeFor(c.agent);
     // 有一轮正在跑时不重新加载：重新 load 会让 agent 把历史整段再回放一遍
-    const current = runtime.agent && c.sessionId && (c.turn?.sessionId || (c.userId === ctx.userId && c.token === ctx.token)) ? c.sessionId : null;
+    const current = runtime.agent && c.sessionId && !foreignSession(ctx, c.agent, c.sessionId) && (c.turn?.sessionId || (c.userId === ctx.userId && c.token === ctx.token)) ? c.sessionId : null;
     if (mode === "open" && current === openTarget) return { a: await run.agent(), sessionId: current }; // 打开的就是当前会话：短接，不再回放
     if ((mode === "attach" || mode === "send") && current) return { a: await run.agent(), sessionId: current };
     // chat.open：事务式切换——先在旁路缓冲里回放，只有 session/load 成功才提交；
@@ -222,6 +251,7 @@ export function createChat(opts: ChatOptions) {
       });
       const target = openTarget!;
       if (!(await belongs(a, cwd, target, run))) throw new OpenError("bad_request"); // 目标不属于本课程目录：什么都没动
+      if (foreignSession(ctx, kind, target)) throw new OpenError("bad_request"); // 归属记录是别的账号：不打开别人的会话
       run.check();
       const key = sessionKey(kind, target);
       const staged = createTranscript();
@@ -256,6 +286,7 @@ export function createChat(opts: ChatOptions) {
       bySession.set(key, c);
       Object.assign(c, { transcript: staged, sessionId: target, userId: ctx.userId, token: ctx.token, lastContext: null, settings, settingsKey: null });
       c.abandonedPrompt = null;
+      claimSession(ctx, kind, target);
       setPointer(ctx.sessions, c.id, kind, target);
       try {
         ctx.save();
@@ -289,7 +320,9 @@ export function createChat(opts: ChatOptions) {
       await setup.prepare?.(cwd);
     });
     // 能力缺失时按「恢复不了」处理：先建新会话，不把不可加载的指针留在配置里
-    const load = target && caps.loadSession ? (caps.listSessions ? await belongs(a, cwd, target, run) : false) : false;
+    // 归属记录是别的账号同样不加载（M9：不依赖适配器自报的 cwd 也能拦住跨账号恢复）
+    if (target && foreignSession(ctx, c.agent, target)) console.error("cgc-host: 会话指针属于另一个账号，不加载");
+    const load = target && !foreignSession(ctx, c.agent, target) && caps.loadSession ? (caps.listSessions ? await belongs(a, cwd, target, run) : false) : false;
     run.check();
     if (target && load) {
       bySession.set(sessionKey(c.agent, target), c);
@@ -303,6 +336,8 @@ export function createChat(opts: ChatOptions) {
       }
       run.check();
       Object.assign(c, { sessionId: target, userId: ctx.userId, token: ctx.token });
+      claimSession(ctx, c.agent, target);
+      ctx.save();
       return { a, sessionId: target };
     }
     if (target) {
@@ -319,6 +354,7 @@ export function createChat(opts: ChatOptions) {
     run.check();
     bySession.set(sessionKey(c.agent, sessionId), c);
     Object.assign(c, { sessionId, userId: ctx.userId, token: ctx.token });
+    claimSession(ctx, c.agent, sessionId);
     setPointer(ctx.sessions, c.id, c.agent, sessionId);
     ctx.save();
     return { a, sessionId };
@@ -367,10 +403,12 @@ export function createChat(opts: ChatOptions) {
     if (!turn || turn.stopping) return;
     turn.stopping = true;
     const active = runtimeFor(c.agent).agent;
-    if (active && turn.sessionId) void active.rpc.notify("session/cancel", { sessionId: turn.sessionId }).catch(() => {});
+    const cancelSent = Boolean(active && turn.sessionId);
+    if (cancelSent) void active!.rpc.notify("session/cancel", { sessionId: turn.sessionId }).catch(() => {});
     // 取消是通知，agent 不回也不会让 session/prompt 失败：给它一个应答期限，到点由 Host 本地收尾，
     // 否则页面永远停在「停止中」、课程永远 busy（空闲回收也以 busy 为条件）。
-    if (!turn.ackWatchdog) {
+    // 只有真的发出取消才需要期限：还在准备阶段（sessionId 未定）的 stop 由 prepare 的 stopping 分支收尾。
+    if (cancelSent && !turn.ackWatchdog) {
       turn.ackWatchdog = setTimeout(() => {
         if (c.turn !== turn) return;
         // agent 可能仍在跑这轮：隔离它，直到 session/prompt 真正 settle（见 abandonedPrompt）
@@ -468,7 +506,7 @@ export function createChat(opts: ChatOptions) {
         // 没有会话指针时也会建一条空会话：history 回包要带模型/思考强度设置（首条消息之前页面就得能选）。
         // 建会话失败（没装 agent、要求登录等）照旧回 chat_unavailable / auth_required；进程仍按 KTD13 空闲回收。
         await prepare(c, ctx, "attach", () => {
-          reply("history", { running: c.turn !== null, events: c.transcript.events, settings: c.settings, agent: ctx.agents[c.id] ?? null });
+          reply("history", { running: c.turn !== null, events: historyEvents(c), settings: c.settings, agent: ctx.agents[c.id] ?? null });
           settingsSynced(c);
           for (const view of c.cards.views()) c.send({ method: "turn.card", params: { courseId: c.id, ...view } });
         });
@@ -488,6 +526,7 @@ export function createChat(opts: ChatOptions) {
       checkIdle();
       try {
         await prepare(c, ctx, "send", (ready) => {
+          if (c.turn !== turn) return; // 回合已被取消/强制收尾：不再补发 user 事件或开 prompt
           const { a, sessionId } = ready!;
           // KTD8：上下文块只在会话的首条消息与单元切换时附带
           const prompt: ContentBlock[] = [{ type: "text", text }];
@@ -565,6 +604,8 @@ export function createChat(opts: ChatOptions) {
         for (const s of page.sessions ?? []) {
           // 适配器忽略 cwd 过滤时也不越界：只列本课程工作目录下的会话
           if (!(await sameDir((s as { cwd?: unknown }).cwd, cwd))) continue;
+          if (foreignSession(ctx, c.agent, s.sessionId)) continue; // 别的账号创建/确认过的会话不列
+
           const rawTitle = (s as { title?: unknown }).title;
           // 标题来自本机 agent，限长后原样展示；空串按没有处理
           const title = typeof rawTitle === "string" && rawTitle.trim() ? rawTitle.trim().slice(0, 200) : null;
@@ -587,7 +628,7 @@ export function createChat(opts: ChatOptions) {
       if (c.turn) return fail("busy");
       try {
         await prepare(c, ctx, "open", () => {
-          reply("history", { running: false, events: c.transcript.events, settings: c.settings, agent: ctx.agents[c.id] ?? null });
+          reply("history", { running: false, events: historyEvents(c), settings: c.settings, agent: ctx.agents[c.id] ?? null });
           settingsSynced(c);
         }, sessionId);
       } catch (e) {

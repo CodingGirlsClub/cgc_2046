@@ -32,9 +32,11 @@ Host 版本限定为三个无前导零的非负安全整数：`major.minor.patch
 
 ## 历史对话（protocolVersion 2）
 
-`chat.sessions {courseId, cursor?}` → `sessions {sessions: [{sessionId, updatedAt, messageCount}], current, nextCursor}`：本课程工作目录下的会话列表（ACP session/list，`cursor` 原样透传分页）；只读，有回合在跑时同样可查。`updatedAt` / `messageCount` 缺省为 `null`（OMP 版本差异），页面自行降级展示。
+`chat.sessions {courseId, cursor?}` → `sessions {sessions: [{sessionId, title, updatedAt, messageCount}], current, nextCursor}`：本课程工作目录下的会话列表（ACP session/list，`cursor` 原样透传分页）；只读，有回合在跑时同样可查。`title` 来自 agent 的会话标题，缺省 `null`；`updatedAt` / `messageCount` 缺省为 `null`（OMP 版本差异），页面自行降级展示。Host 不信任适配器的 cwd 过滤：每个条目都按 `SessionInfo.cwd` 与课程工作目录二次比对；状态文件里记有归属账号的会话（见 `AGENTS.md` 的 `sessionOwners`），账号不符时不列出。
 
-`chat.open {courseId, sessionId}` → `history`（同 `chat.attach` 的载荷）：切换到指定会话。目标必须在这门课的工作目录下（belongs 校验），否则回 `bad_request`；加载失败回 `session_unavailable`，且**持久指针保持不变**——原会话不受影响，重载即回到原对话；有回合在跑回 `busy`。切换成功才推进持久指针；打开的就是当前会话时不重复加载。
+`chat.open {courseId, sessionId}` → `history`（同 `chat.attach` 的载荷）：切换到指定会话。目标必须同时满足 id 命中、cwd 归属本课程目录、且归属账号与当前连接一致（后两项任一不符回 `bad_request`）；加载失败回 `session_unavailable`，且**持久指针保持不变**——原会话不受影响，重载即回到原对话；有回合在跑回 `busy`；目标无法核实归属或 agent 不支持 `session/load` / `session/list` 回 `chat_unavailable`。切换成功才推进持久指针；打开的就是当前会话时不重复加载。
+
+`history` 的 `events` 在进程回收/重启后的真实回放里没有 `usage`（ACP 只回放消息与工具）：Host 会把同一会话的最后一条 `usage` 补在末尾，页面据此继续显示上下文与费用；Host 进程重启后该值丢失。
 
 页面按 `status.protocolVersion` 降级：低于 2 的旧 Host 不显示历史入口（不会发出 `chat.sessions` / `chat.open`）。
 

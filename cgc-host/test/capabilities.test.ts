@@ -9,7 +9,7 @@ afterEach(cleanup);
 /** 预置一条会话指针（模拟 Host 重启后状态文件里的旧指针） */
 const seededHome = () => {
   const home = tempHome();
-  saveState(home, { pairing: null, sessions: { [COURSE]: { omp: "old-session" } }, agents: {} });
+  saveState(home, { pairing: null, sessions: { [COURSE]: { omp: "old-session" } }, agents: {}, sessionOwners: {} });
   return home;
 };
 

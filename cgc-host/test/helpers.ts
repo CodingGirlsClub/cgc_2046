@@ -248,6 +248,8 @@ export function fakeAgent() {
     failLoadFor: new Set<string>(),
     /** session/load 人为延迟（毫秒）：模拟长回放，测试并发切 agent 的提交护栏 */
     delayLoadMs: 0,
+    /** session/new 人为延迟（毫秒）：模拟准备阶段，测试「准备阶段 stop」 */
+    delayNewMs: 0,
     calls: [] as { method: string; params: any }[],
     answers: [] as any[],
     /** OMP 的会话设置（ACP configOptions）：session/new、session/load 的回包带它；set_config_option 按它校验并更新 */
@@ -330,9 +332,10 @@ export function fakeAgent() {
           if (fake.authFails) throw acp.RequestError.authRequired();
           return {};
         })
-        .onRequest("session/new", (c) => {
+        .onRequest("session/new", async (c) => {
           record("session/new", c.params);
           if (fake.authFor.has("session/new")) throw acp.RequestError.authRequired();
+          if (fake.delayNewMs > 0) await Bun.sleep(fake.delayNewMs);
           const sessionId = `session-${++seq}`;
           fake.store.set(sessionId, { cwd: c.params.cwd, history: [], updatedAt: new Date().toISOString() });
           loaded.add(sessionId);

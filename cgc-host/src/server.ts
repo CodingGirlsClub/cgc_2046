@@ -24,6 +24,8 @@ export interface ChatContext {
   sessions: SessionPointers;
   /** 每门课上次显式选过的 agent（只用于 history 回包给页面做初选）；对话层的路由缺省恒为 DEFAULT_AGENT，不看它 */
   agents: Record<string, AgentKind>;
+  /** 会话归属（M9）：`<agent>:<sessionId>` 的账号短哈希；命中的记录与当前账号不符就拒绝加载 */
+  owners: Record<string, string>;
   save(): void;
   /** 只回原连接；原配对代次失效或连接断开后丢弃，不随课程接管迁移 */
   reply(message: Message): void;
@@ -138,6 +140,7 @@ async function chat(host: Host, ws: WS, { method, id, params }: Frame) {
     token,
     sessions: host.state.sessions,
     agents: host.state.agents,
+    owners: host.state.sessionOwners,
     save: () => saveState(host.opts.home, host.state),
     reply(message) {
       if (canReply(host, ws, pairing)) send(ws, { ...message, id });
