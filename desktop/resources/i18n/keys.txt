@@ -142,3 +142,5 @@ events.mine.empty
 events.mine.error
 events.mine.retry
 events.mine.open
+events.checkin.title
+events.checkin.code

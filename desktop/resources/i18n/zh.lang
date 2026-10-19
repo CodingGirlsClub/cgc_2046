@@ -141,3 +141,5 @@ events.mine.empty = 还没有报名记录
 events.mine.error = 加载失败，请重试
 events.mine.retry = 重试
 events.mine.open = 查看
+events.checkin.title = 押金核销码
+events.checkin.code = 6 位核销码

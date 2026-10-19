@@ -4,6 +4,8 @@
 pub struct MyEnrollment {
     pub id: String,
     pub status: String,
+    /// 核销码（仅本人 confirmed 场次报名可见；course/cancel 等恒 None）。
+    pub check_in_code: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

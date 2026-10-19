@@ -141,3 +141,5 @@ events.mine.empty = No enrollments yet
 events.mine.error = Failed to load, please retry
 events.mine.retry = Retry
 events.mine.open = Open
+events.checkin.title = Deposit check-in code
+events.checkin.code = 6-digit check-in code

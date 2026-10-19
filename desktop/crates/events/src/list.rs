@@ -228,7 +228,7 @@ query GetEvent($id: ID!) {
 
 const MY_ENROLLMENT_QUERY: &str = r#"
 query MyEnrollment($kind: String!, $offeringId: ID!) {
-  myEnrollment(kind: $kind, offeringId: $offeringId) { id status }
+  myEnrollment(kind: $kind, offeringId: $offeringId) { id status checkInCode }
 }
 "#;
 
@@ -259,6 +259,10 @@ impl HttpEventsApi {
                 .as_str()
                 .unwrap_or("pending")
                 .to_string(),
+            check_in_code: value
+                .get("checkInCode")
+                .and_then(Value::as_str)
+                .map(str::to_string),
         })
     }
 }
@@ -618,6 +622,7 @@ impl EventsApi for FakeEventsApi {
         let enrollment = crate::enroll::MyEnrollment {
             id: format!("enroll-{}", request.event_id),
             status: status.to_string(),
+            check_in_code: Some("654321".to_string()),
         };
         self.enrollments
             .lock()
@@ -643,6 +648,7 @@ impl EventsApi for FakeEventsApi {
         let canceled = crate::enroll::MyEnrollment {
             id: enrollment_id.to_string(),
             status: "cancelled".to_string(),
+            check_in_code: None,
         };
         enrollments.insert(key, canceled.clone());
         Ok(canceled)

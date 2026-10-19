@@ -2201,6 +2201,35 @@ impl RootView {
                         .child(translate(language, Key::EventsPayPaid))
                         .into_any_element()
                 });
+                let check_in = (detail.deposit_enabled && enrollment.status == "confirmed")
+                    .then(|| enrollment.check_in_code.clone())
+                    .flatten()
+                    .map(|code| {
+                        let content = format!("cgc2046:checkin:{}:{code}", detail.id);
+                        let qr = encode_qr(&content)
+                            .map(|matrix| render_qr(&matrix, black(), white(), px(160.0)))
+                            .unwrap_or_else(|_| {
+                                div()
+                                    .text_color(palette.danger)
+                                    .child(translate(language, Key::EventsPayFailed))
+                                    .into_any_element()
+                            });
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(4.0))
+                            .child(
+                                div()
+                                    .text_size(px(12.0))
+                                    .text_color(palette.ink_3)
+                                    .child(translate(language, Key::EventsCheckinTitle)),
+                            )
+                            .child(qr)
+                            .child(div().text_size(px(12.0)).text_color(palette.ink_2).child(
+                                format!("{} {code}", translate(language, Key::EventsCheckinCode)),
+                            ))
+                            .into_any_element()
+                    });
                 return div()
                     .mt(space(2))
                     .flex()
@@ -2210,6 +2239,7 @@ impl RootView {
                     .text_color(palette.ink_2)
                     .child(enroll_status_label(language, enrollment.status.as_str()))
                     .children(paid_notice)
+                    .children(check_in)
                     .into_any_element();
             }
 
