@@ -12,6 +12,7 @@ use super::manifest::RegistryError;
 
 pub const ACP_REGISTRY_URL: &str =
     "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
+pub const MCP_REGISTRY_URL: &str = "https://registry.modelcontextprotocol.io/v0/servers";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DiscoveryDistribution {
@@ -27,6 +28,97 @@ pub struct DiscoveredAgent {
     pub version: String,
     pub description: Option<String>,
     pub distribution: DiscoveryDistribution,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiscoveredMcpServer {
+    pub name: String,
+    pub title: Option<String>,
+    pub version: String,
+    pub description: Option<String>,
+    pub remotes: Vec<String>,
+}
+
+/// 解析官方 MCP registry JSON（`servers[].server` + `_meta...official.status`）。
+/// 只保留 active 条目；MCP registry 元数据不含 checksum/签名，不能用于安装决策。
+pub fn parse_mcp_registry(raw: &str) -> Result<Vec<DiscoveredMcpServer>, RegistryError> {
+    let value: Value =
+        serde_json::from_str(raw).map_err(|error| RegistryError::InvalidJson(error.to_string()))?;
+    let servers = value
+        .get("servers")
+        .and_then(Value::as_array)
+        .ok_or_else(|| RegistryError::InvalidEntry("missing servers[]".to_string()))?;
+    let mut discovered: Vec<DiscoveredMcpServer> = Vec::new();
+    for entry in servers {
+        let Some(server) = entry.get("server") else {
+            continue;
+        };
+        let Some(name) = server.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        if name.trim().is_empty() {
+            continue;
+        }
+        let status = entry
+            .pointer("/_meta/io.modelcontextprotocol.registry~1official/status")
+            .and_then(Value::as_str)
+            .unwrap_or("active");
+        if status != "active" {
+            continue;
+        }
+        let remotes = server
+            .get("remotes")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|remote| remote.get("url").and_then(Value::as_str))
+                    .filter(|url| !url.trim().is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let discovered_entry = DiscoveredMcpServer {
+            name: name.to_string(),
+            title: server
+                .get("title")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            version: server
+                .get("version")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+                .to_string(),
+            description: server
+                .get("description")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            remotes,
+        };
+        if let Some(existing) = discovered
+            .iter_mut()
+            .find(|existing| existing.name == discovered_entry.name)
+        {
+            *existing = discovered_entry;
+        } else {
+            discovered.push(discovered_entry);
+        }
+    }
+    if discovered.is_empty() {
+        return Err(RegistryError::InvalidEntry(
+            "official MCP registry has no active servers".to_string(),
+        ));
+    }
+    Ok(discovered)
+}
+
+/// 拉取官方 MCP registry；失败 fail-closed（仅发现层）。
+pub fn fetch_mcp_registry(
+    url: &str,
+    timeout: Duration,
+) -> Result<Vec<DiscoveredMcpServer>, RegistryError> {
+    let raw = fetch_json(url, timeout)?;
+    parse_mcp_registry(&raw)
 }
 
 /// 解析官方 ACP registry JSON（schema `version=1.0.0`，`agents[]`）。
@@ -105,12 +197,7 @@ fn proxy_from_env() -> Option<ureq::Proxy> {
         .and_then(|value| ureq::Proxy::new(value.trim()).ok())
 }
 
-/// 拉取官方 registry；非 2xx/超时/解析失败一律 fail-closed（调用方可静默隐藏发现层）。
-/// 外部 URL 使用系统代理 env（本机测试/内网 localhost 不走代理）。
-pub fn fetch_acp_registry(
-    url: &str,
-    timeout: Duration,
-) -> Result<Vec<DiscoveredAgent>, RegistryError> {
+fn fetch_json(url: &str, timeout: Duration) -> Result<String, RegistryError> {
     let local = url.contains("127.0.0.1") || url.contains("localhost");
     let config = ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
@@ -121,10 +208,19 @@ pub fn fetch_acp_registry(
         .get(url)
         .call()
         .map_err(|error| RegistryError::InvalidEntry(format!("registry fetch failed: {error}")))?;
-    let raw = response
+    response
         .body_mut()
         .read_to_string()
-        .map_err(|error| RegistryError::InvalidJson(format!("read registry body: {error}")))?;
+        .map_err(|error| RegistryError::InvalidJson(format!("read registry body: {error}")))
+}
+
+/// 拉取官方 ACP registry；非 2xx/超时/解析失败一律 fail-closed（调用方可静默隐藏发现层）。
+/// 外部 URL 使用系统代理 env（本机测试/内网 localhost 不走代理）。
+pub fn fetch_acp_registry(
+    url: &str,
+    timeout: Duration,
+) -> Result<Vec<DiscoveredAgent>, RegistryError> {
+    let raw = fetch_json(url, timeout)?;
     parse_acp_registry(&raw)
 }
 
@@ -168,6 +264,43 @@ mod tests {
         assert!(matches!(
             agents[1].distribution,
             DiscoveryDistribution::Npx { ref package } if package == "npx-agent@1.2.3"
+        ));
+    }
+
+    const MCP_SAMPLE: &str = r#"{
+      "servers": [
+        {"server": {"name": "com.example/weather", "title": "Weather", "version": "1.2.0",
+          "description": "weather data", "remotes": [{"type": "streamable-http", "url": "https://example.com/mcp"}]},
+         "_meta": {"io.modelcontextprotocol.registry/official": {"status": "active"}}},
+        {"server": {"name": "com.example/deprecated", "version": "0.1.0"},
+         "_meta": {"io.modelcontextprotocol.registry/official": {"status": "deprecated"}}},
+        {"server": {"name": "com.example/weather", "title": "Weather", "version": "1.3.0",
+          "remotes": [{"type": "streamable-http", "url": "https://example.com/mcp"}]},
+         "_meta": {"io.modelcontextprotocol.registry/official": {"status": "active"}}}
+      ]
+    }"#;
+
+    #[test]
+    fn parses_mcp_registry_active_latest() {
+        let servers = parse_mcp_registry(MCP_SAMPLE).expect("parse");
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].name, "com.example/weather");
+        assert_eq!(servers[0].version, "1.3.0");
+        assert_eq!(
+            servers[0].remotes,
+            vec!["https://example.com/mcp".to_string()]
+        );
+    }
+
+    #[test]
+    fn mcp_registry_invalid_is_rejected() {
+        assert!(matches!(
+            parse_mcp_registry("not json"),
+            Err(RegistryError::InvalidJson(_))
+        ));
+        assert!(matches!(
+            parse_mcp_registry(r#"{"servers":[]}"#),
+            Err(RegistryError::InvalidEntry(_))
         ));
     }
 
