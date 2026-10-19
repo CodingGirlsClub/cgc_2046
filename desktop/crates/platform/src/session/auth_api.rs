@@ -16,7 +16,9 @@ mutation SignInForDesktop($login: String!, $password: String!) {
 }
 "#;
 
-pub const REVOKE_TOKEN: &str = r#"
+pub const VALIDATE_SESSION: &str = "query ValidateSession { me { id } }";
+
+const REVOKE_TOKEN: &str = r#"
 mutation RevokeToken {
   revokeToken
 }
@@ -59,6 +61,8 @@ impl AuthError {
 pub trait AuthApi {
     fn sign_in(&self, login: &str, password: &str) -> Result<SignedInSession, AuthError>;
     fn revoke(&self, token: &str) -> Result<(), AuthError>;
+    /// 启动恢复时校验持久 token 是否仍有效（false=确定失效；Err=网络不确定，保留会话）。
+    fn validate(&self, token: &str) -> Result<bool, AuthError>;
 }
 
 /// 真实后端：GraphQL over HTTP。
@@ -158,6 +162,26 @@ impl AuthApi for HttpAuthApi {
         })
     }
 
+    fn validate(&self, token: &str) -> Result<bool, AuthError> {
+        let body = self.post(Some(token), VALIDATE_SESSION, serde_json::json!({}))?;
+        if let Some(errors) = body.get("errors").and_then(Value::as_array) {
+            if errors.iter().any(|error| {
+                matches!(
+                    error.get("code").and_then(Value::as_str),
+                    Some("forbidden" | "unauthorized" | "unauthenticated")
+                )
+            }) {
+                return Ok(false);
+            }
+        }
+        Ok(body
+            .get("data")
+            .and_then(|data| data.get("me"))
+            .and_then(|me| me.get("id"))
+            .and_then(Value::as_str)
+            .is_some())
+    }
+
     fn revoke(&self, token: &str) -> Result<(), AuthError> {
         let body = self.post(Some(token), REVOKE_TOKEN, serde_json::json!({}))?;
         if let Some(error) = Self::parse_errors(&body) {
@@ -219,6 +243,10 @@ impl AuthApi for FakeAuthApi {
 
     fn revoke(&self, _token: &str) -> Result<(), AuthError> {
         Ok(())
+    }
+
+    fn validate(&self, token: &str) -> Result<bool, AuthError> {
+        Ok(!token.is_empty() && token != "expired")
     }
 }
 
@@ -315,6 +343,25 @@ mod tests {
             api.sign_in("demo@example.com", "wrong"),
             Err(AuthError::InvalidCredentials)
         ));
+    }
+
+    #[test]
+    fn validate_true_when_me_returns_id() {
+        let (endpoint, received) = spawn_mock_server(200, r#"{"data":{"me":{"id":"user-1"}}}"#);
+        let api = HttpAuthApi::new(endpoint);
+        assert!(api.validate("jwt.token").expect("validate"));
+        let request = received.recv().expect("request captured");
+        assert!(request.contains("ValidateSession"), "request: {request}");
+    }
+
+    #[test]
+    fn validate_false_on_forbidden_token() {
+        let (endpoint, _received) = spawn_mock_server(
+            200,
+            r#"{"data":null,"errors":[{"message":"forbidden","code":"forbidden"}]}"#,
+        );
+        let api = HttpAuthApi::new(endpoint);
+        assert!(!api.validate("expired").expect("validate"));
     }
 
     #[test]

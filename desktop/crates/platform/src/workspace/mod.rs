@@ -170,6 +170,7 @@ pub struct WorkspaceSummary {
 pub enum WorkspaceError {
     Transport(String),
     Server(String),
+    Unauthorized,
 }
 
 impl From<ApiError> for WorkspaceError {
@@ -177,6 +178,7 @@ impl From<ApiError> for WorkspaceError {
         match error {
             ApiError::Transport(reason) => WorkspaceError::Transport(reason),
             ApiError::Timeout(reason) => WorkspaceError::Transport(format!("timeout: {reason}")),
+            ApiError::Unauthorized => WorkspaceError::Unauthorized,
             ApiError::Graphql { message, .. } => WorkspaceError::Server(message),
         }
     }
@@ -187,7 +189,12 @@ impl WorkspaceError {
         match self {
             WorkspaceError::Transport(reason) => format!("transport error: {reason}"),
             WorkspaceError::Server(reason) => format!("server error: {reason}"),
+            WorkspaceError::Unauthorized => "unauthorized".to_string(),
         }
+    }
+
+    pub fn is_unauthorized(&self) -> bool {
+        matches!(self, WorkspaceError::Unauthorized)
     }
 }
 

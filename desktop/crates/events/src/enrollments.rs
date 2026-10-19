@@ -92,6 +92,7 @@ impl EnrollmentsApi for HttpEnrollmentsApi {
                 ApiError::Timeout(reason) => {
                     crate::list::EventsError::Transport(format!("timeout: {reason}"))
                 }
+                ApiError::Unauthorized => crate::list::EventsError::Unauthorized,
                 ApiError::Graphql { message, .. } => crate::list::EventsError::Server(message),
             })?;
         let page = payload

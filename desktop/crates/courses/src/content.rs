@@ -601,7 +601,7 @@ mod tests {
     }
 
     #[test]
-    fn http_api_maps_graphql_error_to_server_error() {
+    fn http_api_maps_unauthorized_graphql_error() {
         let body =
             r#"{"errors":[{"message":"Not authenticated","code":"unauthorized"}]}"#.to_string();
         let (endpoint, _request) = spawn_graphql_mock(body);
@@ -609,7 +609,7 @@ mod tests {
 
         assert_eq!(
             api.get_course_content(None, "crs-002").unwrap_err(),
-            CoursesError::Server("Not authenticated".to_string())
+            CoursesError::Unauthorized
         );
     }
 

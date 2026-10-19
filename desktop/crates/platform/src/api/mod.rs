@@ -18,6 +18,8 @@ pub enum ApiError {
     Transport(String),
     /// 请求超时（与网络失败区分，便于客户端给不同提示）。
     Timeout(String),
+    /// 未认证/登录失效（HTTP 401 或 GraphQL unauthorized 类 code）：统一登出。
+    Unauthorized,
     /// GraphQL errors 非空（带可选业务 code）。
     Graphql {
         code: Option<String>,
@@ -30,6 +32,7 @@ impl ApiError {
         match self {
             ApiError::Transport(reason) => format!("transport error: {reason}"),
             ApiError::Timeout(reason) => format!("timeout: {reason}"),
+            ApiError::Unauthorized => "unauthorized".to_string(),
             ApiError::Graphql { code, message } => match code {
                 Some(code) => format!("graphql error {code}: {message}"),
                 None => format!("graphql error: {message}"),
@@ -42,6 +45,7 @@ impl ApiError {
         match self {
             ApiError::Transport(_) => "client.transport".to_string(),
             ApiError::Timeout(_) => "client.timeout".to_string(),
+            ApiError::Unauthorized => "client.unauthorized".to_string(),
             ApiError::Graphql { code, .. } => match code {
                 Some(code) => format!("client.{code}"),
                 None => "client.graphql".to_string(),
@@ -123,6 +127,9 @@ impl GraphqlClient {
 
         let body = serde_json::json!({ "query": query, "variables": variables });
         let mut response = request.send_json(&body).map_err(|error| {
+            if matches!(&error, ureq::Error::StatusCode(401)) {
+                return ApiError::Unauthorized;
+            }
             let reason = error.to_string();
             if reason.contains("timeout") || reason.contains("timed out") {
                 ApiError::Timeout(reason)
@@ -147,6 +154,14 @@ impl GraphqlClient {
                     .and_then(Value::as_str)
                     .unwrap_or("graphql request failed")
                     .to_string();
+                if code.as_deref().is_some_and(|code: &str| {
+                    matches!(
+                        code,
+                        "unauthorized" | "unauthenticated" | "authentication_failed"
+                    )
+                }) {
+                    return Err(ApiError::Unauthorized);
+                }
                 return Err(ApiError::Graphql { code, message });
             }
         }
@@ -234,13 +249,18 @@ mod tests {
         let error = client
             .post(None, "mutation { x }", serde_json::json!({}))
             .unwrap_err();
-        assert_eq!(
-            error,
-            ApiError::Graphql {
-                code: Some("unauthorized".to_string()),
-                message: "Not authenticated".to_string(),
-            }
-        );
+        assert_eq!(error, ApiError::Unauthorized);
+    }
+
+    #[test]
+    fn http_401_maps_to_unauthorized() {
+        let (endpoint, _rx) = spawn_mock(401, r#"{"errors":[{"message":"unauthorized"}]}"#);
+        let client = GraphqlClient::new(endpoint);
+        let error = client
+            .post(None, "query { me { id } }", serde_json::json!({}))
+            .unwrap_err();
+        assert_eq!(error, ApiError::Unauthorized);
+        assert_eq!(error.client_key(), "client.unauthorized");
     }
 
     #[test]
@@ -272,6 +292,7 @@ mod tests {
             "client.transport"
         );
         assert_eq!(ApiError::Timeout("x".into()).client_key(), "client.timeout");
+        assert_eq!(ApiError::Unauthorized.client_key(), "client.unauthorized");
         assert_eq!(
             ApiError::Graphql {
                 code: Some("order_deposit_consent_required".into()),

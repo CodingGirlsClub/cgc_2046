@@ -84,6 +84,7 @@ pub enum CoursesError {
     Transport(String),
     Server(String),
     NotFound,
+    Unauthorized,
 }
 
 impl From<ApiError> for CoursesError {
@@ -91,6 +92,7 @@ impl From<ApiError> for CoursesError {
         match error {
             ApiError::Transport(reason) => CoursesError::Transport(reason),
             ApiError::Timeout(reason) => CoursesError::Transport(format!("timeout: {reason}")),
+            ApiError::Unauthorized => CoursesError::Unauthorized,
             ApiError::Graphql { message, .. } => CoursesError::Server(message),
         }
     }
@@ -102,7 +104,12 @@ impl CoursesError {
             CoursesError::Transport(reason) => format!("transport error: {reason}"),
             CoursesError::Server(reason) => format!("server error: {reason}"),
             CoursesError::NotFound => "not found".to_string(),
+            CoursesError::Unauthorized => "unauthorized".to_string(),
         }
+    }
+
+    pub fn is_unauthorized(&self) -> bool {
+        matches!(self, CoursesError::Unauthorized)
     }
 }
 

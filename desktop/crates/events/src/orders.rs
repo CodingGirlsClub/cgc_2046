@@ -33,6 +33,7 @@ pub struct PaymentOrder {
 pub enum PaymentError {
     Transport(String),
     Server(String),
+    Unauthorized,
     Domain { code: String, message: String },
 }
 
@@ -41,6 +42,7 @@ impl From<ApiError> for PaymentError {
         match error {
             ApiError::Transport(reason) => PaymentError::Transport(reason),
             ApiError::Timeout(reason) => PaymentError::Transport(format!("timeout: {reason}")),
+            ApiError::Unauthorized => PaymentError::Unauthorized,
             ApiError::Graphql { code, message } => match code {
                 Some(code) => PaymentError::Domain { code, message },
                 None => PaymentError::Server(message),
@@ -54,8 +56,13 @@ impl PaymentError {
         match self {
             PaymentError::Transport(reason) => format!("transport error: {reason}"),
             PaymentError::Server(reason) => format!("server error: {reason}"),
+            PaymentError::Unauthorized => "unauthorized".to_string(),
             PaymentError::Domain { code, message } => format!("domain {code}: {message}"),
         }
+    }
+
+    pub fn is_unauthorized(&self) -> bool {
+        matches!(self, PaymentError::Unauthorized)
     }
 
     pub fn code(&self) -> Option<&str> {

@@ -101,6 +101,7 @@ pub struct RootView {
     language: Language,
     preference: ThemePreference,
     session: SessionService,
+    session_checked: bool,
     login_email: String,
     login_password: String,
     focused: LoginField,
@@ -171,6 +172,7 @@ impl RootView {
             language,
             preference,
             session,
+            session_checked: false,
             login_email: String::new(),
             login_password: String::new(),
             focused: LoginField::Email,
@@ -309,6 +311,33 @@ impl RootView {
         self.selected_event = None;
     }
 
+    fn force_sign_out(&mut self, cx: &mut Context<Self>) {
+        self.session.sign_out_local();
+        self.workspaces.reset();
+        self.workspaces_started = false;
+        self.session_checked = false;
+        self.reset_workspace_data();
+        self.navigate("/");
+        cx.notify();
+    }
+
+    fn start_session_validation(&mut self, cx: &mut Context<Self>) {
+        let Some(token) = self.session_token() else {
+            return;
+        };
+        let api = self.session.api_handle();
+        let task = cx
+            .background_executor()
+            .spawn(async move { api.validate(&token) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            if let Ok(false) = result {
+                let _ = this.update(cx, |this, cx| this.force_sign_out(cx));
+            }
+        })
+        .detach();
+    }
+
     fn start_workspace_load(&mut self, cx: &mut Context<Self>) {
         self.workspaces.begin_load();
         self.workspaces_started = true;
@@ -322,6 +351,7 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 match result {
                     Ok(workspaces) => this.workspaces.adopt(workspaces),
+                    Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
                     Err(error) => this.workspaces.fail(&error),
                 }
                 cx.notify();
@@ -373,6 +403,7 @@ impl RootView {
                 }
                 match result {
                     Ok(content) => this.content.adopt(content),
+                    Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
                     Err(error) => this.content.fail(&error),
                 }
                 cx.notify();
@@ -409,6 +440,7 @@ impl RootView {
                 }
                 match result {
                     Ok(page) => this.courses.adopt_page(page),
+                    Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
                     Err(error) => this.courses.fail(&error),
                 }
                 cx.notify();
@@ -432,6 +464,7 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 match result {
                     Ok(detail) => this.course_detail.adopt(detail),
+                    Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
                     Err(error) => this.course_detail.fail(&error),
                 }
                 cx.notify();
@@ -501,6 +534,7 @@ impl RootView {
                             EnrollmentsListState::Ready
                         };
                     }
+                    Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
                     Err(error) => {
                         this.enrollments_state = EnrollmentsListState::Failed(error.diagnostic());
                     }
@@ -546,6 +580,7 @@ impl RootView {
                             this.start_payment("wechat_native", cx);
                         }
                     }
+                    Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
                     Err(error) => this.detail.fail(&error),
                 }
                 cx.notify();
@@ -617,6 +652,7 @@ impl RootView {
                             }
                         }
                     }
+                    Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
                     Err(error) => {
                         this.payment =
                             PaymentViewState::Failed(error.code().unwrap_or("generic").to_string());
@@ -675,6 +711,10 @@ impl RootView {
                             false
                         }
                         Ok(_) => true,
+                        Err(error) if error.is_unauthorized() => {
+                            this.force_sign_out(cx);
+                            false
+                        }
                         Err(error) => {
                             this.payment = PaymentViewState::Failed(error.diagnostic());
                             cx.notify();
@@ -723,6 +763,8 @@ impl RootView {
                         this.payment_generation = this.payment_generation.saturating_add(1);
                         this.enrollment_error = None;
                     }
+                    Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
+                    Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
                     Err(_) => {
                         this.enrollment_error = Some("generic".to_string());
                     }
@@ -872,6 +914,7 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 match result {
                     Ok(page) => this.events.adopt_page(page),
+                    Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
                     Err(error) => this.events.fail(&error),
                 }
                 cx.notify();
@@ -943,6 +986,7 @@ impl RootView {
                 self.reset_events();
                 self.workspaces.reset();
                 self.workspaces_started = false;
+                self.session_checked = false;
                 self.login_password.clear();
             }
             Err(error) => {
@@ -1060,6 +1104,10 @@ impl Render for RootView {
         let language_icon = AssetIcon::Languages;
 
         if is_signed_in {
+            if !self.session_checked {
+                self.session_checked = true;
+                self.start_session_validation(cx);
+            }
             if !self.workspaces_started
                 && matches!(self.workspaces.state(), WorkspaceListState::Idle)
             {

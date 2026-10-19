@@ -99,6 +99,14 @@ impl SessionService {
         self
     }
 
+    /// 启动恢复后校验持久 token；网络错误保持会话，确定失效由 UI 统一登出。
+    pub fn validate_current(&self) -> Result<bool, AuthError> {
+        match self.signed_in() {
+            Some(session) => self.api.validate(&session.token),
+            None => Ok(false),
+        }
+    }
+
     pub fn state(&self) -> &SessionState {
         &self.state
     }

@@ -85,6 +85,7 @@ pub enum EventsError {
     Transport(String),
     Server(String),
     NotFound,
+    Unauthorized,
     /// 业务错误码（mutation 的 errors[] / 后端 code）。
     Domain {
         code: String,
@@ -97,17 +98,23 @@ impl From<ApiError> for EventsError {
         match error {
             ApiError::Transport(reason) => EventsError::Transport(reason),
             ApiError::Timeout(reason) => EventsError::Transport(format!("timeout: {reason}")),
+            ApiError::Unauthorized => EventsError::Unauthorized,
             ApiError::Graphql { message, .. } => EventsError::Server(message),
         }
     }
 }
 
 impl EventsError {
+    pub fn is_unauthorized(&self) -> bool {
+        matches!(self, EventsError::Unauthorized)
+    }
+
     pub fn diagnostic(&self) -> String {
         match self {
             EventsError::Transport(reason) => format!("transport error: {reason}"),
             EventsError::Server(reason) => format!("server error: {reason}"),
             EventsError::NotFound => "not found".to_string(),
+            EventsError::Unauthorized => "unauthorized".to_string(),
             EventsError::Domain { code, message } => format!("domain {code}: {message}"),
         }
     }
