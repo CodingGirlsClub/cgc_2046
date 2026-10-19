@@ -22,6 +22,8 @@ pub struct Route {
     pub title_key: &'static str,
     /// footer 导航图标（语义 token；tooltip 用 title_key 的译文）。
     pub icon: NavIcon,
+    /// 是否出现在一级 footer 导航（详情/设置等次级路由为 false）。
+    pub nav: bool,
 }
 
 impl Route {
@@ -36,6 +38,23 @@ impl Route {
             path,
             title_key,
             icon,
+            nav: true,
+        }
+    }
+
+    /// 次级路由（设置/详情/学习页等）：不进 footer 一级导航。
+    pub const fn new_secondary(
+        id: &'static str,
+        path: &'static str,
+        title_key: &'static str,
+        icon: NavIcon,
+    ) -> Self {
+        Self {
+            id,
+            path,
+            title_key,
+            icon,
+            nav: false,
         }
     }
 

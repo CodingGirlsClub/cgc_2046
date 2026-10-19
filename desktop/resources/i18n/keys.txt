@@ -144,3 +144,13 @@ events.mine.retry
 events.mine.open
 events.checkin.title
 events.checkin.code
+app.settings.title
+app.settings.account
+app.settings.device
+app.settings.revoke_device
+app.settings.revoking
+app.settings.revoke_failed
+app.settings.revoke_hint
+app.settings.workspace
+app.workspace.empty_title
+app.workspace.empty_guidance

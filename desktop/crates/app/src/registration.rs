@@ -10,6 +10,12 @@ use crate::routing::{DuplicateRoute, RouteRegistry};
 
 /// app 自己的首页路由；domain 路由由各 crate 的 `registration::ROUTES` 提供。
 pub const HOME: Route = Route::new("app.home", "/", "app.nav.home", NavIcon::Home);
+pub const SETTINGS: Route = Route::new_secondary(
+    "app.settings",
+    "/settings",
+    "app.settings.title",
+    NavIcon::Home,
+);
 
 /// 所有 domain crate 的路由集合；新增 feature 时在这里加一行。
 pub fn domain_route_sets() -> Vec<(&'static str, &'static [Route])> {
@@ -58,6 +64,9 @@ pub(crate) fn build_registry_with(
     let mut registry = RouteRegistry::new();
     registry
         .register(HOME)
+        .map_err(RegistrationError::DuplicateRoute)?;
+    registry
+        .register(SETTINGS)
         .map_err(RegistrationError::DuplicateRoute)?;
     for (_, routes) in sets {
         for route in *routes {
