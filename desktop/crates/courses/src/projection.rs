@@ -60,6 +60,28 @@ pub struct LearningProjection {
     pub review_queue: Vec<ReviewQueueEntry>,
 }
 
+impl LearningProjection {
+    /// 待复习事件的稳定去重键：用户 + 课程 + 排序后的目标/到期时间；空队列 → None。
+    /// 同一投影重复计算得到同一 key（调用方去重），复习内容变化才换 key。
+    pub fn review_dedup_key(&self, user_id: &str) -> Option<String> {
+        if self.review_queue.is_empty() {
+            return None;
+        }
+        let mut entries = self
+            .review_queue
+            .iter()
+            .map(|entry| format!("{}@{}", entry.objective_id, entry.due_at))
+            .collect::<Vec<_>>();
+        entries.sort();
+        Some(format!(
+            "review:{}:{}:{}",
+            user_id,
+            self.course_id,
+            entries.join(",")
+        ))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProjectionState {
     Idle,
@@ -281,6 +303,22 @@ mod tests {
         assert_eq!(projection.objectives.len(), 2);
         assert_eq!(projection.objectives[1].missing_prereq_ids, vec!["obj-1"]);
         assert_eq!(projection.review_queue.len(), 1);
+    }
+
+    #[test]
+    fn review_dedup_key_is_stable_and_content_addressed() {
+        let projection = parse_learning_projection(&payload()).expect("parse");
+        let first = projection.review_dedup_key("u-1").expect("key");
+        let second = projection.review_dedup_key("u-1").expect("key");
+        assert_eq!(first, second);
+        assert!(first.starts_with("review:u-1:crs-1:"));
+        assert_ne!(
+            projection.review_dedup_key("u-2").as_deref(),
+            Some(first.as_str())
+        );
+        let mut empty = projection.clone();
+        empty.review_queue.clear();
+        assert!(empty.review_dedup_key("u-1").is_none());
     }
 
     #[test]

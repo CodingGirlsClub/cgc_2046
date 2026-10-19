@@ -13,6 +13,12 @@ pub enum AppEvent {
         event_id: Option<String>,
         course_id: Option<String>,
     },
+    /// 课程出现待复习目标（story 4.11）；投递/通知归 epic-6，这里只发出。
+    ReviewQueueDue {
+        user_id: String,
+        course_id: String,
+        dedup_key: String,
+    },
 }
 
 pub trait EventPublisher: Send + Sync {
@@ -71,6 +77,12 @@ mod tests {
                 course_id: Some("crs-1".into()),
             }
         );
+        bus.publish(AppEvent::ReviewQueueDue {
+            user_id: "u-1".into(),
+            course_id: "crs-1".into(),
+            dedup_key: "review:u-1:crs-1:obj-1@2026-10-20".into(),
+        });
+        assert_eq!(bus.events().len(), 3);
         bus.clear();
         assert!(bus.events().is_empty());
     }

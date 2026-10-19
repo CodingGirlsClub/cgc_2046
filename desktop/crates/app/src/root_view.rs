@@ -227,6 +227,7 @@ pub struct RootView {
     content: CourseContentService,
     projection: LearningProjectionService,
     pending_link: Option<String>,
+    review_event_keys: std::collections::HashSet<String>,
     selected_event: Option<String>,
 }
 
@@ -296,6 +297,7 @@ impl RootView {
             content,
             projection,
             pending_link: None,
+            review_event_keys: std::collections::HashSet::new(),
             workspaces: build_workspace_service(),
             workspaces_started: false,
             workspace_menu_open: std::env::var("CGC_WORKSPACE_MENU").as_deref() == Ok("open"),
@@ -479,6 +481,7 @@ impl RootView {
         self.payment_generation = self.payment_generation.saturating_add(1);
         self.deposit_consent = false;
         self.reset_chat_local();
+        self.review_event_keys.clear();
     }
 
     fn start_projection_load(&mut self, cx: &mut Context<Self>, course_id: String) {
@@ -496,7 +499,30 @@ impl RootView {
                     return;
                 }
                 match result {
-                    Ok(projection) => this.projection.adopt(projection),
+                    Ok(projection) => {
+                        let user_id = this
+                            .session
+                            .signed_in()
+                            .map(|session| session.user_id.clone());
+                        if let (Some(user_id), Some(key)) = (
+                            user_id,
+                            projection.review_dedup_key(
+                                this.session
+                                    .signed_in()
+                                    .map(|session| session.user_id.as_str())
+                                    .unwrap_or(""),
+                            ),
+                        ) {
+                            if this.review_event_keys.insert(key.clone()) {
+                                this.events_bus.publish(AppEvent::ReviewQueueDue {
+                                    user_id,
+                                    course_id: projection.course_id.clone(),
+                                    dedup_key: key,
+                                });
+                            }
+                        }
+                        this.projection.adopt(projection)
+                    }
                     Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
                     Err(error) => this.projection.fail(&error),
                 }
