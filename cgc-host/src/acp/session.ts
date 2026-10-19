@@ -459,6 +459,9 @@ export function createChat(opts: ChatOptions) {
       if (c.turn) clearTurnTimers(c.turn);
       c.turn = null;
       c.cards.cancelAll();
+      // 旧会话已从 bySession 摘除：它的迟到审批不会再路由到这门课，隔离标记一并解除，
+      // 否则换 agent 后整门课会永远 busy（旧 prompt settle / chat.new 才恢复）
+      c.abandonedPrompt = null;
     }
     // 能调到这里的连接就是这门课的持有者（server.ts 已判定）
     c.send = ctx.push;

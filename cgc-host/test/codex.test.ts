@@ -1,5 +1,6 @@
 // codex.test.ts — Codex 这条 agent 记录：AGENTS.md 启动语、MCP 服务器改名、登录（auth_required / chat.authenticate）与优雅关闭
 import { afterEach, describe, expect, test } from "bun:test";
+import type { PromptResponse } from "@agentclientprotocol/sdk";
 import { existsSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
@@ -120,6 +121,35 @@ test("停止不切走 agent：Codex 课程 chat.stop 不带 agent / 带错 agent
   await page.call("chat.send", { courseId: COURSE, agent: "codex", text: "继续", context: CONTEXT });
   expect(await page.next((m) => m.method === "turn.end")).toMatchObject({ params: { stopReason: "end_turn" } });
   expect(page.inbox.filter((m) => m.method === "error")).toEqual([]);
+});
+
+test("OMP 被隔离后切到 Codex：隔离随旧会话摘除，新 agent 能正常开回合（Codex review P2）", async () => {
+  const omp = fakeAgent();
+  const codex = fakeAgent();
+  const home = tempHome();
+  const { page } = await chatPage(omp, {
+    home,
+    records: [ompTestRecord(omp), codexTestRecord(codex)],
+    cancelAckTimeoutMs: 40,
+    turnTimeoutMs: 60_000,
+  });
+  omp.script = () => new Promise<PromptResponse>(() => {}); // 永不 settle
+  await page.call("chat.attach", { courseId: COURSE, agent: "omp" });
+  await page.call("chat.send", { courseId: COURSE, agent: "omp", text: "一", context: CONTEXT });
+  page.send({ method: "chat.stop", params: { courseId: COURSE, agent: "omp" } });
+  await page.next((m) => m.method === "turn.end");
+  expect(await page.call("chat.send", { courseId: COURSE, agent: "omp", text: "二", context: CONTEXT })).toMatchObject({
+    method: "error",
+    params: { code: "busy" },
+  });
+
+  // 换 agent：旧会话已从 bySession 摘除，隔离不再拦新 agent
+  await page.call("chat.attach", { courseId: COURSE, agent: "codex" });
+  expect(await page.call("chat.send", { courseId: COURSE, agent: "codex", text: "用 codex", context: CONTEXT })).toMatchObject({
+    method: "turn.delta",
+    params: { kind: "user", text: "用 codex" },
+  });
+  await page.next((m) => m.method === "turn.end");
 });
 
 test("chat.open 加载期间 A→B→A 切回：epoch 已变，切换仍作废（busy）", async () => {
