@@ -105,6 +105,48 @@ defmodule Cgc2046Web.GraphqlSchema.Auth do
       end)
     end
 
+    @desc "桌面端手机验证码登录/注册：JWT 直接经响应体交付（第一方客户端，不写 cookie）"
+    field :sign_in_with_phone_code_for_desktop, :desktop_sign_in_result do
+      arg(:phone, non_null(:string))
+      arg(:code, non_null(:string))
+
+      resolve(fn _, %{phone: raw_phone, code: code}, %{context: context} ->
+        with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.normalize(raw_phone),
+             :ok <- Cgc2046.Accounts.WebAuthFlow.check_phone_code_verify_limits(context, phone) do
+          case Cgc2046.Accounts.PhoneCodeSignIn.sign_in_with_phone_code(phone, code, context) do
+            {:ok, user} ->
+              case issue_desktop_token(user) do
+                {:ok, token} ->
+                  {:ok,
+                   %{
+                     token: token,
+                     user_id: user.id,
+                     email: user.email,
+                     is_platform_admin: user.is_platform_admin
+                   }}
+
+                {:error, reason} ->
+                  Logger.error("signInWithPhoneCodeForDesktop token generation failed: #{inspect(reason)}")
+                  {:error, message: "Sign in failed", code: "authentication_failed"}
+              end
+
+            {:error, :invalid_or_expired_code} ->
+              {:error, message: "Invalid or expired code", code: "invalid_or_expired_code"}
+
+            {:error, reason} ->
+              Logger.warning("[signInWithPhoneCodeForDesktop] failed: #{inspect(reason)}")
+              {:error, message: "Sign in failed", code: "phone_code_sign_in_failed"}
+          end
+        else
+          {:error, :invalid} ->
+            {:error, message: "Invalid phone number", code: "invalid_phone"}
+
+          {:error, :rate_limited} ->
+            {:error, message: "Too many requests. Try again later.", code: "rate_limited"}
+        end
+      end)
+    end
+
     @desc "请求发送手机验证码（plan 002 U3；限流 phone 1/60s + 5/1h + 20/1d、IP 30/1d）"
     field :request_phone_code, :request_phone_code_result do
       arg(:phone, non_null(:string))

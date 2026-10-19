@@ -5901,6 +5901,9 @@ type RootMutationType {
   """
   signInForDesktop(login: String!, password: String!): DesktopSignInResult
 
+  "桌面端手机验证码登录\/注册：JWT 直接经响应体交付（第一方客户端，不写 cookie）"
+  signInWithPhoneCodeForDesktop(phone: String!, code: String!): DesktopSignInResult
+
   "请求发送手机验证码（plan 002 U3；限流 phone 1\/60s + 5\/1h + 20\/1d、IP 30\/1d）"
   requestPhoneCode(phone: String!, purpose: PhoneCodePurpose!): RequestPhoneCodeResult
 
