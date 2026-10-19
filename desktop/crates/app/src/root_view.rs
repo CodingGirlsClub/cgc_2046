@@ -2779,106 +2779,31 @@ impl Render for RootView {
                             None => translate(language, Key::AppNavLabel),
                         }))
                         .child(div().flex_1())
-                        .child({
-                            let account_menu = account_menu.then(|| {
+                        .child(
+                            div().relative().flex().items_center().child(
                                 div()
-                                    .id("account-menu")
-                                    .absolute()
-                                    .top(px(34.0))
-                                    .right_0()
-                                    .w(px(200.0))
+                                    .id("account-menu-toggle")
+                                    .size(px(26.0))
+                                    .rounded_full()
                                     .flex()
-                                    .flex_col()
-                                    .gap(px(2.0))
-                                    .p(space(1))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .border_1()
-                                    .border_color(palette.line_strong)
-                                    .bg(palette.card)
-                                    .text_color(palette.ink)
-                                    .child(
-                                        div()
-                                            .px(space(1))
-                                            .py(px(4.0))
-                                            .text_size(px(10.0))
-                                            .text_color(palette.ink_3)
-                                            .child(format!("{signed_in_as} {email}")),
-                                    )
-                                    .child(
-                                        div()
-                                            .id("account-settings")
-                                            .role(Role::Button)
-                                            .aria_label(translate(language, Key::AppSettingsTitle))
-                                            .px(space(1))
-                                            .py(px(6.0))
-                                            .rounded(px(RADIUS_SMALL))
-                                            .text_color(palette.ink_2)
-                                            .hover(|style| style.bg(palette.soft))
-                                            .child(
-                                                div()
-                                                    .flex()
-                                                    .justify_between()
-                                                    .child(translate(
-                                                        language,
-                                                        Key::AppSettingsTitle,
-                                                    ))
-                                                    .child(if cfg!(target_os = "macos") {
-                                                        "⌘,"
-                                                    } else {
-                                                        "Ctrl+,"
-                                                    }),
-                                            )
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.open_settings_window(cx);
-                                                this.account_menu_open = false;
-                                                cx.notify();
-                                            })),
-                                    )
-                                    .child(
-                                        div()
-                                            .id("account-sign-out")
-                                            .px(space(1))
-                                            .py(px(6.0))
-                                            .rounded(px(RADIUS_SMALL))
-                                            .text_color(palette.ink_2)
-                                            .hover(|style| style.bg(palette.soft))
-                                            .child(sign_out_label)
-                                            .on_click(
-                                                cx.listener(|this, _, _, cx| this.sign_out(cx)),
-                                            ),
-                                    )
-                                    .into_any_element()
-                            });
-
-                            div()
-                                .relative()
-                                .flex()
-                                .items_center()
-                                .child(
-                                    div()
-                                        .id("account-menu-toggle")
-                                        .size(px(26.0))
-                                        .rounded_full()
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .bg(palette.accent)
-                                        .text_size(px(12.0))
-                                        .text_color(hsla_white())
-                                        .child(avatar_glyph)
-                                        .tooltip(move |_, cx| {
-                                            cx.new(|_| TooltipText {
-                                                text: account_tooltip.into(),
-                                            })
-                                            .into()
+                                    .items_center()
+                                    .justify_center()
+                                    .bg(palette.accent)
+                                    .text_size(px(12.0))
+                                    .text_color(hsla_white())
+                                    .child(avatar_glyph)
+                                    .tooltip(move |_, cx| {
+                                        cx.new(|_| TooltipText {
+                                            text: account_tooltip.into(),
                                         })
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.toggle_account_menu();
-                                            cx.notify();
-                                        })),
-                                )
-                                .children(account_menu)
-                        }),
+                                        .into()
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.toggle_account_menu();
+                                        cx.notify();
+                                    })),
+                            ),
+                        ),
                 )
                 .child(
                     div()
@@ -2934,12 +2859,97 @@ impl Render for RootView {
                     &palette,
                     cx,
                 ));
+            if account_menu {
+                root = root.child(self.render_account_menu(
+                    language,
+                    &palette,
+                    &email,
+                    signed_in_as,
+                    sign_out_label,
+                    cx,
+                ));
+            }
             root
         }
     }
 }
 
 impl RootView {
+    /// 账户下拉：必须挂在根级最后绘制，否则会被后续 content/footer 覆盖（表现为“半透明”）。
+    fn render_account_menu(
+        &self,
+        language: Language,
+        palette: &theme::Palette,
+        email: &str,
+        signed_in_as: &str,
+        sign_out_label: &str,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        div()
+            .id("account-menu")
+            .absolute()
+            .top(px(52.0))
+            .right(space(2))
+            .w(px(220.0))
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .p(space(1))
+            .rounded(px(RADIUS_MEDIUM))
+            .border_1()
+            .border_color(palette.line_strong)
+            .bg(palette.card)
+            .occlude()
+            .text_color(palette.ink)
+            .child(
+                div()
+                    .px(space(1))
+                    .py(px(4.0))
+                    .text_size(px(10.0))
+                    .text_color(palette.ink_3)
+                    .child(format!("{signed_in_as} {email}")),
+            )
+            .child(
+                div()
+                    .id("account-settings")
+                    .role(Role::Button)
+                    .aria_label(translate(language, Key::AppSettingsTitle))
+                    .px(space(1))
+                    .py(px(6.0))
+                    .rounded(px(RADIUS_SMALL))
+                    .text_color(palette.ink_2)
+                    .hover(|style| style.bg(palette.soft))
+                    .child(
+                        div()
+                            .flex()
+                            .justify_between()
+                            .child(translate(language, Key::AppSettingsTitle))
+                            .child(if cfg!(target_os = "macos") {
+                                "⌘,"
+                            } else {
+                                "Ctrl+,"
+                            }),
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.open_settings_window(cx);
+                        this.account_menu_open = false;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                div()
+                    .id("account-sign-out")
+                    .px(space(1))
+                    .py(px(6.0))
+                    .rounded(px(RADIUS_SMALL))
+                    .text_color(palette.ink_2)
+                    .hover(|style| style.bg(palette.soft))
+                    .child(sign_out_label.to_string())
+                    .on_click(cx.listener(|this, _, _, cx| this.sign_out(cx))),
+            )
+            .into_any_element()
+    }
+
     fn render_nav_items(
         &self,
         language: Language,
