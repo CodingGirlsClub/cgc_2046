@@ -393,7 +393,7 @@ impl EventsApi for FakeEventsApi {
             .next()
             .and_then(|digits| digits.parse().ok())
             .unwrap_or(0);
-        if numeric_id % 5 == 4 {
+        if (numeric_id + 1).is_multiple_of(5) {
             detail.deposit_enabled = true;
             detail.deposit_amount_cents = Some(5000);
         }

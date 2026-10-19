@@ -9,6 +9,10 @@ use gpui_kit::*;
 
 use std::sync::Arc;
 
+use cgc_courses::catalog::{
+    learning_context, CourseCatalogService, CourseDetailService, CourseSummary, CoursesApi,
+    CoursesListState, FakeCoursesApi, HttpCoursesApi,
+};
 use cgc_events::detail::{EventDetailService, PriceMode};
 use cgc_events::list::{
     EventListService, EventsApi, FakeEventsApi, HttpEventsApi, ListState, StatusFilter,
@@ -68,6 +72,10 @@ pub struct RootView {
     events_started: bool,
     detail: EventDetailService,
     detail_started: bool,
+    courses: CourseCatalogService,
+    courses_started: bool,
+    course_detail: CourseDetailService,
+    course_detail_started: bool,
     selected_event: Option<String>,
 }
 
@@ -93,6 +101,8 @@ impl RootView {
             && std::env::var("CGC_API_URL").is_err();
         let events = build_events_service();
         let detail = EventDetailService::new(events.api_handle());
+        let courses = build_courses_service();
+        let course_detail = CourseDetailService::new(courses.api_handle());
         Self {
             registry,
             current,
@@ -111,6 +121,10 @@ impl RootView {
             events_started: false,
             detail,
             detail_started: false,
+            courses,
+            courses_started: false,
+            course_detail,
+            course_detail_started: false,
             selected_event: None,
         }
     }
@@ -205,7 +219,98 @@ impl RootView {
     fn reset_events(&mut self) {
         self.events_started = false;
         self.detail_started = false;
+        self.courses_started = false;
+        self.course_detail_started = false;
         self.selected_event = None;
+    }
+
+    fn start_courses_load(&mut self, cx: &mut Context<Self>, first: bool) {
+        if first {
+            self.courses.begin_first_load();
+        } else {
+            self.courses.begin_load_more();
+        }
+        self.courses_started = true;
+        let api = self.courses.api_handle();
+        let token = self.session_token();
+        let cursor = if first {
+            None
+        } else {
+            self.courses.next_cursor().map(str::to_string)
+        };
+        let task = cx
+            .background_executor()
+            .spawn(async move { api.list_courses(token.as_deref(), cursor.as_deref(), 10) });
+
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(page) => this.courses.adopt_page(page),
+                    Err(error) => this.courses.fail(&error),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn start_course_detail_load(&mut self, cx: &mut Context<Self>, course_id: String) {
+        self.course_detail.begin_load();
+        self.course_detail_started = true;
+        let api = self.course_detail.api_handle();
+        let token = self.session_token();
+        let task = cx
+            .background_executor()
+            .spawn(async move { api.get_course(token.as_deref(), &course_id) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(detail) => this.course_detail.adopt(detail),
+                    Err(error) => this.course_detail.fail(&error),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn navigate_to_course_detail(&mut self, course_id: &str) {
+        self.navigate(&format!("/courses/{course_id}"));
+    }
+
+    fn navigate_to_learning(&mut self, course_id: &str) {
+        self.navigate(&format!("/courses/{course_id}/learn"));
+    }
+
+    fn handle_shell_key(
+        &mut self,
+        event: &KeyDownEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if event.keystroke.key != "enter" {
+            return;
+        }
+        let Some(route_match) = self.current.clone() else {
+            return;
+        };
+        if route_match.route.id != "courses.detail" {
+            return;
+        }
+        let Some(course_id) = route_match.params.get("id").cloned() else {
+            return;
+        };
+        let enrolled = self
+            .course_detail
+            .detail()
+            .and_then(|detail| detail.enrollment_status.as_deref())
+            == Some("confirmed");
+        if enrolled {
+            self.navigate_to_learning(&course_id);
+            cx.notify();
+        }
     }
 
     fn start_detail_load(&mut self, cx: &mut Context<Self>, event_id: String) {
@@ -474,9 +579,38 @@ impl Render for RootView {
                     self.start_detail_load(cx, event_id);
                 }
             }
+            if current_id == Some("courses.catalog")
+                && !self.courses_started
+                && matches!(self.courses.state(), CoursesListState::Idle)
+            {
+                self.start_courses_load(cx, true);
+            }
+            if matches!(
+                current_id,
+                Some("courses.detail") | Some("courses.learning")
+            ) && !self.course_detail_started
+                && matches!(self.course_detail.state(), CoursesListState::Idle)
+            {
+                if let Some(course_id) = self
+                    .current
+                    .as_ref()
+                    .and_then(|route_match| route_match.params.get("id"))
+                    .cloned()
+                {
+                    self.start_course_detail_load(cx, course_id);
+                }
+            }
         }
 
         let key_focus = self.ensure_key_focus(cx);
+        if is_signed_in
+            && self
+                .current
+                .as_ref()
+                .is_some_and(|route_match| route_match.route.id == "courses.detail")
+        {
+            window.focus(&key_focus, cx);
+        }
         if !is_signed_in {
             window.focus(&key_focus, cx);
         }
@@ -668,6 +802,7 @@ impl Render for RootView {
                 .font_family(theme::FONT_SANS)
                 .text_size(px(14.0))
                 .track_focus(&key_focus)
+                .on_key_down(cx.listener(Self::handle_shell_key))
                 .child(
                     div()
                         .flex()
@@ -789,6 +924,15 @@ impl Render for RootView {
                         {
                             Some("events.list") => self.render_events_list(language, &palette, cx),
                             Some("events.detail") => self.render_detail(language, &palette, cx),
+                            Some("courses.catalog") => {
+                                self.render_courses_list(language, &palette, cx)
+                            }
+                            Some("courses.detail") => {
+                                self.render_course_detail(language, &palette, cx)
+                            }
+                            Some("courses.learning") => {
+                                self.render_course_learning(language, &palette, cx)
+                            }
                             _ => self.render_content(language, &palette, cx),
                         },
                     ),
@@ -827,7 +971,12 @@ impl RootView {
             .filter(|route| !route.has_dynamic_segment())
             .map(|route| {
                 let route = *route;
-                let selected = current_id == Some(route.id);
+                let selected = current_id.is_some_and(|id| {
+                    id == route.id
+                        || id
+                            .strip_prefix(route.id)
+                            .is_some_and(|rest| rest.starts_with('.'))
+                });
                 let label = translate_registered(language, route.title_key);
                 div()
                     .id(format!("footer-nav-{}", route.id))
@@ -1075,6 +1224,385 @@ impl RootView {
                 None => div()
                     .text_color(palette.ink_3)
                     .child(translate(language, Key::EventsDetailNotFound))
+                    .into_any_element(),
+            },
+        };
+
+        div()
+            .flex()
+            .flex_col()
+            .gap(space(2))
+            .child(back)
+            .child(body)
+            .into_any_element()
+    }
+
+    fn render_courses_list(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let state = self.courses.state().clone();
+        let items = self.courses.items().to_vec();
+        let has_more = self.courses.next_cursor().is_some();
+
+        let body: AnyElement = match state {
+            CoursesListState::Idle | CoursesListState::Loading => div()
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::CoursesCatalogLoading))
+                .into_any_element(),
+            CoursesListState::Failed(message) => div()
+                .flex()
+                .flex_col()
+                .gap(space(1))
+                .child(div().text_color(palette.danger).child(message))
+                .child(
+                    div()
+                        .id("courses-retry")
+                        .px(space(2))
+                        .py(px(5.0))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .bg(palette.accent)
+                        .text_color(white())
+                        .child(translate(language, Key::CoursesCatalogRetry))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.courses.retry_ready();
+                            this.start_courses_load(cx, true);
+                        })),
+                )
+                .into_any_element(),
+            CoursesListState::Empty => div()
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::CoursesCatalogEmpty))
+                .into_any_element(),
+            CoursesListState::Ready => {
+                let rows = items
+                    .iter()
+                    .map(|course| course_row(course, language, palette, cx))
+                    .collect::<Vec<_>>();
+                let load_more = has_more.then(|| {
+                    div()
+                        .id("courses-load-more")
+                        .mt(space(2))
+                        .px(space(2))
+                        .py(px(5.0))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .border_1()
+                        .border_color(palette.line_strong)
+                        .text_color(palette.ink_2)
+                        .child(translate(language, Key::CoursesCatalogLoadMore))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.start_courses_load(cx, false);
+                        }))
+                        .into_any_element()
+                });
+                div()
+                    .flex()
+                    .flex_col()
+                    .children(rows)
+                    .children(load_more)
+                    .into_any_element()
+            }
+        };
+
+        div()
+            .flex()
+            .flex_col()
+            .gap(space(2))
+            .child(
+                div()
+                    .text_size(px(24.0))
+                    .text_color(palette.ink)
+                    .child(translate_registered(language, "courses.catalog.title")),
+            )
+            .child(body)
+            .into_any_element()
+    }
+
+    fn render_course_detail(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let state = self.course_detail.state().clone();
+        let detail = self.course_detail.detail().cloned();
+        let course_id = self
+            .current
+            .as_ref()
+            .and_then(|route_match| route_match.params.get("id"))
+            .cloned()
+            .unwrap_or_default();
+
+        let back = div()
+            .id("course-detail-back")
+            .text_size(px(12.0))
+            .text_color(palette.ink_3)
+            .child(translate(language, Key::CoursesDetailBack))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.navigate("/courses");
+                cx.notify();
+            }));
+
+        let body: AnyElement = match state {
+            CoursesListState::Idle | CoursesListState::Loading => div()
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::CoursesDetailLoading))
+                .into_any_element(),
+            CoursesListState::Failed(message) => {
+                let not_found = message == "not found";
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(space(1))
+                    .child(div().text_color(palette.danger).child(if not_found {
+                        translate(language, Key::CoursesDetailNotFound)
+                    } else {
+                        translate(language, Key::CoursesDetailError)
+                    }))
+                    .children((!not_found).then(|| {
+                        div()
+                            .id("course-detail-retry")
+                            .px(space(2))
+                            .py(px(5.0))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .bg(palette.accent)
+                            .text_color(white())
+                            .child(translate(language, Key::CoursesDetailRetry))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.course_detail.retry_ready();
+                                this.course_detail_started = false;
+                                cx.notify();
+                            }))
+                            .into_any_element()
+                    }))
+                    .into_any_element()
+            }
+            CoursesListState::Empty => div()
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::CoursesDetailNotFound))
+                .into_any_element(),
+            CoursesListState::Ready => match detail {
+                Some(detail) => {
+                    let enrolled = detail.enrollment_status.as_deref() == Some("confirmed");
+                    let action = if enrolled {
+                        let target = course_id.clone();
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(4.0))
+                            .child(
+                                div()
+                                    .id("course-start-learning")
+                                    .px(space(2))
+                                    .py(px(6.0))
+                                    .rounded(px(RADIUS_MEDIUM))
+                                    .bg(palette.accent)
+                                    .text_color(white())
+                                    .child(translate(language, Key::CoursesDetailEnrolled))
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.navigate_to_learning(&target);
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_3)
+                                    .child(translate(language, Key::CoursesLearningKeyboardHint)),
+                            )
+                            .into_any_element()
+                    } else {
+                        div()
+                            .px(space(2))
+                            .py(px(6.0))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .bg(palette.soft)
+                            .text_color(palette.ink_3)
+                            .child(translate(language, Key::CoursesDetailNotEnrolled))
+                            .into_any_element()
+                    };
+
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(space(2))
+                        .child(
+                            div()
+                                .text_size(px(24.0))
+                                .text_color(palette.ink)
+                                .child(detail.title.clone()),
+                        )
+                        .children(detail.description.clone().map(|description| {
+                            div()
+                                .text_color(palette.ink_2)
+                                .child(description)
+                                .into_any_element()
+                        }))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(space(2))
+                                .child(
+                                    div()
+                                        .px(space(1))
+                                        .py(px(3.0))
+                                        .rounded(px(RADIUS_SMALL))
+                                        .bg(palette.soft)
+                                        .text_size(px(12.0))
+                                        .text_color(palette.ink_2)
+                                        .child(status_label(language, detail.status.as_str())),
+                                )
+                                .child(
+                                    div()
+                                        .px(space(1))
+                                        .py(px(3.0))
+                                        .rounded(px(RADIUS_SMALL))
+                                        .bg(palette.soft)
+                                        .text_size(px(12.0))
+                                        .text_color(palette.ink_2)
+                                        .child(if detail.pricing_enabled {
+                                            translate(language, Key::EventsDetailPaid)
+                                        } else {
+                                            translate(language, Key::EventsDetailFree)
+                                        }),
+                                ),
+                        )
+                        .child(action)
+                        .into_any_element()
+                }
+                None => div()
+                    .text_color(palette.ink_3)
+                    .child(translate(language, Key::CoursesDetailNotFound))
+                    .into_any_element(),
+            },
+        };
+
+        div()
+            .flex()
+            .flex_col()
+            .gap(space(2))
+            .child(back)
+            .child(body)
+            .into_any_element()
+    }
+
+    fn render_course_learning(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let state = self.course_detail.state().clone();
+        let detail = self.course_detail.detail().cloned();
+        let course_id = self
+            .current
+            .as_ref()
+            .and_then(|route_match| route_match.params.get("id"))
+            .cloned()
+            .unwrap_or_default();
+        let user_id = self
+            .session
+            .signed_in()
+            .map(|session| session.user_id.clone());
+
+        let back = div()
+            .id("course-learning-back")
+            .text_size(px(12.0))
+            .text_color(palette.ink_3)
+            .child(translate(language, Key::CoursesDetailBack))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.navigate(&format!("/courses/{course_id}"));
+                cx.notify();
+            }));
+
+        let body: AnyElement = match state {
+            CoursesListState::Idle | CoursesListState::Loading => div()
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::CoursesLearningLoading))
+                .into_any_element(),
+            CoursesListState::Failed(message) => div()
+                .flex()
+                .flex_col()
+                .gap(space(1))
+                .child(div().text_color(palette.danger).child(message))
+                .child(
+                    div()
+                        .id("course-learning-retry")
+                        .px(space(2))
+                        .py(px(5.0))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .bg(palette.accent)
+                        .text_color(white())
+                        .child(translate(language, Key::CoursesLearningRetry))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.course_detail.retry_ready();
+                            this.course_detail_started = false;
+                            cx.notify();
+                        })),
+                )
+                .into_any_element(),
+            CoursesListState::Empty => div()
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::CoursesDetailNotFound))
+                .into_any_element(),
+            CoursesListState::Ready => match detail {
+                Some(detail) => match learning_context(user_id, &detail) {
+                    Ok(context) => div()
+                        .flex()
+                        .flex_col()
+                        .gap(space(2))
+                        .child(
+                            div()
+                                .text_size(px(24.0))
+                                .text_color(palette.ink)
+                                .child(detail.title.clone()),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .gap(space(2))
+                                .text_size(px(12.0))
+                                .text_color(palette.ink_3)
+                                .child(format!(
+                                    "{} {}",
+                                    translate(language, Key::CoursesLearningWorkspace),
+                                    context.workspace_id
+                                ))
+                                .child(format!(
+                                    "{} {}",
+                                    translate(language, Key::CoursesLearningRevision),
+                                    context.course_revision_id
+                                )),
+                        )
+                        .child(
+                            div()
+                                .mt(space(2))
+                                .px(space(2))
+                                .py(px(6.0))
+                                .rounded(px(RADIUS_MEDIUM))
+                                .bg(palette.soft)
+                                .text_size(px(12.0))
+                                .text_color(palette.ink_3)
+                                .child(translate(language, Key::CoursesLearningContentSoon)),
+                        )
+                        .into_any_element(),
+                    Err(_) => div()
+                        .px(space(2))
+                        .py(px(6.0))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .bg(palette.soft)
+                        .text_color(palette.danger)
+                        .child(translate(language, Key::CoursesLearningContextRequired))
+                        .into_any_element(),
+                },
+                None => div()
+                    .text_color(palette.ink_3)
+                    .child(translate(language, Key::CoursesDetailNotFound))
                     .into_any_element(),
             },
         };
@@ -1430,6 +1958,88 @@ fn initial_route(registry: &RouteRegistry) -> Option<RouteMatch> {
         route,
         params: std::collections::BTreeMap::new(),
     })
+}
+
+fn build_courses_service() -> CourseCatalogService {
+    let use_http =
+        std::env::var("CGC_AUTH").as_deref() == Ok("http") || std::env::var("CGC_API_URL").is_ok();
+    let api: Arc<dyn CoursesApi> = if use_http {
+        Arc::new(HttpCoursesApi::from_env())
+    } else {
+        Arc::new(FakeCoursesApi::with_seed(15))
+    };
+    CourseCatalogService::new(api)
+}
+
+fn status_label(language: Language, status: &str) -> &'static str {
+    translate(
+        language,
+        match status {
+            "open" => Key::EventsStatusOpen,
+            "closed" => Key::EventsStatusClosed,
+            "cancelled" => Key::EventsStatusCancelled,
+            _ => Key::EventsStatusDraft,
+        },
+    )
+}
+
+fn course_row(
+    course: &CourseSummary,
+    language: Language,
+    palette: &theme::Palette,
+    cx: &mut Context<RootView>,
+) -> AnyElement {
+    let starts = course
+        .starts_at
+        .as_deref()
+        .map(|value| value.chars().take(10).collect::<String>())
+        .unwrap_or_default();
+    let price = if course.pricing_enabled {
+        translate(language, Key::EventsListPaid)
+    } else {
+        translate(language, Key::EventsListFree)
+    };
+    let course_id = course.id.clone();
+    div()
+        .id(format!("course-row-{}", course.id))
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .gap(space(2))
+        .px(space(2))
+        .py(space(1))
+        .border_b_1()
+        .border_color(palette.line)
+        .hover(|style| style.bg(palette.soft))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(2.0))
+                .child(div().text_color(palette.ink).child(course.title.clone()))
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_3)
+                        .child(format!("{starts} · {price}")),
+                ),
+        )
+        .child(
+            div()
+                .px(px(6.0))
+                .py(px(2.0))
+                .rounded(px(RADIUS_SMALL))
+                .bg(palette.soft)
+                .text_size(px(11.0))
+                .text_color(palette.ink_2)
+                .child(status_label(language, course.status.as_str())),
+        )
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.navigate_to_course_detail(&course_id);
+            cx.notify();
+        }))
+        .into_any_element()
 }
 
 fn build_events_service() -> EventListService {
