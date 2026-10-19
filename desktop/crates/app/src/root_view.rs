@@ -13,11 +13,16 @@ use cgc_courses::catalog::{
     learning_context, CourseCatalogService, CourseDetailService, CourseSummary, CoursesApi,
     CoursesListState, FakeCoursesApi, HttpCoursesApi,
 };
+use cgc_courses::content::{CourseContentService, CourseContentState, MaterialKind};
 use cgc_events::detail::{EventDetail, EventDetailService, PriceMode};
+use gpui_kit::component::text::TextView;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 use cgc_events::enroll::{enrollment_error_key, EnrollmentRequest};
 use cgc_events::list::{
     EventListService, EventsApi, FakeEventsApi, HttpEventsApi, ListState, StatusFilter,
 };
+use cgc_events::orders::{parse_rfc3339_epoch, qr_code_url, OrdersApi};
 use cgc_platform::routes::NavIcon;
 use cgc_platform::session::{AuthError, SessionService, SessionState, SignedInSession};
 use cgc_platform::workspace::{
@@ -27,6 +32,7 @@ use gpui_kit::assets::IconName as AssetIcon;
 use gpui_kit::component::{Icon, Sizable as _};
 
 use crate::i18n::{default_language, translate, translate_registered, Key, Language};
+use crate::qr::{encode as encode_qr, render_qr, QrError};
 use crate::routing::{Route, RouteMatch, RouteRegistry};
 use crate::theme::{self, space, ThemePreference, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL};
 
@@ -58,6 +64,19 @@ impl LoginError {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PaymentViewState {
+    Idle,
+    Creating,
+    Qr {
+        url: String,
+        order_id: String,
+        expire_at: Option<String>,
+    },
+    Paid,
+    Failed(String),
+}
+
 pub struct RootView {
     registry: RouteRegistry,
     current: Option<RouteMatch>,
@@ -80,6 +99,10 @@ pub struct RootView {
     age_confirmed: bool,
     enrolling: bool,
     enrollment_error: Option<String>,
+    orders: Arc<dyn OrdersApi>,
+    payment: PaymentViewState,
+    payment_generation: u64,
+    deposit_consent: bool,
     courses: CourseCatalogService,
     courses_started: bool,
     workspaces: WorkspaceService,
@@ -87,6 +110,7 @@ pub struct RootView {
     workspace_menu_open: bool,
     course_detail: CourseDetailService,
     course_detail_started: bool,
+    content: CourseContentService,
     selected_event: Option<String>,
 }
 
@@ -114,6 +138,7 @@ impl RootView {
         let detail = EventDetailService::new(events.api_handle());
         let courses = build_courses_service();
         let course_detail = CourseDetailService::new(courses.api_handle());
+        let content = CourseContentService::new(courses.api_handle());
         Self {
             registry,
             current,
@@ -136,10 +161,15 @@ impl RootView {
             age_confirmed: false,
             enrolling: false,
             enrollment_error: None,
+            orders: build_orders_api(),
+            payment: PaymentViewState::Idle,
+            payment_generation: 0,
+            deposit_consent: false,
             courses,
             courses_started: false,
             course_detail,
             course_detail_started: false,
+            content,
             workspaces: build_workspace_service(),
             workspaces_started: false,
             workspace_menu_open: std::env::var("CGC_WORKSPACE_MENU").as_deref() == Ok("open"),
@@ -278,11 +308,39 @@ impl RootView {
         self.detail.reset();
         self.courses.reset();
         self.course_detail.reset();
+        self.content.reset();
         self.selected_event = None;
         self.selected_tier = None;
         self.age_confirmed = false;
         self.enrolling = false;
         self.enrollment_error = None;
+        self.payment = PaymentViewState::Idle;
+        self.payment_generation = self.payment_generation.saturating_add(1);
+        self.deposit_consent = false;
+    }
+
+    fn start_content_load(&mut self, cx: &mut Context<Self>, course_id: String) {
+        self.content.begin_load(&course_id);
+        let api = self.content.api_handle();
+        let token = self.session_token();
+        let epoch = self.workspaces.epoch();
+        let task = cx
+            .background_executor()
+            .spawn(async move { api.get_course_content(token.as_deref(), &course_id) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if !this.workspaces.is_current_epoch(epoch) {
+                    return;
+                }
+                match result {
+                    Ok(content) => this.content.adopt(content),
+                    Err(error) => this.content.fail(&error),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn start_courses_load(&mut self, cx: &mut Context<Self>, first: bool) {
@@ -324,6 +382,7 @@ impl RootView {
     fn start_course_detail_load(&mut self, cx: &mut Context<Self>, course_id: String) {
         self.course_detail.begin_load();
         self.course_detail_started = true;
+        self.content.reset();
         let api = self.course_detail.api_handle();
         let token = self.session_token();
         let task = cx
@@ -405,12 +464,137 @@ impl RootView {
                 match result {
                     Ok((detail, enrollment)) => {
                         this.detail.adopt(detail);
-                        this.detail.adopt_enrollment(enrollment);
+                        this.detail.adopt_enrollment(enrollment.clone());
+                        if std::env::var("CGC_AUTO_PAY").as_deref() == Ok("1")
+                            && enrollment
+                                .as_ref()
+                                .is_some_and(|enrollment| enrollment.status == "payment_pending")
+                        {
+                            this.start_payment("wechat_native", cx);
+                        }
                     }
                     Err(error) => this.detail.fail(&error),
                 }
                 cx.notify();
             });
+        })
+        .detach();
+    }
+
+    fn start_payment(&mut self, provider: &str, cx: &mut Context<Self>) {
+        if matches!(
+            self.payment,
+            PaymentViewState::Creating | PaymentViewState::Qr { .. } | PaymentViewState::Paid
+        ) {
+            return;
+        }
+        let Some(enrollment) = self.detail.enrollment().cloned() else {
+            return;
+        };
+        if enrollment.status != "payment_pending" {
+            return;
+        }
+        let deposit = self
+            .detail
+            .detail()
+            .map(|detail| detail.deposit_enabled)
+            .unwrap_or(false);
+        if deposit && !self.deposit_consent {
+            self.payment = PaymentViewState::Failed("deposit_consent".to_string());
+            cx.notify();
+            return;
+        }
+        self.payment = PaymentViewState::Creating;
+        let api = Arc::clone(&self.orders);
+        let token = self.session_token();
+        let enrollment_id = enrollment.id.clone();
+        let provider = provider.to_string();
+        self.payment_generation = self.payment_generation.saturating_add(1);
+        let generation = self.payment_generation;
+        let task = cx.background_executor().spawn(async move {
+            api.create_order(token.as_deref(), &enrollment_id, &provider, deposit)
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.payment_generation != generation {
+                    return;
+                }
+                match result {
+                    Ok(order) => {
+                        let url = order.credential.as_deref().and_then(qr_code_url);
+                        match url {
+                            Some(url) => {
+                                this.payment = PaymentViewState::Qr {
+                                    url,
+                                    order_id: order.id.clone(),
+                                    expire_at: order.expire_at.clone(),
+                                };
+                                this.poll_payment(order.id, generation, cx);
+                            }
+                            None => {
+                                this.payment =
+                                    PaymentViewState::Failed("unsupported_credential".to_string());
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        this.payment =
+                            PaymentViewState::Failed(error.code().unwrap_or("generic").to_string());
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn poll_payment(&mut self, order_id: String, generation: u64, cx: &mut Context<Self>) {
+        let api = Arc::clone(&self.orders);
+        let token = self.session_token();
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(Duration::from_secs(2)).await;
+            let poll_api = Arc::clone(&api);
+            let poll_token = token.clone();
+            let poll_id = order_id.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { poll_api.order_status(poll_token.as_deref(), &poll_id) })
+                .await;
+            let keep = this
+                .update(cx, |this, cx| {
+                    if this.payment_generation != generation {
+                        return false;
+                    }
+                    match result {
+                        Ok(order) if order.status == "paid" => {
+                            this.payment = PaymentViewState::Paid;
+                            this.refresh_enrollment(cx);
+                            cx.notify();
+                            false
+                        }
+                        Ok(order)
+                            if matches!(
+                                order.status.as_str(),
+                                "cancelled" | "expired" | "forfeited" | "refunded"
+                            ) =>
+                        {
+                            this.payment = PaymentViewState::Failed(order.status.clone());
+                            cx.notify();
+                            false
+                        }
+                        Ok(_) => true,
+                        Err(error) => {
+                            this.payment = PaymentViewState::Failed(error.diagnostic());
+                            cx.notify();
+                            false
+                        }
+                    }
+                })
+                .unwrap_or(false);
+            if !keep {
+                break;
+            }
         })
         .detach();
     }
@@ -798,6 +982,20 @@ impl Render for RootView {
                     .cloned()
                 {
                     self.start_course_detail_load(cx, course_id);
+                }
+            }
+            if workspaces_ready
+                && current_id == Some("courses.learning")
+                && matches!(self.course_detail.state(), CoursesListState::Ready)
+                && matches!(self.content.state(), CourseContentState::Idle)
+            {
+                if let Some(course_id) = self
+                    .current
+                    .as_ref()
+                    .and_then(|route_match| route_match.params.get("id"))
+                    .cloned()
+                {
+                    self.start_content_load(cx, course_id);
                 }
             }
         }
@@ -1433,6 +1631,100 @@ impl RootView {
             .into_any_element()
     }
 
+    fn render_course_materials(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        match self.content.state().clone() {
+            CourseContentState::Idle | CourseContentState::Loading => div()
+                .mt(space(2))
+                .text_size(px(12.0))
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::CoursesLearningContentLoading))
+                .into_any_element(),
+            CourseContentState::Failed(message) => div()
+                .mt(space(2))
+                .flex()
+                .flex_col()
+                .gap(space(1))
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(palette.danger)
+                        .child(message),
+                )
+                .child(
+                    div()
+                        .id("course-content-retry")
+                        .px(space(2))
+                        .py(px(5.0))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .bg(palette.accent)
+                        .text_color(palette.canvas)
+                        .child(translate(language, Key::CoursesLearningContentRetry))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.content.retry_ready();
+                            cx.notify();
+                        })),
+                )
+                .into_any_element(),
+            CourseContentState::Empty => div()
+                .mt(space(2))
+                .text_size(px(12.0))
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::CoursesLearningContentEmpty))
+                .into_any_element(),
+            CourseContentState::Ready => {
+                let Some(content) = self.content.content().cloned() else {
+                    return div()
+                        .text_color(palette.ink_3)
+                        .child(translate(language, Key::CoursesLearningContentEmpty))
+                        .into_any_element();
+                };
+                let mut materials = Vec::new();
+                for issue in &content.document.issues {
+                    for material in issue
+                        .story_materials
+                        .iter()
+                        .chain(issue.objective_materials.iter())
+                    {
+                        if !matches!(material.kind, MaterialKind::Text | MaterialKind::Markdown) {
+                            continue;
+                        }
+                        let Some(body) = material.body.as_deref() else {
+                            continue;
+                        };
+                        if body.trim().is_empty() {
+                            continue;
+                        }
+                        materials.push(
+                            TextView::markdown(
+                                format!("course-material-{}", materials.len()),
+                                body.to_string(),
+                            )
+                            .into_any_element(),
+                        );
+                    }
+                }
+                if materials.is_empty() {
+                    return div()
+                        .text_color(palette.ink_3)
+                        .child(translate(language, Key::CoursesLearningContentEmpty))
+                        .into_any_element();
+                }
+                div()
+                    .mt(space(2))
+                    .flex()
+                    .flex_col()
+                    .gap(space(2))
+                    .children(materials)
+                    .into_any_element()
+            }
+        }
+    }
+
     fn render_workspace_switcher(
         &mut self,
         language: Language,
@@ -1626,15 +1918,170 @@ impl RootView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         if let Some(enrollment) = self.detail.enrollment().cloned() {
-            return div()
-                .mt(space(2))
+            let status = div()
                 .flex()
                 .flex_row()
                 .items_center()
                 .gap(space(1))
                 .text_size(px(12.0))
                 .text_color(palette.ink_2)
-                .child(enroll_status_label(language, enrollment.status.as_str()))
+                .child(enroll_status_label(language, enrollment.status.as_str()));
+            if enrollment.status != "payment_pending" {
+                let paid_notice = matches!(self.payment, PaymentViewState::Paid).then(|| {
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(palette.accent)
+                        .child(translate(language, Key::EventsPayPaid))
+                        .into_any_element()
+                });
+                return div()
+                    .mt(space(2))
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.0))
+                    .text_size(px(12.0))
+                    .text_color(palette.ink_2)
+                    .child(enroll_status_label(language, enrollment.status.as_str()))
+                    .children(paid_notice)
+                    .into_any_element();
+            }
+
+            let payment_body: AnyElement = match self.payment.clone() {
+                PaymentViewState::Idle | PaymentViewState::Failed(_) => {
+                    let deposit = detail.deposit_enabled;
+                    let consent = self.deposit_consent;
+                    let failed = match &self.payment {
+                        PaymentViewState::Failed(message) => Some(message.clone()),
+                        _ => None,
+                    };
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(space(1))
+                        .child(
+                            div()
+                                .text_size(px(12.0))
+                                .text_color(palette.ink_3)
+                                .child(translate(language, Key::EventsPayChooseChannel)),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .gap(space(1))
+                                .child(
+                                    div()
+                                        .id("pay-wechat")
+                                        .px(space(2))
+                                        .py(px(5.0))
+                                        .rounded(px(RADIUS_MEDIUM))
+                                        .bg(palette.accent)
+                                        .text_color(palette.canvas)
+                                        .child(translate(language, Key::EventsPayWechat))
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.start_payment("wechat_native", cx);
+                                        })),
+                                )
+                                .child(
+                                    div()
+                                        .id("pay-alipay")
+                                        .px(space(2))
+                                        .py(px(5.0))
+                                        .rounded(px(RADIUS_MEDIUM))
+                                        .bg(palette.soft)
+                                        .text_color(palette.ink_2)
+                                        .child(translate(language, Key::EventsPayAlipay))
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.start_payment("alipay_qr", cx);
+                                        })),
+                                ),
+                        )
+                        .children((deposit).then(|| {
+                            div()
+                                .id("pay-deposit-consent")
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(px(4.0))
+                                .text_size(px(12.0))
+                                .text_color(palette.ink_2)
+                                .child(if consent { "☑" } else { "☐" })
+                                .child(translate(language, Key::EventsPayDepositConsent))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.deposit_consent = !this.deposit_consent;
+                                    cx.notify();
+                                }))
+                                .into_any_element()
+                        }))
+                        .children(failed.map(|message| {
+                            let text = if message == "deposit_consent" {
+                                translate(language, Key::EventsPayDepositConsent)
+                            } else {
+                                translate(language, Key::EventsPayFailed)
+                            };
+                            div()
+                                .text_size(px(12.0))
+                                .text_color(palette.danger)
+                                .child(text)
+                                .into_any_element()
+                        }))
+                        .into_any_element()
+                }
+                PaymentViewState::Creating => div()
+                    .text_size(px(12.0))
+                    .text_color(palette.ink_3)
+                    .child(translate(language, Key::EventsPayCreating))
+                    .into_any_element(),
+                PaymentViewState::Qr { url, expire_at, .. } => {
+                    let qr_element: AnyElement = match encode_qr(&url) {
+                        Ok(matrix) => render_qr(&matrix, black(), white(), px(200.0)),
+                        Err(QrError::Empty | QrError::TooLong | QrError::Encode(_)) => div()
+                            .text_color(palette.danger)
+                            .child(translate(language, Key::EventsPayFailed))
+                            .into_any_element(),
+                    };
+                    let remaining = expire_at
+                        .as_deref()
+                        .and_then(payment_remaining_secs)
+                        .map(|seconds| format!("{:02}:{:02}", seconds / 60, seconds % 60));
+                    div()
+                        .flex()
+                        .flex_col()
+                        .items_start()
+                        .gap(space(1))
+                        .child(qr_element)
+                        .child(
+                            div()
+                                .text_size(px(12.0))
+                                .text_color(palette.ink_2)
+                                .child(translate(language, Key::EventsPayScanHint)),
+                        )
+                        .children(remaining.map(|remaining| {
+                            div()
+                                .text_size(px(12.0))
+                                .text_color(palette.ink_3)
+                                .child(format!(
+                                    "{} {remaining}",
+                                    translate(language, Key::EventsPayRemaining)
+                                ))
+                                .into_any_element()
+                        }))
+                        .into_any_element()
+                }
+                PaymentViewState::Paid => div()
+                    .text_size(px(12.0))
+                    .text_color(palette.accent)
+                    .child(translate(language, Key::EventsPayPaid))
+                    .into_any_element(),
+            };
+
+            return div()
+                .mt(space(2))
+                .flex()
+                .flex_col()
+                .gap(space(1))
+                .child(status)
+                .child(payment_body)
                 .into_any_element();
         }
 
@@ -2112,17 +2559,7 @@ impl RootView {
                                     context.course_revision_id
                                 )),
                         )
-                        .child(
-                            div()
-                                .mt(space(2))
-                                .px(space(2))
-                                .py(px(6.0))
-                                .rounded(px(RADIUS_MEDIUM))
-                                .bg(palette.soft)
-                                .text_size(px(12.0))
-                                .text_color(palette.ink_3)
-                                .child(translate(language, Key::CoursesLearningContentSoon)),
-                        )
+                        .child(self.render_course_materials(language, palette, cx))
                         .into_any_element(),
                     Err(_) => div()
                         .px(space(2))
@@ -2576,6 +3013,16 @@ fn course_row(
         .into_any_element()
 }
 
+fn build_orders_api() -> Arc<dyn OrdersApi> {
+    let use_http =
+        std::env::var("CGC_AUTH").as_deref() == Ok("http") || std::env::var("CGC_API_URL").is_ok();
+    if use_http {
+        Arc::new(cgc_events::orders::HttpOrdersApi::from_env())
+    } else {
+        Arc::new(cgc_events::orders::FakeOrdersApi::demo())
+    }
+}
+
 fn build_workspace_service() -> WorkspaceService {
     let use_http =
         std::env::var("CGC_AUTH").as_deref() == Ok("http") || std::env::var("CGC_API_URL").is_ok();
@@ -2627,6 +3074,12 @@ fn filter_key(filter: StatusFilter) -> Key {
         StatusFilter::Closed => Key::EventsFilterClosed,
         StatusFilter::Cancelled => Key::EventsFilterCancelled,
     }
+}
+
+fn payment_remaining_secs(expire_at: &str) -> Option<u64> {
+    let expires = parse_rfc3339_epoch(expire_at)?;
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs() as i64;
+    u64::try_from(expires - now).ok()
 }
 
 fn enroll_status_label(language: Language, status: &str) -> &'static str {

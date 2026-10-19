@@ -346,6 +346,12 @@ impl CourseContentService {
     pub fn retry_ready(&mut self) {
         self.state = CourseContentState::Idle;
     }
+
+    pub fn reset(&mut self) {
+        self.content = None;
+        self.course_id = None;
+        self.state = CourseContentState::Idle;
+    }
 }
 
 #[cfg(test)]

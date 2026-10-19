@@ -5,4 +5,5 @@
 pub mod detail;
 pub mod enroll;
 pub mod list;
+pub mod orders;
 pub mod registration;
