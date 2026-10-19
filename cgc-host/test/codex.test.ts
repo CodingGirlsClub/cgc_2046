@@ -89,6 +89,39 @@ test("两种 agent 各走各的：MCP 服务器名不同、Codex 写课程目录
   expect(codex.calledWith("session/new").length).toBe(1);
 });
 
+test("停止不切走 agent：Codex 课程 chat.stop 不带 agent / 带错 agent 都只结束本回合", async () => {
+  const omp = fakeAgent();
+  const codex = fakeAgent();
+  const home = tempHome();
+  const { page } = await chatPage(omp, { home, records: [ompTestRecord(omp), codexTestRecord(codex)] });
+  await page.call("chat.attach", { courseId: COURSE, agent: "codex" });
+
+  // 回合只有收到 session/cancel 才收尾：证明 Host 确实向 Codex 发了取消
+  codex.script = async (t) => {
+    await t.cancelled;
+    return { stopReason: "cancelled" };
+  };
+  await page.call("chat.send", { courseId: COURSE, agent: "codex", text: "跑个长任务", context: CONTEXT });
+  page.send({ method: "chat.stop", params: { courseId: COURSE } }); // 页面旧实现：不带 agent
+  expect(await page.next((m) => m.method === "turn.end")).toMatchObject({ params: { courseId: COURSE, stopReason: "cancelled" } });
+  const sessionId = [...codex.store.keys()][0];
+  expect(codex.calledWith("session/cancel")).toEqual([{ sessionId }]);
+  expect(omp.starts).toBe(0); // 没有被切到 omp
+  expect(page.inbox.filter((m) => m.method === "error")).toEqual([]); // 不再回 busy
+
+  // 带错 agent 也一样：不得切走
+  await page.call("chat.send", { courseId: COURSE, agent: "codex", text: "再来", context: CONTEXT });
+  page.send({ method: "chat.stop", params: { courseId: COURSE, agent: "omp" } });
+  expect(await page.next((m) => m.method === "turn.end")).toMatchObject({ params: { stopReason: "cancelled" } });
+  expect(omp.starts).toBe(0);
+
+  // 课程仍是 codex：下一条消息发给 codex 并正常收尾
+  codex.script = async () => ({ stopReason: "end_turn" });
+  await page.call("chat.send", { courseId: COURSE, agent: "codex", text: "继续", context: CONTEXT });
+  expect(await page.next((m) => m.method === "turn.end")).toMatchObject({ params: { stopReason: "end_turn" } });
+  expect(page.inbox.filter((m) => m.method === "error")).toEqual([]);
+});
+
 test("Codex 未登录：回 auth_required + 登录方式；chat.authenticate 转发给该 agent，成功后回 chat.authenticated", async () => {
   const omp = fakeAgent();
   const codex = fakeAgent();

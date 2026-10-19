@@ -453,6 +453,10 @@ export function useHostChat({
 		},
 		[refetch],
 	);
+	const withAgent = useCallback(
+		(params: Record<string, unknown>) => (agent && !("agent" in params) ? { agent, ...params } : params),
+		[agent],
+	);
 	// Host 回复仍回原 socket；接管、断线或重新 attach 后，旧请求不能再改本页状态。
 	// raw：只做代次校验与 not_holder 失效，不把回复交给归约——历史列表/切换失败要在调用方就地呈现。
 	const requestChatRaw = useCallback(
@@ -471,15 +475,13 @@ export function useHostChat({
 		) => {
 			if (!socket) return null;
 			const generation = ownership.current;
-			// 带的是本机实际能用的 agent（记忆不在本机时已回落）；调用方显式给了就以它为准（切换那一刻要立刻带新的）
-			const withAgent = agent && !("agent" in params) ? { agent, ...params } : params;
-			const reply = await socket.request(method, withAgent, { timeoutMs })
+			const reply = await socket.request(method, withAgent(params), { timeoutMs })
 				.catch((e: Error): HostMessage => ({ method: "error", params: { code: e.message } }));
 			if (generation !== ownership.current) return null;
 			if (reply.method === "error" && reply.params?.code === "not_holder") ownership.current += 1;
 			return reply;
 		},
-		[socket, agent],
+		[socket, withAgent],
 	);
 	const requestChat = useCallback(
 		async (
@@ -588,9 +590,11 @@ export function useHostChat({
 	);
 
 	const stop = useCallback(() => {
-		socket?.send("chat.stop", { courseId });
+		if (!socket) return;
+		// Host 对 chat.stop 不回包：用 send（不等待回复），但必须带 agent——否则旧 Host 会把它当成「换 agent」。
+		socket.send("chat.stop", withAgent({ courseId }));
 		dispatch({ type: "stop" });
-	}, [socket, courseId]);
+	}, [socket, courseId, withAgent]);
 
 	const newChat = useCallback(() => {
 		if (!canSend) return;

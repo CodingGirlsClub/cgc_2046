@@ -433,7 +433,7 @@ describe("卡片（R19、R20）", () => {
 		ws.push({ method: "turn.card", params: PERMISSION });
 
 		fireEvent.click(screen.getByRole("button", { name: "停止" }));
-		expect(ws.sent.at(-1)).toEqual({ method: "chat.stop", params: { courseId: COURSE } });
+		expect(ws.sent.at(-1)).toEqual({ method: "chat.stop", params: { agent: "omp", courseId: COURSE } });
 		expect(screen.queryByRole("group", { name: "需要你的确认" })).not.toBeInTheDocument();
 
 		ws.push({ method: "turn.card.closed", params: { courseId: COURSE, cardId: "card-p", reason: "cancelled" } });
@@ -443,6 +443,17 @@ describe("卡片（R19、R20）", () => {
 		expect(screen.getByText("已停止这一轮。")).toBeInTheDocument();
 		fireEvent.change(input(), { target: { value: "下一条" } });
 		expect(screen.getByRole("button", { name: "发送" })).toBeEnabled();
+	});
+
+	it("Covers 停止不切走 agent：Codex 课程发 chat.stop 时带上当前 agent", async () => {
+		renderPanel();
+		const ws = await attach([], true, undefined, [
+			{ kind: "codex", present: true },
+			{ kind: "omp", present: true },
+		]);
+		await screen.findByRole("textbox", { name: "发给 agent 的消息" });
+		fireEvent.click(screen.getByRole("button", { name: "停止" }));
+		expect(ws.sent.at(-1)).toEqual({ method: "chat.stop", params: { agent: "codex", courseId: COURSE } });
 	});
 });
 

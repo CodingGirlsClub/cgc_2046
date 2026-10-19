@@ -311,10 +311,14 @@ export function createChat(opts: ChatOptions) {
   async function handle(method: ChatMethod, params: Record<string, unknown> & { courseId: string }, ctx: ChatContext) {
     // 页面显式指定的 agent 优先（server.ts 已按白名单校验过）；省略就是缺省 agent——回滚期的旧页面不带这个字段，
     // 不能让 Host 按「记忆值」替它改走别的 agent（KTD3）。记忆值只作为页面初选，经 history 回包给出。
-    const agent: AgentKind = isAgentKind(params.agent) ? params.agent : DEFAULT_AGENT;
+    const requested: AgentKind = isAgentKind(params.agent) ? params.agent : DEFAULT_AGENT;
+    const previous = courses.get(params.courseId);
+    // 只有这四个方法在选择「哪段会话」；停止/作答/设置/登录/列表都作用在课程当前的 agent 上，
+    // 绝不能因为缺省参数把课程切走（Codex 课程点停止曾因此切到 omp 并静音）。
+    const selectsAgent = method === "chat.attach" || method === "chat.send" || method === "chat.new" || method === "chat.open";
+    const agent: AgentKind = selectsAgent || !previous ? requested : previous.agent;
     // 本机换了账号（重新配对给另一个人）时上一个账号的回合还在跑：先取消它（卡片以取消作答），收尾期间它的事件不再发出——
     // 消息只路由给这门课当前的持有者，也就是新账号。新账号这次回 busy，回合结束后重试即接上自己的对话
-    const previous = courses.get(params.courseId);
     if (previous?.turn && previous.userId !== ctx.userId) {
       previous.send = () => {};
       previous.held = false;
@@ -330,7 +334,7 @@ export function createChat(opts: ChatOptions) {
     }
     const c = course(params.courseId, ctx, agent);
     // 记忆值只记「真的切过去了」的那次显式选择（被 busy 挡回的不记），供下一次页面初选
-    if (isAgentKind(params.agent) && ctx.agents[c.id] !== agent) {
+    if (selectsAgent && isAgentKind(params.agent) && ctx.agents[c.id] !== agent) {
       ctx.agents[c.id] = agent;
       ctx.save();
     }
