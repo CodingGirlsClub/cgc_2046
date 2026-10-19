@@ -122,6 +122,30 @@ test("停止不切走 agent：Codex 课程 chat.stop 不带 agent / 带错 agent
   expect(page.inbox.filter((m) => m.method === "error")).toEqual([]);
 });
 
+test("chat.open 加载期间 A→B→A 切回：epoch 已变，切换仍作废（busy）", async () => {
+  const omp = fakeAgent();
+  const codex = fakeAgent();
+  const home = tempHome();
+  const { page } = await chatPage(omp, { home, records: [ompTestRecord(omp), codexTestRecord(codex)] });
+  await page.call("chat.attach", { courseId: COURSE, agent: "omp" });
+  await page.call("chat.send", { courseId: COURSE, agent: "omp", text: "第一段", context: CONTEXT });
+  await page.next((m) => m.method === "turn.end");
+  await page.call("chat.new", { courseId: COURSE, agent: "omp" }); // session-2
+
+  omp.delayLoadMs = 150;
+  const opening = page.call("chat.open", { courseId: COURSE, sessionId: "session-1", agent: "omp" });
+  await Bun.sleep(20);
+  // 两帧连发（不等第一帧的 history）：两次切换都落在 load 完成之前，课程最后仍在 omp
+  page.send({ method: "chat.attach", params: { courseId: COURSE, agent: "codex" } });
+  page.send({ method: "chat.attach", params: { courseId: COURSE, agent: "omp" } });
+  expect(await opening).toMatchObject({ method: "error", params: { code: "busy" } });
+  await page.call("chat.attach", { courseId: COURSE, agent: "omp" }); // 排在两帧之后：返回即队列排空
+
+  // 切回后的课程照常工作
+  await page.call("chat.send", { courseId: COURSE, agent: "omp", text: "切回后", context: CONTEXT });
+  await page.next((m) => m.method === "turn.end");
+});
+
 test("chat.open 加载期间切 agent：本次切换作废（busy），不把 omp 会话记到 codex 名下", async () => {
   const omp = fakeAgent();
   const codex = fakeAgent();

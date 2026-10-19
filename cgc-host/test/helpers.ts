@@ -291,6 +291,8 @@ export function fakeAgent() {
     omitAgentCapabilities: false,
     /** initialize 回包的协议版本（缺省 PROTOCOL_VERSION） */
     protocolVersion: acp.PROTOCOL_VERSION as number,
+    /** true 时 initialize 永不应答：模拟准备超时 → 该 kind 的进程代被废弃 */
+    hangInitialize: false,
     /** 握手要求先登录时，这些 ACP 方法（如 "session/new"）抛 auth_required（-32000） */
     authFor: new Set<string>(),
     /** authenticate 失败（页面按 auth_failed 处理） */
@@ -319,8 +321,9 @@ export function fakeAgent() {
       const record = (method: string, params: unknown) => fake.calls.push({ method, params });
       const agentApp = acp
         .agent({ name: "fake-omp" })
-        .onRequest("initialize", (c) => {
+        .onRequest("initialize", async (c) => {
           record("initialize", c.params);
+          if (fake.hangInitialize) await new Promise<never>(() => {});
           return {
             protocolVersion: fake.protocolVersion,
             ...(fake.omitAgentCapabilities ? {} : { agentCapabilities: fake.capabilities ?? { loadSession: true, sessionCapabilities: { list: {} } } }),

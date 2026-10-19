@@ -11,6 +11,7 @@ import {
   chatHost,
   chatPage,
   cleanup,
+  codexTestRecord,
   CONTEXT,
   connect,
   COURSE,
@@ -19,6 +20,7 @@ import {
   helloed,
   identity,
   type Msg,
+  ompTestRecord,
   pair,
   refused,
   tempHome,
@@ -456,6 +458,37 @@ test("会话归属绑定账号：别的账号的指针不加载、不列出、�
   const mine = state.sessions[COURSE]?.omp;
   expect(mine).toBeTruthy();
   expect(state.sessionOwners[`omp:${mine}`]).toBe(ownerHash(USER_A));
+});
+
+test("别的 agent 的进程换代不清掉本课程的隔离标记（Codex review P2）", async () => {
+  const omp = fakeAgent();
+  const codex = fakeAgent();
+  const home = tempHome();
+  const OTHER = "dddddddd-4444-4444-8444-444444444444";
+  const { page } = await chatPage(omp, {
+    home,
+    records: [ompTestRecord(omp), codexTestRecord(codex)],
+    cancelAckTimeoutMs: 40,
+    turnTimeoutMs: 60_000,
+    preparationTimeoutMs: 60,
+  });
+  // omp 课程：一轮永不 settle → stop → 看门狗强制收尾 → 隔离
+  omp.script = () => new Promise<PromptResponse>(() => {});
+  await attach(page);
+  await send(page, "一");
+  page.send({ method: "chat.stop", params: { courseId: COURSE, agent: "omp" } });
+  expect(await endedWithin(page, 2000)).toMatchObject({ params: { stopReason: "cancelled" } });
+  expect(await send(page, "二")).toMatchObject(refused("busy"));
+
+  // codex 在另一门课拉起，握手永不应答 → 准备超时 → 只有 codex 这一代被废弃
+  codex.hangInitialize = true;
+  expect(await page.call("chat.attach", { courseId: OTHER, agent: "codex" })).toMatchObject({
+    method: "error",
+    params: { code: "chat_unavailable" },
+  });
+
+  // omp 的隔离必须还在：旧 prompt 仍在跑，这时开新回合会把它的审批挂上来
+  expect(await send(page, "三")).toMatchObject(refused("busy"));
 });
 
 test("准备阶段 stop：不提前本地收尾，先回 user 事件再以 cancelled 结束；之后可继续", async () => {

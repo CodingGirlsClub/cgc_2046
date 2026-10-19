@@ -180,8 +180,8 @@ export function createChat(opts: ChatOptions) {
   function resetAgent(kind: AgentKind) {
     capabilities.clear(kind);
     for (const [id, c] of courses) {
+      if (c.agent !== kind) continue; // 别的 agent 换代与这门课无关：连隔离标记也不能碰
       c.abandonedPrompt = null; // 旧进程已经不在了：它的 prompt 不会再产出请求
-      if (c.agent !== kind) continue;
       if (c.sessionId) bySession.delete(sessionKey(kind, c.sessionId));
       c.sessionId = null;
       // 下一个进程会重新给 settings（session/new 或 load 的回包），先清掉等它
@@ -449,6 +449,7 @@ export function createChat(opts: ChatOptions) {
       // 换 agent 就是换一段会话（KTD8）：旧进程里那条会话作废，缓冲、设置与待答卡片一起清掉；
       // 在跑的回合已由 handle 先停掉，这里只把它摘下来，免得旧回合的收尾再推一条 turn.end 给新页面。
       if (c.sessionId) bySession.delete(sessionKey(c.agent, c.sessionId));
+      c.epoch += 1; // 上下文代次：加载/准备在提交前用它确认「还是同一次选择」（A→B→A 切回也算换过）
       c.agent = agent;
       c.sessionId = null;
       c.lastContext = null;
