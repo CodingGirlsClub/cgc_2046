@@ -81,3 +81,14 @@ courses.learning.content_soon
 courses.learning.keyboard_hint
 courses.detail.title
 courses.learning.title
+app.workspace.switch
+app.workspace.loading
+app.workspace.error
+app.workspace.retry
+app.workspace.empty
+app.workspace.members
+app.workspace.role.owner
+app.workspace.role.admin
+app.workspace.role.tutor
+app.workspace.role.volunteer
+app.workspace.role.learner

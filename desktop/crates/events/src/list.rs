@@ -529,6 +529,15 @@ impl EventListService {
     pub fn retry_ready(&mut self) {
         self.state = ListState::Idle;
     }
+
+    /// 工作台切换时清空（新范围重新取数，不保留旧租户数据）。
+    pub fn reset(&mut self) {
+        self.items.clear();
+        self.next_cursor = None;
+        self.total = None;
+        self.state = ListState::Idle;
+        self.loading_more = false;
+    }
 }
 
 #[cfg(test)]
@@ -622,9 +631,36 @@ mod tests {
         let addr = listener.local_addr().expect("addr");
         std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = Vec::new();
             let mut buffer = [0u8; 4096];
-            let read = stream.read(&mut buffer).expect("read");
-            let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+            let header_end = loop {
+                let read = stream.read(&mut buffer).expect("read");
+                if read == 0 {
+                    break request.len();
+                }
+                request.extend_from_slice(&buffer[..read]);
+                if let Some(pos) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                    break pos + 4;
+                }
+            };
+            let headers = String::from_utf8_lossy(&request[..header_end]).to_string();
+            let content_length = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().ok())
+                        .flatten()
+                })
+                .unwrap_or(0);
+            while request.len() < header_end + content_length {
+                let read = stream.read(&mut buffer).expect("read body");
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..read]);
+            }
+            let request = String::from_utf8_lossy(&request).to_string();
             assert!(request.contains("listEvents"), "request: {request}");
             let body = r#"{"data":{"listEvents":{"count":1,"endKeyset":"cursor-2","results":[{"id":"e-1","title":"Demo","status":"open","visibility":"public","enrollmentPolicy":"open","capacity":10,"confirmedCount":2,"startsAt":"2026-11-01T10:00:00Z","pricingEnabled":true}]}}}"#;
             let response = format!(

@@ -168,6 +168,12 @@ impl EventDetailService {
     pub fn retry_ready(&mut self) {
         self.state = ListState::Idle;
     }
+
+    pub fn reset(&mut self) {
+        self.detail = None;
+        self.event_id = None;
+        self.state = ListState::Idle;
+    }
 }
 
 #[cfg(test)]

@@ -446,6 +446,14 @@ impl CourseCatalogService {
     pub fn retry_ready(&mut self) {
         self.state = CoursesListState::Idle;
     }
+
+    pub fn reset(&mut self) {
+        self.items.clear();
+        self.next_cursor = None;
+        self.total = None;
+        self.state = CoursesListState::Idle;
+        self.loading_more = false;
+    }
 }
 
 pub struct CourseDetailService {
@@ -489,6 +497,11 @@ impl CourseDetailService {
     }
 
     pub fn retry_ready(&mut self) {
+        self.state = CoursesListState::Idle;
+    }
+
+    pub fn reset(&mut self) {
+        self.detail = None;
         self.state = CoursesListState::Idle;
     }
 }

@@ -19,6 +19,9 @@ use cgc_events::list::{
 };
 use cgc_platform::routes::NavIcon;
 use cgc_platform::session::{AuthError, SessionService, SessionState, SignedInSession};
+use cgc_platform::workspace::{
+    FakeWorkspaceApi, HttpWorkspaceApi, WorkspaceApi, WorkspaceListState, WorkspaceService,
+};
 use gpui_kit::assets::IconName as AssetIcon;
 use gpui_kit::component::{Icon, Sizable as _};
 
@@ -74,6 +77,9 @@ pub struct RootView {
     detail_started: bool,
     courses: CourseCatalogService,
     courses_started: bool,
+    workspaces: WorkspaceService,
+    workspaces_started: bool,
+    workspace_menu_open: bool,
     course_detail: CourseDetailService,
     course_detail_started: bool,
     selected_event: Option<String>,
@@ -125,6 +131,9 @@ impl RootView {
             courses_started: false,
             course_detail,
             course_detail_started: false,
+            workspaces: build_workspace_service(),
+            workspaces_started: false,
+            workspace_menu_open: std::env::var("CGC_WORKSPACE_MENU").as_deref() == Ok("open"),
             selected_event: None,
         }
     }
@@ -224,6 +233,45 @@ impl RootView {
         self.selected_event = None;
     }
 
+    fn start_workspace_load(&mut self, cx: &mut Context<Self>) {
+        self.workspaces.begin_load();
+        self.workspaces_started = true;
+        let api = self.workspaces.api_handle();
+        let token = self.session_token();
+        let task = cx
+            .background_executor()
+            .spawn(async move { api.list_workspaces(token.as_deref()) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(workspaces) => this.workspaces.adopt(workspaces),
+                    Err(error) => this.workspaces.fail(&error),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn switch_workspace(&mut self, workspace_id: &str, cx: &mut Context<Self>) {
+        if self.workspaces.switch_to(workspace_id) {
+            self.reset_workspace_data();
+            self.navigate("/");
+            self.workspace_menu_open = false;
+            cx.notify();
+        }
+    }
+
+    fn reset_workspace_data(&mut self) {
+        self.reset_events();
+        self.events.reset();
+        self.detail.reset();
+        self.courses.reset();
+        self.course_detail.reset();
+        self.selected_event = None;
+    }
+
     fn start_courses_load(&mut self, cx: &mut Context<Self>, first: bool) {
         if first {
             self.courses.begin_first_load();
@@ -238,6 +286,7 @@ impl RootView {
         } else {
             self.courses.next_cursor().map(str::to_string)
         };
+        let epoch = self.workspaces.epoch();
         let task = cx
             .background_executor()
             .spawn(async move { api.list_courses(token.as_deref(), cursor.as_deref(), 10) });
@@ -245,6 +294,9 @@ impl RootView {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
+                if !this.workspaces.is_current_epoch(epoch) {
+                    return;
+                }
                 match result {
                     Ok(page) => this.courses.adopt_page(page),
                     Err(error) => this.courses.fail(&error),
@@ -442,6 +494,8 @@ impl RootView {
                     self.login_error = Some(LoginError::Network);
                 }
                 self.reset_events();
+                self.workspaces.reset();
+                self.workspaces_started = false;
                 self.login_password.clear();
             }
             Err(error) => {
@@ -462,7 +516,10 @@ impl RootView {
                 .detach();
         }
         self.account_menu_open = false;
-        self.reset_events();
+        self.workspace_menu_open = false;
+        self.workspaces.reset();
+        self.workspaces_started = false;
+        self.reset_workspace_data();
         self.login_email.clear();
         self.login_password.clear();
         self.login_error = None;
@@ -556,17 +613,28 @@ impl Render for RootView {
         let language_icon = AssetIcon::Languages;
 
         if is_signed_in {
+            if !self.workspaces_started
+                && matches!(self.workspaces.state(), WorkspaceListState::Idle)
+            {
+                self.start_workspace_load(cx);
+            }
+            let workspaces_ready = !matches!(
+                self.workspaces.state(),
+                WorkspaceListState::Idle | WorkspaceListState::Loading
+            );
             let current_id = self
                 .current
                 .as_ref()
                 .map(|route_match| route_match.route.id);
-            if current_id == Some("events.list")
+            if workspaces_ready
+                && current_id == Some("events.list")
                 && !self.events_started
                 && matches!(self.events.state(), ListState::Idle)
             {
                 self.start_events_load(cx, true);
             }
-            if current_id == Some("events.detail")
+            if workspaces_ready
+                && current_id == Some("events.detail")
                 && !self.detail_started
                 && matches!(self.detail.state(), ListState::Idle)
             {
@@ -579,16 +647,19 @@ impl Render for RootView {
                     self.start_detail_load(cx, event_id);
                 }
             }
-            if current_id == Some("courses.catalog")
+            if workspaces_ready
+                && current_id == Some("courses.catalog")
                 && !self.courses_started
                 && matches!(self.courses.state(), CoursesListState::Idle)
             {
                 self.start_courses_load(cx, true);
             }
-            if matches!(
-                current_id,
-                Some("courses.detail") | Some("courses.learning")
-            ) && !self.course_detail_started
+            if workspaces_ready
+                && matches!(
+                    current_id,
+                    Some("courses.detail") | Some("courses.learning")
+                )
+                && !self.course_detail_started
                 && matches!(self.course_detail.state(), CoursesListState::Idle)
             {
                 if let Some(course_id) = self
@@ -618,6 +689,8 @@ impl Render for RootView {
         let login_password = self.login_password.clone();
         let focused = self.focused;
         let is_fake_mode = self.is_fake_mode;
+
+        let workspace_switcher = self.render_workspace_switcher(language, &palette, cx);
 
         let mut root = div();
         if !is_signed_in {
@@ -836,6 +909,8 @@ impl Render for RootView {
                                         .child(translate(language, Key::AppName)),
                                 ),
                         )
+                        .child(div().w(px(1.0)).h(px(14.0)).bg(palette.line))
+                        .child(workspace_switcher)
                         .child(div().w(px(1.0)).h(px(14.0)).bg(palette.line))
                         .child(div().text_color(palette.ink_3).child(match &self.current {
                             Some(route_match) => {
@@ -1236,6 +1311,191 @@ impl RootView {
             .gap(space(2))
             .child(back)
             .child(body)
+            .into_any_element()
+    }
+
+    fn render_workspace_switcher(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let menu_open = self.workspace_menu_open;
+        let state = self.workspaces.state().clone();
+        let current = self.workspaces.current().cloned();
+        let workspaces = self.workspaces.workspaces().to_vec();
+        let label = current
+            .as_ref()
+            .map(|workspace| workspace.name.clone())
+            .unwrap_or_else(|| translate(language, Key::AppWorkspaceSwitch).to_string());
+
+        let options = workspaces
+            .iter()
+            .map(|workspace| {
+                let selected = current
+                    .as_ref()
+                    .is_some_and(|current| current.id == workspace.id);
+                let workspace_id = workspace.id.clone();
+                let roles = workspace
+                    .my_role_names
+                    .iter()
+                    .map(|role| workspace_role_label(language, role))
+                    .collect::<Vec<_>>()
+                    .join(" · ");
+                let members = workspace
+                    .member_count
+                    .map(|count| {
+                        format!("{} {count}", translate(language, Key::AppWorkspaceMembers))
+                    })
+                    .unwrap_or_default();
+                let meta = [roles, members]
+                    .into_iter()
+                    .filter(|part| !part.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" · ");
+                div()
+                    .id(format!("workspace-option-{}", workspace.id))
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.0))
+                    .px(space(1))
+                    .py(px(6.0))
+                    .rounded(px(RADIUS_SMALL))
+                    .hover(|style| style.bg(palette.soft))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_between()
+                            .child(div().text_color(palette.ink).child(workspace.name.clone()))
+                            .child(div().text_color(palette.accent).child(if selected {
+                                "✓"
+                            } else {
+                                ""
+                            })),
+                    )
+                    .children((!meta.is_empty()).then(|| {
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_3)
+                            .child(meta)
+                            .into_any_element()
+                    }))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.switch_workspace(&workspace_id, cx);
+                    }))
+                    .into_any_element()
+            })
+            .collect::<Vec<_>>();
+
+        let panel_body: AnyElement = match state {
+            WorkspaceListState::Idle | WorkspaceListState::Loading => div()
+                .px(space(1))
+                .py(px(4.0))
+                .text_size(px(12.0))
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::AppWorkspaceLoading))
+                .into_any_element(),
+            WorkspaceListState::Failed(_) => div()
+                .flex()
+                .flex_col()
+                .gap(space(1))
+                .px(space(1))
+                .py(px(4.0))
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(palette.danger)
+                        .child(translate(language, Key::AppWorkspaceError)),
+                )
+                .child(
+                    div()
+                        .id("workspace-retry")
+                        .px(space(1))
+                        .py(px(3.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .bg(palette.accent)
+                        .text_color(white())
+                        .child(translate(language, Key::AppWorkspaceRetry))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.workspaces.retry_ready();
+                            this.workspaces_started = false;
+                            cx.notify();
+                        })),
+                )
+                .into_any_element(),
+            WorkspaceListState::Empty => div()
+                .px(space(1))
+                .py(px(4.0))
+                .text_size(px(12.0))
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::AppWorkspaceEmpty))
+                .into_any_element(),
+            WorkspaceListState::Ready => {
+                div().flex().flex_col().children(options).into_any_element()
+            }
+        };
+
+        let panel = menu_open.then(|| {
+            div()
+                .id("workspace-menu")
+                .absolute()
+                .top(px(30.0))
+                .left_0()
+                .w(px(260.0))
+                .flex()
+                .flex_col()
+                .gap(px(2.0))
+                .p(space(1))
+                .rounded(px(RADIUS_MEDIUM))
+                .border_1()
+                .border_color(palette.line_strong)
+                .bg(palette.card)
+                .child(
+                    div()
+                        .px(space(1))
+                        .py(px(3.0))
+                        .text_size(px(10.0))
+                        .text_color(palette.ink_3)
+                        .child(translate(language, Key::AppWorkspaceSwitch)),
+                )
+                .child(panel_body)
+                .into_any_element()
+        });
+
+        div()
+            .relative()
+            .flex()
+            .items_center()
+            .child(
+                div()
+                    .id("workspace-menu-toggle")
+                    .flex()
+                    .items_center()
+                    .gap(px(4.0))
+                    .px(space(1))
+                    .py(px(3.0))
+                    .rounded(px(RADIUS_SMALL))
+                    .hover(|style| style.bg(palette.soft))
+                    .child(
+                        div()
+                            .text_size(px(13.0))
+                            .text_color(palette.ink_2)
+                            .child(label),
+                    )
+                    .child(
+                        Icon::default()
+                            .path(AssetIcon::ChevronDown.path())
+                            .text_color(palette.ink_3)
+                            .with_size(px(12.0)),
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.workspace_menu_open = !this.workspace_menu_open;
+                        cx.notify();
+                    })),
+            )
+            .children(panel)
             .into_any_element()
     }
 
@@ -2043,6 +2303,30 @@ fn course_row(
             cx.notify();
         }))
         .into_any_element()
+}
+
+fn build_workspace_service() -> WorkspaceService {
+    let use_http =
+        std::env::var("CGC_AUTH").as_deref() == Ok("http") || std::env::var("CGC_API_URL").is_ok();
+    let api: Arc<dyn WorkspaceApi> = if use_http {
+        Arc::new(HttpWorkspaceApi::from_env())
+    } else {
+        Arc::new(FakeWorkspaceApi::demo())
+    };
+    WorkspaceService::new(api)
+}
+
+fn workspace_role_label(language: Language, role: &str) -> &'static str {
+    translate(
+        language,
+        match role {
+            "owner" => Key::AppWorkspaceRoleOwner,
+            "admin" => Key::AppWorkspaceRoleAdmin,
+            "tutor" => Key::AppWorkspaceRoleTutor,
+            "volunteer" => Key::AppWorkspaceRoleVolunteer,
+            _ => Key::AppWorkspaceRoleLearner,
+        },
+    )
 }
 
 fn build_events_service() -> EventListService {
