@@ -56,7 +56,6 @@ events.detail.not_found
 events.detail.free
 events.detail.paid
 events.detail.deposit
-events.detail.enroll_soon
 events.detail.venue
 events.detail.capacity
 courses.catalog.loading
@@ -120,7 +119,6 @@ events.pay.scan_hint
 events.pay.remaining
 events.pay.paid
 events.pay.failed
-events.pay.retry
 events.pay.deposit_consent
 events.pay.choose_channel
 courses.learning.content_loading
