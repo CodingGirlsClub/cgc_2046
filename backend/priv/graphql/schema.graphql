@@ -5895,6 +5895,12 @@ type RootMutationType {
   "账号密码登录（plan 002 U2：login 含 @ 走邮箱，否则手机号归一化；token 经 httpOnly cookie 交付）"
   signIn(login: String!, password: String!): SignInResult
 
+  """
+  第一方客户端登录：直接返回 Bearer JWT（响应体交付，不写 httpOnly cookie）。
+  与 web 的 `signIn` 共用同一 AshAuthentication token；撤销用 `revokeToken`。
+  """
+  signInForDesktop(login: String!, password: String!): DesktopSignInResult
+
   "请求发送手机验证码（plan 002 U3；限流 phone 1\/60s + 5\/1h + 20\/1d、IP 30\/1d）"
   requestPhoneCode(phone: String!, purpose: PhoneCodePurpose!): RequestPhoneCodeResult
 
@@ -5930,6 +5936,9 @@ type RootMutationType {
 
   "登出：服务端撤销当前 token 并清除 httpOnly cookie（token 被偷也无法重放）"
   signOut: String
+
+  "撤销当前请求携带的 Bearer token（第一方客户端登出用；只撤销调用者自己的 token）"
+  revokeToken: Boolean
 
   wechatMiniWebLoginStart(mode: MiniWebLoginMode!): MiniWebLoginResult
 
@@ -7792,6 +7801,14 @@ type RequestPasswordResetResult {
 
 type ResetPasswordResult {
   ok: Boolean!
+}
+
+"第一方客户端登录结果：JWT 直接经响应体交付（不写 cookie）"
+type DesktopSignInResult {
+  token: String!
+  userId: ID!
+  email: String
+  isPlatformAdmin: Boolean!
 }
 
 type SignInWithPlatformResult {

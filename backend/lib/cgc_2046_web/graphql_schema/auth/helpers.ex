@@ -6,6 +6,42 @@ defmodule Cgc2046Web.GraphqlSchema.Auth.Helpers do
 
   require Logger
 
+  @doc """
+  账号密码登录的共享实现（web `signIn` 与第一方客户端 `signInForDesktop` 共用）：
+  含 @ 走邮箱，否则手机号归一化后走手机号策略；失败统一映射为 `:authentication_failed`
+  （防枚举，不新增错误出口）。
+  """
+  def sign_in_with_password_or_phone(login, password) do
+    query =
+      if String.contains?(login, "@") do
+        Cgc2046.Accounts.User
+        |> Ash.Query.for_read(:sign_in_with_password, %{email: login, password: password})
+      else
+        case Cgc2046.Accounts.PhoneNumber.normalize(login) do
+          {:ok, phone} ->
+            Cgc2046.Accounts.User
+            |> Ash.Query.for_read(:sign_in_with_password_phone, %{
+              phone: phone,
+              password: password
+            })
+
+          {:error, :invalid} ->
+            # 非法手机号格式：走 email 分支产出统一的认证失败（防枚举语义不变）
+            Cgc2046.Accounts.User
+            |> Ash.Query.for_read(:sign_in_with_password, %{email: login, password: password})
+        end
+      end
+
+    try do
+      case Ash.read(query) do
+        {:ok, [user]} -> {:ok, user}
+        {:error, _error} -> {:error, :authentication_failed}
+      end
+    rescue
+      _ -> {:error, :authentication_failed}
+    end
+  end
+
   def sign_in_with_phone_code(phone, code, context) do
     case Cgc2046.Accounts.PhoneCodeSignIn.sign_in_with_phone_code(phone, code, context) do
       {:ok, user} ->
