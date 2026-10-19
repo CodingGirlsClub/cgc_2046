@@ -13,48 +13,50 @@ fn main() {
     validate(&registry).expect("i18n registration must be valid");
     let startup_registry = registry.clone();
 
-    gpui_kit::application().run(move |cx| {
-        gpui_kit::init(cx);
-        gpui_kit::open_window(
-            gpui_kit::WindowOptions {
-                // 参考 Zed build_window_options：透明 titlebar + 自绘 header，
-                // 红绿灯位置由 gpui 负责；Linux/Wayland 用 client side decorations。
-                titlebar: Some(gpui_kit::TitlebarOptions {
-                    title: None,
-                    appears_transparent: true,
-                    traffic_light_position: Some(gpui_kit::point(
-                        gpui_kit::px(12.0),
-                        gpui_kit::px(12.0),
-                    )),
-                }),
-                app_owns_titlebar_drag: cfg!(target_os = "macos"),
-                window_decorations: Some(gpui_kit::WindowDecorations::Client),
-                window_min_size: Some(gpui_kit::Size {
-                    width: gpui_kit::px(720.0),
-                    height: gpui_kit::px(480.0),
-                }),
-                ..Default::default()
-            },
-            cx,
-            move |window, cx| {
-                let preference = preference_from_env();
-                theme::apply(theme::resolve(preference, window.appearance()), cx);
+    gpui_kit::application()
+        .with_assets(gpui_kit::assets::AllAssets)
+        .run(move |cx| {
+            gpui_kit::init(cx);
+            gpui_kit::open_window(
+                gpui_kit::WindowOptions {
+                    // 参考 Zed build_window_options：透明 titlebar + 自绘 header，
+                    // 红绿灯位置由 gpui 负责；Linux/Wayland 用 client side decorations。
+                    titlebar: Some(gpui_kit::TitlebarOptions {
+                        title: None,
+                        appears_transparent: true,
+                        traffic_light_position: Some(gpui_kit::point(
+                            gpui_kit::px(12.0),
+                            gpui_kit::px(12.0),
+                        )),
+                    }),
+                    app_owns_titlebar_drag: cfg!(target_os = "macos"),
+                    window_decorations: Some(gpui_kit::WindowDecorations::Client),
+                    window_min_size: Some(gpui_kit::Size {
+                        width: gpui_kit::px(720.0),
+                        height: gpui_kit::px(480.0),
+                    }),
+                    ..Default::default()
+                },
+                cx,
+                move |window, cx| {
+                    let preference = preference_from_env();
+                    theme::apply(theme::resolve(preference, window.appearance()), cx);
 
-                let view_registry = startup_registry.clone();
-                let view = cx.new(move |_| RootView::new(view_registry));
+                    let view_registry = startup_registry.clone();
+                    let view = cx.new(move |_| RootView::new(view_registry));
 
-                let observer_view = view.clone();
-                window
-                    .observe_window_appearance(move |window, cx| {
-                        observer_view.update(cx, |this, cx| {
-                            this.on_appearance_changed(window.appearance(), cx);
-                        });
-                    })
-                    .detach();
+                    let observer_view = view.clone();
+                    window
+                        .observe_window_appearance(move |window, cx| {
+                            observer_view.update(cx, |this, cx| {
+                                this.on_appearance_changed(window.appearance(), cx);
+                            });
+                        })
+                        .detach();
 
-                view
-            },
-        )
-        .expect("main window opens");
-    });
+                    view
+                },
+            )
+            .expect("main window opens");
+        });
 }

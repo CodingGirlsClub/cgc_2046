@@ -7,7 +7,10 @@
 
 use gpui_kit::*;
 
+use cgc_platform::routes::NavIcon;
 use cgc_platform::session::{AuthError, SessionService, SessionState, SignedInSession};
+use gpui_kit::assets::IconName as AssetIcon;
+use gpui_kit::component::{Icon, Sizable as _};
 
 use crate::i18n::{default_language, translate, translate_registered, Key, Language};
 use crate::routing::{Route, RouteRegistry};
@@ -303,15 +306,12 @@ impl Render for RootView {
         let sign_out_label = translate(language, Key::AppAuthSignOut);
         let signed_in_as = translate(language, Key::AppAuthSignedInAs);
 
-        let theme_glyph = match self.preference {
-            ThemePreference::Light => "☀",
-            ThemePreference::Dark => "☾",
-            ThemePreference::System => "◐",
+        let theme_icon = match self.preference {
+            ThemePreference::Light => AssetIcon::Sun,
+            ThemePreference::Dark => AssetIcon::Moon,
+            ThemePreference::System => AssetIcon::Monitor,
         };
-        let language_glyph = match language {
-            Language::Zh => "中",
-            Language::En => "A",
-        };
+        let language_icon = AssetIcon::Languages;
 
         let key_focus = self.ensure_key_focus(cx);
         if !is_signed_in {
@@ -485,10 +485,10 @@ impl Render for RootView {
                 .child(self.render_footer(
                     language,
                     false,
-                    theme_glyph,
+                    theme_icon,
                     theme_label,
                     theme_tooltip,
-                    language_glyph,
+                    language_icon,
                     language_label,
                     language_tooltip,
                     &palette,
@@ -625,10 +625,10 @@ impl Render for RootView {
                 .child(self.render_footer(
                     language,
                     true,
-                    theme_glyph,
+                    theme_icon,
                     theme_label,
                     theme_tooltip,
-                    language_glyph,
+                    language_icon,
                     language_label,
                     language_tooltip,
                     &palette,
@@ -667,7 +667,16 @@ impl RootView {
                         palette.ink_3
                     })
                     .hover(|style| style.bg(palette.soft))
-                    .child(route.icon)
+                    .child(
+                        Icon::default()
+                            .path(nav_icon(route.icon).path())
+                            .text_color(if selected {
+                                palette.accent
+                            } else {
+                                palette.ink_3
+                            })
+                            .small(),
+                    )
                     .tooltip(move |_, cx| cx.new(|_| TooltipText { text: label.into() }).into())
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.select(route);
@@ -727,10 +736,10 @@ impl RootView {
         &self,
         language: Language,
         include_nav: bool,
-        theme_glyph: &'static str,
+        theme_icon: AssetIcon,
         theme_label: &'static str,
         theme_tooltip: &'static str,
-        language_glyph: &'static str,
+        language_icon: AssetIcon,
         language_label: &'static str,
         language_tooltip: &'static str,
         palette: &theme::Palette,
@@ -762,7 +771,12 @@ impl RootView {
                     .justify_center()
                     .text_color(palette.ink_3)
                     .hover(|style| style.bg(palette.soft))
-                    .child(theme_glyph)
+                    .child(
+                        Icon::default()
+                            .path(theme_icon.path())
+                            .text_color(palette.ink_3)
+                            .small(),
+                    )
                     .tooltip(move |_, cx| {
                         cx.new(|_| TooltipText {
                             text: format!("{theme_tooltip} · {theme_label}").into(),
@@ -786,7 +800,12 @@ impl RootView {
                     .justify_center()
                     .text_color(palette.ink_3)
                     .hover(|style| style.bg(palette.soft))
-                    .child(language_glyph)
+                    .child(
+                        Icon::default()
+                            .path(language_icon.path())
+                            .text_color(palette.ink_3)
+                            .small(),
+                    )
                     .tooltip(move |_, cx| {
                         cx.new(|_| TooltipText {
                             text: format!("{language_tooltip} · {language_label}").into(),
@@ -823,6 +842,16 @@ impl Render for TooltipText {
             .text_color(hsla_white())
             .text_size(px(11.0))
             .child(self.text.clone())
+    }
+}
+
+fn nav_icon(icon: NavIcon) -> AssetIcon {
+    match icon {
+        NavIcon::Home => AssetIcon::House,
+        NavIcon::Workspace => AssetIcon::LayoutDashboard,
+        NavIcon::Events => AssetIcon::CalendarDays,
+        NavIcon::Courses => AssetIcon::BookOpen,
+        NavIcon::Companion => AssetIcon::BotMessageSquare,
     }
 }
 
