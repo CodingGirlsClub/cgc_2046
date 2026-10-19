@@ -42,9 +42,9 @@ impl ThemePreference {
     }
 }
 
-/// 启动偏好：`CGC_THEME=light|dark|system` 环境变量优先（QA/调试用），否则跟随系统。
-pub fn preference_from_env() -> ThemePreference {
-    match std::env::var("CGC_THEME").ok().as_deref() {
+/// 解析 `CGC_THEME` 的值；纯函数，单测不写进程环境变量。
+pub fn preference_from_value(value: Option<&str>) -> ThemePreference {
+    match value {
         Some("light") => ThemePreference::Light,
         Some("dark") => ThemePreference::Dark,
         Some("system") | None => ThemePreference::System,
@@ -53,6 +53,12 @@ pub fn preference_from_env() -> ThemePreference {
             ThemePreference::System
         }
     }
+}
+
+/// 启动偏好：`CGC_THEME` 环境变量优先（QA/调试用），否则跟随系统。
+pub fn preference_from_env() -> ThemePreference {
+    let value = std::env::var("CGC_THEME").ok();
+    preference_from_value(value.as_deref())
 }
 
 /// 把偏好与系统外观解析为实际渲染模式（System 跟随系统）。
@@ -222,13 +228,23 @@ mod tests {
 
     #[test]
     fn theme_preference_env_override_is_parsed() {
-        std::env::set_var("CGC_THEME", "light");
-        assert_eq!(super::preference_from_env(), ThemePreference::Light);
-        std::env::set_var("CGC_THEME", "dark");
-        assert_eq!(super::preference_from_env(), ThemePreference::Dark);
-        std::env::set_var("CGC_THEME", "nonsense");
-        assert_eq!(super::preference_from_env(), ThemePreference::System);
-        std::env::remove_var("CGC_THEME");
+        assert_eq!(
+            super::preference_from_value(Some("light")),
+            ThemePreference::Light
+        );
+        assert_eq!(
+            super::preference_from_value(Some("dark")),
+            ThemePreference::Dark
+        );
+        assert_eq!(
+            super::preference_from_value(Some("system")),
+            ThemePreference::System
+        );
+        assert_eq!(super::preference_from_value(None), ThemePreference::System);
+        assert_eq!(
+            super::preference_from_value(Some("nonsense")),
+            ThemePreference::System
+        );
     }
 
     #[test]

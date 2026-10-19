@@ -21,12 +21,21 @@ pub struct RootView {
 
 impl RootView {
     pub fn new(registry: RouteRegistry) -> Self {
+        Self::with_startup(registry, default_language(), theme::preference_from_env())
+    }
+
+    /// 显式启动状态的构造器：测试与将来的设置页恢复都用它，避免读进程环境变量。
+    pub fn with_startup(
+        registry: RouteRegistry,
+        language: Language,
+        preference: ThemePreference,
+    ) -> Self {
         let current = registry.routes().first().copied();
         Self {
             registry,
             current,
-            language: default_language(),
-            preference: theme::preference_from_env(),
+            language,
+            preference,
         }
     }
 
@@ -227,12 +236,15 @@ mod tests {
     use crate::theme::ThemePreference;
 
     fn view() -> RootView {
-        RootView::new(build_registry().expect("registry builds"))
+        RootView::with_startup(
+            build_registry().expect("registry builds"),
+            Language::Zh,
+            ThemePreference::System,
+        )
     }
 
     #[test]
-    fn starts_on_home_and_in_chinese_by_default() {
-        std::env::remove_var("CGC_LANG");
+    fn starts_on_home_with_explicit_startup_state() {
         let view = view();
         assert_eq!(view.current().map(|route| route.id), Some("app.home"));
         assert_eq!(view.language(), Language::Zh);

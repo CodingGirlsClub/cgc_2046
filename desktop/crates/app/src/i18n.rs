@@ -55,12 +55,17 @@ pub fn translate(language: Language, key: &str) -> &'static str {
         .unwrap_or_else(|| panic!("missing i18n key `{key}` (locale `{}`)", language.code()))
 }
 
-/// 默认语言：`CGC_LANG=zh|en` 环境变量优先，否则中文（v1 主要用户）。
-pub fn default_language() -> Language {
-    std::env::var("CGC_LANG")
-        .ok()
+/// 解析语言值；纯函数，单测不写进程环境变量。
+pub fn language_from_value(value: Option<&str>) -> Language {
+    value
         .and_then(|code| Language::from_code(code.trim()))
         .unwrap_or(Language::Zh)
+}
+
+/// 默认语言：`CGC_LANG=zh|en` 环境变量优先，否则中文（v1 主要用户）。
+pub fn default_language() -> Language {
+    let value = std::env::var("CGC_LANG").ok();
+    language_from_value(value.as_deref())
 }
 
 /// 系统词表里是否存在该 key（供注册校验使用，避免 panic 路径）。
@@ -103,6 +108,15 @@ mod tests {
     #[should_panic(expected = "missing i18n key `nope.missing.key`")]
     fn unknown_key_panics_with_diagnostic() {
         translate(Language::Zh, "nope.missing.key");
+    }
+
+    #[test]
+    fn language_env_value_is_parsed() {
+        assert_eq!(super::language_from_value(Some("zh")), Language::Zh);
+        assert_eq!(super::language_from_value(Some("en")), Language::En);
+        assert_eq!(super::language_from_value(Some("en ")), Language::En);
+        assert_eq!(super::language_from_value(Some("fr")), Language::Zh);
+        assert_eq!(super::language_from_value(None), Language::Zh);
     }
 
     #[test]
