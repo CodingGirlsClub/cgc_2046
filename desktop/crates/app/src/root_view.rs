@@ -1122,12 +1122,57 @@ impl RootView {
         self.navigate(&format!("/courses/{course_id}/learn"));
     }
 
+    fn nav_shell_routes(&self) -> Vec<Route> {
+        self.registry
+            .routes()
+            .iter()
+            .filter(|route| {
+                !route.has_dynamic_segment()
+                    && (route.path == "/" || route.path.trim_matches('/').split('/').count() == 1)
+            })
+            .copied()
+            .collect()
+    }
+
     fn handle_shell_key(
         &mut self,
         event: &KeyDownEvent,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // 导航壳键盘路径：Ctrl+1..N 切换顶栏路由（与 footer 的 aria_keyshortcuts 对齐）。
+        if event.keystroke.modifiers.control && !event.keystroke.modifiers.shift {
+            if let Ok(index) = event.keystroke.key.parse::<usize>() {
+                let routes = self.nav_shell_routes();
+                if let Some(route) = routes.get(index.saturating_sub(1)) {
+                    self.select(*route);
+                    self.events_started = false;
+                    self.detail_started = false;
+                    cx.notify();
+                    return;
+                }
+            }
+        }
+        // 审批卡的键盘等价路径（显式组合键，避免与输入 y/n 冲突）。
+        if event.keystroke.modifiers.control
+            && event.keystroke.modifiers.shift
+            && self
+                .current
+                .as_ref()
+                .is_some_and(|route_match| route_match.route.id == "courses.learning")
+        {
+            match event.keystroke.key.as_str() {
+                "y" => {
+                    self.respond_chat_permission(true, cx);
+                    return;
+                }
+                "n" => {
+                    self.respond_chat_permission(false, cx);
+                    return;
+                }
+                _ => {}
+            }
+        }
         if self.chat.focused {
             match event.keystroke.key.as_str() {
                 "enter" => self.send_chat(cx),
@@ -1715,6 +1760,8 @@ impl RootView {
             .bg(palette.view)
             .text_color(if empty { palette.ink_3 } else { palette.ink })
             .child(display)
+            .role(Role::TextInput)
+            .aria_label(translate(language, placeholder))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _, window, cx| {
@@ -1813,6 +1860,8 @@ impl RootView {
                     .child(
                         div()
                             .id("phone-send-code")
+                            .role(Role::Button)
+                            .aria_label(translate(language, Key::AppAuthPhoneSendCode))
                             .flex_1()
                             .h(px(34.0))
                             .flex()
@@ -1829,6 +1878,8 @@ impl RootView {
                     .child(
                         div()
                             .id("phone-submit")
+                            .role(Role::Button)
+                            .aria_label(translate(language, Key::AppAuthPhoneSubmit))
                             .flex_1()
                             .h(px(34.0))
                             .flex()
@@ -1854,6 +1905,8 @@ impl RootView {
             .child(
                 div()
                     .id("phone-back")
+                    .role(Role::Link)
+                    .aria_label(translate(language, Key::AppAuthBack))
                     .text_size(px(12.0))
                     .text_color(palette.ink_3)
                     .child(translate(language, Key::AppAuthBack))
@@ -1960,6 +2013,8 @@ impl RootView {
             card = card.child(email_input).child(
                 div()
                     .id("reset-request")
+                    .role(Role::Button)
+                    .aria_label(translate(language, Key::AppAuthResetRequest))
                     .h(px(34.0))
                     .flex()
                     .items_center()
@@ -2443,6 +2498,8 @@ impl Render for RootView {
                         .border_1()
                         .border_color(email_border)
                         .bg(palette.view)
+                        .role(Role::TextInput)
+                        .aria_label(translate(language, Key::AppAuthEmail))
                         .child(email_display)
                         .on_mouse_down(
                             MouseButton::Left,
@@ -2465,6 +2522,8 @@ impl Render for RootView {
                         .border_1()
                         .border_color(password_border)
                         .bg(palette.view)
+                        .role(Role::TextInput)
+                        .aria_label(translate(language, Key::AppAuthPassword))
                         .child(password_display)
                         .on_mouse_down(
                             MouseButton::Left,
@@ -2501,6 +2560,8 @@ impl Render for RootView {
                         } else {
                             palette.ink
                         })
+                        .role(Role::Button)
+                        .aria_label(translate(language, Key::AppAuthSubmit))
                         .child(translate(language, Key::AppAuthSubmit))
                         .on_click(cx.listener(|this, _, _, cx| this.submit_login(cx))),
                 )
@@ -2531,6 +2592,8 @@ impl Render for RootView {
                         .child(
                             div()
                                 .id("login-mode-phone")
+                                .role(Role::Link)
+                                .aria_label(translate(language, Key::AppAuthModePhone))
                                 .text_color(palette.accent)
                                 .child(translate(language, Key::AppAuthModePhone))
                                 .on_click(cx.listener(|this, _, _, cx| {
@@ -2541,6 +2604,8 @@ impl Render for RootView {
                         .child(
                             div()
                                 .id("login-forgot")
+                                .role(Role::Link)
+                                .aria_label(translate(language, Key::AppAuthForgot))
                                 .text_color(palette.ink_3)
                                 .child(translate(language, Key::AppAuthForgot))
                                 .on_click(cx.listener(|this, _, _, cx| {
@@ -2804,7 +2869,8 @@ impl RootView {
                 !route.has_dynamic_segment()
                     && (route.path == "/" || route.path.trim_matches('/').split('/').count() == 1)
             })
-            .map(|route| {
+            .enumerate()
+            .map(|(index, route)| {
                 let route = *route;
                 let selected = current_id.is_some_and(|id| {
                     id == route.id
@@ -2815,6 +2881,10 @@ impl RootView {
                 let label = translate_registered(language, route.title_key);
                 div()
                     .id(format!("footer-nav-{}", route.id))
+                    .role(Role::Link)
+                    .aria_label(label)
+                    .aria_selected(selected)
+                    .aria_keyshortcuts(format!("Control+{}", index + 1))
                     .size(px(22.0))
                     .rounded(px(RADIUS_MEDIUM))
                     .flex()
@@ -3225,6 +3295,10 @@ impl RootView {
                 .child(
                     div()
                         .id("chat-start")
+                        .role(Role::Button)
+                        .aria_label(translate(language, Key::AgentChatChatStart))
+                        .role(Role::Button)
+                        .aria_label(translate(language, Key::AgentChatChatStart))
                         .px(space(2))
                         .py(px(5.0))
                         .rounded(px(RADIUS_MEDIUM))
@@ -3317,6 +3391,12 @@ impl RootView {
                     .child(
                         div()
                             .id("chat-retry")
+                            .role(Role::Button)
+                            .aria_label(translate(language, Key::AgentChatChatRetry))
+                            .role(Role::Button)
+                            .aria_label(translate(language, Key::AgentChatChatRetry))
+                            .role(Role::Button)
+                            .aria_label(translate(language, Key::AgentChatChatRetry))
                             .px(space(2))
                             .py(px(5.0))
                             .rounded(px(RADIUS_MEDIUM))
@@ -3398,6 +3478,8 @@ impl RootView {
                                 vec![
                                     div()
                                         .id(format!("perm-allow-{request_id}"))
+                                        .role(Role::Button)
+                                        .aria_label("允许")
                                         .px(space(1))
                                         .py(px(3.0))
                                         .rounded(px(RADIUS_SMALL))
@@ -3410,6 +3492,8 @@ impl RootView {
                                         .into_any_element(),
                                     div()
                                         .id(format!("perm-deny-{request_id}"))
+                                        .role(Role::Button)
+                                        .aria_label("拒绝")
                                         .px(space(1))
                                         .py(px(3.0))
                                         .rounded(px(RADIUS_SMALL))
@@ -3440,6 +3524,12 @@ impl RootView {
                                         .text_size(px(10.0))
                                         .text_color(palette.ink_3)
                                         .child(status),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(10.0))
+                                        .text_color(palette.ink_3)
+                                        .child("Ctrl+Shift+Y 允许 · Ctrl+Shift+N 拒绝"),
                                 )
                                 .children(buttons)
                                 .into_any_element()
@@ -3476,6 +3566,8 @@ impl RootView {
                     .child(
                         div()
                             .id("chat-input")
+                            .role(Role::TextInput)
+                            .aria_label(translate(language, Key::AgentChatChatInputHint))
                             .h(px(34.0))
                             .flex()
                             .items_center()
@@ -3517,6 +3609,12 @@ impl RootView {
                             .child(
                                 div()
                                     .id("chat-send")
+                                    .role(Role::Button)
+                                    .aria_label(translate(language, Key::AgentChatChatSend))
+                                    .role(Role::Button)
+                                    .aria_label(translate(language, Key::AgentChatChatSend))
+                                    .role(Role::Button)
+                                    .aria_label(translate(language, Key::AgentChatChatSend))
                                     .px(space(2))
                                     .py(px(4.0))
                                     .rounded(px(RADIUS_MEDIUM))
@@ -3539,6 +3637,12 @@ impl RootView {
                             .child(
                                 div()
                                     .id("chat-new")
+                                    .role(Role::Button)
+                                    .aria_label(translate(language, Key::AgentChatChatNew))
+                                    .role(Role::Button)
+                                    .aria_label(translate(language, Key::AgentChatChatNew))
+                                    .role(Role::Button)
+                                    .aria_label(translate(language, Key::AgentChatChatNew))
                                     .px(space(2))
                                     .py(px(4.0))
                                     .rounded(px(RADIUS_MEDIUM))
@@ -3556,6 +3660,12 @@ impl RootView {
                             .children(streaming.then(|| {
                                 div()
                                     .id("chat-stop")
+                                    .role(Role::Button)
+                                    .aria_label(translate(language, Key::AgentChatChatStop))
+                                    .role(Role::Button)
+                                    .aria_label(translate(language, Key::AgentChatChatStop))
+                                    .role(Role::Button)
+                                    .aria_label(translate(language, Key::AgentChatChatStop))
                                     .px(space(2))
                                     .py(px(4.0))
                                     .rounded(px(RADIUS_MEDIUM))
@@ -3690,6 +3800,12 @@ impl RootView {
                         (!matches!(phase, ChatPhase::Idle | ChatPhase::Starting)).then(|| {
                             div()
                                 .id("chat-history")
+                                .role(Role::Button)
+                                .aria_label(translate(language, Key::AgentChatChatHistory))
+                                .role(Role::Button)
+                                .aria_label(translate(language, Key::AgentChatChatHistory))
+                                .role(Role::Button)
+                                .aria_label(translate(language, Key::AgentChatChatHistory))
                                 .text_size(px(11.0))
                                 .text_color(palette.accent)
                                 .child(translate(language, Key::AgentChatChatHistory))
@@ -4060,6 +4176,8 @@ impl RootView {
         });
         let revoke = div()
             .id("settings-revoke-device")
+            .role(Role::Button)
+            .aria_label(translate(language, Key::AppSettingsRevokeDevice))
             .px(space(2))
             .py(px(6.0))
             .rounded(px(RADIUS_MEDIUM))
@@ -5731,6 +5849,22 @@ mod tests {
             ThemePreference::System,
             session,
         )
+    }
+
+    #[test]
+    fn nav_shell_accessibility_metadata_is_complete() {
+        let view = view();
+        let routes = view.nav_shell_routes();
+        assert!(!routes.is_empty(), "nav shell routes");
+        for route in routes {
+            let label = crate::i18n::translate_registered(view.language(), route.title_key);
+            assert!(!label.trim().is_empty(), "aria label for {}", route.id);
+            assert!(
+                route.path == "/" || route.path.matches('/').count() >= 1,
+                "aria key shortcut index for {}",
+                route.id
+            );
+        }
     }
 
     #[test]
