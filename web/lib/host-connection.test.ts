@@ -61,6 +61,8 @@ function stubBrowser({
 afterEach(() => {
 	vi.unstubAllGlobals();
 	vi.unstubAllEnvs();
+	// 「本页曾连上 Host」证据按浏览器页会话共享：每个用例从无证据开始，避免相互串味
+	window.sessionStorage.clear();
 });
 
 it("web 侧端口常量与 cgc-host/protocol.json 一致（改端口即改协议）", () => {
@@ -90,7 +92,7 @@ it("R15 路径契约：对话栏显示的作业目录与 Host 的 workDir 同一
 	expect(courseDir("u", "c")).toBe(`~/${dirs.workspace}/${dirs.courses}/u/c`);
 });
 
-describe("checkHost（页面加载即可调用；先静默探测，被拦才要授权）", () => {
+describe("checkHost（页面加载即可调用；未授权时不发本机请求）", () => {
 	it("非规范访问地址 → 不受支持（address），给出同一页面的规范地址", async () => {
 		const { permissionQuery, fetchMock } = stubBrowser({
 			origin: "http://127.0.0.1:3000",
@@ -105,16 +107,11 @@ describe("checkHost（页面加载即可调用；先静默探测，被拦才要�
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
-	it.each(["macOS", "Windows", "Linux"])("%s 上的 Chrome：权限报 prompt 但本机可达 → 直接检测到（不再要求先点一次）", async (platform) => {
+	it.each(["macOS", "Windows", "Linux"])("%s 上的 Chrome 进入本机访问权限判定", async (platform) => {
 		const { permissionQuery, fetchMock } = stubBrowser({ platform, permission: "prompt" });
-		expect(await checkHost()).toEqual({
-			state: "detected",
-			agents: [{ kind: "omp", present: true }],
-			paired: true,
-			capabilities: [],
-		});
+		expect(await checkHost()).toEqual({ state: "needsPermission" });
 		expect(permissionQuery).toHaveBeenCalledOnce();
-		expect(fetchMock).toHaveBeenCalledOnce();
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
 	it.each([
@@ -128,12 +125,11 @@ describe("checkHost（页面加载即可调用；先静默探测，被拦才要�
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
-	it("macOS 上的 Chromium → 查的是 loopback-network 权限名；prompt 也先探测", async () => {
-		const { permissionQuery, fetchMock } = stubBrowser({ platform: "macOS", permission: "prompt" });
+	it("macOS 上的 Chromium → 进入本机访问权限判定", async () => {
+		const { permissionQuery } = stubBrowser({ platform: "macOS", permission: "prompt" });
 
-		expect(await checkHost()).toMatchObject({ state: "detected" });
+		expect(await checkHost()).toEqual({ state: "needsPermission" });
 		expect(permissionQuery).toHaveBeenCalledWith({ name: "loopback-network" });
-		expect(fetchMock).toHaveBeenCalledOnce();
 	});
 
 	it("navigator.permissions 不存在 → 不受支持（browser）", async () => {
@@ -143,18 +139,18 @@ describe("checkHost（页面加载即可调用；先静默探测，被拦才要�
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
-	it("权限查询抛 TypeError（旧浏览器）→ 仍先探测；可达就 detected", async () => {
+	it("权限查询抛 TypeError → 需要授权，且不发本机请求", async () => {
 		const { fetchMock } = stubBrowser({ permission: "TypeError" });
 
-		expect(await checkHost()).toMatchObject({ state: "detected" });
-		expect(fetchMock).toHaveBeenCalledOnce();
+		expect(await checkHost()).toEqual({ state: "needsPermission" });
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
-	it("权限为 prompt 且本机不可达 → 需要授权（带探测失败证据），探测只发一次", async () => {
-		const { fetchMock } = stubBrowser({ permission: "prompt", health: "unreachable" });
+	it("权限为 prompt → 需要授权，且不发本机请求（第一次请求留给用户手势）", async () => {
+		const { fetchMock } = stubBrowser({ permission: "prompt" });
 
-		expect(await checkHost()).toEqual({ state: "needsPermission", probeFailed: true });
-		expect(fetchMock).toHaveBeenCalledOnce();
+		expect(await checkHost()).toEqual({ state: "needsPermission" });
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
 	it("权限为 denied → 被浏览器阻止", async () => {
@@ -298,33 +294,25 @@ describe("requestHostAccess（从点击处理器调用：由用户手势发出�
 		expect(await requestHostAccess()).toEqual({ state: "blocked" });
 	});
 
-	it.each(["prompt", "TypeError"] as const)("点击探测失败且权限为 %s：保留失败证据；后续自动检查会再试一次探测", async (permission) => {
+	it.each(["prompt", "TypeError"] as const)("点击探测失败且权限为 %s：保留未知状态与失败证据，后续自动检查不发请求", async (permission) => {
 		const { fetchMock } = stubBrowser({ permission, health: "unreachable" });
 		expect(await requestHostAccess()).toEqual({ state: "needsPermission", probeFailed: true });
-		expect(await checkHost()).toEqual({ state: "needsPermission", probeFailed: true });
-		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(await checkHost()).toEqual({ state: "needsPermission" });
+		expect(fetchMock).toHaveBeenCalledOnce();
 	});
 });
 
 
-describe("权限始终报 prompt 的浏览器（Chrome 142–144；154/155 实测同样报 prompt 但请求可达）", () => {
-	it.each(["TypeError", "prompt"] as const)("权限 %s：本机可达 → 页面加载直接 detected，不再要求一次点击", async (permission) => {
-		const { fetchMock, permissionQuery } = stubBrowser({ permission });
-
-		expect(await checkHost()).toMatchObject({ state: "detected" });
-		expect(fetchMock).toHaveBeenCalledOnce();
-		expect(permissionQuery.mock.calls.every(([q]) => q.name === "loopback-network")).toBe(true);
-	});
-
-	it.each(["TypeError", "prompt"] as const)("权限 %s、本机先不可达后恢复：有成功探测证据后自动重连", async (permission) => {
-		const first = stubBrowser({ permission, health: "unreachable" });
-		expect(await checkHost()).toEqual({ state: "needsPermission", probeFailed: true });
-		expect(first.fetchMock).toHaveBeenCalledOnce();
-
-		const second = stubBrowser({ permission }); // Host 恢复
-		expect(await checkHost({ previouslyReachedHost: true })).toMatchObject({ state: "detected" });
-		expect(second.fetchMock).toHaveBeenCalledOnce();
-	});
+describe("成功访问过 Host 后自动重连（Chrome 142–144 及权限始终 prompt 的浏览器）", () => {
+  it.each(["TypeError", "prompt"] as const)("权限 %s：首次仍等手势；有成功探测证据后可自动重连", async (permission) => {
+    const { fetchMock, permissionQuery } = stubBrowser({ permission });
+    expect(await checkHost()).toEqual({ state: "needsPermission" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await requestHostAccess()).toMatchObject({ state: "detected" });
+    expect(await checkHost({ previouslyReachedHost: true })).toMatchObject({ state: "detected" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(permissionQuery.mock.calls.every(([q]) => q.name === "loopback-network")).toBe(true);
+  });
   it("已有成功证据但权限被明确撤回：不请求本机", async () => {
     const { fetchMock } = stubBrowser({ permission: "denied" });
     expect(await checkHost({ previouslyReachedHost: true })).toEqual({ state: "blocked" });
@@ -335,4 +323,55 @@ describe("权限始终报 prompt 的浏览器（Chrome 142–144；154/155 实�
     expect(await checkHost({ previouslyReachedHost: true })).toEqual({ state: "noHost" });
     expect(fetchMock).toHaveBeenCalledOnce();
   });
+});
+
+describe("刷新后自动重连（sessionStorage 证据，2026-10-19 修订）", () => {
+	it("成功连上后把证据写进 sessionStorage；刷新后（组件内证据丢失）的 checkHost 直接静默探测，不再要授权", async () => {
+		stubBrowser({ permission: "prompt" }); // 权限查询恒报 prompt 的浏览器
+		expect(await requestHostAccess()).toMatchObject({ state: "detected" });
+		expect(window.sessionStorage.getItem("cgc-host-reached")).toBe("1");
+
+		// 模拟刷新：组件里的 in-memory 证据没了，只剩同一浏览器页会话里的 sessionStorage
+		const afterReload = stubBrowser({ permission: "prompt" });
+		expect(await checkHost()).toMatchObject({ state: "detected" });
+		expect(afterReload.fetchMock).toHaveBeenCalledOnce();
+	});
+
+	it("没有证据时权限 prompt 仍不探测：第一次本机请求留给用户手势（R28）", async () => {
+		const { fetchMock } = stubBrowser({ permission: "prompt" });
+
+		expect(await checkHost()).toEqual({ state: "needsPermission" });
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("刷新后旧证据还在但本次探测失败：回 needsPermission（带 probeFailed），不误报「没有 Host」", async () => {
+		stubBrowser({ permission: "prompt" });
+		await requestHostAccess(); // 写入证据
+		const afterReload = stubBrowser({ permission: "prompt", health: "unreachable" });
+
+		expect(await checkHost()).toEqual({ state: "needsPermission", probeFailed: true });
+		expect(afterReload.fetchMock).toHaveBeenCalledOnce();
+	});
+
+	it("sessionStorage 不可用（隐私模式抛错）按没有证据处理：不崩、首次仍不探测", async () => {
+		const { fetchMock } = stubBrowser({ permission: "prompt" });
+		const original = window.sessionStorage;
+		Object.defineProperty(window, "sessionStorage", {
+			configurable: true,
+			value: {
+				getItem() {
+					throw new Error("SecurityError");
+				},
+				setItem() {
+					throw new Error("SecurityError");
+				},
+			},
+		});
+		try {
+			expect(await checkHost()).toEqual({ state: "needsPermission" });
+			expect(fetchMock).not.toHaveBeenCalled();
+		} finally {
+			Object.defineProperty(window, "sessionStorage", { configurable: true, value: original });
+		}
+	});
 });

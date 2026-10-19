@@ -5,9 +5,10 @@ import { MIN_HOST_VERSION, compareHostVersions } from "./host-version";
  * 课程学习页 ↔ 本机 Host 的连接检测（R26、R28；KTD4、KTD10、KTD15；ADR-0022）。
  *
  * 只产出 R26 的状态，不带文案：文案由对话栏（U10）用自己的 i18n 命名空间给出。
- * 两个入口，区别只在「有没有用户手势可用」：
- * - checkHost()：页面加载、自动重连时调用。权限被明确拒绝时只回报 blocked；prompt / unknown 时先静默探测一次
- *   ——浏览器不放行时请求会被浏览器自己拦掉（不会发出去），失败再按权限状态给「需要授权」。
+ * 两个入口：
+ * - checkHost()：面板挂载、自动轮询时调用。许可未授予且没有「本页曾连上 Host」的证据时只回报状态、不发请求
+ *   ——第一次本机请求必须由用户手势发起，浏览器授权提示由那次请求触发。成功连上过一次后证据写入
+ *   sessionStorage，刷新页面仍可静默重连，不会反复要授权；明确 denied 时永远不发请求。
  * - requestHostAccess()：只从点击处理器调用；有用户手势，浏览器的本机访问授权提示在这里触发。
  */
 
@@ -71,6 +72,30 @@ async function loopbackPermission(): Promise<PermissionState | "unknown"> {
 	}
 }
 
+/**
+ * 「本页曾成功连上 Host」的证据（sessionStorage）：刷新保留、关标签页即失，不含任何凭证或 Host 信息。
+ * 用途：Chromium 的 loopback 权限查询在部分版本会一直报 prompt，光凭它分不清「还没授权」与「已授权但
+ * 查询不更新」；成功连上过一次说明这台机器上请求实际可达，刷新后允许静默探测一次（自动重连）。
+ * 首次访问没有这份证据，仍按 R28 把手势留给用户。
+ */
+const REACHED_HOST_KEY = "cgc-host-reached";
+
+function rememberReachedHost(): void {
+	try {
+		window.sessionStorage.setItem(REACHED_HOST_KEY, "1");
+	} catch {
+		// 隐私模式等取不到存储：少一层记忆，只影响刷新后的自动重连，不影响当前页
+	}
+}
+
+function reachedHostEvidence(): boolean {
+	try {
+		return window.sessionStorage.getItem(REACHED_HOST_KEY) === "1";
+	} catch {
+		return false;
+	}
+}
+
 /** 连不上、被浏览器拦下、回的不是 Host 的应答（字段缺失时比较版本即抛错），都返回 null */
 async function probe(): Promise<HostConnection | null> {
 	try {
@@ -96,6 +121,13 @@ async function probe(): Promise<HostConnection | null> {
 	}
 }
 
+/** 探测成功（检测到 Host）就记下「本页曾连上」的证据：刷新后的自动重连靠它 */
+async function probeAndRemember(): Promise<HostConnection | null> {
+	const probed = await probe();
+	if (probed?.state === "detected") rememberReachedHost();
+	return probed;
+}
+
 async function detect(fromUserGesture: boolean, previouslyReachedHost = false): Promise<HostConnection> {
 	// Host 只认构建时写死的唯一来源（KTD4）；换个地址打开（127.0.0.1、预览域名）一律连不上
 	const canonicalOrigin = new URL(resolveWebBaseUrl()).origin;
@@ -119,31 +151,35 @@ async function detect(fromUserGesture: boolean, previouslyReachedHost = false): 
 		return { state: "unsupported", reason: "browser" };
 	}
 	if (firefoxDesktop) {
-		const probed = await probe();
+		const probed = await probeAndRemember();
 		return probed ?? { state: "noHost" };
 	}
 
-	// 只有明确 denied 才提前判 blocked。prompt / unknown 不等于「请求会被拦」：Chrome 154/155 实测
-	// （localhost 页面 → 127.0.0.1）权限查询报 prompt，而无手势 fetch 直接 200。先探测一次：
-	// 浏览器真的不放行时，请求由浏览器拦掉（不会发出去），失败后仍按权限状态给「需要授权」。
+	// 权限查询不是「请求会不会被拦」的可靠信号：Chromium 142–154 都可能一直报 prompt，但请求实际可达。
+	// 首次访问（没有「本页曾连上」的证据）仍把手势留给用户——浏览器的授权提示由那次带手势的请求触发；
+	// 有证据（本轮成功过，或刷新后从 sessionStorage 读到）才允许无手势静默探测，用于自动重连。
+	const hasEvidence = previouslyReachedHost || reachedHostEvidence();
 	if (!fromUserGesture) {
 		const permission = await loopbackPermission();
 		if (permission === "denied") return { state: "blocked" };
+		if (permission !== "granted" && !hasEvidence) return { state: "needsPermission" };
 	}
 
-	const probed = await probe();
+	const probed = await probeAndRemember();
 	if (probed) return probed;
 
 	// 被拒的失败是静默的（WebSocket 只见 close code 1006），只能回头问授权状态：
 	// 只有明确 denied 才判定被阻止；prompt / unknown 无法区分权限未获批和 Host 未运行。
+	// 这里只认本轮「真的连上过」的证据：sessionStorage 的旧证据只用于打开静默探测，探测失败时仍按
+	// 权限状态要求授权——避免把「权限被收回」误报成「没有 Host」。
 	const permission = await loopbackPermission();
 	if (permission === "denied") return { state: "blocked" };
 	if (permission !== "granted" && !previouslyReachedHost) return { state: "needsPermission", probeFailed: true };
 	return { state: "noHost" };
 }
 
-/** 本页曾成功探测到 Host 时，即使浏览器不认权限名或一直报告 prompt，也可重连；明确 denied 仍优先阻止请求。
- * 证据只留在对话栏生命周期内，不持久化，不查询可能导致旧版 Chromium 崩溃的旧权限名。 */
+/** 本页曾成功探测到 Host 时（本轮成功过，或刷新后从 sessionStorage 读到证据），即使浏览器不认权限名
+ * 或一直报告 prompt，也可重连；明确 denied 仍优先阻止请求。不查询可能导致旧版 Chromium 崩溃的旧权限名。 */
 export function checkHost({ previouslyReachedHost = false }: { previouslyReachedHost?: boolean } = {}): Promise<HostConnection> {
 	return detect(false, previouslyReachedHost);
 }
