@@ -1,1 +1,476 @@
-//! ACP 传输与握手：stdio 连接、initialize、能力协商、取消与重连。
+//! ACP 会话运行时（story 5.2）：后台线程持有长驻连接，UI 经有界事件通道消费。
+//!
+//! 设计约束（来自 5.1 tracer）：
+//! - `connect_with` 的 future 跑在专用后台线程，GPUI 主线程只收发通道消息；
+//! - 事件经有界 `sync_channel`（背压，不丢增量）；
+//! - 初始化/建档 45s、单回合 60s 预算；Stop 丢弃请求（SDK drop 取消）并回报 cancelled；
+//! - 审批请求只转发给 UI，默认回 Cancelled（不默认允许）；
+//! - 日志不打印凭证/对话内容。
+
+use std::path::PathBuf;
+use std::str::FromStr;
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+use std::time::Duration;
+
+use agent_client_protocol::schema::v1::{
+    CancelNotification, ContentBlock, InitializeRequest, NewSessionRequest, PromptRequest,
+    RequestPermissionRequest, RequestPermissionResponse, SessionId, SessionNotification,
+    SessionUpdate, TextContent,
+};
+use agent_client_protocol::schema::ProtocolVersion;
+use agent_client_protocol::{
+    on_receive_notification, on_receive_request, AcpAgent, Agent, Client, ConnectionTo,
+};
+use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
+use futures::StreamExt;
+
+const INIT_TIMEOUT: Duration = Duration::from_secs(45);
+const TURN_TIMEOUT: Duration = Duration::from_secs(60);
+const EVENT_CAPACITY: usize = 256;
+
+#[derive(Clone, Debug)]
+pub struct AcpHostConfig {
+    pub command: String,
+    pub cwd: PathBuf,
+    pub agent_name: String,
+}
+
+impl AcpHostConfig {
+    pub fn new(command: impl Into<String>, cwd: PathBuf) -> Self {
+        Self {
+            command: command.into(),
+            cwd,
+            agent_name: "agent".to_string(),
+        }
+    }
+
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.agent_name = name.into();
+        self
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HostEvent {
+    Ready {
+        agent_name: String,
+        version: String,
+        session_id: String,
+    },
+    Delta(String),
+    ToolCall {
+        title: String,
+        kind: String,
+    },
+    /// 审批请求只转发；5.2 阶段自动回 Cancelled（不默认允许），5.7 接审批卡。
+    PermissionRequested {
+        title: String,
+    },
+    TurnEnd {
+        cancelled: bool,
+        stop_reason: String,
+    },
+    Error {
+        message: String,
+    },
+    Exited,
+}
+
+#[derive(Debug)]
+pub enum HostCommand {
+    Prompt(String),
+    Stop,
+    Shutdown,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum HostError {
+    EmptyCommand,
+    Thread(String),
+}
+
+pub struct AcpHost {
+    command_tx: UnboundedSender<HostCommand>,
+    events: Receiver<HostEvent>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl AcpHost {
+    pub fn start(config: AcpHostConfig) -> Result<Self, HostError> {
+        if config.command.trim().is_empty() {
+            return Err(HostError::EmptyCommand);
+        }
+        let (command_tx, command_rx) = unbounded();
+        let (event_tx, events) = sync_channel(EVENT_CAPACITY);
+        let thread = std::thread::Builder::new()
+            .name("cgc-acp-host".to_string())
+            .spawn(move || run_thread(config, command_rx, event_tx))
+            .map_err(|error| HostError::Thread(error.to_string()))?;
+        Ok(Self {
+            command_tx,
+            events,
+            thread: Some(thread),
+        })
+    }
+
+    pub fn prompt(&self, text: impl Into<String>) -> bool {
+        self.command_tx
+            .unbounded_send(HostCommand::Prompt(text.into()))
+            .is_ok()
+    }
+
+    pub fn stop(&self) -> bool {
+        self.command_tx.unbounded_send(HostCommand::Stop).is_ok()
+    }
+
+    pub fn try_recv(&self) -> Option<HostEvent> {
+        self.events.try_recv().ok()
+    }
+
+    pub fn recv_timeout(&self, timeout: Duration) -> Option<HostEvent> {
+        self.events.recv_timeout(timeout).ok()
+    }
+
+    pub fn shutdown(mut self) {
+        let _ = self.command_tx.unbounded_send(HostCommand::Shutdown);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+impl Drop for AcpHost {
+    fn drop(&mut self) {
+        let _ = self.command_tx.unbounded_send(HostCommand::Shutdown);
+        // 不 join：连接线程在下一个事件点退出；AcpAgent 析构回收子进程。
+    }
+}
+
+fn run_thread(
+    config: AcpHostConfig,
+    command_rx: UnboundedReceiver<HostCommand>,
+    events: SyncSender<HostEvent>,
+) {
+    let result = futures::executor::block_on(run_connection(config, command_rx, events.clone()));
+    if let Err(message) = result {
+        send_event(&events, HostEvent::Error { message });
+    }
+    send_event(&events, HostEvent::Exited);
+}
+
+fn send_event(events: &SyncSender<HostEvent>, event: HostEvent) {
+    // 有界通道：满了就阻塞后台线程（背压），不静默丢弃增量。
+    let _ = events.send(event);
+}
+
+async fn run_connection(
+    config: AcpHostConfig,
+    mut command_rx: UnboundedReceiver<HostCommand>,
+    events: SyncSender<HostEvent>,
+) -> Result<(), String> {
+    let agent =
+        AcpAgent::from_str(&config.command).map_err(|error| format!("agent launch: {error}"))?;
+    let events_for_notifications = events.clone();
+    let events_for_permissions = events.clone();
+
+    let result = Client
+        .builder()
+        .name("cgc-desktop")
+        .on_receive_notification(
+            async move |notification: SessionNotification, _cx| {
+                match notification.update {
+                    SessionUpdate::AgentMessageChunk(chunk) => {
+                        if let ContentBlock::Text(text) = chunk.content {
+                            send_event(&events_for_notifications, HostEvent::Delta(text.text));
+                        }
+                    }
+                    SessionUpdate::ToolCall(call) => {
+                        send_event(
+                            &events_for_notifications,
+                            HostEvent::ToolCall {
+                                title: call.title,
+                                kind: format!("{:?}", call.kind),
+                            },
+                        );
+                    }
+                    _ => {}
+                }
+                Ok(())
+            },
+            on_receive_notification!(),
+        )
+        .on_receive_request(
+            async move |request: RequestPermissionRequest, responder, _connection| {
+                send_event(
+                    &events_for_permissions,
+                    HostEvent::PermissionRequested {
+                        title: "tool approval".to_string(),
+                    },
+                );
+                let _ = request;
+                // 5.2 不默认允许：审批卡接入前一律取消。
+                let _ = responder.respond(RequestPermissionResponse::new(
+                    agent_client_protocol::schema::v1::RequestPermissionOutcome::Cancelled,
+                ));
+                Ok(())
+            },
+            on_receive_request!(),
+        )
+        .connect_with(agent, async move |connection: ConnectionTo<Agent>| {
+            let inner: Result<(), String> = async {
+                let init = with_timeout(
+                    connection
+                        .send_request(InitializeRequest::new(ProtocolVersion::V1))
+                        .block_task(),
+                    INIT_TIMEOUT,
+                    "initialize",
+                )
+                .await?;
+                let agent_name = init
+                    .agent_info
+                    .as_ref()
+                    .map(|info| info.name.clone())
+                    .unwrap_or_else(|| config.agent_name.clone());
+                let version = init
+                    .agent_info
+                    .as_ref()
+                    .map(|info| info.version.clone())
+                    .unwrap_or_default();
+
+                let session = with_timeout(
+                    connection
+                        .send_request(NewSessionRequest::new(config.cwd.clone()))
+                        .block_task(),
+                    INIT_TIMEOUT,
+                    "session/new",
+                )
+                .await?;
+                let session_id = session.session_id.clone();
+                send_event(
+                    &events,
+                    HostEvent::Ready {
+                        agent_name,
+                        version,
+                        session_id: session_id.to_string(),
+                    },
+                );
+
+                while let Some(command) = command_rx.next().await {
+                    match command {
+                        HostCommand::Prompt(text) => {
+                            run_turn(
+                                &connection,
+                                &mut command_rx,
+                                &events,
+                                session_id.clone(),
+                                text,
+                            )
+                            .await;
+                        }
+                        HostCommand::Stop => {}
+                        HostCommand::Shutdown => return Ok(()),
+                    }
+                }
+                Ok(())
+            }
+            .await;
+            inner.map_err(|message| agent_client_protocol::Error::internal_error().data(message))
+        })
+        .await;
+    result.map_err(|error| format!("acp connection: {error}"))?;
+    Ok(())
+}
+
+async fn run_turn(
+    connection: &ConnectionTo<Agent>,
+    command_rx: &mut UnboundedReceiver<HostCommand>,
+    events: &SyncSender<HostEvent>,
+    session_id: SessionId,
+    text: String,
+) {
+    let prompt = connection
+        .send_request(PromptRequest::new(
+            session_id.clone(),
+            vec![ContentBlock::Text(TextContent::new(text))],
+        ))
+        .block_task();
+    futures::pin_mut!(prompt);
+    let deadline = sleep(TURN_TIMEOUT);
+    futures::pin_mut!(deadline);
+
+    loop {
+        let command = command_rx.next();
+        futures::pin_mut!(command);
+        let prompt_or_command = futures::future::select(prompt.as_mut(), command);
+        futures::pin_mut!(prompt_or_command);
+        match futures::future::select(prompt_or_command, deadline.as_mut()).await {
+            futures::future::Either::Left((
+                futures::future::Either::Left((result, _command)),
+                _,
+            )) => {
+                match result {
+                    Ok(response) => send_event(
+                        events,
+                        HostEvent::TurnEnd {
+                            cancelled: false,
+                            stop_reason: format!("{:?}", response.stop_reason),
+                        },
+                    ),
+                    Err(error) => send_event(
+                        events,
+                        HostEvent::Error {
+                            message: format!("turn: {error}"),
+                        },
+                    ),
+                }
+                break;
+            }
+            futures::future::Either::Left((
+                futures::future::Either::Right((command, _prompt)),
+                _,
+            )) => match command {
+                Some(HostCommand::Stop) => {
+                    let _ =
+                        connection.send_notification(CancelNotification::new(session_id.clone()));
+                    send_event(
+                        events,
+                        HostEvent::TurnEnd {
+                            cancelled: true,
+                            stop_reason: "cancelled".to_string(),
+                        },
+                    );
+                    break;
+                }
+                Some(HostCommand::Shutdown) | None => {
+                    send_event(
+                        events,
+                        HostEvent::TurnEnd {
+                            cancelled: true,
+                            stop_reason: "shutdown".to_string(),
+                        },
+                    );
+                    break;
+                }
+                Some(HostCommand::Prompt(_)) => {}
+            },
+            futures::future::Either::Right(_) => {
+                send_event(
+                    events,
+                    HostEvent::Error {
+                        message: "turn timeout".to_string(),
+                    },
+                );
+                break;
+            }
+        }
+    }
+}
+
+async fn with_timeout<F, T>(future: F, timeout: Duration, phase: &str) -> Result<T, String>
+where
+    F: std::future::Future<Output = Result<T, agent_client_protocol::Error>>,
+{
+    let deadline = sleep(timeout);
+    futures::pin_mut!(future, deadline);
+    match futures::future::select(future, deadline).await {
+        futures::future::Either::Left((result, _)) => {
+            result.map_err(|error| format!("{phase}: {error}"))
+        }
+        futures::future::Either::Right(_) => Err(format!("{phase} timeout")),
+    }
+}
+
+fn sleep(duration: Duration) -> impl std::future::Future<Output = ()> {
+    let (sender, receiver) = futures::channel::oneshot::channel();
+    std::thread::spawn(move || {
+        std::thread::sleep(duration);
+        let _ = sender.send(());
+    });
+    async move {
+        let _ = receiver.await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_command_is_rejected() {
+        let error = match AcpHost::start(AcpHostConfig::new("", PathBuf::from("/tmp"))) {
+            Ok(_) => panic!("empty command must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(error, HostError::EmptyCommand);
+    }
+
+    /// HITL：真实 OMP。默认 ignored，手动：
+    /// `cargo test -p cgc-platform real_omp -- --ignored --nocapture`
+    #[test]
+    #[ignore = "spawns the real omp agent; run manually for HITL"]
+    fn real_omp_round_trip_and_stop() {
+        let host =
+            AcpHost::start(AcpHostConfig::new("omp acp", PathBuf::from("/tmp")).with_name("omp"))
+                .expect("start host");
+        let ready = wait_for(&host, |event| matches!(event, HostEvent::Ready { .. }), 60);
+        assert!(matches!(ready, HostEvent::Ready { .. }), "ready: {ready:?}");
+
+        assert!(host.prompt("请只回复 ok 两个字母"));
+        let mut text = String::new();
+        let mut ended = false;
+        let deadline = std::time::Instant::now() + Duration::from_secs(90);
+        while std::time::Instant::now() < deadline {
+            match host.recv_timeout(Duration::from_secs(5)) {
+                Some(HostEvent::Delta(chunk)) => text.push_str(&chunk),
+                Some(HostEvent::TurnEnd { .. }) => {
+                    ended = true;
+                    break;
+                }
+                Some(HostEvent::Error { message }) => panic!("host error: {message}"),
+                Some(_) => {}
+                None => {}
+            }
+        }
+        assert!(ended, "turn did not end");
+        assert!(!text.trim().is_empty(), "no streamed text");
+        host.shutdown();
+    }
+
+    /// HITL：真实 OMP 的 Stop 路径。手动：`cargo test -p cgc-platform real_omp_stop -- --ignored --nocapture`
+    #[test]
+    #[ignore = "spawns the real omp agent; run manually for HITL"]
+    fn real_omp_stop_cancels_turn() {
+        let host =
+            AcpHost::start(AcpHostConfig::new("omp acp", PathBuf::from("/tmp")).with_name("omp"))
+                .expect("start host");
+        wait_for(&host, |event| matches!(event, HostEvent::Ready { .. }), 60);
+        assert!(host.prompt("请写一篇 500 字的散文，慢慢写"));
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(host.stop());
+        let mut cancelled = false;
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        while std::time::Instant::now() < deadline {
+            if let Some(HostEvent::TurnEnd {
+                cancelled: true, ..
+            }) = host.recv_timeout(Duration::from_millis(500))
+            {
+                cancelled = true;
+                break;
+            }
+        }
+        assert!(cancelled, "stop did not produce cancelled turn end");
+        host.shutdown();
+    }
+
+    fn wait_for(host: &AcpHost, predicate: impl Fn(&HostEvent) -> bool, seconds: u64) -> HostEvent {
+        let deadline = std::time::Instant::now() + Duration::from_secs(seconds);
+        while std::time::Instant::now() < deadline {
+            if let Some(event) = host.recv_timeout(Duration::from_millis(500)) {
+                if predicate(&event) {
+                    return event;
+                }
+            }
+        }
+        panic!("event not received within {seconds}s");
+    }
+}
