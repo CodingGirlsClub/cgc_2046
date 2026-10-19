@@ -24,7 +24,7 @@ import { message, OpenError } from "./errors";
 import { classifyModelError, type ChatEvent, createTranscript, type Transcript } from "./events";
 import { pageContext } from "./page-context";
 import { type Preparation } from "./runtime";
-import { pickSettings, SETTING_IDS, SETTING_VALUE_MAX } from "./settings";
+import { pickSettings, SETTING_IDS, SETTING_VALUE_MAX, type ConfigOption } from "./settings";
 
 export interface ChatOptions {
   home: string;
@@ -135,9 +135,10 @@ export function createChat(opts: ChatOptions) {
         },
         question(req, signal) {
           if (!active()) return Promise.resolve({ action: "decline" });
-          const c = "sessionId" in req && typeof req.sessionId === "string" ? bySession.get(sessionKey(kind, req.sessionId)) : undefined;
+          const reqSessionId = "sessionId" in req && typeof req.sessionId === "string" ? req.sessionId : undefined;
+          const c = reqSessionId ? bySession.get(sessionKey(kind, reqSessionId)) : undefined;
           // 与审批同理：只接受当前回合上的提问（不属于任何回合的请求直接拒绝）
-          if (!c || c.turn?.sessionId !== req.sessionId) return Promise.resolve({ action: "decline" });
+          if (!c || !reqSessionId || c.turn?.sessionId !== reqSessionId) return Promise.resolve({ action: "decline" });
           const answer = c.cards.question(req, signal);
           checkGrace(c);
           return answer;
@@ -148,7 +149,9 @@ export function createChat(opts: ChatOptions) {
 
   /** 这个 kind 的进程被废弃（空闲回收、崩溃换代）：它名下课程的会话作废、在跑的事情收尾；其他 kind 不受影响 */
   function resetAgent(kind: AgentKind) {
+    capabilities.clear(kind);
     for (const [id, c] of courses) {
+      c.abandonedPrompt = null; // 旧进程已经不在了：它的 prompt 不会再产出请求
       if (c.agent !== kind) continue;
       if (c.sessionId) bySession.delete(sessionKey(kind, c.sessionId));
       c.sessionId = null;
@@ -204,13 +207,15 @@ export function createChat(opts: ChatOptions) {
     // 失败（目标不属于课程目录 / 加载失败）时当前会话、缓冲、设置、指针全部原样（AGENTS：原会话不受影响）。
     if (mode === "open") {
       const kind = c.agent;
+      const epoch = c.epoch; // 换 agent 时 course() 会 +1；提交前必须还是同一次选择
       const cwd = workDir(opts.home, ctx.userId, c.id);
       const setup = opts.registry.setup(kind);
       const a = await run.agent();
       run.check();
       const caps = capabilities.of(kind);
       if (!caps.httpMcp) throw new Error(`agent 不支持 HTTP MCP，CGC 工具无法下发（${kind}）`);
-      if (!caps.listSessions) throw new OpenError("bad_request"); // 无法核实目录归属：UI 正常不会给出入口
+      // 能力协商：没有 load 或没有 list 都打不开历史会话（handler 层不再预判：那时还没握手，能力未知）
+      if (!caps.listSessions || !caps.loadSession) throw new OpenError("chat_unavailable");
       await run.wait("agent/prepare", async () => {
         mkdirSync(cwd, { recursive: true });
         await setup.prepare?.(cwd);
@@ -237,16 +242,27 @@ export function createChat(opts: ChatOptions) {
         staging.delete(key);
       }
       run.check();
-      // 只有到这里才提交：失败路径不触碰任何现有状态
+      // 提交前确认课程还在同一次选择上：加载期间一次 chat.attach 换 agent 会让本次切换作废（返回 busy，状态不动）
+      if (c.agent !== kind || c.epoch !== epoch) throw new OpenError("busy");
+      // 纯计算先做完（agent 给畸形 configOptions 时 pickSettings 会抛，不能等提交到一半才炸）
+      let settings: ConfigOption[] = [];
+      try {
+        settings = pickSettings(loaded.configOptions);
+      } catch (e) {
+        console.error(`cgc-host: 会话设置形状不合约，按空处理：${message(e)}`);
+      }
+      // 只有到这里才提交：失败路径不触碰任何现有状态；提交段本身不再有可抛出的外部输入
       if (c.sessionId) bySession.delete(sessionKey(kind, c.sessionId));
       bySession.set(key, c);
-      c.transcript = staged;
-      Object.assign(c, { sessionId: target, userId: ctx.userId, token: ctx.token });
-      c.lastContext = null;
-      c.settings = pickSettings(loaded.configOptions);
-      c.settingsKey = null;
+      Object.assign(c, { transcript: staged, sessionId: target, userId: ctx.userId, token: ctx.token, lastContext: null, settings, settingsKey: null });
+      c.abandonedPrompt = null;
       setPointer(ctx.sessions, c.id, kind, target);
-      ctx.save();
+      try {
+        ctx.save();
+      } catch (e) {
+        // 内存已切成功：不能对页面报失败（否则它以后会往旧会话发消息）；指针落后只影响重启后的恢复
+        console.error(`cgc-host: 切换对话后保存状态失败（指针可能落后，重启后再点一次会话即可）：${message(e)}`);
+      }
       return { a, sessionId: target };
     }
     // 先把进程握到手（能力也在这时才确定）：HTTP MCP 不支持就下发不了 CGC 工具，直接失败——
@@ -357,6 +373,8 @@ export function createChat(opts: ChatOptions) {
     if (!turn.ackWatchdog) {
       turn.ackWatchdog = setTimeout(() => {
         if (c.turn !== turn) return;
+        // agent 可能仍在跑这轮：隔离它，直到 session/prompt 真正 settle（见 abandonedPrompt）
+        c.abandonedPrompt = turn;
         console.error("cgc-host: agent 未在取消宽限内应答，Host 本地按取消收尾");
         finish(c, turn, { stopReason: "cancelled" });
       }, cancelAckTimeoutMs);
@@ -463,6 +481,8 @@ export function createChat(opts: ChatOptions) {
       const context = pageContext(params.context, c.id);
       if (typeof text !== "string" || !text.trim() || context === null) return fail("bad_request");
       if (c.turn) return fail("busy");
+      // 上一轮被本地强制收尾、旧 prompt 还没 settle：先别开新回合，否则它的审批会挂到新回合上
+      if (c.abandonedPrompt) return fail("busy");
       const turn: Turn = { stopping: false, sessionId: null, text: "", watchdog: null, ackWatchdog: null };
       c.turn = turn;
       checkIdle();
@@ -482,6 +502,7 @@ export function createChat(opts: ChatOptions) {
           // 绝对上限：适配器/连接悬挂时，本轮不能永远占着课程（busy）与进程（空闲回收以 !busy 为条件）
           turn.watchdog = setTimeout(() => {
             if (c.turn !== turn) return;
+            c.abandonedPrompt = turn; // 旧 prompt 仍在 agent 里跑：settle 前不再接收新回合
             console.error(`cgc-host: 本轮超过 ${turnTimeoutMs}ms 仍未收尾，Host 本地结束这一轮`);
             finish(c, turn, null);
           }, turnTimeoutMs);
@@ -492,7 +513,10 @@ export function createChat(opts: ChatOptions) {
               console.error(`cgc-host: 本轮对话失败：${message(e)}`);
               finish(c, turn, null);
             },
-          );
+          ).finally(() => {
+            // 被看门狗提前收尾的回合：旧 prompt 现在才真正结束，解除隔离
+            if (c.abandonedPrompt === turn) c.abandonedPrompt = null;
+          });
         });
       } catch (e) {
         console.error(`cgc-host: 无法开始对话：${message(e)}`);
@@ -507,6 +531,7 @@ export function createChat(opts: ChatOptions) {
       if (c.turn) return fail("busy");
       try {
         await prepare(c, ctx, "new", () => {
+          c.abandonedPrompt = null;
           reply("history", { running: false, events: [], settings: c.settings, agent: ctx.agents[c.id] ?? null });
           settingsSynced(c);
         });
@@ -518,18 +543,24 @@ export function createChat(opts: ChatOptions) {
       // 历史对话列表：只读，可以在有回合在跑时查询；元数据字段缺省即 null（OMP 版本差异）
       const { cursor } = params;
       if (cursor !== undefined && (typeof cursor !== "string" || cursor.length > 256)) return fail("bad_request");
-      if (!capabilities.of(c.agent).listSessions) {
-        console.error(`cgc-host: ${c.agent} 不支持 session/list，返回空历史列表`);
-        return reply("sessions", { sessions: [], current: ctx.sessions[c.id]?.[c.agent] ?? null, nextCursor: null });
-      }
       try {
         const cwd = workDir(opts.home, ctx.userId, c.id);
+        let gated = false;
         const page = await runtimeFor(c.agent).prepare(opts.preparationTimeoutMs ?? protocol.preparationTimeoutMs, async (run) => {
           const a = await run.agent();
+          // 能力只有握手后才知道：冷进程上 handler 层预判会漏（先按默认「支持」放过去）
+          if (!capabilities.of(c.agent).listSessions) {
+            gated = true;
+            return { sessions: [], nextCursor: null };
+          }
           return run.wait("session/list", (signal) =>
             a.rpc.request("session/list", { cwd, ...(cursor ? { cursor } : {}) }, { cancellationSignal: signal }),
           );
         });
+        if (gated) {
+          console.error(`cgc-host: ${c.agent} 不支持 session/list，返回空历史列表`);
+          return reply("sessions", { sessions: [], current: ctx.sessions[c.id]?.[c.agent] ?? null, nextCursor: null });
+        }
         const sessions = [];
         for (const s of page.sessions ?? []) {
           // 适配器忽略 cwd 过滤时也不越界：只列本课程工作目录下的会话
@@ -554,10 +585,6 @@ export function createChat(opts: ChatOptions) {
       const { sessionId } = params;
       if (typeof sessionId !== "string" || !sessionId || sessionId.length > 128) return fail("bad_request");
       if (c.turn) return fail("busy");
-      if (!capabilities.of(c.agent).listSessions) {
-        console.error(`cgc-host: ${c.agent} 不支持 session/list，无法核实目标会话归属`);
-        return fail("chat_unavailable");
-      }
       try {
         await prepare(c, ctx, "open", () => {
           reply("history", { running: false, events: c.transcript.events, settings: c.settings, agent: ctx.agents[c.id] ?? null });

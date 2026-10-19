@@ -122,6 +122,33 @@ test("停止不切走 agent：Codex 课程 chat.stop 不带 agent / 带错 agent
   expect(page.inbox.filter((m) => m.method === "error")).toEqual([]);
 });
 
+test("chat.open 加载期间切 agent：本次切换作废（busy），不把 omp 会话记到 codex 名下", async () => {
+  const omp = fakeAgent();
+  const codex = fakeAgent();
+  const home = tempHome();
+  const { page } = await chatPage(omp, { home, records: [ompTestRecord(omp), codexTestRecord(codex)] });
+  await page.call("chat.attach", { courseId: COURSE, agent: "omp" });
+  await page.call("chat.send", { courseId: COURSE, agent: "omp", text: "第一段", context: CONTEXT });
+  await page.next((m) => m.method === "turn.end");
+  await page.call("chat.new", { courseId: COURSE, agent: "omp" }); // session-2
+
+  omp.delayLoadMs = 150; // 让 open 的 session/load 有一个在途窗口
+  const opening = page.call("chat.open", { courseId: COURSE, sessionId: "session-1", agent: "omp" });
+  await Bun.sleep(20);
+  await page.call("chat.attach", { courseId: COURSE, agent: "codex" }); // 加载期间换 agent
+  expect(await opening).toMatchObject({ method: "error", params: { code: "busy" } });
+
+  // 课程现在是 codex，且消息发给 codex 自己新建的会话（两个 agent 的 sessionId 空间互不相干）；
+  // 关键是 codex 从未 load 过 omp 的会话，指针也落在 codex 桶里
+  await page.call("chat.send", { courseId: COURSE, agent: "codex", text: "用 codex 学", context: CONTEXT });
+  await page.next((m) => m.method === "turn.end");
+  expect(codex.calledWith("session/load")).toEqual([]);
+  expect(codex.calledWith("session/new")).toHaveLength(1);
+  const sessions = JSON.parse(readFileSync(join(stateDir(home), "state.json"), "utf8")).sessions[COURSE];
+  expect(sessions.codex).toBeTruthy();
+  expect([...codex.store.keys()]).toContain(sessions.codex);
+});
+
 test("Codex 未登录：回 auth_required + 登录方式；chat.authenticate 转发给该 agent，成功后回 chat.authenticated", async () => {
   const omp = fakeAgent();
   const codex = fakeAgent();

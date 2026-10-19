@@ -104,6 +104,20 @@ describe("Covers AE2. 拒绝、超时、平台 401：Host 都不保存凭证", (
   expect(host.platform.calls).toHaveLength(1);
 });
 
+test("弹窗关闭后仍静默一段：弹窗时长超过冷却时也不允许立刻再弹", async () => {
+  const host = startHost({ cooldownMs: 40 });
+  host.platform.tokens.set("cgch_slow-dialog", identity(USER_A, "token-id-slow"));
+  host.platform.tokens.set("cgch_second", identity(USER_A, "token-id-second"));
+  host.dialog.answer = async (signal: AbortSignal) => {
+    await Bun.sleep(120); // 弹窗比冷却长（生产弹窗最长 60s，冷却 3s）
+    return signal.aborted ? "" : "deny";
+  };
+  const c = await connect(host.port);
+  expect(await c.call("pair.request", { token: "cgch_slow-dialog" })).toMatchObject({ method: "pair.result", params: { allowed: false } });
+  expect(await c.call("pair.request", { token: "cgch_second" })).toMatchObject(refused("busy"));
+  expect(host.dialog.calls).toHaveLength(1);
+});
+
 test("GET /mcp/token 回 401：拒收，不弹窗，也不调 DELETE", async () => {
     const host = startHost();
     const c = await connect(host.port);

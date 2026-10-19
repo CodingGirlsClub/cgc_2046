@@ -59,7 +59,7 @@ export interface ServerOptions {
   chat: ChatHandler;
   /** KTD13 的收尾依据：连接数变化时告诉对话处理器；断开时附上因此失去持有者的课程 */
   onConnections?: (count: number, released: string[]) => void;
-  /** 每次弹窗关闭后的冷却，pair.request 的限流；默认 3 秒 */
+  /** pair.request 的冷却（受理即生效，弹窗关闭后再续一段）；默认 3 秒 */
   cooldownMs?: number;
 }
 

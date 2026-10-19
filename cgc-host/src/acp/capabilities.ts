@@ -36,6 +36,8 @@ export function createAgentCapabilities() {
   const caps = new Map<AgentKind, AgentCapabilities>();
   return {
     remember: (kind: AgentKind, response: InitializeResponse) => caps.set(kind, readCapabilities(response)),
+    /** 进程代被回收后清掉：下个进程重新握手前按「未播报」处理，不用上一代的旧能力 */
+    clear: (kind: AgentKind) => void caps.delete(kind),
     of: (kind: AgentKind): AgentCapabilities => caps.get(kind) ?? { protocolVersion: 1, loadSession: true, listSessions: true, httpMcp: true },
   };
 }

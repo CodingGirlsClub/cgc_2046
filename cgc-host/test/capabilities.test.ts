@@ -1,8 +1,8 @@
 // capabilities.test.ts — ACP initialize 能力协商：协议版本 / session load / session list / HTTP MCP。
 // 缺字段按「支持」处理（旧适配器兼容）；显式 false / 显式缺 list 才降级。
 import { afterEach, describe, expect, test } from "bun:test";
-import { loadState, saveState } from "../src/state";
-import { chatPage, cleanup, COURSE, fakeAgent, tempHome } from "./helpers";
+import { loadState, saveState, workDir } from "../src/state";
+import { chatPage, cleanup, COURSE, fakeAgent, tempHome, USER_A } from "./helpers";
 
 afterEach(cleanup);
 
@@ -52,6 +52,66 @@ describe("session/load", () => {
     expect(fake.calledWith("session/list")).toEqual([]); // 不能 load 时也不必有 list
     expect(fake.calledWith("session/new")).toHaveLength(1);
     expect(loadState(home).sessions[COURSE]?.omp).toBe("session-1"); // 指针换成新建的会话
+  });
+});
+
+describe("缺能力字段（旧适配器兼容）", () => {
+  const seededSession = (home: string) => {
+    const cwd = workDir(home, USER_A, COURSE);
+    return { cwd, history: [{ sessionUpdate: "user_message_chunk" as const, content: { type: "text" as const, text: "旧对话" } }], updatedAt: new Date().toISOString() };
+  };
+
+  test("initialize 完全不带 agentCapabilities：按支持处理，指针照常 load 并回放", async () => {
+    const fake = fakeAgent();
+    fake.omitAgentCapabilities = true;
+    const home = seededHome();
+    fake.store.set("old-session", seededSession(home));
+    const { page } = await chatPage(fake, { home });
+    const history = await page.call("chat.attach", { courseId: COURSE });
+    expect(history.method).toBe("history");
+    expect(JSON.stringify(history.params.events)).toContain("旧对话");
+    expect(fake.calledWith("session/load")).toHaveLength(1);
+  });
+
+  test("agentCapabilities 为空对象：同样按支持处理", async () => {
+    const fake = fakeAgent();
+    fake.capabilities = {};
+    const home = seededHome();
+    fake.store.set("old-session", seededSession(home));
+    const { page } = await chatPage(fake, { home });
+    const history = await page.call("chat.attach", { courseId: COURSE });
+    expect(history.method).toBe("history");
+    expect(JSON.stringify(history.params.events)).toContain("旧对话");
+    expect(fake.calledWith("session/load")).toHaveLength(1);
+  });
+});
+
+describe("能力门的握手时机", () => {
+  test("冷进程上明确无 session/list：chat.sessions 回空列表，从不发 session/list", async () => {
+    const fake = fakeAgent();
+    fake.capabilities = { sessionCapabilities: {} };
+    const { page } = await chatPage(fake);
+    // 两帧背靠背：attach 触发握手，sessions 请求排在课程队列之后——能力门必须在握手后判定
+    const attaching = page.call("chat.attach", { courseId: COURSE, agent: "omp" });
+    const listing = page.call("chat.sessions", { courseId: COURSE });
+    expect(await attaching).toMatchObject({ method: "history" });
+    expect(await listing).toMatchObject({ method: "sessions", params: { sessions: [] } });
+    expect(fake.calledWith("session/list")).toEqual([]);
+  });
+
+  test("list 有、load 无：历史列表可见，但 chat.open 回 chat_unavailable", async () => {
+    const fake = fakeAgent();
+    fake.capabilities = { loadSession: false }; // sessionCapabilities 缺省 = list 支持
+    const home = seededHome();
+    fake.store.set("old-session", { cwd: workDir(home, USER_A, COURSE), history: [], updatedAt: new Date().toISOString() });
+    const { page } = await chatPage(fake, { home });
+    await page.call("chat.attach", { courseId: COURSE });
+    const list = await page.call("chat.sessions", { courseId: COURSE });
+    expect((list.params?.sessions as unknown[]).length).toBeGreaterThan(0);
+    expect(await page.call("chat.open", { courseId: COURSE, sessionId: "old-session" })).toMatchObject({
+      method: "error",
+      params: { code: "chat_unavailable" },
+    });
   });
 });
 

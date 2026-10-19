@@ -39,6 +39,13 @@ export interface Course {
   graceTimer: Timer | null;
   /** 同一门课的会话操作（new / load）排队执行 */
   queue: Promise<unknown>;
+  /** 课程上下文代次：换 agent 时 +1，异步准备在提交前用它确认「还是同一次选择」（016/018 的竞态护栏） */
+  epoch: number;
+  /**
+   * 被 Host 本地强制收尾（看门狗）的回合：它的 session/prompt 可能还在 agent 里跑，
+   * 在它 settle 或进程换代前不再接收新回合——否则旧 prompt 的审批会挂到新回合上可作答。
+   */
+  abandonedPrompt: Turn | null;
 }
 
 /** 新建一门课的对话记录；页面连接就是持有者（server.ts 已判定） */
@@ -59,6 +66,8 @@ export function createCourse(id: string, agent: AgentKind, ctx: ChatContext): Co
     settingsKey: null,
     graceTimer: null,
     queue: Promise.resolve(),
+    epoch: 0,
+    abandonedPrompt: null,
   };
   return course;
 }

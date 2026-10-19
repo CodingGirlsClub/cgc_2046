@@ -246,6 +246,8 @@ export function fakeAgent() {
     listIgnoresCwd: false,
     /** session/load 对这些会话抛 Internal error（模拟跨 OMP 版本加载失败） */
     failLoadFor: new Set<string>(),
+    /** session/load 人为延迟（毫秒）：模拟长回放，测试并发切 agent 的提交护栏 */
+    delayLoadMs: 0,
     calls: [] as { method: string; params: any }[],
     answers: [] as any[],
     /** OMP 的会话设置（ACP configOptions）：session/new、session/load 的回包带它；set_config_option 按它校验并更新 */
@@ -282,9 +284,9 @@ export function fakeAgent() {
     /** initialize 播报的登录方式（chat.authenticate 的取值来源） */
     authMethods: [] as { id: string; name: string }[],
     /** initialize 播报的能力（缺省 = loadSession + session/list）；字段缺失按支持处理，见 acp/capabilities.ts */
-    capabilities: undefined as
-      | { loadSession?: boolean; mcpCapabilities?: { http?: boolean }; sessionCapabilities?: { list?: unknown } }
-      | undefined,
+    capabilities: undefined as acp.AgentCapabilities | undefined,
+    /** true 时 initialize 回包完全不带 agentCapabilities（模拟最老的适配器） */
+    omitAgentCapabilities: false,
     /** initialize 回包的协议版本（缺省 PROTOCOL_VERSION） */
     protocolVersion: acp.PROTOCOL_VERSION as number,
     /** 握手要求先登录时，这些 ACP 方法（如 "session/new"）抛 auth_required（-32000） */
@@ -319,7 +321,7 @@ export function fakeAgent() {
           record("initialize", c.params);
           return {
             protocolVersion: fake.protocolVersion,
-            agentCapabilities: fake.capabilities ?? { loadSession: true, sessionCapabilities: { list: {} } },
+            ...(fake.omitAgentCapabilities ? {} : { agentCapabilities: fake.capabilities ?? { loadSession: true, sessionCapabilities: { list: {} } } }),
             authMethods: fake.authMethods,
           };
         })
@@ -357,6 +359,7 @@ export function fakeAgent() {
           if (fake.authFor.has("session/load")) throw acp.RequestError.authRequired();
           record("session/load", c.params);
           if (fake.failLoadFor.has(c.params.sessionId)) throw acp.RequestError.internalError({ details: "fake restore failure" });
+          if (fake.delayLoadMs > 0) await Bun.sleep(fake.delayLoadMs);
           const s = fake.store.get(c.params.sessionId);
           if (!s) throw acp.RequestError.resourceNotFound(c.params.sessionId);
           loaded.add(c.params.sessionId);

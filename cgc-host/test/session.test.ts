@@ -2,6 +2,7 @@
 // 新开对话、重启恢复、上下文块、停止、空闲回收。断言的是跨边界的消息：页面收到的帧、假 OMP 收到的请求。
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import type { PromptResponse } from "@agentclientprotocol/sdk";
 import { join } from "node:path";
 import { stateDir, workDir } from "../src/state";
 import {
@@ -293,17 +294,22 @@ test("一轮没结束时再发消息回 busy", async () => {
   await ended(page);
 });
 
-test("看门狗：prompt 永远不 settle 时到点本地按 error 收尾，课程之后不再 busy", async () => {
+test("看门狗：prompt 永不应答时到点本地按 error 收尾；旧 prompt settle 前隔离新回合", async () => {
   const fake = fakeAgent();
   const { page } = await chatPage(fake, { turnTimeoutMs: 40 });
   const normal = fake.script;
-  fake.script = () => new Promise<never>(() => {}); // 永不 settle
+  let release!: (res: PromptResponse) => void;
+  fake.script = () => new Promise<PromptResponse>((resolve) => { release = resolve; });
   await attach(page);
   await send(page, "一");
   expect(await endedWithin(page, 2000)).toMatchObject({ params: { courseId: COURSE, stopReason: "error" } });
-  // 本地收尾后课程可用：下一条消息照常跑完
+
+  // 旧 prompt 还在 agent 里跑：新回合被隔离（否则它的审批会挂到新回合上）
+  expect(await send(page, "二")).toMatchObject(refused("busy"));
+  release({ stopReason: "cancelled" });
+  await Bun.sleep(20);
   fake.script = normal;
-  expect(await send(page, "二")).toMatchObject({ method: "turn.delta", params: { kind: "user", text: "二" } });
+  expect(await send(page, "三")).toMatchObject({ method: "turn.delta", params: { kind: "user", text: "三" } });
   expect(await endedWithin(page, 2000)).toMatchObject({ params: { stopReason: "end_turn" } });
 });
 
@@ -370,6 +376,44 @@ test("R25：对话内容不落进 state.json，也不进 Host 日志", async () 
     console.log = origLog;
     console.error = origError;
   }
+});
+
+test("看门狗强制收尾后隔离会话：旧 prompt 未 settle 前拒绝新回合，settle 后自动恢复", async () => {
+  const fake = fakeAgent();
+  const { page } = await chatPage(fake, { cancelAckTimeoutMs: 40, turnTimeoutMs: 60_000 });
+  const normal = fake.script;
+  let release!: (res: PromptResponse) => void;
+  fake.script = () => new Promise<PromptResponse>((resolve) => { release = resolve; });
+  await attach(page);
+  await send(page, "一");
+  page.send({ method: "chat.stop", params: { courseId: COURSE, agent: "omp" } });
+  expect(await endedWithin(page, 2000)).toMatchObject({ params: { stopReason: "cancelled" } });
+
+  // 旧 prompt 还在 agent 里跑：这时开新回合会让旧审批挂到新回合上，必须先拒绝
+  expect(await send(page, "二")).toMatchObject(refused("busy"));
+
+  // 旧 prompt 真正结束：解除隔离，正常继续
+  release({ stopReason: "cancelled" });
+  await Bun.sleep(20);
+  fake.script = normal;
+  expect(await send(page, "三")).toMatchObject({ method: "turn.delta", params: { kind: "user", text: "三" } });
+  expect(await endedWithin(page, 2000)).toMatchObject({ params: { stopReason: "end_turn" } });
+});
+
+test("看门狗强制收尾后：chat.new 换会话即解除隔离（旧会话的请求不再可路由）", async () => {
+  const fake = fakeAgent();
+  const { page } = await chatPage(fake, { cancelAckTimeoutMs: 40, turnTimeoutMs: 60_000 });
+  fake.script = () => new Promise<PromptResponse>(() => {});
+  await attach(page);
+  await send(page, "一");
+  page.send({ method: "chat.stop", params: { courseId: COURSE, agent: "omp" } });
+  expect(await endedWithin(page, 2000)).toMatchObject({ params: { stopReason: "cancelled" } });
+  expect(await send(page, "二")).toMatchObject(refused("busy"));
+
+  expect(await page.call("chat.new", { courseId: COURSE, agent: "omp" })).toMatchObject({ method: "history" });
+  fake.script = async () => ({ stopReason: "end_turn" });
+  expect(await send(page, "三")).toMatchObject({ method: "turn.delta" });
+  expect(await endedWithin(page, 2000)).toMatchObject({ params: { stopReason: "end_turn" } });
 });
 
 test("KTD13 空闲回收：没有页面、没有在跑的回合，超过空闲期结束进程；下次需要时拉起并 session/load 恢复", async () => {

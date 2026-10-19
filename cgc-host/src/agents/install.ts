@@ -43,8 +43,9 @@ export const CODEX_ACP_PACKAGE_JSON = `${JSON.stringify(
 )}\n`;
 
 /** 复用变体的 package.json / 锁：与 `codex-acp-reuse.*` 同源（gen 脚本生成），内容必须逐字节写回临时目录 */
-export const CODEX_ACP_REUSE_PACKAGE_JSON = codexReusePackage;
-export const CODEX_ACP_REUSE_LOCK = codexReuseLock;
+// `with { type: "text" }` 只在 Bun 运行时生效；TS 的 resolveJsonModule 仍把 .json 当对象，这里按运行时事实收窄
+export const CODEX_ACP_REUSE_PACKAGE_JSON = codexReusePackage as unknown as string;
+export const CODEX_ACP_REUSE_LOCK = codexReuseLock as unknown as string;
 /** Host 在临时目录写出的 stub；与生成锁时使用的 stub 内容一致 */
 export const REUSE_STUB_PACKAGE_JSON = JSON.stringify({ name: "@openai/codex", version: "0.0.0-stub" });
 /** 记录本次安装用的变体；旧安装没有这个文件时按 full 处理 */

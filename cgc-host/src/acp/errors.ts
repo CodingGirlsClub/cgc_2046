@@ -19,9 +19,15 @@ export const message = (e: unknown) => {
   return redact(`${base} ${details.length > 500 ? `${details.slice(0, 500)}…` : details}`);
 };
 
-/** chat.open 的可诊断失败：bad_request = 目标不属于本课程工作目录（客户端问题）；session_unavailable = load 失败（持久指针保持不变） */
+/**
+ * chat.open 的可诊断失败：
+ * - bad_request = 目标不属于本课程工作目录（客户端问题）；
+ * - session_unavailable = load 失败（持久指针保持不变）；
+ * - busy = 加载期间课程被切到别的 agent（本次切换作废，页面重试）；
+ * - chat_unavailable = 该 agent 不支持 load/list（能力协商）。
+ */
 export class OpenError extends Error {
-  constructor(public code: "bad_request" | "session_unavailable") {
+  constructor(public code: "bad_request" | "session_unavailable" | "busy" | "chat_unavailable") {
     super(code);
   }
 }

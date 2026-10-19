@@ -45,7 +45,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 | `pair.forget` | 无；Host 向所有连接推送未配对的 `status` |
 | `chat.attach` / `chat.send` / `chat.stop` / `chat.new` / `chat.sessions` / `chat.open` / `chat.set_setting` / `chat.authenticate` / `card.answer`（`{courseId, agent?, …}`） | 见下方「对话的载荷契约」；被另一个连接接管的连接收到 `chat.evicted {courseId}` |
 
-`agent` 是对话方法的可选参数（`omp` 等注册表里的 kind）：页面要驱动哪个本机 agent，就带哪个；**缺省恒为 `omp`**，与状态文件里的记忆值无关——回滚期的旧页面不可能带这个字段，不能让它被改道到别的 agent（记忆值只作为页面的初选，见 `history` 的 `agent` 字段）。取值不在注册表里一律 `bad_request`。
+`agent` 是对话方法的可选参数（`omp` 等注册表里的 kind）。**只有 `chat.attach` / `chat.send` / `chat.new` / `chat.open` 用它选择/切换会话**：带哪个就驱动哪个，缺省恒为 `omp`，与状态文件里的记忆值无关——回滚期的旧页面不可能带这个字段，不能让它被改道到别的 agent（记忆值只作为页面的初选，见 `history` 的 `agent` 字段）；也只有这四个方法会写「上次显式选择」。`chat.stop` / `card.answer` / `chat.sessions` / `chat.set_setting` / `chat.authenticate` 作用在课程**当前** agent 上，忽略该字段（缺省值不会把课程切走）。取值不在注册表里一律 `bad_request`。
 
 `status.params`：`state`（`unpaired` / `paired` / `ready`，`ready` 指这个连接已授权）、`pairedUserId`、`deviceName`、`tokenId`（仅已 `hello` 的连接非空）、`agents`（本机各 agent 的 `{kind, present, envError?, sources?}`，`sources` 含义同 `/health`）、`ompPresent`、`version`、`protocolVersion`；解析学员登录 shell 的环境失败时另有 `ompEnvError`（`timeout` / `failed`，此时 Host 退回 launchd 的最小环境，多半找不到 omp 或模型凭证）。`ompPresent` 与 `ompEnvError` 是 `agents` 里 OMP 那条的派生值，留给只认它们的旧页面，移除条件是下一个 Host 大版本。某个 agent 的 `present` 为 false 时，Host 每次被读到都会在后台重新查找（至多 10 秒一次），学员装上它的入口后不必重启 Host；页面可轮询 `/health`。
 
@@ -118,7 +118,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 - 审批：`{cardId, kind: "permission", toolCallId, title, toolKind, input?, options: [{optionId, name, kind}]}`。选项原样来自学员的 OMP，与终端里一致：`kind` 是 `allow_once` / `allow_always` / `reject_once` / `reject_always`，OMP 18.10.4 的 `name` 是 Allow once / Always allow / Reject / Always reject。作答 `{cardId, optionId}`。
 - 「始终允许」只活在 OMP 进程内存里、只对这条会话有效，按工具种类记（命令类即这条对话里之后的所有命令），不写进学员的 OMP 配置；OMP 重启（空闲回收、Host 或电脑重启）后失效（U6 真机核验）。卡片文案建议：「本次对话中不再询问此类操作（重启后需重新确认）」。
 - 提问：`{cardId, kind: "question", message, schema}`。`schema` 是表单的 JSON Schema（object，`properties` 里是 string（`oneOf` / `enum` 为选项）、number / integer、boolean、array（`items.anyOf` / `items.enum` 为多选））。OMP 的 `ask` 工具：`q0` 是单选，`q0__other` 是自由输入。作答 `{cardId, action: "accept", content: {字段: 值}}`（值是字符串、数字、布尔或字符串数组，键必须在 `properties` 里），或 `{cardId, action: "decline" | "cancel"}`。只接受 form 模式，其余模式 Host 直接拒绝，不出卡片。
-- 审批与提问只挂在**当前回合**上：`turn.end` 之后才到的请求直接以取消/拒绝应答，不出卡（Codex 的后台任务也会在回合后发审批）。
+- 审批与提问要求请求的 `sessionId` 等于课程**当前会话**且当前有回合在跑；没有回合时直接以取消/拒绝应答，不出卡（Codex 的后台任务也会在回合后发审批）。注意 ACP 不携带 turn id，守卫粒度是「当前会话 + 当前回合在跑」——若上一轮被 Host 看门狗本地强制收尾而 agent 仍在执行，Host 会先隔离该会话、拒绝新回合，直到旧 `session/prompt` 真正 settle（或 `chat.new` / 进程换代）。
 - `turn.card.closed {cardId, reason}`：`answered` 是持有者答了；`cancelled` 是回合结束、停止、OMP 撤回请求或退出，或没有页面持有这门课、卡片又等了超过 5 分钟（KTD13：本轮随之取消）——都以取消作答，从不替学员选允许。
 
 `turn.end {stopReason, usage?, modelError?}`：
