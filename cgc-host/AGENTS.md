@@ -91,6 +91,8 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 
 会话设置（`chat.set_setting`、`chat.settings`、`history` 的 `settings`）：Host 把 agent 的会话设置（ACP 的 config options）收窄成 `model`（模型）与思考/推理强度两项——OMP 的 id 是 `thinking`，Codex 的 id 是 `reasoning_effort`，两项的 category 都是 `thought_level`；`mode`（plan）不透出。`settings` 是 `[{id, name, category, currentValue, options: [{value, name, description?}]}]`，`history`（`chat.attach` / `chat.new` / `chat.open`）带当前值；`chat.attach` 在没有会话指针时会先建一条空会话，所以第一次打开面板就能拿到设置（进程仍按 KTD13 回收）。空数组表示这个 agent 没给可选项（旧版本或 id 不同名）——页面据此不渲染入口。改动只作用于当前会话：不写学员的 agent 配置、不影响终端；agent 自己改了设置（`config_option_update`）时 Host 推 `chat.settings`。切模型可能连带改动另一项（OMP 实测：不支持思考的模型会把思考等级重置为 `off`…
 
+**能力协商**：Host 在 ACP `initialize` 时记录 agent 的协议版本、`loadSession`、`sessionCapabilities.list`、`mcpCapabilities.http`。协议版本不一致或明确不支持 HTTP MCP：本次对话回 `chat_unavailable`（详情只在 Host 日志）；明确不支持 `session/load`、或无法用 `session/list` 核实会话归属：清掉会话指针、从新对话开始（日志记录原因）；明确不支持 `session/list`：`chat.sessions` 回空列表、`chat.open` 回 `chat_unavailable`。字段缺失一律按支持处理（旧适配器兼容）。
+
 `status` 与 `/health` 都带 `capabilities: string[]`（期 2 起含 `"agent.install"`）：页面只在声明了它时给「安装 Codex 支持」入口，旧 Host（0.2.0）不声明、页面继续只给手动命令。**不改 `protocolVersion`**——加方法靠能力探测，不靠版本门逼学员重装。
 
 `agent.install` **要求先配对**（与 `chat.*` 同一道授权）：否则任意能连上本机 Host 的站点来源页都能静默触发约 337MB 的下载，幂等短路只挡重复、挡不住第一次。页面在无 agent 时先给「连接这台电脑」，配对完成后才出现安装入口。其余边界：只接受官方站点 Origin 的连接（`isAllowedRequest`），kind 限于 `installable`，版本/URL/落位都在 Host 包内钉死——没有任意的下载地址、版本或路径参数；已装着钉住版本时幂等短路。它不碰凭证、不驱动 agent。

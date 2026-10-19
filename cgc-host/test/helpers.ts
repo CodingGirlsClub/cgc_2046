@@ -281,6 +281,12 @@ export function fakeAgent() {
     beforeSetConfig: null as Promise<void> | null,
     /** initialize 播报的登录方式（chat.authenticate 的取值来源） */
     authMethods: [] as { id: string; name: string }[],
+    /** initialize 播报的能力（缺省 = loadSession + session/list）；字段缺失按支持处理，见 acp/capabilities.ts */
+    capabilities: undefined as
+      | { loadSession?: boolean; mcpCapabilities?: { http?: boolean }; sessionCapabilities?: { list?: unknown } }
+      | undefined,
+    /** initialize 回包的协议版本（缺省 PROTOCOL_VERSION） */
+    protocolVersion: acp.PROTOCOL_VERSION as number,
     /** 握手要求先登录时，这些 ACP 方法（如 "session/new"）抛 auth_required（-32000） */
     authFor: new Set<string>(),
     /** authenticate 失败（页面按 auth_failed 处理） */
@@ -311,7 +317,11 @@ export function fakeAgent() {
         .agent({ name: "fake-omp" })
         .onRequest("initialize", (c) => {
           record("initialize", c.params);
-          return { protocolVersion: acp.PROTOCOL_VERSION, agentCapabilities: { loadSession: true, sessionCapabilities: { list: {} } }, authMethods: fake.authMethods };
+          return {
+            protocolVersion: fake.protocolVersion,
+            agentCapabilities: fake.capabilities ?? { loadSession: true, sessionCapabilities: { list: {} } },
+            authMethods: fake.authMethods,
+          };
         })
         .onRequest("authenticate", (c) => {
           record("authenticate", c.params);

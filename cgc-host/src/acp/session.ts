@@ -16,6 +16,7 @@ import { type AgentKind, DEFAULT_AGENT, isAgentKind, type Registry } from "../ag
 import type { ChatContext, ChatMethod, Message } from "../server";
 import { setPointer, workDir } from "../state";
 import { createAgentRuntimes } from "./agent-runtimes";
+import { createAgentCapabilities } from "./capabilities";
 import { authenticateAgent, createAuthMethods } from "./auth";
 import { type Course, createCourse, type Turn } from "./course";
 import { type Agent, clientApp } from "./client";
@@ -87,13 +88,18 @@ export function createChat(opts: ChatOptions) {
 
   /** 各 agent 握手时播报的登录方式：chat.authenticate 的取值来源，也是 auth_required 回包里的清单 */
   const authMethods = createAuthMethods();
+  /** 各 agent 握手时播报的能力（协议版本 / session load+list / HTTP MCP）；用哪项先看哪项 */
+  const capabilities = createAgentCapabilities();
   /** 每个 agent kind 一个进程代（KTD1）与各自的空闲回收（KTD13） */
   const runtimes = createAgentRuntimes({
     registry: opts.registry,
     connections: () => connections,
     busy: (kind) => [...courses.values()].some((c) => c.agent === kind && c.turn !== null),
     retired: resetAgent,
-    initialized: (kind, response) => authMethods.remember(kind, response),
+    initialized: (kind, response) => {
+      authMethods.remember(kind, response);
+      capabilities.remember(kind, response);
+    },
     idleMs,
     app: (kind, active) =>
       clientApp({
@@ -202,6 +208,9 @@ export function createChat(opts: ChatOptions) {
       const setup = opts.registry.setup(kind);
       const a = await run.agent();
       run.check();
+      const caps = capabilities.of(kind);
+      if (!caps.httpMcp) throw new Error(`agent 不支持 HTTP MCP，CGC 工具无法下发（${kind}）`);
+      if (!caps.listSessions) throw new OpenError("bad_request"); // 无法核实目录归属：UI 正常不会给出入口
       await run.wait("agent/prepare", async () => {
         mkdirSync(cwd, { recursive: true });
         await setup.prepare?.(cwd);
@@ -240,6 +249,12 @@ export function createChat(opts: ChatOptions) {
       ctx.save();
       return { a, sessionId: target };
     }
+    // 先把进程握到手（能力也在这时才确定）：HTTP MCP 不支持就下发不了 CGC 工具，直接失败——
+    // 而且失败发生在销毁当前会话之前，原会话不受影响。
+    const a = await run.agent();
+    run.check();
+    const caps = capabilities.of(c.agent);
+    if (!caps.httpMcp) throw new Error(`agent 不支持 HTTP MCP，CGC 工具无法下发（${c.agent}）`);
     // 不再沿用当前会话（新开、切换、换了账号或凭证、OMP 重启过）：先卸下并清空缓冲——上一段对话不能出现在接下来的历史里
     if (c.sessionId) bySession.delete(sessionKey(c.agent, c.sessionId));
     c.sessionId = null;
@@ -249,8 +264,6 @@ export function createChat(opts: ChatOptions) {
     c.settingsKey = null;
     c.transcript.reset();
     const target = mode === "new" ? undefined : ctx.sessions[c.id]?.[c.agent];
-    const a = await run.agent();
-    run.check();
     const cwd = workDir(opts.home, ctx.userId, c.id);
     const setup = opts.registry.setup(c.agent);
     const mcpServers = [cgcServer(ctx.token, setup.mcpServerName)];
@@ -259,7 +272,8 @@ export function createChat(opts: ChatOptions) {
       mkdirSync(cwd, { recursive: true });
       await setup.prepare?.(cwd);
     });
-    const load = target ? await belongs(a, cwd, target, run) : false;
+    // 能力缺失时按「恢复不了」处理：先建新会话，不把不可加载的指针留在配置里
+    const load = target && caps.loadSession ? (caps.listSessions ? await belongs(a, cwd, target, run) : false) : false;
     run.check();
     if (target && load) {
       bySession.set(sessionKey(c.agent, target), c);
@@ -278,7 +292,7 @@ export function createChat(opts: ChatOptions) {
     if (target) {
       // KTD6：指针指向的会话不在课程目录下（例如换了账号）就不加载，清掉。attach 与 send 一样接着建新会话：
       // 不把上一个账号的对话带给新页面（缓冲已清），同时首条消息之前也能拿到设置。
-      console.error("cgc-host: 会话指针不在这门课的工作目录下，拒绝加载");
+      console.error(`cgc-host: 会话指针无法恢复（loadSession=${caps.loadSession} list=${caps.listSessions}），从新对话开始`);
       setPointer(ctx.sessions, c.id, c.agent, null);
       ctx.save();
     }
@@ -504,6 +518,10 @@ export function createChat(opts: ChatOptions) {
       // 历史对话列表：只读，可以在有回合在跑时查询；元数据字段缺省即 null（OMP 版本差异）
       const { cursor } = params;
       if (cursor !== undefined && (typeof cursor !== "string" || cursor.length > 256)) return fail("bad_request");
+      if (!capabilities.of(c.agent).listSessions) {
+        console.error(`cgc-host: ${c.agent} 不支持 session/list，返回空历史列表`);
+        return reply("sessions", { sessions: [], current: ctx.sessions[c.id]?.[c.agent] ?? null, nextCursor: null });
+      }
       try {
         const cwd = workDir(opts.home, ctx.userId, c.id);
         const page = await runtimeFor(c.agent).prepare(opts.preparationTimeoutMs ?? protocol.preparationTimeoutMs, async (run) => {
@@ -532,6 +550,10 @@ export function createChat(opts: ChatOptions) {
       const { sessionId } = params;
       if (typeof sessionId !== "string" || !sessionId || sessionId.length > 128) return fail("bad_request");
       if (c.turn) return fail("busy");
+      if (!capabilities.of(c.agent).listSessions) {
+        console.error(`cgc-host: ${c.agent} 不支持 session/list，无法核实目标会话归属`);
+        return fail("chat_unavailable");
+      }
       try {
         await prepare(c, ctx, "open", () => {
           reply("history", { running: false, events: c.transcript.events, settings: c.settings, agent: ctx.agents[c.id] ?? null });
