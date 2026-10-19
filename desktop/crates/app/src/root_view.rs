@@ -33,6 +33,7 @@ use cgc_platform::acp::connection::{
 };
 use cgc_platform::agent::detect::{detect_all, AgentStatus, SystemProbe};
 use cgc_platform::agent::launch::{build_launch, LaunchPlan, NodeRuntime};
+use cgc_platform::agent::node_runtime::{HttpDownloader, NodeRuntimeManager};
 use cgc_platform::events::{AppEvent, EventPublisher, MemoryEventBus};
 use cgc_platform::mcp::credential::{
     issue_lease, FakeLearningHostApi, HttpLearningHostApi, KeychainVault, LearningHostApi,
@@ -153,6 +154,19 @@ struct ChatUi {
     configs_applied: bool,
     history_open: bool,
     streaming_message_open: bool,
+    guidance: Option<ChatGuidance>,
+}
+
+#[derive(Clone, Debug)]
+struct ChatGuidance {
+    detected: Vec<(String, String)>,
+    node_found: Option<String>,
+}
+
+struct ChatStartError {
+    message: String,
+    detected: Vec<(String, String)>,
+    node_found: Option<String>,
 }
 
 struct PreparedChat {
@@ -517,9 +531,35 @@ impl RootView {
         let task = cx.background_executor().spawn(async move {
             let api = build_learning_host_api();
             let vault = build_learning_host_vault();
-            let registry = Registry::builtin().map_err(|error| error.diagnostic())?;
+            let registry = Registry::builtin().map_err(|error| ChatStartError {
+                message: error.diagnostic(),
+                detected: Vec::new(),
+                node_found: None,
+            })?;
             let probe = SystemProbe;
+            let node = cgc_platform::agent::detect::detect_node(&probe, &registry.node_required);
             let detected = detect_all(&registry, &probe);
+            let guidance = detected
+                .iter()
+                .map(|agent| {
+                    (
+                        agent.entry.display_name.clone(),
+                        format!("{:?}", agent.status),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let managed_node = NodeRuntimeManager::default_manager().installed_runtime();
+            let node_found = managed_node
+                .is_some()
+                .then(|| cgc_platform::agent::node_runtime::NODE_VERSION.to_string())
+                .or_else(|| node.found.clone());
+            if std::env::var("CGC_NO_AGENT").as_deref() == Ok("1") {
+                return Err(ChatStartError {
+                    message: "no local agent ready (QA)".to_string(),
+                    detected: guidance,
+                    node_found,
+                });
+            }
             let chosen = detected
                 .iter()
                 .find(|agent| {
@@ -530,15 +570,29 @@ impl RootView {
                         .iter()
                         .find(|agent| matches!(agent.status, AgentStatus::Ready { .. }))
                 })
-                .ok_or_else(|| "no local agent ready".to_string())?;
+                .ok_or_else(|| ChatStartError {
+                    message: "no local agent ready".to_string(),
+                    detected: guidance.clone(),
+                    node_found: node_found.clone(),
+                })?;
             let lease = issue_lease(api.as_ref(), vault.as_ref(), &token, "cgc-desktop", epoch)
-                .map_err(|error| error.diagnostic())?;
-            let managed = std::env::var_os("CGC_MANAGED_NODE").map(NodeRuntime::new);
-            let plan = build_launch(&chosen.entry, managed.as_ref(), &cwd)
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| ChatStartError {
+                    message: error.diagnostic(),
+                    detected: guidance.clone(),
+                    node_found: node_found.clone(),
+                })?;
+            let managed =
+                managed_node.or_else(|| std::env::var_os("CGC_MANAGED_NODE").map(NodeRuntime::new));
+            let plan = build_launch(&chosen.entry, managed.as_ref(), &cwd).map_err(|error| {
+                ChatStartError {
+                    message: error.to_string(),
+                    detected: guidance.clone(),
+                    node_found: node_found.clone(),
+                }
+            })?;
             let endpoint = mcp_endpoint(std::env::var("CGC_API_URL").ok().as_deref());
             let server = build_mcp_server(&chosen.entry, &lease, &endpoint);
-            Ok::<PreparedChat, String>(PreparedChat {
+            Ok::<PreparedChat, ChatStartError>(PreparedChat {
                 agent_name: chosen.entry.display_name.clone(),
                 plan,
                 lease,
@@ -574,7 +628,13 @@ impl RootView {
                             }
                         }
                     }
-                    Err(message) => this.chat.phase = ChatPhase::Failed(message),
+                    Err(error) => {
+                        this.chat.guidance = Some(ChatGuidance {
+                            detected: error.detected,
+                            node_found: error.node_found,
+                        });
+                        this.chat.phase = ChatPhase::Failed(error.message);
+                    }
                 }
                 cx.notify();
             });
@@ -818,6 +878,33 @@ impl RootView {
         self.start_chat(cx);
     }
 
+    fn install_node_runtime(&mut self, cx: &mut Context<Self>) {
+        if matches!(self.chat.phase, ChatPhase::Starting) {
+            return;
+        }
+        self.chat.phase = ChatPhase::Starting;
+        let task = cx
+            .background_executor()
+            .spawn(async { NodeRuntimeManager::default_manager().install(&HttpDownloader) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(()) => {
+                        this.chat.guidance = None;
+                        this.chat.phase = ChatPhase::Idle;
+                        this.start_chat(cx);
+                    }
+                    Err(error) => {
+                        this.chat.phase = ChatPhase::Failed(error.to_string());
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     fn reset_chat_local(&mut self) {
         self.chat.host.take();
         self.chat.lease.take();
@@ -837,6 +924,7 @@ impl RootView {
         self.chat.configs_applied = false;
         self.chat.history_open = false;
         self.chat.streaming_message_open = false;
+        self.chat.guidance = None;
     }
 
     fn start_courses_load(&mut self, cx: &mut Context<Self>, first: bool) {
@@ -2474,34 +2562,99 @@ impl RootView {
                 .text_color(palette.ink_3)
                 .child(translate(language, Key::AgentChatChatStarting))
                 .into_any_element(),
-            ChatPhase::Failed(message) => div()
-                .flex()
-                .flex_col()
-                .gap(space(1))
-                .child(
+            ChatPhase::Failed(message) => {
+                let guidance = self.chat.guidance.clone().map(|guidance| {
+                    let detected_rows = guidance
+                        .detected
+                        .iter()
+                        .map(|(name, status)| {
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_2)
+                                .child(format!("{name}：{status}"))
+                                .into_any_element()
+                        })
+                        .collect::<Vec<_>>();
+                    let node_ready = guidance
+                        .node_found
+                        .as_deref()
+                        .is_some_and(version_at_least_24);
+                    let install = (!node_ready).then(|| {
+                        div()
+                            .id("chat-install-node")
+                            .px(space(2))
+                            .py(px(4.0))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .bg(palette.accent)
+                            .text_color(palette.canvas)
+                            .child(translate(language, Key::AgentChatChatInstallNode))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.install_node_runtime(cx);
+                            }))
+                            .into_any_element()
+                    });
                     div()
-                        .text_size(px(12.0))
-                        .text_color(palette.danger)
-                        .child(format!(
-                            "{}：{message}",
-                            translate(language, Key::AgentChatChatFailed)
-                        )),
-                )
-                .child(
-                    div()
-                        .id("chat-retry")
-                        .px(space(2))
-                        .py(px(5.0))
-                        .rounded(px(RADIUS_MEDIUM))
-                        .bg(palette.accent)
-                        .text_color(palette.canvas)
-                        .child(translate(language, Key::AgentChatChatRetry))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.chat.phase = ChatPhase::Idle;
-                            this.start_chat(cx);
-                        })),
-                )
-                .into_any_element(),
+                        .flex()
+                        .flex_col()
+                        .gap(space(1))
+                        .child(
+                            div()
+                                .text_size(px(12.0))
+                                .text_color(palette.ink_2)
+                                .child(translate(language, Key::AgentChatChatAgentGuidance)),
+                        )
+                        .children(detected_rows)
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_3)
+                                .child(format!(
+                                    "Node runtime: {} (required 24.x)",
+                                    guidance
+                                        .node_found
+                                        .clone()
+                                        .unwrap_or_else(|| "missing".to_string())
+                                )),
+                        )
+                        .children(install)
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_3)
+                                .child(translate(language, Key::AgentChatChatLoginHint)),
+                        )
+                        .into_any_element()
+                });
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(space(1))
+                    .child(
+                        div()
+                            .text_size(px(12.0))
+                            .text_color(palette.danger)
+                            .child(format!(
+                                "{}：{message}",
+                                translate(language, Key::AgentChatChatFailed)
+                            )),
+                    )
+                    .children(guidance)
+                    .child(
+                        div()
+                            .id("chat-retry")
+                            .px(space(2))
+                            .py(px(5.0))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .bg(palette.accent)
+                            .text_color(palette.canvas)
+                            .child(translate(language, Key::AgentChatChatRetry))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.chat.phase = ChatPhase::Idle;
+                                this.start_chat(cx);
+                            })),
+                    )
+                    .into_any_element()
+            }
             ChatPhase::Ready | ChatPhase::Streaming => {
                 let rows = messages
                     .iter()
@@ -4720,6 +4873,14 @@ fn filter_key(filter: StatusFilter) -> Key {
         StatusFilter::Closed => Key::EventsFilterClosed,
         StatusFilter::Cancelled => Key::EventsFilterCancelled,
     }
+}
+
+fn version_at_least_24(version: &str) -> bool {
+    version
+        .split('.')
+        .next()
+        .and_then(|major| major.parse::<u64>().ok())
+        .is_some_and(|major| major >= 24)
 }
 
 fn terminal_status_label(language: Language, status: &str) -> &'static str {

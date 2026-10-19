@@ -173,3 +173,8 @@ agent_chat.chat.history
 agent_chat.chat.restore
 agent_chat.chat.no_history
 agent_chat.chat.config
+agent_chat.chat.install_node
+agent_chat.chat.redetect
+agent_chat.chat.agent_guidance
+agent_chat.chat.login_hint
+agent_chat.chat.installing_node
