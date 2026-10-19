@@ -16,6 +16,7 @@ use cgc_courses::catalog::{
     CoursesListState, FakeCoursesApi, HttpCoursesApi,
 };
 use cgc_courses::content::{CourseContentService, CourseContentState, MaterialKind};
+use cgc_courses::projection::{LearningProjectionService, ProjectionState};
 use cgc_events::detail::{EventDetail, EventDetailService, PriceMode};
 use gpui_kit::component::text::TextView;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -219,6 +220,7 @@ pub struct RootView {
     course_detail: CourseDetailService,
     course_detail_started: bool,
     content: CourseContentService,
+    projection: LearningProjectionService,
     pending_link: Option<String>,
     selected_event: Option<String>,
 }
@@ -248,6 +250,7 @@ impl RootView {
         let courses = build_courses_service();
         let course_detail = CourseDetailService::new(courses.api_handle());
         let content = CourseContentService::new(courses.api_handle());
+        let projection = LearningProjectionService::new(courses.api_handle());
         Self {
             registry,
             current,
@@ -286,6 +289,7 @@ impl RootView {
             course_detail,
             course_detail_started: false,
             content,
+            projection,
             pending_link: None,
             workspaces: build_workspace_service(),
             workspaces_started: false,
@@ -459,6 +463,7 @@ impl RootView {
         self.courses.reset();
         self.course_detail.reset();
         self.content.reset();
+        self.projection.reset();
         self.pending_link = None;
         self.selected_event = None;
         self.selected_tier = None;
@@ -469,6 +474,31 @@ impl RootView {
         self.payment_generation = self.payment_generation.saturating_add(1);
         self.deposit_consent = false;
         self.reset_chat_local();
+    }
+
+    fn start_projection_load(&mut self, cx: &mut Context<Self>, course_id: String) {
+        self.projection.begin_load(&course_id);
+        let api = self.projection.api_handle();
+        let token = self.session_token();
+        let epoch = self.workspaces.epoch();
+        let task = cx
+            .background_executor()
+            .spawn(async move { api.get_learning_projection(token.as_deref(), &course_id) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if !this.workspaces.is_current_epoch(epoch) {
+                    return;
+                }
+                match result {
+                    Ok(projection) => this.projection.adopt(projection),
+                    Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
+                    Err(error) => this.projection.fail(&error),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn start_content_load(&mut self, cx: &mut Context<Self>, course_id: String) {
@@ -968,6 +998,7 @@ impl RootView {
         self.course_detail.begin_load();
         self.course_detail_started = true;
         self.content.reset();
+        self.projection.reset();
         self.pending_link = None;
         let api = self.course_detail.api_handle();
         let token = self.session_token();
@@ -1728,6 +1759,20 @@ impl Render for RootView {
                     .cloned()
                 {
                     self.start_content_load(cx, course_id);
+                }
+            }
+            if workspaces_ready
+                && current_id == Some("courses.learning")
+                && matches!(self.course_detail.state(), CoursesListState::Ready)
+                && matches!(self.projection.state(), ProjectionState::Idle)
+            {
+                if let Some(course_id) = self
+                    .current
+                    .as_ref()
+                    .and_then(|route_match| route_match.params.get("id"))
+                    .cloned()
+                {
+                    self.start_projection_load(cx, course_id);
                 }
             }
         }
@@ -2563,68 +2608,66 @@ impl RootView {
                 .child(translate(language, Key::AgentChatChatStarting))
                 .into_any_element(),
             ChatPhase::Failed(message) => {
-                let guidance = self.chat.guidance.clone().map(|guidance| {
-                    let detected_rows = guidance
-                        .detected
-                        .iter()
-                        .map(|(name, status)| {
+                let guidance =
+                    self.chat.guidance.clone().map(|guidance| {
+                        let detected_rows = guidance
+                            .detected
+                            .iter()
+                            .map(|(name, status)| {
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .child(format!("{name}：{status}"))
+                                    .into_any_element()
+                            })
+                            .collect::<Vec<_>>();
+                        let node_ready = guidance
+                            .node_found
+                            .as_deref()
+                            .is_some_and(version_at_least_24);
+                        let install = (!node_ready).then(|| {
                             div()
-                                .text_size(px(11.0))
-                                .text_color(palette.ink_2)
-                                .child(format!("{name}：{status}"))
+                                .id("chat-install-node")
+                                .px(space(2))
+                                .py(px(4.0))
+                                .rounded(px(RADIUS_MEDIUM))
+                                .bg(palette.accent)
+                                .text_color(palette.canvas)
+                                .child(translate(language, Key::AgentChatChatInstallNode))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.install_node_runtime(cx);
+                                }))
                                 .into_any_element()
-                        })
-                        .collect::<Vec<_>>();
-                    let node_ready = guidance
-                        .node_found
-                        .as_deref()
-                        .is_some_and(version_at_least_24);
-                    let install = (!node_ready).then(|| {
+                        });
                         div()
-                            .id("chat-install-node")
-                            .px(space(2))
-                            .py(px(4.0))
-                            .rounded(px(RADIUS_MEDIUM))
-                            .bg(palette.accent)
-                            .text_color(palette.canvas)
-                            .child(translate(language, Key::AgentChatChatInstallNode))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.install_node_runtime(cx);
-                            }))
-                            .into_any_element()
-                    });
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(space(1))
-                        .child(
-                            div()
-                                .text_size(px(12.0))
-                                .text_color(palette.ink_2)
-                                .child(translate(language, Key::AgentChatChatAgentGuidance)),
-                        )
-                        .children(detected_rows)
-                        .child(
-                            div()
-                                .text_size(px(11.0))
-                                .text_color(palette.ink_3)
-                                .child(format!(
+                            .flex()
+                            .flex_col()
+                            .gap(space(1))
+                            .child(
+                                div()
+                                    .text_size(px(12.0))
+                                    .text_color(palette.ink_2)
+                                    .child(translate(language, Key::AgentChatChatAgentGuidance)),
+                            )
+                            .children(detected_rows)
+                            .child(div().text_size(px(11.0)).text_color(palette.ink_3).child(
+                                format!(
                                     "Node runtime: {} (required 24.x)",
                                     guidance
                                         .node_found
                                         .clone()
                                         .unwrap_or_else(|| "missing".to_string())
-                                )),
-                        )
-                        .children(install)
-                        .child(
-                            div()
-                                .text_size(px(11.0))
-                                .text_color(palette.ink_3)
-                                .child(translate(language, Key::AgentChatChatLoginHint)),
-                        )
-                        .into_any_element()
-                });
+                                ),
+                            ))
+                            .children(install)
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_3)
+                                    .child(translate(language, Key::AgentChatChatLoginHint)),
+                            )
+                            .into_any_element()
+                    });
                 div()
                     .flex()
                     .flex_col()
@@ -3029,6 +3072,134 @@ impl RootView {
             .children(history_rows)
             .child(body)
             .into_any_element()
+    }
+
+    fn render_learning_projection(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        match self.projection.state().clone() {
+            ProjectionState::Idle | ProjectionState::Empty => div().into_any_element(),
+            ProjectionState::Loading => div()
+                .text_size(px(11.0))
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::CoursesLearningProjectionTitle))
+                .into_any_element(),
+            ProjectionState::Failed(_) => div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(space(1))
+                .text_size(px(11.0))
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::CoursesLearningProjectionError))
+                .child(
+                    div()
+                        .id("projection-retry")
+                        .px(space(1))
+                        .py(px(2.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .bg(palette.soft)
+                        .text_color(palette.ink_2)
+                        .child(translate(language, Key::CoursesLearningProjectionRetry))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.projection.retry_ready();
+                            cx.notify();
+                        })),
+                )
+                .into_any_element(),
+            ProjectionState::Ready => {
+                let Some(projection) = self.projection.projection().cloned() else {
+                    return div().into_any_element();
+                };
+                let progress = projection.progress.clone();
+                let next = projection.next_action.clone();
+                let stale = projection.stale_revision;
+                let review_count = projection.review_queue.len();
+                let objectives = projection
+                    .objectives
+                    .iter()
+                    .take(4)
+                    .map(|objective| {
+                        let status = match objective.mastery.as_str() {
+                            "mastered" => "✓",
+                            "learning" => "◐",
+                            _ => "○",
+                        };
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(1))
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_2)
+                            .child(format!("{status} {}", objective.title))
+                            .children(objective.locked.then(|| {
+                                div()
+                                    .text_size(px(10.0))
+                                    .text_color(palette.ink_3)
+                                    .child(translate(
+                                        language,
+                                        Key::CoursesLearningProjectionLocked,
+                                    ))
+                                    .into_any_element()
+                            }))
+                            .into_any_element()
+                    })
+                    .collect::<Vec<_>>();
+                div()
+                    .mt(space(2))
+                    .flex()
+                    .flex_col()
+                    .gap(space(1))
+                    .p(space(2))
+                    .rounded(px(RADIUS_MEDIUM))
+                    .border_1()
+                    .border_color(palette.line)
+                    .bg(palette.card)
+                    .child(
+                        div()
+                            .text_size(px(13.0))
+                            .text_color(palette.ink)
+                            .child(translate(language, Key::CoursesLearningProjectionTitle)),
+                    )
+                    .children(progress.map(|progress| {
+                        div()
+                            .text_size(px(12.0))
+                            .text_color(palette.ink_2)
+                            .child(format!(
+                                "{} / {}",
+                                progress.mastered_required, progress.total_required
+                            ))
+                            .into_any_element()
+                    }))
+                    .children(next.map(|next| {
+                        div()
+                            .text_size(px(12.0))
+                            .text_color(palette.accent)
+                            .child(next.reason)
+                            .into_any_element()
+                    }))
+                    .children(stale.then(|| {
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(palette.danger)
+                            .child(translate(language, Key::CoursesLearningProjectionStale))
+                            .into_any_element()
+                    }))
+                    .children((review_count > 0).then(|| {
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_3)
+                            .child(format!("待复习 {review_count}"))
+                            .into_any_element()
+                    }))
+                    .children(objectives)
+                    .into_any_element()
+            }
+        }
     }
 
     fn render_course_materials(
@@ -4256,6 +4427,7 @@ impl RootView {
                                     context.course_revision_id
                                 )),
                         )
+                        .child(self.render_learning_projection(language, palette, cx))
                         .child(self.render_course_materials(language, palette, cx))
                         .child(self.render_chat_panel(language, palette, cx))
                         .into_any_element(),

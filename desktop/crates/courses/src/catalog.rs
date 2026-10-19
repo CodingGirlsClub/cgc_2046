@@ -113,6 +113,14 @@ impl CoursesError {
     }
 }
 
+impl std::fmt::Display for CoursesError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.diagnostic())
+    }
+}
+
+impl std::error::Error for CoursesError {}
+
 pub trait CoursesApi: Send + Sync {
     fn list_courses(
         &self,
@@ -128,11 +136,37 @@ pub trait CoursesApi: Send + Sync {
         token: Option<&str>,
         course_id: &str,
     ) -> Result<CourseContent, CoursesError>;
+
+    /// courseLearningDetail：学习投影；未报名/无权限 → NotFound。
+    fn get_learning_projection(
+        &self,
+        token: Option<&str>,
+        course_id: &str,
+    ) -> Result<crate::projection::LearningProjection, CoursesError>;
 }
 
 pub struct HttpCoursesApi {
     client: GraphqlClient,
 }
+
+const LEARNING_PROJECTION_QUERY: &str = r#"
+query CourseLearningDetail($courseId: ID!) {
+  courseLearningDetail(courseId: $courseId) {
+    courseId
+    title
+    revisionNumber
+    staleRevision
+    run { id status revisionNumber }
+    nextAction { kind objectiveId reason }
+    progress { masteredRequired totalRequired complete }
+    objectives {
+      id title required mastery locked attemptCount
+      missingPrereqIds { id title }
+    }
+    reviewQueue { objectiveId dueAt needsReview }
+  }
+}
+"#;
 
 impl HttpCoursesApi {
     pub fn new(client: GraphqlClient) -> Self {
@@ -284,6 +318,26 @@ impl CoursesApi for HttpCoursesApi {
     ) -> Result<CourseContent, CoursesError> {
         crate::content::fetch_course_content(&self.client, token, course_id)
     }
+
+    fn get_learning_projection(
+        &self,
+        token: Option<&str>,
+        course_id: &str,
+    ) -> Result<crate::projection::LearningProjection, CoursesError> {
+        let payload = self
+            .client
+            .post(
+                token,
+                LEARNING_PROJECTION_QUERY,
+                serde_json::json!({ "courseId": course_id }),
+            )
+            .map_err(CoursesError::from)?;
+        let value = payload
+            .get("data")
+            .and_then(|data| data.get("courseLearningDetail"))
+            .ok_or(CoursesError::NotFound)?;
+        crate::projection::parse_learning_projection(value).ok_or(CoursesError::NotFound)
+    }
 }
 
 pub struct FakeCoursesApi {
@@ -395,6 +449,47 @@ impl CoursesApi for FakeCoursesApi {
             &summary.title,
             index,
         ))
+    }
+
+    fn get_learning_projection(
+        &self,
+        _token: Option<&str>,
+        course_id: &str,
+    ) -> Result<crate::projection::LearningProjection, CoursesError> {
+        if self.fail {
+            return Err(CoursesError::Transport("fake network down".to_string()));
+        }
+        Ok(crate::projection::LearningProjection {
+            course_id: course_id.to_string(),
+            title: "示例课程".to_string(),
+            revision_number: Some(1),
+            stale_revision: false,
+            run: Some(crate::projection::RunSummary {
+                id: "run-demo".to_string(),
+                status: "active".to_string(),
+                revision_number: Some(1),
+            }),
+            next_action: Some(crate::projection::NextAction {
+                kind: "learn".to_string(),
+                objective_id: "obj-1".to_string(),
+                reason: "从「变量」开始".to_string(),
+            }),
+            progress: Some(crate::projection::LearningProgressSummary {
+                mastered_required: 1,
+                total_required: 2,
+                complete: false,
+            }),
+            objectives: vec![crate::projection::ObjectiveState {
+                id: "obj-1".to_string(),
+                title: "变量".to_string(),
+                required: true,
+                mastery: "mastered".to_string(),
+                locked: false,
+                attempt_count: 1,
+                missing_prereq_ids: Vec::new(),
+            }],
+            review_queue: Vec::new(),
+        })
     }
 }
 

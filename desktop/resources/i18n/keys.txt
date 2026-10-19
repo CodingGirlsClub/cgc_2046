@@ -178,3 +178,11 @@ agent_chat.chat.redetect
 agent_chat.chat.agent_guidance
 agent_chat.chat.login_hint
 agent_chat.chat.installing_node
+courses.learning.projection_title
+courses.learning.projection_progress
+courses.learning.projection_next
+courses.learning.projection_stale
+courses.learning.projection_review
+courses.learning.projection_locked
+courses.learning.projection_error
+courses.learning.projection_retry
