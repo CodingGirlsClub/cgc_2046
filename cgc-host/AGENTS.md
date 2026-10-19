@@ -91,7 +91,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 
 会话设置（`chat.set_setting`、`chat.settings`、`history` 的 `settings`）：Host 把 agent 的会话设置（ACP 的 config options）收窄成 `model`（模型）与思考/推理强度两项——OMP 的 id 是 `thinking`，Codex 的 id 是 `reasoning_effort`，两项的 category 都是 `thought_level`；`mode`（plan）不透出。`settings` 是 `[{id, name, category, currentValue, options: [{value, name, description?}]}]`，`history`（`chat.attach` / `chat.new` / `chat.open`）带当前值；`chat.attach` 在没有会话指针时会先建一条空会话，所以第一次打开面板就能拿到设置（进程仍按 KTD13 回收）。空数组表示这个 agent 没给可选项（旧版本或 id 不同名）——页面据此不渲染入口。改动只作用于当前会话：不写学员的 agent 配置、不影响终端；agent 自己改了设置（`config_option_update`）时 Host 推 `chat.settings`。切模型可能连带改动另一项（OMP 实测：不支持思考的模型会把思考等级重置为 `off`…
 
-**能力协商**：Host 在 ACP `initialize` 时记录 agent 的协议版本、`loadSession`、`sessionCapabilities.list`、`mcpCapabilities.http`。协议版本不一致或明确不支持 HTTP MCP：本次对话回 `chat_unavailable`（详情只在 Host 日志）；明确不支持 `session/load`、或无法用 `session/list` 核实会话归属：清掉会话指针、从新对话开始（日志记录原因）；明确不支持 `session/list`：`chat.sessions` 回空列表；`chat.open` 在目标无法核实归属或缺少 `session/load` 时回 `chat_unavailable`。字段缺失一律按支持处理（旧适配器兼容）。能力门都在 `await run.agent()`（握手）之后判定，冷进程上不以默认值预先放行；进程代被回收时清空该 agent 的能力缓存。
+**能力协商**：Host 在 ACP `initialize` 时记录 agent 的协议版本、`loadSession`、`sessionCapabilities.list`、`mcpCapabilities.http`。协议版本不一致或明确不支持 HTTP MCP：本次对话回 `chat_unavailable`（详情只在 Host 日志）；明确不支持 session/load、或无法用 session/list 核实会话归属：清掉会话指针、从新对话开始（日志记录原因）；明确不支持 session/list：`chat.sessions` 回空列表；`chat.open` 在目标无法核实归属或缺少 session/load 时回 `chat_unavailable`。字段缺失一律按支持处理（旧适配器兼容）。能力门都在 `await run.agent()`（握手）之后判定，冷进程上不以默认值预先放行；进程代被回收时清空该 agent 的能力缓存。
 
 `status` 与 `/health` 都带 `capabilities: string[]`（期 2 起含 `"agent.install"`）：页面只在声明了它时给「安装 Codex 支持」入口，旧 Host（0.2.0）不声明、页面继续只给手动命令。**不改 `protocolVersion`**——加方法靠能力探测，不靠版本门逼学员重装。
 
@@ -118,7 +118,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 - 审批：`{cardId, kind: "permission", toolCallId, title, toolKind, input?, options: [{optionId, name, kind}]}`。选项原样来自学员的 OMP，与终端里一致：`kind` 是 `allow_once` / `allow_always` / `reject_once` / `reject_always`，OMP 18.10.4 的 `name` 是 Allow once / Always allow / Reject / Always reject。作答 `{cardId, optionId}`。
 - 「始终允许」只活在 OMP 进程内存里、只对这条会话有效，按工具种类记（命令类即这条对话里之后的所有命令），不写进学员的 OMP 配置；OMP 重启（空闲回收、Host 或电脑重启）后失效（U6 真机核验）。卡片文案建议：「本次对话中不再询问此类操作（重启后需重新确认）」。
 - 提问：`{cardId, kind: "question", message, schema}`。`schema` 是表单的 JSON Schema（object，`properties` 里是 string（`oneOf` / `enum` 为选项）、number / integer、boolean、array（`items.anyOf` / `items.enum` 为多选））。OMP 的 `ask` 工具：`q0` 是单选，`q0__other` 是自由输入。作答 `{cardId, action: "accept", content: {字段: 值}}`（值是字符串、数字、布尔或字符串数组，键必须在 `properties` 里），或 `{cardId, action: "decline" | "cancel"}`。只接受 form 模式，其余模式 Host 直接拒绝，不出卡片。
-- 审批与提问要求请求的 `sessionId` 等于课程**当前会话**且当前有回合在跑；没有回合时直接以取消/拒绝应答，不出卡（Codex 的后台任务也会在回合后发审批）。注意 ACP 不携带 turn id，守卫粒度是「当前会话 + 当前回合在跑」——若上一轮被 Host 看门狗本地强制收尾而 agent 仍在执行，Host 会先隔离该会话、拒绝新回合，直到旧 `session/prompt` 真正 settle（或 `chat.new` / 进程换代）。
+- 审批与提问要求请求的 `sessionId` 等于课程**当前会话**且当前有回合在跑；没有回合时直接以取消/拒绝应答，不出卡（Codex 的后台任务也会在回合后发审批）。注意 ACP 不携带 turn id，守卫粒度是「当前会话 + 当前回合在跑」——若上一轮被 Host 看门狗本地强制收尾而 agent 仍在执行，Host 会先隔离该会话、拒绝新回合，直到旧 session/prompt 真正 settle（或 `chat.new` / 进程换代）。
 - `turn.card.closed {cardId, reason}`：`answered` 是持有者答了；`cancelled` 是回合结束、停止、OMP 撤回请求或退出，或没有页面持有这门课、卡片又等了超过 5 分钟（KTD13：本轮随之取消）——都以取消作答，从不替学员选允许。
 
 `turn.end {stopReason, usage?, modelError?}`：
