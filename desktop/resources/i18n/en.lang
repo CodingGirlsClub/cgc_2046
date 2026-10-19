@@ -168,3 +168,7 @@ agent_chat.chat.retry = Retry
 agent_chat.chat.thinking = Thinking…
 agent_chat.chat.failed = Learning companion is unavailable
 agent_chat.chat.new = New chat
+agent_chat.chat.history = History
+agent_chat.chat.restore = Restore
+agent_chat.chat.no_history = No history yet
+agent_chat.chat.config = Settings

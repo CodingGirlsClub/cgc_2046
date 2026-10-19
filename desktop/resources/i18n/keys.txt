@@ -169,3 +169,7 @@ agent_chat.chat.retry
 agent_chat.chat.thinking
 agent_chat.chat.failed
 agent_chat.chat.new
+agent_chat.chat.history
+agent_chat.chat.restore
+agent_chat.chat.no_history
+agent_chat.chat.config

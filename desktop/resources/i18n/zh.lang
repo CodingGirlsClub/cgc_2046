@@ -168,3 +168,7 @@ agent_chat.chat.retry = 重试
 agent_chat.chat.thinking = 思考中…
 agent_chat.chat.failed = 学习搭子暂时不可用
 agent_chat.chat.new = 新对话
+agent_chat.chat.history = 历史会话
+agent_chat.chat.restore = 恢复
+agent_chat.chat.no_history = 暂无历史会话
+agent_chat.chat.config = 设置

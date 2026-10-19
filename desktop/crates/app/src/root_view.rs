@@ -28,7 +28,9 @@ use cgc_events::list::{
     EventListService, EventsApi, FakeEventsApi, HttpEventsApi, ListState, StatusFilter,
 };
 use cgc_events::orders::{is_terminal_status, parse_rfc3339_epoch, qr_code_url, OrdersApi};
-use cgc_platform::acp::connection::{AcpHost, AcpHostConfig, HostEvent};
+use cgc_platform::acp::connection::{
+    AcpHost, AcpHostConfig, ConfigOptionView, HostEvent, SessionSummary,
+};
 use cgc_platform::agent::detect::{detect_all, AgentStatus, SystemProbe};
 use cgc_platform::agent::launch::{build_launch, LaunchPlan, NodeRuntime};
 use cgc_platform::events::{AppEvent, EventPublisher, MemoryEventBus};
@@ -142,6 +144,15 @@ struct ChatUi {
     lease: Option<LearningHostLease>,
     poll_generation: u64,
     auto_prompted: bool,
+    configs: Vec<ConfigOptionView>,
+    sessions: Vec<SessionSummary>,
+    show_sessions: bool,
+    session_id: Option<String>,
+    course_id: Option<String>,
+    restore_id: Option<String>,
+    configs_applied: bool,
+    history_open: bool,
+    streaming_message_open: bool,
 }
 
 struct PreparedChat {
@@ -484,6 +495,22 @@ impl RootView {
         let epoch = self.workspaces.epoch();
         let cwd = std::env::temp_dir().join("cgc-desktop-chat");
         let _ = std::fs::create_dir_all(&cwd);
+        let course_id = self
+            .current
+            .as_ref()
+            .and_then(|route_match| route_match.params.get("id"))
+            .cloned();
+        let load_session = self
+            .chat
+            .restore_id
+            .take()
+            .or_else(|| course_id.as_deref().and_then(load_chat_pointer));
+        self.chat.course_id = course_id;
+        self.chat.session_id = None;
+        self.chat.configs.clear();
+        self.chat.configs_applied = false;
+        self.chat.history_open = load_session.is_some();
+        self.chat.streaming_message_open = false;
         self.chat.phase = ChatPhase::Starting;
         self.chat.messages.clear();
         self.chat.auto_prompted = false;
@@ -523,12 +550,15 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 match result {
                     Ok(prepared) => {
-                        let config = AcpHostConfig::new(
+                        let mut config = AcpHostConfig::new(
                             prepared.plan.command_string(),
                             prepared.plan.cwd.clone(),
                         )
                         .with_name("agent")
                         .with_mcp_servers(vec![prepared.server]);
+                        if let Some(load_session) = &load_session {
+                            config = config.with_load_session(load_session.clone());
+                        }
                         match AcpHost::start(config) {
                             Ok(host) => {
                                 this.chat.host = Some(host);
@@ -582,17 +612,57 @@ impl RootView {
                 HostEvent::Ready {
                     agent_name,
                     version,
-                    ..
+                    session_id,
                 } => {
                     self.chat.agent = agent_name;
                     self.chat.version = Some(version);
+                    self.chat.session_id = Some(session_id.clone());
                     self.chat.phase = ChatPhase::Ready;
+                    if let Some(course_id) = self.chat.course_id.clone() {
+                        save_chat_pointer(&course_id, "omp", &session_id);
+                    }
+                }
+                HostEvent::ConfigOptions { options } => {
+                    self.chat.configs = options;
+                    if !self.chat.configs_applied {
+                        self.chat.configs_applied = true;
+                        for config in self.chat.configs.clone() {
+                            if let Some(value) = load_chat_pref("omp", &config.id) {
+                                if let Some(host) = &self.chat.host {
+                                    let _ = host.set_config(config.id.clone(), value);
+                                }
+                            }
+                        }
+                    }
+                }
+                HostEvent::Sessions { sessions } => {
+                    self.chat.sessions = sessions;
+                    self.chat.show_sessions = true;
+                    if std::env::var("CGC_AUTO_RESTORE").as_deref() == Ok("1")
+                        && !self.chat.auto_prompted
+                        && !self.chat.sessions.is_empty()
+                    {
+                        self.chat.auto_prompted = true;
+                        let session_id = self.chat.sessions[0].session_id.clone();
+                        self.restore_chat_session(session_id, cx);
+                    }
                 }
                 HostEvent::Delta(chunk) => {
+                    if self.chat.history_open {
+                        match self.chat.messages.last_mut() {
+                            Some(ChatEntry::Assistant(text)) => text.push_str(&chunk),
+                            _ => self.chat.messages.push(ChatEntry::Assistant(chunk)),
+                        }
+                        continue;
+                    }
                     self.chat.phase = ChatPhase::Streaming;
-                    match self.chat.messages.last_mut() {
-                        Some(ChatEntry::Assistant(text)) => text.push_str(&chunk),
-                        _ => self.chat.messages.push(ChatEntry::Assistant(chunk)),
+                    if self.chat.streaming_message_open {
+                        if let Some(ChatEntry::Assistant(text)) = self.chat.messages.last_mut() {
+                            text.push_str(&chunk);
+                        }
+                    } else {
+                        self.chat.messages.push(ChatEntry::Assistant(chunk));
+                        self.chat.streaming_message_open = true;
                     }
                 }
                 HostEvent::ToolCall { title, kind } => {
@@ -611,6 +681,7 @@ impl RootView {
                 }
                 HostEvent::TurnEnd { .. } => {
                     self.chat.phase = ChatPhase::Ready;
+                    self.chat.streaming_message_open = false;
                 }
                 HostEvent::Error { message } => {
                     self.chat.phase = ChatPhase::Failed(message);
@@ -622,6 +693,15 @@ impl RootView {
                     self.chat.host = None;
                 }
             }
+        }
+        if matches!(self.chat.phase, ChatPhase::Ready)
+            && std::env::var("CGC_AUTO_HISTORY").as_deref() == Ok("1")
+            && !self.chat.show_sessions
+        {
+            if let Some(host) = &self.chat.host {
+                let _ = host.list_sessions();
+            }
+            self.chat.show_sessions = true;
         }
         // QA/截图：Ready 后自动发一条 prompt。
         if matches!(self.chat.phase, ChatPhase::Ready)
@@ -659,6 +739,8 @@ impl RootView {
             self.chat.phase = ChatPhase::Failed("agent channel closed".to_string());
             return;
         }
+        self.chat.history_open = false;
+        self.chat.streaming_message_open = false;
         self.chat.messages.push(ChatEntry::User(text));
         self.chat.phase = ChatPhase::Streaming;
         cx.notify();
@@ -698,6 +780,44 @@ impl RootView {
         cx.notify();
     }
 
+    fn cycle_chat_config(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(config) = self.chat.configs.get(index).cloned() else {
+            return;
+        };
+        if config.values.is_empty() {
+            return;
+        }
+        let current = config
+            .values
+            .iter()
+            .position(|(value, _)| value == &config.current)
+            .unwrap_or(0);
+        let next = (current + 1) % config.values.len();
+        let value = config.values[next].0.clone();
+        if let Some(host) = &self.chat.host {
+            let _ = host.set_config(config.id.clone(), value.clone());
+        }
+        save_chat_pref("omp", &config.id, &value);
+        if let Some(entry) = self.chat.configs.get_mut(index) {
+            entry.current = value;
+        }
+        cx.notify();
+    }
+
+    fn open_chat_history(&mut self, cx: &mut Context<Self>) {
+        if let Some(host) = &self.chat.host {
+            let _ = host.list_sessions();
+        }
+        self.chat.show_sessions = true;
+        cx.notify();
+    }
+
+    fn restore_chat_session(&mut self, session_id: String, cx: &mut Context<Self>) {
+        self.chat.restore_id = Some(session_id);
+        self.reset_chat_local();
+        self.start_chat(cx);
+    }
+
     fn reset_chat_local(&mut self) {
         self.chat.host.take();
         self.chat.lease.take();
@@ -709,6 +829,14 @@ impl RootView {
         self.chat.input.clear();
         self.chat.focused = false;
         self.chat.auto_prompted = false;
+        self.chat.configs.clear();
+        self.chat.sessions.clear();
+        self.chat.show_sessions = false;
+        self.chat.session_id = None;
+        self.chat.course_id = None;
+        self.chat.configs_applied = false;
+        self.chat.history_open = false;
+        self.chat.streaming_message_open = false;
     }
 
     fn start_courses_load(&mut self, cx: &mut Context<Self>, first: bool) {
@@ -2590,6 +2718,9 @@ impl RootView {
                                     .text_color(palette.ink_2)
                                     .child(translate(language, Key::AgentChatChatNew))
                                     .on_click(cx.listener(|this, _, _, cx| {
+                                        if let Some(course_id) = this.chat.course_id.clone() {
+                                            clear_chat_pointer(&course_id);
+                                        }
                                         this.reset_chat_local();
                                         this.start_chat(cx);
                                     })),
@@ -2618,6 +2749,86 @@ impl RootView {
             .as_deref()
             .map(|version| format!(" · {version}"))
             .unwrap_or_default();
+        let config_rows = self
+            .chat
+            .configs
+            .iter()
+            .take(2)
+            .enumerate()
+            .map(|(index, config)| {
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(space(1))
+                    .text_size(px(11.0))
+                    .text_color(palette.ink_3)
+                    .child(format!("{}：{}", config.name, config.current))
+                    .child(
+                        div()
+                            .id(format!("chat-config-{index}"))
+                            .px(space(1))
+                            .py(px(2.0))
+                            .rounded(px(RADIUS_SMALL))
+                            .bg(palette.soft)
+                            .text_color(palette.ink_2)
+                            .child(translate(language, Key::AgentChatChatConfig))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.cycle_chat_config(index, cx);
+                            })),
+                    )
+                    .into_any_element()
+            })
+            .collect::<Vec<_>>();
+        let history_rows = if self.chat.show_sessions {
+            if self.chat.sessions.is_empty() {
+                vec![div()
+                    .text_size(px(11.0))
+                    .text_color(palette.ink_3)
+                    .child(translate(language, Key::AgentChatChatNoHistory))
+                    .into_any_element()]
+            } else {
+                self.chat
+                    .sessions
+                    .iter()
+                    .take(5)
+                    .map(|session| {
+                        let session_id = session.session_id.clone();
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_between()
+                            .gap(space(1))
+                            .px(space(1))
+                            .py(px(2.0))
+                            .rounded(px(RADIUS_SMALL))
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_2)
+                            .child(
+                                session
+                                    .title
+                                    .clone()
+                                    .unwrap_or_else(|| session.session_id.clone()),
+                            )
+                            .child(
+                                div()
+                                    .id(format!("chat-restore-{}", session.session_id))
+                                    .px(space(1))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .bg(palette.soft)
+                                    .child(translate(language, Key::AgentChatChatRestore))
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.restore_chat_session(session_id.clone(), cx);
+                                    })),
+                            )
+                            .into_any_element()
+                    })
+                    .collect()
+            }
+        } else {
+            Vec::new()
+        };
         div()
             .mt(space(4))
             .flex()
@@ -2645,8 +2856,24 @@ impl RootView {
                             .text_size(px(11.0))
                             .text_color(palette.ink_3)
                             .child(format!("{agent_label}{version}")),
+                    )
+                    .child(div().flex_1())
+                    .children(
+                        (!matches!(phase, ChatPhase::Idle | ChatPhase::Starting)).then(|| {
+                            div()
+                                .id("chat-history")
+                                .text_size(px(11.0))
+                                .text_color(palette.accent)
+                                .child(translate(language, Key::AgentChatChatHistory))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.open_chat_history(cx);
+                                }))
+                                .into_any_element()
+                        }),
                     ),
             )
+            .children(config_rows)
+            .children(history_rows)
             .child(body)
             .into_any_element()
     }
@@ -4329,6 +4556,75 @@ fn course_row(
             cx.notify();
         }))
         .into_any_element()
+}
+
+fn chat_state_path() -> std::path::PathBuf {
+    let base = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    base.join(".local/share/cgc-desktop/chat_state.json")
+}
+
+fn read_chat_state() -> serde_json::Value {
+    std::fs::read_to_string(chat_state_path())
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_else(|| serde_json::json!({ "pointers": {}, "prefs": {} }))
+}
+
+fn write_chat_state(state: &serde_json::Value) {
+    let path = chat_state_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(raw) = serde_json::to_string_pretty(state) {
+        let _ = std::fs::write(path, raw);
+    }
+}
+
+fn load_chat_pointer(course_id: &str) -> Option<String> {
+    read_chat_state()
+        .get("pointers")?
+        .get(course_id)?
+        .get("sessionId")?
+        .as_str()
+        .map(str::to_string)
+}
+
+fn save_chat_pointer(course_id: &str, agent: &str, session_id: &str) {
+    let mut state = read_chat_state();
+    if let Some(pointers) = state.get_mut("pointers") {
+        pointers[course_id] = serde_json::json!({ "agent": agent, "sessionId": session_id });
+    }
+    write_chat_state(&state);
+}
+
+fn clear_chat_pointer(course_id: &str) {
+    let mut state = read_chat_state();
+    if let Some(pointers) = state.get_mut("pointers") {
+        if let Some(object) = pointers.as_object_mut() {
+            object.remove(course_id);
+        }
+    }
+    write_chat_state(&state);
+}
+
+fn load_chat_pref(agent: &str, config_id: &str) -> Option<String> {
+    read_chat_state()
+        .get("prefs")?
+        .get(agent)?
+        .get(config_id)?
+        .as_str()
+        .map(str::to_string)
+}
+
+fn save_chat_pref(agent: &str, config_id: &str, value: &str) {
+    let mut state = read_chat_state();
+    if !state.get("prefs").is_some_and(serde_json::Value::is_object) {
+        state["prefs"] = serde_json::json!({});
+    }
+    state["prefs"][agent][config_id] = serde_json::json!(value);
+    write_chat_state(&state);
 }
 
 fn build_learning_host_api() -> Arc<dyn LearningHostApi> {

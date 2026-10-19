@@ -16,9 +16,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
-    CancelNotification, ContentBlock, InitializeRequest, McpServer, NewSessionRequest,
-    PromptRequest, RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-    SelectedPermissionOutcome, SessionId, SessionNotification, SessionUpdate, TextContent,
+    CancelNotification, ContentBlock, InitializeRequest, ListSessionsRequest, LoadSessionRequest,
+    McpServer, NewSessionRequest, PromptRequest, RequestPermissionOutcome,
+    RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
+    SessionConfigId, SessionConfigKind, SessionConfigOption, SessionConfigOptionValue,
+    SessionConfigSelectOptions, SessionConfigValueId, SessionId, SessionNotification,
+    SessionUpdate, SetSessionConfigOptionRequest, TextContent,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{
@@ -39,6 +42,10 @@ pub struct AcpHostConfig {
     pub agent_name: String,
     /// 只在 session/new 注入；含凭证，禁止 Debug/日志输出。
     pub mcp_servers: Vec<McpServer>,
+    /// 若设置则 `session/load`（历史恢复），否则 `session/new`。
+    pub load_session: Option<String>,
+    /// 打开连接后拉取历史列表。
+    pub list_sessions_after_ready: bool,
 }
 
 impl std::fmt::Debug for AcpHostConfig {
@@ -60,6 +67,8 @@ impl AcpHostConfig {
             cwd,
             agent_name: "agent".to_string(),
             mcp_servers: Vec::new(),
+            load_session: None,
+            list_sessions_after_ready: false,
         }
     }
 
@@ -72,6 +81,26 @@ impl AcpHostConfig {
         self.mcp_servers = servers;
         self
     }
+
+    pub fn with_load_session(mut self, session_id: impl Into<String>) -> Self {
+        self.load_session = Some(session_id.into());
+        self
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionSummary {
+    pub session_id: String,
+    pub title: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConfigOptionView {
+    pub id: String,
+    pub name: String,
+    pub current: String,
+    pub values: Vec<(String, String)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -91,6 +120,12 @@ pub enum HostEvent {
         request_id: String,
         title: String,
     },
+    Sessions {
+        sessions: Vec<SessionSummary>,
+    },
+    ConfigOptions {
+        options: Vec<ConfigOptionView>,
+    },
     TurnEnd {
         cancelled: bool,
         stop_reason: String,
@@ -105,6 +140,8 @@ pub enum HostEvent {
 pub enum HostCommand {
     Prompt(String),
     Stop,
+    ListSessions,
+    SetConfig { config_id: String, value: String },
     Shutdown,
 }
 
@@ -167,6 +204,21 @@ impl AcpHost {
 
     pub fn stop(&self) -> bool {
         self.command_tx.unbounded_send(HostCommand::Stop).is_ok()
+    }
+
+    pub fn list_sessions(&self) -> bool {
+        self.command_tx
+            .unbounded_send(HostCommand::ListSessions)
+            .is_ok()
+    }
+
+    pub fn set_config(&self, config_id: impl Into<String>, value: impl Into<String>) -> bool {
+        self.command_tx
+            .unbounded_send(HostCommand::SetConfig {
+                config_id: config_id.into(),
+                value: value.into(),
+            })
+            .is_ok()
     }
 
     /// 显式回答审批请求；allow=false 等价取消。返回是否找到该请求。
@@ -344,15 +396,36 @@ async fn run_connection(
                     .map(|info| info.version.clone())
                     .unwrap_or_default();
 
-                let session_request = NewSessionRequest::new(config.cwd.clone())
+                let (session_id, config_options) = if let Some(load_id) = &config.load_session {
+                    let request = LoadSessionRequest::new(
+                        SessionId::new(load_id.clone()),
+                        config.cwd.clone(),
+                    )
                     .mcp_servers(config.mcp_servers.clone());
-                let session = with_timeout(
-                    connection.send_request(session_request).block_task(),
-                    INIT_TIMEOUT,
-                    "session/new",
-                )
-                .await?;
-                let session_id = session.session_id.clone();
+                    let response = with_timeout(
+                        connection.send_request(request).block_task(),
+                        INIT_TIMEOUT,
+                        "session/load",
+                    )
+                    .await?;
+                    (
+                        SessionId::new(load_id.clone()),
+                        response.config_options.unwrap_or_default(),
+                    )
+                } else {
+                    let session_request = NewSessionRequest::new(config.cwd.clone())
+                        .mcp_servers(config.mcp_servers.clone());
+                    let session = with_timeout(
+                        connection.send_request(session_request).block_task(),
+                        INIT_TIMEOUT,
+                        "session/new",
+                    )
+                    .await?;
+                    (
+                        session.session_id.clone(),
+                        session.config_options.unwrap_or_default(),
+                    )
+                };
                 send_event(
                     &events,
                     HostEvent::Ready {
@@ -361,6 +434,15 @@ async fn run_connection(
                         session_id: session_id.to_string(),
                     },
                 );
+                send_event(
+                    &events,
+                    HostEvent::ConfigOptions {
+                        options: config_option_views(&config_options),
+                    },
+                );
+                if config.list_sessions_after_ready {
+                    send_sessions(&connection, &events, &config.cwd).await;
+                }
 
                 while let Some(command) = command_rx.next().await {
                     match command {
@@ -375,6 +457,35 @@ async fn run_connection(
                             .await;
                         }
                         HostCommand::Stop => {}
+                        HostCommand::ListSessions => {
+                            send_sessions(&connection, &events, &config.cwd).await;
+                        }
+                        HostCommand::SetConfig { config_id, value } => {
+                            let request = SetSessionConfigOptionRequest::new(
+                                session_id.clone(),
+                                SessionConfigId::new(config_id),
+                                SessionConfigOptionValue::ValueId {
+                                    value: SessionConfigValueId::new(value),
+                                },
+                            );
+                            match with_timeout(
+                                connection.send_request(request).block_task(),
+                                INIT_TIMEOUT,
+                                "session/set_config_option",
+                            )
+                            .await
+                            {
+                                Ok(response) => send_event(
+                                    &events,
+                                    HostEvent::ConfigOptions {
+                                        options: config_option_views(&response.config_options),
+                                    },
+                                ),
+                                Err(message) => {
+                                    send_event(&events, HostEvent::Error { message })
+                                }
+                            }
+                        }
                         HostCommand::Shutdown => return Ok(()),
                     }
                 }
@@ -386,6 +497,79 @@ async fn run_connection(
         .await;
     result.map_err(|error| format!("acp connection: {error}"))?;
     Ok(())
+}
+
+async fn send_sessions(
+    connection: &ConnectionTo<Agent>,
+    events: &SyncSender<HostEvent>,
+    cwd: &std::path::Path,
+) {
+    let request = ListSessionsRequest::new().cwd(cwd.to_path_buf());
+    match with_timeout(
+        connection.send_request(request).block_task(),
+        INIT_TIMEOUT,
+        "session/list",
+    )
+    .await
+    {
+        Ok(response) => send_event(
+            events,
+            HostEvent::Sessions {
+                sessions: response
+                    .sessions
+                    .into_iter()
+                    .map(|session| SessionSummary {
+                        session_id: session.session_id.to_string(),
+                        title: session.title,
+                        updated_at: session.updated_at,
+                    })
+                    .collect(),
+            },
+        ),
+        Err(message) => send_event(events, HostEvent::Error { message }),
+    }
+}
+
+fn config_option_views(options: &[SessionConfigOption]) -> Vec<ConfigOptionView> {
+    options
+        .iter()
+        .filter_map(|option| match &option.kind {
+            SessionConfigKind::Select(select) => {
+                let values = match &select.options {
+                    SessionConfigSelectOptions::Ungrouped(options) => options
+                        .iter()
+                        .map(|value| (value.value.0.to_string(), value.name.clone()))
+                        .collect(),
+                    SessionConfigSelectOptions::Grouped(groups) => groups
+                        .iter()
+                        .flat_map(|group| {
+                            group
+                                .options
+                                .iter()
+                                .map(|value| (value.value.0.to_string(), value.name.clone()))
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                Some(ConfigOptionView {
+                    id: option.id.0.to_string(),
+                    name: option.name.clone(),
+                    current: select.current_value.0.to_string(),
+                    values,
+                })
+            }
+            SessionConfigKind::Boolean(value) => Some(ConfigOptionView {
+                id: option.id.0.to_string(),
+                name: option.name.clone(),
+                current: value.current_value.to_string(),
+                values: vec![
+                    ("true".to_string(), "开".to_string()),
+                    ("false".to_string(), "关".to_string()),
+                ],
+            }),
+            _ => None,
+        })
+        .collect()
 }
 
 async fn run_turn(
@@ -458,7 +642,9 @@ async fn run_turn(
                     );
                     break;
                 }
-                Some(HostCommand::Prompt(_)) => {}
+                Some(HostCommand::Prompt(_))
+                | Some(HostCommand::ListSessions)
+                | Some(HostCommand::SetConfig { .. }) => {}
             },
             futures::future::Either::Right(_) => {
                 send_event(
