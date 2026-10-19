@@ -3,7 +3,7 @@
 use cgc_platform::routes::{NavIcon, Route};
 
 /// 本 feature 贡献的路由；顺序即导航顺序。
-pub const ROUTES: &[Route] = &[Route::new(
+pub const ROUTES: &[Route] = &[Route::new_secondary(
     "agent_chat.panel",
     "/companion",
     "agent_chat.panel.title",

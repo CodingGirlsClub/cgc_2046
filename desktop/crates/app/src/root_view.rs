@@ -79,6 +79,12 @@ enum LoginMode {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BreadcrumbMenu {
+    Events,
+    Courses,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LoginError {
     Invalid,
     Network,
@@ -229,6 +235,8 @@ pub struct RootView {
     login_error: Option<LoginError>,
     signing_in: bool,
     account_menu_open: bool,
+    agent_panel_open: bool,
+    breadcrumb_menu: Option<BreadcrumbMenu>,
     is_fake_mode: bool,
     key_focus: Option<FocusHandle>,
     events: EventListService,
@@ -312,6 +320,8 @@ impl RootView {
             login_error: None,
             signing_in: false,
             account_menu_open: false,
+            agent_panel_open: false,
+            breadcrumb_menu: None,
             is_fake_mode,
             key_focus: None,
             events,
@@ -387,6 +397,7 @@ impl RootView {
     }
 
     pub fn select(&mut self, route: Route) {
+        self.breadcrumb_menu = None;
         self.current = Some(RouteMatch {
             route,
             params: std::collections::BTreeMap::new(),
@@ -395,6 +406,7 @@ impl RootView {
 
     /// 按路径导航（动态路由在此完成参数解析）。
     pub fn navigate(&mut self, path: &str) {
+        self.breadcrumb_menu = None;
         if let crate::routing::RouteSelection::Match(route_match) = self.registry.select(path) {
             self.current = Some(route_match);
             self.events_started = false;
@@ -1128,7 +1140,8 @@ impl RootView {
             .routes()
             .iter()
             .filter(|route| {
-                !route.has_dynamic_segment()
+                route.nav
+                    && !route.has_dynamic_segment()
                     && route.id != "app.settings"
                     && (route.path == "/" || route.path.trim_matches('/').split('/').count() == 1)
             })
@@ -1203,12 +1216,328 @@ impl RootView {
         .ok();
     }
 
+    fn breadcrumb_section(
+        &self,
+    ) -> Option<(&'static str, &'static str, BreadcrumbMenu, Option<String>)> {
+        let route_id = self
+            .current
+            .as_ref()
+            .map(|route_match| route_match.route.id)?;
+        match route_id {
+            "events.list" | "events.mine" => Some((
+                "events.list",
+                "events.list.title",
+                BreadcrumbMenu::Events,
+                None,
+            )),
+            "events.detail" => Some((
+                "events.list",
+                "events.list.title",
+                BreadcrumbMenu::Events,
+                self.detail.detail().map(|detail| detail.title.clone()),
+            )),
+            "courses.catalog" => Some((
+                "courses.catalog",
+                "courses.catalog.title",
+                BreadcrumbMenu::Courses,
+                None,
+            )),
+            "courses.detail" | "courses.learning" => Some((
+                "courses.catalog",
+                "courses.catalog.title",
+                BreadcrumbMenu::Courses,
+                self.course_detail
+                    .detail()
+                    .map(|detail| detail.title.clone()),
+            )),
+            _ => None,
+        }
+    }
+
+    fn toggle_breadcrumb_menu(&mut self, menu: BreadcrumbMenu, cx: &mut Context<Self>) {
+        self.breadcrumb_menu = if self.breadcrumb_menu == Some(menu) {
+            None
+        } else {
+            Some(menu)
+        };
+        match menu {
+            BreadcrumbMenu::Events if self.events.items().is_empty() => {
+                self.start_events_load(cx, true);
+            }
+            BreadcrumbMenu::Courses if self.courses.items().is_empty() => {
+                self.start_courses_load(cx, true);
+            }
+            _ => {}
+        }
+        cx.notify();
+    }
+
+    fn render_breadcrumb_bar(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let workspace = self
+            .workspaces
+            .current()
+            .map(|workspace| workspace.name.clone())
+            .unwrap_or_else(|| "—".to_string());
+        let section = self.breadcrumb_section();
+        let mut bar = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(4.0))
+            .h(px(28.0))
+            .px(space(3))
+            .bg(palette.canvas)
+            .border_b_1()
+            .border_color(palette.line)
+            .text_size(px(12.0))
+            .text_color(palette.ink_3)
+            .child(div().child(workspace));
+        if let Some((_route_id, title_key, menu, item_title)) = section {
+            let selected = self.breadcrumb_menu == Some(menu);
+            let button = |id: String,
+                          label: String,
+                          menu: BreadcrumbMenu,
+                          palette: &theme::Palette,
+                          cx: &mut Context<Self>| {
+                div()
+                    .id(id)
+                    .role(Role::Button)
+                    .px(space(1))
+                    .py(px(2.0))
+                    .rounded(px(RADIUS_SMALL))
+                    .text_color(if selected { palette.ink } else { palette.ink_2 })
+                    .bg(if selected { palette.soft } else { palette.card })
+                    .hover(|style| style.bg(palette.soft))
+                    .child(format!("{label} ▾"))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.toggle_breadcrumb_menu(menu, cx);
+                    }))
+            };
+            bar = bar.child(div().child("›")).child(button(
+                "breadcrumb-section".to_string(),
+                translate_registered(language, title_key).to_string(),
+                menu,
+                palette,
+                cx,
+            ));
+            if let Some(item_title) = item_title {
+                bar = bar.child(div().child("›")).child(button(
+                    "breadcrumb-item".to_string(),
+                    item_title,
+                    menu,
+                    palette,
+                    cx,
+                ));
+            }
+        }
+        bar.into_any_element()
+    }
+
+    fn render_breadcrumb_menu(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        menu: BreadcrumbMenu,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let rows: Vec<AnyElement> = match menu {
+            BreadcrumbMenu::Events => {
+                let items = self.events.items().to_vec();
+                if items.is_empty() {
+                    vec![div()
+                        .px(space(1))
+                        .py(px(4.0))
+                        .text_color(palette.ink_3)
+                        .child(translate(language, Key::EventsListLoading))
+                        .into_any_element()]
+                } else {
+                    items
+                        .iter()
+                        .map(|event| {
+                            let event_id = event.id.clone();
+                            div()
+                                .id(format!("breadcrumb-event-{}", event.id))
+                                .px(space(1))
+                                .py(px(4.0))
+                                .rounded(px(RADIUS_SMALL))
+                                .text_size(px(12.0))
+                                .text_color(palette.ink_2)
+                                .hover(|style| style.bg(palette.soft))
+                                .child(event.title.clone())
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.navigate_to_event_detail(&event_id);
+                                    this.breadcrumb_menu = None;
+                                    cx.notify();
+                                }))
+                                .into_any_element()
+                        })
+                        .collect()
+                }
+            }
+            BreadcrumbMenu::Courses => {
+                let items = self.courses.items().to_vec();
+                if items.is_empty() {
+                    vec![div()
+                        .px(space(1))
+                        .py(px(4.0))
+                        .text_color(palette.ink_3)
+                        .child(translate(language, Key::CoursesCatalogLoading))
+                        .into_any_element()]
+                } else {
+                    items
+                        .iter()
+                        .map(|course| {
+                            let course_id = course.id.clone();
+                            div()
+                                .id(format!("breadcrumb-course-{}", course.id))
+                                .px(space(1))
+                                .py(px(4.0))
+                                .rounded(px(RADIUS_SMALL))
+                                .text_size(px(12.0))
+                                .text_color(palette.ink_2)
+                                .hover(|style| style.bg(palette.soft))
+                                .child(course.title.clone())
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.navigate(&format!("/courses/{course_id}"));
+                                    this.breadcrumb_menu = None;
+                                    cx.notify();
+                                }))
+                                .into_any_element()
+                        })
+                        .collect()
+                }
+            }
+        };
+        div()
+            .id("breadcrumb-menu")
+            .absolute()
+            .top(px(72.0))
+            .left(px(260.0))
+            .w(px(340.0))
+            .max_h(px(340.0))
+            .flex()
+            .flex_col()
+            .gap(px(1.0))
+            .p(space(1))
+            .rounded(px(RADIUS_MEDIUM))
+            .border_1()
+            .border_color(palette.line_strong)
+            .bg(palette.card)
+            .occlude()
+            .overflow_y_scroll()
+            .children(rows)
+            .into_any_element()
+    }
+
+    fn render_top_nav(
+        &self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let current_id = self
+            .current
+            .as_ref()
+            .map(|route_match| route_match.route.id);
+        self.registry
+            .routes()
+            .iter()
+            .filter(|route| {
+                route.nav
+                    && route.id != "app.settings"
+                    && !route.has_dynamic_segment()
+                    && (route.path == "/" || route.path.trim_matches('/').split('/').count() == 1)
+            })
+            .map(|route| {
+                let route = *route;
+                let selected = current_id.is_some_and(|id| {
+                    id == route.id
+                        || id
+                            .strip_prefix(route.id)
+                            .is_some_and(|rest| rest.starts_with('.'))
+                });
+                div()
+                    .id(format!("top-nav-{}", route.id))
+                    .role(Role::Link)
+                    .aria_label(translate_registered(language, route.title_key))
+                    .px(space(2))
+                    .py(px(4.0))
+                    .rounded(px(RADIUS_MEDIUM))
+                    .text_size(px(13.0))
+                    .text_color(if selected { palette.ink } else { palette.ink_3 })
+                    .bg(if selected { palette.soft } else { palette.card })
+                    .hover(|style| style.bg(palette.soft))
+                    .child(translate_registered(language, route.title_key))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.select(route);
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            })
+            .collect()
+    }
+
+    fn toggle_agent_panel(&mut self, cx: &mut Context<Self>) {
+        self.agent_panel_open = !self.agent_panel_open;
+        cx.notify();
+    }
+
+    fn is_agent_panel_shortcut(keystroke: &Keystroke) -> bool {
+        keystroke.key.eq_ignore_ascii_case("a")
+            && keystroke.modifiers.shift
+            && (keystroke.modifiers.platform || keystroke.modifiers.control)
+    }
+
+    fn render_agent_panel(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let learning = self
+            .current
+            .as_ref()
+            .is_some_and(|route_match| route_match.route.id == "courses.learning");
+        div()
+            .id("agent-panel-dock")
+            .w(px(440.0))
+            .flex_none()
+            .h_full()
+            .p(space(2))
+            .border_l_1()
+            .border_color(palette.line)
+            .bg(palette.canvas)
+            .child(if learning {
+                self.render_chat_panel(language, palette, cx)
+            } else {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(space(2))
+                    .text_size(px(12.0))
+                    .text_color(palette.ink_3)
+                    .child(translate(language, Key::AgentChatPanelTitle))
+                    .child(translate(language, Key::CoursesLearningContextRequired))
+                    .into_any_element()
+            })
+            .into_any_element()
+    }
+
     fn handle_shell_key(
         &mut self,
         event: &KeyDownEvent,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if Self::is_agent_panel_shortcut(&event.keystroke) {
+            self.toggle_agent_panel(cx);
+            return;
+        }
         if Self::is_settings_shortcut(&event.keystroke) {
             self.open_settings_window(cx);
             return;
@@ -2453,6 +2782,9 @@ impl Render for RootView {
             if current_id != Some("courses.learning") && self.chat.host.is_some() {
                 self.reset_chat_local();
             }
+            if current_id != Some("courses.learning") {
+                self.agent_panel_open = false;
+            }
             if workspaces_ready
                 && current_id == Some("courses.learning")
                 && matches!(self.course_detail.state(), CoursesListState::Ready)
@@ -2772,12 +3104,14 @@ impl Render for RootView {
                         .child(div().w(px(1.0)).h(px(14.0)).bg(palette.line))
                         .child(workspace_switcher)
                         .child(div().w(px(1.0)).h(px(14.0)).bg(palette.line))
-                        .child(div().text_color(palette.ink_3).child(match &self.current {
-                            Some(route_match) => {
-                                translate_registered(language, route_match.route.title_key)
-                            }
-                            None => translate(language, Key::AppNavLabel),
-                        }))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(px(2.0))
+                                .children(self.render_top_nav(language, &palette, cx)),
+                        )
                         .child(div().flex_1())
                         .child(
                             div().relative().flex().items_center().child(
@@ -2805,46 +3139,60 @@ impl Render for RootView {
                             ),
                         ),
                 )
+                .child(self.render_breadcrumb_bar(language, &palette, cx))
                 .child(
                     div()
-                        .id("content-scroll")
+                        .flex()
+                        .flex_row()
                         .flex_1()
+                        .min_h(px(0.0))
                         .w_full()
-                        .p(space(6))
-                        .overflow_y_scroll()
                         .child(
-                            if matches!(self.workspaces.state(), WorkspaceListState::Empty) {
-                                self.render_workspace_empty(language, &palette)
-                            } else {
-                                match self
-                                    .current
-                                    .as_ref()
-                                    .map(|route_match| route_match.route.id)
-                                {
-                                    Some("events.list") => {
-                                        self.render_events_list(language, &palette, cx)
-                                    }
-                                    Some("events.detail") => {
-                                        self.render_detail(language, &palette, cx)
-                                    }
-                                    Some("events.mine") => {
-                                        self.render_enrollments_list(language, &palette, cx)
-                                    }
-                                    Some("app.settings") => {
-                                        self.render_settings(language, &palette, cx)
-                                    }
-                                    Some("courses.catalog") => {
-                                        self.render_courses_list(language, &palette, cx)
-                                    }
-                                    Some("courses.detail") => {
-                                        self.render_course_detail(language, &palette, cx)
-                                    }
-                                    Some("courses.learning") => {
-                                        self.render_course_learning(language, &palette, cx)
-                                    }
-                                    _ => self.render_content(language, &palette, cx),
-                                }
-                            },
+                            div()
+                                .id("content-scroll")
+                                .flex_1()
+                                .min_w(px(0.0))
+                                .p(space(6))
+                                .overflow_y_scroll()
+                                .child(
+                                    if matches!(self.workspaces.state(), WorkspaceListState::Empty)
+                                    {
+                                        self.render_workspace_empty(language, &palette)
+                                    } else {
+                                        match self
+                                            .current
+                                            .as_ref()
+                                            .map(|route_match| route_match.route.id)
+                                        {
+                                            Some("events.list") => {
+                                                self.render_events_list(language, &palette, cx)
+                                            }
+                                            Some("events.detail") => {
+                                                self.render_detail(language, &palette, cx)
+                                            }
+                                            Some("events.mine") => {
+                                                self.render_enrollments_list(language, &palette, cx)
+                                            }
+                                            Some("app.settings") => {
+                                                self.render_settings(language, &palette, cx)
+                                            }
+                                            Some("courses.catalog") => {
+                                                self.render_courses_list(language, &palette, cx)
+                                            }
+                                            Some("courses.detail") => {
+                                                self.render_course_detail(language, &palette, cx)
+                                            }
+                                            Some("courses.learning") => {
+                                                self.render_course_learning(language, &palette, cx)
+                                            }
+                                            _ => self.render_content(language, &palette, cx),
+                                        }
+                                    },
+                                ),
+                        )
+                        .children(
+                            self.agent_panel_open
+                                .then(|| self.render_agent_panel(language, &palette, cx)),
                         ),
                 )
                 .child(self.render_footer(
@@ -2859,6 +3207,9 @@ impl Render for RootView {
                     &palette,
                     cx,
                 ));
+            if let Some(menu) = self.breadcrumb_menu {
+                root = root.child(self.render_breadcrumb_menu(language, &palette, menu, cx));
+            }
             if account_menu {
                 root = root.child(self.render_account_menu(
                     language,
@@ -2948,71 +3299,6 @@ impl RootView {
                     .on_click(cx.listener(|this, _, _, cx| this.sign_out(cx))),
             )
             .into_any_element()
-    }
-
-    fn render_nav_items(
-        &self,
-        language: Language,
-        palette: &theme::Palette,
-        cx: &mut Context<Self>,
-    ) -> Vec<AnyElement> {
-        let current_id = self
-            .current
-            .as_ref()
-            .map(|route_match| route_match.route.id);
-        self.registry
-            .routes()
-            .iter()
-            .filter(|route| {
-                !route.has_dynamic_segment()
-                    && route.id != "app.settings"
-                    && (route.path == "/" || route.path.trim_matches('/').split('/').count() == 1)
-            })
-            .enumerate()
-            .map(|(index, route)| {
-                let route = *route;
-                let selected = current_id.is_some_and(|id| {
-                    id == route.id
-                        || id
-                            .strip_prefix(route.id)
-                            .is_some_and(|rest| rest.starts_with('.'))
-                });
-                let label = translate_registered(language, route.title_key);
-                div()
-                    .id(format!("footer-nav-{}", route.id))
-                    .role(Role::Link)
-                    .aria_label(label)
-                    .aria_selected(selected)
-                    .aria_keyshortcuts(format!("Control+{}", index + 1))
-                    .size(px(22.0))
-                    .rounded(px(RADIUS_MEDIUM))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_color(if selected {
-                        palette.accent
-                    } else {
-                        palette.ink_3
-                    })
-                    .hover(|style| style.bg(palette.soft))
-                    .child(
-                        Icon::default()
-                            .path(nav_icon(route.icon).path())
-                            .text_color(if selected {
-                                palette.accent
-                            } else {
-                                palette.ink_3
-                            })
-                            .small(),
-                    )
-                    .tooltip(move |_, cx| cx.new(|_| TooltipText { text: label.into() }).into())
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.select(route);
-                        cx.notify();
-                    }))
-                    .into_any_element()
-            })
-            .collect()
     }
 
     fn render_content(
@@ -3642,13 +3928,16 @@ impl RootView {
                     String::new()
                 };
                 div()
+                    .flex_1()
+                    .min_h(px(0.0))
                     .flex()
                     .flex_col()
                     .gap(space(2))
                     .child(
                         div()
                             .id("chat-messages")
-                            .max_h(px(360.0))
+                            .flex_1()
+                            .min_h(px(120.0))
                             .overflow_y_scroll()
                             .flex()
                             .flex_col()
@@ -3828,37 +4117,26 @@ impl RootView {
                 self.chat
                     .sessions
                     .iter()
-                    .take(5)
+                    .take(10)
                     .map(|session| {
                         let session_id = session.session_id.clone();
+                        let title = session.title.clone().unwrap_or_else(|| {
+                            let short = session.session_id.chars().take(10).collect::<String>();
+                            format!("{short}…")
+                        });
                         div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .justify_between()
-                            .gap(space(1))
+                            .id(format!("chat-restore-{}", session.session_id))
+                            .w_full()
                             .px(space(1))
-                            .py(px(2.0))
+                            .py(px(3.0))
                             .rounded(px(RADIUS_SMALL))
                             .text_size(px(11.0))
                             .text_color(palette.ink_2)
-                            .child(
-                                session
-                                    .title
-                                    .clone()
-                                    .unwrap_or_else(|| session.session_id.clone()),
-                            )
-                            .child(
-                                div()
-                                    .id(format!("chat-restore-{}", session.session_id))
-                                    .px(space(1))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .bg(palette.soft)
-                                    .child(translate(language, Key::AgentChatChatRestore))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.restore_chat_session(session_id.clone(), cx);
-                                    })),
-                            )
+                            .hover(|style| style.bg(palette.soft))
+                            .child(title)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.restore_chat_session(session_id.clone(), cx);
+                            }))
                             .into_any_element()
                     })
                     .collect()
@@ -3866,58 +4144,140 @@ impl RootView {
         } else {
             Vec::new()
         };
-        div()
-            .mt(space(4))
+        let status_color = match &phase {
+            ChatPhase::Ready | ChatPhase::Streaming => palette.accent,
+            ChatPhase::Failed(_) => palette.danger,
+            _ => palette.ink_3,
+        };
+        let thread_sidebar = self.chat.show_sessions.then(|| {
+            div()
+                .w(px(170.0))
+                .flex_none()
+                .flex()
+                .flex_col()
+                .gap(space(1))
+                .pr(space(1))
+                .border_r_1()
+                .border_color(palette.line)
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .justify_between()
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_3)
+                        .child(translate(language, Key::AgentChatChatThreads))
+                        .child(
+                            div()
+                                .id("chat-hide-history")
+                                .px(space(1))
+                                .rounded(px(RADIUS_SMALL))
+                                .hover(|style| style.bg(palette.soft))
+                                .child("×")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.chat.show_sessions = false;
+                                    cx.notify();
+                                })),
+                        ),
+                )
+                .child(
+                    div()
+                        .id("chat-thread-list")
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.0))
+                        .overflow_y_scroll()
+                        .children(history_rows),
+                )
+                .into_any_element()
+        });
+        let toolbar = div()
             .flex()
-            .flex_col()
+            .flex_row()
+            .items_center()
             .gap(space(1))
+            .child(div().size(px(6.0)).rounded_full().bg(status_color))
+            .child(
+                div()
+                    .text_size(px(15.0))
+                    .text_color(palette.ink)
+                    .child(translate_registered(language, "agent_chat.panel.title")),
+            )
+            .child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(palette.ink_3)
+                    .child(format!("{agent_label}{version}")),
+            )
+            .child(div().flex_1())
+            .child(
+                div()
+                    .id("chat-new-toolbar")
+                    .role(Role::Button)
+                    .aria_label(translate(language, Key::AgentChatChatNew))
+                    .px(space(1))
+                    .py(px(3.0))
+                    .rounded(px(RADIUS_SMALL))
+                    .text_size(px(11.0))
+                    .text_color(palette.accent)
+                    .hover(|style| style.bg(palette.soft))
+                    .child(translate(language, Key::AgentChatChatNew))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(course_id) = this.chat.course_id.clone() {
+                            clear_chat_pointer(&course_id);
+                        }
+                        this.reset_chat_local();
+                        this.start_chat(cx);
+                    })),
+            )
+            .child(
+                div()
+                    .id("chat-history-toolbar")
+                    .role(Role::Button)
+                    .aria_label(translate(language, Key::AgentChatChatHistory))
+                    .px(space(1))
+                    .py(px(3.0))
+                    .rounded(px(RADIUS_SMALL))
+                    .text_size(px(11.0))
+                    .text_color(if self.chat.show_sessions {
+                        palette.ink
+                    } else {
+                        palette.accent
+                    })
+                    .bg(if self.chat.show_sessions {
+                        palette.soft
+                    } else {
+                        palette.card
+                    })
+                    .child(translate(language, Key::AgentChatChatHistory))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.open_chat_history(cx);
+                    })),
+            );
+        div()
+            .flex()
+            .flex_row()
+            .items_stretch()
+            .gap(space(1))
+            .h_full()
             .p(space(2))
             .rounded(px(RADIUS_MEDIUM))
             .border_1()
             .border_color(palette.line)
             .bg(palette.card)
+            .children(thread_sidebar)
             .child(
                 div()
                     .flex()
-                    .flex_row()
-                    .items_center()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .flex_col()
                     .gap(space(1))
-                    .child(
-                        div()
-                            .text_size(px(15.0))
-                            .text_color(palette.ink)
-                            .child(translate_registered(language, "agent_chat.panel.title")),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_3)
-                            .child(format!("{agent_label}{version}")),
-                    )
-                    .child(div().flex_1())
-                    .children(
-                        (!matches!(phase, ChatPhase::Idle | ChatPhase::Starting)).then(|| {
-                            div()
-                                .id("chat-history")
-                                .role(Role::Button)
-                                .aria_label(translate(language, Key::AgentChatChatHistory))
-                                .role(Role::Button)
-                                .aria_label(translate(language, Key::AgentChatChatHistory))
-                                .role(Role::Button)
-                                .aria_label(translate(language, Key::AgentChatChatHistory))
-                                .text_size(px(11.0))
-                                .text_color(palette.accent)
-                                .child(translate(language, Key::AgentChatChatHistory))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.open_chat_history(cx);
-                                }))
-                                .into_any_element()
-                        }),
-                    ),
+                    .child(toolbar)
+                    .children(config_rows)
+                    .child(body),
             )
-            .children(config_rows)
-            .children(history_rows)
-            .child(body)
             .into_any_element()
     }
 
@@ -5294,7 +5654,6 @@ impl RootView {
                         )
                         .child(self.render_learning_projection(language, palette, cx))
                         .child(self.render_course_materials(language, palette, cx))
-                        .child(self.render_chat_panel(language, palette, cx))
                         .into_any_element(),
                     Err(_) => div()
                         .px(space(2))
@@ -5546,83 +5905,127 @@ impl RootView {
         palette: &theme::Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        // 左侧：一级导航图标；右侧：主题/语言工具。版本号只放设置/关于，不进 footer。
+        let shortcut = if cfg!(target_os = "macos") {
+            "⌘⇧A"
+        } else {
+            "Ctrl+Shift+A"
+        };
+        let agent_toggle = include_nav.then(|| {
+            div()
+                .id("agent-panel-toggle")
+                .role(Role::Button)
+                .aria_label(translate(language, Key::AgentChatPanelTitle))
+                .size(px(22.0))
+                .rounded(px(RADIUS_MEDIUM))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(if self.agent_panel_open {
+                    palette.accent
+                } else {
+                    palette.ink_3
+                })
+                .hover(|style| style.bg(palette.soft))
+                .child(
+                    Icon::default()
+                        .path(nav_icon(NavIcon::Companion).path())
+                        .text_color(if self.agent_panel_open {
+                            palette.accent
+                        } else {
+                            palette.ink_3
+                        })
+                        .small(),
+                )
+                .tooltip(move |_, cx| {
+                    cx.new(|_| TooltipText {
+                        text: format!(
+                            "{} · {shortcut}",
+                            translate(language, Key::AgentChatPanelTitle)
+                        )
+                        .into(),
+                    })
+                    .into()
+                })
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.toggle_agent_panel(cx);
+                }))
+                .into_any_element()
+        });
         div()
             .flex()
             .flex_row()
             .items_center()
             .h(px(30.0))
             .px(space(2))
-            .gap(px(2.0))
             .bg(palette.frame)
             .border_t_1()
             .border_color(palette.line)
             .text_size(px(12.0))
-            .children(if include_nav {
-                self.render_nav_items(language, palette, cx)
-            } else {
-                Vec::new()
-            })
-            .child(
-                div()
-                    .id("theme-toggle")
-                    .size(px(22.0))
-                    .rounded(px(RADIUS_MEDIUM))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_color(palette.ink_3)
-                    .hover(|style| style.bg(palette.soft))
-                    .child(
-                        Icon::default()
-                            .path(theme_icon.path())
-                            .text_color(palette.ink_3)
-                            .small(),
-                    )
-                    .tooltip(move |_, cx| {
-                        cx.new(|_| TooltipText {
-                            text: format!("{theme_tooltip} · {theme_label}").into(),
-                        })
-                        .into()
-                    })
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        let preference = this.cycle_theme();
-                        let mode = theme::resolve(preference, window.appearance());
-                        theme::apply(mode, cx);
-                        cx.notify();
-                    })),
-            )
-            .child(
-                div()
-                    .id("language-toggle")
-                    .size(px(22.0))
-                    .rounded(px(RADIUS_MEDIUM))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_color(palette.ink_3)
-                    .hover(|style| style.bg(palette.soft))
-                    .child(
-                        Icon::default()
-                            .path(language_icon.path())
-                            .text_color(palette.ink_3)
-                            .small(),
-                    )
-                    .tooltip(move |_, cx| {
-                        cx.new(|_| TooltipText {
-                            text: format!("{language_tooltip} · {language_label}").into(),
-                        })
-                        .into()
-                    })
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.toggle_language();
-                        cx.notify();
-                    })),
-            )
+            .children(agent_toggle)
             .child(div().flex_1())
             .child(
                 div()
-                    .text_color(palette.ink_3)
-                    .child(concat!("v", env!("CARGO_PKG_VERSION"))),
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(2.0))
+                    .child(
+                        div()
+                            .id("theme-toggle")
+                            .size(px(22.0))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_color(palette.ink_3)
+                            .hover(|style| style.bg(palette.soft))
+                            .child(
+                                Icon::default()
+                                    .path(theme_icon.path())
+                                    .text_color(palette.ink_3)
+                                    .small(),
+                            )
+                            .tooltip(move |_, cx| {
+                                cx.new(|_| TooltipText {
+                                    text: format!("{theme_tooltip} · {theme_label}").into(),
+                                })
+                                .into()
+                            })
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                let preference = this.cycle_theme();
+                                let mode = theme::resolve(preference, window.appearance());
+                                theme::apply(mode, cx);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("language-toggle")
+                            .size(px(22.0))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_color(palette.ink_3)
+                            .hover(|style| style.bg(palette.soft))
+                            .child(
+                                Icon::default()
+                                    .path(language_icon.path())
+                                    .text_color(palette.ink_3)
+                                    .small(),
+                            )
+                            .tooltip(move |_, cx| {
+                                cx.new(|_| TooltipText {
+                                    text: format!("{language_tooltip} · {language_label}").into(),
+                                })
+                                .into()
+                            })
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.toggle_language();
+                                cx.notify();
+                            })),
+                    ),
             )
             .into_any_element()
     }
@@ -5920,7 +6323,7 @@ fn hsla_white() -> Hsla {
 
 #[cfg(test)]
 mod tests {
-    use super::RootView;
+    use super::{BreadcrumbMenu, RootView};
     use crate::i18n::{translate, Key, Language};
     use crate::registration::build_registry;
     use crate::theme::ThemePreference;
@@ -5948,6 +6351,21 @@ mod tests {
             ThemePreference::System,
             session,
         )
+    }
+
+    #[test]
+    fn breadcrumb_sections_follow_route() {
+        let mut view = view();
+        view.navigate("/events");
+        assert!(matches!(
+            view.breadcrumb_section().map(|section| section.2),
+            Some(BreadcrumbMenu::Events)
+        ));
+        view.navigate("/courses/00dcc9a9-3876-4018-ab52-bcf1f0e4e05c/learn");
+        assert!(matches!(
+            view.breadcrumb_section().map(|section| section.2),
+            Some(BreadcrumbMenu::Courses)
+        ));
     }
 
     #[test]

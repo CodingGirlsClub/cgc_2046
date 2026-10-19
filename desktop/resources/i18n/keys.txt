@@ -187,3 +187,5 @@ app.auth.error.reset
 app.settings.close
 app.settings.shortcut_hint
 app.settings.revoked
+agent_chat.chat.threads
+agent_chat.chat.hide

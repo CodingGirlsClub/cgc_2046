@@ -186,3 +186,5 @@ app.auth.error.reset = 重置令牌无效或已过期
 app.settings.close = 关闭
 app.settings.shortcut_hint = 快捷键打开设置
 app.settings.revoked = 已撤销，请重新登录
+agent_chat.chat.threads = 对话
+agent_chat.chat.hide = 收起
