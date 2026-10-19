@@ -1,4 +1,6 @@
-//! 应用外壳：左侧导航（聚合注册路由）+ 右侧当前路由占位页 + 主题/语言切换。
+//! 应用外壳：顶部 header（品牌 + 一级导航，聚合注册路由）+ 内容区 + 底部 footer
+//! （status bar：主题/语言/版本）。布局参考 Zed：一级入口在顶部 tab bar，工具与
+//! 状态按钮在底部 status bar，左右 side panel 留给后续上下文面板（dock）。
 //!
 //! 颜色与间距来自 `theme` 的设计 token（story 1.2）；文案来自 `i18n`（story 1.3）；
 //! 导航项完全由 `registration` 聚合出的注册表驱动（story 1.4）——
@@ -8,7 +10,7 @@ use gpui_kit::*;
 
 use crate::i18n::{default_language, translate, Language};
 use crate::routing::{Route, RouteRegistry};
-use crate::theme::{self, space, ThemePreference, RADIUS_MEDIUM, RADIUS_SMALL};
+use crate::theme::{self, space, ThemePreference, RADIUS_MEDIUM};
 
 pub struct RootView {
     registry: RouteRegistry,
@@ -62,6 +64,7 @@ impl Render for RootView {
         let language = self.language;
         let current = self.current;
 
+        // 顶部 header：品牌 + 一级导航（domain 注册表驱动）。
         let nav_items = self
             .registry
             .routes()
@@ -69,13 +72,12 @@ impl Render for RootView {
             .map(|route| {
                 let route = *route;
                 let selected = current.is_some_and(|current| current.id == route.id);
-                let item = div()
+                let tab = div()
                     .id(route.id)
                     .flex()
                     .items_center()
-                    .h(px(34.0))
-                    .px(space(1))
-                    .rounded(px(RADIUS_SMALL))
+                    .h_full()
+                    .px(space(2))
                     .text_color(if selected { palette.ink } else { palette.ink_2 })
                     .child(translate(language, route.title_key))
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -83,9 +85,9 @@ impl Render for RootView {
                         cx.notify();
                     }));
                 if selected {
-                    item.bg(palette.soft)
+                    tab.border_b_2().border_color(palette.accent)
                 } else {
-                    item
+                    tab
                 }
             })
             .collect::<Vec<_>>();
@@ -136,78 +138,84 @@ impl Render for RootView {
             },
         );
 
+        // 顶部：Zed 的 tab bar / toolbar 位置放一级导航；底部：Zed 的 status bar
+        // 位置放主题、语言等工具按钮（status_bar.rs 里侧栏开关同样在底部状态栏）。
         div()
             .size_full()
             .flex()
-            .flex_row()
+            .flex_col()
             .bg(palette.canvas)
             .text_color(palette.ink)
             .text_size(px(14.0))
             .child(
                 div()
                     .flex()
-                    .flex_col()
-                    .w(px(220.0))
-                    .h_full()
-                    .p(space(4))
+                    .flex_row()
+                    .items_center()
+                    .h(px(48.0))
+                    .px(space(3))
                     .gap(space(1))
                     .bg(palette.frame)
-                    .border_r_1()
+                    .border_b_1()
                     .border_color(palette.line)
                     .child(
                         div()
-                            .text_size(px(17.0))
+                            .text_size(px(15.0))
                             .text_color(palette.ink)
                             .child(translate(language, "app.name")),
                     )
+                    .child(div().w(space(2)))
+                    .children(nav_items)
+                    .child(div().flex_1()),
+            )
+            .child(div().flex_1().w_full().p(space(6)).child(content))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .h(px(30.0))
+                    .px(space(2))
+                    .gap(space(1))
+                    .bg(palette.frame)
+                    .border_t_1()
+                    .border_color(palette.line)
+                    .text_size(px(12.0))
                     .child(
                         div()
-                            .mt(space(2))
-                            .text_size(px(11.0))
+                            .id("theme-toggle")
+                            .px(space(1))
+                            .py(px(2.0))
+                            .rounded(px(RADIUS_MEDIUM))
                             .text_color(palette.ink_3)
-                            .child(translate(language, "app.nav.label")),
+                            .child(theme_label)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                let preference = this.cycle_theme();
+                                let mode = theme::resolve(preference, window.appearance());
+                                theme::apply(mode, cx);
+                                cx.notify();
+                            })),
                     )
-                    .children(nav_items)
+                    .child(
+                        div()
+                            .id("language-toggle")
+                            .px(space(1))
+                            .py(px(2.0))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .text_color(palette.ink_3)
+                            .child(language_label)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.toggle_language();
+                                cx.notify();
+                            })),
+                    )
                     .child(div().flex_1())
                     .child(
                         div()
-                            .flex()
-                            .gap(space(1))
-                            .child(
-                                div()
-                                    .id("theme-toggle")
-                                    .px(space(1))
-                                    .py(px(6.0))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .border_1()
-                                    .border_color(palette.line_strong)
-                                    .text_color(palette.ink_2)
-                                    .child(theme_label)
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        let preference = this.cycle_theme();
-                                        let mode = theme::resolve(preference, window.appearance());
-                                        theme::apply(mode, cx);
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(
-                                div()
-                                    .id("language-toggle")
-                                    .px(space(1))
-                                    .py(px(6.0))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .border_1()
-                                    .border_color(palette.line_strong)
-                                    .text_color(palette.ink_2)
-                                    .child(language_label)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.toggle_language();
-                                        cx.notify();
-                                    })),
-                            ),
+                            .text_color(palette.ink_3)
+                            .child(concat!("v", env!("CARGO_PKG_VERSION"))),
                     ),
             )
-            .child(div().flex_1().h_full().p(space(6)).child(content))
     }
 }
 
