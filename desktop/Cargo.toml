@@ -1,13 +1,13 @@
 [workspace]
 resolver = "2"
 members = [
-  "app",
-  "features/account",
-  "features/events",
-  "features/courses",
-  "features/companion",
-  "platform",
-  "platform-os",
+  "crates/app",
+  "crates/account",
+  "crates/events",
+  "crates/courses",
+  "crates/companion",
+  "crates/platform",
+  "crates/platform-os",
 ]
 
 [workspace.package]
@@ -18,9 +18,9 @@ rust-version = "1.92"
 
 [workspace.dependencies]
 gpui-kit = "0.7.3"
-cgc-feature-account = { path = "features/account" }
-cgc-feature-events = { path = "features/events" }
-cgc-feature-courses = { path = "features/courses" }
-cgc-feature-companion = { path = "features/companion" }
-cgc-platform = { path = "platform" }
-cgc-platform-os = { path = "platform-os" }
+cgc-account = { path = "crates/account" }
+cgc-events = { path = "crates/events" }
+cgc-courses = { path = "crates/courses" }
+cgc-companion = { path = "crates/companion" }
+cgc-platform = { path = "crates/platform" }
+cgc-platform-os = { path = "crates/platform-os" }

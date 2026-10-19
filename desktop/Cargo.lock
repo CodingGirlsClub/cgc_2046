@@ -794,6 +794,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
+name = "cgc-account"
+version = "0.0.1"
+
+[[package]]
+name = "cgc-companion"
+version = "0.0.1"
+
+[[package]]
+name = "cgc-courses"
+version = "0.0.1"
+
+[[package]]
 name = "cgc-desktop-app"
 version = "0.0.1"
 dependencies = [
@@ -801,19 +813,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cgc-feature-account"
-version = "0.0.1"
-
-[[package]]
-name = "cgc-feature-companion"
-version = "0.0.1"
-
-[[package]]
-name = "cgc-feature-courses"
-version = "0.0.1"
-
-[[package]]
-name = "cgc-feature-events"
+name = "cgc-events"
 version = "0.0.1"
 
 [[package]]
