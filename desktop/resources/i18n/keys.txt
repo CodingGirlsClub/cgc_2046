@@ -23,3 +23,11 @@ app.account.menu
 app.account.signed_out
 app.theme.toggle
 app.language.toggle
+app.auth.sign_out
+app.auth.email
+app.auth.password
+app.auth.submit
+app.auth.error.invalid
+app.auth.error.network
+app.auth.signed_in_as
+app.auth.fake_hint

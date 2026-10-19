@@ -4,6 +4,8 @@
 //! 真实后端实现是 `HttpAuthApi`（GraphQL `signInForDesktop` / `revokeToken`）；
 //! 本地开发与测试用 `FakeAuthApi` + `MemoryStore`。
 
+use std::sync::Arc;
+
 mod auth_api;
 mod credential_store;
 
@@ -20,8 +22,8 @@ pub enum SessionState {
 }
 
 pub struct SessionService {
-    api: Box<dyn AuthApi + Send + Sync>,
-    store: Box<dyn CredentialStore + Send + Sync>,
+    api: Arc<dyn AuthApi + Send + Sync>,
+    store: Arc<dyn CredentialStore + Send + Sync>,
     state: SessionState,
 }
 
@@ -31,10 +33,56 @@ impl SessionService {
         store: Box<dyn CredentialStore + Send + Sync>,
     ) -> Self {
         Self {
-            api,
-            store,
+            api: Arc::from(api),
+            store: Arc::from(store),
             state: SessionState::SignedOut,
         }
+    }
+
+    /// 默认运行时装配：`CGC_AUTH=http`（或设置了 `CGC_API_URL`）走真实后端，
+    /// 否则用 fake auth（本地 UI 开发无需 backend）；凭证存 `FileStore`（默认路径）。
+    pub fn from_runtime() -> Self {
+        let use_http = std::env::var("CGC_AUTH").as_deref() == Ok("http")
+            || std::env::var("CGC_API_URL").is_ok();
+        let api: Box<dyn AuthApi + Send + Sync> = if use_http {
+            Box::new(HttpAuthApi::from_env())
+        } else {
+            Box::new(FakeAuthApi::demo())
+        };
+        let store = Box::new(FileStore::new(FileStore::default_path()));
+        Self::new(api, store).restore()
+    }
+
+    /// 后台线程用：克隆一份 api 句柄（阻塞调用不占 UI 线程）。
+    pub fn api_handle(&self) -> Arc<dyn AuthApi + Send + Sync> {
+        Arc::clone(&self.api)
+    }
+
+    pub fn begin_sign_in(&mut self) {
+        self.state = SessionState::SigningIn;
+    }
+
+    /// 登录成功回填（由后台结果调用）：持久化并转 SignedIn。
+    pub fn adopt_signed_in(&mut self, session: SignedInSession) -> Result<(), AuthError> {
+        if let Err(err) = self.store.save(&session) {
+            self.state = SessionState::Failed(format!("cannot persist session: {err}"));
+            return Err(AuthError::Server("cannot persist session".to_string()));
+        }
+        self.state = SessionState::SignedIn(session);
+        Ok(())
+    }
+
+    /// 登录失败回填：保留 Failed 诊断，UI 显示统一错误。
+    pub fn fail_sign_in(&mut self, error: &AuthError) {
+        self.state = SessionState::Failed(error.diagnostic());
+    }
+
+    /// 立即本地登出（清存储/状态），返回被撤销的 token 供后台 best-effort 撤销。
+    pub fn sign_out_local(&mut self) -> Option<String> {
+        let token = self.signed_in().map(|session| session.token.clone());
+        let _ = self.store.clear();
+        self.state = SessionState::SignedOut;
+        token
     }
 
     /// 启动时尝试从存储恢复（重启后仍登录）。

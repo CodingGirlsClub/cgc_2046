@@ -88,6 +88,7 @@ pub struct Palette {
     pub line: Hsla,
     pub line_strong: Hsla,
     pub soft: Hsla,
+    pub danger: Hsla,
 }
 
 /// 间距刻度：web 的 `globals.css` 没有 spacing token，实际用的是 Tailwind 默认
@@ -133,6 +134,7 @@ fn dark() -> Palette {
         line: alpha(0xff_ff_ff, 0.08),
         line_strong: alpha(0xff_ff_ff, 0.15),
         soft: alpha(0xff_ff_ff, 0.05),
+        danger: col(0xeb_57_57),
     }
 }
 
@@ -151,6 +153,7 @@ fn light() -> Palette {
         line: alpha(0x00_00_00, 0.08),
         line_strong: alpha(0x00_00_00, 0.15),
         soft: alpha(0x00_00_00, 0.05),
+        danger: col(0xeb_57_57),
     }
 }
 
@@ -218,6 +221,7 @@ mod tests {
         assert_eq!(p.line, alpha(0xff_ff_ff, 0.08));
         assert_eq!(p.line_strong, alpha(0xff_ff_ff, 0.15));
         assert_eq!(p.soft, alpha(0xff_ff_ff, 0.05));
+        assert_eq!(p.danger, col(0xeb_57_57));
     }
 
     #[test]
@@ -236,6 +240,7 @@ mod tests {
         assert_eq!(p.line, alpha(0x00_00_00, 0.08));
         assert_eq!(p.line_strong, alpha(0x00_00_00, 0.15));
         assert_eq!(p.soft, alpha(0x00_00_00, 0.05));
+        assert_eq!(p.danger, col(0xeb_57_57));
     }
 
     #[test]
