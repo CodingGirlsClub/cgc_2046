@@ -1139,8 +1139,10 @@ impl RootView {
                     };
                     let capacity = detail
                         .capacity
-                        .map(|capacity| format!("{}/{}", detail.confirmed_count, capacity))
-                        .unwrap_or_else(|| format!("{}/∞", detail.confirmed_count));
+                        .map(|capacity| {
+                            format!("{}/{}", detail.confirmed_count.unwrap_or(0), capacity)
+                        })
+                        .unwrap_or_else(|| "—".to_string());
 
                     div()
                         .flex()
@@ -1245,7 +1247,7 @@ impl RootView {
     ) -> AnyElement {
         let state = self.courses.state().clone();
         let items = self.courses.items().to_vec();
-        let has_more = self.courses.next_cursor().is_some();
+        let has_more = self.courses.has_more();
 
         let body: AnyElement = match state {
             CoursesListState::Idle | CoursesListState::Loading => div()
@@ -1625,7 +1627,7 @@ impl RootView {
         let filter = self.events.filter();
         let state = self.events.state().clone();
         let items = self.events.items().to_vec();
-        let has_more = self.events.next_cursor().is_some();
+        let has_more = self.events.has_more();
         let selected = self.selected_event.clone();
 
         let filters = StatusFilter::ALL
@@ -1739,14 +1741,15 @@ impl RootView {
                                     )
                                     .child(
                                         div().text_size(px(11.0)).text_color(palette.ink_3).child(
-                                            format!(
-                                                "{}/{}",
-                                                event.confirmed_count,
-                                                event
-                                                    .capacity
-                                                    .map(|capacity| capacity.to_string())
-                                                    .unwrap_or_else(|| "∞".to_string())
-                                            ),
+                                            match (event.confirmed_count, event.capacity) {
+                                                (Some(confirmed), Some(capacity)) => {
+                                                    format!("{confirmed}/{capacity}")
+                                                }
+                                                (Some(confirmed), None) => {
+                                                    format!("{confirmed}/∞")
+                                                }
+                                                _ => String::new(),
+                                            },
                                         ),
                                     ),
                             )

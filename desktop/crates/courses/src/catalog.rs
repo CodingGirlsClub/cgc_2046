@@ -18,7 +18,7 @@ query ListCourses($first: Int!, $after: String) {
   listCourses(first: $first, after: $after) {
     count
     endKeyset
-    results { id title status visibility capacity confirmedCount registrationDeadline startsAt endsAt pricingEnabled }
+    results { id title status visibility registrationDeadline startsAt endsAt pricingEnabled }
   }
 }
 "#;
@@ -26,7 +26,7 @@ query ListCourses($first: Int!, $after: String) {
 const GET_COURSE_QUERY: &str = r#"
 query GetCourse($id: ID!) {
   getCourse(id: $id) {
-    id title description status visibility enrollmentPolicy capacity confirmedCount
+    id workspaceId title description status visibility enrollmentPolicy
     registrationDeadline startsAt endsAt pricingEnabled availablePriceTiers
   }
 }
@@ -360,6 +360,7 @@ pub struct CourseCatalogService {
     next_cursor: Option<String>,
     state: CoursesListState,
     loading_more: bool,
+    total: Option<i64>,
 }
 
 impl CourseCatalogService {
@@ -370,6 +371,7 @@ impl CourseCatalogService {
             next_cursor: None,
             state: CoursesListState::Idle,
             loading_more: false,
+            total: None,
         }
     }
 
@@ -387,6 +389,13 @@ impl CourseCatalogService {
 
     pub fn next_cursor(&self) -> Option<&str> {
         self.next_cursor.as_deref()
+    }
+
+    pub fn has_more(&self) -> bool {
+        self.next_cursor.is_some()
+            && self
+                .total
+                .is_none_or(|total| self.items.len() < total as usize)
     }
 
     pub fn begin_first_load(&mut self) {
@@ -420,6 +429,7 @@ impl CourseCatalogService {
             self.items = page.items;
         }
         self.next_cursor = page.next_cursor;
+        self.total = page.total;
         self.state = if self.items.is_empty() {
             CoursesListState::Empty
         } else {
@@ -533,6 +543,20 @@ mod tests {
         assert!(matches!(failing.state(), CoursesListState::Failed(_)));
         failing.retry_ready();
         assert_eq!(failing.state(), &CoursesListState::Idle);
+    }
+
+    #[test]
+    fn has_more_uses_total_not_cursor() {
+        let mut service = catalog();
+        service.begin_first_load();
+        service.adopt_page(service.fetch(None).expect("page 1"));
+        assert!(service.has_more(), "15 items, first page of 10");
+
+        while service.next_cursor().is_some() {
+            service.begin_load_more();
+            service.adopt_page(service.fetch(None).expect("next page"));
+        }
+        assert!(!service.has_more(), "all items loaded");
     }
 
     #[test]

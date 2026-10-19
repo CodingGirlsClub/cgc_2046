@@ -20,8 +20,7 @@ query ListEvents($first: Int!, $after: String, $filter: EventFilterInput) {
       status
       visibility
       enrollmentPolicy
-      capacity
-      confirmedCount
+      enrollmentBadge
       registrationDeadline
       startsAt
       venue
@@ -65,7 +64,8 @@ pub struct EventSummary {
     pub visibility: String,
     pub enrollment_policy: String,
     pub capacity: Option<i64>,
-    pub confirmed_count: i64,
+    pub confirmed_count: Option<i64>,
+    pub enrollment_badge: Option<String>,
     pub registration_deadline: Option<String>,
     pub starts_at: Option<String>,
     pub venue: Option<String>,
@@ -151,10 +151,11 @@ impl HttpEventsApi {
                 .unwrap_or("open")
                 .to_string(),
             capacity: value.get("capacity").and_then(Value::as_i64),
-            confirmed_count: value
-                .get("confirmedCount")
-                .and_then(Value::as_i64)
-                .unwrap_or(0),
+            confirmed_count: value.get("confirmedCount").and_then(Value::as_i64),
+            enrollment_badge: value
+                .get("enrollmentBadge")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             registration_deadline: value
                 .get("registrationDeadline")
                 .and_then(Value::as_str)
@@ -184,8 +185,7 @@ query GetEvent($id: ID!) {
     status
     visibility
     enrollmentPolicy
-    capacity
-    confirmedCount
+    enrollmentBadge
     registrationDeadline
     startsAt
     endsAt
@@ -302,7 +302,16 @@ impl FakeEventsApi {
                 visibility: "public".to_string(),
                 enrollment_policy: "open".to_string(),
                 capacity: Some(30),
-                confirmed_count: (index as i64 * 3) % 30,
+                confirmed_count: Some((index as i64 * 3) % 30),
+                enrollment_badge: Some(
+                    match index % 4 {
+                        0 => "enrolling",
+                        1 => "starting_soon",
+                        2 => "closed",
+                        _ => "full",
+                    }
+                    .to_string(),
+                ),
                 registration_deadline: None,
                 starts_at: Some(format!("2026-11-{:02}T10:00:00Z", (index % 28) + 1)),
                 venue: Some(r#"{"city":"上海"}"#.to_string()),
@@ -449,6 +458,13 @@ impl EventListService {
         self.next_cursor.as_deref()
     }
 
+    pub fn has_more(&self) -> bool {
+        self.next_cursor.is_some()
+            && self
+                .total
+                .is_none_or(|total| self.items.len() < total as usize)
+    }
+
     pub fn filter(&self) -> StatusFilter {
         self.filter
     }
@@ -559,6 +575,20 @@ mod tests {
 
         assert!(!service.items().is_empty());
         assert!(service.items().iter().all(|event| event.status == "closed"));
+    }
+
+    #[test]
+    fn has_more_uses_total_not_cursor() {
+        let mut service = service();
+        service.begin_first_load();
+        service.adopt_page(service.fetch(None).expect("page 1"));
+        assert!(service.has_more(), "23 items, first page of 10");
+
+        while service.next_cursor().is_some() {
+            service.begin_load_more();
+            service.adopt_page(service.fetch(None).expect("next page"));
+        }
+        assert!(!service.has_more(), "all items loaded");
     }
 
     #[test]
