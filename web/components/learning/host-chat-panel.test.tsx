@@ -817,6 +817,24 @@ describe("历史对话（Session History）", () => {
 		expect(screen.getByText("旧会话的消息")).toBeInTheDocument();
 	});
 
+	it("会话标题：有 title 显示标题、时间·条数退到悬浮提示；没有 title 回退旧样式", async () => {
+		const ws = await readyV2();
+		fireEvent.click(screen.getByRole("button", { name: "历史对话" }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.sessions"));
+		await ws.reply("chat.sessions", "sessions", {
+			courseId: COURSE,
+			sessions: [
+				{ sessionId: "session-1", title: "第一段学习", updatedAt: "2026-10-15T02:00:00Z", messageCount: 4 },
+				{ sessionId: "session-2", title: null, updatedAt: "2026-10-16T02:00:00Z", messageCount: 2 },
+			],
+			current: "session-2",
+			nextCursor: null,
+		});
+		expect(await screen.findByText("第一段学习")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "第一段学习" })).toHaveAttribute("title", expect.stringContaining("4 条消息"));
+		expect(screen.getByRole("button", { name: /2 条消息/ })).toBeInTheDocument();
+	});
+
 	it("切换失败（session_unavailable）：下拉内就地提示，对话不变", async () => {
 		const ws = await readyV2();
 		fireEvent.click(screen.getByRole("button", { name: "历史对话" }));

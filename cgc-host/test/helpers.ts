@@ -239,7 +239,7 @@ export function fakeAgent() {
   const fake = {
     /** 测试取号：让不同段落的消息文案唯一 */
     seqHint: 0,
-    store: new Map<string, { cwd: string; history: acp.SessionUpdate[]; updatedAt: string }>(),
+    store: new Map<string, { cwd: string; history: acp.SessionUpdate[]; updatedAt: string; title?: string }>(),
     /** 会话列表页大小（>0 时启用分页游标） */
     listPageSize: 0,
     /** true 时 session/list 忽略 cwd 过滤（模拟不合规适配器），用于验证 Host 自己的二次校验 */
@@ -346,6 +346,7 @@ export function fakeAgent() {
             sessions: all.slice(offset, offset + size).map(([sessionId, s]) => ({
               sessionId,
               cwd: s.cwd,
+              ...(s.title ? { title: s.title } : {}),
               updatedAt: s.updatedAt,
               _meta: { messageCount: s.history.filter((h) => h.sessionUpdate === "user_message_chunk").length },
             })),

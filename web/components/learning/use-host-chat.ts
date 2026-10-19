@@ -88,7 +88,7 @@ export type ChatErrorCode = string;
 
 /** chat.sessions 的返回：本课程的历史对话（updatedAt / messageCount 缺省为 null，OMP 版本差异） */
 export interface SessionsPage {
-	sessions: { sessionId: string; updatedAt: string | null; messageCount: number | null }[];
+	sessions: { sessionId: string; title: string | null; updatedAt: string | null; messageCount: number | null }[];
 	current: string | null;
 	nextCursor: string | null;
 }

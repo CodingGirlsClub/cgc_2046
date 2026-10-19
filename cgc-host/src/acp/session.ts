@@ -534,8 +534,12 @@ export function createChat(opts: ChatOptions) {
         for (const s of page.sessions ?? []) {
           // 适配器忽略 cwd 过滤时也不越界：只列本课程工作目录下的会话
           if (!(await sameDir((s as { cwd?: unknown }).cwd, cwd))) continue;
+          const rawTitle = (s as { title?: unknown }).title;
+          // 标题来自本机 agent，限长后原样展示；空串按没有处理
+          const title = typeof rawTitle === "string" && rawTitle.trim() ? rawTitle.trim().slice(0, 200) : null;
           sessions.push({
             sessionId: s.sessionId,
+            title,
             updatedAt: (s as { updatedAt?: string }).updatedAt ?? null,
             messageCount: (s as { _meta?: { messageCount?: number } })._meta?.messageCount ?? null,
           });

@@ -11,7 +11,7 @@ const OTHER_COURSE = "dddddddd-4444-4444-8444-444444444444";
 const open = (page: Page, sessionId: unknown) => page.call("chat.open", { courseId: COURSE, sessionId });
 const listOf = async (page: Page, cursor?: string) =>
   (await page.call("chat.sessions", { courseId: COURSE, ...(cursor ? { cursor } : {}) })).params as {
-    sessions: { sessionId: string; updatedAt: string | null; messageCount: number | null }[];
+    sessions: { sessionId: string; title: string | null; updatedAt: string | null; messageCount: number | null }[];
     current: string | null;
     nextCursor: string | null;
   };
@@ -30,6 +30,9 @@ test("chat.sessions：只列本课程工作目录下的会话，带时间与消�
   expect(first.sessions).toHaveLength(1);
   expect(first.sessions[0]).toMatchObject({ sessionId: "session-1", messageCount: 1 });
   expect(typeof first.sessions[0].updatedAt).toBe("string");
+  expect(first.sessions[0].title).toBeNull(); // agent 没给标题：页面回退时间 + 条数
+  fake.store.get("session-1")!.title = "第一段学习";
+  expect((await listOf(page)).sessions.find((s) => s.sessionId === "session-1")?.title).toBe("第一段学习");
   expect(first.current).toBe("session-1");
 
   await page.call("chat.new", { courseId: COURSE });
