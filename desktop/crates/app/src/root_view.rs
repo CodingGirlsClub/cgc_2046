@@ -19,6 +19,9 @@ use gpui_kit::component::text::TextView;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use cgc_events::enroll::{enrollment_error_key, EnrollmentRequest};
+use cgc_events::enrollments::{
+    EnrollmentsApi, FakeEnrollmentsApi, HttpEnrollmentsApi, MyEnrollmentRow,
+};
 use cgc_events::list::{
     EventListService, EventsApi, FakeEventsApi, HttpEventsApi, ListState, StatusFilter,
 };
@@ -79,6 +82,15 @@ enum PaymentViewState {
     Failed(String),
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum EnrollmentsListState {
+    Idle,
+    Loading,
+    Ready,
+    Empty,
+    Failed(String),
+}
+
 pub struct RootView {
     registry: RouteRegistry,
     current: Option<RouteMatch>,
@@ -95,6 +107,10 @@ pub struct RootView {
     key_focus: Option<FocusHandle>,
     events: EventListService,
     events_started: bool,
+    enrollments_api: Arc<dyn EnrollmentsApi>,
+    enrollments_rows: Vec<MyEnrollmentRow>,
+    enrollments_state: EnrollmentsListState,
+    enrollments_started: bool,
     detail: EventDetailService,
     detail_started: bool,
     selected_tier: Option<String>,
@@ -158,6 +174,10 @@ impl RootView {
             key_focus: None,
             events,
             events_started: false,
+            enrollments_api: build_enrollments_api(),
+            enrollments_rows: Vec::new(),
+            enrollments_state: EnrollmentsListState::Idle,
+            enrollments_started: false,
             detail,
             detail_started: false,
             selected_tier: None,
@@ -270,6 +290,9 @@ impl RootView {
 
     fn reset_events(&mut self) {
         self.events_started = false;
+        self.enrollments_started = false;
+        self.enrollments_rows.clear();
+        self.enrollments_state = EnrollmentsListState::Idle;
         self.detail_started = false;
         self.courses_started = false;
         self.course_detail_started = false;
@@ -440,6 +463,40 @@ impl RootView {
             self.navigate_to_learning(&course_id);
             cx.notify();
         }
+    }
+
+    fn start_enrollments_load(&mut self, cx: &mut Context<Self>) {
+        self.enrollments_started = true;
+        self.enrollments_state = EnrollmentsListState::Loading;
+        let api = Arc::clone(&self.enrollments_api);
+        let token = self.session_token();
+        let epoch = self.workspaces.epoch();
+        let task = cx
+            .background_executor()
+            .spawn(async move { api.my_enrollments(token.as_deref()) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if !this.workspaces.is_current_epoch(epoch) {
+                    return;
+                }
+                match result {
+                    Ok(rows) => {
+                        this.enrollments_rows = rows;
+                        this.enrollments_state = if this.enrollments_rows.is_empty() {
+                            EnrollmentsListState::Empty
+                        } else {
+                            EnrollmentsListState::Ready
+                        };
+                    }
+                    Err(error) => {
+                        this.enrollments_state = EnrollmentsListState::Failed(error.diagnostic());
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn start_detail_load(&mut self, cx: &mut Context<Self>, event_id: String) {
@@ -1012,6 +1069,13 @@ impl Render for RootView {
                 self.start_events_load(cx, true);
             }
             if workspaces_ready
+                && current_id == Some("events.mine")
+                && !self.enrollments_started
+                && matches!(self.enrollments_state, EnrollmentsListState::Idle)
+            {
+                self.start_enrollments_load(cx);
+            }
+            if workspaces_ready
                 && current_id == Some("events.detail")
                 && !self.detail_started
                 && matches!(self.detail.state(), ListState::Idle)
@@ -1391,6 +1455,9 @@ impl Render for RootView {
                         {
                             Some("events.list") => self.render_events_list(language, &palette, cx),
                             Some("events.detail") => self.render_detail(language, &palette, cx),
+                            Some("events.mine") => {
+                                self.render_enrollments_list(language, &palette, cx)
+                            }
                             Some("courses.catalog") => {
                                 self.render_courses_list(language, &palette, cx)
                             }
@@ -1435,7 +1502,10 @@ impl RootView {
         self.registry
             .routes()
             .iter()
-            .filter(|route| !route.has_dynamic_segment())
+            .filter(|route| {
+                !route.has_dynamic_segment()
+                    && (route.path == "/" || route.path.trim_matches('/').split('/').count() == 1)
+            })
             .map(|route| {
                 let route = *route;
                 let selected = current_id.is_some_and(|id| {
@@ -1520,6 +1590,138 @@ impl RootView {
                 )
                 .into_any_element(),
         }
+    }
+
+    fn render_enrollments_list(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let body: AnyElement = match &self.enrollments_state {
+            EnrollmentsListState::Idle | EnrollmentsListState::Loading => div()
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::EventsMineLoading))
+                .into_any_element(),
+            EnrollmentsListState::Failed(message) => div()
+                .flex()
+                .flex_col()
+                .gap(space(1))
+                .child(div().text_color(palette.danger).child(message.clone()))
+                .child(
+                    div()
+                        .id("enrollments-retry")
+                        .px(space(2))
+                        .py(px(5.0))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .bg(palette.accent)
+                        .text_color(palette.canvas)
+                        .child(translate(language, Key::EventsMineRetry))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.enrollments_started = false;
+                            this.enrollments_state = EnrollmentsListState::Idle;
+                            cx.notify();
+                        })),
+                )
+                .into_any_element(),
+            EnrollmentsListState::Empty => div()
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::EventsMineEmpty))
+                .into_any_element(),
+            EnrollmentsListState::Ready => {
+                let rows = self
+                    .enrollments_rows
+                    .iter()
+                    .map(|row| {
+                        let starts = row
+                            .starts_at
+                            .as_deref()
+                            .map(|value| value.chars().take(10).collect::<String>())
+                            .unwrap_or_default();
+                        let target = row.target_title.clone().unwrap_or_default();
+                        let event_id = row.event_id.clone();
+                        let course_id = row.course_id.clone();
+                        let row_id = row.id.clone();
+                        div()
+                            .id(format!("enrollment-row-{row_id}"))
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_between()
+                            .gap(space(2))
+                            .px(space(2))
+                            .py(space(1))
+                            .border_b_1()
+                            .border_color(palette.line)
+                            .hover(|style| style.bg(palette.soft))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(2.0))
+                                    .child(div().text_color(palette.ink).child(target))
+                                    .child(
+                                        div()
+                                            .text_size(px(11.0))
+                                            .text_color(palette.ink_3)
+                                            .child(starts),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .px(px(6.0))
+                                    .py(px(2.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .bg(palette.soft)
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .child(enroll_status_label(language, &row.status)),
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if let Some(event_id) = &event_id {
+                                    this.navigate(&format!("/events/{event_id}"));
+                                } else if let Some(course_id) = &course_id {
+                                    this.navigate(&format!("/courses/{course_id}"));
+                                }
+                                cx.notify();
+                            }))
+                            .into_any_element()
+                    })
+                    .collect::<Vec<_>>();
+                div().flex().flex_col().children(rows).into_any_element()
+            }
+        };
+
+        div()
+            .flex()
+            .flex_col()
+            .gap(space(2))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .text_size(px(24.0))
+                            .text_color(palette.ink)
+                            .child(translate_registered(language, "events.mine.title")),
+                    )
+                    .child(
+                        div()
+                            .id("enrollments-back")
+                            .text_size(px(12.0))
+                            .text_color(palette.ink_3)
+                            .child(translate(language, Key::EventsDetailBack))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.navigate("/events");
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(body)
+            .into_any_element()
     }
 
     fn render_detail(
@@ -3108,6 +3310,16 @@ fn course_row(
             cx.notify();
         }))
         .into_any_element()
+}
+
+fn build_enrollments_api() -> Arc<dyn EnrollmentsApi> {
+    let use_http =
+        std::env::var("CGC_AUTH").as_deref() == Ok("http") || std::env::var("CGC_API_URL").is_ok();
+    if use_http {
+        Arc::new(HttpEnrollmentsApi::from_env())
+    } else {
+        Arc::new(FakeEnrollmentsApi)
+    }
 }
 
 fn build_orders_api() -> Arc<dyn OrdersApi> {

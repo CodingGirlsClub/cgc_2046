@@ -11,6 +11,12 @@ pub const ROUTES: &[Route] = &[
         NavIcon::Events,
     ),
     Route::new(
+        "events.mine",
+        "/events/mine",
+        "events.mine.title",
+        NavIcon::Events,
+    ),
+    Route::new(
         "events.detail",
         "/events/:id",
         "events.detail.title",
@@ -19,4 +25,8 @@ pub const ROUTES: &[Route] = &[
 ];
 
 /// 本 feature 贡献的词表 key；key 命名规则 `feature.domain.key`。
-pub const I18N_KEYS: &[&str] = &["events.list.title", "events.detail.title"];
+pub const I18N_KEYS: &[&str] = &[
+    "events.list.title",
+    "events.detail.title",
+    "events.mine.title",
+];

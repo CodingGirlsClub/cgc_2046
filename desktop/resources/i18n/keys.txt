@@ -136,3 +136,9 @@ events.pay.terminal.refunding
 events.pay.terminal.refund_failed
 events.enroll.cancel
 events.enroll.cancel_failed
+events.mine.title
+events.mine.loading
+events.mine.empty
+events.mine.error
+events.mine.retry
+events.mine.open
