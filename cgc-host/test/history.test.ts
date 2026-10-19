@@ -86,8 +86,15 @@ test("chat.open：不属于本课程目录的会话 id 回 bad_request（乱写�
   const fake = fakeAgent();
   const { page } = await chatPage(fake);
   await say(page, "甲");
+  const loads = fake.calledWith("session/load").length;
   expect(await open(page, "session-999")).toMatchObject(refused("bad_request"));
   expect(await open(page, 42)).toMatchObject(refused("bad_request"));
+
+  // 事务性：失败的 open 不销毁当前会话——下一条消息直接发给当前会话，不再 load
+  expect(await page.call("chat.send", { courseId: COURSE, text: "接着聊", context: CONTEXT })).toMatchObject({ method: "turn.delta" });
+  await page.next((m) => m.method === "turn.end");
+  expect(fake.calledWith("session/load").length).toBe(loads);
+  expect(fake.calledWith("session/prompt").at(-1)).toMatchObject({ sessionId: "session-1" });
 });
 
 test("chat.open：有回合在跑时拒绝（busy），不动任何状态", async () => {
@@ -121,6 +128,13 @@ test("chat.open 加载失败：回 session_unavailable、指针不动、原会�
   expect(errors.mock.calls.some((c) => String(c[0]).includes('切换对话失败：Internal error {"details":"fake restore failure"}'))).toBe(true);
   errors.mockRestore();
   expect(loadState(host.home).sessions[COURSE]?.omp).toBe("session-2"); // 指针保持
+
+  // 事务性：同一连接里当前会话也没有被销毁——继续发消息直接发给 session-2，不再 load
+  const loads = fake.calledWith("session/load").length;
+  expect(await page.call("chat.send", { courseId: COURSE, text: "接着聊", context: CONTEXT })).toMatchObject({ method: "turn.delta" });
+  await page.next((m) => m.method === "turn.end");
+  expect(fake.calledWith("session/load").length).toBe(loads);
+  expect(fake.calledWith("session/prompt").at(-1)).toMatchObject({ sessionId: "session-2" });
 
   // 原会话仍可用：新连接（同浏览器密钥）attach 会加载 session-2 并回放“当前这段”
   const back = await helloed(host, browserKey);

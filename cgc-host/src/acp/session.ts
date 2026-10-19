@@ -18,7 +18,7 @@ import { authenticateAgent, createAuthMethods } from "./auth";
 import { type Course, createCourse, type Turn } from "./course";
 import { type Agent, clientApp } from "./client";
 import { message, OpenError } from "./errors";
-import { classifyModelError, type ChatEvent } from "./events";
+import { classifyModelError, type ChatEvent, createTranscript, type Transcript } from "./events";
 import { pageContext } from "./page-context";
 import { type Preparation } from "./runtime";
 import { pickSettings, SETTING_IDS, SETTING_VALUE_MAX } from "./settings";
@@ -53,6 +53,8 @@ export function createChat(opts: ChatOptions) {
   const cancelAckTimeoutMs = opts.cancelAckTimeoutMs ?? 15_000;
   const courses = new Map<string, Course>();
   const bySession = new Map<string, Course>();
+  /** chat.open 的旁路回放：load 成功前不进课程缓冲（失败时原会话原样） */
+  const staging = new Map<string, Transcript>();
   let connections = 0;
 
   const delta = (c: Course, event: ChatEvent) => c.send({ method: "turn.delta", params: { courseId: c.id, ...event } });
@@ -84,7 +86,13 @@ export function createChat(opts: ChatOptions) {
       clientApp({
         update({ sessionId, update }) {
           if (!active()) return;
-          const c = bySession.get(sessionKey(kind, sessionId));
+          const key = sessionKey(kind, sessionId);
+          const staged = staging.get(key);
+          if (staged) {
+            staged.apply(update);
+            return;
+          }
+          const c = bySession.get(key);
           // agent 改了会话设置（config_option_update）：转成 chat.settings 推给持有者，不落进对话缓冲
           if (c && update.sessionUpdate === "config_option_update") {
             c.settings = pickSettings(update.configOptions);
@@ -166,6 +174,52 @@ export function createChat(opts: ChatOptions) {
     const current = runtime.agent && c.sessionId && (c.turn?.sessionId || (c.userId === ctx.userId && c.token === ctx.token)) ? c.sessionId : null;
     if (mode === "open" && current === openTarget) return { a: await run.agent(), sessionId: current }; // 打开的就是当前会话：短接，不再回放
     if ((mode === "attach" || mode === "send") && current) return { a: await run.agent(), sessionId: current };
+    // chat.open：事务式切换——先在旁路缓冲里回放，只有 session/load 成功才提交；
+    // 失败（目标不属于课程目录 / 加载失败）时当前会话、缓冲、设置、指针全部原样（AGENTS：原会话不受影响）。
+    if (mode === "open") {
+      const kind = c.agent;
+      const cwd = workDir(opts.home, ctx.userId, c.id);
+      const setup = opts.registry.setup(kind);
+      const a = await run.agent();
+      run.check();
+      await run.wait("agent/prepare", async () => {
+        mkdirSync(cwd, { recursive: true });
+        await setup.prepare?.(cwd);
+      });
+      const target = openTarget!;
+      if (!(await belongs(a, cwd, target, run))) throw new OpenError("bad_request"); // 目标不属于本课程目录：什么都没动
+      run.check();
+      const key = sessionKey(kind, target);
+      const staged = createTranscript();
+      staging.set(key, staged);
+      let loaded;
+      try {
+        loaded = await run.wait("session/load", (signal) =>
+          a.rpc.request("session/load", { sessionId: target, cwd, mcpServers: [cgcServer(ctx.token, setup.mcpServerName)] }, { cancellationSignal: signal }),
+        );
+      } catch (e) {
+        if (!isAuthRequired(e)) {
+          // 原始 ACP 错误（如「Could not restore model …」）随 OpenError 丢失，先记日志（保留既有日志口径）
+          console.error(`cgc-host: 切换对话失败：${message(e)}`);
+          throw new OpenError("session_unavailable");
+        }
+        throw e; // 要求先登录：原样冒泡，页面按登录卡处理
+      } finally {
+        staging.delete(key);
+      }
+      run.check();
+      // 只有到这里才提交：失败路径不触碰任何现有状态
+      if (c.sessionId) bySession.delete(sessionKey(kind, c.sessionId));
+      bySession.set(key, c);
+      c.transcript = staged;
+      Object.assign(c, { sessionId: target, userId: ctx.userId, token: ctx.token });
+      c.lastContext = null;
+      c.settings = pickSettings(loaded.configOptions);
+      c.settingsKey = null;
+      setPointer(ctx.sessions, c.id, kind, target);
+      ctx.save();
+      return { a, sessionId: target };
+    }
     // 不再沿用当前会话（新开、切换、换了账号或凭证、OMP 重启过）：先卸下并清空缓冲——上一段对话不能出现在接下来的历史里
     if (c.sessionId) bySession.delete(sessionKey(c.agent, c.sessionId));
     c.sessionId = null;
@@ -174,7 +228,7 @@ export function createChat(opts: ChatOptions) {
     c.settings = [];
     c.settingsKey = null;
     c.transcript.reset();
-    const target = mode === "new" ? undefined : mode === "open" ? openTarget : ctx.sessions[c.id]?.[c.agent];
+    const target = mode === "new" ? undefined : ctx.sessions[c.id]?.[c.agent];
     const a = await run.agent();
     run.check();
     const cwd = workDir(opts.home, ctx.userId, c.id);
@@ -195,24 +249,12 @@ export function createChat(opts: ChatOptions) {
         c.settingsKey = null;
       } catch (e) {
         bySession.delete(sessionKey(c.agent, target));
-        // chat.open 的目标加载失败：报可诊断的错误；持久指针不动，原会话不受影响。
-        // 原始 ACP 错误（如「Could not restore model …」）会随 OpenError 丢失，所以先记日志。
-        // 「要求先登录」（auth_required）不算加载失败：原样冒泡，页面按登录卡处理。
-        if (mode === "open" && !isAuthRequired(e)) {
-          console.error(`cgc-host: 切换对话失败：${message(e)}`);
-          throw new OpenError("session_unavailable");
-        }
         throw e;
       }
       run.check();
       Object.assign(c, { sessionId: target, userId: ctx.userId, token: ctx.token });
-      if (mode === "open") {
-        setPointer(ctx.sessions, c.id, c.agent, target);
-        ctx.save();
-      }
       return { a, sessionId: target };
     }
-    if (mode === "open") throw new OpenError("bad_request"); // 目标不属于这门课的工作目录
     if (target) {
       // KTD6：指针指向的会话不在课程目录下（例如换了账号）就不加载，清掉。attach 与 send 一样接着建新会话：
       // 不把上一个账号的对话带给新页面（缓冲已清），同时首条消息之前也能拿到设置。
