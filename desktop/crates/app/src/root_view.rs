@@ -10,13 +10,14 @@ use gpui_kit::*;
 
 use crate::i18n::{default_language, translate, translate_registered, Key, Language};
 use crate::routing::{Route, RouteRegistry};
-use crate::theme::{self, space, ThemePreference, RADIUS_MEDIUM};
+use crate::theme::{self, space, ThemePreference, RADIUS_MEDIUM, RADIUS_SMALL};
 
 pub struct RootView {
     registry: RouteRegistry,
     current: Option<Route>,
     language: Language,
     preference: ThemePreference,
+    account_menu_open: bool,
 }
 
 impl RootView {
@@ -36,6 +37,7 @@ impl RootView {
             current,
             language,
             preference,
+            account_menu_open: false,
         }
     }
 
@@ -60,6 +62,19 @@ impl RootView {
         self.language
     }
 
+    pub fn account_menu_open(&self) -> bool {
+        self.account_menu_open
+    }
+
+    pub fn toggle_account_menu(&mut self) -> bool {
+        self.account_menu_open = !self.account_menu_open;
+        self.account_menu_open
+    }
+
+    pub fn close_account_menu(&mut self) {
+        self.account_menu_open = false;
+    }
+
     pub fn cycle_theme(&mut self) -> ThemePreference {
         self.preference = self.preference.cycle();
         self.preference
@@ -81,7 +96,8 @@ impl Render for RootView {
         let language = self.language;
         let current = self.current;
 
-        // 顶部 header：品牌 + 一级导航（domain 注册表驱动）。
+        // 顶部 header：左侧留出 macOS 红绿灯（Zed 的 traffic_light_position 同款做法），
+        // 品牌区可拖动窗口；中间一级导航；右侧账户头像（点击出下拉）。
         let nav_items = self
             .registry
             .routes()
@@ -154,9 +170,68 @@ impl Render for RootView {
                 Language::En => Key::AppLangEn,
             },
         );
+        let theme_tooltip = translate(language, Key::AppThemeToggle);
+        let language_tooltip = translate(language, Key::AppLanguageToggle);
+        let account_tooltip = translate(language, Key::AppAccountMenu);
+        let account_state = translate(language, Key::AppAccountSignedOut);
+        let sign_in_label = translate(language, Key::AppAuthSignIn);
 
-        // 顶部：Zed 的 tab bar / toolbar 位置放一级导航；底部：Zed 的 status bar
-        // 位置放主题、语言等工具按钮（status_bar.rs 里侧栏开关同样在底部状态栏）。
+        let theme_glyph = match self.preference {
+            ThemePreference::Light => "☀",
+            ThemePreference::Dark => "☾",
+            ThemePreference::System => "◐",
+        };
+        let language_glyph = match language {
+            Language::Zh => "中",
+            Language::En => "A",
+        };
+        let avatar_glyph = "登";
+
+        let account_menu = if self.account_menu_open {
+            div()
+                .id("account-menu")
+                .absolute()
+                .top(px(34.0))
+                .right_0()
+                .w(px(180.0))
+                .flex()
+                .flex_col()
+                .gap(px(2.0))
+                .p(space(1))
+                .rounded(px(RADIUS_MEDIUM))
+                .border_1()
+                .border_color(palette.line_strong)
+                .bg(palette.card)
+                .text_color(palette.ink)
+                .child(
+                    div()
+                        .px(space(1))
+                        .py(px(4.0))
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_3)
+                        .child(account_state),
+                )
+                .child(
+                    div()
+                        .id("account-sign-in")
+                        .px(space(1))
+                        .py(px(6.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .text_color(palette.ink_2)
+                        .hover(|style| style.bg(palette.soft))
+                        .child(sign_in_label)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.close_account_menu();
+                            cx.notify();
+                        })),
+                )
+                .into_any_element()
+        } else {
+            div().into_any_element()
+        };
+
+        // 底部 footer：Zed status bar 的做法——工具按钮放状态栏，
+        // 只放图标（悬停出 tooltip），文字信息留给 tooltip 与右侧版本。
         div()
             .size_full()
             .flex()
@@ -170,21 +245,66 @@ impl Render for RootView {
                     .flex()
                     .flex_row()
                     .items_center()
-                    .h(px(48.0))
-                    .px(space(3))
+                    .h(px(44.0))
+                    .pl(if cfg!(target_os = "macos") {
+                        px(84.0)
+                    } else {
+                        space(3)
+                    })
+                    .pr(space(2))
                     .gap(space(1))
                     .bg(palette.frame)
                     .border_b_1()
                     .border_color(palette.line)
                     .child(
                         div()
-                            .text_size(px(15.0))
-                            .text_color(palette.ink)
-                            .child(translate(language, Key::AppName)),
+                            .id("titlebar-drag")
+                            .flex()
+                            .items_center()
+                            .h_full()
+                            .pr(space(2))
+                            .on_mouse_down(MouseButton::Left, |_, window, _| {
+                                window.start_window_move();
+                            })
+                            .child(
+                                div()
+                                    .text_size(px(15.0))
+                                    .text_color(palette.ink)
+                                    .child(translate(language, Key::AppName)),
+                            ),
                     )
-                    .child(div().w(space(2)))
                     .children(nav_items)
-                    .child(div().flex_1()),
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .relative()
+                            .flex()
+                            .items_center()
+                            .child(
+                                div()
+                                    .id("account-menu-toggle")
+                                    .size(px(26.0))
+                                    .rounded_full()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .bg(palette.accent)
+                                    .text_size(px(12.0))
+                                    .text_color(col_white())
+                                    .child(avatar_glyph)
+                                    .tooltip(move |_, cx| {
+                                        cx.new(|_| TooltipText {
+                                            text: account_tooltip.into(),
+                                        })
+                                        .into()
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.toggle_account_menu();
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(account_menu),
+                    ),
             )
             .child(div().flex_1().w_full().p(space(6)).child(content))
             .child(
@@ -194,7 +314,7 @@ impl Render for RootView {
                     .items_center()
                     .h(px(30.0))
                     .px(space(2))
-                    .gap(space(1))
+                    .gap(px(2.0))
                     .bg(palette.frame)
                     .border_t_1()
                     .border_color(palette.line)
@@ -202,11 +322,20 @@ impl Render for RootView {
                     .child(
                         div()
                             .id("theme-toggle")
-                            .px(space(1))
-                            .py(px(2.0))
+                            .size(px(22.0))
                             .rounded(px(RADIUS_MEDIUM))
+                            .flex()
+                            .items_center()
+                            .justify_center()
                             .text_color(palette.ink_3)
-                            .child(theme_label)
+                            .hover(|style| style.bg(palette.soft))
+                            .child(theme_glyph)
+                            .tooltip(move |_, cx| {
+                                cx.new(|_| TooltipText {
+                                    text: format!("{theme_tooltip} · {theme_label}").into(),
+                                })
+                                .into()
+                            })
                             .on_click(cx.listener(|this, _, window, cx| {
                                 let preference = this.cycle_theme();
                                 let mode = theme::resolve(preference, window.appearance());
@@ -217,11 +346,20 @@ impl Render for RootView {
                     .child(
                         div()
                             .id("language-toggle")
-                            .px(space(1))
-                            .py(px(2.0))
+                            .size(px(22.0))
                             .rounded(px(RADIUS_MEDIUM))
+                            .flex()
+                            .items_center()
+                            .justify_center()
                             .text_color(palette.ink_3)
-                            .child(language_label)
+                            .hover(|style| style.bg(palette.soft))
+                            .child(language_glyph)
+                            .tooltip(move |_, cx| {
+                                cx.new(|_| TooltipText {
+                                    text: format!("{language_tooltip} · {language_label}").into(),
+                                })
+                                .into()
+                            })
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.toggle_language();
                                 cx.notify();
@@ -235,6 +373,28 @@ impl Render for RootView {
                     ),
             )
     }
+}
+
+/// 悬停 tooltip 的内容视图（footer 图标按钮使用）。
+struct TooltipText {
+    text: SharedString,
+}
+
+impl Render for TooltipText {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px(px(8.0))
+            .py(px(4.0))
+            .rounded(px(4.0))
+            .bg(rgba(0x1f_20_22_f2))
+            .text_color(col_white())
+            .text_size(px(11.0))
+            .child(self.text.clone())
+    }
+}
+
+fn col_white() -> Hsla {
+    rgba(0xff_ff_ff_ff).into()
 }
 
 #[cfg(test)]
@@ -279,6 +439,16 @@ mod tests {
         assert_eq!(view.cycle_theme(), ThemePreference::Light);
         assert_eq!(view.cycle_theme(), ThemePreference::Dark);
         assert_eq!(view.cycle_theme(), ThemePreference::System);
+    }
+
+    #[test]
+    fn account_menu_toggles_and_closes() {
+        let mut view = view();
+        assert!(!view.account_menu_open());
+        assert!(view.toggle_account_menu());
+        assert!(view.account_menu_open());
+        view.close_account_menu();
+        assert!(!view.account_menu_open());
     }
 
     #[test]

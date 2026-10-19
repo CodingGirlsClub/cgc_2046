@@ -18,3 +18,8 @@ account.workspace.title
 events.list.title
 courses.catalog.title
 agent_chat.panel.title
+app.auth.sign_in
+app.account.menu
+app.account.signed_out
+app.theme.toggle
+app.language.toggle
