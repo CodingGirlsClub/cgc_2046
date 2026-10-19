@@ -58,6 +58,7 @@ use gpui_kit::component::{Icon, Sizable as _};
 use crate::i18n::{default_language, translate, translate_registered, Key, Language};
 use crate::qr::{encode as encode_qr, render_qr, QrError};
 use crate::routing::{Route, RouteMatch, RouteRegistry};
+use crate::settings_window::SettingsWindowView;
 use crate::theme::{self, space, ThemePreference, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1128,10 +1129,78 @@ impl RootView {
             .iter()
             .filter(|route| {
                 !route.has_dynamic_segment()
+                    && route.id != "app.settings"
                     && (route.path == "/" || route.path.trim_matches('/').split('/').count() == 1)
             })
             .copied()
             .collect()
+    }
+
+    fn is_settings_shortcut(keystroke: &gpui_kit::Keystroke) -> bool {
+        keystroke.key == "," && (keystroke.modifiers.platform || keystroke.modifiers.control)
+    }
+
+    /// 打开独立设置窗口（对齐 Zed 的 SettingsWindow）：已存在则激活复用。
+    pub fn open_settings_window(&mut self, cx: &mut Context<Self>) {
+        if let Some(existing) = cx
+            .windows()
+            .into_iter()
+            .find_map(|window| window.downcast::<SettingsWindowView>())
+        {
+            let _ = existing.update(cx, |_, window, _| window.activate_window());
+            return;
+        }
+        let Some(signed_in) = self.session.signed_in().cloned() else {
+            return;
+        };
+        let language = self.language;
+        let preference = self.preference;
+        let email = signed_in.email.clone();
+        let user_id = signed_in.user_id.clone();
+        let token = signed_in.token.clone();
+        let workspace = self
+            .workspaces
+            .current()
+            .map(|workspace| workspace.name.clone());
+        let api = self.session.api_handle();
+        let title = translate(language, Key::AppSettingsTitle);
+        let bounds = WindowBounds::centered(
+            Size {
+                width: px(620.0),
+                height: px(560.0),
+            },
+            cx,
+        );
+        let options = WindowOptions {
+            titlebar: Some(TitlebarOptions {
+                title: Some(title.into()),
+                appears_transparent: true,
+                traffic_light_position: Some(point(px(12.0), px(12.0))),
+            }),
+            focus: true,
+            show: true,
+            is_movable: true,
+            app_owns_titlebar_drag: cfg!(target_os = "macos"),
+            window_decorations: Some(WindowDecorations::Client),
+            window_min_size: Some(Size {
+                width: px(480.0),
+                height: px(360.0),
+            }),
+            window_bounds: Some(bounds),
+            ..Default::default()
+        };
+        cx.open_window(options, move |window, cx| {
+            theme::apply(theme::resolve(preference, window.appearance()), cx);
+            let view = cx.new(|cx| {
+                SettingsWindowView::new(
+                    language, preference, email, user_id, workspace, token, api, cx,
+                )
+            });
+            let focus = view.read(cx).focus_handle();
+            window.focus(&focus, cx);
+            view
+        })
+        .ok();
     }
 
     fn handle_shell_key(
@@ -1140,6 +1209,10 @@ impl RootView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if Self::is_settings_shortcut(&event.keystroke) {
+            self.open_settings_window(cx);
+            return;
+        }
         // 导航壳键盘路径：Ctrl+1..N 切换顶栏路由（与 footer 的 aria_keyshortcuts 对齐）。
         if event.keystroke.modifiers.control && !event.keystroke.modifiers.shift {
             if let Ok(index) = event.keystroke.key.parse::<usize>() {
@@ -2734,14 +2807,29 @@ impl Render for RootView {
                                     .child(
                                         div()
                                             .id("account-settings")
+                                            .role(Role::Button)
+                                            .aria_label(translate(language, Key::AppSettingsTitle))
                                             .px(space(1))
                                             .py(px(6.0))
                                             .rounded(px(RADIUS_SMALL))
                                             .text_color(palette.ink_2)
                                             .hover(|style| style.bg(palette.soft))
-                                            .child(translate(language, Key::AppSettingsTitle))
+                                            .child(
+                                                div()
+                                                    .flex()
+                                                    .justify_between()
+                                                    .child(translate(
+                                                        language,
+                                                        Key::AppSettingsTitle,
+                                                    ))
+                                                    .child(if cfg!(target_os = "macos") {
+                                                        "⌘,"
+                                                    } else {
+                                                        "Ctrl+,"
+                                                    }),
+                                            )
                                             .on_click(cx.listener(|this, _, _, cx| {
-                                                this.navigate("/settings");
+                                                this.open_settings_window(cx);
                                                 this.account_menu_open = false;
                                                 cx.notify();
                                             })),
@@ -2867,6 +2955,7 @@ impl RootView {
             .iter()
             .filter(|route| {
                 !route.has_dynamic_segment()
+                    && route.id != "app.settings"
                     && (route.path == "/" || route.path.trim_matches('/').split('/').count() == 1)
             })
             .enumerate()
@@ -5849,6 +5938,52 @@ mod tests {
             ThemePreference::System,
             session,
         )
+    }
+
+    #[test]
+    fn settings_shortcut_is_cmd_or_ctrl_comma() {
+        let mac = gpui_kit::Keystroke {
+            modifiers: gpui_kit::Modifiers {
+                platform: true,
+                ..Default::default()
+            },
+            key: ",".to_string(),
+            key_char: None,
+        };
+        assert!(RootView::is_settings_shortcut(&mac));
+
+        let windows = gpui_kit::Keystroke {
+            modifiers: gpui_kit::Modifiers {
+                control: true,
+                ..Default::default()
+            },
+            key: ",".to_string(),
+            key_char: None,
+        };
+        assert!(RootView::is_settings_shortcut(&windows));
+
+        let plain = gpui_kit::Keystroke {
+            modifiers: gpui_kit::Modifiers::default(),
+            key: ",".to_string(),
+            key_char: Some(",".to_string()),
+        };
+        assert!(!RootView::is_settings_shortcut(&plain));
+    }
+
+    #[test]
+    fn settings_route_is_hidden_from_nav_shell() {
+        let view = view();
+        let routes = view.nav_shell_routes();
+        assert!(
+            routes.iter().all(|route| route.id != "app.settings"),
+            "settings must be opened from avatar/shortcut, not footer nav"
+        );
+        // 路由本身仍保留给内部跳转/测试，只是不进导航壳。
+        assert!(view
+            .registry
+            .routes()
+            .iter()
+            .any(|route| route.id == "app.settings"));
     }
 
     #[test]

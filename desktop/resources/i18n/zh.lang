@@ -183,3 +183,6 @@ app.auth.back = 返回登录
 app.auth.error.phone = 手机号或验证码错误
 app.auth.error.rate_limited = 操作过于频繁，请稍后再试
 app.auth.error.reset = 重置令牌无效或已过期
+app.settings.close = 关闭
+app.settings.shortcut_hint = 快捷键打开设置
+app.settings.revoked = 已撤销，请重新登录

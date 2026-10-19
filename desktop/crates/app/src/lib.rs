@@ -9,4 +9,5 @@ pub mod registration;
 pub mod root_view;
 pub mod routing;
 pub mod safe_markdown;
+pub mod settings_window;
 pub mod theme;

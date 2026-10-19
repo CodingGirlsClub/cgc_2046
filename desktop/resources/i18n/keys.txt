@@ -184,3 +184,6 @@ app.auth.back
 app.auth.error.phone
 app.auth.error.rate_limited
 app.auth.error.reset
+app.settings.close
+app.settings.shortcut_hint
+app.settings.revoked
