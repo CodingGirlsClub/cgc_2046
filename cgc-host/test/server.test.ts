@@ -59,7 +59,6 @@ test("连接后先推送 status：未配对的连接也读得到", async () => {
     params: {
       state: "unpaired",
       pairedUserId: null,
-      pairedDisplayName: null,
       deviceName: sanitizeDeviceName(hostname()),
       tokenId: null,
       ompPresent: true,
@@ -70,10 +69,18 @@ test("连接后先推送 status：未配对的连接也读得到", async () => {
     },
   });
 
-  const { tokenId } = await pair(host);
+  const { tokenId, browserKey } = await pair(host);
   const other = await connect(host.port);
+  // 未 hello 的连接拿不到 tokenId（数据最小化）
   expect(await other.next((m) => m.method === "status")).toMatchObject({
-    params: { state: "paired", pairedUserId: USER_A, pairedDisplayName: "学员甲", tokenId },
+    params: { state: "paired", pairedUserId: USER_A, tokenId: null },
+  });
+
+  // 已 hello 的连接才拿得到 tokenId（「已配对的电脑」列表用）
+  const ready = await connect(host.port);
+  expect(await ready.call("hello", { userId: USER_A, browserKey })).toMatchObject({
+    method: "status",
+    params: { state: "ready", tokenId },
   });
 });
 

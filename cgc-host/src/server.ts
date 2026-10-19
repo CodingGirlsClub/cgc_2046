@@ -4,6 +4,7 @@ import type { ServerWebSocket } from "bun";
 import { hostname } from "node:os";
 import protocol from "../protocol.json";
 import { InstallError } from "./agents/install";
+import { message as errorMessage, redact } from "./acp/errors";
 import { type AgentKind, type AgentStatus, isAgentKind } from "./agents/registry";
 import { HOST_VERSION, SITE_ORIGIN } from "./config";
 import { createPairing, type DialogRunner, hashBrowserKey, revokeToken, verifyToken } from "./pairing";
@@ -23,6 +24,8 @@ export interface ChatContext {
   sessions: SessionPointers;
   /** 每门课上次显式选过的 agent（只用于 history 回包给页面做初选）；对话层的路由缺省恒为 DEFAULT_AGENT，不看它 */
   agents: Record<string, AgentKind>;
+  /** 会话归属（M9）：`<agent>:<sessionId>` 的账号短哈希；命中的记录与当前账号不符就拒绝加载 */
+  owners: Record<string, string>;
   save(): void;
   /** 只回原连接；原配对代次失效或连接断开后丢弃，不随课程接管迁移 */
   reply(message: Message): void;
@@ -58,7 +61,7 @@ export interface ServerOptions {
   chat: ChatHandler;
   /** KTD13 的收尾依据：连接数变化时告诉对话处理器；断开时附上因此失去持有者的课程 */
   onConnections?: (count: number, released: string[]) => void;
-  /** 每次弹窗关闭后的冷却，pair.request 的限流；默认 3 秒 */
+  /** pair.request 的冷却（受理即生效，弹窗关闭后再续一段）；默认 3 秒 */
   cooldownMs?: number;
 }
 
@@ -104,9 +107,9 @@ function status(host: Host, ws: WS, id?: string): Message {
     params: {
       state: !p ? "unpaired" : authorized(host, ws) ? "ready" : "paired",
       pairedUserId: p?.userId ?? null,
-      pairedDisplayName: p?.displayName ?? null,
       deviceName: host.deviceName,
-      tokenId: p?.tokenId ?? null,
+      // tokenId 只给已 hello 的连接：未授权连接不需要它（「已配对的电脑」列表只在 ready 后可见）
+      tokenId: authorized(host, ws) ? (p?.tokenId ?? null) : null,
       // 回滚桥：只认 ompPresent 的旧页面靠它继续工作；移除条件是下一个 Host 大版本
       ompPresent: omp?.present ?? false,
       ...(omp?.envError && { ompEnvError: omp.envError }),
@@ -137,6 +140,7 @@ async function chat(host: Host, ws: WS, { method, id, params }: Frame) {
     token,
     sessions: host.state.sessions,
     agents: host.state.agents,
+    owners: host.state.sessionOwners,
     save: () => saveState(host.opts.home, host.state),
     reply(message) {
       if (canReply(host, ws, pairing)) send(ws, { ...message, id });
@@ -241,8 +245,9 @@ async function dispatch(host: Host, ws: WS, raw: string | Buffer) {
   try {
     await handlers[frame.method](host, ws, frame);
   } catch (e) {
-    // 只记方法名与异常，不记帧内容：pair.* 与 hello 帧里有凭证与浏览器密钥（KTD16）
-    console.error(`cgc-host: 处理 ${frame.method} 出错`, e);
+    // 只记方法名与脱敏后的错误：pair.* 与 hello 帧里有凭证与浏览器密钥（KTD16）
+    const stack = e instanceof Error && e.stack ? `\n${redact(e.stack)}` : "";
+    console.error(`cgc-host: 处理 ${frame.method} 出错：${redact(errorMessage(e))}${stack}`);
     if (OPEN_METHODS.has(frame.method) || canReply(host, ws, pairing)) send(ws, error(frame.id, "internal"));
   }
 }

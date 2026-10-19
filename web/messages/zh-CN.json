@@ -4307,6 +4307,10 @@
     "promptUnitDecompose": "帮我拆解这个目标",
     "promptUnitReview": "陪我复盘这一单元",
     "promptOverviewPlan": "帮我规划学习路径",
-    "promptOverviewStart": "从哪开始学？"
+    "promptOverviewStart": "从哪开始学？",
+    "usage": {
+      "context": "上下文 {used} / {size}",
+      "cost": "本会话 {cost}"
+    }
   }
 }

@@ -52,7 +52,6 @@ const keyOf = (userId: string) => `cgc:host-browser-key:${userId}`;
 const UNPAIRED: HostStatus = {
 	state: "unpaired",
 	pairedUserId: null,
-	pairedDisplayName: null,
 	deviceName: "Ada 的 MacBook",
 	tokenId: null,
 	agents: [{ kind: "omp", present: true }],
@@ -64,7 +63,6 @@ const paired = (userId: string, tokenId: string): HostStatus => ({
 	...UNPAIRED,
 	state: "paired",
 	pairedUserId: userId,
-	pairedDisplayName: "学员甲",
 	tokenId,
 });
 const ready = (userId: string, tokenId: string): HostStatus => ({

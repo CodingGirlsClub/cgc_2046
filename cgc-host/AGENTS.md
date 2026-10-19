@@ -45,9 +45,9 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 | `pair.forget` | 无；Host 向所有连接推送未配对的 `status` |
 | `chat.attach` / `chat.send` / `chat.stop` / `chat.new` / `chat.sessions` / `chat.open` / `chat.set_setting` / `chat.authenticate` / `card.answer`（`{courseId, agent?, …}`） | 见下方「对话的载荷契约」；被另一个连接接管的连接收到 `chat.evicted {courseId}` |
 
-`agent` 是对话方法的可选参数（`omp` 等注册表里的 kind）：页面要驱动哪个本机 agent，就带哪个；**缺省恒为 `omp`**，与状态文件里的记忆值无关——回滚期的旧页面不可能带这个字段，不能让它被改道到别的 agent（记忆值只作为页面的初选，见 `history` 的 `agent` 字段）。取值不在注册表里一律 `bad_request`。
+`agent` 是对话方法的可选参数（`omp` 等注册表里的 kind）。**只有 `chat.attach` / `chat.send` / `chat.new` / `chat.open` 用它选择/切换会话**：带哪个就驱动哪个，缺省恒为 `omp`，与状态文件里的记忆值无关——回滚期的旧页面不可能带这个字段，不能让它被改道到别的 agent（记忆值只作为页面的初选，见 `history` 的 `agent` 字段）；也只有这四个方法会写「上次显式选择」。`chat.stop` / `card.answer` / `chat.sessions` / `chat.set_setting` / `chat.authenticate` 作用在课程**当前** agent 上，忽略该字段（缺省值不会把课程切走）。取值不在注册表里一律 `bad_request`。
 
-`status.params`：`state`（`unpaired` / `paired` / `ready`，`ready` 指这个连接已授权）、`pairedUserId`、`pairedDisplayName`、`deviceName`、`tokenId`、`agents`（本机各 agent 的 `{kind, present, envError?, sources?}`，`sources` 含义同 `/health`）、`ompPresent`、`version`、`protocolVersion`；解析学员登录 shell 的环境失败时另有 `ompEnvError`（`timeout` / `failed`，此时 Host 退回 launchd 的最小环境，多半找不到 omp 或模型凭证）。`ompPresent` 与 `ompEnvError` 是 `agents` 里 OMP 那条的派生值，留给只认它们的旧页面，移除条件是下一个 Host 大版本。某个 agent 的 `present` 为 false 时，Host 每次被读到都会在后台重新查找（至多 10 秒一次），学员装上它的入口后不必重启 Host；页面可轮询 `/health`。
+`status.params`：`state`（`unpaired` / `paired` / `ready`，`ready` 指这个连接已授权）、`pairedUserId`、`deviceName`、`tokenId`（仅已 `hello` 的连接非空）、`agents`（本机各 agent 的 `{kind, present, envError?, sources?}`，`sources` 含义同 `/health`）、`ompPresent`、`version`、`protocolVersion`；解析学员登录 shell 的环境失败时另有 `ompEnvError`（`timeout` / `failed`，此时 Host 退回 launchd 的最小环境，多半找不到 omp 或模型凭证）。`ompPresent` 与 `ompEnvError` 是 `agents` 里 OMP 那条的派生值，留给只认它们的旧页面，移除条件是下一个 Host 大版本。某个 agent 的 `present` 为 false 时，Host 每次被读到都会在后台重新查找（至多 10 秒一次），学员装上它的入口后不必重启 Host；页面可轮询 `/health`。残余风险：`pairedUserId` 与 `deviceName` 在 `hello` 之前也会随 `status` 下发（页面配对流程要用它们判断「本机已配对到别的账号」并给凭证备注），二者是伪匿名标识，已评估接受；凭证、对话内容与卡片不在其中。
 
 `error.params.code`：
 
@@ -71,7 +71,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 
 ## 对话的载荷契约（`src/acp/`、`src/agents/`）
 
-每门课对应**每个 agent 各一条** ACP 会话，指针存在状态文件的 `sessions`（courseId → `{<agent kind>: sessionId}`；多 agent 之前的旧形状是 courseId → sessionId，读时按缺省 agent 迁移并落盘）。**每个 agent kind 一个进程**：第一次需要时才拉起（`chat.attach`——回放历史，或没有指针时建一条会话好把设置随 `history` 下发；以及 `chat.send`、`chat.new`）；没有页面连着、也没有在跑的回合超过 10 分钟就回收，下次需要时再拉起并 session/load——attach 建的空会话只留指针，进程照常按 KTD13 回收。会话的工作目录是 `~/cgc2046_workspace/courses/<userId>/<courseId>`（`src/state.ts` 的 `workDir`，与终端插件的工作区同一棵树、隔一层 `courses/`）；session/new 与每次 session/load 都下发含当前学习凭证的 `cgc-2046` MCP 服务器，指针指向的会话不在当前课程目录下（例如换了账号）就不加载、清掉指针。换 agent 就是换一段会话：旧 agent 在跑的回合先按取消收尾、本次回 `busy`，页面重试才切换；切换后缓冲、设置与待答卡片都清空。
+每门课对应**每个 agent 各一条** ACP 会话，指针存在状态文件的 `sessions`（courseId → `{<agent kind>: sessionId}`；多 agent 之前的旧形状是 courseId → sessionId，读时按缺省 agent 迁移并落盘）。**每个 agent kind 一个进程**：第一次需要时才拉起（`chat.attach`——回放历史，或没有指针时建一条会话好把设置随 `history` 下发；以及 `chat.send`、`chat.new`）；没有页面连着、也没有在跑的回合超过 10 分钟就回收，下次需要时再拉起并 session/load（另外，一轮从发出 prompt 起最多 30 分钟，到点 Host 本地按 `error` 收尾，不再等 agent；常量 `TURN_TIMEOUT_MS` / `CANCEL_ACK_TIMEOUT_MS` 有默认值断言）——attach 建的空会话只留指针，进程照常按 KTD13 回收。会话的工作目录是 `~/cgc2046_workspace/courses/<userId>/<courseId>`（`src/state.ts` 的 `workDir`，与终端插件的工作区同一棵树、隔一层 `courses/`）；session/new 与每次 session/load 都下发含当前学习凭证的 `cgc-2046` MCP 服务器，指针指向的会话不在当前课程目录下（例如换了账号）就不加载、清掉指针。此外状态文件为每条会话记归属账号（`sessionOwners`，账号短哈希）：记录与当前账号不符的指针不加载、`chat.sessions` 不列出、`chat.open` 回 `bad_request`（不依赖适配器自报的 cwd）；旧状态没有归属记录时退回 cwd 校验（兼容）。换 agent 就是换一段会话：旧 agent 在跑的回合先按取消收尾、本次回 `busy`，页面重试才切换；切换后缓冲、设置与待答卡片都清空。
 
 下面的消息都带 `courseId`，表里省略。
 
@@ -79,10 +79,10 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 | --- | --- | --- |
 | `chat.attach` | `agent?` | `history`（没有会话指针时先建一条空会话，回包因此带设置）；之后把未答的卡片逐张以 `turn.card` 重发 |
 | `chat.send` | `text`（非空字符串）、`context` | 回 `turn.delta {kind: "user", text}` 表示接下了；之后推 `turn.delta` / `turn.card` / `turn.card.closed`，最后 `turn.end` |
-| `chat.stop` | — | 不回复；在跑的一轮：待答卡片 `turn.card.closed {reason: "cancelled"}`，没跑完的工具步骤以 `status: "stopped"` 推一次 `turn.delta`，随后 `turn.end {stopReason: "cancelled"}`。停止前已提交到平台的结果照常生效 |
+| `chat.stop` | — | 不回复；在跑的一轮：待答卡片 `turn.card.closed {reason: "cancelled"}`，没跑完的工具步骤以 `status: "stopped"` 推一次 `turn.delta`，随后 `turn.end {stopReason: "cancelled"}`。agent 在 15 秒内不应答取消时，Host 本地按 cancelled 收尾并推 `turn.end`（迟到的应答被忽略）。停止前已提交到平台的结果照常生效 |
 | `chat.new` | — | `history`（空）：此后的消息进一条新会话，agent 不带之前的上下文；学习进度不受影响 |
-| `chat.sessions` | `cursor?`（分页游标，原样透传 ACP） | `sessions {sessions: [{sessionId, updatedAt, messageCount}], current, nextCursor}`：本课程工作目录下的会话；只读，有回合在跑也可查；元数据缺省为 `null`（OMP 差异），页面降级展示 |
-| `chat.open` | `sessionId` | `history`：切换到指定会话；目标必须在本课程工作目录下（否则 `bad_request`）；加载失败 `session_unavailable` 且持久指针不动（原会话不受影响）；有回合在跑 `busy`；成功才推进指针，切当前会话不重复加载 |
+| `chat.sessions` | `cursor?`（分页游标，原样透传 ACP） | `sessions {sessions: [{sessionId, title, updatedAt, messageCount}], current, nextCursor}`（`title` 缺省为 `null`，agent 差异）：本课程工作目录下的会话；只读，有回合在跑也可查；元数据缺省为 `null`（OMP 差异），页面降级展示。Host 不信任适配器的 cwd 过滤：每个条目都按 `SessionInfo.cwd` 与课程工作目录二次比对 |
+| `chat.open` | `sessionId` | `history`：切换到指定会话；目标必须同时满足 id 命中与 cwd 归属本课程目录（否则 `bad_request`）；加载失败 `session_unavailable` 且持久指针不动（原会话不受影响）；有回合在跑 `busy`；成功才推进指针，切当前会话不重复加载 |
 | `chat.authenticate` | `methodId`（取自 `auth_required` 回包的 `methods`，如 `chat-gpt`） | `chat.authenticated {agent}`：登录成功（浏览器由适配器自己开）；`auth_failed` 失败、`busy` 登录期间进程被换掉（页面重试即可）、`bad_request` 参数不合法；`chat-gpt` 这类由适配器在本机开浏览器，不进课程队列 |
 | `chat.set_setting` | `configId`（`model` / `thinking` / `reasoning_effort`）、`value`（非空字符串） | `chat.settings {settings}`：改当前会话的设置，回复带这个 agent 的完整回包；有回合在跑 `busy`；当前没有已加载会话 `chat_unavailable`；值不被 agent 接受 `bad_request`（ACP 原文只进 Host 日志） |
 | `card.answer` | `cardId`，加审批的 `{optionId}` 或提问的 `{action, content?}` | `turn.card.closed {cardId, reason: "answered"}` |
@@ -90,6 +90,8 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 | `agent.done` 之后 | — | Host 重解析定位器并给每个已授权连接推 `status`：页面不必等下一轮 `/health` |
 
 会话设置（`chat.set_setting`、`chat.settings`、`history` 的 `settings`）：Host 把 agent 的会话设置（ACP 的 config options）收窄成 `model`（模型）与思考/推理强度两项——OMP 的 id 是 `thinking`，Codex 的 id 是 `reasoning_effort`，两项的 category 都是 `thought_level`；`mode`（plan）不透出。`settings` 是 `[{id, name, category, currentValue, options: [{value, name, description?}]}]`，`history`（`chat.attach` / `chat.new` / `chat.open`）带当前值；`chat.attach` 在没有会话指针时会先建一条空会话，所以第一次打开面板就能拿到设置（进程仍按 KTD13 回收）。空数组表示这个 agent 没给可选项（旧版本或 id 不同名）——页面据此不渲染入口。改动只作用于当前会话：不写学员的 agent 配置、不影响终端；agent 自己改了设置（`config_option_update`）时 Host 推 `chat.settings`。切模型可能连带改动另一项（OMP 实测：不支持思考的模型会把思考等级重置为 `off`…
+
+**能力协商**：Host 在 ACP `initialize` 时记录 agent 的协议版本、`loadSession`、`sessionCapabilities.list`、`mcpCapabilities.http`。协议版本不一致或明确不支持 HTTP MCP：本次对话回 `chat_unavailable`（详情只在 Host 日志）；明确不支持 session/load、或无法用 session/list 核实会话归属：清掉会话指针、从新对话开始（日志记录原因）；明确不支持 session/list：`chat.sessions` 回空列表；`chat.open` 在目标无法核实归属或缺少 session/load 时回 `chat_unavailable`。字段缺失一律按支持处理（旧适配器兼容）。能力门都在 `await run.agent()`（握手）之后判定，冷进程上不以默认值预先放行；进程代被回收时清空该 agent 的能力缓存。
 
 `status` 与 `/health` 都带 `capabilities: string[]`（期 2 起含 `"agent.install"`）：页面只在声明了它时给「安装 Codex 支持」入口，旧 Host（0.2.0）不声明、页面继续只给手动命令。**不改 `protocolVersion`**——加方法靠能力探测，不靠版本门逼学员重装。
 
@@ -109,13 +111,14 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 | `end` | `stopReason`, `modelError?` | 只出现在 `history` 里：一轮的结束，字段同 `turn.end` |
 
 - 文字事件的拼接规则：与上一条事件 `kind` 相同、`messageId` 相同（都没有也算相同）就接在后面，否则另起一段。`history` 里的条目已经按这条规则拼好。
-- `history {running, events, settings, agent}`：`running` 表示有一轮正在跑；`agent` 是这门课**上次显式选过**的 agent kind（`null` 表示没记过），只供页面做初选——Host 的路由缺省恒为 `omp`，不看它。缓冲在 Host 内存里，只留最近 500 条，不写盘；Host 重启或 agent 进程被回收后从它的会话存储回放，回放出的历史没有 `usage`、`end` 与模型错误归类。
+- `history {running, events, settings, agent}`：`running` 表示有一轮正在跑；`agent` 是这门课**上次显式选过**的 agent kind（`null` 表示没记过），只供页面做初选——Host 的路由缺省恒为 `omp`，不看它。缓冲在 Host 内存里，只留最近 500 条，不写盘；Host 重启或 agent 进程被回收后从它的会话存储回放，回放出的历史没有 `usage`、`end` 与模型错误归类。同一会话的最后一条 `usage` 由 Host 按会话另存，`history.events` 末尾补回（Host 进程重启后不再有）。
 
 卡片（`turn.card`）：
 
 - 审批：`{cardId, kind: "permission", toolCallId, title, toolKind, input?, options: [{optionId, name, kind}]}`。选项原样来自学员的 OMP，与终端里一致：`kind` 是 `allow_once` / `allow_always` / `reject_once` / `reject_always`，OMP 18.10.4 的 `name` 是 Allow once / Always allow / Reject / Always reject。作答 `{cardId, optionId}`。
 - 「始终允许」只活在 OMP 进程内存里、只对这条会话有效，按工具种类记（命令类即这条对话里之后的所有命令），不写进学员的 OMP 配置；OMP 重启（空闲回收、Host 或电脑重启）后失效（U6 真机核验）。卡片文案建议：「本次对话中不再询问此类操作（重启后需重新确认）」。
 - 提问：`{cardId, kind: "question", message, schema}`。`schema` 是表单的 JSON Schema（object，`properties` 里是 string（`oneOf` / `enum` 为选项）、number / integer、boolean、array（`items.anyOf` / `items.enum` 为多选））。OMP 的 `ask` 工具：`q0` 是单选，`q0__other` 是自由输入。作答 `{cardId, action: "accept", content: {字段: 值}}`（值是字符串、数字、布尔或字符串数组，键必须在 `properties` 里），或 `{cardId, action: "decline" | "cancel"}`。只接受 form 模式，其余模式 Host 直接拒绝，不出卡片。
+- 审批与提问要求请求的 `sessionId` 等于课程**当前会话**且当前有回合在跑；没有回合时直接以取消/拒绝应答，不出卡（Codex 的后台任务也会在回合后发审批）。注意 ACP 不携带 turn id，守卫粒度是「当前会话 + 当前回合在跑」——若上一轮被 Host 看门狗本地强制收尾而 agent 仍在执行，Host 会先隔离该会话、拒绝新回合，直到旧 session/prompt 真正 settle（或 `chat.new` / 换 agent / 进程换代——这三者都会先把旧会话从路由里摘除）。
 - `turn.card.closed {cardId, reason}`：`answered` 是持有者答了；`cancelled` 是回合结束、停止、OMP 撤回请求或退出，或没有页面持有这门课、卡片又等了超过 5 分钟（KTD13：本轮随之取消）——都以取消作答，从不替学员选允许。
 
 `turn.end {stopReason, usage?, modelError?}`：

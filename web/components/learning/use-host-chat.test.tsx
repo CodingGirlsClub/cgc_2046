@@ -68,7 +68,6 @@ const OMP_ONLY = [{ kind: "omp", present: true }];
 const status = (state: HostStatus["state"], agents: { kind: string; present: boolean }[] = OMP_ONLY): HostStatus => ({
 	state,
 	pairedUserId: USER,
-	pairedDisplayName: "学员甲",
 	deviceName: "Ada 的 MacBook",
 	tokenId: "tok_this",
 	agents,

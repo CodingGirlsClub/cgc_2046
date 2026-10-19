@@ -22,14 +22,12 @@ const lanIp = Object.values(networkInterfaces())
   .flat()
   .find((a) => a?.family === "IPv4" && !a.internal)?.address;
 
-test("R23. 只有 127.0.0.1 可达：经本机的局域网 IPv4 连不上", async () => {
-  if (!lanIp) {
-    console.log("跳过：本机没有非回环 IPv4，无法验证局域网不可达");
-    return;
-  }
-  const { port } = startHost();
-  expect(await reachable("127.0.0.1", port)).toBe(true);
-  expect(await reachable(lanIp, port)).toBe(false);
+test("R23. 只绑定 127.0.0.1：绑定地址断言恒执行，局域网不可达作为附加断言", async () => {
+  const host = startHost();
+  // 关键断言：绑定地址本身。没有局域网 IPv4 的机器/容器上也不会空转。
+  expect(host.hostname).toBe("127.0.0.1");
+  expect(await reachable("127.0.0.1", host.port)).toBe(true);
+  if (lanIp) expect(await reachable(lanIp, host.port)).toBe(false);
 });
 
 describe("Host 头不是本机回环地址加本端口时 403，不带 CORS 头与响应体", () => {

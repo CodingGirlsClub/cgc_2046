@@ -112,7 +112,10 @@ export function startHost(options: Partial<ServerOptions> = {}) {
     ...options,
   });
   cleanups.push(() => server.stop(true));
-  return { port: server.port as number, home, platform, dialog, chatCalls, stop: () => server.stop(true) };
+  // Bun.serve 的实际绑定地址（R23 断言用）；类型里没有 hostname 时从 url 兜底
+  const hostname =
+    (server as { hostname?: string }).hostname ?? new URL(String((server as { url?: string | URL }).url)).hostname;
+  return { port: server.port as number, hostname, home, platform, dialog, chatCalls, stop: () => server.stop(true) };
 }
 
 // Bun 的 WebSocket 客户端支持自定请求头（运行时有），但 tsconfig 未排除 lib.dom，DOM 的类型里没有这个重载
@@ -236,11 +239,17 @@ export function fakeAgent() {
   const fake = {
     /** 测试取号：让不同段落的消息文案唯一 */
     seqHint: 0,
-    store: new Map<string, { cwd: string; history: acp.SessionUpdate[]; updatedAt: string }>(),
+    store: new Map<string, { cwd: string; history: acp.SessionUpdate[]; updatedAt: string; title?: string }>(),
     /** 会话列表页大小（>0 时启用分页游标） */
     listPageSize: 0,
+    /** true 时 session/list 忽略 cwd 过滤（模拟不合规适配器），用于验证 Host 自己的二次校验 */
+    listIgnoresCwd: false,
     /** session/load 对这些会话抛 Internal error（模拟跨 OMP 版本加载失败） */
     failLoadFor: new Set<string>(),
+    /** session/load 人为延迟（毫秒）：模拟长回放，测试并发切 agent 的提交护栏 */
+    delayLoadMs: 0,
+    /** session/new 人为延迟（毫秒）：模拟准备阶段，测试「准备阶段 stop」 */
+    delayNewMs: 0,
     calls: [] as { method: string; params: any }[],
     answers: [] as any[],
     /** OMP 的会话设置（ACP configOptions）：session/new、session/load 的回包带它；set_config_option 按它校验并更新 */
@@ -276,6 +285,14 @@ export function fakeAgent() {
     beforeSetConfig: null as Promise<void> | null,
     /** initialize 播报的登录方式（chat.authenticate 的取值来源） */
     authMethods: [] as { id: string; name: string }[],
+    /** initialize 播报的能力（缺省 = loadSession + session/list）；字段缺失按支持处理，见 acp/capabilities.ts */
+    capabilities: undefined as acp.AgentCapabilities | undefined,
+    /** true 时 initialize 回包完全不带 agentCapabilities（模拟最老的适配器） */
+    omitAgentCapabilities: false,
+    /** initialize 回包的协议版本（缺省 PROTOCOL_VERSION） */
+    protocolVersion: acp.PROTOCOL_VERSION as number,
+    /** true 时 initialize 永不应答：模拟准备超时 → 该 kind 的进程代被废弃 */
+    hangInitialize: false,
     /** 握手要求先登录时，这些 ACP 方法（如 "session/new"）抛 auth_required（-32000） */
     authFor: new Set<string>(),
     /** authenticate 失败（页面按 auth_failed 处理） */
@@ -304,18 +321,24 @@ export function fakeAgent() {
       const record = (method: string, params: unknown) => fake.calls.push({ method, params });
       const agentApp = acp
         .agent({ name: "fake-omp" })
-        .onRequest("initialize", (c) => {
+        .onRequest("initialize", async (c) => {
           record("initialize", c.params);
-          return { protocolVersion: acp.PROTOCOL_VERSION, agentCapabilities: { loadSession: true, sessionCapabilities: { list: {} } }, authMethods: fake.authMethods };
+          if (fake.hangInitialize) await new Promise<never>(() => {});
+          return {
+            protocolVersion: fake.protocolVersion,
+            ...(fake.omitAgentCapabilities ? {} : { agentCapabilities: fake.capabilities ?? { loadSession: true, sessionCapabilities: { list: {} } } }),
+            authMethods: fake.authMethods,
+          };
         })
         .onRequest("authenticate", (c) => {
           record("authenticate", c.params);
           if (fake.authFails) throw acp.RequestError.authRequired();
           return {};
         })
-        .onRequest("session/new", (c) => {
+        .onRequest("session/new", async (c) => {
           record("session/new", c.params);
           if (fake.authFor.has("session/new")) throw acp.RequestError.authRequired();
+          if (fake.delayNewMs > 0) await Bun.sleep(fake.delayNewMs);
           const sessionId = `session-${++seq}`;
           fake.store.set(sessionId, { cwd: c.params.cwd, history: [], updatedAt: new Date().toISOString() });
           loaded.add(sessionId);
@@ -323,7 +346,7 @@ export function fakeAgent() {
         })
         .onRequest("session/list", (c) => {
           record("session/list", c.params);
-          const all = [...fake.store].filter(([, s]) => s.cwd === c.params.cwd);
+          const all = [...fake.store].filter(([, s]) => fake.listIgnoresCwd || s.cwd === c.params.cwd);
           const size = fake.listPageSize > 0 ? fake.listPageSize : all.length || 1;
           const offset = typeof c.params.cursor === "string" ? Number(c.params.cursor) || 0 : 0;
           const next = offset + size < all.length ? String(offset + size) : undefined;
@@ -331,6 +354,7 @@ export function fakeAgent() {
             sessions: all.slice(offset, offset + size).map(([sessionId, s]) => ({
               sessionId,
               cwd: s.cwd,
+              ...(s.title ? { title: s.title } : {}),
               updatedAt: s.updatedAt,
               _meta: { messageCount: s.history.filter((h) => h.sessionUpdate === "user_message_chunk").length },
             })),
@@ -341,6 +365,7 @@ export function fakeAgent() {
           if (fake.authFor.has("session/load")) throw acp.RequestError.authRequired();
           record("session/load", c.params);
           if (fake.failLoadFor.has(c.params.sessionId)) throw acp.RequestError.internalError({ details: "fake restore failure" });
+          if (fake.delayLoadMs > 0) await Bun.sleep(fake.delayLoadMs);
           const s = fake.store.get(c.params.sessionId);
           if (!s) throw acp.RequestError.resourceNotFound(c.params.sessionId);
           loaded.add(c.params.sessionId);
@@ -424,11 +449,28 @@ export const codexTestRecord = (fake: Fake): AgentRecord => ({
 /** 接上假 OMP 的 Host：对话处理器是真的（createChat），home 可传入以模拟 Host 重启 */
 export function chatHost(
   fake: Fake,
-  opts: { home?: string; graceMs?: number; idleMs?: number; preparationTimeoutMs?: number; records?: AgentRecord[] } = {},
+  opts: {
+    home?: string;
+    graceMs?: number;
+    idleMs?: number;
+    preparationTimeoutMs?: number;
+    turnTimeoutMs?: number;
+    cancelAckTimeoutMs?: number;
+    records?: AgentRecord[];
+  } = {},
 ) {
   const home = opts.home ?? tempHome();
   const registry = createRegistry(opts.records ?? [ompTestRecord(fake)]);
-  const chat = createChat({ home, apiBase: API, registry, graceMs: opts.graceMs, idleMs: opts.idleMs, preparationTimeoutMs: opts.preparationTimeoutMs });
+  const chat = createChat({
+    home,
+    apiBase: API,
+    registry,
+    graceMs: opts.graceMs,
+    idleMs: opts.idleMs,
+    preparationTimeoutMs: opts.preparationTimeoutMs,
+    turnTimeoutMs: opts.turnTimeoutMs,
+    cancelAckTimeoutMs: opts.cancelAckTimeoutMs,
+  });
   return startHost({ home, chat: chat.handle, onConnections: chat.connections });
 }
 
