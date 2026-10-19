@@ -9,6 +9,7 @@ use cgc_desktop_app::theme::{self, preference_from_env};
 use gpui_kit::AppContext as _;
 
 fn main() {
+    cgc_platform::telemetry::install_panic_hook_from_env();
     let registry = build_registry().expect("route registration must be valid");
     validate(&registry).expect("i18n registration must be valid");
     let startup_registry = registry.clone();

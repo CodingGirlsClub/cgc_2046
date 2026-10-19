@@ -10,6 +10,9 @@ use gpui_kit::*;
 
 use std::sync::Arc;
 
+use crate::chat_state::{
+    clear_chat_pointer, load_chat_pointer, load_chat_pref, save_chat_pointer, save_chat_pref,
+};
 use crate::formula::render_markdown_with_math;
 use crate::safe_markdown::sanitize_markdown;
 use cgc_courses::catalog::{
@@ -4913,75 +4916,6 @@ fn course_row(
             cx.notify();
         }))
         .into_any_element()
-}
-
-fn chat_state_path() -> std::path::PathBuf {
-    let base = std::env::var_os("HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
-    base.join(".local/share/cgc-desktop/chat_state.json")
-}
-
-fn read_chat_state() -> serde_json::Value {
-    std::fs::read_to_string(chat_state_path())
-        .ok()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_else(|| serde_json::json!({ "pointers": {}, "prefs": {} }))
-}
-
-fn write_chat_state(state: &serde_json::Value) {
-    let path = chat_state_path();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    if let Ok(raw) = serde_json::to_string_pretty(state) {
-        let _ = std::fs::write(path, raw);
-    }
-}
-
-fn load_chat_pointer(course_id: &str) -> Option<String> {
-    read_chat_state()
-        .get("pointers")?
-        .get(course_id)?
-        .get("sessionId")?
-        .as_str()
-        .map(str::to_string)
-}
-
-fn save_chat_pointer(course_id: &str, agent: &str, session_id: &str) {
-    let mut state = read_chat_state();
-    if let Some(pointers) = state.get_mut("pointers") {
-        pointers[course_id] = serde_json::json!({ "agent": agent, "sessionId": session_id });
-    }
-    write_chat_state(&state);
-}
-
-fn clear_chat_pointer(course_id: &str) {
-    let mut state = read_chat_state();
-    if let Some(pointers) = state.get_mut("pointers") {
-        if let Some(object) = pointers.as_object_mut() {
-            object.remove(course_id);
-        }
-    }
-    write_chat_state(&state);
-}
-
-fn load_chat_pref(agent: &str, config_id: &str) -> Option<String> {
-    read_chat_state()
-        .get("prefs")?
-        .get(agent)?
-        .get(config_id)?
-        .as_str()
-        .map(str::to_string)
-}
-
-fn save_chat_pref(agent: &str, config_id: &str, value: &str) {
-    let mut state = read_chat_state();
-    if !state.get("prefs").is_some_and(serde_json::Value::is_object) {
-        state["prefs"] = serde_json::json!({});
-    }
-    state["prefs"][agent][config_id] = serde_json::json!(value);
-    write_chat_state(&state);
 }
 
 fn build_learning_host_api() -> Arc<dyn LearningHostApi> {

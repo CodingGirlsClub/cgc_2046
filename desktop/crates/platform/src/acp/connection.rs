@@ -689,6 +689,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn config_debug_does_not_leak_mcp_credentials() {
+        use agent_client_protocol::schema::v1::{HttpHeader, McpServerHttp};
+        let server = McpServer::Http(
+            McpServerHttp::new("cgc-2046", "http://127.0.0.1:4000/mcp").headers(vec![
+                HttpHeader::new("Authorization", "Bearer super-secret-token"),
+            ]),
+        );
+        let config =
+            AcpHostConfig::new("omp acp", PathBuf::from("/tmp")).with_mcp_servers(vec![server]);
+        let debug = format!("{config:?}");
+        assert!(!debug.contains("super-secret-token"));
+        assert!(!debug.contains("Authorization"));
+        assert!(debug.contains("mcp_servers: 1"));
+    }
+
+    #[test]
     fn empty_command_is_rejected() {
         let error = match AcpHost::start(AcpHostConfig::new("", PathBuf::from("/tmp"))) {
             Ok(_) => panic!("empty command must be rejected"),
