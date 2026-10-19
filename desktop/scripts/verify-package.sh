@@ -9,6 +9,12 @@ shopt -s nullglob
 
 for f in dist/*.dmg; do
   echo "== dmg: $f"
+  base=$(basename "$f")
+  if ! [[ "$base" =~ ^CGC_[0-9]+\.[0-9]+\.[0-9]+_[0-9a-f]{7,}_[a-z0-9]+\.dmg$ ]]; then
+    echo "FAIL: 产物名缺版本/commit（期望 CGC_<version>_<commit>_<arch>.dmg，实际 $base）" >&2
+    exit 1
+  fi
+  echo "   name ok: $base"
   hdiutil verify "$f" >/dev/null
   echo "   hdiutil verify ok"
 

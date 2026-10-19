@@ -5,6 +5,10 @@ Set-Location (Join-Path $PSScriptRoot "..")
 
 $msi = Get-ChildItem -Path "dist" -Filter *.msi -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $msi) { throw "FAIL: desktop/dist 下没有 msi 产物" }
+if ($msi.Name -notmatch '^CGC_\d+\.\d+\.\d+_[0-9a-f]{7,}_(x64|aarch64)\.msi$') {
+  throw "FAIL: 产物名缺版本/commit（期望 CGC_<version>_<commit>_<arch>.msi，实际 $($msi.Name)）"
+}
+Write-Host "name ok: $($msi.Name)"
 
 $tmp = Join-Path $env:TEMP ("cgc-msi-" + [guid]::NewGuid().ToString())
 New-Item -ItemType Directory -Path $tmp | Out-Null
