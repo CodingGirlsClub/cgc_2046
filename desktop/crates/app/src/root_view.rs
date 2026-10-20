@@ -1245,6 +1245,11 @@ impl RootView {
             .flex_row()
             .items_center()
             .gap(px(4.0))
+            .h(px(28.0))
+            .px(space(3))
+            .bg(palette.canvas)
+            .border_b_1()
+            .border_color(palette.line)
             .text_size(px(12.0))
             .text_color(palette.ink_3)
             .child(workspace_switcher);
@@ -1255,32 +1260,22 @@ impl RootView {
             None => translate(language, Key::AppBreadcrumbSections),
         };
         let selected = self.breadcrumb_menu.is_some();
-        bar = bar
-            .child(div().child("›"))
-            .child(
-                div()
-                    .id("breadcrumb-section")
-                    .role(Role::Button)
-                    .aria_label(section_label)
-                    .px(space(1))
-                    .py(px(2.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .text_color(if selected {
-                        palette.ink
-                    } else {
-                        palette.ink_2
-                    })
-                    .bg(if selected {
-                        palette.soft
-                    } else {
-                        palette.card
-                    })
-                    .hover(|style| style.bg(palette.soft))
-                    .child(format!("{section_label} ▾"))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.toggle_breadcrumb_menu(cx);
-                    })),
-            );
+        bar = bar.child(div().child("›")).child(
+            div()
+                .id("breadcrumb-section")
+                .role(Role::Button)
+                .aria_label(section_label)
+                .px(space(1))
+                .py(px(2.0))
+                .rounded(px(RADIUS_SMALL))
+                .text_color(if selected { palette.ink } else { palette.ink_2 })
+                .bg(if selected { palette.soft } else { palette.card })
+                .hover(|style| style.bg(palette.soft))
+                .child(format!("{section_label} ▾"))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.toggle_breadcrumb_menu(cx);
+                })),
+        );
         if let Some((_, Some(title))) = context {
             bar = bar
                 .child(div().child("›"))
@@ -2962,7 +2957,6 @@ impl Render for RootView {
                                         .child(translate(language, Key::AppName)),
                                 ),
                         )
-                        .child(div().w(px(1.0)).h(px(14.0)).bg(palette.line))
                         .child(div().flex_1())
                         .child(
                             div().relative().flex().items_center().child(
