@@ -19,6 +19,23 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ## [Unreleased]
 
 ### Added
+- [本机 Host] 按 ACP initialize 的能力协商会话恢复与 MCP 下发：从握手读取协议版本、`loadSession`、`session/list` 与 HTTP MCP 能力（字段缺失按支持处理，兼容旧适配器）；协议版本不一致的适配器不再被当成可用，明确不支持 HTTP MCP 或无法核实会话归属时给出可诊断的降级（清指针、从新对话开始，`chat.sessions` 回空列表）。
+
+### Changed
+- [本机 Host / Web] 学习搭子**打开就能选模型与思考/推理强度**：没有会话指针时先在 `chat.attach` 建一条空会话（`session/new`，指针不落盘）再取设置，因此不用先发一句话也能选；改动只影响首次打开的空态。
+
+### Fixed
+- [本机 Host] Codex 课程的「停止」不再把课程切回 OMP，并补齐回合收尾与隔离：`chat.stop` / `card.answer` / `chat.sessions` 的目标 agent 与当前会话对齐。
+- [本机 Host / Web] 历史对话显示 agent 给的标题（时间与条数移到悬停说明）；对话栏同时显示本会话的上下文用量与费用（`usage_update` 不进对话流）。
+- [Web] 刷新后静默重连改用会话级证据并保留首次手势门：成功连上（含旧版 Host 的 `staleHost` 应答）即把「本页曾连上」写入 `sessionStorage`（不含凭证与 Host 信息），刷新后凭证据允许一次静默探测——权限查询恒报 `prompt` 的浏览器不再反复要授权；首次访问在无证据时仍等用户手势，隐私模式存储抛错则退回内存标记，避免把「Host 需要更新」误换成授权卡。
+- [Web] 登录来源判定接受本站 www 别名：站点别名解析改成对称（裸域配置接受 www 变体、反之亦然），小程序二维码登录也接受本站 www 域名来源——此前生产 web 同时由裸域与 www 提供，www 来源被拒。
+
+### Security
+- [本机 Host / Web] `status` 最小化（去掉页面从未消费的字段、`tokenId` 只给已 hello 的连接）；配对请求的冷却从受理开始计数，无效 token 与平台不可达的早退同样受限；Host 日志统一脱敏（凭证与 Bearer 头只留前缀，覆盖 ACP 错误与兜底 catch）。
+
+## [2026-10-18]
+
+### Added
 - [本机 Host] 一键安装支持**复用学员已有的 Codex**（#1154）：`status` 与 `/health` 的 `agents` 条目新增只读的 `sources: [{source, version}]`（`managed` / `codex-acp` / `chatgpt-app` / `codex-cli`；ChatGPT 桌面 App 内置 Codex 的探测目前只含 macOS）。检测到可复用的 engine（ChatGPT App 内置 / PATH 上的 `codex`）时，安装只装适配器（约 18MB 落盘 / 2MB 下载），装完做一次 ACP `initialize` 探针（不消耗额度），失败自动回退全量安装；运行期注入 `CODEX_PATH`，engine 消失则页面重新给安装入口。旧页面忽略新字段；Host 版本 `0.2.2`（`MIN_HOST_VERSION` 不变，不必重装）。
 - [本机 Host / Web] 课程页对话栏可以一键装 Codex 支持（#1149）：Host 声明 `agent.install` 能力后，「添加 agent」里出现「安装 Codex 支持」——Host 用随包发布的 `bun.lock`（整棵依赖树带 sha512）经自带 Bun 装到 `~/.cgc2046/agents/`，学员机器上不需要 npm/node；装完选择器里直接出现 Codex（页面由 Host 推的 `status` 立即刷新）。失败就地重试、不留残留；约 337MB（大头是 Codex 的平台二进制）。旧 Host 没有这个能力，页面继续只给手动命令；卸载 Host 会删掉页面装的 agent，学员自己的 `~/.codex` 不碰。`MIN_HOST_VERSION` 保持 `0.2.0`，Host 版本 `0.2.1`（已装 0.2.0 的学员不必为此重装）。
 - [抖音] 订阅消息接入抖音端（#371）：两个模板过审后，backend 按抖音的 `data` 格式渲染——抖音用**模板关键词名做 key**（`approval_result` 参与结果/活动名称/参与编号；`event_reminder` 活动名称/开始时间/活动地点），与微信的 `thing1/number3` 槽位编号是两套渲染子句；模板 ID 经 `DOUYIN_MP_TEMPLATE_*` 进容器（部署链路此前完全没登记，本次补齐 workflow 注入循环 + kamal env.secret，并加登记守卫防 #974 同型复发）。小程序侧订阅触点已在抖音首发版本内。
@@ -32,12 +49,8 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ### Changed（[本机 Host]）
 - [本机 Host] 课程工作目录由 `~/CGC/<userId>/<courseId>` 改为 `~/cgc2046_workspace/courses/<userId>/<courseId>`（ADR-0022 KTD6 修订）：与终端插件的工作区合成一棵树，学员只需记一个目录；课程目录在其下单独一层，网页课程会话与学员自己的终端会话仍按目录分桶、互不串入。无历史数据迁移——Host 此前未对外发布。Host 版本 `0.1.5`，`MIN_HOST_VERSION` 随之提高，已装旧包的学员会被提示重装。
 
-### Changed（[本机 Host / Web]）
-- [本机 Host / Web] 学习搭子**打开就能选模型与思考/推理强度**：没有会话指针时，Host 在 `chat.attach` 先建一条空会话（`session/new`、指针落盘），`history` 随即可带 `settings`——下拉框不再等到发完首条消息才出现，首条消息直接复用这条会话（进程仍按 KTD13 空闲回收，下次 attach 走 session/load）。Codex 侧新增「推理强度」（ACP `reasoning_effort`，随模型给出 Low/High/Max 等档位；模型 id 没有 provider 前缀时下拉平铺、带前缀时照常按 provider 分组）。旧 Host（< 0.2.3）会被版本门挡在「Host 需要更新」，重跑一次安装命令后生效——页面整块不加载，不是静默降级；Host 包版本 `0.2.3`，`MIN_HOST_VERSION` 抬到 `0.2.3`（本次 deploy 需同批发布 Host 产物，否则提示更新也装不到新版）。
 
 ### Fixed
-- [本机 Host] Codex 课程点「停止」不再把课程切回 OMP，并补齐回合收尾与隔离：`chat.stop` / `card.answer` / `chat.sessions` / `chat.set_setting` / `chat.authenticate` 只作用在课程当前的 agent 上（`agent` 字段不参与路由）；取消应答 15 秒、单轮 30 分钟由 Host 本地收尾；被本地强制收尾的回合在旧 `session/prompt` settle 前隔离、拒绝新回合（`chat.new` / 进程换代可解除），避免已停止回合的审批挂到新回合上可作答。`chat.open` 改为事务式切换：加载失败不破坏原会话；提交前校验课程是否在加载期间换了 agent（否则回 `busy`）；提交段先算后改，避免「页面报错但内存已切走」。会话目录与归属账号双重校验（`sessionOwners`）：别人的指针不加载、不列出、不可 `chat.open`。能力协商（协议版本 / `loadSession` / `session/list` / HTTP MCP）都在握手后判定，缺失字段按支持处理；reuse 运行期探针改用登录 shell 环境。日志里的学习凭证与 Bearer 头只留前缀；`status` 去掉未使用的显示名、`tokenId` 仅已 `hello` 的连接可见；`pair.request` 受理即限流并恢复弹窗关闭后的静默期。Host 版本 `0.2.8`（`MIN_HOST_VERSION` 保持 `0.2.3`，现有学员不必重装）；host job 增加 `pnpm typecheck`（新增 `typescript` devDependency）。
-- [本机 Host / Web] 历史对话显示 agent 给的标题，历史列表按标题展示（时间与条数移到悬停说明）；对话栏显示本会话上下文用量与费用（`usage_update` 不进对话记录，history 回放可恢复；旧 Host / 未开始对话不显示）。Host 版本 `0.2.4`。
 - [Web] 工作台「邀请管理」填写过期时间后创建邀请必失败：`datetime-local` 输入的原值是本地时间、不带时区，之前被原样当 GraphQL `DateTime` 下发，参数校验直接拒（`Argument "input" has invalid value $input … Expected type "DateTime"`）。现经共享的 `fromLocalInput` 转成 UTC ISO8601；留空仍表示无过期时间。
 - [Web] 成员表行内角色弹层贴底时自动向上展开并按剩余空间限高：原来固定向下展开，最后几行越出表格卡片底沿（实测倒数第 1/2/3 行分别溢出 216/137/56px），≤980px 断点下滚动容器还会把这些内容裁掉；现按实际几何在挂载时判定方向，两侧都放不下时翻到空间更大的一侧并内部滚动，以真正会裁剪的 `.members-table-scroll` 为界。
 - [Web] 行内角色编辑器遇到长成员名不再把「保存角色」挤出卡片：名字加 `min-width:0` + 单行省略（`title` 保留全名），按钮组不参与收缩；最坏情况下按钮右沿与卡片内容右沿对齐，footer 不再溢出。
@@ -48,7 +61,6 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ### Security
 - [本机 Host] 一键安装的依赖许可按仓库的许可白名单判定并纳入 CI 门禁；安装过程不执行第三方依赖的 postinstall（`--ignore-scripts`），避免在学员机器上运行未审阅的安装脚本。
-
 ## [2026-10-16]
 
 ### Added（[抖音] #1079 / #1083）
