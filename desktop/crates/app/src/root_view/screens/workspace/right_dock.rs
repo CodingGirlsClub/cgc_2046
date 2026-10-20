@@ -136,6 +136,20 @@ fn render_site_tree(
         .collect::<Vec<_>>();
     let show_events = events_open || !query.trim().is_empty();
     let show_courses = courses_open || !query.trim().is_empty();
+    let expanded_course = ctx.site_tree_course_open.clone();
+    let course_content = ctx.content.content().cloned();
+    let active_course = ctx
+        .current
+        .as_ref()
+        .filter(|route_match| route_match.route.id.starts_with("courses."))
+        .and_then(|route_match| route_match.params.get("id"))
+        .cloned();
+    let active_issue = ctx.active_tab.as_deref().and_then(|active| {
+        ctx.tabs
+            .iter()
+            .find(|tab| tab.id == active)
+            .and_then(|tab| tab.issue_id.clone())
+    });
 
     let mut rows = Vec::new();
     rows.push(
@@ -239,13 +253,93 @@ fn render_site_tree(
     ));
     if show_courses {
         for (id, title) in courses {
-            rows.push(tree_leaf_row(
-                &format!("site-course-{id}"),
-                title,
-                &format!("/courses/{id}"),
-                palette,
-                cx,
-            ));
+            let is_expanded = expanded_course.as_deref() == Some(id.as_str());
+            let title_for_click = title.clone();
+            let course_id_for_toggle = id.clone();
+            let path = format!("/courses/{id}");
+            let row = div()
+                .id(SharedString::from(format!("site-course-{id}")))
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(3.0))
+                .px(space(1))
+                .py(px(3.0))
+                .rounded(px(RADIUS_SMALL))
+                .bg(if active_course.as_deref() == Some(id.as_str()) {
+                    palette.soft
+                } else {
+                    palette.view
+                })
+                .hover(|style| style.bg(palette.soft))
+                .child(
+                    div()
+                        .id(SharedString::from(format!("site-course-chevron-{id}")))
+                        .w(px(12.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_size(px(10.0))
+                        .text_color(palette.ink_3)
+                        .child(if is_expanded { "▾" } else { "▸" })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.toggle_site_tree_course(&course_id_for_toggle, cx);
+                        })),
+                )
+                .child(div().flex_1().child(title))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.open_page_tab(&path, title_for_click.clone(), cx);
+                }));
+            rows.push(row.into_any_element());
+            if is_expanded {
+                if let Some(content) = course_content
+                    .as_ref()
+                    .filter(|content| content.course_id == id)
+                {
+                    let outline = build_outline(&content.document);
+                    for chapter in &outline.chapters {
+                        rows.push(
+                            div()
+                                .pl(px(24.0))
+                                .pr(space(1))
+                                .py(px(2.0))
+                                .text_size(px(10.0))
+                                .text_color(palette.ink_3)
+                                .child(chapter.title.clone())
+                                .into_any_element(),
+                        );
+                        for issue in &chapter.issues {
+                            rows.push(tree_issue_row(
+                                issue,
+                                palette,
+                                &id,
+                                active_issue.as_deref(),
+                                cx,
+                            ));
+                        }
+                    }
+                    for issue in &outline.ungrouped {
+                        rows.push(tree_issue_row(
+                            issue,
+                            palette,
+                            &id,
+                            active_issue.as_deref(),
+                            cx,
+                        ));
+                    }
+                } else {
+                    rows.push(
+                        div()
+                            .pl(px(24.0))
+                            .py(px(2.0))
+                            .text_size(px(10.0))
+                            .text_color(palette.ink_3)
+                            .child("加载课程目录…")
+                            .into_any_element(),
+                    );
+                }
+            }
         }
         if ctx.courses.has_more() {
             rows.push(
@@ -287,6 +381,42 @@ fn render_site_tree(
         .flex_col()
         .gap(px(1.0))
         .children(rows)
+        .into_any_element()
+}
+
+fn tree_issue_row(
+    issue: &cgc_courses::outline::OutlineIssue,
+    palette: &theme::Palette,
+    course_id: &str,
+    active_issue: Option<&str>,
+    cx: &mut Context<RootView>,
+) -> AnyElement {
+    let issue_id = issue.id.clone();
+    let title = issue.title.clone();
+    let course_id = course_id.to_string();
+    let is_active = active_issue == Some(issue.id.as_str());
+    div()
+        .id(SharedString::from(format!(
+            "site-issue-{course_id}-{}",
+            issue.id
+        )))
+        .flex()
+        .flex_row()
+        .items_center()
+        .pl(px(36.0))
+        .pr(space(1))
+        .py(px(2.0))
+        .rounded(px(RADIUS_SMALL))
+        .bg(if is_active {
+            palette.soft
+        } else {
+            palette.view
+        })
+        .hover(|style| style.bg(palette.soft))
+        .child(div().flex_1().child(title.clone()))
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.open_issue_tab(&course_id, &issue_id, title.clone(), cx);
+        }))
         .into_any_element()
 }
 

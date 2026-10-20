@@ -1246,6 +1246,26 @@ impl RootView {
         }
     }
 
+    pub(in crate::root_view) fn toggle_site_tree_course(
+        &mut self,
+        course_id: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if self.site_tree_course_open.as_deref() == Some(course_id) {
+            self.site_tree_course_open = None;
+        } else {
+            self.site_tree_course_open = Some(course_id.to_string());
+            if self
+                .content
+                .content()
+                .is_none_or(|content| content.course_id != course_id)
+            {
+                self.start_content_load(cx, course_id.to_string());
+            }
+        }
+        cx.notify();
+    }
+
     pub(in crate::root_view) fn toggle_site_tree_section(
         &mut self,
         section: SiteTreeSection,
