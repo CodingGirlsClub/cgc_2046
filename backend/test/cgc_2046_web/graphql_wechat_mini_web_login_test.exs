@@ -8,17 +8,29 @@ defmodule Cgc2046Web.GraphqlWechatMiniWebLoginTest do
     :ets.delete_all_objects(Cgc2046Web.Plugs.RateLimit.table())
 
     Req.Test.stub(Cgc2046.MiniprogramClientStub, fn conn ->
-      assert conn.request_path == "/wxa/getwxacodeunlimit"
       {:ok, raw, conn} = Plug.Conn.read_body(conn)
       body = Jason.decode!(raw)
-      assert body["page"] == "pages/web-login/index"
-      assert body["check_path"] == true
-      assert body["env_version"] == "release"
-      assert String.starts_with?(body["scene"], "wl_")
 
-      conn
-      |> put_resp_content_type("image/png")
-      |> send_resp(200, <<137, 80, 78, 71, 13, 10, 26, 10>>)
+      case conn.request_path do
+        "/wxa/getwxacodeunlimit" ->
+          assert body["page"] == "pages/web-login/index"
+          assert body["check_path"] == true
+          assert body["env_version"] == "release"
+          assert String.starts_with?(body["scene"], "wl_")
+
+          conn
+          |> put_resp_content_type("image/png")
+          |> send_resp(200, <<137, 80, 78, 71, 13, 10, 26, 10>>)
+
+        "/wxa/generate_urllink" ->
+          assert body["path"] == "pages/web-login/index"
+          assert body["expire_type"] == 1
+          assert body["expire_interval"] == 1
+
+          conn
+          |> put_resp_content_type("application/json")
+          |> send_resp(200, Jason.encode!(%{"url_link" => "https://wxaurl.cn/DesktopLogin"}))
+      end
     end)
 
     :ok
@@ -418,5 +430,103 @@ defmodule Cgc2046Web.GraphqlWechatMiniWebLoginTest do
     results = Enum.map(tasks, &Task.await(&1, 10_000))
     assert Enum.count(results, &get_in(&1, ["data", "wechatMiniWebLoginConsume", "id"])) == 1
     assert Enum.count(results, &(&1["errors"] != nil)) == 1
+  end
+
+  # ── 第一方桌面客户端变体（proof 经响应体，不写 cookie） ──────────────
+
+  @start_desktop """
+  mutation {
+    wechatMiniWebLoginStartForDesktop(mode: LINK) {
+      requestId proof status expiresAt pollIntervalSeconds launchUrl
+    }
+  }
+  """
+
+  defp http_desktop(query, token \\ nil) do
+    conn = build_conn() |> put_req_header("content-type", "application/json")
+    conn = if token, do: put_req_header(conn, "authorization", "Bearer " <> token), else: conn
+    post(conn, "/api/graphql", %{"query" => query})
+  end
+
+  defp desktop_start do
+    conn = http_desktop(@start_desktop)
+    body = json_response(conn, 200)
+    refute body["errors"], inspect(body)
+    data = body["data"]["wechatMiniWebLoginStartForDesktop"]
+    refute Map.has_key?(conn.resp_cookies, "cgc_mp_web_proof")
+    {data["requestId"], data["proof"], data["launchUrl"]}
+  end
+
+  defp desktop_status(id, proof),
+    do:
+      ~s|{ wechatMiniWebLoginStatusForDesktop(requestId: "#{id}", proof: "#{proof}") { status } }|
+
+  defp desktop_consume(id, proof),
+    do:
+      ~s|mutation { wechatMiniWebLoginConsumeForDesktop(requestId: "#{id}", proof: "#{proof}") { token userId email isPlatformAdmin } }|
+
+  defp desktop_cancel(id, proof),
+    do:
+      ~s|mutation { wechatMiniWebLoginCancelForDesktop(requestId: "#{id}", proof: "#{proof}") { status } }|
+
+  test "desktop start hands the proof over the response and consumes after mini-program approval" do
+    {user, mini_token} = account()
+    {id, proof, launch_url} = desktop_start()
+
+    assert String.length(proof) == 43
+    assert String.starts_with?(launch_url, "https://wxaurl.cn/DesktopLogin?cq=wl_")
+
+    pending = http_desktop(desktop_status(id, proof)) |> json_response(200)
+
+    assert get_in(pending, ["data", "wechatMiniWebLoginStatusForDesktop", "status"]) ==
+             "PENDING"
+
+    confirmed = http(operation("wechatMiniWebLoginConfirm", id), %{}, mini_token)
+
+    assert get_in(json_response(confirmed, 200), [
+             "data",
+             "wechatMiniWebLoginConfirm",
+             "status"
+           ]) == "APPROVED"
+
+    consumed = http_desktop(desktop_consume(id, proof)) |> json_response(200)
+    refute consumed["errors"], inspect(consumed)
+    result = consumed["data"]["wechatMiniWebLoginConsumeForDesktop"]
+    assert result["userId"] == user.id
+    assert result["isPlatformAdmin"] == false
+    assert is_binary(result["token"])
+
+    assert get_in(
+             http("{ me { id } }", %{}, result["token"]) |> json_response(200),
+             ["data", "me", "id"]
+           ) == user.id
+  end
+
+  test "desktop variant rejects a wrong proof and sets no cookies" do
+    {_user, mini_token} = account()
+    {id, _proof, _launch_url} = desktop_start()
+    http(operation("wechatMiniWebLoginConfirm", id), %{}, mini_token)
+    wrong = String.duplicate("a", 43)
+
+    for query <- [
+          desktop_status(id, wrong),
+          desktop_consume(id, wrong),
+          desktop_cancel(id, wrong)
+        ] do
+      assert_error(http_desktop(query), "mini_web_login_invalid")
+    end
+  end
+
+  test "desktop cancel makes the approval unconsumable" do
+    {_user, mini_token} = account()
+    {id, proof, _launch_url} = desktop_start()
+    http(operation("wechatMiniWebLoginConfirm", id), %{}, mini_token)
+
+    cancelled = http_desktop(desktop_cancel(id, proof)) |> json_response(200)
+
+    assert get_in(cancelled, ["data", "wechatMiniWebLoginCancelForDesktop", "status"]) ==
+             "CANCELLED"
+
+    assert_error(http_desktop(desktop_consume(id, proof)), "mini_web_login_cancelled")
   end
 end

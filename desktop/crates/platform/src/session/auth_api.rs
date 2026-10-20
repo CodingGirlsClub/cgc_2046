@@ -50,6 +50,40 @@ mutation RevokeToken {
 }
 "#;
 
+// 小程序扫码登录（desktop 变体）：proof 经响应体交付，不写 cookie。
+// 固定 LINK 模式：后端返回 wxaurl.cn 短链，客户端用本地 qr.rs 渲染二维码。
+const WECHAT_LOGIN_START: &str = r#"
+mutation WechatLoginStart($mode: MiniWebLoginMode!) {
+  wechatMiniWebLoginStartForDesktop(mode: $mode) {
+    requestId proof status expiresAt pollIntervalSeconds qrDataUrl launchUrl
+  }
+}
+"#;
+
+const WECHAT_LOGIN_STATUS: &str = r#"
+query WechatLoginStatus($requestId: String!, $proof: String!) {
+  wechatMiniWebLoginStatusForDesktop(requestId: $requestId, proof: $proof) {
+    requestId status expiresAt pollIntervalSeconds launchUrl
+  }
+}
+"#;
+
+const WECHAT_LOGIN_CONSUME: &str = r#"
+mutation WechatLoginConsume($requestId: String!, $proof: String!) {
+  wechatMiniWebLoginConsumeForDesktop(requestId: $requestId, proof: $proof) {
+    token userId email isPlatformAdmin
+  }
+}
+"#;
+
+const WECHAT_LOGIN_CANCEL: &str = r#"
+mutation WechatLoginCancel($requestId: String!, $proof: String!) {
+  wechatMiniWebLoginCancelForDesktop(requestId: $requestId, proof: $proof) {
+    requestId status
+  }
+}
+"#;
+
 /// 已登录会话：Bearer token + 最小用户信息（keychain/文件存储的就是它）。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SignedInSession {
@@ -108,6 +142,50 @@ pub struct PhoneCodeSent {
     pub retry_after_seconds: i64,
 }
 
+/// 小程序扫码登录的启动结果。`proof` 只在这里出现一次，客户端存内存并随
+/// status/consume/cancel 回传。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WechatLoginStart {
+    pub request_id: String,
+    pub proof: String,
+    pub expires_at: Option<String>,
+    pub poll_interval_seconds: i64,
+    pub qr_data_url: Option<String>,
+    pub launch_url: Option<String>,
+}
+
+/// 扫码请求在服务端的状态。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WechatLoginStatus {
+    Pending,
+    Approved,
+    Consumed,
+    Cancelled,
+    Expired,
+}
+
+impl WechatLoginStatus {
+    fn parse(value: &str) -> Self {
+        match value {
+            "PENDING" => Self::Pending,
+            "APPROVED" => Self::Approved,
+            "CONSUMED" => Self::Consumed,
+            "CANCELLED" => Self::Cancelled,
+            _ => Self::Expired,
+        }
+    }
+}
+
+/// 一次轮询的结果。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WechatLoginPoll {
+    pub request_id: String,
+    pub status: WechatLoginStatus,
+    pub expires_at: Option<String>,
+    pub poll_interval_seconds: i64,
+    pub launch_url: Option<String>,
+}
+
 pub trait AuthApi {
     fn sign_in(&self, login: &str, password: &str) -> Result<SignedInSession, AuthError>;
     fn revoke(&self, token: &str) -> Result<(), AuthError>;
@@ -125,6 +203,20 @@ pub trait AuthApi {
     ) -> Result<SignedInSession, AuthError>;
     fn request_password_reset(&self, email: &str) -> Result<bool, AuthError>;
     fn reset_password(&self, reset_token: &str, password: &str) -> Result<bool, AuthError>;
+    /// 发起小程序扫码登录：返回一次性 proof 与二维码内容（launch_url）。
+    fn start_wechat_login(&self) -> Result<WechatLoginStart, AuthError>;
+    fn wechat_login_status(
+        &self,
+        request_id: &str,
+        proof: &str,
+    ) -> Result<WechatLoginPoll, AuthError>;
+    /// 微信侧确认后换取 desktop Bearer token；重复调用返回 `mini_web_login_consumed`。
+    fn consume_wechat_login(
+        &self,
+        request_id: &str,
+        proof: &str,
+    ) -> Result<SignedInSession, AuthError>;
+    fn cancel_wechat_login(&self, request_id: &str, proof: &str) -> Result<(), AuthError>;
 }
 
 /// 真实后端：GraphQL over HTTP。
@@ -364,6 +456,146 @@ impl AuthApi for HttpAuthApi {
         }
         Ok(())
     }
+
+    fn start_wechat_login(&self) -> Result<WechatLoginStart, AuthError> {
+        let body = self.post(
+            None,
+            WECHAT_LOGIN_START,
+            serde_json::json!({ "mode": "LINK" }),
+        )?;
+        if let Some(error) = Self::domain_error(&body) {
+            return Err(error);
+        }
+        let result = body
+            .pointer("/data/wechatMiniWebLoginStartForDesktop")
+            .ok_or_else(|| {
+                AuthError::Server("missing wechatMiniWebLoginStartForDesktop".to_string())
+            })?;
+        let request_id = result
+            .get("requestId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| AuthError::Server("missing requestId".to_string()))?;
+        let proof = result
+            .get("proof")
+            .and_then(Value::as_str)
+            .ok_or_else(|| AuthError::Server("missing proof".to_string()))?;
+        Ok(WechatLoginStart {
+            request_id: request_id.to_string(),
+            proof: proof.to_string(),
+            expires_at: result
+                .get("expiresAt")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            poll_interval_seconds: result
+                .get("pollIntervalSeconds")
+                .and_then(Value::as_i64)
+                .unwrap_or(3),
+            qr_data_url: result
+                .get("qrDataUrl")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            launch_url: result
+                .get("launchUrl")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        })
+    }
+
+    fn wechat_login_status(
+        &self,
+        request_id: &str,
+        proof: &str,
+    ) -> Result<WechatLoginPoll, AuthError> {
+        let body = self.post(
+            None,
+            WECHAT_LOGIN_STATUS,
+            serde_json::json!({ "requestId": request_id, "proof": proof }),
+        )?;
+        if let Some(error) = Self::domain_error(&body) {
+            return Err(error);
+        }
+        let result = body
+            .pointer("/data/wechatMiniWebLoginStatusForDesktop")
+            .ok_or_else(|| {
+                AuthError::Server("missing wechatMiniWebLoginStatusForDesktop".to_string())
+            })?;
+        let status = result
+            .get("status")
+            .and_then(Value::as_str)
+            .ok_or_else(|| AuthError::Server("missing status".to_string()))?;
+        Ok(WechatLoginPoll {
+            request_id: result
+                .get("requestId")
+                .and_then(Value::as_str)
+                .unwrap_or(request_id)
+                .to_string(),
+            status: WechatLoginStatus::parse(status),
+            expires_at: result
+                .get("expiresAt")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            poll_interval_seconds: result
+                .get("pollIntervalSeconds")
+                .and_then(Value::as_i64)
+                .unwrap_or(3),
+            launch_url: result
+                .get("launchUrl")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        })
+    }
+
+    fn consume_wechat_login(
+        &self,
+        request_id: &str,
+        proof: &str,
+    ) -> Result<SignedInSession, AuthError> {
+        let body = self.post(
+            None,
+            WECHAT_LOGIN_CONSUME,
+            serde_json::json!({ "requestId": request_id, "proof": proof }),
+        )?;
+        if let Some(error) = Self::domain_error(&body) {
+            return Err(error);
+        }
+        let result = body
+            .pointer("/data/wechatMiniWebLoginConsumeForDesktop")
+            .ok_or_else(|| {
+                AuthError::Server("missing wechatMiniWebLoginConsumeForDesktop".to_string())
+            })?;
+        let token = result
+            .get("token")
+            .and_then(Value::as_str)
+            .ok_or_else(|| AuthError::Server("missing token".to_string()))?;
+        Ok(SignedInSession {
+            token: token.to_string(),
+            user_id: result
+                .get("userId")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            email: result
+                .get("email")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            is_platform_admin: result
+                .get("isPlatformAdmin")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        })
+    }
+
+    fn cancel_wechat_login(&self, request_id: &str, proof: &str) -> Result<(), AuthError> {
+        let body = self.post(
+            None,
+            WECHAT_LOGIN_CANCEL,
+            serde_json::json!({ "requestId": request_id, "proof": proof }),
+        )?;
+        if let Some(error) = Self::domain_error(&body) {
+            return Err(error);
+        }
+        Ok(())
+    }
 }
 
 /// 本地 fake auth：固定凭据，供 UI 开发/测试；永远不访问网络。
@@ -474,6 +706,49 @@ impl AuthApi for FakeAuthApi {
                 message: "invalid reset token".to_string(),
             })
         }
+    }
+
+    fn start_wechat_login(&self) -> Result<WechatLoginStart, AuthError> {
+        Ok(WechatLoginStart {
+            request_id: "fake-wechat-request".to_string(),
+            proof: "fake-wechat-proof".to_string(),
+            expires_at: None,
+            poll_interval_seconds: 1,
+            qr_data_url: None,
+            launch_url: Some("https://wxaurl.cn/fake".to_string()),
+        })
+    }
+
+    fn wechat_login_status(
+        &self,
+        request_id: &str,
+        _proof: &str,
+    ) -> Result<WechatLoginPoll, AuthError> {
+        // fake 模式没有真实扫码：直接视为已确认，便于离线演示与 UI 测试。
+        Ok(WechatLoginPoll {
+            request_id: request_id.to_string(),
+            status: WechatLoginStatus::Approved,
+            expires_at: None,
+            poll_interval_seconds: 1,
+            launch_url: Some("https://wxaurl.cn/fake".to_string()),
+        })
+    }
+
+    fn consume_wechat_login(
+        &self,
+        _request_id: &str,
+        _proof: &str,
+    ) -> Result<SignedInSession, AuthError> {
+        Ok(SignedInSession {
+            token: "fake-desktop-token".to_string(),
+            user_id: self.user_id.clone(),
+            email: Some(self.email.clone()),
+            is_platform_admin: false,
+        })
+    }
+
+    fn cancel_wechat_login(&self, _request_id: &str, _proof: &str) -> Result<(), AuthError> {
+        Ok(())
     }
 }
 
@@ -670,6 +945,83 @@ mod tests {
                 .to_ascii_lowercase()
                 .contains("authorization: bearer jwt.token.value"),
             "request: {request}"
+        );
+    }
+
+    #[test]
+    fn http_wechat_login_start_status_consume_and_cancel() {
+        let (endpoint, received) = spawn_mock_server(
+            200,
+            r#"{"data":{"wechatMiniWebLoginStartForDesktop":{"requestId":"code-1","proof":"proof-1","status":"PENDING","expiresAt":"2026-10-20T00:00:00Z","pollIntervalSeconds":3,"qrDataUrl":null,"launchUrl":"https://wxaurl.cn/abc?cq=wl_code-1"}}}"#,
+        );
+        let api = HttpAuthApi::new(endpoint);
+        let start = api.start_wechat_login().expect("start");
+        assert_eq!(start.request_id, "code-1");
+        assert_eq!(start.proof, "proof-1");
+        assert_eq!(start.poll_interval_seconds, 3);
+        assert_eq!(
+            start.launch_url.as_deref(),
+            Some("https://wxaurl.cn/abc?cq=wl_code-1")
+        );
+        let request = received.recv().expect("request captured");
+        assert!(
+            request.contains("wechatMiniWebLoginStartForDesktop"),
+            "request: {request}"
+        );
+        assert!(request.contains("LINK"), "request: {request}");
+
+        let (endpoint, received) = spawn_mock_server(
+            200,
+            r#"{"data":{"wechatMiniWebLoginStatusForDesktop":{"requestId":"code-1","status":"APPROVED","expiresAt":null,"pollIntervalSeconds":3,"launchUrl":null}}}"#,
+        );
+        let api = HttpAuthApi::new(endpoint);
+        let poll = api
+            .wechat_login_status("code-1", "proof-1")
+            .expect("status");
+        assert_eq!(poll.status, WechatLoginStatus::Approved);
+        let request = received.recv().expect("request captured");
+        assert!(
+            request.contains("wechatMiniWebLoginStatusForDesktop"),
+            "request: {request}"
+        );
+        assert!(request.contains("proof-1"), "request: {request}");
+
+        let (endpoint, _) = spawn_mock_server(
+            200,
+            r#"{"data":{"wechatMiniWebLoginConsumeForDesktop":{"token":"jwt.wechat","userId":"u-2","email":null,"isPlatformAdmin":false}}}"#,
+        );
+        let api = HttpAuthApi::new(endpoint);
+        let session = api
+            .consume_wechat_login("code-1", "proof-1")
+            .expect("consume");
+        assert_eq!(session.token, "jwt.wechat");
+        assert_eq!(session.user_id, "u-2");
+        assert_eq!(session.email, None);
+
+        let (endpoint, received) = spawn_mock_server(
+            200,
+            r#"{"data":{"wechatMiniWebLoginCancelForDesktop":{"requestId":"code-1","status":"CANCELLED"}}}"#,
+        );
+        let api = HttpAuthApi::new(endpoint);
+        api.cancel_wechat_login("code-1", "proof-1")
+            .expect("cancel");
+        let request = received.recv().expect("request captured");
+        assert!(
+            request.contains("wechatMiniWebLoginCancelForDesktop"),
+            "request: {request}"
+        );
+    }
+
+    #[test]
+    fn http_wechat_login_maps_expired_domain_error() {
+        let (endpoint, _) = spawn_mock_server(
+            200,
+            r#"{"errors":[{"message":"Unable to complete login","code":"mini_web_login_expired"}]}"#,
+        );
+        let api = HttpAuthApi::new(endpoint);
+        let error = api.consume_wechat_login("code-1", "proof-1").unwrap_err();
+        assert!(
+            matches!(error, AuthError::Domain { ref code, .. } if code == "mini_web_login_expired")
         );
     }
 }

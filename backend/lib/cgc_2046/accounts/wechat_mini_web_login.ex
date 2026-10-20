@@ -137,6 +137,102 @@ defmodule Cgc2046.Accounts.WechatMiniWebLogin do
     end
   end
 
+  # ── 第一方桌面客户端（不写 cookie；proof 经响应体交付） ────────────────
+
+  @doc """
+  桌面端发起小程序扫码登录。proof 只出现在本响应里，客户端存内存并随
+  status/consume/cancel 回传；不要求浏览器 Origin，也不设置 cookie。
+  """
+  def start_for_desktop(mode, context) do
+    with :ok <- limits(:start, random(16), context),
+         code <- random(16),
+         proof <- random(32),
+         {:ok, launch} <- WebLoginLaunch.generate(mode, code),
+         {:ok, row} <-
+           Ash.create(
+             WechatMiniWebLoginRequest,
+             %{
+               public_code: code,
+               browser_proof_hash: digest(proof),
+               browser_rate_key: random(16),
+               expires_at: DateTime.add(now(), 600)
+             },
+             authorize?: false
+           ) do
+      event(:started, %{count: 1}, %{mode: mode})
+      {:ok, Map.merge(view(row), launch) |> Map.put(:proof, proof)}
+    end
+  end
+
+  @doc "桌面端查询扫码状态；proof 来自 start 响应，不读 cookie。"
+  def status_for_desktop(code, proof, context) do
+    with :ok <- valid_code(code),
+         {:ok, row} <- fetch(code),
+         :ok <- proof_from(row, proof),
+         :ok <- limits(:status, code, context),
+         do: {:ok, view(row)}
+  end
+
+  @doc """
+  桌面端消费扫码授权：与 web 的 consume 同一条 approval，但签发
+  `platform=desktop` 的 Bearer JWT 并经响应体交付。
+  """
+  def consume_for_desktop(code, proof, context) do
+    transaction(fn ->
+      with {:ok, row} <- fetch(code, true),
+           :ok <- proof_from(row, proof),
+           :ok <- limits(:consume, code, context),
+           :ok <- active(row),
+           :ok <- approved(row),
+           {:ok, %User{phone: phone} = user} when is_binary(phone) <-
+             Ash.get(User, row.user_id, @internal),
+           {:ok, signed} <- SignInFlow.generate_token(user, :desktop, %{}),
+           token when is_binary(token) <- signed.__metadata__[:token],
+           {:ok, %{"jti" => jti}, _} <- AshAuthentication.Jwt.verify(token, User),
+           {:ok, _} <-
+             transition(row, %{status: :consumed, consumed_at: now(), consumed_jti: jti}) do
+        {:ok,
+         %{
+           token: token,
+           user_id: user.id,
+           email: user.email,
+           is_platform_admin: user.is_platform_admin
+         }}
+      else
+        {:error, _} = error -> error
+        _ -> {:error, :mini_web_login_failed}
+      end
+    end)
+    |> tap(fn
+      {:ok, _} -> event(:consumed, %{count: 1})
+      _ -> event(:consume_failed)
+    end)
+  end
+
+  @doc "桌面端撤销尚未消费的扫码请求（关闭登录页/换码时调用）。"
+  def cancel_for_desktop(code, proof, context) do
+    with :ok <- valid_code(code) do
+      transaction(fn ->
+        with {:ok, row} <- fetch(code, true),
+             :ok <- proof_from(row, proof),
+             :ok <- limits(:cancel, code, context) do
+          if row.status in [:pending, :approved],
+            do: transition(row, %{status: :cancelled, cancelled_at: now()}),
+            else: {:ok, row}
+        end
+      end)
+      |> result_view(:cancelled)
+    end
+  end
+
+  defp proof_from(row, proof) when is_binary(proof) and byte_size(proof) == 43 do
+    if Plug.Crypto.secure_compare(row.browser_proof_hash, digest(proof)),
+      do: :ok,
+      else: {:error, :mini_web_login_invalid}
+  end
+
+  defp proof_from(_, _), do: {:error, :mini_web_login_invalid}
+
   defp mini_actor(%{
          actor: %User{phone: phone} = user,
          mini_web_claims: %{"platform" => "wechat"}

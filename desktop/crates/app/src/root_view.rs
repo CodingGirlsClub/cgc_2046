@@ -47,7 +47,9 @@ use cgc_platform::mcp::credential::{
 use cgc_platform::mcp::inject::{build_mcp_server, mcp_endpoint, McpServerConfig};
 use cgc_platform::registry::manifest::Registry;
 use cgc_platform::routes::NavIcon;
-use cgc_platform::session::{AuthError, SessionService, SessionState, SignedInSession};
+use cgc_platform::session::{
+    AuthError, SessionService, SessionState, SignedInSession, WechatLoginStatus,
+};
 use cgc_platform::workspace::{CourseContext, CourseContextPort, CourseContextProvider};
 use cgc_platform::workspace::{
     FakeWorkspaceApi, HttpWorkspaceApi, WorkspaceApi, WorkspaceListState, WorkspaceService,
@@ -76,6 +78,17 @@ enum LoginMode {
     Password,
     Phone,
     Reset,
+    Wechat,
+}
+
+/// 微信扫码登录的 UI 状态。`Ready` 持有一次性 proof，只在内存里。
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum WechatLoginView {
+    Idle,
+    Starting,
+    Ready { launch_url: String, approved: bool },
+    Expired,
+    Failed(LoginError),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,6 +104,7 @@ pub(crate) enum LoginError {
     Phone,
     RateLimited,
     Reset,
+    Wechat,
 }
 
 impl LoginError {
@@ -105,6 +119,15 @@ impl LoginError {
                 }
                 "rate_limited" => LoginError::RateLimited,
                 "invalid_or_expired_reset_token" => LoginError::Reset,
+                "mini_web_login_expired"
+                | "mini_web_login_cancelled"
+                | "mini_web_login_consumed"
+                | "mini_web_login_not_approved"
+                | "mini_web_login_invalid"
+                | "mini_web_login_account_conflict"
+                | "mini_web_login_phone_required"
+                | "mini_web_login_unavailable"
+                | "mini_web_login_failed" => LoginError::Wechat,
                 _ => LoginError::Network,
             },
         }
@@ -118,6 +141,7 @@ impl LoginError {
             LoginError::Phone => Key::AppAuthErrorPhone,
             LoginError::RateLimited => Key::AppAuthErrorRateLimited,
             LoginError::Reset => Key::AppAuthErrorReset,
+            LoginError::Wechat => Key::AppAuthErrorWechat,
         }
     }
 }
@@ -233,6 +257,8 @@ pub struct RootView {
     focused: LoginField,
     login_error: Option<LoginError>,
     signing_in: bool,
+    wechat_login: WechatLoginView,
+    wechat_generation: u64,
     account_menu_open: bool,
     agent_panel_open: bool,
     breadcrumb_menu: Option<BreadcrumbMenu>,
@@ -318,6 +344,8 @@ impl RootView {
             focused: LoginField::Email,
             login_error: None,
             signing_in: false,
+            wechat_login: WechatLoginView::Idle,
+            wechat_generation: 0,
             account_menu_open: false,
             agent_panel_open: true,
             breadcrumb_menu: None,
@@ -2326,6 +2354,8 @@ impl RootView {
                         self.request_password_reset(cx)
                     }
                 }
+                // 微信模式没有输入框：回车不提交，确认由手机端完成。
+                LoginMode::Wechat => {}
             },
             "backspace" => {
                 let buffer = self.field_mut();
@@ -2366,6 +2396,8 @@ impl RootView {
                     vec![LoginField::Email]
                 }
             }
+            // 微信模式没有输入框；保留一个焦点落点让 Tab 不 panic。
+            LoginMode::Wechat => vec![LoginField::Email],
         }
     }
 
@@ -2378,17 +2410,288 @@ impl RootView {
         self.focused = fields[(index + 1) % fields.len()];
     }
 
+    fn render_wechat_login_card(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let view = self.wechat_login.clone();
+        let mut card = div()
+            .w(px(360.0))
+            .flex()
+            .flex_col()
+            .gap(space(2))
+            .p(space(5))
+            .rounded(px(RADIUS_LARGE))
+            .border_1()
+            .border_color(palette.line)
+            .bg(palette.card)
+            .child(
+                div()
+                    .text_size(px(22.0))
+                    .text_color(palette.ink)
+                    .child(translate(language, Key::AppName)),
+            )
+            .child(
+                div()
+                    .text_size(px(12.0))
+                    .text_color(palette.ink_3)
+                    .child(translate(language, Key::AppAuthWechatTitle)),
+            );
+
+        match view {
+            WechatLoginView::Idle | WechatLoginView::Starting => {
+                card = card.child(
+                    div()
+                        .h(px(200.0))
+                        .w_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_size(px(12.0))
+                        .text_color(palette.ink_3)
+                        .child(translate(language, Key::AppAuthWechatStarting)),
+                );
+            }
+            WechatLoginView::Ready {
+                launch_url,
+                approved,
+            } => {
+                let qr = encode_qr(&launch_url)
+                    .map(|matrix| render_qr(&matrix, black(), white(), px(200.0)));
+                card = card.child(div().w_full().flex().justify_center().children(qr));
+                let hint = if approved {
+                    Key::AppAuthWechatApproved
+                } else {
+                    Key::AppAuthWechatHint
+                };
+                card = card.child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(if approved {
+                            palette.accent
+                        } else {
+                            palette.ink_3
+                        })
+                        .child(translate(language, hint)),
+                );
+            }
+            WechatLoginView::Expired => {
+                card = card
+                    .child(
+                        div()
+                            .text_size(px(12.0))
+                            .text_color(palette.danger)
+                            .child(translate(language, Key::AppAuthWechatExpired)),
+                    )
+                    .child(self.wechat_refresh_button(language, palette, cx));
+            }
+            WechatLoginView::Failed(error) => {
+                card = card
+                    .child(
+                        div()
+                            .text_size(px(12.0))
+                            .text_color(palette.danger)
+                            .child(translate(language, error.key())),
+                    )
+                    .child(self.wechat_refresh_button(language, palette, cx));
+            }
+        }
+
+        card.child(
+            div()
+                .id("wechat-back")
+                .role(Role::Link)
+                .aria_label(translate(language, Key::AppAuthBack))
+                .text_size(px(12.0))
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::AppAuthBack))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.switch_login_mode(LoginMode::Password);
+                    cx.notify();
+                })),
+        )
+        .into_any_element()
+    }
+
+    fn wechat_refresh_button(
+        &self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        div()
+            .id("wechat-refresh")
+            .role(Role::Button)
+            .aria_label(translate(language, Key::AppAuthWechatRefresh))
+            .h(px(34.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(RADIUS_MEDIUM))
+            .bg(palette.soft)
+            .text_color(palette.ink_2)
+            .child(translate(language, Key::AppAuthWechatRefresh))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.start_wechat_login(cx);
+            }))
+            .into_any_element()
+    }
+
     fn switch_login_mode(&mut self, mode: LoginMode) {
         self.login_mode = mode;
         self.login_error = None;
         self.login_notice = None;
         self.phone_code_sent = false;
         self.reset_sent = false;
+        // 离开微信模式即停止轮询；未消费的请求 10 分钟后由服务端过期。
+        self.wechat_generation += 1;
+        self.wechat_login = WechatLoginView::Idle;
         self.focused = match mode {
             LoginMode::Password => LoginField::Email,
             LoginMode::Phone => LoginField::Phone,
             LoginMode::Reset => LoginField::Email,
+            LoginMode::Wechat => LoginField::Email,
         };
+    }
+
+    fn open_wechat_login(&mut self, cx: &mut Context<Self>) {
+        self.switch_login_mode(LoginMode::Wechat);
+        self.start_wechat_login(cx);
+    }
+
+    fn start_wechat_login(&mut self, cx: &mut Context<Self>) {
+        if self.signing_in {
+            return;
+        }
+        self.wechat_generation += 1;
+        let generation = self.wechat_generation;
+        self.wechat_login = WechatLoginView::Starting;
+        self.login_error = None;
+        let api = self.session.api_handle();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api.start_wechat_login() })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if generation != this.wechat_generation {
+                    return;
+                }
+                match result {
+                    Ok(start) => match start.launch_url {
+                        Some(launch_url) => {
+                            this.wechat_login = WechatLoginView::Ready {
+                                launch_url,
+                                approved: false,
+                            };
+                            this.spawn_wechat_poller(
+                                cx,
+                                generation,
+                                start.request_id,
+                                start.proof,
+                                start.poll_interval_seconds,
+                            );
+                        }
+                        None => {
+                            this.wechat_login = WechatLoginView::Failed(LoginError::Wechat);
+                        }
+                    },
+                    Err(error) => {
+                        this.wechat_login =
+                            WechatLoginView::Failed(LoginError::from_auth_error(&error));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn spawn_wechat_poller(
+        &mut self,
+        cx: &mut Context<Self>,
+        generation: u64,
+        request_id: String,
+        proof: String,
+        interval_seconds: i64,
+    ) {
+        let api = self.session.api_handle();
+        let interval = Duration::from_secs(interval_seconds.clamp(1, 10) as u64);
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(interval).await;
+            let poll_api = api.clone();
+            let poll_request = request_id.clone();
+            let poll_proof = proof.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { poll_api.wechat_login_status(&poll_request, &poll_proof) })
+                .await;
+            let next_request = request_id.clone();
+            let next_proof = proof.clone();
+            let keep = this
+                .update(cx, |this, cx| {
+                    if generation != this.wechat_generation || this.login_mode != LoginMode::Wechat
+                    {
+                        return false;
+                    }
+                    match result {
+                        Ok(poll) => match poll.status {
+                            WechatLoginStatus::Pending => true,
+                            WechatLoginStatus::Approved => {
+                                this.consume_wechat_login(cx, generation, next_request, next_proof);
+                                false
+                            }
+                            WechatLoginStatus::Consumed => false,
+                            WechatLoginStatus::Cancelled | WechatLoginStatus::Expired => {
+                                this.wechat_login = WechatLoginView::Expired;
+                                cx.notify();
+                                false
+                            }
+                        },
+                        Err(error) => {
+                            this.wechat_login =
+                                WechatLoginView::Failed(LoginError::from_auth_error(&error));
+                            cx.notify();
+                            false
+                        }
+                    }
+                })
+                .unwrap_or(false);
+            if !keep {
+                break;
+            }
+        })
+        .detach();
+    }
+
+    fn consume_wechat_login(
+        &mut self,
+        cx: &mut Context<Self>,
+        generation: u64,
+        request_id: String,
+        proof: String,
+    ) {
+        if let WechatLoginView::Ready { approved, .. } = &mut self.wechat_login {
+            *approved = true;
+        }
+        self.signing_in = true;
+        let api = self.session.api_handle();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api.consume_wechat_login(&request_id, &proof) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if generation != this.wechat_generation {
+                    return;
+                }
+                this.finish_login(result);
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn request_phone_code(&mut self, cx: &mut Context<Self>) {
@@ -2847,6 +3150,17 @@ impl Render for RootView {
                         .text_size(px(12.0))
                         .child(
                             div()
+                                .id("login-mode-wechat")
+                                .role(Role::Link)
+                                .aria_label(translate(language, Key::AppAuthModeWechat))
+                                .text_color(palette.accent)
+                                .child(translate(language, Key::AppAuthModeWechat))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.open_wechat_login(cx);
+                                })),
+                        )
+                        .child(
+                            div()
                                 .id("login-mode-phone")
                                 .role(Role::Link)
                                 .aria_label(translate(language, Key::AppAuthModePhone))
@@ -2875,6 +3189,7 @@ impl Render for RootView {
                 LoginMode::Password => password_card.into_any_element(),
                 LoginMode::Phone => self.render_phone_login_card(language, &palette, cx),
                 LoginMode::Reset => self.render_reset_login_card(language, &palette, cx),
+                LoginMode::Wechat => self.render_wechat_login_card(language, &palette, cx),
             };
             root = root
                 .size_full()
@@ -6138,7 +6453,7 @@ fn hsla_white() -> Hsla {
 
 #[cfg(test)]
 mod tests {
-    use super::RootView;
+    use super::{LoginField, LoginMode, RootView, WechatLoginView};
     use crate::i18n::{translate, Key, Language};
     use crate::registration::build_registry;
     use crate::theme::ThemePreference;
@@ -6317,5 +6632,24 @@ mod tests {
             .expect("events route registered");
         view.select(events);
         assert_eq!(view.current().map(|route| route.id), Some("events.list"));
+    }
+
+    #[test]
+    fn wechat_mode_resets_state_and_stops_the_poller() {
+        let mut view = view();
+        let generation = view.wechat_generation;
+
+        view.switch_login_mode(LoginMode::Wechat);
+        assert_eq!(view.login_mode, LoginMode::Wechat);
+        assert_eq!(view.wechat_login, WechatLoginView::Idle);
+        assert_eq!(view.wechat_generation, generation + 1);
+        assert_eq!(view.login_fields(), vec![LoginField::Email]);
+
+        // 模拟一次二维码过期，再切回密码模式：状态归零、轮询代数前进。
+        view.wechat_login = WechatLoginView::Expired;
+        view.switch_login_mode(LoginMode::Password);
+        assert_eq!(view.login_mode, LoginMode::Password);
+        assert_eq!(view.wechat_login, WechatLoginView::Idle);
+        assert_eq!(view.wechat_generation, generation + 2);
     }
 }

@@ -4934,6 +4934,9 @@ type Sponsorship {
 type RootQueryType {
   wechatMiniWebLoginStatus(requestId: String!): MiniWebLoginResult
 
+  "桌面端查询扫码状态：proof 由 start 响应交付，不读 cookie"
+  wechatMiniWebLoginStatusForDesktop(requestId: String!, proof: String!): MiniWebLoginDesktopResult
+
   wechatMiniWebLoginPreview(requestId: String!): MiniWebLoginResult
 
   "闪念间圆梦线 CTA 两态（U4\/R9）：本城最近一场可报名公开场次；未命中时前端落 Initiative 公开页。匿名可读，仅指路字段"
@@ -5950,6 +5953,15 @@ type RootMutationType {
   wechatMiniWebLoginConsume(requestId: String!): MiniWebLoginResult
 
   wechatMiniWebLoginCancel(requestId: String!): MiniWebLoginResult
+
+  "桌面端发起小程序扫码登录：proof 经响应体交付，不写 cookie"
+  wechatMiniWebLoginStartForDesktop(mode: MiniWebLoginMode!): MiniWebLoginDesktopResult
+
+  "桌面端消费扫码授权：签发 desktop Bearer JWT，不写 cookie"
+  wechatMiniWebLoginConsumeForDesktop(requestId: String!, proof: String!): DesktopSignInResult
+
+  "桌面端撤销尚未消费的扫码请求"
+  wechatMiniWebLoginCancelForDesktop(requestId: String!, proof: String!): MiniWebLoginDesktopResult
 
   "管理员单笔退款（R15）：第一段——建 pending 并返回后端生成的确认摘要（不落业务库）；confirmOperation 确认后真正执行"
   refundOrder(id: ID!): PendingOperationConfirmation
@@ -7790,6 +7802,16 @@ type MiniWebLoginResult {
   qrDataUrl: String
   launchUrl: String
   sessionEstablished: Boolean
+}
+
+type MiniWebLoginDesktopResult {
+  requestId: String!
+  proof: String
+  status: MiniWebLoginStatus!
+  expiresAt: DateTime
+  pollIntervalSeconds: Int!
+  qrDataUrl: String
+  launchUrl: String
 }
 
 type SignInResult {

@@ -166,6 +166,14 @@ agent_chat.chat.context_required
 app.settings.build
 app.auth.mode.password
 app.auth.mode.phone
+app.auth.mode.wechat
+app.auth.wechat.title
+app.auth.wechat.starting
+app.auth.wechat.hint
+app.auth.wechat.approved
+app.auth.wechat.expired
+app.auth.wechat.refresh
+app.auth.error.wechat
 app.auth.phone.title
 app.auth.reset.title
 app.auth.phone.phone
