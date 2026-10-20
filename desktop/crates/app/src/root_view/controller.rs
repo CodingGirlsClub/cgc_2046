@@ -1218,6 +1218,7 @@ impl RootView {
             site_tree_courses_open: self.site_tree_courses_open,
             site_tree_query: self.site_tree_query.clone(),
             right_panel_width: self.right_panel_width,
+            site_tree_course_open: self.site_tree_course_open.clone(),
         };
         crate::workspace_state::save_entry(workspace_id, entry);
     }
@@ -1233,6 +1234,7 @@ impl RootView {
         self.site_tree_courses_open = entry.site_tree_courses_open;
         self.site_tree_query = entry.site_tree_query;
         self.right_panel_width = entry.right_panel_width;
+        self.site_tree_course_open = entry.site_tree_course_open;
         let stored_tab_count = entry.tabs.len();
         self.tabs = entry
             .tabs
