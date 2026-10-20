@@ -69,7 +69,14 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         let path = format!("/events/{event_id}");
-        self.open_page_tab(&path, "活动", cx);
+        let title = self
+            .events
+            .items()
+            .iter()
+            .find(|event| event.id == event_id)
+            .map(|event| event.title.clone())
+            .unwrap_or_else(|| "活动".to_string());
+        self.open_page_tab(&path, title, cx);
     }
 
     pub fn toggle_language(&mut self) -> Language {
@@ -183,7 +190,6 @@ impl RootView {
         self.detail.reset();
         self.courses.reset();
         self.course_enrollments.clear();
-        self.course_enrollments_loaded = false;
         self.course_detail.reset();
         self.content.reset();
         self.projection.reset();
@@ -850,7 +856,14 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         let path = format!("/courses/{course_id}");
-        self.open_page_tab(&path, "课程", cx);
+        let title = self
+            .courses
+            .items()
+            .iter()
+            .find(|course| course.id == course_id)
+            .map(|course| course.title.clone())
+            .unwrap_or_else(|| "课程".to_string());
+        self.open_page_tab(&path, title, cx);
     }
 
     pub(in crate::root_view) fn navigate_to_learning(
@@ -859,7 +872,14 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         let path = format!("/courses/{course_id}/learn");
-        self.open_page_tab(&path, "学习", cx);
+        let title = self
+            .courses
+            .items()
+            .iter()
+            .find(|course| course.id == course_id)
+            .map(|course| format!("{} · 学习", course.title))
+            .unwrap_or_else(|| "学习".to_string());
+        self.open_page_tab(&path, title, cx);
     }
 
     pub(in crate::root_view) fn is_settings_shortcut(keystroke: &gpui_kit::Keystroke) -> bool {
@@ -1263,7 +1283,6 @@ impl RootView {
         if ids.is_empty() {
             return;
         }
-        self.course_enrollments_loaded = true;
         let api = self.courses.api_handle();
         let token = self.session_token();
         let task = cx.background_executor().spawn(async move {
