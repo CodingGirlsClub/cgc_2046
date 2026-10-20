@@ -524,7 +524,7 @@ impl RootView {
     fn switch_workspace(&mut self, workspace_id: &str, cx: &mut Context<Self>) {
         if self.workspaces.switch_to(workspace_id) {
             self.reset_workspace_data();
-            self.navigate("/");
+            self.navigate("/workspace");
             self.workspace_menu_open = false;
             cx.notify();
         }
@@ -1215,20 +1215,23 @@ impl RootView {
         .ok();
     }
 
-    fn breadcrumb_context(&self) -> Option<(bool, Option<String>)> {
+    fn breadcrumb_context(&self) -> Option<(&'static str, Option<String>)> {
         let route_id = self
             .current
             .as_ref()
             .map(|route_match| route_match.route.id)?;
         match route_id {
-            "events.list" | "events.mine" => Some((false, None)),
+            "account.workspace" => Some(("account.workspace.overview", None)),
+            "events.list" | "events.mine" | "events.participations" => {
+                Some(("events.list.title", None))
+            }
             "events.detail" => Some((
-                false,
+                "events.list.title",
                 self.detail.detail().map(|detail| detail.title.clone()),
             )),
-            "courses.catalog" => Some((true, None)),
+            "courses.catalog" | "courses.learning_home" => Some(("courses.catalog.title", None)),
             "courses.detail" | "courses.learning" => Some((
-                true,
+                "courses.catalog.title",
                 self.course_detail
                     .detail()
                     .map(|detail| detail.title.clone()),
@@ -1264,8 +1267,7 @@ impl RootView {
             .child(workspace_switcher);
         let context = self.breadcrumb_context();
         let section_label = match context {
-            Some((true, _)) => translate_registered(language, "courses.catalog.title"),
-            Some((false, _)) => translate_registered(language, "events.list.title"),
+            Some((label_key, _)) => translate_registered(language, label_key),
             None => translate(language, Key::AppBreadcrumbSections),
         };
         let selected = self.breadcrumb_menu.is_some();
@@ -1305,11 +1307,22 @@ impl RootView {
             .as_ref()
             .map(|route_match| route_match.route.id);
         let rows = [
-            ("events.list", "events.list.title", false),
-            ("courses.catalog", "courses.catalog.title", true),
+            ("account.workspace", "/workspace", "account.workspace.title"),
+            ("events.list", "/events", "events.list.title"),
+            ("courses.catalog", "/courses", "courses.catalog.title"),
+            (
+                "courses.learning_home",
+                "/learning",
+                "courses.learning_home.title",
+            ),
+            (
+                "events.participations",
+                "/participations",
+                "events.participations.title",
+            ),
         ]
         .into_iter()
-        .map(|(route_id, title_key, _courses)| {
+        .map(|(route_id, path, title_key)| {
             let selected = current.is_some_and(|id| {
                 id == route_id
                     || id.starts_with(&format!("{route_id}."))
@@ -1335,11 +1348,7 @@ impl RootView {
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.breadcrumb_menu = None;
-                    if route_id == "events.list" {
-                        this.navigate("/events");
-                    } else {
-                        this.navigate("/courses");
-                    }
+                    this.navigate(path);
                     cx.notify();
                 }))
                 .into_any_element()
@@ -1349,8 +1358,8 @@ impl RootView {
             .id("breadcrumb-menu")
             .absolute()
             .top(px(44.0))
-            .left(px(270.0))
-            .w(px(220.0))
+            .left(px(220.0))
+            .w(px(230.0))
             .flex()
             .flex_col()
             .gap(px(1.0))
@@ -1964,6 +1973,7 @@ impl RootView {
                 self.workspaces_started = false;
                 self.session_checked = false;
                 self.login_password.clear();
+                self.navigate("/workspace");
             }
             Err(error) => {
                 self.session.fail_sign_in(&error);
@@ -2935,14 +2945,20 @@ impl Render for RootView {
                 .as_ref()
                 .map(|route_match| route_match.route.id);
             if workspaces_ready
-                && current_id == Some("events.list")
+                && matches!(current_id, Some("events.list") | Some("account.workspace"))
                 && !self.events_started
                 && matches!(self.events.state(), ListState::Idle)
             {
                 self.start_events_load(cx, true);
             }
             if workspaces_ready
-                && current_id == Some("events.mine")
+                && matches!(
+                    current_id,
+                    Some("events.mine")
+                        | Some("events.participations")
+                        | Some("account.workspace")
+                        | Some("courses.learning_home")
+                )
                 && !self.enrollments_started
                 && matches!(self.enrollments_state, EnrollmentsListState::Idle)
             {
@@ -3174,6 +3190,8 @@ impl Render for RootView {
                                             .as_ref()
                                             .map(|route_match| route_match.route.id)
                                         {
+                                            Some("account.workspace") => self
+                                                .render_workspace_overview(language, &palette, cx),
                                             Some("events.list") => {
                                                 self.render_events_list(language, &palette, cx)
                                             }
@@ -3188,6 +3206,12 @@ impl Render for RootView {
                                             }
                                             Some("courses.catalog") => {
                                                 self.render_courses_list(language, &palette, cx)
+                                            }
+                                            Some("courses.learning_home") => {
+                                                self.render_learning_home(language, &palette, cx)
+                                            }
+                                            Some("events.participations") => {
+                                                self.render_participations(language, &palette, cx)
                                             }
                                             Some("courses.detail") => {
                                                 self.render_course_detail(language, &palette, cx)
@@ -4742,6 +4766,693 @@ impl RootView {
             .into_any_element()
     }
 
+    fn render_workspace_overview(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let workspace = self.workspaces.current().cloned();
+        let enrollments_state = self.enrollments_state.clone();
+        let enrollment_rows = self.enrollments_rows.clone();
+        let events_state = self.events.state().clone();
+        let events = self.events.items().to_vec();
+        let course_rows = enrollment_rows
+            .iter()
+            .filter(|row| row.course_id.is_some())
+            .take(4)
+            .cloned()
+            .collect::<Vec<_>>();
+        let participation_rows = enrollment_rows.iter().take(3).cloned().collect::<Vec<_>>();
+
+        let Some(workspace) = workspace else {
+            return div()
+                .flex()
+                .flex_col()
+                .gap(space(2))
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(palette.ink_3)
+                        .child(translate(language, Key::AccountWorkspaceLoading)),
+                )
+                .into_any_element();
+        };
+
+        let roles = workspace
+            .my_role_names
+            .iter()
+            .map(|role| workspace_role_label(language, role))
+            .collect::<Vec<_>>()
+            .join(" · ");
+        let members = workspace
+            .member_count
+            .map(|count| {
+                format!(
+                    "{count} {}",
+                    translate(language, Key::AccountWorkspaceMembers)
+                )
+            })
+            .unwrap_or_default();
+
+        let learning_body: AnyElement = match enrollments_state {
+            EnrollmentsListState::Idle | EnrollmentsListState::Loading => div()
+                .text_size(px(12.0))
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::AccountWorkspaceLoading))
+                .into_any_element(),
+            EnrollmentsListState::Failed(_) => div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(space(2))
+                .text_size(px(12.0))
+                .text_color(palette.danger)
+                .child(translate(language, Key::AccountWorkspaceFailed))
+                .child(
+                    div()
+                        .id("workspace-learning-retry")
+                        .px(space(1))
+                        .py(px(3.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .bg(palette.soft)
+                        .text_color(palette.ink_2)
+                        .child(translate(language, Key::AccountWorkspaceRetry))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.enrollments_started = false;
+                            this.enrollments_state = EnrollmentsListState::Idle;
+                            cx.notify();
+                        })),
+                )
+                .into_any_element(),
+            _ if course_rows.is_empty() => div()
+                .flex()
+                .flex_col()
+                .gap(space(1))
+                .text_size(px(12.0))
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::AccountWorkspaceNoLearning))
+                .child(
+                    div()
+                        .id("workspace-browse-courses")
+                        .w(px(120.0))
+                        .px(space(1))
+                        .py(px(3.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .bg(palette.soft)
+                        .text_color(palette.accent)
+                        .text_size(px(12.0))
+                        .child(translate(language, Key::AccountWorkspaceBrowseCourses))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.navigate("/courses");
+                            cx.notify();
+                        })),
+                )
+                .into_any_element(),
+            _ => div()
+                .flex()
+                .flex_col()
+                .gap(px(1.0))
+                .children(course_rows.into_iter().map(|row| {
+                    let course_id = row.course_id.clone().unwrap_or_default();
+                    let target = row.target_title.clone().unwrap_or_default();
+                    let status = enroll_status_label(language, row.status.as_str());
+                    let confirmed = row.status == "confirmed";
+                    div()
+                        .id(format!("workspace-course-{}", row.id))
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .justify_between()
+                        .gap(space(2))
+                        .px(space(2))
+                        .py(space(1))
+                        .border_b_1()
+                        .border_color(palette.line)
+                        .hover(|style| style.bg(palette.soft))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(2.0))
+                                .child(div().text_color(palette.ink).child(target))
+                                .child(
+                                    div()
+                                        .text_size(px(11.0))
+                                        .text_color(palette.ink_3)
+                                        .child(status),
+                                ),
+                        )
+                        .child(div().text_size(px(11.0)).text_color(palette.accent).child(
+                            if confirmed {
+                                translate(language, Key::AccountWorkspaceContinueLearning)
+                            } else {
+                                translate(language, Key::AccountWorkspaceViewAll)
+                            },
+                        ))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if confirmed {
+                                this.navigate_to_learning(&course_id);
+                            } else {
+                                this.navigate(&format!("/courses/{course_id}"));
+                            }
+                            cx.notify();
+                        }))
+                        .into_any_element()
+                }))
+                .into_any_element(),
+        };
+
+        let events_body: AnyElement = match events_state {
+            ListState::Idle | ListState::Loading => div()
+                .text_size(px(12.0))
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::AccountWorkspaceLoading))
+                .into_any_element(),
+            ListState::Failed(_) => div()
+                .text_size(px(12.0))
+                .text_color(palette.danger)
+                .child(translate(language, Key::AccountWorkspaceFailed))
+                .into_any_element(),
+            _ if events.is_empty() => div()
+                .text_size(px(12.0))
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::AccountWorkspaceNoEvents))
+                .into_any_element(),
+            _ => div()
+                .flex()
+                .flex_col()
+                .gap(px(1.0))
+                .children(events.into_iter().take(3).map(|event| {
+                    let event_id = event.id.clone();
+                    let date = event
+                        .starts_at
+                        .as_deref()
+                        .map(|value| value.chars().take(10).collect::<String>())
+                        .unwrap_or_default();
+                    div()
+                        .id(format!("workspace-event-{}", event_id))
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .justify_between()
+                        .gap(space(2))
+                        .px(space(2))
+                        .py(space(1))
+                        .border_b_1()
+                        .border_color(palette.line)
+                        .hover(|style| style.bg(palette.soft))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(2.0))
+                                .child(div().text_color(palette.ink).child(event.title.clone()))
+                                .child(
+                                    div()
+                                        .text_size(px(11.0))
+                                        .text_color(palette.ink_3)
+                                        .child(date),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_3)
+                                .child(translate(language, status_key(event.status.as_str()))),
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.navigate_to_event_detail(&event_id);
+                            cx.notify();
+                        }))
+                        .into_any_element()
+                }))
+                .into_any_element(),
+        };
+
+        let participation_body: AnyElement = match enrollments_state {
+            EnrollmentsListState::Idle | EnrollmentsListState::Loading => div()
+                .text_size(px(12.0))
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::AccountWorkspaceLoading))
+                .into_any_element(),
+            EnrollmentsListState::Failed(_) => div()
+                .text_size(px(12.0))
+                .text_color(palette.danger)
+                .child(translate(language, Key::AccountWorkspaceFailed))
+                .into_any_element(),
+            _ if participation_rows.is_empty() => div()
+                .text_size(px(12.0))
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::AccountWorkspaceNoLearning))
+                .into_any_element(),
+            _ => div()
+                .flex()
+                .flex_col()
+                .gap(px(1.0))
+                .children(participation_rows.into_iter().map(|row| {
+                    let target = row.target_title.clone().unwrap_or_default();
+                    let status = enroll_status_label(language, row.status.as_str());
+                    let event_id = row.event_id.clone();
+                    let course_id = row.course_id.clone();
+                    div()
+                        .id(format!("workspace-participation-{}", row.id))
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .justify_between()
+                        .gap(space(2))
+                        .px(space(2))
+                        .py(space(1))
+                        .border_b_1()
+                        .border_color(palette.line)
+                        .hover(|style| style.bg(palette.soft))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(2.0))
+                                .child(div().text_color(palette.ink).child(target))
+                                .child(
+                                    div()
+                                        .text_size(px(11.0))
+                                        .text_color(palette.ink_3)
+                                        .child(status),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(palette.accent)
+                                .child(translate(language, Key::EventsParticipationsView)),
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if let Some(event_id) = event_id.as_deref() {
+                                this.navigate_to_event_detail(event_id);
+                            } else if let Some(course_id) = course_id.as_deref() {
+                                this.navigate(&format!("/courses/{course_id}"));
+                            }
+                            cx.notify();
+                        }))
+                        .into_any_element()
+                }))
+                .into_any_element(),
+        };
+
+        div()
+            .flex()
+            .flex_col()
+            .gap(space(3))
+            .w_full()
+            .max_w(px(980.0))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(space(1))
+                    .child(
+                        div()
+                            .text_size(px(28.0))
+                            .text_color(palette.ink)
+                            .child(workspace.name.clone()),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.0))
+                            .text_color(palette.ink_3)
+                            .child(translate(language, Key::AccountWorkspaceSubtitle)),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(2))
+                            .text_size(px(12.0))
+                            .text_color(palette.ink_3)
+                            .child(workspace.slug.clone())
+                            .children((!members.is_empty()).then(|| div().child(members)))
+                            .children((!roles.is_empty()).then(|| div().child(roles))),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .text_size(px(16.0))
+                            .text_color(palette.ink)
+                            .child(translate(language, Key::AccountWorkspaceContinueLearning)),
+                    )
+                    .child(
+                        div()
+                            .id("workspace-all-learning")
+                            .text_size(px(11.0))
+                            .text_color(palette.accent)
+                            .child(translate(language, Key::AccountWorkspaceViewAll))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.navigate("/learning");
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(learning_body)
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .text_size(px(16.0))
+                            .text_color(palette.ink)
+                            .child(translate(language, Key::AccountWorkspaceUpcomingEvents)),
+                    )
+                    .child(
+                        div()
+                            .id("workspace-all-events")
+                            .text_size(px(11.0))
+                            .text_color(palette.accent)
+                            .child(translate(language, Key::AccountWorkspaceViewAll))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.navigate("/events");
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(events_body)
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .text_size(px(16.0))
+                            .text_color(palette.ink)
+                            .child(translate(language, Key::AccountWorkspaceMyParticipations)),
+                    )
+                    .child(
+                        div()
+                            .id("workspace-all-participations")
+                            .text_size(px(11.0))
+                            .text_color(palette.accent)
+                            .child(translate(language, Key::AccountWorkspaceViewAll))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.navigate("/participations");
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(participation_body)
+            .into_any_element()
+    }
+
+    fn render_learning_home(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let state = self.enrollments_state.clone();
+        let rows = self.enrollments_rows.clone();
+        let course_rows = rows
+            .iter()
+            .filter(|row| row.course_id.is_some())
+            .cloned()
+            .collect::<Vec<_>>();
+        let body: AnyElement = match state {
+            EnrollmentsListState::Idle | EnrollmentsListState::Loading => div()
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::AccountWorkspaceLoading))
+                .into_any_element(),
+            EnrollmentsListState::Failed(_) => div()
+                .flex()
+                .flex_col()
+                .gap(space(1))
+                .text_color(palette.danger)
+                .child(translate(language, Key::AccountWorkspaceFailed))
+                .child(
+                    div()
+                        .id("learning-home-retry")
+                        .px(space(2))
+                        .py(px(4.0))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .bg(palette.accent)
+                        .text_color(palette.canvas)
+                        .child(translate(language, Key::AccountWorkspaceRetry))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.enrollments_started = false;
+                            this.enrollments_state = EnrollmentsListState::Idle;
+                            cx.notify();
+                        })),
+                )
+                .into_any_element(),
+            _ if course_rows.is_empty() => div()
+                .flex()
+                .flex_col()
+                .gap(space(2))
+                .text_size(px(12.0))
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::CoursesLearningHomeEmpty))
+                .child(
+                    div()
+                        .id("learning-home-browse")
+                        .w(px(120.0))
+                        .px(space(1))
+                        .py(px(3.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .bg(palette.soft)
+                        .text_color(palette.accent)
+                        .child(translate(language, Key::CoursesLearningHomeBrowse))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.navigate("/courses");
+                            cx.notify();
+                        })),
+                )
+                .into_any_element(),
+            _ => div()
+                .flex()
+                .flex_col()
+                .gap(px(1.0))
+                .children(course_rows.into_iter().map(|row| {
+                    let course_id = row.course_id.clone().unwrap_or_default();
+                    let title = row.target_title.clone().unwrap_or_default();
+                    let status = enroll_status_label(language, row.status.as_str());
+                    let confirmed = row.status == "confirmed";
+                    div()
+                        .id(format!("learning-home-{}", row.id))
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .justify_between()
+                        .gap(space(2))
+                        .px(space(2))
+                        .py(space(2))
+                        .border_b_1()
+                        .border_color(palette.line)
+                        .hover(|style| style.bg(palette.soft))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(2.0))
+                                .child(div().text_color(palette.ink).child(title))
+                                .child(
+                                    div()
+                                        .text_size(px(11.0))
+                                        .text_color(palette.ink_3)
+                                        .child(status),
+                                ),
+                        )
+                        .child(div().text_size(px(12.0)).text_color(palette.accent).child(
+                            if confirmed {
+                                translate(language, Key::CoursesLearningHomeContinue)
+                            } else {
+                                translate(language, Key::CoursesLearningHomeBrowse)
+                            },
+                        ))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if confirmed {
+                                this.navigate_to_learning(&course_id);
+                            } else {
+                                this.navigate(&format!("/courses/{course_id}"));
+                            }
+                            cx.notify();
+                        }))
+                        .into_any_element()
+                }))
+                .into_any_element(),
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap(space(3))
+            .w_full()
+            .max_w(px(980.0))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(space(1))
+                    .child(
+                        div()
+                            .text_size(px(28.0))
+                            .text_color(palette.ink)
+                            .child(translate(language, Key::CoursesLearningHomeTitle)),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.0))
+                            .text_color(palette.ink_3)
+                            .child(translate(language, Key::CoursesLearningHomeSubtitle)),
+                    ),
+            )
+            .child(body)
+            .into_any_element()
+    }
+
+    fn render_participations(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let state = self.enrollments_state.clone();
+        let rows = self.enrollments_rows.clone();
+        let body: AnyElement = match state {
+            EnrollmentsListState::Idle | EnrollmentsListState::Loading => div()
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::AccountWorkspaceLoading))
+                .into_any_element(),
+            EnrollmentsListState::Failed(_) => div()
+                .text_color(palette.danger)
+                .child(translate(language, Key::AccountWorkspaceFailed))
+                .into_any_element(),
+            _ if rows.is_empty() => div()
+                .text_size(px(12.0))
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::EventsParticipationsEmpty))
+                .into_any_element(),
+            _ => div()
+                .flex()
+                .flex_col()
+                .gap(px(1.0))
+                .children(rows.into_iter().map(|row| {
+                    let title = row.target_title.clone().unwrap_or_default();
+                    let kind = if row.event_id.is_some() {
+                        translate(language, Key::EventsParticipationsKindEvent)
+                    } else {
+                        translate(language, Key::EventsParticipationsKindCourse)
+                    };
+                    let status = enroll_status_label(language, row.status.as_str());
+                    let date = row
+                        .starts_at
+                        .as_deref()
+                        .map(|value| value.chars().take(10).collect::<String>())
+                        .unwrap_or_default();
+                    let check_in = row
+                        .check_in_code
+                        .clone()
+                        .map(|code| {
+                            format!(
+                                "{} {code}",
+                                translate(language, Key::EventsParticipationsCheckIn)
+                            )
+                        })
+                        .unwrap_or_default();
+                    let event_id = row.event_id.clone();
+                    let course_id = row.course_id.clone();
+                    div()
+                        .id(format!("participation-{}", row.id))
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .justify_between()
+                        .gap(space(2))
+                        .px(space(2))
+                        .py(space(2))
+                        .border_b_1()
+                        .border_color(palette.line)
+                        .hover(|style| style.bg(palette.soft))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(2.0))
+                                .child(div().text_color(palette.ink).child(title))
+                                .child(
+                                    div()
+                                        .text_size(px(11.0))
+                                        .text_color(palette.ink_3)
+                                        .child(format!("{kind} · {status}")),
+                                )
+                                .children((!date.is_empty()).then(|| {
+                                    div()
+                                        .text_size(px(11.0))
+                                        .text_color(palette.ink_3)
+                                        .child(date)
+                                        .into_any_element()
+                                }))
+                                .children((!check_in.is_empty()).then(|| {
+                                    div()
+                                        .text_size(px(11.0))
+                                        .text_color(palette.accent)
+                                        .child(check_in)
+                                        .into_any_element()
+                                })),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(palette.accent)
+                                .child(translate(language, Key::EventsParticipationsView)),
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if let Some(event_id) = event_id.as_deref() {
+                                this.navigate_to_event_detail(event_id);
+                            } else if let Some(course_id) = course_id.as_deref() {
+                                this.navigate(&format!("/courses/{course_id}"));
+                            }
+                            cx.notify();
+                        }))
+                        .into_any_element()
+                }))
+                .into_any_element(),
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap(space(3))
+            .w_full()
+            .max_w(px(980.0))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(space(1))
+                    .child(
+                        div()
+                            .text_size(px(28.0))
+                            .text_color(palette.ink)
+                            .child(translate(language, Key::EventsParticipationsTitle)),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.0))
+                            .text_color(palette.ink_3)
+                            .child(translate(language, Key::EventsParticipationsSubtitle)),
+                    ),
+            )
+            .child(body)
+            .into_any_element()
+    }
+
     fn render_workspace_empty(
         &mut self,
         language: Language,
@@ -4784,33 +5495,53 @@ impl RootView {
             .map(|workspace| workspace.name.clone())
             .unwrap_or_else(|| translate(language, Key::AppWorkspaceSwitch).to_string());
         div()
-            .id("workspace-menu-toggle")
-            .role(Role::Button)
-            .aria_label(translate(language, Key::AppWorkspaceSwitch))
             .flex()
+            .flex_row()
             .items_center()
-            .gap(px(4.0))
-            .px(space(1))
-            .py(px(2.0))
-            .rounded(px(RADIUS_SMALL))
-            .hover(|style| style.bg(palette.soft))
+            .gap(px(1.0))
             .child(
                 div()
-                    .text_size(px(12.0))
-                    .text_color(palette.ink_2)
-                    .child(label),
+                    .id("workspace-overview-link")
+                    .role(Role::Link)
+                    .aria_label(translate(language, Key::AccountWorkspaceTitle))
+                    .px(space(1))
+                    .py(px(2.0))
+                    .rounded(px(RADIUS_SMALL))
+                    .hover(|style| style.bg(palette.soft))
+                    .child(
+                        div()
+                            .text_size(px(12.0))
+                            .text_color(palette.ink_2)
+                            .child(label),
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.workspace_menu_open = false;
+                        this.breadcrumb_menu = None;
+                        this.navigate("/workspace");
+                        cx.notify();
+                    })),
             )
             .child(
-                Icon::default()
-                    .path(AssetIcon::ChevronDown.path())
-                    .text_color(palette.ink_3)
-                    .with_size(px(12.0)),
+                div()
+                    .id("workspace-menu-toggle")
+                    .role(Role::Button)
+                    .aria_label(translate(language, Key::AppWorkspaceSwitch))
+                    .px(px(3.0))
+                    .py(px(3.0))
+                    .rounded(px(RADIUS_SMALL))
+                    .hover(|style| style.bg(palette.soft))
+                    .child(
+                        Icon::default()
+                            .path(AssetIcon::ChevronDown.path())
+                            .text_color(palette.ink_3)
+                            .with_size(px(12.0)),
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.workspace_menu_open = !this.workspace_menu_open;
+                        this.breadcrumb_menu = None;
+                        cx.notify();
+                    })),
             )
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.workspace_menu_open = !this.workspace_menu_open;
-                this.breadcrumb_menu = None;
-                cx.notify();
-            }))
             .into_any_element()
     }
 
@@ -5900,8 +6631,9 @@ impl RootView {
                 .id("agent-panel-toggle")
                 .role(Role::Button)
                 .aria_label(translate(language, Key::AgentChatPanelTitle))
+                .tab_index(0isize)
                 .size(px(22.0))
-                .rounded(px(RADIUS_MEDIUM))
+                .rounded(px(RADIUS_SMALL))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -5937,28 +6669,47 @@ impl RootView {
                 .into_any_element()
         });
         div()
+            .id("status-bar")
+            .role(Role::Toolbar)
+            .aria_label("Status bar")
+            .tab_group()
             .flex()
             .flex_row()
             .items_center()
-            .h(px(30.0))
-            .px(space(2))
+            .w_full()
+            .justify_between()
+            // 对齐 Zed `crates/workspace/src/status_bar.rs:116`：`p(DynamicSpacing::Base04)` 四边 4px，
+            // 高度由 22px 条目 + 上下各 4px 撑出 30px（不写死 `h()`）；左右两组 gap(Base08) = 8px，
+            // 组内 gap_1 = 4px。整条没有上边框，靠比画布亮一级的背景做分隔。
+            .px(px(4.0))
+            .py(px(4.0))
+            .gap(px(8.0))
             .bg(palette.frame)
-            .border_t_1()
-            .border_color(palette.line)
             .text_size(px(12.0))
-            .children(agent_toggle)
-            .child(div().flex_1())
             .child(
                 div()
                     .flex()
                     .flex_row()
                     .items_center()
-                    .gap(px(2.0))
+                    .gap(px(4.0))
+                    .min_w_0()
+                    .overflow_x_hidden()
+                    .children(agent_toggle),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(4.0))
+                    .flex_shrink_0()
+                    .overflow_x_hidden()
                     .child(
                         div()
                             .id("theme-toggle")
+                            .tab_index(0isize)
                             .size(px(22.0))
-                            .rounded(px(RADIUS_MEDIUM))
+                            .rounded(px(RADIUS_SMALL))
                             .flex()
                             .items_center()
                             .justify_center()
@@ -5986,8 +6737,9 @@ impl RootView {
                     .child(
                         div()
                             .id("language-toggle")
+                            .tab_index(0isize)
                             .size(px(22.0))
-                            .rounded(px(RADIUS_MEDIUM))
+                            .rounded(px(RADIUS_SMALL))
                             .flex()
                             .items_center()
                             .justify_center()
@@ -6046,6 +6798,9 @@ fn initial_route(registry: &RouteRegistry) -> Option<RouteMatch> {
                 params: std::collections::BTreeMap::new(),
             });
         }
+    }
+    if let crate::routing::RouteSelection::Match(route_match) = registry.select("/workspace") {
+        return Some(route_match);
     }
     registry.routes().first().copied().map(|route| RouteMatch {
         route,
@@ -6349,13 +7104,41 @@ mod tests {
     fn breadcrumb_sections_follow_route() {
         let mut view = view();
         view.navigate("/events");
-        assert!(view
-            .breadcrumb_context()
-            .is_some_and(|(courses, _)| !courses));
+        assert_eq!(
+            view.breadcrumb_context().map(|(label, _)| label),
+            Some("events.list.title")
+        );
         view.navigate("/courses/00dcc9a9-3876-4018-ab52-bcf1f0e4e05c/learn");
-        assert!(view
-            .breadcrumb_context()
-            .is_some_and(|(courses, _)| courses));
+        assert_eq!(
+            view.breadcrumb_context().map(|(label, _)| label),
+            Some("courses.catalog.title")
+        );
+        view.navigate("/workspace");
+        assert_eq!(
+            view.breadcrumb_context().map(|(label, _)| label),
+            Some("account.workspace.overview")
+        );
+    }
+
+    #[test]
+    fn workspace_is_default_landing_and_login_target() {
+        let mut view = view();
+        assert_eq!(
+            view.current().map(|route| route.id),
+            Some("account.workspace")
+        );
+        view.finish_login(Ok(fake_signed_in()));
+        assert_eq!(
+            view.current().map(|route| route.id),
+            Some("account.workspace")
+        );
+    }
+
+    #[test]
+    fn learning_and_participation_routes_are_registered() {
+        let registry = build_registry().expect("registry builds");
+        assert!(registry.find("courses.learning_home").is_some());
+        assert!(registry.find("events.participations").is_some());
     }
 
     #[test]
@@ -6389,9 +7172,12 @@ mod tests {
     }
 
     #[test]
-    fn starts_on_home_signed_out() {
+    fn starts_on_workspace_route_signed_out() {
         let view = view();
-        assert_eq!(view.current().map(|route| route.id), Some("app.home"));
+        assert_eq!(
+            view.current().map(|route| route.id),
+            Some("account.workspace")
+        );
         assert_eq!(view.language(), Language::Zh);
         assert_eq!(view.preference(), ThemePreference::System);
         assert!(

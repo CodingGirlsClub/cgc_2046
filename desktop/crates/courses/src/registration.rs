@@ -11,6 +11,12 @@ pub const ROUTES: &[Route] = &[
         NavIcon::Courses,
     ),
     Route::new(
+        "courses.learning_home",
+        "/learning",
+        "courses.learning_home.title",
+        NavIcon::Courses,
+    ),
+    Route::new(
         "courses.detail",
         "/courses/:id",
         "courses.detail.title",
@@ -27,6 +33,7 @@ pub const ROUTES: &[Route] = &[
 /// 本 feature 贡献的词表 key。
 pub const I18N_KEYS: &[&str] = &[
     "courses.catalog.title",
+    "courses.learning_home.title",
     "courses.detail.title",
     "courses.learning.title",
 ];

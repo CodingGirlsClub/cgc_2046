@@ -17,6 +17,12 @@ pub const ROUTES: &[Route] = &[
         NavIcon::Events,
     ),
     Route::new(
+        "events.participations",
+        "/participations",
+        "events.participations.title",
+        NavIcon::Events,
+    ),
+    Route::new(
         "events.detail",
         "/events/:id",
         "events.detail.title",
@@ -29,4 +35,5 @@ pub const I18N_KEYS: &[&str] = &[
     "events.list.title",
     "events.detail.title",
     "events.mine.title",
+    "events.participations.title",
 ];
