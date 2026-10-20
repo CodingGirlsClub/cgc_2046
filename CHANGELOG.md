@@ -19,6 +19,28 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ## [Unreleased]
 
 ### Added
+- [Web] 工作台缴费管理升级为订单台账：报名人改为显示**掩码手机号**（小程序用户不再是一行「—」）与**会员号**，有邮箱的用户以邮箱兜底；新增「活动/课程」列（标题 + 类型）与「下单时间」；每行可展开查看商户单号、渠道交易号、时间线与押金同意留痕；退款失败的行可直接「重试退款」；订单列表改为分页加载，不再静默截断在 50 条。活动/课程详情页的收款面板同步使用同一套列与操作资格（免缴按报名状态判定，与后端一致）。
+- [本机 Host] 按 ACP initialize 的能力协商会话恢复与 MCP 下发：从握手读取协议版本、`loadSession`、`session/list` 与 HTTP MCP 能力（字段缺失按支持处理，兼容旧适配器）；协议版本不一致的适配器不再被当成可用，明确不支持 HTTP MCP 或无法核实会话归属时给出可诊断的降级（清指针、从新对话开始，`chat.sessions` 回空列表）。
+
+### Changed
+- [Web] 缴费台账的筛选口径统一：统计卡跟随活动/课程筛选（选中即换口径并标注统计范围，不再出现「切了筛选数字不动」）；活动下拉按活动/课程分组；工作区页与活动/课程详情面板默认只显示「非终态 + 已退款 + 已没收」，并新增「全部状态」显式查看已取消/已过期订单。
+- [本机 Host / Web] 学习搭子**打开就能选模型与思考/推理强度**：没有会话指针时先在 `chat.attach` 建一条空会话（`session/new`，指针不落盘）再取设置，因此不用先发一句话也能选；改动只影响首次打开的空态。
+
+### Fixed
+- [本机 Host] 看门狗强制收尾后的迟到更新不再写入会话缓冲（此前 agent 在本地 `turn.end` 之后继续推的消息会被 `chat.attach` 重放，出现「结束标记之后还有内容」；晚到的设置变更也不再改会话设置或推 `chat.settings`）；`chat.sessions` 的 `current` 与会话行一样按归属账号过滤，换账号后不再回上一个账号的 sessionId。Host 版本 `0.2.10`（`MIN_HOST_VERSION` 保持 `0.2.3`）。
+- [本机 Host] Codex 课程的「停止」不再把课程切回 OMP，并补齐回合收尾与隔离：`chat.stop` / `card.answer` / `chat.sessions` 的目标 agent 与当前会话对齐。
+- [本机 Host / Web] 历史对话显示 agent 给的标题（时间与条数移到悬停说明）；对话栏同时显示本会话的上下文用量与费用（`usage_update` 不进对话流）。
+- [Web] 刷新后静默重连改用会话级证据并保留首次手势门：成功连上（含旧版 Host 的 `staleHost` 应答）即把「本页曾连上」写入 `sessionStorage`（不含凭证与 Host 信息），刷新后凭证据允许一次静默探测——权限查询恒报 `prompt` 的浏览器不再反复要授权；首次访问在无证据时仍等用户手势，隐私模式存储抛错则退回内存标记，避免把「Host 需要更新」误换成授权卡。
+- [本机 Host] 会话切换与回合收尾加固：`chat.open` 改为事务式切换，失败不破坏当前会话；回合加看门狗，agent 无应答时本地收尾而不是无限等待；会话目录做二次校验并把卡片绑定到当前回合；复用安装的运行期探针改用登录 shell 环境，与真实启动保持一致。
+- [本机 Host / Web] 学习搭子的登录体验收尾：登录首屏文案补齐，登录卡增加内边距，不再顶到面板边框。
+- [Web] 登录来源判定接受本站 www 别名：站点别名解析改成对称（裸域配置接受 www 变体、反之亦然），小程序二维码登录也接受本站 www 域名来源——此前生产 web 同时由裸域与 www 提供，www 来源被拒。
+
+### Security
+- [本机 Host / Web] `status` 最小化（去掉页面从未消费的字段、`tokenId` 只给已 hello 的连接）；配对请求的冷却从受理开始计数，无效 token 与平台不可达的早退同样受限；Host 日志统一脱敏（凭证与 Bearer 头只留前缀，覆盖 ACP 错误与兜底 catch）。
+
+## [2026-10-18]
+
+### Added
 - [本机 Host] 一键安装支持**复用学员已有的 Codex**（#1154）：`status` 与 `/health` 的 `agents` 条目新增只读的 `sources: [{source, version}]`（`managed` / `codex-acp` / `chatgpt-app` / `codex-cli`；ChatGPT 桌面 App 内置 Codex 的探测目前只含 macOS）。检测到可复用的 engine（ChatGPT App 内置 / PATH 上的 `codex`）时，安装只装适配器（约 18MB 落盘 / 2MB 下载），装完做一次 ACP `initialize` 探针（不消耗额度），失败自动回退全量安装；运行期注入 `CODEX_PATH`，engine 消失则页面重新给安装入口。旧页面忽略新字段；Host 版本 `0.2.2`（`MIN_HOST_VERSION` 不变，不必重装）。
 - [本机 Host / Web] 课程页对话栏可以一键装 Codex 支持（#1149）：Host 声明 `agent.install` 能力后，「添加 agent」里出现「安装 Codex 支持」——Host 用随包发布的 `bun.lock`（整棵依赖树带 sha512）经自带 Bun 装到 `~/.cgc2046/agents/`，学员机器上不需要 npm/node；装完选择器里直接出现 Codex（页面由 Host 推的 `status` 立即刷新）。失败就地重试、不留残留；约 337MB（大头是 Codex 的平台二进制）。旧 Host 没有这个能力，页面继续只给手动命令；卸载 Host 会删掉页面装的 agent，学员自己的 `~/.codex` 不碰。`MIN_HOST_VERSION` 保持 `0.2.0`，Host 版本 `0.2.1`（已装 0.2.0 的学员不必为此重装）。
 - [抖音] 订阅消息接入抖音端（#371）：两个模板过审后，backend 按抖音的 `data` 格式渲染——抖音用**模板关键词名做 key**（`approval_result` 参与结果/活动名称/参与编号；`event_reminder` 活动名称/开始时间/活动地点），与微信的 `thing1/number3` 槽位编号是两套渲染子句；模板 ID 经 `DOUYIN_MP_TEMPLATE_*` 进容器（部署链路此前完全没登记，本次补齐 workflow 注入循环 + kamal env.secret，并加登记守卫防 #974 同型复发）。小程序侧订阅触点已在抖音首发版本内。
@@ -32,6 +54,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ### Changed（[本机 Host]）
 - [本机 Host] 课程工作目录由 `~/CGC/<userId>/<courseId>` 改为 `~/cgc2046_workspace/courses/<userId>/<courseId>`（ADR-0022 KTD6 修订）：与终端插件的工作区合成一棵树，学员只需记一个目录；课程目录在其下单独一层，网页课程会话与学员自己的终端会话仍按目录分桶、互不串入。无历史数据迁移——Host 此前未对外发布。Host 版本 `0.1.5`，`MIN_HOST_VERSION` 随之提高，已装旧包的学员会被提示重装。
 
+
 ### Fixed
 - [Web] 工作台「邀请管理」填写过期时间后创建邀请必失败：`datetime-local` 输入的原值是本地时间、不带时区，之前被原样当 GraphQL `DateTime` 下发，参数校验直接拒（`Argument "input" has invalid value $input … Expected type "DateTime"`）。现经共享的 `fromLocalInput` 转成 UTC ISO8601；留空仍表示无过期时间。
 - [Web] 成员表行内角色弹层贴底时自动向上展开并按剩余空间限高：原来固定向下展开，最后几行越出表格卡片底沿（实测倒数第 1/2/3 行分别溢出 216/137/56px），≤980px 断点下滚动容器还会把这些内容裁掉；现按实际几何在挂载时判定方向，两侧都放不下时翻到空间更大的一侧并内部滚动，以真正会裁剪的 `.members-table-scroll` 为界。
@@ -43,7 +66,6 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ### Security
 - [本机 Host] 一键安装的依赖许可按仓库的许可白名单判定并纳入 CI 门禁；安装过程不执行第三方依赖的 postinstall（`--ignore-scripts`），避免在学员机器上运行未审阅的安装脚本。
-
 ## [2026-10-16]
 
 ### Added（[抖音] #1079 / #1083）

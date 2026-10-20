@@ -68,7 +68,6 @@ const OMP_ONLY = [{ kind: "omp", present: true }];
 const status = (state: HostStatus["state"], agents: { kind: string; present: boolean }[] = OMP_ONLY): HostStatus => ({
 	state,
 	pairedUserId: USER,
-	pairedDisplayName: "学员甲",
 	deviceName: "Ada 的 MacBook",
 	tokenId: "tok_this",
 	agents,
@@ -260,6 +259,17 @@ describe("连接状态（R26）", () => {
 		act(() => hook.current.requestAccess());
 		expect(requestHostAccess).toHaveBeenCalledOnce();
 		await waitFor(() => expect(FakeWebSocket.all).toHaveLength(1));
+	});
+
+	it("旧版 Host（staleHost）也记「本轮连上过」：后续轮询带 previouslyReachedHost，不退回授权卡（存储不可用时的兜底）", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		checkHost.mockResolvedValue({ state: "staleHost" });
+		mount();
+		await waitFor(() => expect(hook.current.view).toEqual({ state: "staleHost" }));
+
+		await act(() => vi.advanceTimersByTimeAsync(POLL_MS));
+		expect(checkHost).toHaveBeenCalledTimes(2);
+		expect(checkHost).toHaveBeenLastCalledWith({ previouslyReachedHost: true });
 	});
 
 	it("Covers AE1：未检测到 Host 时每 POLL_MS 重新检测，装好 Host 后无需刷新即开连接；电脑上没有可用的 agent 时停在 noAgent", async () => {

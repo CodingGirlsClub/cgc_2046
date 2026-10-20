@@ -1,5 +1,6 @@
 // codex.test.ts — Codex 这条 agent 记录：AGENTS.md 启动语、MCP 服务器改名、登录（auth_required / chat.authenticate）与优雅关闭
 import { afterEach, describe, expect, test } from "bun:test";
+import type { PromptResponse } from "@agentclientprotocol/sdk";
 import { existsSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
@@ -87,6 +88,119 @@ test("两种 agent 各走各的：MCP 服务器名不同、Codex 写课程目录
   expect(Object.keys(sessions[COURSE]).sort()).toEqual(["codex", "omp"]);
   expect(omp.calledWith("session/new").length).toBe(1);
   expect(codex.calledWith("session/new").length).toBe(1);
+});
+
+test("停止不切走 agent：Codex 课程 chat.stop 不带 agent / 带错 agent 都只结束本回合", async () => {
+  const omp = fakeAgent();
+  const codex = fakeAgent();
+  const home = tempHome();
+  const { page } = await chatPage(omp, { home, records: [ompTestRecord(omp), codexTestRecord(codex)] });
+  await page.call("chat.attach", { courseId: COURSE, agent: "codex" });
+
+  // 回合只有收到 session/cancel 才收尾：证明 Host 确实向 Codex 发了取消
+  codex.script = async (t) => {
+    await t.cancelled;
+    return { stopReason: "cancelled" };
+  };
+  await page.call("chat.send", { courseId: COURSE, agent: "codex", text: "跑个长任务", context: CONTEXT });
+  page.send({ method: "chat.stop", params: { courseId: COURSE } }); // 页面旧实现：不带 agent
+  expect(await page.next((m) => m.method === "turn.end")).toMatchObject({ params: { courseId: COURSE, stopReason: "cancelled" } });
+  const sessionId = [...codex.store.keys()][0];
+  expect(codex.calledWith("session/cancel")).toEqual([{ sessionId }]);
+  expect(omp.starts).toBe(0); // 没有被切到 omp
+  expect(page.inbox.filter((m) => m.method === "error")).toEqual([]); // 不再回 busy
+
+  // 带错 agent 也一样：不得切走
+  await page.call("chat.send", { courseId: COURSE, agent: "codex", text: "再来", context: CONTEXT });
+  page.send({ method: "chat.stop", params: { courseId: COURSE, agent: "omp" } });
+  expect(await page.next((m) => m.method === "turn.end")).toMatchObject({ params: { stopReason: "cancelled" } });
+  expect(omp.starts).toBe(0);
+
+  // 课程仍是 codex：下一条消息发给 codex 并正常收尾
+  codex.script = async () => ({ stopReason: "end_turn" });
+  await page.call("chat.send", { courseId: COURSE, agent: "codex", text: "继续", context: CONTEXT });
+  expect(await page.next((m) => m.method === "turn.end")).toMatchObject({ params: { stopReason: "end_turn" } });
+  expect(page.inbox.filter((m) => m.method === "error")).toEqual([]);
+});
+
+test("OMP 被隔离后切到 Codex：隔离随旧会话摘除，新 agent 能正常开回合（Codex review P2）", async () => {
+  const omp = fakeAgent();
+  const codex = fakeAgent();
+  const home = tempHome();
+  const { page } = await chatPage(omp, {
+    home,
+    records: [ompTestRecord(omp), codexTestRecord(codex)],
+    cancelAckTimeoutMs: 40,
+    turnTimeoutMs: 60_000,
+  });
+  omp.script = () => new Promise<PromptResponse>(() => {}); // 永不 settle
+  await page.call("chat.attach", { courseId: COURSE, agent: "omp" });
+  await page.call("chat.send", { courseId: COURSE, agent: "omp", text: "一", context: CONTEXT });
+  page.send({ method: "chat.stop", params: { courseId: COURSE, agent: "omp" } });
+  await page.next((m) => m.method === "turn.end");
+  expect(await page.call("chat.send", { courseId: COURSE, agent: "omp", text: "二", context: CONTEXT })).toMatchObject({
+    method: "error",
+    params: { code: "busy" },
+  });
+
+  // 换 agent：旧会话已从 bySession 摘除，隔离不再拦新 agent
+  await page.call("chat.attach", { courseId: COURSE, agent: "codex" });
+  expect(await page.call("chat.send", { courseId: COURSE, agent: "codex", text: "用 codex", context: CONTEXT })).toMatchObject({
+    method: "turn.delta",
+    params: { kind: "user", text: "用 codex" },
+  });
+  await page.next((m) => m.method === "turn.end");
+});
+
+test("chat.open 加载期间 A→B→A 切回：epoch 已变，切换仍作废（busy）", async () => {
+  const omp = fakeAgent();
+  const codex = fakeAgent();
+  const home = tempHome();
+  const { page } = await chatPage(omp, { home, records: [ompTestRecord(omp), codexTestRecord(codex)] });
+  await page.call("chat.attach", { courseId: COURSE, agent: "omp" });
+  await page.call("chat.send", { courseId: COURSE, agent: "omp", text: "第一段", context: CONTEXT });
+  await page.next((m) => m.method === "turn.end");
+  await page.call("chat.new", { courseId: COURSE, agent: "omp" }); // session-2
+
+  omp.delayLoadMs = 150;
+  const opening = page.call("chat.open", { courseId: COURSE, sessionId: "session-1", agent: "omp" });
+  await Bun.sleep(20);
+  // 两帧连发（不等第一帧的 history）：两次切换都落在 load 完成之前，课程最后仍在 omp
+  page.send({ method: "chat.attach", params: { courseId: COURSE, agent: "codex" } });
+  page.send({ method: "chat.attach", params: { courseId: COURSE, agent: "omp" } });
+  expect(await opening).toMatchObject({ method: "error", params: { code: "busy" } });
+  await page.call("chat.attach", { courseId: COURSE, agent: "omp" }); // 排在两帧之后：返回即队列排空
+
+  // 切回后的课程照常工作
+  await page.call("chat.send", { courseId: COURSE, agent: "omp", text: "切回后", context: CONTEXT });
+  await page.next((m) => m.method === "turn.end");
+});
+
+test("chat.open 加载期间切 agent：本次切换作废（busy），不把 omp 会话记到 codex 名下", async () => {
+  const omp = fakeAgent();
+  const codex = fakeAgent();
+  const home = tempHome();
+  const { page } = await chatPage(omp, { home, records: [ompTestRecord(omp), codexTestRecord(codex)] });
+  await page.call("chat.attach", { courseId: COURSE, agent: "omp" });
+  await page.call("chat.send", { courseId: COURSE, agent: "omp", text: "第一段", context: CONTEXT });
+  await page.next((m) => m.method === "turn.end");
+  await page.call("chat.new", { courseId: COURSE, agent: "omp" }); // session-2
+
+  omp.delayLoadMs = 150; // 让 open 的 session/load 有一个在途窗口
+  const opening = page.call("chat.open", { courseId: COURSE, sessionId: "session-1", agent: "omp" });
+  await Bun.sleep(20);
+  await page.call("chat.attach", { courseId: COURSE, agent: "codex" }); // 加载期间换 agent
+  expect(await opening).toMatchObject({ method: "error", params: { code: "busy" } });
+
+  // 课程现在是 codex，且消息发给 codex 自己新建的会话（两个 agent 的 sessionId 空间互不相干）；
+  // 关键是 codex 从未 load 过 omp 的会话，指针也落在 codex 桶里
+  await page.call("chat.send", { courseId: COURSE, agent: "codex", text: "用 codex 学", context: CONTEXT });
+  await page.next((m) => m.method === "turn.end");
+  expect(codex.calledWith("session/load")).toEqual([]);
+  expect(codex.calledWith("session/new")).toHaveLength(1);
+  const sessions = JSON.parse(readFileSync(join(stateDir(home), "state.json"), "utf8")).sessions[COURSE];
+  expect(sessions.codex).toBeTruthy();
+  expect([...codex.store.keys()]).toContain(sessions.codex);
 });
 
 test("Codex 未登录：回 auth_required + 登录方式；chat.authenticate 转发给该 agent，成功后回 chat.authenticated", async () => {

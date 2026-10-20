@@ -64,7 +64,9 @@ test("cold start cannot deliver A's send acknowledgement to B after B attaches",
   const start = fake.start;
   fake.start = async (app) => { started = true; await starting.promise; return start(app); };
   const { host, page } = await chatPage(fake);
-  await attach(page);
+  // attach 现在自己就会拉起进程：不 await（重新配对后它的 history 回包会作废），先把冷启动挂住再发消息。
+  // catch 掉可能的 rejection：这里只关心「发出去了」，回复由后续断言接管，不能让悬空 promise 变成未处理异常。
+  void attach(page).catch(() => {});
   page.send({ method: "chat.send", id: "old-send", params: { courseId: COURSE, text: "PRIVATE_USER_A_MESSAGE", context: CONTEXT } });
   await until(() => started);
   try {
@@ -95,7 +97,8 @@ test("same-account takeover keeps pending replies on their original socket", asy
   const start = fake.start;
   fake.start = async (app) => { started = true; await starting.promise; return start(app); };
   const { host, page, browserKey } = await chatPage(fake);
-  await attach(page);
+  // attach 自己会拉起进程：不 await，先让冷启动挂住，再让消息赶在 history 提交之前发出
+  const firstAttach = attach(page);
   page.send({ method: "chat.send", id: "original-send", params: { courseId: COURSE, text: "hello", context: CONTEXT } });
   await until(() => started);
   try {
@@ -103,6 +106,7 @@ test("same-account takeover keeps pending replies on their original socket", asy
     const attaching = attach(other);
     await page.next((m) => m.method === "chat.evicted");
     starting.release();
+    await firstAttach; // 同一配对：旧连接的 history 回包照常送达
     await attaching;
     await ended(other);
     expect(await page.next((m) => m.id === "original-send")).toMatchObject({ method: "turn.delta", params: { kind: "user", text: "hello" } });
@@ -120,7 +124,9 @@ test.each(["old-send", undefined])("same socket re-paired to A drops old-generat
   const start = fake.start;
   fake.start = async (app) => { started = true; await starting.promise; return start(app); };
   const { host, page } = await chatPage(fake);
-  await attach(page);
+  // attach 自己会拉起进程：不 await（重新配对后它的 history 回包作废），先把冷启动挂住再发消息。
+  // catch 掉可能的 rejection：这里只关心「发出去了」，回复由后续断言接管。
+  void attach(page).catch(() => {});
   page.send({ method: "chat.send", id, params: { courseId: COURSE, text: "old generation", context: CONTEXT } });
   await until(() => started);
   try {

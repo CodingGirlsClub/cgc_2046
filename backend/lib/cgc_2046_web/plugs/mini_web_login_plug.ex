@@ -4,11 +4,8 @@ defmodule Cgc2046Web.Plugs.MiniWebLoginPlug do
   def init(opts), do: opts
 
   def call(conn, _) do
-    origin = Application.fetch_env!(:cgc_2046, :web_base_url) |> URI.parse()
-    expected = URI.to_string(%URI{scheme: origin.scheme, host: origin.host, port: origin.port})
-
     browser? =
-      conn.method == "POST" and get_req_header(conn, "origin") == [expected] and
+      conn.method == "POST" and trusted_origin?(get_req_header(conn, "origin")) and
         Enum.any?(
           get_req_header(conn, "content-type"),
           &String.starts_with?(&1, "application/json")
@@ -27,6 +24,23 @@ defmodule Cgc2046Web.Plugs.MiniWebLoginPlug do
     absinthe = Map.get(conn.private, :absinthe, %{}) |> Map.put(:context, context)
     conn |> put_private(:absinthe, absinthe) |> put_resp_header("cache-control", "no-store")
   end
+
+  # 生产前端在裸域与 www 两个 host 同时提供服务（web/config/deploy.yml），
+  # 浏览器从 www 页面发来的请求就是同源请求；只按单一配置 origin 精确比较会把
+  # 整条小程序登录流程判成跨站（mini_web_login_invalid，二维码区显示登录失败）。
+  # 除站点别名外的 origin 一律拒绝：浏览器强制携带 Origin，跨站页面无法伪造。
+  defp trusted_origin?([origin]) do
+    base = Application.fetch_env!(:cgc_2046, :web_base_url) |> URI.parse()
+
+    Enum.any?(site_hosts(base.host), fn host ->
+      origin == URI.to_string(%URI{scheme: base.scheme, host: host, port: base.port})
+    end)
+  end
+
+  defp trusted_origin?(_), do: false
+
+  defp site_hosts("www." <> bare = host), do: [host, bare]
+  defp site_hosts(host), do: [host, "www." <> host]
 
   defp verified_claims(%{assigns: %{current_user: %Cgc2046.Accounts.User{} = user}} = conn) do
     with ["Bearer " <> token] <- get_req_header(conn, "authorization"),

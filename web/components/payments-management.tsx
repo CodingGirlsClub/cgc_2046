@@ -1,62 +1,34 @@
 "use client";
 
 /**
- * 缴费管理面板（plan 024 U11/R15/R18/R24）。
+ * 缴费管理面板（工作区级财务台账；plan 024 U11/R15/R18/R24）。
  *
  * - 统计卡：workspacePaymentStats（JsonString，U10 决策 3——parsePaymentStats
- *   解析 snake_case int 键）；已收/待收/已退三分量。
- * - 订单列表：workspaceOrders（状态筛选 + tier/报名人信息计算字段）。
- * - 退款（R15）：paid 单 → refundOrder 后端两段确认（首调建 pending 返回后端
- *   摘要，弹层确认经 confirmOperation 才真正执行；交互状态机收敛在
- *   lib/use-payment-operation）；refund_failed 单可再退（后端 start_refund
- *   只吃 paid，此处 v1 列出面只对 paid 提供入口）。
- * - 免缴（R18）：enrollmentStatus === payment_pending 的行 → waivePayment
- *   （同款两段确认）。
+ *   解析 snake_case int 键）；已收/待收/已退/退款失败待处理/没收。
+ * - 订单台账：OrderTable（共享组件）——报名人身份锚点、活动/课程列、下单
+ *   时间、行内展开；取数与 keyset 分页收敛在 lib/use-workspace-orders。
+ * - 操作资格：lib/order-actions 单源（退款 paid / 免缴 payment_pending /
+ *   重试 refund_failed），与活动详情面板共用同一套判定。
  * - 门控：manage = myAbilities 含 manage_members（Owner/Admin）；按钮渲染
  *   面门控 + 后端 policy 兜底（双保险）。
- *
- * 组件测试面：状态徽章、退款确认流、免缴按角色显隐（见 test）。
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { client } from "@/lib/apollo-client";
-import { WORKSPACE_ORDERS, WORKSPACE_PAYMENT_STATS, type Order } from "@/lib/graphql/orders";
+import { WORKSPACE_PAYMENT_STATS } from "@/lib/graphql/orders";
 import {
 	ORDER_STATUS_FILTER_VALUES,
 	ORDER_STATUS_LABEL,
-	PROVIDER_LABEL,
 	formatAmount,
 	parsePaymentStats,
 	type PaymentStats,
 } from "@/lib/payment";
 import { usePaymentOperation } from "@/lib/use-payment-operation";
+import { useWorkspaceOrders, DEFAULT_VISIBLE_STATUSES } from "@/lib/use-workspace-orders";
+import { OrderTable } from "@/components/order-table";
+import { OFFERING_LABEL } from "@/lib/graphql/events";
 import { fetchWorkspaceOfferings } from "@/lib/events";
-
-const STATUS_BADGE_CLASS: Record<string, string> = {
-	pending: "border-amber-400/40 text-amber-300",
-	paid: "border-emerald-400/40 text-emerald-300",
-	refunding: "border-sky-400/40 text-sky-300",
-	refunded: "border-line text-ink-3",
-	refund_failed: "border-red-400/40 text-red-300",
-	cancelled: "border-line text-ink-3",
-	expired: "border-line text-ink-3",
-	forfeited: "border-line text-ink-3",
-};
-
-export function OrderStatusBadge({ status }: { status: string }) {
-	const labelsT = useTranslations();
-	return (
-		<span
-			data-testid={`order-badge-${status}`}
-			className={`rounded-full border px-2.5 py-1 text-xs ${
-				STATUS_BADGE_CLASS[status] ?? "border-line text-ink-3"
-			}`}
-		>
-			{labelsT(ORDER_STATUS_LABEL[status] ?? status)}
-		</span>
-	);
-}
 
 /**
  * U2-R3：stats 加载失败呈现错误态（「统计加载失败 · 重试」），不再伪装 ¥0.00。
@@ -128,61 +100,6 @@ export function StatsCards({
 	);
 }
 
-interface OrderRowActions {
-	order: Order;
-	manage: boolean;
-	busy: boolean;
-	onRequestRefund: (order: Order) => void;
-	onWaive: (order: Order) => void;
-}
-
-function OrderRow({ order, manage, busy, onRequestRefund, onWaive }: OrderRowActions) {
-	const t = useTranslations("payments");
-	const labelsT = useTranslations();
-	const canRefund = manage && order.status === "paid";
-	const canWaive = manage && order.enrollmentStatus === "payment_pending";
-
-	return (
-		<tr data-testid={`order-row-${order.id}`} className="border-t border-line">
-			<td className="px-3 py-2 text-[13px] text-ink-2">{order.learnerEmail ?? "—"}</td>
-			<td className="px-3 py-2 text-[13px] text-ink-2">{order.tierName ?? "—"}</td>
-			<td className="px-3 py-2 text-[13px] text-ink-2">¥{formatAmount(order.amountCents)}</td>
-			<td className="px-3 py-2 text-[13px] text-ink-3">
-				{labelsT(PROVIDER_LABEL[order.provider] ?? order.provider)}
-			</td>
-			<td className="px-3 py-2">
-				<OrderStatusBadge status={order.status} />
-			</td>
-			<td className="px-3 py-2">
-				<div className="flex flex-wrap gap-2">
-					{canRefund ? (
-						<button
-							type="button"
-							disabled={busy}
-							onClick={() => onRequestRefund(order)}
-							className="rounded-large border border-red-400/40 px-3 py-1 text-xs text-red-300 hover:border-red-400/70 disabled:opacity-50"
-							data-testid={`refund-${order.id}`}
-						>
-							{t("refund")}
-						</button>
-					) : null}
-					{canWaive ? (
-						<button
-							type="button"
-							disabled={busy}
-							onClick={() => onWaive(order)}
-							className="rounded-large border border-line-strong px-3 py-1 text-xs text-ink-2 hover:border-line disabled:opacity-50"
-							data-testid={`waive-${order.id}`}
-						>
-							{t("waive")}
-						</button>
-					) : null}
-				</div>
-			</td>
-		</tr>
-	);
-}
-
 export default function PaymentsManagement({
 	workspaceId,
 	manage,
@@ -193,68 +110,67 @@ export default function PaymentsManagement({
 	const t = useTranslations("payments");
 	const labelsT = useTranslations();
 	const statusFilters = [
-		{ value: "", label: t("filterAll") },
+		{ value: "", label: t("filterDefault") },
+		{ value: "all", label: t("filterAll") },
 		...ORDER_STATUS_FILTER_VALUES.map((value) => ({
 			value,
 			label: labelsT(ORDER_STATUS_LABEL[value]),
 		})),
 	];
 	const [statusFilter, setStatusFilter] = useState("");
-	// U9/R8：活动筛选（财务汇总层——订单列表按活动收敛，统计卡保持工作区口径）
+	// U9/R8：活动筛选——订单列表与统计卡都按选中的活动/课程收敛
 	const [offerings, setOfferings] = useState<
 		Array<{ id: string; title: string; kind: "event" | "course" }>
 	>([]);
 	const [offeringFilter, setOfferingFilter] = useState("");
-	const [orders, setOrders] = useState<Order[]>([]);
 	const [stats, setStats] = useState<PaymentStats | null>(null);
 	const [statsError, setStatsError] = useState(false);
-	const [loadState, setLoadState] = useState<"loading" | "ok" | "error">("loading");
-	// 退款/免缴两段确认：pendingOp（待确认弹层）+ busy + actionError 全在 hook
-	const { pendingOp, busy, actionError, request, confirm, cancel } = usePaymentOperation({
-		t,
-		onCompleted: () => Promise.all([load(statusFilter), loadStats()]).then(() => undefined),
-	});
 
-	async function load(filter: string, offeringId: string = offeringFilter) {
-		setLoadState("loading");
-		try {
-			const selected = offerings.find((o) => o.id === offeringId);
-			const { data } = await client.query({
-				query: WORKSPACE_ORDERS,
-				variables: {
-					workspaceId,
-					filter: {
-						...(filter ? { status: { eq: filter } } : {}),
-						...(selected
-							? {
-									[selected.kind === "event" ? "eventId" : "courseId"]: {
-										eq: selected.id,
-									},
-								}
-							: {}),
-					},
-				},
-			});
-			setOrders(data?.workspaceOrders?.results ?? []);
-			setLoadState("ok");
-		} catch {
-			setLoadState("error");
-		}
-	}
+	const selectedOffering = offerings.find((o) => o.id === offeringFilter);
 
-	async function loadStats() {
+	// 统计口径跟随活动/课程筛选（stats query 自带 eventId/courseId）；
+	// 「全部活动与课程」时保持工作区全量口径
+	const loadStats = useCallback(async () => {
+		if (!workspaceId) return;
+
+		const selected = offerings.find((o) => o.id === offeringFilter);
+		const variables = {
+			workspaceId,
+			...(selected?.kind === "event" ? { eventId: selected.id } : {}),
+			...(selected?.kind === "course" ? { courseId: selected.id } : {}),
+		};
+
 		setStatsError(false);
 		try {
 			const { data } = await client.query({
 				query: WORKSPACE_PAYMENT_STATS,
-				variables: { workspaceId },
+				variables,
 			});
 			setStats(parsePaymentStats(data?.workspacePaymentStats));
 		} catch {
 			setStats(null);
 			setStatsError(true);
 		}
-	}
+	}, [workspaceId, offeringFilter, offerings]);
+
+	// 默认口径与活动详情面板一致：非终态 + 已退款 + 已没收；
+	// "all" 是显式的全部状态（含 cancelled/expired）
+	const effectiveStatus = statusFilter === "all" ? undefined : statusFilter;
+	const defaultStatuses = statusFilter === "all" ? [] : DEFAULT_VISIBLE_STATUSES;
+
+	const { orders, loadState, hasMore, loadingMore, reload, loadMore } = useWorkspaceOrders({
+		workspaceId,
+		status: effectiveStatus,
+		eventId: selectedOffering?.kind === "event" ? selectedOffering.id : undefined,
+		courseId: selectedOffering?.kind === "course" ? selectedOffering.id : undefined,
+		defaultStatuses,
+	});
+
+	// 退款/免缴/重试两段确认：pendingOp（待确认弹层）+ busy + actionError 全在 hook
+	const { pendingOp, busy, actionError, request, confirm, cancel } = usePaymentOperation({
+		t,
+		onCompleted: () => Promise.all([reload(), loadStats()]).then(() => undefined),
+	});
 
 	const loadedFor = useRef("");
 	useEffect(() => {
@@ -268,15 +184,28 @@ export default function PaymentsManagement({
 				...events.map((e) => ({ id: e.id, title: e.title, kind: "event" as const })),
 				...courses.map((c) => ({ id: c.id, title: c.title, kind: "course" as const })),
 			]);
-			void load(statusFilter, "");
+		}).catch(() => {
+			// 筛选器选项拉取失败只影响下拉内容；订单列表仍可用
+			setOfferings([]);
 		});
-		void loadStats();
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [workspaceId]);
 
+	// 统计跟随筛选：选中活动/课程即换口径（loadStats 的依赖已含筛选）；
+	// microtask 包裹避开 effect 内同步 setState
+	useEffect(() => {
+		Promise.resolve().then(() => void loadStats());
+	}, [loadStats]);
+
+	const eventOfferings = offerings.filter((o) => o.kind === "event");
+	const courseOfferings = offerings.filter((o) => o.kind === "course");
 
 	return (
 		<div className="grid gap-4">
+			<p className="text-[13px] text-ink-3" data-testid="stats-scope">
+				{selectedOffering
+					? t("statsScopeOffering", { title: selectedOffering.title })
+					: t("statsScopeAll")}
+			</p>
 			<StatsCards stats={stats} statsError={statsError} onRetryStats={() => void loadStats()} />
 
 			<div className="rounded-large border border-line bg-card p-4">
@@ -287,29 +216,36 @@ export default function PaymentsManagement({
 							{t("filterOffering")}
 							<select
 								value={offeringFilter}
-								onChange={(e) => {
-									setOfferingFilter(e.target.value);
-									void load(statusFilter, e.target.value);
-								}}
+								onChange={(e) => setOfferingFilter(e.target.value)}
 								className="ui-select ui-select--sm"
 								data-testid="offering-filter"
 							>
 								<option value="">{t("filterOfferingAll")}</option>
-								{offerings.map((o) => (
-									<option key={o.id} value={o.id}>
-										{o.title}
-									</option>
-								))}
+								{eventOfferings.length > 0 ? (
+									<optgroup label={labelsT(OFFERING_LABEL.event)}>
+										{eventOfferings.map((o) => (
+											<option key={o.id} value={o.id}>
+												{o.title}
+											</option>
+										))}
+									</optgroup>
+								) : null}
+								{courseOfferings.length > 0 ? (
+									<optgroup label={labelsT(OFFERING_LABEL.course)}>
+										{courseOfferings.map((o) => (
+											<option key={o.id} value={o.id}>
+												{o.title}
+											</option>
+										))}
+									</optgroup>
+								) : null}
 							</select>
 						</label>
 						<label className="flex items-center gap-2 text-[13px] text-ink-3">
 							{t("filterLabel")}
 							<select
 								value={statusFilter}
-								onChange={(e) => {
-									setStatusFilter(e.target.value);
-									void load(e.target.value);
-								}}
+								onChange={(e) => setStatusFilter(e.target.value)}
 								className="ui-select ui-select--sm"
 								data-testid="status-filter"
 							>
@@ -367,11 +303,7 @@ export default function PaymentsManagement({
 				) : loadState === "error" ? (
 					<p className="mt-3 text-sm text-ink-3" role="alert">
 						{t("loadFailed")}
-						<button
-							type="button"
-							className="underline"
-							onClick={() => void load(statusFilter)}
-						>
+						<button type="button" className="underline" onClick={() => void reload()}>
 							{t("retry")}
 						</button>
 					</p>
@@ -380,31 +312,27 @@ export default function PaymentsManagement({
 						{t("emptyOrders")}
 					</p>
 				) : (
-					<div className="mt-3 overflow-x-auto">
-						<table className="w-full min-w-[720px] text-left text-sm">
-							<thead>
-								<tr className="text-[13px] text-ink-3">
-									<th className="px-3 py-2 font-normal">{t("thEnrollee")}</th>
-									<th className="px-3 py-2 font-normal">{t("thTier")}</th>
-									<th className="px-3 py-2 font-normal">{t("thAmount")}</th>
-									<th className="px-3 py-2 font-normal">{t("thChannel")}</th>
-									<th className="px-3 py-2 font-normal">{t("thStatus")}</th>
-									<th className="px-3 py-2 font-normal">{t("thActions")}</th>
-								</tr>
-							</thead>
-							<tbody>
-								{orders.map((order) => (
-									<OrderRow
-										key={order.id}
-										order={order}
-										manage={manage}
-										busy={busy}
-										onRequestRefund={(o) => void request("refund", o.id)}
-										onWaive={(o) => void request("waive", o.enrollmentId)}
-									/>
-								))}
-							</tbody>
-						</table>
+					<div className="mt-3">
+						<OrderTable
+							orders={orders}
+							manage={manage}
+							busy={busy}
+							onRequest={(kind, id) => void request(kind, id)}
+							showOffering
+						/>
+						{hasMore ? (
+							<div className="mt-3 flex justify-center">
+								<button
+									type="button"
+									className="rounded-large border border-line px-4 py-2 text-sm text-ink-2 hover:border-line-strong disabled:opacity-50"
+									disabled={loadingMore}
+									onClick={() => void loadMore()}
+									data-testid="load-more"
+								>
+									{loadingMore ? t("loadingMore") : t("loadMore")}
+								</button>
+							</div>
+						) : null}
 					</div>
 				)}
 			</div>

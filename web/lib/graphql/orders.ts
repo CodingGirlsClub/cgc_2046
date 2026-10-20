@@ -54,12 +54,28 @@ export interface Order {
    */
   orderKind?: string | null;
 
+  /** 押金同意留痕（押金单才有；事后举证依据） */
+  depositConsentAt?: string | null;
+  depositTermsVersion?: string | null;
+
   /** 管理列表计算字段（R24） */
   tierName?: string | null;
   /** 下单时档位快照 id（U8 已售档守卫，R10） */
   tierId?: string | null;
   enrollmentStatus?: string | null;
   learnerEmail?: string | null;
+  /** 报名人展示名（可选附加，非身份锚点） */
+  learnerName?: string | null;
+  /** 手机号掩码（身份锚点；管理端不拿完整号码） */
+  learnerPhoneMasked?: string | null;
+  /** 会员编号（由 user id 确定性生成） */
+  learnerMemberNumber?: string | null;
+  /** 订单所属活动/课程（现值标题 + 类型） */
+  offeringTitle?: string | null;
+  offeringKind?: string | null;
+  /** 时间线：下单 / 报名 */
+  insertedAt?: string | null;
+  enrollmentInsertedAt?: string | null;
 }
 export interface CreateOrderPayload {
   result: Order | null;
@@ -308,10 +324,19 @@ export const WORKSPACE_ORDERS: TypedDocumentNode<
         expireAt
         refundedAt
         cancelReason
+        depositConsentAt
+        depositTermsVersion
         tierName
         tierId
         enrollmentStatus
         learnerEmail
+        learnerName
+        learnerPhoneMasked
+        learnerMemberNumber
+        offeringTitle
+        offeringKind
+        insertedAt
+        enrollmentInsertedAt
       }
       startKeyset
       endKeyset

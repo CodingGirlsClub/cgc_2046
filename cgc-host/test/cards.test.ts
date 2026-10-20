@@ -52,6 +52,40 @@ test("AE6 审批卡片：选项原样转交；四个选项各自回填成嵌套�
   expect(PERMISSION.options.map((o: { kind: string }) => o.kind)).toEqual(["allow_once", "allow_always", "reject_once", "reject_always"]);
 });
 
+test("回合结束后才到的审批不开卡：以 cancelled 应答，页面收不到 turn.card", async () => {
+  const fake = fakeAgent();
+  const { page } = await chatPage(fake);
+  let lateAsk: (() => void) | null = null;
+  fake.script = async (t) => {
+    lateAsk = () => void t.ask("session/request_permission", { sessionId: t.sessionId, toolCall: { toolCallId: "late", title: "late", kind: "execute" }, options: PERMISSION.options });
+    return { stopReason: "end_turn", usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } };
+  };
+  await start(page);
+  await page.next((m) => m.method === "turn.end");
+
+  lateAsk!();
+  await until(() => fake.answers.length === 1);
+  expect(fake.answers).toEqual([{ outcome: { outcome: "cancelled" } }]);
+  expect(page.inbox.filter((m) => m.method === "turn.card")).toEqual([]);
+});
+
+test("回合结束后才到的提问同样不开卡：以 decline 应答", async () => {
+  const fake = fakeAgent();
+  const { page } = await chatPage(fake);
+  let lateAsk: (() => void) | null = null;
+  fake.script = async (t) => {
+    lateAsk = () => void t.ask("elicitation/create", { ...QUESTION, sessionId: t.sessionId });
+    return { stopReason: "end_turn", usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } };
+  };
+  await start(page);
+  await page.next((m) => m.method === "turn.end");
+
+  lateAsk!();
+  await until(() => fake.answers.length === 1);
+  expect(fake.answers).toEqual([{ action: "decline" }]);
+  expect(page.inbox.filter((m) => m.method === "turn.card")).toEqual([]);
+});
+
 test("AE6 提问卡片：form 的 schema 原样给页面；作答回填 {action, content}，拒绝回填 {action}", async () => {
   const fake = fakeAgent();
   const { page } = await chatPage(fake);

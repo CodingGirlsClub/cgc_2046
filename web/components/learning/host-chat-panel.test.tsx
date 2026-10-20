@@ -93,7 +93,6 @@ const status = (
 ): HostStatus => ({
 	state,
 	pairedUserId: state === "unpaired" ? null : USER,
-	pairedDisplayName: state === "unpaired" ? null : "学员甲",
 	deviceName: "Ada 的 MacBook",
 	tokenId: state === "unpaired" ? null : "tok_this",
 	agents,
@@ -433,7 +432,7 @@ describe("卡片（R19、R20）", () => {
 		ws.push({ method: "turn.card", params: PERMISSION });
 
 		fireEvent.click(screen.getByRole("button", { name: "停止" }));
-		expect(ws.sent.at(-1)).toEqual({ method: "chat.stop", params: { courseId: COURSE } });
+		expect(ws.sent.at(-1)).toEqual({ method: "chat.stop", params: { agent: "omp", courseId: COURSE } });
 		expect(screen.queryByRole("group", { name: "需要你的确认" })).not.toBeInTheDocument();
 
 		ws.push({ method: "turn.card.closed", params: { courseId: COURSE, cardId: "card-p", reason: "cancelled" } });
@@ -443,6 +442,30 @@ describe("卡片（R19、R20）", () => {
 		expect(screen.getByText("已停止这一轮。")).toBeInTheDocument();
 		fireEvent.change(input(), { target: { value: "下一条" } });
 		expect(screen.getByRole("button", { name: "发送" })).toBeEnabled();
+	});
+
+	it("用量：usage 事件显示上下文与本会话累计费用", async () => {
+		const ws = await readyPanel();
+		ws.pushEvent({ kind: "usage", used: 12_345, size: 200_000, cost: { amount: 0.42, currency: "CNY" } });
+		await waitFor(() => expect(screen.getByText(/12\.3k \/ 200\.0k/)).toBeInTheDocument());
+		expect(screen.getByText(/0\.42/)).toBeInTheDocument();
+	});
+
+	it("用量：history 里回放的 usage 同样显示（重新接上对话后不丢）", async () => {
+		renderPanel();
+		await attach([{ kind: "usage", used: 6_000, size: 200_000 }]);
+		await waitFor(() => expect(screen.getByText(/6\.0k \/ 200\.0k/)).toBeInTheDocument());
+	});
+
+	it("Covers 停止不切走 agent：Codex 课程发 chat.stop 时带上当前 agent", async () => {
+		renderPanel();
+		const ws = await attach([], true, undefined, [
+			{ kind: "codex", present: true },
+			{ kind: "omp", present: true },
+		]);
+		await screen.findByRole("textbox", { name: "发给 agent 的消息" });
+		fireEvent.click(screen.getByRole("button", { name: "停止" }));
+		expect(ws.sent.at(-1)).toEqual({ method: "chat.stop", params: { agent: "codex", courseId: COURSE } });
 	});
 });
 
@@ -807,6 +830,24 @@ describe("历史对话（Session History）", () => {
 		expect(screen.getByText("旧会话的消息")).toBeInTheDocument();
 	});
 
+	it("会话标题：有 title 显示标题、时间·条数退到悬浮提示；没有 title 回退旧样式", async () => {
+		const ws = await readyV2();
+		fireEvent.click(screen.getByRole("button", { name: "历史对话" }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.sessions"));
+		await ws.reply("chat.sessions", "sessions", {
+			courseId: COURSE,
+			sessions: [
+				{ sessionId: "session-1", title: "第一段学习", updatedAt: "2026-10-15T02:00:00Z", messageCount: 4 },
+				{ sessionId: "session-2", title: null, updatedAt: "2026-10-16T02:00:00Z", messageCount: 2 },
+			],
+			current: "session-2",
+			nextCursor: null,
+		});
+		expect(await screen.findByText("第一段学习")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "第一段学习" })).toHaveAttribute("title", expect.stringContaining("4 条消息"));
+		expect(screen.getByRole("button", { name: /2 条消息/ })).toBeInTheDocument();
+	});
+
 	it("切换失败（session_unavailable）：下拉内就地提示，对话不变", async () => {
 		const ws = await readyV2();
 		fireEvent.click(screen.getByRole("button", { name: "历史对话" }));
@@ -872,7 +913,7 @@ describe("历史对话（Session History）", () => {
 	});
 });
 
-describe("对话设置（模型与思考等级）", () => {
+describe("对话设置（模型、思考等级与推理强度）", () => {
 	const SETTINGS = [
 		{
 			id: "model",
@@ -949,6 +990,111 @@ describe("对话设置（模型与思考等级）", () => {
 		// 值没被改走：仍是 Host 给的当前值
 		expect((screen.getByRole("combobox", { name: "思考等级" }) as HTMLSelectElement).value).toBe("auto");
 	});
+
+	/** Codex 形状：模型值是裸 id（没有 provider/ 前缀），推理强度用 reasoning_effort（category thought_level） */
+	const CODEX_SETTINGS = [
+		{
+			id: "model",
+			name: "Model",
+			category: "model",
+			currentValue: "gpt-5.1-codex-max",
+			options: [
+				{ value: "gpt-5.1-codex-max", name: "GPT-5.1 Codex Max" },
+				{ value: "gpt-5.1-codex-mini", name: "GPT-5.1 Codex Mini" },
+			],
+		},
+		{
+			id: "reasoning_effort",
+			name: "Reasoning effort",
+			category: "thought_level",
+			currentValue: "medium",
+			options: [
+				{ value: "low", name: "Low" },
+				{ value: "medium", name: "Medium" },
+				{ value: "high", name: "High" },
+			],
+		},
+	];
+
+	it("发送前：attach 的 history 就带 Codex 的模型与推理强度，未发消息即可看到并使用两个下拉", async () => {
+		const ws = await readyPanel([], false, CODEX_SETTINGS);
+		// 已经 attach、还没有任何对话事件：一条消息都没发
+		expect(screen.getByText(/我是你的学习搭子/)).toBeInTheDocument();
+		expect(ws.sent.map((frame) => frame.method)).toEqual(["hello", "chat.attach"]);
+
+		const model = screen.getByRole("combobox", { name: "模型" }) as HTMLSelectElement;
+		const reasoning = screen.getByRole("combobox", { name: "推理强度" }) as HTMLSelectElement;
+		expect(model.value).toBe("gpt-5.1-codex-max");
+		expect(model).toBeEnabled();
+		expect(reasoning.value).toBe("medium");
+		expect(reasoning).toBeEnabled();
+		expect(within(reasoning).getAllByRole("option").map((option) => option.textContent)).toEqual(["Low", "Medium", "High"]);
+
+		// 发送前改推理强度：照常发 chat.set_setting
+		fireEvent.change(reasoning, { target: { value: "high" } });
+		await waitFor(() =>
+			expect(ws.sent.at(-1)).toMatchObject({
+				method: "chat.set_setting",
+				params: { courseId: COURSE, configId: "reasoning_effort", value: "high" },
+			}),
+		);
+	});
+
+	it("Codex 的模型值是裸 id：模型下拉平铺（不按 provider 分组），选项齐全；改模型仍发 chat.set_setting", async () => {
+		const ws = await readyPanel([], false, CODEX_SETTINGS);
+		const model = screen.getByRole("combobox", { name: "模型" }) as HTMLSelectElement;
+		// 旧行为会把每个裸 id 各开一个同名 optgroup；Codex 没有 provider 前缀，应平铺
+		expect(within(model).queryAllByRole("group")).toHaveLength(0);
+		expect(within(model).getAllByRole("option").map((option) => [(option as HTMLOptionElement).value, option.textContent])).toEqual([
+			["gpt-5.1-codex-max", "GPT-5.1 Codex Max"],
+			["gpt-5.1-codex-mini", "GPT-5.1 Codex Mini"],
+		]);
+
+		fireEvent.change(model, { target: { value: "gpt-5.1-codex-mini" } });
+		await waitFor(() =>
+			expect(ws.sent.at(-1)).toMatchObject({
+				method: "chat.set_setting",
+				params: { courseId: COURSE, configId: "model", value: "gpt-5.1-codex-mini" },
+			}),
+		);
+	});
+
+	it("真机实测的 Codex 形状：模型值带 provider 前缀（gateway-a/…、gateway-b/…）时照常按 provider 分组", async () => {
+		// 2026-10-19 真机（codex-acp 2.2.2 + 自定义网关）回包的形状：模型值都是 provider/model，
+		// 推理强度是 low/high/max。网关与模型标识已中性化；与「裸 id 平铺」是两种都要支持的形状。
+		const PREFIXED_CODEX_SETTINGS = [
+			{
+				id: "model",
+				name: "Model",
+				category: "model",
+				currentValue: "gateway-b/model-b",
+				options: [
+					{ value: "gateway-a/model-a", name: "Model A" },
+					{ value: "gateway-b/model-b", name: "Model B" },
+				],
+			},
+			{
+				id: "reasoning_effort",
+				name: "Reasoning effort",
+				category: "thought_level",
+				currentValue: "max",
+				options: [
+					{ value: "low", name: "Low" },
+					{ value: "high", name: "High" },
+					{ value: "max", name: "Max" },
+				],
+			},
+		];
+		const ws = await readyPanel([], false, PREFIXED_CODEX_SETTINGS);
+		const model = screen.getByRole("combobox", { name: "模型" }) as HTMLSelectElement;
+		expect(model.value).toBe("gateway-b/model-b");
+		expect(within(model).getByRole("group", { name: "gateway-a" })).toBeInTheDocument();
+		expect(within(model).getByRole("group", { name: "gateway-b" })).toBeInTheDocument();
+		expect((screen.getByRole("combobox", { name: "推理强度" }) as HTMLSelectElement).value).toBe("max");
+
+		// 未发消息：只发过 hello + chat.attach
+		expect(ws.sent.map((frame) => frame.method)).toEqual(["hello", "chat.attach"]);
+	});
 });
 
 describe("多 agent（#1148）", () => {
@@ -1009,6 +1155,8 @@ describe("多 agent（#1148）", () => {
 
 		const chatgpt = await screen.findByRole("button", { name: "用 ChatGPT 登录" });
 		expect(screen.queryByRole("button", { name: "API Key" })).toBeNull();
+		// 登录卡已经说明了下一步：不再同时显示「正在接上这门课的对话…」（attach 撞 auth_required 是常规首屏）
+		expect(screen.queryByText("正在接上这门课的对话…")).toBeNull();
 
 		fireEvent.click(chatgpt);
 		await waitFor(() => expect(ws.sent.at(-1)).toMatchObject({ method: "chat.authenticate", params: { courseId: COURSE, methodId: "chat-gpt" } }));

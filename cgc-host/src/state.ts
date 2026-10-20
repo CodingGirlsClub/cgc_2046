@@ -1,5 +1,6 @@
 // state.ts — Host 的本机状态 ~/.cgc2046/host/state.json：配对记录、每门课每个 agent 的会话指针，以及这门课上次用的 agent。
 // 目录 0700、文件 0600；先写临时文件再改名，写到一半断电也不会留下半个文件。
+import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_AGENT, isAgentKind, type AgentKind } from "./agents/registry";
@@ -20,12 +21,23 @@ export interface Pairing {
 /** KTD6：courseId → { <agent kind>: sessionId }——每门课每个 agent 各记一条当前对话 */
 export type SessionPointers = Record<string, Partial<Record<AgentKind, string>>>;
 
+/**
+ * 会话归属（M9）：`<agent>:<sessionId>` → 账号短哈希。只记创建/确认过这条会话的账号，
+ * 指针或 chat.open 命中记录但账号不符时拒绝加载（不再只依赖适配器自报的 cwd）；旧状态没有记录不拦。
+ */
+export type SessionOwners = Record<string, string>;
+
+/** 账号短哈希：只用于本机状态文件里的归属比较，不需要可逆或加盐 */
+export const ownerHash = (userId: string): string => createHash("sha256").update(userId).digest("hex").slice(0, 16);
+
 export interface HostState {
   pairing: Pairing | null;
   /** 每门课每个 agent 的会话指针（KTD6） */
   sessions: SessionPointers;
   /** 这门课上次用的 agent；页面不带 agent 时用它 */
   agents: Record<string, AgentKind>;
+  /** 会话归属（M9）：key 是 `<agent>:<sessionId>` */
+  sessionOwners: SessionOwners;
 }
 
 export const stateDir = (home: string) => join(home, ".cgc2046", "host");
@@ -49,10 +61,10 @@ export function loadState(home: string): HostState {
   try {
     raw = JSON.parse(readFileSync(statePath(home), "utf8"));
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") return { pairing: null, sessions: {}, agents: {} };
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return { pairing: null, sessions: {}, agents: {}, sessionOwners: {} };
     throw e;
   }
-  const parsed = (isObject(raw) ? raw : {}) as { pairing?: Pairing | null; sessions?: unknown; agents?: unknown };
+  const parsed = (isObject(raw) ? raw : {}) as { pairing?: Pairing | null; sessions?: unknown; agents?: unknown; sessionOwners?: unknown };
   // 畸形字段（字符串、数组）当作「没有」：按索引建桶会把垃圾写回文件，KTD6 的口径是从新对话开始
   const rawSessions = isObject(parsed.sessions) ? parsed.sessions : {};
   const rawAgents = isObject(parsed.agents) ? parsed.agents : {};
@@ -75,7 +87,12 @@ export function loadState(home: string): HostState {
   for (const [courseId, kind] of Object.entries(rawAgents)) {
     if (isAgentKind(kind)) agents[courseId] = kind;
   }
-  const state: HostState = { pairing: (parsed.pairing as Pairing | null | undefined) ?? null, sessions, agents };
+  const rawOwners = isObject(parsed.sessionOwners) ? parsed.sessionOwners : {};
+  const sessionOwners: SessionOwners = {};
+  for (const [key, owner] of Object.entries(rawOwners)) {
+    if (typeof owner === "string" && /^[0-9a-f]{16}$/.test(owner)) sessionOwners[key] = owner;
+  }
+  const state: HostState = { pairing: (parsed.pairing as Pairing | null | undefined) ?? null, sessions, agents, sessionOwners };
   // 读时迁移一次并落盘：之后无论谁读到都是新形状（旧 Host 读到新形状只退化为「从新对话开始」，KTD6 口径）
   if (legacy) saveState(home, state);
   return state;

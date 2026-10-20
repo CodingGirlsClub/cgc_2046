@@ -73,6 +73,10 @@ export function createRuntime(opts: {
         protocolVersion: PROTOCOL_VERSION, clientCapabilities: { elicitation: { form: {} } },
       }, { cancellationSignal: g.abort.signal }), g.abort.signal);
       g.abort.signal.throwIfAborted();
+      // 协议不兼容的适配器不能当成可用：抛错会让本次 prepare 失败并按换代回收
+      if (init.protocolVersion !== PROTOCOL_VERSION) {
+        throw new Error(`agent 协定的 ACP 协议版本 ${init.protocolVersion} 与 Host 支持的 ${PROTOCOL_VERSION} 不一致`);
+      }
       g.initialized = true;
       opts.initialized?.(init);
       opts.ready();

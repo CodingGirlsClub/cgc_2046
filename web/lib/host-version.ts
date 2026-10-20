@@ -1,4 +1,4 @@
-export const MIN_HOST_VERSION = "0.2.0";
+export const MIN_HOST_VERSION = "0.2.3";
 
 /** Host releases use stable major.minor.patch only; no prefix, leading zero, prerelease or build suffix. */
 export function parseHostVersion(value: unknown): number[] {
