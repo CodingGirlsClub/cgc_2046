@@ -5,48 +5,31 @@
  *
  * - 自包含面板（KTD1，先例 sponsorship-management）：自取数、自带测试文件，
  *   插入 OfferingDetailPage 的全宽面板栈；manage（canManageEvents）门控渲染
- *   （AE6），非 manage 不渲染。
+ *   （AE6），非 manage 不渲染（也不发订单查询）。
  * - 收费状态（R3）：免费态收敛为一行免费状态（不拉订单查询，AE4）。
  * - 四数统计（R5）：带 offering 参数的 workspacePaymentStats（与工作区口径
  *   同源，KTD3）。
- * - 订单列表（R6）：workspaceOrders 按 event_id/course_id 筛选；默认非终态 +
- * - 行内操作（R7）：待付单免缴（waivePayment）、已付单退款（refundOrder）、
- *   refund_failed 单重试（retryRefund）——全部为后端两段确认（首调建 pending
- *   返回后端摘要，弹层确认经 confirmOperation 才执行；状态机收敛在
- *   lib/use-payment-operation）。
+ * - 订单台账（R6）：OrderTable 共享组件（报名人身份锚点 / 下单时间 / 行内
+ *   展开）；取数与 keyset 分页收敛在 lib/use-workspace-orders。
+ * - 行内操作资格：lib/order-actions 单源（退款 paid / 免缴 payment_pending /
+ *   重试 refund_failed）——免缴判定看报名状态而非订单状态，与后端 CAS 前提
+ *   一致（订单 pending ≠ 报名 payment_pending）。
  */
 
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { client } from "@/lib/apollo-client";
-import { WORKSPACE_ORDERS, WORKSPACE_PAYMENT_STATS, type Order } from "@/lib/graphql/orders";
+import { WORKSPACE_PAYMENT_STATS } from "@/lib/graphql/orders";
 import {
 	ORDER_STATUS_FILTER_VALUES,
 	ORDER_STATUS_LABEL,
-	PROVIDER_LABEL,
 	formatAmount,
 	parsePaymentStats,
 	type PaymentStats,
 } from "@/lib/payment";
 import { usePaymentOperation } from "@/lib/use-payment-operation";
-
-const STATUS_BADGE_CLASS: Record<string, string> = {
-	pending: "bg-soft-2 text-ink-2",
-	paid: "bg-emerald-500/10 text-emerald-300",
-	refunding: "bg-sky-500/10 text-sky-300",
-	refunded: "bg-soft-2 text-ink-3",
-	refund_failed: "bg-red-500/10 text-red-300",
-	cancelled: "bg-soft-2 text-ink-3",
-	expired: "bg-soft-2 text-ink-3",
-	forfeited: "bg-soft-2 text-ink-3",
-};
-
-/** U7 keyset 分页页大小（plan Outstanding Question：实施定夺，20/页） */
-const PAGE_SIZE = 20;
-
-function statusBadgeClass(status: string): string {
-	return STATUS_BADGE_CLASS[status] ?? "bg-soft-2 text-ink-3";
-}
+import { useWorkspaceOrders } from "@/lib/use-workspace-orders";
+import { OrderTable } from "@/components/order-table";
 
 export default function OfferingPaymentsPanel({
 	workspaceId,
@@ -68,104 +51,29 @@ export default function OfferingPaymentsPanel({
 	const labelsT = useTranslations();
 
 	const [statusFilter, setStatusFilter] = useState("");
-	const [orders, setOrders] = useState<Order[]>([]);
 	const [stats, setStats] = useState<PaymentStats | null>(null);
 	const [statsError, setStatsError] = useState(false);
-	const [loadState, setLoadState] = useState<"loading" | "ok" | "error">("loading");
+
+	const { orders, loadState, hasMore, loadingMore, reload, loadMore } = useWorkspaceOrders({
+		workspaceId,
+		enabled: manage,
+		status: statusFilter,
+		eventId: kind === "event" ? offeringId : undefined,
+		courseId: kind === "course" ? offeringId : undefined,
+	});
+
 	// 退款/免缴/重试两段确认：pendingOp（待确认弹层）+ busy + actionError 全在 hook
 	const { pendingOp, busy, actionError, request, confirm, cancel } = usePaymentOperation({
 		t,
-		onCompleted: () => Promise.all([load(statusFilter), loadStats()]).then(() => undefined),
+		onCompleted: () => Promise.all([reload(), loadStats()]).then(() => undefined),
 	});
-	// U7 keyset 分页：after = 上一页 endKeyset；满页即可能有下一页
-	const [endKeyset, setEndKeyset] = useState<string | null>(null);
-	const [hasMore, setHasMore] = useState(false);
-	const [loadingMore, setLoadingMore] = useState(false);
-	// review F12：请求代守卫——筛选切换后的迟到响应不得覆写/追加新筛选的结果
-	const reqGen = useRef(0);
-	// 免费态收敛一行（AE4）：不拉订单/统计查询
-	const panelKey = kind === "event" ? "eventId" : "courseId";
-	async function load(filter: string) {
-		// F12：新请求作废在途响应（筛选切换重置游标 + 拒绝迟到覆写）
-		const gen = ++reqGen.current;
-		setLoadState("loading");
-		try {
-			// R6 默认视图：非终态 + 已退款；终态（cancelled/expired）经状态筛选可见
-			const defaultStatuses = [
-				"pending",
-				"paid",
-				"refunding",
-				"refund_failed",
-				"refunded",
-				"forfeited",
-			];
-			const { data } = await client.query({
-				query: WORKSPACE_ORDERS,
-				variables: {
-					workspaceId,
-					filter: {
-						[panelKey]: { eq: offeringId },
-						...(filter
-							? { status: { eq: filter } }
-							: { status: { in: defaultStatuses } }),
-					},
-					first: PAGE_SIZE,
-				},
-			});
-			if (gen !== reqGen.current) return;
-			const page = data?.workspaceOrders;
-			setOrders(page?.results ?? []);
-			setEndKeyset(page?.endKeyset ?? null);
-			setHasMore((page?.results ?? []).length === PAGE_SIZE);
-			setLoadState("ok");
-		} catch {
-			if (gen === reqGen.current) setLoadState("error");
-		}
-	}
-
-	async function loadMore(filter: string) {
-		if (loadingMore || !endKeyset) return;
-		const gen = reqGen.current;
-		setLoadingMore(true);
-		try {
-			const defaultStatuses = [
-				"pending",
-				"paid",
-				"refunding",
-				"refund_failed",
-				"refunded",
-				"forfeited",
-			];
-			const { data } = await client.query({
-				query: WORKSPACE_ORDERS,
-				variables: {
-					workspaceId,
-					filter: {
-						[panelKey]: { eq: offeringId },
-						...(filter
-							? { status: { eq: filter } }
-							: { status: { in: defaultStatuses } }),
-					},
-					first: PAGE_SIZE,
-					after: endKeyset,
-				},
-			});
-			// F12：期间发生了筛选切换（代已前进）→ 丢弃本页（不追加进新筛选）
-			if (gen !== reqGen.current) return;
-			const page = data?.workspaceOrders;
-			setOrders((prev) => [...prev, ...(page?.results ?? [])]);
-			setEndKeyset(page?.endKeyset ?? null);
-			setHasMore((page?.results ?? []).length === PAGE_SIZE);
-		} catch {
-			if (gen === reqGen.current) setHasMore(false);
-		} finally {
-			setLoadingMore(false);
-		}
-	}
 
 	async function loadStats() {
+		if (!manage) return;
+
 		setStatsError(false);
 		try {
+			const panelKey = kind === "event" ? "eventId" : "courseId";
 			const { data } = await client.query({
 				query: WORKSPACE_PAYMENT_STATS,
 				variables: { workspaceId, [panelKey]: offeringId },
@@ -177,16 +85,13 @@ export default function OfferingPaymentsPanel({
 		}
 	}
 
-	// 初拉（offering 维度变化时；ref 防串台）
+	// 初拉统计（offering 维度变化时；ref 防串台）
 	const loadedFor = useRef("");
 	useEffect(() => {
 		if (!manage) return;
-		// F13：免费活动也拉数据——关闭收费故意保留已付订单，历史与退款
-		// 操作不因免费态消失（有已付订单时渲染完整面板）
 		const key = `${workspaceId}:${offeringId}`;
 		if (loadedFor.current === key) return;
 		loadedFor.current = key;
-		void load(statusFilter);
 		void loadStats();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [workspaceId, offeringId, manage]);
@@ -213,7 +118,6 @@ export default function OfferingPaymentsPanel({
 			</section>
 		);
 	}
-
 
 	const statusFilters = [
 		{ value: "", label: t("filterDefault") },
@@ -250,7 +154,7 @@ export default function OfferingPaymentsPanel({
 						<StatCard
 							label={t("statRefundFailed")}
 							value={stats?.refundFailedCents}
-							danger={stats?.refundFailedCents ? (stats.refundFailedCents > 0) : false}
+							danger={stats?.refundFailedCents ? stats.refundFailedCents > 0 : false}
 						/>
 					</>
 				)}
@@ -264,10 +168,7 @@ export default function OfferingPaymentsPanel({
 						{t("filterLabel")}
 						<select
 							value={statusFilter}
-							onChange={(e) => {
-								setStatusFilter(e.target.value);
-								void load(e.target.value);
-							}}
+							onChange={(e) => setStatusFilter(e.target.value)}
 							className="ui-select ui-select--sm"
 							data-testid="offering-status-filter"
 						>
@@ -324,7 +225,7 @@ export default function OfferingPaymentsPanel({
 				) : loadState === "error" ? (
 					<p className="mt-3 text-sm text-ink-3" role="alert">
 						{t("loadFailed")}
-						<button type="button" className="underline" onClick={() => void load(statusFilter)}>
+						<button type="button" className="underline" onClick={() => void reload()}>
 							{t("retry")}
 						</button>
 					</p>
@@ -333,94 +234,29 @@ export default function OfferingPaymentsPanel({
 						{t("emptyOrders")}
 					</p>
 				) : (
-					<div className="mt-3 overflow-x-auto">
-						<table className="w-full min-w-[720px] text-left text-sm">
-							<thead>
-								<tr className="text-[13px] text-ink-3">
-									<th className="px-3 py-2 font-normal">{t("thEnrollee")}</th>
-									<th className="px-3 py-2 font-normal">{t("thTier")}</th>
-									<th className="px-3 py-2 font-normal">{t("thAmount")}</th>
-									<th className="px-3 py-2 font-normal">{t("thChannel")}</th>
-									<th className="px-3 py-2 font-normal">{t("thStatus")}</th>
-									<th className="px-3 py-2 font-normal">{t("thActions")}</th>
-								</tr>
-							</thead>
-							<tbody>
-								{orders.map((order) => (
-									<tr
-										key={order.id}
-										className="border-t border-line"
-										data-testid={`order-row-${order.id}`}
-									>
-										<td className="px-3 py-2 text-ink">{order.learnerEmail ?? "—"}</td>
-										<td className="px-3 py-2 text-ink-2">{order.tierName ?? "—"}</td>
-										<td className="px-3 py-2 text-ink">¥{formatAmount(order.amountCents)}</td>
-										<td className="px-3 py-2 text-ink-3">
-											{labelsT(PROVIDER_LABEL[order.provider] ?? order.provider)}
-										</td>
-										<td className="px-3 py-2">
-											<span
-												className={`inline-block rounded-full px-2 py-0.5 text-xs ${statusBadgeClass(order.status)}`}
-											>
-												{labelsT(ORDER_STATUS_LABEL[order.status] ?? order.status)}
-											</span>
-										</td>
-										<td className="px-3 py-2">
-											<div className="flex flex-wrap gap-2">
-												{order.status === "pending" && (
-													<button
-														type="button"
-														className="rounded-large border border-line px-2.5 py-1 text-xs text-ink-2 hover:border-line-strong"
-														disabled={busy}
-														onClick={() => void request("waive", order.enrollmentId)}
-														data-testid={`offering-waive-${order.id}`}
-													>
-														{t("waive")}
-													</button>
-												)}
-												{order.status === "paid" && (
-													<button
-														type="button"
-														className="rounded-large border border-line px-2.5 py-1 text-xs text-ink-2 hover:border-line-strong"
-														disabled={busy}
-														onClick={() => void request("refund", order.id)}
-														data-testid={`offering-refund-${order.id}`}
-													>
-														{t("refund")}
-													</button>
-												)}
-												{order.status === "refund_failed" && (
-													<button
-														type="button"
-														className="rounded-large border border-red-400/40 px-2.5 py-1 text-xs text-red-300 hover:border-red-400"
-														disabled={busy}
-														onClick={() => void request("retry", order.id)}
-														data-testid={`offering-retry-${order.id}`}
-													>
-														{t("retryRefund")}
-													</button>
-												)}
-											</div>
-										</td>
-									</tr>
-								))}
-						</tbody>
-					</table>
-				</div>
-				)}
-				{hasMore && loadState === "ok" ? (
-					<div className="mt-3 flex justify-center">
-						<button
-							type="button"
-							className="rounded-large border border-line px-4 py-2 text-sm text-ink-2 hover:border-line-strong disabled:opacity-50"
-							disabled={loadingMore}
-							onClick={() => void loadMore(statusFilter)}
-							data-testid="offering-load-more"
-						>
-							{loadingMore ? t("loadingMore") : t("loadMore")}
-						</button>
+					<div className="mt-3">
+						<OrderTable
+							orders={orders}
+							manage={manage}
+							busy={busy}
+							onRequest={(op, id) => void request(op, id)}
+							testIdPrefix="offering"
+						/>
+						{hasMore ? (
+							<div className="mt-3 flex justify-center">
+								<button
+									type="button"
+									className="rounded-large border border-line px-4 py-2 text-sm text-ink-2 hover:border-line-strong disabled:opacity-50"
+									disabled={loadingMore}
+									onClick={() => void loadMore()}
+									data-testid="offering-load-more"
+								>
+									{loadingMore ? t("loadingMore") : t("loadMore")}
+								</button>
+							</div>
+						) : null}
 					</div>
-				) : null}
+				)}
 			</div>
 		</section>
 	);

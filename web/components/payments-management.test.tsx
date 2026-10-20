@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
 import { render } from "@/test-utils";
-import PaymentsManagement, { OrderStatusBadge, StatsCards } from "./payments-management";
+import PaymentsManagement, { StatsCards } from "./payments-management";
+import { OrderStatusBadge } from "./order-table";
+import { formatDateTime } from "@/lib/format";
+import { fetchWorkspaceOfferings } from "@/lib/events";
 
 const { client } = vi.hoisted(() => ({ client: { query: vi.fn(), mutate: vi.fn() } }));
 
@@ -66,6 +69,9 @@ function mutationName(index: number): string | undefined {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	// 活动筛选用例会 mockReset 并排队 once；每个用例前恢复默认空列表，
+	// 否则后续用例拿到 undefined（组件对拉取失败也只降级为空下拉）
+	vi.mocked(fetchWorkspaceOfferings).mockReset().mockResolvedValue([]);
 });
 
 afterEach(cleanup);
@@ -307,7 +313,7 @@ describe("PaymentsManagement（U11：列表/退款/免缴）", () => {
 		await waitFor(() => {
 			expect(client.query).toHaveBeenCalledWith(
 				expect.objectContaining({
-					variables: { workspaceId: "ws1", filter: { status: { eq: "paid" } } },
+					variables: { workspaceId: "ws1", filter: { status: { eq: "paid" } }, first: 20 },
 				}),
 			);
 		});
@@ -333,7 +339,7 @@ describe("PaymentsManagement（U11：列表/退款/免缴）", () => {
 		await waitFor(() => {
 			expect(client.query).toHaveBeenCalledWith(
 				expect.objectContaining({
-					variables: { workspaceId: "ws1", filter: { eventId: { eq: "ev-1" } } },
+					variables: { workspaceId: "ws1", filter: { eventId: { eq: "ev-1" } }, first: 20 },
 				}),
 			);
 		});
@@ -343,9 +349,110 @@ describe("PaymentsManagement（U11：列表/退款/免缴）", () => {
 		await waitFor(() => {
 			expect(client.query).toHaveBeenCalledWith(
 				expect.objectContaining({
-					variables: { workspaceId: "ws1", filter: {} },
+					variables: { workspaceId: "ws1", filter: {}, first: 20 },
 				}),
 			);
 		});
+	});
+
+	it("台账列：掩码手机/会员号锚定报名人、活动列、下单时间；展开显示订单与报名明细", async () => {
+		const detailOrder = {
+			...baseOrder,
+			learnerEmail: null,
+			learnerName: null,
+			learnerPhoneMasked: "+86138****8000",
+			learnerMemberNumber: "CGC-AB12CD",
+			offeringTitle: "秋日工作坊",
+			offeringKind: "event",
+			insertedAt: "2026-08-16T10:00:00Z",
+			enrollmentInsertedAt: "2026-08-15T09:00:00Z",
+			outTradeNo: "oto-detail-1",
+		};
+
+		client.query.mockImplementation((opts: { variables: { workspaceId: string } }) =>
+			opts.variables.workspaceId === "ws1"
+				? ordersPayload([detailOrder])
+				: statsPayload(19900, 0, 0),
+		);
+
+		render(<PaymentsManagement workspaceId="ws1" manage />);
+
+		const row = await screen.findByTestId("order-row-o1");
+		expect(row).toHaveTextContent("+86138****8000");
+		expect(row).toHaveTextContent("CGC-AB12CD");
+		expect(row).toHaveTextContent("秋日工作坊");
+		expect(row).toHaveTextContent("活动");
+		// 时区无关：期望值用被测格式化函数现场算（CI UTC / 本地 +08 都成立）
+		expect(row).toHaveTextContent(formatDateTime(detailOrder.insertedAt));
+
+		fireEvent.click(screen.getByTestId("detail-o1"));
+		const detail = await screen.findByTestId("detail-row-o1");
+		expect(detail).toHaveTextContent("订单详情");
+		expect(detail).toHaveTextContent("报名详情");
+		expect(detail).toHaveTextContent("oto-detail-1");
+		expect(detail).toHaveTextContent(formatDateTime(detailOrder.enrollmentInsertedAt));
+
+		fireEvent.click(screen.getByTestId("detail-o1"));
+		await waitFor(() => expect(screen.queryByTestId("detail-row-o1")).not.toBeInTheDocument());
+	});
+
+	it("操作资格：免缴看报名 payment_pending（订单 pending 不充分）；refund_failed 提供重试", async () => {
+		client.query.mockImplementation((opts: { variables: { workspaceId: string } }) =>
+			opts.variables.workspaceId === "ws1"
+				? ordersPayload([
+						{ ...baseOrder, id: "o-pending-confirmed", status: "pending", enrollmentStatus: "confirmed" },
+						{ ...baseOrder, id: "o-failed", status: "refund_failed", enrollmentStatus: "confirmed" },
+					])
+				: statsPayload(0, 0, 0),
+		);
+
+		render(<PaymentsManagement workspaceId="ws1" manage />);
+
+		await screen.findByTestId("order-row-o-pending-confirmed");
+		// 后端 waive_payment 的 CAS 前提是报名 payment_pending：订单 pending 不够
+		expect(screen.queryByTestId("waive-o-pending-confirmed")).not.toBeInTheDocument();
+		expect(screen.getByTestId("retry-o-failed")).toBeInTheDocument();
+
+		client.mutate.mockResolvedValueOnce({
+			data: {
+				retryRefund: { pendingId: "p3", summary: "重试退款 ¥199.00…", errors: [] },
+			},
+		});
+		fireEvent.click(screen.getByTestId("retry-o-failed"));
+		await screen.findByTestId("op-confirm");
+		expect(client.mutate.mock.calls[0][0].variables).toEqual({ id: "o-failed" });
+		expect(mutationName(0)).toBe("RetryRefund");
+	});
+
+	it("keyset 分页：满页出现加载更多，点击带 after 追加下一页", async () => {
+		const firstPage = Array.from({ length: 20 }, (_, i) => ({ ...baseOrder, id: `page-${i}` }));
+
+		client.query.mockImplementation(
+			(opts: {
+				query: { definitions: Array<{ name?: { value: string } }> };
+				variables: { workspaceId: string; after?: string | null };
+			}) => {
+				const name = opts.query.definitions[0]?.name?.value;
+
+				if (name === "WorkspacePaymentStats") return statsPayload(0, 0, 0);
+				if (opts.variables.after) {
+					return { data: { workspaceOrders: { results: [{ ...baseOrder, id: "page-next" }], endKeyset: null } } };
+				}
+
+				return { data: { workspaceOrders: { results: firstPage, endKeyset: "ks-1" } } };
+			},
+		);
+
+		render(<PaymentsManagement workspaceId="ws1" manage />);
+
+		await screen.findByTestId("order-row-page-0");
+		fireEvent.click(screen.getByTestId("load-more"));
+
+		await screen.findByTestId("order-row-page-next");
+		expect(client.query).toHaveBeenCalledWith(
+			expect.objectContaining({
+				variables: expect.objectContaining({ after: "ks-1" }),
+			}),
+		);
 	});
 });

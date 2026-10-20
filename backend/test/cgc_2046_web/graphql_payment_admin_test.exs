@@ -553,7 +553,76 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
     end
   end
 
+  describe "订单台账投影（财务台账）" do
+    test "小程序用户：掩码手机 + 会员号锚定报名人，邮箱/展示名缺失不伪装" do
+      %{owner: owner, workspace: workspace} = managed_workspace()
+      event = paid_event(workspace, owner)
+      learner = miniprogram_user("+8613800138000")
+      enrollment = enroll_in(event, workspace, learner)
+      _order = insert_order(workspace, enrollment, DateTime.add(DateTime.utc_now(), 2, :hour))
+
+      assert [row] = results(graphql(ledger_query(workspace.id), sign_in_token(owner)))
+
+      assert row["learnerEmail"] == nil
+      assert row["learnerName"] == nil
+      assert row["learnerPhoneMasked"] == "+86138****8000"
+
+      assert row["learnerMemberNumber"] ==
+               Cgc2046.Accounts.Calculations.MemberNumber.from_uuid(learner.id)
+
+      assert row["offeringTitle"] == event.title
+      assert row["offeringKind"] == "event"
+      assert is_binary(row["insertedAt"])
+      assert is_binary(row["enrollmentInsertedAt"])
+    end
+
+    test "活动改名后订单行显示现值标题（订单上下文跟随活动）" do
+      %{owner: owner, workspace: workspace} = managed_workspace()
+      event = paid_event(workspace, owner)
+      learner = Fixtures.register_user("ledger-rename-#{uniq()}")
+      enrollment = enroll_in(event, workspace, learner)
+      _order = insert_order(workspace, enrollment, DateTime.add(DateTime.utc_now(), 2, :hour))
+
+      {:ok, _} =
+        event
+        |> Ash.Changeset.for_update(:update, %{title: "改名后的活动"})
+        |> Ash.update(actor: owner, tenant: workspace.id)
+
+      assert [row] = results(graphql(ledger_query(workspace.id), sign_in_token(owner)))
+      assert row["offeringTitle"] == "改名后的活动"
+      assert row["offeringKind"] == "event"
+    end
+
+    test "课程订单同样投影活动标题与类型" do
+      %{owner: owner, workspace: workspace} = managed_workspace()
+
+      course =
+        EventFixtures.create_course(workspace, owner, %{
+          pricing_enabled: true,
+          price_tiers: [@tier]
+        })
+
+      learner = Fixtures.register_user("ledger-course-#{uniq()}")
+      enrollment = enroll_in(course, workspace, learner)
+      _order = insert_order(workspace, enrollment, DateTime.add(DateTime.utc_now(), 2, :hour))
+
+      assert [row] = results(graphql(ledger_query(workspace.id), sign_in_token(owner)))
+      assert row["offeringTitle"] == course.title
+      assert row["offeringKind"] == "course"
+    end
+  end
+
   # ── 布置 ──
+
+  # 小程序建号路径（phone 锚定，email/display_name 均空）——身份锚点用例
+  defp miniprogram_user(phone) do
+    {:ok, user} =
+      Cgc2046.Accounts.User
+      |> Ash.Changeset.for_create(:register_with_miniprogram, %{phone: phone})
+      |> Ash.create(authorize?: false)
+
+    user
+  end
 
   defp managed_workspace do
     %{owner: owner, member: member, workspace: workspace} = Fixtures.workspace_with_member()
@@ -740,6 +809,26 @@ defmodule Cgc2046Web.GraphqlPaymentAdminTest do
   end
 
   # ── GraphQL 文档 ──
+
+  defp ledger_query(workspace_id) do
+    """
+    {
+      workspaceOrders(workspaceId: "#{workspace_id}") {
+        results {
+          id
+          learnerEmail
+          learnerName
+          learnerPhoneMasked
+          learnerMemberNumber
+          offeringTitle
+          offeringKind
+          insertedAt
+          enrollmentInsertedAt
+        }
+      }
+    }
+    """
+  end
 
   defp orders_query(workspace_id) do
     """
