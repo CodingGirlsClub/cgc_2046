@@ -1245,11 +1245,6 @@ impl RootView {
             .flex_row()
             .items_center()
             .gap(px(4.0))
-            .h(px(28.0))
-            .px(space(3))
-            .bg(palette.canvas)
-            .border_b_1()
-            .border_color(palette.line)
             .text_size(px(12.0))
             .text_color(palette.ink_3)
             .child(workspace_switcher);
@@ -1339,8 +1334,8 @@ impl RootView {
         div()
             .id("breadcrumb-menu")
             .absolute()
-            .top(px(72.0))
-            .left(px(230.0))
+            .top(px(44.0))
+            .left(px(270.0))
             .w(px(220.0))
             .flex()
             .flex_col()
@@ -2957,6 +2952,8 @@ impl Render for RootView {
                                         .child(translate(language, Key::AppName)),
                                 ),
                         )
+                        .child(div().w(px(1.0)).h(px(14.0)).bg(palette.line))
+                        .child(self.render_breadcrumb_bar(language, &palette, cx))
                         .child(div().flex_1())
                         .child(
                             div().relative().flex().items_center().child(
@@ -2984,7 +2981,6 @@ impl Render for RootView {
                             ),
                         ),
                 )
-                .child(self.render_breadcrumb_bar(language, &palette, cx))
                 .child(
                     div()
                         .flex()
@@ -4733,8 +4729,8 @@ impl RootView {
         div()
             .id("workspace-menu")
             .absolute()
-            .top(px(72.0))
-            .left(px(120.0))
+            .top(px(44.0))
+            .left(px(130.0))
             .w(px(260.0))
             .flex()
             .flex_col()
