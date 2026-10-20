@@ -27,6 +27,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 - [本机 Host / Web] 学习搭子**打开就能选模型与思考/推理强度**：没有会话指针时先在 `chat.attach` 建一条空会话（`session/new`，指针不落盘）再取设置，因此不用先发一句话也能选；改动只影响首次打开的空态。
 
 ### Fixed
+- [本机 Host] 看门狗强制收尾后的迟到更新不再写入会话缓冲（此前 agent 在本地 `turn.end` 之后继续推的消息会被 `chat.attach` 重放，出现「结束标记之后还有内容」；晚到的设置变更也不再改会话设置或推 `chat.settings`）；`chat.sessions` 的 `current` 与会话行一样按归属账号过滤，换账号后不再回上一个账号的 sessionId。Host 版本 `0.2.10`（`MIN_HOST_VERSION` 保持 `0.2.3`）。
 - [本机 Host] Codex 课程的「停止」不再把课程切回 OMP，并补齐回合收尾与隔离：`chat.stop` / `card.answer` / `chat.sessions` 的目标 agent 与当前会话对齐。
 - [本机 Host / Web] 历史对话显示 agent 给的标题（时间与条数移到悬停说明）；对话栏同时显示本会话的上下文用量与费用（`usage_update` 不进对话流）。
 - [Web] 刷新后静默重连改用会话级证据并保留首次手势门：成功连上（含旧版 Host 的 `staleHost` 应答）即把「本页曾连上」写入 `sessionStorage`（不含凭证与 Host 信息），刷新后凭证据允许一次静默探测——权限查询恒报 `prompt` 的浏览器不再反复要授权；首次访问在无证据时仍等用户手势，隐私模式存储抛错则退回内存标记，避免把「Host 需要更新」误换成授权卡。
