@@ -126,6 +126,7 @@ pub struct ShellState {
     pub(in crate::root_view) right_panel_width: f32,
     pub(in crate::root_view) tabs: Vec<PaneTab>,
     pub(in crate::root_view) active_tab: Option<String>,
+    pub(in crate::root_view) pane_notice: Option<String>,
     pub(in crate::root_view) site_tree_events_open: bool,
     pub(in crate::root_view) site_tree_courses_open: bool,
     pub(in crate::root_view) site_tree_query: String,
@@ -221,6 +222,7 @@ impl ShellState {
             right_panel_width: 288.0,
             tabs: Vec::new(),
             active_tab: None,
+            pane_notice: None,
             site_tree_events_open: true,
             site_tree_courses_open: true,
             site_tree_query: String::new(),
@@ -244,7 +246,10 @@ impl ShellState {
             payment_generation: 0,
             deposit_consent: false,
             events_bus: Arc::new(MemoryEventBus::new()),
-            chat: ChatUi::default(),
+            chat: ChatUi {
+                selected_agent: load_selected_agent(),
+                ..ChatUi::default()
+            },
             agent_registry_rows: Vec::new(),
             agent_registry_started: false,
             agent_registry_loading: false,

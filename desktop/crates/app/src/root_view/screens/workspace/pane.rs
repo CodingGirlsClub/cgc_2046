@@ -9,7 +9,8 @@ pub(in crate::root_view) fn render_pane_tabs(
     cx: &mut Context<RootView>,
 ) -> AnyElement {
     let tabs = ctx.tabs.clone();
-    if tabs.is_empty() {
+    let notice = ctx.pane_notice.clone();
+    if tabs.is_empty() && notice.is_none() {
         return div().into_any_element();
     }
     let active = ctx.active_tab.clone();
@@ -74,6 +75,33 @@ pub(in crate::root_view) fn render_pane_tabs(
             item = item.border_b_2().border_color(palette.accent);
         }
         items.push(item.into_any_element());
+    }
+    if let Some(notice) = notice {
+        items.push(
+            div()
+                .id("pane-notice")
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(4.0))
+                .px(space(1))
+                .py(px(2.0))
+                .text_size(px(10.0))
+                .text_color(palette.ink_3)
+                .child(notice)
+                .child(
+                    div()
+                        .id("pane-notice-dismiss")
+                        .px(px(3.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .hover(|style| style.bg(palette.soft))
+                        .child("×")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.clear_pane_notice(cx);
+                        })),
+                )
+                .into_any_element(),
+        );
     }
     div()
         .id("pane-tab-bar")

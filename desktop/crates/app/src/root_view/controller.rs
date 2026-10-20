@@ -1144,6 +1144,11 @@ impl RootView {
     }
 
     /// 当前 active Tab 若是 issue 卡，返回课程 id 与 issue id。
+    pub(in crate::root_view) fn clear_pane_notice(&mut self, cx: &mut Context<Self>) {
+        self.pane_notice = None;
+        cx.notify();
+    }
+
     pub(in crate::root_view) fn active_issue_tab(&self) -> Option<(&str, &str)> {
         let active = self.active_tab.as_deref()?;
         let tab = self.tabs.iter().find(|tab| tab.id == active)?;
@@ -1177,6 +1182,7 @@ impl RootView {
             site_tree_events_open: self.site_tree_events_open,
             site_tree_courses_open: self.site_tree_courses_open,
             site_tree_query: self.site_tree_query.clone(),
+            right_panel_width: self.right_panel_width,
         };
         crate::workspace_state::save_entry(workspace_id, entry);
     }
@@ -1191,6 +1197,8 @@ impl RootView {
         self.site_tree_events_open = entry.site_tree_events_open;
         self.site_tree_courses_open = entry.site_tree_courses_open;
         self.site_tree_query = entry.site_tree_query;
+        self.right_panel_width = entry.right_panel_width;
+        let stored_tab_count = entry.tabs.len();
         self.tabs = entry
             .tabs
             .into_iter()
@@ -1207,6 +1215,12 @@ impl RootView {
                 issue_id: tab.issue_id,
             })
             .collect();
+        if stored_tab_count > self.tabs.len() {
+            self.pane_notice = Some(format!(
+                "{} 个失效标签已清理",
+                stored_tab_count - self.tabs.len()
+            ));
+        }
         self.active_tab = entry
             .active_tab
             .filter(|active| self.tabs.iter().any(|tab| &tab.id == active))
@@ -1251,6 +1265,12 @@ impl RootView {
                 }
             }
         }
+        self.persist_current_workspace_state();
+        cx.notify();
+    }
+
+    pub(in crate::root_view) fn resize_right_panel(&mut self, delta: f32, cx: &mut Context<Self>) {
+        self.right_panel_width = (self.right_panel_width + delta).clamp(240.0, 420.0);
         self.persist_current_workspace_state();
         cx.notify();
     }
@@ -1910,6 +1930,7 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         self.site_tree_search_focused = false;
+        save_selected_agent(&id);
         self.chat.selected_agent = Some(id);
         self.chat.agent = display_name;
         self.chat.agent_menu_open = false;

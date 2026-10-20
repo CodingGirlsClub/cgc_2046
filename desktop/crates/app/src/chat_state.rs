@@ -54,6 +54,19 @@ pub(crate) fn clear_chat_pointer(course_id: &str) {
     write_chat_state(&state);
 }
 
+pub(crate) fn load_selected_agent() -> Option<String> {
+    read_chat_state()
+        .get("selected_agent")?
+        .as_str()
+        .map(str::to_string)
+}
+
+pub(crate) fn save_selected_agent(agent: &str) {
+    let mut state = read_chat_state();
+    state["selected_agent"] = serde_json::json!(agent);
+    write_chat_state(&state);
+}
+
 pub(crate) fn load_chat_pref(agent: &str, config_id: &str) -> Option<String> {
     read_chat_state()
         .get("prefs")?

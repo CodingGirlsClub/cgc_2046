@@ -8,18 +8,19 @@ use std::path::PathBuf;
 
 use serde_json::{json, Value};
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct WorkspaceState {
     pub(crate) workspaces: BTreeMap<String, WorkspaceEntry>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct WorkspaceEntry {
     pub(crate) tabs: Vec<PersistedTab>,
     pub(crate) active_tab: Option<String>,
     pub(crate) site_tree_events_open: bool,
     pub(crate) site_tree_courses_open: bool,
     pub(crate) site_tree_query: String,
+    pub(crate) right_panel_width: f32,
 }
 
 impl Default for WorkspaceEntry {
@@ -30,6 +31,7 @@ impl Default for WorkspaceEntry {
             site_tree_events_open: true,
             site_tree_courses_open: true,
             site_tree_query: String::new(),
+            right_panel_width: 288.0,
         }
     }
 }
@@ -87,6 +89,12 @@ pub(crate) fn load() -> WorkspaceState {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string(),
+                right_panel_width: entry
+                    .get("right_panel_width")
+                    .and_then(Value::as_f64)
+                    .map(|width| width as f32)
+                    .unwrap_or(288.0)
+                    .clamp(240.0, 420.0),
             },
         );
     }
@@ -122,6 +130,7 @@ pub(crate) fn save(state: &WorkspaceState) {
                     "site_tree_events_open": entry.site_tree_events_open,
                     "site_tree_courses_open": entry.site_tree_courses_open,
                     "site_tree_query": entry.site_tree_query,
+                    "right_panel_width": entry.right_panel_width,
                 }),
             )
         })
@@ -179,6 +188,7 @@ mod tests {
             site_tree_events_open: false,
             site_tree_courses_open: true,
             site_tree_query: "hitl".to_string(),
+            right_panel_width: 320.0,
         };
         save_entry("ws-1", entry.clone());
         assert_eq!(super::entry("ws-1"), Some(entry));

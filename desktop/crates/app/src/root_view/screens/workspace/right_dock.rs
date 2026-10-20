@@ -60,6 +60,31 @@ pub(in crate::root_view) fn render_right_dock(
                         .text_size(px(12.0))
                         .text_color(palette.ink)
                         .child(title),
+                )
+                .child(div().flex_1())
+                .child(
+                    div()
+                        .id("right-dock-narrow")
+                        .px(px(4.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .text_color(palette.ink_3)
+                        .hover(|style| style.bg(palette.soft))
+                        .child("−")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.resize_right_panel(-24.0, cx);
+                        })),
+                )
+                .child(
+                    div()
+                        .id("right-dock-wide")
+                        .px(px(4.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .text_color(palette.ink_3)
+                        .hover(|style| style.bg(palette.soft))
+                        .child("+")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.resize_right_panel(24.0, cx);
+                        })),
                 ),
         )
         .child(
@@ -186,6 +211,22 @@ fn render_site_tree(
                 cx,
             ));
         }
+        if ctx.events.has_more() {
+            rows.push(
+                div()
+                    .id("site-tree-events-more")
+                    .pl(px(24.0))
+                    .pr(space(1))
+                    .py(px(3.0))
+                    .text_size(px(10.0))
+                    .text_color(palette.accent)
+                    .child("加载更多活动")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.start_events_load(cx, false);
+                    }))
+                    .into_any_element(),
+            );
+        }
     }
     rows.push(tree_section_row(
         "courses",
@@ -205,6 +246,22 @@ fn render_site_tree(
                 palette,
                 cx,
             ));
+        }
+        if ctx.courses.has_more() {
+            rows.push(
+                div()
+                    .id("site-tree-courses-more")
+                    .pl(px(24.0))
+                    .pr(space(1))
+                    .py(px(3.0))
+                    .text_size(px(10.0))
+                    .text_color(palette.accent)
+                    .child("加载更多课程")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.start_courses_load(cx, false);
+                    }))
+                    .into_any_element(),
+            );
         }
     }
     rows.push(tree_section_row(
@@ -325,6 +382,7 @@ fn render_outline(
     }
 
     let outline = build_outline(&content.document);
+    let projection = ctx.projection.projection().cloned();
     let course_id = content.course_id.clone();
     let active_issue = ctx.active_tab.as_deref().and_then(|active| {
         ctx.tabs
@@ -341,6 +399,37 @@ fn render_outline(
             .child(content.title.clone())
             .into_any_element(),
     );
+    if let Some(progress) = projection
+        .as_ref()
+        .and_then(|projection| projection.progress.as_ref())
+    {
+        rows.push(
+            div()
+                .px(space(1))
+                .pb(px(3.0))
+                .text_size(px(10.0))
+                .text_color(palette.ink_3)
+                .child(format!(
+                    "进度 {}/{}",
+                    progress.mastered_required, progress.total_required
+                ))
+                .into_any_element(),
+        );
+    }
+    if let Some(next) = projection
+        .as_ref()
+        .and_then(|projection| projection.next_action.as_ref())
+    {
+        rows.push(
+            div()
+                .px(space(1))
+                .pb(px(3.0))
+                .text_size(px(10.0))
+                .text_color(palette.accent)
+                .child(format!("下一步：{}", next.reason))
+                .into_any_element(),
+        );
+    }
     if outline.is_empty() {
         rows.push(
             div()
