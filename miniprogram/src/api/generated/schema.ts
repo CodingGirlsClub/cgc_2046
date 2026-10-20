@@ -3928,14 +3928,27 @@ export type Order = {
   depositConsentAt?: Maybe<Scalars['DateTime']['output']>;
   depositTermsVersion?: Maybe<Scalars['String']['output']>;
   enrollmentId: Scalars['ID']['output'];
+  /** 报名时间（报名人加入项目的时点） */
+  enrollmentInsertedAt?: Maybe<Scalars['DateTime']['output']>;
   /** 关联报名当前状态 */
   enrollmentStatus?: Maybe<Scalars['String']['output']>;
   /** 关联报名所属 Event（KTD2：订单按活动筛选） */
   eventId?: Maybe<Scalars['ID']['output']>;
   expireAt: Scalars['DateTime']['output'];
   id: Scalars['ID']['output'];
+  insertedAt: Scalars['DateTime']['output'];
   /** 报名人邮箱（管理面识别付款人） */
   learnerEmail?: Maybe<Scalars['String']['output']>;
+  /** 报名人会员编号（由 user id 确定性生成，非敏感） */
+  learnerMemberNumber?: Maybe<Scalars['String']['output']>;
+  /** 报名人展示名（可选附加，非身份锚点） */
+  learnerName?: Maybe<Scalars['String']['output']>;
+  /** 报名人手机号掩码（身份锚点；不含完整号码） */
+  learnerPhoneMasked?: Maybe<Scalars['String']['output']>;
+  /** 订单所属供给物类型（event | course） */
+  offeringKind?: Maybe<Scalars['String']['output']>;
+  /** 订单所属活动/课程现值标题 */
+  offeringTitle?: Maybe<Scalars['String']['output']>;
   orderKind: Scalars['String']['output'];
   outTradeNo: Scalars['String']['output'];
   provider: Scalars['String']['output'];
@@ -4105,6 +4118,7 @@ export type OrderFilterInput = {
   eventId?: InputMaybe<OrderFilterEventId>;
   expireAt?: InputMaybe<OrderFilterExpireAt>;
   id?: InputMaybe<OrderFilterId>;
+  insertedAt?: InputMaybe<OrderFilterInsertedAt>;
   /** 报名人邮箱（管理面识别付款人） */
   learnerEmail?: InputMaybe<OrderFilterLearnerEmail>;
   not?: InputMaybe<Array<OrderFilterInput>>;
@@ -4121,6 +4135,19 @@ export type OrderFilterInput = {
   tierSnapshot?: InputMaybe<OrderFilterTierSnapshot>;
   transactionId?: InputMaybe<OrderFilterTransactionId>;
   workspaceId?: InputMaybe<OrderFilterWorkspaceId>;
+};
+
+export type OrderFilterInsertedAt = {
+  eq?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  in?: InputMaybe<Array<Scalars['DateTime']['input']>>;
+  isDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThan?: InputMaybe<Scalars['DateTime']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['DateTime']['input']>;
+  notEq?: InputMaybe<Scalars['DateTime']['input']>;
 };
 
 export type OrderFilterLearnerEmail = {
@@ -4302,6 +4329,7 @@ export type OrderSortField =
   | 'EVENT_ID'
   | 'EXPIRE_AT'
   | 'ID'
+  | 'INSERTED_AT'
   | 'LEARNER_EMAIL'
   | 'ORDER_KIND'
   | 'OUT_TRADE_NO'

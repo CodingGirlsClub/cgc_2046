@@ -13,7 +13,7 @@
  *   面门控 + 后端 policy 兜底（双保险）。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { client } from "@/lib/apollo-client";
 import { WORKSPACE_PAYMENT_STATS } from "@/lib/graphql/orders";
@@ -130,30 +130,28 @@ export default function PaymentsManagement({
 
 	// 统计口径跟随活动/课程筛选（stats query 自带 eventId/courseId）；
 	// 「全部活动与课程」时保持工作区全量口径
-	const statsVariables = useMemo(
-		() => ({
-			workspaceId,
-			...(selectedOffering?.kind === "event" ? { eventId: selectedOffering.id } : {}),
-			...(selectedOffering?.kind === "course" ? { courseId: selectedOffering.id } : {}),
-		}),
-		[workspaceId, selectedOffering?.id, selectedOffering?.kind],
-	);
-
 	const loadStats = useCallback(async () => {
 		if (!workspaceId) return;
+
+		const selected = offerings.find((o) => o.id === offeringFilter);
+		const variables = {
+			workspaceId,
+			...(selected?.kind === "event" ? { eventId: selected.id } : {}),
+			...(selected?.kind === "course" ? { courseId: selected.id } : {}),
+		};
 
 		setStatsError(false);
 		try {
 			const { data } = await client.query({
 				query: WORKSPACE_PAYMENT_STATS,
-				variables: statsVariables,
+				variables,
 			});
 			setStats(parsePaymentStats(data?.workspacePaymentStats));
 		} catch {
 			setStats(null);
 			setStatsError(true);
 		}
-	}, [workspaceId, statsVariables]);
+	}, [workspaceId, offeringFilter, offerings]);
 
 	// 默认口径与活动详情面板一致：非终态 + 已退款 + 已没收；
 	// "all" 是显式的全部状态（含 cancelled/expired）
@@ -192,9 +190,10 @@ export default function PaymentsManagement({
 		});
 	}, [workspaceId]);
 
-	// 统计跟随筛选：选中活动/课程即换口径（loadStats 的依赖已含筛选）
+	// 统计跟随筛选：选中活动/课程即换口径（loadStats 的依赖已含筛选）；
+	// microtask 包裹避开 effect 内同步 setState
 	useEffect(() => {
-		void loadStats();
+		Promise.resolve().then(() => void loadStats());
 	}, [loadStats]);
 
 	const eventOfferings = offerings.filter((o) => o.kind === "event");

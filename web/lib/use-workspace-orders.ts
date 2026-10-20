@@ -142,7 +142,9 @@ export function useWorkspaceOrders({
 	}, [workspaceId, buildFilter, endKeyset, loadingMore]);
 
 	useEffect(() => {
-		void load();
+		// microtask 包裹避开 effect 内同步 setState（react-hooks/set-state-in-effect），
+		// 同 mine-view / capsule-view 先例
+		Promise.resolve().then(() => void load());
 	}, [load]);
 
 	return { orders, loadState, hasMore, loadingMore, reload: load, loadMore };

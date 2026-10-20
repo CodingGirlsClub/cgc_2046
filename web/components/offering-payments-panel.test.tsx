@@ -50,6 +50,13 @@ function statsPayload(collected: number, pending: number, refunded: number, refu
 }
 
 /** 第 index 次 client.mutate 调用的 mutation 文档名（区分两段：RetryRefund vs ConfirmOperation） */
+/** 按文档名区分查询（首拉顺序不保证：orders / stats 都在微任务里提交） */
+type QueryCall = { query: { definitions: Array<{ name?: { value: string } }> } };
+
+function queryName(opts: QueryCall): string | undefined {
+	return opts.query.definitions[0]?.name?.value;
+}
+
 function mutationName(index: number): string | undefined {
 	const args = client.mutate.mock.calls[index][0] as {
 		mutation: { definitions: Array<{ name?: { value: string } }> };
@@ -92,9 +99,11 @@ describe("OfferingPaymentsPanel 活动经营面（U7，R5-R7，AE6）", () => {
 	});
 
 	it("取数带 offering 筛选：订单查询带 eventId，stats 带 eventId", async () => {
-		client.query
-			.mockReturnValueOnce(ordersPayload([{ ...baseOrder }]))
-			.mockReturnValueOnce(statsPayload(19900, 0, 0));
+		client.query.mockImplementation((opts: QueryCall) =>
+			queryName(opts) === "WorkspacePaymentStats"
+				? statsPayload(19900, 0, 0)
+				: ordersPayload([{ ...baseOrder }]),
+		);
 
 		render(
 			<OfferingPaymentsPanel
@@ -106,9 +115,17 @@ describe("OfferingPaymentsPanel 活动经营面（U7，R5-R7，AE6）", () => {
 			/>,
 		);
 
-		// 初拉顺序：load(orders) → loadStats（面板 useEffect 内固定顺序）；
-		// 默认视图 = 非终态 + 已退款（R6，终态经状态筛选可见）
-		expect(client.query.mock.calls[0][0].variables).toEqual({
+		// 首拉与 stats 都在 effect 内经微任务提交，按文档名取调用，不依赖先后
+		await waitFor(() => expect(client.query).toHaveBeenCalledTimes(2));
+
+		const ordersCall = client.query.mock.calls.find(
+			(c) => queryName(c[0] as QueryCall) === "WorkspaceOrders",
+		)!;
+		const statsCall = client.query.mock.calls.find(
+			(c) => queryName(c[0] as QueryCall) === "WorkspacePaymentStats",
+		)!;
+
+		expect(ordersCall[0].variables).toEqual({
 			workspaceId: "ws-1",
 			filter: {
 				eventId: { eq: "ev-1" },
@@ -120,7 +137,7 @@ describe("OfferingPaymentsPanel 活动经营面（U7，R5-R7，AE6）", () => {
 			first: 20,
 		});
 
-		expect(client.query.mock.calls[1][0].variables).toEqual({
+		expect(statsCall[0].variables).toEqual({
 			workspaceId: "ws-1",
 			eventId: "ev-1",
 		});
@@ -133,28 +150,35 @@ describe("OfferingPaymentsPanel 活动经营面（U7，R5-R7，AE6）", () => {
 		}));
 		const page2 = [{ ...baseOrder, id: "p2-0" }];
 
-		client.query
-			.mockImplementationOnce(() => ({
-				data: {
-					workspaceOrders: {
-						results: page1,
-						count: 21,
-						startKeyset: "ks-0",
-						endKeyset: "ks-19",
-					},
-				},
-			}))
-			.mockImplementationOnce(() => statsPayload(0, 0, 0))
-			.mockImplementationOnce(() => ({
-				data: {
-					workspaceOrders: {
-						results: page2,
-						count: 21,
-						startKeyset: "ks-19",
-						endKeyset: "ks-20",
-					},
-				},
-			}));
+		let ordersCalls = 0;
+
+		client.query.mockImplementation((opts: QueryCall) => {
+			if (queryName(opts) === "WorkspacePaymentStats") return statsPayload(0, 0, 0);
+
+			ordersCalls += 1;
+
+			return ordersCalls === 1
+				? {
+						data: {
+							workspaceOrders: {
+								results: page1,
+								count: 21,
+								startKeyset: "ks-0",
+								endKeyset: "ks-19",
+							},
+						},
+					}
+				: {
+						data: {
+							workspaceOrders: {
+								results: page2,
+								count: 21,
+								startKeyset: "ks-19",
+								endKeyset: "ks-20",
+							},
+						},
+					};
+		});
 
 		render(
 			<OfferingPaymentsPanel
@@ -173,7 +197,10 @@ describe("OfferingPaymentsPanel 活动经营面（U7，R5-R7，AE6）", () => {
 		fireEvent.click(loadMore);
 
 		await screen.findByTestId("order-row-p2-0");
-		expect(client.query.mock.calls[2][0].variables).toMatchObject({
+		const orderQueries = client.query.mock.calls.filter(
+			(c) => queryName(c[0] as QueryCall) === "WorkspaceOrders",
+		);
+		expect(orderQueries.at(-1)![0].variables).toMatchObject({
 			after: "ks-19",
 			first: 20,
 		});
@@ -183,11 +210,19 @@ describe("OfferingPaymentsPanel 活动经营面（U7，R5-R7，AE6）", () => {
 
 	it("R7：refund_failed 行重试两段确认——首调建 pending 透传摘要，确认后 confirmOperation 并刷新", async () => {
 		const failed = { ...baseOrder, id: "o-failed", status: "refund_failed" };
-		client.query
-			.mockReturnValueOnce(ordersPayload([failed]))
-			.mockReturnValueOnce(statsPayload(0, 0, 0, 19900))
-			.mockReturnValueOnce(ordersPayload([{ ...failed, status: "refunding" }]))
-			.mockReturnValueOnce(statsPayload(0, 0, 0, 0));
+		let ordersCalls = 0;
+
+		client.query.mockImplementation((opts: QueryCall) => {
+			if (queryName(opts) === "WorkspacePaymentStats") {
+				return statsPayload(0, 0, 0, ordersCalls === 0 ? 19900 : 0);
+			}
+
+			ordersCalls += 1;
+
+			return ordersCalls === 1
+				? ordersPayload([failed])
+				: ordersPayload([{ ...failed, status: "refunding" }]);
+		});
 		client.mutate
 			.mockResolvedValueOnce({
 				data: {
@@ -232,11 +267,19 @@ describe("OfferingPaymentsPanel 活动经营面（U7，R5-R7，AE6）", () => {
 	});
 
 	it("R7：paid 行退款同款两段——offering-refund 建 pending，op-confirm 执行并刷新", async () => {
-		client.query
-			.mockReturnValueOnce(ordersPayload([{ ...baseOrder }]))
-			.mockReturnValueOnce(statsPayload(19900, 0, 0))
-			.mockReturnValueOnce(ordersPayload([{ ...baseOrder, status: "refunding" }]))
-			.mockReturnValueOnce(statsPayload(0, 0, 19900));
+		let ordersCalls = 0;
+
+		client.query.mockImplementation((opts: QueryCall) => {
+			if (queryName(opts) === "WorkspacePaymentStats") {
+				return statsPayload(ordersCalls === 0 ? 19900 : 0, 0, ordersCalls === 0 ? 0 : 19900);
+			}
+
+			ordersCalls += 1;
+
+			return ordersCalls === 1
+				? ordersPayload([{ ...baseOrder }])
+				: ordersPayload([{ ...baseOrder, status: "refunding" }]);
+		});
 		client.mutate
 			.mockResolvedValueOnce({
 				data: {
@@ -276,9 +319,11 @@ describe("OfferingPaymentsPanel 活动经营面（U7，R5-R7，AE6）", () => {
 
 	it("AE4/F13：免费活动无订单 → 一行免费状态；有已付历史 → 完整面板可退款", async () => {
 		// 无订单：收敛一行免费态
-		client.query
-			.mockResolvedValueOnce(ordersPayload([]))
-			.mockResolvedValueOnce(statsPayload(0, 0, 0));
+		client.query.mockImplementation((opts: QueryCall) =>
+			queryName(opts) === "WorkspacePaymentStats"
+				? statsPayload(0, 0, 0)
+				: ordersPayload([]),
+		);
 
 		render(
 			<OfferingPaymentsPanel
@@ -295,10 +340,11 @@ describe("OfferingPaymentsPanel 活动经营面（U7，R5-R7，AE6）", () => {
 		// 押金场（pricingEnabled=false 但属收款面）→ 不得收敛为免费态：
 		// 否则组织者在自己刚配好的押金场上看不到订单/统计（grok P1）
 		cleanup();
-		client.query
-			.mockReset()
-			.mockResolvedValueOnce(ordersPayload([]))
-			.mockResolvedValueOnce(statsPayload(0, 0, 0));
+		client.query.mockReset().mockImplementation((opts: QueryCall) =>
+			queryName(opts) === "WorkspacePaymentStats"
+				? statsPayload(0, 0, 0)
+				: ordersPayload([]),
+		);
 
 		render(
 			<OfferingPaymentsPanel
@@ -317,19 +363,21 @@ describe("OfferingPaymentsPanel 活动经营面（U7，R5-R7，AE6）", () => {
 
 	it("押金 no-show 没收在统计里可见（forfeited 桶单列，不从「已收」消失）", async () => {
 		vi.clearAllMocks();
-		client.query
-			.mockResolvedValueOnce(ordersPayload([]))
-			.mockResolvedValueOnce({
-				data: {
-					workspacePaymentStats: JSON.stringify({
-						collected_cents: 0,
-						pending_cents: 0,
-						refunded_cents: 0,
-						refund_failed_cents: 0,
-						forfeited_cents: 6900,
-					}),
-				},
-			});
+		client.query.mockImplementation((opts: QueryCall) =>
+			queryName(opts) === "WorkspacePaymentStats"
+				? {
+						data: {
+							workspacePaymentStats: JSON.stringify({
+								collected_cents: 0,
+								pending_cents: 0,
+								refunded_cents: 0,
+								refund_failed_cents: 0,
+								forfeited_cents: 6900,
+							}),
+						},
+					}
+				: ordersPayload([]),
+		);
 
 		render(
 			<OfferingPaymentsPanel
@@ -348,10 +396,11 @@ describe("OfferingPaymentsPanel 活动经营面（U7，R5-R7，AE6）", () => {
 
 		// F13：免费态但有已付订单（关闭收费故意保留）→ 完整面板（退款可操作）
 		cleanup();
-		client.query
-			.mockReset()
-			.mockResolvedValueOnce(ordersPayload([{ ...baseOrder }]))
-			.mockResolvedValueOnce(statsPayload(19900, 0, 0));
+		client.query.mockReset().mockImplementation((opts: QueryCall) =>
+			queryName(opts) === "WorkspacePaymentStats"
+				? statsPayload(19900, 0, 0)
+				: ordersPayload([{ ...baseOrder }]),
+		);
 
 		render(
 			<OfferingPaymentsPanel
@@ -368,10 +417,11 @@ describe("OfferingPaymentsPanel 活动经营面（U7，R5-R7，AE6）", () => {
 	});
 
 	it("状态筛选「全部状态」清掉默认集（终态可见）", async () => {
-		client.query
-			.mockReturnValueOnce(ordersPayload([]))
-			.mockReturnValueOnce(statsPayload(0, 0, 0))
-			.mockReturnValueOnce(ordersPayload([]));
+		client.query.mockImplementation((opts: QueryCall) =>
+			queryName(opts) === "WorkspacePaymentStats"
+				? statsPayload(0, 0, 0)
+				: ordersPayload([]),
+		);
 
 		render(
 			<OfferingPaymentsPanel
