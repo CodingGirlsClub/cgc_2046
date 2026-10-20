@@ -1,8 +1,8 @@
 // capabilities.test.ts — ACP initialize 能力协商：协议版本 / session load / session list / HTTP MCP。
 // 缺字段按「支持」处理（旧适配器兼容）；显式 false / 显式缺 list 才降级。
 import { afterEach, describe, expect, test } from "bun:test";
-import { loadState, saveState, workDir } from "../src/state";
-import { chatPage, cleanup, COURSE, fakeAgent, tempHome, USER_A } from "./helpers";
+import { loadState, ownerHash, saveState, workDir } from "../src/state";
+import { chatPage, cleanup, COURSE, fakeAgent, tempHome, USER_A, USER_B } from "./helpers";
 
 afterEach(cleanup);
 
@@ -83,6 +83,30 @@ describe("缺能力字段（旧适配器兼容）", () => {
     expect(history.method).toBe("history");
     expect(JSON.stringify(history.params.events)).toContain("旧对话");
     expect(fake.calledWith("session/load")).toHaveLength(1);
+  });
+});
+
+describe("换账号后的历史列表", () => {
+  test("current 不回别人的指针（Codex review P2）", async () => {
+    const fake = fakeAgent();
+    fake.capabilities = { mcpCapabilities: { http: false } }; // attach 在清指针之前失败，旧指针留在原地
+    const home = tempHome();
+    saveState(home, {
+      pairing: null,
+      sessions: { [COURSE]: { omp: "old-session" } },
+      agents: {},
+      sessionOwners: { "omp:old-session": ownerHash(USER_B) },
+    });
+    const { page } = await chatPage(fake, { home });
+    expect(await page.call("chat.attach", { courseId: COURSE, agent: "omp" })).toMatchObject({
+      method: "error",
+      params: { code: "chat_unavailable" },
+    });
+    // B 的 attach 没走到「清掉别人的指针」那步：列表行被过滤时，current 也不能泄露 A 的 sessionId
+    expect(await page.call("chat.sessions", { courseId: COURSE })).toMatchObject({
+      method: "sessions",
+      params: { sessions: [], current: null },
+    });
   });
 });
 

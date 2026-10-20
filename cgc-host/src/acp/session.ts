@@ -114,6 +114,11 @@ export function createChat(opts: ChatOptions) {
     const owner = ctx.owners[ownerKey(kind, sessionId)];
     return owner !== undefined && owner !== ownerHash(ctx.userId);
   };
+  /** 会话列表的 current：指针属于别的账号时不回（行已过滤，current 也不能泄露） */
+  const currentPointer = (ctx: ChatContext, c: Course) => {
+    const pointer = ctx.sessions[c.id]?.[c.agent] ?? null;
+    return pointer && !foreignSession(ctx, c.agent, pointer) ? pointer : null;
+  };
   const claimSession = (ctx: ChatContext, kind: AgentKind, sessionId: string) => {
     ctx.owners[ownerKey(kind, sessionId)] = ownerHash(ctx.userId);
   };
@@ -139,6 +144,10 @@ export function createChat(opts: ChatOptions) {
             return;
           }
           const c = bySession.get(key);
+          // 被看门狗强制收尾、旧 prompt 还在跑：它之后的更新一律丢弃（设置变更也一样）。
+          // 必须放在所有特例之前：config_option_update 会直接改 c.settings 并推 chat.settings，
+          // 晚到的设置变更同样属于「结束之后的内容」。staging 分支在其上方，session/load 回放不受影响。
+          if (c?.abandonedPrompt) return;
           // agent 改了会话设置（config_option_update）：转成 chat.settings 推给持有者，不落进对话缓冲
           if (c && update.sessionUpdate === "config_option_update") {
             c.settings = pickSettings(update.configOptions);
@@ -602,7 +611,7 @@ export function createChat(opts: ChatOptions) {
         });
         if (gated) {
           console.error(`cgc-host: ${c.agent} 不支持 session/list，返回空历史列表`);
-          return reply("sessions", { sessions: [], current: ctx.sessions[c.id]?.[c.agent] ?? null, nextCursor: null });
+          return reply("sessions", { sessions: [], current: currentPointer(ctx, c), nextCursor: null });
         }
         const sessions = [];
         for (const s of page.sessions ?? []) {
@@ -620,7 +629,7 @@ export function createChat(opts: ChatOptions) {
             messageCount: (s as { _meta?: { messageCount?: number } })._meta?.messageCount ?? null,
           });
         }
-        reply("sessions", { sessions, current: ctx.sessions[c.id]?.[c.agent] ?? null, nextCursor: page.nextCursor ?? null });
+        reply("sessions", { sessions, current: currentPointer(ctx, c), nextCursor: page.nextCursor ?? null });
       } catch (e) {
         console.error(`cgc-host: 读取历史对话列表失败：${message(e)}`);
         return isAuthRequired(e) ? failAuth() : fail("chat_unavailable");

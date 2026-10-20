@@ -510,6 +510,35 @@ test("准备阶段 stop：不提前本地收尾，先回 user 事件再以 cance
   await endedWithin(page, 2000);
 });
 
+test("强制收尾后 agent 继续推的更新不进历史（Codex review P2）", async () => {
+  const fake = fakeAgent();
+  const { page } = await chatPage(fake, { turnTimeoutMs: 60 });
+  const changed = structuredClone(fake.configOptions).map((o) => (o.id === "model" ? { ...o, currentValue: "beta/two" } : o));
+  fake.script = async (t) => {
+    await t.emit({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "正常内容" } });
+    // 看门狗本地收尾之后才到的更新：消息与设置变更都不能再进缓冲/推给页面
+    setTimeout(() => {
+      void t.emit({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "迟到内容" } });
+      void t.emit({ sessionUpdate: "config_option_update", configOptions: changed });
+    }, 150);
+    return new Promise<PromptResponse>(() => {});
+  };
+  await attach(page);
+  await send(page, "一");
+  expect(await endedWithin(page, 2000)).toMatchObject({ params: { stopReason: "error" } });
+  await Bun.sleep(300);
+
+  const history = await attach(page);
+  const events = history.params.events as { kind: string; text?: string }[];
+  expect(events.some((e) => (e.text ?? "").includes("正常内容"))).toBe(true);
+  expect(events.some((e) => (e.text ?? "").includes("迟到内容"))).toBe(false);
+  expect(events.at(-1)?.kind).toBe("end");
+  // 晚到的设置变更同样不能生效：不推 chat.settings，history 里的模型仍是原值
+  expect(page.inbox.filter((m) => m.method === "chat.settings")).toEqual([]);
+  const model = (history.params.settings as { id: string; currentValue: string }[]).find((x) => x.id === "model");
+  expect(model?.currentValue).toBe("alpha/one");
+});
+
 test("看门狗默认值与 AGENTS 契约一致（15 秒取消应答 / 30 分钟单轮上限）", () => {
   expect(CANCEL_ACK_TIMEOUT_MS).toBe(15_000);
   expect(TURN_TIMEOUT_MS).toBe(30 * 60_000);
