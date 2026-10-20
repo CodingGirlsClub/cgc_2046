@@ -144,15 +144,16 @@ export function createChat(opts: ChatOptions) {
             return;
           }
           const c = bySession.get(key);
+          // 被看门狗强制收尾、旧 prompt 还在跑：它之后的更新一律丢弃（设置变更也一样）。
+          // 必须放在所有特例之前：config_option_update 会直接改 c.settings 并推 chat.settings，
+          // 晚到的设置变更同样属于「结束之后的内容」。staging 分支在其上方，session/load 回放不受影响。
+          if (c?.abandonedPrompt) return;
           // agent 改了会话设置（config_option_update）：转成 chat.settings 推给持有者，不落进对话缓冲
           if (c && update.sessionUpdate === "config_option_update") {
             c.settings = pickSettings(update.configOptions);
             publishSettings(c);
             return;
           }
-          // 被看门狗强制收尾、旧 prompt 还在跑：它之后的更新一律丢弃。
-          // 不能先 apply 再判回合——apply 会改缓冲，attach 重放时就会出现「end 之后还有内容」。
-          if (c?.abandonedPrompt) return;
           const event = c?.transcript.apply(update);
           if (!c || !event) return;
           if (event.kind === "usage") lastUsageBySession.set(key, event); // 记下来：进程回收后的真实回放不含 usage
