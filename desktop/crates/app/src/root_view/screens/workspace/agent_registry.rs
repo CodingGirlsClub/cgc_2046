@@ -14,6 +14,7 @@ pub(in crate::root_view) fn render_agent_registry(
     let error = ctx.agent_registry_error.clone();
     let installing = ctx.agent_installing.clone();
     let install_error = ctx.agent_install_error.clone();
+    let install_stage = ctx.agent_install_stage.clone();
     let query = ctx.agent_registry_query.clone();
     let filter = ctx.agent_registry_filter;
     let search_focused = ctx.agent_registry_search_focused;
@@ -159,6 +160,17 @@ pub(in crate::root_view) fn render_agent_registry(
                             .text_color(palette.ink_3)
                             .child(entry.login_hint.clone()),
                     )
+                    .children(if is_installing {
+                        install_stage.clone().map(|stage| {
+                            div()
+                                .text_size(px(10.0))
+                                .text_color(palette.accent)
+                                .child(stage)
+                                .into_any_element()
+                        })
+                    } else {
+                        None
+                    })
                     .children(
                         (!is_npx && !matches!(row.status, AgentStatus::Ready { .. })).then(|| {
                             div()

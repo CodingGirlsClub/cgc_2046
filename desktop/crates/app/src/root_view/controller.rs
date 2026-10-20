@@ -2010,6 +2010,7 @@ impl RootView {
             return;
         };
         self.agent_installing = Some(id.to_string());
+        self.agent_install_stage = Some("准备运行环境".to_string());
         self.agent_install_error = None;
         let is_npx = matches!(
             entry.distribution,
@@ -2030,6 +2031,7 @@ impl RootView {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
                 this.agent_installing = None;
+                this.agent_install_stage = None;
                 match result {
                     Ok(_) => {
                         this.agent_install_error = None;
