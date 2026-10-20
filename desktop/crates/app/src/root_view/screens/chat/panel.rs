@@ -543,8 +543,20 @@ pub(in crate::root_view) fn render_chat_panel(
             )
             .into_any_element()
     });
+    let installed_agents = ctx
+        .agent_registry_rows
+        .iter()
+        .filter(|row| matches!(row.status, AgentStatus::Ready { .. }))
+        .map(|row| row.entry.id.clone())
+        .collect::<Vec<_>>();
     let agent_options = Registry::builtin()
-        .map(|registry| registry.agents)
+        .map(|registry| {
+            registry
+                .agents
+                .into_iter()
+                .filter(|entry| installed_agents.is_empty() || installed_agents.contains(&entry.id))
+                .collect::<Vec<_>>()
+        })
         .unwrap_or_default();
     let agent_menu = ctx.chat.agent_menu_open.then(|| {
         let rows = agent_options
@@ -572,6 +584,21 @@ pub(in crate::root_view) fn render_chat_panel(
                     .into_any_element()
             })
             .collect::<Vec<_>>();
+        let mut rows = rows;
+        rows.push(
+            div()
+                .id("chat-agent-add-more")
+                .px(space(1))
+                .py(px(3.0))
+                .rounded(px(RADIUS_SMALL))
+                .text_color(palette.accent)
+                .hover(|style| style.bg(palette.soft))
+                .child("Add More Agents")
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.open_agent_registry(cx);
+                }))
+                .into_any_element(),
+        );
         div()
             .id("chat-agent-menu")
             .flex()

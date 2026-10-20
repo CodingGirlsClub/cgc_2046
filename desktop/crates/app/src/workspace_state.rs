@@ -19,6 +19,7 @@ pub(crate) struct WorkspaceEntry {
     pub(crate) active_tab: Option<String>,
     pub(crate) site_tree_events_open: bool,
     pub(crate) site_tree_courses_open: bool,
+    pub(crate) site_tree_query: String,
 }
 
 impl Default for WorkspaceEntry {
@@ -28,6 +29,7 @@ impl Default for WorkspaceEntry {
             active_tab: None,
             site_tree_events_open: true,
             site_tree_courses_open: true,
+            site_tree_query: String::new(),
         }
     }
 }
@@ -80,6 +82,11 @@ pub(crate) fn load() -> WorkspaceState {
                     .get("site_tree_courses_open")
                     .and_then(Value::as_bool)
                     .unwrap_or(true),
+                site_tree_query: entry
+                    .get("site_tree_query")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
             },
         );
     }
@@ -114,6 +121,7 @@ pub(crate) fn save(state: &WorkspaceState) {
                     "active_tab": entry.active_tab,
                     "site_tree_events_open": entry.site_tree_events_open,
                     "site_tree_courses_open": entry.site_tree_courses_open,
+                    "site_tree_query": entry.site_tree_query,
                 }),
             )
         })
@@ -170,6 +178,7 @@ mod tests {
             active_tab: Some("page:/courses".to_string()),
             site_tree_events_open: false,
             site_tree_courses_open: true,
+            site_tree_query: "hitl".to_string(),
         };
         save_entry("ws-1", entry.clone());
         assert_eq!(super::entry("ws-1"), Some(entry));

@@ -17,6 +17,13 @@ pub const SETTINGS: Route = Route::new_secondary(
     NavIcon::Home,
 );
 
+pub const AGENT_REGISTRY: Route = Route::new(
+    "app.agents",
+    "/agents",
+    "agent.registry.title",
+    NavIcon::Workspace,
+);
+
 /// 所有 domain crate 的路由集合；新增 feature 时在这里加一行。
 pub fn domain_route_sets() -> Vec<(&'static str, &'static [Route])> {
     vec![
@@ -67,6 +74,9 @@ pub(crate) fn build_registry_with(
         .map_err(RegistrationError::DuplicateRoute)?;
     registry
         .register(SETTINGS)
+        .map_err(RegistrationError::DuplicateRoute)?;
+    registry
+        .register(AGENT_REGISTRY)
         .map_err(RegistrationError::DuplicateRoute)?;
     for (_, routes) in sets {
         for route in *routes {

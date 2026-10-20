@@ -221,3 +221,11 @@ account.workspace.overview
 workspace.site_tree.title
 workspace.outline.title
 courses.learning.ungrouped
+agent.registry.title
+agent.registry.subtitle
+agent.registry.install
+agent.registry.installed
+agent.registry.loading
+agent.registry.error
+agent.registry.retry
+agent.registry.native_hint

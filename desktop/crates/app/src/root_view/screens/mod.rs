@@ -23,6 +23,7 @@ mod settings;
 mod workspace_overview;
 
 mod workspace;
+pub(in crate::root_view) use workspace::agent_registry::render_agent_registry;
 pub(in crate::root_view) use workspace::card::render_issue_card;
 pub(in crate::root_view) use workspace::pane::render_pane_tabs;
 pub(in crate::root_view) use workspace::right_dock::render_right_dock;

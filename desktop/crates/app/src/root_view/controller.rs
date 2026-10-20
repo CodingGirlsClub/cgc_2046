@@ -1,4 +1,5 @@
 use super::*;
+use cgc_platform::registry::install::{install_entry, SystemRunner};
 use state::{PaneTab, SiteTreeSection};
 
 impl RootView {
@@ -50,6 +51,7 @@ impl RootView {
     /// 按路径导航（动态路由在此完成参数解析）。
     pub fn navigate(&mut self, path: &str) {
         self.breadcrumb_menu = None;
+        self.site_tree_search_focused = false;
         if let crate::routing::RouteSelection::Match(route_match) = self.registry.select(path) {
             let is_learning = route_match.route.id == "courses.learning";
             self.current = Some(route_match);
@@ -1102,6 +1104,7 @@ impl RootView {
 
     fn open_tab(&mut self, tab: PaneTab, cx: &mut Context<Self>) {
         self.state.open_tab(tab.clone());
+        self.site_tree_search_focused = false;
         self.chat.context_dismissed = false;
         self.navigate(&tab.path);
         self.persist_current_workspace_state();
@@ -1113,6 +1116,7 @@ impl RootView {
             return;
         };
         self.active_tab = Some(tab.id.clone());
+        self.site_tree_search_focused = false;
         self.chat.context_dismissed = false;
         self.navigate(&tab.path);
         self.persist_current_workspace_state();
@@ -1172,6 +1176,7 @@ impl RootView {
             active_tab: self.active_tab.clone(),
             site_tree_events_open: self.site_tree_events_open,
             site_tree_courses_open: self.site_tree_courses_open,
+            site_tree_query: self.site_tree_query.clone(),
         };
         crate::workspace_state::save_entry(workspace_id, entry);
     }
@@ -1185,6 +1190,7 @@ impl RootView {
         };
         self.site_tree_events_open = entry.site_tree_events_open;
         self.site_tree_courses_open = entry.site_tree_courses_open;
+        self.site_tree_query = entry.site_tree_query;
         self.tabs = entry
             .tabs
             .into_iter()
@@ -1290,6 +1296,27 @@ impl RootView {
                 RightPanel::SiteTree
             };
             self.toggle_right_panel(panel, cx);
+            return;
+        }
+        if self.site_tree_search_focused
+            && self.right_panel_open
+            && self.right_panel == RightPanel::SiteTree
+        {
+            match event.keystroke.key.as_str() {
+                "escape" => self.site_tree_search_focused = false,
+                "enter" => self.site_tree_search_focused = false,
+                "backspace" => {
+                    self.site_tree_query.pop();
+                }
+                _ => {
+                    if let Some(text) = event.keystroke.key_char.as_deref() {
+                        if !event.keystroke.modifiers.modified() && !text.is_empty() {
+                            self.site_tree_query.push_str(text);
+                        }
+                    }
+                }
+            }
+            cx.notify();
             return;
         }
         if Self::is_settings_shortcut(&event.keystroke) {
@@ -1790,6 +1817,87 @@ impl RootView {
         self.start_events_load(cx, true);
     }
 
+    pub(in crate::root_view) fn open_agent_registry(&mut self, cx: &mut Context<Self>) {
+        let title = translate(self.language, Key::AgentRegistryTitle).to_string();
+        self.open_page_tab("/agents", title, cx);
+        if !self.agent_registry_started {
+            self.start_agent_registry_load(cx);
+        }
+    }
+
+    pub(in crate::root_view) fn start_agent_registry_load(&mut self, cx: &mut Context<Self>) {
+        if self.agent_registry_loading {
+            return;
+        }
+        self.agent_registry_started = true;
+        self.agent_registry_loading = true;
+        self.agent_registry_error = None;
+        let task = cx.background_executor().spawn(async move {
+            let registry = Registry::builtin().map_err(|error| error.diagnostic())?;
+            let probe = SystemProbe;
+            Ok::<_, String>(detect_all(&registry, &probe))
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.agent_registry_loading = false;
+                match result {
+                    Ok(rows) => this.agent_registry_rows = rows,
+                    Err(error) => this.agent_registry_error = Some(error),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub(in crate::root_view) fn install_agent(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.agent_installing.as_deref() == Some(id) {
+            return;
+        }
+        let Some(entry) = self
+            .agent_registry_rows
+            .iter()
+            .find(|row| row.entry.id == id)
+            .map(|row| row.entry.clone())
+        else {
+            return;
+        };
+        self.agent_installing = Some(id.to_string());
+        self.agent_install_error = None;
+        let is_npx = matches!(
+            entry.distribution,
+            cgc_platform::registry::manifest::Distribution::Npx { .. }
+        );
+        let task = cx.background_executor().spawn(async move {
+            let manager = NodeRuntimeManager::default_manager();
+            let mut node = manager.installed_runtime();
+            if node.is_none() && is_npx {
+                manager
+                    .install(&HttpDownloader)
+                    .map_err(|error| error.to_string())?;
+                node = manager.installed_runtime();
+            }
+            install_entry(&entry, node.as_ref(), &SystemRunner).map_err(|error| error.to_string())
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.agent_installing = None;
+                match result {
+                    Ok(_) => {
+                        this.agent_install_error = None;
+                        this.agent_registry_started = false;
+                        this.start_agent_registry_load(cx);
+                    }
+                    Err(error) => this.agent_install_error = Some(error.to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     pub(in crate::root_view) fn toggle_chat_agent_menu(&mut self, cx: &mut Context<Self>) {
         self.chat.agent_menu_open = !self.chat.agent_menu_open;
         cx.notify();
@@ -1801,6 +1909,7 @@ impl RootView {
         display_name: String,
         cx: &mut Context<Self>,
     ) {
+        self.site_tree_search_focused = false;
         self.chat.selected_agent = Some(id);
         self.chat.agent = display_name;
         self.chat.agent_menu_open = false;

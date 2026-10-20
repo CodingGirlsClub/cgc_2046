@@ -36,7 +36,7 @@ use cgc_events::orders::{is_terminal_status, parse_rfc3339_epoch, qr_code_url, O
 use cgc_platform::acp::connection::{
     AcpHost, AcpHostConfig, ConfigOptionView, HostEvent, SessionSummary,
 };
-use cgc_platform::agent::detect::{detect_all, AgentStatus, SystemProbe};
+use cgc_platform::agent::detect::{detect_all, AgentStatus, DetectedAgent, SystemProbe};
 use cgc_platform::agent::launch::{build_launch, LaunchPlan, NodeRuntime};
 use cgc_platform::agent::node_runtime::{HttpDownloader, NodeRuntimeManager};
 use cgc_platform::events::{AppEvent, EventPublisher, MemoryEventBus};
@@ -286,6 +286,15 @@ impl Render for RootView {
         let language = self.language;
         let account_menu = self.account_menu_open;
         let is_signed_in = self.is_signed_in();
+        if is_signed_in
+            && self
+                .current
+                .as_ref()
+                .is_some_and(|route_match| route_match.route.id == "app.agents")
+            && !self.agent_registry_started
+        {
+            self.start_agent_registry_load(cx);
+        }
         let email = self
             .session
             .signed_in()
@@ -656,6 +665,16 @@ impl Render for RootView {
                                                         }
                                                         Some("app.settings") => {
                                                             screens::render_settings(
+                                                                &mut screens::ScreenContext::new(
+                                                                    &mut self.state,
+                                                                ),
+                                                                language,
+                                                                &palette,
+                                                                cx,
+                                                            )
+                                                        }
+                                                        Some("app.agents") => {
+                                                            screens::render_agent_registry(
                                                                 &mut screens::ScreenContext::new(
                                                                     &mut self.state,
                                                                 ),

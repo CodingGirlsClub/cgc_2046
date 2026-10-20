@@ -89,10 +89,15 @@ fn render_site_tree(
         .unwrap_or_else(|| "Workspace".to_string());
     let events_open = ctx.site_tree_events_open;
     let courses_open = ctx.site_tree_courses_open;
+    let query = ctx.site_tree_query.clone();
+    let matches = |title: &str| {
+        query.trim().is_empty() || title.to_lowercase().contains(&query.trim().to_lowercase())
+    };
     let events = ctx
         .events
         .items()
         .iter()
+        .filter(|event| matches(&event.title))
         .take(20)
         .map(|event| (event.id.clone(), event.title.clone()))
         .collect::<Vec<_>>();
@@ -100,9 +105,12 @@ fn render_site_tree(
         .courses
         .items()
         .iter()
+        .filter(|course| matches(&course.title))
         .take(20)
         .map(|course| (course.id.clone(), course.title.clone()))
         .collect::<Vec<_>>();
+    let show_events = events_open || !query.trim().is_empty();
+    let show_courses = courses_open || !query.trim().is_empty();
 
     let mut rows = Vec::new();
     rows.push(
@@ -111,6 +119,43 @@ fn render_site_tree(
             .py(px(3.0))
             .text_color(palette.ink_3)
             .child(workspace)
+            .into_any_element(),
+    );
+    rows.push(
+        div()
+            .id("site-tree-search")
+            .mx(space(1))
+            .my(px(2.0))
+            .px(space(1))
+            .py(px(3.0))
+            .rounded(px(RADIUS_SMALL))
+            .border_1()
+            .border_color(if ctx.site_tree_search_focused {
+                palette.accent
+            } else {
+                palette.line
+            })
+            .bg(palette.view)
+            .text_size(px(11.0))
+            .text_color(if query.is_empty() {
+                palette.ink_3
+            } else {
+                palette.ink
+            })
+            .child(if query.is_empty() {
+                "搜索".to_string()
+            } else {
+                query.clone()
+            })
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    this.site_tree_search_focused = true;
+                    let focus = this.ensure_key_focus(cx);
+                    window.focus(&focus, cx);
+                    cx.notify();
+                }),
+            )
             .into_any_element(),
     );
     rows.push(tree_section_row(
@@ -126,12 +171,12 @@ fn render_site_tree(
         "events",
         translate(language, Key::EventsListTitle).to_string(),
         "/events",
-        Some(events_open),
+        Some(show_events),
         Some(SiteTreeSection::Events),
         palette,
         cx,
     ));
-    if events_open {
+    if show_events {
         for (id, title) in events {
             rows.push(tree_leaf_row(
                 &format!("site-event-{id}"),
@@ -146,12 +191,12 @@ fn render_site_tree(
         "courses",
         translate(language, Key::CoursesCatalogTitle).to_string(),
         "/courses",
-        Some(courses_open),
+        Some(show_courses),
         Some(SiteTreeSection::Courses),
         palette,
         cx,
     ));
-    if courses_open {
+    if show_courses {
         for (id, title) in courses {
             rows.push(tree_leaf_row(
                 &format!("site-course-{id}"),
