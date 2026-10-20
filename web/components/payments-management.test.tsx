@@ -5,6 +5,8 @@ import PaymentsManagement, { StatsCards } from "./payments-management";
 import { OrderStatusBadge } from "./order-table";
 import { formatDateTime } from "@/lib/format";
 import { fetchWorkspaceOfferings } from "@/lib/events";
+import { DEFAULT_VISIBLE_STATUSES } from "@/lib/use-workspace-orders";
+import type { OfferingItem } from "@/lib/graphql/events";
 
 const { client } = vi.hoisted(() => ({ client: { query: vi.fn(), mutate: vi.fn() } }));
 
@@ -41,6 +43,23 @@ const baseOrder = {
 	enrollmentStatus: "confirmed",
 	learnerEmail: "learner@example.com",
 };
+
+function offeringItem(id: string, title: string): OfferingItem {
+	return {
+		id,
+		workspaceId: "ws1",
+		title,
+		slug: id,
+		status: "open",
+		visibility: "public",
+		enrollmentPolicy: "open",
+		capacity: null,
+		confirmedCount: 0,
+		registrationDeadline: null,
+		pricingEnabled: false,
+		priceTiers: null,
+	};
+}
 
 function ordersPayload(results: unknown[]) {
 	return { data: { workspaceOrders: { results, count: results.length } } };
@@ -320,10 +339,9 @@ describe("PaymentsManagement（U11：列表/退款/免缴）", () => {
 	});
 
 	it("U9/R8：活动筛选——选中后订单查询带 eventId；清除恢复全量", async () => {
-		const { fetchWorkspaceOfferings } = await import("@/lib/events");
-		(fetchWorkspaceOfferings as ReturnType<typeof vi.fn>).mockReset();
-		(fetchWorkspaceOfferings as ReturnType<typeof vi.fn>)
-			.mockResolvedValueOnce([{ id: "ev-1", title: "测试活动" }])
+		vi.mocked(fetchWorkspaceOfferings).mockReset();
+		vi.mocked(fetchWorkspaceOfferings)
+			.mockResolvedValueOnce([offeringItem("ev-1", "测试活动")])
 			.mockResolvedValueOnce([]);
 
 		client.query.mockImplementation((opts: { variables: { workspaceId: string } }) =>
@@ -339,12 +357,75 @@ describe("PaymentsManagement（U11：列表/退款/免缴）", () => {
 		await waitFor(() => {
 			expect(client.query).toHaveBeenCalledWith(
 				expect.objectContaining({
-					variables: { workspaceId: "ws1", filter: { eventId: { eq: "ev-1" } }, first: 20 },
+					variables: {
+						workspaceId: "ws1",
+						filter: {
+							eventId: { eq: "ev-1" },
+							status: { in: DEFAULT_VISIBLE_STATUSES },
+						},
+						first: 20,
+					},
 				}),
 			);
 		});
 
+		// 统计卡跟随筛选（stats 查询带 eventId；变量形状与订单查询不同）
+		await waitFor(() => {
+			expect(client.query).toHaveBeenCalledWith(
+				expect.objectContaining({
+					variables: { workspaceId: "ws1", eventId: "ev-1" },
+				}),
+			);
+		});
+		expect(screen.getByTestId("stats-scope")).toHaveTextContent("统计口径：测试活动");
+
 		fireEvent.change(select, { target: { value: "" } });
+
+		await waitFor(() => {
+			expect(client.query).toHaveBeenCalledWith(
+				expect.objectContaining({
+					variables: {
+						workspaceId: "ws1",
+						filter: { status: { in: DEFAULT_VISIBLE_STATUSES } },
+						first: 20,
+					},
+				}),
+			);
+		});
+		await waitFor(() => {
+			expect(client.query).toHaveBeenCalledWith(
+				expect.objectContaining({ variables: { workspaceId: "ws1" } }),
+			);
+		});
+		expect(screen.getByTestId("stats-scope")).toHaveTextContent(
+			"统计口径：本工作台全部活动与课程",
+		);
+	});
+
+	it("下拉按活动/课程分组；「全部状态」显式清掉默认口径", async () => {
+		vi.mocked(fetchWorkspaceOfferings).mockReset();
+		vi.mocked(fetchWorkspaceOfferings)
+			.mockResolvedValueOnce([offeringItem("ev-1", "测试活动")])
+			.mockResolvedValueOnce([offeringItem("co-1", "测试课程")]);
+
+		client.query.mockImplementation((opts: { variables: { workspaceId: string } }) =>
+			opts.variables.workspaceId === "ws1" ? ordersPayload([]) : statsPayload(0, 0, 0),
+		);
+
+		render(<PaymentsManagement workspaceId="ws1" manage />);
+		await screen.findByTestId("orders-empty");
+
+		await screen.findByTestId("offering-filter");
+		await waitFor(() => {
+			const current = screen.getByTestId("offering-filter");
+			const labels = [...current.querySelectorAll("optgroup")].map((g) =>
+				g.getAttribute("label"),
+			);
+			expect(labels).toEqual(["活动", "课程"]);
+			expect(current.querySelectorAll("optgroup option")).toHaveLength(2);
+		});
+
+		fireEvent.change(screen.getByTestId("status-filter"), { target: { value: "all" } });
 
 		await waitFor(() => {
 			expect(client.query).toHaveBeenCalledWith(

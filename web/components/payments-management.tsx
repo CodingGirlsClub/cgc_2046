@@ -13,7 +13,7 @@
  *   面门控 + 后端 policy 兜底（双保险）。
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { client } from "@/lib/apollo-client";
 import { WORKSPACE_PAYMENT_STATS } from "@/lib/graphql/orders";
@@ -25,8 +25,9 @@ import {
 	type PaymentStats,
 } from "@/lib/payment";
 import { usePaymentOperation } from "@/lib/use-payment-operation";
-import { useWorkspaceOrders } from "@/lib/use-workspace-orders";
+import { useWorkspaceOrders, DEFAULT_VISIBLE_STATUSES } from "@/lib/use-workspace-orders";
 import { OrderTable } from "@/components/order-table";
+import { OFFERING_LABEL } from "@/lib/graphql/events";
 import { fetchWorkspaceOfferings } from "@/lib/events";
 
 /**
@@ -109,7 +110,8 @@ export default function PaymentsManagement({
 	const t = useTranslations("payments");
 	const labelsT = useTranslations();
 	const statusFilters = [
-		{ value: "", label: t("filterAll") },
+		{ value: "", label: t("filterDefault") },
+		{ value: "all", label: t("filterAll") },
 		...ORDER_STATUS_FILTER_VALUES.map((value) => ({
 			value,
 			label: labelsT(ORDER_STATUS_LABEL[value]),
@@ -125,13 +127,45 @@ export default function PaymentsManagement({
 	const [statsError, setStatsError] = useState(false);
 
 	const selectedOffering = offerings.find((o) => o.id === offeringFilter);
+
+	// 统计口径跟随活动/课程筛选（stats query 自带 eventId/courseId）；
+	// 「全部活动与课程」时保持工作区全量口径
+	const statsVariables = useMemo(
+		() => ({
+			workspaceId,
+			...(selectedOffering?.kind === "event" ? { eventId: selectedOffering.id } : {}),
+			...(selectedOffering?.kind === "course" ? { courseId: selectedOffering.id } : {}),
+		}),
+		[workspaceId, selectedOffering?.id, selectedOffering?.kind],
+	);
+
+	const loadStats = useCallback(async () => {
+		if (!workspaceId) return;
+
+		setStatsError(false);
+		try {
+			const { data } = await client.query({
+				query: WORKSPACE_PAYMENT_STATS,
+				variables: statsVariables,
+			});
+			setStats(parsePaymentStats(data?.workspacePaymentStats));
+		} catch {
+			setStats(null);
+			setStatsError(true);
+		}
+	}, [workspaceId, statsVariables]);
+
+	// 默认口径与活动详情面板一致：非终态 + 已退款 + 已没收；
+	// "all" 是显式的全部状态（含 cancelled/expired）
+	const effectiveStatus = statusFilter === "all" ? undefined : statusFilter;
+	const defaultStatuses = statusFilter === "all" ? [] : DEFAULT_VISIBLE_STATUSES;
+
 	const { orders, loadState, hasMore, loadingMore, reload, loadMore } = useWorkspaceOrders({
 		workspaceId,
-		status: statusFilter,
+		status: effectiveStatus,
 		eventId: selectedOffering?.kind === "event" ? selectedOffering.id : undefined,
 		courseId: selectedOffering?.kind === "course" ? selectedOffering.id : undefined,
-		// 工作区页保持「全部状态」默认（口径统一是后续独立改动）
-		defaultStatuses: [],
+		defaultStatuses,
 	});
 
 	// 退款/免缴/重试两段确认：pendingOp（待确认弹层）+ busy + actionError 全在 hook
@@ -139,20 +173,6 @@ export default function PaymentsManagement({
 		t,
 		onCompleted: () => Promise.all([reload(), loadStats()]).then(() => undefined),
 	});
-
-	async function loadStats() {
-		setStatsError(false);
-		try {
-			const { data } = await client.query({
-				query: WORKSPACE_PAYMENT_STATS,
-				variables: { workspaceId },
-			});
-			setStats(parsePaymentStats(data?.workspacePaymentStats));
-		} catch {
-			setStats(null);
-			setStatsError(true);
-		}
-	}
 
 	const loadedFor = useRef("");
 	useEffect(() => {
@@ -170,12 +190,23 @@ export default function PaymentsManagement({
 			// 筛选器选项拉取失败只影响下拉内容；订单列表仍可用
 			setOfferings([]);
 		});
-		void loadStats();
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [workspaceId]);
+
+	// 统计跟随筛选：选中活动/课程即换口径（loadStats 的依赖已含筛选）
+	useEffect(() => {
+		void loadStats();
+	}, [loadStats]);
+
+	const eventOfferings = offerings.filter((o) => o.kind === "event");
+	const courseOfferings = offerings.filter((o) => o.kind === "course");
 
 	return (
 		<div className="grid gap-4">
+			<p className="text-[13px] text-ink-3" data-testid="stats-scope">
+				{selectedOffering
+					? t("statsScopeOffering", { title: selectedOffering.title })
+					: t("statsScopeAll")}
+			</p>
 			<StatsCards stats={stats} statsError={statsError} onRetryStats={() => void loadStats()} />
 
 			<div className="rounded-large border border-line bg-card p-4">
@@ -191,11 +222,24 @@ export default function PaymentsManagement({
 								data-testid="offering-filter"
 							>
 								<option value="">{t("filterOfferingAll")}</option>
-								{offerings.map((o) => (
-									<option key={o.id} value={o.id}>
-										{o.title}
-									</option>
-								))}
+								{eventOfferings.length > 0 ? (
+									<optgroup label={labelsT(OFFERING_LABEL.event)}>
+										{eventOfferings.map((o) => (
+											<option key={o.id} value={o.id}>
+												{o.title}
+											</option>
+										))}
+									</optgroup>
+								) : null}
+								{courseOfferings.length > 0 ? (
+									<optgroup label={labelsT(OFFERING_LABEL.course)}>
+										{courseOfferings.map((o) => (
+											<option key={o.id} value={o.id}>
+												{o.title}
+											</option>
+										))}
+									</optgroup>
+								) : null}
 							</select>
 						</label>
 						<label className="flex items-center gap-2 text-[13px] text-ink-3">

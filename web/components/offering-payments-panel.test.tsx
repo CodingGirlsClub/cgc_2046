@@ -366,4 +366,32 @@ describe("OfferingPaymentsPanel 活动经营面（U7，R5-R7，AE6）", () => {
 		expect(await screen.findByTestId(`offering-refund-${baseOrder.id}`)).toBeInTheDocument();
 		expect(screen.queryByTestId("offering-free-status")).not.toBeInTheDocument();
 	});
+
+	it("状态筛选「全部状态」清掉默认集（终态可见）", async () => {
+		client.query
+			.mockReturnValueOnce(ordersPayload([]))
+			.mockReturnValueOnce(statsPayload(0, 0, 0))
+			.mockReturnValueOnce(ordersPayload([]));
+
+		render(
+			<OfferingPaymentsPanel
+				workspaceId="ws-1"
+				offeringId="ev-1"
+				kind="event"
+				manage
+				pricingEnabled
+			/>,
+		);
+
+		await screen.findByTestId("offering-orders-empty");
+		fireEvent.change(screen.getByTestId("offering-status-filter"), { target: { value: "all" } });
+
+		await waitFor(() => {
+			expect(client.query).toHaveBeenCalledWith(
+				expect.objectContaining({
+					variables: { workspaceId: "ws-1", filter: { eventId: { eq: "ev-1" } }, first: 20 },
+				}),
+			);
+		});
+	});
 });

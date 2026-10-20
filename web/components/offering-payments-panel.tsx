@@ -28,7 +28,7 @@ import {
 	type PaymentStats,
 } from "@/lib/payment";
 import { usePaymentOperation } from "@/lib/use-payment-operation";
-import { useWorkspaceOrders } from "@/lib/use-workspace-orders";
+import { useWorkspaceOrders, DEFAULT_VISIBLE_STATUSES } from "@/lib/use-workspace-orders";
 import { OrderTable } from "@/components/order-table";
 
 export default function OfferingPaymentsPanel({
@@ -54,12 +54,17 @@ export default function OfferingPaymentsPanel({
 	const [stats, setStats] = useState<PaymentStats | null>(null);
 	const [statsError, setStatsError] = useState(false);
 
+	// 与工作区页统一口径："" = 默认（非终态 + 已退款 + 已没收）；"all" = 全部状态
+	const effectiveStatus = statusFilter === "all" ? undefined : statusFilter;
+	const defaultStatuses = statusFilter === "all" ? [] : DEFAULT_VISIBLE_STATUSES;
+
 	const { orders, loadState, hasMore, loadingMore, reload, loadMore } = useWorkspaceOrders({
 		workspaceId,
 		enabled: manage,
-		status: statusFilter,
+		status: effectiveStatus,
 		eventId: kind === "event" ? offeringId : undefined,
 		courseId: kind === "course" ? offeringId : undefined,
+		defaultStatuses,
 	});
 
 	// 退款/免缴/重试两段确认：pendingOp（待确认弹层）+ busy + actionError 全在 hook
@@ -121,6 +126,7 @@ export default function OfferingPaymentsPanel({
 
 	const statusFilters = [
 		{ value: "", label: t("filterDefault") },
+		{ value: "all", label: t("filterAll") },
 		...ORDER_STATUS_FILTER_VALUES.map((value) => ({
 			value,
 			label: labelsT(ORDER_STATUS_LABEL[value]),
