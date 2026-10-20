@@ -4,5 +4,6 @@
 
 pub mod catalog;
 pub mod content;
+pub mod outline;
 pub mod projection;
 pub mod registration;

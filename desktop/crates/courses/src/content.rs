@@ -50,21 +50,47 @@ pub struct CourseChapter {
     pub title: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CourseIssue {
     pub id: Option<String>,
     pub title: Option<String>,
     pub kind: Option<String>,
+    pub chapter_id: Option<String>,
+    pub goal: Option<String>,
+    pub checklist: Vec<CourseChecklistItem>,
+    pub objectives: Vec<CourseObjective>,
     pub story_materials: Vec<TypedMaterial>,
+    /// 展平后的 objective materials，保留给现有正文渲染消费。
     pub objective_materials: Vec<TypedMaterial>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CourseChecklistItem {
+    pub id: Option<String>,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CourseObjective {
+    pub id: Option<String>,
+    pub title: Option<String>,
+    pub required: bool,
+    pub prereq_ids: Vec<String>,
+    pub activity: Option<String>,
+    pub assessment: Option<String>,
+    pub rubric: Vec<CourseChecklistItem>,
+    pub materials: Vec<TypedMaterial>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TypedMaterial {
     pub kind: MaterialKind,
     pub title: Option<String>,
-    /// 仅 text/markdown 有正文；web/image/video 本 story 只保留 kind/title。
     pub body: Option<String>,
+    pub url: Option<String>,
+    pub alt_text: Option<String>,
+    pub provider: Option<String>,
+    pub external_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -138,26 +164,83 @@ fn parse_issue(value: &Value) -> Option<CourseIssue> {
         .and_then(Value::as_array)
         .map(|materials| materials.iter().filter_map(parse_material).collect())
         .unwrap_or_default();
-    let objective_materials = value
+    let objectives = value
         .get("objectives")
         .and_then(Value::as_array)
         .map(|objectives| {
             objectives
                 .iter()
-                .filter_map(|objective| objective.get("materials"))
-                .filter_map(Value::as_array)
-                .flat_map(|materials| materials.iter())
-                .filter_map(parse_material)
-                .collect()
+                .filter_map(parse_objective)
+                .collect::<Vec<_>>()
         })
+        .unwrap_or_default();
+    let objective_materials = objectives
+        .iter()
+        .flat_map(|objective| objective.materials.iter().cloned())
+        .collect();
+    let checklist = value
+        .get("story")
+        .and_then(|story| story.get("checklist"))
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(parse_checklist_item).collect())
         .unwrap_or_default();
 
     Some(CourseIssue {
         id: string_field(value, "id"),
         title: string_field(value, "title"),
         kind: string_field(value, "kind"),
+        chapter_id: string_field(value, "chapter_id"),
+        goal: value
+            .get("story")
+            .and_then(|story| story.get("goal"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        checklist,
+        objectives,
         story_materials,
         objective_materials,
+    })
+}
+
+fn parse_checklist_item(value: &Value) -> Option<CourseChecklistItem> {
+    Some(CourseChecklistItem {
+        id: string_field(value, "id"),
+        text: string_field(value, "text")?,
+    })
+}
+
+fn parse_objective(value: &Value) -> Option<CourseObjective> {
+    value.as_object()?;
+    let materials = value
+        .get("materials")
+        .and_then(Value::as_array)
+        .map(|materials| materials.iter().filter_map(parse_material).collect())
+        .unwrap_or_default();
+    Some(CourseObjective {
+        id: string_field(value, "id"),
+        title: string_field(value, "title"),
+        required: value
+            .get("required")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        prereq_ids: value
+            .get("prereq_ids")
+            .and_then(Value::as_array)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default(),
+        activity: string_field(value, "activity"),
+        assessment: string_field(value, "assessment"),
+        rubric: value
+            .get("rubric")
+            .and_then(Value::as_array)
+            .map(|items| items.iter().filter_map(parse_checklist_item).collect())
+            .unwrap_or_default(),
+        materials,
     })
 }
 
@@ -180,6 +263,10 @@ fn parse_material(value: &Value) -> Option<TypedMaterial> {
         kind,
         title: string_field(value, "title"),
         body,
+        url: string_field(value, "url"),
+        alt_text: string_field(value, "alt_text"),
+        provider: string_field(value, "provider"),
+        external_id: string_field(value, "external_id"),
     })
 }
 
@@ -257,14 +344,23 @@ pub(crate) fn fake_course_content(course_id: &str, title: &str, index: usize) ->
                         kind: MaterialKind::Markdown,
                         title: Some("正文".to_string()),
                         body: Some(FAKE_MARKDOWN.to_string()),
+                        url: None,
+                        alt_text: None,
+                        provider: None,
+                        external_id: None,
                     },
                     TypedMaterial {
                         kind: MaterialKind::Web,
                         title: Some("延伸阅读".to_string()),
                         body: None,
+                        url: Some("https://example.com".to_string()),
+                        alt_text: None,
+                        provider: None,
+                        external_id: None,
                     },
                 ],
                 objective_materials: Vec::new(),
+                ..Default::default()
             }],
         },
     }
@@ -371,8 +467,10 @@ mod tests {
                 "id": "issue-1",
                 "title": "第一次运行",
                 "kind": "handwork",
+                "chapter_id": "ch-1",
                 "story": {
                     "goal": "跑起来",
+                    "checklist": [{"id": "check-1", "text": "完成第一次运行"}],
                     "materials": [
                         {
                             "kind": "markdown",
@@ -390,6 +488,11 @@ mod tests {
                 "objectives": [{
                     "id": "obj-1",
                     "title": "能运行",
+                    "required": true,
+                    "prereq_ids": ["obj-0"],
+                    "activity": "运行示例",
+                    "assessment": "提交输出",
+                    "rubric": [{"id": "rubric-1", "text": "输出正确"}],
                     "materials": [{"kind": "text", "title": "提示", "body": "先安装工具链"}]
                 }],
                 "unknown_field": true
@@ -462,6 +565,14 @@ mod tests {
         assert_eq!(issue.id.as_deref(), Some("issue-1"));
         assert_eq!(issue.title.as_deref(), Some("第一次运行"));
         assert_eq!(issue.kind.as_deref(), Some("handwork"));
+        assert_eq!(issue.chapter_id.as_deref(), Some("ch-1"));
+        assert_eq!(issue.goal.as_deref(), Some("跑起来"));
+        assert_eq!(issue.checklist[0].id.as_deref(), Some("check-1"));
+        assert_eq!(issue.checklist[0].text, "完成第一次运行");
+        assert_eq!(issue.objectives[0].id.as_deref(), Some("obj-1"));
+        assert!(issue.objectives[0].required);
+        assert_eq!(issue.objectives[0].prereq_ids, vec!["obj-0".to_string()]);
+        assert_eq!(issue.objectives[0].rubric[0].text, "输出正确");
 
         assert_eq!(issue.story_materials.len(), 2);
         assert_eq!(issue.story_materials[0].kind, MaterialKind::Markdown);
@@ -477,6 +588,10 @@ mod tests {
         assert_eq!(
             issue.story_materials[1].body, None,
             "only text/markdown keep body"
+        );
+        assert_eq!(
+            issue.story_materials[1].url.as_deref(),
+            Some("https://example.com")
         );
 
         assert_eq!(issue.objective_materials.len(), 1);
@@ -696,6 +811,7 @@ mod tests {
                     kind: Some("handwork".to_string()),
                     story_materials: Vec::new(),
                     objective_materials: Vec::new(),
+                    ..Default::default()
                 }],
             },
         });
