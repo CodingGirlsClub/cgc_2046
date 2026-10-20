@@ -63,8 +63,20 @@ pub struct SystemRunner;
 
 impl InstallRunner for SystemRunner {
     fn run(&self, program: &Path, args: &[&str]) -> Result<String, String> {
+        // 隔离 npm 用户配置与缓存：不读取用户 ~/.npmrc 的凭证，也不污染用户缓存。
+        // 安装只使用托管 npx，目标包/版本由签名清单决定。
+        let isolated = std::env::temp_dir().join("cgc-desktop-npm");
+        let _ = std::fs::create_dir_all(&isolated);
+        let empty_npmrc = isolated.join("empty.npmrc");
+        let _ = std::fs::write(&empty_npmrc, "");
         let mut child = Command::new(program)
             .args(args)
+            .current_dir(&isolated)
+            .env("NPM_CONFIG_USERCONFIG", &empty_npmrc)
+            .env("NPM_CONFIG_CACHE", isolated.join("cache"))
+            .env("NPM_CONFIG_UPDATE_NOTIFIER", "false")
+            .env("NPM_CONFIG_FUND", "false")
+            .env("NO_COLOR", "1")
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
