@@ -102,6 +102,10 @@ impl AppPaths {
         self.data_root.join("chat_state.json")
     }
 
+    pub fn workspace_state_file(&self) -> PathBuf {
+        self.data_root.join("workspace_state.json")
+    }
+
     pub fn node_runtime_root(&self) -> PathBuf {
         self.data_root.join("node24")
     }

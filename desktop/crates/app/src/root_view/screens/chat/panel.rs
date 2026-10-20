@@ -543,6 +543,80 @@ pub(in crate::root_view) fn render_chat_panel(
             )
             .into_any_element()
     });
+    let agent_options = Registry::builtin()
+        .map(|registry| registry.agents)
+        .unwrap_or_default();
+    let agent_menu = ctx.chat.agent_menu_open.then(|| {
+        let rows = agent_options
+            .iter()
+            .map(|entry| {
+                let id = entry.id.clone();
+                let name = entry.display_name.clone();
+                div()
+                    .id(SharedString::from(format!(
+                        "chat-agent-option-{}",
+                        entry.id
+                    )))
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(space(1))
+                    .px(space(1))
+                    .py(px(3.0))
+                    .rounded(px(RADIUS_SMALL))
+                    .hover(|style| style.bg(palette.soft))
+                    .child(div().flex_1().child(name.clone()))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.select_chat_agent(id.clone(), name.clone(), cx);
+                    }))
+                    .into_any_element()
+            })
+            .collect::<Vec<_>>();
+        div()
+            .id("chat-agent-menu")
+            .flex()
+            .flex_col()
+            .gap(px(1.0))
+            .p(space(1))
+            .rounded(px(RADIUS_MEDIUM))
+            .border_1()
+            .border_color(palette.line)
+            .bg(palette.card)
+            .text_size(px(11.0))
+            .text_color(palette.ink_2)
+            .children(rows)
+            .into_any_element()
+    });
+    let context_chip = (ctx.active_tab.as_deref())
+        .and_then(|active| ctx.tabs.iter().find(|tab| tab.id == active))
+        .filter(|tab| tab.issue_id.is_some() && !ctx.chat.context_dismissed)
+        .map(|tab| {
+            div()
+                .id("chat-context-chip")
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(space(1))
+                .px(space(1))
+                .py(px(2.0))
+                .rounded(px(RADIUS_SMALL))
+                .bg(palette.soft)
+                .text_size(px(11.0))
+                .text_color(palette.ink_3)
+                .child(format!("上下文：{}", tab.title))
+                .child(
+                    div()
+                        .id("chat-context-dismiss")
+                        .px(px(4.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .hover(|style| style.bg(palette.card))
+                        .child("×")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.dismiss_chat_context(cx);
+                        })),
+                )
+                .into_any_element()
+        });
     let toolbar = div()
         .flex()
         .flex_row()
@@ -557,9 +631,16 @@ pub(in crate::root_view) fn render_chat_panel(
         )
         .child(
             div()
+                .id("chat-agent-picker")
+                .px(px(4.0))
+                .rounded(px(RADIUS_SMALL))
+                .hover(|style| style.bg(palette.soft))
                 .text_size(px(11.0))
                 .text_color(palette.ink_3)
-                .child(format!("{agent_label}{version}")),
+                .child(format!("{agent_label}{version}"))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.toggle_chat_agent_menu(cx);
+                })),
         )
         .child(div().flex_1())
         .child(
@@ -626,6 +707,8 @@ pub(in crate::root_view) fn render_chat_panel(
                 .flex_col()
                 .gap(space(1))
                 .child(toolbar)
+                .children(agent_menu)
+                .children(context_chip)
                 .children(config_rows)
                 .child(body),
         )

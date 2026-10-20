@@ -13,11 +13,11 @@ pub(in crate::root_view) fn render_agent_panel(
         .is_some_and(|route_match| route_match.route.id == "courses.learning");
     div()
         .id("agent-panel-dock")
-        .w(px(440.0))
+        .w(px(380.0))
         .flex_none()
         .h_full()
         .p(space(2))
-        .border_l_1()
+        .border_r_1()
         .border_color(palette.line)
         .bg(palette.canvas)
         .child(if learning {

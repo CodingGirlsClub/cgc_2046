@@ -11,3 +11,4 @@ pub mod routing;
 pub mod safe_markdown;
 pub mod settings_window;
 pub mod theme;
+pub mod workspace_state;

@@ -67,7 +67,7 @@ mod controller;
 mod screens;
 mod state;
 
-use state::ShellState;
+use state::{RightPanel, ShellState, SiteTreeSection};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LoginField {
@@ -200,6 +200,9 @@ enum ChatEntry {
 struct ChatUi {
     phase: ChatPhase,
     agent: String,
+    selected_agent: Option<String>,
+    agent_menu_open: bool,
+    context_dismissed: bool,
     version: Option<String>,
     messages: Vec<ChatEntry>,
     input: String,
@@ -493,222 +496,273 @@ impl Render for RootView {
                 ));
             root
         } else {
-            root = root
-                .size_full()
-                .flex()
-                .flex_col()
-                .bg(palette.canvas)
-                .text_color(palette.ink)
-                .font_family(theme::FONT_SANS)
-                .text_size(px(14.0))
-                .track_focus(&key_focus)
-                .on_key_down(cx.listener(Self::handle_shell_key))
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .h(px(44.0))
-                        .pl(if cfg!(target_os = "macos") {
-                            px(84.0)
-                        } else {
-                            space(3)
-                        })
-                        .pr(space(2))
-                        .gap(space(1))
-                        .bg(palette.frame)
-                        .border_b_1()
-                        .border_color(palette.line)
-                        .child(
-                            div()
-                                .id("titlebar-drag")
-                                .flex()
-                                .items_center()
-                                .h_full()
-                                .pr(space(2))
-                                .on_mouse_down(MouseButton::Left, |_, window, _| {
-                                    window.start_window_move();
-                                })
-                                .child(
-                                    div()
-                                        .text_size(px(15.0))
-                                        .text_color(palette.ink)
-                                        .child(translate(language, Key::AppName)),
-                                ),
-                        )
-                        .child(div().w(px(1.0)).h(px(14.0)).bg(palette.line))
-                        .child(self.render_breadcrumb_bar(language, &palette, cx))
-                        .child(div().flex_1())
-                        .child(
-                            div().relative().flex().items_center().child(
+            root =
+                root.size_full()
+                    .flex()
+                    .flex_col()
+                    .bg(palette.canvas)
+                    .text_color(palette.ink)
+                    .font_family(theme::FONT_SANS)
+                    .text_size(px(14.0))
+                    .track_focus(&key_focus)
+                    .on_key_down(cx.listener(Self::handle_shell_key))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .h(px(44.0))
+                            .pl(if cfg!(target_os = "macos") {
+                                px(84.0)
+                            } else {
+                                space(3)
+                            })
+                            .pr(space(2))
+                            .gap(space(1))
+                            .bg(palette.frame)
+                            .border_b_1()
+                            .border_color(palette.line)
+                            .child(
                                 div()
-                                    .id("account-menu-toggle")
-                                    .size(px(26.0))
-                                    .rounded_full()
+                                    .id("titlebar-drag")
                                     .flex()
                                     .items_center()
-                                    .justify_center()
-                                    .bg(palette.accent)
-                                    .text_size(px(12.0))
-                                    .text_color(hsla_white())
-                                    .child(avatar_glyph)
-                                    .tooltip(move |_, cx| {
-                                        cx.new(|_| TooltipText {
-                                            text: account_tooltip.into(),
-                                        })
-                                        .into()
+                                    .h_full()
+                                    .pr(space(2))
+                                    .on_mouse_down(MouseButton::Left, |_, window, _| {
+                                        window.start_window_move();
                                     })
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.toggle_account_menu();
-                                        cx.notify();
-                                    })),
-                            ),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .flex_1()
-                        .min_h(px(0.0))
-                        .w_full()
-                        .child(
-                            div()
-                                .id("content-scroll")
-                                .flex_1()
-                                .min_w(px(0.0))
-                                .p(space(6))
-                                .overflow_y_scroll()
-                                .child(
-                                    if matches!(self.workspaces.state(), WorkspaceListState::Empty)
-                                    {
-                                        self.render_workspace_empty(language, &palette)
-                                    } else {
-                                        match self
-                                            .current
-                                            .as_ref()
-                                            .map(|route_match| route_match.route.id)
-                                        {
-                                            Some("account.workspace") => {
-                                                screens::render_workspace_overview(
-                                                    &mut screens::ScreenContext::new(
-                                                        &mut self.state,
-                                                    ),
-                                                    language,
-                                                    &palette,
-                                                    cx,
-                                                )
-                                            }
-                                            Some("events.list") => screens::render_events_list(
-                                                &mut screens::ScreenContext::new(&mut self.state),
-                                                language,
-                                                &palette,
-                                                cx,
-                                            ),
-                                            Some("events.detail") => screens::render_detail(
-                                                &mut screens::ScreenContext::new(&mut self.state),
-                                                language,
-                                                &palette,
-                                                cx,
-                                            ),
-                                            Some("events.mine") => {
-                                                screens::render_enrollments_list(
-                                                    &mut screens::ScreenContext::new(
-                                                        &mut self.state,
-                                                    ),
-                                                    language,
-                                                    &palette,
-                                                    cx,
-                                                )
-                                            }
-                                            Some("app.settings") => screens::render_settings(
-                                                &mut screens::ScreenContext::new(&mut self.state),
-                                                language,
-                                                &palette,
-                                                cx,
-                                            ),
-                                            Some("courses.catalog") => {
-                                                screens::render_courses_list(
-                                                    &mut screens::ScreenContext::new(
-                                                        &mut self.state,
-                                                    ),
-                                                    language,
-                                                    &palette,
-                                                    cx,
-                                                )
-                                            }
-                                            Some("courses.learning_home") => {
-                                                screens::render_learning_home(
-                                                    &mut screens::ScreenContext::new(
-                                                        &mut self.state,
-                                                    ),
-                                                    language,
-                                                    &palette,
-                                                    cx,
-                                                )
-                                            }
-                                            Some("events.participations") => {
-                                                screens::render_participations(
-                                                    &mut screens::ScreenContext::new(
-                                                        &mut self.state,
-                                                    ),
-                                                    language,
-                                                    &palette,
-                                                    cx,
-                                                )
-                                            }
-                                            Some("courses.detail") => {
-                                                screens::render_course_detail(
-                                                    &mut screens::ScreenContext::new(
-                                                        &mut self.state,
-                                                    ),
-                                                    language,
-                                                    &palette,
-                                                    cx,
-                                                )
-                                            }
-                                            Some("courses.learning") => {
-                                                screens::render_course_learning(
-                                                    &mut screens::ScreenContext::new(
-                                                        &mut self.state,
-                                                    ),
-                                                    language,
-                                                    &palette,
-                                                    cx,
-                                                )
-                                            }
-                                            _ => self.render_content(language, &palette, cx),
-                                        }
-                                    },
+                                    .child(
+                                        div()
+                                            .text_size(px(15.0))
+                                            .text_color(palette.ink)
+                                            .child(translate(language, Key::AppName)),
+                                    ),
+                            )
+                            .child(div().w(px(1.0)).h(px(14.0)).bg(palette.line))
+                            .child(self.render_breadcrumb_bar(language, &palette, cx))
+                            .child(div().flex_1())
+                            .child(
+                                div().relative().flex().items_center().child(
+                                    div()
+                                        .id("account-menu-toggle")
+                                        .size(px(26.0))
+                                        .rounded_full()
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .bg(palette.accent)
+                                        .text_size(px(12.0))
+                                        .text_color(hsla_white())
+                                        .child(avatar_glyph)
+                                        .tooltip(move |_, cx| {
+                                            cx.new(|_| TooltipText {
+                                                text: account_tooltip.into(),
+                                            })
+                                            .into()
+                                        })
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.toggle_account_menu();
+                                            cx.notify();
+                                        })),
                                 ),
-                        )
-                        .children(
-                            (self.agent_panel_open
-                                && self.current.as_ref().is_some_and(|route_match| {
-                                    route_match.route.id == "courses.learning"
-                                }))
-                            .then(|| {
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .flex_1()
+                            .min_h(px(0.0))
+                            .w_full()
+                            .children(self.agent_panel_open.then(|| {
                                 screens::render_agent_panel(
                                     &mut screens::ScreenContext::new(&mut self.state),
                                     language,
                                     &palette,
                                     cx,
                                 )
-                            }),
-                        ),
-                )
-                .child(self.render_footer(
-                    language,
-                    true,
-                    theme_icon,
-                    theme_label,
-                    theme_tooltip,
-                    language_icon,
-                    language_label,
-                    language_tooltip,
-                    &palette,
-                    cx,
-                ));
+                            }))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .flex_1()
+                                    .min_w(px(0.0))
+                                    .min_h(px(0.0))
+                                    .children(Some(screens::render_pane_tabs(
+                                        &mut screens::ScreenContext::new(&mut self.state),
+                                        &palette,
+                                        cx,
+                                    )))
+                                    .child(
+                                        div()
+                                            .id("content-scroll")
+                                            .flex_1()
+                                            .min_w(px(0.0))
+                                            .p(space(6))
+                                            .overflow_y_scroll()
+                                            .child(
+                                                if matches!(
+                                                    self.workspaces.state(),
+                                                    WorkspaceListState::Empty
+                                                ) {
+                                                    self.render_workspace_empty(language, &palette)
+                                                } else {
+                                                    match self
+                                                        .current
+                                                        .as_ref()
+                                                        .map(|route_match| route_match.route.id)
+                                                    {
+                                                        Some("account.workspace") => {
+                                                            screens::render_workspace_overview(
+                                                                &mut screens::ScreenContext::new(
+                                                                    &mut self.state,
+                                                                ),
+                                                                language,
+                                                                &palette,
+                                                                cx,
+                                                            )
+                                                        }
+                                                        Some("events.list") => {
+                                                            screens::render_events_list(
+                                                                &mut screens::ScreenContext::new(
+                                                                    &mut self.state,
+                                                                ),
+                                                                language,
+                                                                &palette,
+                                                                cx,
+                                                            )
+                                                        }
+                                                        Some("events.detail") => {
+                                                            screens::render_detail(
+                                                                &mut screens::ScreenContext::new(
+                                                                    &mut self.state,
+                                                                ),
+                                                                language,
+                                                                &palette,
+                                                                cx,
+                                                            )
+                                                        }
+                                                        Some("events.mine") => {
+                                                            screens::render_enrollments_list(
+                                                                &mut screens::ScreenContext::new(
+                                                                    &mut self.state,
+                                                                ),
+                                                                language,
+                                                                &palette,
+                                                                cx,
+                                                            )
+                                                        }
+                                                        Some("app.settings") => {
+                                                            screens::render_settings(
+                                                                &mut screens::ScreenContext::new(
+                                                                    &mut self.state,
+                                                                ),
+                                                                language,
+                                                                &palette,
+                                                                cx,
+                                                            )
+                                                        }
+                                                        Some("courses.catalog") => {
+                                                            screens::render_courses_list(
+                                                                &mut screens::ScreenContext::new(
+                                                                    &mut self.state,
+                                                                ),
+                                                                language,
+                                                                &palette,
+                                                                cx,
+                                                            )
+                                                        }
+                                                        Some("courses.learning_home") => {
+                                                            screens::render_learning_home(
+                                                                &mut screens::ScreenContext::new(
+                                                                    &mut self.state,
+                                                                ),
+                                                                language,
+                                                                &palette,
+                                                                cx,
+                                                            )
+                                                        }
+                                                        Some("events.participations") => {
+                                                            screens::render_participations(
+                                                                &mut screens::ScreenContext::new(
+                                                                    &mut self.state,
+                                                                ),
+                                                                language,
+                                                                &palette,
+                                                                cx,
+                                                            )
+                                                        }
+                                                        Some("courses.detail") => {
+                                                            screens::render_course_detail(
+                                                                &mut screens::ScreenContext::new(
+                                                                    &mut self.state,
+                                                                ),
+                                                                language,
+                                                                &palette,
+                                                                cx,
+                                                            )
+                                                        }
+                                                        Some("courses.learning") => {
+                                                            let active_issue = self
+                                                                .active_issue_tab()
+                                                                .map(|(course_id, issue_id)| {
+                                                                    (
+                                                                        course_id.to_string(),
+                                                                        issue_id.to_string(),
+                                                                    )
+                                                                });
+                                                            match active_issue {
+                                                    Some((course_id, issue_id)) => {
+                                                        screens::render_issue_card(
+                                                            &mut screens::ScreenContext::new(
+                                                                &mut self.state,
+                                                            ),
+                                                            &course_id,
+                                                            &issue_id,
+                                                            language,
+                                                            &palette,
+                                                        )
+                                                    }
+                                                    None => screens::render_course_learning(
+                                                        &mut screens::ScreenContext::new(
+                                                            &mut self.state,
+                                                        ),
+                                                        language,
+                                                        &palette,
+                                                        cx,
+                                                    ),
+                                                }
+                                                        }
+                                                        _ => self
+                                                            .render_content(language, &palette, cx),
+                                                    }
+                                                },
+                                            ),
+                                    ),
+                            )
+                            .children(self.right_panel_open.then(|| {
+                                screens::render_right_dock(
+                                    &mut screens::ScreenContext::new(&mut self.state),
+                                    language,
+                                    &palette,
+                                    cx,
+                                )
+                            })),
+                    )
+                    .child(self.render_footer(
+                        language,
+                        true,
+                        theme_icon,
+                        theme_label,
+                        theme_tooltip,
+                        language_icon,
+                        language_label,
+                        language_tooltip,
+                        &palette,
+                        cx,
+                    ));
             if self.workspace_menu_open {
                 root = root.child(self.render_workspace_menu(language, &palette, cx));
             }
@@ -1115,6 +1169,65 @@ impl RootView {
                 }))
                 .into_any_element()
         });
+        let panel_toggle = |id: &'static str,
+                            label: SharedString,
+                            icon: AssetIcon,
+                            active: bool,
+                            panel: RightPanel| {
+            let tooltip = label.clone();
+            div()
+                .id(id)
+                .role(Role::Button)
+                .aria_label(label.clone())
+                .tab_index(0isize)
+                .size(px(22.0))
+                .rounded(px(RADIUS_SMALL))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(if active {
+                    palette.accent
+                } else {
+                    palette.ink_3
+                })
+                .hover(|style| style.bg(palette.soft))
+                .child(
+                    Icon::default()
+                        .path(icon.path())
+                        .text_color(if active {
+                            palette.accent
+                        } else {
+                            palette.ink_3
+                        })
+                        .small(),
+                )
+                .tooltip(move |_, cx| {
+                    cx.new(|_| TooltipText {
+                        text: tooltip.clone(),
+                    })
+                    .into()
+                })
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.toggle_right_panel(panel, cx);
+                }))
+                .into_any_element()
+        };
+        let site_tree_active = self.right_panel_open && self.right_panel == RightPanel::SiteTree;
+        let outline_active = self.right_panel_open && self.right_panel == RightPanel::Outline;
+        let site_tree_toggle = panel_toggle(
+            "site-tree-toggle",
+            translate(language, Key::WorkspaceSiteTreeTitle).into(),
+            AssetIcon::FolderOpen,
+            site_tree_active,
+            RightPanel::SiteTree,
+        );
+        let outline_toggle = panel_toggle(
+            "outline-toggle",
+            translate(language, Key::WorkspaceOutlineTitle).into(),
+            AssetIcon::FileText,
+            outline_active,
+            RightPanel::Outline,
+        );
         div()
             .id("status-bar")
             .role(Role::Toolbar)
@@ -1141,7 +1254,9 @@ impl RootView {
                     .gap(px(4.0))
                     .min_w_0()
                     .overflow_x_hidden()
-                    .children(agent_toggle),
+                    .children(agent_toggle)
+                    .child(site_tree_toggle)
+                    .child(outline_toggle),
             )
             .child(
                 div()

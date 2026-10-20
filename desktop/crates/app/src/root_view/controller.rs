@@ -1,4 +1,5 @@
 use super::*;
+use state::{PaneTab, SiteTreeSection};
 
 impl RootView {
     pub fn current(&self) -> Option<Route> {
@@ -50,9 +51,13 @@ impl RootView {
     pub fn navigate(&mut self, path: &str) {
         self.breadcrumb_menu = None;
         if let crate::routing::RouteSelection::Match(route_match) = self.registry.select(path) {
+            let is_learning = route_match.route.id == "courses.learning";
             self.current = Some(route_match);
             self.events_started = false;
             self.detail_started = false;
+            if is_learning && self.right_panel_open {
+                self.right_panel = RightPanel::Outline;
+            }
         }
     }
 
@@ -140,7 +145,11 @@ impl RootView {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
                 match result {
-                    Ok(workspaces) => this.workspaces.adopt(workspaces),
+                    Ok(workspaces) => {
+                        this.workspaces.adopt(workspaces);
+                        this.ensure_navigation_data(cx);
+                        this.restore_workspace_state(cx);
+                    }
                     Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
                     Err(error) => this.workspaces.fail(&error),
                 }
@@ -155,9 +164,14 @@ impl RootView {
         workspace_id: &str,
         cx: &mut Context<Self>,
     ) {
+        let previous = self.workspaces.current_id().map(str::to_string);
+        if let Some(previous) = previous.as_deref() {
+            self.persist_workspace_state(previous);
+        }
         if self.workspaces.switch_to(workspace_id) {
             self.reset_workspace_data();
             self.navigate("/workspace");
+            self.restore_workspace_state(cx);
             self.workspace_menu_open = false;
             cx.notify();
         }
@@ -181,6 +195,8 @@ impl RootView {
         self.payment_generation = self.payment_generation.saturating_add(1);
         self.deposit_consent = false;
         self.reset_chat_local();
+        self.tabs.clear();
+        self.active_tab = None;
         self.review_event_keys.clear();
     }
 
@@ -322,6 +338,7 @@ impl RootView {
         self.chat.phase = ChatPhase::Starting;
         self.chat.messages.clear();
         self.chat.auto_prompted = false;
+        let requested_agent = self.chat.selected_agent.clone();
         let task = cx.background_executor().spawn(async move {
             let api = build_learning_host_api();
             let vault = build_learning_host_vault();
@@ -354,21 +371,34 @@ impl RootView {
                     node_found,
                 });
             }
-            let chosen = detected
-                .iter()
-                .find(|agent| {
-                    agent.entry.id == "omp" && matches!(agent.status, AgentStatus::Ready { .. })
-                })
-                .or_else(|| {
-                    detected
-                        .iter()
-                        .find(|agent| matches!(agent.status, AgentStatus::Ready { .. }))
-                })
-                .ok_or_else(|| ChatStartError {
-                    message: "no local agent ready".to_string(),
-                    detected: guidance.clone(),
-                    node_found: node_found.clone(),
-                })?;
+            let chosen = match requested_agent.as_deref() {
+                Some(requested) => detected
+                    .iter()
+                    .find(|agent| {
+                        agent.entry.id == requested
+                            && matches!(agent.status, AgentStatus::Ready { .. })
+                    })
+                    .ok_or_else(|| ChatStartError {
+                        message: format!("selected agent not ready: {requested}"),
+                        detected: guidance.clone(),
+                        node_found: node_found.clone(),
+                    })?,
+                None => detected
+                    .iter()
+                    .find(|agent| {
+                        agent.entry.id == "omp" && matches!(agent.status, AgentStatus::Ready { .. })
+                    })
+                    .or_else(|| {
+                        detected
+                            .iter()
+                            .find(|agent| matches!(agent.status, AgentStatus::Ready { .. }))
+                    })
+                    .ok_or_else(|| ChatStartError {
+                        message: "no local agent ready".to_string(),
+                        detected: guidance.clone(),
+                        node_found: node_found.clone(),
+                    })?,
+            };
             let lease = issue_lease(api.as_ref(), vault.as_ref(), &token, "cgc-desktop", epoch)
                 .map_err(|error| ChatStartError {
                     message: error.diagnostic(),
@@ -597,7 +627,11 @@ impl RootView {
         let Some(host) = &self.chat.host else {
             return;
         };
-        if !host.prompt(text.clone()) {
+        let prompt = match self.active_tab_context_note() {
+            Some(note) => format!("{note}\n\n{text}"),
+            None => text.clone(),
+        };
+        if !host.prompt(prompt) {
             self.chat.phase = ChatPhase::Failed("agent channel closed".to_string());
             return;
         }
@@ -1043,6 +1077,194 @@ impl RootView {
         cx.notify();
     }
 
+    /// 从 Site Tree 打开页面：同一个 path 只保留一个 Tab，并激活它。
+    pub(in crate::root_view) fn open_page_tab(
+        &mut self,
+        path: &str,
+        title: impl Into<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let tab = PaneTab::page(path, title);
+        self.open_tab(tab, cx);
+    }
+
+    /// 从 Outline / Site Tree 打开 issue 卡；同一门课同一张卡只保留一个 Tab。
+    pub(in crate::root_view) fn open_issue_tab(
+        &mut self,
+        course_id: &str,
+        issue_id: &str,
+        title: impl Into<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let tab = PaneTab::issue(course_id, issue_id, title);
+        self.open_tab(tab, cx);
+    }
+
+    fn open_tab(&mut self, tab: PaneTab, cx: &mut Context<Self>) {
+        self.state.open_tab(tab.clone());
+        self.chat.context_dismissed = false;
+        self.navigate(&tab.path);
+        self.persist_current_workspace_state();
+        cx.notify();
+    }
+
+    pub(in crate::root_view) fn activate_tab(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(tab) = self.tabs.iter().find(|tab| tab.id == id).cloned() else {
+            return;
+        };
+        self.active_tab = Some(tab.id.clone());
+        self.chat.context_dismissed = false;
+        self.navigate(&tab.path);
+        self.persist_current_workspace_state();
+        cx.notify();
+    }
+
+    pub(in crate::root_view) fn close_pane_tab(&mut self, id: &str, cx: &mut Context<Self>) {
+        let was_active = self.active_tab.as_deref() == Some(id);
+        if !self.state.close_tab(id) {
+            return;
+        }
+        if was_active {
+            match self
+                .active_tab
+                .as_deref()
+                .and_then(|active| self.tabs.iter().find(|tab| tab.id == active))
+                .map(|tab| tab.path.clone())
+            {
+                Some(path) => self.navigate(&path),
+                None => self.navigate("/workspace"),
+            }
+        }
+        self.persist_current_workspace_state();
+        cx.notify();
+    }
+
+    /// 当前 active Tab 若是 issue 卡，返回课程 id 与 issue id。
+    pub(in crate::root_view) fn active_issue_tab(&self) -> Option<(&str, &str)> {
+        let active = self.active_tab.as_deref()?;
+        let tab = self.tabs.iter().find(|tab| tab.id == active)?;
+        let issue_id = tab.issue_id.as_deref()?;
+        let course_id = tab
+            .path
+            .strip_prefix("/courses/")
+            .and_then(|rest| rest.strip_suffix("/learn"))?;
+        Some((course_id, issue_id))
+    }
+
+    fn persist_current_workspace_state(&self) {
+        if let Some(workspace_id) = self.workspaces.current_id() {
+            self.persist_workspace_state(workspace_id);
+        }
+    }
+
+    fn persist_workspace_state(&self, workspace_id: &str) {
+        let entry = crate::workspace_state::WorkspaceEntry {
+            tabs: self
+                .tabs
+                .iter()
+                .map(|tab| crate::workspace_state::PersistedTab {
+                    id: tab.id.clone(),
+                    title: tab.title.clone(),
+                    path: tab.path.clone(),
+                    issue_id: tab.issue_id.clone(),
+                })
+                .collect(),
+            active_tab: self.active_tab.clone(),
+            site_tree_events_open: self.site_tree_events_open,
+            site_tree_courses_open: self.site_tree_courses_open,
+        };
+        crate::workspace_state::save_entry(workspace_id, entry);
+    }
+
+    fn restore_workspace_state(&mut self, cx: &mut Context<Self>) {
+        let Some(workspace_id) = self.workspaces.current_id().map(str::to_string) else {
+            return;
+        };
+        let Some(entry) = crate::workspace_state::entry(&workspace_id) else {
+            return;
+        };
+        self.site_tree_events_open = entry.site_tree_events_open;
+        self.site_tree_courses_open = entry.site_tree_courses_open;
+        self.tabs = entry
+            .tabs
+            .into_iter()
+            .filter(|tab| {
+                matches!(
+                    self.registry.select(&tab.path),
+                    crate::routing::RouteSelection::Match(_)
+                )
+            })
+            .map(|tab| PaneTab {
+                id: tab.id,
+                title: tab.title,
+                path: tab.path,
+                issue_id: tab.issue_id,
+            })
+            .collect();
+        self.active_tab = entry
+            .active_tab
+            .filter(|active| self.tabs.iter().any(|tab| &tab.id == active))
+            .or_else(|| self.tabs.first().map(|tab| tab.id.clone()));
+        if let Some(path) = self
+            .active_tab
+            .as_deref()
+            .and_then(|active| self.tabs.iter().find(|tab| tab.id == active))
+            .map(|tab| tab.path.clone())
+        {
+            self.navigate(&path);
+        }
+        cx.notify();
+    }
+
+    /// Site Tree 的数据按需加载；只有进入已登录工作区后才调用。
+    pub(in crate::root_view) fn ensure_navigation_data(&mut self, cx: &mut Context<Self>) {
+        if !self.events_started {
+            self.start_events_load(cx, true);
+        }
+        if !self.courses_started {
+            self.start_courses_load(cx, true);
+        }
+    }
+
+    pub(in crate::root_view) fn toggle_site_tree_section(
+        &mut self,
+        section: SiteTreeSection,
+        cx: &mut Context<Self>,
+    ) {
+        match section {
+            SiteTreeSection::Events => {
+                self.site_tree_events_open = !self.site_tree_events_open;
+                if self.site_tree_events_open && !self.events_started {
+                    self.start_events_load(cx, true);
+                }
+            }
+            SiteTreeSection::Courses => {
+                self.site_tree_courses_open = !self.site_tree_courses_open;
+                if self.site_tree_courses_open && !self.courses_started {
+                    self.start_courses_load(cx, true);
+                }
+            }
+        }
+        self.persist_current_workspace_state();
+        cx.notify();
+    }
+
+    /// 打开指定右栏 panel；已打开且是同一个 panel 时收起（Zed 图标语义）。
+    pub(in crate::root_view) fn toggle_right_panel(
+        &mut self,
+        panel: RightPanel,
+        cx: &mut Context<Self>,
+    ) {
+        let (panel, open) =
+            state::toggled_right_panel(self.right_panel, self.right_panel_open, panel);
+        self.right_panel = panel;
+        self.right_panel_open = open;
+        if open && panel == RightPanel::SiteTree {
+            self.ensure_navigation_data(cx);
+        }
+        cx.notify();
+    }
+
     pub(in crate::root_view) fn is_agent_panel_shortcut(keystroke: &Keystroke) -> bool {
         keystroke.key.eq_ignore_ascii_case("j")
             && !keystroke.modifiers.shift
@@ -1057,6 +1279,17 @@ impl RootView {
     ) {
         if Self::is_agent_panel_shortcut(&event.keystroke) {
             self.toggle_agent_panel(cx);
+            return;
+        }
+        if (event.keystroke.modifiers.platform || event.keystroke.modifiers.control)
+            && event.keystroke.key.eq_ignore_ascii_case("b")
+        {
+            let panel = if event.keystroke.modifiers.shift {
+                RightPanel::Outline
+            } else {
+                RightPanel::SiteTree
+            };
+            self.toggle_right_panel(panel, cx);
             return;
         }
         if Self::is_settings_shortcut(&event.keystroke) {
@@ -1555,6 +1788,48 @@ impl RootView {
     pub(in crate::root_view) fn retry_events(&mut self, cx: &mut Context<Self>) {
         self.events.retry_ready();
         self.start_events_load(cx, true);
+    }
+
+    pub(in crate::root_view) fn toggle_chat_agent_menu(&mut self, cx: &mut Context<Self>) {
+        self.chat.agent_menu_open = !self.chat.agent_menu_open;
+        cx.notify();
+    }
+
+    pub(in crate::root_view) fn select_chat_agent(
+        &mut self,
+        id: String,
+        display_name: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.chat.selected_agent = Some(id);
+        self.chat.agent = display_name;
+        self.chat.agent_menu_open = false;
+        self.chat.phase = ChatPhase::Idle;
+        self.chat.host = None;
+        self.chat.lease = None;
+        self.chat.messages.clear();
+        self.chat.session_id = None;
+        self.chat.auto_prompted = false;
+        self.start_chat(cx);
+    }
+
+    pub(in crate::root_view) fn dismiss_chat_context(&mut self, cx: &mut Context<Self>) {
+        self.chat.context_dismissed = true;
+        cx.notify();
+    }
+
+    /// 发消息时给 agent 的当前卡上下文（用户移除芯片后不再注入）。
+    fn active_tab_context_note(&self) -> Option<String> {
+        if self.chat.context_dismissed {
+            return None;
+        }
+        let active = self.active_tab.as_deref()?;
+        let tab = self.tabs.iter().find(|tab| tab.id == active)?;
+        tab.issue_id.as_ref()?;
+        Some(format!(
+            "[当前学习上下文] 正在阅读：{} ({})。回答时优先结合这张 issue 卡。",
+            tab.title, tab.id
+        ))
     }
 
     pub(in crate::root_view) fn ensure_key_focus(&mut self, cx: &mut Context<Self>) -> FocusHandle {

@@ -218,3 +218,6 @@ events.participations.kind_course
 events.participations.view
 events.participations.check_in
 account.workspace.overview
+workspace.site_tree.title
+workspace.outline.title
+courses.learning.ungrouped
