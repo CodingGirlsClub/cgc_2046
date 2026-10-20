@@ -146,7 +146,7 @@ defmodule Cgc2046.Payments.Order do
     attribute(:refunded_at, :utc_datetime, public?: true, writable?: false)
     attribute(:cancel_reason, :string, public?: true, writable?: false)
 
-    create_timestamp(:inserted_at)
+    create_timestamp(:inserted_at, public?: true)
     update_timestamp(:updated_at)
   end
 
@@ -194,6 +194,93 @@ defmodule Cgc2046.Payments.Order do
       public?(true)
       description("报名人邮箱（管理面识别付款人）")
       calculation(expr(enrollment.user.email))
+    end
+
+    # ── 管理面身份锚点（2c：掩码手机 + 会员号；display_name 仅为可选附加）──
+    #
+    # learner_phone_raw 私有：phone 是 sensitive 字段，GraphQL 出口只有掩码版。
+    # expr 关系路径与 learner_email 同形（数据层 join，不经 User read policy）。
+    calculate :learner_name, :string do
+      filterable?(false)
+      sortable?(false)
+      public?(true)
+      description("报名人展示名（可选附加，非身份锚点）")
+      calculation(expr(enrollment.user.display_name))
+    end
+
+    calculate :learner_phone_raw, :string do
+      calculation(expr(enrollment.user.phone))
+    end
+
+    calculate :learner_phone_masked, :string do
+      filterable?(false)
+      sortable?(false)
+      public?(true)
+      description("报名人手机号掩码（身份锚点；不含完整号码）")
+      load([:learner_phone_raw])
+
+      calculation(fn orders, _opts ->
+        Enum.map(orders, &Cgc2046.Accounts.PhoneNumber.mask(&1.learner_phone_raw))
+      end)
+    end
+
+    # enrollment 无 GraphQL 对象类型（generate_object? false），报名人 id 只能
+    # 经计算字段下钻；会员号从 user_id 现算，零 JOIN（同 MemberNumberOf 先例）。
+    calculate :learner_user_id, :uuid do
+      calculation(expr(enrollment.user_id))
+    end
+
+    calculate :learner_member_number, :string do
+      filterable?(false)
+      sortable?(false)
+      public?(true)
+      description("报名人会员编号（由 user id 确定性生成，非敏感）")
+      load([:learner_user_id])
+      calculation({Cgc2046.Events.Calculations.MemberNumberOf, field: :learner_user_id})
+    end
+
+    # 订单上下文的活动标题：显示供给物**现值**（活动改名后仍能定位到活动），
+    # 与 tier_name 的「下单快照」语义不同（金额相关才用快照）。批量取消
+    # N+1；不回退 submission_payload 快照（订单要指向当前对象）。
+    calculate :offering_title, :string do
+      filterable?(false)
+      sortable?(false)
+      public?(true)
+      description("订单所属活动/课程现值标题")
+      load([:workspace_id, :event_id, :course_id])
+
+      calculation(fn orders, _opts ->
+        titles =
+          orders
+          |> grouped_offering_ids()
+          |> Enum.reduce(%{}, fn {workspace_id, ids_by_kind}, acc ->
+            Map.merge(acc, Cgc2046.Offering.fetch_titles_by_ids(ids_by_kind, workspace_id))
+          end)
+
+        Enum.map(orders, fn order ->
+          Map.get(titles, order.event_id || order.course_id, "报名项目")
+        end)
+      end)
+    end
+
+    calculate :offering_kind, :string do
+      filterable?(false)
+      sortable?(false)
+      public?(true)
+      description("订单所属供给物类型（event | course）")
+      load([:event_id])
+
+      calculation(fn orders, _opts ->
+        Enum.map(orders, fn order -> if order.event_id, do: "event", else: "course" end)
+      end)
+    end
+
+    calculate :enrollment_inserted_at, :utc_datetime do
+      filterable?(false)
+      sortable?(false)
+      public?(true)
+      description("报名时间（报名人加入项目的时点）")
+      calculation(expr(enrollment.inserted_at))
     end
 
     # U4 活动维度（KTD2）：enrollment 无 GraphQL 对象类型（generate_object?
@@ -693,6 +780,21 @@ defmodule Cgc2046.Payments.Order do
   end
 
   # ── 建单（U1：从 enrollment 派生租户；定价/占位语义随 U2/U3 落地）────────
+
+  # 计算字段批量取标题的输入形状：`{workspace_id, %{event: ids, course: ids}}`。
+  # 与 Enrollment.grouped_ids_by_kind/1、PendingApprovals.load_offering_titles/1
+  # 同构（per-kind per-tenant 批量读，消 N+1）。
+  defp grouped_offering_ids(orders) do
+    orders
+    |> Enum.group_by(& &1.workspace_id)
+    |> Enum.map(fn {workspace_id, rows} ->
+      {workspace_id,
+       %{
+         event: rows |> Enum.map(& &1.event_id) |> Enum.reject(&is_nil/1) |> Enum.uniq(),
+         course: rows |> Enum.map(& &1.course_id) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+       }}
+    end)
+  end
 
   defp prepare_create(changeset) do
     enrollment_id = Ash.Changeset.get_attribute(changeset, :enrollment_id)
