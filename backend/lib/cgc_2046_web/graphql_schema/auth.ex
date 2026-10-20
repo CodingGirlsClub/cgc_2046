@@ -126,7 +126,10 @@ defmodule Cgc2046Web.GraphqlSchema.Auth do
                    }}
 
                 {:error, reason} ->
-                  Logger.error("signInWithPhoneCodeForDesktop token generation failed: #{inspect(reason)}")
+                  Logger.error(
+                    "signInWithPhoneCodeForDesktop token generation failed: #{inspect(reason)}"
+                  )
+
                   {:error, message: "Sign in failed", code: "authentication_failed"}
               end
 

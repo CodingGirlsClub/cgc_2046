@@ -627,6 +627,7 @@ defmodule Cgc2046Web.GraphqlPhoneCodeTest do
   describe "signInWithPhoneCodeForDesktop（第一方桌面 token）" do
     test "正确码返回 Bearer JWT 且不写 cookie；token 可访问受保护查询" do
       code = issue_and_get_code("+8613800138009", :login)
+
       query = """
       mutation {
         signInWithPhoneCodeForDesktop(phone: "13800138009", code: "#{code}") {
@@ -637,10 +638,10 @@ defmodule Cgc2046Web.GraphqlPhoneCodeTest do
         }
       }
       """
-  
+
       conn = graphql_post(build_conn(), query)
       body = json_response(conn, 200)
-  
+
       assert %{"data" => %{"signInWithPhoneCodeForDesktop" => result}} = body
       token = result["token"]
       assert is_binary(token)
@@ -648,17 +649,17 @@ defmodule Cgc2046Web.GraphqlPhoneCodeTest do
       assert is_binary(result["userId"])
       assert is_boolean(result["isPlatformAdmin"])
       refute conn.resp_cookies["cgc_token"]
-  
+
       protected =
         build_conn()
         |> put_req_header("authorization", "Bearer #{token}")
         |> put_req_header("content-type", "application/json")
         |> post("/api/graphql", %{"query" => "{ myLearningRuns { runId status } }"})
         |> json_response(200)
-  
+
       refute Map.has_key?(protected, "errors"), "desktop token must authenticate"
     end
-  
+
     test "错误码返回 invalid_or_expired_code，不签发 token" do
       query = """
       mutation {
@@ -667,7 +668,7 @@ defmodule Cgc2046Web.GraphqlPhoneCodeTest do
         }
       }
       """
-  
+
       body = graphql_post(build_conn(), query) |> json_response(200)
       assert %{"errors" => [%{"code" => "invalid_or_expired_code"}]} = body
     end
