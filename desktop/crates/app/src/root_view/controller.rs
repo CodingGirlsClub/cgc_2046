@@ -207,6 +207,8 @@ impl RootView {
         self.active_tab = None;
         self.site_tree_query.clear();
         self.site_tree_course_open = None;
+        self.site_tree_scroll = ScrollHandle::new();
+        self.site_tree_scroll_restore = None;
         self.review_event_keys.clear();
     }
 
@@ -1219,6 +1221,7 @@ impl RootView {
             site_tree_query: self.site_tree_query.clone(),
             right_panel_width: self.right_panel_width,
             site_tree_course_open: self.site_tree_course_open.clone(),
+            site_tree_scroll_y: self.site_tree_scroll.offset().y.as_f32(),
         };
         crate::workspace_state::save_entry(workspace_id, entry);
     }
@@ -1235,6 +1238,8 @@ impl RootView {
         self.site_tree_query = entry.site_tree_query;
         self.right_panel_width = entry.right_panel_width;
         self.site_tree_course_open = entry.site_tree_course_open;
+        self.site_tree_scroll = ScrollHandle::new();
+        self.site_tree_scroll_restore = Some(entry.site_tree_scroll_y);
         let stored_tab_count = entry.tabs.len();
         self.tabs = entry
             .tabs

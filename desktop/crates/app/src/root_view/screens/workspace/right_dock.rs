@@ -23,6 +23,12 @@ pub(in crate::root_view) fn render_right_dock(
         RightPanel::SiteTree => AssetIcon::FolderOpen,
         RightPanel::Outline => AssetIcon::FileText,
     };
+    if panel == RightPanel::SiteTree {
+        if let Some(offset) = ctx.site_tree_scroll_restore.take() {
+            ctx.site_tree_scroll
+                .set_offset(gpui::point(px(0.0), px(offset)));
+        }
+    }
     let body = match panel {
         RightPanel::SiteTree => render_site_tree(ctx, language, palette, cx),
         RightPanel::Outline => render_outline(ctx, language, palette, cx),
@@ -93,6 +99,7 @@ pub(in crate::root_view) fn render_right_dock(
                 .flex_1()
                 .min_h(px(0.0))
                 .overflow_y_scroll()
+                .track_scroll(&ctx.site_tree_scroll)
                 .p(space(1))
                 .text_size(px(12.0))
                 .text_color(palette.ink_2)
