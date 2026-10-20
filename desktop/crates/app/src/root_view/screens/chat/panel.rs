@@ -585,6 +585,21 @@ pub(in crate::root_view) fn render_chat_panel(
             })
             .collect::<Vec<_>>();
         let mut rows = rows;
+        if rows.is_empty() {
+            rows.push(
+                div()
+                    .px(space(1))
+                    .py(px(3.0))
+                    .text_size(px(10.0))
+                    .text_color(palette.ink_3)
+                    .child(if ctx.agent_registry_loading {
+                        "检测本机 agent…"
+                    } else {
+                        "没有已安装的 agent"
+                    })
+                    .into_any_element(),
+            );
+        }
         rows.push(
             div()
                 .id("chat-agent-add-more")

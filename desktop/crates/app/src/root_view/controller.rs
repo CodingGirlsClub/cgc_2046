@@ -2028,6 +2028,9 @@ impl RootView {
 
     pub(in crate::root_view) fn toggle_chat_agent_menu(&mut self, cx: &mut Context<Self>) {
         self.chat.agent_menu_open = !self.chat.agent_menu_open;
+        if self.chat.agent_menu_open && !self.agent_registry_started {
+            self.start_agent_registry_load(cx);
+        }
         cx.notify();
     }
 
