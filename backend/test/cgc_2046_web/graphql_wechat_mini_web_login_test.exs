@@ -188,6 +188,32 @@ defmodule Cgc2046Web.GraphqlWechatMiniWebLoginTest do
     )
   end
 
+  # 生产前端在 apex 与 www 两个 host 同时提供服务（web/config/deploy.yml），
+  # 浏览器从 www 页面发起的同源请求必须与 apex 等同信任，否则二维码区直接报失败。
+  test "the www alias of the configured site is a trusted browser origin" do
+    base = Application.fetch_env!(:cgc_2046, :web_base_url) |> URI.parse()
+    www = URI.to_string(%URI{base | host: "www." <> base.host})
+    body = http(@start, %{}, nil, www) |> json_response(200)
+    refute body["errors"], inspect(body)
+    assert body["data"]["wechatMiniWebLoginStart"]["status"] == "PENDING"
+  end
+
+  test "a www-configured site trusts its bare-domain alias" do
+    original = Application.fetch_env!(:cgc_2046, :web_base_url)
+    base = URI.parse(original)
+    on_exit(fn -> Application.put_env(:cgc_2046, :web_base_url, original) end)
+
+    Application.put_env(
+      :cgc_2046,
+      :web_base_url,
+      URI.to_string(%URI{base | host: "www." <> base.host})
+    )
+
+    body = http(@start, %{}, nil, URI.to_string(base)) |> json_response(200)
+    refute body["errors"], inspect(body)
+    assert body["data"]["wechatMiniWebLoginStart"]["status"] == "PENDING"
+  end
+
   test "no implicit replacement of a different existing browser account" do
     {_, mini_token} = account()
     {other, _} = account()
