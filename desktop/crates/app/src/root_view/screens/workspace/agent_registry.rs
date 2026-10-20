@@ -19,6 +19,9 @@ pub(in crate::root_view) fn render_agent_registry(
     let search_focused = ctx.agent_registry_search_focused;
     let rows = rows
         .into_iter()
+        // v1 Registry 只提供签名清单里的 npx agent；OMP 是 BYO native，仍在
+        // Agent 选择器/运行路径里支持，但不进入“安装”列表。
+        .filter(|row| is_registry_installable(&row.entry))
         .filter(|row| match filter {
             AgentRegistryFilter::All => true,
             AgentRegistryFilter::Installed => matches!(row.status, AgentStatus::Ready { .. }),
@@ -270,4 +273,29 @@ pub(in crate::root_view) fn render_agent_registry(
         }))
         .child(body)
         .into_any_element()
+}
+
+fn is_registry_installable(entry: &cgc_platform::registry::manifest::AgentEntry) -> bool {
+    matches!(
+        entry.distribution,
+        cgc_platform::registry::manifest::Distribution::Npx { .. }
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_registry_installable;
+    use cgc_platform::registry::manifest::Registry;
+
+    #[test]
+    fn only_npx_agents_are_registry_installable() {
+        let registry = Registry::builtin().expect("registry");
+        assert!(!is_registry_installable(registry.get("omp").expect("omp")));
+        assert!(is_registry_installable(
+            registry.get("codex").expect("codex")
+        ));
+        assert!(is_registry_installable(
+            registry.get("claude_code").expect("claude")
+        ));
+    }
 }

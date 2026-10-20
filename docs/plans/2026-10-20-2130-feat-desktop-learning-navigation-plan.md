@@ -14,9 +14,9 @@ execution: code
 
 - **Objective:** 学员可以在一个窗口里完成“找内容 → 读卡片 → 问 agent”的完整学习循环：用 Site Tree 在应用里导航，用 Contextual Outline 在课程里切换 issue 卡，中间用 Tabs 保留多个页面，左侧用自己已安装的 agent 学习。
 - **Means:** 采用 Zed 式 Dock/Pane 模型：左侧 Agent Dock；中间 Pane + Tabs；右侧一个 Dock 放 Site Tree 与 Contextual Outline 两个互斥 panel，底部用两个独立图标切换；Agent Registry 作为中心 Pane 的一个 tab 打开。
-- **Authority:** 2026-10-20 对话中用户确认的产品决策：完整一期；两个右栏 panel 互斥；Site Tree 是完整数据实例树；懒加载、搜索、记忆；所有叶子开 tab；tabs 按 workspace 保留并重启恢复；未报名课程可见但锁定；Agent 全局跟随 active tab；第一版只安装 3 个已验证 agent。
+- **Authority:** 2026-10-20 对话中用户确认的产品决策：完整一期；两个右栏 panel 互斥；Site Tree 是完整数据实例树；懒加载、搜索、记忆；所有叶子开 tab；tabs 按 workspace 保留并重启恢复；未报名课程可见但锁定；Agent 全局跟随 active tab；Registry v1 只安装 Codex/Claude Code，OMP 作为 BYO native agent 保留在运行/选择路径。
 - **Execution profile:** 一个端到端特性，按可独立验收的切片推进：导航壳与面板 → Site Tree/Outline → Tabs 与恢复 → Agent Panel/Registry → 安装流程与验收。
-- **Open blockers:** 无阻塞需求确认；OpenCode 的 ACP 安装包与校验和尚未验证，第一版不承诺其安装。
+- **Open blockers:** 无阻塞需求确认；OMP 的安装来源不由客户端提供（2026-10-21 决策：OMP 移出 v1 Registry，仅作为用户自装 native agent 检测/启动）；OpenCode 的 ACP 安装包与校验和尚未验证，第一版不承诺其安装。
 
 ---
 
@@ -41,9 +41,9 @@ execution: code
 - **Tabs 按 workspace 保留并在重启后恢复。** 失效或无权限的 tab 在恢复时清理并提示。 (session-settled: user-directed — chosen over 仅本次运行/全局共享：用户选择按 workspace 持久化。) Governs R18, R19, R30, R31.
 - **Agent Panel 在左侧且全局；active tab 作为可见上下文芯片。** 切 tab 不重建线程；芯片可手动移除。 (session-settled: user-directed — chosen over 每 tab 独立线程/纯手动挂上下文。) Governs R21, R27.
 - **未报名课程保留在 Site Tree，但不可展开 outline。** 显示未报名/锁定标记，点击打开课程详情。 (session-settled: user-directed — chosen over 隐藏未报名课程/允许展开全部。) Governs R9, R14.
-- **第一版只一键安装 3 个已验证 agent。** OMP、Codex、Claude Code 走签名清单；OpenCode 验证后再加入。 (session-settled: user-directed — chosen over 四家同期/只做手动安装。) Governs R24–R26.
+- **Registry v1 只一键安装 Codex/Claude Code。** OMP 是 native/BYO，保留在 Agent 选择与运行路径，但不出现在 Registry 安装列表；OpenCode 验证后再加入。 (session-settled: user-directed — 2026-10-21 用户选择 v1 移除 OMP：官方 OMP 安装是 curl/native，当前签名 manifest 没有安装来源，不能诚实地“一键安装”。) Governs R24–R26.
 - **面包屑负责“我在哪”，Site Tree 负责“我能去哪”。** 面包屑跟随 active tab，不与 Site Tree 重复承担导航职责。 (session-settled: user-approved — 用户在 scoping synthesis 确认该分工。) Governs R29.
-- **Agent 安装只来自内置签名清单。** 官方 ACP registry 只作发现层，未验证条目不能进入安装按钮。 (session-settled: user-approved — 沿用 ADR-0026 信任模型；用户确认 3 个已验证 agent 范围。) Governs R25.
+- **Agent 安装只来自内置签名清单。** 官方 ACP registry 只作发现层，未验证条目不能进入安装按钮。 (session-settled: user-approved — 沿用 ADR-0026 信任模型；2026-10-21 用户确认 v1 移除 OMP 安装项。) Governs R25.
 
 ### Actors
 
@@ -103,8 +103,8 @@ flowchart LR
 - R22. Agent Panel 的 `+` 菜单列出本机已安装且可用的 agent；选择一个 agent 新建 thread；没有可用 agent 时显示安装入口。
 - R23. `Add More Agents` 在中心 Pane 打开或复用 Agent Registry tab，不使用弹窗。
 - R24. Agent Registry 页面展示可安装/已安装状态、版本、登录或不可用原因；支持搜索与 All/Installed/Not installed 过滤。
-- R25. Registry 的安装按钮只对签名清单中的条目出现；安装过程显示进度、成功、失败和重试；未验证条目只显示说明，不提供安装。
-- R26. 第一版 Registry 至少包含 OMP、Codex、Claude Code；OpenCode 未验证前不得作为可安装项出现。
+- R25. Registry 的安装按钮只对签名清单中的 npx 条目出现；安装过程显示进度、成功、失败和重试；未验证条目只显示说明，不提供安装。
+- R26. 第一版 Registry 包含 Codex、Claude Code；OMP 作为 BYO native agent 保留在 Agent 选择器，但不出现为可安装项；OpenCode 未验证前不得作为可安装项出现。
 - R27. active Tab 作为上下文芯片显示在 Agent Panel；学员可移除芯片；切 tab 时芯片更新但不自动新建 thread。
 - R28. 无可用 agent、agent 未登录、启动失败、安装失败都必须给出可执行的下一步，不只显示错误。
 
@@ -150,14 +150,14 @@ flowchart LR
 - AE4. Tabs：从树打开活动详情、课程详情和 issue 卡，得到 3 个 tab；重复打开同一 issue 不新增 tab；关闭 active tab 后相邻 tab 激活。**Covers R16, R17.**
 - AE5. 重启恢复：打开 2 个 tab 后重启，两个 tab 恢复；切到另一个 workspace 后看到另一套 tab；删除资源的 tab 被清理并提示。**Covers R18, R19, R30.**
 - AE6. Agent 上下文：从卡 A 切到卡 B，agent 芯片从 A 更新为 B；手动移除芯片后不再自动加回；切 tab 不重建 thread。**Covers R20, R27.**
-- AE7. 无 agent：本机没有安装任何 agent 时，`+` 菜单给安装入口；`Add More Agents` 打开 Registry tab；安装 OMP/Codex/Claude Code 后能新建 thread。**Covers R22–R26, R28.**
+- AE7. 无 agent：本机没有安装任何 agent 时，`+` 菜单给安装入口；`Add More Agents` 打开 Registry tab；安装 Codex 或 Claude Code 后能新建 thread；OMP 若已由用户自装则出现在 Agent 选择器，但不在 Registry 安装列表。**Covers R22–R26, R28.**
 - AE8. 授权变化：未报名课程变为可报名后 Outline 可用；失去 workspace 权限时对应 tree、tab 和 thread 不再展示。**Covers R9, R19, R30.**
 
 ### Success Criteria
 
 - 学员可以在一个窗口内完成“从 Site Tree 找课程 → 打开 3 张卡 → 在 tab 间切换 → 向 agent 提问”，全程不回列表页。
 - Site Tree 与 Outline 的图标/面板状态一眼可辨；右栏同一时间只有一个 panel，中心 Pane 不被压到不可用。
-- 3 个已验证 agent 可以从 Registry 安装并开始 thread；无 agent 的学员不会卡在空白或不可解释的错误。
+- 2 个可安装 agent（Codex、Claude Code）可以从 Registry 安装并开始 thread；OMP 自装用户能在 Agent 选择器看到它；无 agent 的学员不会卡在空白或不可解释的错误。
 - Tabs 按 workspace 恢复，失效资源有提示；不出现跨 workspace 混用或未授权课程 outline。
 
 ### Scope Boundaries
@@ -181,8 +181,8 @@ flowchart LR
 ### Dependencies / Assumptions
 
 - 课程内容已具备 chapters、issues、`chapter_id`、story/objective 元数据；桌面端当前解析器会丢弃这些字段，实施时必须先补齐消费面。
-- 内置签名 agent 清单当前只有 OMP、Codex、Claude Code；`opencode` 不在清单内。
-- Agent 一键安装目前尚未实现，只有签名清单与 Node runtime 安装；Registry 安装器是本期净新增能力。
+- 内置签名 agent 清单当前包含 OMP、Codex、Claude Code；v1 Registry 只把 npx 的 Codex/Claude Code 作为可安装项，OMP 仅作 native 检测/启动；`opencode` 不在清单内。
+- Agent 一键安装当前只实现 npx 预热/验证；OMP 的 native 安装来源不在签名 manifest 内，因此不提供客户端安装。
 - 当前 Desktop 是单页路由 + 固定右 Agent 栏，没有 Pane/Tab/Dock 模型；三栏与多 tab 是净新增壳层。
 - Agent 当前上下文只到 course 级，未到 issue 卡；active tab 上下文需要扩展 ACP 上下文下发。
 - 各 agent 在 macOS/Windows/Linux 的安装方式、登录方式和 ACP 兼容性需要在实施前逐项验证；第一版安装只在验证通过的平台开放。
@@ -190,7 +190,7 @@ flowchart LR
 ### Outstanding Questions
 
 - `Resolve Before Planning`：无。OpenCode 已明确排除在第一版安装范围之外。
-- `Deferred to Planning`：三个已验证 agent 在 Windows/Linux 的安装与登录流程是否同构；如果不同构，按平台降级而不是阻塞 macOS。
+- `Deferred to Planning`：Codex/Claude Code 在 Windows/Linux 的安装与登录流程是否同构；如果不同构，按平台降级而不是阻塞 macOS。
 - `Deferred to Planning`：Tab 的预览/pin/关闭快捷键是否在第一版后立即补；本计划只要求常驻 Tab。
 
 ### Sources / Research
@@ -277,10 +277,10 @@ flowchart TB
   - **Tests:** installed/missing/outdated 菜单；选择/切换 agent；上下文芯片增删；切 tab 不重建；启动失败提示。
   - **Verification:** HITL 用 OMP/Codex 真实安装与未安装两种环境。
 - U7. Agent Registry page and installer
-  - **Goal:** `Add More Agents` 打开/复用中心 Registry tab；列出 3 个已验证 agent；安装进度与失败可重试；OpenCode 不出现为可安装项。
+  - **Goal:** `Add More Agents` 打开/复用中心 Registry tab；列出 Codex/Claude Code 两个可安装 npx agent；OMP 仍可在 Agent 选择器检测/启动但不进 Registry；安装失败可重试；OpenCode 不出现为可安装项。
   - **Files:** `root_view/screens/workspace/agent_registry.rs`（新增）、`platform/registry/install.rs`（实现）、`platform/registry/manifest.rs` 消费、相关资源签名。
   - **Pattern:** installer 只接受 `Registry::builtin()` 条目；native/npx 两种分发；Node runtime 复用；所有副作用可取消/报错；不读第三方凭证。
-  - **Tests:** fake installer 成功/失败/取消；签名失败 fail-closed；未安装→安装→检测；OpenCode 不在安装列表；Registry 页面搜索/过滤。
+  - **Tests:** fake installer 成功/失败/取消；签名失败 fail-closed；未安装→安装→检测；OMP/OpenCode 不在安装列表；Registry 页面搜索/过滤。
   - **Verification:** `cargo test -p cgc-platform`；HITL 在干净用户目录安装一次（不提交凭证）。
 - U8. Acceptance and regression
   - **Goal:** 用 HITL 覆盖 F1–F5 与 AE1–AE8；补关键状态测试；产出验收截图与缺口清单。
@@ -308,7 +308,7 @@ flowchart TB
 | HITL 树 | 展开活动/课程、搜索、切 workspace、重启 | 懒加载、锁定标记、恢复位置 |
 | HITL Tabs | 打开活动/课程/issue 多 tab、关闭、重启 | 去重、相邻激活、恢复/清理 |
 | HITL Agent | `+` 菜单、选择 agent、切 tab | 上下文芯片更新、thread 不重建 |
-| HITL Registry | 安装 3 个 agent、失败/重试 | 进度可见、签名失败不安装、OpenCode 不可安装 |
+| HITL Registry | 安装 Codex/Claude Code、失败/重试 | 进度可见、签名失败不安装、OMP/OpenCode 不可安装 |
 | 权限 | 未报名课程、失去 workspace 权限 | 不展开 outline、不显示未授权内容 |
 
 ### Definition of Done
