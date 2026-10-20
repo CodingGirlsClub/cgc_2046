@@ -3032,8 +3032,11 @@ impl Render for RootView {
                                 ),
                         )
                         .children(
-                            self.agent_panel_open
-                                .then(|| self.render_agent_panel(language, &palette, cx)),
+                            (self.agent_panel_open
+                                && self.current.as_ref().is_some_and(|route_match| {
+                                    route_match.route.id == "courses.learning"
+                                }))
+                            .then(|| self.render_agent_panel(language, &palette, cx)),
                         ),
                 )
                 .child(self.render_footer(
