@@ -198,6 +198,22 @@ defmodule Cgc2046Web.GraphqlWechatMiniWebLoginTest do
     assert body["data"]["wechatMiniWebLoginStart"]["status"] == "PENDING"
   end
 
+  test "a www-configured site trusts its bare-domain alias" do
+    original = Application.fetch_env!(:cgc_2046, :web_base_url)
+    base = URI.parse(original)
+    on_exit(fn -> Application.put_env(:cgc_2046, :web_base_url, original) end)
+
+    Application.put_env(
+      :cgc_2046,
+      :web_base_url,
+      URI.to_string(%URI{base | host: "www." <> base.host})
+    )
+
+    body = http(@start, %{}, nil, URI.to_string(base)) |> json_response(200)
+    refute body["errors"], inspect(body)
+    assert body["data"]["wechatMiniWebLoginStart"]["status"] == "PENDING"
+  end
+
   test "no implicit replacement of a different existing browser account" do
     {_, mini_token} = account()
     {other, _} = account()

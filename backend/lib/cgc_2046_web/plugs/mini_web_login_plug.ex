@@ -39,7 +39,7 @@ defmodule Cgc2046Web.Plugs.MiniWebLoginPlug do
 
   defp trusted_origin?(_), do: false
 
-  defp site_hosts("www." <> _ = host), do: [host]
+  defp site_hosts("www." <> bare = host), do: [host, bare]
   defp site_hosts(host), do: [host, "www." <> host]
 
   defp verified_claims(%{assigns: %{current_user: %Cgc2046.Accounts.User{} = user}} = conn) do
