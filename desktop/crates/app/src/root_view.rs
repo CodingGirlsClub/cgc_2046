@@ -1465,7 +1465,7 @@ fn course_row(
                 .child(status_label(language, course.status.as_str())),
         )
         .on_click(cx.listener(move |this, _, _, cx| {
-            this.navigate_to_course_detail(&course_id);
+            this.navigate_to_course_detail(&course_id, cx);
             cx.notify();
         }))
         .into_any_element()

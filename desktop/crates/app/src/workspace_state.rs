@@ -28,8 +28,8 @@ impl Default for WorkspaceEntry {
         Self {
             tabs: Vec::new(),
             active_tab: None,
-            site_tree_events_open: true,
-            site_tree_courses_open: true,
+            site_tree_events_open: false,
+            site_tree_courses_open: false,
             site_tree_query: String::new(),
             right_panel_width: 288.0,
         }
@@ -79,11 +79,11 @@ pub(crate) fn load() -> WorkspaceState {
                 site_tree_events_open: entry
                     .get("site_tree_events_open")
                     .and_then(Value::as_bool)
-                    .unwrap_or(true),
+                    .unwrap_or(false),
                 site_tree_courses_open: entry
                     .get("site_tree_courses_open")
                     .and_then(Value::as_bool)
-                    .unwrap_or(true),
+                    .unwrap_or(false),
                 site_tree_query: entry
                     .get("site_tree_query")
                     .and_then(Value::as_str)

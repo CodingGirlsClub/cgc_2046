@@ -254,6 +254,13 @@ fn render_site_tree(
     if show_courses {
         for (id, title) in courses {
             let is_expanded = expanded_course.as_deref() == Some(id.as_str());
+            let enrollment_known = ctx.course_enrollments.contains_key(&id);
+            let is_enrolled = ctx
+                .course_enrollments
+                .get(&id)
+                .and_then(|status| status.as_deref())
+                .is_some();
+            let unenrolled = enrollment_known && !is_enrolled;
             let title_for_click = title.clone();
             let course_id_for_toggle = id.clone();
             let path = format!("/courses/{id}");
@@ -288,6 +295,12 @@ fn render_site_tree(
                         })),
                 )
                 .child(div().flex_1().child(title))
+                .children(unenrolled.then(|| {
+                    div()
+                        .text_size(px(9.0))
+                        .text_color(palette.ink_3)
+                        .child("未报名")
+                }))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.open_page_tab(&path, title_for_click.clone(), cx);
                 }));

@@ -135,7 +135,7 @@ pub(in crate::root_view) fn render_events_list(
                                 )),
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.navigate_to_event_detail(&event.id);
+                            this.navigate_to_event_detail(&event.id, cx);
                             cx.notify();
                         }))
                         .into_any_element()

@@ -99,7 +99,7 @@ pub(in crate::root_view) fn render_participations(
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(event_id) = event_id.as_deref() {
-                            this.navigate_to_event_detail(event_id);
+                            this.navigate_to_event_detail(event_id, cx);
                         } else if let Some(course_id) = course_id.as_deref() {
                             this.navigate(&format!("/courses/{course_id}"));
                         }

@@ -130,6 +130,12 @@ pub trait CoursesApi: Send + Sync {
         first: u32,
     ) -> Result<CoursePage, CoursesError>;
     fn get_course(&self, token: Option<&str>, id: &str) -> Result<CourseDetail, CoursesError>;
+    /// 课程报名状态；未报名返回 None（不把 404/权限错误当未报名以外的事实）。
+    fn get_my_enrollment_status(
+        &self,
+        token: Option<&str>,
+        course_id: &str,
+    ) -> Result<Option<String>, CoursesError>;
     /// 已发布课程正文；未报名 / 课程不存在 / 未发布 → `CoursesError::NotFound`。
     fn get_course_content(
         &self,
@@ -311,6 +317,27 @@ impl CoursesApi for HttpCoursesApi {
         })
     }
 
+    fn get_my_enrollment_status(
+        &self,
+        token: Option<&str>,
+        course_id: &str,
+    ) -> Result<Option<String>, CoursesError> {
+        let payload = self
+            .client
+            .post(
+                token,
+                MY_ENROLLMENT_QUERY,
+                json!({ "offeringId": course_id }),
+            )
+            .map_err(CoursesError::from)?;
+        Ok(payload
+            .get("data")
+            .and_then(|data| data.get("myEnrollment"))
+            .and_then(|enrollment| enrollment.get("status"))
+            .and_then(Value::as_str)
+            .map(str::to_string))
+    }
+
     fn get_course_content(
         &self,
         token: Option<&str>,
@@ -425,6 +452,18 @@ impl CoursesApi for FakeCoursesApi {
             enrollment_status: enrolled.then(|| "confirmed".to_string()),
             revision_number: enrolled.then(|| (index as i64) + 1),
         })
+    }
+
+    fn get_my_enrollment_status(
+        &self,
+        _token: Option<&str>,
+        course_id: &str,
+    ) -> Result<Option<String>, CoursesError> {
+        if self.fail {
+            return Err(CoursesError::Transport("fake network down".to_string()));
+        }
+        let index = fake_index(course_id).ok_or(CoursesError::NotFound)?;
+        Ok(index.is_multiple_of(2).then(|| "confirmed".to_string()))
     }
 
     fn get_course_content(
@@ -799,6 +838,21 @@ mod tests {
         assert_eq!(
             learning_context(Some("u-1".to_string()), &detail),
             Err(ContextError::MissingRevision)
+        );
+    }
+
+    #[test]
+    fn enrollment_status_matches_course_content_access() {
+        let api: Arc<dyn CoursesApi> = Arc::new(FakeCoursesApi::with_seed(4));
+        assert_eq!(
+            api.get_my_enrollment_status(None, "crs-002")
+                .expect("status"),
+            Some("confirmed".to_string())
+        );
+        assert_eq!(
+            api.get_my_enrollment_status(None, "crs-001")
+                .expect("status"),
+            None
         );
     }
 

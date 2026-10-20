@@ -107,7 +107,7 @@ pub(in crate::root_view) fn render_learning_home(
                     ))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if confirmed {
-                            this.navigate_to_learning(&course_id);
+                            this.navigate_to_learning(&course_id, cx);
                         } else {
                             this.navigate(&format!("/courses/{course_id}"));
                         }

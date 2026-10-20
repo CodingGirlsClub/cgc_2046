@@ -147,7 +147,7 @@ pub(in crate::root_view) fn render_workspace_overview(
                     ))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if confirmed {
-                            this.navigate_to_learning(&course_id);
+                            this.navigate_to_learning(&course_id, cx);
                         } else {
                             this.navigate(&format!("/courses/{course_id}"));
                         }
@@ -217,7 +217,7 @@ pub(in crate::root_view) fn render_workspace_overview(
                             .child(translate(language, status_key(event.status.as_str()))),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.navigate_to_event_detail(&event_id);
+                        this.navigate_to_event_detail(&event_id, cx);
                         cx.notify();
                     }))
                     .into_any_element()
@@ -283,7 +283,7 @@ pub(in crate::root_view) fn render_workspace_overview(
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(event_id) = event_id.as_deref() {
-                            this.navigate_to_event_detail(event_id);
+                            this.navigate_to_event_detail(event_id, cx);
                         } else if let Some(course_id) = course_id.as_deref() {
                             this.navigate(&format!("/courses/{course_id}"));
                         }

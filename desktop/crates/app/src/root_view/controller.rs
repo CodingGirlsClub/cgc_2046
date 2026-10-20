@@ -63,14 +63,13 @@ impl RootView {
         }
     }
 
-    pub(in crate::root_view) fn navigate_to_event_detail(&mut self, event_id: &str) {
-        let Some(route) = self.registry.find("events.detail") else {
-            return;
-        };
-        let mut params = std::collections::BTreeMap::new();
-        params.insert("id", event_id.to_string());
-        self.current = Some(RouteMatch { route, params });
-        self.detail_started = false;
+    pub(in crate::root_view) fn navigate_to_event_detail(
+        &mut self,
+        event_id: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let path = format!("/events/{event_id}");
+        self.open_page_tab(&path, "活动", cx);
     }
 
     pub fn toggle_language(&mut self) -> Language {
@@ -149,7 +148,6 @@ impl RootView {
                 match result {
                     Ok(workspaces) => {
                         this.workspaces.adopt(workspaces);
-                        this.ensure_navigation_data(cx);
                         this.restore_workspace_state(cx);
                     }
                     Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
@@ -184,6 +182,8 @@ impl RootView {
         self.events.reset();
         self.detail.reset();
         self.courses.reset();
+        self.course_enrollments.clear();
+        self.course_enrollments_loaded = false;
         self.course_detail.reset();
         self.content.reset();
         self.projection.reset();
@@ -199,6 +199,8 @@ impl RootView {
         self.reset_chat_local();
         self.tabs.clear();
         self.active_tab = None;
+        self.site_tree_query.clear();
+        self.site_tree_course_open = None;
         self.review_event_keys.clear();
     }
 
@@ -800,7 +802,10 @@ impl RootView {
                     return;
                 }
                 match result {
-                    Ok(page) => this.courses.adopt_page(page),
+                    Ok(page) => {
+                        this.courses.adopt_page(page);
+                        this.load_course_enrollments(cx);
+                    }
                     Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
                     Err(error) => this.courses.fail(&error),
                 }
@@ -839,12 +844,22 @@ impl RootView {
         .detach();
     }
 
-    pub(in crate::root_view) fn navigate_to_course_detail(&mut self, course_id: &str) {
-        self.navigate(&format!("/courses/{course_id}"));
+    pub(in crate::root_view) fn navigate_to_course_detail(
+        &mut self,
+        course_id: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let path = format!("/courses/{course_id}");
+        self.open_page_tab(&path, "课程", cx);
     }
 
-    pub(in crate::root_view) fn navigate_to_learning(&mut self, course_id: &str) {
-        self.navigate(&format!("/courses/{course_id}/learn"));
+    pub(in crate::root_view) fn navigate_to_learning(
+        &mut self,
+        course_id: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let path = format!("/courses/{course_id}/learn");
+        self.open_page_tab(&path, "学习", cx);
     }
 
     pub(in crate::root_view) fn is_settings_shortcut(keystroke: &gpui_kit::Keystroke) -> bool {
@@ -1236,6 +1251,44 @@ impl RootView {
         cx.notify();
     }
 
+    pub(in crate::root_view) fn load_course_enrollments(&mut self, cx: &mut Context<Self>) {
+        if self.course_enrollments_loaded {
+            return;
+        }
+        let ids = self
+            .courses
+            .items()
+            .iter()
+            .take(20)
+            .map(|course| course.id.clone())
+            .collect::<Vec<_>>();
+        if ids.is_empty() {
+            return;
+        }
+        self.course_enrollments_loaded = true;
+        let api = self.courses.api_handle();
+        let token = self.session_token();
+        let task = cx.background_executor().spawn(async move {
+            let mut statuses = std::collections::BTreeMap::new();
+            for id in ids {
+                let status = api
+                    .get_my_enrollment_status(token.as_deref(), &id)
+                    .ok()
+                    .flatten();
+                statuses.insert(id, status);
+            }
+            statuses
+        });
+        cx.spawn(async move |this, cx| {
+            let statuses = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.course_enrollments = statuses;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// Site Tree 的数据按需加载；只有进入已登录工作区后才调用。
     pub(in crate::root_view) fn ensure_navigation_data(&mut self, cx: &mut Context<Self>) {
         if !self.events_started {
@@ -1280,8 +1333,11 @@ impl RootView {
             }
             SiteTreeSection::Courses => {
                 self.site_tree_courses_open = !self.site_tree_courses_open;
-                if self.site_tree_courses_open && !self.courses_started {
-                    self.start_courses_load(cx, true);
+                if self.site_tree_courses_open {
+                    if !self.courses_started {
+                        self.start_courses_load(cx, true);
+                    }
+                    self.load_course_enrollments(cx);
                 }
             }
         }
@@ -1305,9 +1361,6 @@ impl RootView {
             state::toggled_right_panel(self.right_panel, self.right_panel_open, panel);
         self.right_panel = panel;
         self.right_panel_open = open;
-        if open && panel == RightPanel::SiteTree {
-            self.ensure_navigation_data(cx);
-        }
         cx.notify();
     }
 
@@ -1355,6 +1408,9 @@ impl RootView {
                         }
                     }
                 }
+            }
+            if !self.site_tree_query.trim().is_empty() {
+                self.ensure_navigation_data(cx);
             }
             cx.notify();
             return;
@@ -1442,7 +1498,7 @@ impl RootView {
             .and_then(|detail| detail.enrollment_status.as_deref())
             == Some("confirmed");
         if enrolled {
-            self.navigate_to_learning(&course_id);
+            self.navigate_to_learning(&course_id, cx);
             cx.notify();
         }
     }

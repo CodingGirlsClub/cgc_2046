@@ -83,7 +83,7 @@ pub(in crate::root_view) fn render_course_detail(
                                 .text_color(white())
                                 .child(translate(language, Key::CoursesDetailEnrolled))
                                 .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.navigate_to_learning(&target);
+                                    this.navigate_to_learning(&target, cx);
                                     cx.notify();
                                 })),
                         )
