@@ -118,7 +118,7 @@ export default function PaymentsManagement({
 		})),
 	];
 	const [statusFilter, setStatusFilter] = useState("");
-	// U9/R8：活动筛选（订单列表按活动/课程收敛；统计卡暂保持工作区口径）
+	// U9/R8：活动筛选——订单列表与统计卡都按选中的活动/课程收敛
 	const [offerings, setOfferings] = useState<
 		Array<{ id: string; title: string; kind: "event" | "course" }>
 	>([]);
