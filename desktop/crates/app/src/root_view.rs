@@ -2320,6 +2320,47 @@ impl RootView {
     }
 }
 
+impl RootView {
+    fn revoke_device(&mut self, cx: &mut Context<Self>) {
+        if self.revoking {
+            return;
+        }
+        let Some(token) = self
+            .session
+            .signed_in()
+            .map(|session| session.token.clone())
+        else {
+            return;
+        };
+        self.revoking = true;
+        self.settings_error = None;
+        let api = self.session.api_handle();
+        let task = cx
+            .background_executor()
+            .spawn(async move { api.revoke(&token) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.revoking = false;
+                match result {
+                    Ok(()) => {
+                        this.session.sign_out_local();
+                        this.workspaces.reset();
+                        this.workspaces_started = false;
+                        this.reset_workspace_data();
+                        this.navigate("/");
+                    }
+                    Err(error) => {
+                        this.settings_error = Some(error.diagnostic());
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+}
+
 impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mode = theme::resolve(self.preference, window.appearance());
@@ -2491,8 +2532,18 @@ impl Render for RootView {
         let mut root = div();
         if !is_signed_in {
             let login_card = match self.login_mode {
-                LoginMode::Password => self.render_login_split(language, &palette, cx),
-                LoginMode::Reset => self.render_reset_login_card(language, &palette, cx),
+                LoginMode::Password => screens::render_login_split(
+                    &mut screens::ScreenContext::new(self),
+                    language,
+                    &palette,
+                    cx,
+                ),
+                LoginMode::Reset => screens::render_reset_login_card(
+                    &mut screens::ScreenContext::new(self),
+                    language,
+                    &palette,
+                    cx,
+                ),
             };
             root = root
                 .size_full()
@@ -2623,34 +2674,79 @@ impl Render for RootView {
                                             .as_ref()
                                             .map(|route_match| route_match.route.id)
                                         {
-                                            Some("account.workspace") => self
-                                                .render_workspace_overview(language, &palette, cx),
-                                            Some("events.list") => {
-                                                self.render_events_list(language, &palette, cx)
+                                            Some("account.workspace") => {
+                                                screens::render_workspace_overview(
+                                                    &mut screens::ScreenContext::new(self),
+                                                    language,
+                                                    &palette,
+                                                    cx,
+                                                )
                                             }
-                                            Some("events.detail") => {
-                                                self.render_detail(language, &palette, cx)
-                                            }
+                                            Some("events.list") => screens::render_events_list(
+                                                &mut screens::ScreenContext::new(self),
+                                                language,
+                                                &palette,
+                                                cx,
+                                            ),
+                                            Some("events.detail") => screens::render_detail(
+                                                &mut screens::ScreenContext::new(self),
+                                                language,
+                                                &palette,
+                                                cx,
+                                            ),
                                             Some("events.mine") => {
-                                                self.render_enrollments_list(language, &palette, cx)
+                                                screens::render_enrollments_list(
+                                                    &mut screens::ScreenContext::new(self),
+                                                    language,
+                                                    &palette,
+                                                    cx,
+                                                )
                                             }
-                                            Some("app.settings") => {
-                                                self.render_settings(language, &palette, cx)
-                                            }
+                                            Some("app.settings") => screens::render_settings(
+                                                &mut screens::ScreenContext::new(self),
+                                                language,
+                                                &palette,
+                                                cx,
+                                            ),
                                             Some("courses.catalog") => {
-                                                self.render_courses_list(language, &palette, cx)
+                                                screens::render_courses_list(
+                                                    &mut screens::ScreenContext::new(self),
+                                                    language,
+                                                    &palette,
+                                                    cx,
+                                                )
                                             }
                                             Some("courses.learning_home") => {
-                                                self.render_learning_home(language, &palette, cx)
+                                                screens::render_learning_home(
+                                                    &mut screens::ScreenContext::new(self),
+                                                    language,
+                                                    &palette,
+                                                    cx,
+                                                )
                                             }
                                             Some("events.participations") => {
-                                                self.render_participations(language, &palette, cx)
+                                                screens::render_participations(
+                                                    &mut screens::ScreenContext::new(self),
+                                                    language,
+                                                    &palette,
+                                                    cx,
+                                                )
                                             }
                                             Some("courses.detail") => {
-                                                self.render_course_detail(language, &palette, cx)
+                                                screens::render_course_detail(
+                                                    &mut screens::ScreenContext::new(self),
+                                                    language,
+                                                    &palette,
+                                                    cx,
+                                                )
                                             }
                                             Some("courses.learning") => {
-                                                self.render_course_learning(language, &palette, cx)
+                                                screens::render_course_learning(
+                                                    &mut screens::ScreenContext::new(self),
+                                                    language,
+                                                    &palette,
+                                                    cx,
+                                                )
                                             }
                                             _ => self.render_content(language, &palette, cx),
                                         }
@@ -2662,7 +2758,14 @@ impl Render for RootView {
                                 && self.current.as_ref().is_some_and(|route_match| {
                                     route_match.route.id == "courses.learning"
                                 }))
-                            .then(|| self.render_agent_panel(language, &palette, cx)),
+                            .then(|| {
+                                screens::render_agent_panel(
+                                    &mut screens::ScreenContext::new(self),
+                                    language,
+                                    &palette,
+                                    cx,
+                                )
+                            }),
                         ),
                 )
                 .child(self.render_footer(

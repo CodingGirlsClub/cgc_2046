@@ -1,21 +1,22 @@
 use super::super::super::*;
+use super::super::ScreenContext;
 
-impl RootView {
-    pub(in crate::root_view) fn render_chat_panel(
-        &mut self,
-        language: Language,
-        palette: &theme::Palette,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let phase = self.chat.phase.clone();
-        let messages = self.chat.messages.clone();
-        let input = self.chat.input.clone();
-        let agent_label = if self.chat.agent.is_empty() {
-            "agent".to_string()
-        } else {
-            self.chat.agent.clone()
-        };
-        let body: AnyElement = match &phase {
+pub(in crate::root_view) fn render_chat_panel(
+    ctx: &mut ScreenContext<'_>,
+    language: Language,
+    palette: &theme::Palette,
+    cx: &mut Context<RootView>,
+) -> AnyElement {
+    let phase = ctx.chat.phase.clone();
+    let messages = ctx.chat.messages.clone();
+    let input = ctx.chat.input.clone();
+    let agent_label = if ctx.chat.agent.is_empty() {
+        "agent".to_string()
+    } else {
+        ctx.chat.agent.clone()
+    };
+    let body: AnyElement =
+        match &phase {
             ChatPhase::Idle => div()
                 .flex()
                 .flex_row()
@@ -50,7 +51,7 @@ impl RootView {
                 .into_any_element(),
             ChatPhase::Failed(message) => {
                 let guidance =
-                    self.chat.guidance.clone().map(|guidance| {
+                    ctx.chat.guidance.clone().map(|guidance| {
                         let detected_rows = guidance
                             .detected
                             .iter()
@@ -312,7 +313,7 @@ impl RootView {
                             .px(space(2))
                             .rounded(px(RADIUS_MEDIUM))
                             .border_1()
-                            .border_color(if self.chat.focused {
+                            .border_color(if ctx.chat.focused {
                                 palette.accent
                             } else {
                                 palette.line
@@ -419,215 +420,214 @@ impl RootView {
                     .into_any_element()
             }
         };
-        let version = self
-            .chat
-            .version
-            .as_deref()
-            .map(|version| format!(" · {version}"))
-            .unwrap_or_default();
-        let config_rows = self
-            .chat
-            .configs
-            .iter()
-            .take(2)
-            .enumerate()
-            .map(|(index, config)| {
+    let version = ctx
+        .chat
+        .version
+        .as_deref()
+        .map(|version| format!(" · {version}"))
+        .unwrap_or_default();
+    let config_rows = ctx
+        .chat
+        .configs
+        .iter()
+        .take(2)
+        .enumerate()
+        .map(|(index, config)| {
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(space(1))
+                .text_size(px(11.0))
+                .text_color(palette.ink_3)
+                .child(format!("{}：{}", config.name, config.current))
+                .child(
+                    div()
+                        .id(format!("chat-config-{index}"))
+                        .px(space(1))
+                        .py(px(2.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .bg(palette.soft)
+                        .text_color(palette.ink_2)
+                        .child(translate(language, Key::AgentChatChatConfig))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.cycle_chat_config(index, cx);
+                        })),
+                )
+                .into_any_element()
+        })
+        .collect::<Vec<_>>();
+    let history_rows = if ctx.chat.show_sessions {
+        if ctx.chat.sessions.is_empty() {
+            vec![div()
+                .text_size(px(11.0))
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::AgentChatChatNoHistory))
+                .into_any_element()]
+        } else {
+            ctx.chat
+                .sessions
+                .iter()
+                .take(10)
+                .map(|session| {
+                    let session_id = session.session_id.clone();
+                    let title = session.title.clone().unwrap_or_else(|| {
+                        let short = session.session_id.chars().take(10).collect::<String>();
+                        format!("{short}…")
+                    });
+                    div()
+                        .id(format!("chat-restore-{}", session.session_id))
+                        .w_full()
+                        .px(space(1))
+                        .py(px(3.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_2)
+                        .hover(|style| style.bg(palette.soft))
+                        .child(title)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.restore_chat_session(session_id.clone(), cx);
+                        }))
+                        .into_any_element()
+                })
+                .collect()
+        }
+    } else {
+        Vec::new()
+    };
+    let status_color = match &phase {
+        ChatPhase::Ready | ChatPhase::Streaming => palette.accent,
+        ChatPhase::Failed(_) => palette.danger,
+        _ => palette.ink_3,
+    };
+    let thread_sidebar = ctx.chat.show_sessions.then(|| {
+        div()
+            .w(px(170.0))
+            .flex_none()
+            .flex()
+            .flex_col()
+            .gap(space(1))
+            .pr(space(1))
+            .border_r_1()
+            .border_color(palette.line)
+            .child(
                 div()
                     .flex()
                     .flex_row()
                     .items_center()
-                    .gap(space(1))
+                    .justify_between()
                     .text_size(px(11.0))
                     .text_color(palette.ink_3)
-                    .child(format!("{}：{}", config.name, config.current))
+                    .child(translate(language, Key::AgentChatChatThreads))
                     .child(
                         div()
-                            .id(format!("chat-config-{index}"))
+                            .id("chat-hide-history")
                             .px(space(1))
-                            .py(px(2.0))
                             .rounded(px(RADIUS_SMALL))
-                            .bg(palette.soft)
-                            .text_color(palette.ink_2)
-                            .child(translate(language, Key::AgentChatChatConfig))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.cycle_chat_config(index, cx);
-                            })),
-                    )
-                    .into_any_element()
-            })
-            .collect::<Vec<_>>();
-        let history_rows = if self.chat.show_sessions {
-            if self.chat.sessions.is_empty() {
-                vec![div()
-                    .text_size(px(11.0))
-                    .text_color(palette.ink_3)
-                    .child(translate(language, Key::AgentChatChatNoHistory))
-                    .into_any_element()]
-            } else {
-                self.chat
-                    .sessions
-                    .iter()
-                    .take(10)
-                    .map(|session| {
-                        let session_id = session.session_id.clone();
-                        let title = session.title.clone().unwrap_or_else(|| {
-                            let short = session.session_id.chars().take(10).collect::<String>();
-                            format!("{short}…")
-                        });
-                        div()
-                            .id(format!("chat-restore-{}", session.session_id))
-                            .w_full()
-                            .px(space(1))
-                            .py(px(3.0))
-                            .rounded(px(RADIUS_SMALL))
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_2)
                             .hover(|style| style.bg(palette.soft))
-                            .child(title)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.restore_chat_session(session_id.clone(), cx);
-                            }))
-                            .into_any_element()
-                    })
-                    .collect()
-            }
-        } else {
-            Vec::new()
-        };
-        let status_color = match &phase {
-            ChatPhase::Ready | ChatPhase::Streaming => palette.accent,
-            ChatPhase::Failed(_) => palette.danger,
-            _ => palette.ink_3,
-        };
-        let thread_sidebar = self.chat.show_sessions.then(|| {
-            div()
-                .w(px(170.0))
-                .flex_none()
-                .flex()
-                .flex_col()
-                .gap(space(1))
-                .pr(space(1))
-                .border_r_1()
-                .border_color(palette.line)
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .justify_between()
-                        .text_size(px(11.0))
-                        .text_color(palette.ink_3)
-                        .child(translate(language, Key::AgentChatChatThreads))
-                        .child(
-                            div()
-                                .id("chat-hide-history")
-                                .px(space(1))
-                                .rounded(px(RADIUS_SMALL))
-                                .hover(|style| style.bg(palette.soft))
-                                .child("×")
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.chat.show_sessions = false;
-                                    cx.notify();
-                                })),
-                        ),
-                )
-                .child(
-                    div()
-                        .id("chat-thread-list")
-                        .flex()
-                        .flex_col()
-                        .gap(px(2.0))
-                        .overflow_y_scroll()
-                        .children(history_rows),
-                )
-                .into_any_element()
-        });
-        let toolbar = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(space(1))
-            .child(div().size(px(6.0)).rounded_full().bg(status_color))
-            .child(
-                div()
-                    .text_size(px(15.0))
-                    .text_color(palette.ink)
-                    .child(translate_registered(language, "agent_chat.panel.title")),
+                            .child("×")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.chat.show_sessions = false;
+                                cx.notify();
+                            })),
+                    ),
             )
             .child(
                 div()
-                    .text_size(px(11.0))
-                    .text_color(palette.ink_3)
-                    .child(format!("{agent_label}{version}")),
-            )
-            .child(div().flex_1())
-            .child(
-                div()
-                    .id("chat-new-toolbar")
-                    .role(Role::Button)
-                    .aria_label(translate(language, Key::AgentChatChatNew))
-                    .px(space(1))
-                    .py(px(3.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .text_size(px(11.0))
-                    .text_color(palette.accent)
-                    .hover(|style| style.bg(palette.soft))
-                    .child(translate(language, Key::AgentChatChatNew))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        if let Some(course_id) = this.chat.course_id.clone() {
-                            clear_chat_pointer(&course_id);
-                        }
-                        this.reset_chat_local();
-                        this.start_chat(cx);
-                    })),
-            )
-            .child(
-                div()
-                    .id("chat-history-toolbar")
-                    .role(Role::Button)
-                    .aria_label(translate(language, Key::AgentChatChatHistory))
-                    .px(space(1))
-                    .py(px(3.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .text_size(px(11.0))
-                    .text_color(if self.chat.show_sessions {
-                        palette.ink
-                    } else {
-                        palette.accent
-                    })
-                    .bg(if self.chat.show_sessions {
-                        palette.soft
-                    } else {
-                        palette.card
-                    })
-                    .child(translate(language, Key::AgentChatChatHistory))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.open_chat_history(cx);
-                    })),
-            );
-        div()
-            .flex()
-            .flex_row()
-            .items_stretch()
-            .gap(space(1))
-            .h_full()
-            .p(space(2))
-            .rounded(px(RADIUS_MEDIUM))
-            .border_1()
-            .border_color(palette.line)
-            .bg(palette.card)
-            .children(thread_sidebar)
-            .child(
-                div()
+                    .id("chat-thread-list")
                     .flex()
-                    .flex_1()
-                    .min_w(px(0.0))
                     .flex_col()
-                    .gap(space(1))
-                    .child(toolbar)
-                    .children(config_rows)
-                    .child(body),
+                    .gap(px(2.0))
+                    .overflow_y_scroll()
+                    .children(history_rows),
             )
             .into_any_element()
-    }
+    });
+    let toolbar = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(space(1))
+        .child(div().size(px(6.0)).rounded_full().bg(status_color))
+        .child(
+            div()
+                .text_size(px(15.0))
+                .text_color(palette.ink)
+                .child(translate_registered(language, "agent_chat.panel.title")),
+        )
+        .child(
+            div()
+                .text_size(px(11.0))
+                .text_color(palette.ink_3)
+                .child(format!("{agent_label}{version}")),
+        )
+        .child(div().flex_1())
+        .child(
+            div()
+                .id("chat-new-toolbar")
+                .role(Role::Button)
+                .aria_label(translate(language, Key::AgentChatChatNew))
+                .px(space(1))
+                .py(px(3.0))
+                .rounded(px(RADIUS_SMALL))
+                .text_size(px(11.0))
+                .text_color(palette.accent)
+                .hover(|style| style.bg(palette.soft))
+                .child(translate(language, Key::AgentChatChatNew))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if let Some(course_id) = this.chat.course_id.clone() {
+                        clear_chat_pointer(&course_id);
+                    }
+                    this.reset_chat_local();
+                    this.start_chat(cx);
+                })),
+        )
+        .child(
+            div()
+                .id("chat-history-toolbar")
+                .role(Role::Button)
+                .aria_label(translate(language, Key::AgentChatChatHistory))
+                .px(space(1))
+                .py(px(3.0))
+                .rounded(px(RADIUS_SMALL))
+                .text_size(px(11.0))
+                .text_color(if ctx.chat.show_sessions {
+                    palette.ink
+                } else {
+                    palette.accent
+                })
+                .bg(if ctx.chat.show_sessions {
+                    palette.soft
+                } else {
+                    palette.card
+                })
+                .child(translate(language, Key::AgentChatChatHistory))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.open_chat_history(cx);
+                })),
+        );
+    div()
+        .flex()
+        .flex_row()
+        .items_stretch()
+        .gap(space(1))
+        .h_full()
+        .p(space(2))
+        .rounded(px(RADIUS_MEDIUM))
+        .border_1()
+        .border_color(palette.line)
+        .bg(palette.card)
+        .children(thread_sidebar)
+        .child(
+            div()
+                .flex()
+                .flex_1()
+                .min_w(px(0.0))
+                .flex_col()
+                .gap(space(1))
+                .child(toolbar)
+                .children(config_rows)
+                .child(body),
+        )
+        .into_any_element()
 }

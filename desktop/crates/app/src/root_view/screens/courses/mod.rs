@@ -1,3 +1,3 @@
-mod detail;
-mod learning;
-mod list;
+pub(super) mod detail;
+pub(super) mod learning;
+pub(super) mod list;

@@ -1,2 +1,2 @@
-mod dock;
-mod panel;
+pub(super) mod dock;
+pub(super) mod panel;
