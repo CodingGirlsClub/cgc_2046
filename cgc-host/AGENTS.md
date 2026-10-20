@@ -81,7 +81,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 | `chat.send` | `text`（非空字符串）、`context` | 回 `turn.delta {kind: "user", text}` 表示接下了；之后推 `turn.delta` / `turn.card` / `turn.card.closed`，最后 `turn.end` |
 | `chat.stop` | — | 不回复；在跑的一轮：待答卡片 `turn.card.closed {reason: "cancelled"}`，没跑完的工具步骤以 `status: "stopped"` 推一次 `turn.delta`，随后 `turn.end {stopReason: "cancelled"}`。agent 在 15 秒内不应答取消时，Host 本地按 cancelled 收尾并推 `turn.end`（迟到的应答被忽略）。停止前已提交到平台的结果照常生效 |
 | `chat.new` | — | `history`（空）：此后的消息进一条新会话，agent 不带之前的上下文；学习进度不受影响 |
-| `chat.sessions` | `cursor?`（分页游标，原样透传 ACP） | `sessions {sessions: [{sessionId, title, updatedAt, messageCount}], current, nextCursor}`（`title` 缺省为 `null`，agent 差异）：本课程工作目录下的会话；只读，有回合在跑也可查；元数据缺省为 `null`（OMP 差异），页面降级展示。Host 不信任适配器的 cwd 过滤：每个条目都按 `SessionInfo.cwd` 与课程工作目录二次比对 |
+| `chat.sessions` | `cursor?`（分页游标，原样透传 ACP） | `sessions {sessions: [{sessionId, title, updatedAt, messageCount}], current, nextCursor}`（`title` 缺省为 `null`，agent 差异）：本课程工作目录下的会话；只读，有回合在跑也可查；元数据缺省为 `null`（OMP 差异），页面降级展示。Host 不信任适配器的 cwd 过滤：每个条目都按 `SessionInfo.cwd` 与课程工作目录二次比对；`current` 与行使用同一套归属过滤（别人的指针回 `null`） |
 | `chat.open` | `sessionId` | `history`：切换到指定会话；目标必须同时满足 id 命中与 cwd 归属本课程目录（否则 `bad_request`）；加载失败 `session_unavailable` 且持久指针不动（原会话不受影响）；有回合在跑 `busy`；成功才推进指针，切当前会话不重复加载 |
 | `chat.authenticate` | `methodId`（取自 `auth_required` 回包的 `methods`，如 `chat-gpt`） | `chat.authenticated {agent}`：登录成功（浏览器由适配器自己开）；`auth_failed` 失败、`busy` 登录期间进程被换掉（页面重试即可）、`bad_request` 参数不合法；`chat-gpt` 这类由适配器在本机开浏览器，不进课程队列 |
 | `chat.set_setting` | `configId`（`model` / `thinking` / `reasoning_effort`）、`value`（非空字符串） | `chat.settings {settings}`：改当前会话的设置，回复带这个 agent 的完整回包；有回合在跑 `busy`；当前没有已加载会话 `chat_unavailable`；值不被 agent 接受 `bad_request`（ACP 原文只进 Host 日志） |
@@ -118,7 +118,7 @@ WS 上一个文本帧一个 JSON 对象，两个方向同一个信封：
 - 审批：`{cardId, kind: "permission", toolCallId, title, toolKind, input?, options: [{optionId, name, kind}]}`。选项原样来自学员的 OMP，与终端里一致：`kind` 是 `allow_once` / `allow_always` / `reject_once` / `reject_always`，OMP 18.10.4 的 `name` 是 Allow once / Always allow / Reject / Always reject。作答 `{cardId, optionId}`。
 - 「始终允许」只活在 OMP 进程内存里、只对这条会话有效，按工具种类记（命令类即这条对话里之后的所有命令），不写进学员的 OMP 配置；OMP 重启（空闲回收、Host 或电脑重启）后失效（U6 真机核验）。卡片文案建议：「本次对话中不再询问此类操作（重启后需重新确认）」。
 - 提问：`{cardId, kind: "question", message, schema}`。`schema` 是表单的 JSON Schema（object，`properties` 里是 string（`oneOf` / `enum` 为选项）、number / integer、boolean、array（`items.anyOf` / `items.enum` 为多选））。OMP 的 `ask` 工具：`q0` 是单选，`q0__other` 是自由输入。作答 `{cardId, action: "accept", content: {字段: 值}}`（值是字符串、数字、布尔或字符串数组，键必须在 `properties` 里），或 `{cardId, action: "decline" | "cancel"}`。只接受 form 模式，其余模式 Host 直接拒绝，不出卡片。
-- 审批与提问要求请求的 `sessionId` 等于课程**当前会话**且当前有回合在跑；没有回合时直接以取消/拒绝应答，不出卡（Codex 的后台任务也会在回合后发审批）。注意 ACP 不携带 turn id，守卫粒度是「当前会话 + 当前回合在跑」——若上一轮被 Host 看门狗本地强制收尾而 agent 仍在执行，Host 会先隔离该会话、拒绝新回合，直到旧 session/prompt 真正 settle（或 `chat.new` / 换 agent / 进程换代——这三者都会先把旧会话从路由里摘除）。
+- 审批与提问要求请求的 `sessionId` 等于课程**当前会话**且当前有回合在跑；没有回合时直接以取消/拒绝应答，不出卡（Codex 的后台任务也会在回合后发审批）。注意 ACP 不携带 turn id，守卫粒度是「当前会话 + 当前回合在跑」——若上一轮被 Host 看门狗本地强制收尾而 agent 仍在执行，Host 会先隔离该会话、拒绝新回合，直到旧 session/prompt 真正 settle（或 `chat.new` / 换 agent / 进程换代——这三者都会先把旧会话从路由里摘除）；隔离期间该会话的迟到 session/update 一律丢弃，不再进缓冲（否则 attach 重放会出现「end 之后还有内容」）。
 - `turn.card.closed {cardId, reason}`：`answered` 是持有者答了；`cancelled` 是回合结束、停止、OMP 撤回请求或退出，或没有页面持有这门课、卡片又等了超过 5 分钟（KTD13：本轮随之取消）——都以取消作答，从不替学员选允许。
 
 `turn.end {stopReason, usage?, modelError?}`：
