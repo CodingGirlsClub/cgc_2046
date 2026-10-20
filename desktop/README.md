@@ -21,6 +21,12 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
+默认连真实后端（`http://localhost:4000/api/graphql`，可用 `CGC_API_URL` 覆盖）；只有显式
+`CGC_AUTH=fake` 才使用本地假数据（无后端跑 UI 或单测）。界面不暴露演示账号，发布形态
+不依赖任何演示数据。
+
+`CGC_LANG=zh|en` 选择启动语言（默认 zh），`CGC_THEME=light|dark|system` 覆盖主题。
+
 ## 目录与依赖方向（脊柱 AD-1）
 
 ```text

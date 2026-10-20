@@ -26,7 +26,6 @@ app.auth.submit
 app.auth.error.invalid
 app.auth.error.network
 app.auth.signed_in_as
-app.auth.fake_hint
 events.list.loading
 events.list.empty
 events.list.retry
@@ -174,7 +173,6 @@ app.auth.wechat.approved
 app.auth.wechat.expired
 app.auth.wechat.refresh
 app.auth.wechat.expires_label
-app.auth.wechat.demo_hint
 app.auth.error.wechat
 app.auth.reset.title
 app.auth.reset.email

@@ -560,13 +560,10 @@ impl AuthApi for FakeAuthApi {
     }
 
     fn start_wechat_login(&self) -> Result<WechatLoginStart, AuthError> {
-        Ok(WechatLoginStart {
-            request_id: "fake-wechat-request".to_string(),
-            proof: "fake-wechat-proof".to_string(),
-            expires_at: None,
-            poll_interval_seconds: 1,
-            qr_data_url: None,
-            launch_url: Some("https://wxaurl.cn/fake".to_string()),
+        // 假数据模式下微信不可用；与真实环境未配置凭证时的错误一致。
+        Err(AuthError::Domain {
+            code: "mini_web_login_unavailable".to_string(),
+            message: "wechat unavailable".to_string(),
         })
     }
 

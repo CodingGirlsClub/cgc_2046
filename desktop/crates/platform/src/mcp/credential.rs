@@ -291,8 +291,7 @@ impl LearningHostCredentialService {
     }
 
     pub fn from_runtime() -> Self {
-        let use_http = std::env::var("CGC_AUTH").as_deref() == Ok("http")
-            || std::env::var("CGC_API_URL").is_ok();
+        let use_http = !crate::runtime::use_fake_backend();
         let api: Arc<dyn LearningHostApi> = if use_http {
             Arc::new(HttpLearningHostApi::from_env())
         } else {

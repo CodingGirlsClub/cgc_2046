@@ -12,6 +12,7 @@ pub mod mcp;
 pub mod paths;
 pub mod registry;
 pub mod routes;
+pub mod runtime;
 pub mod session;
 pub mod telemetry;
 pub mod workspace;

@@ -90,8 +90,6 @@ enum WechatLoginView {
     },
     Expired,
     Failed(LoginError),
-    /// 演示模式：不生成二维码，避免假码误导。
-    Demo,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -257,7 +255,6 @@ pub struct RootView {
     account_menu_open: bool,
     agent_panel_open: bool,
     breadcrumb_menu: Option<BreadcrumbMenu>,
-    is_fake_mode: bool,
     key_focus: Option<FocusHandle>,
     events: EventListService,
     events_started: bool,
@@ -311,8 +308,6 @@ impl RootView {
         session: SessionService,
     ) -> Self {
         let current = initial_route(&registry);
-        let is_fake_mode = std::env::var("CGC_AUTH").as_deref() != Ok("http")
-            && std::env::var("CGC_API_URL").is_err();
         let events = build_events_service();
         let detail = EventDetailService::new(events.api_handle());
         let courses = build_courses_service();
@@ -336,16 +331,11 @@ impl RootView {
             focused: LoginField::Email,
             login_error: None,
             signing_in: false,
-            wechat_login: if is_fake_mode {
-                WechatLoginView::Demo
-            } else {
-                WechatLoginView::Idle
-            },
+            wechat_login: WechatLoginView::Idle,
             wechat_generation: 0,
             account_menu_open: false,
             agent_panel_open: true,
             breadcrumb_menu: None,
-            is_fake_mode,
             key_focus: None,
             events,
             events_started: false,
@@ -2365,14 +2355,6 @@ impl RootView {
                     )
                     .child(self.wechat_refresh_button(language, palette, cx));
             }
-            WechatLoginView::Demo => {
-                panel = panel.child(
-                    div()
-                        .text_size(px(12.0))
-                        .text_color(palette.ink_3)
-                        .child(translate(language, Key::AppAuthWechatDemoHint)),
-                );
-            }
         }
 
         panel.into_any_element()
@@ -2390,7 +2372,6 @@ impl RootView {
         let focused = self.focused;
         let signing_in = self.signing_in;
         let login_notice = self.login_notice;
-        let is_fake_mode = self.is_fake_mode;
         let login_error_key = self.login_error_key();
 
         let email_border = if focused == LoginField::Email {
@@ -2525,17 +2506,6 @@ impl RootView {
                     .child(translate(language, Key::AppAuthSubmit))
                     .on_click(cx.listener(|this, _, _, cx| this.submit_login(cx))),
             )
-            .children(if is_fake_mode {
-                Some(
-                    div()
-                        .text_size(px(11.0))
-                        .text_color(palette.ink_3)
-                        .child(translate(language, Key::AppAuthFakeHint))
-                        .into_any_element(),
-                )
-            } else {
-                None
-            })
             .children(login_notice.map(|key| {
                 div()
                     .text_size(px(12.0))
@@ -2627,22 +2597,16 @@ impl RootView {
         self.reset_sent = false;
         // 离开 Password 视图即停止轮询与倒计时；切回时由 render 重新出码。
         self.wechat_generation += 1;
-        self.wechat_login = if self.is_fake_mode {
-            WechatLoginView::Demo
-        } else {
-            WechatLoginView::Idle
-        };
+        self.wechat_login = WechatLoginView::Idle;
         self.focused = match mode {
             LoginMode::Password => LoginField::Email,
             LoginMode::Reset => LoginField::Email,
         };
     }
 
-    /// 自动出码条件：仅真实后端、密码登录视图、且当前没有进行中的扫码。
+    /// 自动出码条件：密码登录视图且当前没有进行中的扫码。
     fn should_auto_start_wechat(&self) -> bool {
-        !self.is_fake_mode
-            && self.login_mode == LoginMode::Password
-            && matches!(self.wechat_login, WechatLoginView::Idle)
+        self.login_mode == LoginMode::Password && matches!(self.wechat_login, WechatLoginView::Idle)
     }
 
     /// 登录视图（Password）挂载时调用；fake 模式下不自动出码。
@@ -6090,8 +6054,7 @@ fn initial_route(registry: &RouteRegistry) -> Option<RouteMatch> {
 }
 
 fn build_courses_service() -> CourseCatalogService {
-    let use_http =
-        std::env::var("CGC_AUTH").as_deref() == Ok("http") || std::env::var("CGC_API_URL").is_ok();
+    let use_http = !cgc_platform::runtime::use_fake_backend();
     let api: Arc<dyn CoursesApi> = if use_http {
         Arc::new(HttpCoursesApi::from_env())
     } else {
@@ -6187,8 +6150,7 @@ fn remaining_seconds(expires_at: Option<&str>) -> i64 {
 }
 
 fn build_learning_host_api() -> Arc<dyn LearningHostApi> {
-    let use_http =
-        std::env::var("CGC_AUTH").as_deref() == Ok("http") || std::env::var("CGC_API_URL").is_ok();
+    let use_http = !cgc_platform::runtime::use_fake_backend();
     if use_http {
         Arc::new(HttpLearningHostApi::from_env())
     } else {
@@ -6197,8 +6159,7 @@ fn build_learning_host_api() -> Arc<dyn LearningHostApi> {
 }
 
 fn build_learning_host_vault() -> Arc<dyn SecretVault> {
-    let use_http =
-        std::env::var("CGC_AUTH").as_deref() == Ok("http") || std::env::var("CGC_API_URL").is_ok();
+    let use_http = !cgc_platform::runtime::use_fake_backend();
     if use_http {
         Arc::new(KeychainVault::from_env())
     } else {
@@ -6207,8 +6168,7 @@ fn build_learning_host_vault() -> Arc<dyn SecretVault> {
 }
 
 fn build_enrollments_api() -> Arc<dyn EnrollmentsApi> {
-    let use_http =
-        std::env::var("CGC_AUTH").as_deref() == Ok("http") || std::env::var("CGC_API_URL").is_ok();
+    let use_http = !cgc_platform::runtime::use_fake_backend();
     if use_http {
         Arc::new(HttpEnrollmentsApi::from_env())
     } else {
@@ -6217,8 +6177,7 @@ fn build_enrollments_api() -> Arc<dyn EnrollmentsApi> {
 }
 
 fn build_orders_api() -> Arc<dyn OrdersApi> {
-    let use_http =
-        std::env::var("CGC_AUTH").as_deref() == Ok("http") || std::env::var("CGC_API_URL").is_ok();
+    let use_http = !cgc_platform::runtime::use_fake_backend();
     if use_http {
         Arc::new(cgc_events::orders::HttpOrdersApi::from_env())
     } else {
@@ -6227,8 +6186,7 @@ fn build_orders_api() -> Arc<dyn OrdersApi> {
 }
 
 fn build_workspace_service() -> WorkspaceService {
-    let use_http =
-        std::env::var("CGC_AUTH").as_deref() == Ok("http") || std::env::var("CGC_API_URL").is_ok();
+    let use_http = !cgc_platform::runtime::use_fake_backend();
     let api: Arc<dyn WorkspaceApi> = if use_http {
         Arc::new(HttpWorkspaceApi::from_env())
     } else if std::env::var("CGC_WORKSPACE_EMPTY").as_deref() == Ok("1") {
@@ -6253,8 +6211,7 @@ fn workspace_role_label(language: Language, role: &str) -> &'static str {
 }
 
 fn build_events_service() -> EventListService {
-    let use_http =
-        std::env::var("CGC_AUTH").as_deref() == Ok("http") || std::env::var("CGC_API_URL").is_ok();
+    let use_http = !cgc_platform::runtime::use_fake_backend();
     let api: Arc<dyn EventsApi> = if use_http {
         Arc::new(HttpEventsApi::from_env())
     } else {
@@ -6540,15 +6497,10 @@ mod tests {
     }
 
     #[test]
-    fn auto_start_only_when_real_backend_password_view_and_idle() {
+    fn auto_start_only_in_password_view_when_idle() {
         let mut view = view();
-        // fake 模式下即使扫码状态是 Idle，也不得自动出码。
         view.login_mode = LoginMode::Password;
         view.wechat_login = WechatLoginView::Idle;
-        assert!(view.is_fake_mode);
-        assert!(!view.should_auto_start_wechat());
-
-        view.is_fake_mode = false;
         assert!(view.should_auto_start_wechat());
 
         view.wechat_login = WechatLoginView::Starting;
@@ -6564,17 +6516,17 @@ mod tests {
         let mut view = view();
         let generation = view.wechat_generation;
 
-        // fake 模式下扫码面板恒为 Demo；切视图只推进代数、清掉残留扫码状态。
+        // 切视图：扫码状态归零、轮询代数前进。
         view.switch_login_mode(LoginMode::Reset);
         assert_eq!(view.login_mode, LoginMode::Reset);
-        assert_eq!(view.wechat_login, WechatLoginView::Demo);
+        assert_eq!(view.wechat_login, WechatLoginView::Idle);
         assert_eq!(view.wechat_generation, generation + 1);
 
         // 回到密码视图：同样重置，等待 render 重新出码。
         view.wechat_login = WechatLoginView::Expired;
         view.switch_login_mode(LoginMode::Password);
         assert_eq!(view.login_mode, LoginMode::Password);
-        assert_eq!(view.wechat_login, WechatLoginView::Demo);
+        assert_eq!(view.wechat_login, WechatLoginView::Idle);
         assert_eq!(view.wechat_generation, generation + 2);
     }
 }

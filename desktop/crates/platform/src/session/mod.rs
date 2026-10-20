@@ -42,12 +42,11 @@ impl SessionService {
         }
     }
 
-    /// 默认运行时装配：`CGC_AUTH=http`（或设置了 `CGC_API_URL`）走真实后端，
-    /// 否则用 fake auth（本地 UI 开发无需 backend）；凭证默认存 OS keychain（2.7 fail-closed），
-    /// `CGC_SESSION_FILE` 保留为 QA/离线演示覆盖。
+    /// 默认运行时装配：默认连真实后端（发布形态）；只有显式 `CGC_AUTH=fake`
+    /// 才用本地假数据（UI 开发无需 backend）。`CGC_API_URL` 只决定端点。
+    /// 凭证默认存 OS keychain（2.7 fail-closed），`CGC_SESSION_FILE` 保留为 QA 覆盖。
     pub fn from_runtime() -> Self {
-        let use_http = std::env::var("CGC_AUTH").as_deref() == Ok("http")
-            || std::env::var("CGC_API_URL").is_ok();
+        let use_http = !crate::runtime::use_fake_backend();
         let api: Box<dyn AuthApi + Send + Sync> = if use_http {
             Box::new(HttpAuthApi::from_env())
         } else {
