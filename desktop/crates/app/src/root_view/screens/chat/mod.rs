@@ -1,0 +1,2 @@
+mod dock;
+mod panel;
