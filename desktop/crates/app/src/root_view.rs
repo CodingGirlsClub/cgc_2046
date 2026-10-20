@@ -67,8 +67,6 @@ use crate::theme::{self, space, ThemePreference, RADIUS_LARGE, RADIUS_MEDIUM, RA
 enum LoginField {
     Email,
     Password,
-    Phone,
-    Code,
     ResetToken,
     NewPassword,
 }
@@ -76,19 +74,24 @@ enum LoginField {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LoginMode {
     Password,
-    Phone,
     Reset,
-    Wechat,
 }
 
-/// 微信扫码登录的 UI 状态。`Ready` 持有一次性 proof，只在内存里。
+/// 登录页左侧的扫码状态。二维码常驻，不随模式切换消失。
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum WechatLoginView {
     Idle,
     Starting,
-    Ready { launch_url: String, approved: bool },
+    Ready {
+        launch_url: String,
+        approved: bool,
+        expires_at: Option<String>,
+        remaining_seconds: i64,
+    },
     Expired,
     Failed(LoginError),
+    /// 演示模式：不生成二维码，避免假码误导。
+    Demo,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,7 +104,6 @@ pub(crate) enum LoginError {
     Invalid,
     Network,
     Keychain,
-    Phone,
     RateLimited,
     Reset,
     Wechat,
@@ -114,9 +116,6 @@ impl LoginError {
             AuthError::Transport(_) | AuthError::Server(_) => LoginError::Network,
             AuthError::Storage(_) => LoginError::Keychain,
             AuthError::Domain { code, .. } => match code.as_str() {
-                "invalid_or_expired_code" | "invalid_phone" | "phone_code_sign_in_failed" => {
-                    LoginError::Phone
-                }
                 "rate_limited" => LoginError::RateLimited,
                 "invalid_or_expired_reset_token" => LoginError::Reset,
                 "mini_web_login_expired"
@@ -138,7 +137,6 @@ impl LoginError {
             LoginError::Invalid => Key::AppAuthErrorInvalid,
             LoginError::Network => Key::AppAuthErrorNetwork,
             LoginError::Keychain => Key::AppAuthErrorKeychain,
-            LoginError::Phone => Key::AppAuthErrorPhone,
             LoginError::RateLimited => Key::AppAuthErrorRateLimited,
             LoginError::Reset => Key::AppAuthErrorReset,
             LoginError::Wechat => Key::AppAuthErrorWechat,
@@ -246,11 +244,8 @@ pub struct RootView {
     session_checked: bool,
     login_mode: LoginMode,
     login_email: String,
-    login_phone: String,
-    login_code: String,
     login_reset_token: String,
     login_new_password: String,
-    phone_code_sent: bool,
     reset_sent: bool,
     login_notice: Option<Key>,
     login_password: String,
@@ -333,18 +328,19 @@ impl RootView {
             session_checked: false,
             login_mode: LoginMode::Password,
             login_email: String::new(),
-            login_phone: String::new(),
-            login_code: String::new(),
             login_reset_token: String::new(),
             login_new_password: String::new(),
-            phone_code_sent: false,
             reset_sent: false,
             login_notice: None,
             login_password: String::new(),
             focused: LoginField::Email,
             login_error: None,
             signing_in: false,
-            wechat_login: WechatLoginView::Idle,
+            wechat_login: if is_fake_mode {
+                WechatLoginView::Demo
+            } else {
+                WechatLoginView::Idle
+            },
             wechat_generation: 0,
             account_menu_open: false,
             agent_panel_open: true,
@@ -2004,6 +2000,8 @@ impl RootView {
         self.login_email.clear();
         self.login_password.clear();
         self.login_error = None;
+        self.switch_login_mode(LoginMode::Password);
+        self.ensure_wechat_login(cx);
         cx.notify();
     }
 
@@ -2080,127 +2078,6 @@ impl RootView {
             );
         }
         elements
-    }
-
-    fn render_phone_login_card(
-        &mut self,
-        language: Language,
-        palette: &theme::Palette,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let phone = self.login_phone.clone();
-        let code = self.login_code.clone();
-        let sent = self.phone_code_sent;
-        let signing_in = self.signing_in;
-        let phone_input = self.login_input(
-            language,
-            palette,
-            "login-phone",
-            LoginField::Phone,
-            Key::AppAuthPhonePhone,
-            phone,
-            false,
-            cx,
-        );
-        let code_input = self.login_input(
-            language,
-            palette,
-            "login-code",
-            LoginField::Code,
-            Key::AppAuthPhoneCode,
-            code,
-            false,
-            cx,
-        );
-        let card = div()
-            .w(px(360.0))
-            .flex()
-            .flex_col()
-            .gap(space(2))
-            .p(space(5))
-            .rounded(px(RADIUS_LARGE))
-            .border_1()
-            .border_color(palette.line)
-            .bg(palette.card)
-            .child(
-                div()
-                    .text_size(px(22.0))
-                    .text_color(palette.ink)
-                    .child(translate(language, Key::AppName)),
-            )
-            .child(
-                div()
-                    .text_size(px(12.0))
-                    .text_color(palette.ink_3)
-                    .child(translate(language, Key::AppAuthPhoneTitle)),
-            )
-            .child(phone_input)
-            .children(sent.then_some(code_input))
-            .children(self.login_feedback(language, palette))
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .gap(space(1))
-                    .child(
-                        div()
-                            .id("phone-send-code")
-                            .role(Role::Button)
-                            .aria_label(translate(language, Key::AppAuthPhoneSendCode))
-                            .flex_1()
-                            .h(px(34.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(RADIUS_MEDIUM))
-                            .bg(palette.soft)
-                            .text_color(palette.ink_2)
-                            .child(translate(language, Key::AppAuthPhoneSendCode))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.request_phone_code(cx);
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id("phone-submit")
-                            .role(Role::Button)
-                            .aria_label(translate(language, Key::AppAuthPhoneSubmit))
-                            .flex_1()
-                            .h(px(34.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(RADIUS_MEDIUM))
-                            .bg(if signing_in {
-                                palette.soft
-                            } else {
-                                palette.accent
-                            })
-                            .text_color(if signing_in {
-                                palette.ink_3
-                            } else {
-                                palette.ink
-                            })
-                            .child(translate(language, Key::AppAuthPhoneSubmit))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.submit_phone_login(cx);
-                            })),
-                    ),
-            )
-            .child(
-                div()
-                    .id("phone-back")
-                    .role(Role::Link)
-                    .aria_label(translate(language, Key::AppAuthBack))
-                    .text_size(px(12.0))
-                    .text_color(palette.ink_3)
-                    .child(translate(language, Key::AppAuthBack))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.switch_login_mode(LoginMode::Password);
-                        cx.notify();
-                    })),
-            );
-        card.into_any_element()
     }
 
     fn render_reset_login_card(
@@ -2328,8 +2205,7 @@ impl RootView {
                 .text_color(palette.ink_3)
                 .child(translate(language, Key::AppAuthBack))
                 .on_click(cx.listener(|this, _, _, cx| {
-                    this.switch_login_mode(LoginMode::Password);
-                    cx.notify();
+                    this.back_to_password_login(cx);
                 })),
         );
         card.into_any_element()
@@ -2340,13 +2216,6 @@ impl RootView {
             "tab" => self.cycle_login_field(),
             "enter" => match self.login_mode {
                 LoginMode::Password => self.submit_login(cx),
-                LoginMode::Phone => {
-                    if self.phone_code_sent {
-                        self.submit_phone_login(cx)
-                    } else {
-                        self.request_phone_code(cx)
-                    }
-                }
                 LoginMode::Reset => {
                     if self.reset_sent {
                         self.submit_reset_password(cx)
@@ -2354,8 +2223,6 @@ impl RootView {
                         self.request_password_reset(cx)
                     }
                 }
-                // 微信模式没有输入框：回车不提交，确认由手机端完成。
-                LoginMode::Wechat => {}
             },
             "backspace" => {
                 let buffer = self.field_mut();
@@ -2378,8 +2245,6 @@ impl RootView {
         match self.focused {
             LoginField::Email => &mut self.login_email,
             LoginField::Password => &mut self.login_password,
-            LoginField::Phone => &mut self.login_phone,
-            LoginField::Code => &mut self.login_code,
             LoginField::ResetToken => &mut self.login_reset_token,
             LoginField::NewPassword => &mut self.login_new_password,
         }
@@ -2388,7 +2253,6 @@ impl RootView {
     fn login_fields(&self) -> Vec<LoginField> {
         match self.login_mode {
             LoginMode::Password => vec![LoginField::Email, LoginField::Password],
-            LoginMode::Phone => vec![LoginField::Phone, LoginField::Code],
             LoginMode::Reset => {
                 if self.reset_sent {
                     vec![LoginField::ResetToken, LoginField::NewPassword]
@@ -2396,8 +2260,6 @@ impl RootView {
                     vec![LoginField::Email]
                 }
             }
-            // 微信模式没有输入框；保留一个焦点落点让 Tab 不 panic。
-            LoginMode::Wechat => vec![LoginField::Email],
         }
     }
 
@@ -2410,18 +2272,302 @@ impl RootView {
         self.focused = fields[(index + 1) % fields.len()];
     }
 
-    fn render_wechat_login_card(
+    fn render_wechat_login_panel(
         &mut self,
         language: Language,
         palette: &theme::Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let view = self.wechat_login.clone();
-        let mut card = div()
-            .w(px(360.0))
+        let mut panel = div()
+            .w_full()
             .flex()
             .flex_col()
             .gap(space(2))
+            .child(
+                div()
+                    .text_size(px(18.0))
+                    .text_color(palette.ink)
+                    .child(translate(language, Key::AppAuthWechatTitle)),
+            )
+            .child(
+                div()
+                    .text_size(px(12.0))
+                    .text_color(palette.ink_3)
+                    .child(translate(language, Key::AppAuthWechatHint)),
+            );
+
+        match view {
+            WechatLoginView::Idle | WechatLoginView::Starting => {
+                panel = panel.child(
+                    div()
+                        .h(px(180.0))
+                        .w_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_size(px(12.0))
+                        .text_color(palette.ink_3)
+                        .child(translate(language, Key::AppAuthWechatStarting)),
+                );
+            }
+            WechatLoginView::Ready {
+                launch_url,
+                approved,
+                remaining_seconds,
+                ..
+            } => {
+                let qr = encode_qr(&launch_url)
+                    .map(|matrix| render_qr(&matrix, black(), white(), px(180.0)));
+                panel = panel.child(div().w_full().flex().justify_center().children(qr));
+                let hint = if approved {
+                    Key::AppAuthWechatApproved
+                } else {
+                    Key::AppAuthWechatHint
+                };
+                panel = panel.child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(if approved {
+                            palette.accent
+                        } else {
+                            palette.ink_3
+                        })
+                        .child(translate(language, hint)),
+                );
+                if !approved {
+                    panel = panel.child(div().text_size(px(12.0)).text_color(palette.ink_3).child(
+                        format!(
+                            "{} {}s",
+                            translate(language, Key::AppAuthWechatExpiresLabel),
+                            remaining_seconds
+                        ),
+                    ));
+                }
+            }
+            WechatLoginView::Expired => {
+                panel = panel
+                    .child(
+                        div()
+                            .text_size(px(12.0))
+                            .text_color(palette.danger)
+                            .child(translate(language, Key::AppAuthWechatExpired)),
+                    )
+                    .child(self.wechat_refresh_button(language, palette, cx));
+            }
+            WechatLoginView::Failed(error) => {
+                panel = panel
+                    .child(
+                        div()
+                            .text_size(px(12.0))
+                            .text_color(palette.danger)
+                            .child(translate(language, error.key())),
+                    )
+                    .child(self.wechat_refresh_button(language, palette, cx));
+            }
+            WechatLoginView::Demo => {
+                panel = panel.child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(palette.ink_3)
+                        .child(translate(language, Key::AppAuthWechatDemoHint)),
+                );
+            }
+        }
+
+        panel.into_any_element()
+    }
+
+    /// 登录页两栏：左扫码（常驻），右密码表单。
+    fn render_login_split(
+        &mut self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let email = self.login_email.clone();
+        let password = self.login_password.clone();
+        let focused = self.focused;
+        let signing_in = self.signing_in;
+        let login_notice = self.login_notice;
+        let is_fake_mode = self.is_fake_mode;
+        let login_error_key = self.login_error_key();
+
+        let email_border = if focused == LoginField::Email {
+            palette.accent
+        } else {
+            palette.line_strong
+        };
+        let password_border = if focused == LoginField::Password {
+            palette.accent
+        } else {
+            palette.line_strong
+        };
+        let email_display = if email.is_empty() {
+            div()
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::AppAuthEmail))
+                .into_any_element()
+        } else {
+            div()
+                .text_color(palette.ink)
+                .child(email)
+                .into_any_element()
+        };
+        let password_display = if password.is_empty() {
+            div()
+                .text_color(palette.ink_3)
+                .child(translate(language, Key::AppAuthPassword))
+                .into_any_element()
+        } else {
+            div()
+                .text_color(palette.ink)
+                .child("•".repeat(password.chars().count().max(1)))
+                .into_any_element()
+        };
+
+        let password_panel = div()
+            .w(px(320.0))
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .gap(space(2))
+            .p(space(4))
+            .rounded(px(RADIUS_LARGE))
+            .bg(palette.soft)
+            .child(
+                div()
+                    .text_size(px(18.0))
+                    .text_color(palette.ink)
+                    .child(translate(language, Key::AppAuthPasswordTitle)),
+            )
+            .child(
+                div()
+                    .text_size(px(12.0))
+                    .text_color(palette.ink_3)
+                    .child(translate(language, Key::AppAuthPasswordHint)),
+            )
+            .child(
+                div()
+                    .id("login-email")
+                    .h(px(34.0))
+                    .flex()
+                    .items_center()
+                    .px(space(2))
+                    .rounded(px(RADIUS_MEDIUM))
+                    .border_1()
+                    .border_color(email_border)
+                    .bg(palette.view)
+                    .role(Role::TextInput)
+                    .aria_label(translate(language, Key::AppAuthEmail))
+                    .child(email_display)
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| {
+                            this.focused = LoginField::Email;
+                            let focus = this.ensure_key_focus(cx);
+                            window.focus(&focus, cx);
+                            cx.notify();
+                        }),
+                    ),
+            )
+            .child(
+                div()
+                    .id("login-password")
+                    .h(px(34.0))
+                    .flex()
+                    .items_center()
+                    .px(space(2))
+                    .rounded(px(RADIUS_MEDIUM))
+                    .border_1()
+                    .border_color(password_border)
+                    .bg(palette.view)
+                    .role(Role::TextInput)
+                    .aria_label(translate(language, Key::AppAuthPassword))
+                    .child(password_display)
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| {
+                            this.focused = LoginField::Password;
+                            let focus = this.ensure_key_focus(cx);
+                            window.focus(&focus, cx);
+                            cx.notify();
+                        }),
+                    ),
+            )
+            .children(login_error_key.map(|key| {
+                div()
+                    .text_size(px(12.0))
+                    .text_color(palette.danger)
+                    .child(translate(language, key))
+                    .into_any_element()
+            }))
+            .child(
+                div()
+                    .id("login-submit")
+                    .h(px(36.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(RADIUS_MEDIUM))
+                    .bg(if signing_in {
+                        palette.soft
+                    } else {
+                        palette.accent
+                    })
+                    .text_color(if signing_in {
+                        palette.ink_3
+                    } else {
+                        palette.ink
+                    })
+                    .role(Role::Button)
+                    .aria_label(translate(language, Key::AppAuthSubmit))
+                    .child(translate(language, Key::AppAuthSubmit))
+                    .on_click(cx.listener(|this, _, _, cx| this.submit_login(cx))),
+            )
+            .children(if is_fake_mode {
+                Some(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_3)
+                        .child(translate(language, Key::AppAuthFakeHint))
+                        .into_any_element(),
+                )
+            } else {
+                None
+            })
+            .children(login_notice.map(|key| {
+                div()
+                    .text_size(px(12.0))
+                    .text_color(palette.accent)
+                    .child(translate(language, key))
+                    .into_any_element()
+            }))
+            .child(
+                div()
+                    .id("login-forgot")
+                    .role(Role::Link)
+                    .aria_label(translate(language, Key::AppAuthForgot))
+                    .text_size(px(12.0))
+                    .text_color(palette.ink_3)
+                    .child(translate(language, Key::AppAuthForgot))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.switch_login_mode(LoginMode::Reset);
+                        cx.notify();
+                    })),
+            )
+            .child(
+                div()
+                    .text_size(px(12.0))
+                    .text_color(palette.ink_3)
+                    .child(translate(language, Key::AppAuthFirstUse)),
+            );
+
+        div()
+            .w(px(720.0))
+            .flex()
+            .flex_col()
+            .gap(space(3))
             .p(space(5))
             .rounded(px(RADIUS_LARGE))
             .border_1()
@@ -2435,84 +2581,19 @@ impl RootView {
             )
             .child(
                 div()
-                    .text_size(px(12.0))
-                    .text_color(palette.ink_3)
-                    .child(translate(language, Key::AppAuthWechatTitle)),
-            );
-
-        match view {
-            WechatLoginView::Idle | WechatLoginView::Starting => {
-                card = card.child(
-                    div()
-                        .h(px(200.0))
-                        .w_full()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_size(px(12.0))
-                        .text_color(palette.ink_3)
-                        .child(translate(language, Key::AppAuthWechatStarting)),
-                );
-            }
-            WechatLoginView::Ready {
-                launch_url,
-                approved,
-            } => {
-                let qr = encode_qr(&launch_url)
-                    .map(|matrix| render_qr(&matrix, black(), white(), px(200.0)));
-                card = card.child(div().w_full().flex().justify_center().children(qr));
-                let hint = if approved {
-                    Key::AppAuthWechatApproved
-                } else {
-                    Key::AppAuthWechatHint
-                };
-                card = card.child(
-                    div()
-                        .text_size(px(12.0))
-                        .text_color(if approved {
-                            palette.accent
-                        } else {
-                            palette.ink_3
-                        })
-                        .child(translate(language, hint)),
-                );
-            }
-            WechatLoginView::Expired => {
-                card = card
+                    .flex()
+                    .flex_row()
+                    .gap(space(4))
+                    .items_start()
                     .child(
                         div()
-                            .text_size(px(12.0))
-                            .text_color(palette.danger)
-                            .child(translate(language, Key::AppAuthWechatExpired)),
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .child(self.render_wechat_login_panel(language, palette, cx)),
                     )
-                    .child(self.wechat_refresh_button(language, palette, cx));
-            }
-            WechatLoginView::Failed(error) => {
-                card = card
-                    .child(
-                        div()
-                            .text_size(px(12.0))
-                            .text_color(palette.danger)
-                            .child(translate(language, error.key())),
-                    )
-                    .child(self.wechat_refresh_button(language, palette, cx));
-            }
-        }
-
-        card.child(
-            div()
-                .id("wechat-back")
-                .role(Role::Link)
-                .aria_label(translate(language, Key::AppAuthBack))
-                .text_size(px(12.0))
-                .text_color(palette.ink_3)
-                .child(translate(language, Key::AppAuthBack))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.switch_login_mode(LoginMode::Password);
-                    cx.notify();
-                })),
-        )
-        .into_any_element()
+                    .child(password_panel),
+            )
+            .into_any_element()
     }
 
     fn wechat_refresh_button(
@@ -2543,22 +2624,38 @@ impl RootView {
         self.login_mode = mode;
         self.login_error = None;
         self.login_notice = None;
-        self.phone_code_sent = false;
         self.reset_sent = false;
-        // 离开微信模式即停止轮询；未消费的请求 10 分钟后由服务端过期。
+        // 离开 Password 视图即停止轮询与倒计时；切回时由 render 重新出码。
         self.wechat_generation += 1;
-        self.wechat_login = WechatLoginView::Idle;
+        self.wechat_login = if self.is_fake_mode {
+            WechatLoginView::Demo
+        } else {
+            WechatLoginView::Idle
+        };
         self.focused = match mode {
             LoginMode::Password => LoginField::Email,
-            LoginMode::Phone => LoginField::Phone,
             LoginMode::Reset => LoginField::Email,
-            LoginMode::Wechat => LoginField::Email,
         };
     }
 
-    fn open_wechat_login(&mut self, cx: &mut Context<Self>) {
-        self.switch_login_mode(LoginMode::Wechat);
-        self.start_wechat_login(cx);
+    /// 自动出码条件：仅真实后端、密码登录视图、且当前没有进行中的扫码。
+    fn should_auto_start_wechat(&self) -> bool {
+        !self.is_fake_mode
+            && self.login_mode == LoginMode::Password
+            && matches!(self.wechat_login, WechatLoginView::Idle)
+    }
+
+    /// 登录视图（Password）挂载时调用；fake 模式下不自动出码。
+    pub fn ensure_wechat_login(&mut self, cx: &mut Context<Self>) {
+        if self.should_auto_start_wechat() {
+            self.start_wechat_login(cx);
+        }
+    }
+
+    fn back_to_password_login(&mut self, cx: &mut Context<Self>) {
+        self.switch_login_mode(LoginMode::Password);
+        self.ensure_wechat_login(cx);
+        cx.notify();
     }
 
     fn start_wechat_login(&mut self, cx: &mut Context<Self>) {
@@ -2582,9 +2679,13 @@ impl RootView {
                 match result {
                     Ok(start) => match start.launch_url {
                         Some(launch_url) => {
+                            let expires_at = start.expires_at.clone();
+                            let remaining_seconds = remaining_seconds(expires_at.as_deref());
                             this.wechat_login = WechatLoginView::Ready {
                                 launch_url,
                                 approved: false,
+                                expires_at,
+                                remaining_seconds,
                             };
                             this.spawn_wechat_poller(
                                 cx,
@@ -2593,6 +2694,7 @@ impl RootView {
                                 start.proof,
                                 start.poll_interval_seconds,
                             );
+                            this.spawn_wechat_countdown(cx, generation);
                         }
                         None => {
                             this.wechat_login = WechatLoginView::Failed(LoginError::Wechat);
@@ -2632,7 +2734,8 @@ impl RootView {
             let next_proof = proof.clone();
             let keep = this
                 .update(cx, |this, cx| {
-                    if generation != this.wechat_generation || this.login_mode != LoginMode::Wechat
+                    if generation != this.wechat_generation
+                        || this.login_mode != LoginMode::Password
                     {
                         return false;
                     }
@@ -2666,6 +2769,49 @@ impl RootView {
         .detach();
     }
 
+    /// 每秒刷新二维码剩余有效期；归零即显示过期（不依赖下一次轮询）。
+    fn spawn_wechat_countdown(&mut self, cx: &mut Context<Self>, generation: u64) {
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(Duration::from_secs(1)).await;
+            let keep = this
+                .update(cx, |this, cx| {
+                    if generation != this.wechat_generation
+                        || this.login_mode != LoginMode::Password
+                    {
+                        return false;
+                    }
+                    let next = match &mut this.wechat_login {
+                        WechatLoginView::Ready {
+                            approved: false,
+                            remaining_seconds,
+                            ..
+                        } => {
+                            *remaining_seconds = (*remaining_seconds - 1).max(0);
+                            Some(*remaining_seconds)
+                        }
+                        _ => None,
+                    };
+                    match next {
+                        Some(seconds) if seconds > 0 => {
+                            cx.notify();
+                            true
+                        }
+                        Some(_) => {
+                            this.wechat_login = WechatLoginView::Expired;
+                            cx.notify();
+                            false
+                        }
+                        None => false,
+                    }
+                })
+                .unwrap_or(false);
+            if !keep {
+                break;
+            }
+        })
+        .detach();
+    }
+
     fn consume_wechat_login(
         &mut self,
         cx: &mut Context<Self>,
@@ -2687,58 +2833,6 @@ impl RootView {
                 if generation != this.wechat_generation {
                     return;
                 }
-                this.finish_login(result);
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    fn request_phone_code(&mut self, cx: &mut Context<Self>) {
-        let phone = self.login_phone.trim().to_string();
-        if phone.is_empty() || self.signing_in {
-            return;
-        }
-        self.signing_in = true;
-        self.login_error = None;
-        let api = self.session.api_handle();
-        let task = cx.background_executor().spawn(async move {
-            api.request_phone_code(&phone, cgc_platform::session::PhoneCodePurpose::Login)
-        });
-        cx.spawn(async move |this, cx| {
-            let result = task.await;
-            let _ = this.update(cx, |this, cx| {
-                this.signing_in = false;
-                match result {
-                    Ok(sent) if sent.sent => {
-                        this.phone_code_sent = true;
-                        this.login_notice = Some(Key::AppAuthPhoneCodeSent);
-                        this.focused = LoginField::Code;
-                    }
-                    Ok(_) => this.login_error = Some(LoginError::Phone),
-                    Err(error) => this.login_error = Some(LoginError::from_auth_error(&error)),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    fn submit_phone_login(&mut self, cx: &mut Context<Self>) {
-        let phone = self.login_phone.trim().to_string();
-        let code = self.login_code.trim().to_string();
-        if phone.is_empty() || code.is_empty() || self.signing_in {
-            return;
-        }
-        self.signing_in = true;
-        self.login_error = None;
-        let api = self.session.api_handle();
-        let task = cx
-            .background_executor()
-            .spawn(async move { api.sign_in_with_phone_code(&phone, &code) });
-        cx.spawn(async move |this, cx| {
-            let result = task.await;
-            let _ = this.update(cx, |this, cx| {
                 this.finish_login(result);
                 cx.notify();
             });
@@ -2795,7 +2889,7 @@ impl RootView {
                 this.signing_in = false;
                 match result {
                     Ok(true) => {
-                        this.switch_login_mode(LoginMode::Password);
+                        this.back_to_password_login(cx);
                         this.login_notice = Some(Key::AppAuthResetSent);
                     }
                     Ok(false) => this.login_error = Some(LoginError::Reset),
@@ -2825,8 +2919,6 @@ impl Render for RootView {
         let palette = theme::palette(mode);
         let language = self.language;
         let account_menu = self.account_menu_open;
-        let signing_in = self.signing_in;
-        let login_error_key = self.login_error_key();
         let is_signed_in = self.is_signed_in();
         let email = self
             .session
@@ -2983,213 +3075,11 @@ impl Render for RootView {
         if !is_signed_in {
             window.focus(&key_focus, cx);
         }
-        let login_email = self.login_email.clone();
-        let login_password = self.login_password.clone();
-        let focused = self.focused;
-        let login_notice = self.login_notice;
-        let is_fake_mode = self.is_fake_mode;
-
         let mut root = div();
         if !is_signed_in {
-            let email_border = if focused == LoginField::Email {
-                palette.accent
-            } else {
-                palette.line_strong
-            };
-            let password_border = if focused == LoginField::Password {
-                palette.accent
-            } else {
-                palette.line_strong
-            };
-            let email_display = if login_email.is_empty() {
-                div()
-                    .text_color(palette.ink_3)
-                    .child(translate(language, Key::AppAuthEmail))
-                    .into_any_element()
-            } else {
-                div()
-                    .text_color(palette.ink)
-                    .child(login_email)
-                    .into_any_element()
-            };
-            let password_display = if login_password.is_empty() {
-                div()
-                    .text_color(palette.ink_3)
-                    .child(translate(language, Key::AppAuthPassword))
-                    .into_any_element()
-            } else {
-                div()
-                    .text_color(palette.ink)
-                    .child("•".repeat(login_password.chars().count().max(1)))
-                    .into_any_element()
-            };
-
-            let password_card = div()
-                .w(px(360.0))
-                .flex()
-                .flex_col()
-                .gap(space(2))
-                .p(space(5))
-                .rounded(px(RADIUS_LARGE))
-                .border_1()
-                .border_color(palette.line)
-                .bg(palette.card)
-                .child(
-                    div()
-                        .text_size(px(22.0))
-                        .text_color(palette.ink)
-                        .child(translate(language, Key::AppName)),
-                )
-                .child(
-                    div()
-                        .text_size(px(12.0))
-                        .text_color(palette.ink_3)
-                        .child(translate(language, Key::AppAuthSubmit)),
-                )
-                .child(
-                    div()
-                        .id("login-email")
-                        .h(px(34.0))
-                        .flex()
-                        .items_center()
-                        .px(space(2))
-                        .rounded(px(RADIUS_MEDIUM))
-                        .border_1()
-                        .border_color(email_border)
-                        .bg(palette.view)
-                        .role(Role::TextInput)
-                        .aria_label(translate(language, Key::AppAuthEmail))
-                        .child(email_display)
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _, window, cx| {
-                                this.focused = LoginField::Email;
-                                let focus = this.ensure_key_focus(cx);
-                                window.focus(&focus, cx);
-                                cx.notify();
-                            }),
-                        ),
-                )
-                .child(
-                    div()
-                        .id("login-password")
-                        .h(px(34.0))
-                        .flex()
-                        .items_center()
-                        .px(space(2))
-                        .rounded(px(RADIUS_MEDIUM))
-                        .border_1()
-                        .border_color(password_border)
-                        .bg(palette.view)
-                        .role(Role::TextInput)
-                        .aria_label(translate(language, Key::AppAuthPassword))
-                        .child(password_display)
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _, window, cx| {
-                                this.focused = LoginField::Password;
-                                let focus = this.ensure_key_focus(cx);
-                                window.focus(&focus, cx);
-                                cx.notify();
-                            }),
-                        ),
-                )
-                .children(login_error_key.map(|key| {
-                    div()
-                        .text_size(px(12.0))
-                        .text_color(palette.danger)
-                        .child(translate(language, key))
-                        .into_any_element()
-                }))
-                .child(
-                    div()
-                        .id("login-submit")
-                        .h(px(36.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(RADIUS_MEDIUM))
-                        .bg(if signing_in {
-                            palette.soft
-                        } else {
-                            palette.accent
-                        })
-                        .text_color(if signing_in {
-                            palette.ink_3
-                        } else {
-                            palette.ink
-                        })
-                        .role(Role::Button)
-                        .aria_label(translate(language, Key::AppAuthSubmit))
-                        .child(translate(language, Key::AppAuthSubmit))
-                        .on_click(cx.listener(|this, _, _, cx| this.submit_login(cx))),
-                )
-                .children(if is_fake_mode {
-                    Some(
-                        div()
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_3)
-                            .child(translate(language, Key::AppAuthFakeHint))
-                            .into_any_element(),
-                    )
-                } else {
-                    None
-                })
-                .children(login_notice.map(|key| {
-                    div()
-                        .text_size(px(12.0))
-                        .text_color(palette.accent)
-                        .child(translate(language, key))
-                        .into_any_element()
-                }))
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .justify_between()
-                        .text_size(px(12.0))
-                        .child(
-                            div()
-                                .id("login-mode-wechat")
-                                .role(Role::Link)
-                                .aria_label(translate(language, Key::AppAuthModeWechat))
-                                .text_color(palette.accent)
-                                .child(translate(language, Key::AppAuthModeWechat))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.open_wechat_login(cx);
-                                })),
-                        )
-                        .child(
-                            div()
-                                .id("login-mode-phone")
-                                .role(Role::Link)
-                                .aria_label(translate(language, Key::AppAuthModePhone))
-                                .text_color(palette.accent)
-                                .child(translate(language, Key::AppAuthModePhone))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.switch_login_mode(LoginMode::Phone);
-                                    cx.notify();
-                                })),
-                        )
-                        .child(
-                            div()
-                                .id("login-forgot")
-                                .role(Role::Link)
-                                .aria_label(translate(language, Key::AppAuthForgot))
-                                .text_color(palette.ink_3)
-                                .child(translate(language, Key::AppAuthForgot))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.switch_login_mode(LoginMode::Reset);
-                                    cx.notify();
-                                })),
-                        ),
-                );
-
             let login_card = match self.login_mode {
-                LoginMode::Password => password_card.into_any_element(),
-                LoginMode::Phone => self.render_phone_login_card(language, &palette, cx),
+                LoginMode::Password => self.render_login_split(language, &palette, cx),
                 LoginMode::Reset => self.render_reset_login_card(language, &palette, cx),
-                LoginMode::Wechat => self.render_wechat_login_card(language, &palette, cx),
             };
             root = root
                 .size_full()
@@ -6281,6 +6171,21 @@ fn course_row(
         .into_any_element()
 }
 
+fn now_epoch_seconds() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// 二维码剩余秒数；服务端少了 expiresAt 时按 10 分钟兜底（与后端有效期一致）。
+fn remaining_seconds(expires_at: Option<&str>) -> i64 {
+    expires_at
+        .and_then(parse_rfc3339_epoch)
+        .map(|deadline| (deadline - now_epoch_seconds()).max(0))
+        .unwrap_or(600)
+}
+
 fn build_learning_host_api() -> Arc<dyn LearningHostApi> {
     let use_http =
         std::env::var("CGC_AUTH").as_deref() == Ok("http") || std::env::var("CGC_API_URL").is_ok();
@@ -6453,7 +6358,7 @@ fn hsla_white() -> Hsla {
 
 #[cfg(test)]
 mod tests {
-    use super::{LoginField, LoginMode, RootView, WechatLoginView};
+    use super::{LoginMode, RootView, WechatLoginView};
     use crate::i18n::{translate, Key, Language};
     use crate::registration::build_registry;
     use crate::theme::ThemePreference;
@@ -6635,21 +6540,41 @@ mod tests {
     }
 
     #[test]
-    fn wechat_mode_resets_state_and_stops_the_poller() {
+    fn auto_start_only_when_real_backend_password_view_and_idle() {
+        let mut view = view();
+        // fake 模式下即使扫码状态是 Idle，也不得自动出码。
+        view.login_mode = LoginMode::Password;
+        view.wechat_login = WechatLoginView::Idle;
+        assert!(view.is_fake_mode);
+        assert!(!view.should_auto_start_wechat());
+
+        view.is_fake_mode = false;
+        assert!(view.should_auto_start_wechat());
+
+        view.wechat_login = WechatLoginView::Starting;
+        assert!(!view.should_auto_start_wechat());
+
+        view.wechat_login = WechatLoginView::Idle;
+        view.login_mode = LoginMode::Reset;
+        assert!(!view.should_auto_start_wechat());
+    }
+
+    #[test]
+    fn switching_login_views_resets_scan_state_and_stops_the_poller() {
         let mut view = view();
         let generation = view.wechat_generation;
 
-        view.switch_login_mode(LoginMode::Wechat);
-        assert_eq!(view.login_mode, LoginMode::Wechat);
-        assert_eq!(view.wechat_login, WechatLoginView::Idle);
+        // fake 模式下扫码面板恒为 Demo；切视图只推进代数、清掉残留扫码状态。
+        view.switch_login_mode(LoginMode::Reset);
+        assert_eq!(view.login_mode, LoginMode::Reset);
+        assert_eq!(view.wechat_login, WechatLoginView::Demo);
         assert_eq!(view.wechat_generation, generation + 1);
-        assert_eq!(view.login_fields(), vec![LoginField::Email]);
 
-        // 模拟一次二维码过期，再切回密码模式：状态归零、轮询代数前进。
+        // 回到密码视图：同样重置，等待 render 重新出码。
         view.wechat_login = WechatLoginView::Expired;
         view.switch_login_mode(LoginMode::Password);
         assert_eq!(view.login_mode, LoginMode::Password);
-        assert_eq!(view.wechat_login, WechatLoginView::Idle);
+        assert_eq!(view.wechat_login, WechatLoginView::Demo);
         assert_eq!(view.wechat_generation, generation + 2);
     }
 }

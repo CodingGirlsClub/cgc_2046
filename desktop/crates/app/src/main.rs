@@ -33,8 +33,8 @@ fn main() {
                     app_owns_titlebar_drag: cfg!(target_os = "macos"),
                     window_decorations: Some(gpui_kit::WindowDecorations::Client),
                     window_min_size: Some(gpui_kit::Size {
-                        width: gpui_kit::px(720.0),
-                        height: gpui_kit::px(480.0),
+                        width: gpui_kit::px(800.0),
+                        height: gpui_kit::px(560.0),
                     }),
                     ..Default::default()
                 },
@@ -45,6 +45,8 @@ fn main() {
 
                     let view_registry = startup_registry.clone();
                     let view = cx.new(move |_| RootView::new(view_registry));
+                    // 登录页常驻扫码：启动即出码（fake 模式内部跳过）。
+                    view.update(cx, |this, cx| this.ensure_wechat_login(cx));
 
                     let observer_view = view.clone();
                     window

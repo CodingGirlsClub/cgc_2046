@@ -18,20 +18,6 @@ mutation SignInForDesktop($login: String!, $password: String!) {
 
 pub const VALIDATE_SESSION: &str = "query ValidateSession { me { id } }";
 
-const REQUEST_PHONE_CODE: &str = r#"
-mutation RequestPhoneCode($phone: String!, $purpose: PhoneCodePurpose!) {
-  requestPhoneCode(phone: $phone, purpose: $purpose) { sent retryAfterSeconds }
-}
-"#;
-
-const SIGN_IN_WITH_PHONE_CODE_DESKTOP: &str = r#"
-mutation SignInWithPhoneCodeForDesktop($phone: String!, $code: String!) {
-  signInWithPhoneCodeForDesktop(phone: $phone, code: $code) {
-    token userId email isPlatformAdmin
-  }
-}
-"#;
-
 const REQUEST_PASSWORD_RESET: &str = r#"
 mutation RequestPasswordReset($email: String!) {
   requestPasswordReset(email: $email) { sent }
@@ -121,27 +107,6 @@ impl AuthError {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PhoneCodePurpose {
-    Login,
-    Register,
-}
-
-impl PhoneCodePurpose {
-    pub fn as_graphql(self) -> &'static str {
-        match self {
-            Self::Login => "LOGIN",
-            Self::Register => "REGISTER",
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PhoneCodeSent {
-    pub sent: bool,
-    pub retry_after_seconds: i64,
-}
-
 /// 小程序扫码登录的启动结果。`proof` 只在这里出现一次，客户端存内存并随
 /// status/consume/cancel 回传。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -191,16 +156,6 @@ pub trait AuthApi {
     fn revoke(&self, token: &str) -> Result<(), AuthError>;
     /// 启动恢复时校验持久 token 是否仍有效（false=确定失效；Err=网络不确定，保留会话）。
     fn validate(&self, token: &str) -> Result<bool, AuthError>;
-    fn request_phone_code(
-        &self,
-        phone: &str,
-        purpose: PhoneCodePurpose,
-    ) -> Result<PhoneCodeSent, AuthError>;
-    fn sign_in_with_phone_code(
-        &self,
-        phone: &str,
-        code: &str,
-    ) -> Result<SignedInSession, AuthError>;
     fn request_password_reset(&self, email: &str) -> Result<bool, AuthError>;
     fn reset_password(&self, reset_token: &str, password: &str) -> Result<bool, AuthError>;
     /// 发起小程序扫码登录：返回一次性 proof 与二维码内容（launch_url）。
@@ -350,73 +305,6 @@ impl AuthApi for HttpAuthApi {
             .and_then(|me| me.get("id"))
             .and_then(Value::as_str)
             .is_some())
-    }
-
-    fn request_phone_code(
-        &self,
-        phone: &str,
-        purpose: PhoneCodePurpose,
-    ) -> Result<PhoneCodeSent, AuthError> {
-        let body = self.post(
-            None,
-            REQUEST_PHONE_CODE,
-            serde_json::json!({ "phone": phone, "purpose": purpose.as_graphql() }),
-        )?;
-        if let Some(error) = Self::domain_error(&body) {
-            return Err(error);
-        }
-        let result = body
-            .get("data")
-            .and_then(|data| data.get("requestPhoneCode"))
-            .ok_or_else(|| AuthError::Server("missing requestPhoneCode payload".to_string()))?;
-        Ok(PhoneCodeSent {
-            sent: result.get("sent").and_then(Value::as_bool).unwrap_or(false),
-            retry_after_seconds: result
-                .get("retryAfterSeconds")
-                .and_then(Value::as_i64)
-                .unwrap_or(60),
-        })
-    }
-
-    fn sign_in_with_phone_code(
-        &self,
-        phone: &str,
-        code: &str,
-    ) -> Result<SignedInSession, AuthError> {
-        let body = self.post(
-            None,
-            SIGN_IN_WITH_PHONE_CODE_DESKTOP,
-            serde_json::json!({ "phone": phone, "code": code }),
-        )?;
-        if let Some(error) = Self::domain_error(&body) {
-            return Err(error);
-        }
-        let result = body
-            .get("data")
-            .and_then(|data| data.get("signInWithPhoneCodeForDesktop"))
-            .ok_or_else(|| {
-                AuthError::Server("missing signInWithPhoneCodeForDesktop payload".to_string())
-            })?;
-        let token = result
-            .get("token")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AuthError::Server("missing token".to_string()))?;
-        Ok(SignedInSession {
-            token: token.to_string(),
-            user_id: result
-                .get("userId")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            email: result
-                .get("email")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            is_platform_admin: result
-                .get("isPlatformAdmin")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
-        })
     }
 
     fn request_password_reset(&self, email: &str) -> Result<bool, AuthError> {
@@ -656,43 +544,6 @@ impl AuthApi for FakeAuthApi {
         Ok(!token.is_empty() && token != "expired")
     }
 
-    fn request_phone_code(
-        &self,
-        phone: &str,
-        _purpose: PhoneCodePurpose,
-    ) -> Result<PhoneCodeSent, AuthError> {
-        if phone.trim().is_empty() {
-            return Err(AuthError::Domain {
-                code: "invalid_phone".to_string(),
-                message: "invalid phone".to_string(),
-            });
-        }
-        Ok(PhoneCodeSent {
-            sent: true,
-            retry_after_seconds: 60,
-        })
-    }
-
-    fn sign_in_with_phone_code(
-        &self,
-        phone: &str,
-        code: &str,
-    ) -> Result<SignedInSession, AuthError> {
-        if code == "123456" {
-            Ok(SignedInSession {
-                token: "fake-desktop-token".to_string(),
-                user_id: format!("user-phone-{phone}"),
-                email: None,
-                is_platform_admin: false,
-            })
-        } else {
-            Err(AuthError::Domain {
-                code: "invalid_or_expired_code".to_string(),
-                message: "invalid code".to_string(),
-            })
-        }
-    }
-
     fn request_password_reset(&self, email: &str) -> Result<bool, AuthError> {
         Ok(!email.trim().is_empty())
     }
@@ -867,20 +718,8 @@ mod tests {
     }
 
     #[test]
-    fn fake_phone_code_flow_and_password_reset() {
+    fn fake_password_reset_flow() {
         let api = FakeAuthApi::demo();
-        let sent = api
-            .request_phone_code("13800138000", PhoneCodePurpose::Login)
-            .expect("request code");
-        assert!(sent.sent);
-        let session = api
-            .sign_in_with_phone_code("13800138000", "123456")
-            .expect("phone login");
-        assert_eq!(session.token, "fake-desktop-token");
-        let error = api
-            .sign_in_with_phone_code("13800138000", "000000")
-            .unwrap_err();
-        assert!(matches!(error, AuthError::Domain { .. }));
         assert!(api
             .request_password_reset("demo@example.com")
             .expect("reset mail"));
@@ -890,43 +729,7 @@ mod tests {
     }
 
     #[test]
-    fn http_phone_code_and_reset_parse_payloads() {
-        let (endpoint, received) = spawn_mock_server(
-            200,
-            r#"{"data":{"requestPhoneCode":{"sent":true,"retryAfterSeconds":30}}}"#,
-        );
-        let api = HttpAuthApi::new(endpoint);
-        let sent = api
-            .request_phone_code("13800138000", PhoneCodePurpose::Register)
-            .expect("request");
-        assert!(sent.sent);
-        assert_eq!(sent.retry_after_seconds, 30);
-        let request = received.recv().expect("captured");
-        assert!(request.contains("requestPhoneCode"));
-        assert!(request.contains("REGISTER"));
-
-        let (endpoint, _) = spawn_mock_server(
-            200,
-            r#"{"data":{"signInWithPhoneCodeForDesktop":{"token":"jwt.phone.token","userId":"u-1","email":null,"isPlatformAdmin":false}}}"#,
-        );
-        let api = HttpAuthApi::new(endpoint);
-        let session = api
-            .sign_in_with_phone_code("13800138000", "123456")
-            .expect("desktop phone login");
-        assert_eq!(session.token, "jwt.phone.token");
-
-        let (endpoint, _) = spawn_mock_server(
-            200,
-            r#"{"errors":[{"message":"Invalid or expired code","code":"invalid_or_expired_code"}]}"#,
-        );
-        let api = HttpAuthApi::new(endpoint);
-        let error = api
-            .sign_in_with_phone_code("13800138000", "000000")
-            .unwrap_err();
-        assert!(
-            matches!(error, AuthError::Domain { ref code, .. } if code == "invalid_or_expired_code")
-        );
-
+    fn http_reset_password_parses_payload() {
         let (endpoint, _) = spawn_mock_server(200, r#"{"data":{"resetPassword":{"ok":true}}}"#);
         let api = HttpAuthApi::new(endpoint);
         assert!(api.reset_password("token", "password123").expect("reset"));

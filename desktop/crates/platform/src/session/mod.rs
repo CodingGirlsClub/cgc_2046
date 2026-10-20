@@ -10,8 +10,8 @@ mod auth_api;
 mod credential_store;
 
 pub use auth_api::{
-    AuthApi, AuthError, FakeAuthApi, HttpAuthApi, PhoneCodePurpose, PhoneCodeSent, SignedInSession,
-    WechatLoginPoll, WechatLoginStart, WechatLoginStatus,
+    AuthApi, AuthError, FakeAuthApi, HttpAuthApi, SignedInSession, WechatLoginPoll,
+    WechatLoginStart, WechatLoginStatus,
 };
 pub use credential_store::{CredentialStore, FileStore, KeychainStore, MemoryStore};
 
