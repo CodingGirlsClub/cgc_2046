@@ -1339,6 +1339,28 @@ impl RootView {
             cx.notify();
             return;
         }
+        if self.agent_registry_search_focused
+            && self
+                .current
+                .as_ref()
+                .is_some_and(|route_match| route_match.route.id == "app.agents")
+        {
+            match event.keystroke.key.as_str() {
+                "escape" | "enter" => self.agent_registry_search_focused = false,
+                "backspace" => {
+                    self.agent_registry_query.pop();
+                }
+                _ => {
+                    if let Some(text) = event.keystroke.key_char.as_deref() {
+                        if !event.keystroke.modifiers.modified() && !text.is_empty() {
+                            self.agent_registry_query.push_str(text);
+                        }
+                    }
+                }
+            }
+            cx.notify();
+            return;
+        }
         if Self::is_settings_shortcut(&event.keystroke) {
             self.open_settings_window(cx);
             return;
@@ -1839,10 +1861,20 @@ impl RootView {
 
     pub(in crate::root_view) fn open_agent_registry(&mut self, cx: &mut Context<Self>) {
         let title = translate(self.language, Key::AgentRegistryTitle).to_string();
+        self.agent_registry_search_focused = false;
         self.open_page_tab("/agents", title, cx);
         if !self.agent_registry_started {
             self.start_agent_registry_load(cx);
         }
+    }
+
+    pub(in crate::root_view) fn set_agent_registry_filter(
+        &mut self,
+        filter: AgentRegistryFilter,
+        cx: &mut Context<Self>,
+    ) {
+        self.agent_registry_filter = filter;
+        cx.notify();
     }
 
     pub(in crate::root_view) fn start_agent_registry_load(&mut self, cx: &mut Context<Self>) {

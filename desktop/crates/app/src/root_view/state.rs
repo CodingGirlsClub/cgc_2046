@@ -100,6 +100,14 @@ pub(in crate::root_view) enum SiteTreeSection {
     Courses,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::root_view) enum AgentRegistryFilter {
+    #[default]
+    All,
+    Installed,
+    NotInstalled,
+}
+
 pub struct ShellState {
     pub(in crate::root_view) registry: RouteRegistry,
     pub(in crate::root_view) current: Option<RouteMatch>,
@@ -157,6 +165,9 @@ pub struct ShellState {
     pub(in crate::root_view) agent_registry_error: Option<String>,
     pub(in crate::root_view) agent_installing: Option<String>,
     pub(in crate::root_view) agent_install_error: Option<String>,
+    pub(in crate::root_view) agent_registry_query: String,
+    pub(in crate::root_view) agent_registry_search_focused: bool,
+    pub(in crate::root_view) agent_registry_filter: AgentRegistryFilter,
     pub(in crate::root_view) courses: CourseCatalogService,
     pub(in crate::root_view) courses_started: bool,
     pub(in crate::root_view) workspaces: WorkspaceService,
@@ -256,6 +267,9 @@ impl ShellState {
             agent_registry_error: None,
             agent_installing: None,
             agent_install_error: None,
+            agent_registry_query: String::new(),
+            agent_registry_search_focused: false,
+            agent_registry_filter: AgentRegistryFilter::default(),
             courses,
             courses_started: false,
             course_detail,

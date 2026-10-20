@@ -14,6 +14,25 @@ pub(in crate::root_view) fn render_agent_registry(
     let error = ctx.agent_registry_error.clone();
     let installing = ctx.agent_installing.clone();
     let install_error = ctx.agent_install_error.clone();
+    let query = ctx.agent_registry_query.clone();
+    let filter = ctx.agent_registry_filter;
+    let search_focused = ctx.agent_registry_search_focused;
+    let rows = rows
+        .into_iter()
+        .filter(|row| match filter {
+            AgentRegistryFilter::All => true,
+            AgentRegistryFilter::Installed => matches!(row.status, AgentStatus::Ready { .. }),
+            AgentRegistryFilter::NotInstalled => !matches!(row.status, AgentStatus::Ready { .. }),
+        })
+        .filter(|row| {
+            query.trim().is_empty()
+                || row
+                    .entry
+                    .display_name
+                    .to_lowercase()
+                    .contains(&query.trim().to_lowercase())
+        })
+        .collect::<Vec<_>>();
 
     let body = if loading && rows.is_empty() {
         div()
@@ -46,6 +65,12 @@ pub(in crate::root_view) fn render_agent_registry(
                         this.start_agent_registry_load(cx);
                     })),
             )
+            .into_any_element()
+    } else if rows.is_empty() {
+        div()
+            .text_size(px(12.0))
+            .text_color(palette.ink_3)
+            .child("没有匹配的 agent")
             .into_any_element()
     } else {
         let mut cards = Vec::new();
@@ -166,6 +191,75 @@ pub(in crate::root_view) fn render_agent_registry(
                 .text_size(px(12.0))
                 .text_color(palette.ink_3)
                 .child(translate(language, Key::AgentRegistrySubtitle)),
+        )
+        .child(
+            div()
+                .id("agent-registry-search")
+                .flex()
+                .items_center()
+                .px(space(2))
+                .py(px(4.0))
+                .rounded(px(RADIUS_MEDIUM))
+                .border_1()
+                .border_color(if search_focused {
+                    palette.accent
+                } else {
+                    palette.line
+                })
+                .bg(palette.card)
+                .text_size(px(11.0))
+                .text_color(if query.is_empty() {
+                    palette.ink_3
+                } else {
+                    palette.ink
+                })
+                .child(if query.is_empty() {
+                    "搜索 agent".to_string()
+                } else {
+                    query.clone()
+                })
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, window, cx| {
+                        this.agent_registry_search_focused = true;
+                        let focus = this.ensure_key_focus(cx);
+                        window.focus(&focus, cx);
+                        cx.notify();
+                    }),
+                ),
+        )
+        .child(
+            div().flex().flex_row().gap(space(1)).children(
+                [
+                    (AgentRegistryFilter::All, "全部"),
+                    (AgentRegistryFilter::Installed, "已安装"),
+                    (AgentRegistryFilter::NotInstalled, "未安装"),
+                ]
+                .into_iter()
+                .map(|(value, label)| {
+                    div()
+                        .id(SharedString::from(format!("agent-filter-{label}")))
+                        .px(space(2))
+                        .py(px(3.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .bg(if filter == value {
+                            palette.accent
+                        } else {
+                            palette.card
+                        })
+                        .text_color(if filter == value {
+                            palette.canvas
+                        } else {
+                            palette.ink_2
+                        })
+                        .text_size(px(11.0))
+                        .child(label)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.set_agent_registry_filter(value, cx);
+                        }))
+                        .into_any_element()
+                }),
+            ),
         )
         .children(install_error.map(|error| {
             div()

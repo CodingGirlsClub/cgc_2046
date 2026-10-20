@@ -68,7 +68,7 @@ mod controller;
 mod screens;
 mod state;
 
-use state::{RightPanel, ShellState, SiteTreeSection};
+use state::{AgentRegistryFilter, RightPanel, ShellState, SiteTreeSection};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LoginField {
