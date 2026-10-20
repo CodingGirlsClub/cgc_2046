@@ -1252,14 +1252,12 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn load_course_enrollments(&mut self, cx: &mut Context<Self>) {
-        if self.course_enrollments_loaded {
-            return;
-        }
         let ids = self
             .courses
             .items()
             .iter()
             .take(20)
+            .filter(|course| !self.course_enrollments.contains_key(&course.id))
             .map(|course| course.id.clone())
             .collect::<Vec<_>>();
         if ids.is_empty() {
@@ -1271,18 +1269,17 @@ impl RootView {
         let task = cx.background_executor().spawn(async move {
             let mut statuses = std::collections::BTreeMap::new();
             for id in ids {
-                let status = api
-                    .get_my_enrollment_status(token.as_deref(), &id)
-                    .ok()
-                    .flatten();
-                statuses.insert(id, status);
+                // 查询失败不落 None：未知不能当成“未报名”，否则会误导学员。
+                if let Ok(status) = api.get_my_enrollment_status(token.as_deref(), &id) {
+                    statuses.insert(id, status);
+                }
             }
             statuses
         });
         cx.spawn(async move |this, cx| {
             let statuses = task.await;
             let _ = this.update(cx, |this, cx| {
-                this.course_enrollments = statuses;
+                this.course_enrollments.extend(statuses);
                 cx.notify();
             });
         })
