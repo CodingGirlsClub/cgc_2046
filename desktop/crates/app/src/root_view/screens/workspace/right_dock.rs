@@ -104,6 +104,9 @@ fn render_site_tree(
     palette: &theme::Palette,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
+    use gpui_kit::component::button::{Button, ButtonVariants};
+    use gpui_kit::component::sidebar::{Sidebar, SidebarCollapsible, SidebarMenuItem};
+
     let workspace = ctx
         .workspaces
         .current()
@@ -147,8 +150,6 @@ fn render_site_tree(
             .find(|tab| tab.id == active)
             .and_then(|tab| tab.issue_id.clone())
     });
-    // breadcrumb 等直接 navigate 的页面不一定有 Pane Tab；当前 route 必须
-    // 优先于 active tab，否则学习导航会停在旧的 tab 高亮上。
     let active_path = ctx
         .current
         .as_ref()
@@ -175,172 +176,234 @@ fn render_site_tree(
         })
     };
 
-    let mut rows = Vec::new();
-    rows.push(
-        div()
-            .px(space(1))
-            .py(px(3.0))
-            .text_color(palette.ink_3)
-            .child(workspace)
-            .into_any_element(),
+    let search = div()
+        .id("site-tree-search")
+        .mx(space(1))
+        .my(px(2.0))
+        .px(space(1))
+        .py(px(3.0))
+        .rounded(px(RADIUS_SMALL))
+        .border_1()
+        .border_color(if ctx.site_tree_search_focused {
+            palette.accent
+        } else {
+            palette.line
+        })
+        .bg(palette.view)
+        .text_size(px(11.0))
+        .text_color(if query.is_empty() {
+            palette.ink_3
+        } else {
+            palette.ink
+        })
+        .child(if query.is_empty() {
+            "搜索".to_string()
+        } else {
+            query.clone()
+        })
+        .w_full()
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, _, window, cx| {
+                this.site_tree_search_focused = true;
+                let focus = this.ensure_key_focus(cx);
+                window.focus(&focus, cx);
+                cx.notify();
+            }),
+        )
+        .into_any_element();
+    let header = div()
+        .flex()
+        .flex_col()
+        .gap(px(2.0))
+        .child(
+            div()
+                .px(space(1))
+                .py(px(3.0))
+                .text_size(px(11.0))
+                .text_color(palette.ink_3)
+                .child(workspace),
+        )
+        .child(search)
+        .w_full()
+        .into_any_element();
+
+    let mut items: Vec<SidebarMenuItem> = Vec::new();
+    let root_overview = cx.entity().downgrade();
+    let overview_label = translate(language, Key::AccountWorkspaceOverview).to_string();
+    let overview_title = overview_label.clone();
+    items.push(
+        SidebarMenuItem::new(overview_label)
+            .icon(Icon::default().path(AssetIcon::House.path()).small())
+            .active(section_active("/workspace"))
+            .on_click(move |_, _, cx| {
+                let _ = root_overview.update(cx, |this, cx| {
+                    this.open_page_tab("/workspace", overview_title.clone(), cx);
+                });
+            }),
     );
-    rows.push(
-        div()
-            .id("site-tree-search")
-            .mx(space(1))
-            .my(px(2.0))
-            .px(space(1))
-            .py(px(3.0))
-            .rounded(px(RADIUS_SMALL))
-            .border_1()
-            .border_color(if ctx.site_tree_search_focused {
-                palette.accent
-            } else {
-                palette.line
-            })
-            .bg(palette.view)
-            .text_size(px(11.0))
-            .text_color(if query.is_empty() {
-                palette.ink_3
-            } else {
-                palette.ink
-            })
-            .child(if query.is_empty() {
-                "搜索".to_string()
-            } else {
-                query.clone()
-            })
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, window, cx| {
-                    this.site_tree_search_focused = true;
-                    let focus = this.ensure_key_focus(cx);
-                    window.focus(&focus, cx);
-                    cx.notify();
-                }),
-            )
-            .into_any_element(),
-    );
-    rows.push(tree_section_row(
-        "overview",
-        translate(language, Key::AccountWorkspaceOverview).to_string(),
-        "/workspace",
-        None,
-        None,
-        section_active("/workspace"),
-        palette,
-        cx,
-    ));
-    rows.push(tree_section_row(
-        "events",
-        translate(language, Key::EventsListTitle).to_string(),
-        "/events",
-        Some(show_events),
-        Some(SiteTreeSection::Events),
-        section_active("/events"),
-        palette,
-        cx,
-    ));
+
+    let root_events = cx.entity().downgrade();
+    let mut events_item =
+        SidebarMenuItem::new(translate(language, Key::EventsListTitle).to_string())
+            .active(section_active("/events"))
+            .on_click(move |_, _, cx| {
+                let _ = root_events.update(cx, |this, cx| {
+                    this.open_page_tab(
+                        "/events",
+                        translate(language, Key::EventsListTitle).to_string(),
+                        cx,
+                    );
+                });
+            });
+    let events_chevron = {
+        let root = cx.entity().downgrade();
+        let expanded = show_events;
+        move |_: &mut Window, _: &mut App| {
+            let click_root = root.clone();
+            Button::new("site-tree-events-chevron")
+                .xsmall()
+                .ghost()
+                .icon(
+                    Icon::default()
+                        .path(if expanded {
+                            AssetIcon::ChevronDown.path()
+                        } else {
+                            AssetIcon::ChevronRight.path()
+                        })
+                        .small(),
+                )
+                .on_click(move |_, _, cx| {
+                    cx.stop_propagation();
+                    let _ = click_root.update(cx, |this, cx| {
+                        this.toggle_site_tree_section(SiteTreeSection::Events, cx);
+                    });
+                })
+                .into_any_element()
+        }
+    };
+    events_item = events_item.suffix(events_chevron);
+    items.push(events_item);
     if show_events {
         for (id, title) in events {
             let path = format!("/events/{id}");
-            let is_active = active_path.as_deref() == Some(path.as_str());
-            rows.push(tree_leaf_row(
-                &format!("site-event-{id}"),
-                title,
-                &path,
-                is_active,
-                palette,
-                cx,
-            ));
-        }
-        if ctx.events.has_more() {
-            rows.push(
-                div()
-                    .id("site-tree-events-more")
-                    .pl(px(24.0))
-                    .pr(space(1))
-                    .py(px(3.0))
-                    .text_size(px(10.0))
-                    .text_color(palette.accent)
-                    .child("加载更多活动")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.start_events_load(cx, false);
-                    }))
-                    .into_any_element(),
+            let active = active_path.as_deref() == Some(path.as_str());
+            let root = cx.entity().downgrade();
+            let page_title = title.clone();
+            items.push(
+                SidebarMenuItem::new(title)
+                    .active(active)
+                    .pl(px(16.0))
+                    .on_click(move |_, _, cx| {
+                        let _ = root.update(cx, |this, cx| {
+                            this.open_page_tab(&path, page_title.clone(), cx);
+                        });
+                    }),
             );
         }
+        if ctx.events.has_more() {
+            let root = cx.entity().downgrade();
+            items.push(SidebarMenuItem::new("加载更多活动").pl(px(16.0)).on_click(
+                move |_, _, cx| {
+                    let _ = root.update(cx, |this, cx| this.start_events_load(cx, false));
+                },
+            ));
+        }
     }
-    rows.push(tree_section_row(
-        "courses",
-        translate(language, Key::CoursesCatalogTitle).to_string(),
-        "/courses",
-        Some(show_courses),
-        Some(SiteTreeSection::Courses),
-        section_active("/courses"),
-        palette,
-        cx,
-    ));
+
+    let root_courses = cx.entity().downgrade();
+    let mut courses_item =
+        SidebarMenuItem::new(translate(language, Key::CoursesCatalogTitle).to_string())
+            .icon(Icon::default().path(AssetIcon::BookOpen.path()).small())
+            .active(section_active("/courses"))
+            .on_click(move |_, _, cx| {
+                let _ = root_courses.update(cx, |this, cx| {
+                    this.open_page_tab(
+                        "/courses",
+                        translate(language, Key::CoursesCatalogTitle).to_string(),
+                        cx,
+                    );
+                });
+            });
+    let courses_chevron = {
+        let root = cx.entity().downgrade();
+        let expanded = show_courses;
+        move |_: &mut Window, _: &mut App| {
+            let click_root = root.clone();
+            Button::new("site-tree-courses-chevron")
+                .xsmall()
+                .ghost()
+                .icon(
+                    Icon::default()
+                        .path(if expanded {
+                            AssetIcon::ChevronDown.path()
+                        } else {
+                            AssetIcon::ChevronRight.path()
+                        })
+                        .small(),
+                )
+                .on_click(move |_, _, cx| {
+                    cx.stop_propagation();
+                    let _ = click_root.update(cx, |this, cx| {
+                        this.toggle_site_tree_section(SiteTreeSection::Courses, cx);
+                    });
+                })
+                .into_any_element()
+        }
+    };
+    courses_item = courses_item.suffix(courses_chevron);
+    items.push(courses_item);
     if show_courses {
         for (id, title) in courses {
-            let is_expanded = expanded_course.as_deref() == Some(id.as_str());
-            let enrollment_known = ctx.course_enrollments.contains_key(&id);
-            let is_enrolled = ctx
-                .course_enrollments
-                .get(&id)
-                .and_then(|status| status.as_deref())
-                .is_some();
-            let unenrolled = enrollment_known && !is_enrolled;
-            let title_for_click = title.clone();
-            let course_id_for_toggle = id.clone();
+            let root = cx.entity().downgrade();
+            let course_id = id.clone();
             let path = format!("/courses/{id}");
-            let row = div()
-                .id(SharedString::from(format!("site-course-{id}")))
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(px(3.0))
-                .px(space(1))
-                .py(px(3.0))
-                .rounded(px(RADIUS_SMALL))
-                .bg(
-                    if active_course.as_deref() == Some(id.as_str())
-                        || active_path.as_deref().is_some_and(|active| {
-                            active == path || active.starts_with(&format!("{path}/"))
-                        })
-                    {
-                        palette.soft
-                    } else {
-                        palette.view
-                    },
-                )
-                .hover(|style| style.bg(palette.soft))
-                .child(
-                    div()
-                        .id(SharedString::from(format!("site-course-chevron-{id}")))
-                        .w(px(12.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_size(px(10.0))
-                        .text_color(palette.ink_3)
-                        .child(if is_expanded { "▾" } else { "▸" })
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            cx.stop_propagation();
-                            this.toggle_site_tree_course(&course_id_for_toggle, cx);
-                        })),
-                )
-                .child(div().flex_1().child(title))
-                .children(unenrolled.then(|| {
-                    div()
-                        .text_size(px(9.0))
-                        .text_color(palette.ink_3)
-                        .child("未报名")
-                }))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.open_page_tab(&path, title_for_click.clone(), cx);
-                }));
-            rows.push(row.into_any_element());
+            let active = active_course.as_deref() == Some(id.as_str())
+                || active_path.as_deref().is_some_and(|active| {
+                    active == path || active.starts_with(&format!("{path}/"))
+                });
+            let is_expanded = expanded_course.as_deref() == Some(id.as_str());
+            let chevron = {
+                let root = root.clone();
+                move |_: &mut Window, _: &mut App| {
+                    let root = root.clone();
+                    let course_id = course_id.clone();
+                    Button::new(SharedString::from(format!(
+                        "site-course-chevron-{course_id}"
+                    )))
+                    .xsmall()
+                    .ghost()
+                    .icon(
+                        Icon::default()
+                            .path(if is_expanded {
+                                AssetIcon::ChevronDown.path()
+                            } else {
+                                AssetIcon::ChevronRight.path()
+                            })
+                            .small(),
+                    )
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        let _ = root.update(cx, |this, cx| {
+                            this.toggle_site_tree_course(&course_id, cx);
+                        });
+                    })
+                    .into_any_element()
+                }
+            };
+            let open_path = path.clone();
+            let open_title = title.clone();
+            let mut course_item = SidebarMenuItem::new(title)
+                .active(active)
+                .pl(px(4.0))
+                .suffix(chevron)
+                .on_click(move |_, _, cx| {
+                    let _ = root.update(cx, |this, cx| {
+                        this.open_page_tab(&open_path, open_title.clone(), cx);
+                    });
+                });
+            let _ = &mut course_item;
+            items.push(course_item);
             if is_expanded {
                 if let Some(content) = course_content
                     .as_ref()
@@ -348,207 +411,88 @@ fn render_site_tree(
                 {
                     let outline = build_outline(&content.document);
                     for chapter in &outline.chapters {
-                        rows.push(
-                            div()
-                                .pl(px(24.0))
-                                .pr(space(1))
-                                .py(px(2.0))
-                                .text_size(px(10.0))
-                                .text_color(palette.ink_3)
-                                .child(chapter.title.clone())
-                                .into_any_element(),
+                        items.push(
+                            SidebarMenuItem::new(chapter.title.clone())
+                                .disable(true)
+                                .pl(px(20.0)),
                         );
                         for issue in &chapter.issues {
-                            rows.push(tree_issue_row(
-                                issue,
-                                palette,
-                                &id,
-                                active_issue.as_deref(),
-                                cx,
-                            ));
+                            let root = cx.entity().downgrade();
+                            let issue_id = issue.id.clone();
+                            let title = issue.title.clone();
+                            let active = active_issue.as_deref() == Some(issue_id.as_str());
+                            let course_id = id.clone();
+                            items.push(
+                                SidebarMenuItem::new(title.clone())
+                                    .active(active)
+                                    .pl(px(28.0))
+                                    .on_click(move |_, _, cx| {
+                                        let _ = root.update(cx, |this, cx| {
+                                            this.open_issue_tab(
+                                                &course_id,
+                                                &issue_id,
+                                                title.clone(),
+                                                cx,
+                                            );
+                                        });
+                                    }),
+                            );
                         }
                     }
-                    for issue in &outline.ungrouped {
-                        rows.push(tree_issue_row(
-                            issue,
-                            palette,
-                            &id,
-                            active_issue.as_deref(),
-                            cx,
-                        ));
-                    }
-                } else {
-                    rows.push(
-                        div()
-                            .pl(px(24.0))
-                            .py(px(2.0))
-                            .text_size(px(10.0))
-                            .text_color(palette.ink_3)
-                            .child("加载课程目录…")
-                            .into_any_element(),
-                    );
                 }
             }
         }
+        let root = cx.entity().downgrade();
         if ctx.courses.has_more() {
-            rows.push(
-                div()
-                    .id("site-tree-courses-more")
-                    .pl(px(24.0))
-                    .pr(space(1))
-                    .py(px(3.0))
-                    .text_size(px(10.0))
-                    .text_color(palette.accent)
-                    .child("加载更多课程")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.start_courses_load(cx, false);
-                    }))
-                    .into_any_element(),
-            );
+            items.push(SidebarMenuItem::new("加载更多课程").pl(px(16.0)).on_click(
+                move |_, _, cx| {
+                    let _ = root.update(cx, |this, cx| this.start_courses_load(cx, false));
+                },
+            ));
         }
     }
-    rows.push(tree_section_row(
-        "learning",
-        translate(language, Key::CoursesLearningHomeTitle).to_string(),
-        "/learning",
-        None,
-        None,
-        section_active("/learning"),
-        palette,
-        cx,
-    ));
-    rows.push(tree_section_row(
-        "participations",
-        translate(language, Key::EventsParticipationsTitle).to_string(),
-        "/participations",
-        None,
-        None,
-        section_active("/participations"),
-        palette,
-        cx,
-    ));
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(1.0))
-        .children(rows)
-        .into_any_element()
-}
 
-fn tree_issue_row(
-    issue: &cgc_courses::outline::OutlineIssue,
-    palette: &theme::Palette,
-    course_id: &str,
-    active_issue: Option<&str>,
-    cx: &mut Context<RootView>,
-) -> AnyElement {
-    let issue_id = issue.id.clone();
-    let title = issue.title.clone();
-    let course_id = course_id.to_string();
-    let is_active = active_issue == Some(issue.id.as_str());
-    div()
-        .id(SharedString::from(format!(
-            "site-issue-{course_id}-{}",
-            issue.id
-        )))
-        .flex()
-        .flex_row()
-        .items_center()
-        .pl(px(36.0))
-        .pr(space(1))
-        .py(px(2.0))
-        .rounded(px(RADIUS_SMALL))
-        .bg(if is_active {
-            palette.soft
-        } else {
-            palette.view
-        })
-        .hover(|style| style.bg(palette.soft))
-        .child(div().flex_1().child(title.clone()))
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.open_issue_tab(&course_id, &issue_id, title.clone(), cx);
-        }))
-        .into_any_element()
-}
+    let root_learning = cx.entity().downgrade();
+    items.push(
+        SidebarMenuItem::new(translate(language, Key::CoursesLearningHomeTitle).to_string())
+            .icon(
+                Icon::default()
+                    .path(AssetIcon::GraduationCap.path())
+                    .small(),
+            )
+            .active(section_active("/learning"))
+            .on_click(move |_, _, cx| {
+                let _ = root_learning.update(cx, |this, cx| {
+                    this.open_page_tab(
+                        "/learning",
+                        translate(language, Key::CoursesLearningHomeTitle).to_string(),
+                        cx,
+                    );
+                });
+            }),
+    );
+    let root_participations = cx.entity().downgrade();
+    items.push(
+        SidebarMenuItem::new(translate(language, Key::EventsParticipationsTitle).to_string())
+            .icon(Icon::default().path(AssetIcon::Ticket.path()).small())
+            .active(section_active("/participations"))
+            .on_click(move |_, _, cx| {
+                let _ = root_participations.update(cx, |this, cx| {
+                    this.open_page_tab(
+                        "/participations",
+                        translate(language, Key::EventsParticipationsTitle).to_string(),
+                        cx,
+                    );
+                });
+            }),
+    );
 
-#[allow(clippy::too_many_arguments)]
-fn tree_section_row(
-    id: &str,
-    label: String,
-    path: &'static str,
-    expanded: Option<bool>,
-    section: Option<SiteTreeSection>,
-    active: bool,
-    palette: &theme::Palette,
-    cx: &mut Context<RootView>,
-) -> AnyElement {
-    let title = label.clone();
-    let mut row = div()
-        .id(SharedString::from(format!("site-tree-{id}")))
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap(px(3.0))
-        .px(space(1))
-        .py(px(3.0))
-        .rounded(px(RADIUS_SMALL))
-        .text_color(if active { palette.ink } else { palette.ink_2 })
-        .bg(if active { palette.soft } else { palette.view })
-        .hover(|style| style.bg(palette.soft));
-    if let (Some(expanded), Some(section)) = (expanded, section) {
-        let section_for_click = section;
-        row = row.child(
-            div()
-                .id(SharedString::from(format!("site-tree-chevron-{id}")))
-                .w(px(12.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_size(px(10.0))
-                .text_color(palette.ink_3)
-                .child(if expanded { "▾" } else { "▸" })
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    cx.stop_propagation();
-                    this.toggle_site_tree_section(section_for_click, cx);
-                })),
-        );
-    } else {
-        row = row.child(div().w(px(12.0)));
-    }
-    row.child(div().flex_1().child(label))
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.open_page_tab(path, title.clone(), cx);
-        }))
-        .into_any_element()
-}
-
-#[allow(clippy::too_many_arguments)]
-fn tree_leaf_row(
-    id: &str,
-    title: String,
-    path: &str,
-    active: bool,
-    palette: &theme::Palette,
-    cx: &mut Context<RootView>,
-) -> AnyElement {
-    let title_for_click = title.clone();
-    let path = path.to_string();
-    div()
-        .id(SharedString::from(id.to_string()))
-        .flex()
-        .flex_row()
-        .items_center()
-        .pl(px(24.0))
-        .pr(space(1))
-        .py(px(3.0))
-        .rounded(px(RADIUS_SMALL))
-        .text_color(if active { palette.ink } else { palette.ink_2 })
-        .bg(if active { palette.soft } else { palette.view })
-        .hover(|style| style.bg(palette.soft))
-        .child(div().flex_1().child(title))
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.open_page_tab(&path, title_for_click.clone(), cx);
-        }))
+    Sidebar::new("site-tree-sidebar")
+        .side(gpui_kit::component::Side::Right)
+        .collapsible(SidebarCollapsible::None)
+        .header(header)
+        .children(items)
+        .w_full()
         .into_any_element()
 }
 
