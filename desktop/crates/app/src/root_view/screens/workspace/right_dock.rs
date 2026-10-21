@@ -147,12 +147,26 @@ fn render_site_tree(
             .find(|tab| tab.id == active)
             .and_then(|tab| tab.issue_id.clone())
     });
-    let active_path = ctx.active_tab.as_deref().and_then(|active| {
-        ctx.tabs
-            .iter()
-            .find(|tab| tab.id == active)
-            .map(|tab| tab.path.clone())
-    });
+    // breadcrumb 等直接 navigate 的页面不一定有 Pane Tab；当前 route 必须
+    // 优先于 active tab，否则学习导航会停在旧的 tab 高亮上。
+    let active_path = ctx
+        .current
+        .as_ref()
+        .map(|route_match| {
+            let mut path = route_match.route.path.to_string();
+            for (key, value) in &route_match.params {
+                path = path.replace(&format!(":{key}"), value);
+            }
+            path
+        })
+        .or_else(|| {
+            ctx.active_tab.as_deref().and_then(|active| {
+                ctx.tabs
+                    .iter()
+                    .find(|tab| tab.id == active)
+                    .map(|tab| tab.path.clone())
+            })
+        });
     let section_active = |path: &str| {
         active_path.as_deref().is_some_and(|active| {
             active == path
