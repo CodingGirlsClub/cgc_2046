@@ -359,7 +359,15 @@ impl RootView {
             })?;
             let probe = SystemProbe;
             let node = cgc_platform::agent::detect::detect_node(&probe, &registry.node_required);
-            let detected = detect_all(&registry, &probe);
+            let mut detected = detect_all(&registry, &probe);
+            let installed = load_installed_agents();
+            for row in &mut detected {
+                if let Some(version) = installed.get(&row.entry.id) {
+                    row.status = AgentStatus::Ready {
+                        version: version.clone(),
+                    };
+                }
+            }
             let guidance = detected
                 .iter()
                 .map(|agent| {
@@ -1981,7 +1989,16 @@ impl RootView {
         let task = cx.background_executor().spawn(async move {
             let registry = Registry::builtin().map_err(|error| error.diagnostic())?;
             let probe = SystemProbe;
-            Ok::<_, String>(detect_all(&registry, &probe))
+            let installed = load_installed_agents();
+            let mut rows = detect_all(&registry, &probe);
+            for row in &mut rows {
+                if let Some(version) = installed.get(&row.entry.id) {
+                    row.status = AgentStatus::Ready {
+                        version: version.clone(),
+                    };
+                }
+            }
+            Ok::<_, String>(rows)
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
@@ -2039,6 +2056,13 @@ impl RootView {
                         this.agent_install_error = None;
                         // 安装命令已经验证过固定版本；直接标记 Ready，避免再用系统
                         // node/npx 探测把托管 runtime 已安装的 agent 误判为不可用。
+                        save_installed_agent(
+                            &installed_id,
+                            &result
+                                .version
+                                .clone()
+                                .unwrap_or_else(|| installed_version.clone()),
+                        );
                         if let Some(row) = this
                             .agent_registry_rows
                             .iter_mut()

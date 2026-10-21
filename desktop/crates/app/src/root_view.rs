@@ -11,8 +11,9 @@ use gpui_kit::*;
 use std::sync::Arc;
 
 use crate::chat_state::{
-    clear_chat_pointer, load_chat_pointer, load_chat_pref, load_selected_agent, save_chat_pointer,
-    save_chat_pref, save_selected_agent,
+    clear_chat_pointer, load_chat_pointer, load_chat_pref, load_installed_agents,
+    load_selected_agent, save_chat_pointer, save_chat_pref, save_installed_agent,
+    save_selected_agent,
 };
 use crate::formula::render_markdown_with_math;
 use crate::safe_markdown::sanitize_markdown;

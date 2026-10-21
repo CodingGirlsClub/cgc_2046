@@ -54,6 +54,29 @@ pub(crate) fn clear_chat_pointer(course_id: &str) {
     write_chat_state(&state);
 }
 
+pub(crate) fn load_installed_agents() -> std::collections::BTreeMap<String, String> {
+    read_chat_state()
+        .get("installed_agents")
+        .and_then(|value| value.as_object())
+        .map(|agents| {
+            agents
+                .iter()
+                .filter_map(|(id, version)| {
+                    version
+                        .as_str()
+                        .map(|version| (id.clone(), version.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub(crate) fn save_installed_agent(id: &str, version: &str) {
+    let mut state = read_chat_state();
+    state["installed_agents"][id] = serde_json::json!(version);
+    write_chat_state(&state);
+}
+
 pub(crate) fn load_selected_agent() -> Option<String> {
     read_chat_state()
         .get("selected_agent")?
