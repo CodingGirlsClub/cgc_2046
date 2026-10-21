@@ -478,16 +478,34 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 match result {
                     Ok(prepared) => {
-                        let mut config = AcpHostConfig::new(
-                            prepared.plan.command_string(),
-                            prepared.plan.cwd.clone(),
-                        )
-                        .with_name("agent")
-                        .with_mcp_servers(vec![prepared.server]);
-                        if let Some(load_session) = &load_session {
-                            config = config.with_load_session(load_session.clone());
-                        }
-                        match AcpHost::start(config) {
+                        let command = prepared.plan.command_string();
+                        let cwd = prepared.plan.cwd.clone();
+                        let server = prepared.server.clone();
+                        let make_config = |load_session: Option<&str>| {
+                            let config = AcpHostConfig::new(command.clone(), cwd.clone())
+                                .with_name("agent")
+                                .with_mcp_servers(vec![server.clone()]);
+                            match load_session {
+                                Some(session_id) => config.with_load_session(session_id),
+                                None => config,
+                            }
+                        };
+                        let started = match load_session.as_deref() {
+                            Some(session_id) => match AcpHost::start(make_config(Some(session_id)))
+                            {
+                                Ok(host) => Ok(host),
+                                Err(_) => {
+                                    // 本地会话指针可能指向 agent 已清理的 thread；重新建会话，
+                                    // 不把用户卡在“重试也会失败”的错误页。
+                                    if let Some(course_id) = this.chat.course_id.clone() {
+                                        clear_chat_pointer(&course_id);
+                                    }
+                                    AcpHost::start(make_config(None))
+                                }
+                            },
+                            None => AcpHost::start(make_config(None)),
+                        };
+                        match started {
                             Ok(host) => {
                                 this.chat.host = Some(host);
                                 this.chat.lease = Some(prepared.lease);
@@ -743,22 +761,6 @@ impl RootView {
         cx.notify();
     }
 
-    pub(in crate::root_view) fn cycle_chat_config(&mut self, index: usize, cx: &mut Context<Self>) {
-        let Some(config) = self.chat.configs.get(index).cloned() else {
-            return;
-        };
-        if config.values.is_empty() {
-            return;
-        }
-        let current = config
-            .values
-            .iter()
-            .position(|(value, _)| value == &config.current)
-            .unwrap_or(0);
-        let next = (current + 1) % config.values.len();
-        self.set_chat_config(index, config.values[next].0.clone(), cx);
-    }
-
     pub(in crate::root_view) fn set_chat_config(
         &mut self,
         index: usize,
@@ -781,40 +783,6 @@ impl RootView {
             entry.current = value;
         }
         cx.notify();
-    }
-
-    pub(in crate::root_view) fn select_chat_model(
-        &mut self,
-        value: String,
-        cx: &mut Context<Self>,
-    ) {
-        self.chat.model = value.clone();
-        if let Some(index) = self
-            .chat
-            .configs
-            .iter()
-            .position(|config| config.name.to_lowercase().contains("model"))
-        {
-            self.set_chat_config(index, value, cx);
-        } else {
-            cx.notify();
-        }
-    }
-
-    pub(in crate::root_view) fn select_chat_reasoning(
-        &mut self,
-        value: String,
-        cx: &mut Context<Self>,
-    ) {
-        self.chat.reasoning = value.clone();
-        if let Some(index) = self.chat.configs.iter().position(|config| {
-            let name = config.name.to_lowercase();
-            name.contains("reasoning") || name.contains("thinking") || name.contains("effort")
-        }) {
-            self.set_chat_config(index, value, cx);
-        } else {
-            cx.notify();
-        }
     }
 
     pub(in crate::root_view) fn new_chat(&mut self, cx: &mut Context<Self>) {
@@ -1279,11 +1247,6 @@ impl RootView {
             .occlude()
             .children(rows)
             .into_any_element()
-    }
-
-    pub(in crate::root_view) fn cycle_chat_permission(&mut self, cx: &mut Context<Self>) {
-        self.chat.permission = self.chat.permission.next();
-        cx.notify();
     }
 
     pub(in crate::root_view) fn toggle_agent_panel(&mut self, cx: &mut Context<Self>) {

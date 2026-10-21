@@ -19,9 +19,9 @@ use agent_client_protocol::schema::v1::{
     CancelNotification, ContentBlock, InitializeRequest, ListSessionsRequest, LoadSessionRequest,
     McpServer, NewSessionRequest, PromptRequest, RequestPermissionOutcome,
     RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
-    SessionConfigId, SessionConfigKind, SessionConfigOption, SessionConfigOptionValue,
-    SessionConfigSelectOptions, SessionConfigValueId, SessionId, SessionNotification,
-    SessionUpdate, SetSessionConfigOptionRequest, TextContent,
+    SessionConfigId, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
+    SessionConfigOptionValue, SessionConfigSelectOptions, SessionConfigValueId, SessionId,
+    SessionNotification, SessionUpdate, SetSessionConfigOptionRequest, TextContent,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{
@@ -95,10 +95,20 @@ pub struct SessionSummary {
     pub updated_at: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConfigOptionCategory {
+    Mode,
+    Model,
+    ModelConfig,
+    ThoughtLevel,
+    Other,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConfigOptionView {
     pub id: String,
     pub name: String,
+    pub category: ConfigOptionCategory,
     pub current: String,
     pub values: Vec<(String, String)>,
 }
@@ -530,6 +540,16 @@ async fn send_sessions(
     }
 }
 
+fn config_category(category: &Option<SessionConfigOptionCategory>) -> ConfigOptionCategory {
+    match category {
+        Some(SessionConfigOptionCategory::Mode) => ConfigOptionCategory::Mode,
+        Some(SessionConfigOptionCategory::Model) => ConfigOptionCategory::Model,
+        Some(SessionConfigOptionCategory::ModelConfig) => ConfigOptionCategory::ModelConfig,
+        Some(SessionConfigOptionCategory::ThoughtLevel) => ConfigOptionCategory::ThoughtLevel,
+        _ => ConfigOptionCategory::Other,
+    }
+}
+
 fn config_option_views(options: &[SessionConfigOption]) -> Vec<ConfigOptionView> {
     options
         .iter()
@@ -554,6 +574,7 @@ fn config_option_views(options: &[SessionConfigOption]) -> Vec<ConfigOptionView>
                 Some(ConfigOptionView {
                     id: option.id.0.to_string(),
                     name: option.name.clone(),
+                    category: config_category(&option.category),
                     current: select.current_value.0.to_string(),
                     values,
                 })
@@ -561,6 +582,7 @@ fn config_option_views(options: &[SessionConfigOption]) -> Vec<ConfigOptionView>
             SessionConfigKind::Boolean(value) => Some(ConfigOptionView {
                 id: option.id.0.to_string(),
                 name: option.name.clone(),
+                category: config_category(&option.category),
                 current: value.current_value.to_string(),
                 values: vec![
                     ("true".to_string(), "开".to_string()),
@@ -686,6 +708,46 @@ fn sleep(duration: Duration) -> impl std::future::Future<Output = ()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn config_categories_map_from_acp_and_preserve_unknown() {
+        assert_eq!(
+            super::config_category(&Some(
+                agent_client_protocol::schema::v1::SessionConfigOptionCategory::Mode
+            )),
+            super::ConfigOptionCategory::Mode
+        );
+        assert_eq!(
+            super::config_category(&Some(
+                agent_client_protocol::schema::v1::SessionConfigOptionCategory::Model
+            )),
+            super::ConfigOptionCategory::Model
+        );
+        assert_eq!(
+            super::config_category(&Some(
+                agent_client_protocol::schema::v1::SessionConfigOptionCategory::ModelConfig
+            )),
+            super::ConfigOptionCategory::ModelConfig
+        );
+        assert_eq!(
+            super::config_category(&Some(
+                agent_client_protocol::schema::v1::SessionConfigOptionCategory::ThoughtLevel
+            )),
+            super::ConfigOptionCategory::ThoughtLevel
+        );
+        assert_eq!(
+            super::config_category(&Some(
+                agent_client_protocol::schema::v1::SessionConfigOptionCategory::Other(
+                    "custom".to_string()
+                )
+            )),
+            super::ConfigOptionCategory::Other
+        );
+        assert_eq!(
+            super::config_category(&None),
+            super::ConfigOptionCategory::Other
+        );
+    }
+
     use super::*;
 
     #[test]

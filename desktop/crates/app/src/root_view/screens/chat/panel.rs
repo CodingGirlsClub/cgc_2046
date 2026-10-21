@@ -373,194 +373,76 @@ pub(in crate::root_view) fn render_chat_panel(
                             }))
                             .into_any_element()
                     });
-                    let permission = ctx.chat.permission;
-                    let name_contains = |config: &ConfigOptionView, needle: &str| {
-                        config.name.to_lowercase().contains(needle)
-                    };
-                    let mode_index = ctx.chat.configs.iter().position(|config| {
-                        name_contains(config, "mode") && !name_contains(config, "collaboration")
-                    });
-                    let collaboration_index = ctx
+                    let config_pickers = ctx
                         .chat
                         .configs
                         .iter()
-                        .position(|config| name_contains(config, "collaboration"));
-                    let model_index = ctx
-                        .chat
-                        .configs
-                        .iter()
-                        .position(|config| name_contains(config, "model"));
-                    let mode_label = mode_index
-                        .and_then(|index| ctx.chat.configs.get(index))
-                        .map(|config| config.current.clone());
-                    let collaboration_label = collaboration_index
-                        .and_then(|index| ctx.chat.configs.get(index))
-                        .map(|config| config.current.clone());
-                    let model_options = model_index
-                        .and_then(|index| ctx.chat.configs.get(index))
-                        .map(|config| config.values.clone())
-                        .unwrap_or_else(|| {
-                            if agent_label.to_lowercase().contains("claude") {
-                                vec![
-                                    ("default".to_string(), "Default".to_string()),
-                                    (
-                                        "claude-sonnet-4-5".to_string(),
-                                        "Claude Sonnet 4.5".to_string(),
-                                    ),
-                                    ("claude-opus-4-1".to_string(), "Claude Opus 4.1".to_string()),
-                                ]
-                            } else if agent_label.to_lowercase().contains("codex") {
-                                vec![
-                                    ("default".to_string(), "Default".to_string()),
-                                    ("gpt-5-codex".to_string(), "GPT-5 Codex".to_string()),
-                                    ("gpt-5".to_string(), "GPT-5".to_string()),
-                                ]
-                            } else {
-                                vec![("default".to_string(), "Default".to_string())]
-                            }
-                        });
-                    let model_label = model_index
-                        .and_then(|index| ctx.chat.configs.get(index))
-                        .map(|config| config.current.clone())
-                        .or_else(|| (!ctx.chat.model.is_empty()).then_some(ctx.chat.model.clone()))
-                        .unwrap_or_else(|| "Default".to_string());
-                    let reasoning_index = ctx.chat.configs.iter().position(|config| {
-                        let name = config.name.to_lowercase();
-                        name.contains("reasoning")
-                            || name.contains("thinking")
-                            || name.contains("effort")
-                    });
-                    let reasoning_options = reasoning_index
-                        .and_then(|index| ctx.chat.configs.get(index))
-                        .map(|config| config.values.clone())
-                        .unwrap_or_else(|| {
-                            vec![
-                                ("low".to_string(), "Low".to_string()),
-                                ("medium".to_string(), "Medium".to_string()),
-                                ("high".to_string(), "High".to_string()),
-                            ]
-                        });
-                    let reasoning_label = reasoning_index
-                        .and_then(|index| ctx.chat.configs.get(index))
-                        .map(|config| config.current.clone())
-                        .or_else(|| {
-                            (!ctx.chat.reasoning.is_empty()).then_some(ctx.chat.reasoning.clone())
-                        })
-                        .unwrap_or_else(|| "Medium".to_string());
-                    let reasoning_picker = {
-                        let root = cx.entity().downgrade();
-                        let palette = *palette;
-                        let options = reasoning_options.clone();
-                        let current = reasoning_label.clone();
-                        Popover::new("chat-reasoning-popover")
-                            .trigger(
-                                Button::new("chat-reasoning-trigger")
-                                    .label(format!("Reasoning: {current}"))
-                                    .xsmall()
-                                    .ghost()
-                                    .tooltip("Reasoning effort"),
-                            )
-                            .content(move |_, _, cx| {
-                                let dismiss = cx.entity().downgrade();
-                                let rows = options.iter().map(|(value, label)| {
-                                    let value = value.clone();
-                                    let label = label.clone();
-                                    let selected = label == reasoning_label;
-                                    let row_root = root.clone();
-                                    let row_dismiss = dismiss.clone();
-                                    div()
-                                        .id(SharedString::from(format!("chat-reasoning-{value}")))
-                                        .flex()
-                                        .flex_row()
-                                        .items_center()
-                                        .justify_between()
-                                        .gap(space(2))
-                                        .px(space(1))
-                                        .py(px(3.0))
-                                        .rounded(px(RADIUS_SMALL))
-                                        .text_size(px(11.0))
-                                        .text_color(if selected {
-                                            palette.accent
-                                        } else {
-                                            palette.ink_2
-                                        })
-                                        .hover(|style| style.bg(palette.soft))
-                                        .child(label)
-                                        .children(selected.then_some("✓"))
-                                        .on_click(move |_, window, cx| {
-                                            let _ = row_root.update(cx, |this, cx| {
-                                                this.select_chat_reasoning(value.clone(), cx);
-                                            });
-                                            let _ = row_dismiss
-                                                .update(cx, |state, cx| state.dismiss(window, cx));
-                                        })
-                                        .into_any_element()
-                                });
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap(px(1.0))
-                                    .w(px(180.0))
-                                    .children(rows)
-                            })
-                    };
-                    let model_picker = {
-                        let root = cx.entity().downgrade();
-                        let palette = *palette;
-                        let options = model_options.clone();
-                        let current = model_label.clone();
-                        Popover::new("chat-model-popover")
-                            .trigger(
-                                Button::new("chat-model-trigger")
+                        .enumerate()
+                        .map(|(index, config)| {
+                            let root = cx.entity().downgrade();
+                            let palette = *palette;
+                            let name = config.name.clone();
+                            let current = config.current.clone();
+                            let selected_value = config.current.clone();
+                            let options = config.values.clone();
+                            Popover::new(SharedString::from(format!("chat-config-popover-{index}")))
+                                .trigger(
+                                    Button::new(SharedString::from(format!(
+                                        "chat-config-trigger-{index}"
+                                    )))
                                     .label(current)
                                     .xsmall()
                                     .ghost()
-                                    .tooltip("Model"),
-                            )
-                            .content(move |_, _, cx| {
-                                let dismiss = cx.entity().downgrade();
-                                let rows = options.iter().map(|(value, label)| {
-                                    let value = value.clone();
-                                    let label = label.clone();
-                                    let selected = label == model_label;
-                                    let row_root = root.clone();
-                                    let row_dismiss = dismiss.clone();
+                                    .tooltip(name),
+                                )
+                                .content(move |_, _, cx| {
+                                    let dismiss = cx.entity().downgrade();
+                                    let rows = options.iter().map(|(value, label)| {
+                                        let value = value.clone();
+                                        let label = label.clone();
+                                        let selected = value == selected_value;
+                                        let row_root = root.clone();
+                                        let row_dismiss = dismiss.clone();
+                                        div()
+                                            .id(SharedString::from(format!(
+                                                "chat-config-{index}-{value}"
+                                            )))
+                                            .flex()
+                                            .flex_row()
+                                            .items_center()
+                                            .justify_between()
+                                            .gap(space(2))
+                                            .px(space(1))
+                                            .py(px(3.0))
+                                            .rounded(px(RADIUS_SMALL))
+                                            .text_size(px(11.0))
+                                            .text_color(if selected {
+                                                palette.accent
+                                            } else {
+                                                palette.ink_2
+                                            })
+                                            .hover(|style| style.bg(palette.soft))
+                                            .child(label)
+                                            .children(selected.then_some("✓"))
+                                            .on_click(move |_, window, cx| {
+                                                let _ = row_root.update(cx, |this, cx| {
+                                                    this.set_chat_config(index, value.clone(), cx);
+                                                });
+                                                let _ = row_dismiss.update(cx, |state, cx| {
+                                                    state.dismiss(window, cx)
+                                                });
+                                            })
+                                            .into_any_element()
+                                    });
                                     div()
-                                        .id(SharedString::from(format!("chat-model-{value}")))
                                         .flex()
-                                        .flex_row()
-                                        .items_center()
-                                        .justify_between()
-                                        .gap(space(2))
-                                        .px(space(1))
-                                        .py(px(3.0))
-                                        .rounded(px(RADIUS_SMALL))
-                                        .text_size(px(11.0))
-                                        .text_color(if selected {
-                                            palette.accent
-                                        } else {
-                                            palette.ink_2
-                                        })
-                                        .hover(|style| style.bg(palette.soft))
-                                        .child(label)
-                                        .children(selected.then_some("✓"))
-                                        .on_click(move |_, window, cx| {
-                                            let _ = row_root.update(cx, |this, cx| {
-                                                this.select_chat_model(value.clone(), cx);
-                                            });
-                                            let _ = row_dismiss
-                                                .update(cx, |state, cx| state.dismiss(window, cx));
-                                        })
-                                        .into_any_element()
-                                });
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap(px(1.0))
-                                    .w(px(220.0))
-                                    .children(rows)
-                            })
-                    };
+                                        .flex_col()
+                                        .gap(px(1.0))
+                                        .w(px(220.0))
+                                        .children(rows)
+                                })
+                        })
+                        .collect::<Vec<_>>();
                     let placeholder = match language {
                         Language::Zh => {
                             format!("给 {agent_label} 发消息… @ 引用上下文，/ 查看命令")
@@ -648,63 +530,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                                     cx.notify();
                                                 })),
                                         )
-                                        .child(
-                                            div()
-                                                .id("chat-permission")
-                                                .flex()
-                                                .flex_row()
-                                                .items_center()
-                                                .gap(px(4.0))
-                                                .px(space(1))
-                                                .py(px(2.0))
-                                                .rounded(px(RADIUS_SMALL))
-                                                .text_size(px(10.0))
-                                                .text_color(palette.ink_2)
-                                                .hover(|style| style.bg(palette.soft))
-                                                .child(
-                                                    Icon::default()
-                                                        .path(AssetIcon::Shield.path())
-                                                        .small(),
-                                                )
-                                                .child(permission.label())
-                                                .on_click(cx.listener(|this, _, _, cx| {
-                                                    this.cycle_chat_permission(cx);
-                                                })),
-                                        )
-                                        .children(mode_label.zip(mode_index).map(
-                                            |(label, index)| {
-                                                div()
-                                                    .id("chat-mode")
-                                                    .px(space(1))
-                                                    .py(px(2.0))
-                                                    .rounded(px(RADIUS_SMALL))
-                                                    .text_size(px(10.0))
-                                                    .text_color(palette.ink_2)
-                                                    .hover(|style| style.bg(palette.soft))
-                                                    .child(format!("Mode: {label}"))
-                                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                                        this.cycle_chat_config(index, cx);
-                                                    }))
-                                            },
-                                        ))
-                                        .children(collaboration_label.zip(collaboration_index).map(
-                                            |(label, index)| {
-                                                div()
-                                                    .id("chat-collaboration")
-                                                    .px(space(1))
-                                                    .py(px(2.0))
-                                                    .rounded(px(RADIUS_SMALL))
-                                                    .text_size(px(10.0))
-                                                    .text_color(palette.ink_2)
-                                                    .hover(|style| style.bg(palette.soft))
-                                                    .child(format!("Collab: {label}"))
-                                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                                        this.cycle_chat_config(index, cx);
-                                                    }))
-                                            },
-                                        ))
-                                        .child(model_picker)
-                                        .child(reasoning_picker)
+                                        .children(config_pickers)
                                         .child(div().flex_1())
                                         .children(streaming.then(|| {
                                             div()
