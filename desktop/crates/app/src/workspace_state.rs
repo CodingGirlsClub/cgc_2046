@@ -22,6 +22,7 @@ pub(crate) struct WorkspaceEntry {
     pub(crate) site_tree_query: String,
     pub(crate) right_panel_width: f32,
     pub(crate) site_tree_course_open: Option<String>,
+    pub(crate) site_tree_scroll_y: f32,
 }
 
 impl Default for WorkspaceEntry {
@@ -34,6 +35,7 @@ impl Default for WorkspaceEntry {
             site_tree_query: String::new(),
             right_panel_width: 288.0,
             site_tree_course_open: None,
+            site_tree_scroll_y: 0.0,
         }
     }
 }
@@ -101,6 +103,10 @@ pub(crate) fn load() -> WorkspaceState {
                     .get("site_tree_course_open")
                     .and_then(Value::as_str)
                     .map(str::to_string),
+                site_tree_scroll_y: entry
+                    .get("site_tree_scroll_y")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0) as f32,
             },
         );
     }
@@ -138,6 +144,7 @@ pub(crate) fn save(state: &WorkspaceState) {
                     "site_tree_query": entry.site_tree_query,
                     "right_panel_width": entry.right_panel_width,
                     "site_tree_course_open": entry.site_tree_course_open,
+                    "site_tree_scroll_y": entry.site_tree_scroll_y,
                 }),
             )
         })
@@ -197,6 +204,7 @@ mod tests {
             site_tree_query: "hitl".to_string(),
             right_panel_width: 320.0,
             site_tree_course_open: Some("crs-002".to_string()),
+            site_tree_scroll_y: 42.0,
         };
         save_entry("ws-1", entry.clone());
         assert_eq!(super::entry("ws-1"), Some(entry));

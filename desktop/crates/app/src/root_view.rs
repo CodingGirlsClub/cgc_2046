@@ -784,6 +784,7 @@ impl Render for RootView {
                                     &mut screens::ScreenContext::new(&mut self.state),
                                     language,
                                     &palette,
+                                    window,
                                     cx,
                                 )
                             })),

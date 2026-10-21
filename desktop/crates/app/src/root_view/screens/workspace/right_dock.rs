@@ -11,6 +11,7 @@ pub(in crate::root_view) fn render_right_dock(
     ctx: &mut ScreenContext<'_>,
     language: Language,
     palette: &theme::Palette,
+    window: &mut Window,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
     let panel = ctx.right_panel;
@@ -23,6 +24,14 @@ pub(in crate::root_view) fn render_right_dock(
         RightPanel::SiteTree => AssetIcon::FolderOpen,
         RightPanel::Outline => AssetIcon::FileText,
     };
+    if panel == RightPanel::SiteTree {
+        if let Some(offset) = ctx.site_tree_scroll_restore.take() {
+            let handle = ctx.site_tree_scroll.clone();
+            window.on_next_frame(move |_, _| {
+                handle.set_offset(gpui::point(px(0.0), px(offset)));
+            });
+        }
+    }
     let body = match panel {
         RightPanel::SiteTree => render_site_tree(ctx, language, palette, cx),
         RightPanel::Outline => render_outline(ctx, language, palette, cx),
@@ -93,6 +102,18 @@ pub(in crate::root_view) fn render_right_dock(
                 .flex_1()
                 .min_h(px(0.0))
                 .overflow_y_scroll()
+                .track_scroll(&ctx.site_tree_scroll)
+                .on_scroll_wheel(cx.listener(|_this, _, _, cx| {
+                    cx.spawn(async move |this, cx| {
+                        cx.background_executor()
+                            .timer(std::time::Duration::from_millis(200))
+                            .await;
+                        let _ = this.update(cx, |this, cx| {
+                            this.persist_site_tree_scroll(cx);
+                        });
+                    })
+                    .detach();
+                }))
                 .p(space(1))
                 .text_size(px(12.0))
                 .text_color(palette.ink_2)
