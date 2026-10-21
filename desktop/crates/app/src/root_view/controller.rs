@@ -392,7 +392,6 @@ impl RootView {
                 node_found: None,
             })?;
             let probe = SystemProbe;
-            let node = cgc_platform::agent::detect::detect_node(&probe, &registry.node_required);
             let mut detected = detect_all(&registry, &probe);
             Self::apply_installed_versions(&mut detected);
             let guidance = detected
@@ -405,10 +404,11 @@ impl RootView {
                 })
                 .collect::<Vec<_>>();
             let managed_node = NodeRuntimeManager::default_manager().installed_runtime();
+            // 启动路径只接受 managed Node 24；系统 PATH 里的 Node 26 不算可用，
+            // 否则 guidance 会显示“Node 可用”而隐藏安装按钮，重试仍会失败。
             let node_found = managed_node
-                .is_some()
-                .then(|| cgc_platform::agent::node_runtime::NODE_VERSION.to_string())
-                .or_else(|| node.found.clone());
+                .as_ref()
+                .map(|_| cgc_platform::agent::node_runtime::NODE_VERSION.to_string());
             if std::env::var("CGC_NO_AGENT").as_deref() == Ok("1") {
                 return Err(ChatStartError {
                     message: "no local agent ready (QA)".to_string(),
