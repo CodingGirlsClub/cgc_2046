@@ -647,31 +647,6 @@ pub(in crate::root_view) fn render_chat_panel(
                                         }))
                                         .child(
                                             div()
-                                                .id("chat-new")
-                                                .size(px(24.0))
-                                                .rounded(px(RADIUS_SMALL))
-                                                .flex()
-                                                .items_center()
-                                                .justify_center()
-                                                .text_color(palette.ink_3)
-                                                .hover(|style| style.bg(palette.soft))
-                                                .child(
-                                                    Icon::default()
-                                                        .path(AssetIcon::Plus.path())
-                                                        .small(),
-                                                )
-                                                .on_click(cx.listener(|this, _, _, cx| {
-                                                    if let Some(course_id) =
-                                                        this.chat.course_id.clone()
-                                                    {
-                                                        clear_chat_pointer(&course_id);
-                                                    }
-                                                    this.reset_chat_local(cx);
-                                                    this.start_chat(cx);
-                                                })),
-                                        )
-                                        .child(
-                                            div()
                                                 .id("chat-send")
                                                 .role(Role::Button)
                                                 .aria_label(translate(
