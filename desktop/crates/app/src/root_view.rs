@@ -207,6 +207,29 @@ enum ChatEntry {
     },
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum ChatPermission {
+    #[default]
+    FullAccess,
+    Ask,
+}
+
+impl ChatPermission {
+    fn next(self) -> Self {
+        match self {
+            Self::FullAccess => Self::Ask,
+            Self::Ask => Self::FullAccess,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::FullAccess => "Full access",
+            Self::Ask => "Ask",
+        }
+    }
+}
+
 #[derive(Default)]
 struct ChatUi {
     phase: ChatPhase,
@@ -217,6 +240,7 @@ struct ChatUi {
     messages: Vec<ChatEntry>,
     input: String,
     focused: bool,
+    permission: ChatPermission,
     host: Option<AcpHost>,
     lease: Option<LearningHostLease>,
     poll_generation: u64,

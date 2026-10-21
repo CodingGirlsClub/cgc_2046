@@ -1217,6 +1217,11 @@ impl RootView {
             .into_any_element()
     }
 
+    pub(in crate::root_view) fn cycle_chat_permission(&mut self, cx: &mut Context<Self>) {
+        self.chat.permission = self.chat.permission.next();
+        cx.notify();
+    }
+
     pub(in crate::root_view) fn toggle_agent_panel(&mut self, cx: &mut Context<Self>) {
         self.agent_panel_open = !self.agent_panel_open;
         cx.notify();

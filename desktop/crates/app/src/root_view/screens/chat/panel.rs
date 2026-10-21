@@ -17,101 +17,70 @@ pub(in crate::root_view) fn render_chat_panel(
     } else {
         ctx.chat.agent.clone()
     };
-    let body: AnyElement =
-        match &phase {
-            ChatPhase::Idle => div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(space(2))
-                .child(
+    let body: AnyElement = match &phase {
+        ChatPhase::Idle => div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(space(2))
+            .child(
+                div()
+                    .text_size(px(12.0))
+                    .text_color(palette.ink_3)
+                    .child(format!("{agent_label} · 本机运行")),
+            )
+            .child(
+                div()
+                    .id("chat-start")
+                    .role(Role::Button)
+                    .aria_label(translate(language, Key::AgentChatChatStart))
+                    .role(Role::Button)
+                    .aria_label(translate(language, Key::AgentChatChatStart))
+                    .px(space(2))
+                    .py(px(5.0))
+                    .rounded(px(RADIUS_MEDIUM))
+                    .bg(palette.accent)
+                    .text_color(palette.canvas)
+                    .child(translate(language, Key::AgentChatChatStart))
+                    .on_click(cx.listener(|this, _, _, cx| this.start_chat(cx))),
+            )
+            .into_any_element(),
+        ChatPhase::Starting => div()
+            .text_size(px(12.0))
+            .text_color(palette.ink_3)
+            .child(translate(language, Key::AgentChatChatStarting))
+            .into_any_element(),
+        ChatPhase::Failed(message) => {
+            let guidance = ctx.chat.guidance.clone().map(|guidance| {
+                let detected_rows = guidance
+                    .detected
+                    .iter()
+                    .map(|(name, status)| {
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_2)
+                            .child(format!("{name}：{status}"))
+                            .into_any_element()
+                    })
+                    .collect::<Vec<_>>();
+                let node_ready = guidance
+                    .node_found
+                    .as_deref()
+                    .is_some_and(version_at_least_24);
+                let install = (!node_ready).then(|| {
                     div()
-                        .text_size(px(12.0))
-                        .text_color(palette.ink_3)
-                        .child(format!("{agent_label} · 本机运行")),
-                )
-                .child(
-                    div()
-                        .id("chat-start")
-                        .role(Role::Button)
-                        .aria_label(translate(language, Key::AgentChatChatStart))
-                        .role(Role::Button)
-                        .aria_label(translate(language, Key::AgentChatChatStart))
+                        .id("chat-install-node")
                         .px(space(2))
-                        .py(px(5.0))
+                        .py(px(4.0))
                         .rounded(px(RADIUS_MEDIUM))
                         .bg(palette.accent)
                         .text_color(palette.canvas)
-                        .child(translate(language, Key::AgentChatChatStart))
-                        .on_click(cx.listener(|this, _, _, cx| this.start_chat(cx))),
-                )
-                .into_any_element(),
-            ChatPhase::Starting => div()
-                .text_size(px(12.0))
-                .text_color(palette.ink_3)
-                .child(translate(language, Key::AgentChatChatStarting))
-                .into_any_element(),
-            ChatPhase::Failed(message) => {
-                let guidance =
-                    ctx.chat.guidance.clone().map(|guidance| {
-                        let detected_rows = guidance
-                            .detected
-                            .iter()
-                            .map(|(name, status)| {
-                                div()
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_2)
-                                    .child(format!("{name}：{status}"))
-                                    .into_any_element()
-                            })
-                            .collect::<Vec<_>>();
-                        let node_ready = guidance
-                            .node_found
-                            .as_deref()
-                            .is_some_and(version_at_least_24);
-                        let install = (!node_ready).then(|| {
-                            div()
-                                .id("chat-install-node")
-                                .px(space(2))
-                                .py(px(4.0))
-                                .rounded(px(RADIUS_MEDIUM))
-                                .bg(palette.accent)
-                                .text_color(palette.canvas)
-                                .child(translate(language, Key::AgentChatChatInstallNode))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.install_node_runtime(cx);
-                                }))
-                                .into_any_element()
-                        });
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(space(1))
-                            .child(
-                                div()
-                                    .text_size(px(12.0))
-                                    .text_color(palette.ink_2)
-                                    .child(translate(language, Key::AgentChatChatAgentGuidance)),
-                            )
-                            .children(detected_rows)
-                            .child(div().text_size(px(11.0)).text_color(palette.ink_3).child(
-                                format!(
-                                    "Node runtime: {} (required 24.x)",
-                                    guidance
-                                        .node_found
-                                        .clone()
-                                        .unwrap_or_else(|| "missing".to_string())
-                                ),
-                            ))
-                            .children(install)
-                            .child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_3)
-                                    .child(translate(language, Key::AgentChatChatLoginHint)),
-                            )
-                            .into_any_element()
-                    });
+                        .child(translate(language, Key::AgentChatChatInstallNode))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.install_node_runtime(cx);
+                        }))
+                        .into_any_element()
+                });
                 div()
                     .flex()
                     .flex_col()
@@ -119,323 +88,538 @@ pub(in crate::root_view) fn render_chat_panel(
                     .child(
                         div()
                             .text_size(px(12.0))
-                            .text_color(palette.danger)
-                            .child(format!(
-                                "{}：{message}",
-                                translate(language, Key::AgentChatChatFailed)
-                            )),
+                            .text_color(palette.ink_2)
+                            .child(translate(language, Key::AgentChatChatAgentGuidance)),
                     )
-                    .children(guidance)
-                    .children(message.contains("mcp_token_limit_reached").then(|| {
-                        div()
-                            .id("chat-revoke-old-tokens")
-                            .px(space(2))
-                            .py(px(4.0))
-                            .rounded(px(RADIUS_MEDIUM))
-                            .bg(palette.accent)
-                            .text_color(palette.canvas)
-                            .text_size(px(11.0))
-                            .child("撤销旧学习凭证并重试")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.revoke_stale_learning_tokens(cx);
-                            }))
-                    }))
+                    .children(detected_rows)
                     .child(
                         div()
-                            .id("chat-retry")
-                            .role(Role::Button)
-                            .aria_label(translate(language, Key::AgentChatChatRetry))
-                            .role(Role::Button)
-                            .aria_label(translate(language, Key::AgentChatChatRetry))
-                            .role(Role::Button)
-                            .aria_label(translate(language, Key::AgentChatChatRetry))
-                            .px(space(2))
-                            .py(px(5.0))
-                            .rounded(px(RADIUS_MEDIUM))
-                            .bg(palette.accent)
-                            .text_color(palette.canvas)
-                            .child(translate(language, Key::AgentChatChatRetry))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.chat.phase = ChatPhase::Idle;
-                                this.start_chat(cx);
-                            })),
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_3)
+                            .child(format!(
+                                "Node runtime: {} (required 24.x)",
+                                guidance
+                                    .node_found
+                                    .clone()
+                                    .unwrap_or_else(|| "missing".to_string())
+                            )),
+                    )
+                    .children(install)
+                    .child(
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_3)
+                            .child(translate(language, Key::AgentChatChatLoginHint)),
                     )
                     .into_any_element()
-            }
-            ChatPhase::Ready | ChatPhase::Streaming => {
-                let rows = messages
-                    .iter()
-                    .map(|entry| match entry {
-                        ChatEntry::User(text) => div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(1.0))
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_3)
-                            .child("你".to_string())
-                            .child(
+            });
+            div()
+                .flex()
+                .flex_col()
+                .gap(space(1))
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(palette.danger)
+                        .child(format!(
+                            "{}：{message}",
+                            translate(language, Key::AgentChatChatFailed)
+                        )),
+                )
+                .children(guidance)
+                .children(message.contains("mcp_token_limit_reached").then(|| {
+                    div()
+                        .id("chat-revoke-old-tokens")
+                        .px(space(2))
+                        .py(px(4.0))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .bg(palette.accent)
+                        .text_color(palette.canvas)
+                        .text_size(px(11.0))
+                        .child("撤销旧学习凭证并重试")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.revoke_stale_learning_tokens(cx);
+                        }))
+                }))
+                .child(
+                    div()
+                        .id("chat-retry")
+                        .role(Role::Button)
+                        .aria_label(translate(language, Key::AgentChatChatRetry))
+                        .role(Role::Button)
+                        .aria_label(translate(language, Key::AgentChatChatRetry))
+                        .role(Role::Button)
+                        .aria_label(translate(language, Key::AgentChatChatRetry))
+                        .px(space(2))
+                        .py(px(5.0))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .bg(palette.accent)
+                        .text_color(palette.canvas)
+                        .child(translate(language, Key::AgentChatChatRetry))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.chat.phase = ChatPhase::Idle;
+                            this.start_chat(cx);
+                        })),
+                )
+                .into_any_element()
+        }
+        ChatPhase::Ready | ChatPhase::Streaming => {
+            let rows = messages
+                .iter()
+                .map(|entry| match entry {
+                    ChatEntry::User(text) => div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(1.0))
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_3)
+                        .child("你".to_string())
+                        .child(
+                            div()
+                                .text_size(px(13.0))
+                                .text_color(palette.ink)
+                                .child(text.clone()),
+                        )
+                        .into_any_element(),
+                    ChatEntry::Assistant(text) => div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(1.0))
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_3)
+                        .child(agent_label.clone())
+                        .child(
+                            TextView::markdown(
+                                format!("chat-markdown-{}", text.len()),
+                                sanitize_markdown(text),
+                            )
+                            .into_any_element(),
+                        )
+                        .into_any_element(),
+                    ChatEntry::Tool { title, kind } => div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(space(1))
+                        .px(space(1))
+                        .py(px(3.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .border_1()
+                        .border_color(palette.line)
+                        .text_size(px(12.0))
+                        .text_color(palette.ink_2)
+                        .child("🔧")
+                        .child(title.clone())
+                        .child(
+                            div()
+                                .text_size(px(10.0))
+                                .text_color(palette.ink_3)
+                                .child(kind.clone()),
+                        )
+                        .into_any_element(),
+                    ChatEntry::Permission {
+                        request_id,
+                        title,
+                        resolved,
+                    } => {
+                        let status = match resolved {
+                            Some(true) => "已允许",
+                            Some(false) => "已拒绝",
+                            None => "等待你的决定",
+                        };
+                        let buttons: Vec<AnyElement> = if resolved.is_none() {
+                            vec![
                                 div()
-                                    .text_size(px(13.0))
-                                    .text_color(palette.ink)
-                                    .child(text.clone()),
-                            )
-                            .into_any_element(),
-                        ChatEntry::Assistant(text) => div()
+                                    .id(format!("perm-allow-{request_id}"))
+                                    .role(Role::Button)
+                                    .aria_label("允许")
+                                    .px(space(1))
+                                    .py(px(3.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .bg(palette.accent)
+                                    .text_color(palette.canvas)
+                                    .child("允许")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.respond_chat_permission(true, cx);
+                                    }))
+                                    .into_any_element(),
+                                div()
+                                    .id(format!("perm-deny-{request_id}"))
+                                    .role(Role::Button)
+                                    .aria_label("拒绝")
+                                    .px(space(1))
+                                    .py(px(3.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .bg(palette.soft)
+                                    .text_color(palette.ink_2)
+                                    .child("拒绝")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.respond_chat_permission(false, cx);
+                                    }))
+                                    .into_any_element(),
+                            ]
+                        } else {
+                            Vec::new()
+                        };
+                        div()
                             .flex()
                             .flex_col()
-                            .gap(px(1.0))
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_3)
-                            .child(agent_label.clone())
-                            .child(
-                                TextView::markdown(
-                                    format!("chat-markdown-{}", text.len()),
-                                    sanitize_markdown(text),
-                                )
-                                .into_any_element(),
-                            )
-                            .into_any_element(),
-                        ChatEntry::Tool { title, kind } => div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
                             .gap(space(1))
-                            .px(space(1))
-                            .py(px(3.0))
+                            .p(space(1))
                             .rounded(px(RADIUS_SMALL))
                             .border_1()
-                            .border_color(palette.line)
+                            .border_color(palette.line_strong)
                             .text_size(px(12.0))
-                            .text_color(palette.ink_2)
-                            .child("🔧")
-                            .child(title.clone())
+                            .text_color(palette.ink)
+                            .child(format!("需要你的同意 · {title}"))
                             .child(
                                 div()
                                     .text_size(px(10.0))
                                     .text_color(palette.ink_3)
-                                    .child(kind.clone()),
+                                    .child(status),
                             )
-                            .into_any_element(),
-                        ChatEntry::Permission {
-                            request_id,
-                            title,
-                            resolved,
-                        } => {
-                            let status = match resolved {
-                                Some(true) => "已允许",
-                                Some(false) => "已拒绝",
-                                None => "等待你的决定",
-                            };
-                            let buttons: Vec<AnyElement> = if resolved.is_none() {
-                                vec![
-                                    div()
-                                        .id(format!("perm-allow-{request_id}"))
-                                        .role(Role::Button)
-                                        .aria_label("允许")
-                                        .px(space(1))
-                                        .py(px(3.0))
-                                        .rounded(px(RADIUS_SMALL))
-                                        .bg(palette.accent)
-                                        .text_color(palette.canvas)
-                                        .child("允许")
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.respond_chat_permission(true, cx);
-                                        }))
-                                        .into_any_element(),
-                                    div()
-                                        .id(format!("perm-deny-{request_id}"))
-                                        .role(Role::Button)
-                                        .aria_label("拒绝")
-                                        .px(space(1))
-                                        .py(px(3.0))
-                                        .rounded(px(RADIUS_SMALL))
-                                        .bg(palette.soft)
-                                        .text_color(palette.ink_2)
-                                        .child("拒绝")
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.respond_chat_permission(false, cx);
-                                        }))
-                                        .into_any_element(),
-                                ]
-                            } else {
-                                Vec::new()
-                            };
+                            .child(
+                                div()
+                                    .text_size(px(10.0))
+                                    .text_color(palette.ink_3)
+                                    .child("Ctrl+Shift+Y 允许 · Ctrl+Shift+N 拒绝"),
+                            )
+                            .children(buttons)
+                            .into_any_element()
+                    }
+                })
+                .collect::<Vec<_>>();
+            let streaming = phase == ChatPhase::Streaming;
+            let status = if streaming {
+                translate(language, Key::AgentChatChatThinking).to_string()
+            } else {
+                String::new()
+            };
+            div()
+                .flex_1()
+                .min_h(px(0.0))
+                .flex()
+                .flex_col()
+                .gap(space(2))
+                .child(
+                    div()
+                        .id("chat-messages")
+                        .flex_1()
+                        .min_h(px(120.0))
+                        .overflow_y_scroll()
+                        .flex()
+                        .flex_col()
+                        .gap(space(2))
+                        .children(rows),
+                )
+                .children((!status.is_empty()).then(|| {
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_3)
+                        .child(status)
+                        .into_any_element()
+                }))
+                .child({
+                    let slash_open = input.starts_with('/') && !input.contains(' ');
+                    let commands = [
+                        ("/help", "显示可用命令"),
+                        ("/clear", "清空当前对话"),
+                        ("/model", "切换模型"),
+                        ("/compact", "压缩上下文"),
+                    ];
+                    let slash_rows = slash_open.then(|| {
+                        div()
+                            .id("chat-slash-menu")
+                            .flex()
+                            .flex_col()
+                            .gap(px(1.0))
+                            .p(space(1))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .border_1()
+                            .border_color(palette.line)
+                            .bg(palette.card)
+                            .children(commands.into_iter().map(|(command, description)| {
+                                let command = command.to_string();
+                                div()
+                                    .id(SharedString::from(format!("chat-slash-{command}")))
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .justify_between()
+                                    .gap(space(2))
+                                    .px(space(1))
+                                    .py(px(3.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child(
+                                        div()
+                                            .text_size(px(11.0))
+                                            .text_color(palette.ink)
+                                            .child(command.clone()),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(px(10.0))
+                                            .text_color(palette.ink_3)
+                                            .child(description),
+                                    )
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.chat.input = format!("{command} ");
+                                        this.chat.focused = true;
+                                        let focus = this.ensure_key_focus(cx);
+                                        window.focus(&focus, cx);
+                                        cx.notify();
+                                    }))
+                            }))
+                            .into_any_element()
+                    });
+                    let permission = ctx.chat.permission;
+                    let configs = ctx
+                        .chat
+                        .configs
+                        .iter()
+                        .take(2)
+                        .enumerate()
+                        .map(|(index, config)| (index, config.name.clone(), config.current.clone()))
+                        .collect::<Vec<_>>();
+                    let has_model = !configs.is_empty();
+                    let has_reasoning = configs.len() > 1;
+                    let model_label = configs
+                        .first()
+                        .map(|(_, _, current)| current.clone())
+                        .unwrap_or_else(|| "Default".to_string());
+                    let reasoning_label = configs
+                        .get(1)
+                        .map(|(_, _, current)| current.clone())
+                        .unwrap_or_else(|| "Medium".to_string());
+                    let placeholder = match language {
+                        Language::Zh => {
+                            format!("给 {agent_label} 发消息… @ 引用上下文，/ 查看命令")
+                        }
+                        Language::En => {
+                            format!("Message {agent_label} — @ to include context, / for commands")
+                        }
+                    };
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(space(1))
+                        .children(slash_rows)
+                        .child(
                             div()
+                                .id("chat-composer")
                                 .flex()
                                 .flex_col()
                                 .gap(space(1))
                                 .p(space(1))
-                                .rounded(px(RADIUS_SMALL))
+                                .rounded(px(RADIUS_MEDIUM))
                                 .border_1()
-                                .border_color(palette.line_strong)
-                                .text_size(px(12.0))
-                                .text_color(palette.ink)
-                                .child(format!("需要你的同意 · {title}"))
+                                .border_color(if ctx.chat.focused {
+                                    palette.accent
+                                } else {
+                                    palette.line
+                                })
+                                .bg(palette.view)
                                 .child(
                                     div()
-                                        .text_size(px(10.0))
-                                        .text_color(palette.ink_3)
-                                        .child(status),
+                                        .id("chat-input")
+                                        .role(Role::TextInput)
+                                        .aria_label(translate(
+                                            language,
+                                            Key::AgentChatChatInputHint,
+                                        ))
+                                        .min_h(px(38.0))
+                                        .px(space(1))
+                                        .py(px(3.0))
+                                        .text_size(px(13.0))
+                                        .text_color(if input.is_empty() {
+                                            palette.ink_3
+                                        } else {
+                                            palette.ink
+                                        })
+                                        .child(if input.is_empty() {
+                                            placeholder
+                                        } else {
+                                            input.clone()
+                                        })
+                                        .on_mouse_down(
+                                            MouseButton::Left,
+                                            cx.listener(|this, _, window, cx| {
+                                                this.chat.focused = true;
+                                                let focus = this.ensure_key_focus(cx);
+                                                window.focus(&focus, cx);
+                                                cx.notify();
+                                            }),
+                                        ),
                                 )
                                 .child(
                                     div()
-                                        .text_size(px(10.0))
-                                        .text_color(palette.ink_3)
-                                        .child("Ctrl+Shift+Y 允许 · Ctrl+Shift+N 拒绝"),
-                                )
-                                .children(buttons)
-                                .into_any_element()
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                let streaming = phase == ChatPhase::Streaming;
-                let status = if streaming {
-                    translate(language, Key::AgentChatChatThinking).to_string()
-                } else {
-                    String::new()
-                };
-                div()
-                    .flex_1()
-                    .min_h(px(0.0))
-                    .flex()
-                    .flex_col()
-                    .gap(space(2))
-                    .child(
-                        div()
-                            .id("chat-messages")
-                            .flex_1()
-                            .min_h(px(120.0))
-                            .overflow_y_scroll()
-                            .flex()
-                            .flex_col()
-                            .gap(space(2))
-                            .children(rows),
-                    )
-                    .children((!status.is_empty()).then(|| {
-                        div()
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_3)
-                            .child(status)
-                            .into_any_element()
-                    }))
-                    .child(
-                        div()
-                            .id("chat-input")
-                            .role(Role::TextInput)
-                            .aria_label(translate(language, Key::AgentChatChatInputHint))
-                            .h(px(34.0))
-                            .flex()
-                            .items_center()
-                            .px(space(2))
-                            .rounded(px(RADIUS_MEDIUM))
-                            .border_1()
-                            .border_color(if ctx.chat.focused {
-                                palette.accent
-                            } else {
-                                palette.line
-                            })
-                            .bg(palette.view)
-                            .text_size(px(13.0))
-                            .text_color(if input.is_empty() {
-                                palette.ink_3
-                            } else {
-                                palette.ink
-                            })
-                            .child(if input.is_empty() {
-                                translate(language, Key::AgentChatChatInputHint).to_string()
-                            } else {
-                                input.clone()
-                            })
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(|this, _, window, cx| {
-                                    this.chat.focused = true;
-                                    let focus = this.ensure_key_focus(cx);
-                                    window.focus(&focus, cx);
-                                    cx.notify();
-                                }),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .gap(space(1))
-                            .child(
-                                div()
-                                    .id("chat-send")
-                                    .role(Role::Button)
-                                    .aria_label(translate(language, Key::AgentChatChatSend))
-                                    .role(Role::Button)
-                                    .aria_label(translate(language, Key::AgentChatChatSend))
-                                    .role(Role::Button)
-                                    .aria_label(translate(language, Key::AgentChatChatSend))
-                                    .px(space(2))
-                                    .py(px(4.0))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .bg(if streaming {
-                                        palette.soft
-                                    } else {
-                                        palette.accent
-                                    })
-                                    .text_color(if streaming {
-                                        palette.ink_3
-                                    } else {
-                                        palette.canvas
-                                    })
-                                    .child(translate(language, Key::AgentChatChatSend))
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.chat.focused = true;
-                                        this.send_chat(cx);
-                                    })),
-                            )
-                            .child(
-                                div()
-                                    .id("chat-new")
-                                    .role(Role::Button)
-                                    .aria_label(translate(language, Key::AgentChatChatNew))
-                                    .role(Role::Button)
-                                    .aria_label(translate(language, Key::AgentChatChatNew))
-                                    .role(Role::Button)
-                                    .aria_label(translate(language, Key::AgentChatChatNew))
-                                    .px(space(2))
-                                    .py(px(4.0))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .bg(palette.soft)
-                                    .text_color(palette.ink_2)
-                                    .child(translate(language, Key::AgentChatChatNew))
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        if let Some(course_id) = this.chat.course_id.clone() {
-                                            clear_chat_pointer(&course_id);
-                                        }
-                                        this.reset_chat_local(cx);
-                                        this.start_chat(cx);
-                                    })),
-                            )
-                            .children(streaming.then(|| {
-                                div()
-                                    .id("chat-stop")
-                                    .role(Role::Button)
-                                    .aria_label(translate(language, Key::AgentChatChatStop))
-                                    .role(Role::Button)
-                                    .aria_label(translate(language, Key::AgentChatChatStop))
-                                    .role(Role::Button)
-                                    .aria_label(translate(language, Key::AgentChatChatStop))
-                                    .px(space(2))
-                                    .py(px(4.0))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .bg(palette.soft)
-                                    .text_color(palette.ink_2)
-                                    .child(translate(language, Key::AgentChatChatStop))
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.stop_chat_turn(cx);
-                                    }))
-                                    .into_any_element()
-                            })),
-                    )
-                    .into_any_element()
-            }
-        };
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap(space(1))
+                                        .child(
+                                            div()
+                                                .id("chat-add-context")
+                                                .size(px(24.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .text_color(palette.ink_3)
+                                                .hover(|style| style.bg(palette.soft))
+                                                .child(
+                                                    Icon::default()
+                                                        .path(AssetIcon::Paperclip.path())
+                                                        .small(),
+                                                )
+                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                    this.chat.focused = true;
+                                                    this.chat.input.push('@');
+                                                    cx.notify();
+                                                })),
+                                        )
+                                        .child(
+                                            div()
+                                                .id("chat-permission")
+                                                .flex()
+                                                .flex_row()
+                                                .items_center()
+                                                .gap(px(4.0))
+                                                .px(space(1))
+                                                .py(px(2.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .text_size(px(10.0))
+                                                .text_color(palette.ink_2)
+                                                .hover(|style| style.bg(palette.soft))
+                                                .child(
+                                                    Icon::default()
+                                                        .path(AssetIcon::Shield.path())
+                                                        .small(),
+                                                )
+                                                .child(permission.label())
+                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                    this.cycle_chat_permission(cx);
+                                                })),
+                                        )
+                                        .child(
+                                            div()
+                                                .id("chat-model")
+                                                .px(space(1))
+                                                .py(px(2.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .text_size(px(10.0))
+                                                .text_color(palette.ink_2)
+                                                .hover(|style| style.bg(palette.soft))
+                                                .child(model_label)
+                                                .on_click(cx.listener(move |this, _, _, cx| {
+                                                    if has_model {
+                                                        this.cycle_chat_config(0, cx);
+                                                    }
+                                                })),
+                                        )
+                                        .child(
+                                            div()
+                                                .id("chat-reasoning")
+                                                .px(space(1))
+                                                .py(px(2.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .text_size(px(10.0))
+                                                .text_color(palette.ink_2)
+                                                .hover(|style| style.bg(palette.soft))
+                                                .child(reasoning_label)
+                                                .on_click(cx.listener(move |this, _, _, cx| {
+                                                    if has_reasoning {
+                                                        this.cycle_chat_config(1, cx);
+                                                    }
+                                                })),
+                                        )
+                                        .child(div().flex_1())
+                                        .children(streaming.then(|| {
+                                            div()
+                                                .id("chat-stop")
+                                                .size(px(24.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .bg(palette.soft)
+                                                .text_color(palette.ink_2)
+                                                .child(
+                                                    Icon::default()
+                                                        .path(AssetIcon::SquarePen.path())
+                                                        .small(),
+                                                )
+                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                    this.stop_chat_turn(cx);
+                                                }))
+                                                .into_any_element()
+                                        }))
+                                        .child(
+                                            div()
+                                                .id("chat-new")
+                                                .size(px(24.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .text_color(palette.ink_3)
+                                                .hover(|style| style.bg(palette.soft))
+                                                .child(
+                                                    Icon::default()
+                                                        .path(AssetIcon::Plus.path())
+                                                        .small(),
+                                                )
+                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                    if let Some(course_id) =
+                                                        this.chat.course_id.clone()
+                                                    {
+                                                        clear_chat_pointer(&course_id);
+                                                    }
+                                                    this.reset_chat_local(cx);
+                                                    this.start_chat(cx);
+                                                })),
+                                        )
+                                        .child(
+                                            div()
+                                                .id("chat-send")
+                                                .role(Role::Button)
+                                                .aria_label(translate(
+                                                    language,
+                                                    Key::AgentChatChatSend,
+                                                ))
+                                                .size(px(24.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .bg(if streaming {
+                                                    palette.soft
+                                                } else {
+                                                    palette.accent
+                                                })
+                                                .text_color(if streaming {
+                                                    palette.ink_3
+                                                } else {
+                                                    palette.canvas
+                                                })
+                                                .child(
+                                                    Icon::default()
+                                                        .path(AssetIcon::ArrowUp.path())
+                                                        .small(),
+                                                )
+                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                    this.chat.focused = true;
+                                                    this.send_chat(cx);
+                                                })),
+                                        ),
+                                ),
+                        )
+                        .into_any_element()
+                })
+                .into_any_element()
+        }
+    };
     let version = ctx
         .chat
         .version
