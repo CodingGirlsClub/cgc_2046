@@ -1282,6 +1282,11 @@ impl RootView {
         cx.notify();
     }
 
+    pub(in crate::root_view) fn persist_workspace_layout(&mut self, cx: &mut Context<Self>) {
+        self.persist_current_workspace_state();
+        cx.notify();
+    }
+
     fn persist_current_workspace_state(&self) {
         if let Some(workspace_id) = self.workspaces.current_id() {
             self.persist_workspace_state(workspace_id);
@@ -1305,6 +1310,7 @@ impl RootView {
             site_tree_courses_open: self.site_tree_courses_open,
             site_tree_query: self.site_tree_query.clone(),
             right_panel_width: self.right_panel_width,
+            agent_panel_width: self.agent_panel_width,
             site_tree_course_open: self.site_tree_course_open.clone(),
             site_tree_scroll_y: self.site_tree_scroll.offset().y.as_f32(),
         };
@@ -1322,6 +1328,7 @@ impl RootView {
         self.site_tree_courses_open = entry.site_tree_courses_open;
         self.site_tree_query = entry.site_tree_query;
         self.right_panel_width = entry.right_panel_width;
+        self.agent_panel_width = entry.agent_panel_width;
         self.site_tree_course_open = entry.site_tree_course_open;
         self.site_tree_scroll = ScrollHandle::new();
         self.site_tree_scroll_restore = Some(entry.site_tree_scroll_y);
@@ -1449,12 +1456,6 @@ impl RootView {
                 }
             }
         }
-        self.persist_current_workspace_state();
-        cx.notify();
-    }
-
-    pub(in crate::root_view) fn resize_right_panel(&mut self, delta: f32, cx: &mut Context<Self>) {
-        self.right_panel_width = (self.right_panel_width + delta).clamp(240.0, 420.0);
         self.persist_current_workspace_state();
         cx.notify();
     }

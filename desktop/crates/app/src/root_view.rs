@@ -245,6 +245,20 @@ struct PreparedChat {
     server: McpServerConfig,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ResizeSide {
+    Left,
+    Right,
+}
+
+struct ResizeGhost;
+
+impl Render for ResizeGhost {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+    }
+}
+
 pub struct RootView {
     state: ShellState,
 }
@@ -289,6 +303,7 @@ impl Render for RootView {
         let language = self.language;
         let account_menu = self.account_menu_open;
         let is_signed_in = self.is_signed_in();
+        self.clamp_open_panel_widths(window.viewport_size().width.as_f32());
         if is_signed_in
             && self
                 .current
@@ -611,6 +626,9 @@ impl Render for RootView {
                                     cx,
                                 )
                             }))
+                            .children(self.agent_panel_open.then(|| {
+                                render_panel_resize_handle(ResizeSide::Left, &palette, cx)
+                            }))
                             .child(
                                 div()
                                     .flex()
@@ -781,6 +799,9 @@ impl Render for RootView {
                                     ),
                             )
                             .children(self.right_panel_open.then(|| {
+                                render_panel_resize_handle(ResizeSide::Right, &palette, cx)
+                            }))
+                            .children(self.right_panel_open.then(|| {
                                 screens::render_right_dock(
                                     &mut screens::ScreenContext::new(&mut self.state),
                                     language,
@@ -824,6 +845,25 @@ impl Render for RootView {
 }
 
 impl RootView {
+    /// 窗口变窄或恢复旧宽度时，保证两侧 panel 不会把中心压到 320px 以下。
+    fn clamp_open_panel_widths(&mut self, viewport: f32) {
+        if !self.agent_panel_open || !self.right_panel_open {
+            return;
+        }
+        let available = (viewport - 320.0).max(500.0);
+        let mut excess = self.agent_panel_width + self.right_panel_width - available;
+        if excess <= 0.0 {
+            return;
+        }
+        let right_shrink = (self.right_panel_width - 240.0).max(0.0).min(excess);
+        self.right_panel_width -= right_shrink;
+        excess -= right_shrink;
+        if excess > 0.0 {
+            let agent_shrink = (self.agent_panel_width - 260.0).max(0.0).min(excess);
+            self.agent_panel_width -= agent_shrink;
+        }
+    }
+
     /// 账户下拉：必须挂在根级最后绘制，否则会被后续 content/footer 覆盖（表现为“半透明”）。
     fn render_account_menu(
         &self,
@@ -1663,6 +1703,89 @@ fn nav_icon(icon: NavIcon) -> AssetIcon {
         NavIcon::Courses => AssetIcon::BookOpen,
         NavIcon::Companion => AssetIcon::BotMessageSquare,
     }
+}
+
+fn render_panel_resize_handle(
+    side: ResizeSide,
+    palette: &theme::Palette,
+    cx: &mut Context<RootView>,
+) -> AnyElement {
+    let root = cx.entity().downgrade();
+    let id = match side {
+        ResizeSide::Left => "agent-panel-resize-handle",
+        ResizeSide::Right => "right-dock-resize-handle",
+    };
+    div()
+        .id(id)
+        .w(px(5.0))
+        .flex_none()
+        .h_full()
+        .cursor_col_resize()
+        .bg(palette.line)
+        .hover(|style| style.bg(palette.accent))
+        .on_drag(side, move |_, position, _, cx| {
+            let _ = root.update(cx, |this, cx| {
+                let width = match side {
+                    ResizeSide::Left => this.agent_panel_width,
+                    ResizeSide::Right => this.right_panel_width,
+                };
+                // on_drag 的 position 是元素内偏移，不是窗口坐标；这里只记录
+                // 起始宽度，第一次 drag_move 时再用真实的窗口坐标初始化。
+                let _ = position;
+                this.resize_drag = Some((side, f32::NAN, width));
+                cx.notify();
+            });
+            cx.new(|_| ResizeGhost)
+        })
+        .on_drag_move(
+            cx.listener(move |this, event: &DragMoveEvent<ResizeSide>, window, cx| {
+                let Some((drag_side, start_x, start_width)) = this.resize_drag else {
+                    return;
+                };
+                if drag_side != side {
+                    return;
+                }
+                let current = event.event.position.x.as_f32();
+                if !start_x.is_finite() {
+                    this.resize_drag = Some((drag_side, current, start_width));
+                    return;
+                }
+                let delta = match side {
+                    ResizeSide::Left => current - start_x,
+                    ResizeSide::Right => start_x - current,
+                };
+                let viewport = window.viewport_size().width.as_f32();
+                let other = match side {
+                    ResizeSide::Left => this.right_panel_width,
+                    ResizeSide::Right => this.agent_panel_width,
+                };
+                let max = (viewport - other - 320.0).max(260.0);
+                match side {
+                    ResizeSide::Left => {
+                        this.agent_panel_width = (start_width + delta).clamp(260.0, max)
+                    }
+                    ResizeSide::Right => {
+                        this.right_panel_width = (start_width + delta).clamp(240.0, max)
+                    }
+                }
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(250))
+                        .await;
+                    let _ = this.update(cx, |this, cx| this.persist_workspace_layout(cx));
+                })
+                .detach();
+                cx.notify();
+            }),
+        )
+        .on_mouse_up(
+            MouseButton::Left,
+            cx.listener(|this, _, _, cx| {
+                this.resize_drag = None;
+                this.persist_workspace_layout(cx);
+            }),
+        )
+        .into_any_element()
 }
 
 fn hsla_white() -> Hsla {

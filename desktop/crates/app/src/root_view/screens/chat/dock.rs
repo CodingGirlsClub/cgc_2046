@@ -13,7 +13,7 @@ pub(in crate::root_view) fn render_agent_panel(
         .is_some_and(|route_match| route_match.route.id == "courses.learning");
     div()
         .id("agent-panel-dock")
-        .w(px(380.0))
+        .w(px(ctx.agent_panel_width))
         .flex_none()
         .h_full()
         .p(space(2))

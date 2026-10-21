@@ -21,6 +21,7 @@ pub(crate) struct WorkspaceEntry {
     pub(crate) site_tree_courses_open: bool,
     pub(crate) site_tree_query: String,
     pub(crate) right_panel_width: f32,
+    pub(crate) agent_panel_width: f32,
     pub(crate) site_tree_course_open: Option<String>,
     pub(crate) site_tree_scroll_y: f32,
 }
@@ -34,6 +35,7 @@ impl Default for WorkspaceEntry {
             site_tree_courses_open: false,
             site_tree_query: String::new(),
             right_panel_width: 288.0,
+            agent_panel_width: 380.0,
             site_tree_course_open: None,
             site_tree_scroll_y: 0.0,
         }
@@ -98,7 +100,13 @@ pub(crate) fn load() -> WorkspaceState {
                     .and_then(Value::as_f64)
                     .map(|width| width as f32)
                     .unwrap_or(288.0)
-                    .clamp(240.0, 420.0),
+                    .clamp(240.0, 520.0),
+                agent_panel_width: entry
+                    .get("agent_panel_width")
+                    .and_then(Value::as_f64)
+                    .map(|width| width as f32)
+                    .unwrap_or(380.0)
+                    .clamp(260.0, 520.0),
                 site_tree_course_open: entry
                     .get("site_tree_course_open")
                     .and_then(Value::as_str)
@@ -143,6 +151,7 @@ pub(crate) fn save(state: &WorkspaceState) {
                     "site_tree_courses_open": entry.site_tree_courses_open,
                     "site_tree_query": entry.site_tree_query,
                     "right_panel_width": entry.right_panel_width,
+                    "agent_panel_width": entry.agent_panel_width,
                     "site_tree_course_open": entry.site_tree_course_open,
                     "site_tree_scroll_y": entry.site_tree_scroll_y,
                 }),
@@ -203,6 +212,7 @@ mod tests {
             site_tree_courses_open: true,
             site_tree_query: "hitl".to_string(),
             right_panel_width: 320.0,
+            agent_panel_width: 360.0,
             site_tree_course_open: Some("crs-002".to_string()),
             site_tree_scroll_y: 42.0,
         };

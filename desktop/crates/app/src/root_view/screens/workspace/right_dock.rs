@@ -69,31 +69,6 @@ pub(in crate::root_view) fn render_right_dock(
                         .text_size(px(12.0))
                         .text_color(palette.ink)
                         .child(title),
-                )
-                .child(div().flex_1())
-                .child(
-                    div()
-                        .id("right-dock-narrow")
-                        .px(px(4.0))
-                        .rounded(px(RADIUS_SMALL))
-                        .text_color(palette.ink_3)
-                        .hover(|style| style.bg(palette.soft))
-                        .child("−")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.resize_right_panel(-24.0, cx);
-                        })),
-                )
-                .child(
-                    div()
-                        .id("right-dock-wide")
-                        .px(px(4.0))
-                        .rounded(px(RADIUS_SMALL))
-                        .text_color(palette.ink_3)
-                        .hover(|style| style.bg(palette.soft))
-                        .child("+")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.resize_right_panel(24.0, cx);
-                        })),
                 ),
         )
         .child(

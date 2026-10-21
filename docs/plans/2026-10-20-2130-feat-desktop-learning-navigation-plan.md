@@ -209,7 +209,7 @@ flowchart LR
 ### Key Technical Decisions
 
 - KTD1. **RootView 继续做壳，workspace 场景作为 ShellState 的一个子状态。** 页面、Dock、Pane、Site Tree、Outline 的渲染放 `root_view/screens/workspace/`；加载、切换、持久化动作放 controller；不把新状态散回 RootView。 Governs R1–R5, R16–R20.
-- KTD2. **Dock/Pane 自建，不假设 gpui-kit 提供 Zed 同款组件。** 复用现有 `div` 布局与主题 token，实现两个 panel 的互斥 Dock、可调整宽度、图标按钮和 Pane TabBar；先用最小交互，不引入拖拽面板。 Governs R1–R5, R16–R20.
+- KTD2. **Dock/Pane 自建，不假设 gpui-kit 提供 Zed 同款组件。** 复用现有 `div` 布局与主题 token，实现两个 panel 的互斥 Dock、可调整宽度和 Pane TabBar。宽度由左右边界拖动 handle 调整（gpui-kit 已升级 0.8；DockArea/DockLayout 需要把每个 screen 改成 Panel entity，当前三栏不迁移）。 Governs R1–R5, R16–R20.
 - KTD3. **Course Outline 的数据源是现有 `courseContent`，不新增后端课程模型。** 扩展桌面解析器消费 `chapter_id`、story/objective 元数据与 material URL；后端已有章节校验与 issue 结构。 Governs R12–R15.
 - KTD4. **Pane item 用稳定资源键标识，Tabs 状态按 workspace 持久化。** 键为 workspace + 资源类型 + 资源 id；不持久化临时滚动位置之外的内容；失效资源在恢复时清理。 Governs R16–R20, R29–R31.
 - KTD5. **Site Tree 用现有 workspace/events/courses/enrollments 服务组装，按需加载。** 不新增后端“树”接口；section 展开时调用对应列表服务，搜索在已加载节点上过滤，必要时再拉当前 section。 Governs R6–R11.
