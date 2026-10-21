@@ -231,6 +231,7 @@ struct ChatUi {
     history_open: bool,
     streaming_message_open: bool,
     guidance: Option<ChatGuidance>,
+    load_retry_available: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -1927,6 +1928,32 @@ mod tests {
         for stroke in ["cmd-,", "ctrl-,"] {
             assert!(gpui_kit::Keystroke::parse(stroke).is_ok(), "{stroke}");
         }
+    }
+
+    #[test]
+    fn stale_session_load_errors_are_detected() {
+        assert!(RootView::is_stale_session_error(
+            "acp connection: Internal error: \"session/load: Internal error: no rollout found for thread id abc\""
+        ));
+        assert!(RootView::is_stale_session_error(
+            "no rollout found for thread id abc"
+        ));
+        assert!(!RootView::is_stale_session_error("agent process exited"));
+        assert!(!RootView::is_stale_session_error(
+            "managed node runtime missing"
+        ));
+        assert!(RootView::should_retry_stale_session(
+            true,
+            "session/load: no rollout found"
+        ));
+        assert!(!RootView::should_retry_stale_session(
+            false,
+            "session/load: no rollout found"
+        ));
+        assert!(!RootView::should_retry_stale_session(
+            true,
+            "agent process exited"
+        ));
     }
 
     #[test]

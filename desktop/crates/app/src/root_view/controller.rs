@@ -374,6 +374,7 @@ impl RootView {
                 .as_deref()
                 .and_then(|course_id| load_chat_pointer(course_id, load_agent))
         });
+        self.chat.load_retry_available = load_session.is_some();
         self.chat.course_id = course_id;
         self.chat.session_id = None;
         self.chat.configs.clear();
@@ -656,6 +657,21 @@ impl RootView {
                     self.chat.streaming_message_open = false;
                 }
                 HostEvent::Error { message } => {
+                    if Self::should_retry_stale_session(self.chat.load_retry_available, &message) {
+                        // session/load 的错误是在 host 线程异步返回的，不是 AcpHost::start
+                        // 的同步 Err；这里丢弃旧 host、清指针并重开 session/new。
+                        self.chat.load_retry_available = false;
+                        self.chat.host.take();
+                        if let Some(course_id) = self.chat.course_id.clone() {
+                            clear_chat_pointer(&course_id);
+                        }
+                        self.chat.restore_id = None;
+                        self.chat.phase = ChatPhase::Idle;
+                        self.start_chat(cx);
+                        // 旧 host 可能紧接着发 Exited；不能让它在下一轮把新 host 清掉。
+                        cx.notify();
+                        return false;
+                    }
                     self.chat.phase = ChatPhase::Failed(message);
                 }
                 HostEvent::Exited => {
@@ -925,6 +941,7 @@ impl RootView {
         self.chat.history_open = false;
         self.chat.streaming_message_open = false;
         self.chat.guidance = None;
+        self.chat.load_retry_available = false;
     }
 
     pub(in crate::root_view) fn start_courses_load(&mut self, cx: &mut Context<Self>, first: bool) {
@@ -2256,6 +2273,17 @@ impl RootView {
     }
 
     /// 发消息时给 agent 的当前卡上下文（用户移除芯片后不再注入）。
+    pub(in crate::root_view) fn is_stale_session_error(message: &str) -> bool {
+        message.contains("session/load") || message.contains("no rollout found")
+    }
+
+    pub(in crate::root_view) fn should_retry_stale_session(
+        load_retry_available: bool,
+        message: &str,
+    ) -> bool {
+        load_retry_available && Self::is_stale_session_error(message)
+    }
+
     fn active_tab_context_note(&self) -> Option<String> {
         if self.chat.context_dismissed {
             return None;
