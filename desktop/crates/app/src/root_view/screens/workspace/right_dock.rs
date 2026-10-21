@@ -246,6 +246,7 @@ fn render_site_tree(
     let root_events = cx.entity().downgrade();
     let mut events_item =
         SidebarMenuItem::new(translate(language, Key::EventsListTitle).to_string())
+            .icon(Icon::default().path(AssetIcon::Calendar.path()).small())
             .active(section_active("/events"))
             .on_click(move |_, _, cx| {
                 let _ = root_events.update(cx, |this, cx| {
