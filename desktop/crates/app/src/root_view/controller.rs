@@ -772,6 +772,16 @@ impl RootView {
         cx.notify();
     }
 
+    pub(in crate::root_view) fn toggle_chat_history(&mut self, cx: &mut Context<Self>) {
+        self.agent_panel_open = true;
+        if self.chat.show_sessions {
+            self.chat.show_sessions = false;
+            cx.notify();
+        } else {
+            self.open_chat_history(cx);
+        }
+    }
+
     pub(in crate::root_view) fn open_chat_history(&mut self, cx: &mut Context<Self>) {
         if let Some(host) = &self.chat.host {
             let _ = host.list_sessions();

@@ -916,30 +916,6 @@ pub(in crate::root_view) fn render_chat_panel(
                     this.reset_chat_local(cx);
                     this.start_chat(cx);
                 })),
-        )
-        .child(
-            div()
-                .id("chat-history-toolbar")
-                .role(Role::Button)
-                .aria_label(translate(language, Key::AgentChatChatHistory))
-                .px(space(1))
-                .py(px(3.0))
-                .rounded(px(RADIUS_SMALL))
-                .text_size(px(11.0))
-                .text_color(if ctx.chat.show_sessions {
-                    palette.ink
-                } else {
-                    palette.accent
-                })
-                .bg(if ctx.chat.show_sessions {
-                    palette.soft
-                } else {
-                    palette.card
-                })
-                .child(translate(language, Key::AgentChatChatHistory))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.open_chat_history(cx);
-                })),
         );
     div()
         .flex()

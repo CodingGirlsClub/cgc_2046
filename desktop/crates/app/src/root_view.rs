@@ -1307,6 +1307,40 @@ impl RootView {
                 }))
                 .into_any_element()
         });
+        let history_toggle = include_nav.then(|| {
+            let active = self.chat.show_sessions && self.agent_panel_open;
+            div()
+                .id("chat-history-toggle")
+                .role(Role::Button)
+                .aria_label("历史对话")
+                .tab_index(0isize)
+                .size(px(22.0))
+                .rounded(px(RADIUS_SMALL))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(if active {
+                    palette.accent
+                } else {
+                    palette.ink_3
+                })
+                .hover(|style| style.bg(palette.soft))
+                .child(
+                    Icon::default()
+                        .path(AssetIcon::Clock.path())
+                        .text_color(if active {
+                            palette.accent
+                        } else {
+                            palette.ink_3
+                        })
+                        .small(),
+                )
+                .tooltip(move |window, cx| Tooltip::new("历史对话").build(window, cx))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.toggle_chat_history(cx);
+                }))
+                .into_any_element()
+        });
         let panel_toggle = |id: &'static str,
                             label: SharedString,
                             icon: AssetIcon,
@@ -1377,6 +1411,7 @@ impl RootView {
                             .min_w_0()
                             .overflow_x_hidden()
                             .children(agent_toggle)
+                            .children(history_toggle)
                             .child(site_tree_toggle)
                             .child(outline_toggle),
                     )
