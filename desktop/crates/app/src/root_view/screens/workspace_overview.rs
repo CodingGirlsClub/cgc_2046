@@ -51,11 +51,9 @@ pub(in crate::root_view) fn render_workspace_overview(
         .unwrap_or_default();
 
     let learning_body: AnyElement = match enrollments_state {
-        EnrollmentsListState::Idle | EnrollmentsListState::Loading => div()
-            .text_size(px(12.0))
-            .text_color(palette.ink_3)
-            .child(translate(language, Key::AccountWorkspaceLoading))
-            .into_any_element(),
+        EnrollmentsListState::Idle | EnrollmentsListState::Loading => {
+            render_loading_state(language, Key::AccountWorkspaceLoading, palette)
+        }
         EnrollmentsListState::Failed(_) => div()
             .flex()
             .flex_row()
@@ -159,11 +157,9 @@ pub(in crate::root_view) fn render_workspace_overview(
     };
 
     let events_body: AnyElement = match events_state {
-        ListState::Idle | ListState::Loading => div()
-            .text_size(px(12.0))
-            .text_color(palette.ink_3)
-            .child(translate(language, Key::AccountWorkspaceLoading))
-            .into_any_element(),
+        ListState::Idle | ListState::Loading => {
+            render_loading_state(language, Key::AccountWorkspaceLoading, palette)
+        }
         ListState::Failed(_) => div()
             .text_size(px(12.0))
             .text_color(palette.danger)
@@ -226,11 +222,9 @@ pub(in crate::root_view) fn render_workspace_overview(
     };
 
     let participation_body: AnyElement = match enrollments_state {
-        EnrollmentsListState::Idle | EnrollmentsListState::Loading => div()
-            .text_size(px(12.0))
-            .text_color(palette.ink_3)
-            .child(translate(language, Key::AccountWorkspaceLoading))
-            .into_any_element(),
+        EnrollmentsListState::Idle | EnrollmentsListState::Loading => {
+            render_loading_state(language, Key::AccountWorkspaceLoading, palette)
+        }
         EnrollmentsListState::Failed(_) => div()
             .text_size(px(12.0))
             .text_color(palette.danger)

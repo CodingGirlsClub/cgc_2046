@@ -1,5 +1,6 @@
 use super::super::super::*;
 use super::super::ScreenContext;
+use gpui_kit::component::progress::Progress;
 
 pub(in crate::root_view) fn render_course_learning(
     ctx: &mut ScreenContext<'_>,
@@ -31,10 +32,9 @@ pub(in crate::root_view) fn render_course_learning(
         }));
 
     let body: AnyElement = match state {
-        CoursesListState::Idle | CoursesListState::Loading => div()
-            .text_color(palette.ink_3)
-            .child(translate(language, Key::CoursesLearningLoading))
-            .into_any_element(),
+        CoursesListState::Idle | CoursesListState::Loading => {
+            render_loading_state(language, Key::CoursesLearningLoading, palette).into_any_element()
+        }
         CoursesListState::Failed(message) => div()
             .flex()
             .flex_col()
@@ -207,13 +207,22 @@ pub(in crate::root_view) fn render_learning_projection(
                         .child(translate(language, Key::CoursesLearningProjectionTitle)),
                 )
                 .children(progress.map(|progress| {
+                    let percent = if progress.total_required > 0 {
+                        progress.mastered_required as f32 / progress.total_required as f32 * 100.0
+                    } else {
+                        0.0
+                    };
                     div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(4.0))
                         .text_size(px(12.0))
                         .text_color(palette.ink_2)
                         .child(format!(
                             "{} / {}",
                             progress.mastered_required, progress.total_required
                         ))
+                        .child(Progress::new("course-projection-progress").value(percent))
                         .into_any_element()
                 }))
                 .children(next.map(|next| {

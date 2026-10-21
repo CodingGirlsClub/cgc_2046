@@ -10,10 +10,9 @@ pub(in crate::root_view) fn render_participations(
     let state = ctx.enrollments_state.clone();
     let rows = ctx.enrollments_rows.clone();
     let body: AnyElement = match state {
-        EnrollmentsListState::Idle | EnrollmentsListState::Loading => div()
-            .text_color(palette.ink_3)
-            .child(translate(language, Key::AccountWorkspaceLoading))
-            .into_any_element(),
+        EnrollmentsListState::Idle | EnrollmentsListState::Loading => {
+            render_loading_state(language, Key::AccountWorkspaceLoading, palette).into_any_element()
+        }
         EnrollmentsListState::Failed(_) => div()
             .text_color(palette.danger)
             .child(translate(language, Key::AccountWorkspaceFailed))

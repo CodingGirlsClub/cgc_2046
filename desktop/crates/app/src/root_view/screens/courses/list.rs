@@ -12,10 +12,9 @@ pub(in crate::root_view) fn render_courses_list(
     let has_more = ctx.courses.has_more();
 
     let body: AnyElement = match state {
-        CoursesListState::Idle | CoursesListState::Loading => div()
-            .text_color(palette.ink_3)
-            .child(translate(language, Key::CoursesCatalogLoading))
-            .into_any_element(),
+        CoursesListState::Idle | CoursesListState::Loading => {
+            render_loading_state(language, Key::CoursesCatalogLoading, palette).into_any_element()
+        }
         CoursesListState::Failed(message) => div()
             .flex()
             .flex_col()

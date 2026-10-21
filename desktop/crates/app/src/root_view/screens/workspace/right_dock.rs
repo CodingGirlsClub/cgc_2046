@@ -6,6 +6,7 @@
 use super::super::super::*;
 use super::super::ScreenContext;
 use cgc_courses::outline::build_outline;
+use gpui_kit::component::progress::Progress;
 
 pub(in crate::root_view) fn render_right_dock(
     ctx: &mut ScreenContext<'_>,
@@ -542,16 +543,29 @@ fn render_outline(
         .as_ref()
         .and_then(|projection| projection.progress.as_ref())
     {
+        let percent = if progress.total_required > 0 {
+            progress.mastered_required as f32 / progress.total_required as f32 * 100.0
+        } else {
+            0.0
+        };
         rows.push(
             div()
                 .px(space(1))
                 .pb(px(3.0))
+                .flex()
+                .flex_col()
+                .gap(px(3.0))
                 .text_size(px(10.0))
                 .text_color(palette.ink_3)
                 .child(format!(
                     "进度 {}/{}",
                     progress.mastered_required, progress.total_required
                 ))
+                .child(
+                    Progress::new("outline-course-progress")
+                        .value(percent)
+                        .with_size(gpui_kit::component::Size::XSmall),
+                )
                 .into_any_element(),
         );
     }

@@ -13,9 +13,7 @@ pub(in crate::root_view) fn render_issue_card(
     palette: &theme::Palette,
 ) -> AnyElement {
     let Some(content) = ctx.content.content().cloned() else {
-        return div()
-            .text_color(palette.ink_3)
-            .child(translate(language, Key::CoursesLearningContentLoading))
+        return render_loading_state(language, Key::CoursesLearningContentLoading, palette)
             .into_any_element();
     };
     if content.course_id != course_id {

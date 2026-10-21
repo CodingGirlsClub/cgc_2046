@@ -15,10 +15,9 @@ pub(in crate::root_view) fn render_learning_home(
         .cloned()
         .collect::<Vec<_>>();
     let body: AnyElement = match state {
-        EnrollmentsListState::Idle | EnrollmentsListState::Loading => div()
-            .text_color(palette.ink_3)
-            .child(translate(language, Key::AccountWorkspaceLoading))
-            .into_any_element(),
+        EnrollmentsListState::Idle | EnrollmentsListState::Loading => {
+            render_loading_state(language, Key::AccountWorkspaceLoading, palette).into_any_element()
+        }
         EnrollmentsListState::Failed(_) => div()
             .flex()
             .flex_col()

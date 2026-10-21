@@ -2,6 +2,8 @@
 
 use super::super::super::*;
 use super::super::ScreenContext;
+use gpui_kit::component::skeleton::Skeleton;
+use gpui_kit::component::tag::Tag;
 
 pub(in crate::root_view) fn render_agent_registry(
     ctx: &mut ScreenContext<'_>,
@@ -40,9 +42,18 @@ pub(in crate::root_view) fn render_agent_registry(
 
     let body = if loading && rows.is_empty() {
         div()
-            .text_size(px(12.0))
-            .text_color(palette.ink_3)
-            .child(translate(language, Key::AgentRegistryLoading))
+            .flex()
+            .flex_col()
+            .gap(space(2))
+            .children((0..3).map(|_| {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.0))
+                    .child(Skeleton::new().h(px(16.0)).w(px(180.0)))
+                    .child(Skeleton::new().h(px(12.0)).w(px(120.0)))
+                    .into_any_element()
+            }))
             .into_any_element()
     } else if let Some(error) = error {
         div()
@@ -102,6 +113,14 @@ pub(in crate::root_view) fn render_agent_registry(
                 cgc_platform::registry::manifest::Distribution::Npx { .. }
             );
             let can_install = !matches!(row.status, AgentStatus::Ready { .. }) && is_npx;
+            let status_tag = match &row.status {
+                AgentStatus::Ready { .. } => Tag::success(),
+                AgentStatus::Missing => Tag::secondary(),
+                AgentStatus::Outdated { .. } | AgentStatus::NodeUnavailable { .. } => {
+                    Tag::warning()
+                }
+                AgentStatus::Error(_) => Tag::danger(),
+            };
             let is_installing = installing.as_deref() == Some(entry.id.as_str());
             let install_label = if is_installing {
                 "安装中…"
@@ -134,10 +153,9 @@ pub(in crate::root_view) fn render_agent_registry(
                                     .child(entry.display_name.clone()),
                             )
                             .child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_3)
-                                    .child(status_text),
+                                status_tag
+                                    .child(status_text)
+                                    .with_size(gpui_kit::component::Size::Small),
                             )
                             .children(can_install.then(|| {
                                 div()

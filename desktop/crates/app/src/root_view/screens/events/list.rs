@@ -39,10 +39,9 @@ pub(in crate::root_view) fn render_events_list(
         .collect::<Vec<_>>();
 
     let body: AnyElement = match state {
-        ListState::Idle | ListState::Loading => div()
-            .text_color(palette.ink_3)
-            .child(translate(language, Key::EventsListLoading))
-            .into_any_element(),
+        ListState::Idle | ListState::Loading => {
+            render_loading_state(language, Key::EventsListLoading, palette).into_any_element()
+        }
         ListState::Failed(message) => div()
             .flex()
             .flex_col()
@@ -110,17 +109,12 @@ pub(in crate::root_view) fn render_events_list(
                                 .items_center()
                                 .gap(space(1))
                                 .child(
-                                    div()
-                                        .px(px(6.0))
-                                        .py(px(2.0))
-                                        .rounded(px(RADIUS_SMALL))
-                                        .bg(palette.soft)
-                                        .text_size(px(11.0))
-                                        .text_color(palette.ink_2)
-                                        .child(translate(
-                                            language,
-                                            status_key(event.status.as_str()),
-                                        )),
+                                    event_status_tag(
+                                        event.status.as_str(),
+                                        translate(language, status_key(event.status.as_str()))
+                                            .into(),
+                                    )
+                                    .with_size(gpui_kit::component::Size::Small),
                                 )
                                 .child(div().text_size(px(11.0)).text_color(palette.ink_3).child(
                                     match (event.confirmed_count, event.capacity) {

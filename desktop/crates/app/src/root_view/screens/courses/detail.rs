@@ -27,10 +27,9 @@ pub(in crate::root_view) fn render_course_detail(
         }));
 
     let body: AnyElement = match state {
-        CoursesListState::Idle | CoursesListState::Loading => div()
-            .text_color(palette.ink_3)
-            .child(translate(language, Key::CoursesDetailLoading))
-            .into_any_element(),
+        CoursesListState::Idle | CoursesListState::Loading => {
+            render_loading_state(language, Key::CoursesDetailLoading, palette).into_any_element()
+        }
         CoursesListState::Failed(message) => {
             let not_found = message == "not found";
             div()

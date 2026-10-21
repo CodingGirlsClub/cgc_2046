@@ -57,7 +57,15 @@ use cgc_platform::workspace::{
     FakeWorkspaceApi, HttpWorkspaceApi, WorkspaceApi, WorkspaceListState, WorkspaceService,
 };
 use gpui_kit::assets::IconName as AssetIcon;
-use gpui_kit::component::{Icon, Sizable as _};
+use gpui_kit::component::{
+    avatar::Avatar,
+    empty::{Empty, EmptyDescription, EmptyHeader, EmptyTitle},
+    kbd::Kbd,
+    spinner::Spinner,
+    tag::Tag,
+    tooltip::Tooltip,
+    Icon, Sizable as _, Size as KitSize,
+};
 
 use crate::i18n::{default_language, translate, translate_registered, Key, Language};
 use crate::qr::{encode as encode_qr, render_qr, QrError};
@@ -334,12 +342,6 @@ impl Render for RootView {
             .signed_in()
             .and_then(|session| session.email.clone())
             .unwrap_or_default();
-        let avatar_glyph = email
-            .chars()
-            .next()
-            .map(|c| c.to_uppercase().to_string())
-            .unwrap_or_else(|| "C".to_string());
-
         let theme_label = translate(language, self.preference.label_key());
         let language_label = translate(
             language,
@@ -586,29 +588,26 @@ impl Render for RootView {
                             .child(self.render_breadcrumb_bar(language, &palette, cx))
                             .child(div().flex_1())
                             .child(
-                                div().relative().flex().items_center().child(
-                                    div()
-                                        .id("account-menu-toggle")
-                                        .size(px(26.0))
-                                        .rounded_full()
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .bg(palette.accent)
-                                        .text_size(px(12.0))
-                                        .text_color(hsla_white())
-                                        .child(avatar_glyph)
-                                        .tooltip(move |_, cx| {
-                                            cx.new(|_| TooltipText {
-                                                text: account_tooltip.into(),
-                                            })
-                                            .into()
-                                        })
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.toggle_account_menu();
-                                            cx.notify();
-                                        })),
-                                ),
+                                div()
+                                    .id("account-toggle-wrap")
+                                    .relative()
+                                    .flex()
+                                    .items_center()
+                                    .tooltip(move |window, cx| {
+                                        Tooltip::new(account_tooltip).build(window, cx)
+                                    })
+                                    .child(
+                                        Avatar::new()
+                                            .name(email.clone())
+                                            .with_size(KitSize::Small)
+                                            .on_mouse_down(
+                                                MouseButton::Left,
+                                                cx.listener(|this, _, _, cx| {
+                                                    this.toggle_account_menu();
+                                                    cx.notify();
+                                                }),
+                                            ),
+                                    ),
                             ),
                     )
                     .child(
@@ -913,11 +912,11 @@ impl RootView {
                             .flex()
                             .justify_between()
                             .child(translate(language, Key::AppSettingsTitle))
-                            .child(if cfg!(target_os = "macos") {
-                                "⌘,"
+                            .child(shortcut_kbd(if cfg!(target_os = "macos") {
+                                "cmd-,"
                             } else {
-                                "Ctrl+,"
-                            }),
+                                "ctrl-,"
+                            })),
                     )
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.open_settings_window(cx);
@@ -999,16 +998,19 @@ impl RootView {
                     .child(translate(language, Key::AppSettingsTitle)),
             )
             .child(
-                div()
-                    .text_size(px(14.0))
-                    .text_color(palette.ink)
-                    .child(translate(language, Key::AppWorkspaceEmptyTitle)),
-            )
-            .child(
-                div()
-                    .text_size(px(12.0))
-                    .text_color(palette.ink_3)
-                    .child(translate(language, Key::AppWorkspaceEmptyGuidance)),
+                Empty::new()
+                    .header(
+                        EmptyHeader::new()
+                            .title(
+                                EmptyTitle::new()
+                                    .child(translate(language, Key::AppWorkspaceEmptyTitle)),
+                            )
+                            .description(
+                                EmptyDescription::new()
+                                    .child(translate(language, Key::AppWorkspaceEmptyGuidance)),
+                            ),
+                    )
+                    .text_color(palette.ink),
             )
             .into_any_element()
     }
@@ -1086,13 +1088,9 @@ impl RootView {
         let current = self.workspaces.current().cloned();
         let workspaces = self.workspaces.workspaces().to_vec();
         let body: AnyElement = match state {
-            WorkspaceListState::Idle | WorkspaceListState::Loading => div()
-                .px(space(1))
-                .py(px(4.0))
-                .text_size(px(12.0))
-                .text_color(palette.ink_3)
-                .child(translate(language, Key::AppWorkspaceLoading))
-                .into_any_element(),
+            WorkspaceListState::Idle | WorkspaceListState::Loading => {
+                render_loading_state(language, Key::AppWorkspaceLoading, palette).into_any_element()
+            }
             WorkspaceListState::Failed(_) => div()
                 .px(space(1))
                 .py(px(4.0))
@@ -1233,15 +1231,12 @@ impl RootView {
                         })
                         .small(),
                 )
-                .tooltip(move |_, cx| {
-                    cx.new(|_| TooltipText {
-                        text: format!(
-                            "{} · {shortcut}",
-                            translate(language, Key::AgentChatPanelTitle)
-                        )
-                        .into(),
-                    })
-                    .into()
+                .tooltip(move |window, cx| {
+                    Tooltip::new(format!(
+                        "{} · {shortcut}",
+                        translate(language, Key::AgentChatPanelTitle)
+                    ))
+                    .build(window, cx)
                 })
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_agent_panel(cx);
@@ -1280,12 +1275,7 @@ impl RootView {
                         })
                         .small(),
                 )
-                .tooltip(move |_, cx| {
-                    cx.new(|_| TooltipText {
-                        text: tooltip.clone(),
-                    })
-                    .into()
-                })
+                .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.toggle_right_panel(panel, cx);
                 }))
@@ -1362,11 +1352,9 @@ impl RootView {
                                     .text_color(palette.ink_3)
                                     .small(),
                             )
-                            .tooltip(move |_, cx| {
-                                cx.new(|_| TooltipText {
-                                    text: format!("{theme_tooltip} · {theme_label}").into(),
-                                })
-                                .into()
+                            .tooltip(move |window, cx| {
+                                Tooltip::new(format!("{theme_tooltip} · {theme_label}"))
+                                    .build(window, cx)
                             })
                             .on_click(cx.listener(|this, _, window, cx| {
                                 let preference = this.cycle_theme();
@@ -1392,11 +1380,9 @@ impl RootView {
                                     .text_color(palette.ink_3)
                                     .small(),
                             )
-                            .tooltip(move |_, cx| {
-                                cx.new(|_| TooltipText {
-                                    text: format!("{language_tooltip} · {language_label}").into(),
-                                })
-                                .into()
+                            .tooltip(move |window, cx| {
+                                Tooltip::new(format!("{language_tooltip} · {language_label}"))
+                                    .build(window, cx)
                             })
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.toggle_language();
@@ -1405,24 +1391,6 @@ impl RootView {
                     ),
             )
             .into_any_element()
-    }
-}
-
-/// 悬停 tooltip 的内容视图（footer 图标按钮使用）。
-struct TooltipText {
-    text: SharedString,
-}
-
-impl Render for TooltipText {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .px(px(8.0))
-            .py(px(4.0))
-            .rounded(px(4.0))
-            .bg(rgba(0x1f_20_22_f2))
-            .text_color(hsla_white())
-            .text_size(px(11.0))
-            .child(self.text.clone())
     }
 }
 
@@ -1616,6 +1584,16 @@ fn build_events_service() -> EventListService {
     EventListService::new(api)
 }
 
+fn event_status_tag(status: &str, label: gpui_kit::SharedString) -> Tag {
+    let tag = match status {
+        "cancelled" => Tag::danger(),
+        "ended" => Tag::secondary(),
+        "published" | "confirmed" => Tag::success(),
+        _ => Tag::secondary(),
+    };
+    tag.child(label)
+}
+
 fn status_key(status: &str) -> Key {
     match status {
         "open" => Key::EventsStatusOpen,
@@ -1788,8 +1766,21 @@ fn render_panel_resize_handle(
         .into_any_element()
 }
 
-fn hsla_white() -> Hsla {
-    rgba(0xff_ff_ff_ff).into()
+fn render_loading_state(language: Language, key: Key, palette: &theme::Palette) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(8.0))
+        .text_size(px(12.0))
+        .text_color(palette.ink_3)
+        .child(Spinner::new())
+        .child(translate(language, key))
+        .into_any_element()
+}
+
+fn shortcut_kbd(stroke: &str) -> Kbd {
+    Kbd::new(gpui_kit::Keystroke::parse(stroke).expect("valid shortcut"))
 }
 
 #[cfg(test)]
@@ -1863,6 +1854,13 @@ mod tests {
         let registry = build_registry().expect("registry builds");
         assert!(registry.find("courses.learning_home").is_some());
         assert!(registry.find("events.participations").is_some());
+    }
+
+    #[test]
+    fn shortcut_kbd_parses_settings_shortcuts() {
+        for stroke in ["cmd-,", "ctrl-,"] {
+            assert!(gpui_kit::Keystroke::parse(stroke).is_ok(), "{stroke}");
+        }
     }
 
     #[test]

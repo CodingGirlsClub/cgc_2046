@@ -1,5 +1,6 @@
 use super::super::super::*;
 use super::super::ScreenContext;
+use gpui_kit::component::checkbox::Checkbox;
 
 pub(in crate::root_view) fn render_detail(
     ctx: &mut ScreenContext<'_>,
@@ -21,10 +22,9 @@ pub(in crate::root_view) fn render_detail(
         }));
 
     let body: AnyElement = match state {
-        ListState::Idle | ListState::Loading => div()
-            .text_color(palette.ink_3)
-            .child(translate(language, Key::EventsDetailLoading))
-            .into_any_element(),
+        ListState::Idle | ListState::Loading => {
+            render_loading_state(language, Key::EventsDetailLoading, palette).into_any_element()
+        }
         ListState::Failed(message) => {
             let not_found = message == "not found";
             div()
@@ -288,18 +288,13 @@ pub(in crate::root_view) fn render_enrollment_area(
                             ),
                     )
                     .children((deposit).then(|| {
-                        div()
-                            .id("pay-deposit-consent")
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(px(4.0))
+                        Checkbox::new("pay-deposit-consent")
+                            .checked(consent)
+                            .label(translate(language, Key::EventsPayDepositConsent))
                             .text_size(px(12.0))
                             .text_color(palette.ink_2)
-                            .child(if consent { "☑" } else { "☐" })
-                            .child(translate(language, Key::EventsPayDepositConsent))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.deposit_consent = !this.deposit_consent;
+                            .on_click(cx.listener(|this, checked, _, cx| {
+                                this.deposit_consent = *checked;
                                 cx.notify();
                             }))
                             .into_any_element()
@@ -463,21 +458,16 @@ pub(in crate::root_view) fn render_enrollment_area(
 
     let age_confirm = detail.min_age.map(|min_age| {
         let checked = ctx.age_confirmed;
-        div()
-            .id("enroll-age-confirm")
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(px(4.0))
-            .text_size(px(12.0))
-            .text_color(palette.ink_2)
-            .child(if checked { "☑" } else { "☐" })
-            .child(format!(
+        Checkbox::new("enroll-age-confirm")
+            .checked(checked)
+            .label(format!(
                 "{} ({min_age}+)",
                 translate(language, Key::EventsEnrollAgeConfirm)
             ))
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.age_confirmed = !this.age_confirmed;
+            .text_size(px(12.0))
+            .text_color(palette.ink_2)
+            .on_click(cx.listener(|this, checked, _, cx| {
+                this.age_confirmed = *checked;
                 cx.notify();
             }))
             .into_any_element()

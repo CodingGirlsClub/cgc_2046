@@ -8,10 +8,9 @@ pub(in crate::root_view) fn render_enrollments_list(
     cx: &mut Context<RootView>,
 ) -> AnyElement {
     let body: AnyElement = match &ctx.enrollments_state {
-        EnrollmentsListState::Idle | EnrollmentsListState::Loading => div()
-            .text_color(palette.ink_3)
-            .child(translate(language, Key::EventsMineLoading))
-            .into_any_element(),
+        EnrollmentsListState::Idle | EnrollmentsListState::Loading => {
+            render_loading_state(language, Key::EventsMineLoading, palette).into_any_element()
+        }
         EnrollmentsListState::Failed(message) => div()
             .flex()
             .flex_col()
