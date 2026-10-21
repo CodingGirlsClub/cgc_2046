@@ -3,6 +3,36 @@ use super::ScreenContext;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::Disableable;
 
+fn input_content(
+    display: AnyElement,
+    focused: bool,
+    empty: bool,
+    palette: &theme::Palette,
+) -> AnyElement {
+    let caret = div()
+        .w(px(1.0))
+        .h(px(16.0))
+        .bg(palette.accent)
+        .into_any_element();
+    let mut children = Vec::new();
+    if focused && empty {
+        children.push(caret);
+        children.push(display);
+    } else {
+        children.push(display);
+        if focused {
+            children.push(caret);
+        }
+    }
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(1.0))
+        .children(children)
+        .into_any_element()
+}
+
 pub(in crate::root_view) fn render_reset_login_card(
     ctx: &mut ScreenContext<'_>,
     language: Language,
@@ -244,6 +274,8 @@ pub(in crate::root_view) fn render_login_split(
 ) -> AnyElement {
     let email = ctx.login_email.clone();
     let password = ctx.login_password.clone();
+    let email_empty = email.is_empty();
+    let password_empty = password.is_empty();
     let focused = ctx.focused;
     let signing_in = ctx.signing_in;
     let login_notice = ctx.login_notice;
@@ -316,7 +348,12 @@ pub(in crate::root_view) fn render_login_split(
                 .bg(palette.view)
                 .role(Role::TextInput)
                 .aria_label(translate(language, Key::AppAuthEmail))
-                .child(email_display)
+                .child(input_content(
+                    email_display,
+                    focused == LoginField::Email,
+                    email_empty,
+                    palette,
+                ))
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _, window, cx| {
@@ -340,7 +377,12 @@ pub(in crate::root_view) fn render_login_split(
                 .bg(palette.view)
                 .role(Role::TextInput)
                 .aria_label(translate(language, Key::AppAuthPassword))
-                .child(password_display)
+                .child(input_content(
+                    password_display,
+                    focused == LoginField::Password,
+                    password_empty,
+                    palette,
+                ))
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _, window, cx| {
@@ -492,7 +534,15 @@ pub(in crate::root_view) fn login_input(
         })
         .bg(palette.view)
         .text_color(if empty { palette.ink_3 } else { palette.ink })
-        .child(display)
+        .child(input_content(
+            div()
+                .text_color(if empty { palette.ink_3 } else { palette.ink })
+                .child(display)
+                .into_any_element(),
+            focused,
+            empty,
+            palette,
+        ))
         .role(Role::TextInput)
         .aria_label(translate(language, placeholder))
         .on_mouse_down(

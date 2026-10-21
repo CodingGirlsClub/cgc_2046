@@ -245,10 +245,32 @@ pub(in crate::root_view) fn render_agent_registry(
                 } else {
                     palette.ink
                 })
-                .child(if query.is_empty() {
-                    "搜索 agent".to_string()
-                } else {
-                    query.clone()
+                .child({
+                    let empty = query.is_empty();
+                    let text = if empty {
+                        "搜索 agent".to_string()
+                    } else {
+                        query.clone()
+                    };
+                    let caret = div()
+                        .w(px(1.0))
+                        .h(px(14.0))
+                        .bg(palette.accent)
+                        .into_any_element();
+                    let text = div().child(text).into_any_element();
+                    let children = if ctx.agent_registry_search_focused && empty {
+                        vec![caret, text]
+                    } else if ctx.agent_registry_search_focused {
+                        vec![text, caret]
+                    } else {
+                        vec![text]
+                    };
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(1.0))
+                        .children(children)
                 })
                 .on_mouse_down(
                     MouseButton::Left,
