@@ -629,11 +629,6 @@ pub(in crate::root_view) fn render_chat_panel(
                         .flex()
                         .flex_col()
                         .gap(space(1))
-                        .capture_key_down(cx.listener(|this, event, window, cx| {
-                            if this.handle_slash_key(event, window, cx) {
-                                cx.stop_propagation();
-                            }
-                        }))
                         .child(
                             div()
                                 .id("chat-composer")

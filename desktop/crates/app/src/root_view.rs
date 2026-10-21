@@ -741,11 +741,6 @@ impl Render for RootView {
                     .font_family(theme::FONT_SANS)
                     .text_size(px(14.0))
                     .track_focus(&key_focus)
-                    .capture_key_down(cx.listener(|this, event, window, cx| {
-                        if this.handle_slash_key(event, window, cx) {
-                            cx.stop_propagation();
-                        }
-                    }))
                     .on_key_down(cx.listener(Self::handle_shell_key))
                     .child(
                         div()

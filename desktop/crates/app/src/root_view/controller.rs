@@ -800,15 +800,6 @@ impl RootView {
         cx.notify();
     }
 
-    pub(in crate::root_view) fn handle_slash_key(
-        &mut self,
-        event: &KeyDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        self.handle_slash_keystroke(&event.keystroke, window, cx)
-    }
-
     pub(in crate::root_view) fn handle_slash_keystroke(
         &mut self,
         keystroke: &Keystroke,
@@ -1716,12 +1707,9 @@ impl RootView {
     pub(in crate::root_view) fn handle_shell_key(
         &mut self,
         event: &KeyDownEvent,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.chat.focused && self.handle_slash_key(event, window, cx) {
-            return;
-        }
         if event.keystroke.key == "escape" && self.chat.phase == ChatPhase::Streaming {
             self.stop_chat_turn(cx);
             return;
