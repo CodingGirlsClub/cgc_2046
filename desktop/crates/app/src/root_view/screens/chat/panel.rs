@@ -1,5 +1,7 @@
 use super::super::super::*;
 use super::super::ScreenContext;
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::popover::Popover;
 
 pub(in crate::root_view) fn render_chat_panel(
     ctx: &mut ScreenContext<'_>,
@@ -572,77 +574,101 @@ pub(in crate::root_view) fn render_chat_panel(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let agent_menu = ctx.chat.agent_menu_open.then(|| {
-        let rows = agent_options
-            .iter()
-            .map(|entry| {
-                let id = entry.id.clone();
-                let name = entry.display_name.clone();
-                div()
-                    .id(SharedString::from(format!(
-                        "chat-agent-option-{}",
-                        entry.id
-                    )))
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(space(1))
-                    .px(space(1))
-                    .py(px(3.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .hover(|style| style.bg(palette.soft))
-                    .child(div().flex_1().child(name.clone()))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.select_chat_agent(id.clone(), name.clone(), cx);
-                    }))
-                    .into_any_element()
+    let agent_picker = {
+        let root = cx.entity().downgrade();
+        let load_root = root.clone();
+        let options = agent_options.clone();
+        let loading = ctx.agent_registry_loading;
+        let registry_started = ctx.agent_registry_started;
+        let palette = *palette;
+        Popover::new("chat-agent-picker-popover")
+            .trigger(
+                Button::new("chat-agent-picker")
+                    .label(format!("{agent_label}{version}"))
+                    .ghost(),
+            )
+            .on_open_change(move |open, _, cx| {
+                if *open && !registry_started {
+                    let _ = load_root.update(cx, |this, cx| {
+                        this.start_agent_registry_load(cx);
+                    });
+                }
             })
-            .collect::<Vec<_>>();
-        let mut rows = rows;
-        if rows.is_empty() {
-            rows.push(
+            .content(move |_, _, cx| {
+                let dismiss = cx.entity().downgrade();
+                let rows = if options.is_empty() {
+                    vec![div()
+                        .px(space(1))
+                        .py(px(3.0))
+                        .text_size(px(10.0))
+                        .text_color(palette.ink_3)
+                        .child(if loading {
+                            "检测本机 agent…"
+                        } else {
+                            "没有已安装的 agent"
+                        })
+                        .into_any_element()]
+                } else {
+                    options
+                        .iter()
+                        .map(|entry| {
+                            let id = entry.id.clone();
+                            let name = entry.display_name.clone();
+                            let row_root = root.clone();
+                            let dismiss = dismiss.clone();
+                            div()
+                                .id(SharedString::from(format!(
+                                    "chat-agent-option-{}",
+                                    entry.id
+                                )))
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(space(1))
+                                .px(space(1))
+                                .py(px(3.0))
+                                .rounded(px(RADIUS_SMALL))
+                                .hover(|style| style.bg(palette.soft))
+                                .child(div().flex_1().child(name.clone()))
+                                .on_click(move |_, window, cx| {
+                                    let _ = row_root.update(cx, |this, cx| {
+                                        this.select_chat_agent(id.clone(), name.clone(), cx);
+                                    });
+                                    let _ =
+                                        dismiss.update(cx, |state, cx| state.dismiss(window, cx));
+                                })
+                                .into_any_element()
+                        })
+                        .collect()
+                };
+                let mut rows = rows;
+                let add_root = root.clone();
+                let add_dismiss = dismiss.clone();
+                rows.push(
+                    div()
+                        .id("chat-agent-add-more")
+                        .px(space(1))
+                        .py(px(3.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .text_color(palette.accent)
+                        .hover(|style| style.bg(palette.soft))
+                        .child("Add More Agents")
+                        .on_click(move |_, window, cx| {
+                            let _ = add_root.update(cx, |this, cx| this.open_agent_registry(cx));
+                            let _ = add_dismiss.update(cx, |state, cx| state.dismiss(window, cx));
+                        })
+                        .into_any_element(),
+                );
                 div()
-                    .px(space(1))
-                    .py(px(3.0))
-                    .text_size(px(10.0))
-                    .text_color(palette.ink_3)
-                    .child(if ctx.agent_registry_loading {
-                        "检测本机 agent…"
-                    } else {
-                        "没有已安装的 agent"
-                    })
-                    .into_any_element(),
-            );
-        }
-        rows.push(
-            div()
-                .id("chat-agent-add-more")
-                .px(space(1))
-                .py(px(3.0))
-                .rounded(px(RADIUS_SMALL))
-                .text_color(palette.accent)
-                .hover(|style| style.bg(palette.soft))
-                .child("Add More Agents")
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.open_agent_registry(cx);
-                }))
-                .into_any_element(),
-        );
-        div()
-            .id("chat-agent-menu")
-            .flex()
-            .flex_col()
-            .gap(px(1.0))
-            .p(space(1))
-            .rounded(px(RADIUS_MEDIUM))
-            .border_1()
-            .border_color(palette.line)
-            .bg(palette.card)
-            .text_size(px(11.0))
-            .text_color(palette.ink_2)
-            .children(rows)
-            .into_any_element()
-    });
+                    .flex()
+                    .flex_col()
+                    .gap(px(1.0))
+                    .w(px(220.0))
+                    .text_size(px(11.0))
+                    .text_color(palette.ink_2)
+                    .children(rows)
+            })
+    };
     let context_chip = (ctx.active_tab.as_deref())
         .and_then(|active| ctx.tabs.iter().find(|tab| tab.id == active))
         .filter(|tab| tab.issue_id.is_some() && !ctx.chat.context_dismissed)
@@ -685,19 +711,7 @@ pub(in crate::root_view) fn render_chat_panel(
                 .text_color(palette.ink)
                 .child(translate_registered(language, "agent_chat.panel.title")),
         )
-        .child(
-            div()
-                .id("chat-agent-picker")
-                .px(px(4.0))
-                .rounded(px(RADIUS_SMALL))
-                .hover(|style| style.bg(palette.soft))
-                .text_size(px(11.0))
-                .text_color(palette.ink_3)
-                .child(format!("{agent_label}{version}"))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_chat_agent_menu(cx);
-                })),
-        )
+        .child(agent_picker)
         .child(div().flex_1())
         .child(
             div()
@@ -763,7 +777,6 @@ pub(in crate::root_view) fn render_chat_panel(
                 .flex_col()
                 .gap(space(1))
                 .child(toolbar)
-                .children(agent_menu)
                 .children(context_chip)
                 .children(config_rows)
                 .child(body),

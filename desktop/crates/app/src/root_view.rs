@@ -212,7 +212,6 @@ struct ChatUi {
     phase: ChatPhase,
     agent: String,
     selected_agent: Option<String>,
-    agent_menu_open: bool,
     context_dismissed: bool,
     version: Option<String>,
     messages: Vec<ChatEntry>,
@@ -303,6 +302,15 @@ impl RootView {
             state: ShellState::with_session(registry, language, preference, session),
         }
     }
+
+    pub fn with_agent_search(
+        registry: RouteRegistry,
+        input: Entity<gpui_kit::component::input::InputState>,
+    ) -> Self {
+        let mut state = ShellState::new(registry);
+        state.agent_registry_search_input = Some(input);
+        Self { state }
+    }
 }
 
 impl Render for RootView {
@@ -313,6 +321,21 @@ impl Render for RootView {
         let account_menu = self.account_menu_open;
         let is_signed_in = self.is_signed_in();
         self.clamp_open_panel_widths(window.viewport_size().width.as_f32());
+        if let Some(input) = self.agent_registry_search_input.clone() {
+            if self.agent_registry_search_subscription.is_none() {
+                let input_for_sub = input.clone();
+                let subscription = cx.subscribe(
+                    &input,
+                    move |this, _, event: &gpui_kit::component::input::InputEvent, cx| {
+                        if matches!(event, gpui_kit::component::input::InputEvent::Change) {
+                            this.agent_registry_query = input_for_sub.read(cx).value().to_string();
+                            cx.notify();
+                        }
+                    },
+                );
+                self.agent_registry_search_subscription = Some(subscription);
+            }
+        }
         if is_signed_in
             && self
                 .current

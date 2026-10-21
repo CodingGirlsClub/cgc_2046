@@ -158,14 +158,16 @@ pub fn detect_agent(
 ) -> AgentStatus {
     match &entry.distribution {
         Distribution::Native { command } => probe_version(entry, probe, command, &["--version"]),
-        Distribution::Npx { package, .. } => {
+        Distribution::Npx {
+            package, version, ..
+        } => {
             if !node.is_ready() {
                 return AgentStatus::NodeUnavailable {
                     required: node.required.clone(),
                     found: node.found.clone(),
                 };
             }
-            let mut args = vec!["--no-install".to_string(), package.clone()];
+            let mut args = vec!["--no-install".to_string(), format!("{package}@{version}")];
             if entry.version_args.is_empty() {
                 args.push("--version".to_string());
             } else {
@@ -312,7 +314,7 @@ mod tests {
         impl CommandProbe for ArgsProbe {
             fn version(&self, program: &str, args: &[&str]) -> Result<String, String> {
                 if program == "npx"
-                    && args.contains(&"@agentclientprotocol/codex-acp")
+                    && args.contains(&"@agentclientprotocol/codex-acp@2.2.2")
                     && args.last() == Some(&"--version")
                 {
                     Ok("2.2.2".to_string())

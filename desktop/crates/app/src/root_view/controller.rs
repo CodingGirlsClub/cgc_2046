@@ -314,6 +314,21 @@ impl RootView {
         provider.current()
     }
 
+    fn apply_installed_versions(detected: &mut [DetectedAgent]) {
+        let installed = load_installed_agents();
+        for row in detected {
+            if let Some(version) = installed.get(&row.entry.id) {
+                // 只信任与当前签名清单版本一致的持久化安装记录；否则清单
+                // 升级后旧版本会永远显示 Ready（例如 1.11.0 vs 2.2.2）。
+                if version == &row.entry.minimum_version {
+                    row.status = AgentStatus::Ready {
+                        version: version.clone(),
+                    };
+                }
+            }
+        }
+    }
+
     pub(in crate::root_view) fn start_chat(&mut self, cx: &mut Context<Self>) {
         if matches!(
             self.chat.phase,
@@ -324,6 +339,9 @@ impl RootView {
         let Some(token) = self.session_token() else {
             return;
         };
+        if self.chat.host.is_none() {
+            self.revoke_chat_lease(cx);
+        }
         let context = match self.chat_course_context() {
             Ok(context) => context,
             Err(_) => {
@@ -364,14 +382,7 @@ impl RootView {
             let probe = SystemProbe;
             let node = cgc_platform::agent::detect::detect_node(&probe, &registry.node_required);
             let mut detected = detect_all(&registry, &probe);
-            let installed = load_installed_agents();
-            for row in &mut detected {
-                if let Some(version) = installed.get(&row.entry.id) {
-                    row.status = AgentStatus::Ready {
-                        version: version.clone(),
-                    };
-                }
-            }
+            Self::apply_installed_versions(&mut detected);
             let guidance = detected
                 .iter()
                 .map(|agent| {
@@ -429,13 +440,17 @@ impl RootView {
                 })?;
             let managed =
                 managed_node.or_else(|| std::env::var_os("CGC_MANAGED_NODE").map(NodeRuntime::new));
-            let plan = build_launch(&chosen.entry, managed.as_ref(), &cwd).map_err(|error| {
-                ChatStartError {
-                    message: error.to_string(),
-                    detected: guidance.clone(),
-                    node_found: node_found.clone(),
+            let plan = match build_launch(&chosen.entry, managed.as_ref(), &cwd) {
+                Ok(plan) => plan,
+                Err(error) => {
+                    let _ = api.revoke(&token, &lease.token_id);
+                    return Err(ChatStartError {
+                        message: error.to_string(),
+                        detected: guidance,
+                        node_found,
+                    });
                 }
-            })?;
+            };
             let endpoint = mcp_endpoint(std::env::var("CGC_API_URL").ok().as_deref());
             let server = build_mcp_server(&chosen.entry, &lease, &endpoint);
             Ok::<PreparedChat, ChatStartError>(PreparedChat {
@@ -472,6 +487,7 @@ impl RootView {
                                 this.spawn_chat_poller(cx, generation);
                             }
                             Err(error) => {
+                                this.revoke_lease_token(prepared.lease, cx);
                                 this.chat.phase = ChatPhase::Failed(error.to_string());
                             }
                         }
@@ -790,9 +806,12 @@ impl RootView {
     }
 
     fn revoke_chat_lease(&mut self, cx: &mut Context<Self>) {
-        let Some(lease) = self.chat.lease.take() else {
-            return;
-        };
+        if let Some(lease) = self.chat.lease.take() {
+            self.revoke_lease_token(lease, cx);
+        }
+    }
+
+    fn revoke_lease_token(&mut self, lease: LearningHostLease, cx: &mut Context<Self>) {
         let Some(session_token) = self.session_token() else {
             return;
         };
@@ -1519,28 +1538,6 @@ impl RootView {
             cx.notify();
             return;
         }
-        if self.agent_registry_search_focused
-            && self
-                .current
-                .as_ref()
-                .is_some_and(|route_match| route_match.route.id == "app.agents")
-        {
-            match event.keystroke.key.as_str() {
-                "escape" | "enter" => self.agent_registry_search_focused = false,
-                "backspace" => {
-                    self.agent_registry_query.pop();
-                }
-                _ => {
-                    if let Some(text) = event.keystroke.key_char.as_deref() {
-                        if !event.keystroke.modifiers.modified() && !text.is_empty() {
-                            self.agent_registry_query.push_str(text);
-                        }
-                    }
-                }
-            }
-            cx.notify();
-            return;
-        }
         if Self::is_settings_shortcut(&event.keystroke) {
             self.open_settings_window(cx);
             return;
@@ -2041,7 +2038,6 @@ impl RootView {
 
     pub(in crate::root_view) fn open_agent_registry(&mut self, cx: &mut Context<Self>) {
         let title = translate(self.language, Key::AgentRegistryTitle).to_string();
-        self.agent_registry_search_focused = false;
         self.open_page_tab("/agents", title, cx);
         if !self.agent_registry_started {
             self.start_agent_registry_load(cx);
@@ -2067,15 +2063,8 @@ impl RootView {
         let task = cx.background_executor().spawn(async move {
             let registry = Registry::builtin().map_err(|error| error.diagnostic())?;
             let probe = SystemProbe;
-            let installed = load_installed_agents();
             let mut rows = detect_all(&registry, &probe);
-            for row in &mut rows {
-                if let Some(version) = installed.get(&row.entry.id) {
-                    row.status = AgentStatus::Ready {
-                        version: version.clone(),
-                    };
-                }
-            }
+            Self::apply_installed_versions(&mut rows);
             Ok::<_, String>(rows)
         });
         cx.spawn(async move |this, cx| {
@@ -2162,14 +2151,6 @@ impl RootView {
         .detach();
     }
 
-    pub(in crate::root_view) fn toggle_chat_agent_menu(&mut self, cx: &mut Context<Self>) {
-        self.chat.agent_menu_open = !self.chat.agent_menu_open;
-        if self.chat.agent_menu_open && !self.agent_registry_started {
-            self.start_agent_registry_load(cx);
-        }
-        cx.notify();
-    }
-
     pub(in crate::root_view) fn select_chat_agent(
         &mut self,
         id: String,
@@ -2180,9 +2161,9 @@ impl RootView {
         save_selected_agent(&id);
         self.chat.selected_agent = Some(id);
         self.chat.agent = display_name;
-        self.chat.agent_menu_open = false;
         self.chat.phase = ChatPhase::Idle;
-        self.chat.host = None;
+        self.chat.host.take();
+        self.revoke_chat_lease(cx);
         self.chat.lease = None;
         self.chat.messages.clear();
         self.chat.session_id = None;

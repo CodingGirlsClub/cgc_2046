@@ -3,6 +3,7 @@
 use super::super::super::*;
 use super::super::ScreenContext;
 use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::input::Input;
 use gpui_kit::component::skeleton::Skeleton;
 use gpui_kit::component::tag::Tag;
 
@@ -20,7 +21,7 @@ pub(in crate::root_view) fn render_agent_registry(
     let install_stage = ctx.agent_install_stage.clone();
     let query = ctx.agent_registry_query.clone();
     let filter = ctx.agent_registry_filter;
-    let search_focused = ctx.agent_registry_search_focused;
+    let search_input = ctx.agent_registry_search_input.clone();
     let rows = rows
         .into_iter()
         // v1 Registry 只提供签名清单里的 npx agent；OMP 是 BYO native，仍在
@@ -225,42 +226,25 @@ pub(in crate::root_view) fn render_agent_registry(
                 .text_color(palette.ink_3)
                 .child(translate(language, Key::AgentRegistrySubtitle)),
         )
-        .child(
-            div()
+        .child(match search_input {
+            Some(input) => Input::new(&input)
+                .w_full()
+                .with_size(gpui_kit::component::Size::Small)
+                .into_any_element(),
+            None => div()
                 .id("agent-registry-search")
                 .flex()
                 .items_center()
+                .h(px(32.0))
                 .px(space(2))
-                .py(px(4.0))
                 .rounded(px(RADIUS_MEDIUM))
                 .border_1()
-                .border_color(if search_focused {
-                    palette.accent
-                } else {
-                    palette.line
-                })
-                .bg(palette.card)
+                .border_color(palette.line)
                 .text_size(px(11.0))
-                .text_color(if query.is_empty() {
-                    palette.ink_3
-                } else {
-                    palette.ink
-                })
-                .child(if query.is_empty() {
-                    "搜索 agent".to_string()
-                } else {
-                    query.clone()
-                })
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, window, cx| {
-                        this.agent_registry_search_focused = true;
-                        let focus = this.ensure_key_focus(cx);
-                        window.focus(&focus, cx);
-                        cx.notify();
-                    }),
-                ),
-        )
+                .text_color(palette.ink_3)
+                .child("搜索 agent")
+                .into_any_element(),
+        })
         .child(
             div().flex().flex_row().gap(space(1)).children(
                 [
