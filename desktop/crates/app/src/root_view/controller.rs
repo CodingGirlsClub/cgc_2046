@@ -1707,9 +1707,12 @@ impl RootView {
     pub(in crate::root_view) fn handle_shell_key(
         &mut self,
         event: &KeyDownEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.chat.focused && self.handle_slash_key(event, window, cx) {
+            return;
+        }
         if event.keystroke.key == "escape" && self.chat.phase == ChatPhase::Streaming {
             self.stop_chat_turn(cx);
             return;

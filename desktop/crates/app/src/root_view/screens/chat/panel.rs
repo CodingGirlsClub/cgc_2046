@@ -499,9 +499,11 @@ pub(in crate::root_view) fn render_chat_panel(
                                     .px(space(1))
                                     .rounded(px(RADIUS_SMALL))
                                     .text_size(px(11.0))
-                                    .text_color(if active { palette.accent } else { palette.ink })
-                                    .bg(if active { palette.soft } else { palette.card })
-                                    .hover(|style| style.bg(palette.soft))
+                                    .text_color(if active { palette.canvas } else { palette.ink })
+                                    .bg(if active { palette.accent } else { palette.card })
+                                    .hover(|style| {
+                                        style.bg(if active { palette.accent } else { palette.soft })
+                                    })
                                     .child(
                                         div()
                                             .w(px(170.0))
@@ -515,7 +517,11 @@ pub(in crate::root_view) fn render_chat_panel(
                                             .min_w(px(0.0))
                                             .truncate()
                                             .text_size(px(10.0))
-                                            .text_color(palette.ink_3)
+                                            .text_color(if active {
+                                                palette.canvas
+                                            } else {
+                                                palette.ink_3
+                                            })
                                             .child(command.description.clone()),
                                     )
                                     .on_click(cx.listener(move |this, _, window, cx| {
