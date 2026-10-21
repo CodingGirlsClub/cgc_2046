@@ -19,7 +19,7 @@ license = "AGPL-3.0-only"
 rust-version = "1.98"
 
 [workspace.dependencies]
-gpui-kit = "0.7.3"
+gpui-kit = "0.8.0"
 cgc-account = { path = "crates/account" }
 cgc-events = { path = "crates/events" }
 cgc-courses = { path = "crates/courses" }
