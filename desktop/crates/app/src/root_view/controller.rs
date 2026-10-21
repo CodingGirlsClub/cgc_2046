@@ -1655,6 +1655,10 @@ impl RootView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if event.keystroke.key == "escape" && self.chat.phase == ChatPhase::Streaming {
+            self.stop_chat_turn(cx);
+            return;
+        }
         if Self::is_new_chat_shortcut(&event.keystroke) {
             self.new_chat(cx);
             return;

@@ -672,58 +672,57 @@ pub(in crate::root_view) fn render_chat_panel(
                                         )
                                         .children(config_pickers)
                                         .child(div().flex_1())
-                                        .children(streaming.then(|| {
-                                            div()
-                                                .id("chat-stop")
-                                                .size(px(24.0))
-                                                .rounded(px(RADIUS_SMALL))
-                                                .flex()
-                                                .items_center()
-                                                .justify_center()
-                                                .bg(palette.soft)
-                                                .text_color(palette.ink_2)
-                                                .child(
-                                                    Icon::default()
-                                                        .path(AssetIcon::SquarePen.path())
-                                                        .small(),
-                                                )
-                                                .on_click(cx.listener(|this, _, _, cx| {
-                                                    this.stop_chat_turn(cx);
-                                                }))
-                                                .into_any_element()
-                                        }))
                                         .child(
                                             div()
-                                                .id("chat-send")
+                                                .id(if streaming {
+                                                    "chat-stop"
+                                                } else {
+                                                    "chat-send"
+                                                })
                                                 .role(Role::Button)
-                                                .aria_label(translate(
-                                                    language,
-                                                    Key::AgentChatChatSend,
-                                                ))
+                                                .aria_label(if streaming {
+                                                    "Stop Generation"
+                                                } else {
+                                                    translate(language, Key::AgentChatChatSend)
+                                                })
                                                 .size(px(24.0))
                                                 .rounded(px(RADIUS_SMALL))
                                                 .flex()
                                                 .items_center()
                                                 .justify_center()
                                                 .bg(if streaming {
-                                                    palette.soft
+                                                    palette.danger
                                                 } else {
                                                     palette.accent
                                                 })
-                                                .text_color(if streaming {
-                                                    palette.ink_3
-                                                } else {
-                                                    palette.canvas
-                                                })
+                                                .text_color(palette.canvas)
                                                 .child(
                                                     Icon::default()
-                                                        .path(AssetIcon::ArrowUp.path())
+                                                        .path(if streaming {
+                                                            AssetIcon::Square.path()
+                                                        } else {
+                                                            AssetIcon::ArrowUp.path()
+                                                        })
                                                         .small(),
                                                 )
-                                                .on_click(cx.listener(|this, _, window, cx| {
-                                                    this.send_chat(cx);
-                                                    this.clear_chat_input(window, cx);
-                                                })),
+                                                .tooltip(move |window, cx| {
+                                                    let label = if streaming {
+                                                        "Stop Generation"
+                                                    } else {
+                                                        translate(language, Key::AgentChatChatSend)
+                                                    };
+                                                    Tooltip::new(label).build(window, cx)
+                                                })
+                                                .on_click(cx.listener(
+                                                    move |this, _, window, cx| {
+                                                        if streaming {
+                                                            this.stop_chat_turn(cx);
+                                                        } else {
+                                                            this.send_chat(cx);
+                                                            this.clear_chat_input(window, cx);
+                                                        }
+                                                    },
+                                                )),
                                         ),
                                 ),
                         )
