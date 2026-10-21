@@ -165,7 +165,14 @@ pub fn detect_agent(
                     found: node.found.clone(),
                 };
             }
-            probe_version(entry, probe, "npx", &["--no-install", package, "--version"])
+            let mut args = vec!["--no-install".to_string(), package.clone()];
+            if entry.version_args.is_empty() {
+                args.push("--version".to_string());
+            } else {
+                args.extend(entry.version_args.clone());
+            }
+            let refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+            probe_version(entry, probe, "npx", &refs)
         }
     }
 }
@@ -287,7 +294,7 @@ mod tests {
 
         let probe = StaticProbe::default()
             .with("node", "v24.1.0")
-            .with("npx", "2.2.2");
+            .with("npx", "1.11.0");
         let detected = detect_all(&registry, &probe);
         assert_eq!(detected.len(), 3);
         assert!(matches!(
@@ -295,7 +302,7 @@ mod tests {
                 .iter()
                 .find(|agent| agent.entry.id == "codex")
                 .map(|agent| &agent.status),
-            Some(AgentStatus::Ready { version }) if version == "2.2.2"
+            Some(AgentStatus::Ready { version }) if version == "1.11.0"
         ));
     }
 

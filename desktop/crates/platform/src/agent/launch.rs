@@ -242,7 +242,7 @@ mod tests {
         assert_eq!(plan.program, dir.join("bin/npx"));
         assert_eq!(
             plan.args,
-            vec!["--yes".to_string(), "codex-acp@2.2.2".to_string()]
+            vec!["--yes".to_string(), "codex-acp@1.11.0".to_string()]
         );
         assert_eq!(
             plan.env

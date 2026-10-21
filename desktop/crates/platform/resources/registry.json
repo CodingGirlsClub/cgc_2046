@@ -1,16 +1,23 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-10-19",
+  "generated_at": "2026-10-21",
   "node_runtime": {
     "required": "24.0.0",
-    "note": "客户端管理的 Node.js 24 LTS；用于 codex-acp / claude-agent-acp 的 npx 分发"
+    "note": "客户端管理的 Node.js 24 LTS；用于 codex-acp / @zed-industries/claude-agent-acp 的 npx 分发"
   },
   "agents": [
     {
       "id": "omp",
       "display_name": "OMP",
-      "distribution": { "kind": "native", "command": "omp" },
-      "launch": { "args": ["acp"] },
+      "distribution": {
+        "kind": "native",
+        "command": "omp"
+      },
+      "launch": {
+        "args": [
+          "acp"
+        ]
+      },
       "minimum_version": "18.0.0",
       "mcp_server_name": "cgc-2046",
       "login_hint": "运行 `omp login` 完成账号登录（客户端会展示登录状态）"
@@ -18,18 +25,35 @@
     {
       "id": "codex",
       "display_name": "Codex",
-      "distribution": { "kind": "npx", "package": "codex-acp", "version": "2.2.2", "node": "24" },
-      "launch": { "args": [] },
-      "minimum_version": "2.2.2",
+      "distribution": {
+        "kind": "npx",
+        "package": "codex-acp",
+        "version": "1.11.0",
+        "node": "24"
+      },
+      "launch": {
+        "args": []
+      },
+      "minimum_version": "1.11.0",
       "mcp_server_name": "cgc-2046-learning",
-      "login_hint": "在系统浏览器完成 OpenAI 登录；凭证归用户所有"
+      "login_hint": "在系统浏览器完成 OpenAI 登录；凭证归用户所有",
+      "version_args": [
+        "version"
+      ]
     },
     {
       "id": "claude_code",
       "display_name": "Claude Code",
-      "distribution": { "kind": "npx", "package": "claude-agent-acp", "version": "0.93.0", "node": "24" },
-      "launch": { "args": [] },
-      "minimum_version": "0.93.0",
+      "distribution": {
+        "kind": "npx",
+        "package": "@agentclientprotocol/claude-agent-acp",
+        "version": "0.94.0",
+        "node": "24"
+      },
+      "launch": {
+        "args": []
+      },
+      "minimum_version": "0.94.0",
       "mcp_server_name": "cgc-2046-learning",
       "login_hint": "在系统浏览器完成 Anthropic 登录；凭证归用户所有"
     }

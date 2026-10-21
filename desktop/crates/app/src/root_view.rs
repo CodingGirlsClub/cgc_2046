@@ -296,6 +296,22 @@ impl Render for RootView {
         {
             self.start_agent_registry_load(cx);
         }
+        // HITL：没有可靠 GUI 自动化时，允许 QA 通过环境变量触发一次安装。
+        if is_signed_in
+            && self
+                .current
+                .as_ref()
+                .is_some_and(|route_match| route_match.route.id == "app.agents")
+            && !self.agent_auto_install_attempted
+            && !self.agent_registry_rows.is_empty()
+        {
+            self.agent_auto_install_attempted = true;
+            if let Ok(id) = std::env::var("CGC_AUTO_INSTALL_AGENT") {
+                if !id.trim().is_empty() {
+                    self.install_agent(id.trim(), cx);
+                }
+            }
+        }
         let email = self
             .session
             .signed_in()

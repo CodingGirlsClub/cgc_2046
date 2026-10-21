@@ -10,7 +10,7 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde_json::Value;
 
 /// 内置清单公钥（Ed25519，base64；dev key，release 前由 epic-6 轮换）。
-pub const BUILTIN_PUBLIC_KEY: &str = "t6AZJ9mZkI0TfyrdjQMRv0DmM9it7ITxT5o7KaCzUa0=";
+pub const BUILTIN_PUBLIC_KEY: &str = "XAssfUkamPOG708bNBGtC4TbI+W9btD1OfSjl7znZNI=";
 pub const BUILTIN_MANIFEST: &str = include_str!("../../resources/registry.json");
 pub const BUILTIN_SIGNATURE: &str = include_str!("../../resources/registry.sig");
 
@@ -32,6 +32,8 @@ pub struct AgentEntry {
     pub display_name: String,
     pub distribution: Distribution,
     pub launch_args: Vec<String>,
+    /// 版本探测参数；空 = `["--version"]`（如 codex-acp 用 `version` 子命令）。
+    pub version_args: Vec<String>,
     pub minimum_version: String,
     pub mcp_server_name: String,
     pub login_hint: String,
@@ -185,11 +187,22 @@ fn parse_agent(value: &Value) -> Result<AgentEntry, RegistryError> {
                 .collect()
         })
         .unwrap_or_default();
+    let version_args = value
+        .get("version_args")
+        .and_then(Value::as_array)
+        .map(|args| {
+            args.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
     Ok(AgentEntry {
         id: id.clone(),
         display_name,
         distribution,
         launch_args,
+        version_args,
         minimum_version: required_str(value, "minimum_version", &id)?,
         mcp_server_name: required_str(value, "mcp_server_name", &id)?,
         login_hint: required_str(value, "login_hint", &id)?,
@@ -249,7 +262,7 @@ mod tests {
                 package, version, ..
             } => {
                 assert_eq!(package, "codex-acp");
-                assert_eq!(version, "2.2.2");
+                assert_eq!(version, "1.11.0");
             }
             other => panic!("unexpected codex distribution: {other:?}"),
         }

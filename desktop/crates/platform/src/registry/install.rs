@@ -138,8 +138,16 @@ pub fn install_entry(
             }
             let npx = node.npx();
             let spec = format!("{package}@{version}");
+            let check_args = if entry.version_args.is_empty() {
+                vec!["--version".to_string()]
+            } else {
+                entry.version_args.clone()
+            };
+            let mut args = vec!["--yes".to_string(), spec.clone()];
+            args.extend(check_args);
+            let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
             runner
-                .run(&npx, &["--yes", &spec, "--version"])
+                .run(&npx, &arg_refs)
                 .map_err(|message| InstallError::CommandFailed {
                     program: "npx".to_string(),
                     message,
@@ -200,7 +208,7 @@ mod tests {
         let runner = FakeRunner::default();
         let node = runtime();
         let result = install_entry(&entry("codex"), Some(&node), &runner).expect("installed");
-        assert_eq!(result.version.as_deref(), Some("2.2.2"));
+        assert_eq!(result.version.as_deref(), Some("1.11.0"));
         let calls = runner.calls.lock().expect("calls");
         assert_eq!(calls.len(), 1);
         assert!(calls[0].0.ends_with("npx"));
@@ -208,8 +216,8 @@ mod tests {
             calls[0].1,
             vec![
                 "--yes".to_string(),
-                "codex-acp@2.2.2".to_string(),
-                "--version".to_string()
+                "codex-acp@1.11.0".to_string(),
+                "version".to_string()
             ]
         );
         let _ = std::fs::remove_dir_all(node.root);
