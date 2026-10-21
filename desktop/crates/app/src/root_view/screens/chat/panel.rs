@@ -620,12 +620,6 @@ pub(in crate::root_view) fn render_chat_panel(
                 .into_any_element()
         }
     };
-    let version = ctx
-        .chat
-        .version
-        .as_deref()
-        .map(|version| format!(" · {version}"))
-        .unwrap_or_default();
     let config_rows = ctx
         .chat
         .configs
@@ -768,8 +762,10 @@ pub(in crate::root_view) fn render_chat_panel(
         Popover::new("chat-agent-picker-popover")
             .trigger(
                 Button::new("chat-agent-picker")
-                    .label(format!("{agent_label}{version}"))
-                    .ghost(),
+                    .icon(Icon::default().path(AssetIcon::Plus.path()).small())
+                    .xsmall()
+                    .ghost()
+                    .tooltip("新对话"),
             )
             .on_open_change(move |open, _, cx| {
                 if *open && !registry_started {
@@ -896,27 +892,7 @@ pub(in crate::root_view) fn render_chat_panel(
                 .child(translate_registered(language, "agent_chat.panel.title")),
         )
         .child(agent_picker)
-        .child(div().flex_1())
-        .child(
-            div()
-                .id("chat-new-toolbar")
-                .role(Role::Button)
-                .aria_label(translate(language, Key::AgentChatChatNew))
-                .px(space(1))
-                .py(px(3.0))
-                .rounded(px(RADIUS_SMALL))
-                .text_size(px(11.0))
-                .text_color(palette.accent)
-                .hover(|style| style.bg(palette.soft))
-                .child(translate(language, Key::AgentChatChatNew))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    if let Some(course_id) = this.chat.course_id.clone() {
-                        clear_chat_pointer(&course_id);
-                    }
-                    this.reset_chat_local(cx);
-                    this.start_chat(cx);
-                })),
-        );
+        .child(div().flex_1());
     div()
         .flex()
         .flex_row()
