@@ -486,6 +486,7 @@ impl Render for RootView {
                     window,
                     |this, state, event: &InputEvent, window, cx| match event {
                         InputEvent::Change => {
+                            this.chat.focused = true;
                             this.chat.input = state.read(cx).value().to_string();
                             this.chat.slash_selection = 0;
                             this.chat.slash_dismissed = false;

@@ -815,7 +815,7 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if !self.chat.focused || self.chat.slash_dismissed {
+        if self.chat.slash_dismissed {
             return false;
         }
         let candidates = slash_candidates(&self.chat.commands, &self.chat.input);
