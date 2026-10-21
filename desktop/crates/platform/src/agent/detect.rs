@@ -294,7 +294,7 @@ mod tests {
 
         let probe = StaticProbe::default()
             .with("node", "v24.1.0")
-            .with("npx", "1.11.0");
+            .with("npx", "2.2.2");
         let detected = detect_all(&registry, &probe);
         assert_eq!(detected.len(), 3);
         assert!(matches!(
@@ -302,17 +302,20 @@ mod tests {
                 .iter()
                 .find(|agent| agent.entry.id == "codex")
                 .map(|agent| &agent.status),
-            Some(AgentStatus::Ready { version }) if version == "1.11.0"
+            Some(AgentStatus::Ready { version }) if version == "2.2.2"
         ));
     }
 
     #[test]
-    fn codex_detection_uses_manifest_version_args() {
+    fn codex_detection_uses_official_package_and_version_flag() {
         struct ArgsProbe;
         impl CommandProbe for ArgsProbe {
             fn version(&self, program: &str, args: &[&str]) -> Result<String, String> {
-                if program == "npx" && args.last() == Some(&"version") {
-                    Ok("1.11.0".to_string())
+                if program == "npx"
+                    && args.contains(&"@agentclientprotocol/codex-acp")
+                    && args.last() == Some(&"--version")
+                {
+                    Ok("2.2.2".to_string())
                 } else {
                     Err("wrong probe args".to_string())
                 }
@@ -327,7 +330,7 @@ mod tests {
         assert_eq!(
             detect_agent(codex, &node, &ArgsProbe),
             AgentStatus::Ready {
-                version: "1.11.0".to_string()
+                version: "2.2.2".to_string()
             }
         );
     }

@@ -124,6 +124,20 @@ pub(in crate::root_view) fn render_chat_panel(
                             )),
                     )
                     .children(guidance)
+                    .children(message.contains("mcp_token_limit_reached").then(|| {
+                        div()
+                            .id("chat-revoke-old-tokens")
+                            .px(space(2))
+                            .py(px(4.0))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .bg(palette.accent)
+                            .text_color(palette.canvas)
+                            .text_size(px(11.0))
+                            .child("撤销旧学习凭证并重试")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.revoke_stale_learning_tokens(cx);
+                            }))
+                    }))
                     .child(
                         div()
                             .id("chat-retry")
@@ -392,7 +406,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                         if let Some(course_id) = this.chat.course_id.clone() {
                                             clear_chat_pointer(&course_id);
                                         }
-                                        this.reset_chat_local();
+                                        this.reset_chat_local(cx);
                                         this.start_chat(cx);
                                     })),
                             )
@@ -701,7 +715,7 @@ pub(in crate::root_view) fn render_chat_panel(
                     if let Some(course_id) = this.chat.course_id.clone() {
                         clear_chat_pointer(&course_id);
                     }
-                    this.reset_chat_local();
+                    this.reset_chat_local(cx);
                     this.start_chat(cx);
                 })),
         )

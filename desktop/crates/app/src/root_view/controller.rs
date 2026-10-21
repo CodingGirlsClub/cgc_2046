@@ -119,7 +119,7 @@ impl RootView {
         self.workspaces.reset();
         self.workspaces_started = false;
         self.session_checked = false;
-        self.reset_workspace_data();
+        self.reset_workspace_data(cx);
         self.navigate("/");
         cx.notify();
     }
@@ -176,7 +176,7 @@ impl RootView {
             self.persist_workspace_state(previous);
         }
         if self.workspaces.switch_to(workspace_id) {
-            self.reset_workspace_data();
+            self.reset_workspace_data(cx);
             self.navigate("/workspace");
             self.restore_workspace_state(cx);
             self.workspace_menu_open = false;
@@ -184,7 +184,7 @@ impl RootView {
         }
     }
 
-    pub(in crate::root_view) fn reset_workspace_data(&mut self) {
+    pub(in crate::root_view) fn reset_workspace_data(&mut self, cx: &mut Context<Self>) {
         self.reset_events();
         self.events.reset();
         self.detail.reset();
@@ -202,7 +202,7 @@ impl RootView {
         self.payment = PaymentViewState::Idle;
         self.payment_generation = self.payment_generation.saturating_add(1);
         self.deposit_consent = false;
-        self.reset_chat_local();
+        self.reset_chat_local(cx);
         self.tabs.clear();
         self.active_tab = None;
         self.site_tree_query.clear();
@@ -336,11 +336,13 @@ impl RootView {
         let cwd = std::env::temp_dir().join("cgc-desktop-chat");
         let _ = std::fs::create_dir_all(&cwd);
         let course_id = Some(context.course_id.clone());
-        let load_session = self
-            .chat
-            .restore_id
-            .take()
-            .or_else(|| course_id.as_deref().and_then(load_chat_pointer));
+        let requested_agent = self.chat.selected_agent.clone();
+        let load_agent = requested_agent.as_deref().unwrap_or("omp");
+        let load_session = self.chat.restore_id.take().or_else(|| {
+            course_id
+                .as_deref()
+                .and_then(|course_id| load_chat_pointer(course_id, load_agent))
+        });
         self.chat.course_id = course_id;
         self.chat.session_id = None;
         self.chat.configs.clear();
@@ -350,7 +352,6 @@ impl RootView {
         self.chat.phase = ChatPhase::Starting;
         self.chat.messages.clear();
         self.chat.auto_prompted = false;
-        let requested_agent = self.chat.selected_agent.clone();
         let task = cx.background_executor().spawn(async move {
             let api = build_learning_host_api();
             let vault = build_learning_host_vault();
@@ -437,6 +438,7 @@ impl RootView {
             let endpoint = mcp_endpoint(std::env::var("CGC_API_URL").ok().as_deref());
             let server = build_mcp_server(&chosen.entry, &lease, &endpoint);
             Ok::<PreparedChat, ChatStartError>(PreparedChat {
+                agent_id: chosen.entry.id.clone(),
                 agent_name: chosen.entry.display_name.clone(),
                 plan,
                 lease,
@@ -461,6 +463,7 @@ impl RootView {
                             Ok(host) => {
                                 this.chat.host = Some(host);
                                 this.chat.lease = Some(prepared.lease);
+                                this.chat.selected_agent = Some(prepared.agent_id.clone());
                                 this.chat.agent = prepared.agent_name;
                                 this.chat.phase = ChatPhase::Ready;
                                 this.chat.poll_generation += 1;
@@ -531,15 +534,25 @@ impl RootView {
                     self.chat.session_id = Some(session_id.clone());
                     self.chat.phase = ChatPhase::Ready;
                     if let Some(course_id) = self.chat.course_id.clone() {
-                        save_chat_pointer(&course_id, "omp", &session_id);
+                        let agent_id = self
+                            .chat
+                            .selected_agent
+                            .clone()
+                            .unwrap_or_else(|| "omp".to_string());
+                        save_chat_pointer(&course_id, &agent_id, &session_id);
                     }
                 }
                 HostEvent::ConfigOptions { options } => {
                     self.chat.configs = options;
                     if !self.chat.configs_applied {
                         self.chat.configs_applied = true;
+                        let agent_id = self
+                            .chat
+                            .selected_agent
+                            .clone()
+                            .unwrap_or_else(|| "omp".to_string());
                         for config in self.chat.configs.clone() {
-                            if let Some(value) = load_chat_pref("omp", &config.id) {
+                            if let Some(value) = load_chat_pref(&agent_id, &config.id) {
                                 if let Some(host) = &self.chat.host {
                                     let _ = host.set_config(config.id.clone(), value);
                                 }
@@ -599,7 +612,8 @@ impl RootView {
                     self.chat.phase = ChatPhase::Failed(message);
                 }
                 HostEvent::Exited => {
-                    if !matches!(self.chat.phase, ChatPhase::Idle) {
+                    // 先到的 Error 更具体，不要用通用退出文案覆盖它。
+                    if !matches!(self.chat.phase, ChatPhase::Idle | ChatPhase::Failed(_)) {
                         self.chat.phase = ChatPhase::Failed("agent process exited".to_string());
                     }
                     self.chat.host = None;
@@ -717,7 +731,12 @@ impl RootView {
         if let Some(host) = &self.chat.host {
             let _ = host.set_config(config.id.clone(), value.clone());
         }
-        save_chat_pref("omp", &config.id, &value);
+        let agent_id = self
+            .chat
+            .selected_agent
+            .clone()
+            .unwrap_or_else(|| "omp".to_string());
+        save_chat_pref(&agent_id, &config.id, &value);
         if let Some(entry) = self.chat.configs.get_mut(index) {
             entry.current = value;
         }
@@ -738,7 +757,7 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         self.chat.restore_id = Some(session_id);
-        self.reset_chat_local();
+        self.reset_chat_local(cx);
         self.start_chat(cx);
     }
 
@@ -769,8 +788,61 @@ impl RootView {
         .detach();
     }
 
-    pub(in crate::root_view) fn reset_chat_local(&mut self) {
+    fn revoke_chat_lease(&mut self, cx: &mut Context<Self>) {
+        let Some(lease) = self.chat.lease.take() else {
+            return;
+        };
+        let Some(session_token) = self.session_token() else {
+            return;
+        };
+        let api = build_learning_host_api();
+        cx.background_executor()
+            .spawn(async move {
+                let _ = api.revoke(&session_token, &lease.token_id);
+            })
+            .detach();
+    }
+
+    pub(in crate::root_view) fn revoke_stale_learning_tokens(&mut self, cx: &mut Context<Self>) {
+        let Some(session_token) = self.session_token() else {
+            return;
+        };
+        let api = build_learning_host_api();
+        self.chat.phase = ChatPhase::Starting;
+        let task = cx.background_executor().spawn(async move {
+            let tokens = api
+                .list(&session_token)
+                .map_err(|error| error.diagnostic())?;
+            let mut revoked = 0usize;
+            for token in tokens
+                .into_iter()
+                .filter(|token| token.kind == "LEARNING_HOST")
+            {
+                if api.revoke(&session_token, &token.id).is_ok() {
+                    revoked += 1;
+                }
+            }
+            Ok::<usize, String>(revoked)
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(_) => {
+                        this.chat.lease = None;
+                        this.start_chat(cx);
+                    }
+                    Err(error) => this.chat.phase = ChatPhase::Failed(error),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub(in crate::root_view) fn reset_chat_local(&mut self, cx: &mut Context<Self>) {
         self.chat.host.take();
+        self.revoke_chat_lease(cx);
         self.chat.lease.take();
         self.chat.poll_generation = self.chat.poll_generation.saturating_add(1);
         self.chat.phase = ChatPhase::Idle;
@@ -2118,6 +2190,9 @@ impl RootView {
         self.chat.lease = None;
         self.chat.messages.clear();
         self.chat.session_id = None;
+        self.chat.restore_id = None;
+        self.chat.configs.clear();
+        self.chat.configs_applied = false;
         self.chat.auto_prompted = false;
         self.start_chat(cx);
     }
@@ -2217,7 +2292,7 @@ impl RootView {
         self.workspace_menu_open = false;
         self.workspaces.reset();
         self.workspaces_started = false;
-        self.reset_workspace_data();
+        self.reset_workspace_data(cx);
         self.login_email.clear();
         self.login_password.clear();
         self.login_error = None;
@@ -2610,7 +2685,7 @@ impl RootView {
                         this.session.sign_out_local();
                         this.workspaces.reset();
                         this.workspaces_started = false;
-                        this.reset_workspace_data();
+                        this.reset_workspace_data(cx);
                         this.navigate("/");
                     }
                     Err(error) => {

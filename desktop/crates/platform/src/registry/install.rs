@@ -208,7 +208,7 @@ mod tests {
         let runner = FakeRunner::default();
         let node = runtime();
         let result = install_entry(&entry("codex"), Some(&node), &runner).expect("installed");
-        assert_eq!(result.version.as_deref(), Some("1.11.0"));
+        assert_eq!(result.version.as_deref(), Some("2.2.2"));
         let calls = runner.calls.lock().expect("calls");
         assert_eq!(calls.len(), 1);
         assert!(calls[0].0.ends_with("npx"));
@@ -216,8 +216,8 @@ mod tests {
             calls[0].1,
             vec![
                 "--yes".to_string(),
-                "codex-acp@1.11.0".to_string(),
-                "version".to_string()
+                "@agentclientprotocol/codex-acp@2.2.2".to_string(),
+                "--version".to_string()
             ]
         );
         let _ = std::fs::remove_dir_all(node.root);

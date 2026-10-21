@@ -28,6 +28,12 @@ mutation RevokeLearningHostToken($id: ID!) {
 }
 "#;
 
+const MY_TOKENS_QUERY: &str = r#"
+query MyLearningHostTokens {
+  myMcpTokens { id name kind }
+}
+"#;
+
 const LEARNING_HOST_ACCOUNT: &str = "learning_host";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -93,6 +99,7 @@ fn map_api_error(error: ApiError) -> McpError {
 pub trait LearningHostApi: Send + Sync {
     fn issue(&self, session_token: &str, name: &str) -> Result<LearningHostLease, McpError>;
     fn revoke(&self, session_token: &str, token_id: &str) -> Result<(), McpError>;
+    fn list(&self, session_token: &str) -> Result<Vec<McpToken>, McpError>;
 }
 
 pub struct HttpLearningHostApi {
@@ -177,6 +184,28 @@ impl LearningHostApi for HttpLearningHostApi {
         }
         Ok(())
     }
+
+    fn list(&self, session_token: &str) -> Result<Vec<McpToken>, McpError> {
+        let payload = self
+            .client
+            .post(Some(session_token), MY_TOKENS_QUERY, serde_json::json!({}))
+            .map_err(map_api_error)?;
+        let tokens = payload
+            .get("data")
+            .and_then(|data| data.get("myMcpTokens"))
+            .and_then(Value::as_array)
+            .ok_or_else(|| McpError::Server("missing myMcpTokens payload".to_string()))?;
+        Ok(tokens
+            .iter()
+            .filter_map(|value| {
+                Some(McpToken {
+                    id: value.get("id")?.as_str()?.to_string(),
+                    name: value.get("name")?.as_str().unwrap_or("").to_string(),
+                    kind: value.get("kind")?.as_str()?.to_string(),
+                })
+            })
+            .collect())
+    }
 }
 
 /// 内存 fake：测试与无网开发；不持久化。
@@ -205,6 +234,10 @@ impl LearningHostApi for FakeLearningHostApi {
             .expect("revoked")
             .push(token_id.to_string());
         Ok(())
+    }
+
+    fn list(&self, _session_token: &str) -> Result<Vec<McpToken>, McpError> {
+        Ok(Vec::new())
     }
 }
 

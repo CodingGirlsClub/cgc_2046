@@ -27,19 +27,16 @@
       "display_name": "Codex",
       "distribution": {
         "kind": "npx",
-        "package": "codex-acp",
-        "version": "1.11.0",
+        "package": "@agentclientprotocol/codex-acp",
+        "version": "2.2.2",
         "node": "24"
       },
       "launch": {
         "args": []
       },
-      "minimum_version": "1.11.0",
+      "minimum_version": "2.2.2",
       "mcp_server_name": "cgc-2046-learning",
-      "login_hint": "在系统浏览器完成 OpenAI 登录；凭证归用户所有",
-      "version_args": [
-        "version"
-      ]
+      "login_hint": "在系统浏览器完成 OpenAI 登录；凭证归用户所有"
     },
     {
       "id": "claude_code",

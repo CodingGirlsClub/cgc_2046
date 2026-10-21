@@ -27,13 +27,13 @@ pub(crate) fn write_chat_state_to(path: &std::path::Path, state: &serde_json::Va
     }
 }
 
-pub(crate) fn load_chat_pointer(course_id: &str) -> Option<String> {
-    read_chat_state()
-        .get("pointers")?
-        .get(course_id)?
-        .get("sessionId")?
-        .as_str()
-        .map(str::to_string)
+pub(crate) fn load_chat_pointer(course_id: &str, agent_id: &str) -> Option<String> {
+    let state = read_chat_state();
+    let pointer = state.get("pointers")?.get(course_id)?;
+    if pointer.get("agent")?.as_str()? != agent_id {
+        return None;
+    }
+    pointer.get("sessionId")?.as_str().map(str::to_string)
 }
 
 pub(crate) fn save_chat_pointer(course_id: &str, agent: &str, session_id: &str) {

@@ -238,6 +238,7 @@ struct ChatStartError {
 }
 
 struct PreparedChat {
+    agent_id: String,
     agent_name: String,
     plan: LaunchPlan,
     lease: LearningHostLease,
@@ -429,7 +430,7 @@ impl Render for RootView {
                 self.start_chat(cx);
             }
             if current_id != Some("courses.learning") && self.chat.host.is_some() {
-                self.reset_chat_local();
+                self.reset_chat_local(cx);
             }
 
             if workspaces_ready

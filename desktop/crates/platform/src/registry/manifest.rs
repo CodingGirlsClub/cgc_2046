@@ -10,7 +10,7 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde_json::Value;
 
 /// 内置清单公钥（Ed25519，base64；dev key，release 前由 epic-6 轮换）。
-pub const BUILTIN_PUBLIC_KEY: &str = "XAssfUkamPOG708bNBGtC4TbI+W9btD1OfSjl7znZNI=";
+pub const BUILTIN_PUBLIC_KEY: &str = "untHOijv9YBjBbTNolki+4z+kmwYhi173W8CX+aaE9U=";
 pub const BUILTIN_MANIFEST: &str = include_str!("../../resources/registry.json");
 pub const BUILTIN_SIGNATURE: &str = include_str!("../../resources/registry.sig");
 
@@ -261,8 +261,8 @@ mod tests {
             Distribution::Npx {
                 package, version, ..
             } => {
-                assert_eq!(package, "codex-acp");
-                assert_eq!(version, "1.11.0");
+                assert_eq!(package, "@agentclientprotocol/codex-acp");
+                assert_eq!(version, "2.2.2");
             }
             other => panic!("unexpected codex distribution: {other:?}"),
         }
