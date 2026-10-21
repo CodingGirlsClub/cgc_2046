@@ -424,6 +424,86 @@ pub(in crate::root_view) fn render_chat_panel(
                         .map(|config| config.current.clone())
                         .or_else(|| (!ctx.chat.model.is_empty()).then_some(ctx.chat.model.clone()))
                         .unwrap_or_else(|| "Default".to_string());
+                    let reasoning_index = ctx.chat.configs.iter().position(|config| {
+                        let name = config.name.to_lowercase();
+                        name.contains("reasoning")
+                            || name.contains("thinking")
+                            || name.contains("effort")
+                    });
+                    let reasoning_options = reasoning_index
+                        .and_then(|index| ctx.chat.configs.get(index))
+                        .map(|config| config.values.clone())
+                        .unwrap_or_else(|| {
+                            vec![
+                                ("low".to_string(), "Low".to_string()),
+                                ("medium".to_string(), "Medium".to_string()),
+                                ("high".to_string(), "High".to_string()),
+                            ]
+                        });
+                    let reasoning_label = reasoning_index
+                        .and_then(|index| ctx.chat.configs.get(index))
+                        .map(|config| config.current.clone())
+                        .or_else(|| {
+                            (!ctx.chat.reasoning.is_empty()).then_some(ctx.chat.reasoning.clone())
+                        })
+                        .unwrap_or_else(|| "Medium".to_string());
+                    let reasoning_picker = {
+                        let root = cx.entity().downgrade();
+                        let palette = *palette;
+                        let options = reasoning_options.clone();
+                        let current = reasoning_label.clone();
+                        Popover::new("chat-reasoning-popover")
+                            .trigger(
+                                Button::new("chat-reasoning-trigger")
+                                    .label(format!("Reasoning: {current}"))
+                                    .xsmall()
+                                    .ghost()
+                                    .tooltip("Reasoning effort"),
+                            )
+                            .content(move |_, _, cx| {
+                                let dismiss = cx.entity().downgrade();
+                                let rows = options.iter().map(|(value, label)| {
+                                    let value = value.clone();
+                                    let label = label.clone();
+                                    let selected = label == reasoning_label;
+                                    let row_root = root.clone();
+                                    let row_dismiss = dismiss.clone();
+                                    div()
+                                        .id(SharedString::from(format!("chat-reasoning-{value}")))
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .justify_between()
+                                        .gap(space(2))
+                                        .px(space(1))
+                                        .py(px(3.0))
+                                        .rounded(px(RADIUS_SMALL))
+                                        .text_size(px(11.0))
+                                        .text_color(if selected {
+                                            palette.accent
+                                        } else {
+                                            palette.ink_2
+                                        })
+                                        .hover(|style| style.bg(palette.soft))
+                                        .child(label)
+                                        .children(selected.then_some("✓"))
+                                        .on_click(move |_, window, cx| {
+                                            let _ = row_root.update(cx, |this, cx| {
+                                                this.select_chat_reasoning(value.clone(), cx);
+                                            });
+                                            let _ = row_dismiss
+                                                .update(cx, |state, cx| state.dismiss(window, cx));
+                                        })
+                                        .into_any_element()
+                                });
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(1.0))
+                                    .w(px(180.0))
+                                    .children(rows)
+                            })
+                    };
                     let model_picker = {
                         let root = cx.entity().downgrade();
                         let palette = *palette;
@@ -624,6 +704,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                             },
                                         ))
                                         .child(model_picker)
+                                        .child(reasoning_picker)
                                         .child(div().flex_1())
                                         .children(streaming.then(|| {
                                             div()

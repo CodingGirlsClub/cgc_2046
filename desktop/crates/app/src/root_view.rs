@@ -242,6 +242,7 @@ struct ChatUi {
     focused: bool,
     permission: ChatPermission,
     model: String,
+    reasoning: String,
     host: Option<AcpHost>,
     lease: Option<LearningHostLease>,
     poll_generation: u64,

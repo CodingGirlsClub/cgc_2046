@@ -801,6 +801,22 @@ impl RootView {
         }
     }
 
+    pub(in crate::root_view) fn select_chat_reasoning(
+        &mut self,
+        value: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.chat.reasoning = value.clone();
+        if let Some(index) = self.chat.configs.iter().position(|config| {
+            let name = config.name.to_lowercase();
+            name.contains("reasoning") || name.contains("thinking") || name.contains("effort")
+        }) {
+            self.set_chat_config(index, value, cx);
+        } else {
+            cx.notify();
+        }
+    }
+
     pub(in crate::root_view) fn new_chat(&mut self, cx: &mut Context<Self>) {
         self.agent_panel_open = true;
         if let Some(course_id) = self.chat.course_id.clone() {
