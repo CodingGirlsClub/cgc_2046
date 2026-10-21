@@ -458,6 +458,21 @@ impl Render for RootView {
         let account_menu = self.account_menu_open;
         let is_signed_in = self.is_signed_in();
         self.clamp_open_panel_widths(window.viewport_size().width.as_f32());
+        if self.key_interceptor.is_none() {
+            let root = cx.entity().downgrade();
+            let subscription = cx.intercept_keystrokes(move |event, window, cx| {
+                let keystroke = event.keystroke.clone();
+                let handled = root
+                    .update(cx, |this, cx| {
+                        this.handle_slash_keystroke(&keystroke, window, cx)
+                    })
+                    .unwrap_or(false);
+                if handled {
+                    cx.stop_propagation();
+                }
+            });
+            self.key_interceptor = Some(subscription);
+        }
         if self.chat_input_pending_clear {
             self.chat_input_pending_clear = false;
             if let Some(input) = self.chat_input.clone() {

@@ -806,6 +806,15 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        self.handle_slash_keystroke(&event.keystroke, window, cx)
+    }
+
+    pub(in crate::root_view) fn handle_slash_keystroke(
+        &mut self,
+        keystroke: &Keystroke,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         if !self.chat.focused || self.chat.slash_dismissed {
             return false;
         }
@@ -813,7 +822,7 @@ impl RootView {
         if candidates.is_empty() {
             return false;
         }
-        match event.keystroke.key.as_str() {
+        match keystroke.key.as_str() {
             "up" => {
                 self.chat.slash_selection = if self.chat.slash_selection == 0 {
                     candidates.len() - 1
