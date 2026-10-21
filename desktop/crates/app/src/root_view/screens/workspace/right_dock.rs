@@ -147,6 +147,19 @@ fn render_site_tree(
             .find(|tab| tab.id == active)
             .and_then(|tab| tab.issue_id.clone())
     });
+    let active_path = ctx.active_tab.as_deref().and_then(|active| {
+        ctx.tabs
+            .iter()
+            .find(|tab| tab.id == active)
+            .map(|tab| tab.path.clone())
+    });
+    let section_active = |path: &str| {
+        active_path.as_deref().is_some_and(|active| {
+            active == path
+                || (path == "/events" && active.starts_with("/events/"))
+                || (path == "/courses" && active.starts_with("/courses/"))
+        })
+    };
 
     let mut rows = Vec::new();
     rows.push(
@@ -200,6 +213,7 @@ fn render_site_tree(
         "/workspace",
         None,
         None,
+        section_active("/workspace"),
         palette,
         cx,
     ));
@@ -209,15 +223,19 @@ fn render_site_tree(
         "/events",
         Some(show_events),
         Some(SiteTreeSection::Events),
+        section_active("/events"),
         palette,
         cx,
     ));
     if show_events {
         for (id, title) in events {
+            let path = format!("/events/{id}");
+            let is_active = active_path.as_deref() == Some(path.as_str());
             rows.push(tree_leaf_row(
                 &format!("site-event-{id}"),
                 title,
-                &format!("/events/{id}"),
+                &path,
+                is_active,
                 palette,
                 cx,
             ));
@@ -245,6 +263,7 @@ fn render_site_tree(
         "/courses",
         Some(show_courses),
         Some(SiteTreeSection::Courses),
+        section_active("/courses"),
         palette,
         cx,
     ));
@@ -270,11 +289,17 @@ fn render_site_tree(
                 .px(space(1))
                 .py(px(3.0))
                 .rounded(px(RADIUS_SMALL))
-                .bg(if active_course.as_deref() == Some(id.as_str()) {
-                    palette.soft
-                } else {
-                    palette.view
-                })
+                .bg(
+                    if active_course.as_deref() == Some(id.as_str())
+                        || active_path.as_deref().is_some_and(|active| {
+                            active == path || active.starts_with(&format!("{path}/"))
+                        })
+                    {
+                        palette.soft
+                    } else {
+                        palette.view
+                    },
+                )
                 .hover(|style| style.bg(palette.soft))
                 .child(
                     div()
@@ -374,6 +399,7 @@ fn render_site_tree(
         "/learning",
         None,
         None,
+        section_active("/learning"),
         palette,
         cx,
     ));
@@ -383,6 +409,7 @@ fn render_site_tree(
         "/participations",
         None,
         None,
+        section_active("/participations"),
         palette,
         cx,
     ));
@@ -430,12 +457,14 @@ fn tree_issue_row(
         .into_any_element()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn tree_section_row(
     id: &str,
     label: String,
     path: &'static str,
     expanded: Option<bool>,
     section: Option<SiteTreeSection>,
+    active: bool,
     palette: &theme::Palette,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
@@ -449,6 +478,8 @@ fn tree_section_row(
         .px(space(1))
         .py(px(3.0))
         .rounded(px(RADIUS_SMALL))
+        .text_color(if active { palette.ink } else { palette.ink_2 })
+        .bg(if active { palette.soft } else { palette.view })
         .hover(|style| style.bg(palette.soft));
     if let (Some(expanded), Some(section)) = (expanded, section) {
         let section_for_click = section;
@@ -477,10 +508,12 @@ fn tree_section_row(
         .into_any_element()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn tree_leaf_row(
     id: &str,
     title: String,
     path: &str,
+    active: bool,
     palette: &theme::Palette,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
@@ -495,6 +528,8 @@ fn tree_leaf_row(
         .pr(space(1))
         .py(px(3.0))
         .rounded(px(RADIUS_SMALL))
+        .text_color(if active { palette.ink } else { palette.ink_2 })
+        .bg(if active { palette.soft } else { palette.view })
         .hover(|style| style.bg(palette.soft))
         .child(div().flex_1().child(title))
         .on_click(cx.listener(move |this, _, _, cx| {
