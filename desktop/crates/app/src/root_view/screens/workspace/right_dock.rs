@@ -38,6 +38,31 @@ pub(in crate::root_view) fn render_right_dock(
         RightPanel::Outline => render_outline(ctx, language, palette, cx),
     };
 
+    let header = (panel == RightPanel::Outline).then(|| {
+        div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(6.0))
+            .px(space(2))
+            .py(space(1))
+            .border_b_1()
+            .border_color(palette.line)
+            .child(
+                Icon::default()
+                    .path(icon.path())
+                    .text_color(palette.ink_3)
+                    .small(),
+            )
+            .child(
+                div()
+                    .text_size(px(12.0))
+                    .text_color(palette.ink)
+                    .child(title),
+            )
+            .into_any_element()
+    });
+
     div()
         .id("right-dock")
         .w(px(width))
@@ -49,29 +74,7 @@ pub(in crate::root_view) fn render_right_dock(
         .border_l_1()
         .border_color(palette.line)
         .bg(palette.view)
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(px(6.0))
-                .px(space(2))
-                .py(space(1))
-                .border_b_1()
-                .border_color(palette.line)
-                .child(
-                    Icon::default()
-                        .path(icon.path())
-                        .text_color(palette.ink_3)
-                        .small(),
-                )
-                .child(
-                    div()
-                        .text_size(px(12.0))
-                        .text_color(palette.ink)
-                        .child(title),
-                ),
-        )
+        .children(header)
         .child(
             div()
                 .id("right-dock-body")
