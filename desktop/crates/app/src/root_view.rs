@@ -229,6 +229,8 @@ struct ChatUi {
     auto_prompted: bool,
     configs: Vec<ConfigOptionView>,
     commands: Vec<CommandView>,
+    slash_selection: usize,
+    slash_dismissed: bool,
     sessions: Vec<SessionSummary>,
     show_sessions: bool,
     session_id: Option<String>,
@@ -245,6 +247,116 @@ struct ChatUi {
 struct ChatGuidance {
     detected: Vec<(String, String)>,
     node_found: Option<String>,
+}
+
+const SLASH_CORE_COMMANDS: &[&str] = &[
+    "plan",
+    "mcp",
+    "skills",
+    "status",
+    "review",
+    "review-branch",
+    "review-commit",
+    "compact",
+    "goal",
+    "rename",
+    "logout",
+];
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SlashCandidate {
+    command_index: usize,
+    group: &'static str,
+    score: i32,
+}
+
+fn slash_query(input: &str) -> Option<&str> {
+    let rest = input.strip_prefix('/')?;
+    if rest.contains(char::is_whitespace) {
+        return None;
+    }
+    Some(rest)
+}
+
+fn fuzzy_score(query: &str, name: &str) -> Option<i32> {
+    if query.is_empty() {
+        return Some(0);
+    }
+    let query = query.to_lowercase();
+    let name = name.to_lowercase();
+    if name == query {
+        return Some(2000);
+    }
+    if name.starts_with(&query) {
+        return Some(1000 - name.len() as i32);
+    }
+    if let Some(position) = name.find(&query) {
+        return Some(600 - position as i32 - name.len() as i32);
+    }
+    let mut chars = name.chars();
+    let mut gaps = 0;
+    for expected in query.chars() {
+        let mut found = false;
+        for ch in chars.by_ref() {
+            if ch == expected {
+                found = true;
+                break;
+            }
+            gaps += 1;
+            if gaps > 12 {
+                return None;
+            }
+        }
+        if !found {
+            return None;
+        }
+    }
+    Some(300 - gaps - name.len() as i32)
+}
+
+fn slash_group(name: &str) -> &'static str {
+    if SLASH_CORE_COMMANDS.contains(&name) {
+        "Commands"
+    } else {
+        "Skills"
+    }
+}
+
+fn group_order(group: &str) -> u8 {
+    match group {
+        "Commands" => 0,
+        "Skills" => 1,
+        _ => 2,
+    }
+}
+
+fn slash_candidates(commands: &[CommandView], input: &str) -> Vec<SlashCandidate> {
+    let Some(query) = slash_query(input) else {
+        return Vec::new();
+    };
+    let mut candidates = commands
+        .iter()
+        .enumerate()
+        .filter_map(|(command_index, command)| {
+            fuzzy_score(query, &command.name).map(|score| SlashCandidate {
+                command_index,
+                group: slash_group(&command.name),
+                score,
+            })
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| {
+        right
+            .score
+            .cmp(&left.score)
+            .then_with(|| group_order(left.group).cmp(&group_order(right.group)))
+            .then_with(|| {
+                commands[left.command_index]
+                    .name
+                    .cmp(&commands[right.command_index].name)
+            })
+    });
+    candidates
 }
 
 fn agent_response_text(messages: &[ChatEntry], end_index: usize) -> String {
@@ -360,6 +472,8 @@ impl Render for RootView {
                     |this, state, event: &InputEvent, window, cx| match event {
                         InputEvent::Change => {
                             this.chat.input = state.read(cx).value().to_string();
+                            this.chat.slash_selection = 0;
+                            this.chat.slash_dismissed = false;
                             this.chat_input_pending_clear = false;
                             cx.notify();
                         }
@@ -1921,7 +2035,10 @@ fn shortcut_kbd(stroke: &str) -> Kbd {
 
 #[cfg(test)]
 mod tests {
-    use super::{agent_response_text, ChatEntry, LoginMode, RootView, WechatLoginView};
+    use super::{
+        agent_response_text, fuzzy_score, slash_candidates, slash_query, ChatEntry, CommandView,
+        LoginMode, RootView, WechatLoginView,
+    };
     use crate::i18n::{translate, Key, Language};
     use crate::registration::build_registry;
     use crate::theme::ThemePreference;
@@ -1997,6 +2114,50 @@ mod tests {
         for stroke in ["cmd-,", "ctrl-,"] {
             assert!(gpui_kit::Keystroke::parse(stroke).is_ok(), "{stroke}");
         }
+    }
+
+    #[test]
+    fn slash_candidates_filter_fuzzily_and_group_commands_before_skills() {
+        let commands = vec![
+            CommandView {
+                name: "review".into(),
+                description: "Review changes".into(),
+                requires_argument: false,
+            },
+            CommandView {
+                name: "review-branch".into(),
+                description: "Review branch".into(),
+                requires_argument: false,
+            },
+            CommandView {
+                name: "answer-me-with-html".into(),
+                description: "Skill".into(),
+                requires_argument: false,
+            },
+            CommandView {
+                name: "plan".into(),
+                description: "Plan".into(),
+                requires_argument: false,
+            },
+        ];
+        let filtered = slash_candidates(&commands, "/rev");
+        assert_eq!(
+            filtered
+                .iter()
+                .map(|candidate| commands[candidate.command_index].name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["review", "review-branch"]
+        );
+        assert!(filtered
+            .iter()
+            .all(|candidate| candidate.group == "Commands"));
+
+        let all = slash_candidates(&commands, "/");
+        assert_eq!(all[0].group, "Commands");
+        assert_eq!(all.last().unwrap().group, "Skills");
+        assert!(fuzzy_score("rvw", "review").is_some());
+        assert!(fuzzy_score("xyz", "review").is_none());
+        assert!(slash_query("/review arg").is_none());
     }
 
     #[test]

@@ -800,6 +800,54 @@ impl RootView {
         cx.notify();
     }
 
+    pub(in crate::root_view) fn handle_slash_key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.chat.focused || self.chat.slash_dismissed {
+            return false;
+        }
+        let candidates = slash_candidates(&self.chat.commands, &self.chat.input);
+        if candidates.is_empty() {
+            return false;
+        }
+        match event.keystroke.key.as_str() {
+            "up" => {
+                self.chat.slash_selection = if self.chat.slash_selection == 0 {
+                    candidates.len() - 1
+                } else {
+                    self.chat.slash_selection - 1
+                };
+                cx.notify();
+                true
+            }
+            "down" => {
+                self.chat.slash_selection = (self.chat.slash_selection + 1) % candidates.len();
+                cx.notify();
+                true
+            }
+            "enter" | "tab" => {
+                let index = self.chat.slash_selection.min(candidates.len() - 1);
+                let command_index = candidates[index].command_index;
+                let Some(command) = self.chat.commands.get(command_index) else {
+                    return false;
+                };
+                let text = format!("/{} ", command.name);
+                self.set_chat_input_text(text, window, cx);
+                self.chat.slash_selection = 0;
+                true
+            }
+            "escape" => {
+                self.chat.slash_dismissed = true;
+                cx.notify();
+                true
+            }
+            _ => false,
+        }
+    }
+
     pub(in crate::root_view) fn send_chat(&mut self, cx: &mut Context<Self>) {
         let text = self.chat.input.trim().to_string();
         if text.is_empty() {
@@ -1034,6 +1082,9 @@ impl RootView {
         self.chat.streaming_message_open = false;
         self.chat.guidance = None;
         self.chat.load_retry_available = false;
+        self.chat.commands.clear();
+        self.chat.slash_selection = 0;
+        self.chat.slash_dismissed = false;
         self.chat_input_pending_clear = true;
     }
 

@@ -459,44 +459,38 @@ pub(in crate::root_view) fn render_chat_panel(
                         .into_any_element()
                 }))
                 .child({
-                    let slash_open = input.starts_with('/') && !input.contains(' ');
-                    let slash_query = input
-                        .strip_prefix('/')
-                        .unwrap_or("")
-                        .split_whitespace()
-                        .next()
-                        .unwrap_or("")
-                        .to_lowercase();
-                    let slash_commands = ctx
+                    let slash_candidates = slash_candidates(&ctx.chat.commands, &input);
+                    let selected_slash = ctx
                         .chat
-                        .commands
-                        .iter()
-                        .filter(|command| {
-                            slash_query.is_empty()
-                                || command.name.to_lowercase().contains(&slash_query)
-                        })
-                        .take(50)
-                        .cloned()
-                        .collect::<Vec<_>>();
-                    let slash_rows = (slash_open && !slash_commands.is_empty()).then(|| {
-                        div()
-                            .id("chat-slash-menu")
-                            .flex()
-                            .flex_col()
-                            .gap(px(1.0))
-                            .p(space(1))
-                            .rounded(px(RADIUS_MEDIUM))
-                            .border_1()
-                            .border_color(palette.line_strong)
-                            .bg(palette.card)
-                            .occlude()
-                            .max_h(px(280.0))
-                            .overflow_y_scroll()
-                            .children(slash_commands.into_iter().map(|command| {
-                                let name = command.name.clone();
-                                let insert = format!("/{} ", command.name);
+                        .slash_selection
+                        .min(slash_candidates.len().saturating_sub(1));
+                    let slash_rows = (slash_query(&input).is_some()
+                        && !ctx.chat.slash_dismissed
+                        && !slash_candidates.is_empty())
+                    .then(|| {
+                        let mut rows: Vec<AnyElement> = Vec::new();
+                        let mut last_group = None;
+                        for (index, candidate) in slash_candidates.iter().enumerate() {
+                            if last_group != Some(candidate.group) {
+                                last_group = Some(candidate.group);
+                                rows.push(
+                                    div()
+                                        .px(space(1))
+                                        .pt(px(4.0))
+                                        .pb(px(2.0))
+                                        .text_size(px(9.0))
+                                        .text_color(palette.ink_3)
+                                        .child(candidate.group)
+                                        .into_any_element(),
+                                );
+                            }
+                            let command = &ctx.chat.commands[candidate.command_index];
+                            let name = command.name.clone();
+                            let insert = format!("/{} ", command.name);
+                            let active = index == selected_slash;
+                            rows.push(
                                 div()
-                                    .id(SharedString::from(format!("chat-slash-{}", name)))
+                                    .id(SharedString::from(format!("chat-slash-{name}")))
                                     .flex()
                                     .flex_row()
                                     .items_center()
@@ -505,7 +499,8 @@ pub(in crate::root_view) fn render_chat_panel(
                                     .px(space(1))
                                     .rounded(px(RADIUS_SMALL))
                                     .text_size(px(11.0))
-                                    .text_color(palette.ink)
+                                    .text_color(if active { palette.accent } else { palette.ink })
+                                    .bg(if active { palette.soft } else { palette.card })
                                     .hover(|style| style.bg(palette.soft))
                                     .child(
                                         div()
@@ -521,12 +516,28 @@ pub(in crate::root_view) fn render_chat_panel(
                                             .truncate()
                                             .text_size(px(10.0))
                                             .text_color(palette.ink_3)
-                                            .child(command.description),
+                                            .child(command.description.clone()),
                                     )
                                     .on_click(cx.listener(move |this, _, window, cx| {
                                         this.set_chat_input_text(insert.clone(), window, cx);
                                     }))
-                            }))
+                                    .into_any_element(),
+                            );
+                        }
+                        div()
+                            .id("chat-slash-menu")
+                            .flex()
+                            .flex_col()
+                            .gap(px(1.0))
+                            .p(space(1))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .border_1()
+                            .border_color(palette.line_strong)
+                            .bg(palette.card)
+                            .occlude()
+                            .max_h(px(280.0))
+                            .overflow_y_scroll()
+                            .children(rows)
                             .into_any_element()
                     });
                     let config_pickers = ctx
@@ -612,6 +623,11 @@ pub(in crate::root_view) fn render_chat_panel(
                         .flex()
                         .flex_col()
                         .gap(space(1))
+                        .capture_key_down(cx.listener(|this, event, window, cx| {
+                            if this.handle_slash_key(event, window, cx) {
+                                cx.stop_propagation();
+                            }
+                        }))
                         .child(
                             div()
                                 .id("chat-composer")
