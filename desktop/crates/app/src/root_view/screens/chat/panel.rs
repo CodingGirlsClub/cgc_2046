@@ -1,6 +1,7 @@
 use super::super::super::*;
 use super::super::ScreenContext;
 use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::input::Textarea;
 use gpui_kit::component::popover::Popover;
 
 pub(in crate::root_view) fn render_chat_panel(
@@ -364,11 +365,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                             .child(description),
                                     )
                                     .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.chat.input = format!("{command} ");
-                                        this.chat.focused = true;
-                                        let focus = this.ensure_key_focus(cx);
-                                        window.focus(&focus, cx);
-                                        cx.notify();
+                                        this.set_chat_input_text(format!("{command} "), window, cx);
                                     }))
                             }))
                             .into_any_element()
@@ -471,8 +468,18 @@ pub(in crate::root_view) fn render_chat_panel(
                                     palette.line
                                 })
                                 .bg(palette.view)
-                                .child(
-                                    div()
+                                .child(match ctx.chat_input.clone() {
+                                    Some(state) => Textarea::new(&state)
+                                        .appearance(false)
+                                        .bordered(false)
+                                        .aria_label(translate(
+                                            language,
+                                            Key::AgentChatChatInputHint,
+                                        ))
+                                        .h(px(38.0))
+                                        .w_full()
+                                        .into_any_element(),
+                                    None => div()
                                         .id("chat-input")
                                         .role(Role::TextInput)
                                         .aria_label(translate(
@@ -493,16 +500,8 @@ pub(in crate::root_view) fn render_chat_panel(
                                         } else {
                                             input.clone()
                                         })
-                                        .on_mouse_down(
-                                            MouseButton::Left,
-                                            cx.listener(|this, _, window, cx| {
-                                                this.chat.focused = true;
-                                                let focus = this.ensure_key_focus(cx);
-                                                window.focus(&focus, cx);
-                                                cx.notify();
-                                            }),
-                                        ),
-                                )
+                                        .into_any_element(),
+                                })
                                 .child(
                                     div()
                                         .flex()
@@ -524,10 +523,13 @@ pub(in crate::root_view) fn render_chat_panel(
                                                         .path(AssetIcon::Paperclip.path())
                                                         .small(),
                                                 )
-                                                .on_click(cx.listener(|this, _, _, cx| {
-                                                    this.chat.focused = true;
-                                                    this.chat.input.push('@');
-                                                    cx.notify();
+                                                .on_click(cx.listener(|this, _, window, cx| {
+                                                    let current = this.chat.input.clone();
+                                                    this.set_chat_input_text(
+                                                        format!("{current}@"),
+                                                        window,
+                                                        cx,
+                                                    );
                                                 })),
                                         )
                                         .children(config_pickers)
@@ -580,9 +582,9 @@ pub(in crate::root_view) fn render_chat_panel(
                                                         .path(AssetIcon::ArrowUp.path())
                                                         .small(),
                                                 )
-                                                .on_click(cx.listener(|this, _, _, cx| {
-                                                    this.chat.focused = true;
+                                                .on_click(cx.listener(|this, _, window, cx| {
                                                     this.send_chat(cx);
+                                                    this.clear_chat_input(window, cx);
                                                 })),
                                         ),
                                 ),

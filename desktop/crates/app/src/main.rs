@@ -48,7 +48,12 @@ fn main() {
                     }
 
                     let view_registry = startup_registry.clone();
+                    let chat_input = cx.new(|cx| {
+                        gpui_kit::component::input::TextareaState::new(window, cx)
+                            .placeholder("给 agent 发消息… @ 引用上下文，/ 查看命令")
+                    });
                     let view = cx.new(move |_| RootView::new(view_registry));
+                    view.update(cx, |this, _| this.set_chat_input(chat_input));
                     // 登录页常驻扫码：启动即出码（fake 模式内部跳过）。
                     view.update(cx, |this, cx| this.ensure_wechat_login(cx));
 

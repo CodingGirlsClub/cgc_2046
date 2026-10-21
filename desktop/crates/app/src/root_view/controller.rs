@@ -708,6 +708,36 @@ impl RootView {
         self.chat.host.is_some()
     }
 
+    pub(in crate::root_view) fn set_chat_input_text(
+        &mut self,
+        text: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.chat.input = text.clone();
+        self.chat.focused = true;
+        if let Some(input) = self.chat_input.clone() {
+            input.update(cx, |input, cx| {
+                input.set_value(text, window, cx);
+                input.focus(window, cx);
+            });
+        }
+        cx.notify();
+    }
+
+    pub(in crate::root_view) fn clear_chat_input(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.chat.input.clear();
+        if let Some(input) = self.chat_input.clone() {
+            input.update(cx, |input, cx| {
+                input.set_value("", window, cx);
+            });
+        }
+    }
+
     pub(in crate::root_view) fn send_chat(&mut self, cx: &mut Context<Self>) {
         let text = self.chat.input.trim().to_string();
         if text.is_empty() {
@@ -942,6 +972,7 @@ impl RootView {
         self.chat.streaming_message_open = false;
         self.chat.guidance = None;
         self.chat.load_retry_available = false;
+        self.chat_input_pending_clear = true;
     }
 
     pub(in crate::root_view) fn start_courses_load(&mut self, cx: &mut Context<Self>, first: bool) {
@@ -1656,22 +1687,8 @@ impl RootView {
             }
         }
         if self.chat.focused {
-            match event.keystroke.key.as_str() {
-                "enter" => self.send_chat(cx),
-                "backspace" => {
-                    self.chat.input.pop();
-                }
-                _ => {
-                    if let Some(text) = event.keystroke.key_char.as_deref() {
-                        if !event.keystroke.modifiers.modified() && !text.is_empty() {
-                            self.chat.input.push_str(text);
-                        }
-                    }
-                }
-            }
-            let focus = self.ensure_key_focus(cx);
-            _window.focus(&focus, cx);
-            cx.notify();
+            // Textarea 自己处理 Enter/方向键/输入；根视图只保留上面的全局快捷键，
+            // 不要让 Enter 继续触发课程页的“开始学习”。
             return;
         }
         if event.keystroke.key != "enter" {

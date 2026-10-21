@@ -60,6 +60,7 @@ use gpui_kit::assets::IconName as AssetIcon;
 use gpui_kit::component::{
     avatar::Avatar,
     empty::{Empty, EmptyDescription, EmptyHeader, EmptyTitle},
+    input::{InputEvent, TextareaState},
     kbd::Kbd,
     spinner::Spinner,
     status_bar::StatusBar,
@@ -303,6 +304,10 @@ impl RootView {
             state: ShellState::with_session(registry, language, preference, session),
         }
     }
+
+    pub fn set_chat_input(&mut self, input: Entity<TextareaState>) {
+        self.state.chat_input = Some(input);
+    }
 }
 
 impl Render for RootView {
@@ -314,6 +319,43 @@ impl Render for RootView {
         let account_menu = self.account_menu_open;
         let is_signed_in = self.is_signed_in();
         self.clamp_open_panel_widths(window.viewport_size().width.as_f32());
+        if self.chat_input_pending_clear {
+            self.chat_input_pending_clear = false;
+            if let Some(input) = self.chat_input.clone() {
+                input.update(cx, |input, cx| input.set_value("", window, cx));
+            }
+        }
+        if let Some(input) = self.chat_input.clone() {
+            if self.chat_input_subscription.is_none() {
+                let subscription = cx.subscribe_in(
+                    &input,
+                    window,
+                    |this, state, event: &InputEvent, window, cx| match event {
+                        InputEvent::Change => {
+                            this.chat.input = state.read(cx).value().to_string();
+                            this.chat_input_pending_clear = false;
+                            cx.notify();
+                        }
+                        InputEvent::PressEnter { shift, .. } if !shift => {
+                            this.chat.input = state.read(cx).value().to_string();
+                            this.send_chat(cx);
+                            state.update(cx, |state, cx| state.set_value("", window, cx));
+                            cx.notify();
+                        }
+                        InputEvent::Focus => {
+                            this.chat.focused = true;
+                            cx.notify();
+                        }
+                        InputEvent::Blur => {
+                            this.chat.focused = false;
+                            cx.notify();
+                        }
+                        _ => {}
+                    },
+                );
+                self.chat_input_subscription = Some(subscription);
+            }
+        }
         if is_signed_in
             && self
                 .current
