@@ -197,6 +197,10 @@ enum ChatPhase {
 enum ChatEntry {
     User(String),
     Assistant(String),
+    Thinking {
+        text: String,
+        expanded: bool,
+    },
     Tool {
         title: String,
         kind: String,
@@ -216,6 +220,7 @@ struct ChatUi {
     context_dismissed: bool,
     version: Option<String>,
     messages: Vec<ChatEntry>,
+    chat_scroll: ScrollHandle,
     input: String,
     focused: bool,
     host: Option<AcpHost>,
@@ -239,6 +244,27 @@ struct ChatUi {
 struct ChatGuidance {
     detected: Vec<(String, String)>,
     node_found: Option<String>,
+}
+
+fn agent_response_text(messages: &[ChatEntry], end_index: usize) -> String {
+    if messages.is_empty() {
+        return String::new();
+    }
+    let end = end_index.min(messages.len().saturating_sub(1));
+    let start = messages
+        .iter()
+        .take(end + 1)
+        .rposition(|entry| matches!(entry, ChatEntry::User(_)))
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    messages[start..=end]
+        .iter()
+        .filter_map(|entry| match entry {
+            ChatEntry::Assistant(text) => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 struct ChatStartError {
@@ -1894,7 +1920,7 @@ fn shortcut_kbd(stroke: &str) -> Kbd {
 
 #[cfg(test)]
 mod tests {
-    use super::{LoginMode, RootView, WechatLoginView};
+    use super::{agent_response_text, ChatEntry, LoginMode, RootView, WechatLoginView};
     use crate::i18n::{translate, Key, Language};
     use crate::registration::build_registry;
     use crate::theme::ThemePreference;
@@ -1970,6 +1996,29 @@ mod tests {
         for stroke in ["cmd-,", "ctrl-,"] {
             assert!(gpui_kit::Keystroke::parse(stroke).is_ok(), "{stroke}");
         }
+    }
+
+    #[test]
+    fn copied_agent_response_excludes_thinking_and_previous_turns() {
+        let messages = vec![
+            ChatEntry::User("first".into()),
+            ChatEntry::Assistant("answer one".into()),
+            ChatEntry::Thinking {
+                text: "private reasoning".into(),
+                expanded: false,
+            },
+            ChatEntry::Assistant("answer two".into()),
+            ChatEntry::User("second".into()),
+            ChatEntry::Assistant("answer three".into()),
+        ];
+        assert_eq!(
+            agent_response_text(&messages, 3),
+            "answer one\n\nanswer two"
+        );
+        assert_eq!(agent_response_text(&messages, 5), "answer three");
+        assert!(!agent_response_text(&messages, 3).contains("private reasoning"));
+        assert_eq!(agent_response_text(&[], 0), "");
+        assert_eq!(agent_response_text(&messages, 99), "answer three");
     }
 
     #[test]

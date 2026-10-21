@@ -620,6 +620,18 @@ impl RootView {
                         self.restore_chat_session(session_id, cx);
                     }
                 }
+                HostEvent::ThoughtDelta(chunk) => {
+                    self.chat.phase = ChatPhase::Streaming;
+                    if let Some(ChatEntry::Thinking { text, .. }) = self.chat.messages.last_mut() {
+                        text.push_str(&chunk);
+                    } else {
+                        self.chat.messages.push(ChatEntry::Thinking {
+                            text: chunk,
+                            expanded: true,
+                        });
+                    }
+                    self.chat.streaming_message_open = false;
+                }
                 HostEvent::Delta(chunk) => {
                     if self.chat.history_open {
                         match self.chat.messages.last_mut() {
@@ -655,6 +667,11 @@ impl RootView {
                 HostEvent::TurnEnd { .. } => {
                     self.chat.phase = ChatPhase::Ready;
                     self.chat.streaming_message_open = false;
+                    for entry in &mut self.chat.messages {
+                        if let ChatEntry::Thinking { expanded, .. } = entry {
+                            *expanded = false;
+                        }
+                    }
                 }
                 HostEvent::Error { message } => {
                     if Self::should_retry_stale_session(self.chat.load_retry_available, &message) {
@@ -736,6 +753,47 @@ impl RootView {
                 input.set_value("", window, cx);
             });
         }
+    }
+
+    pub(in crate::root_view) fn copy_chat_response(
+        &mut self,
+        end_index: usize,
+        cx: &mut Context<Self>,
+    ) {
+        let text = agent_response_text(&self.chat.messages, end_index);
+        if !text.is_empty() {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+        }
+    }
+
+    pub(in crate::root_view) fn toggle_chat_thinking(
+        &mut self,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(ChatEntry::Thinking { expanded, .. }) = self.chat.messages.get_mut(index) {
+            *expanded = !*expanded;
+            cx.notify();
+        }
+    }
+
+    pub(in crate::root_view) fn scroll_chat_to_last_user(&mut self, cx: &mut Context<Self>) {
+        if let Some(index) = self
+            .chat
+            .messages
+            .iter()
+            .rposition(|entry| matches!(entry, ChatEntry::User(_)))
+        {
+            self.chat.chat_scroll.scroll_to_top_of_item(index);
+            cx.notify();
+        }
+    }
+
+    pub(in crate::root_view) fn scroll_chat_to_top(&mut self, cx: &mut Context<Self>) {
+        self.chat
+            .chat_scroll
+            .set_offset(gpui_kit::point(px(0.0), px(0.0)));
+        cx.notify();
     }
 
     pub(in crate::root_view) fn send_chat(&mut self, cx: &mut Context<Self>) {

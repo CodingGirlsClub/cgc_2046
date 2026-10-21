@@ -121,6 +121,7 @@ pub enum HostEvent {
         session_id: String,
     },
     Delta(String),
+    ThoughtDelta(String),
     ToolCall {
         title: String,
         kind: String,
@@ -310,6 +311,14 @@ async fn run_connection(
                     SessionUpdate::AgentMessageChunk(chunk) => {
                         if let ContentBlock::Text(text) = chunk.content {
                             send_event(&events_for_notifications, HostEvent::Delta(text.text));
+                        }
+                    }
+                    SessionUpdate::AgentThoughtChunk(chunk) => {
+                        if let ContentBlock::Text(text) = chunk.content {
+                            send_event(
+                                &events_for_notifications,
+                                HostEvent::ThoughtDelta(text.text),
+                            );
                         }
                     }
                     SessionUpdate::ToolCall(call) => {

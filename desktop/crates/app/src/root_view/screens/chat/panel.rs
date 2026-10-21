@@ -165,16 +165,28 @@ pub(in crate::root_view) fn render_chat_panel(
                 .into_any_element()
         }
         ChatPhase::Ready | ChatPhase::Streaming => {
-            let rows = messages
+            let last_assistant = messages
                 .iter()
-                .map(|entry| match entry {
+                .rposition(|entry| matches!(entry, ChatEntry::Assistant(_)));
+            let mut rows = Vec::with_capacity(messages.len());
+            for (index, entry) in messages.iter().enumerate() {
+                let row = match entry {
                     ChatEntry::User(text) => div()
+                        .id(SharedString::from(format!("chat-user-{index}")))
                         .flex()
                         .flex_col()
-                        .gap(px(1.0))
-                        .text_size(px(11.0))
-                        .text_color(palette.ink_3)
-                        .child("你".to_string())
+                        .gap(px(2.0))
+                        .p(space(2))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .border_1()
+                        .border_color(palette.line)
+                        .bg(palette.soft)
+                        .child(
+                            div()
+                                .text_size(px(10.0))
+                                .text_color(palette.ink_3)
+                                .child("你"),
+                        )
                         .child(
                             div()
                                 .text_size(px(13.0))
@@ -183,20 +195,69 @@ pub(in crate::root_view) fn render_chat_panel(
                         )
                         .into_any_element(),
                     ChatEntry::Assistant(text) => div()
+                        .id(SharedString::from(format!("chat-assistant-{index}")))
                         .flex()
                         .flex_col()
-                        .gap(px(1.0))
-                        .text_size(px(11.0))
-                        .text_color(palette.ink_3)
-                        .child(agent_label.clone())
+                        .gap(px(2.0))
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_3)
+                                .child(agent_label.clone()),
+                        )
                         .child(
                             TextView::markdown(
-                                format!("chat-markdown-{}", text.len()),
+                                format!("chat-markdown-{index}"),
                                 sanitize_markdown(text),
                             )
                             .into_any_element(),
                         )
                         .into_any_element(),
+                    ChatEntry::Thinking { text, expanded } => {
+                        let expanded = *expanded;
+                        div()
+                            .id(SharedString::from(format!("chat-thinking-{index}")))
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.0))
+                            .child(
+                                div()
+                                    .id(SharedString::from(format!("chat-thinking-toggle-{index}")))
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap(px(4.0))
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_3)
+                                    .child(
+                                        Icon::default()
+                                            .path(if expanded {
+                                                AssetIcon::ChevronDown.path()
+                                            } else {
+                                                AssetIcon::ChevronRight.path()
+                                            })
+                                            .small(),
+                                    )
+                                    .child("Thinking")
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.toggle_chat_thinking(index, cx);
+                                    })),
+                            )
+                            .children(expanded.then(|| {
+                                div()
+                                    .pl(space(2))
+                                    .border_l_1()
+                                    .border_color(palette.line)
+                                    .text_size(px(12.0))
+                                    .text_color(palette.ink_2)
+                                    .child(TextView::markdown(
+                                        format!("chat-thinking-markdown-{index}"),
+                                        sanitize_markdown(text),
+                                    ))
+                                    .into_any_element()
+                            }))
+                            .into_any_element()
+                    }
                     ChatEntry::Tool { title, kind } => div()
                         .flex()
                         .flex_row()
@@ -288,8 +349,85 @@ pub(in crate::root_view) fn render_chat_panel(
                             .children(buttons)
                             .into_any_element()
                     }
-                })
-                .collect::<Vec<_>>();
+                };
+                rows.push(row);
+                if phase == ChatPhase::Ready && Some(index) == last_assistant {
+                    rows.push(
+                        div()
+                            .id(SharedString::from(format!("chat-controls-{index}")))
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_end()
+                            .gap(px(2.0))
+                            .pr(space(1))
+                            .opacity(0.4)
+                            .hover(|style| style.opacity(1.0))
+                            .child(
+                                div()
+                                    .id(SharedString::from(format!("chat-copy-{index}")))
+                                    .role(Role::Button)
+                                    .aria_label("Copy This Agent Response")
+                                    .size(px(22.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child(Icon::default().path(AssetIcon::Copy.path()).small())
+                                    .tooltip(|window, cx| {
+                                        Tooltip::new("Copy This Agent Response").build(window, cx)
+                                    })
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.copy_chat_response(index, cx);
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .id(SharedString::from(format!("chat-scroll-user-{index}")))
+                                    .role(Role::Button)
+                                    .aria_label("Scroll to User Message")
+                                    .size(px(22.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child(
+                                        Icon::default()
+                                            .path(AssetIcon::UserRoundArrowLeft.path())
+                                            .small(),
+                                    )
+                                    .tooltip(|window, cx| {
+                                        Tooltip::new("Scroll to User Message").build(window, cx)
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.scroll_chat_to_last_user(cx);
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .id(SharedString::from(format!("chat-scroll-top-{index}")))
+                                    .role(Role::Button)
+                                    .aria_label("Scroll to Top")
+                                    .size(px(22.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child(Icon::default().path(AssetIcon::ArrowUp.path()).small())
+                                    .tooltip(|window, cx| {
+                                        Tooltip::new("Scroll to Top").build(window, cx)
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.scroll_chat_to_top(cx);
+                                    })),
+                            )
+                            .into_any_element(),
+                    );
+                }
+            }
             let streaming = phase == ChatPhase::Streaming;
             let status = if streaming {
                 translate(language, Key::AgentChatChatThinking).to_string()
