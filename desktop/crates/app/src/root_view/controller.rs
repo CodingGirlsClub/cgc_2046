@@ -756,7 +756,18 @@ impl RootView {
             .position(|(value, _)| value == &config.current)
             .unwrap_or(0);
         let next = (current + 1) % config.values.len();
-        let value = config.values[next].0.clone();
+        self.set_chat_config(index, config.values[next].0.clone(), cx);
+    }
+
+    pub(in crate::root_view) fn set_chat_config(
+        &mut self,
+        index: usize,
+        value: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(config) = self.chat.configs.get(index).cloned() else {
+            return;
+        };
         if let Some(host) = &self.chat.host {
             let _ = host.set_config(config.id.clone(), value.clone());
         }
@@ -770,6 +781,24 @@ impl RootView {
             entry.current = value;
         }
         cx.notify();
+    }
+
+    pub(in crate::root_view) fn select_chat_model(
+        &mut self,
+        value: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.chat.model = value.clone();
+        if let Some(index) = self
+            .chat
+            .configs
+            .iter()
+            .position(|config| config.name.to_lowercase().contains("model"))
+        {
+            self.set_chat_config(index, value, cx);
+        } else {
+            cx.notify();
+        }
     }
 
     pub(in crate::root_view) fn new_chat(&mut self, cx: &mut Context<Self>) {
