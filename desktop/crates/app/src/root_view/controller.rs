@@ -772,6 +772,15 @@ impl RootView {
         cx.notify();
     }
 
+    pub(in crate::root_view) fn new_chat(&mut self, cx: &mut Context<Self>) {
+        self.agent_panel_open = true;
+        if let Some(course_id) = self.chat.course_id.clone() {
+            clear_chat_pointer(&course_id);
+        }
+        self.reset_chat_local(cx);
+        self.start_chat(cx);
+    }
+
     pub(in crate::root_view) fn toggle_chat_history(&mut self, cx: &mut Context<Self>) {
         self.agent_panel_open = true;
         if self.chat.show_sessions {
@@ -1514,6 +1523,12 @@ impl RootView {
         cx.notify();
     }
 
+    pub(in crate::root_view) fn is_new_chat_shortcut(keystroke: &Keystroke) -> bool {
+        keystroke.key.eq_ignore_ascii_case("n")
+            && !keystroke.modifiers.shift
+            && (keystroke.modifiers.platform || keystroke.modifiers.control)
+    }
+
     pub(in crate::root_view) fn is_agent_panel_shortcut(keystroke: &Keystroke) -> bool {
         keystroke.key.eq_ignore_ascii_case("j")
             && !keystroke.modifiers.shift
@@ -1526,6 +1541,10 @@ impl RootView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if Self::is_new_chat_shortcut(&event.keystroke) {
+            self.new_chat(cx);
+            return;
+        }
         if Self::is_agent_panel_shortcut(&event.keystroke) {
             self.toggle_agent_panel(cx);
             return;

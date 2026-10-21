@@ -689,11 +689,6 @@ pub(in crate::root_view) fn render_chat_panel(
     } else {
         Vec::new()
     };
-    let status_color = match &phase {
-        ChatPhase::Ready | ChatPhase::Streaming => palette.accent,
-        ChatPhase::Failed(_) => palette.danger,
-        _ => palette.ink_3,
-    };
     let thread_sidebar = ctx.chat.show_sessions.then(|| {
         div()
             .w(px(170.0))
@@ -765,7 +760,11 @@ pub(in crate::root_view) fn render_chat_panel(
                     .icon(Icon::default().path(AssetIcon::Plus.path()).small())
                     .xsmall()
                     .ghost()
-                    .tooltip("新对话"),
+                    .tooltip(if cfg!(target_os = "macos") {
+                        "新对话 · ⌘N"
+                    } else {
+                        "新对话 · Ctrl+N"
+                    }),
             )
             .on_open_change(move |open, _, cx| {
                 if *open && !registry_started {
@@ -776,6 +775,35 @@ pub(in crate::root_view) fn render_chat_panel(
             })
             .content(move |_, _, cx| {
                 let dismiss = cx.entity().downgrade();
+                let new_root = root.clone();
+                let new_dismiss = dismiss.clone();
+                let mut new_row = Some(
+                    div()
+                        .id("chat-agent-new-thread")
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .justify_between()
+                        .gap(space(2))
+                        .px(space(1))
+                        .py(px(4.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .text_color(palette.ink_2)
+                        .hover(|style| style.bg(palette.soft))
+                        .child("新对话")
+                        .child(div().text_size(px(10.0)).text_color(palette.ink_3).child(
+                            if cfg!(target_os = "macos") {
+                                "⌘N"
+                            } else {
+                                "Ctrl+N"
+                            },
+                        ))
+                        .on_click(move |_, window, cx| {
+                            let _ = new_root.update(cx, |this, cx| this.new_chat(cx));
+                            let _ = new_dismiss.update(cx, |state, cx| state.dismiss(window, cx));
+                        })
+                        .into_any_element(),
+                );
                 let rows = if options.is_empty() {
                     vec![div()
                         .px(space(1))
@@ -822,6 +850,10 @@ pub(in crate::root_view) fn render_chat_panel(
                         .collect()
                 };
                 let mut rows = rows;
+                let new_row = new_row.take();
+                if let Some(new_row) = new_row {
+                    rows.insert(0, new_row);
+                }
                 let add_root = root.clone();
                 let add_dismiss = dismiss.clone();
                 rows.push(
@@ -884,7 +916,6 @@ pub(in crate::root_view) fn render_chat_panel(
         .flex_row()
         .items_center()
         .gap(space(1))
-        .child(div().size(px(6.0)).rounded_full().bg(status_color))
         .child(
             div()
                 .text_size(px(15.0))
@@ -900,9 +931,6 @@ pub(in crate::root_view) fn render_chat_panel(
         .gap(space(1))
         .h_full()
         .p(space(2))
-        .rounded(px(RADIUS_MEDIUM))
-        .border_1()
-        .border_color(palette.line)
         .bg(palette.card)
         .children(thread_sidebar)
         .child(
