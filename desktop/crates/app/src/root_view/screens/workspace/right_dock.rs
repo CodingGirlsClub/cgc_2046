@@ -117,15 +117,10 @@ fn render_site_tree(
         .unwrap_or_else(|| "Workspace".to_string());
     let events_open = ctx.site_tree_events_open;
     let courses_open = ctx.site_tree_courses_open;
-    let query = ctx.site_tree_query.clone();
-    let matches = |title: &str| {
-        query.trim().is_empty() || title.to_lowercase().contains(&query.trim().to_lowercase())
-    };
     let events = ctx
         .events
         .items()
         .iter()
-        .filter(|event| matches(&event.title))
         .take(20)
         .map(|event| (event.id.clone(), event.title.clone()))
         .collect::<Vec<_>>();
@@ -133,12 +128,11 @@ fn render_site_tree(
         .courses
         .items()
         .iter()
-        .filter(|course| matches(&course.title))
         .take(20)
         .map(|course| (course.id.clone(), course.title.clone()))
         .collect::<Vec<_>>();
-    let show_events = events_open || !query.trim().is_empty();
-    let show_courses = courses_open || !query.trim().is_empty();
+    let show_events = events_open;
+    let show_courses = courses_open;
     let expanded_course = ctx.site_tree_course_open.clone();
     let course_content = ctx.content.content().cloned();
     let active_course = ctx
@@ -179,42 +173,6 @@ fn render_site_tree(
         })
     };
 
-    let search = div()
-        .id("site-tree-search")
-        .mx(space(1))
-        .my(px(2.0))
-        .px(space(1))
-        .py(px(3.0))
-        .rounded(px(RADIUS_SMALL))
-        .border_1()
-        .border_color(if ctx.site_tree_search_focused {
-            palette.accent
-        } else {
-            palette.line
-        })
-        .bg(palette.view)
-        .text_size(px(11.0))
-        .text_color(if query.is_empty() {
-            palette.ink_3
-        } else {
-            palette.ink
-        })
-        .child(if query.is_empty() {
-            "搜索".to_string()
-        } else {
-            query.clone()
-        })
-        .w_full()
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(|this, _, window, cx| {
-                this.site_tree_search_focused = true;
-                let focus = this.ensure_key_focus(cx);
-                window.focus(&focus, cx);
-                cx.notify();
-            }),
-        )
-        .into_any_element();
     let header = div()
         .flex()
         .flex_col()
@@ -227,7 +185,6 @@ fn render_site_tree(
                 .text_color(palette.ink_3)
                 .child(workspace),
         )
-        .child(search)
         .w_full()
         .into_any_element();
 
@@ -253,6 +210,7 @@ fn render_site_tree(
             .active(section_active("/events"))
             .on_click(move |_, _, cx| {
                 let _ = root_events.update(cx, |this, cx| {
+                    this.toggle_site_tree_section(SiteTreeSection::Events, cx);
                     this.open_page_tab(
                         "/events",
                         translate(language, Key::EventsListTitle).to_string(),
@@ -298,6 +256,8 @@ fn render_site_tree(
                 SidebarMenuItem::new(title)
                     .active(active)
                     .pl(px(16.0))
+                    .border_l_1()
+                    .border_color(palette.line)
                     .on_click(move |_, _, cx| {
                         let _ = root.update(cx, |this, cx| {
                             this.open_page_tab(&path, page_title.clone(), cx);
@@ -322,6 +282,7 @@ fn render_site_tree(
             .active(section_active("/courses"))
             .on_click(move |_, _, cx| {
                 let _ = root_courses.update(cx, |this, cx| {
+                    this.toggle_site_tree_section(SiteTreeSection::Courses, cx);
                     this.open_page_tab(
                         "/courses",
                         translate(language, Key::CoursesCatalogTitle).to_string(),
@@ -367,6 +328,7 @@ fn render_site_tree(
                     active == path || active.starts_with(&format!("{path}/"))
                 });
             let is_expanded = expanded_course.as_deref() == Some(id.as_str());
+            let click_course_id = course_id.clone();
             let chevron = {
                 let root = root.clone();
                 move |_: &mut Window, _: &mut App| {
@@ -403,6 +365,7 @@ fn render_site_tree(
                 .suffix(chevron)
                 .on_click(move |_, _, cx| {
                     let _ = root.update(cx, |this, cx| {
+                        this.toggle_site_tree_course(&click_course_id, cx);
                         this.open_page_tab(&open_path, open_title.clone(), cx);
                     });
                 });
@@ -418,7 +381,9 @@ fn render_site_tree(
                         items.push(
                             SidebarMenuItem::new(chapter.title.clone())
                                 .disable(true)
-                                .pl(px(20.0)),
+                                .pl(px(20.0))
+                                .border_l_1()
+                                .border_color(palette.line),
                         );
                         for issue in &chapter.issues {
                             let root = cx.entity().downgrade();
@@ -430,6 +395,8 @@ fn render_site_tree(
                                 SidebarMenuItem::new(title.clone())
                                     .active(active)
                                     .pl(px(28.0))
+                                    .border_l_1()
+                                    .border_color(palette.line)
                                     .on_click(move |_, _, cx| {
                                         let _ = root.update(cx, |this, cx| {
                                             this.open_issue_tab(
