@@ -106,6 +106,10 @@ impl AppPaths {
         self.data_root.join("workspace_state.json")
     }
 
+    pub fn theme_state_file(&self) -> PathBuf {
+        self.data_root.join("theme.txt")
+    }
+
     pub fn node_runtime_root(&self) -> PathBuf {
         self.data_root.join("node24")
     }

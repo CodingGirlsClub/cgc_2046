@@ -91,11 +91,23 @@ impl RootView {
     }
 
     /// 系统外观变化时由 `observe_window_appearance` 调用：只有「跟随系统」才重刷 kit 主题。
-    pub fn on_appearance_changed(&mut self, appearance: WindowAppearance, cx: &mut Context<Self>) {
-        if self.preference == ThemePreference::System {
-            theme::apply(theme::resolve(self.preference, appearance), cx);
-            cx.notify();
+    pub fn toggle_theme_menu(&mut self, cx: &mut Context<Self>) {
+        self.theme_menu_open = !self.theme_menu_open;
+        cx.notify();
+    }
+
+    pub fn select_theme(&mut self, name: String, cx: &mut Context<Self>) {
+        if theme::apply_named(&name, cx) {
+            theme::save_selected_theme(&name);
+            self.theme_name = name;
         }
+        self.theme_menu_open = false;
+        cx.notify();
+    }
+
+    pub fn on_appearance_changed(&mut self, appearance: WindowAppearance, cx: &mut Context<Self>) {
+        let _ = appearance;
+        let _ = cx;
     }
 
     pub(in crate::root_view) fn session_token(&self) -> Option<String> {

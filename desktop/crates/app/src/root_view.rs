@@ -307,7 +307,8 @@ impl RootView {
 impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mode = theme::resolve(self.preference, window.appearance());
-        let palette = theme::palette(mode);
+        let _ = mode;
+        let palette = theme::palette_from_theme(cx);
         let language = self.language;
         let account_menu = self.account_menu_open;
         let is_signed_in = self.is_signed_in();
@@ -815,6 +816,9 @@ impl Render for RootView {
             if let Some(menu) = self.breadcrumb_menu {
                 root = root.child(self.render_breadcrumb_menu(language, &palette, menu, cx));
             }
+            if self.theme_menu_open {
+                root = root.child(self.render_theme_menu(&palette, cx));
+            }
             if account_menu {
                 root = root.child(self.render_account_menu(
                     language,
@@ -848,6 +852,57 @@ impl RootView {
             let agent_shrink = (self.agent_panel_width - 260.0).max(0.0).min(excess);
             self.agent_panel_width -= agent_shrink;
         }
+    }
+
+    fn render_theme_menu(&self, palette: &theme::Palette, cx: &mut Context<Self>) -> AnyElement {
+        let rows = theme::available_themes(cx)
+            .into_iter()
+            .map(|(name, _mode)| {
+                let selected = self.theme_name == name;
+                let root = cx.entity().downgrade();
+                div()
+                    .id(SharedString::from(format!("theme-menu-{name}")))
+                    .px(space(1))
+                    .py(px(4.0))
+                    .rounded(px(RADIUS_SMALL))
+                    .text_size(px(11.0))
+                    .text_color(if selected {
+                        palette.accent
+                    } else {
+                        palette.ink_2
+                    })
+                    .hover(|style| style.bg(palette.soft))
+                    .child(if selected {
+                        format!("{name} ✓")
+                    } else {
+                        name.clone()
+                    })
+                    .on_click(move |_, _, cx| {
+                        let _ = root.update(cx, |this, cx| {
+                            this.select_theme(name.clone(), cx);
+                        });
+                    })
+            });
+        div()
+            .id("theme-menu")
+            .absolute()
+            .bottom(px(36.0))
+            .right(space(2))
+            .w(px(240.0))
+            .max_h(px(420.0))
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .gap(px(1.0))
+            .p(space(1))
+            .rounded(px(RADIUS_MEDIUM))
+            .border_1()
+            .border_color(palette.line_strong)
+            .bg(palette.card)
+            .occlude()
+            .text_color(palette.ink)
+            .children(rows)
+            .into_any_element()
     }
 
     /// 账户下拉：必须挂在根级最后绘制，否则会被后续 content/footer 覆盖（表现为“半透明”）。
@@ -1309,6 +1364,30 @@ impl RootView {
                             .gap(px(4.0))
                             .flex_shrink_0()
                             .overflow_x_hidden()
+                            .child(
+                                div()
+                                    .id("theme-menu-toggle")
+                                    .tab_index(0isize)
+                                    .size(px(22.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .text_color(palette.ink_3)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child(
+                                        Icon::default()
+                                            .path(AssetIcon::Palette.path())
+                                            .text_color(palette.ink_3)
+                                            .small(),
+                                    )
+                                    .tooltip(move |window, cx| {
+                                        Tooltip::new("主题").build(window, cx)
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.toggle_theme_menu(cx);
+                                    })),
+                            )
                             .child(
                                 div()
                                     .id("language-toggle")

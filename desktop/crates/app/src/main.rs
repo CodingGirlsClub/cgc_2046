@@ -5,7 +5,7 @@
 
 use cgc_desktop_app::registration::{build_registry, validate};
 use cgc_desktop_app::root_view::RootView;
-use cgc_desktop_app::theme::{self, preference_from_env};
+use cgc_desktop_app::theme;
 use gpui_kit::AppContext as _;
 
 fn main() {
@@ -40,8 +40,12 @@ fn main() {
                 },
                 cx,
                 move |window, cx| {
-                    let preference = preference_from_env();
-                    theme::apply(theme::resolve(preference, window.appearance()), cx);
+                    theme::load_builtin_themes(cx);
+                    let selected = theme::load_selected_theme()
+                        .unwrap_or_else(|| theme::DEFAULT_THEME_NAME.to_string());
+                    if !theme::apply_named(&selected, cx) {
+                        let _ = theme::apply_named(theme::DEFAULT_THEME_NAME, cx);
+                    }
 
                     let view_registry = startup_registry.clone();
                     let view = cx.new(move |_| RootView::new(view_registry));

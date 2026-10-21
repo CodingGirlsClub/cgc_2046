@@ -5,8 +5,9 @@
 //! 每个主题一个 `Palette`，渲染时按「偏好 + 系统外观」解析后用。
 //! 系统外观来自 `Window::appearance()`；偏好为 Light/Dark/System，runtime 可切换。
 
-use gpui_kit::component::{Theme, ThemeMode};
+use gpui_kit::component::{ActiveTheme as _, Theme, ThemeMode, ThemeRegistry};
 use gpui_kit::*;
+use std::path::PathBuf;
 
 use crate::i18n::Key;
 
@@ -69,6 +70,106 @@ pub fn resolve(preference: ThemePreference, appearance: WindowAppearance) -> The
         ThemePreference::Light => ThemeMode::Light,
         ThemePreference::Dark => ThemeMode::Dark,
         ThemePreference::System => ThemeMode::from(appearance),
+    }
+}
+
+pub const DEFAULT_THEME_NAME: &str = "Ayu Dark";
+
+/// 官方 themes 目录下的主题包（每个文件可含多套明暗主题）。
+pub fn load_builtin_themes(cx: &mut App) {
+    let registry = ThemeRegistry::global_mut(cx);
+    for raw in [
+        include_str!("../../../resources/themes/adventure.json"),
+        include_str!("../../../resources/themes/alduin.json"),
+        include_str!("../../../resources/themes/asciinema.json"),
+        include_str!("../../../resources/themes/aurora.json"),
+        include_str!("../../../resources/themes/ayu.json"),
+        include_str!("../../../resources/themes/catppuccin.json"),
+        include_str!("../../../resources/themes/everforest.json"),
+        include_str!("../../../resources/themes/fahrenheit.json"),
+        include_str!("../../../resources/themes/flexoki.json"),
+        include_str!("../../../resources/themes/gruvbox.json"),
+        include_str!("../../../resources/themes/harper.json"),
+        include_str!("../../../resources/themes/hybrid.json"),
+        include_str!("../../../resources/themes/jellybeans.json"),
+        include_str!("../../../resources/themes/kibble.json"),
+        include_str!("../../../resources/themes/macos-classic.json"),
+        include_str!("../../../resources/themes/mellifluous.json"),
+        include_str!("../../../resources/themes/molokai.json"),
+        include_str!("../../../resources/themes/solarized.json"),
+        include_str!("../../../resources/themes/spaceduck.json"),
+        include_str!("../../../resources/themes/tokyonight.json"),
+        include_str!("../../../resources/themes/twilight.json"),
+    ] {
+        let _ = registry.load_themes_from_str(raw);
+    }
+}
+
+/// 可选主题：去掉 gpui-kit 自带的两套 Default（不是产品主题）。
+pub fn available_themes(cx: &App) -> Vec<(String, ThemeMode)> {
+    ThemeRegistry::global(cx)
+        .sorted_themes()
+        .into_iter()
+        .filter(|theme| {
+            theme.name.as_ref() != "Default Light" && theme.name.as_ref() != "Default Dark"
+        })
+        .map(|theme| (theme.name.to_string(), theme.mode))
+        .collect()
+}
+
+pub fn apply_named(name: &str, cx: &mut App) -> bool {
+    let Some(config) = ThemeRegistry::global(cx).themes().get(name).cloned() else {
+        return false;
+    };
+    Theme::update(cx, |theme| {
+        theme.mode = config.mode;
+        theme.apply_config(&config);
+        theme.font_family = FONT_SANS.into();
+        theme.mono_font_family = FONT_MONO.into();
+        theme.radius = px(RADIUS_MEDIUM);
+        theme.radius_lg = px(RADIUS_LARGE);
+    });
+    true
+}
+
+pub fn palette_from_theme(cx: &App) -> Palette {
+    let theme = cx.theme();
+    Palette {
+        canvas: theme.background,
+        frame: theme.sidebar,
+        card: theme.popover,
+        view: theme.background,
+        divider: theme.border,
+        ink: theme.foreground,
+        ink_2: theme.foreground.opacity(0.72),
+        ink_3: theme.foreground.opacity(0.48),
+        accent: theme.primary,
+        accent_strong: theme.primary,
+        line: theme.border,
+        line_strong: theme.border,
+        soft: theme.secondary,
+        danger: theme.danger,
+    }
+}
+
+fn theme_file_path() -> PathBuf {
+    cgc_platform::paths::AppPaths::from_env().theme_state_file()
+}
+
+pub fn load_selected_theme() -> Option<String> {
+    std::fs::read_to_string(theme_file_path())
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+pub fn save_selected_theme(name: &str) {
+    let path = theme_file_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Err(error) = std::fs::write(&path, name) {
+        eprintln!("theme: save selection failed: {error}");
     }
 }
 
