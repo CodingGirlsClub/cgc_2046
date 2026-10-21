@@ -1,5 +1,7 @@
 use super::super::*;
 use super::ScreenContext;
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::Disableable;
 
 pub(in crate::root_view) fn render_settings(
     ctx: &mut ScreenContext<'_>,
@@ -29,29 +31,20 @@ pub(in crate::root_view) fn render_settings(
             .child(message)
             .into_any_element()
     });
-    let revoke = div()
-        .id("settings-revoke-device")
-        .role(Role::Button)
-        .aria_label(translate(language, Key::AppSettingsRevokeDevice))
-        .px(space(2))
-        .py(px(6.0))
-        .rounded(px(RADIUS_MEDIUM))
-        .bg(if ctx.revoking {
-            palette.soft
-        } else {
-            palette.danger
-        })
-        .text_color(if ctx.revoking {
-            palette.ink_3
-        } else {
-            palette.canvas
-        })
-        .child(if ctx.revoking {
-            translate(language, Key::AppSettingsRevoking)
-        } else {
-            translate(language, Key::AppSettingsRevokeDevice)
-        })
-        .on_click(cx.listener(|this, _, _, cx| this.revoke_device(cx)));
+    let revoke = {
+        let root = cx.entity().downgrade();
+        Button::new("settings-revoke-device")
+            .label(if ctx.revoking {
+                translate(language, Key::AppSettingsRevoking)
+            } else {
+                translate(language, Key::AppSettingsRevokeDevice)
+            })
+            .danger()
+            .disabled(ctx.revoking)
+            .on_click(move |_, _, cx| {
+                let _ = root.update(cx, |this, cx| this.revoke_device(cx));
+            })
+    };
 
     div()
         .flex()

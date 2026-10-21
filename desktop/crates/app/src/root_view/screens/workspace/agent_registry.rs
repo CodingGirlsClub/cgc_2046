@@ -2,6 +2,7 @@
 
 use super::super::super::*;
 use super::super::ScreenContext;
+use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::skeleton::Skeleton;
 use gpui_kit::component::tag::Tag;
 
@@ -66,20 +67,18 @@ pub(in crate::root_view) fn render_agent_registry(
                     .text_color(palette.danger)
                     .child(error),
             )
-            .child(
-                div()
-                    .id("agent-registry-retry")
-                    .px(space(2))
-                    .py(px(5.0))
-                    .rounded(px(RADIUS_MEDIUM))
-                    .bg(palette.accent)
-                    .text_color(palette.canvas)
-                    .child(translate(language, Key::AgentRegistryRetry))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.agent_registry_started = false;
-                        this.start_agent_registry_load(cx);
-                    })),
-            )
+            .child({
+                let root = cx.entity().downgrade();
+                Button::new("agent-registry-retry")
+                    .label(translate(language, Key::AgentRegistryRetry))
+                    .primary()
+                    .on_click(move |_, _, cx| {
+                        let _ = root.update(cx, |this, cx| {
+                            this.agent_registry_started = false;
+                            this.start_agent_registry_load(cx);
+                        });
+                    })
+            })
             .into_any_element()
     } else if rows.is_empty() {
         div()
@@ -158,18 +157,19 @@ pub(in crate::root_view) fn render_agent_registry(
                                     .with_size(gpui_kit::component::Size::Small),
                             )
                             .children(can_install.then(|| {
-                                div()
-                                    .id(SharedString::from(format!("agent-install-{}", entry.id)))
-                                    .px(space(2))
-                                    .py(px(4.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .bg(palette.accent)
-                                    .text_color(palette.canvas)
-                                    .text_size(px(11.0))
-                                    .child(install_label)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                let root = cx.entity().downgrade();
+                                Button::new(SharedString::from(format!(
+                                    "agent-install-{}",
+                                    entry.id
+                                )))
+                                .label(install_label)
+                                .primary()
+                                .with_size(gpui_kit::component::Size::Small)
+                                .on_click(move |_, _, cx| {
+                                    let _ = root.update(cx, |this, cx| {
                                         this.install_agent(&id, cx);
-                                    }))
+                                    });
+                                })
                             })),
                     )
                     .child(

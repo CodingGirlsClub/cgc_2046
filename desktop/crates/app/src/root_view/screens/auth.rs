@@ -1,5 +1,7 @@
 use super::super::*;
 use super::ScreenContext;
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::Disableable;
 
 pub(in crate::root_view) fn render_reset_login_card(
     ctx: &mut ScreenContext<'_>,
@@ -356,29 +358,19 @@ pub(in crate::root_view) fn render_login_split(
                 .child(translate(language, key))
                 .into_any_element()
         }))
-        .child(
-            div()
-                .id("login-submit")
+        .child({
+            let root = cx.entity().downgrade();
+            Button::new("login-submit")
+                .label(translate(language, Key::AppAuthSubmit))
+                .primary()
+                .w_full()
                 .h(px(36.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(RADIUS_MEDIUM))
-                .bg(if signing_in {
-                    palette.soft
-                } else {
-                    palette.accent
+                .loading(signing_in)
+                .disabled(signing_in)
+                .on_click(move |_, _, cx| {
+                    let _ = root.update(cx, |this, cx| this.submit_login(cx));
                 })
-                .text_color(if signing_in {
-                    palette.ink_3
-                } else {
-                    palette.ink
-                })
-                .role(Role::Button)
-                .aria_label(translate(language, Key::AppAuthSubmit))
-                .child(translate(language, Key::AppAuthSubmit))
-                .on_click(cx.listener(|this, _, _, cx| this.submit_login(cx))),
-        )
+        })
         .children(login_notice.map(|key| {
             div()
                 .text_size(px(12.0))

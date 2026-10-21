@@ -62,6 +62,7 @@ use gpui_kit::component::{
     empty::{Empty, EmptyDescription, EmptyHeader, EmptyTitle},
     kbd::Kbd,
     spinner::Spinner,
+    status_bar::StatusBar,
     tag::Tag,
     tooltip::Tooltip,
     Icon, Sizable as _, Size as KitSize,
@@ -1302,93 +1303,88 @@ impl RootView {
             .role(Role::Toolbar)
             .aria_label("Status bar")
             .tab_group()
-            .flex()
-            .flex_row()
-            .items_center()
-            .w_full()
-            .justify_between()
-            // 对齐 Zed `crates/workspace/src/status_bar.rs:116`：`p(DynamicSpacing::Base04)` 四边 4px，
-            // 高度由 22px 条目 + 上下各 4px 撑出 30px（不写死 `h()`）；左右两组 gap(Base08) = 8px，
-            // 组内 gap_1 = 4px。整条没有上边框，靠比画布亮一级的背景做分隔。
-            .px(px(4.0))
-            .py(px(4.0))
-            .gap(px(8.0))
-            .bg(palette.frame)
-            .text_size(px(12.0))
             .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(4.0))
-                    .min_w_0()
-                    .overflow_x_hidden()
-                    .children(agent_toggle)
-                    .child(site_tree_toggle)
-                    .child(outline_toggle),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(4.0))
-                    .flex_shrink_0()
-                    .overflow_x_hidden()
-                    .child(
+                StatusBar::new()
+                    .left(
                         div()
-                            .id("theme-toggle")
-                            .tab_index(0isize)
-                            .size(px(22.0))
-                            .rounded(px(RADIUS_SMALL))
                             .flex()
+                            .flex_row()
                             .items_center()
-                            .justify_center()
-                            .text_color(palette.ink_3)
-                            .hover(|style| style.bg(palette.soft))
-                            .child(
-                                Icon::default()
-                                    .path(theme_icon.path())
-                                    .text_color(palette.ink_3)
-                                    .small(),
-                            )
-                            .tooltip(move |window, cx| {
-                                Tooltip::new(format!("{theme_tooltip} · {theme_label}"))
-                                    .build(window, cx)
-                            })
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                let preference = this.cycle_theme();
-                                let mode = theme::resolve(preference, window.appearance());
-                                theme::apply(mode, cx);
-                                cx.notify();
-                            })),
+                            .gap(px(4.0))
+                            .min_w_0()
+                            .overflow_x_hidden()
+                            .children(agent_toggle)
+                            .child(site_tree_toggle)
+                            .child(outline_toggle),
                     )
-                    .child(
+                    .right(
                         div()
-                            .id("language-toggle")
-                            .tab_index(0isize)
-                            .size(px(22.0))
-                            .rounded(px(RADIUS_SMALL))
                             .flex()
+                            .flex_row()
                             .items_center()
-                            .justify_center()
-                            .text_color(palette.ink_3)
-                            .hover(|style| style.bg(palette.soft))
+                            .gap(px(4.0))
+                            .flex_shrink_0()
+                            .overflow_x_hidden()
                             .child(
-                                Icon::default()
-                                    .path(language_icon.path())
+                                div()
+                                    .id("theme-toggle")
+                                    .tab_index(0isize)
+                                    .size(px(22.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
                                     .text_color(palette.ink_3)
-                                    .small(),
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child(
+                                        Icon::default()
+                                            .path(theme_icon.path())
+                                            .text_color(palette.ink_3)
+                                            .small(),
+                                    )
+                                    .tooltip(move |window, cx| {
+                                        Tooltip::new(format!("{theme_tooltip} · {theme_label}"))
+                                            .build(window, cx)
+                                    })
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        let preference = this.cycle_theme();
+                                        let mode = theme::resolve(preference, window.appearance());
+                                        theme::apply(mode, cx);
+                                        cx.notify();
+                                    })),
                             )
-                            .tooltip(move |window, cx| {
-                                Tooltip::new(format!("{language_tooltip} · {language_label}"))
-                                    .build(window, cx)
-                            })
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.toggle_language();
-                                cx.notify();
-                            })),
-                    ),
+                            .child(
+                                div()
+                                    .id("language-toggle")
+                                    .tab_index(0isize)
+                                    .size(px(22.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .text_color(palette.ink_3)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child(
+                                        Icon::default()
+                                            .path(language_icon.path())
+                                            .text_color(palette.ink_3)
+                                            .small(),
+                                    )
+                                    .tooltip(move |window, cx| {
+                                        Tooltip::new(format!(
+                                            "{language_tooltip} · {language_label}"
+                                        ))
+                                        .build(window, cx)
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.toggle_language();
+                                        cx.notify();
+                                    })),
+                            ),
+                    )
+                    .bg(palette.frame)
+                    .border_t_0()
+                    .w_full(),
             )
             .into_any_element()
     }

@@ -1,5 +1,6 @@
 use super::super::super::*;
 use super::super::ScreenContext;
+use gpui_kit::component::button::{Button, ButtonVariants};
 
 pub(in crate::root_view) fn render_events_list(
     ctx: &mut ScreenContext<'_>,
@@ -47,17 +48,15 @@ pub(in crate::root_view) fn render_events_list(
             .flex_col()
             .gap(space(1))
             .child(div().text_color(palette.danger).child(message))
-            .child(
-                div()
-                    .id("events-retry")
-                    .px(space(2))
-                    .py(px(5.0))
-                    .rounded(px(RADIUS_MEDIUM))
-                    .bg(palette.accent)
-                    .text_color(white())
-                    .child(translate(language, Key::EventsListRetry))
-                    .on_click(cx.listener(|this, _, _, cx| this.retry_events(cx))),
-            )
+            .child({
+                let root = cx.entity().downgrade();
+                Button::new("events-retry")
+                    .label(translate(language, Key::EventsListRetry))
+                    .primary()
+                    .on_click(move |_, _, cx| {
+                        let _ = root.update(cx, |this, cx| this.retry_events(cx));
+                    })
+            })
             .into_any_element(),
         ListState::Empty => div()
             .text_color(palette.ink_3)
@@ -149,19 +148,14 @@ pub(in crate::root_view) fn render_events_list(
             });
 
             let load_more = has_more.then(|| {
-                div()
-                    .id("events-load-more")
+                let root = cx.entity().downgrade();
+                Button::new("events-load-more")
+                    .label(translate(language, Key::EventsListLoadMore))
+                    .secondary()
                     .mt(space(2))
-                    .px(space(2))
-                    .py(px(5.0))
-                    .rounded(px(RADIUS_MEDIUM))
-                    .border_1()
-                    .border_color(palette.line_strong)
-                    .text_color(palette.ink_2)
-                    .child(translate(language, Key::EventsListLoadMore))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.start_events_load(cx, false);
-                    }))
+                    .on_click(move |_, _, cx| {
+                        let _ = root.update(cx, |this, cx| this.start_events_load(cx, false));
+                    })
                     .into_any_element()
             });
 

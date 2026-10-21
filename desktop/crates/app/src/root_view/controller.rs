@@ -1,5 +1,6 @@
 use super::*;
 use cgc_platform::registry::install::{install_entry, SystemRunner};
+use gpui_kit::component::breadcrumb::{Breadcrumb, BreadcrumbItem};
 use state::{PaneTab, SiteTreeSection};
 
 impl RootView {
@@ -1089,27 +1090,21 @@ impl RootView {
             None => translate(language, Key::AppBreadcrumbSections),
         };
         let selected = self.breadcrumb_menu.is_some();
-        bar = bar.child(div().child("›")).child(
-            div()
-                .id("breadcrumb-section")
-                .role(Role::Button)
-                .aria_label(section_label)
+        let root = cx.entity().downgrade();
+        let mut breadcrumb = Breadcrumb::new().child(
+            BreadcrumbItem::new(format!("{section_label} ▾"))
                 .px(space(1))
                 .py(px(2.0))
                 .rounded(px(RADIUS_SMALL))
-                .text_color(if selected { palette.ink } else { palette.ink_2 })
                 .bg(if selected { palette.soft } else { palette.card })
-                .hover(|style| style.bg(palette.soft))
-                .child(format!("{section_label} ▾"))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_breadcrumb_menu(cx);
-                })),
+                .on_click(move |_, _, cx| {
+                    let _ = root.update(cx, |this, cx| this.toggle_breadcrumb_menu(cx));
+                }),
         );
         if let Some((_, Some(title))) = context {
-            bar = bar
-                .child(div().child("›"))
-                .child(div().text_color(palette.ink_2).child(title));
+            breadcrumb = breadcrumb.child(BreadcrumbItem::new(title));
         }
+        bar = bar.child(div().child("›")).child(breadcrumb);
         bar.into_any_element()
     }
 
