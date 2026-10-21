@@ -3,7 +3,6 @@
 use super::super::super::*;
 use super::super::ScreenContext;
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::input::Input;
 use gpui_kit::component::skeleton::Skeleton;
 use gpui_kit::component::tag::Tag;
 
@@ -21,7 +20,6 @@ pub(in crate::root_view) fn render_agent_registry(
     let install_stage = ctx.agent_install_stage.clone();
     let query = ctx.agent_registry_query.clone();
     let filter = ctx.agent_registry_filter;
-    let search_input = ctx.agent_registry_search_input.clone();
     let rows = rows
         .into_iter()
         // v1 Registry 只提供签名清单里的 npx agent；OMP 是 BYO native，仍在
@@ -226,12 +224,8 @@ pub(in crate::root_view) fn render_agent_registry(
                 .text_color(palette.ink_3)
                 .child(translate(language, Key::AgentRegistrySubtitle)),
         )
-        .child(match search_input {
-            Some(input) => Input::new(&input)
-                .w_full()
-                .with_size(gpui_kit::component::Size::Small)
-                .into_any_element(),
-            None => div()
+        .child(
+            div()
                 .id("agent-registry-search")
                 .flex()
                 .items_center()
@@ -239,12 +233,33 @@ pub(in crate::root_view) fn render_agent_registry(
                 .px(space(2))
                 .rounded(px(RADIUS_MEDIUM))
                 .border_1()
-                .border_color(palette.line)
+                .border_color(if ctx.agent_registry_search_focused {
+                    palette.accent
+                } else {
+                    palette.line
+                })
+                .bg(palette.card)
                 .text_size(px(11.0))
-                .text_color(palette.ink_3)
-                .child("搜索 agent")
-                .into_any_element(),
-        })
+                .text_color(if query.is_empty() {
+                    palette.ink_3
+                } else {
+                    palette.ink
+                })
+                .child(if query.is_empty() {
+                    "搜索 agent".to_string()
+                } else {
+                    query.clone()
+                })
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, window, cx| {
+                        this.agent_registry_search_focused = true;
+                        let focus = this.ensure_key_focus(cx);
+                        window.focus(&focus, cx);
+                        cx.notify();
+                    }),
+                ),
+        )
         .child(
             div().flex().flex_row().gap(space(1)).children(
                 [

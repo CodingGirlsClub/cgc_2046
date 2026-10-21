@@ -361,7 +361,7 @@ fn render_site_tree(
             let open_title = title.clone();
             let mut course_item = SidebarMenuItem::new(title)
                 .active(active)
-                .pl(px(4.0))
+                .pl(px(16.0))
                 .suffix(chevron)
                 .on_click(move |_, _, cx| {
                     let _ = root.update(cx, |this, cx| {
@@ -381,7 +381,7 @@ fn render_site_tree(
                         items.push(
                             SidebarMenuItem::new(chapter.title.clone())
                                 .disable(true)
-                                .pl(px(20.0))
+                                .pl(px(28.0))
                                 .border_l_1()
                                 .border_color(palette.line),
                         );
@@ -394,7 +394,7 @@ fn render_site_tree(
                             items.push(
                                 SidebarMenuItem::new(title.clone())
                                     .active(active)
-                                    .pl(px(28.0))
+                                    .pl(px(36.0))
                                     .border_l_1()
                                     .border_color(palette.line)
                                     .on_click(move |_, _, cx| {

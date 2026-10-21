@@ -44,12 +44,7 @@ fn main() {
                     theme::apply(theme::resolve(preference, window.appearance()), cx);
 
                     let view_registry = startup_registry.clone();
-                    let search_input = cx.new(|cx| {
-                        gpui_kit::component::input::InputState::new(window, cx)
-                            .placeholder("搜索 agent".to_string())
-                    });
-                    let view =
-                        cx.new(move |_| RootView::with_agent_search(view_registry, search_input));
+                    let view = cx.new(move |_| RootView::new(view_registry));
                     // 登录页常驻扫码：启动即出码（fake 模式内部跳过）。
                     view.update(cx, |this, cx| this.ensure_wechat_login(cx));
 

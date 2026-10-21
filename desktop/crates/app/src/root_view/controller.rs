@@ -1538,6 +1538,28 @@ impl RootView {
             cx.notify();
             return;
         }
+        if self.agent_registry_search_focused
+            && self
+                .current
+                .as_ref()
+                .is_some_and(|route_match| route_match.route.id == "app.agents")
+        {
+            match event.keystroke.key.as_str() {
+                "escape" | "enter" => self.agent_registry_search_focused = false,
+                "backspace" => {
+                    self.agent_registry_query.pop();
+                }
+                _ => {
+                    if let Some(text) = event.keystroke.key_char.as_deref() {
+                        if !event.keystroke.modifiers.modified() && !text.is_empty() {
+                            self.agent_registry_query.push_str(text);
+                        }
+                    }
+                }
+            }
+            cx.notify();
+            return;
+        }
         if Self::is_settings_shortcut(&event.keystroke) {
             self.open_settings_window(cx);
             return;

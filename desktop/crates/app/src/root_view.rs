@@ -302,15 +302,6 @@ impl RootView {
             state: ShellState::with_session(registry, language, preference, session),
         }
     }
-
-    pub fn with_agent_search(
-        registry: RouteRegistry,
-        input: Entity<gpui_kit::component::input::InputState>,
-    ) -> Self {
-        let mut state = ShellState::new(registry);
-        state.agent_registry_search_input = Some(input);
-        Self { state }
-    }
 }
 
 impl Render for RootView {
@@ -321,21 +312,6 @@ impl Render for RootView {
         let account_menu = self.account_menu_open;
         let is_signed_in = self.is_signed_in();
         self.clamp_open_panel_widths(window.viewport_size().width.as_f32());
-        if let Some(input) = self.agent_registry_search_input.clone() {
-            if self.agent_registry_search_subscription.is_none() {
-                let input_for_sub = input.clone();
-                let subscription = cx.subscribe(
-                    &input,
-                    move |this, _, event: &gpui_kit::component::input::InputEvent, cx| {
-                        if matches!(event, gpui_kit::component::input::InputEvent::Change) {
-                            this.agent_registry_query = input_for_sub.read(cx).value().to_string();
-                            cx.notify();
-                        }
-                    },
-                );
-                self.agent_registry_search_subscription = Some(subscription);
-            }
-        }
         if is_signed_in
             && self
                 .current
@@ -366,7 +342,6 @@ impl Render for RootView {
             .signed_in()
             .and_then(|session| session.email.clone())
             .unwrap_or_default();
-        let theme_label = translate(language, self.preference.label_key());
         let language_label = translate(
             language,
             match language {
@@ -374,17 +349,11 @@ impl Render for RootView {
                 Language::En => Key::AppLangEn,
             },
         );
-        let theme_tooltip = translate(language, Key::AppThemeToggle);
         let language_tooltip = translate(language, Key::AppLanguageToggle);
         let account_tooltip = translate(language, Key::AppAccountMenu);
         let sign_out_label = translate(language, Key::AppAuthSignOut);
         let signed_in_as = translate(language, Key::AppAuthSignedInAs);
 
-        let theme_icon = match self.preference {
-            ThemePreference::Light => AssetIcon::Sun,
-            ThemePreference::Dark => AssetIcon::Moon,
-            ThemePreference::System => AssetIcon::Monitor,
-        };
         let language_icon = AssetIcon::Languages;
 
         if is_signed_in {
@@ -554,9 +523,6 @@ impl Render for RootView {
                 .child(self.render_footer(
                     language,
                     false,
-                    theme_icon,
-                    theme_label,
-                    theme_tooltip,
                     language_icon,
                     language_label,
                     language_tooltip,
@@ -837,9 +803,6 @@ impl Render for RootView {
                     .child(self.render_footer(
                         language,
                         true,
-                        theme_icon,
-                        theme_label,
-                        theme_tooltip,
                         language_icon,
                         language_label,
                         language_tooltip,
@@ -1213,9 +1176,6 @@ impl RootView {
         &self,
         language: Language,
         include_nav: bool,
-        theme_icon: AssetIcon,
-        theme_label: &'static str,
-        theme_tooltip: &'static str,
         language_icon: AssetIcon,
         language_label: &'static str,
         language_tooltip: &'static str,
@@ -1228,6 +1188,7 @@ impl RootView {
         } else {
             "Ctrl+J"
         };
+        let palette = *palette;
         let agent_toggle = include_nav.then(|| {
             div()
                 .id("agent-panel-toggle")
@@ -1348,34 +1309,6 @@ impl RootView {
                             .gap(px(4.0))
                             .flex_shrink_0()
                             .overflow_x_hidden()
-                            .child(
-                                div()
-                                    .id("theme-toggle")
-                                    .tab_index(0isize)
-                                    .size(px(22.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .text_color(palette.ink_3)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child(
-                                        Icon::default()
-                                            .path(theme_icon.path())
-                                            .text_color(palette.ink_3)
-                                            .small(),
-                                    )
-                                    .tooltip(move |window, cx| {
-                                        Tooltip::new(format!("{theme_tooltip} · {theme_label}"))
-                                            .build(window, cx)
-                                    })
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        let preference = this.cycle_theme();
-                                        let mode = theme::resolve(preference, window.appearance());
-                                        theme::apply(mode, cx);
-                                        cx.notify();
-                                    })),
-                            )
                             .child(
                                 div()
                                     .id("language-toggle")
