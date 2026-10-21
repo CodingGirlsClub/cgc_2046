@@ -378,6 +378,7 @@ impl RootView {
         self.chat.course_id = course_id;
         self.chat.session_id = None;
         self.chat.configs.clear();
+        self.chat.commands.clear();
         self.chat.configs_applied = false;
         self.chat.history_open = load_session.is_some();
         self.chat.streaming_message_open = false;
@@ -589,6 +590,9 @@ impl RootView {
                             .unwrap_or_else(|| "omp".to_string());
                         save_chat_pointer(&course_id, &agent_id, &session_id);
                     }
+                }
+                HostEvent::AvailableCommands { commands } => {
+                    self.chat.commands = commands;
                 }
                 HostEvent::ConfigOptions { options } => {
                     self.chat.configs = options;
@@ -2341,6 +2345,7 @@ impl RootView {
         self.chat.session_id = None;
         self.chat.restore_id = None;
         self.chat.configs.clear();
+        self.chat.commands.clear();
         self.chat.configs_applied = false;
         self.chat.auto_prompted = false;
         self.start_chat(cx);

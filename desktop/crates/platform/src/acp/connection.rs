@@ -16,8 +16,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
-    CancelNotification, ContentBlock, InitializeRequest, ListSessionsRequest, LoadSessionRequest,
-    McpServer, NewSessionRequest, PromptRequest, RequestPermissionOutcome,
+    AvailableCommand, CancelNotification, ContentBlock, InitializeRequest, ListSessionsRequest,
+    LoadSessionRequest, McpServer, NewSessionRequest, PromptRequest, RequestPermissionOutcome,
     RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
     SessionConfigId, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
     SessionConfigOptionValue, SessionConfigSelectOptions, SessionConfigValueId, SessionId,
@@ -114,6 +114,13 @@ pub struct ConfigOptionView {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommandView {
+    pub name: String,
+    pub description: String,
+    pub requires_argument: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HostEvent {
     Ready {
         agent_name: String,
@@ -122,6 +129,9 @@ pub enum HostEvent {
     },
     Delta(String),
     ThoughtDelta(String),
+    AvailableCommands {
+        commands: Vec<CommandView>,
+    },
     ToolCall {
         title: String,
         kind: String,
@@ -320,6 +330,13 @@ async fn run_connection(
                                 HostEvent::ThoughtDelta(text.text),
                             );
                         }
+                    }
+                    SessionUpdate::AvailableCommandsUpdate(update) => {
+                        let commands = command_views(update.available_commands);
+                        send_event(
+                            &events_for_notifications,
+                            HostEvent::AvailableCommands { commands },
+                        );
                     }
                     SessionUpdate::ToolCall(call) => {
                         send_event(
@@ -549,6 +566,17 @@ async fn send_sessions(
     }
 }
 
+fn command_views(commands: Vec<AvailableCommand>) -> Vec<CommandView> {
+    commands
+        .into_iter()
+        .map(|command| CommandView {
+            name: command.name,
+            description: command.description,
+            requires_argument: command.input.is_some(),
+        })
+        .collect()
+}
+
 fn config_category(category: &Option<SessionConfigOptionCategory>) -> ConfigOptionCategory {
     match category {
         Some(SessionConfigOptionCategory::Mode) => ConfigOptionCategory::Mode,
@@ -717,6 +745,32 @@ fn sleep(duration: Duration) -> impl std::future::Future<Output = ()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn available_commands_map_to_command_views() {
+        let commands = super::command_views(vec![
+            agent_client_protocol::schema::v1::AvailableCommand::new(
+                "compact",
+                "Compact the conversation",
+            ),
+            agent_client_protocol::schema::v1::AvailableCommand::new(
+                "review",
+                "Review the current diff",
+            )
+            .input(
+                agent_client_protocol::schema::v1::AvailableCommandInput::Unstructured(
+                    agent_client_protocol::schema::v1::UnstructuredCommandInput::new(
+                        "file to review",
+                    ),
+                ),
+            ),
+        ]);
+        assert_eq!(commands.len(), 2);
+        assert_eq!(commands[0].name, "compact");
+        assert!(!commands[0].requires_argument);
+        assert_eq!(commands[1].name, "review");
+        assert!(commands[1].requires_argument);
+    }
+
     #[test]
     fn config_categories_map_from_acp_and_preserve_unknown() {
         assert_eq!(

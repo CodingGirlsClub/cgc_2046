@@ -460,13 +460,8 @@ pub(in crate::root_view) fn render_chat_panel(
                 }))
                 .child({
                     let slash_open = input.starts_with('/') && !input.contains(' ');
-                    let commands = [
-                        ("/help", "显示可用命令"),
-                        ("/clear", "清空当前对话"),
-                        ("/model", "切换模型"),
-                        ("/compact", "压缩上下文"),
-                    ];
-                    let slash_rows = slash_open.then(|| {
+                    let slash_commands = ctx.chat.commands.clone();
+                    let slash_rows = (slash_open && !slash_commands.is_empty()).then(|| {
                         div()
                             .id("chat-slash-menu")
                             .flex()
@@ -477,10 +472,11 @@ pub(in crate::root_view) fn render_chat_panel(
                             .border_1()
                             .border_color(palette.line)
                             .bg(palette.card)
-                            .children(commands.into_iter().map(|(command, description)| {
-                                let command = command.to_string();
+                            .children(slash_commands.into_iter().map(|command| {
+                                let name = command.name.clone();
+                                let insert = format!("/{} ", command.name);
                                 div()
-                                    .id(SharedString::from(format!("chat-slash-{command}")))
+                                    .id(SharedString::from(format!("chat-slash-{}", name)))
                                     .flex()
                                     .flex_row()
                                     .items_center()
@@ -494,16 +490,16 @@ pub(in crate::root_view) fn render_chat_panel(
                                         div()
                                             .text_size(px(11.0))
                                             .text_color(palette.ink)
-                                            .child(command.clone()),
+                                            .child(format!("/{name}")),
                                     )
                                     .child(
                                         div()
                                             .text_size(px(10.0))
                                             .text_color(palette.ink_3)
-                                            .child(description),
+                                            .child(command.description),
                                     )
                                     .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.set_chat_input_text(format!("{command} "), window, cx);
+                                        this.set_chat_input_text(insert.clone(), window, cx);
                                     }))
                             }))
                             .into_any_element()

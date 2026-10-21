@@ -36,7 +36,7 @@ use cgc_events::list::{
 };
 use cgc_events::orders::{is_terminal_status, parse_rfc3339_epoch, qr_code_url, OrdersApi};
 use cgc_platform::acp::connection::{
-    AcpHost, AcpHostConfig, ConfigOptionView, HostEvent, SessionSummary,
+    AcpHost, AcpHostConfig, CommandView, ConfigOptionView, HostEvent, SessionSummary,
 };
 use cgc_platform::agent::detect::{detect_all, AgentStatus, DetectedAgent, SystemProbe};
 use cgc_platform::agent::launch::{build_launch, LaunchPlan, NodeRuntime};
@@ -228,6 +228,7 @@ struct ChatUi {
     poll_generation: u64,
     auto_prompted: bool,
     configs: Vec<ConfigOptionView>,
+    commands: Vec<CommandView>,
     sessions: Vec<SessionSummary>,
     show_sessions: bool,
     session_id: Option<String>,
