@@ -1410,8 +1410,8 @@ impl RootView {
                             .gap(px(4.0))
                             .min_w_0()
                             .overflow_x_hidden()
-                            .children(agent_toggle)
                             .children(history_toggle)
+                            .children(agent_toggle)
                             .child(site_tree_toggle)
                             .child(outline_toggle),
                     )
