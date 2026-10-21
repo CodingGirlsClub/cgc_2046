@@ -307,6 +307,32 @@ mod tests {
     }
 
     #[test]
+    fn codex_detection_uses_manifest_version_args() {
+        struct ArgsProbe;
+        impl CommandProbe for ArgsProbe {
+            fn version(&self, program: &str, args: &[&str]) -> Result<String, String> {
+                if program == "npx" && args.last() == Some(&"version") {
+                    Ok("1.11.0".to_string())
+                } else {
+                    Err("wrong probe args".to_string())
+                }
+            }
+        }
+        let registry = registry();
+        let codex = registry.get("codex").expect("codex");
+        let node = NodeStatus {
+            required: "24.0.0".into(),
+            found: Some("24.1.0".into()),
+        };
+        assert_eq!(
+            detect_agent(codex, &node, &ArgsProbe),
+            AgentStatus::Ready {
+                version: "1.11.0".to_string()
+            }
+        );
+    }
+
+    #[test]
     fn detect_all_marks_node_status() {
         let registry = registry();
         let probe = StaticProbe::default().with("node", "v22.22.3");

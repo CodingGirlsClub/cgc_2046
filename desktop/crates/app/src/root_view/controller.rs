@@ -2012,6 +2012,8 @@ impl RootView {
         self.agent_installing = Some(id.to_string());
         self.agent_install_stage = Some("准备运行环境".to_string());
         self.agent_install_error = None;
+        let installed_id = id.to_string();
+        let installed_version = entry.minimum_version.clone();
         let is_npx = matches!(
             entry.distribution,
             cgc_platform::registry::manifest::Distribution::Npx { .. }
@@ -2033,10 +2035,22 @@ impl RootView {
                 this.agent_installing = None;
                 this.agent_install_stage = None;
                 match result {
-                    Ok(_) => {
+                    Ok(result) => {
                         this.agent_install_error = None;
-                        this.agent_registry_started = false;
-                        this.start_agent_registry_load(cx);
+                        // 安装命令已经验证过固定版本；直接标记 Ready，避免再用系统
+                        // node/npx 探测把托管 runtime 已安装的 agent 误判为不可用。
+                        if let Some(row) = this
+                            .agent_registry_rows
+                            .iter_mut()
+                            .find(|row| row.entry.id == installed_id)
+                        {
+                            row.status = AgentStatus::Ready {
+                                version: result
+                                    .version
+                                    .clone()
+                                    .unwrap_or_else(|| installed_version.clone()),
+                            };
+                        }
                     }
                     Err(error) => this.agent_install_error = Some(error.to_string()),
                 }
