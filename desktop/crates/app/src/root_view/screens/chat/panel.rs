@@ -582,6 +582,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                     .label(current)
                                     .xsmall()
                                     .ghost()
+                                    .max_w(px(180.0))
                                     .tooltip(name),
                                 )
                                 .content(move |_, _, cx| {
@@ -671,6 +672,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                         }
                                     }
                                 })
+                                .flex_none()
                         })
                         .collect::<Vec<_>>();
                     let placeholder = match language {
@@ -739,8 +741,11 @@ pub(in crate::root_view) fn render_chat_panel(
                                     div()
                                         .flex()
                                         .flex_row()
+                                        .flex_wrap()
                                         .items_center()
                                         .gap(space(1))
+                                        .w_full()
+                                        .min_w(px(0.0))
                                         .child(
                                             div()
                                                 .id("chat-add-context")
@@ -766,7 +771,6 @@ pub(in crate::root_view) fn render_chat_panel(
                                                 })),
                                         )
                                         .children(config_pickers)
-                                        .child(div().flex_1())
                                         .child(
                                             div()
                                                 .id(if streaming {
@@ -785,6 +789,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                                 .flex()
                                                 .items_center()
                                                 .justify_center()
+                                                .ml_auto()
                                                 .bg(if streaming {
                                                     palette.danger
                                                 } else {
