@@ -473,6 +473,10 @@ impl Render for RootView {
         let language = self.language;
         let account_menu = self.account_menu_open;
         let is_signed_in = self.is_signed_in();
+        if is_signed_in && self.pending_link.as_deref() == Some("/settings") {
+            self.pending_link = None;
+            self.open_settings_window(cx);
+        }
         self.clamp_open_panel_widths(window.viewport_size().width.as_f32());
         if self.key_interceptor.is_none() {
             let root = cx.entity().downgrade();
@@ -2367,9 +2371,12 @@ mod tests {
     #[test]
     fn pending_deep_link_is_consumed_after_login() {
         let mut view = view();
-        view.pending_link = Some("/settings".to_string());
+        view.pending_link = Some("/workspace".to_string());
         view.finish_login(Ok(fake_signed_in()));
-        assert_eq!(view.current().map(|route| route.id), Some("app.settings"));
+        assert_eq!(
+            view.current().map(|route| route.id),
+            Some("account.workspace")
+        );
         assert!(view.pending_link.is_none());
     }
 

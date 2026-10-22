@@ -62,6 +62,13 @@ impl RootView {
 
     pub fn handle_deep_link(&mut self, raw: &str, cx: &mut Context<Self>) {
         match crate::deep_link::parse(raw) {
+            Ok(link) if link.path == "/settings" => {
+                if self.is_signed_in() {
+                    self.open_settings_window(cx);
+                } else {
+                    self.pending_link = Some(link.path);
+                }
+            }
             Ok(link) => {
                 self.pending_link = Some(link.path);
                 self.consume_pending_link();
@@ -83,6 +90,10 @@ impl RootView {
 
     pub(in crate::root_view) fn consume_pending_link(&mut self) {
         if !self.is_signed_in() {
+            return;
+        }
+        // Settings 是独立窗口；留给 render 在登录后打开，不能走中心路由。
+        if self.pending_link.as_deref() == Some("/settings") {
             return;
         }
         if let Some(path) = self.pending_link.take() {
