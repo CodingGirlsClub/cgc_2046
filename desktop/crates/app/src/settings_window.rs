@@ -12,12 +12,11 @@ use gpui_kit::*;
 
 use crate::build_info;
 use crate::i18n::{translate, Key, Language};
-use crate::theme::{self, space, ThemePreference, RADIUS_LARGE, RADIUS_MEDIUM};
+use crate::theme::{self, space, RADIUS_LARGE, RADIUS_MEDIUM};
 use cgc_platform::session::AuthApi;
 
 pub struct SettingsWindowView {
     language: Language,
-    preference: ThemePreference,
     email: Option<String>,
     user_id: String,
     workspace: Option<String>,
@@ -33,7 +32,6 @@ impl SettingsWindowView {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         language: Language,
-        preference: ThemePreference,
         email: Option<String>,
         user_id: String,
         workspace: Option<String>,
@@ -43,7 +41,6 @@ impl SettingsWindowView {
     ) -> Self {
         Self {
             language,
-            preference,
             email,
             user_id,
             workspace,
@@ -111,10 +108,9 @@ impl SettingsWindowView {
 }
 
 impl Render for SettingsWindowView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let language = self.language;
-        let mode = theme::resolve(self.preference, window.appearance());
-        let palette = theme::palette(mode);
+        let palette = theme::palette_from_theme(cx);
         let shortcut = if cfg!(target_os = "macos") {
             "⌘,"
         } else {

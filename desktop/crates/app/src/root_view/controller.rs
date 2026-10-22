@@ -1316,7 +1316,6 @@ impl RootView {
             return;
         };
         let language = self.language;
-        let preference = self.preference;
         let email = signed_in.email.clone();
         let user_id = signed_in.user_id.clone();
         let token = signed_in.token.clone();
@@ -1352,11 +1351,8 @@ impl RootView {
             ..Default::default()
         };
         cx.open_window(options, move |window, cx| {
-            theme::apply(theme::resolve(preference, window.appearance()), cx);
             let view = cx.new(|cx| {
-                SettingsWindowView::new(
-                    language, preference, email, user_id, workspace, token, api, cx,
-                )
+                SettingsWindowView::new(language, email, user_id, workspace, token, api, cx)
             });
             let focus = view.read(cx).focus_handle();
             window.focus(&focus, cx);
