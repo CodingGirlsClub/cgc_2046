@@ -729,6 +729,21 @@ impl RootView {
         self.chat.host.is_some()
     }
 
+    pub(in crate::root_view) fn reset_config_search(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.chat.config_search.clear();
+        if let Some(input) = self.chat.config_search_input.clone() {
+            input.update(cx, |input, cx| {
+                input.set_value("", window, cx);
+                input.focus(window, cx);
+            });
+        }
+        cx.notify();
+    }
+
     pub(in crate::root_view) fn set_chat_input_text(
         &mut self,
         text: String,

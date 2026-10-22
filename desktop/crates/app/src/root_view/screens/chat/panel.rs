@@ -1,8 +1,9 @@
 use super::super::super::*;
 use super::super::ScreenContext;
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::input::Textarea;
+use gpui_kit::component::input::{Input, Textarea};
 use gpui_kit::component::popover::Popover;
+use gpui_kit::component::scroll::ScrollableElement as _;
 
 pub(in crate::root_view) fn render_chat_panel(
     ctx: &mut ScreenContext<'_>,
@@ -546,6 +547,8 @@ pub(in crate::root_view) fn render_chat_panel(
                             .children(rows)
                             .into_any_element()
                     });
+                    let config_query = ctx.chat.config_search.to_lowercase();
+                    let config_search_input = ctx.chat.config_search_input.clone();
                     let config_pickers = ctx
                         .chat
                         .configs
@@ -557,7 +560,18 @@ pub(in crate::root_view) fn render_chat_panel(
                             let name = config.name.clone();
                             let current = config.current.clone();
                             let selected_value = config.current.clone();
-                            let options = config.values.clone();
+                            let options = config
+                                .values
+                                .iter()
+                                .filter(|(_, label)| {
+                                    config_query.is_empty()
+                                        || label.to_lowercase().contains(&config_query)
+                                })
+                                .cloned()
+                                .collect::<Vec<_>>();
+                            let content_root = root.clone();
+                            let open_root = root.clone();
+                            let content_search_input = config_search_input.clone();
                             Popover::new(SharedString::from(format!("chat-config-popover-{index}")))
                                 .trigger(
                                     Button::new(SharedString::from(format!(
@@ -570,11 +584,12 @@ pub(in crate::root_view) fn render_chat_panel(
                                 )
                                 .content(move |_, _, cx| {
                                     let dismiss = cx.entity().downgrade();
+                                    let search_input = content_search_input.clone();
                                     let rows = options.iter().map(|(value, label)| {
                                         let value = value.clone();
                                         let label = label.clone();
                                         let selected = value == selected_value;
-                                        let row_root = root.clone();
+                                        let row_root = content_root.clone();
                                         let row_dismiss = dismiss.clone();
                                         div()
                                             .id(SharedString::from(format!(
@@ -607,7 +622,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                             })
                                             .into_any_element()
                                     });
-                                    div()
+                                    let options = div()
                                         .id(SharedString::from(format!(
                                             "chat-config-options-{index}"
                                         )))
@@ -616,9 +631,33 @@ pub(in crate::root_view) fn render_chat_panel(
                                         .gap(px(1.0))
                                         .w(px(260.0))
                                         .max_h(px(280.0))
-                                        .overflow_y_scroll()
                                         .occlude()
-                                        .children(rows)
+                                        .children(search_input.map(|input| {
+                                            div()
+                                                .px(space(1))
+                                                .pb(space(1))
+                                                .mb(space(1))
+                                                .border_b_1()
+                                                .border_color(palette.line)
+                                                .child(
+                                                    Input::new(&input)
+                                                        .small()
+                                                        .appearance(false)
+                                                        .w_full(),
+                                                )
+                                                .into_any_element()
+                                        }))
+                                        .children(rows);
+                                    options.overflow_y_scrollbar()
+                                })
+                                .on_open_change({
+                                    move |open, window, cx| {
+                                        if *open {
+                                            let _ = open_root.update(cx, |this, cx| {
+                                                this.reset_config_search(window, cx);
+                                            });
+                                        }
+                                    }
                                 })
                         })
                         .collect::<Vec<_>>();

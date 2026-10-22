@@ -60,7 +60,7 @@ use gpui_kit::assets::IconName as AssetIcon;
 use gpui_kit::component::{
     avatar::Avatar,
     empty::{Empty, EmptyDescription, EmptyHeader, EmptyTitle},
-    input::{InputEvent, TextareaState},
+    input::{InputEvent, InputState, TextareaState},
     kbd::Kbd,
     spinner::Spinner,
     status_bar::StatusBar,
@@ -229,6 +229,9 @@ struct ChatUi {
     auto_prompted: bool,
     configs: Vec<ConfigOptionView>,
     commands: Vec<CommandView>,
+    config_search: String,
+    config_search_input: Option<Entity<InputState>>,
+    config_search_subscription: Option<Subscription>,
     slash_selection: usize,
     slash_dismissed: bool,
     sessions: Vec<SessionSummary>,
@@ -447,6 +450,10 @@ impl RootView {
     pub fn set_chat_input(&mut self, input: Entity<TextareaState>) {
         self.state.chat_input = Some(input);
     }
+
+    pub fn set_config_search_input(&mut self, input: Entity<InputState>) {
+        self.state.chat.config_search_input = Some(input);
+    }
 }
 
 impl Render for RootView {
@@ -511,6 +518,21 @@ impl Render for RootView {
                     },
                 );
                 self.chat_input_subscription = Some(subscription);
+            }
+        }
+        if let Some(input) = self.chat.config_search_input.clone() {
+            if self.chat.config_search_subscription.is_none() {
+                let subscription = cx.subscribe_in(
+                    &input,
+                    window,
+                    |this, state, event: &InputEvent, _window, cx| {
+                        if let InputEvent::Change = event {
+                            this.chat.config_search = state.read(cx).value().to_string();
+                            cx.notify();
+                        }
+                    },
+                );
+                self.chat.config_search_subscription = Some(subscription);
             }
         }
         if is_signed_in
