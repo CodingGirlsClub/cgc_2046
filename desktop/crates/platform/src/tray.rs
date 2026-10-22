@@ -13,6 +13,7 @@ use tray_icon::{MouseButton, MouseButtonState};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TrayLabels {
     pub open: String,
+    pub notifications: String,
     pub settings: String,
     pub quit: String,
     pub tooltip: String,
@@ -21,6 +22,7 @@ pub struct TrayLabels {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TrayEvent {
     Open,
+    Notifications,
     Settings,
     Quit,
     Click,
@@ -29,6 +31,7 @@ pub enum TrayEvent {
 pub struct Tray {
     _icon: TrayIcon,
     open_item: MenuItem,
+    notifications_item: MenuItem,
     settings_item: MenuItem,
     quit_item: MenuItem,
 }
@@ -53,6 +56,9 @@ impl Tray {
             if event.id == *self.open_item.id() {
                 return Some(TrayEvent::Open);
             }
+            if event.id == *self.notifications_item.id() {
+                return Some(TrayEvent::Notifications);
+            }
             if event.id == *self.settings_item.id() {
                 return Some(TrayEvent::Settings);
             }
@@ -68,9 +74,11 @@ pub fn create(icon_png: &[u8], labels: TrayLabels) -> Result<Tray, String> {
     let icon = decode_icon(icon_png)?;
     let menu = Menu::new();
     let open_item = MenuItem::with_id("tray-open", labels.open, true, None);
+    let notifications_item =
+        MenuItem::with_id("tray-notifications", labels.notifications, true, None);
     let settings_item = MenuItem::with_id("tray-settings", labels.settings, true, None);
     let quit_item = MenuItem::with_id("tray-quit", labels.quit, true, None);
-    menu.append_items(&[&open_item, &settings_item, &quit_item])
+    menu.append_items(&[&open_item, &notifications_item, &settings_item, &quit_item])
         .map_err(|error| format!("tray menu: {error}"))?;
     #[cfg(target_os = "macos")]
     let builder = TrayIconBuilder::new().with_menu_on_left_click(true);
@@ -85,6 +93,7 @@ pub fn create(icon_png: &[u8], labels: TrayLabels) -> Result<Tray, String> {
     Ok(Tray {
         _icon: icon,
         open_item,
+        notifications_item,
         settings_item,
         quit_item,
     })

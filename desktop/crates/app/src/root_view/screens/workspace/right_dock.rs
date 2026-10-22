@@ -5,8 +5,13 @@
 
 use super::super::super::*;
 use super::super::ScreenContext;
+use crate::notification_center::{filtered_items, format_time, NotificationFilter};
 use cgc_courses::outline::build_outline;
+use gpui_kit::component::empty::{Empty, EmptyDescription, EmptyHeader, EmptyTitle};
 use gpui_kit::component::progress::Progress;
+use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::component::skeleton::Skeleton;
+use gpui_kit::component::spinner::Spinner;
 
 pub(in crate::root_view) fn render_right_dock(
     ctx: &mut ScreenContext<'_>,
@@ -17,13 +22,18 @@ pub(in crate::root_view) fn render_right_dock(
 ) -> AnyElement {
     let panel = ctx.right_panel;
     let width = ctx.right_panel_width;
+    if panel == RightPanel::Notifications {
+        return render_notifications_dock(ctx, language, palette, width, cx);
+    }
     let title = match panel {
         RightPanel::SiteTree => translate(language, Key::WorkspaceSiteTreeTitle),
         RightPanel::Outline => translate(language, Key::WorkspaceOutlineTitle),
+        RightPanel::Notifications => translate(language, Key::AppNotificationsTitle),
     };
     let icon = match panel {
         RightPanel::SiteTree => AssetIcon::FolderOpen,
         RightPanel::Outline => AssetIcon::FileText,
+        RightPanel::Notifications => AssetIcon::Bell,
     };
     if panel == RightPanel::SiteTree {
         if let Some(offset) = ctx.site_tree_scroll_restore.take() {
@@ -36,6 +46,7 @@ pub(in crate::root_view) fn render_right_dock(
     let body = match panel {
         RightPanel::SiteTree => render_site_tree(ctx, language, palette, cx),
         RightPanel::Outline => render_outline(ctx, language, palette, cx),
+        RightPanel::Notifications => unreachable!(),
     };
 
     let header = (panel == RightPanel::Outline).then(|| {
@@ -98,6 +109,295 @@ pub(in crate::root_view) fn render_right_dock(
                 .text_color(palette.ink_2)
                 .child(body),
         )
+        .into_any_element()
+}
+
+fn render_notifications_dock(
+    ctx: &mut ScreenContext<'_>,
+    language: Language,
+    palette: &theme::Palette,
+    width: f32,
+    cx: &mut Context<RootView>,
+) -> AnyElement {
+    use gpui_kit::component::button::{Button, ButtonVariants};
+
+    let unread = crate::notification_center::unread_count(&ctx.notification_items);
+    let filter = ctx.notification_filter;
+    let loading = ctx.notification_loading;
+    let error = ctx.notification_error.clone();
+    let has_more = ctx.notification_next_cursor.is_some();
+    let items = filtered_items(&ctx.notification_items, filter);
+    let scroll = ctx.notification_scroll.clone();
+
+    let header = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .gap(px(6.0))
+        .px(space(2))
+        .py(space(1))
+        .border_b_1()
+        .border_color(palette.line)
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(1.0))
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(palette.ink)
+                        .child(translate(language, Key::AppNotificationsTitle)),
+                )
+                .child(
+                    div()
+                        .text_size(px(10.0))
+                        .text_color(if unread > 0 {
+                            palette.accent
+                        } else {
+                            palette.ink_3
+                        })
+                        .child(
+                            translate(language, Key::AppNotificationsUnreadCount)
+                                .replace("{count}", &unread.to_string()),
+                        ),
+                ),
+        )
+        .child({
+            let root = cx.entity().downgrade();
+            Button::new("notifications-refresh")
+                .xsmall()
+                .ghost()
+                .icon(
+                    Icon::default()
+                        .path(AssetIcon::RefreshCw.path())
+                        .text_color(palette.ink_3)
+                        .small(),
+                )
+                .tooltip(translate(language, Key::AppNotificationsRefresh))
+                .loading(loading)
+                .on_click(move |_, _, cx| {
+                    let _ = root.update(cx, |this, cx| this.refresh_notifications(cx));
+                })
+        });
+
+    let filters = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(4.0))
+        .px(space(2))
+        .py(px(6.0))
+        .border_b_1()
+        .border_color(palette.line)
+        .children(
+            [NotificationFilter::All, NotificationFilter::Unread].map(|filter| {
+                let root = cx.entity().downgrade();
+                let label = match filter {
+                    NotificationFilter::All => translate(language, Key::AppNotificationsAll),
+                    NotificationFilter::Unread => translate(language, Key::AppNotificationsUnread),
+                };
+                let mut button = Button::new(match filter {
+                    NotificationFilter::All => "notifications-filter-all",
+                    NotificationFilter::Unread => "notifications-filter-unread",
+                })
+                .xsmall()
+                .label(label);
+                button = if filter == ctx.notification_filter {
+                    button.primary()
+                } else {
+                    button.ghost()
+                };
+                button.on_click(move |_, _, cx| {
+                    let _ = root.update(cx, |this, cx| {
+                        this.set_notification_filter(filter, cx);
+                    });
+                })
+            }),
+        );
+
+    let content = if let Some(error) = error {
+        div()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap(space(2))
+            .p(space(3))
+            .child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(palette.danger)
+                    .child(translate(language, Key::AppNotificationsFailed)),
+            )
+            .child(
+                div()
+                    .text_size(px(10.0))
+                    .text_color(palette.ink_3)
+                    .child(error),
+            )
+            .child({
+                let root = cx.entity().downgrade();
+                Button::new("notifications-retry")
+                    .xsmall()
+                    .label(translate(language, Key::AppNotificationsRetry))
+                    .on_click(move |_, _, cx| {
+                        let _ = root.update(cx, |this, cx| this.refresh_notifications(cx));
+                    })
+            })
+            .into_any_element()
+    } else if (loading || !ctx.notification_loaded) && ctx.notification_items.is_empty() {
+        div()
+            .flex()
+            .flex_col()
+            .gap(space(1))
+            .p(space(2))
+            .children((0..3).map(|index| {
+                Skeleton::new()
+                    .h(px(if index == 0 { 44.0 } else { 36.0 }))
+                    .w_full()
+                    .into_any_element()
+            }))
+            .into_any_element()
+    } else if items.is_empty() {
+        Empty::new()
+            .header(
+                EmptyHeader::new()
+                    .title(
+                        EmptyTitle::new().child(if filter == NotificationFilter::Unread {
+                            translate(language, Key::AppNotificationsEmptyUnread)
+                        } else {
+                            translate(language, Key::AppNotificationsEmpty)
+                        }),
+                    )
+                    .description(
+                        EmptyDescription::new()
+                            .child(translate(language, Key::AppNotificationsEmptyHint)),
+                    ),
+            )
+            .into_any_element()
+    } else {
+        let rows = items
+            .iter()
+            .map(|item| {
+                let id = item.id.clone();
+                let read = item.read_at.is_some();
+                let root = cx.entity().downgrade();
+                div()
+                    .id(SharedString::from(format!("notification-row-{}", item.id)))
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.0))
+                    .px(space(2))
+                    .py(space(1))
+                    .border_b_1()
+                    .border_color(palette.line)
+                    .bg(if read { palette.view } else { palette.card })
+                    .hover(|style| style.bg(palette.soft))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(5.0))
+                            .child(div().size(px(5.0)).rounded_full().bg(if read {
+                                palette.ink_3
+                            } else {
+                                palette.accent
+                            }))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w(px(0.0))
+                                    .truncate()
+                                    .text_size(px(11.0))
+                                    .text_color(if read { palette.ink_2 } else { palette.ink })
+                                    .child(item.title.clone()),
+                            )
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_size(px(9.0))
+                                    .text_color(palette.ink_3)
+                                    .child(format_time(&item.inserted_at)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .pl(px(10.0))
+                            .truncate()
+                            .text_size(px(10.0))
+                            .text_color(palette.ink_3)
+                            .child(item.body.clone()),
+                    )
+                    .on_click(move |_, _, cx| {
+                        let _ = root.update(cx, |this, cx| this.open_notification(&id, cx));
+                    })
+                    .into_any_element()
+            })
+            .collect::<Vec<_>>();
+        let mut list = div()
+            .flex()
+            .flex_col()
+            .w_full()
+            .id("notification-list")
+            .children(rows);
+        if loading {
+            list = list.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .py(space(1))
+                    .child(Spinner::new().with_size(gpui_kit::component::Size::Small)),
+            );
+        }
+        list.into_any_element()
+    };
+
+    let footer = has_more.then(|| {
+        let root = cx.entity().downgrade();
+        div()
+            .flex()
+            .justify_center()
+            .p(space(1))
+            .border_t_1()
+            .border_color(palette.line)
+            .child(
+                Button::new("notifications-load-more")
+                    .xsmall()
+                    .ghost()
+                    .label(translate(language, Key::AppNotificationsLoadMore))
+                    .on_click(move |_, _, cx| {
+                        let _ = root.update(cx, |this, cx| this.load_more_notifications(cx));
+                    }),
+            )
+    });
+
+    div()
+        .id("notifications-dock")
+        .w(px(width))
+        .flex_none()
+        .h_full()
+        .flex()
+        .flex_col()
+        .min_h(px(0.0))
+        .border_l_1()
+        .border_color(palette.line)
+        .bg(palette.view)
+        .child(header)
+        .child(filters)
+        .child(
+            div()
+                .id("notifications-scroll")
+                .flex_1()
+                .min_h(px(0.0))
+                .overflow_y_scroll()
+                .track_scroll(&scroll)
+                .vertical_scrollbar(&scroll)
+                .child(content),
+        )
+        .children(footer)
         .into_any_element()
 }
 

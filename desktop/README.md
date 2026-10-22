@@ -61,6 +61,15 @@ cgc://courses/<uuid>/learn
 - macOS 系统通知要求从 `.app` 启动；`cargo run` 的未打包进程不会弹通知（GPUI 保护）。
 - Linux 托盘使用 StatusNotifierItem；桌面没有托盘 host 时托盘不可见，但应用仍可运行。
 
+## 通知中心
+
+- 顶部头像左侧的铃铛显示未读数角标（`9+` 封顶）。
+- 点击铃铛打开右侧通知中心；与 Site Tree / Outline 共用右侧 Dock，可拖宽。
+- 列表来自 `notificationFeed`，支持全部/未读筛选、刷新、分页加载和重试。
+- 点击通知会标记已读、关闭对应系统通知，并走 `cgc://` 深链跳转；未知路径回工作台。
+- 托盘菜单的 `通知` 也会打开通知中心；主窗口已关闭时会先恢复窗口。
+- 当前不做「全部已读」，因为后端只有单条 `markNotificationRead`。
+
 ## 目录与依赖方向（脊柱 AD-1）
 
 ```text

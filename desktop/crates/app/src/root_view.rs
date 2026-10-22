@@ -59,6 +59,7 @@ use cgc_platform::workspace::{
 use gpui_kit::assets::IconName as AssetIcon;
 use gpui_kit::component::{
     avatar::Avatar,
+    badge::Badge,
     empty::{Empty, EmptyDescription, EmptyHeader, EmptyTitle},
     input::{InputEvent, InputState, TextareaState},
     kbd::Kbd,
@@ -830,6 +831,7 @@ impl Render for RootView {
                             .child(div().w(px(1.0)).h(px(14.0)).bg(palette.line))
                             .child(self.render_breadcrumb_bar(language, &palette, cx))
                             .child(div().flex_1())
+                            .child(self.render_notifications_bell(language, &palette, cx))
                             .child(
                                 div()
                                     .id("account-toggle-wrap")
@@ -1154,6 +1156,58 @@ impl RootView {
             .occlude()
             .text_color(palette.ink)
             .children(rows)
+            .into_any_element()
+    }
+
+    fn render_notifications_bell(
+        &self,
+        language: Language,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let unread = self.notification_unread_count();
+        let active = self.right_panel_open && self.right_panel == RightPanel::Notifications;
+        let icon = if unread > 0 {
+            AssetIcon::BellDot
+        } else {
+            AssetIcon::Bell
+        };
+        let label = translate(language, Key::AppNotificationsTitle);
+        let tooltip = label.to_string();
+        div()
+            .id("notifications-toggle")
+            .role(Role::Button)
+            .aria_label(label)
+            .size(px(26.0))
+            .mr(px(7.0))
+            .rounded(px(RADIUS_MEDIUM))
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_color(if active {
+                palette.accent
+            } else {
+                palette.ink_3
+            })
+            .hover(|style| style.bg(palette.soft))
+            .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+            .on_click(cx.listener(|this, _, _, cx| this.toggle_notifications(cx)))
+            .child(
+                Badge::new()
+                    .count(unread)
+                    .max(9)
+                    .with_size(gpui_kit::component::Size::Small)
+                    .child(
+                        Icon::default()
+                            .path(icon.path())
+                            .text_color(if active {
+                                palette.accent
+                            } else {
+                                palette.ink_3
+                            })
+                            .small(),
+                    ),
+            )
             .into_any_element()
     }
 

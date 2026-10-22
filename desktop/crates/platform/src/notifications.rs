@@ -8,8 +8,10 @@ use serde_json::{json, Value};
 use crate::api::{ApiError, GraphqlClient};
 
 const FEED_QUERY: &str = r#"
-query NotificationFeed($first: Int!) {
-  notificationFeed(first: $first) {
+query NotificationFeed($first: Int!, $after: String) {
+  notificationFeed(first: $first, after: $after) {
+    count
+    endKeyset
     results {
       id
       type
@@ -32,6 +34,13 @@ mutation MarkNotificationRead($id: ID!) {
 "#;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NotificationPage {
+    pub items: Vec<Notification>,
+    pub total: Option<i64>,
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Notification {
     pub id: String,
     pub kind: String,
@@ -50,7 +59,17 @@ impl Notification {
 }
 
 pub trait NotificationsApi: Send + Sync {
-    fn feed(&self, token: &str, first: u32) -> Result<Vec<Notification>, ApiError>;
+    fn feed_page(
+        &self,
+        token: &str,
+        first: u32,
+        after: Option<&str>,
+    ) -> Result<NotificationPage, ApiError>;
+
+    fn feed(&self, token: &str, first: u32) -> Result<Vec<Notification>, ApiError> {
+        Ok(self.feed_page(token, first, None)?.items)
+    }
+
     fn mark_read(&self, token: &str, id: &str) -> Result<(), ApiError>;
 }
 
@@ -69,13 +88,18 @@ impl HttpNotificationsApi {
 }
 
 impl NotificationsApi for HttpNotificationsApi {
-    fn feed(&self, token: &str, first: u32) -> Result<Vec<Notification>, ApiError> {
+    fn feed_page(
+        &self,
+        token: &str,
+        first: u32,
+        after: Option<&str>,
+    ) -> Result<NotificationPage, ApiError> {
         let payload = self.client.post(
             Some(token),
             FEED_QUERY,
-            json!({ "first": first.clamp(1, 50) }),
+            json!({ "first": first.clamp(1, 50), "after": after }),
         )?;
-        parse_feed(&payload)
+        parse_page(&payload)
     }
 
     fn mark_read(&self, token: &str, id: &str) -> Result<(), ApiError> {
@@ -106,15 +130,15 @@ impl NotificationsApi for HttpNotificationsApi {
     }
 }
 
-pub fn parse_feed(payload: &Value) -> Result<Vec<Notification>, ApiError> {
-    let results = payload
+pub fn parse_page(payload: &Value) -> Result<NotificationPage, ApiError> {
+    let feed = payload
         .get("data")
-        .and_then(|data| data.get("notificationFeed"))
+        .and_then(|data| data.get("notificationFeed"));
+    let items = feed
         .and_then(|feed| feed.get("results"))
         .and_then(Value::as_array)
         .cloned()
-        .unwrap_or_default();
-    Ok(results
+        .unwrap_or_default()
         .iter()
         .filter_map(|item| {
             Some(Notification {
@@ -133,7 +157,21 @@ pub fn parse_feed(payload: &Value) -> Result<Vec<Notification>, ApiError> {
                 body: item.get("body")?.as_str()?.to_string(),
             })
         })
-        .collect())
+        .collect();
+    Ok(NotificationPage {
+        items,
+        total: feed
+            .and_then(|feed| feed.get("count"))
+            .and_then(Value::as_i64),
+        next_cursor: feed
+            .and_then(|feed| feed.get("endKeyset"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    })
+}
+
+pub fn parse_feed(payload: &Value) -> Result<Vec<Notification>, ApiError> {
+    Ok(parse_page(payload)?.items)
 }
 
 /// 后端通知 deepLink 是微信小程序路径；未知路径返回 None。
@@ -237,12 +275,39 @@ mod tests {
         });
         let api =
             HttpNotificationsApi::new(GraphqlClient::new(format!("http://{addr}/api/graphql")));
-        let feed = api.feed("jwt.token", 20).expect("feed");
-        assert_eq!(feed.len(), 1);
-        assert_eq!(feed[0].id, "n1");
+        let feed = api
+            .feed_page("jwt.token", 20, Some("cursor-1"))
+            .expect("feed");
+        assert_eq!(feed.items.len(), 1);
+        assert_eq!(feed.items[0].id, "n1");
         let request = receiver.recv().expect("request");
         assert!(request.contains("authorization: Bearer jwt.token"));
         assert!(request.contains("NotificationFeed"));
+        assert!(request.contains("cursor-1"));
+    }
+
+    #[test]
+    fn parses_page_count_and_cursor() {
+        let payload = json!({
+            "data": { "notificationFeed": {
+                "count": 41,
+                "endKeyset": "cursor-2",
+                "results": [{
+                    "id": "n1",
+                    "type": "event_reminder",
+                    "deepLink": null,
+                    "readAt": "2026-10-22T11:00:00Z",
+                    "insertedAt": "2026-10-22T10:00:00Z",
+                    "title": "提醒",
+                    "body": "正文"
+                }]
+            } }
+        });
+        let page = parse_page(&payload).expect("page");
+        assert_eq!(page.total, Some(41));
+        assert_eq!(page.next_cursor.as_deref(), Some("cursor-2"));
+        assert_eq!(page.items.len(), 1);
+        assert!(page.items[0].read_at.is_some());
     }
 
     #[test]

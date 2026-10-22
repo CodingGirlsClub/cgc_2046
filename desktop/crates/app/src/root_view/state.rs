@@ -2,12 +2,13 @@ use super::*;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-/// 右侧 Dock 的两个互斥 panel。图标在 footer 切换，同一时间只显示一个。
+/// 右侧 Dock 的互斥 panel。图标在 footer/header 切换，同一时间只显示一个。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(in crate::root_view) enum RightPanel {
     #[default]
     SiteTree,
     Outline,
+    Notifications,
 }
 
 /// 纯状态转移：点当前 panel 图标收起，点另一个切换；便于单测钉住互斥语义。
@@ -145,6 +146,13 @@ pub struct ShellState {
     pub(in crate::root_view) window_opening: bool,
     pub(in crate::root_view) close_to_tray: Arc<std::sync::atomic::AtomicBool>,
     pub(in crate::root_view) tray_hint_shown: Arc<std::sync::atomic::AtomicBool>,
+    pub(in crate::root_view) notification_items: Vec<cgc_platform::notifications::Notification>,
+    pub(in crate::root_view) notification_next_cursor: Option<String>,
+    pub(in crate::root_view) notification_filter: crate::notification_center::NotificationFilter,
+    pub(in crate::root_view) notification_loading: bool,
+    pub(in crate::root_view) notification_loaded: bool,
+    pub(in crate::root_view) notification_error: Option<String>,
+    pub(in crate::root_view) notification_scroll: ScrollHandle,
     pub(in crate::root_view) notification_seen: BTreeMap<String, String>,
     pub(in crate::root_view) notification_started: bool,
     pub(in crate::root_view) notification_responses: Arc<Mutex<Vec<SystemNotificationResponse>>>,
@@ -266,6 +274,13 @@ impl ShellState {
             window_opening: false,
             close_to_tray: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             tray_hint_shown: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            notification_items: Vec::new(),
+            notification_next_cursor: None,
+            notification_filter: crate::notification_center::NotificationFilter::All,
+            notification_loading: false,
+            notification_loaded: false,
+            notification_error: None,
+            notification_scroll: ScrollHandle::new(),
             notification_seen: crate::notifications::load_seen(),
             notification_started: false,
             notification_responses: Arc::new(Mutex::new(Vec::new())),
@@ -350,6 +365,10 @@ mod tests {
         assert_eq!(
             toggled_right_panel(RightPanel::Outline, false, RightPanel::SiteTree),
             (RightPanel::SiteTree, true)
+        );
+        assert_eq!(
+            toggled_right_panel(RightPanel::SiteTree, true, RightPanel::Notifications),
+            (RightPanel::Notifications, true)
         );
     }
 

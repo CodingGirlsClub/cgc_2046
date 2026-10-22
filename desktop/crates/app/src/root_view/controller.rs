@@ -109,6 +109,156 @@ impl RootView {
         self.notification_responses = responses;
     }
 
+    pub fn notification_unread_count(&self) -> usize {
+        crate::notification_center::unread_count(&self.notification_items)
+    }
+
+    pub fn toggle_notifications(&mut self, cx: &mut Context<Self>) {
+        if self.right_panel_open && self.right_panel == RightPanel::Notifications {
+            self.right_panel_open = false;
+            cx.notify();
+            return;
+        }
+        self.open_notifications(cx);
+    }
+
+    pub fn open_notifications(&mut self, cx: &mut Context<Self>) {
+        if !self.is_signed_in() {
+            return;
+        }
+        self.right_panel = RightPanel::Notifications;
+        self.right_panel_open = true;
+        self.account_menu_open = false;
+        self.theme_menu_open = false;
+        self.refresh_notifications(cx);
+        cx.notify();
+    }
+
+    pub fn refresh_notifications(&mut self, cx: &mut Context<Self>) {
+        let Some(token) = self.notification_token() else {
+            return;
+        };
+        if self.notification_loading {
+            return;
+        }
+        self.notification_loading = true;
+        self.notification_error = None;
+        cx.notify();
+        let root = cx.entity();
+        let api = Arc::new(cgc_platform::notifications::HttpNotificationsApi::from_env());
+        cx.spawn(async move |_weak, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api.feed_page(&token, 50, None) })
+                .await;
+            root.update(cx, |this, cx| {
+                this.apply_notification_page(result, false, cx)
+            });
+        })
+        .detach();
+    }
+
+    pub fn set_notification_filter(
+        &mut self,
+        filter: crate::notification_center::NotificationFilter,
+        cx: &mut Context<Self>,
+    ) {
+        self.notification_filter = filter;
+        cx.notify();
+    }
+
+    pub fn load_more_notifications(&mut self, cx: &mut Context<Self>) {
+        let Some(token) = self.notification_token() else {
+            return;
+        };
+        let Some(cursor) = self.notification_next_cursor.clone() else {
+            return;
+        };
+        if self.notification_loading {
+            return;
+        }
+        self.notification_loading = true;
+        self.notification_error = None;
+        cx.notify();
+        let root = cx.entity();
+        let api = Arc::new(cgc_platform::notifications::HttpNotificationsApi::from_env());
+        cx.spawn(async move |_weak, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api.feed_page(&token, 50, Some(&cursor)) })
+                .await;
+            root.update(cx, |this, cx| {
+                this.apply_notification_page(result, true, cx)
+            });
+        })
+        .detach();
+    }
+
+    fn apply_notification_page(
+        &mut self,
+        result: Result<cgc_platform::notifications::NotificationPage, cgc_platform::api::ApiError>,
+        append: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.notification_loading = false;
+        match result {
+            Ok(page) => {
+                self.notification_items = crate::notification_center::merge_notifications(
+                    &self.notification_items,
+                    &page.items,
+                    append,
+                );
+                self.notification_next_cursor = page.next_cursor;
+                self.notification_loaded = true;
+                self.notification_error = None;
+            }
+            Err(error) => {
+                self.notification_error = Some(error.diagnostic());
+            }
+        }
+        cx.notify();
+    }
+
+    pub fn mark_notification_read(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Some(item) = self
+            .notification_items
+            .iter_mut()
+            .find(|item| item.id == id)
+        {
+            if item.read_at.is_none() {
+                item.read_at = Some("local".to_string());
+            }
+        }
+        cx.dismiss_system_notification(id);
+        cx.notify();
+        let Some(token) = self.notification_token() else {
+            return;
+        };
+        let id = id.to_string();
+        let api = Arc::new(cgc_platform::notifications::HttpNotificationsApi::from_env());
+        cx.background_executor()
+            .spawn(async move {
+                let _ = api.mark_read(&token, &id);
+            })
+            .detach();
+    }
+
+    pub fn open_notification(&mut self, id: &str, cx: &mut Context<Self>) {
+        let item = self
+            .notification_items
+            .iter()
+            .find(|item| item.id == id)
+            .cloned();
+        let Some(item) = item else {
+            return;
+        };
+        self.mark_notification_read(id, cx);
+        let link = item
+            .client_deep_link()
+            .unwrap_or_else(|| "cgc://workspace".to_string());
+        self.handle_deep_link(&link, cx);
+    }
+
     pub fn start_notification_poll(&mut self, cx: &mut Context<Self>) {
         if self.notification_started {
             return;
@@ -173,6 +323,12 @@ impl RootView {
                 return;
             }
         };
+        self.notification_items = crate::notification_center::merge_notifications(
+            &self.notification_items,
+            &items,
+            false,
+        );
+        cx.notify();
         let first_launch = self.notification_seen.is_empty();
         let fresh = items
             .into_iter()
@@ -224,6 +380,15 @@ impl RootView {
         let Some(link) = self.notification_seen.get(&tag).cloned() else {
             return;
         };
+        if let Some(item) = self
+            .notification_items
+            .iter_mut()
+            .find(|item| item.id == tag)
+        {
+            if item.read_at.is_none() {
+                item.read_at = Some("local".to_string());
+            }
+        }
         self.handle_deep_link(&link, cx);
         if let Some(token) = self.notification_token() {
             let api = Arc::new(cgc_platform::notifications::HttpNotificationsApi::from_env());
@@ -252,6 +417,10 @@ impl RootView {
     fn handle_tray_event(&mut self, event: cgc_platform::tray::TrayEvent, cx: &mut Context<Self>) {
         match event {
             cgc_platform::tray::TrayEvent::Open | cgc_platform::tray::TrayEvent::Click => {
+                self.activate_window(cx);
+            }
+            cgc_platform::tray::TrayEvent::Notifications => {
+                self.open_notifications(cx);
                 self.activate_window(cx);
             }
             cgc_platform::tray::TrayEvent::Settings => self.open_settings_window(cx),
@@ -558,6 +727,17 @@ impl RootView {
         self.site_tree_scroll = ScrollHandle::new();
         self.site_tree_scroll_restore = None;
         self.review_event_keys.clear();
+        self.notification_items.clear();
+        self.notification_next_cursor = None;
+        self.notification_loaded = false;
+        self.notification_loading = false;
+        self.notification_error = None;
+        self.notification_filter = crate::notification_center::NotificationFilter::All;
+        self.notification_scroll = ScrollHandle::new();
+        if self.right_panel == RightPanel::Notifications {
+            self.right_panel = RightPanel::SiteTree;
+            self.right_panel_open = false;
+        }
     }
 
     pub(in crate::root_view) fn start_projection_load(

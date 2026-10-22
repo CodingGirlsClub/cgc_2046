@@ -111,6 +111,7 @@ fn main() {
                 let language = view.read(cx).language();
                 cgc_platform::tray::TrayLabels {
                     open: translate(language, Key::AppTrayOpen).to_string(),
+                    notifications: translate(language, Key::AppTrayNotifications).to_string(),
                     settings: translate(language, Key::AppTraySettings).to_string(),
                     quit: translate(language, Key::AppTrayQuit).to_string(),
                     tooltip: translate(language, Key::AppTrayTooltip).to_string(),

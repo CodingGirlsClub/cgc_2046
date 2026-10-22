@@ -5,6 +5,7 @@ pub mod chat_state;
 pub mod deep_link;
 pub mod formula;
 pub mod i18n;
+pub mod notification_center;
 pub mod notifications;
 pub mod preferences;
 pub mod qr;
