@@ -1,0 +1,13 @@
+[package]
+name = "cgc-agent-tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+cgc-agent-provider = { path = "../agent_provider" }
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"

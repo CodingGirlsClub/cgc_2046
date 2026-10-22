@@ -377,7 +377,10 @@ UI（输入）→ NativeHost.prompt
 
 **P0 进度（2026-10-22）**：T0/T1/T2 完成——`desktop/crates/agent_provider`（cgc-agent-provider）已落地四件套、FakeProvider、OpenAI-compatible Provider（SSE 解析、thinking、tool_call 累积、usage、错误分类），19 项单测通过；T3（最小 UI）与 T4（持久化）待做。
 
-**P1a 进度（2026-10-22）**：`desktop/crates/agent_core`（cgc-agent-core）已落地 Thread/Entry + 单轮 loop（流式文本、用量累计、停止原因、取消、tool_call 收集），12 项单测通过；工具执行、审批、OS 沙箱、本地会话、交互核心待做。
+**P1a 进度（2026-10-22）**：
+- `desktop/crates/agent_core`（cgc-agent-core）：Thread/Entry + 单轮 loop（流式文本、用量累计、停止原因、取消、tool_call 收集），12 项单测；
+- `desktop/crates/agent_tools`（cgc-agent-tools）：Tool trait、ToolRegistry、工作区路径约束（拒绝绝对路径与 `..` 逃逸）、审批分类、`read_file` / `list_directory` 只读工具，8 项单测。
+- 待做：工具执行接入 loop、写入/终端工具、审批执行、OS 沙箱、本地会话、交互核心。
 
 **P0 不做**：工具执行、审批、会话持久化、MCP、沙箱、多 mate、网关服务端。
 
