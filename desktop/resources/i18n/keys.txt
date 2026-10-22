@@ -25,6 +25,7 @@ app.auth.password
 app.auth.submit
 app.auth.error.invalid
 app.auth.error.network
+app.auth.error.keychain_linux
 app.auth.signed_in_as
 events.list.loading
 events.list.empty

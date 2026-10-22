@@ -9,7 +9,7 @@
 
 - Rust **1.98+**（`rust-toolchain.toml` 锁 1.98.1；本机可用已安装的更新版本，如 `RUSTUP_TOOLCHAIN=stable`）
 - macOS 15+ / Windows 10+（MSVC + CMake 在 PATH）/ Ubuntu 24.04（Wayland 或 X11 会话 + Vulkan 驱动）
-- Linux 额外依赖见 gpui-kit 安装文档
+- Linux 额外依赖见 gpui-kit 安装文档；登录凭证需要 `libsecret-tools`（Debian/Ubuntu: `sudo apt install libsecret-tools`）
 
 ## 运行
 

@@ -120,6 +120,7 @@ pub(crate) enum LoginError {
     Invalid,
     Network,
     Keychain,
+    KeychainLinux,
     RateLimited,
     Reset,
     Wechat,
@@ -130,6 +131,11 @@ impl LoginError {
         match error {
             AuthError::InvalidCredentials => LoginError::Invalid,
             AuthError::Transport(_) | AuthError::Server(_) => LoginError::Network,
+            AuthError::Storage(reason)
+                if reason.contains("secret-tool") || reason.contains("libsecret") =>
+            {
+                LoginError::KeychainLinux
+            }
             AuthError::Storage(_) => LoginError::Keychain,
             AuthError::Domain { code, .. } => match code.as_str() {
                 "rate_limited" => LoginError::RateLimited,
@@ -153,6 +159,7 @@ impl LoginError {
             LoginError::Invalid => Key::AppAuthErrorInvalid,
             LoginError::Network => Key::AppAuthErrorNetwork,
             LoginError::Keychain => Key::AppAuthErrorKeychain,
+            LoginError::KeychainLinux => Key::AppAuthErrorKeychainLinux,
             LoginError::RateLimited => Key::AppAuthErrorRateLimited,
             LoginError::Reset => Key::AppAuthErrorReset,
             LoginError::Wechat => Key::AppAuthErrorWechat,
@@ -2105,7 +2112,7 @@ fn shortcut_kbd(stroke: &str) -> Kbd {
 mod tests {
     use super::{
         agent_response_text, fuzzy_score, slash_candidates, slash_query, ChatEntry, CommandView,
-        LoginMode, RootView, WechatLoginView,
+        LoginError, LoginMode, RootView, WechatLoginView,
     };
     use crate::i18n::{translate, Key, Language};
     use crate::registration::build_registry;
@@ -2343,6 +2350,18 @@ mod tests {
         view.finish_login(Ok(fake_signed_in()));
         assert!(view.is_signed_in());
         assert!(view.login_error().is_none());
+    }
+
+    #[test]
+    fn missing_linux_secret_tool_has_actionable_error() {
+        let missing = LoginError::from_auth_error(&AuthError::Storage(
+            "cannot persist session: secret-tool is not installed".to_string(),
+        ));
+        assert_eq!(missing.key(), Key::AppAuthErrorKeychainLinux);
+        let generic = LoginError::from_auth_error(&AuthError::Storage(
+            "OS keychain is not available on this platform".to_string(),
+        ));
+        assert_eq!(generic.key(), Key::AppAuthErrorKeychain);
     }
 
     #[test]

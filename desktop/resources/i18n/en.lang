@@ -24,6 +24,7 @@ app.auth.password = Password
 app.auth.submit = Sign in
 app.auth.error.invalid = Invalid email or password
 app.auth.error.network = Network error, please retry
+app.auth.error.keychain_linux = libsecret-tools is missing, so the session cannot be saved securely. Install it (Ubuntu/Debian: sudo apt install libsecret-tools) and try again.
 app.auth.signed_in_as = Signed in as
 events.list.loading = Loading…
 events.list.empty = No events yet

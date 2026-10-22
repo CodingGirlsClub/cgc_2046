@@ -35,3 +35,7 @@ icons = [
   "icons/icon.icns",
   "icons/icon.ico",
 ]
+
+# Linux deb 运行时依赖：登录凭证通过 secret-tool（libsecret）持久化。
+[package.metadata.packager.deb]
+depends = ["libsecret-tools"]

@@ -41,6 +41,14 @@ for f in dist/*.deb; do
   if command -v dpkg-deb >/dev/null 2>&1; then
     dpkg-deb -c "$f" >/dev/null
     echo "   dpkg-deb -c ok"
+    depends=$(dpkg-deb -f "$f" Depends 2>/dev/null || true)
+    case "$depends" in
+      *libsecret-tools*) echo "   dependency ok: libsecret-tools" ;;
+      *)
+        echo "FAIL: deb 缺少 libsecret-tools 运行时依赖（实际 Depends: ${depends:-<empty>}）" >&2
+        exit 1
+        ;;
+    esac
   else
     echo "   dpkg-deb 不可用（非 Debian 系宿主），跳过结构校验"
   fi

@@ -24,6 +24,7 @@ app.auth.password = 密码
 app.auth.submit = 登录
 app.auth.error.invalid = 账号或密码错误
 app.auth.error.network = 网络异常，请稍后重试
+app.auth.error.keychain_linux = 缺少 libsecret-tools，无法安全保存登录状态。请安装 libsecret-tools（Ubuntu/Debian: sudo apt install libsecret-tools）后重试。
 app.auth.signed_in_as = 已登录为
 events.list.loading = 加载中…
 events.list.empty = 暂无活动
