@@ -10,6 +10,7 @@ use cgc_agent_provider::{
     EchoProvider, Model, ModelLimits, OpenAiCompatibleConfig, OpenAiCompatibleProvider, Provider,
     ProviderId,
 };
+use cgc_agent_store::{AgentPrefs, PrefsStore};
 use cgc_agent_tools::{ToolContext, ToolRegistry};
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::*;
@@ -38,7 +39,21 @@ pub struct NativeAgentView {
 
 impl NativeAgentView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let model_id = std::env::var("CGC_AGENT_MODEL").unwrap_or_else(|_| "echo".to_string());
+        let paths = cgc_platform::paths::AppPaths::from_env();
+        let prefs_store = PrefsStore::new(paths.agent_prefs_file());
+        let prefs = prefs_store.load();
+        let env_model = std::env::var("CGC_AGENT_MODEL")
+            .ok()
+            .filter(|model| !model.is_empty());
+        let model_id = env_model
+            .clone()
+            .or_else(|| {
+                prefs
+                    .selected_model
+                    .as_ref()
+                    .map(|selected| selected.model_id.as_str().to_string())
+            })
+            .unwrap_or_else(|| "echo".to_string());
         let provider_name = std::env::var("CGC_AGENT_PROVIDER_NAME")
             .unwrap_or_else(|_| "OpenAI Compatible".to_string());
         let model = Model::new(
@@ -48,6 +63,14 @@ impl NativeAgentView {
             model_id,
             ModelLimits::new(64_000, 8_000),
         );
+        if env_model.is_some() {
+            let _ = prefs_store.save(&AgentPrefs {
+                selected_model: Some(SelectedModel::new(
+                    model.provider_id.clone(),
+                    model.id.clone(),
+                )),
+            });
+        }
         let provider: Arc<dyn Provider> = match (
             std::env::var("CGC_AGENT_BASE_URL"),
             std::env::var("CGC_AGENT_API_KEY"),
@@ -148,9 +171,15 @@ impl NativeAgentView {
                 this.busy = false;
                 match result {
                     Ok(outcome) => {
+                        let total = this
+                            .agent
+                            .as_ref()
+                            .map(|agent| agent.thread().usage_total.total())
+                            .unwrap_or(0);
                         this.status = format!(
-                            "完成 · {} tokens",
-                            outcome.usage.input + outcome.usage.output
+                            "完成 · 本轮 {} tokens · 本会话 {} tokens",
+                            outcome.usage.input + outcome.usage.output,
+                            total
                         );
                         if !outcome.text.is_empty() {
                             this.messages.push(ChatLine {
