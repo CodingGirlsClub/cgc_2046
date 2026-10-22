@@ -62,8 +62,23 @@ pub fn filtered_items(items: &[Notification], filter: NotificationFilter) -> Vec
         .collect()
 }
 
-/// 后端时间形如 `2026-10-22T10:00:00Z`；通知中心按现有事件展示习惯截到分钟。
+/// 后端时间形如 `2026-10-22T10:00:00Z`；转成系统本地时区后展示到分钟。
 pub fn format_time(inserted_at: &str) -> String {
+    format_time_in_offset(inserted_at, *chrono::Local::now().offset())
+        .unwrap_or_else(|| truncate_utc_time(inserted_at))
+}
+
+fn format_time_in_offset(inserted_at: &str, offset: chrono::FixedOffset) -> Option<String> {
+    let parsed = chrono::DateTime::parse_from_rfc3339(inserted_at).ok()?;
+    Some(
+        parsed
+            .with_timezone(&offset)
+            .format("%Y-%m-%d %H:%M")
+            .to_string(),
+    )
+}
+
+fn truncate_utc_time(inserted_at: &str) -> String {
     let Some(date) = inserted_at.get(..10) else {
         return inserted_at.to_string();
     };
@@ -131,8 +146,12 @@ mod tests {
     }
 
     #[test]
-    fn formats_utc_timestamp_and_falls_back() {
-        assert_eq!(format_time("2026-10-22T10:05:59Z"), "2026-10-22 10:05");
+    fn formats_timestamp_in_fixed_offset_and_falls_back() {
+        let offset = chrono::FixedOffset::east_opt(8 * 3600).expect("offset");
+        assert_eq!(
+            format_time_in_offset("2026-10-22T10:05:59Z", offset).as_deref(),
+            Some("2026-10-22 18:05")
+        );
         assert_eq!(format_time("2026-10-22"), "2026-10-22");
         assert_eq!(format_time(""), "");
     }

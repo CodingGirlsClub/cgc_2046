@@ -256,7 +256,7 @@ impl RootView {
         let link = item
             .client_deep_link()
             .unwrap_or_else(|| "cgc://workspace".to_string());
-        self.handle_deep_link(&link, cx);
+        self.handle_deep_link_in_current_window(&link, cx);
     }
 
     pub fn start_notification_poll(&mut self, cx: &mut Context<Self>) {
@@ -465,16 +465,42 @@ impl RootView {
             {
                 return;
             }
+            // update 失败也可能只是当前窗口正在更新（重入），并不代表窗口已关闭。
+            // 只有确实没有 RootView 窗口时才重建，避免一次点击多开一个窗口。
+            let root_window_exists = cx
+                .windows()
+                .iter()
+                .any(|handle| handle.downcast::<RootView>().is_some());
+            if root_window_exists {
+                return;
+            }
             self.window_handle = None;
         }
         self.open_main_window(cx);
     }
 
     pub fn handle_deep_link(&mut self, raw: &str, cx: &mut Context<Self>) {
+        self.handle_deep_link_with_activation(raw, true, cx);
+    }
+
+    /// 通知中心点击：当前窗口已经存在，只导航，不能再调用 activate_window，
+    /// 否则同一次 update 内的 activate 失败会被误判成“窗口已关闭”而新建窗口。
+    fn handle_deep_link_in_current_window(&mut self, raw: &str, cx: &mut Context<Self>) {
+        self.handle_deep_link_with_activation(raw, false, cx);
+    }
+
+    fn handle_deep_link_with_activation(
+        &mut self,
+        raw: &str,
+        activate: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let mut should_activate = activate;
         match crate::deep_link::parse(raw) {
             Ok(link) if link.path == "/settings" => {
                 if self.is_signed_in() {
                     self.open_settings_window(cx);
+                    should_activate = false;
                 } else {
                     self.pending_link = Some(link.path);
                 }
@@ -482,9 +508,6 @@ impl RootView {
             Ok(link) => {
                 self.pending_link = Some(link.path);
                 self.consume_pending_link();
-                if self.is_signed_in() {
-                    self.activate_window(cx);
-                }
             }
             Err(error) => {
                 eprintln!("desktop deep link rejected: {error:?}");
@@ -492,8 +515,10 @@ impl RootView {
                 self.navigate("/workspace");
                 self.pane_notice =
                     Some(translate(self.language, Key::AppDeeplinkInvalid).to_string());
-                self.activate_window(cx);
             }
+        }
+        if should_activate && self.is_signed_in() {
+            self.activate_window(cx);
         }
         cx.notify();
     }

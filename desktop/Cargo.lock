@@ -916,6 +916,7 @@ dependencies = [
  "cgc-courses",
  "cgc-events",
  "cgc-platform",
+ "chrono",
  "gpui-kit",
  "qrcode",
  "ratex-gpui",

@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 serde_json = "1"
+chrono = "0.4"
 ratex-gpui = { version = "0.4", default-features = false }
 gpui-kit.workspace = true
 # story 3.13：二维码矩阵生成。qrcode 0.14.1，license = MIT OR Apache-2.0（AGPL-3.0 兼容）。
