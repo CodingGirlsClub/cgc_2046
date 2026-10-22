@@ -27,6 +27,14 @@ impl ToolRegistry {
         registry
     }
 
+    /// 全部内置工具：读 / 列目录 / 写文件 / 执行命令（后者需要审批）。
+    pub fn with_builtin_tools() -> Self {
+        let mut registry = Self::with_read_tools();
+        registry.register(Arc::new(crate::builtin::WriteFileTool));
+        registry.register(Arc::new(crate::builtin::RunCommandTool));
+        registry
+    }
+
     pub fn register(&mut self, tool: Arc<dyn Tool>) {
         self.tools.push(tool);
     }

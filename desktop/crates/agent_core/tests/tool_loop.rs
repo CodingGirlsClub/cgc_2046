@@ -332,3 +332,45 @@ fn unknown_tool_returns_error_result() {
     assert!(outcome.tool_results[0].content.contains("unknown tool"));
     let _ = std::fs::remove_dir_all(&workspace);
 }
+
+#[test]
+fn write_tool_asks_then_writes() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let approver = CountingApprover {
+        calls: calls.clone(),
+        decision: ApprovalDecision::AllowOnce,
+    };
+    let fake = fake(vec![
+        vec![
+            tool_use(
+                "call_1",
+                "write_file",
+                serde_json::json!({"path": "out.txt", "content": "written"}),
+            ),
+            Ok(CompletionEvent::Stop(StopReason::ToolUse)),
+        ],
+        vec![
+            Ok(CompletionEvent::Text("done".into())),
+            Ok(CompletionEvent::Stop(StopReason::EndTurn)),
+        ],
+    ]);
+    let registry = ToolRegistry::with_builtin_tools();
+    let workspace = temp_workspace("write");
+    let mut agent = agent();
+    let outcome = futures::executor::block_on(agent.prompt_with_tools(
+        &fake,
+        &model(),
+        "write it",
+        &registry,
+        &ToolContext::new(&workspace),
+        &approver,
+    ))
+    .expect("turn");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(!outcome.tool_results[0].is_error);
+    assert_eq!(
+        std::fs::read_to_string(workspace.join("out.txt")).unwrap(),
+        "written"
+    );
+    let _ = std::fs::remove_dir_all(&workspace);
+}

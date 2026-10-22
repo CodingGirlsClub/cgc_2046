@@ -380,8 +380,9 @@ UI（输入）→ NativeHost.prompt
 **P1a 进度（2026-10-22）**：
 - `desktop/crates/agent_core`（cgc-agent-core）：Thread/Entry + 单轮 loop（流式文本、用量累计、停止原因、取消、tool_call 收集），12 项单测；
 - `desktop/crates/agent_tools`（cgc-agent-tools）：Tool trait、ToolRegistry、工作区路径约束（拒绝绝对路径与 `..` 逃逸）、审批分类、`read_file` / `list_directory` 只读工具，8 项单测。
-- 工具执行已接入 loop：tool_call → 审批（Allow / Deny / Ask + 本会话授权缓存）→ 执行 → 结果回灌，最多 8 步；`prompt_with_tools` + `Approver` trait（Auto / Deny 实现），13 项单测。
-- 待做：write_file / 终端工具、OS 沙箱、本地会话、交互核心。
+- 工具执行已接入 loop：tool_call → 审批（Allow / Deny / Ask + 本会话授权缓存）→ 执行 → 结果回灌，最多 8 步；`prompt_with_tools` + `Approver` trait（Auto / Deny 实现），14 项单测。
+- 工具集：`read_file` / `list_directory` / `write_file`（Ask）/ `run_command`（Ask，30s 默认超时、输出截断、工作区 cwd 约束）；16 项单测。
+- 待做：OS 沙箱、本地会话、交互核心。
 
 **P0 不做**：工具执行、审批、会话持久化、MCP、沙箱、多 mate、网关服务端。
 
