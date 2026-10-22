@@ -21,6 +21,8 @@ defmodule Cgc2046.Notifications.Notification do
   calculations do
     calculate(:title, :string, expr(payload["title"]), public?: true, allow_nil?: false)
     calculate(:body, :string, expr(payload["body"]), public?: true, allow_nil?: false)
+    calculate(:target_type, :string, expr(payload["targetType"]), public?: true)
+    calculate(:target_id, :string, expr(payload["targetId"]), public?: true)
   end
 
   actions do

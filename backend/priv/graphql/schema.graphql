@@ -3583,6 +3583,8 @@ type Notification {
   insertedAt: DateTime!
   title: String!
   body: String!
+  targetType: String
+  targetId: String
 }
 
 "The result of the :cancel_order mutation"

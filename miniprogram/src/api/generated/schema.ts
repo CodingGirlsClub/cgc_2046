@@ -3843,6 +3843,16 @@ export type McpTokenKind =
   | 'LEARNING_HOST'
   | 'TERMINAL';
 
+export type MiniWebLoginDesktopResult = {
+  expiresAt?: Maybe<Scalars['DateTime']['output']>;
+  launchUrl?: Maybe<Scalars['String']['output']>;
+  pollIntervalSeconds: Scalars['Int']['output'];
+  proof?: Maybe<Scalars['String']['output']>;
+  qrDataUrl?: Maybe<Scalars['String']['output']>;
+  requestId: Scalars['String']['output'];
+  status: MiniWebLoginStatus;
+};
+
 export type MiniWebLoginMode =
   | 'LINK'
   | 'QR';
@@ -3906,6 +3916,8 @@ export type Notification = {
   id: Scalars['ID']['output'];
   insertedAt: Scalars['DateTime']['output'];
   readAt?: Maybe<Scalars['DateTime']['output']>;
+  targetId?: Maybe<Scalars['String']['output']>;
+  targetType?: Maybe<Scalars['String']['output']>;
   title: Scalars['String']['output'];
   type: Scalars['String']['output'];
 };
@@ -4974,6 +4986,8 @@ export type RootMutationType = {
   signInForDesktop?: Maybe<DesktopSignInResult>;
   /** 手机验证码登录（plan 002 U3；用户不存在自动建号；token 经 httpOnly cookie 交付） */
   signInWithPhoneCode?: Maybe<SignInWithPhoneCodeResult>;
+  /** 桌面端手机验证码登录/注册：JWT 直接经响应体交付（第一方客户端，不写 cookie） */
+  signInWithPhoneCodeForDesktop?: Maybe<DesktopSignInResult>;
   /** 小程序平台一键登录（N1，Phase 1）：code2session + 平台手机号锚定统一身份，token 经 httpOnly cookie 交付 */
   signInWithPlatform?: Maybe<SignInWithPlatformResult>;
   /** 小程序回访静默登录（#930）：只用平台登录凭证 code——已绑定本平台身份（openid）的账号直接签发会话，不走计费的手机号授权；本平台还没有绑定身份（首次登录）→ platform_identity_not_found，前端退回手机号登录。token 同 signInWithPlatform 经 httpOnly cookie 交付 */
@@ -5015,9 +5029,15 @@ export type RootMutationType = {
   /** 发起微信扫码登录（plan 002 U4；未配置 → wechat_login_unavailable；IP 20/15min 限流） */
   wechatLoginStart?: Maybe<WechatLoginStartResult>;
   wechatMiniWebLoginCancel?: Maybe<MiniWebLoginResult>;
+  /** 桌面端撤销尚未消费的扫码请求 */
+  wechatMiniWebLoginCancelForDesktop?: Maybe<MiniWebLoginDesktopResult>;
   wechatMiniWebLoginConfirm?: Maybe<MiniWebLoginResult>;
   wechatMiniWebLoginConsume?: Maybe<MiniWebLoginResult>;
+  /** 桌面端消费扫码授权：签发 desktop Bearer JWT，不写 cookie */
+  wechatMiniWebLoginConsumeForDesktop?: Maybe<DesktopSignInResult>;
   wechatMiniWebLoginStart?: Maybe<MiniWebLoginResult>;
+  /** 桌面端发起小程序扫码登录：proof 经响应体交付，不写 cookie */
+  wechatMiniWebLoginStartForDesktop?: Maybe<MiniWebLoginDesktopResult>;
 };
 
 
@@ -5754,6 +5774,12 @@ export type RootMutationTypeSignInWithPhoneCodeArgs = {
 };
 
 
+export type RootMutationTypeSignInWithPhoneCodeForDesktopArgs = {
+  code: Scalars['String']['input'];
+  phone: Scalars['String']['input'];
+};
+
+
 export type RootMutationTypeSignInWithPlatformArgs = {
   code: Scalars['String']['input'];
   encryptedData?: InputMaybe<Scalars['String']['input']>;
@@ -5875,6 +5901,12 @@ export type RootMutationTypeWechatMiniWebLoginCancelArgs = {
 };
 
 
+export type RootMutationTypeWechatMiniWebLoginCancelForDesktopArgs = {
+  proof: Scalars['String']['input'];
+  requestId: Scalars['String']['input'];
+};
+
+
 export type RootMutationTypeWechatMiniWebLoginConfirmArgs = {
   requestId: Scalars['String']['input'];
 };
@@ -5885,7 +5917,18 @@ export type RootMutationTypeWechatMiniWebLoginConsumeArgs = {
 };
 
 
+export type RootMutationTypeWechatMiniWebLoginConsumeForDesktopArgs = {
+  proof: Scalars['String']['input'];
+  requestId: Scalars['String']['input'];
+};
+
+
 export type RootMutationTypeWechatMiniWebLoginStartArgs = {
+  mode: MiniWebLoginMode;
+};
+
+
+export type RootMutationTypeWechatMiniWebLoginStartForDesktopArgs = {
   mode: MiniWebLoginMode;
 };
 
@@ -6077,6 +6120,8 @@ export type RootQueryType = {
   volunteerApplicationDetail?: Maybe<VolunteerApplicationDetail>;
   wechatMiniWebLoginPreview?: Maybe<MiniWebLoginResult>;
   wechatMiniWebLoginStatus?: Maybe<MiniWebLoginResult>;
+  /** 桌面端查询扫码状态：proof 由 start 响应交付，不读 cookie */
+  wechatMiniWebLoginStatusForDesktop?: Maybe<MiniWebLoginDesktopResult>;
   /** 工作台创建申请列表（申请人仅见自己；platform_admin 见全部） */
   workspaceApplications?: Maybe<KeysetPageOfWorkspaceApplication>;
   /** 工作台成员列表（成员本人仅见自己；Owner/Admin 见全部，供成员管理页） */
@@ -6607,6 +6652,12 @@ export type RootQueryTypeWechatMiniWebLoginPreviewArgs = {
 
 
 export type RootQueryTypeWechatMiniWebLoginStatusArgs = {
+  requestId: Scalars['String']['input'];
+};
+
+
+export type RootQueryTypeWechatMiniWebLoginStatusForDesktopArgs = {
+  proof: Scalars['String']['input'];
   requestId: Scalars['String']['input'];
 };
 

@@ -101,6 +101,8 @@ mod tests {
             id: id.to_string(),
             kind: "event_reminder".to_string(),
             deep_link: None,
+            target_type: None,
+            target_id: None,
             read_at: read.then(|| "2026-10-22T10:00:00Z".to_string()),
             inserted_at: "2026-10-22T10:00:00Z".to_string(),
             title: format!("title-{id}"),

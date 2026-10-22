@@ -143,7 +143,8 @@ defmodule Cgc2046.Learning.LearningProgressWorker do
           "enrollment_id" => run.input_snapshot["enrollment_id"],
           "run_id" => run.id,
           "title" => run.input_snapshot["title"]
-        },
+        }
+        |> put_course_id(run.input_snapshot["course_id"]),
         %{"run_id" => run.id}
       )
 
@@ -154,6 +155,11 @@ defmodule Cgc2046.Learning.LearningProgressWorker do
       Logger.warning("learning stagnation reminder enqueue failed: #{Exception.message(error)}")
       :reminded
   end
+
+  defp put_course_id(data, course_id) when is_binary(course_id) and course_id != "",
+    do: Map.put(data, "course_id", course_id)
+
+  defp put_course_id(data, _), do: data
 
   # --- 共用查询 ----------------------------------------------------------------
 

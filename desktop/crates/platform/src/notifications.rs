@@ -20,6 +20,8 @@ query NotificationFeed($first: Int!, $after: String) {
       insertedAt
       title
       body
+      targetType
+      targetId
     }
   }
 }
@@ -45,6 +47,8 @@ pub struct Notification {
     pub id: String,
     pub kind: String,
     pub deep_link: Option<String>,
+    pub target_type: Option<String>,
+    pub target_id: Option<String>,
     pub read_at: Option<String>,
     pub inserted_at: String,
     pub title: String,
@@ -52,9 +56,15 @@ pub struct Notification {
 }
 
 impl Notification {
-    /// 转换为客户端深链；未知路径返回 None，由调用方降级到工作台。
+    /// 转换为客户端深链：优先使用准确 targetType/targetId，旧通知回退 deepLink。
     pub fn client_deep_link(&self) -> Option<String> {
-        desktop_deep_link(self.deep_link.as_deref())
+        match (self.target_type.as_deref(), self.target_id.as_deref()) {
+            (Some("event"), Some(id)) => Some(format!("cgc://events/{id}")),
+            (Some("course"), Some(id)) => Some(format!("cgc://courses/{id}")),
+            (Some("enrollment"), _) => Some("cgc://events/mine".to_string()),
+            (Some("workspace"), _) => Some("cgc://workspace".to_string()),
+            _ => desktop_deep_link(self.deep_link.as_deref()),
+        }
     }
 }
 
@@ -146,6 +156,14 @@ pub fn parse_page(payload: &Value) -> Result<NotificationPage, ApiError> {
                 kind: item.get("type")?.as_str()?.to_string(),
                 deep_link: item
                     .get("deepLink")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                target_type: item
+                    .get("targetType")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                target_id: item
+                    .get("targetId")
                     .and_then(Value::as_str)
                     .map(str::to_string),
                 read_at: item
@@ -308,6 +326,44 @@ mod tests {
         assert_eq!(page.next_cursor.as_deref(), Some("cursor-2"));
         assert_eq!(page.items.len(), 1);
         assert!(page.items[0].read_at.is_some());
+    }
+
+    #[test]
+    fn target_fields_override_deep_link() {
+        let id = "3f2b0f9e-0c1d-4c7a-9b0e-8f6d5a4c3b2a";
+        let mut item = Notification {
+            id: "n1".to_string(),
+            kind: "enrollment_completed".to_string(),
+            deep_link: Some("/pages/my-enrollments/index".to_string()),
+            target_type: Some("event".to_string()),
+            target_id: Some(id.to_string()),
+            read_at: None,
+            inserted_at: "2026-10-22T10:00:00Z".to_string(),
+            title: "报名成功".to_string(),
+            body: "正文".to_string(),
+        };
+        assert_eq!(
+            item.client_deep_link().as_deref(),
+            Some(format!("cgc://events/{id}").as_str())
+        );
+        item.target_type = Some("course".to_string());
+        assert_eq!(
+            item.client_deep_link().as_deref(),
+            Some(format!("cgc://courses/{id}").as_str())
+        );
+        item.target_type = Some("enrollment".to_string());
+        assert_eq!(
+            item.client_deep_link().as_deref(),
+            Some("cgc://events/mine")
+        );
+        item.target_type = Some("workspace".to_string());
+        assert_eq!(item.client_deep_link().as_deref(), Some("cgc://workspace"));
+        item.target_type = None;
+        item.target_id = None;
+        assert_eq!(
+            item.client_deep_link().as_deref(),
+            Some("cgc://events/mine")
+        );
     }
 
     #[test]
