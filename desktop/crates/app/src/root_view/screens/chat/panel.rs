@@ -1,5 +1,6 @@
 use super::super::super::*;
 use super::super::ScreenContext;
+use cgc_platform::acp::connection::ConfigOptionCategory;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, Textarea};
 use gpui_kit::component::popover::Popover;
@@ -561,18 +562,27 @@ pub(in crate::root_view) fn render_chat_panel(
                             let name = config.name.clone();
                             let current = config.current.clone();
                             let selected_value = config.current.clone();
+                            let searchable = config.category == ConfigOptionCategory::Model;
+                            let query = if searchable {
+                                config_query.as_str()
+                            } else {
+                                ""
+                            };
                             let options = config
                                 .values
                                 .iter()
                                 .filter(|(_, label)| {
-                                    config_query.is_empty()
-                                        || label.to_lowercase().contains(&config_query)
+                                    query.is_empty() || label.to_lowercase().contains(query)
                                 })
                                 .cloned()
                                 .collect::<Vec<_>>();
                             let content_root = root.clone();
                             let open_root = root.clone();
-                            let content_search_input = config_search_input.clone();
+                            let content_search_input = if searchable {
+                                config_search_input.clone()
+                            } else {
+                                None
+                            };
                             let content_scroll = config_scroll.clone();
                             Popover::new(SharedString::from(format!("chat-config-popover-{index}")))
                                 .trigger(
@@ -663,13 +673,11 @@ pub(in crate::root_view) fn render_chat_panel(
                                         }))
                                         .child(list)
                                 })
-                                .on_open_change({
-                                    move |open, window, cx| {
-                                        if *open {
-                                            let _ = open_root.update(cx, |this, cx| {
-                                                this.reset_config_search(window, cx);
-                                            });
-                                        }
+                                .on_open_change(move |open, window, cx| {
+                                    if *open && searchable {
+                                        let _ = open_root.update(cx, |this, cx| {
+                                            this.reset_config_search(window, cx);
+                                        });
                                     }
                                 })
                                 .flex_none()
