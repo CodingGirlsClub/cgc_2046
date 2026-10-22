@@ -7,6 +7,7 @@ members = [
   "crates/courses",
   "crates/agent_chat",
   "crates/agent_provider",
+  "crates/agent_core",
   "crates/platform",
   "crates/platform-macos",
   "crates/platform-windows",
@@ -26,6 +27,7 @@ cgc-events = { path = "crates/events" }
 cgc-courses = { path = "crates/courses" }
 cgc-agent-chat = { path = "crates/agent_chat" }
 cgc-agent-provider = { path = "crates/agent_provider" }
+cgc-agent-core = { path = "crates/agent_core" }
 cgc-platform = { path = "crates/platform" }
 cgc-platform-macos = { path = "crates/platform-macos" }
 cgc-platform-windows = { path = "crates/platform-windows" }

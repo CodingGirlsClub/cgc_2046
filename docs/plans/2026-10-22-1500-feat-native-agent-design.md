@@ -377,6 +377,8 @@ UI（输入）→ NativeHost.prompt
 
 **P0 进度（2026-10-22）**：T0/T1/T2 完成——`desktop/crates/agent_provider`（cgc-agent-provider）已落地四件套、FakeProvider、OpenAI-compatible Provider（SSE 解析、thinking、tool_call 累积、usage、错误分类），19 项单测通过；T3（最小 UI）与 T4（持久化）待做。
 
+**P1a 进度（2026-10-22）**：`desktop/crates/agent_core`（cgc-agent-core）已落地 Thread/Entry + 单轮 loop（流式文本、用量累计、停止原因、取消、tool_call 收集），12 项单测通过；工具执行、审批、OS 沙箱、本地会话、交互核心待做。
+
 **P0 不做**：工具执行、审批、会话持久化、MCP、沙箱、多 mate、网关服务端。
 
 **P0 风险**：国内 provider 与 OpenAI 兼容层差异（tool_call 格式、thinking 字段）——P0 只要求文本流式，tool_call 解析保留 fixture；CGC 网关契约未定——先用 BYO provider 跑通；GPUI 线程模型——provider 调用放后台 executor，事件经 channel 回 UI。

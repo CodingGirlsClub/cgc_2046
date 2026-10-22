@@ -1,7 +1,9 @@
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 /// Provider 标识（例如 `deepseek`、`cgc-gateway`）。
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ProviderId(String);
 
 impl ProviderId {
@@ -21,7 +23,7 @@ impl fmt::Display for ProviderId {
 }
 
 /// 模型在 provider 内部的标识。
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ModelId(String);
 
 impl ModelId {
