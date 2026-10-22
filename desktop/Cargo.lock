@@ -900,6 +900,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cgc-agent-provider"
+version = "0.0.1"
+dependencies = [
+ "futures",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "ureq",
+]
+
+[[package]]
 name = "cgc-courses"
 version = "0.0.1"
 dependencies = [
