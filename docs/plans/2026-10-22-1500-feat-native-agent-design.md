@@ -377,7 +377,7 @@ UI（输入）→ NativeHost.prompt
 
 **P0 进度（2026-10-22）**：
 - T0/T1/T2 完成——`desktop/crates/agent_provider`（cgc-agent-provider）已落地四件套、FakeProvider、OpenAI-compatible Provider（SSE 解析、thinking、tool_call 累积、usage、错误分类），19 项单测；
-- T3 部分完成——`desktop/crates/agent_demo`（`cgc-agent-demo`）提供可交互 CLI demo：真实 provider（env 配置）、`--allow-tools`、`--once` 单次调用、`--selftest` 无人值守全链路自检；GPUI 界面待接；
+- T3 完成——`desktop/crates/agent_demo`（`cgc-agent-demo`）提供可交互 CLI demo：真实 provider（env 配置）、`--allow-tools`、`--once`、`--selftest`；另有 GPUI 最小窗口（`CGC_NATIVE_AGENT_DEMO=1 cargo run -p cgc-desktop-app`，离线时用 `EchoProvider`，配置 env 后接真实模型；含发送/停止、工具结果摘要）；
 - T4（用量/模型选择持久化）待做。
 
 **P1a 进度（2026-10-22）**：

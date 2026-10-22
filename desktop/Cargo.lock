@@ -958,6 +958,9 @@ version = "0.0.1"
 dependencies = [
  "cgc-account",
  "cgc-agent-chat",
+ "cgc-agent-core",
+ "cgc-agent-provider",
+ "cgc-agent-tools",
  "cgc-courses",
  "cgc-events",
  "cgc-platform",

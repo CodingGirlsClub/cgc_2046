@@ -4,6 +4,7 @@
 //! `observe_window_appearance` 转给 `RootView::on_appearance_changed`。
 
 use cgc_desktop_app::i18n::{default_language, translate, Key};
+use cgc_desktop_app::native_agent_view::NativeAgentView;
 use cgc_desktop_app::registration::{build_registry, validate};
 use cgc_desktop_app::root_view::{main_window_options, RootView};
 use cgc_desktop_app::theme;
@@ -128,5 +129,11 @@ fn main() {
             view
         })
         .expect("main window opens");
+
+        if std::env::var_os("CGC_NATIVE_AGENT_DEMO").is_some() {
+            let _ = gpui_kit::open_window(main_window_options(), cx, |window, cx| {
+                cx.new(|cx| NativeAgentView::new(window, cx))
+            });
+        }
     });
 }

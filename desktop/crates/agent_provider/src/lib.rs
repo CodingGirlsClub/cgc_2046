@@ -7,6 +7,7 @@
 //! （覆盖国产 provider、自定义 endpoint、CGC 网关）。Anthropic / Google /
 //! Ollama 等专用适配器在 P1 按需加入。
 
+pub mod echo;
 pub mod error;
 pub mod event;
 pub mod fake;
@@ -17,6 +18,7 @@ pub mod registry;
 pub mod request;
 pub mod sse;
 
+pub use echo::EchoProvider;
 pub use error::{ProviderError, ProviderErrorCategory};
 pub use event::{CompletionEvent, StopReason, TokenUsage, ToolUse};
 pub use fake::FakeProvider;

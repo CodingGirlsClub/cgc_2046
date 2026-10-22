@@ -17,6 +17,9 @@ url = "2.5"
 uuid = "1"
 cgc-account.workspace = true
 cgc-agent-chat.workspace = true
+cgc-agent-provider = { path = "../agent_provider" }
+cgc-agent-core = { path = "../agent_core" }
+cgc-agent-tools = { path = "../agent_tools" }
 cgc-courses.workspace = true
 cgc-events.workspace = true
 cgc-platform.workspace = true
