@@ -7,9 +7,11 @@ pub mod approval;
 pub mod builtin;
 pub mod error;
 pub mod registry;
+pub mod sandbox;
 pub mod tool;
 
 pub use approval::{Approval, ApprovalDecision};
 pub use error::ToolError;
 pub use registry::ToolRegistry;
+pub use sandbox::{CommandSandbox, SandboxKind, SandboxPolicy};
 pub use tool::{Tool, ToolContext, ToolResult};

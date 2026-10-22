@@ -10,6 +10,7 @@ use futures::{channel::oneshot, future::BoxFuture};
 use crate::{
     approval::Approval,
     error::ToolError,
+    sandbox::{CommandSandbox, SandboxPolicy},
     tool::{Tool, ToolContext, ToolResult},
 };
 
@@ -68,11 +69,12 @@ impl Tool for RunCommandTool {
 
         Box::pin(async move {
             let cwd = context.resolve(&cwd)?;
+            let sandbox = context.sandbox().cloned();
             let (sender, receiver) = oneshot::channel();
             std::thread::Builder::new()
                 .name("cgc-agent-run-command".to_string())
                 .spawn(move || {
-                    let result = execute(command, cwd, timeout);
+                    let result = execute(command, cwd, timeout, sandbox);
                     let _ = sender.send(result);
                 })
                 .map_err(|error| ToolError::Io(format!("spawn command thread: {error}")))?;
@@ -87,9 +89,17 @@ fn execute(
     command: String,
     cwd: std::path::PathBuf,
     timeout: Duration,
+    sandbox: Option<SandboxPolicy>,
 ) -> Result<ToolResult, ToolError> {
-    let mut child = shell_command(&command)
-        .current_dir(&cwd)
+    let mut process = match sandbox {
+        Some(policy) => CommandSandbox::detect().wrap(&command, &cwd, &policy),
+        None => {
+            let mut process = shell_command(&command);
+            process.current_dir(&cwd);
+            process
+        }
+    };
+    let mut child = process
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -241,6 +251,20 @@ mod tests {
         .expect("run");
         assert!(result.is_error);
         assert!(result.content.contains("timed out"));
+        let _ = std::fs::remove_dir_all(&workspace);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn sandboxed_command_runs_in_workspace() {
+        let workspace = temp_workspace("sandbox");
+        let context = ToolContext::new(&workspace).with_sandbox(SandboxPolicy::new(&workspace));
+        let result = futures::executor::block_on(
+            RunCommandTool.run(serde_json::json!({"command": "echo sandbox-ok"}), context),
+        )
+        .expect("run");
+        assert!(result.content.contains("sandbox-ok"));
+        assert!(!result.is_error);
         let _ = std::fs::remove_dir_all(&workspace);
     }
 

@@ -20,7 +20,7 @@ use cgc_agent_provider::{
     CompletionEvent, FakeProvider, Model, ModelId, ModelLimits, OpenAiCompatibleConfig,
     OpenAiCompatibleProvider, ProviderId, StopReason, ToolUse,
 };
-use cgc_agent_tools::{ToolContext, ToolRegistry};
+use cgc_agent_tools::{SandboxPolicy, ToolContext, ToolRegistry};
 
 /// CLI 的流式打印：文本直接输出，工具调用走 stderr，避免污染答案。
 struct PrintObserver;
@@ -161,7 +161,7 @@ fn run_selftest() -> std::process::ExitCode {
     );
     let mut agent = Agent::new(thread, Some("selftest agent".to_string()));
     let registry = ToolRegistry::with_read_tools();
-    let context = ToolContext::new(&workspace);
+    let context = ToolContext::new(&workspace).with_sandbox(SandboxPolicy::new(&workspace));
     let outcome = futures::executor::block_on(agent.prompt_with_tools(
         &fake,
         &model,
@@ -225,7 +225,7 @@ fn run_repl(options: Options) -> std::process::ExitCode {
     let mut agent = Agent::new(thread, system_prompt);
     let workspace = options.workspace;
     let registry = ToolRegistry::with_builtin_tools();
-    let context = ToolContext::new(&workspace);
+    let context = ToolContext::new(&workspace).with_sandbox(SandboxPolicy::new(&workspace));
 
     println!("CGC native agent demo");
     println!("workspace: {}", workspace.display());

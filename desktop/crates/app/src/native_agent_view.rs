@@ -11,7 +11,7 @@ use cgc_agent_provider::{
     ProviderId,
 };
 use cgc_agent_store::{AgentPrefs, PrefsStore, SessionStore};
-use cgc_agent_tools::{ToolContext, ToolRegistry};
+use cgc_agent_tools::{SandboxPolicy, ToolContext, ToolRegistry};
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::*;
 
@@ -155,7 +155,7 @@ impl NativeAgentView {
             provider,
             model,
             registry: Arc::new(ToolRegistry::with_builtin_tools()),
-            context: ToolContext::new(workspace),
+            context: ToolContext::new(&workspace).with_sandbox(SandboxPolicy::new(&workspace)),
             input,
             cancel,
             messages: if restored {

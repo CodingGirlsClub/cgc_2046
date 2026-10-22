@@ -33,6 +33,7 @@ impl ToolResult {
 pub struct ToolContext {
     workspace: PathBuf,
     max_read_bytes: u64,
+    sandbox: Option<crate::sandbox::SandboxPolicy>,
 }
 
 impl ToolContext {
@@ -40,7 +41,17 @@ impl ToolContext {
         Self {
             workspace: workspace.into(),
             max_read_bytes: 256 * 1024,
+            sandbox: None,
         }
+    }
+
+    pub fn with_sandbox(mut self, sandbox: crate::sandbox::SandboxPolicy) -> Self {
+        self.sandbox = Some(sandbox);
+        self
+    }
+
+    pub fn sandbox(&self) -> Option<&crate::sandbox::SandboxPolicy> {
+        self.sandbox.as_ref()
     }
 
     pub fn workspace(&self) -> &Path {

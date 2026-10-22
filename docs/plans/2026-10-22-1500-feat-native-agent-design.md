@@ -386,7 +386,8 @@ UI（输入）→ NativeHost.prompt
 - 工具执行已接入 loop：tool_call → 审批（Allow / Deny / Ask + 本会话授权缓存）→ 执行 → 结果回灌，最多 8 步；`prompt_with_tools` + `Approver` trait（Auto / Deny 实现），14 项单测。
 - 工具集：`read_file` / `list_directory` / `write_file`（Ask）/ `run_command`（Ask，30s 默认超时、输出截断、工作区 cwd 约束）；16 项单测。
 - 本地会话持久化完成——`agent_store::SessionStore`（SQLite `<data_root>/agent/threads.db`，schema 按 §3.4，WAL + 外键级联），5 项单测；GPUI demo 启动恢复上次会话（模型一致时）、每轮保存。
-- 待做：OS 沙箱、交互核心。
+- OS 沙箱完成——`agent_tools::sandbox`：`SandboxPolicy`、macOS Seatbelt profile、Linux bwrap 参数、`CommandSandbox` 包装；`run_command` 带策略时自动进沙箱（macOS 实测沙箱内 echo 通过），Windows 降级为审批；demo/app 默认启用。
+- 待做：交互核心 UI 接入（HostState / 审批卡）。
 
 **P0 不做**：工具执行、审批、会话持久化、MCP、沙箱、多 mate、网关服务端。
 
