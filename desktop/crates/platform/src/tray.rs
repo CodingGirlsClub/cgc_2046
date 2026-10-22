@@ -6,7 +6,9 @@
 use std::io::Cursor;
 
 use tray_icon::menu::{Menu, MenuEvent, MenuItem};
-use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
+use tray_icon::{Icon, TrayIcon, TrayIconBuilder, TrayIconEvent};
+#[cfg(not(target_os = "macos"))]
+use tray_icon::{MouseButton, MouseButtonState};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TrayLabels {
@@ -34,6 +36,9 @@ pub struct Tray {
 impl Tray {
     /// 非阻塞取一个托盘事件；多个事件按到达顺序返回。
     pub fn take_event(&self) -> Option<TrayEvent> {
+        // macOS 的状态项把左键交给菜单（右键菜单在部分系统上不可靠）；
+        // Windows/Linux 保留左键直接激活窗口。
+        #[cfg(not(target_os = "macos"))]
         if let Ok(TrayIconEvent::Click {
             button: MouseButton::Left,
             button_state: MouseButtonState::Up,
@@ -42,6 +47,8 @@ impl Tray {
         {
             return Some(TrayEvent::Click);
         }
+        #[cfg(target_os = "macos")]
+        let _ = TrayIconEvent::receiver().try_recv();
         if let Ok(event) = MenuEvent::receiver().try_recv() {
             if event.id == *self.open_item.id() {
                 return Some(TrayEvent::Open);
@@ -65,10 +72,12 @@ pub fn create(icon_png: &[u8], labels: TrayLabels) -> Result<Tray, String> {
     let quit_item = MenuItem::with_id("tray-quit", labels.quit, true, None);
     menu.append_items(&[&open_item, &settings_item, &quit_item])
         .map_err(|error| format!("tray menu: {error}"))?;
-    let icon = TrayIconBuilder::new()
+    #[cfg(target_os = "macos")]
+    let builder = TrayIconBuilder::new().with_menu_on_left_click(true);
+    #[cfg(not(target_os = "macos"))]
+    let builder = TrayIconBuilder::new().with_menu_on_left_click(false);
+    let icon = builder
         .with_menu(Box::new(menu))
-        // 左键用于显示/聚焦窗口，右键才弹菜单；否则左键只会打开菜单。
-        .with_menu_on_left_click(false)
         .with_tooltip(labels.tooltip)
         .with_icon(icon)
         .build()

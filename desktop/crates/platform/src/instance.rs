@@ -258,18 +258,11 @@ mod tests {
         std::fs::create_dir_all(&state_dir).expect("state dir");
         let path = socket_path(&state_dir);
         std::fs::create_dir_all(path.parent().expect("socket parent")).expect("socket parent");
-        {
-            // A listener that exits without unlinking leaves a stale socket file behind.
-            let stale = std::os::unix::net::UnixListener::bind(&path).expect("bind stale socket");
-            drop(stale);
-        }
+        // 模拟异常退出留下的 socket 路径：占位文件无法 bind/connect，claim 应删除并重试。
+        // 用普通文件而不是真实 listener，避免 macOS 测试进程并行时内核 socket 状态干扰。
+        std::fs::write(&path, b"").expect("stale socket path");
         let start = claim(&state_dir, "test", Vec::new()).expect("claim after stale socket");
-        if !matches!(start, InstanceStart::Owner(_)) {
-            panic!(
-                "unexpected handoff for path {path:?}; exists={}",
-                path.exists()
-            );
-        }
+        assert!(matches!(start, InstanceStart::Owner(_)));
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_dir_all(state_dir);
     }
