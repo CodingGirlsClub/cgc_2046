@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 cgc-agent-provider = { path = "../agent_provider" }
+cgc-agent-tools = { path = "../agent_tools" }
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

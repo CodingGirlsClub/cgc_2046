@@ -7,5 +7,8 @@
 pub mod session;
 pub mod thread;
 
-pub use session::{Agent, AgentError, CancelToken, TurnOutcome};
+pub use session::{
+    Agent, AgentError, ApprovalRequest, Approver, AutoApprover, CancelToken, DenyApprover,
+    ToolResultSummary, ToolTurnOutcome, TurnOutcome, MAX_TOOL_STEPS,
+};
 pub use thread::{Entry, SelectedModel, Thread};
