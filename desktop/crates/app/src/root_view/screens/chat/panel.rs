@@ -625,17 +625,25 @@ pub(in crate::root_view) fn render_chat_panel(
                                             })
                                             .into_any_element()
                                     });
-                                    let options = div()
+                                    let list = div()
+                                        .id(SharedString::from(format!("chat-config-list-{index}")))
+                                        .flex()
+                                        .flex_col()
+                                        .gap(px(1.0))
+                                        .max_h(px(244.0))
+                                        .track_scroll(&scroll)
+                                        .overflow_y_scroll()
+                                        .occlude()
+                                        .children(rows);
+                                    let list = list.vertical_scrollbar(&scroll);
+                                    div()
                                         .id(SharedString::from(format!(
                                             "chat-config-options-{index}"
                                         )))
                                         .flex()
                                         .flex_col()
-                                        .gap(px(1.0))
                                         .w(px(260.0))
                                         .max_h(px(280.0))
-                                        .track_scroll(&scroll)
-                                        .overflow_y_scroll()
                                         .occlude()
                                         .children(search_input.map(|input| {
                                             div()
@@ -652,8 +660,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                                 )
                                                 .into_any_element()
                                         }))
-                                        .children(rows);
-                                    options.vertical_scrollbar(&scroll)
+                                        .child(list)
                                 })
                                 .on_open_change({
                                     move |open, window, cx| {
