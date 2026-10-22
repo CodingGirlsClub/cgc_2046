@@ -1,4 +1,5 @@
 use super::*;
+use cgc_platform::notifications::NotificationsApi as _;
 use cgc_platform::registry::install::{install_entry, SystemRunner};
 use gpui_kit::component::breadcrumb::{Breadcrumb, BreadcrumbItem};
 use state::{PaneTab, SiteTreeSection};
@@ -50,14 +51,254 @@ impl RootView {
     }
 
     /// 按路径导航（动态路由在此完成参数解析）。
-    pub fn set_window_handle(&mut self, window_handle: AnyWindowHandle) {
-        self.window_handle = Some(window_handle);
+    pub fn set_tray_preferences(
+        &mut self,
+        close_to_tray: Arc<std::sync::atomic::AtomicBool>,
+        tray_hint_shown: Arc<std::sync::atomic::AtomicBool>,
+    ) {
+        self.close_to_tray = close_to_tray;
+        self.tray_hint_shown = tray_hint_shown;
     }
 
-    pub(in crate::root_view) fn activate_window(&self, cx: &mut Context<Self>) {
-        if let Some(window_handle) = self.window_handle {
-            let _ = window_handle.update(cx, |_, window, _| window.activate_window());
+    pub fn set_close_to_tray(&mut self, enabled: bool) {
+        self.close_to_tray
+            .store(enabled, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// 主窗口生命周期：记录句柄、拦截关闭、跟踪系统外观。
+    pub fn install_main_window_lifecycle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.window_handle = Some(window.window_handle());
+        self.window_opening = false;
+        let close_to_tray = self.close_to_tray.clone();
+        let tray_hint_shown = self.tray_hint_shown.clone();
+        let language = self.language;
+        let app_name = translate(language, Key::AppName).to_string();
+        let hint_body = translate(language, Key::AppTrayFirstClose).to_string();
+        window.on_window_should_close(cx, move |_window, cx| {
+            if !close_to_tray.load(std::sync::atomic::Ordering::Relaxed) {
+                cx.quit();
+                return true;
+            }
+            if !tray_hint_shown.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                cx.show_system_notification(SystemNotification {
+                    tag: "tray-first-close".into(),
+                    title: app_name.clone().into(),
+                    body: hint_body.clone().into(),
+                    actions: Vec::new(),
+                });
+                let mut preferences = crate::preferences::load();
+                preferences.tray_hint_shown = true;
+                crate::preferences::save(preferences);
+            }
+            true
+        });
+        let observer = cx.entity().downgrade();
+        window
+            .observe_window_appearance(move |window, cx| {
+                let _ = observer.update(cx, |this, cx| {
+                    this.on_appearance_changed(window.appearance(), cx)
+                });
+            })
+            .detach();
+    }
+
+    pub fn set_notification_responses(
+        &mut self,
+        responses: Arc<std::sync::Mutex<Vec<SystemNotificationResponse>>>,
+    ) {
+        self.notification_responses = responses;
+    }
+
+    pub fn start_notification_poll(&mut self, cx: &mut Context<Self>) {
+        if self.notification_started {
+            return;
         }
+        self.notification_started = true;
+        let root = cx.entity();
+        let responses = self.notification_responses.clone();
+        let api = Arc::new(cgc_platform::notifications::HttpNotificationsApi::from_env());
+        cx.spawn(async move |_weak, cx| {
+            let mut last_fetch: Option<std::time::Instant> = None;
+            loop {
+                loop {
+                    let response = responses.lock().ok().and_then(|mut queue| queue.pop());
+                    let Some(response) = response else {
+                        break;
+                    };
+                    root.update(cx, |this, cx| {
+                        this.handle_notification_response(response, cx)
+                    });
+                }
+                let token = root.update(cx, |this, _| this.notification_token());
+                if let Some(token) = token {
+                    let should_fetch = last_fetch
+                        .map(|last| last.elapsed() >= std::time::Duration::from_secs(60))
+                        .unwrap_or(true);
+                    if should_fetch {
+                        let api = api.clone();
+                        let result = cx
+                            .background_executor()
+                            .spawn(async move { api.feed(&token, 20) })
+                            .await;
+                        root.update(cx, |this, cx| this.handle_notification_feed(result, cx));
+                        last_fetch = Some(std::time::Instant::now());
+                    }
+                }
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(500))
+                    .await;
+            }
+        })
+        .detach();
+    }
+
+    fn notification_token(&self) -> Option<String> {
+        self.session
+            .signed_in()
+            .map(|signed_in| signed_in.token.clone())
+            .filter(|token| !token.is_empty())
+    }
+
+    fn handle_notification_feed(
+        &mut self,
+        result: Result<Vec<cgc_platform::notifications::Notification>, cgc_platform::api::ApiError>,
+        cx: &mut Context<Self>,
+    ) {
+        let items = match result {
+            Ok(items) => items,
+            Err(error) => {
+                if !matches!(error, cgc_platform::api::ApiError::Unauthorized) {
+                    eprintln!("notification feed failed: {error:?}");
+                }
+                return;
+            }
+        };
+        let first_launch = self.notification_seen.is_empty();
+        let fresh = items
+            .into_iter()
+            .filter(|item| item.read_at.is_none() && !self.notification_seen.contains_key(&item.id))
+            .collect::<Vec<_>>();
+        if fresh.is_empty() {
+            return;
+        }
+        let language = self.language;
+        if crate::notifications::should_summarize(first_launch, fresh.len()) {
+            let latest = &fresh[0];
+            let title = translate(language, Key::AppNotificationsUnreadSummary)
+                .replace("{count}", &fresh.len().to_string());
+            cx.show_system_notification(SystemNotification {
+                tag: latest.id.clone().into(),
+                title: title.into(),
+                body: latest.title.clone().into(),
+                actions: Vec::new(),
+            });
+            for item in &fresh {
+                let link = item
+                    .client_deep_link()
+                    .unwrap_or_else(|| "cgc://workspace".to_string());
+                crate::notifications::remember(&mut self.notification_seen, &item.id, &link);
+            }
+        } else {
+            for item in fresh.iter().take(3) {
+                let link = item
+                    .client_deep_link()
+                    .unwrap_or_else(|| "cgc://workspace".to_string());
+                cx.show_system_notification(SystemNotification {
+                    tag: item.id.clone().into(),
+                    title: item.title.clone().into(),
+                    body: item.body.clone().into(),
+                    actions: Vec::new(),
+                });
+                crate::notifications::remember(&mut self.notification_seen, &item.id, &link);
+            }
+        }
+        crate::notifications::save_seen(&self.notification_seen);
+    }
+
+    fn handle_notification_response(
+        &mut self,
+        response: SystemNotificationResponse,
+        cx: &mut Context<Self>,
+    ) {
+        let tag = response.tag.to_string();
+        let Some(link) = self.notification_seen.get(&tag).cloned() else {
+            return;
+        };
+        self.handle_deep_link(&link, cx);
+        if let Some(token) = self.notification_token() {
+            let api = Arc::new(cgc_platform::notifications::HttpNotificationsApi::from_env());
+            cx.background_executor()
+                .spawn(async move {
+                    let _ = api.mark_read(&token, &tag);
+                })
+                .detach();
+        }
+    }
+
+    pub fn install_tray(&mut self, tray: cgc_platform::tray::Tray, cx: &mut Context<Self>) {
+        let root = cx.entity();
+        let tray = tray;
+        cx.spawn(async move |_weak, cx| loop {
+            while let Some(event) = tray.take_event() {
+                root.update(cx, |this, cx| this.handle_tray_event(event, cx));
+            }
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(100))
+                .await;
+        })
+        .detach();
+    }
+
+    fn handle_tray_event(&mut self, event: cgc_platform::tray::TrayEvent, cx: &mut Context<Self>) {
+        match event {
+            cgc_platform::tray::TrayEvent::Open | cgc_platform::tray::TrayEvent::Click => {
+                self.activate_window(cx);
+            }
+            cgc_platform::tray::TrayEvent::Settings => self.open_settings_window(cx),
+            cgc_platform::tray::TrayEvent::Quit => cx.quit(),
+        }
+    }
+
+    pub fn open_main_window(&mut self, cx: &mut Context<Self>) {
+        if self.window_opening || self.window_handle.is_some() {
+            return;
+        }
+        self.window_opening = true;
+        let root = cx.entity();
+        // 这里通常正处于 RootView 的一次 update 中（深链/托盘事件）；open_window
+        // 会立即绘制 root，不能在 update 未结束时重入。把开窗整体推迟到 effect 阶段。
+        cx.defer(move |cx| {
+            let root_for_window = root.clone();
+            let Ok(window_handle) = cx.open_window(main_window_options(), move |_window, _cx| {
+                root_for_window.clone()
+            }) else {
+                root.update(cx, |this, _| this.window_opening = false);
+                return;
+            };
+            let window_handle: AnyWindowHandle = window_handle.into();
+            let Some(handle) = window_handle.downcast::<RootView>() else {
+                return;
+            };
+            let _ = handle.update(cx, |this, window, cx| {
+                this.install_main_window_lifecycle(window, cx);
+            });
+        });
+    }
+
+    pub(in crate::root_view) fn activate_window(&mut self, cx: &mut Context<Self>) {
+        if self.window_opening {
+            return;
+        }
+        if let Some(window_handle) = self.window_handle {
+            if window_handle
+                .update(cx, |_, window, _| window.activate_window())
+                .is_ok()
+            {
+                return;
+            }
+            self.window_handle = None;
+        }
+        self.open_main_window(cx);
     }
 
     pub fn handle_deep_link(&mut self, raw: &str, cx: &mut Context<Self>) {
@@ -120,12 +361,15 @@ impl RootView {
                     urls.extend(message.urls);
                     focus = true;
                 }
-                if !urls.is_empty() || focus {
+                let had_urls = !urls.is_empty();
+                if had_urls || focus {
                     let updated = this.update(cx, |this, cx| {
                         for url in urls {
                             this.handle_deep_link(&url, cx);
                         }
-                        if focus {
+                        // 带 URL 的 handoff 已经由 handle_deep_link 负责激活/开窗；
+                        // 只有“无 URL 的二次启动”才额外聚焦。
+                        if focus && !had_urls {
                             this.activate_window(cx);
                         }
                     });
@@ -1352,7 +1596,16 @@ impl RootView {
         };
         cx.open_window(options, move |window, cx| {
             let view = cx.new(|cx| {
-                SettingsWindowView::new(language, email, user_id, workspace, token, api, cx)
+                SettingsWindowView::new(
+                    language,
+                    email,
+                    user_id,
+                    workspace,
+                    token,
+                    api,
+                    self.close_to_tray.clone(),
+                    cx,
+                )
             });
             let focus = view.read(cx).focus_handle();
             window.focus(&focus, cx);

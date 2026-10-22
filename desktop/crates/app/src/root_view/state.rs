@@ -1,4 +1,6 @@
 use super::*;
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 
 /// 右侧 Dock 的两个互斥 panel。图标在 footer 切换，同一时间只显示一个。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -140,6 +142,12 @@ pub struct ShellState {
     pub(in crate::root_view) active_tab: Option<String>,
     pub(in crate::root_view) pane_notice: Option<String>,
     pub(in crate::root_view) window_handle: Option<AnyWindowHandle>,
+    pub(in crate::root_view) window_opening: bool,
+    pub(in crate::root_view) close_to_tray: Arc<std::sync::atomic::AtomicBool>,
+    pub(in crate::root_view) tray_hint_shown: Arc<std::sync::atomic::AtomicBool>,
+    pub(in crate::root_view) notification_seen: BTreeMap<String, String>,
+    pub(in crate::root_view) notification_started: bool,
+    pub(in crate::root_view) notification_responses: Arc<Mutex<Vec<SystemNotificationResponse>>>,
     pub(in crate::root_view) site_tree_events_open: bool,
     pub(in crate::root_view) site_tree_courses_open: bool,
     pub(in crate::root_view) site_tree_query: String,
@@ -255,6 +263,12 @@ impl ShellState {
             active_tab: None,
             pane_notice: None,
             window_handle: None,
+            window_opening: false,
+            close_to_tray: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            tray_hint_shown: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            notification_seen: crate::notifications::load_seen(),
+            notification_started: false,
+            notification_responses: Arc::new(Mutex::new(Vec::new())),
             site_tree_events_open: false,
             site_tree_courses_open: false,
             site_tree_query: String::new(),

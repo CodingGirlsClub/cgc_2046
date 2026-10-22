@@ -229,6 +229,16 @@ mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    /// 两个 claim 测试共享 Unix socket 路径哈希与 interprocess 内部状态；串行执行，
+    /// 避免并行测试互相污染。
+    static INSTANCE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn instance_test_lock() -> std::sync::MutexGuard<'static, ()> {
+        INSTANCE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     fn temp_state_dir(name: &str) -> std::path::PathBuf {
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -243,6 +253,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn stale_unix_socket_is_reclaimed() {
+        let _guard = instance_test_lock();
         let state_dir = temp_state_dir("stale");
         std::fs::create_dir_all(&state_dir).expect("state dir");
         let path = socket_path(&state_dir);
@@ -253,13 +264,19 @@ mod tests {
             drop(stale);
         }
         let start = claim(&state_dir, "test", Vec::new()).expect("claim after stale socket");
-        assert!(matches!(start, InstanceStart::Owner(_)));
+        if !matches!(start, InstanceStart::Owner(_)) {
+            panic!(
+                "unexpected handoff for path {path:?}; exists={}",
+                path.exists()
+            );
+        }
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_dir_all(state_dir);
     }
 
     #[test]
     fn second_claim_hands_off_to_owner() {
+        let _guard = instance_test_lock();
         let state_dir = temp_state_dir("handoff");
         let start = claim(&state_dir, "test", Vec::new()).expect("claim owner");
         let InstanceStart::Owner(instance) = start else {

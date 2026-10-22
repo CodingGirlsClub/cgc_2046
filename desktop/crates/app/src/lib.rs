@@ -5,6 +5,8 @@ pub mod chat_state;
 pub mod deep_link;
 pub mod formula;
 pub mod i18n;
+pub mod notifications;
+pub mod preferences;
 pub mod qr;
 pub mod registration;
 pub mod root_view;

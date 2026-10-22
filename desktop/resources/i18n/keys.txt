@@ -189,6 +189,15 @@ app.auth.back
 app.auth.error.phone
 app.auth.error.rate_limited
 app.auth.error.reset
+app.tray.open
+app.tray.settings
+app.tray.quit
+app.tray.tooltip
+app.notifications.unread_summary
+app.tray.first_close
+app.settings.behavior
+app.settings.close_to_tray
+app.settings.close_to_tray_hint
 app.settings.close
 app.settings.shortcut_hint
 app.settings.revoked

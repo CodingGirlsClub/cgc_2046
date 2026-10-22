@@ -56,6 +56,7 @@ pub fn parse(raw: &str) -> Result<DeepLink, DeepLinkError> {
         ("agents", []) => "/agents".to_string(),
         ("companion", []) => "/companion".to_string(),
         ("events", []) => "/events".to_string(),
+        ("events", ["mine"]) => "/events/mine".to_string(),
         ("events", [id]) => format!("/events/{}", uuid(id)?),
         ("courses", []) => "/courses".to_string(),
         ("courses", [id]) => format!("/courses/{}", uuid(id)?),
@@ -85,6 +86,7 @@ mod tests {
         assert_eq!(parse("cgc://agents").unwrap().path, "/agents");
         assert_eq!(parse("cgc://companion").unwrap().path, "/companion");
         assert_eq!(parse("cgc://events").unwrap().path, "/events");
+        assert_eq!(parse("cgc://events/mine").unwrap().path, "/events/mine");
         assert_eq!(parse("cgc://courses").unwrap().path, "/courses");
         assert_eq!(
             parse(&format!("cgc://events/{ID}")).unwrap().path,

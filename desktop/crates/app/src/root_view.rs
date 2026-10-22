@@ -2002,6 +2002,25 @@ fn app_icon() -> Arc<Image> {
     .clone()
 }
 
+pub fn main_window_options() -> WindowOptions {
+    WindowOptions {
+        // 参考 Zed build_window_options：透明 titlebar + 自绘 header，
+        // 红绿灯位置由 gpui 负责；Linux/Wayland 用 client side decorations。
+        titlebar: Some(TitlebarOptions {
+            title: None,
+            appears_transparent: true,
+            traffic_light_position: Some(point(px(12.0), px(12.0))),
+        }),
+        app_owns_titlebar_drag: cfg!(target_os = "macos"),
+        window_decorations: Some(WindowDecorations::Client),
+        window_min_size: Some(Size {
+            width: px(800.0),
+            height: px(560.0),
+        }),
+        ..Default::default()
+    }
+}
+
 fn nav_icon(icon: NavIcon) -> AssetIcon {
     match icon {
         NavIcon::Home => AssetIcon::House,

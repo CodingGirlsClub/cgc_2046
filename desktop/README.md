@@ -40,6 +40,7 @@ cgc://agents
 cgc://companion
 cgc://events
 cgc://events/<uuid>
+cgc://events/mine
 cgc://courses
 cgc://courses/<uuid>
 cgc://courses/<uuid>/learn
@@ -48,6 +49,17 @@ cgc://courses/<uuid>/learn
 未登录时先保存 pending link，登录成功后继续跳转；非法链接回到工作台。
 `cgc` scheme 由安装包注册；开发时直接以 argv 传入，例如
 `cargo run -p cgc-desktop-app -- 'cgc://settings'`。
+
+## 托盘与系统通知
+
+- 启动后常驻系统托盘：左键打开/聚焦主窗口，右键菜单提供打开、设置、退出。
+- 主窗口关闭默认留在托盘（可在 Settings 的「窗口行为」关闭）；应用退出走托盘「退出」。
+- `preferences.json` 保存 `closeToTray` 与首次关闭提示状态。
+- 登录后每 60 秒拉取 `notificationFeed`，未读通知通过系统通知中心展示；点击通知走
+  `cgc://` 路由并调用 `markNotificationRead`。
+- `notifications.json` 保存最近已展示通知的 id 与目标路由，避免重启后重复弹。
+- macOS 系统通知要求从 `.app` 启动；`cargo run` 的未打包进程不会弹通知（GPUI 保护）。
+- Linux 托盘使用 StatusNotifierItem；桌面没有托盘 host 时托盘不可见，但应用仍可运行。
 
 ## 目录与依赖方向（脊柱 AD-1）
 

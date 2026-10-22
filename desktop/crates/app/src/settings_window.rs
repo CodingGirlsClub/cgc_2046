@@ -5,13 +5,16 @@
 //! 已有窗口则激活复用，否则 `open_window` 新开居中窗口；主窗口仍保留自己的
 //! 导航壳，设置不再占用 footer 导航位（`app.settings` 路由仅内部保留）。
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use gpui_kit::component::switch::Switch;
 use gpui_kit::InteractiveElement;
 use gpui_kit::*;
 
 use crate::build_info;
 use crate::i18n::{translate, Key, Language};
+use crate::preferences;
 use crate::theme::{self, space, RADIUS_LARGE, RADIUS_MEDIUM};
 use cgc_platform::session::AuthApi;
 
@@ -23,6 +26,7 @@ pub struct SettingsWindowView {
     token: String,
     api: Arc<dyn AuthApi + Send + Sync>,
     focus: FocusHandle,
+    close_to_tray: Arc<AtomicBool>,
     revoking: bool,
     revoked: bool,
     error: Option<String>,
@@ -37,6 +41,7 @@ impl SettingsWindowView {
         workspace: Option<String>,
         token: String,
         api: Arc<dyn AuthApi + Send + Sync>,
+        close_to_tray: Arc<AtomicBool>,
         cx: &mut Context<Self>,
     ) -> Self {
         Self {
@@ -47,6 +52,7 @@ impl SettingsWindowView {
             token,
             api,
             focus: cx.focus_handle(),
+            close_to_tray,
             revoking: false,
             revoked: false,
             error: None,
@@ -214,6 +220,57 @@ impl Render for SettingsWindowView {
                             .text_size(px(14.0))
                             .child(workspace)
                             .into_any_element(),
+                        &palette,
+                    ))
+                    .child(Self::render_section(
+                        translate(language, Key::AppSettingsBehavior),
+                        {
+                            let close_to_tray = self.close_to_tray.clone();
+                            let view = cx.entity().downgrade();
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(6.0))
+                                .child(
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .justify_between()
+                                        .gap(space(2))
+                                        .child(
+                                            div()
+                                                .flex()
+                                                .flex_col()
+                                                .gap(px(2.0))
+                                                .child(div().text_size(px(13.0)).child(translate(
+                                                    language,
+                                                    Key::AppSettingsCloseToTray,
+                                                )))
+                                                .child(
+                                                    div()
+                                                        .text_size(px(11.0))
+                                                        .text_color(palette.ink_3)
+                                                        .child(translate(
+                                                            language,
+                                                            Key::AppSettingsCloseToTrayHint,
+                                                        )),
+                                                ),
+                                        )
+                                        .child(
+                                            Switch::new("settings-close-to-tray")
+                                                .checked(close_to_tray.load(Ordering::Relaxed))
+                                                .on_change(move |checked, _, cx| {
+                                                    close_to_tray
+                                                        .store(*checked, Ordering::Relaxed);
+                                                    let mut prefs = preferences::load();
+                                                    prefs.close_to_tray = *checked;
+                                                    preferences::save(prefs);
+                                                    let _ = view.update(cx, |_, cx| cx.notify());
+                                                }),
+                                        ),
+                                )
+                                .into_any_element()
+                        },
                         &palette,
                     ))
                     .child(Self::render_section(
