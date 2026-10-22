@@ -316,7 +316,137 @@ impl SecretBackend for LinuxSecretTool {
     }
 }
 
-/// 其它平台（Windows 等）：v1 fail-closed，不落明文；不伪装成可用。
+/// Generic credential 的 blob 上限（CRED_MAX_CREDENTIAL_BLOB_SIZE = 5 * 512）。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+const CREDENTIAL_BLOB_MAX: usize = 5 * 512;
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn credential_blob_fits(len: usize) -> bool {
+    len <= CREDENTIAL_BLOB_MAX
+}
+
+/// Windows Credential Manager（generic credential，当前用户加密存储）。
+#[cfg(target_os = "windows")]
+pub struct WindowsCredentialManager {
+    service: String,
+}
+
+#[cfg(target_os = "windows")]
+impl WindowsCredentialManager {
+    pub fn new(service: impl Into<String>) -> Self {
+        Self {
+            service: service.into(),
+        }
+    }
+
+    fn target(&self, account: &str) -> String {
+        // TargetName 是 Credential Manager 的查找键；service 已按 dev/staging/prod 隔离。
+        format!("{}:{}", self.service, account)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn credential_error(action: &str, error: windows::core::Error) -> io::Error {
+    io::Error::other(format!("Windows Credential Manager {action}: {error}"))
+}
+
+#[cfg(target_os = "windows")]
+fn credential_not_found(error: &windows::core::Error) -> bool {
+    error.code().0 as u32 == windows::Win32::Foundation::ERROR_NOT_FOUND.0
+}
+
+#[cfg(target_os = "windows")]
+fn wide_null(value: &str) -> Vec<u16> {
+    value.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+#[cfg(target_os = "windows")]
+impl SecretBackend for WindowsCredentialManager {
+    fn set(&self, account: &str, secret: &str) -> io::Result<()> {
+        use windows::core::PWSTR;
+        use windows::Win32::Security::Credentials::{
+            CredWriteW, CREDENTIALW, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC,
+        };
+
+        // CRED_MAX_CREDENTIAL_BLOB_SIZE = 5 * 512；超限必须报错，不能截断 token。
+        let mut blob = secret.as_bytes().to_vec();
+        if !credential_blob_fits(blob.len()) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "credential exceeds Windows Credential Manager blob limit",
+            ));
+        }
+        let mut target = wide_null(&self.target(account));
+        let credential = CREDENTIALW {
+            Type: CRED_TYPE_GENERIC,
+            TargetName: PWSTR(target.as_mut_ptr()),
+            CredentialBlobSize: blob.len() as u32,
+            CredentialBlob: blob.as_mut_ptr(),
+            Persist: CRED_PERSIST_LOCAL_MACHINE,
+            ..Default::default()
+        };
+        let result = unsafe { CredWriteW(&credential, 0) };
+        blob.fill(0);
+        result.map_err(|error| credential_error("write", error))
+    }
+
+    fn get(&self, account: &str) -> io::Result<Option<String>> {
+        use windows::core::PCWSTR;
+        use windows::Win32::Security::Credentials::{
+            CredFree, CredReadW, CREDENTIALW, CRED_TYPE_GENERIC,
+        };
+
+        let target = wide_null(&self.target(account));
+        let mut credential: *mut CREDENTIALW = std::ptr::null_mut();
+        let result = unsafe {
+            CredReadW(
+                PCWSTR(target.as_ptr()),
+                CRED_TYPE_GENERIC,
+                None,
+                &mut credential,
+            )
+        };
+        if let Err(error) = result {
+            if credential_not_found(&error) {
+                return Ok(None);
+            }
+            return Err(credential_error("read", error));
+        }
+        if credential.is_null() {
+            return Ok(None);
+        }
+
+        let bytes = unsafe {
+            let credential_ref = &*credential;
+            let size = credential_ref.CredentialBlobSize as usize;
+            if size == 0 || credential_ref.CredentialBlob.is_null() {
+                Vec::new()
+            } else {
+                std::slice::from_raw_parts(credential_ref.CredentialBlob, size).to_vec()
+            }
+        };
+        unsafe { CredFree(credential.cast()) };
+
+        String::from_utf8(bytes)
+            .map(Some)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
+    }
+
+    fn delete(&self, account: &str) -> io::Result<()> {
+        use windows::core::PCWSTR;
+        use windows::Win32::Security::Credentials::{CredDeleteW, CRED_TYPE_GENERIC};
+
+        let target = wide_null(&self.target(account));
+        let result = unsafe { CredDeleteW(PCWSTR(target.as_ptr()), CRED_TYPE_GENERIC, None) };
+        match result {
+            Ok(()) => Ok(()),
+            Err(error) if credential_not_found(&error) => Ok(()),
+            Err(error) => Err(credential_error("delete", error)),
+        }
+    }
+}
+
+/// 其它平台：v1 fail-closed，不落明文；不伪装成可用。
 #[derive(Default)]
 pub struct UnavailableKeychain;
 
@@ -386,7 +516,11 @@ impl KeychainStore {
         {
             Self::new(Arc::new(LinuxSecretTool::new(service)))
         }
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        #[cfg(target_os = "windows")]
+        {
+            Self::new(Arc::new(WindowsCredentialManager::new(service)))
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
         {
             Self::new(Arc::new(UnavailableKeychain))
         }
@@ -480,6 +614,30 @@ mod keychain_tests {
             Some("t-keychain".to_string())
         );
         store.clear().expect("clear");
+        assert!(store.load().is_none());
+    }
+
+    #[test]
+    fn credential_blob_limit_is_inclusive() {
+        assert!(credential_blob_fits(CREDENTIAL_BLOB_MAX));
+        assert!(!credential_blob_fits(CREDENTIAL_BLOB_MAX + 1));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_credential_manager_round_trip() {
+        let service = format!("cgc-desktop-test-{}", std::process::id());
+        let store = KeychainStore::new(Arc::new(WindowsCredentialManager::new(service)));
+        // Cleanup from an earlier interrupted run before asserting the round trip.
+        store.clear().expect("clear stale test credential");
+        store
+            .save(&session("t-windows-keychain"))
+            .expect("save to Windows Credential Manager");
+        assert_eq!(
+            store.load().map(|session| session.token),
+            Some("t-windows-keychain".to_string())
+        );
+        store.clear().expect("clear Windows Credential Manager");
         assert!(store.load().is_none());
     }
 
