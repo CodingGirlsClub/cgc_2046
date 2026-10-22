@@ -9,6 +9,6 @@ pub mod thread;
 
 pub use session::{
     Agent, AgentError, ApprovalRequest, Approver, AutoApprover, CancelToken, DenyApprover,
-    ToolResultSummary, ToolTurnOutcome, TurnOutcome, MAX_TOOL_STEPS,
+    NoopObserver, ToolResultSummary, ToolTurnOutcome, TurnObserver, TurnOutcome, MAX_TOOL_STEPS,
 };
 pub use thread::{Entry, SelectedModel, Thread};

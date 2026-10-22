@@ -447,6 +447,12 @@ UI（输入）→ NativeHost.prompt
 2. **AppAction 首批 = 打开页面 + 高亮范围**：两者不改业务数据模型、风险低、演示价值高；`create_note` / `todo` 放第二批（需要数据模型），运行课程检查放第三批（需要课程接口契约）。
 3. **steering / follow-up 放 P2**：P1 先做「单轮 + 审批 + 停止 + 追加一句新 prompt」；队列语义（steer 立即生效、follow-up 排队、interruptMode）复杂度高，P2 再引入。
 
+**P1 交互核心进度（2026-10-22）**：
+- `agent_core::TurnObserver` + `prompt_with_tools_observed`：文本增量、工具调用/结果、审批请求、用量、结束事件；
+- `desktop/crates/agent_host`（cgc-agent-host）：`AgentCommand`（prompt / stop / permission response）、`AgentEvent`、`HostState` 归约、`EventCollector`/`ChannelObserver`；测试覆盖事件序列与归约；
+- CLI demo 已用 observer 流式输出；GPUI 面板待切到 HostState（下一步）。
+- `ApprovalRequest` 补充 `tool_call_id`，审批响应可精确回填。
+
 **优先级**：P1 做 Commands（prompt/stop/approve/set_model）、Events（文本/思考/工具/notice/queue）、UI requests（confirm/notify）、AppAction（open_page / highlight_range）；P2 加 steering/follow-up、slash 命令面板、todo/plan/goal、subagent 进度、checkpoint/diff UI、create_note；P3 再评估 side question、widget/status 扩展、host URI、voice。
 
 **可借鉴的 OMP Rust 资产**（重写而非依赖，详见 `docs/tmp/agent-research/omp-rust-crates.md`）：pi-edit 的 hashline（编辑质量）、pi-shell 的结果模型（终端卡片）、pi-iso 的隔离后端形状（subagent 预留）、pi-walker 的扫描缓存（上下文枚举）、pi-predict 的输入预测（客户端提示，可选）。

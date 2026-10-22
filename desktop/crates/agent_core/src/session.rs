@@ -73,6 +73,7 @@ pub struct ToolResultSummary {
 /// 需要用户确认的审批请求。
 #[derive(Clone, Debug, PartialEq)]
 pub struct ApprovalRequest {
+    pub tool_call_id: String,
     pub tool_name: String,
     pub args: serde_json::Value,
 }
@@ -81,6 +82,22 @@ pub struct ApprovalRequest {
 pub trait Approver: Send + Sync {
     fn decide(&self, request: ApprovalRequest) -> BoxFuture<'static, ApprovalDecision>;
 }
+
+/// 一轮 turn 的过程事件。UI/Host 通过它把流式过程渲染出来。
+pub trait TurnObserver: Send {
+    fn on_turn_started(&mut self, _thread_id: &str) {}
+    fn on_text(&mut self, _delta: &str) {}
+    fn on_tool_call(&mut self, _tool_use: &ToolUse) {}
+    fn on_permission_request(&mut self, _request: &ApprovalRequest) {}
+    fn on_tool_result(&mut self, _summary: &ToolResultSummary) {}
+    fn on_usage(&mut self, _usage: TokenUsage, _total: TokenUsage) {}
+    fn on_finished(&mut self, _outcome: &ToolTurnOutcome) {}
+}
+
+/// 不关心过程的调用方（测试、无 UI 场景）。
+pub struct NoopObserver;
+
+impl TurnObserver for NoopObserver {}
 
 /// 无人值守场景（测试、CLI demo）：全部允许一次。
 pub struct AutoApprover;
@@ -152,8 +169,9 @@ impl Agent {
         self.validate(provider, model)?;
         self.thread.push_user(text);
         let request = self.build_request(Vec::new());
+        let mut observer = NoopObserver;
         let (text, usage, stop_reason, tool_calls) =
-            run_stream(provider, model, request, &self.cancel).await?;
+            run_stream(provider, model, request, &self.cancel, &mut observer).await?;
         self.record_turn(text.clone(), tool_calls.clone(), usage);
         Ok(TurnOutcome {
             text,
@@ -173,8 +191,34 @@ impl Agent {
         context: &ToolContext,
         approver: &dyn Approver,
     ) -> Result<ToolTurnOutcome, AgentError> {
+        let mut observer = NoopObserver;
+        self.prompt_with_tools_observed(
+            provider,
+            model,
+            text,
+            tools,
+            context,
+            approver,
+            &mut observer,
+        )
+        .await
+    }
+
+    /// 与 `prompt_with_tools` 相同，但把过程事件推给 observer。
+    #[allow(clippy::too_many_arguments)]
+    pub async fn prompt_with_tools_observed(
+        &mut self,
+        provider: &dyn Provider,
+        model: &Model,
+        text: impl Into<String>,
+        tools: &ToolRegistry,
+        context: &ToolContext,
+        approver: &dyn Approver,
+        observer: &mut dyn TurnObserver,
+    ) -> Result<ToolTurnOutcome, AgentError> {
         self.validate(provider, model)?;
         self.thread.push_user(text);
+        observer.on_turn_started(&self.thread.id);
 
         let mut all_text = String::new();
         let mut total_usage = TokenUsage::default();
@@ -187,24 +231,29 @@ impl Agent {
             }
             let request = self.build_request(tools.schemas());
             let (text, usage, stop_reason, tool_calls) =
-                run_stream(provider, model, request, &self.cancel).await?;
+                run_stream(provider, model, request, &self.cancel, observer).await?;
             self.record_turn(text.clone(), tool_calls.clone(), usage);
+            observer.on_usage(usage, self.thread.usage_total);
             all_text.push_str(&text);
             total_usage.add(usage);
             all_tool_calls.extend(tool_calls.clone());
             if stop_reason != StopReason::ToolUse || tool_calls.is_empty() {
-                return Ok(ToolTurnOutcome {
+                let outcome = ToolTurnOutcome {
                     text: all_text,
                     usage: total_usage,
                     stop_reason,
                     tool_calls: all_tool_calls,
                     tool_results,
-                });
+                };
+                observer.on_finished(&outcome);
+                return Ok(outcome);
             }
             for tool_call in &tool_calls {
+                observer.on_tool_call(tool_call);
                 let summary = self
-                    .execute_tool_call(tool_call, tools, context, approver)
+                    .execute_tool_call(tool_call, tools, context, approver, observer)
                     .await;
+                observer.on_tool_result(&summary);
                 tool_results.push(summary);
             }
             if step + 1 == MAX_TOOL_STEPS {
@@ -250,6 +299,7 @@ impl Agent {
         tools: &ToolRegistry,
         context: &ToolContext,
         approver: &dyn Approver,
+        observer: &mut dyn TurnObserver,
     ) -> ToolResultSummary {
         let Some(approval) = tools.approval(&tool_call.name, &tool_call.args) else {
             let content = format!("unknown tool: {}", tool_call.name);
@@ -288,12 +338,13 @@ impl Agent {
                 if self.session_grants.contains(&tool_call.name) {
                     ApprovalDecision::AllowOnce
                 } else {
-                    approver
-                        .decide(ApprovalRequest {
-                            tool_name: tool_call.name.clone(),
-                            args: tool_call.args.clone(),
-                        })
-                        .await
+                    let request = ApprovalRequest {
+                        tool_call_id: tool_call.id.clone(),
+                        tool_name: tool_call.name.clone(),
+                        args: tool_call.args.clone(),
+                    };
+                    observer.on_permission_request(&request);
+                    approver.decide(request).await
                 }
             }
         };
@@ -347,6 +398,7 @@ async fn run_stream(
     model: &Model,
     request: Request,
     cancel: &CancelToken,
+    observer: &mut dyn TurnObserver,
 ) -> Result<(String, TokenUsage, StopReason, Vec<ToolUse>), AgentError> {
     let mut stream = provider.stream(model, request).await?;
     let mut text = String::new();
@@ -359,7 +411,10 @@ async fn run_stream(
         }
         match event? {
             CompletionEvent::StartMessage { .. } => {}
-            CompletionEvent::Text(chunk) => text.push_str(&chunk),
+            CompletionEvent::Text(chunk) => {
+                observer.on_text(&chunk);
+                text.push_str(&chunk);
+            }
             CompletionEvent::Thinking { .. } => {}
             CompletionEvent::ToolUse(tool_use) => tool_calls.push(tool_use),
             CompletionEvent::Usage(delta) => usage.add(delta),

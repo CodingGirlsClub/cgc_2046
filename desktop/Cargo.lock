@@ -923,6 +923,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cgc-agent-host"
+version = "0.0.1"
+dependencies = [
+ "cgc-agent-core",
+ "cgc-agent-provider",
+ "cgc-agent-tools",
+ "futures",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cgc-agent-provider"
 version = "0.0.1"
 dependencies = [

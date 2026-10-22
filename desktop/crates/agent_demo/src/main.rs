@@ -11,12 +11,54 @@
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
-use cgc_agent_core::{Agent, AgentError, AutoApprover, SelectedModel, Thread};
+use cgc_agent_core::{
+    Agent, AgentError, ApprovalRequest, AutoApprover, SelectedModel, Thread, ToolResultSummary,
+    ToolTurnOutcome, TurnObserver,
+};
+use cgc_agent_provider::TokenUsage;
 use cgc_agent_provider::{
     CompletionEvent, FakeProvider, Model, ModelId, ModelLimits, OpenAiCompatibleConfig,
     OpenAiCompatibleProvider, ProviderId, StopReason, ToolUse,
 };
 use cgc_agent_tools::{ToolContext, ToolRegistry};
+
+/// CLI 的流式打印：文本直接输出，工具调用走 stderr，避免污染答案。
+struct PrintObserver;
+
+impl TurnObserver for PrintObserver {
+    fn on_text(&mut self, delta: &str) {
+        print!("{delta}");
+        let _ = std::io::stdout().flush();
+    }
+
+    fn on_tool_call(&mut self, tool_use: &cgc_agent_provider::ToolUse) {
+        eprintln!("[tool] {} {}", tool_use.name, tool_use.args);
+    }
+
+    fn on_permission_request(&mut self, request: &ApprovalRequest) {
+        eprintln!("[approval requested] {}", request.tool_name);
+    }
+
+    fn on_tool_result(&mut self, summary: &ToolResultSummary) {
+        eprintln!(
+            "[tool result] {} · {}",
+            summary.tool_name,
+            if summary.is_error { "失败" } else { "完成" }
+        );
+    }
+
+    fn on_usage(&mut self, usage: TokenUsage, total: TokenUsage) {
+        eprintln!(
+            "[usage] 本轮 {} · 累计 {}",
+            usage.input + usage.output,
+            total.input + total.output
+        );
+    }
+
+    fn on_finished(&mut self, _outcome: &ToolTurnOutcome) {
+        println!();
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 enum Mode {
@@ -198,13 +240,15 @@ fn run_repl(options: Options) -> std::process::ExitCode {
     );
     if let Some(prompt) = options.once {
         let result = if options.allow_tools {
-            futures::executor::block_on(agent.prompt_with_tools(
+            let mut observer = PrintObserver;
+            futures::executor::block_on(agent.prompt_with_tools_observed(
                 &provider,
                 &model,
                 prompt,
                 &registry,
                 &context,
                 &AutoApprover,
+                &mut observer,
             ))
             .map(|outcome| outcome.text)
         } else {
@@ -249,31 +293,24 @@ fn run_repl(options: Options) -> std::process::ExitCode {
         }
 
         let result = if options.allow_tools {
-            futures::executor::block_on(agent.prompt_with_tools(
+            let mut observer = PrintObserver;
+            futures::executor::block_on(agent.prompt_with_tools_observed(
                 &provider,
                 &model,
                 input,
                 &registry,
                 &context,
                 &AutoApprover,
+                &mut observer,
             ))
-            .map(|outcome| {
-                for tool_result in &outcome.tool_results {
-                    println!(
-                        "[tool {}] {}",
-                        tool_result.tool_name,
-                        if tool_result.is_error { "error" } else { "ok" }
-                    );
-                }
-                outcome.text
-            })
+            .map(|outcome| outcome.text)
         } else {
             futures::executor::block_on(agent.prompt(&provider, &model, input))
                 .map(|outcome| outcome.text)
         };
 
         match result {
-            Ok(text) => println!("{text}"),
+            Ok(_text) => {}
             Err(AgentError::Provider(error)) => eprintln!("provider error: {error}"),
             Err(error) => eprintln!("error: {error}"),
         }
