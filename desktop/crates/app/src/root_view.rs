@@ -8,7 +8,7 @@
 use gpui_kit::InteractiveElement;
 use gpui_kit::*;
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use crate::chat_state::{
     clear_chat_pointer, load_chat_pointer, load_chat_pref, load_installed_agents,
@@ -801,9 +801,19 @@ impl Render for RootView {
                                     })
                                     .child(
                                         div()
-                                            .text_size(px(15.0))
-                                            .text_color(palette.ink)
-                                            .child(translate(language, Key::AppName)),
+                                            .flex()
+                                            .flex_row()
+                                            .items_center()
+                                            .gap(px(6.0))
+                                            .child(
+                                                img(app_icon()).w(px(18.0)).h(px(18.0)).flex_none(),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_size(px(15.0))
+                                                    .text_color(palette.ink)
+                                                    .child(translate(language, Key::AppName)),
+                                            ),
                                     ),
                             )
                             .child(div().w(px(1.0)).h(px(14.0)).bg(palette.line))
@@ -1968,6 +1978,17 @@ fn enroll_error_label(language: Language, suffix: &str) -> &'static str {
             _ => Key::EventsEnrollErrorGeneric,
         },
     )
+}
+
+fn app_icon() -> Arc<Image> {
+    static ICON: OnceLock<Arc<Image>> = OnceLock::new();
+    ICON.get_or_init(|| {
+        Arc::new(Image::from_bytes(
+            ImageFormat::Png,
+            include_bytes!("../icons/128x128.png").to_vec(),
+        ))
+    })
+    .clone()
 }
 
 fn nav_icon(icon: NavIcon) -> AssetIcon {

@@ -1,4 +1,4 @@
-# CGC Desktop
+# 程序媛汇 Desktop
 
 学员端原生桌面客户端（GPUI + gpui-kit，Rust）。组织方式对齐 Zed：**每个子系统一个 crate
 平铺在 `crates/` 下，`app` 是唯一 binary crate（组合根）**。架构与不变量见
@@ -57,7 +57,7 @@ CI 在 1.13 建立后由依赖边界检查兜底。
 cd desktop
 cargo install cargo-packager --locked --version =0.11.8
 cargo packager -p cgc-desktop-app --release -f dmg     # macOS；Windows 用 -f wix，Linux 用 -f deb,appimage
-bash scripts/name-artifacts.sh                          # 重命名为 CGC_<version>_<commit>_<arch>.*
+bash scripts/name-artifacts.sh                          # 重命名为 cgc2046_<version>_<commit>_<arch>.*
 bash scripts/verify-package.sh                          # hdiutil / dpkg-deb / AppImage 结构校验
 bash scripts/smoke-package-runtime.sh                   # macOS：从 dmg 启动 release 二进制并确认存活
 CGC_DESKTOP_TOKEN=<jwt> bash scripts/verify-m0-backend.sh  # 真实后端 M0 冒烟（工作台/场次/课程/投影）

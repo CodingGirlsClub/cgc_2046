@@ -10,7 +10,7 @@ pub fn about_line() -> String {
 
 /// 安装包文件名片段：`cgc-desktop-0.0.1-abc1234`。
 pub fn artifact_stem() -> String {
-    format!("cgc-desktop-{VERSION}-{COMMIT}")
+    format!("cgc2046-{VERSION}-{COMMIT}")
 }
 
 #[cfg(test)]
@@ -24,7 +24,7 @@ mod tests {
         assert_eq!(VERSION, env!("CGC_BUILD_VERSION"));
         assert_eq!(COMMIT, env!("CGC_BUILD_COMMIT"));
         assert_eq!(about_line(), format!("{VERSION} ({COMMIT})"));
-        assert!(artifact_stem().starts_with("cgc-desktop-"));
+        assert!(artifact_stem().starts_with("cgc2046-"));
         assert!(artifact_stem().contains(COMMIT));
     }
 }

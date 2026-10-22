@@ -1,9 +1,9 @@
-# CGC Desktop 中文词表。格式：key = value；key 命名 feature.domain.key。
+# 程序媛汇 Desktop 中文词表。格式：key = value；key 命名 feature.domain.key。
 # 构建期由 crates/app/build.rs 校验：zh/en 键集合必须完全一致，缺 key 构建失败。
-app.name = CGC
+app.name = 程序媛汇
 app.nav.home = 首页
 app.nav.label = 导航
-app.empty.title = 欢迎来到 CGC
+app.empty.title = 欢迎来到 程序媛汇
 app.empty.body = 从左侧选择一个模块开始。
 app.placeholder.body = 该模块的界面将在后续 story 中实现。
 app.theme.light = 浅色

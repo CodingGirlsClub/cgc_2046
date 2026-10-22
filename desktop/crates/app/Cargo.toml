@@ -21,10 +21,10 @@ cgc-platform.workspace = true
 # cargo-packager 配置（story 1.13）；格式由 CI 的 --formats 指定（dmg / wix / deb,appimage）。
 # 未签名产物：签名与公证归 epic-6（ADR-0027 决策 2/3）。
 [package.metadata.packager]
-productName = "CGC"
-identifier = "com.codinggirlsclub.cgc.desktop"
-description = "CGC 学员端桌面客户端"
-longDescription = "CGC 学员端桌面客户端：工作台、场次报名与支付、课程学习，以及与你自己本机 agent 的学习搭子对话。"
+productName = "程序媛汇"
+identifier = "com.codinggirlsclub.cgc2046.desktop"
+description = "程序媛汇学员端桌面客户端"
+longDescription = "程序媛汇学员端桌面客户端：工作台、场次报名与支付、课程学习，以及与你自己本机 agent 的学习搭子对话。"
 category = "Education"
 outDir = "../../dist"  # 相对本 Cargo.toml（crates/app）→ desktop/dist
 beforePackagingCommand = "cargo build --release -p cgc-desktop-app"
