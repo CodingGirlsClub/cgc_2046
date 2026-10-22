@@ -3,6 +3,7 @@
 //! 顶部 header / 底部 footer 的外壳样式在 `root_view`；系统外观变化由
 //! `observe_window_appearance` 转给 `RootView::on_appearance_changed`。
 
+use cgc_desktop_app::i18n::{default_language, translate, Key};
 use cgc_desktop_app::registration::{build_registry, validate};
 use cgc_desktop_app::root_view::RootView;
 use cgc_desktop_app::theme;
@@ -53,8 +54,9 @@ fn main() {
                             .placeholder("给 agent 发消息… @ 引用上下文，/ 查看命令")
                     });
                     let config_search_input = cx.new(|cx| {
-                        gpui_kit::component::input::InputState::new(window, cx)
-                            .placeholder("Select an option...")
+                        gpui_kit::component::input::InputState::new(window, cx).placeholder(
+                            translate(default_language(), Key::AgentChatChatSelectOption),
+                        )
                     });
                     let view = cx.new(move |_| RootView::new(view_registry));
                     view.update(cx, |this, _| {

@@ -144,6 +144,7 @@ agent_chat.chat.start
 agent_chat.chat.starting
 agent_chat.chat.input_hint
 agent_chat.chat.send
+agent_chat.chat.select_option
 agent_chat.chat.stop
 agent_chat.chat.retry
 agent_chat.chat.thinking

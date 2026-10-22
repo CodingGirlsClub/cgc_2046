@@ -232,6 +232,7 @@ struct ChatUi {
     config_search: String,
     config_search_input: Option<Entity<InputState>>,
     config_search_subscription: Option<Subscription>,
+    config_search_placeholder_language: Option<Language>,
     slash_selection: usize,
     slash_dismissed: bool,
     sessions: Vec<SessionSummary>,
@@ -533,6 +534,13 @@ impl Render for RootView {
                     },
                 );
                 self.chat.config_search_subscription = Some(subscription);
+            }
+            if self.chat.config_search_placeholder_language != Some(language) {
+                let placeholder = translate(language, Key::AgentChatChatSelectOption);
+                input.update(cx, |input, cx| {
+                    input.set_placeholder(placeholder, window, cx);
+                });
+                self.chat.config_search_placeholder_language = Some(language);
             }
         }
         if is_signed_in
