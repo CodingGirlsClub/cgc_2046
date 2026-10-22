@@ -50,6 +50,86 @@ impl RootView {
     }
 
     /// 按路径导航（动态路由在此完成参数解析）。
+    pub fn set_window_handle(&mut self, window_handle: AnyWindowHandle) {
+        self.window_handle = Some(window_handle);
+    }
+
+    pub(in crate::root_view) fn activate_window(&self, cx: &mut Context<Self>) {
+        if let Some(window_handle) = self.window_handle {
+            let _ = window_handle.update(cx, |_, window, _| window.activate_window());
+        }
+    }
+
+    pub fn handle_deep_link(&mut self, raw: &str, cx: &mut Context<Self>) {
+        match crate::deep_link::parse(raw) {
+            Ok(link) => {
+                self.pending_link = Some(link.path);
+                self.consume_pending_link();
+                if self.is_signed_in() {
+                    self.activate_window(cx);
+                }
+            }
+            Err(error) => {
+                eprintln!("desktop deep link rejected: {error:?}");
+                self.pending_link = None;
+                self.navigate("/workspace");
+                self.pane_notice =
+                    Some(translate(self.language, Key::AppDeeplinkInvalid).to_string());
+                self.activate_window(cx);
+            }
+        }
+        cx.notify();
+    }
+
+    pub(in crate::root_view) fn consume_pending_link(&mut self) {
+        if !self.is_signed_in() {
+            return;
+        }
+        if let Some(path) = self.pending_link.take() {
+            self.navigate(&path);
+        }
+    }
+
+    pub fn start_external_link_pump(
+        &mut self,
+        instance: cgc_platform::instance::Instance,
+        os_urls: Arc<std::sync::Mutex<Vec<String>>>,
+        initial_urls: Vec<String>,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |this, cx| {
+            let mut queued = initial_urls;
+            loop {
+                let mut urls = std::mem::take(&mut queued);
+                if let Ok(mut os_urls) = os_urls.lock() {
+                    urls.append(&mut os_urls);
+                }
+                let mut focus = false;
+                while let Some(message) = instance.try_recv() {
+                    urls.extend(message.urls);
+                    focus = true;
+                }
+                if !urls.is_empty() || focus {
+                    let updated = this.update(cx, |this, cx| {
+                        for url in urls {
+                            this.handle_deep_link(&url, cx);
+                        }
+                        if focus {
+                            this.activate_window(cx);
+                        }
+                    });
+                    if updated.is_err() {
+                        break;
+                    }
+                }
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(100))
+                    .await;
+            }
+        })
+        .detach();
+    }
+
     pub fn navigate(&mut self, path: &str) {
         self.breadcrumb_menu = None;
         self.site_tree_search_focused = false;
@@ -2504,6 +2584,7 @@ impl RootView {
                 self.session_checked = false;
                 self.login_password.clear();
                 self.navigate("/workspace");
+                self.consume_pending_link();
             }
             Err(error) => {
                 self.session.fail_sign_in(&error);

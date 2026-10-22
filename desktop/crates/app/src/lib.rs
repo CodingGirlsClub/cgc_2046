@@ -2,6 +2,7 @@
 
 pub mod build_info;
 pub mod chat_state;
+pub mod deep_link;
 pub mod formula;
 pub mod i18n;
 pub mod qr;

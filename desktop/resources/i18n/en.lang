@@ -1,6 +1,7 @@
 # 程序媛汇 Desktop English strings. Format: key = value; keys follow feature.domain.key.
 # crates/app/build.rs validates that zh/en key sets match exactly; a missing key fails the build.
 app.name = Coding Girls Club
+app.deeplink.invalid = This link is invalid or expired; returned to the workspace
 app.nav.home = Home
 app.nav.label = Navigation
 app.empty.title = Welcome to Coding Girls Club

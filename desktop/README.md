@@ -27,6 +27,28 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 `CGC_LANG=zh|en` 选择启动语言（默认 zh），`CGC_THEME=light|dark|system` 覆盖主题。
 
+## 单实例与深链
+
+打包后的客户端只允许一个实例；第二次启动会把 URL/参数交给已运行实例并聚焦原窗口。
+`cgc://` 深链支持：
+
+```text
+cgc://home
+cgc://workspace
+cgc://settings
+cgc://agents
+cgc://companion
+cgc://events
+cgc://events/<uuid>
+cgc://courses
+cgc://courses/<uuid>
+cgc://courses/<uuid>/learn
+```
+
+未登录时先保存 pending link，登录成功后继续跳转；非法链接回到工作台。
+`cgc` scheme 由安装包注册；开发时直接以 argv 传入，例如
+`cargo run -p cgc-desktop-app -- 'cgc://settings'`。
+
 ## 目录与依赖方向（脊柱 AD-1）
 
 ```text

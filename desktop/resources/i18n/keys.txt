@@ -2,6 +2,7 @@
 # 规则：任何 UI 用到的 key 都必须在此登记；build.rs 会校验每个 key 在 zh/en
 # 两份词表都存在，且词表里不允许出现未登记的多余 key。key 命名 feature.domain.key。
 app.name
+app.deeplink.invalid
 app.nav.home
 app.nav.label
 app.empty.title

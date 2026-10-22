@@ -1,6 +1,7 @@
 # 程序媛汇 Desktop 中文词表。格式：key = value；key 命名 feature.domain.key。
 # 构建期由 crates/app/build.rs 校验：zh/en 键集合必须完全一致，缺 key 构建失败。
 app.name = 程序媛汇
+app.deeplink.invalid = 链接无效或已过期，已返回工作台
 app.nav.home = 首页
 app.nav.label = 导航
 app.empty.title = 欢迎来到 程序媛汇

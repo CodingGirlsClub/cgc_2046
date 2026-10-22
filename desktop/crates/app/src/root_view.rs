@@ -2365,6 +2365,15 @@ mod tests {
     }
 
     #[test]
+    fn pending_deep_link_is_consumed_after_login() {
+        let mut view = view();
+        view.pending_link = Some("/settings".to_string());
+        view.finish_login(Ok(fake_signed_in()));
+        assert_eq!(view.current().map(|route| route.id), Some("app.settings"));
+        assert!(view.pending_link.is_none());
+    }
+
+    #[test]
     fn finish_login_invalid_credentials_shows_error() {
         let mut view = view();
         view.finish_login(Err(AuthError::InvalidCredentials));

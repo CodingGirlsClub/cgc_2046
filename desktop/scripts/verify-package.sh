@@ -31,6 +31,12 @@ for f in dist/*.dmg; do
   echo "   app bundle ok: $(basename "$app")"
   test -e "$mnt/Applications" || { hdiutil detach "$mnt" -force >/dev/null 2>&1 || true; echo "FAIL: dmg 内缺 Applications 链接" >&2; exit 1; }
   echo "   Applications link ok"
+  if ! plutil -p "$app/Contents/Info.plist" | grep -q '"cgc"'; then
+    hdiutil detach "$mnt" -force >/dev/null || true
+    echo "FAIL: app Info.plist 缺少 cgc URL scheme" >&2
+    exit 1
+  fi
+  echo "   cgc URL scheme ok"
   hdiutil detach "$mnt" -force >/dev/null
   rmdir "$mnt" 2>/dev/null || true
   found=1
@@ -49,6 +55,15 @@ for f in dist/*.deb; do
         exit 1
         ;;
     esac
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/cgc-deb.XXXXXX")
+    dpkg-deb -x "$f" "$tmp"
+    if ! grep -R -q 'x-scheme-handler/cgc' "$tmp/usr/share/applications" 2>/dev/null; then
+      rm -rf "$tmp"
+      echo "FAIL: deb desktop entry 缺少 x-scheme-handler/cgc" >&2
+      exit 1
+    fi
+    rm -rf "$tmp"
+    echo "   cgc URL scheme ok"
   else
     echo "   dpkg-deb 不可用（非 Debian 系宿主），跳过结构校验"
   fi
@@ -61,6 +76,12 @@ for f in dist/*.AppImage; do
   "$f" --appimage-extract >/dev/null
   test -x squashfs-root/AppRun
   echo "   --appimage-extract ok"
+  if ! grep -R -q 'x-scheme-handler/cgc' squashfs-root/usr/share/applications 2>/dev/null; then
+    rm -rf squashfs-root
+    echo "FAIL: AppImage desktop entry 缺少 x-scheme-handler/cgc" >&2
+    exit 1
+  fi
+  echo "   cgc URL scheme ok"
   rm -rf squashfs-root
   found=1
 done

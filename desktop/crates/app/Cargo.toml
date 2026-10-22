@@ -12,6 +12,8 @@ gpui-kit.workspace = true
 # story 3.13：二维码矩阵生成。qrcode 0.14.1，license = MIT OR Apache-2.0（AGPL-3.0 兼容）。
 # 关闭默认 features（image/svg/pic）：只需要矩阵，不引入 image 等额外依赖。
 qrcode = { version = "0.14.1", default-features = false }
+url = "2.5"
+uuid = "1"
 cgc-account.workspace = true
 cgc-agent-chat.workspace = true
 cgc-courses.workspace = true
@@ -39,3 +41,9 @@ icons = [
 # Linux deb 运行时依赖：登录凭证通过 secret-tool（libsecret）持久化。
 [package.metadata.packager.deb]
 depends = ["libsecret-tools"]
+
+# cgc:// 深链：由安装器写入 macOS URL scheme、Windows MSI 注册表与 Linux desktop MIME。
+[[package.metadata.packager.deepLinkProtocols]]
+schemes = ["cgc"]
+name = "cgc2046"
+role = "viewer"
