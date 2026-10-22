@@ -10,7 +10,7 @@ use cgc_agent_provider::{
     EchoProvider, Model, ModelLimits, OpenAiCompatibleConfig, OpenAiCompatibleProvider, Provider,
     ProviderId,
 };
-use cgc_agent_store::{AgentPrefs, PrefsStore};
+use cgc_agent_store::{AgentPrefs, PrefsStore, SessionStore};
 use cgc_agent_tools::{ToolContext, ToolRegistry};
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::*;
@@ -34,6 +34,7 @@ pub struct NativeAgentView {
     messages: Vec<ChatLine>,
     status: String,
     busy: bool,
+    session_store: Option<SessionStore>,
     _input_subscription: Option<Subscription>,
 }
 
@@ -84,10 +85,49 @@ impl NativeAgentView {
             }
             _ => Arc::new(EchoProvider::new(model.clone())),
         };
-        let thread = Thread::new(
-            "native-demo",
-            SelectedModel::new(model.provider_id.clone(), model.id.clone()),
-        );
+        let selected = SelectedModel::new(model.provider_id.clone(), model.id.clone());
+        let session_store =
+            SessionStore::open(paths.data_root.join("agent").join("threads.db")).ok();
+        let restored_thread = session_store.as_ref().and_then(|store| {
+            let latest = store.list_threads(1).ok()?.into_iter().next()?;
+            let thread = store.load_thread(&latest.id).ok().flatten()?;
+            (thread.model == selected).then_some(thread)
+        });
+        let (thread, restored_messages) = match restored_thread {
+            Some(thread) => {
+                let messages = thread
+                    .entries
+                    .iter()
+                    .filter_map(|entry| match entry {
+                        cgc_agent_core::Entry::User { text, .. } => Some(ChatLine {
+                            role: "user",
+                            text: text.clone(),
+                        }),
+                        cgc_agent_core::Entry::Assistant { text, .. } if !text.is_empty() => {
+                            Some(ChatLine {
+                                role: "agent",
+                                text: text.clone(),
+                            })
+                        }
+                        cgc_agent_core::Entry::ToolResult {
+                            tool_name,
+                            is_error,
+                            ..
+                        } => Some(ChatLine {
+                            role: "tool",
+                            text: format!(
+                                "{tool_name} · {}",
+                                if *is_error { "失败" } else { "完成" }
+                            ),
+                        }),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                (thread, messages)
+            }
+            None => (Thread::new("native-demo", selected), Vec::new()),
+        };
+        let restored = !restored_messages.is_empty();
         let agent = Agent::new(thread, None);
         let cancel = agent.cancel_token();
         let workspace = std::env::var("CGC_AGENT_WORKSPACE")
@@ -118,12 +158,22 @@ impl NativeAgentView {
             context: ToolContext::new(workspace),
             input,
             cancel,
-            messages: vec![ChatLine {
-                role: "system",
-                text: "Native agent demo：离线模式直接回显；配置环境变量后接真实模型。".to_string(),
-            }],
-            status: "就绪".to_string(),
+            messages: if restored {
+                restored_messages
+            } else {
+                vec![ChatLine {
+                    role: "system",
+                    text: "Native agent demo：离线模式直接回显；配置环境变量后接真实模型。"
+                        .to_string(),
+                }]
+            },
+            status: if restored {
+                "已恢复上次会话".to_string()
+            } else {
+                "就绪".to_string()
+            },
             busy: false,
+            session_store,
             _input_subscription: input_subscription,
         }
     }
@@ -200,6 +250,9 @@ impl NativeAgentView {
                                     }
                                 ),
                             });
+                        }
+                        if let (Some(store), Some(agent)) = (&mut this.session_store, &this.agent) {
+                            let _ = store.save_thread(agent.thread());
                         }
                     }
                     Err(error) => {
