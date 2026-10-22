@@ -608,10 +608,16 @@ pub(in crate::root_view) fn render_chat_panel(
                                             .into_any_element()
                                     });
                                     div()
+                                        .id(SharedString::from(format!(
+                                            "chat-config-options-{index}"
+                                        )))
                                         .flex()
                                         .flex_col()
                                         .gap(px(1.0))
-                                        .w(px(220.0))
+                                        .w(px(260.0))
+                                        .max_h(px(280.0))
+                                        .overflow_y_scroll()
+                                        .occlude()
                                         .children(rows)
                                 })
                         })
