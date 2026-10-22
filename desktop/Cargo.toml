@@ -9,6 +9,7 @@ members = [
   "crates/agent_provider",
   "crates/agent_core",
   "crates/agent_tools",
+  "crates/agent_demo",
   "crates/platform",
   "crates/platform-macos",
   "crates/platform-windows",

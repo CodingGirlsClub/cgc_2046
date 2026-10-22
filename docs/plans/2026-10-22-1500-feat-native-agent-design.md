@@ -375,7 +375,10 @@ UI（输入）→ NativeHost.prompt
 | T3 最小 UI | Provider 配置入口、模型选择、对话输入、流式输出 | 可交互 demo；切模型生效；错误提示可读 |
 | T4 计量与数据 | 每请求 TokenUsage 记录（内存即可）；模型选择持久化 | usage 累加单测；重启后选择保留 |
 
-**P0 进度（2026-10-22）**：T0/T1/T2 完成——`desktop/crates/agent_provider`（cgc-agent-provider）已落地四件套、FakeProvider、OpenAI-compatible Provider（SSE 解析、thinking、tool_call 累积、usage、错误分类），19 项单测通过；T3（最小 UI）与 T4（持久化）待做。
+**P0 进度（2026-10-22）**：
+- T0/T1/T2 完成——`desktop/crates/agent_provider`（cgc-agent-provider）已落地四件套、FakeProvider、OpenAI-compatible Provider（SSE 解析、thinking、tool_call 累积、usage、错误分类），19 项单测；
+- T3 部分完成——`desktop/crates/agent_demo`（`cgc-agent-demo`）提供可交互 CLI demo：真实 provider（env 配置）、`--allow-tools`、`--once` 单次调用、`--selftest` 无人值守全链路自检；GPUI 界面待接；
+- T4（用量/模型选择持久化）待做。
 
 **P1a 进度（2026-10-22）**：
 - `desktop/crates/agent_core`（cgc-agent-core）：Thread/Entry + 单轮 loop（流式文本、用量累计、停止原因、取消、tool_call 收集），12 项单测；
