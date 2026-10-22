@@ -900,6 +900,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cgc-agent-checkpoint"
+version = "0.0.1"
+dependencies = [
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "cgc-agent-core"
 version = "0.0.1"
 dependencies = [

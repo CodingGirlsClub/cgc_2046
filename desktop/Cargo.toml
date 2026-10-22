@@ -12,6 +12,7 @@ members = [
   "crates/agent_demo",
   "crates/agent_store",
   "crates/agent_host",
+  "crates/agent_checkpoint",
   "crates/platform",
   "crates/platform-macos",
   "crates/platform-windows",
@@ -35,6 +36,7 @@ cgc-agent-core = { path = "crates/agent_core" }
 cgc-agent-tools = { path = "crates/agent_tools" }
 cgc-agent-store = { path = "crates/agent_store" }
 cgc-agent-host = { path = "crates/agent_host" }
+cgc-agent-checkpoint = { path = "crates/agent_checkpoint" }
 cgc-platform = { path = "crates/platform" }
 cgc-platform-macos = { path = "crates/platform-macos" }
 cgc-platform-windows = { path = "crates/platform-windows" }

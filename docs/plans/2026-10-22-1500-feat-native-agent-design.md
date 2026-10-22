@@ -362,6 +362,8 @@ UI（输入）→ NativeHost.prompt
 | P0 | Provider 四件套 + FakeProvider + 一个真 provider 流式 + 最小 UI | 2 周 | 不烧 token 的单测；真实 provider 冒烟；可交互 demo |
 | P1a | turn loop + 读/写/终端 + 审批 + OS 沙箱 + 本地会话 + **交互核心**（Commands / Events / confirm / notify + AppAction：打开页面、高亮） | 6 周 | 课程 E2E；沙箱用例；交互链路；崩溃恢复 |
 | P1b | Checkpoint / diff：Git 隐藏 ref、Keep/Reject、Restore；课程页灰度 | 2 周 | 恢复/拒绝/未跟踪/超大文件/冲突用例；灰度验收 |
+
+**P1b 进度（2026-10-22）**：`desktop/crates/agent_checkpoint`（cgc-agent-checkpoint）——临时索引 + `write-tree`/`commit-tree` + 隐藏 ref `refs/cgc/checkpoints/<thread>/<seq>`；snapshot / list / diff（临时索引对比工作区）/ restore / prune（保留 50 个）/ HEAD 漂移失效检测；大文件（>2 MB）与常见二进制/压缩包排除；6 项真实 git 仓库测试。待做：Keep/Reject UI、课程页灰度、失效提示。
 | P2 | Provider 设置 UI、模型选择器、用量、compaction、网关配额；**steering / follow-up、slash 面板、todo / plan / goal、subagent 进度、create_note AppAction** | 4–6 周 | 三平台真机 |
 | P3 | 多 mate 定义下发、第三方 MCP、web agent 退役评估 | 待定 | — |
 
