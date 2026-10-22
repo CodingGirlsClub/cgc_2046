@@ -739,7 +739,10 @@ impl RootView {
         self.chat.focused = true;
         if let Some(input) = self.chat_input.clone() {
             input.update(cx, |input, cx| {
-                input.set_value(text, window, cx);
+                // set_value resets a multi-line Textarea selection to 0..0;
+                // insert then leaves the caret at the end of the command.
+                input.set_value("", window, cx);
+                input.insert(text, window, cx);
                 input.focus(window, cx);
             });
         }
