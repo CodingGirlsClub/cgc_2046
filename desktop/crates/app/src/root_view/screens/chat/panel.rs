@@ -549,6 +549,7 @@ pub(in crate::root_view) fn render_chat_panel(
                     });
                     let config_query = ctx.chat.config_search.to_lowercase();
                     let config_search_input = ctx.chat.config_search_input.clone();
+                    let config_scroll = ctx.chat.config_scroll.clone();
                     let config_pickers = ctx
                         .chat
                         .configs
@@ -572,6 +573,7 @@ pub(in crate::root_view) fn render_chat_panel(
                             let content_root = root.clone();
                             let open_root = root.clone();
                             let content_search_input = config_search_input.clone();
+                            let content_scroll = config_scroll.clone();
                             Popover::new(SharedString::from(format!("chat-config-popover-{index}")))
                                 .trigger(
                                     Button::new(SharedString::from(format!(
@@ -585,6 +587,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                 .content(move |_, _, cx| {
                                     let dismiss = cx.entity().downgrade();
                                     let search_input = content_search_input.clone();
+                                    let scroll = content_scroll.clone();
                                     let rows = options.iter().map(|(value, label)| {
                                         let value = value.clone();
                                         let label = label.clone();
@@ -631,6 +634,8 @@ pub(in crate::root_view) fn render_chat_panel(
                                         .gap(px(1.0))
                                         .w(px(260.0))
                                         .max_h(px(280.0))
+                                        .track_scroll(&scroll)
+                                        .overflow_y_scroll()
                                         .occlude()
                                         .children(search_input.map(|input| {
                                             div()
@@ -648,7 +653,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                                 .into_any_element()
                                         }))
                                         .children(rows);
-                                    options.overflow_y_scrollbar()
+                                    options.vertical_scrollbar(&scroll)
                                 })
                                 .on_open_change({
                                     move |open, window, cx| {

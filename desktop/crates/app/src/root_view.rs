@@ -233,6 +233,7 @@ struct ChatUi {
     config_search_input: Option<Entity<InputState>>,
     config_search_subscription: Option<Subscription>,
     config_search_placeholder_language: Option<Language>,
+    config_scroll: ScrollHandle,
     slash_selection: usize,
     slash_dismissed: bool,
     sessions: Vec<SessionSummary>,
