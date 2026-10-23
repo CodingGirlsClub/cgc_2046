@@ -471,6 +471,8 @@ Provider 设置（demo 面板内）——`agent_store::ProviderPrefs`（base_url
 
 **可借鉴的 OMP Rust 资产**（重写而非依赖，详见 `docs/tmp/agent-research/omp-rust-crates.md`）：pi-edit 的 hashline（编辑质量）、pi-shell 的结果模型（终端卡片）、pi-iso 的隔离后端形状（subagent 预留）、pi-walker 的扫描缓存（上下文枚举）、pi-predict 的输入预测（客户端提示，可选）。
 
+**实施状态**：截至 2026-10-23，P0–P2 的已实现范围、验证命令、剩余缺口见 `docs/plans/2026-10-23-1200-native-agent-implementation-status.md`。
+
 ## 参考
 
 - `docs/tmp/agent-research/zed-native-agent.md`：Zed native agent 执行模型、工具、审批、沙箱、持久化、prompt、subagent
