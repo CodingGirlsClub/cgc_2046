@@ -557,17 +557,12 @@ impl NativeAgentView {
             .map(|mut events| std::mem::take(&mut *events))
             .unwrap_or_default();
         for event in events {
-            match event {
-                SubagentEvent::Started { task } => {
-                    self.state.push_system(format!("子 agent 开始：{task}"))
-                }
-                SubagentEvent::Finished { ok } => self.state.push_system(if ok {
-                    "子 agent 完成".to_string()
-                } else {
-                    "子 agent 失败".to_string()
-                }),
-                SubagentEvent::TextDelta { .. } => {}
-            }
+            let event = match event {
+                SubagentEvent::Started { task } => AgentEvent::SubagentStarted { task },
+                SubagentEvent::TextDelta { text } => AgentEvent::SubagentProgress { text },
+                SubagentEvent::Finished { ok } => AgentEvent::SubagentFinished { ok },
+            };
+            self.state.apply(event);
         }
     }
 
@@ -723,6 +718,7 @@ impl Render for NativeAgentView {
         let api_key_input = self.api_key_input.clone();
         let can_undo = self.last_checkpoint.is_some() && !busy;
         let change_count = self.checkpoint_changes.len();
+        let subagents = self.state.subagents.clone();
         let show_changes = self.show_checkpoint_panel && change_count > 0;
         let changes = self.checkpoint_changes.clone();
         let mut rows: Vec<AnyElement> = Vec::new();
@@ -935,6 +931,42 @@ impl Render for NativeAgentView {
                                         this.restore_checkpoint_file(restore_path.clone(), cx)
                                     })),
                             )
+                    }))
+            }))
+            .children((!subagents.is_empty()).then(|| {
+                div()
+                    .id("native-agent-subagents")
+                    .flex()
+                    .flex_col()
+                    .gap(space(1))
+                    .px(space(3))
+                    .py(space(2))
+                    .border_t_1()
+                    .border_color(palette.line)
+                    .bg(palette.view)
+                    .children(subagents.into_iter().map(|card| {
+                        let status = match card.finished {
+                            None => "运行中…",
+                            Some(true) => "完成",
+                            Some(false) => "失败",
+                        };
+                        let preview: String = card.text.chars().take(300).collect();
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.0))
+                            .child(
+                                div()
+                                    .text_size(px(12.0))
+                                    .text_color(palette.ink_2)
+                                    .child(format!("子 agent · {status}：{}", card.task)),
+                            )
+                            .children((!preview.is_empty()).then(|| {
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_3)
+                                    .child(preview)
+                            }))
                     }))
             }))
             .children(pending.map(|prompt| {

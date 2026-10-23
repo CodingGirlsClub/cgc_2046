@@ -131,3 +131,31 @@ fn compaction_pushes_system_notice() {
     assert_eq!(state.messages[0].role, cgc_agent_host::UiRole::System);
     assert!(state.messages[0].text.contains("省略 7 条"));
 }
+
+#[test]
+fn subagent_events_update_cards() {
+    let mut state = HostState::new();
+    state.apply(AgentEvent::SubagentStarted {
+        task: "lint".into(),
+    });
+    state.apply(AgentEvent::SubagentProgress {
+        text: "checking".into(),
+    });
+    assert_eq!(state.subagents.len(), 1);
+    assert_eq!(state.subagents[0].task, "lint");
+    assert_eq!(state.subagents[0].text, "checking");
+    assert_eq!(state.subagents[0].finished, None);
+    state.apply(AgentEvent::SubagentFinished { ok: true });
+    assert_eq!(state.subagents[0].finished, Some(true));
+}
+
+#[test]
+fn nested_subagents_get_separate_cards() {
+    let mut state = HostState::new();
+    state.apply(AgentEvent::SubagentStarted { task: "one".into() });
+    state.apply(AgentEvent::SubagentStarted { task: "two".into() });
+    state.apply(AgentEvent::SubagentFinished { ok: false });
+    assert_eq!(state.subagents.len(), 2);
+    assert_eq!(state.subagents[0].finished, None);
+    assert_eq!(state.subagents[1].finished, Some(false));
+}

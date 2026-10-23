@@ -18,7 +18,16 @@ pub struct UiMessage {
     pub text: String,
 }
 
+/// 子 agent 卡片状态（P2 实时进度）。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubagentCard {
+    pub task: String,
+    pub text: String,
+    /// `None` 表示仍在运行。
+    pub finished: Option<bool>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PermissionPrompt {
     pub tool_call_id: String,
     pub tool_name: String,
@@ -34,6 +43,8 @@ pub struct HostState {
     pub pending_permission: Option<PermissionPrompt>,
     pub usage_total: TokenUsage,
     pub last_error: Option<String>,
+    #[serde(default)]
+    pub subagents: Vec<SubagentCard>,
 }
 
 impl HostState {
@@ -65,6 +76,36 @@ impl HostState {
                     });
                 }
                 self.push_user(text);
+            }
+            AgentEvent::SubagentStarted { task } => {
+                if self.subagents.len() >= 20 {
+                    self.subagents.remove(0);
+                }
+                self.subagents.push(SubagentCard {
+                    task,
+                    text: String::new(),
+                    finished: None,
+                });
+            }
+            AgentEvent::SubagentProgress { text } => {
+                if let Some(card) = self
+                    .subagents
+                    .iter_mut()
+                    .rev()
+                    .find(|card| card.finished.is_none())
+                {
+                    card.text.push_str(&text);
+                }
+            }
+            AgentEvent::SubagentFinished { ok } => {
+                if let Some(card) = self
+                    .subagents
+                    .iter_mut()
+                    .rev()
+                    .find(|card| card.finished.is_none())
+                {
+                    card.finished = Some(ok);
+                }
             }
             AgentEvent::ContextCompacted { omitted_entries } => {
                 self.push_system(format!("上下文已压缩：省略 {omitted_entries} 条更早消息"));

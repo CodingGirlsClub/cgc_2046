@@ -17,6 +17,15 @@ pub enum AgentEvent {
     ContextCompacted {
         omitted_entries: usize,
     },
+    SubagentStarted {
+        task: String,
+    },
+    SubagentProgress {
+        text: String,
+    },
+    SubagentFinished {
+        ok: bool,
+    },
     TextDelta {
         text: String,
     },

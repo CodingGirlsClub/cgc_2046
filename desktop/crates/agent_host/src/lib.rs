@@ -14,4 +14,4 @@ pub use adapter::{AsyncChannelObserver, ChannelObserver, EventCollector};
 pub use commands::{AgentCommand, PermissionDecision};
 pub use events::AgentEvent;
 pub use slash::{parse as parse_slash, SlashCommand, COMMANDS as SLASH_COMMANDS};
-pub use state::{HostState, PermissionPrompt, UiMessage, UiRole};
+pub use state::{HostState, PermissionPrompt, SubagentCard, UiMessage, UiRole};
