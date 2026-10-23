@@ -29,11 +29,12 @@ impl ToolResult {
 }
 
 /// 工具执行上下文：工作区根目录是唯一允许访问的路径。
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ToolContext {
     workspace: PathBuf,
     max_read_bytes: u64,
     sandbox: Option<crate::sandbox::SandboxPolicy>,
+    action_sink: Option<crate::action::ActionSink>,
 }
 
 impl ToolContext {
@@ -42,6 +43,19 @@ impl ToolContext {
             workspace: workspace.into(),
             max_read_bytes: 256 * 1024,
             sandbox: None,
+            action_sink: None,
+        }
+    }
+
+    pub fn with_action_sink(mut self, action_sink: crate::action::ActionSink) -> Self {
+        self.action_sink = Some(action_sink);
+        self
+    }
+
+    /// 向客户端投递一个应用内动作；没有 sink 时静默忽略。
+    pub fn emit_action(&self, action: crate::action::AppAction) {
+        if let Some(sink) = &self.action_sink {
+            sink(action);
         }
     }
 

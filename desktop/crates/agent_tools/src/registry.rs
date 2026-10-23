@@ -35,6 +35,14 @@ impl ToolRegistry {
         registry
     }
 
+    /// 内置工具 + 应用内动作工具（open_page / highlight_range）。
+    pub fn with_app_actions(self) -> Self {
+        let mut registry = self;
+        registry.register(Arc::new(crate::builtin::OpenPageTool));
+        registry.register(Arc::new(crate::builtin::HighlightRangeTool));
+        registry
+    }
+
     /// 内置工具 + todo / plan / goal 状态工具。
     pub fn with_agent_state(state: crate::state::SharedAgentState) -> Self {
         let mut registry = Self::with_builtin_tools();

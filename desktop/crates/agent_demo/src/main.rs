@@ -20,7 +20,9 @@ use cgc_agent_provider::{
     CompletionEvent, FakeProvider, Model, ModelId, ModelLimits, OpenAiCompatibleConfig,
     OpenAiCompatibleProvider, ProviderId, StopReason, ToolUse,
 };
-use cgc_agent_tools::{AgentState, SandboxPolicy, SharedAgentState, ToolContext, ToolRegistry};
+use cgc_agent_tools::{
+    ActionSink, AgentState, AppAction, SandboxPolicy, SharedAgentState, ToolContext, ToolRegistry,
+};
 
 /// CLI 的流式打印：文本直接输出，工具调用走 stderr，避免污染答案。
 struct PrintObserver;
@@ -226,8 +228,12 @@ fn run_repl(options: Options) -> std::process::ExitCode {
     let workspace = options.workspace;
     let agent_state: SharedAgentState =
         std::sync::Arc::new(std::sync::Mutex::new(AgentState::default()));
-    let registry = ToolRegistry::with_agent_state(agent_state.clone());
-    let context = ToolContext::new(&workspace).with_sandbox(SandboxPolicy::new(&workspace));
+    let registry = ToolRegistry::with_agent_state(agent_state.clone()).with_app_actions();
+    let action_sink: ActionSink =
+        std::sync::Arc::new(|action: AppAction| eprintln!("[app action] {}", action.summary()));
+    let context = ToolContext::new(&workspace)
+        .with_sandbox(SandboxPolicy::new(&workspace))
+        .with_action_sink(action_sink);
 
     println!("CGC native agent demo");
     println!("workspace: {}", workspace.display());

@@ -3,6 +3,7 @@
 //! 当前提供：Tool trait、工作区路径约束、审批分类，以及只读工具
 //! `read_file` / `list_directory`。写入工具、终端与沙箱在后续切片加入。
 
+pub mod action;
 pub mod approval;
 pub mod builtin;
 pub mod error;
@@ -11,6 +12,7 @@ pub mod sandbox;
 pub mod state;
 pub mod tool;
 
+pub use action::{ActionSink, AppAction};
 pub use approval::{Approval, ApprovalDecision};
 pub use error::ToolError;
 pub use registry::ToolRegistry;

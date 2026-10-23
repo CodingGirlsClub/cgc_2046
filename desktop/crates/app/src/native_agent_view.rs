@@ -17,7 +17,8 @@ use cgc_agent_provider::{
 };
 use cgc_agent_store::{AgentPrefs, PrefsStore, ProviderPrefs, SessionStore};
 use cgc_agent_tools::{
-    AgentState, ApprovalDecision, SandboxPolicy, SharedAgentState, ToolContext, ToolRegistry,
+    ActionSink, AgentState, AppAction, ApprovalDecision, SandboxPolicy, SharedAgentState,
+    ToolContext, ToolRegistry,
 };
 use cgc_platform::session::KeychainStore;
 use futures::channel::{mpsc, oneshot};
@@ -61,6 +62,7 @@ pub struct NativeAgentView {
     registry: Arc<ToolRegistry>,
     agent_state: SharedAgentState,
     last_agent_summary: Option<String>,
+    app_actions: Arc<Mutex<Vec<AppAction>>>,
     context: ToolContext,
     input: Entity<TextareaState>,
     cancel: CancelToken,
@@ -205,6 +207,15 @@ impl NativeAgentView {
         let cancel = agent.cancel_token();
         let follow_up_sender = agent.follow_up_sender();
         let agent_state: SharedAgentState = Arc::new(Mutex::new(AgentState::default()));
+        let app_actions: Arc<Mutex<Vec<AppAction>>> = Arc::new(Mutex::new(Vec::new()));
+        let action_sink: ActionSink = {
+            let app_actions = app_actions.clone();
+            Arc::new(move |action: AppAction| {
+                if let Ok(mut actions) = app_actions.lock() {
+                    actions.push(action);
+                }
+            })
+        };
         let workspace = std::env::var("CGC_AGENT_WORKSPACE")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|_| std::env::temp_dir().join("cgc-native-agent-demo"));
@@ -247,10 +258,15 @@ impl NativeAgentView {
             agent: Some(agent),
             provider,
             model,
-            registry: Arc::new(ToolRegistry::with_agent_state(agent_state.clone())),
+            registry: Arc::new(
+                ToolRegistry::with_agent_state(agent_state.clone()).with_app_actions(),
+            ),
             agent_state,
             last_agent_summary: None,
-            context: ToolContext::new(&workspace).with_sandbox(SandboxPolicy::new(&workspace)),
+            app_actions,
+            context: ToolContext::new(&workspace)
+                .with_sandbox(SandboxPolicy::new(&workspace))
+                .with_action_sink(action_sink),
             input,
             cancel,
             state,
@@ -372,6 +388,7 @@ impl NativeAgentView {
                 if let (Some(store), Some(agent)) = (&mut this.session_store, &this.agent) {
                     let _ = store.save_thread(agent.thread());
                 }
+                this.drain_app_actions();
                 this.refresh_agent_state_summary();
                 this.refresh_checkpoint_changes();
                 if let Ok(mut pending) = approval_sender.lock() {
@@ -435,6 +452,17 @@ impl NativeAgentView {
             }
         }
         cx.notify();
+    }
+
+    fn drain_app_actions(&mut self) {
+        let actions = self
+            .app_actions
+            .lock()
+            .map(|mut actions| std::mem::take(&mut *actions))
+            .unwrap_or_default();
+        for action in actions {
+            self.state.push_system(action.summary());
+        }
     }
 
     fn refresh_agent_state_summary(&mut self) {
