@@ -274,6 +274,52 @@ impl Render for SettingsWindowView {
                         &palette,
                     ))
                     .child(Self::render_section(
+                        "Native Agent（Beta）",
+                        {
+                            let view = cx.entity().downgrade();
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(6.0))
+                                .child(
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .justify_between()
+                                        .gap(space(2))
+                                        .child(
+                                            div()
+                                                .flex()
+                                                .flex_col()
+                                                .gap(px(2.0))
+                                                .child(
+                                                    div()
+                                                        .text_size(px(13.0))
+                                                        .child("启用 Native Agent 入口"),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_size(px(11.0))
+                                                        .text_color(palette.ink_3)
+                                                        .child("灰度开关：账号菜单与课程页显示 Native Agent（Beta）"),
+                                                ),
+                                        )
+                                        .child(
+                                            Switch::new("settings-native-agent")
+                                                .checked(preferences::load().native_agent_enabled)
+                                                .on_change(move |checked, _, cx| {
+                                                    let mut prefs = preferences::load();
+                                                    prefs.native_agent_enabled = *checked;
+                                                    preferences::save(prefs);
+                                                    let _ = view.update(cx, |_, cx| cx.notify());
+                                                }),
+                                        ),
+                                )
+                                .into_any_element()
+                        },
+                        &palette,
+                    ))
+                    .child(Self::render_section(
                         translate(language, Key::AppSettingsBuild),
                         div()
                             .flex()

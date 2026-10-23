@@ -372,7 +372,7 @@ UI（输入）→ NativeHost.prompt
 - **follow-up**：`Agent` 支持 `queue_follow_up` / `follow_up_sender`，turn 结束后自动执行排队消息（最多 4 轮，`MAX_FOLLOW_UP_TURNS`）；`TurnObserver::on_follow_up_started` → `AgentEvent::FollowUpStarted`；HostState 归约时先落上一轮 assistant、再追加 user；GPUI 面板在 busy 时把输入转成 follow-up 排队。**steering 已实现**：`steer_sender` 在流式读取中被打断（保留已生成文本），记录 assistant 片段后追加用户消息继续；最多 4 次（`MAX_STEERS`）；`TurnObserver::on_steer_started` → `AgentEvent::SteerStarted` → HostState 先落片再追加 user；面板 busy 且输入非空时显示「打断」按钮。
 Provider 设置（demo 面板内）——`agent_store::ProviderPrefs`（base_url / provider_name / model_id）落 `agent_prefs.json`；API Key 存系统钥匙串（account `native_agent_provider_api_key`），不落明文文件；面板可编辑并保存，重启 demo 窗口生效；启动优先 env，其次文件 + 钥匙串，最后回退 EchoProvider。12 项 store 单测。
 
-**P1b 灰度（2026-10-23）**：主窗口账号菜单新增「Native Agent（Beta）」入口（`CGC_NATIVE_AGENT=1` 或 `CGC_NATIVE_AGENT_DEMO=1` 时显示），打开独立 native agent 窗口并复用现有面板；正式「课程页灰度替换 ACP」仍需路由级开关。
+**P1b 灰度（2026-10-23）**：灰度开关落本地偏好 `preferences.json` 的 `nativeAgentEnabled`（设置窗口新增 Native Agent（Beta）区块，可随时开关回退；env `CGC_NATIVE_AGENT` / `CGC_NATIVE_AGENT_DEMO` 仍可强制开启）。开启后账号菜单与课程页对话面板显示「Native」入口，打开独立 native agent 窗口并复用现有面板；ACP 路径保持不变，课程页内联替换仍待后续。
 
 **P1b 进度（2026-10-22）**：`desktop/crates/agent_checkpoint`（cgc-agent-checkpoint）——临时索引 + `write-tree`/`commit-tree` + 隐藏 ref `refs/cgc/checkpoints/<thread>/<seq>`；snapshot / list / diff（临时索引对比工作区）/ restore / prune（保留 50 个）/ HEAD 漂移失效检测；大文件（>2 MB）与常见二进制/压缩包排除；6 项真实 git 仓库测试。会话映射进 `agent_store` 的 `checkpoints` 表（save/list/mark invalid，1 项测试）；GPUI 面板每轮建 checkpoint，并提供「撤销文件改动」；`changed_files` + `restore_file` 支持逐文件 Keep/Reject（面板内变更列表、回退按钮），HEAD 失配时拒绝恢复并提示重新初始化。待做：课程页灰度。
 | P2 | Provider 设置 UI、模型选择器、用量、compaction、网关配额；**steering / follow-up、slash 面板、todo / plan / goal、subagent 进度、create_note AppAction** | 4–6 周 | 三平台真机 |

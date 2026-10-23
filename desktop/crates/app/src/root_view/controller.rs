@@ -1782,6 +1782,7 @@ impl RootView {
     pub fn native_agent_enabled() -> bool {
         std::env::var_os("CGC_NATIVE_AGENT").is_some()
             || std::env::var_os("CGC_NATIVE_AGENT_DEMO").is_some()
+            || crate::preferences::load().native_agent_enabled
     }
 
     /// 从主窗口打开 native agent 面板（独立窗口，复用 demo 视图）。

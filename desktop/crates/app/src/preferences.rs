@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 pub struct Preferences {
     pub close_to_tray: bool,
     pub tray_hint_shown: bool,
+    pub native_agent_enabled: bool,
 }
 
 impl Default for Preferences {
@@ -15,6 +16,7 @@ impl Default for Preferences {
         Self {
             close_to_tray: true,
             tray_hint_shown: false,
+            native_agent_enabled: false,
         }
     }
 }
@@ -41,6 +43,10 @@ pub fn load() -> Preferences {
             .get("trayHintShown")
             .and_then(Value::as_bool)
             .unwrap_or(false),
+        native_agent_enabled: value
+            .get("nativeAgentEnabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
     }
 }
 
@@ -52,6 +58,7 @@ pub fn save(preferences: Preferences) {
     let payload = json!({
         "closeToTray": preferences.close_to_tray,
         "trayHintShown": preferences.tray_hint_shown,
+        "nativeAgentEnabled": preferences.native_agent_enabled,
     })
     .to_string();
     let tmp = path.with_extension("json.tmp");
@@ -69,6 +76,7 @@ mod tests {
         let defaults = Preferences::default();
         assert!(defaults.close_to_tray);
         assert!(!defaults.tray_hint_shown);
+        assert!(!defaults.native_agent_enabled);
     }
 
     #[test]
@@ -76,6 +84,7 @@ mod tests {
         let value = json!({
             "closeToTray": false,
             "trayHintShown": true,
+            "nativeAgentEnabled": true,
         });
         assert_eq!(
             value.get("closeToTray").and_then(Value::as_bool),
@@ -83,6 +92,10 @@ mod tests {
         );
         assert_eq!(
             value.get("trayHintShown").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            value.get("nativeAgentEnabled").and_then(Value::as_bool),
             Some(true)
         );
     }

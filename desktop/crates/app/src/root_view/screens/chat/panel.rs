@@ -778,6 +778,24 @@ pub(in crate::root_view) fn render_chat_panel(
                                                     );
                                                 })),
                                         )
+                                        .children(
+                                            crate::root_view::RootView::native_agent_enabled()
+                                                .then(|| {
+                                                    div()
+                                                        .id("chat-native-agent")
+                                                        .role(Role::Button)
+                                                        .aria_label("Native Agent")
+                                                        .px(space(1))
+                                                        .py(px(2.0))
+                                                        .rounded(px(RADIUS_SMALL))
+                                                        .text_color(palette.ink_3)
+                                                        .hover(|style| style.bg(palette.soft))
+                                                        .child("Native")
+                                                        .on_click(cx.listener(|this, _, _, cx| {
+                                                            this.open_native_agent_window(cx)
+                                                        }))
+                                                }),
+                                        )
                                         .children(config_pickers)
                                         .child(
                                             div()
