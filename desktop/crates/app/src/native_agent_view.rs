@@ -2007,6 +2007,10 @@ impl Render for NativeAgentView {
                                     .w_full(),
                             )
                             .children((!has_input).then(|| {
+                                // 自定义可换行 placeholder：gpui-base 的 Textarea
+                                // placeholder 只按 \n 分行、不做宽度软换行
+                                // （shape_line 未传宽度约束），窄面板会直接裁切；
+                                // 上游修好前用 absolute overlay 折行并承担点击聚焦。
                                 let focus = input_focus.clone();
                                 div()
                                     .id("native-agent-placeholder")
