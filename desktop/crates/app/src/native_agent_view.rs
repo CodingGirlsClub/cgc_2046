@@ -227,6 +227,7 @@ impl NativeAgentView {
                         _ => {}
                     }
                 }
+                state.usage_total = thread.usage_total;
                 thread
             }
             None => {
