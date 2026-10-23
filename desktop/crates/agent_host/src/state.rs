@@ -16,6 +16,9 @@ pub enum UiRole {
 pub struct UiMessage {
     pub role: UiRole,
     pub text: String,
+    /// 工具相关消息关联的 tool call id（用于 subagent 卡片内联）。
+    #[serde(default)]
+    pub tool_call_id: Option<String>,
 }
 
 /// 子 agent 卡片状态（P2 实时进度）。
@@ -25,6 +28,9 @@ pub struct SubagentCard {
     pub text: String,
     /// `None` 表示仍在运行。
     pub finished: Option<bool>,
+    /// 触发该子 agent 的 task tool call id。
+    #[serde(default)]
+    pub tool_call_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -45,6 +51,8 @@ pub struct HostState {
     pub last_error: Option<String>,
     #[serde(default)]
     pub subagents: Vec<SubagentCard>,
+    #[serde(default)]
+    pub last_tool_call_id: Option<String>,
 }
 
 impl HostState {
@@ -64,6 +72,7 @@ impl HostState {
                     self.messages.push(UiMessage {
                         role: UiRole::Assistant,
                         text: std::mem::take(&mut self.streaming),
+                        tool_call_id: None,
                     });
                 }
                 self.push_user(text);
@@ -73,6 +82,7 @@ impl HostState {
                     self.messages.push(UiMessage {
                         role: UiRole::Assistant,
                         text: std::mem::take(&mut self.streaming),
+                        tool_call_id: None,
                     });
                 }
                 self.push_user(text);
@@ -85,6 +95,7 @@ impl HostState {
                     task,
                     text: String::new(),
                     finished: None,
+                    tool_call_id: self.last_tool_call_id.clone(),
                 });
             }
             AgentEvent::SubagentProgress { text } => {
@@ -111,7 +122,18 @@ impl HostState {
                 self.push_system(format!("上下文已压缩：省略 {omitted_entries} 条更早消息"));
             }
             AgentEvent::TextDelta { text } => self.streaming.push_str(&text),
-            AgentEvent::ToolCallStarted { .. } => {}
+            AgentEvent::ToolCallStarted {
+                tool_call_id,
+                tool_name,
+                args,
+            } => {
+                self.last_tool_call_id = Some(tool_call_id.clone());
+                self.messages.push(UiMessage {
+                    role: UiRole::Tool,
+                    text: format!("{tool_name}\n{args}"),
+                    tool_call_id: Some(tool_call_id),
+                });
+            }
             AgentEvent::PermissionRequested {
                 tool_call_id,
                 tool_name,
@@ -129,6 +151,7 @@ impl HostState {
                 ok,
                 content,
             } => {
+                self.last_tool_call_id = None;
                 if self
                     .pending_permission
                     .as_ref()
@@ -144,6 +167,7 @@ impl HostState {
                         if ok { "完成" } else { "失败" },
                         content
                     ),
+                    tool_call_id: Some(tool_call_id),
                 });
             }
             AgentEvent::UsageUpdated { total, .. } => self.usage_total = total,
@@ -152,15 +176,18 @@ impl HostState {
                     self.messages.push(UiMessage {
                         role: UiRole::Assistant,
                         text: std::mem::take(&mut self.streaming),
+                        tool_call_id: None,
                     });
                 } else if !text.is_empty() {
                     self.messages.push(UiMessage {
                         role: UiRole::Assistant,
                         text,
+                        tool_call_id: None,
                     });
                 }
                 self.turn_active = false;
                 self.pending_permission = None;
+                self.last_tool_call_id = None;
             }
             AgentEvent::Error { message } => {
                 self.last_error = Some(message);
@@ -174,6 +201,7 @@ impl HostState {
         self.messages.push(UiMessage {
             role: UiRole::User,
             text: text.into(),
+            tool_call_id: None,
         });
     }
 
@@ -181,6 +209,7 @@ impl HostState {
         self.messages.push(UiMessage {
             role: UiRole::Assistant,
             text: text.into(),
+            tool_call_id: None,
         });
     }
 
@@ -188,6 +217,7 @@ impl HostState {
         self.messages.push(UiMessage {
             role: UiRole::Tool,
             text: text.into(),
+            tool_call_id: None,
         });
     }
 
@@ -195,6 +225,7 @@ impl HostState {
         self.messages.push(UiMessage {
             role: UiRole::System,
             text: text.into(),
+            tool_call_id: None,
         });
     }
 

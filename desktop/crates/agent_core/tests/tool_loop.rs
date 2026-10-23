@@ -428,3 +428,53 @@ fn allow_pattern_auto_approves_matching_commands() {
     assert!(!outcome.tool_results[1].is_error);
     let _ = std::fs::remove_dir_all(&workspace);
 }
+
+#[test]
+fn allow_pattern_matches_path_prefix_for_any_tool() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let approver = CountingApprover {
+        calls: calls.clone(),
+        decision: ApprovalDecision::AllowPattern("src".to_string()),
+    };
+    let fake = fake(vec![
+        vec![
+            tool_use(
+                "call_1",
+                "write_file",
+                serde_json::json!({"path": "src/a.txt", "content": "a"}),
+            ),
+            Ok(CompletionEvent::Stop(StopReason::ToolUse)),
+        ],
+        vec![
+            tool_use(
+                "call_2",
+                "write_file",
+                serde_json::json!({"path": "src/b.txt", "content": "b"}),
+            ),
+            Ok(CompletionEvent::Stop(StopReason::ToolUse)),
+        ],
+        vec![
+            Ok(CompletionEvent::Text("done".into())),
+            Ok(CompletionEvent::Stop(StopReason::EndTurn)),
+        ],
+    ]);
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(cgc_agent_tools::builtin::WriteFileTool));
+    let workspace = temp_workspace("path-pattern");
+    let mut agent = agent();
+    let outcome = futures::executor::block_on(agent.prompt_with_tools(
+        &fake,
+        &model(),
+        "write twice",
+        &registry,
+        &ToolContext::new(&workspace),
+        &approver,
+    ))
+    .expect("turn");
+    assert_eq!(outcome.text, "done");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(!outcome.tool_results[0].is_error);
+    assert!(!outcome.tool_results[1].is_error);
+    assert!(workspace.join("src/b.txt").exists());
+    let _ = std::fs::remove_dir_all(&workspace);
+}

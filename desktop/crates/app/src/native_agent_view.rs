@@ -1047,6 +1047,7 @@ impl Render for NativeAgentView {
         let show_changes = self.show_checkpoint_panel && change_count > 0;
         let changes = self.checkpoint_changes.clone();
         let mut rows: Vec<AnyElement> = Vec::new();
+        let mut remaining_subagents = subagents.clone();
         for message in messages {
             let color = match message.role {
                 UiRole::User => palette.accent,
@@ -1069,6 +1070,15 @@ impl Render for NativeAgentView {
                     .child(div().text_size(px(13.0)).child(message.text))
                     .into_any_element(),
             );
+            if let Some(tool_call_id) = &message.tool_call_id {
+                if let Some(index) = remaining_subagents
+                    .iter()
+                    .position(|card| card.tool_call_id.as_deref() == Some(tool_call_id.as_str()))
+                {
+                    let card = remaining_subagents.remove(index);
+                    rows.push(render_subagent_row(&card, &palette));
+                }
+            }
         }
         if !streaming.is_empty() {
             rows.push(
@@ -1087,35 +1097,8 @@ impl Render for NativeAgentView {
             );
         }
 
-        for card in &subagents {
-            let status = match card.finished {
-                None => "运行中…",
-                Some(true) => "完成",
-                Some(false) => "失败",
-            };
-            let preview: String = card.text.chars().take(300).collect();
-            rows.push(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.0))
-                    .p(space(1))
-                    .rounded(px(RADIUS_SMALL))
-                    .bg(palette.view)
-                    .child(
-                        div()
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_2)
-                            .child(format!("子 agent · {status}：{}", card.task)),
-                    )
-                    .children((!preview.is_empty()).then(|| {
-                        div()
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_3)
-                            .child(preview)
-                    }))
-                    .into_any_element(),
-            );
+        for card in &remaining_subagents {
+            rows.push(render_subagent_row(card, &palette));
         }
 
         if self.follow_output && !rows.is_empty() {
@@ -1289,6 +1272,20 @@ impl Render for NativeAgentView {
                     "read_file" | "list_directory" => "将读取工作区内容",
                     _ => "该操作需要你的确认",
                 };
+                let pattern_prefix = prompt
+                    .args
+                    .get("command")
+                    .and_then(|value| value.as_str())
+                    .and_then(|command| command.split_whitespace().next())
+                    .map(str::to_string)
+                    .or_else(|| {
+                        prompt
+                            .args
+                            .get("path")
+                            .and_then(|value| value.as_str())
+                            .and_then(|path| path.rsplit_once('/').map(|(dir, _)| dir.to_string()))
+                    })
+                    .filter(|prefix| !prefix.is_empty());
                 div()
                     .id("native-agent-permission")
                     .flex()
@@ -1350,37 +1347,25 @@ impl Render for NativeAgentView {
                             .child(approval_button("本会话允许", false, cx, |this, cx| {
                                 this.resolve_approval(ApprovalDecision::AllowForSession, cx);
                             }))
-                            .children(
-                                (prompt.tool_name == "run_command")
-                                    .then(|| {
-                                        prompt
-                                            .args
-                                            .get("command")
-                                            .and_then(|value| value.as_str())
-                                            .and_then(|command| command.split_whitespace().next())
-                                            .map(str::to_string)
-                                    })
-                                    .flatten()
-                                    .map(|prefix| {
-                                        div()
-                                            .id("native-agent-allow-pattern")
-                                            .role(Role::Button)
-                                            .aria_label(format!("本会话允许 {prefix} 前缀命令"))
-                                            .px(space(2))
-                                            .py(space(1))
-                                            .rounded(px(RADIUS_MEDIUM))
-                                            .text_size(px(12.0))
-                                            .text_color(palette.ink_2)
-                                            .hover(|style| style.bg(palette.soft))
-                                            .child(format!("允许 `{prefix}` 前缀"))
-                                            .on_click(cx.listener(move |this, _, _window, cx| {
-                                                this.resolve_approval(
-                                                    ApprovalDecision::AllowPattern(prefix.clone()),
-                                                    cx,
-                                                );
-                                            }))
-                                    }),
-                            )
+                            .children(pattern_prefix.map(|prefix| {
+                                div()
+                                    .id("native-agent-allow-pattern")
+                                    .role(Role::Button)
+                                    .aria_label(format!("本会话允许 {prefix} 前缀"))
+                                    .px(space(2))
+                                    .py(space(1))
+                                    .rounded(px(RADIUS_MEDIUM))
+                                    .text_size(px(12.0))
+                                    .text_color(palette.ink_2)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child(format!("允许 `{prefix}` 前缀"))
+                                    .on_click(cx.listener(move |this, _, _window, cx| {
+                                        this.resolve_approval(
+                                            ApprovalDecision::AllowPattern(prefix.clone()),
+                                            cx,
+                                        );
+                                    }))
+                            }))
                             .child({
                                 div()
                                     .id("native-agent-deny")
@@ -2222,6 +2207,38 @@ fn slash_candidates_for(value: &str) -> Vec<(&'static str, &'static str)> {
                 || description.to_ascii_lowercase().contains(&query)
         })
         .collect()
+}
+
+fn render_subagent_row(
+    card: &cgc_agent_host::SubagentCard,
+    palette: &theme::Palette,
+) -> AnyElement {
+    let status = match card.finished {
+        None => "运行中…",
+        Some(true) => "完成",
+        Some(false) => "失败",
+    };
+    let preview: String = card.text.chars().take(300).collect();
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(2.0))
+        .p(space(1))
+        .rounded(px(RADIUS_SMALL))
+        .bg(palette.view)
+        .child(
+            div()
+                .text_size(px(11.0))
+                .text_color(palette.ink_2)
+                .child(format!("子 agent · {status}：{}", card.task)),
+        )
+        .children((!preview.is_empty()).then(|| {
+            div()
+                .text_size(px(11.0))
+                .text_color(palette.ink_3)
+                .child(preview)
+        }))
+        .into_any_element()
 }
 
 fn role_label(role: UiRole) -> &'static str {

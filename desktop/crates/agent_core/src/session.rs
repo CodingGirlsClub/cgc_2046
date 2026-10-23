@@ -555,18 +555,20 @@ impl Agent {
         let command = tool_call
             .args
             .get("command")
-            .and_then(|value| value.as_str())
-            .unwrap_or_default()
-            .trim();
-        if command.is_empty() {
-            return false;
-        }
+            .and_then(|value| value.as_str());
+        let path = tool_call.args.get("path").and_then(|value| value.as_str());
+        let serialized = serde_json::to_string(&tool_call.args).unwrap_or_default();
         self.session_patterns.iter().any(|(tool, pattern)| {
-            tool == &tool_call.name
-                && (command == pattern
-                    || command
-                        .strip_prefix(pattern.as_str())
-                        .is_some_and(|rest| rest.starts_with(char::is_whitespace)))
+            if tool != &tool_call.name {
+                return false;
+            }
+            if let Some(command) = command {
+                return prefix_match(command.trim(), pattern);
+            }
+            if let Some(path) = path {
+                return prefix_match(path.trim(), pattern);
+            }
+            serialized == *pattern
         })
     }
 
@@ -789,4 +791,13 @@ async fn run_stream(
         stop_reason: stop_reason.unwrap_or_else(|| StopReason::Other("stream ended".to_string())),
         tool_calls,
     })
+}
+
+fn prefix_match(value: &str, pattern: &str) -> bool {
+    if value == pattern {
+        return true;
+    }
+    value
+        .strip_prefix(pattern)
+        .is_some_and(|rest| rest.starts_with(['/', '\\', ' ', ':', '-']))
 }

@@ -131,7 +131,8 @@ h_flex 居中（max_content_width）
 - **@ 文件上下文**：输入 `@` 弹出 workspace 文件列表（新增/启动时扫描，跳过 .git/target/node_modules 等），↑↓ 选择、Enter/点击插入；发送时把 `@path` 展开为「[文件: path] + 内容」前置给模型（单文件 ≤256KB，路径限制在工作区）。
 - **follow + activity**：消息区 `ScrollHandle` 跟随输出开关；header 生成中显示小圆点。
 - **批量变更**：checkpoint 面板新增「全部保留」「全部回退」。
-**P1 收尾已完成（2026-10-23）**：权限 pattern 粒度——`ApprovalDecision::AllowPattern(String)` + Agent 会话内命令前缀缓存（`run_command` 前 1 个 token），审批卡新增「允许 `prefix` 前缀」按钮，第二条匹配命令不再弹审批（core 测试覆盖）；subagent 卡片已并入消息流（随消息滚动），但仍未与具体 `task` tool_call id 绑定。
+**P1 收尾已完成（2026-10-23）**：权限 pattern 粒度——`ApprovalDecision::AllowPattern(String)` + Agent 会话缓存，匹配规则**通用化**为：`command` 前缀、`path` 前缀、其他参数序列化后精确匹配；审批卡按参数自动给「允许 `prefix` 前缀」按钮；core 测试覆盖命令前缀与路径前缀两种工具。
+**subagent 与 tool_call 关联**：`HostState` 记录最近 `tool_call_id` 并在 `SubagentStarted` 时绑定到卡片，UI 按 tool 消息的 id 把子 agent 卡片内联渲染（未匹配的仍追加在消息末尾）。
 
 ### P0 视觉验收（2026-10-23，已解锁后实测）
 
