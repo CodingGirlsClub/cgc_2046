@@ -539,34 +539,73 @@ impl NativeAgentView {
             cx.notify();
             return;
         }
+
         let prefs = AgentPrefs {
             selected_model: Some(SelectedModel::new(
                 ProviderId::new("custom"),
                 ModelId::new(model_id.clone()),
             )),
             provider: Some(ProviderPrefs {
-                base_url,
-                provider_name,
-                model_id,
+                base_url: base_url.clone(),
+                provider_name: provider_name.clone(),
+                model_id: model_id.clone(),
             }),
         };
-        match self.prefs_store.save(&prefs) {
-            Ok(()) => self.status = "Provider 配置已保存；重启 demo 窗口生效".to_string(),
-            Err(error) => self.status = format!("保存失败：{error}"),
+        if let Err(error) = self.prefs_store.save(&prefs) {
+            self.status = format!("保存失败：{error}");
+            cx.notify();
+            return;
         }
         if !api_key.is_empty() {
             if let Some(keychain) = &self.keychain {
-                match keychain.save_secret(PROVIDER_KEY_ACCOUNT, &api_key) {
-                    Ok(()) => {
-                        self.api_key_input
-                            .update(cx, |state, cx| state.set_value("", window, cx));
-                        self.status =
-                            "Provider 配置与 API Key 已保存；重启 demo 窗口生效".to_string();
-                    }
-                    Err(error) => self.status = format!("API Key 保存失败：{error}"),
+                if let Err(error) = keychain.save_secret(PROVIDER_KEY_ACCOUNT, &api_key) {
+                    self.status = format!("API Key 保存失败：{error}");
+                    cx.notify();
+                    return;
                 }
+                self.api_key_input
+                    .update(cx, |state, cx| state.set_value("", window, cx));
             }
         }
+
+        // 立即重建 provider：设置保存后无需重启窗口。
+        let stored_key = if api_key.is_empty() {
+            self.keychain
+                .as_ref()
+                .and_then(|keychain| keychain.load_secret(PROVIDER_KEY_ACCOUNT))
+        } else {
+            Some(api_key)
+        };
+        let model = Model::new(
+            ProviderId::new("custom"),
+            provider_name,
+            model_id.clone(),
+            model_id,
+            ModelLimits::new(64_000, 8_000),
+        );
+        let selected = SelectedModel::new(model.provider_id.clone(), model.id.clone());
+        let has_key = stored_key.as_ref().is_some_and(|key| !key.is_empty());
+        self.provider = match stored_key.filter(|key| !key.is_empty()) {
+            Some(key) => Arc::new(OpenAiCompatibleProvider::new(OpenAiCompatibleConfig::new(
+                base_url,
+                key,
+                vec![model.clone()],
+            ))),
+            None => Arc::new(EchoProvider::new(model.clone())),
+        };
+        let model_changed = self.model != model;
+        self.model = model;
+        if model_changed {
+            if let Some(agent) = &mut self.agent {
+                agent.replace_thread(Thread::new(format!("native-demo-{}", now_secs()), selected));
+            }
+            self.rebuild_state_from_thread();
+        }
+        self.status = if has_key {
+            "Provider 已生效，可以直接发送消息".to_string()
+        } else {
+            "Provider 配置已保存；未提供 API Key，使用离线回显".to_string()
+        };
         cx.notify();
     }
 
