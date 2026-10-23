@@ -8,7 +8,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use cgc_agent_store::{provider_key_account, PrefsStore, ProviderPrefs};
+use cgc_agent_store::{provider_key_account, ModelPrefs, PrefsStore, ProviderPrefs};
 use cgc_platform::paths::AppPaths;
 use cgc_platform::session::KeychainStore;
 use gpui_kit::component::input::{Input, InputState};
@@ -34,6 +34,7 @@ struct ProviderDraft {
     models: String,
     supports_thinking: bool,
     has_key: bool,
+    model_params: Vec<ModelPrefs>,
     base_url_input: Option<Entity<InputState>>,
     models_input: Option<Entity<InputState>>,
     api_key_input: Option<Entity<InputState>>,
@@ -48,6 +49,7 @@ impl ProviderDraft {
             models: provider.models.join(", "),
             supports_thinking: provider.supports_thinking,
             has_key: provider.has_key,
+            model_params: provider.model_params.clone(),
             base_url_input: None,
             models_input: None,
             api_key_input: None,
@@ -66,6 +68,7 @@ impl ProviderDraft {
             models: "gpt-4o-mini".to_string(),
             supports_thinking: false,
             has_key: false,
+            model_params: Vec::new(),
             base_url_input: None,
             models_input: None,
             api_key_input: None,
@@ -87,6 +90,8 @@ impl ProviderDraft {
             models,
             supports_thinking: self.supports_thinking,
             has_key: self.has_key,
+            model_params: self.model_params.clone(),
+            builtin: false,
         }
     }
 }
@@ -241,6 +246,8 @@ impl SettingsWindowView {
             models,
             supports_thinking: draft.supports_thinking,
             has_key: draft.has_key,
+            model_params: draft.model_params.clone(),
+            builtin: false,
         };
         if let Some(api_key_input) = draft.api_key_input.clone() {
             let api_key = api_key_input.read(cx).value().trim().to_string();

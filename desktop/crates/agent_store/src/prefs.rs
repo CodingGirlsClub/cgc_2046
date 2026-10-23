@@ -20,6 +20,52 @@ pub struct ProviderPrefs {
     /// 是否已保存 API key（仅标记，key 本体在钥匙串）。
     #[serde(default)]
     pub has_key: bool,
+    /// 模型级参数（按 model id 索引；缺省时用默认值）。
+    #[serde(default)]
+    pub model_params: Vec<ModelPrefs>,
+    /// 是否来自内置目录（内置条目不需要写入用户文件）。
+    #[serde(default)]
+    pub builtin: bool,
+}
+
+/// 单个模型的参数（context / output / thinking）。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelPrefs {
+    pub id: String,
+    #[serde(default = "default_context_window")]
+    pub context_window: u32,
+    #[serde(default = "default_max_output_tokens")]
+    pub max_output_tokens: u32,
+    #[serde(default)]
+    pub supports_thinking: bool,
+}
+
+fn default_context_window() -> u32 {
+    64_000
+}
+
+fn default_max_output_tokens() -> u32 {
+    8_000
+}
+
+impl Default for ModelPrefs {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            context_window: default_context_window(),
+            max_output_tokens: default_max_output_tokens(),
+            supports_thinking: false,
+        }
+    }
+}
+
+impl ModelPrefs {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            ..Self::default()
+        }
+    }
 }
 
 impl ProviderPrefs {
@@ -29,6 +75,34 @@ impl ProviderPrefs {
 
     pub fn primary_model(&self) -> Option<&str> {
         self.models.first().map(String::as_str)
+    }
+
+    pub fn model_config(&self, model_id: &str) -> ModelPrefs {
+        self.model_params
+            .iter()
+            .find(|model| model.id == model_id)
+            .cloned()
+            .unwrap_or_else(|| ModelPrefs::new(model_id))
+    }
+
+    /// 设置或替换一个模型参数；同时确保 model id 在 models 列表里。
+    pub fn upsert_model(&mut self, model: ModelPrefs) {
+        if !self.models.contains(&model.id) {
+            self.models.push(model.id.clone());
+        }
+        match self
+            .model_params
+            .iter_mut()
+            .find(|existing| existing.id == model.id)
+        {
+            Some(existing) => *existing = model,
+            None => self.model_params.push(model),
+        }
+    }
+
+    pub fn remove_model(&mut self, model_id: &str) {
+        self.models.retain(|id| id != model_id);
+        self.model_params.retain(|model| model.id != model_id);
     }
 }
 
@@ -86,6 +160,8 @@ impl AgentPrefs {
             models,
             supports_thinking: false,
             has_key: false,
+            model_params: Vec::new(),
+            builtin: false,
         });
         if self.selected_provider.is_none() {
             self.selected_provider = Some("custom".to_string());
@@ -136,6 +212,79 @@ pub fn provider_key_account(provider_id: &str) -> String {
     } else {
         format!("native_agent_provider_api_key:{provider_id}")
     }
+}
+
+/// 内置 provider 目录：第一次打开设置就能看到的默认配置（不写入用户文件）。
+pub fn builtin_providers() -> Vec<ProviderPrefs> {
+    let mut cgc = ProviderPrefs {
+        id: "cgc".to_string(),
+        name: "CGC".to_string(),
+        base_url: String::new(),
+        models: Vec::new(),
+        supports_thinking: false,
+        has_key: false,
+        model_params: Vec::new(),
+        builtin: true,
+    };
+    let _ = &mut cgc;
+
+    let mut deepseek = ProviderPrefs {
+        id: "deepseek".to_string(),
+        name: "DeepSeek".to_string(),
+        base_url: "https://api.deepseek.com/v1".to_string(),
+        models: vec!["deepseek-chat".to_string(), "deepseek-reasoner".to_string()],
+        supports_thinking: true,
+        has_key: false,
+        model_params: Vec::new(),
+        builtin: true,
+    };
+    deepseek.upsert_model(ModelPrefs {
+        id: "deepseek-chat".to_string(),
+        context_window: 64_000,
+        max_output_tokens: 8_000,
+        supports_thinking: false,
+    });
+    deepseek.upsert_model(ModelPrefs {
+        id: "deepseek-reasoner".to_string(),
+        context_window: 64_000,
+        max_output_tokens: 8_000,
+        supports_thinking: true,
+    });
+
+    let mut moonshot = ProviderPrefs {
+        id: "moonshot".to_string(),
+        name: "Moonshot".to_string(),
+        base_url: "https://api.moonshot.cn/v1".to_string(),
+        models: vec![
+            "moonshot-v1-8k".to_string(),
+            "moonshot-v1-32k".to_string(),
+            "kimi-latest".to_string(),
+        ],
+        supports_thinking: false,
+        has_key: false,
+        model_params: Vec::new(),
+        builtin: true,
+    };
+    moonshot.upsert_model(ModelPrefs {
+        id: "moonshot-v1-8k".to_string(),
+        context_window: 8_192,
+        max_output_tokens: 4_096,
+        supports_thinking: false,
+    });
+    moonshot.upsert_model(ModelPrefs {
+        id: "moonshot-v1-32k".to_string(),
+        context_window: 32_768,
+        max_output_tokens: 8_192,
+        supports_thinking: false,
+    });
+    moonshot.upsert_model(ModelPrefs {
+        id: "kimi-latest".to_string(),
+        context_window: 128_000,
+        max_output_tokens: 8_192,
+        supports_thinking: false,
+    });
+
+    vec![cgc, deepseek, moonshot]
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -214,6 +363,8 @@ mod tests {
             models: vec!["model-a".to_string()],
             supports_thinking: false,
             has_key: true,
+            model_params: Vec::new(),
+            builtin: false,
         }
     }
 
@@ -338,5 +489,56 @@ mod tests {
     fn provider_is_complete_requires_models() {
         assert!(!ProviderPrefs::default().is_complete());
         assert!(provider("a", "https://a").is_complete());
+    }
+}
+
+#[cfg(test)]
+mod model_param_tests {
+    use super::*;
+
+    #[test]
+    fn builtin_catalog_has_cgc_deepseek_moonshot() {
+        let providers = builtin_providers();
+        let ids: Vec<&str> = providers
+            .iter()
+            .map(|provider| provider.id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["cgc", "deepseek", "moonshot"]);
+        assert!(providers.iter().all(|provider| provider.builtin));
+        let deepseek = providers.iter().find(|p| p.id == "deepseek").unwrap();
+        assert!(deepseek.model_config("deepseek-chat").context_window >= 64_000);
+        assert!(deepseek.model_config("deepseek-reasoner").supports_thinking);
+    }
+
+    #[test]
+    fn model_config_falls_back_to_defaults_and_upsert_works() {
+        let mut provider = ProviderPrefs {
+            id: "custom".to_string(),
+            models: vec!["m1".to_string()],
+            ..ProviderPrefs::default()
+        };
+        let config = provider.model_config("m1");
+        assert_eq!(config.context_window, 64_000);
+        provider.upsert_model(ModelPrefs {
+            id: "m1".to_string(),
+            context_window: 200_000,
+            max_output_tokens: 32_000,
+            supports_thinking: true,
+        });
+        assert_eq!(provider.model_config("m1").context_window, 200_000);
+        provider.remove_model("m1");
+        assert!(provider.models.is_empty());
+    }
+
+    #[test]
+    fn legacy_models_string_list_still_loads() {
+        let raw = r#"{
+            "selected_model": {"provider_id": "custom", "model_id": "deepseek-flash"},
+            "provider": {"base_url": "https://api.deepseek.com", "provider_name": "OpenAI Compatible", "model_id": "deepseek-flash"}
+        }"#;
+        let mut prefs: AgentPrefs = serde_json::from_str(raw).expect("legacy json");
+        prefs.normalize();
+        assert_eq!(prefs.providers.len(), 1);
+        assert!(prefs.providers[0].model_params.is_empty());
     }
 }
