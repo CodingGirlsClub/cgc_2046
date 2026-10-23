@@ -11,6 +11,9 @@ pub enum AgentEvent {
     FollowUpStarted {
         text: String,
     },
+    SteerStarted {
+        text: String,
+    },
     TextDelta {
         text: String,
     },

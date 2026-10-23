@@ -103,3 +103,22 @@ fn follow_up_flushes_streaming_and_appends_user_message() {
     );
     assert_eq!(state.messages.len(), 3);
 }
+
+#[test]
+fn steer_flushes_streaming_and_appends_user_message() {
+    let mut state = HostState::new();
+    state.push_user("first");
+    state.apply(AgentEvent::TurnStarted {
+        thread_id: "t1".into(),
+    });
+    state.apply(AgentEvent::TextDelta {
+        text: "partial".into(),
+    });
+    state.apply(AgentEvent::SteerStarted {
+        text: "instead do this".into(),
+    });
+    assert!(state.streaming.is_empty());
+    assert_eq!(state.messages.len(), 3);
+    assert_eq!(state.messages[1].text, "partial");
+    assert_eq!(state.messages[2].text, "instead do this");
+}

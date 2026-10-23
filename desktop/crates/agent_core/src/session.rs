@@ -21,6 +21,9 @@ pub const MAX_TOOL_STEPS: usize = 8;
 /// 一次 prompt 内最多连续跟进（follow-up）的轮数。
 pub const MAX_FOLLOW_UP_TURNS: usize = 4;
 
+/// 一次 prompt 内最多被 steer 打断的次数。
+pub const MAX_STEERS: usize = 4;
+
 /// 取消句柄：UI 点击停止时调用 `cancel()`；Agent 在每个事件边界检查。
 #[derive(Clone, Debug, Default)]
 pub struct CancelToken {
@@ -90,6 +93,7 @@ pub trait Approver: Send + Sync {
 pub trait TurnObserver: Send {
     fn on_turn_started(&mut self, _thread_id: &str) {}
     fn on_follow_up_started(&mut self, _text: &str) {}
+    fn on_steer_started(&mut self, _text: &str) {}
     fn on_text(&mut self, _delta: &str) {}
     fn on_tool_call(&mut self, _tool_use: &ToolUse) {}
     fn on_permission_request(&mut self, _request: &ApprovalRequest) {}
@@ -142,11 +146,14 @@ pub struct Agent {
     follow_ups: VecDeque<String>,
     follow_up_tx: mpsc::Sender<String>,
     follow_up_rx: mpsc::Receiver<String>,
+    steer_tx: mpsc::Sender<String>,
+    steer_rx: mpsc::Receiver<String>,
 }
 
 impl Agent {
     pub fn new(thread: Thread, system_prompt: Option<String>) -> Self {
         let (follow_up_tx, follow_up_rx) = mpsc::channel();
+        let (steer_tx, steer_rx) = mpsc::channel();
         Self {
             thread,
             system_prompt,
@@ -155,6 +162,8 @@ impl Agent {
             follow_ups: VecDeque::new(),
             follow_up_tx,
             follow_up_rx,
+            steer_tx,
+            steer_rx,
         }
     }
 
@@ -173,6 +182,11 @@ impl Agent {
     /// 运行中也能用的 follow-up 投递口；UI 在 turn 进行时把新消息发进来。
     pub fn follow_up_sender(&self) -> mpsc::Sender<String> {
         self.follow_up_tx.clone()
+    }
+
+    /// 运行中打断当前生成并插入一条消息。
+    pub fn steer_sender(&self) -> mpsc::Sender<String> {
+        self.steer_tx.clone()
     }
 
     pub fn queue_follow_up(&mut self, text: impl Into<String>) {
@@ -198,17 +212,48 @@ impl Agent {
     ) -> Result<TurnOutcome, AgentError> {
         self.validate(provider, model)?;
         self.thread.push_user(text);
-        let request = self.build_request(Vec::new());
         let mut observer = NoopObserver;
-        let (text, usage, stop_reason, tool_calls) =
-            run_stream(provider, model, request, &self.cancel, &mut observer).await?;
-        self.record_turn(text.clone(), tool_calls.clone(), usage);
-        Ok(TurnOutcome {
-            text,
-            usage,
-            stop_reason,
-            tool_calls,
-        })
+        let mut steers = 0;
+        loop {
+            let request = self.build_request(Vec::new());
+            let outcome = run_stream(
+                provider,
+                model,
+                request,
+                &self.cancel,
+                &mut observer,
+                &mut self.steer_rx,
+            )
+            .await?;
+            match outcome {
+                StreamOutcome::Finished {
+                    text,
+                    usage,
+                    stop_reason,
+                    tool_calls,
+                } => {
+                    self.record_turn(text.clone(), tool_calls.clone(), usage);
+                    return Ok(TurnOutcome {
+                        text,
+                        usage,
+                        stop_reason,
+                        tool_calls,
+                    });
+                }
+                StreamOutcome::Steered {
+                    text,
+                    usage,
+                    steer_text,
+                } => {
+                    self.record_turn(text, Vec::new(), usage);
+                    self.thread.push_user(steer_text);
+                    steers += 1;
+                    if steers >= MAX_STEERS {
+                        return Err(AgentError::StepLimitExceeded);
+                    }
+                }
+            }
+        }
     }
 
     /// 带工具的一轮：tool_call → 审批 → 执行 → 结果回灌，直到模型不再调用工具。
@@ -256,14 +301,47 @@ impl Agent {
         let mut tool_results = Vec::new();
 
         let mut follow_up_turns = 0;
+        let mut steers = 0;
         'turns: loop {
             for step in 0..MAX_TOOL_STEPS {
                 if self.cancel.is_cancelled() {
                     return Err(AgentError::Cancelled);
                 }
                 let request = self.build_request(tools.schemas());
-                let (text, usage, stop_reason, tool_calls) =
-                    run_stream(provider, model, request, &self.cancel, observer).await?;
+                let stream_outcome = run_stream(
+                    provider,
+                    model,
+                    request,
+                    &self.cancel,
+                    observer,
+                    &mut self.steer_rx,
+                )
+                .await?;
+                let (text, usage, stop_reason, tool_calls) = match stream_outcome {
+                    StreamOutcome::Finished {
+                        text,
+                        usage,
+                        stop_reason,
+                        tool_calls,
+                    } => (text, usage, stop_reason, tool_calls),
+                    StreamOutcome::Steered {
+                        text,
+                        usage,
+                        steer_text,
+                    } => {
+                        self.record_turn(text.clone(), Vec::new(), usage);
+                        observer.on_usage(usage, self.thread.usage_total);
+                        all_text.push_str(&text);
+                        total_usage.add(usage);
+                        observer.on_steer_started(&steer_text);
+                        self.thread.push_user(steer_text);
+                        steers += 1;
+                        if steers >= MAX_STEERS {
+                            return Err(AgentError::StepLimitExceeded);
+                        }
+                        continue 'turns;
+                    }
+                };
                 self.record_turn(text.clone(), tool_calls.clone(), usage);
                 observer.on_usage(usage, self.thread.usage_total);
                 all_text.push_str(&text);
@@ -435,13 +513,28 @@ impl Agent {
     }
 }
 
+enum StreamOutcome {
+    Finished {
+        text: String,
+        usage: TokenUsage,
+        stop_reason: StopReason,
+        tool_calls: Vec<ToolUse>,
+    },
+    Steered {
+        text: String,
+        usage: TokenUsage,
+        steer_text: String,
+    },
+}
+
 async fn run_stream(
     provider: &dyn Provider,
     model: &Model,
     request: Request,
     cancel: &CancelToken,
     observer: &mut dyn TurnObserver,
-) -> Result<(String, TokenUsage, StopReason, Vec<ToolUse>), AgentError> {
+    steers: &mut mpsc::Receiver<String>,
+) -> Result<StreamOutcome, AgentError> {
     let mut stream = provider.stream(model, request).await?;
     let mut text = String::new();
     let mut usage = TokenUsage::default();
@@ -465,11 +558,18 @@ async fn run_stream(
                 break;
             }
         }
+        if let Ok(steer_text) = steers.try_recv() {
+            return Ok(StreamOutcome::Steered {
+                text,
+                usage,
+                steer_text,
+            });
+        }
     }
-    Ok((
+    Ok(StreamOutcome::Finished {
         text,
         usage,
-        stop_reason.unwrap_or_else(|| StopReason::Other("stream ended".to_string())),
+        stop_reason: stop_reason.unwrap_or_else(|| StopReason::Other("stream ended".to_string())),
         tool_calls,
-    ))
+    })
 }

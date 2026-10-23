@@ -83,6 +83,7 @@ pub struct NativeAgentView {
     turn_seq: u64,
     approval_sender: Arc<Mutex<Option<oneshot::Sender<ApprovalDecision>>>>,
     follow_up_sender: std_mpsc::Sender<String>,
+    steer_sender: std_mpsc::Sender<String>,
     _input_subscription: Option<Subscription>,
 }
 
@@ -206,6 +207,7 @@ impl NativeAgentView {
         let agent = Agent::new(thread, None);
         let cancel = agent.cancel_token();
         let follow_up_sender = agent.follow_up_sender();
+        let steer_sender = agent.steer_sender();
         let agent_state: SharedAgentState = Arc::new(Mutex::new(AgentState::default()));
         let app_actions: Arc<Mutex<Vec<AppAction>>> = Arc::new(Mutex::new(Vec::new()));
         let action_sink: ActionSink = {
@@ -290,6 +292,7 @@ impl NativeAgentView {
             turn_seq: 0,
             approval_sender: Arc::new(Mutex::new(None)),
             follow_up_sender,
+            steer_sender,
             _input_subscription: input_subscription,
         }
     }
@@ -398,6 +401,21 @@ impl NativeAgentView {
             });
         })
         .detach();
+    }
+
+    fn steer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self.input.read(cx).value().trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        if self.steer_sender.send(text).is_ok() {
+            self.input
+                .update(cx, |state, cx| state.set_value("", window, cx));
+            self.status = "已插入 steer，当前生成将被中断".to_string();
+        } else {
+            self.status = "steer 发送失败".to_string();
+        }
+        cx.notify();
     }
 
     fn stop(&mut self, cx: &mut Context<Self>) {
@@ -582,6 +600,7 @@ impl Render for NativeAgentView {
         let pending = self.state.pending_permission.clone();
         let usage = self.state.usage_total.total();
         let input = self.input.clone();
+        let has_input = !self.input.read(cx).value().trim().is_empty();
         let settings_open = self.settings_open;
         let base_url_input = self.base_url_input.clone();
         let model_input = self.model_input.clone();
@@ -842,6 +861,19 @@ impl Render for NativeAgentView {
                                     .w_full(),
                             ),
                     )
+                    .children((busy && has_input).then(|| {
+                        div()
+                            .id("native-agent-steer")
+                            .role(Role::Button)
+                            .aria_label("打断并发送")
+                            .px(space(2))
+                            .py(space(1))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .bg(palette.soft)
+                            .text_color(palette.ink)
+                            .child("打断")
+                            .on_click(cx.listener(|this, _, window, cx| this.steer(window, cx)))
+                    }))
                     .children((can_undo && change_count > 0).then(|| {
                         div()
                             .id("native-agent-changes")

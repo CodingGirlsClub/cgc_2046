@@ -57,6 +57,15 @@ impl HostState {
                 }
                 self.push_user(text);
             }
+            AgentEvent::SteerStarted { text } => {
+                if !self.streaming.is_empty() {
+                    self.messages.push(UiMessage {
+                        role: UiRole::Assistant,
+                        text: std::mem::take(&mut self.streaming),
+                    });
+                }
+                self.push_user(text);
+            }
             AgentEvent::TextDelta { text } => self.streaming.push_str(&text),
             AgentEvent::ToolCallStarted { .. } => {}
             AgentEvent::PermissionRequested {
