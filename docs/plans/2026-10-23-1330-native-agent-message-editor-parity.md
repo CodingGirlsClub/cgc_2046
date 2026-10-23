@@ -126,7 +126,12 @@ h_flex 居中（max_content_width）
 
 键盘：Enter 发送/排队，Shift+Enter 换行，⌘↩ 生成中打断并立即发送（未生成时等同发送）。
 
-**P1 进度**：slash 命令弹层已实现（输入 `/` 过滤、↑↓ 选择、Enter 执行、Esc 关闭、点击选择），composer 上方不再显示静态提示行。plan/todo/goal 结构化卡片已实现（composer 上方显示目标、计划步骤、待办与完成计数，替代 system 文本）。仍未做：@ 文件上下文、队列卡片、权限 pattern 粒度、subagent 内联。
+**P1 进度**：slash 命令弹层已实现（输入 `/` 过滤、↑↓ 选择、Enter 执行、Esc 关闭、点击选择），composer 上方不再显示静态提示行。P1 其余项已实现（2026-10-23）：
+- **队列卡片**：view 侧队列（生成中发送→排队），composer 上方显示排队消息、可逐条取消；turn 结束后自动依次发送（`send_prompt` 拆分）。
+- **@ 文件上下文**：输入 `@` 弹出 workspace 文件列表（新增/启动时扫描，跳过 .git/target/node_modules 等），↑↓ 选择、Enter/点击插入；发送时把 `@path` 展开为「[文件: path] + 内容」前置给模型（单文件 ≤256KB，路径限制在工作区）。
+- **follow + activity**：消息区 `ScrollHandle` 跟随输出开关；header 生成中显示小圆点。
+- **批量变更**：checkpoint 面板新增「全部保留」「全部回退」。
+仍未做：**权限 pattern 粒度**（需要扩展 ApprovalDecision/审批协议，属后续）；**subagent 内联到 task tool call**（当前仍在消息区下方独立卡片，未关联 tool_call id）。
 
 ### P0 视觉验收（2026-10-23，已解锁后实测）
 

@@ -135,9 +135,13 @@ pub struct NativeAgentView {
     thinking_enabled: bool,
     slash_index: usize,
     slash_dismissed: bool,
+    mention_index: usize,
+    workspace_files: Vec<String>,
+    follow_output: bool,
+    messages_scroll: ScrollHandle,
     approval_mode: ApprovalMode,
     approval_sender: Arc<Mutex<Option<oneshot::Sender<ApprovalDecision>>>>,
-    follow_up_sender: std_mpsc::Sender<String>,
+    queued_messages: Vec<String>,
     steer_sender: std_mpsc::Sender<String>,
     _input_subscription: Option<Subscription>,
 }
@@ -240,7 +244,6 @@ impl NativeAgentView {
         let restored = !state.messages.is_empty();
         let agent = Agent::new(thread, None);
         let cancel = agent.cancel_token();
-        let follow_up_sender = agent.follow_up_sender();
         let steer_sender = agent.steer_sender();
         let agent_state: SharedAgentState = Arc::new(Mutex::new(AgentState::default()));
         let action_audit = Some(AuditLog::new(paths.agent_audit_file()));
@@ -299,6 +302,7 @@ impl NativeAgentView {
                 })
             })
         };
+        let workspace_files = collect_workspace_files(&workspace);
         let input = cx.new(|cx| {
             TextareaState::new(window, cx).placeholder(
                 "给 CGC Agent 发消息… @ 引用上下文，/ 查看命令（Enter 发送，Shift+Enter 换行）",
@@ -312,6 +316,7 @@ impl NativeAgentView {
                     let value = this.input.read(cx).value().to_string();
                     this.slash_dismissed = false;
                     this.slash_index = 0;
+                    this.mention_index = 0;
                     let _ = value;
                     cx.notify();
                     return;
@@ -321,6 +326,19 @@ impl NativeAgentView {
                         return;
                     }
                     let value = this.input.read(cx).value().to_string();
+                    if let Some((token_start, query)) = trailing_mention(&value) {
+                        let matches = this.mention_matches(&query);
+                        if !matches.is_empty() {
+                            let index = this.mention_index.min(matches.len() - 1);
+                            let path = matches[index].clone();
+                            let next = format!("{}@{} ", &value[..token_start], path);
+                            this.input
+                                .update(cx, |state, cx| state.set_value(next, window, cx));
+                            this.mention_index = 0;
+                            cx.notify();
+                            return;
+                        }
+                    }
                     let candidates = slash_candidates_for(&value);
                     if value.trim_start().starts_with('/')
                         && !this.slash_dismissed
@@ -360,6 +378,10 @@ impl NativeAgentView {
             thinking_enabled: true,
             slash_index: 0,
             slash_dismissed: false,
+            mention_index: 0,
+            workspace_files,
+            follow_output: true,
+            messages_scroll: ScrollHandle::new(),
             approval_mode: ApprovalMode::Ask,
             context: ToolContext::new(&workspace)
                 .with_sandbox(SandboxPolicy::new(&workspace))
@@ -380,7 +402,7 @@ impl NativeAgentView {
             show_checkpoint_panel: false,
             turn_seq: 0,
             approval_sender: Arc::new(Mutex::new(None)),
-            follow_up_sender,
+            queued_messages: Vec::new(),
             steer_sender,
             _input_subscription: input_subscription,
         }
@@ -448,11 +470,18 @@ impl NativeAgentView {
             return;
         }
         if self.busy {
-            let _ = self.follow_up_sender.send(text);
-            self.status = "已排队 follow-up，当前 turn 结束后执行".to_string();
+            self.queued_messages.push(text);
+            self.status = format!(
+                "已排队 {} 条，当前 turn 结束后依次发送",
+                self.queued_messages.len()
+            );
             cx.notify();
             return;
         }
+        self.send_prompt(text, cx);
+    }
+
+    fn send_prompt(&mut self, text: String, cx: &mut Context<Self>) {
         self.reload_latest_session();
         self.turn_seq += 1;
         if let Some(thread_id) = self.agent.as_ref().map(|agent| agent.thread().id.clone()) {
@@ -468,6 +497,7 @@ impl NativeAgentView {
         });
         let approval_mode = self.approval_mode;
         self.state.push_user(text.clone());
+        let text = self.expand_mentions(&text);
         self.busy = true;
         self.status = "思考中…".to_string();
         self.cancel.reset();
@@ -558,6 +588,10 @@ impl NativeAgentView {
                 if let Ok(mut pending) = approval_sender.lock() {
                     pending.take();
                 }
+                if !this.queued_messages.is_empty() {
+                    let next = this.queued_messages.remove(0);
+                    this.send_prompt(next, cx);
+                }
                 cx.notify();
             });
         })
@@ -622,6 +656,26 @@ impl NativeAgentView {
                 summary
             });
         }
+    }
+
+    fn keep_all_changes(&mut self, cx: &mut Context<Self>) {
+        self.checkpoint_changes.clear();
+        self.status = "已全部保留本轮改动".to_string();
+        cx.notify();
+    }
+
+    fn reject_all_changes(&mut self, cx: &mut Context<Self>) {
+        let paths = self
+            .checkpoint_changes
+            .iter()
+            .map(|change| change.path.clone())
+            .collect::<Vec<_>>();
+        for path in &paths {
+            self.restore_checkpoint_file(path.clone(), cx);
+        }
+        self.status = format!("已回退 {} 个文件", paths.len());
+        self.checkpoint_changes.clear();
+        cx.notify();
     }
 
     fn refresh_checkpoint_changes(&mut self) {
@@ -715,6 +769,55 @@ impl NativeAgentView {
         let _ = store.save(&prefs);
         self.status = format!("模型：{}", self.model.id.as_str());
         cx.notify();
+    }
+
+    fn mention_matches(&self, query: &str) -> Vec<String> {
+        let query = query.to_ascii_lowercase();
+        self.workspace_files
+            .iter()
+            .filter(|path| query.is_empty() || path.to_ascii_lowercase().contains(&query))
+            .take(8)
+            .cloned()
+            .collect()
+    }
+
+    fn insert_mention(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
+        let value = self.input.read(cx).value().to_string();
+        if let Some((position, _)) = trailing_mention(&value) {
+            let next = format!("{}@{} ", &value[..position], path);
+            self.input
+                .update(cx, |state, cx| state.set_value(next, window, cx));
+        }
+        self.mention_index = 0;
+        cx.notify();
+    }
+
+    fn expand_mentions(&self, text: &str) -> String {
+        let workspace = self.context.workspace().to_path_buf();
+        let mut context = String::new();
+        for token in text.split_whitespace() {
+            let Some(path) = token.strip_prefix('@') else {
+                continue;
+            };
+            if path.is_empty() || path.starts_with('/') {
+                continue;
+            }
+            let full = workspace.join(path);
+            let Ok(metadata) = std::fs::metadata(&full) else {
+                continue;
+            };
+            if !metadata.is_file() || metadata.len() > 256 * 1024 {
+                continue;
+            }
+            if let Ok(content) = std::fs::read_to_string(&full) {
+                context.push_str(&format!("[文件: {path}]\n{content}\n\n"));
+            }
+        }
+        if context.is_empty() {
+            text.to_string()
+        } else {
+            format!("{context}{text}")
+        }
     }
 
     fn run_slash_command(
@@ -920,6 +1023,15 @@ impl Render for NativeAgentView {
         let slash_open = input_value.trim_start().starts_with('/') && !self.slash_dismissed;
         let slash_matches = slash_candidates_for(&input_value);
         let slash_selected = self.slash_index.min(slash_matches.len().saturating_sub(1));
+        let mention = trailing_mention(&input_value);
+        let mention_matches = mention
+            .as_ref()
+            .map(|(_, query)| self.mention_matches(query))
+            .unwrap_or_default();
+        let mention_open = mention.is_some() && !slash_open && !mention_matches.is_empty();
+        let mention_selected = self
+            .mention_index
+            .min(mention_matches.len().saturating_sub(1));
         let can_undo = self.last_checkpoint.is_some() && !busy;
         let change_count = self.checkpoint_changes.len();
         let plan_state = self
@@ -927,6 +1039,7 @@ impl Render for NativeAgentView {
             .lock()
             .map(|state| state.clone())
             .unwrap_or_default();
+        let queued_messages = self.queued_messages.clone();
         let show_plan_card = !plan_state.todos.is_empty()
             || !plan_state.plan.is_empty()
             || plan_state.goal.is_some();
@@ -974,6 +1087,10 @@ impl Render for NativeAgentView {
             );
         }
 
+        if self.follow_output && !rows.is_empty() {
+            self.messages_scroll.scroll_to_item(rows.len() - 1);
+        }
+
         div()
             .size_full()
             .flex()
@@ -1004,9 +1121,19 @@ impl Render for NativeAgentView {
                     .child(div().text_size(px(15.0)).child("Native Agent（P1a）"))
                     .child(
                         div()
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_3)
-                            .child(format!("model: {model_label} · {status}")),
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(1))
+                            .children(
+                                busy.then(|| div().size(px(6.0)).rounded_full().bg(palette.accent)),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_3)
+                                    .child(format!("model: {model_label} · {status}")),
+                            ),
                     ),
             )
             .child(
@@ -1018,6 +1145,7 @@ impl Render for NativeAgentView {
                     .gap(space(2))
                     .p(space(3))
                     .overflow_y_scroll()
+                    .track_scroll(&self.messages_scroll)
                     .children(rows),
             )
             .children(show_changes.then(|| {
@@ -1033,8 +1161,48 @@ impl Render for NativeAgentView {
                     .bg(palette.view)
                     .child(
                         div()
-                            .text_size(px(12.0))
-                            .child(format!("本轮文件变更（{change_count}）")),
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(1))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(px(12.0))
+                                    .child(format!("本轮文件变更（{change_count}）")),
+                            )
+                            .child(
+                                div()
+                                    .id("native-keep-all")
+                                    .role(Role::Button)
+                                    .aria_label("全部保留")
+                                    .px(space(1))
+                                    .py(px(2.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .text_size(px(10.0))
+                                    .text_color(palette.ink_2)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child("全部保留")
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.keep_all_changes(cx)
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .id("native-reject-all")
+                                    .role(Role::Button)
+                                    .aria_label("全部回退")
+                                    .px(space(1))
+                                    .py(px(2.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .text_size(px(10.0))
+                                    .text_color(palette.danger)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child("全部回退")
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.reject_all_changes(cx)
+                                    })),
+                            ),
                     )
                     .children(changes.into_iter().map(|change| {
                         let path = change.path.clone();
@@ -1210,6 +1378,65 @@ impl Render for NativeAgentView {
                             .text_color(palette.ink_3)
                             .child("允许一次只对本次调用生效；本会话允许会记住该工具的同类请求。"),
                     )
+            }))
+            .children((!queued_messages.is_empty()).then(|| {
+                div()
+                    .id("native-agent-queue")
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.0))
+                    .mx(space(2))
+                    .mb(space(1))
+                    .p(space(2))
+                    .rounded(px(RADIUS_MEDIUM))
+                    .border_1()
+                    .border_color(palette.line)
+                    .bg(palette.view)
+                    .child(
+                        div()
+                            .text_size(px(10.0))
+                            .text_color(palette.ink_3)
+                            .child(format!(
+                                "排队中 {} 条 · 当前 turn 结束后自动发送",
+                                queued_messages.len()
+                            )),
+                    )
+                    .children(queued_messages.iter().enumerate().map(|(index, text)| {
+                        let preview: String = text.chars().take(160).collect();
+                        let remove_view = cx.entity().downgrade();
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(1))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .child(preview),
+                            )
+                            .child(
+                                div()
+                                    .id(SharedString::from(format!("native-queue-remove-{index}")))
+                                    .role(Role::Button)
+                                    .aria_label("取消排队消息")
+                                    .px(space(1))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_3)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child("×")
+                                    .on_click(move |_, _, cx| {
+                                        let _ = remove_view.update(cx, |this, cx| {
+                                            if index < this.queued_messages.len() {
+                                                this.queued_messages.remove(index);
+                                                cx.notify();
+                                            }
+                                        });
+                                    }),
+                            )
+                    }))
             }))
             .children(show_plan_card.then(|| {
                 let status = |status: ItemStatus| match status {
@@ -1629,6 +1856,20 @@ impl Render for NativeAgentView {
                     .bg(palette.view)
                     .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
                         let value = this.input.read(cx).value().to_string();
+                        if trailing_mention(&value).is_some() {
+                            match event.keystroke.key.as_str() {
+                                "up" => {
+                                    this.mention_index = this.mention_index.saturating_sub(1);
+                                    cx.notify();
+                                }
+                                "down" => {
+                                    this.mention_index += 1;
+                                    cx.notify();
+                                }
+                                _ => {}
+                            }
+                            return;
+                        }
                         if !value.trim_start().starts_with('/') || this.slash_dismissed {
                             return;
                         }
@@ -1697,6 +1938,55 @@ impl Render for NativeAgentView {
                                 },
                             ))
                     }))
+                    .children(mention_open.then(|| {
+                        let query = mention
+                            .as_ref()
+                            .map(|(_, query)| query.clone())
+                            .unwrap_or_default();
+                        div()
+                            .id("native-agent-mention-menu")
+                            .flex()
+                            .flex_col()
+                            .gap(px(1.0))
+                            .mx(space(1))
+                            .mt(space(1))
+                            .mb(px(2.0))
+                            .rounded(px(RADIUS_SMALL))
+                            .border_1()
+                            .border_color(palette.line)
+                            .bg(palette.card)
+                            .occlude()
+                            .child(
+                                div()
+                                    .px(space(1))
+                                    .py(px(2.0))
+                                    .text_size(px(9.0))
+                                    .text_color(palette.ink_3)
+                                    .child(format!("@{query} 匹配文件")),
+                            )
+                            .children(mention_matches.iter().enumerate().map(|(index, path)| {
+                                let selected = index == mention_selected;
+                                let path = path.clone();
+                                div()
+                                    .id(SharedString::from(format!("native-mention-{index}")))
+                                    .role(Role::Button)
+                                    .aria_label(path.clone())
+                                    .px(space(1))
+                                    .py(px(3.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .bg(if selected { palette.soft } else { palette.card })
+                                    .text_size(px(11.0))
+                                    .text_color(if selected {
+                                        palette.accent
+                                    } else {
+                                        palette.ink_2
+                                    })
+                                    .child(path.clone())
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.insert_mention(path.clone(), window, cx);
+                                    }))
+                            }))
+                    }))
                     .child(
                         div().px(space(1)).py(px(4.0)).child(
                             Textarea::new(&input)
@@ -1735,6 +2025,35 @@ impl Render for NativeAgentView {
                                     })
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.insert_context_marker(window, cx)
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .id("native-follow-toggle")
+                                    .role(Role::Button)
+                                    .aria_label(if self.follow_output {
+                                        "暂停跟随输出"
+                                    } else {
+                                        "跟随输出"
+                                    })
+                                    .px(space(1))
+                                    .py(px(2.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .text_size(px(11.0))
+                                    .text_color(if self.follow_output {
+                                        palette.accent
+                                    } else {
+                                        palette.ink_3
+                                    })
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child(if self.follow_output {
+                                        "跟随"
+                                    } else {
+                                        "暂停"
+                                    })
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.follow_output = !this.follow_output;
+                                        cx.notify();
                                     })),
                             )
                             .child(model_picker)
@@ -1812,6 +2131,51 @@ impl Render for NativeAgentView {
                     )
             })
     }
+}
+
+fn collect_workspace_files(root: &std::path::Path) -> Vec<String> {
+    fn walk(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<String>) {
+        if out.len() >= 1000 {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.')
+                || matches!(name.as_str(), "target" | "node_modules" | "dist" | "build")
+            {
+                continue;
+            }
+            if path.is_dir() {
+                walk(&path, root, out);
+            } else if path.is_file() {
+                if let Ok(relative) = path.strip_prefix(root) {
+                    out.push(relative.to_string_lossy().replace('\\', "/"));
+                }
+            }
+        }
+    }
+    let mut files = Vec::new();
+    walk(root, root, &mut files);
+    files.sort();
+    files
+}
+
+fn trailing_mention(text: &str) -> Option<(usize, String)> {
+    let position = text.rfind('@')?;
+    if let Some(previous) = text[..position].chars().next_back() {
+        if !previous.is_whitespace() {
+            return None;
+        }
+    }
+    let query = &text[position + 1..];
+    if query.chars().any(char::is_whitespace) {
+        return None;
+    }
+    Some((position, query.to_string()))
 }
 
 fn slash_candidates_for(value: &str) -> Vec<(&'static str, &'static str)> {
