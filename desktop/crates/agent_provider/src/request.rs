@@ -102,6 +102,8 @@ pub struct Request {
     pub tools: Vec<ToolSchema>,
     pub temperature: Option<f32>,
     pub max_output_tokens: Option<u32>,
+    /// OpenAI-compatible 的 `reasoning_effort`（thinking 档位）。
+    pub reasoning_effort: Option<String>,
 }
 
 impl Request {
@@ -114,6 +116,11 @@ impl Request {
 
     pub fn with_tools(mut self, tools: Vec<ToolSchema>) -> Self {
         self.tools = tools;
+        self
+    }
+
+    pub fn with_reasoning_effort(mut self, reasoning_effort: Option<String>) -> Self {
+        self.reasoning_effort = reasoning_effort;
         self
     }
 

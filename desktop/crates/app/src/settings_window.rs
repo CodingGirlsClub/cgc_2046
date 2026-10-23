@@ -8,6 +8,10 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use cgc_agent_store::{provider_key_account, PrefsStore, ProviderPrefs};
+use cgc_platform::paths::AppPaths;
+use cgc_platform::session::KeychainStore;
+use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::switch::Switch;
 use gpui_kit::InteractiveElement;
 use gpui_kit::*;
@@ -15,8 +19,74 @@ use gpui_kit::*;
 use crate::build_info;
 use crate::i18n::{translate, Key, Language};
 use crate::preferences;
-use crate::theme::{self, space, RADIUS_LARGE, RADIUS_MEDIUM};
+use crate::theme::{self, space, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL};
 use cgc_platform::session::AuthApi;
+
+/// Settings 里的 provider 编辑草稿（输入框懒创建，避免 new() 需要 window）。
+#[derive(Clone, Debug)]
+struct ProviderDraft {
+    id: String,
+    name: String,
+    base_url: String,
+    models: String,
+    supports_thinking: bool,
+    has_key: bool,
+    base_url_input: Option<Entity<InputState>>,
+    models_input: Option<Entity<InputState>>,
+    api_key_input: Option<Entity<InputState>>,
+}
+
+impl ProviderDraft {
+    fn from_prefs(provider: &ProviderPrefs) -> Self {
+        Self {
+            id: provider.id.clone(),
+            name: provider.name.clone(),
+            base_url: provider.base_url.clone(),
+            models: provider.models.join(", "),
+            supports_thinking: provider.supports_thinking,
+            has_key: provider.has_key,
+            base_url_input: None,
+            models_input: None,
+            api_key_input: None,
+        }
+    }
+
+    fn new_custom() -> Self {
+        let serial = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or_default();
+        Self {
+            id: format!("custom-{serial}"),
+            name: "OpenAI Compatible".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            models: "gpt-4o-mini".to_string(),
+            supports_thinking: false,
+            has_key: false,
+            base_url_input: None,
+            models_input: None,
+            api_key_input: None,
+        }
+    }
+
+    fn to_prefs(&self) -> ProviderPrefs {
+        let models = self
+            .models
+            .split(',')
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+            .map(str::to_string)
+            .collect();
+        ProviderPrefs {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            base_url: self.base_url.trim().to_string(),
+            models,
+            supports_thinking: self.supports_thinking,
+            has_key: self.has_key,
+        }
+    }
+}
 
 pub struct SettingsWindowView {
     language: Language,
@@ -30,6 +100,10 @@ pub struct SettingsWindowView {
     revoking: bool,
     revoked: bool,
     error: Option<String>,
+    notice: Option<String>,
+    provider_drafts: Vec<ProviderDraft>,
+    prefs_store: PrefsStore,
+    keychain: KeychainStore,
 }
 
 impl SettingsWindowView {
@@ -44,6 +118,13 @@ impl SettingsWindowView {
         close_to_tray: Arc<AtomicBool>,
         cx: &mut Context<Self>,
     ) -> Self {
+        let prefs_store = PrefsStore::new(AppPaths::from_env().agent_prefs_file());
+        let provider_drafts = prefs_store
+            .load()
+            .providers
+            .iter()
+            .map(ProviderDraft::from_prefs)
+            .collect();
         Self {
             language,
             email,
@@ -56,6 +137,10 @@ impl SettingsWindowView {
             revoking: false,
             revoked: false,
             error: None,
+            notice: None,
+            provider_drafts,
+            prefs_store,
+            keychain: KeychainStore::from_env(),
         }
     }
 
@@ -88,6 +173,174 @@ impl SettingsWindowView {
         .detach();
     }
 
+    fn ensure_provider_inputs(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(draft) = self.provider_drafts.get(index).cloned() else {
+            return;
+        };
+        if draft.base_url_input.is_none() {
+            let value = draft.base_url.clone();
+            let input = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("https://api.example.com/v1")
+                    .default_value(value)
+            });
+            self.provider_drafts[index].base_url_input = Some(input);
+        }
+        if draft.models_input.is_none() {
+            let value = draft.models.clone();
+            let input = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("model-a, model-b")
+                    .default_value(value)
+            });
+            self.provider_drafts[index].models_input = Some(input);
+        }
+        if draft.api_key_input.is_none() {
+            let input =
+                cx.new(|cx| InputState::new(window, cx).placeholder("API Key（保存到系统钥匙串）"));
+            self.provider_drafts[index].api_key_input = Some(input);
+        }
+    }
+
+    fn save_provider(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(draft) = self.provider_drafts.get(index).cloned() else {
+            return;
+        };
+        let Some(base_url_input) = draft.base_url_input.clone() else {
+            return;
+        };
+        let Some(models_input) = draft.models_input.clone() else {
+            return;
+        };
+        let base_url = base_url_input.read(cx).value().trim().to_string();
+        let models = models_input
+            .read(cx)
+            .value()
+            .split(',')
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        if base_url.is_empty() || models.is_empty() {
+            self.error = Some("Base URL 与至少一个 Model 不能为空".to_string());
+            cx.notify();
+            return;
+        }
+        let mut provider = ProviderPrefs {
+            id: draft.id.clone(),
+            name: draft.name.clone(),
+            base_url,
+            models,
+            supports_thinking: draft.supports_thinking,
+            has_key: draft.has_key,
+        };
+        if let Some(api_key_input) = draft.api_key_input.clone() {
+            let api_key = api_key_input.read(cx).value().trim().to_string();
+            if !api_key.is_empty() {
+                match self
+                    .keychain
+                    .save_secret(&provider_key_account(&provider.id), &api_key)
+                {
+                    Ok(()) => {
+                        provider.has_key = true;
+                        api_key_input.update(cx, |state, cx| {
+                            state.set_value("", window, cx);
+                        });
+                    }
+                    Err(error) => {
+                        self.error = Some(format!("API Key 保存失败：{error}"));
+                        cx.notify();
+                        return;
+                    }
+                }
+            }
+        }
+        let mut prefs = self.prefs_store.load();
+        prefs.upsert_provider(provider.clone());
+        if prefs.selected_provider.as_deref().is_none()
+            || prefs.provider(&provider.id).map(|item| item.id.clone()) == Some(provider.id.clone())
+        {
+            prefs.selected_provider = Some(provider.id.clone());
+        }
+        match self.prefs_store.save(&prefs) {
+            Ok(()) => {
+                self.error = None;
+                self.notice = Some("Provider 已保存".to_string());
+                if let Some(draft) = self.provider_drafts.get_mut(index) {
+                    draft.base_url = provider.base_url.clone();
+                    draft.models = provider.models.join(", ");
+                    draft.has_key = provider.has_key;
+                }
+            }
+            Err(error) => self.error = Some(format!("保存失败：{error}")),
+        }
+        cx.notify();
+    }
+
+    fn reset_provider_key(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(draft) = self.provider_drafts.get(index).cloned() else {
+            return;
+        };
+        match self.keychain.clear_secret(&provider_key_account(&draft.id)) {
+            Ok(()) => {
+                let mut provider = draft.to_prefs();
+                provider.has_key = false;
+                let mut prefs = self.prefs_store.load();
+                prefs.upsert_provider(provider);
+                let _ = self.prefs_store.save(&prefs);
+                if let Some(draft) = self.provider_drafts.get_mut(index) {
+                    draft.has_key = false;
+                }
+                self.notice = Some("API Key 已清除".to_string());
+                self.error = None;
+            }
+            Err(error) => self.error = Some(format!("清除 API Key 失败：{error}")),
+        }
+        cx.notify();
+    }
+
+    fn add_provider(&mut self, cx: &mut Context<Self>) {
+        self.provider_drafts.push(ProviderDraft::new_custom());
+        self.notice = Some("已添加 provider，填写后点保存".to_string());
+        cx.notify();
+    }
+
+    fn remove_provider(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(draft) = self.provider_drafts.get(index).cloned() else {
+            return;
+        };
+        self.provider_drafts.remove(index);
+        let mut prefs = self.prefs_store.load();
+        prefs.remove_provider(&draft.id);
+        let _ = self.prefs_store.save(&prefs);
+        self.notice = Some("Provider 已删除".to_string());
+        cx.notify();
+    }
+
+    fn render_provider_field(
+        label: &'static str,
+        input: Entity<InputState>,
+        palette: &theme::Palette,
+    ) -> AnyElement {
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(palette.ink_3)
+                    .child(label),
+            )
+            .child(Input::new(&input))
+            .into_any_element()
+    }
+
     fn render_section(
         title: &'static str,
         body: AnyElement,
@@ -114,7 +367,7 @@ impl SettingsWindowView {
 }
 
 impl Render for SettingsWindowView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let language = self.language;
         let palette = theme::palette_from_theme(cx);
         let shortcut = if cfg!(target_os = "macos") {
@@ -128,6 +381,197 @@ impl Render for SettingsWindowView {
         let revoking = self.revoking;
         let revoked = self.revoked;
         let focus = self.focus.clone();
+
+        for index in 0..self.provider_drafts.len() {
+            self.ensure_provider_inputs(index, window, cx);
+        }
+        let mut provider_cards: Vec<AnyElement> = Vec::new();
+        for index in 0..self.provider_drafts.len() {
+            let draft = self.provider_drafts[index].clone();
+            let (Some(base_input), Some(models_input), Some(key_input)) = (
+                draft.base_url_input.clone(),
+                draft.models_input.clone(),
+                draft.api_key_input.clone(),
+            ) else {
+                continue;
+            };
+            let status_color = if draft.has_key {
+                palette.ink_2
+            } else {
+                palette.ink_3
+            };
+            let status = if draft.has_key {
+                "API Key 已保存"
+            } else {
+                "未保存 API Key"
+            };
+            let remove_view = cx.entity().downgrade();
+            let save_view = cx.entity().downgrade();
+            let reset_view = cx.entity().downgrade();
+            let thinking_view = cx.entity().downgrade();
+            provider_cards.push(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(space(1))
+                    .p(space(2))
+                    .rounded(px(RADIUS_MEDIUM))
+                    .border_1()
+                    .border_color(palette.line)
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(2))
+                            .child(div().flex_1().text_size(px(13.0)).child(draft.name.clone()))
+                            .child(
+                                div()
+                                    .text_size(px(10.0))
+                                    .text_color(status_color)
+                                    .child(status),
+                            )
+                            .child(
+                                div()
+                                    .id(SharedString::from(format!(
+                                        "settings-provider-remove-{index}"
+                                    )))
+                                    .role(Role::Button)
+                                    .aria_label("删除 provider")
+                                    .px(space(1))
+                                    .py(px(2.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_3)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child("删除")
+                                    .on_click(move |_, _, cx| {
+                                        let _ = remove_view.update(cx, |this, cx| {
+                                            this.remove_provider(index, cx);
+                                        });
+                                    }),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_between()
+                            .gap(space(2))
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_3)
+                                    .child("支持推理档位（thinking）"),
+                            )
+                            .child(
+                                Switch::new(SharedString::from(format!(
+                                    "settings-provider-thinking-{index}"
+                                )))
+                                .checked(draft.supports_thinking)
+                                .on_change(
+                                    move |checked, _, cx| {
+                                        let _ = thinking_view.update(cx, |this, cx| {
+                                            if let Some(draft) = this.provider_drafts.get_mut(index)
+                                            {
+                                                draft.supports_thinking = *checked;
+                                            }
+                                            cx.notify();
+                                        });
+                                    },
+                                ),
+                            ),
+                    )
+                    .child(Self::render_provider_field(
+                        "Base URL", base_input, &palette,
+                    ))
+                    .child(Self::render_provider_field(
+                        "Models（逗号分隔）",
+                        models_input,
+                        &palette,
+                    ))
+                    .child(Self::render_provider_field("API Key", key_input, &palette))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(2))
+                            .child(
+                                div()
+                                    .id(SharedString::from(format!(
+                                        "settings-provider-save-{index}"
+                                    )))
+                                    .role(Role::Button)
+                                    .aria_label("保存 provider")
+                                    .px(space(2))
+                                    .py(px(5.0))
+                                    .rounded(px(RADIUS_MEDIUM))
+                                    .bg(palette.accent)
+                                    .text_color(palette.canvas)
+                                    .text_size(px(11.0))
+                                    .child("保存")
+                                    .on_click(move |_, window, cx| {
+                                        let _ = save_view.update(cx, |this, cx| {
+                                            this.save_provider(index, window, cx);
+                                        });
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .id(SharedString::from(format!(
+                                        "settings-provider-reset-{index}"
+                                    )))
+                                    .role(Role::Button)
+                                    .aria_label("清除 provider API Key")
+                                    .px(space(2))
+                                    .py(px(5.0))
+                                    .rounded(px(RADIUS_MEDIUM))
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_3)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child("清除 API Key")
+                                    .on_click(move |_, _, cx| {
+                                        let _ = reset_view.update(cx, |this, cx| {
+                                            this.reset_provider_key(index, cx);
+                                        });
+                                    }),
+                            ),
+                    )
+                    .into_any_element(),
+            );
+        }
+        let add_view = cx.entity().downgrade();
+        let provider_section = div()
+            .flex()
+            .flex_col()
+            .gap(space(2))
+            .children(provider_cards)
+            .child(
+                div()
+                    .id("settings-provider-add")
+                    .role(Role::Button)
+                    .aria_label("添加 provider")
+                    .px(space(2))
+                    .py(px(5.0))
+                    .rounded(px(RADIUS_MEDIUM))
+                    .border_1()
+                    .border_color(palette.line)
+                    .text_size(px(12.0))
+                    .text_color(palette.ink_2)
+                    .hover(|style| style.bg(palette.soft))
+                    .child("＋ 添加 Provider（OpenAI compatible）")
+                    .on_click(move |_, _, cx| {
+                        let _ = add_view.update(cx, |this, cx| this.add_provider(cx));
+                    }),
+            )
+            .children(self.notice.clone().map(|notice| {
+                div()
+                    .text_size(px(11.0))
+                    .text_color(palette.ink_3)
+                    .child(notice)
+            }));
 
         div()
             .size_full()
@@ -317,6 +761,11 @@ impl Render for SettingsWindowView {
                                 )
                                 .into_any_element()
                         },
+                        &palette,
+                    ))
+                    .child(Self::render_section(
+                        "AI / LLM Providers",
+                        provider_section.into_any_element(),
                         &palette,
                     ))
                     .child(Self::render_section(

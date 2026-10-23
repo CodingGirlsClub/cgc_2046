@@ -3,21 +3,44 @@ use std::path::{Path, PathBuf};
 use cgc_agent_core::SelectedModel;
 use serde::{Deserialize, Serialize};
 
-/// 自定义 OpenAI-compatible provider 的配置（API key 存系统钥匙串，不落 JSON）。
+/// 一个 OpenAI-compatible provider（API key 存系统钥匙串，不落 JSON）。
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderPrefs {
     #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
     pub base_url: String,
     #[serde(default)]
-    pub provider_name: String,
+    pub models: Vec<String>,
+    /// 该 provider 的模型是否支持 reasoning/thinking 档位。
     #[serde(default)]
-    pub model_id: String,
+    pub supports_thinking: bool,
+    /// 是否已保存 API key（仅标记，key 本体在钥匙串）。
+    #[serde(default)]
+    pub has_key: bool,
 }
 
 impl ProviderPrefs {
     pub fn is_complete(&self) -> bool {
-        !self.base_url.is_empty() && !self.model_id.is_empty()
+        !self.base_url.is_empty() && !self.models.is_empty()
     }
+
+    pub fn primary_model(&self) -> Option<&str> {
+        self.models.first().map(String::as_str)
+    }
+}
+
+/// 旧版单 provider 字段（只读迁移用）。
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+struct LegacyProvider {
+    #[serde(default)]
+    base_url: String,
+    #[serde(default)]
+    provider_name: String,
+    #[serde(default)]
+    model_id: String,
 }
 
 /// 跨会话保留的 agent 偏好。
@@ -26,7 +49,87 @@ pub struct AgentPrefs {
     #[serde(default)]
     pub selected_model: Option<SelectedModel>,
     #[serde(default)]
-    pub provider: Option<ProviderPrefs>,
+    pub selected_provider: Option<String>,
+    #[serde(default)]
+    pub providers: Vec<ProviderPrefs>,
+    /// 兼容旧版 `provider` 单对象；读取后迁移进 `providers`，不再写回。
+    #[serde(default, rename = "provider", skip_serializing)]
+    legacy_provider: Option<LegacyProvider>,
+}
+
+impl AgentPrefs {
+    /// 旧版单 provider 迁入列表；幂等。
+    pub fn normalize(&mut self) {
+        if !self.providers.is_empty() {
+            self.legacy_provider = None;
+            return;
+        }
+        let Some(legacy) = self.legacy_provider.take() else {
+            return;
+        };
+        if legacy.base_url.is_empty() {
+            return;
+        }
+        let models = if legacy.model_id.is_empty() {
+            Vec::new()
+        } else {
+            vec![legacy.model_id]
+        };
+        self.providers.push(ProviderPrefs {
+            id: "custom".to_string(),
+            name: if legacy.provider_name.is_empty() {
+                "OpenAI Compatible".to_string()
+            } else {
+                legacy.provider_name
+            },
+            base_url: legacy.base_url,
+            models,
+            supports_thinking: false,
+            has_key: false,
+        });
+        if self.selected_provider.is_none() {
+            self.selected_provider = Some("custom".to_string());
+        }
+    }
+
+    pub fn active_provider(&self) -> Option<&ProviderPrefs> {
+        if let Some(id) = &self.selected_provider {
+            if let Some(provider) = self.providers.iter().find(|provider| &provider.id == id) {
+                return Some(provider);
+            }
+        }
+        self.providers.first()
+    }
+
+    pub fn provider(&self, id: &str) -> Option<&ProviderPrefs> {
+        self.providers.iter().find(|provider| provider.id == id)
+    }
+
+    pub fn upsert_provider(&mut self, provider: ProviderPrefs) {
+        if provider.id.is_empty() {
+            return;
+        }
+        match self
+            .providers
+            .iter_mut()
+            .find(|existing| existing.id == provider.id)
+        {
+            Some(existing) => *existing = provider,
+            None => self.providers.push(provider),
+        }
+    }
+
+    pub fn remove_provider(&mut self, id: &str) {
+        self.providers.retain(|provider| provider.id != id);
+        if self.selected_provider.as_deref() == Some(id) {
+            self.selected_provider = self.providers.first().map(|provider| provider.id.clone());
+        }
+    }
+}
+
+/// 每个 provider 的 API key 在钥匙串里的 account。
+pub fn provider_key_account(provider_id: &str) -> String {
+    format!("native_agent_provider_api_key:{provider_id}")
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -53,10 +156,12 @@ impl PrefsStore {
     }
 
     pub fn load(&self) -> AgentPrefs {
-        std::fs::read_to_string(&self.path)
+        let mut prefs = std::fs::read_to_string(&self.path)
             .ok()
-            .and_then(|raw| serde_json::from_str(&raw).ok())
-            .unwrap_or_default()
+            .and_then(|raw| serde_json::from_str::<AgentPrefs>(&raw).ok())
+            .unwrap_or_default();
+        prefs.normalize();
+        prefs
     }
 
     /// 原子写入：先写 `.tmp` 再 rename，避免半截文件。
@@ -95,16 +200,63 @@ mod tests {
         SelectedModel::new(ProviderId::new("deepseek"), ModelId::new("deepseek-chat"))
     }
 
+    fn provider(id: &str, base_url: &str) -> ProviderPrefs {
+        ProviderPrefs {
+            id: id.to_string(),
+            name: "Test".to_string(),
+            base_url: base_url.to_string(),
+            models: vec!["model-a".to_string()],
+            supports_thinking: false,
+            has_key: true,
+        }
+    }
+
     #[test]
     fn save_then_load_roundtrip() {
         let dir = temp_dir("roundtrip");
         let store = PrefsStore::new(dir.join("agent_prefs.json"));
         let prefs = AgentPrefs {
             selected_model: Some(selected()),
-            provider: None,
+            selected_provider: Some("deepseek".to_string()),
+            providers: vec![provider("deepseek", "https://api.deepseek.com/v1")],
+            ..AgentPrefs::default()
         };
         store.save(&prefs).expect("save");
         assert_eq!(store.load(), prefs);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn legacy_single_provider_is_migrated() {
+        let dir = temp_dir("legacy");
+        let store = PrefsStore::new(dir.join("agent_prefs.json"));
+        std::fs::write(
+            store.path(),
+            r#"{
+                "selected_model": {"provider_id": "custom", "model_id": "deepseek-flash"},
+                "provider": {
+                    "base_url": "https://api.deepseek.com",
+                    "provider_name": "OpenAI Compatible",
+                    "model_id": "deepseek-flash"
+                }
+            }"#,
+        )
+        .expect("write");
+        let prefs = store.load();
+        assert_eq!(prefs.providers.len(), 1);
+        assert_eq!(prefs.providers[0].id, "custom");
+        assert_eq!(
+            prefs.providers[0].models,
+            vec!["deepseek-flash".to_string()]
+        );
+        assert_eq!(
+            prefs.selected_model,
+            Some(SelectedModel::new(
+                ProviderId::new("custom"),
+                ModelId::new("deepseek-flash")
+            ))
+        );
+        assert_eq!(prefs.selected_provider.as_deref(), Some("custom"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -134,47 +286,51 @@ mod tests {
         store
             .save(&AgentPrefs {
                 selected_model: Some(selected()),
-                provider: None,
+                ..AgentPrefs::default()
             })
             .expect("save");
         assert!(path.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
-}
-
-#[cfg(test)]
-mod provider_tests {
-    use super::*;
 
     #[test]
-    fn provider_prefs_roundtrip() {
-        let dir =
-            std::env::temp_dir().join(format!("cgc-agent-prefs-provider-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("dir");
-        let store = PrefsStore::new(dir.join("agent_prefs.json"));
-        let prefs = AgentPrefs {
-            selected_model: None,
-            provider: Some(ProviderPrefs {
-                base_url: "https://api.deepseek.com/v1".into(),
-                provider_name: "DeepSeek".into(),
-                model_id: "deepseek-chat".into(),
-            }),
-        };
-        store.save(&prefs).expect("save");
-        assert_eq!(store.load(), prefs);
-        assert!(store.load().provider.expect("provider").is_complete());
-        let _ = std::fs::remove_dir_all(&dir);
+    fn upsert_and_remove_provider() {
+        let mut prefs = AgentPrefs::default();
+        prefs.upsert_provider(provider("a", "https://a"));
+        prefs.upsert_provider(provider("b", "https://b"));
+        assert_eq!(prefs.providers.len(), 2);
+        prefs.upsert_provider(ProviderPrefs {
+            base_url: "https://a2".to_string(),
+            ..provider("a", "https://a")
+        });
+        assert_eq!(prefs.provider("a").unwrap().base_url, "https://a2");
+        prefs.selected_provider = Some("b".to_string());
+        prefs.remove_provider("b");
+        assert_eq!(prefs.providers.len(), 1);
+        assert_eq!(prefs.selected_provider.as_deref(), Some("a"));
     }
 
     #[test]
-    fn incomplete_provider_is_rejected_by_helper() {
+    fn active_provider_falls_back_to_first() {
+        let mut prefs = AgentPrefs::default();
+        prefs.upsert_provider(provider("a", "https://a"));
+        prefs.upsert_provider(provider("b", "https://b"));
+        assert_eq!(prefs.active_provider().unwrap().id, "a");
+        prefs.selected_provider = Some("b".to_string());
+        assert_eq!(prefs.active_provider().unwrap().id, "b");
+    }
+
+    #[test]
+    fn key_account_is_scoped_by_provider() {
+        assert_eq!(
+            provider_key_account("deepseek"),
+            "native_agent_provider_api_key:deepseek"
+        );
+    }
+
+    #[test]
+    fn provider_is_complete_requires_models() {
         assert!(!ProviderPrefs::default().is_complete());
-        assert!(!ProviderPrefs {
-            base_url: "x".into(),
-            provider_name: String::new(),
-            model_id: String::new(),
-        }
-        .is_complete());
+        assert!(provider("a", "https://a").is_complete());
     }
 }

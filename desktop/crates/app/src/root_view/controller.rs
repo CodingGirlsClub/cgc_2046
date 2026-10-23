@@ -1762,7 +1762,7 @@ impl RootView {
     pub fn new_native_chat(&mut self, cx: &mut Context<Self>) {
         self.native_chat_mode = true;
         if let Some(view) = &self.native_agent_view {
-            let _ = view.update(cx, |view, cx| view.start_new_thread(cx));
+            view.update(cx, |view, cx| view.start_new_thread(cx));
         }
         cx.notify();
     }

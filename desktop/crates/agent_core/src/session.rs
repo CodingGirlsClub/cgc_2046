@@ -151,6 +151,7 @@ pub struct Agent {
     follow_up_rx: mpsc::Receiver<String>,
     steer_tx: mpsc::Sender<String>,
     steer_rx: mpsc::Receiver<String>,
+    reasoning_effort: Option<String>,
 }
 
 impl Agent {
@@ -167,6 +168,7 @@ impl Agent {
             follow_up_rx,
             steer_tx,
             steer_rx,
+            reasoning_effort: None,
         }
     }
 
@@ -180,6 +182,11 @@ impl Agent {
 
     pub fn cancel_token(&self) -> CancelToken {
         self.cancel.clone()
+    }
+
+    /// 设置本轮请求的 reasoning 档位（`low`/`medium`/`high`）；`None` 表示不下发。
+    pub fn set_reasoning_effort(&mut self, reasoning_effort: Option<String>) {
+        self.reasoning_effort = reasoning_effort;
     }
 
     /// 用磁盘上最新的 thread 替换当前会话（多视图共享会话）。
@@ -522,7 +529,12 @@ impl Agent {
             .saturating_sub(512) as usize;
         let (history, omitted) = self.thread.messages_with_budget(budget);
         messages.extend(history);
-        (Request::new(messages).with_tools(tools), omitted)
+        (
+            Request::new(messages)
+                .with_tools(tools)
+                .with_reasoning_effort(self.reasoning_effort.clone()),
+            omitted,
+        )
     }
 
     fn record_turn(&mut self, text: String, tool_calls: Vec<ToolUse>, usage: TokenUsage) {

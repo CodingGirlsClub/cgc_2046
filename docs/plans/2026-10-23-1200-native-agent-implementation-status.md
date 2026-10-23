@@ -32,7 +32,7 @@ status: draft
 | P0 | Provider 四件套 / Fake / OpenAI-compatible / CLI+GPUI demo / 偏好持久化 | ✅ 完成 |
 | P1a | loop、工具、审批、OS 沙箱（Seatbelt/bwrap/Windows 降级）、SQLite 会话、Host 协议、AppAction + 审计、危险命令策略 | ✅ 完成 |
 | P1b | Git checkpoint、逐文件 diff/Keep/Reject、HEAD 漂移检测、灰度开关、课程页内联替换（可切回 ACP） | ✅ 完成 |
-| P2 | Provider 设置 + 钥匙串、follow-up、steering、slash 面板、todo/plan/goal、摘要式 compaction、subagent + 实时卡片 | ✅ 完成（存在已知缺口，见 §4） |
+| P2 | Provider 设置（Settings → AI / LLM Providers，多 provider + 钥匙串）、composer 模型/推理档位/审批模式、follow-up、steering、slash 面板、todo/plan/goal、摘要式 compaction、subagent + 实时卡片 | ✅ 完成（存在已知缺口，见 §4） |
 | P3 | 多 mate 定义下发、第三方 MCP、web agent 退役评估 | ⏳ 未开始 |
 
 ## 3. 验证方式
@@ -75,13 +75,14 @@ CGC_NATIVE_AGENT_DEMO=1 cargo run -p cgc-desktop-app      # 启动即开 demo �
 
 1. ~~高亮只是提示~~：已升级为读取工作区文件的内容预览卡片（行号 + 高亮区间 + 关闭），但没有编辑器级定位/滚动。
 2. ~~会话未共享~~：已通过 `Agent::replace_thread` + 发送前从 SQLite 拉取最新会话解决；并发写入仍是 last-write-wins。
-3. **审批 UI 边界**：turn 结束后残留审批的清理只做了 sender 清理，未做状态机级处理。
-4. **审计无轮转**：`actions.jsonl` 只追加不清理；写入失败只有 `let _`，无告警。
-5. **compaction 摘要成本**：摘要调用未计入 thread usage，且摘要可能丢细节；失败回退硬截断。
-6. **子 agent 受限**：只读工具、共享主 provider/model、无独立计费/限流；事件仅在 turn 内实时。
-7. **命令策略可绕过**：字符串子串匹配，shell 变形可能绕过；真正边界仍是沙箱 + 审批。
-8. **Windows 沙箱**：仅降级为审批，无 OS 级隔离。
-9. **P3 未开始**：多 mate 定义下发、第三方 MCP、web agent 退役评估。
+3. **推理档位只对 `supports_thinking=true` 的 provider 下发**；`reasoning_effort` 需要 provider 侧支持，否则不发送。
+4. **审批 UI 边界**：turn 结束后残留审批的清理只做了 sender 清理，未做状态机级处理。
+5. **审计无轮转**：`actions.jsonl` 只追加不清理；写入失败只有 `let _`，无告警。
+6. **compaction 摘要成本**：摘要调用未计入 thread usage，且摘要可能丢细节；失败回退硬截断。
+7. **子 agent 受限**：只读工具、共享主 provider/model、无独立计费/限流；事件仅在 turn 内实时。
+8. **命令策略可绕过**：字符串子串匹配，shell 变形可能绕过；真正边界仍是沙箱 + 审批。
+9. **Windows 沙箱**：仅降级为审批，无 OS 级隔离。
+10. **P3 未开始**：多 mate 定义下发、第三方 MCP、web agent 退役评估。
 
 ## 5. 交接建议
 

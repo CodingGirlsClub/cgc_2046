@@ -7,5 +7,5 @@ pub mod prefs;
 pub mod sessions;
 
 pub use audit::{ActionAuditEntry, AuditLog};
-pub use prefs::{AgentPrefs, PrefsError, PrefsStore, ProviderPrefs};
+pub use prefs::{provider_key_account, AgentPrefs, PrefsError, PrefsStore, ProviderPrefs};
 pub use sessions::{CheckpointRecord, SessionError, SessionStore, ThreadSummary};

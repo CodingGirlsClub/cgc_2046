@@ -126,6 +126,9 @@ pub(crate) fn build_body(model: &Model, request: &Request) -> Value {
     if let Some(max_output_tokens) = request.max_output_tokens {
         body["max_tokens"] = json!(max_output_tokens);
     }
+    if let Some(reasoning_effort) = &request.reasoning_effort {
+        body["reasoning_effort"] = json!(reasoning_effort);
+    }
     if !request.tools.is_empty() {
         body["tools"] = json!(request
             .tools
@@ -472,6 +475,21 @@ mod tests {
         assert_eq!(body["messages"][0]["role"], "user");
         assert_eq!(body["tools"][0]["function"]["name"], "read_file");
         assert_eq!(body["stream"], true);
+    }
+
+    #[test]
+    fn body_carries_reasoning_effort_when_set() {
+        let request =
+            Request::new(vec![Message::user("hi")]).with_reasoning_effort(Some("high".to_string()));
+        let body = build_body(&model(), &request);
+        assert_eq!(body["reasoning_effort"], "high");
+    }
+
+    #[test]
+    fn body_omits_reasoning_effort_by_default() {
+        let request = Request::new(vec![Message::user("hi")]);
+        let body = build_body(&model(), &request);
+        assert!(body.get("reasoning_effort").is_none());
     }
 
     #[test]

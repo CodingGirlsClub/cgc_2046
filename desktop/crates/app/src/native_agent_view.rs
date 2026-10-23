@@ -8,32 +8,79 @@ use std::sync::{mpsc as std_mpsc, Arc, Mutex};
 
 use cgc_agent_checkpoint::{Checkpoint, CheckpointManager, FileChange};
 use cgc_agent_core::{
-    run_subagent, Agent, AgentError, ApprovalRequest, Approver, CancelToken, SelectedModel, Thread,
+    run_subagent, Agent, AgentError, ApprovalRequest, Approver, AutoApprover, CancelToken,
+    SelectedModel, Thread,
 };
 use cgc_agent_host::{
     parse_slash, AgentEvent, AsyncChannelObserver, HostState, SlashCommand, UiRole, SLASH_COMMANDS,
 };
 use cgc_agent_provider::{
-    EchoProvider, Model, ModelId, ModelLimits, OpenAiCompatibleConfig, OpenAiCompatibleProvider,
-    Provider, ProviderId,
+    EchoProvider, Model, ModelLimits, OpenAiCompatibleConfig, OpenAiCompatibleProvider, Provider,
+    ProviderId,
 };
 use cgc_agent_store::{
-    ActionAuditEntry, AgentPrefs, AuditLog, PrefsStore, ProviderPrefs, SessionStore,
+    provider_key_account, ActionAuditEntry, AuditLog, PrefsStore, ProviderPrefs, SessionStore,
 };
 use cgc_agent_tools::{
     ActionSink, AgentState, AppAction, ApprovalDecision, SandboxPolicy, SharedAgentState,
     SubagentEvent, SubagentEventSink, SubagentRequest, SubagentRunner, ToolContext, ToolRegistry,
 };
+use cgc_platform::paths::AppPaths;
 use cgc_platform::session::KeychainStore;
 use futures::channel::{mpsc, oneshot};
 use futures::StreamExt as _;
+use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
+use gpui_kit::component::popover::Popover;
+use gpui_kit::component::Sizable;
 use gpui_kit::*;
 
 use crate::theme::{self, space, RADIUS_MEDIUM};
 
-/// API key 在系统钥匙串里的 account。
-const PROVIDER_KEY_ACCOUNT: &str = "native_agent_provider_api_key";
+/// 推理档位（映射到 OpenAI-compatible 的 reasoning_effort）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ThinkingLevel {
+    Off,
+    Low,
+    Medium,
+    High,
+}
+
+impl ThinkingLevel {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Off => "推理 Off",
+            Self::Low => "推理 Low",
+            Self::Medium => "推理 Medium",
+            Self::High => "推理 High",
+        }
+    }
+
+    fn reasoning_effort(self) -> Option<&'static str> {
+        match self {
+            Self::Off => None,
+            Self::Low => Some("low"),
+            Self::Medium => Some("medium"),
+            Self::High => Some("high"),
+        }
+    }
+}
+
+/// 审批模式：Ask = 逐次审批；Auto = 自动允许。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ApprovalMode {
+    Ask,
+    Auto,
+}
+
+impl ApprovalMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Ask => "Ask",
+            Self::Auto => "Auto",
+        }
+    }
+}
 
 /// 把审批请求送到 UI；用户点击后通过 oneshot 回填。
 struct UiApprover {
@@ -75,18 +122,16 @@ pub struct NativeAgentView {
     state: HostState,
     status: String,
     busy: bool,
-    prefs_store: PrefsStore,
     session_store: Option<SessionStore>,
-    keychain: Option<KeychainStore>,
-    settings_open: bool,
-    base_url_input: Entity<TextareaState>,
-    model_input: Entity<TextareaState>,
-    api_key_input: Entity<TextareaState>,
     checkpoint_manager: Option<CheckpointManager>,
     last_checkpoint: Option<Checkpoint>,
     checkpoint_changes: Vec<FileChange>,
     show_checkpoint_panel: bool,
     turn_seq: u64,
+    providers: Vec<ProviderPrefs>,
+    keychain: Option<KeychainStore>,
+    thinking_level: ThinkingLevel,
+    approval_mode: ApprovalMode,
     approval_sender: Arc<Mutex<Option<oneshot::Sender<ApprovalDecision>>>>,
     follow_up_sender: std_mpsc::Sender<String>,
     steer_sender: std_mpsc::Sender<String>,
@@ -96,8 +141,8 @@ pub struct NativeAgentView {
 impl NativeAgentView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let paths = cgc_platform::paths::AppPaths::from_env();
-        let prefs_store = PrefsStore::new(paths.agent_prefs_file());
-        let prefs = prefs_store.load();
+        let prefs = PrefsStore::new(paths.agent_prefs_file()).load();
+        let active = prefs.active_provider();
         let env_model = std::env::var("CGC_AGENT_MODEL")
             .ok()
             .filter(|model| !model.is_empty());
@@ -107,46 +152,38 @@ impl NativeAgentView {
         let env_api_key = std::env::var("CGC_AGENT_API_KEY")
             .ok()
             .filter(|api_key| !api_key.is_empty());
-        let prefs_provider = prefs.provider.clone().filter(ProviderPrefs::is_complete);
         let keychain = Some(KeychainStore::from_env());
-        let stored_api_key = if env_api_key.is_none() && prefs_provider.is_some() {
-            keychain
-                .as_ref()
-                .and_then(|keychain| keychain.load_secret(PROVIDER_KEY_ACCOUNT))
-        } else {
-            None
-        };
-        let base_url = env_base_url.clone().or_else(|| {
-            prefs_provider
-                .as_ref()
-                .map(|provider| provider.base_url.clone())
+        let provider_id = active
+            .map(|provider| provider.id.clone())
+            .filter(|id| !id.is_empty())
+            .unwrap_or_else(|| "custom".to_string());
+        let base_url = env_base_url.or_else(|| active.map(|provider| provider.base_url.clone()));
+        let api_key = env_api_key.or_else(|| {
+            active
+                .filter(|provider| provider.has_key)
+                .and_then(|provider| {
+                    keychain.as_ref().and_then(|keychain| {
+                        keychain.load_secret(&provider_key_account(&provider.id))
+                    })
+                })
         });
-        let api_key = env_api_key.clone().or(stored_api_key);
         let model_id = env_model
-            .clone()
-            .or_else(|| {
-                prefs_provider
-                    .as_ref()
-                    .map(|provider| provider.model_id.clone())
-            })
             .or_else(|| {
                 prefs
                     .selected_model
                     .as_ref()
                     .map(|selected| selected.model_id.as_str().to_string())
             })
+            .or_else(|| active.and_then(|provider| provider.primary_model().map(str::to_string)))
             .unwrap_or_else(|| "echo".to_string());
         let provider_name = std::env::var("CGC_AGENT_PROVIDER_NAME")
             .ok()
-            .or_else(|| {
-                prefs_provider
-                    .as_ref()
-                    .map(|provider| provider.provider_name.clone())
-            })
+            .or_else(|| active.map(|provider| provider.name.clone()))
+            .filter(|name| !name.is_empty())
             .unwrap_or_else(|| "OpenAI Compatible".to_string());
         let model = Model::new(
-            ProviderId::new("custom"),
-            provider_name.clone(),
+            ProviderId::new(provider_id),
+            provider_name,
             model_id.clone(),
             model_id,
             ModelLimits::new(64_000, 8_000),
@@ -161,20 +198,8 @@ impl NativeAgentView {
             }
             _ => Arc::new(EchoProvider::new(model.clone())),
         };
-        if env_model.is_some() || env_base_url.is_some() {
-            let _ = prefs_store.save(&AgentPrefs {
-                selected_model: Some(SelectedModel::new(
-                    model.provider_id.clone(),
-                    model.id.clone(),
-                )),
-                provider: base_url.as_ref().map(|base_url| ProviderPrefs {
-                    base_url: base_url.clone(),
-                    provider_name: provider_name.clone(),
-                    model_id: model.id.as_str().to_string(),
-                }),
-            });
-        }
         let selected = SelectedModel::new(model.provider_id.clone(), model.id.clone());
+        let providers = prefs.providers.clone();
         let session_store =
             SessionStore::open(paths.data_root.join("agent").join("threads.db")).ok();
         let restored_thread = session_store.as_ref().and_then(|store| {
@@ -271,21 +296,6 @@ impl NativeAgentView {
                 })
             })
         };
-        let base_url_input = cx.new(|cx| {
-            let mut state =
-                TextareaState::new(window, cx).placeholder("https://api.deepseek.com/v1");
-            if let Some(base_url) = &base_url {
-                state.set_value(base_url.clone(), window, cx);
-            }
-            state
-        });
-        let model_input = cx.new(|cx| {
-            let mut state = TextareaState::new(window, cx).placeholder("deepseek-chat");
-            state.set_value(model.id.as_str().to_string(), window, cx);
-            state
-        });
-        let api_key_input =
-            cx.new(|cx| TextareaState::new(window, cx).placeholder("API Key（保存到系统钥匙串）"));
         let input = cx.new(|cx| {
             TextareaState::new(window, cx).placeholder("问 native agent 一个问题，回车发送…")
         });
@@ -316,6 +326,10 @@ impl NativeAgentView {
             app_actions,
             action_audit,
             subagent_tx,
+            providers,
+            keychain,
+            thinking_level: ThinkingLevel::Off,
+            approval_mode: ApprovalMode::Ask,
             context: ToolContext::new(&workspace)
                 .with_sandbox(SandboxPolicy::new(&workspace))
                 .with_action_sink(action_sink),
@@ -328,13 +342,7 @@ impl NativeAgentView {
                 "就绪".to_string()
             },
             busy: false,
-            prefs_store,
             session_store,
-            keychain,
-            settings_open: false,
-            base_url_input,
-            model_input,
-            api_key_input,
             checkpoint_manager,
             last_checkpoint: None,
             checkpoint_changes: Vec::new(),
@@ -377,7 +385,21 @@ impl NativeAgentView {
                     self.state.push_system("当前没有可用的 checkpoint");
                 }
             }
-            SlashCommand::Settings => self.settings_open = true,
+            SlashCommand::Settings => {
+                let mut opened = false;
+                for window in cx.windows() {
+                    if let Some(root) = window.downcast::<crate::root_view::RootView>() {
+                        let _ = root.update(cx, |root, _window, cx| {
+                            root.open_settings_window(cx);
+                        });
+                        opened = true;
+                        break;
+                    }
+                }
+                if !opened {
+                    self.state.push_system("请在账号菜单里打开设置");
+                }
+            }
             SlashCommand::Unknown(name) => self.state.push_system(format!("未知命令：/{name}")),
         }
         cx.notify();
@@ -408,6 +430,8 @@ impl NativeAgentView {
         let Some(mut agent) = self.agent.take() else {
             return;
         };
+        agent.set_reasoning_effort(self.thinking_level.reasoning_effort().map(str::to_string));
+        let approval_mode = self.approval_mode;
         self.state.push_user(text.clone());
         self.busy = true;
         self.status = "思考中…".to_string();
@@ -433,7 +457,7 @@ impl NativeAgentView {
         })
         .detach();
 
-        let approver = UiApprover {
+        let ui_approver = UiApprover {
             events: event_sender.clone(),
             pending: self.approval_sender.clone(),
         };
@@ -443,6 +467,11 @@ impl NativeAgentView {
         let context = self.context.clone();
         let task_sender = event_sender.clone();
         let task = cx.background_executor().spawn(async move {
+            let auto_approver = AutoApprover;
+            let approver: &dyn Approver = match approval_mode {
+                ApprovalMode::Ask => &ui_approver,
+                ApprovalMode::Auto => &auto_approver,
+            };
             let mut observer = AsyncChannelObserver::new(task_sender.clone());
             let result = agent
                 .prompt_with_tools_observed(
@@ -451,7 +480,7 @@ impl NativeAgentView {
                     text,
                     registry.as_ref(),
                     &context,
-                    &approver,
+                    approver,
                     &mut observer,
                 )
                 .await;
@@ -519,93 +548,6 @@ impl NativeAgentView {
     fn stop(&mut self, cx: &mut Context<Self>) {
         self.cancel.cancel();
         self.status = "正在停止…".to_string();
-        cx.notify();
-    }
-
-    fn toggle_settings(&mut self, cx: &mut Context<Self>) {
-        self.settings_open = !self.settings_open;
-        cx.notify();
-    }
-
-    fn save_provider_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let base_url = self.base_url_input.read(cx).value().trim().to_string();
-        let model_id = self.model_input.read(cx).value().trim().to_string();
-        let provider_name = std::env::var("CGC_AGENT_PROVIDER_NAME")
-            .ok()
-            .unwrap_or_else(|| "OpenAI Compatible".to_string());
-        let api_key = self.api_key_input.read(cx).value().trim().to_string();
-        if base_url.is_empty() || model_id.is_empty() {
-            self.status = "base_url 与 model 不能为空".to_string();
-            cx.notify();
-            return;
-        }
-
-        let prefs = AgentPrefs {
-            selected_model: Some(SelectedModel::new(
-                ProviderId::new("custom"),
-                ModelId::new(model_id.clone()),
-            )),
-            provider: Some(ProviderPrefs {
-                base_url: base_url.clone(),
-                provider_name: provider_name.clone(),
-                model_id: model_id.clone(),
-            }),
-        };
-        if let Err(error) = self.prefs_store.save(&prefs) {
-            self.status = format!("保存失败：{error}");
-            cx.notify();
-            return;
-        }
-        if !api_key.is_empty() {
-            if let Some(keychain) = &self.keychain {
-                if let Err(error) = keychain.save_secret(PROVIDER_KEY_ACCOUNT, &api_key) {
-                    self.status = format!("API Key 保存失败：{error}");
-                    cx.notify();
-                    return;
-                }
-                self.api_key_input
-                    .update(cx, |state, cx| state.set_value("", window, cx));
-            }
-        }
-
-        // 立即重建 provider：设置保存后无需重启窗口。
-        let stored_key = if api_key.is_empty() {
-            self.keychain
-                .as_ref()
-                .and_then(|keychain| keychain.load_secret(PROVIDER_KEY_ACCOUNT))
-        } else {
-            Some(api_key)
-        };
-        let model = Model::new(
-            ProviderId::new("custom"),
-            provider_name,
-            model_id.clone(),
-            model_id,
-            ModelLimits::new(64_000, 8_000),
-        );
-        let selected = SelectedModel::new(model.provider_id.clone(), model.id.clone());
-        let has_key = stored_key.as_ref().is_some_and(|key| !key.is_empty());
-        self.provider = match stored_key.filter(|key| !key.is_empty()) {
-            Some(key) => Arc::new(OpenAiCompatibleProvider::new(OpenAiCompatibleConfig::new(
-                base_url,
-                key,
-                vec![model.clone()],
-            ))),
-            None => Arc::new(EchoProvider::new(model.clone())),
-        };
-        let model_changed = self.model != model;
-        self.model = model;
-        if model_changed {
-            if let Some(agent) = &mut self.agent {
-                agent.replace_thread(Thread::new(format!("native-demo-{}", now_secs()), selected));
-            }
-            self.rebuild_state_from_thread();
-        }
-        self.status = if has_key {
-            "Provider 已生效，可以直接发送消息".to_string()
-        } else {
-            "Provider 配置已保存；未提供 API Key，使用离线回显".to_string()
-        };
         cx.notify();
     }
 
@@ -701,6 +643,73 @@ impl NativeAgentView {
             }
             Err(error) => self.status = format!("回退失败：{error}"),
         }
+        cx.notify();
+    }
+
+    /// 切换到指定 provider 的指定模型；模型变化时换新 thread。
+    fn select_model(&mut self, provider_id: String, model_id: String, cx: &mut Context<Self>) {
+        let Some(provider) = self
+            .providers
+            .iter()
+            .find(|provider| provider.id == provider_id)
+            .cloned()
+        else {
+            return;
+        };
+        let api_key = self.keychain.as_ref().and_then(|keychain| {
+            if provider.has_key {
+                keychain.load_secret(&provider_key_account(&provider.id))
+            } else {
+                None
+            }
+        });
+        let model = Model::new(
+            ProviderId::new(provider.id.clone()),
+            provider.name.clone(),
+            model_id.clone(),
+            model_id,
+            ModelLimits::new(64_000, 8_000),
+        );
+        self.provider = match api_key.filter(|key| !key.is_empty()) {
+            Some(api_key) => Arc::new(OpenAiCompatibleProvider::new(OpenAiCompatibleConfig::new(
+                provider.base_url.clone(),
+                api_key,
+                vec![model.clone()],
+            ))),
+            None => Arc::new(EchoProvider::new(model.clone())),
+        };
+        let changed = self.model != model;
+        self.model = model;
+        if changed {
+            if let Some(agent) = &mut self.agent {
+                agent.replace_thread(Thread::new(
+                    format!("native-demo-{}", now_secs()),
+                    SelectedModel::new(self.model.provider_id.clone(), self.model.id.clone()),
+                ));
+            }
+            self.rebuild_state_from_thread();
+        }
+        let store = PrefsStore::new(AppPaths::from_env().agent_prefs_file());
+        let mut prefs = store.load();
+        prefs.selected_provider = Some(provider.id);
+        prefs.selected_model = Some(SelectedModel::new(
+            self.model.provider_id.clone(),
+            self.model.id.clone(),
+        ));
+        let _ = store.save(&prefs);
+        self.status = format!("模型：{}", self.model.id.as_str());
+        cx.notify();
+    }
+
+    fn set_thinking_level(&mut self, level: ThinkingLevel, cx: &mut Context<Self>) {
+        self.thinking_level = level;
+        self.status = format!("推理档位：{}", level.label());
+        cx.notify();
+    }
+
+    fn set_approval_mode(&mut self, mode: ApprovalMode, cx: &mut Context<Self>) {
+        self.approval_mode = mode;
+        self.status = format!("审批模式：{}", mode.label());
         cx.notify();
     }
 
@@ -851,10 +860,6 @@ impl Render for NativeAgentView {
         let input_value = self.input.read(cx).value().to_string();
         let has_input = !input_value.trim().is_empty();
         let slash_hint = input_value.trim_start().starts_with('/');
-        let settings_open = self.settings_open;
-        let base_url_input = self.base_url_input.clone();
-        let model_input = self.model_input.clone();
-        let api_key_input = self.api_key_input.clone();
         let can_undo = self.last_checkpoint.is_some() && !busy;
         let change_count = self.checkpoint_changes.len();
         let subagents = self.state.subagents.clone();
@@ -931,30 +936,11 @@ impl Render for NativeAgentView {
                     .child(div().text_size(px(15.0)).child("Native Agent（P1a）"))
                     .child(
                         div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(space(2))
-                            .child(div().text_size(px(11.0)).text_color(palette.ink_3).child(
-                                format!("model: {model_label} · usage: {usage} tokens · {status}"),
-                            ))
-                            .child(
-                                div()
-                                    .id("native-agent-settings")
-                                    .role(Role::Button)
-                                    .aria_label("Provider 设置")
-                                    .px(space(2))
-                                    .py(px(2.0))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .bg(palette.soft)
-                                    .text_color(palette.ink)
-                                    .child("Provider 设置")
-                                    .on_click(
-                                        cx.listener(|this, _, _window, cx| {
-                                            this.toggle_settings(cx)
-                                        }),
-                                    ),
-                            ),
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_3)
+                            .child(format!(
+                                "model: {model_label} · usage: {usage} tokens · {status}"
+                            )),
                     ),
             )
             .children(slash_hint.then(|| {
@@ -974,41 +960,6 @@ impl Render for NativeAgentView {
                             .text_color(palette.ink_3)
                             .child(format!("{command} {description}"))
                     }))
-            }))
-            .children(settings_open.then(|| {
-                div()
-                    .id("native-agent-provider-settings")
-                    .flex()
-                    .flex_col()
-                    .gap(space(1))
-                    .px(space(3))
-                    .py(space(2))
-                    .border_b_1()
-                    .border_color(palette.line)
-                    .bg(palette.view)
-                    .child(
-                        div()
-                            .text_size(px(12.0))
-                            .child("Provider 设置（OpenAI-compatible）"),
-                    )
-                    .child(settings_field("Base URL", &base_url_input, &palette))
-                    .child(settings_field("Model", &model_input, &palette))
-                    .child(settings_field("API Key", &api_key_input, &palette))
-                    .child(
-                        div()
-                            .id("native-agent-settings-save")
-                            .role(Role::Button)
-                            .aria_label("保存 Provider 设置")
-                            .px(space(3))
-                            .py(space(1))
-                            .rounded(px(RADIUS_MEDIUM))
-                            .bg(palette.accent)
-                            .text_color(palette.canvas)
-                            .child("保存")
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.save_provider_settings(window, cx)
-                            })),
-                    )
             }))
             .child(
                 div()
@@ -1150,6 +1101,250 @@ impl Render for NativeAgentView {
                             })),
                     )
             }))
+            .child({
+                let current_provider_id = self.model.provider_id.as_str().to_string();
+                let current_model_id = self.model.id.as_str().to_string();
+                let thinking_supported = self.providers.iter().any(|provider| {
+                    provider.id == current_provider_id && provider.supports_thinking
+                });
+                let providers_for_menu = self.providers.clone();
+                let model_root = cx.entity().downgrade();
+                let thinking_root = cx.entity().downgrade();
+                let approval_root = cx.entity().downgrade();
+                let palette_copy = palette;
+                let model_id_for_label = current_model_id.clone();
+                let model_picker = Popover::new("native-model-picker")
+                    .trigger(
+                        Button::new("native-model-trigger")
+                            .label(model_id_for_label)
+                            .xsmall()
+                            .ghost()
+                            .tooltip("选择模型"),
+                    )
+                    .content(move |_, _, cx| {
+                        let dismiss = cx.entity().downgrade();
+                        let mut rows: Vec<AnyElement> = Vec::new();
+                        for provider in &providers_for_menu {
+                            rows.push(
+                                div()
+                                    .px(space(1))
+                                    .pt(px(4.0))
+                                    .pb(px(2.0))
+                                    .text_size(px(9.0))
+                                    .text_color(palette_copy.ink_3)
+                                    .child(provider.name.clone())
+                                    .into_any_element(),
+                            );
+                            for model in &provider.models {
+                                let provider_id = provider.id.clone();
+                                let model_id = model.clone();
+                                let root = model_root.clone();
+                                let row_dismiss = dismiss.clone();
+                                let selected = provider_id == current_provider_id
+                                    && model_id == current_model_id;
+                                rows.push(
+                                    div()
+                                        .id(SharedString::from(format!(
+                                            "native-model-{}-{}",
+                                            provider_id, model_id
+                                        )))
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .justify_between()
+                                        .gap(space(2))
+                                        .px(space(1))
+                                        .py(px(3.0))
+                                        .rounded(px(RADIUS_MEDIUM))
+                                        .text_size(px(11.0))
+                                        .text_color(if selected {
+                                            palette_copy.accent
+                                        } else {
+                                            palette_copy.ink_2
+                                        })
+                                        .hover(|style| style.bg(palette_copy.soft))
+                                        .child(model.clone())
+                                        .children(selected.then_some("✓"))
+                                        .on_click(move |_, window, cx| {
+                                            let _ = root.update(cx, |this, cx| {
+                                                this.select_model(
+                                                    provider_id.clone(),
+                                                    model_id.clone(),
+                                                    cx,
+                                                );
+                                            });
+                                            let _ = row_dismiss
+                                                .update(cx, |state, cx| state.dismiss(window, cx));
+                                        })
+                                        .into_any_element(),
+                                );
+                            }
+                        }
+                        div()
+                            .id("native-model-options")
+                            .flex()
+                            .flex_col()
+                            .gap(px(1.0))
+                            .w(px(240.0))
+                            .max_h(px(280.0))
+                            .overflow_y_scroll()
+                            .occlude()
+                            .children(rows)
+                    });
+                let thinking_label = if thinking_supported {
+                    self.thinking_level.label()
+                } else {
+                    "推理 —"
+                };
+                let current_level = self.thinking_level;
+                let thinking_picker = Popover::new("native-thinking-picker")
+                    .trigger(
+                        Button::new("native-thinking-trigger")
+                            .label(thinking_label)
+                            .xsmall()
+                            .ghost()
+                            .tooltip("推理强度"),
+                    )
+                    .content(move |_, _, cx| {
+                        let dismiss = cx.entity().downgrade();
+                        let rows = [
+                            (ThinkingLevel::Off, "Off"),
+                            (ThinkingLevel::Low, "Low"),
+                            (ThinkingLevel::Medium, "Medium"),
+                            (ThinkingLevel::High, "High"),
+                        ]
+                        .into_iter()
+                        .map(|(level, label)| {
+                            let root = thinking_root.clone();
+                            let row_dismiss = dismiss.clone();
+                            let selected = level == current_level;
+                            div()
+                                .id(SharedString::from(format!("native-thinking-{label}")))
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .justify_between()
+                                .gap(space(2))
+                                .px(space(1))
+                                .py(px(3.0))
+                                .rounded(px(RADIUS_MEDIUM))
+                                .text_size(px(11.0))
+                                .text_color(if selected {
+                                    palette_copy.accent
+                                } else if thinking_supported {
+                                    palette_copy.ink_2
+                                } else {
+                                    palette_copy.ink_3
+                                })
+                                .hover(|style| style.bg(palette_copy.soft))
+                                .child(label)
+                                .children(selected.then_some("✓"))
+                                .on_click(move |_, window, cx| {
+                                    if !thinking_supported {
+                                        return;
+                                    }
+                                    let _ = root.update(cx, |this, cx| {
+                                        this.set_thinking_level(level, cx);
+                                    });
+                                    let _ = row_dismiss
+                                        .update(cx, |state, cx| state.dismiss(window, cx));
+                                })
+                                .into_any_element()
+                        })
+                        .collect::<Vec<_>>();
+                        div()
+                            .id("native-thinking-options")
+                            .flex()
+                            .flex_col()
+                            .gap(px(1.0))
+                            .w(px(160.0))
+                            .occlude()
+                            .children(rows)
+                            .children((!thinking_supported).then(|| {
+                                div()
+                                    .px(space(1))
+                                    .py(px(3.0))
+                                    .text_size(px(10.0))
+                                    .text_color(palette_copy.ink_3)
+                                    .child("该模型未开启 supports_thinking")
+                            }))
+                    });
+                let current_approval = self.approval_mode;
+                let approval_picker = Popover::new("native-approval-picker")
+                    .trigger(
+                        Button::new("native-approval-trigger")
+                            .label(current_approval.label())
+                            .xsmall()
+                            .ghost()
+                            .tooltip("审批模式"),
+                    )
+                    .content(move |_, _, cx| {
+                        let dismiss = cx.entity().downgrade();
+                        let rows = [ApprovalMode::Ask, ApprovalMode::Auto]
+                            .into_iter()
+                            .map(|mode| {
+                                let root = approval_root.clone();
+                                let row_dismiss = dismiss.clone();
+                                let selected = mode == current_approval;
+                                div()
+                                    .id(SharedString::from(format!(
+                                        "native-approval-{}",
+                                        mode.label()
+                                    )))
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .justify_between()
+                                    .gap(space(2))
+                                    .px(space(1))
+                                    .py(px(3.0))
+                                    .rounded(px(RADIUS_MEDIUM))
+                                    .text_size(px(11.0))
+                                    .text_color(if selected {
+                                        palette_copy.accent
+                                    } else {
+                                        palette_copy.ink_2
+                                    })
+                                    .hover(|style| style.bg(palette_copy.soft))
+                                    .child(match mode {
+                                        ApprovalMode::Ask => "Ask（逐次审批）",
+                                        ApprovalMode::Auto => "Auto（自动允许）",
+                                    })
+                                    .children(selected.then_some("✓"))
+                                    .on_click(move |_, window, cx| {
+                                        let _ = root.update(cx, |this, cx| {
+                                            this.set_approval_mode(mode, cx);
+                                        });
+                                        let _ = row_dismiss
+                                            .update(cx, |state, cx| state.dismiss(window, cx));
+                                    })
+                                    .into_any_element()
+                            })
+                            .collect::<Vec<_>>();
+                        div()
+                            .id("native-approval-options")
+                            .flex()
+                            .flex_col()
+                            .gap(px(1.0))
+                            .w(px(200.0))
+                            .occlude()
+                            .children(rows)
+                    });
+                div()
+                    .id("native-agent-toolbar")
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(space(1))
+                    .px(space(2))
+                    .pt(space(1))
+                    .border_t_1()
+                    .border_color(palette.line)
+                    .child(model_picker)
+                    .child(thinking_picker)
+                    .child(div().flex_1())
+                    .child(approval_picker)
+            })
             .child(
                 div()
                     .flex()
@@ -1244,31 +1439,6 @@ impl Render for NativeAgentView {
                     ),
             )
     }
-}
-
-fn settings_field(
-    label: &'static str,
-    input: &Entity<TextareaState>,
-    palette: &crate::theme::Palette,
-) -> AnyElement {
-    div()
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap(space(2))
-        .child(
-            div()
-                .w(px(90.0))
-                .text_size(px(12.0))
-                .text_color(palette.ink_3)
-                .child(label),
-        )
-        .child(
-            div()
-                .flex_1()
-                .child(Textarea::new(input).h(px(30.0)).w_full()),
-        )
-        .into_any_element()
 }
 
 fn role_label(role: UiRole) -> &'static str {
