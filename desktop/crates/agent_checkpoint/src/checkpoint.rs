@@ -17,6 +17,8 @@ pub enum CheckpointError {
     Git(String),
     #[error("io: {0}")]
     Io(String),
+    #[error("invalid path: {0}")]
+    InvalidPath(String),
 }
 
 /// 一个 checkpoint 的元数据（内容在 Git 对象里）。
@@ -27,6 +29,14 @@ pub struct Checkpoint {
     pub ref_name: String,
     pub sha: String,
     pub base_head: Option<String>,
+}
+
+/// checkpoint 与当前工作区之间的一处文件变更。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileChange {
+    pub path: String,
+    /// `M`（修改）/`A`（新增）/`D`（删除）/`R`（重命名）等。
+    pub status: String,
 }
 
 /// 在某个工作区仓库里创建/列出/恢复 checkpoint。
@@ -193,6 +203,67 @@ impl CheckpointManager {
             return Err(CheckpointError::Git(stderr(&output)));
         }
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+
+    /// checkpoint 与当前工作区之间的文件级变更列表。
+    pub fn changed_files(
+        &self,
+        checkpoint: &Checkpoint,
+    ) -> Result<Vec<FileChange>, CheckpointError> {
+        let index_path = self.temp_index_path();
+        let _ = std::fs::remove_file(&index_path);
+        self.populate_index(&index_path)?;
+        let output = self.git_with_index(
+            &index_path,
+            [
+                "diff",
+                "--cached",
+                "--name-status",
+                checkpoint.sha.as_str(),
+                "--",
+                ".",
+            ],
+        );
+        let _ = std::fs::remove_file(&index_path);
+        let output = output?;
+        if !output.status.success() {
+            return Err(CheckpointError::Git(stderr(&output)));
+        }
+        let mut changes = Vec::new();
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            let mut parts = line.splitn(2, '\t');
+            let (Some(status), Some(path)) = (parts.next(), parts.next()) else {
+                continue;
+            };
+            changes.push(FileChange {
+                path: path.to_string(),
+                status: status.chars().next().unwrap_or('?').to_string(),
+            });
+        }
+        Ok(changes)
+    }
+
+    /// 恢复单个文件到 checkpoint（Reject）。
+    pub fn restore_file(&self, checkpoint: &Checkpoint, path: &str) -> Result<(), CheckpointError> {
+        if path.is_empty()
+            || Path::new(path).is_absolute()
+            || path.split('/').any(|segment| segment == "..")
+        {
+            return Err(CheckpointError::InvalidPath(path.to_string()));
+        }
+        let output = self.git([
+            "restore",
+            "--source",
+            checkpoint.sha.as_str(),
+            "--worktree",
+            "--staged",
+            "--",
+            path,
+        ])?;
+        if !output.status.success() {
+            return Err(CheckpointError::Git(stderr(&output)));
+        }
+        Ok(())
     }
 
     /// 恢复 tracked 文件到 checkpoint（untracked 文件不删除，避免误删用户文件）。

@@ -126,3 +126,57 @@ fn head_drift_invalidates_checkpoint_base() {
         .success());
     assert!(!manager.is_valid(&checkpoint).expect("valid after commit"));
 }
+
+#[test]
+fn changed_files_lists_worktree_differences() {
+    let workspace = temp_workspace("changes");
+    let manager = CheckpointManager::initialize(&workspace).expect("init");
+    std::fs::write(workspace.join("a.txt"), "one").expect("write");
+    let checkpoint = manager.snapshot("thread-1", 1).expect("snapshot");
+    std::fs::write(workspace.join("a.txt"), "two").expect("modify");
+    std::fs::write(workspace.join("b.txt"), "new").expect("add");
+    let changes = manager.changed_files(&checkpoint).expect("changes");
+    assert!(changes
+        .iter()
+        .any(|change| change.path == "a.txt" && change.status == "M"));
+    assert!(changes
+        .iter()
+        .any(|change| change.path == "b.txt" && change.status == "A"));
+}
+
+#[test]
+fn restore_file_reverts_only_that_file() {
+    let workspace = temp_workspace("restore-file");
+    let manager = CheckpointManager::initialize(&workspace).expect("init");
+    std::fs::write(workspace.join("a.txt"), "one").expect("write a");
+    std::fs::write(workspace.join("b.txt"), "one").expect("write b");
+    let checkpoint = manager.snapshot("thread-1", 1).expect("snapshot");
+    std::fs::write(workspace.join("a.txt"), "two").expect("modify a");
+    std::fs::write(workspace.join("b.txt"), "two").expect("modify b");
+    manager
+        .restore_file(&checkpoint, "a.txt")
+        .expect("restore a");
+    assert_eq!(
+        std::fs::read_to_string(workspace.join("a.txt")).unwrap(),
+        "one"
+    );
+    assert_eq!(
+        std::fs::read_to_string(workspace.join("b.txt")).unwrap(),
+        "two"
+    );
+}
+
+#[test]
+fn restore_file_rejects_path_escape() {
+    let workspace = temp_workspace("restore-escape");
+    let manager = CheckpointManager::initialize(&workspace).expect("init");
+    std::fs::write(workspace.join("a.txt"), "one").expect("write");
+    let checkpoint = manager.snapshot("thread-1", 1).expect("snapshot");
+    let error = manager
+        .restore_file(&checkpoint, "../outside.txt")
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        cgc_agent_checkpoint::CheckpointError::InvalidPath(_)
+    ));
+}

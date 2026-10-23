@@ -6,4 +6,4 @@
 
 pub mod checkpoint;
 
-pub use checkpoint::{Checkpoint, CheckpointError, CheckpointManager};
+pub use checkpoint::{Checkpoint, CheckpointError, CheckpointManager, FileChange};

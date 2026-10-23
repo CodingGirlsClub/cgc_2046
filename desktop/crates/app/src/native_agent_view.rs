@@ -6,7 +6,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use cgc_agent_checkpoint::{Checkpoint, CheckpointManager};
+use cgc_agent_checkpoint::{Checkpoint, CheckpointManager, FileChange};
 use cgc_agent_core::{
     Agent, AgentError, ApprovalRequest, Approver, CancelToken, SelectedModel, Thread,
 };
@@ -62,6 +62,8 @@ pub struct NativeAgentView {
     session_store: Option<SessionStore>,
     checkpoint_manager: Option<CheckpointManager>,
     last_checkpoint: Option<Checkpoint>,
+    checkpoint_changes: Vec<FileChange>,
+    show_checkpoint_panel: bool,
     turn_seq: u64,
     approval_sender: Arc<Mutex<Option<oneshot::Sender<ApprovalDecision>>>>,
     _input_subscription: Option<Subscription>,
@@ -193,6 +195,8 @@ impl NativeAgentView {
             session_store,
             checkpoint_manager,
             last_checkpoint: None,
+            checkpoint_changes: Vec::new(),
+            show_checkpoint_panel: false,
             turn_seq: 0,
             approval_sender: Arc::new(Mutex::new(None)),
             _input_subscription: input_subscription,
@@ -288,6 +292,7 @@ impl NativeAgentView {
                 if let (Some(store), Some(agent)) = (&mut this.session_store, &this.agent) {
                     let _ = store.save_thread(agent.thread());
                 }
+                this.refresh_checkpoint_changes();
                 if let Ok(mut pending) = approval_sender.lock() {
                     pending.take();
                 }
@@ -300,6 +305,47 @@ impl NativeAgentView {
     fn stop(&mut self, cx: &mut Context<Self>) {
         self.cancel.cancel();
         self.status = "正在停止…".to_string();
+        cx.notify();
+    }
+
+    fn refresh_checkpoint_changes(&mut self) {
+        self.checkpoint_changes = match (&self.checkpoint_manager, &self.last_checkpoint) {
+            (Some(manager), Some(checkpoint)) => {
+                manager.changed_files(checkpoint).unwrap_or_default()
+            }
+            _ => Vec::new(),
+        };
+    }
+
+    fn toggle_checkpoint_panel(&mut self, cx: &mut Context<Self>) {
+        self.show_checkpoint_panel = !self.show_checkpoint_panel;
+        cx.notify();
+    }
+
+    fn keep_checkpoint_file(&mut self, path: String, cx: &mut Context<Self>) {
+        self.checkpoint_changes.retain(|change| change.path != path);
+        cx.notify();
+    }
+
+    fn restore_checkpoint_file(&mut self, path: String, cx: &mut Context<Self>) {
+        let Some(checkpoint) = self.last_checkpoint.clone() else {
+            return;
+        };
+        let Some(manager) = &self.checkpoint_manager else {
+            return;
+        };
+        if !manager.is_valid(&checkpoint).unwrap_or(false) {
+            self.status = "checkpoint 已失配（HEAD 有变化），请重新初始化".to_string();
+            cx.notify();
+            return;
+        }
+        match manager.restore_file(&checkpoint, &path) {
+            Ok(()) => {
+                self.status = format!("已回退 {path}");
+                self.refresh_checkpoint_changes();
+            }
+            Err(error) => self.status = format!("回退失败：{error}"),
+        }
         cx.notify();
     }
 
@@ -325,6 +371,11 @@ impl NativeAgentView {
         let Some(manager) = &self.checkpoint_manager else {
             return;
         };
+        if !manager.is_valid(&checkpoint).unwrap_or(false) {
+            self.status = "checkpoint 已失配（HEAD 有变化），请重新初始化".to_string();
+            cx.notify();
+            return;
+        }
         match manager.restore(&checkpoint) {
             Ok(()) => {
                 self.last_checkpoint = None;
@@ -360,6 +411,9 @@ impl Render for NativeAgentView {
         let usage = self.state.usage_total.total();
         let input = self.input.clone();
         let can_undo = self.last_checkpoint.is_some() && !busy;
+        let change_count = self.checkpoint_changes.len();
+        let show_changes = self.show_checkpoint_panel && change_count > 0;
+        let changes = self.checkpoint_changes.clone();
         let mut rows: Vec<AnyElement> = Vec::new();
         for message in messages {
             let color = match message.role {
@@ -439,6 +493,67 @@ impl Render for NativeAgentView {
                     .overflow_y_scroll()
                     .children(rows),
             )
+            .children(show_changes.then(|| {
+                div()
+                    .id("native-agent-checkpoint-panel")
+                    .flex()
+                    .flex_col()
+                    .gap(space(1))
+                    .px(space(3))
+                    .py(space(2))
+                    .border_t_1()
+                    .border_color(palette.line)
+                    .bg(palette.view)
+                    .child(
+                        div()
+                            .text_size(px(12.0))
+                            .child(format!("本轮文件变更（{change_count}）")),
+                    )
+                    .children(changes.into_iter().map(|change| {
+                        let path = change.path.clone();
+                        let restore_path = change.path.clone();
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(2))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(px(12.0))
+                                    .child(format!("{} {}", change.status, change.path)),
+                            )
+                            .child(
+                                div()
+                                    .id("checkpoint-keep")
+                                    .role(Role::Button)
+                                    .aria_label("保留")
+                                    .px(space(1))
+                                    .py(px(2.0))
+                                    .rounded(px(RADIUS_MEDIUM))
+                                    .bg(palette.soft)
+                                    .child("保留")
+                                    .on_click(cx.listener(move |this, _, _window, cx| {
+                                        this.keep_checkpoint_file(path.clone(), cx)
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .id("checkpoint-restore")
+                                    .role(Role::Button)
+                                    .aria_label("回退")
+                                    .px(space(1))
+                                    .py(px(2.0))
+                                    .rounded(px(RADIUS_MEDIUM))
+                                    .bg(palette.accent)
+                                    .text_color(palette.canvas)
+                                    .child("回退")
+                                    .on_click(cx.listener(move |this, _, _window, cx| {
+                                        this.restore_checkpoint_file(restore_path.clone(), cx)
+                                    })),
+                            )
+                    }))
+            }))
             .children(pending.map(|prompt| {
                 let args = serde_json::to_string(&prompt.args).unwrap_or_default();
                 div()
@@ -497,6 +612,23 @@ impl Render for NativeAgentView {
                                     .w_full(),
                             ),
                     )
+                    .children((can_undo && change_count > 0).then(|| {
+                        div()
+                            .id("native-agent-changes")
+                            .role(Role::Button)
+                            .aria_label("查看变更")
+                            .px(space(2))
+                            .py(space(1))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .bg(palette.soft)
+                            .text_color(palette.ink)
+                            .child(format!("变更 ({change_count})"))
+                            .on_click(
+                                cx.listener(|this, _, _window, cx| {
+                                    this.toggle_checkpoint_panel(cx)
+                                }),
+                            )
+                    }))
                     .children(can_undo.then(|| {
                         div()
                             .id("native-agent-undo")
