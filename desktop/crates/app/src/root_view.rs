@@ -1272,6 +1272,23 @@ impl RootView {
                         cx.notify();
                     })),
             )
+            .children(Self::native_agent_enabled().then(|| {
+                div()
+                    .id("account-native-agent")
+                    .role(Role::Button)
+                    .aria_label("Native Agent")
+                    .px(space(1))
+                    .py(px(6.0))
+                    .rounded(px(RADIUS_SMALL))
+                    .text_color(palette.ink_2)
+                    .hover(|style| style.bg(palette.soft))
+                    .child("Native Agent（Beta）")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.open_native_agent_window(cx);
+                        this.account_menu_open = false;
+                        cx.notify();
+                    }))
+            }))
             .child(
                 div()
                     .id("account-sign-out")

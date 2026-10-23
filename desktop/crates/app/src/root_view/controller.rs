@@ -1752,6 +1752,44 @@ impl RootView {
     }
 
     /// 打开独立设置窗口（对齐 Zed 的 SettingsWindow）：已存在则激活复用。
+    /// native agent 是否对当前用户开放（P1b 灰度的最小形态：环境变量开关）。
+    pub fn native_agent_enabled() -> bool {
+        std::env::var_os("CGC_NATIVE_AGENT").is_some()
+            || std::env::var_os("CGC_NATIVE_AGENT_DEMO").is_some()
+    }
+
+    /// 从主窗口打开 native agent 面板（独立窗口，复用 demo 视图）。
+    pub fn open_native_agent_window(&mut self, cx: &mut Context<Self>) {
+        if let Some(existing) = cx
+            .windows()
+            .into_iter()
+            .find_map(|window| window.downcast::<crate::native_agent_view::NativeAgentView>())
+        {
+            let _ = existing.update(cx, |_, window, _| window.activate_window());
+            return;
+        }
+        let options = WindowOptions {
+            titlebar: Some(TitlebarOptions {
+                title: Some("Native Agent".into()),
+                appears_transparent: true,
+                traffic_light_position: Some(point(px(12.0), px(12.0))),
+            }),
+            focus: true,
+            show: true,
+            is_movable: true,
+            app_owns_titlebar_drag: cfg!(target_os = "macos"),
+            window_decorations: Some(WindowDecorations::Client),
+            window_min_size: Some(Size {
+                width: px(720.0),
+                height: px(520.0),
+            }),
+            ..Default::default()
+        };
+        let _ = gpui_kit::open_window(options, cx, |window, cx| {
+            cx.new(|cx| crate::native_agent_view::NativeAgentView::new(window, cx))
+        });
+    }
+
     pub fn open_settings_window(&mut self, cx: &mut Context<Self>) {
         if let Some(existing) = cx
             .windows()
