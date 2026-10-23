@@ -891,8 +891,18 @@ impl Render for NativeAgentView {
                     .flex()
                     .flex_col()
                     .gap(px(2.0))
-                    .px(space(3))
-                    .py(space(2))
+                    .pl(if cfg!(target_os = "macos") {
+                        px(84.0)
+                    } else {
+                        space(3)
+                    })
+                    .pr(space(3))
+                    .pt(if cfg!(target_os = "macos") {
+                        px(6.0)
+                    } else {
+                        space(2)
+                    })
+                    .pb(space(2))
                     .border_b_1()
                     .border_color(palette.line)
                     .child(div().text_size(px(15.0)).child("Native Agent（P1a）"))

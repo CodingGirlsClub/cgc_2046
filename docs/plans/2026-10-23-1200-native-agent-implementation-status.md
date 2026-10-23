@@ -64,6 +64,13 @@ CGC_NATIVE_AGENT_DEMO=1 cargo run -p cgc-desktop-app      # 启动即开 demo �
 # 真实 provider：CGC_AGENT_BASE_URL / CGC_AGENT_API_KEY / CGC_AGENT_MODEL
 ```
 
+## 3.1 真实 provider 冒烟（2026-10-23）
+
+- 环境：桌面 debug 构建，`CGC_NATIVE_AGENT_DEMO=1`，**在应用内 Provider 设置里配置**（非环境变量）。
+- Provider：DeepSeek，Base URL `https://api.deepseek.com`，Model `deepseek-flash`，API Key 存系统钥匙串。
+- 结果：首轮 `hi` 正常流式返回（"Hi! What can I help you with today?"），状态栏显示 `usage: 1131 tokens`，无错误。
+- 备注：未记录/提交任何 key；Base URL 未带 `/v1` 时仍拼出 `/chat/completions` 并成功；应用内保存 Provider 后**立即生效**（无需重启窗口）。
+
 ## 4. 已知缺口与风险（按优先级）
 
 1. ~~高亮只是提示~~：已升级为读取工作区文件的内容预览卡片（行号 + 高亮区间 + 关闭），但没有编辑器级定位/滚动。
