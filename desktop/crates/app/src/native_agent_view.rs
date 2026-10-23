@@ -1018,6 +1018,7 @@ impl Render for NativeAgentView {
         let pending = self.state.pending_permission.clone();
         let usage = self.state.usage_total.total();
         let input = self.input.clone();
+        let input_focus = self.input.read(cx).focus_handle(cx).clone();
         let input_value = self.input.read(cx).value().to_string();
         let has_input = !input_value.trim().is_empty();
         let slash_open = input_value.trim_start().starts_with('/') && !self.slash_dismissed;
@@ -1999,12 +2000,34 @@ impl Render for NativeAgentView {
                             }))
                     }))
                     .child(
-                        div().px(space(1)).py(px(4.0)).child(
-                            Textarea::new(&input)
-                                .appearance(false)
-                                .bordered(false)
-                                .w_full(),
-                        ),
+                        div()
+                            .relative()
+                            .px(space(1))
+                            .py(px(4.0))
+                            .child(
+                                Textarea::new(&input)
+                                    .appearance(false)
+                                    .bordered(false)
+                                    .w_full(),
+                            )
+                            .children((!has_input).then(|| {
+                                let focus = input_focus.clone();
+                                div()
+                                    .id("native-agent-placeholder")
+                                    .absolute()
+                                    .top(px(4.0))
+                                    .left(px(6.0))
+                                    .right(px(6.0))
+                                    .text_size(px(13.0))
+                                    .line_height(px(20.0))
+                                    .text_color(palette.ink_3)
+                                    .child(
+                                        "给 CGC Agent 发消息… @ 引用上下文，/ 查看命令（Enter 发送，Shift+Enter 换行）",
+                                    )
+                                    .on_click(move |_, window, cx| {
+                                        window.focus(&focus, cx);
+                                    })
+                            })),
                     )
                     .child(
                         div()
