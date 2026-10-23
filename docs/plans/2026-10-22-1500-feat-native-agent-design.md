@@ -364,7 +364,7 @@ UI（输入）→ NativeHost.prompt
 | P1b | Checkpoint / diff：Git 隐藏 ref、Keep/Reject、Restore；课程页灰度 | 2 周 | 恢复/拒绝/未跟踪/超大文件/冲突用例；灰度验收 |
 
 **P2 进度（2026-10-23）**：
-- **subagent（P2）**：`task` 工具 + `SubagentRunner`（宿主提供执行器）；`agent_core::run_subagent` 用独立 thread、只读工具、同一 provider/model 跑一次隔离 turn，返回最终文本；审批为 Ask。**进度事件已接**：`SubagentEvent::{Started, TextDelta, Finished}` 经 sink 回传，demo 打印到 stderr；HostState 新增 `SubagentCard`（任务、累计文本、运行/完成/失败），GPUI 面板渲染子 agent 卡片；事件在 turn 结束时批量归约（实时轮询待做）。
+- **subagent（P2）**：`task` 工具 + `SubagentRunner`（宿主提供执行器）；`agent_core::run_subagent` 用独立 thread、只读工具、同一 provider/model 跑一次隔离 turn，返回最终文本；审批为 Ask。**进度事件已接**：`SubagentEvent::{Started, TextDelta, Finished}` 经 sink 回传，demo 打印到 stderr；HostState 新增 `SubagentCard`（任务、累计文本、运行/完成/失败），GPUI 面板渲染子 agent 卡片；**子 agent 事件直接写入当前 turn 的 AgentEvent channel，卡片实时刷新**（turn 结束后停止接收）。
 - **compaction（P2）**：**摘要式压缩已实现**——请求前按 `context_window - max_output_tokens - 512` 切出较早历史，调用同一 provider 生成中文摘要，写入 `Entry::Compaction`（持久化到 SQLite），请求中保留「历史摘要 + 最近消息」；摘要失败自动回退硬截断；`TurnObserver::on_compaction` → `AgentEvent::ContextCompacted` → HostState 显示 system 通知。
 - **slash 命令面板（P2）**：`agent_host::slash` 解析 6 个客户端命令（/help /clear /stop /tools /checkpoint /settings），GPUI 面板输入 `/` 时显示命令提示，命令不发给模型。4 项 host 测试。
 - **AppAction（P1a）**：`agent_tools::action`（`AppAction` + `ActionSink`）与 `open_page` / `highlight_range` 工具；路由仅允许 `/` 开头（拒绝外部 URL），高亮校验路径与行区间；CLI 直接打印动作；**GPUI 已接真实动作**：`open_page` 经主窗口 `RootView::apply_native_agent_action` 导航，`highlight_range` 在主窗口内容区顶部显示高亮提示；找不到主窗口时回退为 system 消息。30 项 tools 单测。
