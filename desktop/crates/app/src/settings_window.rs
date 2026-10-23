@@ -707,6 +707,46 @@ fn render_provider_cards(
         .flex()
         .flex_col()
         .gap(space(2))
+        .child(
+            // CGC 托管模型网关尚未接入：这里只是占位说明 + 订阅入口。
+            div()
+                .id("settings-cgc-placeholder")
+                .flex()
+                .flex_col()
+                .gap(px(2.0))
+                .p(space(2))
+                .rounded(px(RADIUS_MEDIUM))
+                .border_1()
+                .border_color(palette.line)
+                .bg(palette.view)
+                .child(
+                    div()
+                        .text_size(px(13.0))
+                        .child("CGC - 程序媛汇"),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_3)
+                        .child("使用程序员汇账号调用模型。模型网关接入中，当前为占位项：订阅后走托管模型，未订阅则跳转订阅。"),
+                )
+                .child(
+                    div()
+                        .id("settings-cgc-start")
+                        .role(Role::Button)
+                        .aria_label("开始使用 CGC")
+                        .px(space(2))
+                        .py(px(5.0))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .bg(palette.accent)
+                        .text_color(palette.canvas)
+                        .text_size(px(11.0))
+                        .child("开始使用")
+                        .on_click(move |_, _, cx| {
+                            cx.open_url("https://codinggirlsclub.com/");
+                        }),
+                ),
+        )
         .children(cards)
         .child(
             div()
