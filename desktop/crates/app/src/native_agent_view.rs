@@ -10,7 +10,9 @@ use cgc_agent_checkpoint::{Checkpoint, CheckpointManager, FileChange};
 use cgc_agent_core::{
     Agent, AgentError, ApprovalRequest, Approver, CancelToken, SelectedModel, Thread,
 };
-use cgc_agent_host::{AgentEvent, AsyncChannelObserver, HostState, UiRole};
+use cgc_agent_host::{
+    parse_slash, AgentEvent, AsyncChannelObserver, HostState, SlashCommand, UiRole, SLASH_COMMANDS,
+};
 use cgc_agent_provider::{
     EchoProvider, Model, ModelId, ModelLimits, OpenAiCompatibleConfig, OpenAiCompatibleProvider,
     Provider, ProviderId,
@@ -297,6 +299,42 @@ impl NativeAgentView {
         }
     }
 
+    fn handle_slash(&mut self, command: SlashCommand, cx: &mut Context<Self>) {
+        match command {
+            SlashCommand::Help => self
+                .state
+                .push_system("命令：/help /clear /stop /tools /checkpoint /settings"),
+            SlashCommand::Clear => {
+                self.state.messages.clear();
+                self.state.streaming.clear();
+                self.state.last_error = None;
+                self.status = "对话显示已清空".to_string();
+            }
+            SlashCommand::Stop => self.stop(cx),
+            SlashCommand::Tools => {
+                let tools = self
+                    .registry
+                    .schemas()
+                    .iter()
+                    .map(|schema| schema.name.clone())
+                    .collect::<Vec<_>>()
+                    .join(" / ");
+                self.state.push_system(format!("可用工具：{tools}"));
+            }
+            SlashCommand::Checkpoint => {
+                if self.last_checkpoint.is_some() {
+                    self.show_checkpoint_panel = true;
+                    self.refresh_checkpoint_changes();
+                } else {
+                    self.state.push_system("当前没有可用的 checkpoint");
+                }
+            }
+            SlashCommand::Settings => self.settings_open = true,
+            SlashCommand::Unknown(name) => self.state.push_system(format!("未知命令：/{name}")),
+        }
+        cx.notify();
+    }
+
     fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.input.read(cx).value().trim().to_string();
         if text.is_empty() {
@@ -304,6 +342,10 @@ impl NativeAgentView {
         }
         self.input
             .update(cx, |state, cx| state.set_value("", window, cx));
+        if let Some(command) = parse_slash(&text) {
+            self.handle_slash(command, cx);
+            return;
+        }
         if self.busy {
             let _ = self.follow_up_sender.send(text);
             self.status = "已排队 follow-up，当前 turn 结束后执行".to_string();
@@ -600,7 +642,9 @@ impl Render for NativeAgentView {
         let pending = self.state.pending_permission.clone();
         let usage = self.state.usage_total.total();
         let input = self.input.clone();
-        let has_input = !self.input.read(cx).value().trim().is_empty();
+        let input_value = self.input.read(cx).value().to_string();
+        let has_input = !input_value.trim().is_empty();
+        let slash_hint = input_value.trim_start().starts_with('/');
         let settings_open = self.settings_open;
         let base_url_input = self.base_url_input.clone();
         let model_input = self.model_input.clone();
@@ -696,6 +740,24 @@ impl Render for NativeAgentView {
                             ),
                     ),
             )
+            .children(slash_hint.then(|| {
+                div()
+                    .id("native-agent-slash-hint")
+                    .flex()
+                    .flex_row()
+                    .flex_wrap()
+                    .gap(space(2))
+                    .px(space(3))
+                    .py(space(1))
+                    .border_t_1()
+                    .border_color(palette.line)
+                    .children(SLASH_COMMANDS.iter().map(|(command, description)| {
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_3)
+                            .child(format!("{command} {description}"))
+                    }))
+            }))
             .children(settings_open.then(|| {
                 div()
                     .id("native-agent-provider-settings")

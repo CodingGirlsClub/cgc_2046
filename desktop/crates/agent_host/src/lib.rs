@@ -7,9 +7,11 @@
 pub mod adapter;
 pub mod commands;
 pub mod events;
+pub mod slash;
 pub mod state;
 
 pub use adapter::{AsyncChannelObserver, ChannelObserver, EventCollector};
 pub use commands::{AgentCommand, PermissionDecision};
 pub use events::AgentEvent;
+pub use slash::{parse as parse_slash, SlashCommand, COMMANDS as SLASH_COMMANDS};
 pub use state::{HostState, PermissionPrompt, UiMessage, UiRole};

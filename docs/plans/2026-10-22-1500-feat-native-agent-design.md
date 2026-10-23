@@ -364,6 +364,7 @@ UI（输入）→ NativeHost.prompt
 | P1b | Checkpoint / diff：Git 隐藏 ref、Keep/Reject、Restore；课程页灰度 | 2 周 | 恢复/拒绝/未跟踪/超大文件/冲突用例；灰度验收 |
 
 **P2 进度（2026-10-23）**：
+- **slash 命令面板（P2）**：`agent_host::slash` 解析 6 个客户端命令（/help /clear /stop /tools /checkpoint /settings），GPUI 面板输入 `/` 时显示命令提示，命令不发给模型。4 项 host 测试。
 - **AppAction（P1a）**：`agent_tools::action`（`AppAction` + `ActionSink`）与 `open_page` / `highlight_range` 工具；路由仅允许 `/` 开头（拒绝外部 URL），高亮校验路径与行区间；CLI 直接打印动作，GPUI 面板在每轮结束把动作转成 system 消息（正式面板接入后改为真实跳转/高亮）。30 项 tools 单测。
 - **todo / plan / goal**：`agent_tools::state`（`AgentState` + `SharedAgentState`）与 `todo_write` / `plan_write` / `goal_write` 三个工具；CLI 每轮打印状态摘要，GPUI 面板在状态变化时追加 system 消息。26 项 tools 单测。
 - **follow-up**：`Agent` 支持 `queue_follow_up` / `follow_up_sender`，turn 结束后自动执行排队消息（最多 4 轮，`MAX_FOLLOW_UP_TURNS`）；`TurnObserver::on_follow_up_started` → `AgentEvent::FollowUpStarted`；HostState 归约时先落上一轮 assistant、再追加 user；GPUI 面板在 busy 时把输入转成 follow-up 排队。**steering 已实现**：`steer_sender` 在流式读取中被打断（保留已生成文本），记录 assistant 片段后追加用户消息继续；最多 4 次（`MAX_STEERS`）；`TurnObserver::on_steer_started` → `AgentEvent::SteerStarted` → HostState 先落片再追加 user；面板 busy 且输入非空时显示「打断」按钮。
