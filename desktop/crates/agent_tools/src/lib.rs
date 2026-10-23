@@ -10,6 +10,7 @@ pub mod error;
 pub mod registry;
 pub mod sandbox;
 pub mod state;
+pub mod subagent;
 pub mod tool;
 
 pub use action::{ActionSink, AppAction};
@@ -18,4 +19,5 @@ pub use error::ToolError;
 pub use registry::ToolRegistry;
 pub use sandbox::{CommandSandbox, SandboxKind, SandboxPolicy};
 pub use state::{AgentState, Goal, ItemStatus, PlanStep, SharedAgentState, TodoItem};
+pub use subagent::{SubagentRequest, SubagentRunner, TaskTool};
 pub use tool::{Tool, ToolContext, ToolResult};

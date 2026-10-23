@@ -13,7 +13,7 @@ use cgc_agent_provider::{
 use cgc_agent_tools::{Approval, ApprovalDecision, ToolContext, ToolRegistry};
 use futures::{future::BoxFuture, StreamExt};
 
-use crate::thread::Thread;
+use crate::thread::{SelectedModel, Thread};
 
 /// 单轮工具循环的上限，防止模型无限调工具。
 pub const MAX_TOOL_STEPS: usize = 8;
@@ -528,6 +528,39 @@ impl Agent {
             }
         }
     }
+}
+
+/// 跑一个隔离子 agent（只读工具），返回最终文本；供 `task` 工具使用。
+pub async fn run_subagent(
+    provider: Arc<dyn Provider>,
+    model: Model,
+    task: String,
+    system_prompt: Option<String>,
+    workspace: std::path::PathBuf,
+) -> Result<String, AgentError> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let serial = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let thread = Thread::new(
+        format!("subagent-{}-{serial}", std::process::id()),
+        SelectedModel::new(model.provider_id.clone(), model.id.clone()),
+    );
+    let mut agent = Agent::new(thread, system_prompt);
+    let registry = ToolRegistry::with_read_tools();
+    let context = ToolContext::new(workspace);
+    let mut observer = NoopObserver;
+    let outcome = agent
+        .prompt_with_tools_observed(
+            provider.as_ref(),
+            &model,
+            task,
+            &registry,
+            &context,
+            &AutoApprover,
+            &mut observer,
+        )
+        .await?;
+    Ok(outcome.text)
 }
 
 enum StreamOutcome {

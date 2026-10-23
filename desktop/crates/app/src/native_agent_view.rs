@@ -8,7 +8,7 @@ use std::sync::{mpsc as std_mpsc, Arc, Mutex};
 
 use cgc_agent_checkpoint::{Checkpoint, CheckpointManager, FileChange};
 use cgc_agent_core::{
-    Agent, AgentError, ApprovalRequest, Approver, CancelToken, SelectedModel, Thread,
+    run_subagent, Agent, AgentError, ApprovalRequest, Approver, CancelToken, SelectedModel, Thread,
 };
 use cgc_agent_host::{
     parse_slash, AgentEvent, AsyncChannelObserver, HostState, SlashCommand, UiRole, SLASH_COMMANDS,
@@ -20,7 +20,7 @@ use cgc_agent_provider::{
 use cgc_agent_store::{AgentPrefs, PrefsStore, ProviderPrefs, SessionStore};
 use cgc_agent_tools::{
     ActionSink, AgentState, AppAction, ApprovalDecision, SandboxPolicy, SharedAgentState,
-    ToolContext, ToolRegistry,
+    SubagentRequest, SubagentRunner, ToolContext, ToolRegistry,
 };
 use cgc_platform::session::KeychainStore;
 use futures::channel::{mpsc, oneshot};
@@ -227,6 +227,27 @@ impl NativeAgentView {
         let checkpoint_manager = CheckpointManager::open(&workspace)
             .or_else(|_| CheckpointManager::initialize(&workspace))
             .ok();
+        let subagent_runner: SubagentRunner = {
+            let provider = provider.clone();
+            let model = model.clone();
+            let workspace = workspace.clone();
+            Arc::new(move |request: SubagentRequest| {
+                let provider = provider.clone();
+                let model = model.clone();
+                let workspace = workspace.clone();
+                Box::pin(async move {
+                    run_subagent(
+                        provider,
+                        model,
+                        request.task,
+                        request.system_prompt,
+                        workspace,
+                    )
+                    .await
+                    .map_err(|error| error.to_string())
+                })
+            })
+        };
         let base_url_input = cx.new(|cx| {
             let mut state =
                 TextareaState::new(window, cx).placeholder("https://api.deepseek.com/v1");
@@ -263,7 +284,9 @@ impl NativeAgentView {
             provider,
             model,
             registry: Arc::new(
-                ToolRegistry::with_agent_state(agent_state.clone()).with_app_actions(),
+                ToolRegistry::with_agent_state(agent_state.clone())
+                    .with_app_actions()
+                    .with_subagent(subagent_runner),
             ),
             agent_state,
             last_agent_summary: None,

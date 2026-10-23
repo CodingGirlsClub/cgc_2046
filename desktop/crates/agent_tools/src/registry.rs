@@ -43,6 +43,13 @@ impl ToolRegistry {
         registry
     }
 
+    /// 注册 task 子 agent 工具。
+    pub fn with_subagent(self, runner: crate::subagent::SubagentRunner) -> Self {
+        let mut registry = self;
+        registry.register(Arc::new(crate::subagent::TaskTool::new(runner)));
+        registry
+    }
+
     /// 内置工具 + todo / plan / goal 状态工具。
     pub fn with_agent_state(state: crate::state::SharedAgentState) -> Self {
         let mut registry = Self::with_builtin_tools();

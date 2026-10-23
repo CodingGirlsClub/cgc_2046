@@ -12,16 +12,17 @@ use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
 use cgc_agent_core::{
-    Agent, AgentError, ApprovalRequest, AutoApprover, SelectedModel, Thread, ToolResultSummary,
-    ToolTurnOutcome, TurnObserver,
+    run_subagent, Agent, AgentError, ApprovalRequest, AutoApprover, SelectedModel, Thread,
+    ToolResultSummary, ToolTurnOutcome, TurnObserver,
 };
 use cgc_agent_provider::TokenUsage;
 use cgc_agent_provider::{
     CompletionEvent, FakeProvider, Model, ModelId, ModelLimits, OpenAiCompatibleConfig,
-    OpenAiCompatibleProvider, ProviderId, StopReason, ToolUse,
+    OpenAiCompatibleProvider, Provider, ProviderId, StopReason, ToolUse,
 };
 use cgc_agent_tools::{
-    ActionSink, AgentState, AppAction, SandboxPolicy, SharedAgentState, ToolContext, ToolRegistry,
+    ActionSink, AgentState, AppAction, SandboxPolicy, SharedAgentState, SubagentRequest,
+    SubagentRunner, ToolContext, ToolRegistry,
 };
 
 /// CLI 的流式打印：文本直接输出，工具调用走 stderr，避免污染答案。
@@ -214,11 +215,12 @@ fn run_repl(options: Options) -> std::process::ExitCode {
         model_id,
         ModelLimits::new(64_000, 8_000),
     );
-    let provider = OpenAiCompatibleProvider::new(OpenAiCompatibleConfig::new(
-        base_url,
-        api_key,
-        vec![model.clone()],
-    ));
+    let provider: std::sync::Arc<dyn Provider> =
+        std::sync::Arc::new(OpenAiCompatibleProvider::new(OpenAiCompatibleConfig::new(
+            base_url,
+            api_key,
+            vec![model.clone()],
+        )));
     let thread = Thread::new(
         "demo",
         SelectedModel::new(model.provider_id.clone(), model.id.clone()),
@@ -228,7 +230,30 @@ fn run_repl(options: Options) -> std::process::ExitCode {
     let workspace = options.workspace;
     let agent_state: SharedAgentState =
         std::sync::Arc::new(std::sync::Mutex::new(AgentState::default()));
-    let registry = ToolRegistry::with_agent_state(agent_state.clone()).with_app_actions();
+    let subagent_runner: SubagentRunner = {
+        let provider = provider.clone();
+        let model = model.clone();
+        let workspace = workspace.clone();
+        std::sync::Arc::new(move |request: SubagentRequest| {
+            let provider = provider.clone();
+            let model = model.clone();
+            let workspace = workspace.clone();
+            Box::pin(async move {
+                run_subagent(
+                    provider,
+                    model,
+                    request.task,
+                    request.system_prompt,
+                    workspace,
+                )
+                .await
+                .map_err(|error| error.to_string())
+            })
+        })
+    };
+    let registry = ToolRegistry::with_agent_state(agent_state.clone())
+        .with_app_actions()
+        .with_subagent(subagent_runner);
     let action_sink: ActionSink =
         std::sync::Arc::new(|action: AppAction| eprintln!("[app action] {}", action.summary()));
     let context = ToolContext::new(&workspace)
@@ -250,7 +275,7 @@ fn run_repl(options: Options) -> std::process::ExitCode {
         let result = if options.allow_tools {
             let mut observer = PrintObserver;
             futures::executor::block_on(agent.prompt_with_tools_observed(
-                &provider,
+                provider.as_ref(),
                 &model,
                 prompt,
                 &registry,
@@ -260,7 +285,7 @@ fn run_repl(options: Options) -> std::process::ExitCode {
             ))
             .map(|outcome| outcome.text)
         } else {
-            futures::executor::block_on(agent.prompt(&provider, &model, prompt))
+            futures::executor::block_on(agent.prompt(provider.as_ref(), &model, prompt))
                 .map(|outcome| outcome.text)
         };
         return match result {
@@ -303,7 +328,7 @@ fn run_repl(options: Options) -> std::process::ExitCode {
         let result = if options.allow_tools {
             let mut observer = PrintObserver;
             futures::executor::block_on(agent.prompt_with_tools_observed(
-                &provider,
+                provider.as_ref(),
                 &model,
                 input,
                 &registry,
@@ -313,7 +338,7 @@ fn run_repl(options: Options) -> std::process::ExitCode {
             ))
             .map(|outcome| outcome.text)
         } else {
-            futures::executor::block_on(agent.prompt(&provider, &model, input))
+            futures::executor::block_on(agent.prompt(provider.as_ref(), &model, input))
                 .map(|outcome| outcome.text)
         };
 
