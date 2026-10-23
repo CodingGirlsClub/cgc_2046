@@ -44,9 +44,13 @@ impl ToolRegistry {
     }
 
     /// 注册 task 子 agent 工具。
-    pub fn with_subagent(self, runner: crate::subagent::SubagentRunner) -> Self {
+    pub fn with_subagent(
+        self,
+        runner: crate::subagent::SubagentRunner,
+        events: crate::subagent::SubagentEventSink,
+    ) -> Self {
         let mut registry = self;
-        registry.register(Arc::new(crate::subagent::TaskTool::new(runner)));
+        registry.register(Arc::new(crate::subagent::TaskTool::new(runner, events)));
         registry
     }
 

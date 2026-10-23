@@ -20,7 +20,7 @@ use cgc_agent_provider::{
 use cgc_agent_store::{AgentPrefs, PrefsStore, ProviderPrefs, SessionStore};
 use cgc_agent_tools::{
     ActionSink, AgentState, AppAction, ApprovalDecision, SandboxPolicy, SharedAgentState,
-    SubagentRequest, SubagentRunner, ToolContext, ToolRegistry,
+    SubagentEvent, SubagentEventSink, SubagentRequest, SubagentRunner, ToolContext, ToolRegistry,
 };
 use cgc_platform::session::KeychainStore;
 use futures::channel::{mpsc, oneshot};
@@ -65,6 +65,7 @@ pub struct NativeAgentView {
     agent_state: SharedAgentState,
     last_agent_summary: Option<String>,
     app_actions: Arc<Mutex<Vec<AppAction>>>,
+    subagent_events: Arc<Mutex<Vec<SubagentEvent>>>,
     context: ToolContext,
     input: Entity<TextareaState>,
     cancel: CancelToken,
@@ -227,11 +228,20 @@ impl NativeAgentView {
         let checkpoint_manager = CheckpointManager::open(&workspace)
             .or_else(|_| CheckpointManager::initialize(&workspace))
             .ok();
+        let subagent_events: Arc<Mutex<Vec<SubagentEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let subagent_sink: SubagentEventSink = {
+            let subagent_events = subagent_events.clone();
+            Arc::new(move |event: SubagentEvent| {
+                if let Ok(mut events) = subagent_events.lock() {
+                    events.push(event);
+                }
+            })
+        };
         let subagent_runner: SubagentRunner = {
             let provider = provider.clone();
             let model = model.clone();
             let workspace = workspace.clone();
-            Arc::new(move |request: SubagentRequest| {
+            Arc::new(move |request: SubagentRequest, events: SubagentEventSink| {
                 let provider = provider.clone();
                 let model = model.clone();
                 let workspace = workspace.clone();
@@ -242,6 +252,7 @@ impl NativeAgentView {
                         request.task,
                         request.system_prompt,
                         workspace,
+                        events,
                     )
                     .await
                     .map_err(|error| error.to_string())
@@ -286,11 +297,12 @@ impl NativeAgentView {
             registry: Arc::new(
                 ToolRegistry::with_agent_state(agent_state.clone())
                     .with_app_actions()
-                    .with_subagent(subagent_runner),
+                    .with_subagent(subagent_runner, subagent_sink),
             ),
             agent_state,
             last_agent_summary: None,
             app_actions,
+            subagent_events,
             context: ToolContext::new(&workspace)
                 .with_sandbox(SandboxPolicy::new(&workspace))
                 .with_action_sink(action_sink),
@@ -456,6 +468,7 @@ impl NativeAgentView {
                 if let (Some(store), Some(agent)) = (&mut this.session_store, &this.agent) {
                     let _ = store.save_thread(agent.thread());
                 }
+                this.drain_subagent_events();
                 this.drain_app_actions();
                 this.refresh_agent_state_summary();
                 this.refresh_checkpoint_changes();
@@ -535,6 +548,27 @@ impl NativeAgentView {
             }
         }
         cx.notify();
+    }
+
+    fn drain_subagent_events(&mut self) {
+        let events = self
+            .subagent_events
+            .lock()
+            .map(|mut events| std::mem::take(&mut *events))
+            .unwrap_or_default();
+        for event in events {
+            match event {
+                SubagentEvent::Started { task } => {
+                    self.state.push_system(format!("子 agent 开始：{task}"))
+                }
+                SubagentEvent::Finished { ok } => self.state.push_system(if ok {
+                    "子 agent 完成".to_string()
+                } else {
+                    "子 agent 失败".to_string()
+                }),
+                SubagentEvent::TextDelta { .. } => {}
+            }
+        }
     }
 
     fn drain_app_actions(&mut self) {

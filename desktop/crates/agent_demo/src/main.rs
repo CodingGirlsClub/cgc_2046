@@ -21,8 +21,8 @@ use cgc_agent_provider::{
     OpenAiCompatibleProvider, Provider, ProviderId, StopReason, ToolUse,
 };
 use cgc_agent_tools::{
-    ActionSink, AgentState, AppAction, SandboxPolicy, SharedAgentState, SubagentRequest,
-    SubagentRunner, ToolContext, ToolRegistry,
+    ActionSink, AgentState, AppAction, SandboxPolicy, SharedAgentState, SubagentEvent,
+    SubagentEventSink, SubagentRequest, SubagentRunner, ToolContext, ToolRegistry,
 };
 
 /// CLI 的流式打印：文本直接输出，工具调用走 stderr，避免污染答案。
@@ -230,11 +230,17 @@ fn run_repl(options: Options) -> std::process::ExitCode {
     let workspace = options.workspace;
     let agent_state: SharedAgentState =
         std::sync::Arc::new(std::sync::Mutex::new(AgentState::default()));
+    let subagent_sink: SubagentEventSink =
+        std::sync::Arc::new(|event: SubagentEvent| match event {
+            SubagentEvent::Started { task } => eprintln!("[subagent] start: {task}"),
+            SubagentEvent::Finished { ok } => eprintln!("[subagent] finished ok={ok}"),
+            SubagentEvent::TextDelta { .. } => {}
+        });
     let subagent_runner: SubagentRunner = {
         let provider = provider.clone();
         let model = model.clone();
         let workspace = workspace.clone();
-        std::sync::Arc::new(move |request: SubagentRequest| {
+        std::sync::Arc::new(move |request: SubagentRequest, events: SubagentEventSink| {
             let provider = provider.clone();
             let model = model.clone();
             let workspace = workspace.clone();
@@ -245,6 +251,7 @@ fn run_repl(options: Options) -> std::process::ExitCode {
                     request.task,
                     request.system_prompt,
                     workspace,
+                    events,
                 )
                 .await
                 .map_err(|error| error.to_string())
@@ -253,7 +260,7 @@ fn run_repl(options: Options) -> std::process::ExitCode {
     };
     let registry = ToolRegistry::with_agent_state(agent_state.clone())
         .with_app_actions()
-        .with_subagent(subagent_runner);
+        .with_subagent(subagent_runner, subagent_sink);
     let action_sink: ActionSink =
         std::sync::Arc::new(|action: AppAction| eprintln!("[app action] {}", action.summary()));
     let context = ToolContext::new(&workspace)

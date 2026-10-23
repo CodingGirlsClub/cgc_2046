@@ -19,5 +19,5 @@ pub use error::ToolError;
 pub use registry::ToolRegistry;
 pub use sandbox::{CommandSandbox, SandboxKind, SandboxPolicy};
 pub use state::{AgentState, Goal, ItemStatus, PlanStep, SharedAgentState, TodoItem};
-pub use subagent::{SubagentRequest, SubagentRunner, TaskTool};
+pub use subagent::{SubagentEvent, SubagentEventSink, SubagentRequest, SubagentRunner, TaskTool};
 pub use tool::{Tool, ToolContext, ToolResult};
