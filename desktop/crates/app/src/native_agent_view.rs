@@ -304,7 +304,7 @@ impl NativeAgentView {
         };
         let workspace_files = collect_workspace_files(&workspace);
         let input = cx.new(|cx| {
-            TextareaState::new(window, cx).placeholder(
+            TextareaState::new(window, cx).auto_grow(4, 20).placeholder(
                 "给 CGC Agent 发消息… @ 引用上下文，/ 查看命令（Enter 发送，Shift+Enter 换行）",
             )
         });
@@ -2003,7 +2003,6 @@ impl Render for NativeAgentView {
                             Textarea::new(&input)
                                 .appearance(false)
                                 .bordered(false)
-                                .h(px(40.0))
                                 .w_full(),
                         ),
                     )
