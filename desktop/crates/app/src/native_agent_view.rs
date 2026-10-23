@@ -469,7 +469,7 @@ impl NativeAgentView {
                     let _ = store.save_thread(agent.thread());
                 }
                 this.drain_subagent_events();
-                this.drain_app_actions();
+                this.drain_app_actions(cx);
                 this.refresh_agent_state_summary();
                 this.refresh_checkpoint_changes();
                 if let Ok(mut pending) = approval_sender.lock() {
@@ -571,14 +571,29 @@ impl NativeAgentView {
         }
     }
 
-    fn drain_app_actions(&mut self) {
+    fn drain_app_actions(&mut self, cx: &mut Context<Self>) {
         let actions = self
             .app_actions
             .lock()
             .map(|mut actions| std::mem::take(&mut *actions))
             .unwrap_or_default();
         for action in actions {
-            self.state.push_system(action.summary());
+            let summary = action.summary();
+            let mut dispatched = false;
+            for window in cx.windows() {
+                if let Some(root) = window.downcast::<crate::root_view::RootView>() {
+                    let _ = root.update(cx, |root, _window, cx| {
+                        root.apply_native_agent_action(action.clone(), cx);
+                    });
+                    dispatched = true;
+                    break;
+                }
+            }
+            self.state.push_system(if dispatched {
+                format!("已执行：{summary}")
+            } else {
+                summary
+            });
         }
     }
 

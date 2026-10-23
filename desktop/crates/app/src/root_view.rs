@@ -1309,7 +1309,7 @@ impl RootView {
         palette: &theme::Palette,
         _cx: &mut Context<Self>,
     ) -> AnyElement {
-        match &self.current {
+        let content = match &self.current {
             Some(route_match) => div()
                 .flex()
                 .flex_col()
@@ -1344,6 +1344,24 @@ impl RootView {
                         .child(translate(language, Key::AppEmptyBody)),
                 )
                 .into_any_element(),
+        };
+        match &self.native_agent_highlight {
+            Some(highlight) => div()
+                .flex()
+                .flex_col()
+                .gap(space(2))
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(palette.ink_2)
+                        .child(format!(
+                            "Agent 高亮：{}:{}-{}",
+                            highlight.path, highlight.start_line, highlight.end_line
+                        )),
+                )
+                .child(content)
+                .into_any_element(),
+            None => content,
         }
     }
 

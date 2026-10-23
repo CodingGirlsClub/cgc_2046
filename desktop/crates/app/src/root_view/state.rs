@@ -111,6 +111,14 @@ pub(in crate::root_view) enum AgentRegistryFilter {
     NotInstalled,
 }
 
+/// native agent 请求高亮的文件行区间（最小渲染：主窗口内容区顶部提示）。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeAgentHighlight {
+    pub path: String,
+    pub start_line: u32,
+    pub end_line: u32,
+}
+
 pub struct ShellState {
     pub(in crate::root_view) registry: RouteRegistry,
     pub(in crate::root_view) current: Option<RouteMatch>,
@@ -211,6 +219,7 @@ pub struct ShellState {
     pub(in crate::root_view) content: CourseContentService,
     pub(in crate::root_view) projection: LearningProjectionService,
     pub(in crate::root_view) pending_link: Option<String>,
+    pub(in crate::root_view) native_agent_highlight: Option<NativeAgentHighlight>,
     pub(in crate::root_view) review_event_keys: std::collections::HashSet<String>,
     pub(in crate::root_view) selected_event: Option<String>,
 }
@@ -337,6 +346,7 @@ impl ShellState {
             content,
             projection,
             pending_link: None,
+            native_agent_highlight: None,
             review_event_keys: std::collections::HashSet::new(),
             workspaces: build_workspace_service(),
             workspaces_started: false,

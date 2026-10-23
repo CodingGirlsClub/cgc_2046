@@ -1752,6 +1752,32 @@ impl RootView {
     }
 
     /// 打开独立设置窗口（对齐 Zed 的 SettingsWindow）：已存在则激活复用。
+    /// 执行 native agent 投递的应用内动作（AppAction）。
+    pub fn apply_native_agent_action(
+        &mut self,
+        action: cgc_agent_tools::AppAction,
+        cx: &mut Context<Self>,
+    ) {
+        match action {
+            cgc_agent_tools::AppAction::OpenPage { route } => {
+                self.navigate(&route);
+                self.native_agent_highlight = None;
+            }
+            cgc_agent_tools::AppAction::HighlightRange {
+                path,
+                start_line,
+                end_line,
+            } => {
+                self.native_agent_highlight = Some(state::NativeAgentHighlight {
+                    path,
+                    start_line,
+                    end_line,
+                });
+            }
+        }
+        cx.notify();
+    }
+
     /// native agent 是否对当前用户开放（P1b 灰度的最小形态：环境变量开关）。
     pub fn native_agent_enabled() -> bool {
         std::env::var_os("CGC_NATIVE_AGENT").is_some()
