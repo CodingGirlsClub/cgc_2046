@@ -220,6 +220,9 @@ pub struct ShellState {
     pub(in crate::root_view) projection: LearningProjectionService,
     pub(in crate::root_view) pending_link: Option<String>,
     pub(in crate::root_view) native_agent_highlight: Option<NativeAgentHighlight>,
+    pub(in crate::root_view) native_chat_mode: bool,
+    pub(in crate::root_view) native_agent_view:
+        Option<gpui_kit::Entity<crate::native_agent_view::NativeAgentView>>,
     pub(in crate::root_view) review_event_keys: std::collections::HashSet<String>,
     pub(in crate::root_view) selected_event: Option<String>,
 }
@@ -347,6 +350,8 @@ impl ShellState {
             projection,
             pending_link: None,
             native_agent_highlight: None,
+            native_chat_mode: false,
+            native_agent_view: None,
             review_event_keys: std::collections::HashSet::new(),
             workspaces: build_workspace_service(),
             workspaces_started: false,

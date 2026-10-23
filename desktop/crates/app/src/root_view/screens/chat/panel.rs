@@ -790,9 +790,13 @@ pub(in crate::root_view) fn render_chat_panel(
                                                         .rounded(px(RADIUS_SMALL))
                                                         .text_color(palette.ink_3)
                                                         .hover(|style| style.bg(palette.soft))
-                                                        .child("Native")
+                                                        .child(if ctx.native_chat_mode {
+                                                            "ACP"
+                                                        } else {
+                                                            "Native"
+                                                        })
                                                         .on_click(cx.listener(|this, _, _, cx| {
-                                                            this.open_native_agent_window(cx)
+                                                            this.toggle_native_chat_mode(cx)
                                                         }))
                                                 }),
                                         )
