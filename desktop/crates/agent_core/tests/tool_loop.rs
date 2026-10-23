@@ -77,7 +77,7 @@ struct CountingApprover {
 impl Approver for CountingApprover {
     fn decide(&self, _request: ApprovalRequest) -> BoxFuture<'static, ApprovalDecision> {
         self.calls.fetch_add(1, Ordering::SeqCst);
-        let decision = self.decision;
+        let decision = self.decision.clone();
         Box::pin(async move { decision })
     }
 }
@@ -372,5 +372,59 @@ fn write_tool_asks_then_writes() {
         std::fs::read_to_string(workspace.join("out.txt")).unwrap(),
         "written"
     );
+    let _ = std::fs::remove_dir_all(&workspace);
+}
+
+#[test]
+fn allow_pattern_auto_approves_matching_commands() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let approver = CountingApprover {
+        calls: calls.clone(),
+        decision: ApprovalDecision::AllowPattern("echo".to_string()),
+    };
+    let fake = fake(vec![
+        vec![
+            tool_use(
+                "call_1",
+                "run_command",
+                serde_json::json!({"command": "echo one"}),
+            ),
+            Ok(CompletionEvent::Stop(StopReason::ToolUse)),
+        ],
+        vec![
+            tool_use(
+                "call_2",
+                "run_command",
+                serde_json::json!({"command": "echo two"}),
+            ),
+            Ok(CompletionEvent::Stop(StopReason::ToolUse)),
+        ],
+        vec![
+            Ok(CompletionEvent::Text("done".into())),
+            Ok(CompletionEvent::Stop(StopReason::EndTurn)),
+        ],
+    ]);
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(cgc_agent_tools::builtin::RunCommandTool::new()));
+    let workspace = temp_workspace("pattern");
+    let mut agent = agent();
+    let outcome = futures::executor::block_on(agent.prompt_with_tools(
+        &fake,
+        &model(),
+        "run twice",
+        &registry,
+        &ToolContext::new(&workspace),
+        &approver,
+    ))
+    .expect("turn");
+    assert_eq!(outcome.text, "done");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "second matching command must be auto-approved"
+    );
+    assert_eq!(outcome.tool_results.len(), 2);
+    assert!(!outcome.tool_results[0].is_error);
+    assert!(!outcome.tool_results[1].is_error);
     let _ = std::fs::remove_dir_all(&workspace);
 }

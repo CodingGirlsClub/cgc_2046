@@ -146,6 +146,7 @@ pub struct Agent {
     system_prompt: Option<String>,
     cancel: CancelToken,
     session_grants: HashSet<String>,
+    session_patterns: Vec<(String, String)>,
     follow_ups: VecDeque<String>,
     follow_up_tx: mpsc::Sender<String>,
     follow_up_rx: mpsc::Receiver<String>,
@@ -163,6 +164,7 @@ impl Agent {
             system_prompt,
             cancel: CancelToken::new(),
             session_grants: HashSet::new(),
+            session_patterns: Vec::new(),
             follow_ups: VecDeque::new(),
             follow_up_tx,
             follow_up_rx,
@@ -193,6 +195,7 @@ impl Agent {
     pub fn replace_thread(&mut self, thread: Thread) {
         self.thread = thread;
         self.session_grants.clear();
+        self.session_patterns.clear();
         self.follow_ups.clear();
         while self.follow_up_rx.try_recv().is_ok() {}
         while self.steer_rx.try_recv().is_ok() {}
@@ -548,6 +551,25 @@ impl Agent {
             .push_assistant(text, tool_calls, usage_for_entry);
     }
 
+    fn pattern_allows(&self, tool_call: &ToolUse) -> bool {
+        let command = tool_call
+            .args
+            .get("command")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .trim();
+        if command.is_empty() {
+            return false;
+        }
+        self.session_patterns.iter().any(|(tool, pattern)| {
+            tool == &tool_call.name
+                && (command == pattern
+                    || command
+                        .strip_prefix(pattern.as_str())
+                        .is_some_and(|rest| rest.starts_with(char::is_whitespace)))
+        })
+    }
+
     async fn execute_tool_call(
         &mut self,
         tool_call: &ToolUse,
@@ -590,7 +612,8 @@ impl Agent {
                 };
             }
             Approval::Ask => {
-                if self.session_grants.contains(&tool_call.name) {
+                let pattern_matches = self.pattern_allows(tool_call);
+                if self.session_grants.contains(&tool_call.name) || pattern_matches {
                     ApprovalDecision::AllowOnce
                 } else {
                     let request = ApprovalRequest {
@@ -620,9 +643,18 @@ impl Agent {
                     is_error: true,
                 }
             }
-            ApprovalDecision::AllowOnce | ApprovalDecision::AllowForSession => {
-                if decision == ApprovalDecision::AllowForSession {
-                    self.session_grants.insert(tool_call.name.clone());
+            ApprovalDecision::AllowOnce
+            | ApprovalDecision::AllowForSession
+            | ApprovalDecision::AllowPattern(_) => {
+                match &decision {
+                    ApprovalDecision::AllowForSession => {
+                        self.session_grants.insert(tool_call.name.clone());
+                    }
+                    ApprovalDecision::AllowPattern(pattern) if !pattern.is_empty() => {
+                        self.session_patterns
+                            .push((tool_call.name.clone(), pattern.clone()));
+                    }
+                    _ => {}
                 }
                 let (content, is_error) = match tools
                     .run(&tool_call.name, tool_call.args.clone(), context.clone())

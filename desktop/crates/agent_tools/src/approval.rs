@@ -10,9 +10,11 @@ pub enum Approval {
 }
 
 /// 用户对审批请求的答复。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ApprovalDecision {
     AllowOnce,
     AllowForSession,
+    /// 允许本会话内匹配该前缀/模式的一类调用（如 `cargo` 前缀命令）。
+    AllowPattern(String),
     Deny,
 }
