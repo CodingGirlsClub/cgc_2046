@@ -12,17 +12,21 @@ use cgc_agent_core::{
 };
 use cgc_agent_host::{AgentEvent, AsyncChannelObserver, HostState, UiRole};
 use cgc_agent_provider::{
-    EchoProvider, Model, ModelLimits, OpenAiCompatibleConfig, OpenAiCompatibleProvider, Provider,
-    ProviderId,
+    EchoProvider, Model, ModelId, ModelLimits, OpenAiCompatibleConfig, OpenAiCompatibleProvider,
+    Provider, ProviderId,
 };
-use cgc_agent_store::{AgentPrefs, PrefsStore, SessionStore};
+use cgc_agent_store::{AgentPrefs, PrefsStore, ProviderPrefs, SessionStore};
 use cgc_agent_tools::{ApprovalDecision, SandboxPolicy, ToolContext, ToolRegistry};
+use cgc_platform::session::KeychainStore;
 use futures::channel::{mpsc, oneshot};
 use futures::StreamExt as _;
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::*;
 
 use crate::theme::{self, space, RADIUS_MEDIUM};
+
+/// API key 在系统钥匙串里的 account。
+const PROVIDER_KEY_ACCOUNT: &str = "native_agent_provider_api_key";
 
 /// 把审批请求送到 UI；用户点击后通过 oneshot 回填。
 struct UiApprover {
@@ -59,7 +63,13 @@ pub struct NativeAgentView {
     state: HostState,
     status: String,
     busy: bool,
+    prefs_store: PrefsStore,
     session_store: Option<SessionStore>,
+    keychain: Option<KeychainStore>,
+    settings_open: bool,
+    base_url_input: Entity<TextareaState>,
+    model_input: Entity<TextareaState>,
+    api_key_input: Entity<TextareaState>,
     checkpoint_manager: Option<CheckpointManager>,
     last_checkpoint: Option<Checkpoint>,
     checkpoint_changes: Vec<FileChange>,
@@ -77,8 +87,34 @@ impl NativeAgentView {
         let env_model = std::env::var("CGC_AGENT_MODEL")
             .ok()
             .filter(|model| !model.is_empty());
+        let env_base_url = std::env::var("CGC_AGENT_BASE_URL")
+            .ok()
+            .filter(|base_url| !base_url.is_empty());
+        let env_api_key = std::env::var("CGC_AGENT_API_KEY")
+            .ok()
+            .filter(|api_key| !api_key.is_empty());
+        let prefs_provider = prefs.provider.clone().filter(ProviderPrefs::is_complete);
+        let keychain = Some(KeychainStore::from_env());
+        let stored_api_key = if env_api_key.is_none() && prefs_provider.is_some() {
+            keychain
+                .as_ref()
+                .and_then(|keychain| keychain.load_secret(PROVIDER_KEY_ACCOUNT))
+        } else {
+            None
+        };
+        let base_url = env_base_url.clone().or_else(|| {
+            prefs_provider
+                .as_ref()
+                .map(|provider| provider.base_url.clone())
+        });
+        let api_key = env_api_key.clone().or(stored_api_key);
         let model_id = env_model
             .clone()
+            .or_else(|| {
+                prefs_provider
+                    .as_ref()
+                    .map(|provider| provider.model_id.clone())
+            })
             .or_else(|| {
                 prefs
                     .selected_model
@@ -87,35 +123,43 @@ impl NativeAgentView {
             })
             .unwrap_or_else(|| "echo".to_string());
         let provider_name = std::env::var("CGC_AGENT_PROVIDER_NAME")
-            .unwrap_or_else(|_| "OpenAI Compatible".to_string());
+            .ok()
+            .or_else(|| {
+                prefs_provider
+                    .as_ref()
+                    .map(|provider| provider.provider_name.clone())
+            })
+            .unwrap_or_else(|| "OpenAI Compatible".to_string());
         let model = Model::new(
             ProviderId::new("custom"),
-            provider_name,
+            provider_name.clone(),
             model_id.clone(),
             model_id,
             ModelLimits::new(64_000, 8_000),
         );
-        if env_model.is_some() {
-            let _ = prefs_store.save(&AgentPrefs {
-                selected_model: Some(SelectedModel::new(
-                    model.provider_id.clone(),
-                    model.id.clone(),
-                )),
-            });
-        }
-        let provider: Arc<dyn Provider> = match (
-            std::env::var("CGC_AGENT_BASE_URL"),
-            std::env::var("CGC_AGENT_API_KEY"),
-        ) {
-            (Ok(base_url), Ok(api_key)) if !base_url.is_empty() && !api_key.is_empty() => {
+        let provider: Arc<dyn Provider> = match (&base_url, &api_key) {
+            (Some(base_url), Some(api_key)) if !base_url.is_empty() && !api_key.is_empty() => {
                 Arc::new(OpenAiCompatibleProvider::new(OpenAiCompatibleConfig::new(
-                    base_url,
-                    api_key,
+                    base_url.clone(),
+                    api_key.clone(),
                     vec![model.clone()],
                 )))
             }
             _ => Arc::new(EchoProvider::new(model.clone())),
         };
+        if env_model.is_some() || env_base_url.is_some() {
+            let _ = prefs_store.save(&AgentPrefs {
+                selected_model: Some(SelectedModel::new(
+                    model.provider_id.clone(),
+                    model.id.clone(),
+                )),
+                provider: base_url.as_ref().map(|base_url| ProviderPrefs {
+                    base_url: base_url.clone(),
+                    provider_name: provider_name.clone(),
+                    model_id: model.id.as_str().to_string(),
+                }),
+            });
+        }
         let selected = SelectedModel::new(model.provider_id.clone(), model.id.clone());
         let session_store =
             SessionStore::open(paths.data_root.join("agent").join("threads.db")).ok();
@@ -161,6 +205,21 @@ impl NativeAgentView {
         let checkpoint_manager = CheckpointManager::open(&workspace)
             .or_else(|_| CheckpointManager::initialize(&workspace))
             .ok();
+        let base_url_input = cx.new(|cx| {
+            let mut state =
+                TextareaState::new(window, cx).placeholder("https://api.deepseek.com/v1");
+            if let Some(base_url) = &base_url {
+                state.set_value(base_url.clone(), window, cx);
+            }
+            state
+        });
+        let model_input = cx.new(|cx| {
+            let mut state = TextareaState::new(window, cx).placeholder("deepseek-chat");
+            state.set_value(model.id.as_str().to_string(), window, cx);
+            state
+        });
+        let api_key_input =
+            cx.new(|cx| TextareaState::new(window, cx).placeholder("API Key（保存到系统钥匙串）"));
         let input = cx.new(|cx| {
             TextareaState::new(window, cx).placeholder("问 native agent 一个问题，回车发送…")
         });
@@ -192,7 +251,13 @@ impl NativeAgentView {
                 "就绪".to_string()
             },
             busy: false,
+            prefs_store,
             session_store,
+            keychain,
+            settings_open: false,
+            base_url_input,
+            model_input,
+            api_key_input,
             checkpoint_manager,
             last_checkpoint: None,
             checkpoint_changes: Vec::new(),
@@ -308,6 +373,54 @@ impl NativeAgentView {
         cx.notify();
     }
 
+    fn toggle_settings(&mut self, cx: &mut Context<Self>) {
+        self.settings_open = !self.settings_open;
+        cx.notify();
+    }
+
+    fn save_provider_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let base_url = self.base_url_input.read(cx).value().trim().to_string();
+        let model_id = self.model_input.read(cx).value().trim().to_string();
+        let provider_name = std::env::var("CGC_AGENT_PROVIDER_NAME")
+            .ok()
+            .unwrap_or_else(|| "OpenAI Compatible".to_string());
+        let api_key = self.api_key_input.read(cx).value().trim().to_string();
+        if base_url.is_empty() || model_id.is_empty() {
+            self.status = "base_url 与 model 不能为空".to_string();
+            cx.notify();
+            return;
+        }
+        let prefs = AgentPrefs {
+            selected_model: Some(SelectedModel::new(
+                ProviderId::new("custom"),
+                ModelId::new(model_id.clone()),
+            )),
+            provider: Some(ProviderPrefs {
+                base_url,
+                provider_name,
+                model_id,
+            }),
+        };
+        match self.prefs_store.save(&prefs) {
+            Ok(()) => self.status = "Provider 配置已保存；重启 demo 窗口生效".to_string(),
+            Err(error) => self.status = format!("保存失败：{error}"),
+        }
+        if !api_key.is_empty() {
+            if let Some(keychain) = &self.keychain {
+                match keychain.save_secret(PROVIDER_KEY_ACCOUNT, &api_key) {
+                    Ok(()) => {
+                        self.api_key_input
+                            .update(cx, |state, cx| state.set_value("", window, cx));
+                        self.status =
+                            "Provider 配置与 API Key 已保存；重启 demo 窗口生效".to_string();
+                    }
+                    Err(error) => self.status = format!("API Key 保存失败：{error}"),
+                }
+            }
+        }
+        cx.notify();
+    }
+
     fn refresh_checkpoint_changes(&mut self) {
         self.checkpoint_changes = match (&self.checkpoint_manager, &self.last_checkpoint) {
             (Some(manager), Some(checkpoint)) => {
@@ -410,6 +523,10 @@ impl Render for NativeAgentView {
         let pending = self.state.pending_permission.clone();
         let usage = self.state.usage_total.total();
         let input = self.input.clone();
+        let settings_open = self.settings_open;
+        let base_url_input = self.base_url_input.clone();
+        let model_input = self.model_input.clone();
+        let api_key_input = self.api_key_input.clone();
         let can_undo = self.last_checkpoint.is_some() && !busy;
         let change_count = self.checkpoint_changes.len();
         let show_changes = self.show_checkpoint_panel && change_count > 0;
@@ -475,13 +592,67 @@ impl Render for NativeAgentView {
                     .child(div().text_size(px(15.0)).child("Native Agent（P1a）"))
                     .child(
                         div()
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_3)
-                            .child(format!(
-                                "model: {model_label} · usage: {usage} tokens · {status}"
-                            )),
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(2))
+                            .child(div().text_size(px(11.0)).text_color(palette.ink_3).child(
+                                format!("model: {model_label} · usage: {usage} tokens · {status}"),
+                            ))
+                            .child(
+                                div()
+                                    .id("native-agent-settings")
+                                    .role(Role::Button)
+                                    .aria_label("Provider 设置")
+                                    .px(space(2))
+                                    .py(px(2.0))
+                                    .rounded(px(RADIUS_MEDIUM))
+                                    .bg(palette.soft)
+                                    .text_color(palette.ink)
+                                    .child("Provider 设置")
+                                    .on_click(
+                                        cx.listener(|this, _, _window, cx| {
+                                            this.toggle_settings(cx)
+                                        }),
+                                    ),
+                            ),
                     ),
             )
+            .children(settings_open.then(|| {
+                div()
+                    .id("native-agent-provider-settings")
+                    .flex()
+                    .flex_col()
+                    .gap(space(1))
+                    .px(space(3))
+                    .py(space(2))
+                    .border_b_1()
+                    .border_color(palette.line)
+                    .bg(palette.view)
+                    .child(
+                        div()
+                            .text_size(px(12.0))
+                            .child("Provider 设置（OpenAI-compatible）"),
+                    )
+                    .child(settings_field("Base URL", &base_url_input, &palette))
+                    .child(settings_field("Model", &model_input, &palette))
+                    .child(settings_field("API Key", &api_key_input, &palette))
+                    .child(
+                        div()
+                            .id("native-agent-settings-save")
+                            .role(Role::Button)
+                            .aria_label("保存 Provider 设置")
+                            .px(space(3))
+                            .py(space(1))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .bg(palette.accent)
+                            .text_color(palette.canvas)
+                            .child("保存")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.save_provider_settings(window, cx)
+                            })),
+                    )
+            }))
             .child(
                 div()
                     .id("native-agent-messages")
@@ -667,6 +838,31 @@ impl Render for NativeAgentView {
                     ),
             )
     }
+}
+
+fn settings_field(
+    label: &'static str,
+    input: &Entity<TextareaState>,
+    palette: &crate::theme::Palette,
+) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(space(2))
+        .child(
+            div()
+                .w(px(90.0))
+                .text_size(px(12.0))
+                .text_color(palette.ink_3)
+                .child(label),
+        )
+        .child(
+            div()
+                .flex_1()
+                .child(Textarea::new(input).h(px(30.0)).w_full()),
+        )
+        .into_any_element()
 }
 
 fn role_label(role: UiRole) -> &'static str {

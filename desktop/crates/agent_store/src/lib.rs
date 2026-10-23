@@ -5,5 +5,5 @@
 pub mod prefs;
 pub mod sessions;
 
-pub use prefs::{AgentPrefs, PrefsError, PrefsStore};
+pub use prefs::{AgentPrefs, PrefsError, PrefsStore, ProviderPrefs};
 pub use sessions::{CheckpointRecord, SessionError, SessionStore, ThreadSummary};

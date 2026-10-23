@@ -3,11 +3,30 @@ use std::path::{Path, PathBuf};
 use cgc_agent_core::SelectedModel;
 use serde::{Deserialize, Serialize};
 
+/// 自定义 OpenAI-compatible provider 的配置（API key 存系统钥匙串，不落 JSON）。
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderPrefs {
+    #[serde(default)]
+    pub base_url: String,
+    #[serde(default)]
+    pub provider_name: String,
+    #[serde(default)]
+    pub model_id: String,
+}
+
+impl ProviderPrefs {
+    pub fn is_complete(&self) -> bool {
+        !self.base_url.is_empty() && !self.model_id.is_empty()
+    }
+}
+
 /// 跨会话保留的 agent 偏好。
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentPrefs {
     #[serde(default)]
     pub selected_model: Option<SelectedModel>,
+    #[serde(default)]
+    pub provider: Option<ProviderPrefs>,
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -82,6 +101,7 @@ mod tests {
         let store = PrefsStore::new(dir.join("agent_prefs.json"));
         let prefs = AgentPrefs {
             selected_model: Some(selected()),
+            provider: None,
         };
         store.save(&prefs).expect("save");
         assert_eq!(store.load(), prefs);
@@ -114,9 +134,47 @@ mod tests {
         store
             .save(&AgentPrefs {
                 selected_model: Some(selected()),
+                provider: None,
             })
             .expect("save");
         assert!(path.exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod provider_tests {
+    use super::*;
+
+    #[test]
+    fn provider_prefs_roundtrip() {
+        let dir =
+            std::env::temp_dir().join(format!("cgc-agent-prefs-provider-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("dir");
+        let store = PrefsStore::new(dir.join("agent_prefs.json"));
+        let prefs = AgentPrefs {
+            selected_model: None,
+            provider: Some(ProviderPrefs {
+                base_url: "https://api.deepseek.com/v1".into(),
+                provider_name: "DeepSeek".into(),
+                model_id: "deepseek-chat".into(),
+            }),
+        };
+        store.save(&prefs).expect("save");
+        assert_eq!(store.load(), prefs);
+        assert!(store.load().provider.expect("provider").is_complete());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn incomplete_provider_is_rejected_by_helper() {
+        assert!(!ProviderPrefs::default().is_complete());
+        assert!(!ProviderPrefs {
+            base_url: "x".into(),
+            provider_name: String::new(),
+            model_id: String::new(),
+        }
+        .is_complete());
     }
 }
