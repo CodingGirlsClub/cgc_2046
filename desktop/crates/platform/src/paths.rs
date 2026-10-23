@@ -110,6 +110,11 @@ impl AppPaths {
         self.data_root.join("theme.txt")
     }
 
+    /// native agent 动作审计（JSONL）。
+    pub fn agent_audit_file(&self) -> PathBuf {
+        self.data_root.join("agent").join("actions.jsonl")
+    }
+
     /// native agent 的本地偏好（当前是模型选择）。
     pub fn agent_prefs_file(&self) -> PathBuf {
         self.data_root.join("agent_prefs.json")

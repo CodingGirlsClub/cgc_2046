@@ -17,7 +17,9 @@ use cgc_agent_provider::{
     EchoProvider, Model, ModelId, ModelLimits, OpenAiCompatibleConfig, OpenAiCompatibleProvider,
     Provider, ProviderId,
 };
-use cgc_agent_store::{AgentPrefs, PrefsStore, ProviderPrefs, SessionStore};
+use cgc_agent_store::{
+    ActionAuditEntry, AgentPrefs, AuditLog, PrefsStore, ProviderPrefs, SessionStore,
+};
 use cgc_agent_tools::{
     ActionSink, AgentState, AppAction, ApprovalDecision, SandboxPolicy, SharedAgentState,
     SubagentEvent, SubagentEventSink, SubagentRequest, SubagentRunner, ToolContext, ToolRegistry,
@@ -65,6 +67,7 @@ pub struct NativeAgentView {
     agent_state: SharedAgentState,
     last_agent_summary: Option<String>,
     app_actions: Arc<Mutex<Vec<AppAction>>>,
+    action_audit: Option<AuditLog>,
     subagent_tx: Arc<Mutex<Option<mpsc::UnboundedSender<AgentEvent>>>>,
     context: ToolContext,
     input: Entity<TextareaState>,
@@ -212,6 +215,7 @@ impl NativeAgentView {
         let follow_up_sender = agent.follow_up_sender();
         let steer_sender = agent.steer_sender();
         let agent_state: SharedAgentState = Arc::new(Mutex::new(AgentState::default()));
+        let action_audit = Some(AuditLog::new(paths.agent_audit_file()));
         let app_actions: Arc<Mutex<Vec<AppAction>>> = Arc::new(Mutex::new(Vec::new()));
         let action_sink: ActionSink = {
             let app_actions = app_actions.clone();
@@ -310,6 +314,7 @@ impl NativeAgentView {
             agent_state,
             last_agent_summary: None,
             app_actions,
+            action_audit,
             subagent_tx,
             context: ToolContext::new(&workspace)
                 .with_sandbox(SandboxPolicy::new(&workspace))
@@ -581,6 +586,18 @@ impl NativeAgentView {
                     dispatched = true;
                     break;
                 }
+            }
+            if let Some(log) = &self.action_audit {
+                let action_name = match &action {
+                    AppAction::OpenPage { .. } => "open_page",
+                    AppAction::HighlightRange { .. } => "highlight_range",
+                };
+                let _ = log.append(&ActionAuditEntry {
+                    at: now_secs(),
+                    action: action_name.to_string(),
+                    detail: summary.clone(),
+                    dispatched,
+                });
             }
             self.state.push_system(if dispatched {
                 format!("已执行：{summary}")
