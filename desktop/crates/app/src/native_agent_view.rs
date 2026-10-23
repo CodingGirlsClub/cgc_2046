@@ -32,10 +32,11 @@ use futures::StreamExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::component::popover::Popover;
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::Sizable;
 use gpui_kit::*;
 
-use crate::theme::{self, space, RADIUS_MEDIUM};
+use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 
 /// 推理档位（映射到 OpenAI-compatible 的 reasoning_effort）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -131,6 +132,7 @@ pub struct NativeAgentView {
     providers: Vec<ProviderPrefs>,
     keychain: Option<KeychainStore>,
     thinking_level: ThinkingLevel,
+    thinking_enabled: bool,
     approval_mode: ApprovalMode,
     approval_sender: Arc<Mutex<Option<oneshot::Sender<ApprovalDecision>>>>,
     follow_up_sender: std_mpsc::Sender<String>,
@@ -295,18 +297,26 @@ impl NativeAgentView {
             })
         };
         let input = cx.new(|cx| {
-            TextareaState::new(window, cx).placeholder("问 native agent 一个问题，回车发送…")
+            TextareaState::new(window, cx).placeholder(
+                "给 CGC Agent 发消息… @ 引用上下文，/ 查看命令（Enter 发送，Shift+Enter 换行）",
+            )
         });
         let input_subscription = Some(cx.subscribe_in(
             &input,
             window,
             |this, state, event: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { shift, .. } = event {
-                    if !shift {
-                        this.send(window, cx);
-                        state.update(cx, |state, cx| state.set_value("", window, cx));
-                        cx.notify();
+                if let InputEvent::PressEnter { secondary, shift } = event {
+                    if *shift {
+                        return;
                     }
+                    if *secondary && this.busy {
+                        // ⌘↩：生成中立即打断并发送。
+                        this.steer(window, cx);
+                    } else {
+                        this.send(window, cx);
+                    }
+                    state.update(cx, |state, cx| state.set_value("", window, cx));
+                    cx.notify();
                 }
             },
         ));
@@ -327,6 +337,7 @@ impl NativeAgentView {
             providers,
             keychain,
             thinking_level: ThinkingLevel::Off,
+            thinking_enabled: true,
             approval_mode: ApprovalMode::Ask,
             context: ToolContext::new(&workspace)
                 .with_sandbox(SandboxPolicy::new(&workspace))
@@ -428,7 +439,11 @@ impl NativeAgentView {
         let Some(mut agent) = self.agent.take() else {
             return;
         };
-        agent.set_reasoning_effort(self.thinking_level.reasoning_effort().map(str::to_string));
+        agent.set_reasoning_effort(if self.thinking_enabled {
+            self.thinking_level.reasoning_effort().map(str::to_string)
+        } else {
+            None
+        });
         let approval_mode = self.approval_mode;
         self.state.push_user(text.clone());
         self.busy = true;
@@ -693,6 +708,34 @@ impl NativeAgentView {
         ));
         let _ = store.save(&prefs);
         self.status = format!("模型：{}", self.model.id.as_str());
+        cx.notify();
+    }
+
+    fn set_thinking_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        self.thinking_enabled = enabled;
+        if enabled && self.thinking_level == ThinkingLevel::Off {
+            self.thinking_level = ThinkingLevel::Medium;
+        }
+        self.status = if enabled {
+            format!("Thinking 开 · {}", self.thinking_level.label())
+        } else {
+            "Thinking 关".to_string()
+        };
+        cx.notify();
+    }
+
+    fn insert_context_marker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let current = self.input.read(cx).value().to_string();
+        let next = if current.trim().is_empty() {
+            "@".to_string()
+        } else if current.ends_with(char::is_whitespace) {
+            format!("{current}@")
+        } else {
+            format!("{current} @")
+        };
+        self.input
+            .update(cx, |state, cx| state.set_value(next, window, cx));
+        self.status = "输入 @ 引用上下文（文件引用 P1 支持）".to_string();
         cx.notify();
     }
 
@@ -1066,34 +1109,96 @@ impl Render for NativeAgentView {
             }))
             .children(pending.map(|prompt| {
                 let args = serde_json::to_string(&prompt.args).unwrap_or_default();
+                let args: String = args.chars().take(400).collect();
+                let description = match prompt.tool_name.as_str() {
+                    "run_command" => "将在工作区内执行 shell 命令（危险命令已被策略拦截）",
+                    "write_file" | "edit_file" => "将修改工作区文件，可在完成后用 Keep/Reject 处理",
+                    "read_file" | "list_directory" => "将读取工作区内容",
+                    _ => "该操作需要你的确认",
+                };
                 div()
+                    .id("native-agent-permission")
                     .flex()
                     .flex_col()
                     .gap(space(1))
-                    .px(space(3))
-                    .py(space(2))
-                    .border_t_1()
+                    .mx(space(2))
+                    .mb(space(2))
+                    .p(space(2))
+                    .rounded(px(RADIUS_MEDIUM))
+                    .border_1()
                     .border_color(palette.line)
-                    .bg(palette.view)
+                    .bg(palette.card)
                     .child(
                         div()
-                            .text_size(px(12.0))
-                            .child(format!("需要审批：{} {}", prompt.tool_name, args)),
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(1))
+                            .child(
+                                div()
+                                    .text_size(px(12.0))
+                                    .text_color(palette.ink)
+                                    .child("需要审批"),
+                            )
+                            .child(
+                                div()
+                                    .px(space(1))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .bg(palette.soft)
+                                    .text_size(px(10.0))
+                                    .text_color(palette.accent)
+                                    .child(prompt.tool_name.clone()),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_3)
+                            .child(description),
+                    )
+                    .child(
+                        div()
+                            .p(space(1))
+                            .rounded(px(RADIUS_SMALL))
+                            .bg(palette.view)
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_2)
+                            .child(args),
                     )
                     .child(
                         div()
                             .flex()
                             .flex_row()
+                            .items_center()
                             .gap(space(2))
                             .child(approval_button("允许一次", true, cx, |this, cx| {
                                 this.resolve_approval(ApprovalDecision::AllowOnce, cx);
                             }))
-                            .child(approval_button("本会话允许", true, cx, |this, cx| {
+                            .child(approval_button("本会话允许", false, cx, |this, cx| {
                                 this.resolve_approval(ApprovalDecision::AllowForSession, cx);
                             }))
-                            .child(approval_button("拒绝", false, cx, |this, cx| {
-                                this.resolve_approval(ApprovalDecision::Deny, cx);
-                            })),
+                            .child({
+                                div()
+                                    .id("native-agent-deny")
+                                    .role(Role::Button)
+                                    .aria_label("拒绝")
+                                    .px(space(2))
+                                    .py(space(1))
+                                    .rounded(px(RADIUS_MEDIUM))
+                                    .text_size(px(12.0))
+                                    .text_color(palette.danger)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child("拒绝")
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.resolve_approval(ApprovalDecision::Deny, cx);
+                                    }))
+                            }),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(10.0))
+                            .text_color(palette.ink_3)
+                            .child("允许一次只对本次调用生效；本会话允许会记住该工具的同类请求。"),
                     )
             }))
             .child({
@@ -1186,13 +1291,15 @@ impl Render for NativeAgentView {
                             .occlude()
                             .children(rows)
                     });
-                let thinking_label = if thinking_supported {
+                let thinking_label = if thinking_supported && self.thinking_enabled {
                     self.thinking_level.label()
+                } else if thinking_supported {
+                    "Thinking 关"
                 } else {
                     "推理 —"
                 };
                 let current_level = self.thinking_level;
-                let thinking_picker = Popover::new("native-thinking-picker")
+                let effort_picker = Popover::new("native-thinking-picker")
                     .trigger(
                         Button::new("native-thinking-trigger")
                             .label(thinking_label)
@@ -1325,114 +1432,192 @@ impl Render for NativeAgentView {
                             .occlude()
                             .children(rows)
                     });
+
+                let thinking_toggle = thinking_supported.then(|| {
+                    let enabled = self.thinking_enabled;
+                    div()
+                        .id("native-thinking-toggle")
+                        .role(Role::Button)
+                        .aria_label(if enabled {
+                            "关闭 Thinking"
+                        } else {
+                            "开启 Thinking"
+                        })
+                        .px(space(1))
+                        .py(px(2.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .text_size(px(11.0))
+                        .text_color(if enabled {
+                            palette.accent
+                        } else {
+                            palette.ink_3
+                        })
+                        .bg(if enabled { palette.soft } else { palette.view })
+                        .child(if enabled { "Thinking" } else { "Thinking 关" })
+                        .on_click(cx.listener(move |this, _, _window, cx| {
+                            this.set_thinking_enabled(!enabled, cx)
+                        }))
+                });
+                let send_label = if busy {
+                    if has_input {
+                        "排队"
+                    } else {
+                        "停止"
+                    }
+                } else {
+                    "发送"
+                };
+                let send_bg = if busy && !has_input {
+                    palette.danger
+                } else if !busy && !has_input {
+                    palette.soft
+                } else {
+                    palette.accent
+                };
+                let send_fg = if !busy && !has_input {
+                    palette.ink_3
+                } else {
+                    palette.canvas
+                };
+                let send_tip = if busy {
+                    if has_input {
+                        "排队发送（⌘↩ 立即打断发送）"
+                    } else {
+                        "停止生成"
+                    }
+                } else if has_input {
+                    "发送（Enter）"
+                } else {
+                    "输入内容后可发送"
+                };
+                let usage_label = format!("{usage} tokens");
+
                 div()
-                    .id("native-agent-toolbar")
+                    .id("native-agent-composer")
                     .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(space(1))
-                    .px(space(2))
-                    .pt(space(1))
-                    .border_t_1()
+                    .flex_col()
+                    .gap(px(1.0))
+                    .mx(space(2))
+                    .mb(space(2))
+                    .p(space(1))
+                    .rounded(px(RADIUS_MEDIUM))
+                    .border_1()
                     .border_color(palette.line)
-                    .child(model_picker)
-                    .child(thinking_picker)
-                    .child(div().flex_1())
-                    .child(approval_picker)
-            })
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(space(2))
-                    .p(space(2))
-                    .border_t_1()
-                    .border_color(palette.line)
+                    .bg(palette.view)
+                    .child(
+                        div().px(space(1)).py(px(4.0)).child(
+                            Textarea::new(&input)
+                                .appearance(false)
+                                .bordered(false)
+                                .h(px(40.0))
+                                .w_full(),
+                        ),
+                    )
                     .child(
                         div()
-                            .flex_1()
-                            .rounded(px(RADIUS_MEDIUM))
-                            .border_1()
-                            .border_color(palette.line)
-                            .bg(palette.view)
-                            .px(space(1))
-                            .py(px(4.0))
+                            .id("native-agent-composer-footer")
+                            .flex()
+                            .flex_row()
+                            .flex_wrap()
+                            .items_center()
+                            .gap(space(1))
+                            .w_full()
+                            .min_w(px(0.0))
                             .child(
-                                Textarea::new(&input)
-                                    .appearance(false)
-                                    .bordered(false)
-                                    .h(px(36.0))
-                                    .w_full(),
+                                div()
+                                    .id("native-agent-add-context")
+                                    .role(Role::Button)
+                                    .aria_label("添加上下文")
+                                    .size(px(24.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .text_size(px(14.0))
+                                    .text_color(palette.ink_3)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child("＋")
+                                    .tooltip(|window, cx| {
+                                        Tooltip::new("添加上下文（@）").build(window, cx)
+                                    })
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.insert_context_marker(window, cx)
+                                    })),
+                            )
+                            .child(model_picker)
+                            .children(thinking_toggle)
+                            .child(effort_picker)
+                            .child(approval_picker)
+                            .child(div().flex_1())
+                            .children((can_undo && change_count > 0).then(|| {
+                                div()
+                                    .id("native-agent-changes")
+                                    .role(Role::Button)
+                                    .aria_label("查看变更")
+                                    .px(space(1))
+                                    .py(px(2.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child(format!("变更 {change_count}"))
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.toggle_checkpoint_panel(cx)
+                                    }))
+                            }))
+                            .children(can_undo.then(|| {
+                                div()
+                                    .id("native-agent-undo")
+                                    .role(Role::Button)
+                                    .aria_label("撤销文件改动")
+                                    .px(space(1))
+                                    .py(px(2.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_3)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child("撤销")
+                                    .on_click(
+                                        cx.listener(|this, _, _window, cx| {
+                                            this.undo_checkpoint(cx)
+                                        }),
+                                    )
+                            }))
+                            .child(
+                                div()
+                                    .text_size(px(10.0))
+                                    .text_color(palette.ink_3)
+                                    .child(usage_label),
+                            )
+                            .child(
+                                div()
+                                    .id(if busy {
+                                        "native-agent-stop"
+                                    } else {
+                                        "native-agent-send"
+                                    })
+                                    .role(Role::Button)
+                                    .aria_label(send_label)
+                                    .px(space(2))
+                                    .py(px(3.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .bg(send_bg)
+                                    .text_color(send_fg)
+                                    .text_size(px(12.0))
+                                    .child(send_label)
+                                    .tooltip(move |window, cx| {
+                                        Tooltip::new(send_tip).build(window, cx)
+                                    })
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        if busy && !has_input {
+                                            this.stop(cx);
+                                        } else {
+                                            this.send(window, cx);
+                                        }
+                                    })),
                             ),
                     )
-                    .children((busy && has_input).then(|| {
-                        div()
-                            .id("native-agent-steer")
-                            .role(Role::Button)
-                            .aria_label("打断并发送")
-                            .px(space(2))
-                            .py(space(1))
-                            .rounded(px(RADIUS_MEDIUM))
-                            .bg(palette.soft)
-                            .text_color(palette.ink)
-                            .child("打断")
-                            .on_click(cx.listener(|this, _, window, cx| this.steer(window, cx)))
-                    }))
-                    .children((can_undo && change_count > 0).then(|| {
-                        div()
-                            .id("native-agent-changes")
-                            .role(Role::Button)
-                            .aria_label("查看变更")
-                            .px(space(2))
-                            .py(space(1))
-                            .rounded(px(RADIUS_MEDIUM))
-                            .bg(palette.soft)
-                            .text_color(palette.ink)
-                            .child(format!("变更 ({change_count})"))
-                            .on_click(
-                                cx.listener(|this, _, _window, cx| {
-                                    this.toggle_checkpoint_panel(cx)
-                                }),
-                            )
-                    }))
-                    .children(can_undo.then(|| {
-                        div()
-                            .id("native-agent-undo")
-                            .role(Role::Button)
-                            .aria_label("撤销文件改动")
-                            .px(space(2))
-                            .py(space(1))
-                            .rounded(px(RADIUS_MEDIUM))
-                            .bg(palette.soft)
-                            .text_color(palette.ink)
-                            .child("撤销文件改动")
-                            .on_click(cx.listener(|this, _, _window, cx| this.undo_checkpoint(cx)))
-                    }))
-                    .child(
-                        div()
-                            .id(if busy {
-                                "native-agent-stop"
-                            } else {
-                                "native-agent-send"
-                            })
-                            .role(Role::Button)
-                            .aria_label(if busy { "停止" } else { "发送" })
-                            .px(space(3))
-                            .py(space(1))
-                            .rounded(px(RADIUS_MEDIUM))
-                            .bg(if busy { palette.danger } else { palette.accent })
-                            .text_color(palette.canvas)
-                            .child(if busy { "停止" } else { "发送" })
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                if busy {
-                                    this.stop(cx);
-                                } else {
-                                    this.send(window, cx);
-                                }
-                            })),
-                    ),
-            )
+            })
     }
 }
 

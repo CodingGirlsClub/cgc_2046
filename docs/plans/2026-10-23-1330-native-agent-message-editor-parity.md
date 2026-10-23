@@ -3,7 +3,7 @@ title: "Native Agent Message Editor 对齐 Zed 的改进建议"
 type: plan
 date: 2026-10-23
 topic: desktop-native-agent
-status: draft
+status: in-progress
 ---
 
 # Native Agent Message Editor 对齐 Zed 的改进建议
@@ -73,7 +73,7 @@ h_flex 居中（max_content_width）
 
 ## 4. 改进建议（按优先级）
 
-### P0 视觉与交互一致性（预计 1–2 天，低风险）
+### P0 视觉与交互一致性（预计 1–2 天，低风险）— ✅ 已实施（2026-10-23，提交见 git log）
 1. **单一 composer 卡片**：textarea + footer 放进同一个圆角卡片（复用 ACP 面板样式，聚焦 accent 边框）。
    - footer 左：`+` 上下文、模型、推理/thinking、审批模式（或移到权限卡片）；
    - footer 右：token usage、发送/停止/排队按钮。
@@ -113,3 +113,17 @@ h_flex 居中（max_content_width）
 - 可复用 ACP 面板样式，风险低，做完即可并排对比验收。
 
 之后做 P0 #4–#6，再进入 P1 的 slash 弹层与 @ 上下文。
+
+## 7. P0 实施记录（2026-10-23）
+
+已落地：
+1. composer 收敛为单一圆角卡片（textarea + footer 同一容器），footer 左侧：`＋`上下文入口、模型、Thinking 开关、推理档位、审批模式；右侧：变更/撤销、本会话 tokens、发送按钮。
+2. placeholder 对齐 ACP / Zed 提示（`@` 上下文、`/` 命令、Enter/Shift+Enter 提示）。
+3. 发送按钮状态机：空闲空输入=禁用「发送」；空闲有输入=「发送」；生成中空输入=「停止」；生成中已有输入=「排队」。
+4. token usage 从 header 移到 footer（本会话 tokens）。
+5. Thinking 开关 + 推理档位（Off/Low/Medium/High）；关闭时不下发 `reasoning_effort`。
+6. 审批卡升级：工具名 tag、操作说明、参数预览、允许一次 / 本会话允许 / 拒绝（danger）+ 说明文案。
+
+键盘：Enter 发送/排队，Shift+Enter 换行，⌘↩ 生成中打断并立即发送（未生成时等同发送）。
+
+仍未做（进入 P1）：slash 命令弹层、@ 文件上下文、队列卡片、plan/todo 结构化卡片、权限 pattern 粒度、subagent 内联。
