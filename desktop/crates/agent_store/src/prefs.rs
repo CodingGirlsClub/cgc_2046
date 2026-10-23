@@ -216,121 +216,74 @@ pub fn provider_key_account(provider_id: &str) -> String {
 
 /// 内置 provider 目录：第一次打开设置就能看到的默认配置（不写入用户文件）。
 pub fn builtin_providers() -> Vec<ProviderPrefs> {
-    let mut cgc = ProviderPrefs {
-        id: "cgc".to_string(),
-        name: "CGC - 程序媛汇".to_string(),
-        base_url: String::new(),
-        models: Vec::new(),
-        supports_thinking: false,
-        has_key: false,
-        model_params: Vec::new(),
-        builtin: true,
-    };
-    let _ = &mut cgc;
+    fn provider(id: &str, name: &str, base_url: &str) -> ProviderPrefs {
+        ProviderPrefs {
+            id: id.to_string(),
+            name: name.to_string(),
+            base_url: base_url.to_string(),
+            models: Vec::new(),
+            supports_thinking: false,
+            has_key: false,
+            model_params: Vec::new(),
+            builtin: true,
+        }
+    }
 
-    let mut deepseek = ProviderPrefs {
-        id: "deepseek".to_string(),
-        name: "DeepSeek".to_string(),
-        base_url: "https://api.deepseek.com/v1".to_string(),
-        models: vec!["deepseek-chat".to_string(), "deepseek-reasoner".to_string()],
-        supports_thinking: true,
-        has_key: false,
-        model_params: Vec::new(),
-        builtin: true,
-    };
+    let mut deepseek = provider("deepseek", "DeepSeek", "https://api.deepseek.com");
+    deepseek.supports_thinking = true;
     deepseek.upsert_model(ModelPrefs {
-        id: "deepseek-chat".to_string(),
-        context_window: 64_000,
-        max_output_tokens: 8_000,
-        supports_thinking: false,
+        id: "deepseek-flash".to_string(),
+        context_window: 1_000_000,
+        max_output_tokens: 384_000,
+        supports_thinking: true,
     });
     deepseek.upsert_model(ModelPrefs {
-        id: "deepseek-reasoner".to_string(),
-        context_window: 64_000,
-        max_output_tokens: 8_000,
+        id: "deepseek-v4-pro".to_string(),
+        context_window: 1_000_000,
+        max_output_tokens: 384_000,
         supports_thinking: true,
     });
 
-    let mut moonshot = ProviderPrefs {
-        id: "moonshot".to_string(),
-        name: "Moonshot".to_string(),
-        base_url: "https://api.moonshot.cn/v1".to_string(),
-        models: vec![
-            "moonshot-v1-8k".to_string(),
-            "moonshot-v1-32k".to_string(),
-            "kimi-latest".to_string(),
-        ],
-        supports_thinking: false,
-        has_key: false,
-        model_params: Vec::new(),
-        builtin: true,
-    };
-    moonshot.upsert_model(ModelPrefs {
-        id: "moonshot-v1-8k".to_string(),
-        context_window: 8_192,
-        max_output_tokens: 4_096,
-        supports_thinking: false,
-    });
-    moonshot.upsert_model(ModelPrefs {
-        id: "moonshot-v1-32k".to_string(),
-        context_window: 32_768,
-        max_output_tokens: 8_192,
-        supports_thinking: false,
-    });
-    moonshot.upsert_model(ModelPrefs {
-        id: "kimi-latest".to_string(),
-        context_window: 128_000,
-        max_output_tokens: 8_192,
-        supports_thinking: false,
-    });
+    let mut moonshot = provider("moonshot", "Moonshot", "https://api.moonshot.cn/v1");
+    moonshot.supports_thinking = true;
+    for (id, output) in [
+        ("kimi-k3.1-pro", 32_768),
+        ("kimi-k3.1-pro-highspeed", 32_768),
+        ("kimi-k3", 32_768),
+    ] {
+        moonshot.upsert_model(ModelPrefs {
+            id: id.to_string(),
+            context_window: 1_048_576,
+            max_output_tokens: output,
+            supports_thinking: true,
+        });
+    }
 
-    let mut minimax = ProviderPrefs {
-        id: "minimax".to_string(),
-        name: "MiniMax".to_string(),
-        base_url: "https://api.minimaxi.com/v1".to_string(),
-        models: vec!["MiniMax-M2".to_string(), "MiniMax-Text-01".to_string()],
-        supports_thinking: true,
-        has_key: false,
-        model_params: Vec::new(),
-        builtin: true,
-    };
+    let mut minimax = provider("minimax", "MiniMax", "https://api.minimaxi.com/v1");
+    minimax.supports_thinking = true;
     minimax.upsert_model(ModelPrefs {
         id: "MiniMax-M2".to_string(),
-        context_window: 204_800,
-        max_output_tokens: 32_768,
+        context_window: 1_048_576,
+        max_output_tokens: 8_192,
         supports_thinking: true,
-    });
-    minimax.upsert_model(ModelPrefs {
-        id: "MiniMax-Text-01".to_string(),
-        context_window: 1_000_000,
-        max_output_tokens: 32_768,
-        supports_thinking: false,
     });
 
-    let mut zhipu = ProviderPrefs {
-        id: "zhipu".to_string(),
-        name: "智谱".to_string(),
-        base_url: "https://open.bigmodel.cn/api/paas/v4".to_string(),
-        models: vec!["glm-4.6".to_string(), "glm-4.5-air".to_string()],
+    let mut zhipu = provider("zhipu", "智谱", "https://open.bigmodel.cn/api/paas/v4");
+    zhipu.supports_thinking = true;
+    zhipu.upsert_model(ModelPrefs {
+        id: "glm-5.3".to_string(),
+        context_window: 1_000_000,
+        max_output_tokens: 131_072,
         supports_thinking: true,
-        has_key: false,
-        model_params: Vec::new(),
-        builtin: true,
-    };
+    });
     zhipu.upsert_model(ModelPrefs {
         id: "glm-4.6".to_string(),
         context_window: 200_000,
-        max_output_tokens: 16_384,
-        supports_thinking: true,
-    });
-    zhipu.upsert_model(ModelPrefs {
-        id: "glm-4.5-air".to_string(),
-        context_window: 128_000,
-        max_output_tokens: 16_384,
+        max_output_tokens: 131_072,
         supports_thinking: true,
     });
 
-    vec![cgc, deepseek, moonshot, minimax, zhipu]
+    vec![deepseek, moonshot, minimax, zhipu]
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -543,17 +496,20 @@ mod model_param_tests {
     use super::*;
 
     #[test]
-    fn builtin_catalog_has_cgc_deepseek_moonshot() {
+    fn builtin_catalog_covers_domestic_providers() {
         let providers = builtin_providers();
         let ids: Vec<&str> = providers
             .iter()
             .map(|provider| provider.id.as_str())
             .collect();
-        assert_eq!(ids, vec!["cgc", "deepseek", "moonshot", "minimax", "zhipu"]);
+        assert_eq!(ids, vec!["deepseek", "moonshot", "minimax", "zhipu"]);
         assert!(providers.iter().all(|provider| provider.builtin));
         let deepseek = providers.iter().find(|p| p.id == "deepseek").unwrap();
-        assert!(deepseek.model_config("deepseek-chat").context_window >= 64_000);
-        assert!(deepseek.model_config("deepseek-reasoner").supports_thinking);
+        assert_eq!(
+            deepseek.model_config("deepseek-flash").context_window,
+            1_000_000
+        );
+        assert!(deepseek.model_config("deepseek-v4-pro").supports_thinking);
     }
 
     #[test]
