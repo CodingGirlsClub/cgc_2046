@@ -133,6 +133,8 @@ pub struct NativeAgentView {
     keychain: Option<KeychainStore>,
     thinking_level: ThinkingLevel,
     thinking_enabled: bool,
+    slash_index: usize,
+    slash_dismissed: bool,
     approval_mode: ApprovalMode,
     approval_sender: Arc<Mutex<Option<oneshot::Sender<ApprovalDecision>>>>,
     follow_up_sender: std_mpsc::Sender<String>,
@@ -306,8 +308,26 @@ impl NativeAgentView {
             &input,
             window,
             |this, state, event: &InputEvent, window, cx| {
+                if let InputEvent::Change = event {
+                    let value = this.input.read(cx).value().to_string();
+                    this.slash_dismissed = false;
+                    this.slash_index = 0;
+                    let _ = value;
+                    cx.notify();
+                    return;
+                }
                 if let InputEvent::PressEnter { secondary, shift } = event {
                     if *shift {
+                        return;
+                    }
+                    let value = this.input.read(cx).value().to_string();
+                    let candidates = slash_candidates_for(&value);
+                    if value.trim_start().starts_with('/')
+                        && !this.slash_dismissed
+                        && !candidates.is_empty()
+                    {
+                        let index = this.slash_index.min(candidates.len() - 1);
+                        this.run_slash_command(candidates[index].0, window, cx);
                         return;
                     }
                     if *secondary && this.busy {
@@ -339,6 +359,8 @@ impl NativeAgentView {
             keychain,
             thinking_level: ThinkingLevel::Off,
             thinking_enabled: true,
+            slash_index: 0,
+            slash_dismissed: false,
             approval_mode: ApprovalMode::Ask,
             context: ToolContext::new(&workspace)
                 .with_sandbox(SandboxPolicy::new(&workspace))
@@ -712,6 +734,22 @@ impl NativeAgentView {
         cx.notify();
     }
 
+    fn run_slash_command(
+        &mut self,
+        command: &'static str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(command) = parse_slash(command) {
+            self.handle_slash(command, cx);
+        }
+        self.input
+            .update(cx, |state, cx| state.set_value("", window, cx));
+        self.slash_index = 0;
+        self.slash_dismissed = false;
+        cx.notify();
+    }
+
     fn set_thinking_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
         self.thinking_enabled = enabled;
         if enabled && self.thinking_level == ThinkingLevel::Off {
@@ -898,7 +936,9 @@ impl Render for NativeAgentView {
         let input = self.input.clone();
         let input_value = self.input.read(cx).value().to_string();
         let has_input = !input_value.trim().is_empty();
-        let slash_hint = input_value.trim_start().starts_with('/');
+        let slash_open = input_value.trim_start().starts_with('/') && !self.slash_dismissed;
+        let slash_matches = slash_candidates_for(&input_value);
+        let slash_selected = self.slash_index.min(slash_matches.len().saturating_sub(1));
         let can_undo = self.last_checkpoint.is_some() && !busy;
         let change_count = self.checkpoint_changes.len();
         let subagents = self.state.subagents.clone();
@@ -980,24 +1020,6 @@ impl Render for NativeAgentView {
                             .child(format!("model: {model_label} · {status}")),
                     ),
             )
-            .children(slash_hint.then(|| {
-                div()
-                    .id("native-agent-slash-hint")
-                    .flex()
-                    .flex_row()
-                    .flex_wrap()
-                    .gap(space(2))
-                    .px(space(3))
-                    .py(space(1))
-                    .border_t_1()
-                    .border_color(palette.line)
-                    .children(SLASH_COMMANDS.iter().map(|(command, description)| {
-                        div()
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_3)
-                            .child(format!("{command} {description}"))
-                    }))
-            }))
             .child(
                 div()
                     .id("native-agent-messages")
@@ -1505,6 +1527,76 @@ impl Render for NativeAgentView {
                     .border_1()
                     .border_color(palette.line)
                     .bg(palette.view)
+                    .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
+                        let value = this.input.read(cx).value().to_string();
+                        if !value.trim_start().starts_with('/') || this.slash_dismissed {
+                            return;
+                        }
+                        match event.keystroke.key.as_str() {
+                            "up" => {
+                                this.slash_index = this.slash_index.saturating_sub(1);
+                                cx.notify();
+                            }
+                            "down" => {
+                                this.slash_index += 1;
+                                cx.notify();
+                            }
+                            "escape" => {
+                                this.slash_dismissed = true;
+                                cx.notify();
+                            }
+                            _ => {}
+                        }
+                    }))
+                    .children((slash_open && !slash_matches.is_empty()).then(|| {
+                        div()
+                            .id("native-agent-slash-menu")
+                            .flex()
+                            .flex_col()
+                            .gap(px(1.0))
+                            .mx(space(1))
+                            .mt(space(1))
+                            .mb(px(2.0))
+                            .rounded(px(RADIUS_SMALL))
+                            .border_1()
+                            .border_color(palette.line)
+                            .bg(palette.card)
+                            .occlude()
+                            .children(slash_matches.iter().enumerate().map(
+                                |(index, (command, description))| {
+                                    let selected = index == slash_selected;
+                                    let command: &'static str = command;
+                                    div()
+                                        .id(SharedString::from(format!("native-slash-{index}")))
+                                        .role(Role::Button)
+                                        .aria_label(*description)
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap(space(2))
+                                        .px(space(1))
+                                        .py(px(3.0))
+                                        .rounded(px(RADIUS_SMALL))
+                                        .bg(if selected { palette.soft } else { palette.card })
+                                        .text_color(if selected {
+                                            palette.accent
+                                        } else {
+                                            palette.ink_2
+                                        })
+                                        .child(div().w(px(86.0)).text_size(px(11.0)).child(command))
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .text_size(px(10.0))
+                                                .text_color(palette.ink_3)
+                                                .child(*description),
+                                        )
+                                        .on_click(cx.listener(move |this, _, window, cx| {
+                                            this.run_slash_command(command, window, cx);
+                                        }))
+                                },
+                            ))
+                    }))
                     .child(
                         div().px(space(1)).py(px(4.0)).child(
                             Textarea::new(&input)
@@ -1620,6 +1712,26 @@ impl Render for NativeAgentView {
                     )
             })
     }
+}
+
+fn slash_candidates_for(value: &str) -> Vec<(&'static str, &'static str)> {
+    let trimmed = value.trim_start();
+    let Some(query) = trimmed.strip_prefix('/') else {
+        return Vec::new();
+    };
+    let query = query.trim().to_ascii_lowercase();
+    SLASH_COMMANDS
+        .iter()
+        .copied()
+        .filter(|(command, description)| {
+            query.is_empty()
+                || command
+                    .trim_start_matches('/')
+                    .to_ascii_lowercase()
+                    .starts_with(&query)
+                || description.to_ascii_lowercase().contains(&query)
+        })
+        .collect()
 }
 
 fn role_label(role: UiRole) -> &'static str {
