@@ -187,12 +187,15 @@ impl NativeAgentView {
             .or_else(|| active.map(|provider| provider.name.clone()))
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| "OpenAI Compatible".to_string());
+        let model_config = active
+            .map(|provider| provider.model_config(&model_id))
+            .unwrap_or_default();
         let model = Model::new(
             ProviderId::new(provider_id),
             provider_name,
             model_id.clone(),
             model_id,
-            ModelLimits::new(64_000, 8_000),
+            ModelLimits::new(model_config.context_window, model_config.max_output_tokens),
         );
         let provider: Arc<dyn Provider> = match (&base_url, &api_key) {
             (Some(base_url), Some(api_key)) if !base_url.is_empty() && !api_key.is_empty() => {
@@ -729,12 +732,13 @@ impl NativeAgentView {
             .keychain
             .as_ref()
             .and_then(|keychain| keychain.load_secret(&provider_key_account(&provider.id)));
+        let model_config = provider.model_config(&model_id);
         let model = Model::new(
             ProviderId::new(provider.id.clone()),
             provider.name.clone(),
             model_id.clone(),
             model_id,
-            ModelLimits::new(64_000, 8_000),
+            ModelLimits::new(model_config.context_window, model_config.max_output_tokens),
         );
         self.provider = match api_key.filter(|key| !key.is_empty()) {
             Some(api_key) => Arc::new(OpenAiCompatibleProvider::new(OpenAiCompatibleConfig::new(

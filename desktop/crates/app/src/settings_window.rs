@@ -8,10 +8,12 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use cgc_agent_store::{provider_key_account, ModelPrefs, PrefsStore, ProviderPrefs};
+use cgc_agent_store::{
+    builtin_providers, provider_key_account, ModelPrefs, PrefsStore, ProviderPrefs,
+};
 use cgc_platform::paths::AppPaths;
 use cgc_platform::session::KeychainStore;
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_kit::component::setting::{
     SettingField, SettingGroup, SettingItem, SettingPage, Settings,
 };
@@ -35,9 +37,60 @@ struct ProviderDraft {
     supports_thinking: bool,
     has_key: bool,
     model_params: Vec<ModelPrefs>,
+    builtin: bool,
     base_url_input: Option<Entity<InputState>>,
-    models_input: Option<Entity<InputState>>,
+    models_input: Option<Entity<TextareaState>>,
     api_key_input: Option<Entity<InputState>>,
+}
+
+fn format_model_lines(provider: &ProviderPrefs) -> String {
+    provider
+        .models
+        .iter()
+        .map(|id| {
+            let model = provider.model_config(id);
+            format!(
+                "{} | {} | {} | {}",
+                id, model.context_window, model.max_output_tokens, model.supports_thinking
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn parse_model_lines(value: &str) -> (Vec<String>, Vec<ModelPrefs>) {
+    let mut ids = Vec::new();
+    let mut params = Vec::new();
+    for line in value.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let parts: Vec<&str> = line.split('|').map(str::trim).collect();
+        let Some(id) = parts.first().filter(|id| !id.is_empty()) else {
+            continue;
+        };
+        let context = parts
+            .get(1)
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(64_000);
+        let output = parts
+            .get(2)
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(8_000);
+        let thinking = parts
+            .get(3)
+            .map(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
+            .unwrap_or(false);
+        ids.push(id.to_string());
+        params.push(ModelPrefs {
+            id: id.to_string(),
+            context_window: context,
+            max_output_tokens: output,
+            supports_thinking: thinking,
+        });
+    }
+    (ids, params)
 }
 
 impl ProviderDraft {
@@ -46,10 +99,11 @@ impl ProviderDraft {
             id: provider.id.clone(),
             name: provider.name.clone(),
             base_url: provider.base_url.clone(),
-            models: provider.models.join(", "),
+            models: format_model_lines(provider),
             supports_thinking: provider.supports_thinking,
             has_key: provider.has_key,
             model_params: provider.model_params.clone(),
+            builtin: provider.builtin,
             base_url_input: None,
             models_input: None,
             api_key_input: None,
@@ -65,10 +119,11 @@ impl ProviderDraft {
             id: format!("custom-{serial}"),
             name: "OpenAI Compatible".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
-            models: "gpt-4o-mini".to_string(),
+            models: "gpt-4o-mini | 128000 | 16384 | false".to_string(),
             supports_thinking: false,
             has_key: false,
             model_params: Vec::new(),
+            builtin: false,
             base_url_input: None,
             models_input: None,
             api_key_input: None,
@@ -76,13 +131,7 @@ impl ProviderDraft {
     }
 
     fn to_prefs(&self) -> ProviderPrefs {
-        let models = self
-            .models
-            .split(',')
-            .map(str::trim)
-            .filter(|model| !model.is_empty())
-            .map(str::to_string)
-            .collect();
+        let (models, model_params) = parse_model_lines(&self.models);
         ProviderPrefs {
             id: self.id.clone(),
             name: self.name.clone(),
@@ -90,10 +139,17 @@ impl ProviderDraft {
             models,
             supports_thinking: self.supports_thinking,
             has_key: self.has_key,
-            model_params: self.model_params.clone(),
+            model_params,
             builtin: false,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum AiView {
+    #[default]
+    General,
+    Providers,
 }
 
 pub struct SettingsWindowView {
@@ -110,6 +166,7 @@ pub struct SettingsWindowView {
     error: Option<String>,
     notice: Option<String>,
     provider_drafts: Vec<ProviderDraft>,
+    ai_view: AiView,
     prefs_store: PrefsStore,
     keychain: KeychainStore,
 }
@@ -127,12 +184,17 @@ impl SettingsWindowView {
         cx: &mut Context<Self>,
     ) -> Self {
         let prefs_store = PrefsStore::new(AppPaths::from_env().agent_prefs_file());
-        let provider_drafts = prefs_store
-            .load()
-            .providers
+        let prefs = prefs_store.load();
+        let mut drafts: Vec<ProviderDraft> = builtin_providers()
             .iter()
             .map(ProviderDraft::from_prefs)
             .collect();
+        for provider in &prefs.providers {
+            match drafts.iter_mut().find(|draft| draft.id == provider.id) {
+                Some(slot) => *slot = ProviderDraft::from_prefs(provider),
+                None => drafts.push(ProviderDraft::from_prefs(provider)),
+            }
+        }
         Self {
             language,
             email,
@@ -146,7 +208,8 @@ impl SettingsWindowView {
             revoked: false,
             error: None,
             notice: None,
-            provider_drafts,
+            provider_drafts: drafts,
+            ai_view: AiView::General,
             prefs_store,
             keychain: KeychainStore::from_env(),
         }
@@ -202,10 +265,11 @@ impl SettingsWindowView {
         if draft.models_input.is_none() {
             let value = draft.models.clone();
             let input = cx.new(|cx| {
-                InputState::new(window, cx)
-                    .placeholder("model-a, model-b")
-                    .default_value(value)
+                TextareaState::new(window, cx).placeholder(
+                    "每行一个模型：模型名 | context | max_output | thinking(\n例：deepseek-flash | 1000000 | 384000 | true)",
+                )
             });
+            input.update(cx, |state, cx| state.set_value(value, window, cx));
             self.provider_drafts[index].models_input = Some(input);
         }
         if draft.api_key_input.is_none() {
@@ -226,14 +290,8 @@ impl SettingsWindowView {
             return;
         };
         let base_url = base_url_input.read(cx).value().trim().to_string();
-        let models = models_input
-            .read(cx)
-            .value()
-            .split(',')
-            .map(str::trim)
-            .filter(|model| !model.is_empty())
-            .map(str::to_string)
-            .collect::<Vec<_>>();
+        let models_text = models_input.read(cx).value().to_string();
+        let (models, model_params) = parse_model_lines(&models_text);
         if base_url.is_empty() || models.is_empty() {
             self.error = Some("Base URL 与至少一个 Model 不能为空".to_string());
             cx.notify();
@@ -246,7 +304,7 @@ impl SettingsWindowView {
             models,
             supports_thinking: draft.supports_thinking,
             has_key: draft.has_key,
-            model_params: draft.model_params.clone(),
+            model_params,
             builtin: false,
         };
         if let Some(api_key_input) = draft.api_key_input.clone() {
@@ -291,8 +349,10 @@ impl SettingsWindowView {
                 self.notice = Some("Provider 已保存".to_string());
                 if let Some(draft) = self.provider_drafts.get_mut(index) {
                     draft.base_url = provider.base_url.clone();
-                    draft.models = provider.models.join(", ");
+                    draft.models = format_model_lines(&provider);
+                    draft.model_params = provider.model_params.clone();
                     draft.has_key = provider.has_key;
+                    draft.builtin = false;
                 }
             }
             Err(error) => self.error = Some(format!("保存失败：{error}")),
@@ -356,6 +416,32 @@ impl SettingsWindowView {
                     .child(label),
             )
             .child(Input::new(&input))
+            .into_any_element()
+    }
+
+    fn render_provider_textarea(
+        label: &'static str,
+        input: Entity<TextareaState>,
+        palette: &theme::Palette,
+    ) -> AnyElement {
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(palette.ink_3)
+                    .child(label),
+            )
+            .child(
+                div()
+                    .rounded(px(RADIUS_SMALL))
+                    .border_1()
+                    .border_color(palette.line)
+                    .p(space(1))
+                    .child(Textarea::new(&input).h(px(88.0)).w_full()),
+            )
             .into_any_element()
     }
 
@@ -514,6 +600,90 @@ impl SettingsWindowView {
                 .into_any_element()
         });
 
+        let llm_link_weak = weak.clone();
+        let llm_link = SettingItem::render(move |_options, _window, cx| {
+            let palette = theme::palette_from_theme(cx);
+            let weak = llm_link_weak.clone();
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .gap(space(2))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.0))
+                        .child(div().text_size(px(13.0)).child("LLM Providers"))
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_3)
+                                .child("配置内置与自定义模型 provider"),
+                        ),
+                )
+                .child(
+                    div()
+                        .id("settings-ai-llm-providers")
+                        .role(Role::Button)
+                        .aria_label("配置 LLM Providers")
+                        .px(space(2))
+                        .py(px(5.0))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .border_1()
+                        .border_color(palette.line)
+                        .text_size(px(12.0))
+                        .child("Configure >")
+                        .on_click(move |_, _, cx| {
+                            let _ = weak.update(cx, |this, cx| {
+                                this.ai_view = AiView::Providers;
+                                cx.notify();
+                            });
+                        }),
+                )
+                .into_any_element()
+        });
+        let back_weak = weak.clone();
+        let ai_back = SettingItem::render(move |_options, _window, cx| {
+            let palette = theme::palette_from_theme(cx);
+            let weak = back_weak.clone();
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(space(2))
+                .child(
+                    div()
+                        .id("settings-ai-back")
+                        .role(Role::Button)
+                        .aria_label("返回 AI 设置")
+                        .px(space(1))
+                        .py(px(2.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .text_size(px(12.0))
+                        .text_color(palette.ink_2)
+                        .hover(|style| style.bg(palette.soft))
+                        .child("← AI / LLM Providers")
+                        .on_click(move |_, _, cx| {
+                            let _ = weak.update(cx, |this, cx| {
+                                this.ai_view = AiView::General;
+                                cx.notify();
+                            });
+                        }),
+                )
+                .into_any_element()
+        });
+        let ai_group = if self.ai_view == AiView::Providers {
+            SettingGroup::new()
+                .title("LLM Providers")
+                .items(vec![ai_back, providers_item])
+        } else {
+            SettingGroup::new()
+                .title("General")
+                .items(vec![llm_link, native_agent])
+        };
+
         let settings = Settings::new("cgc-settings")
             .page(
                 SettingPage::new(translate(language, Key::AppSettingsAccount)).group(
@@ -523,16 +693,10 @@ impl SettingsWindowView {
                 ),
             )
             .page(
-                SettingPage::new("通用").group(
-                    SettingGroup::new()
-                        .title("通用")
-                        .items(vec![close_to_tray, native_agent]),
-                ),
+                SettingPage::new("通用")
+                    .group(SettingGroup::new().title("通用").item(close_to_tray)),
             )
-            .page(
-                SettingPage::new("AI / LLM Providers")
-                    .group(SettingGroup::new().title("Providers").item(providers_item)),
-            )
+            .page(SettingPage::new("AI").group(ai_group))
             .page(
                 SettingPage::new("关于").group(
                     SettingGroup::new()
@@ -645,8 +809,8 @@ fn render_provider_cards(
                 .child(SettingsWindowView::render_provider_field(
                     "Base URL", base_input, palette,
                 ))
-                .child(SettingsWindowView::render_provider_field(
-                    "Models（逗号分隔）",
+                .child(SettingsWindowView::render_provider_textarea(
+                    "Models（每行：模型名 | context | max_output | thinking）",
                     models_input,
                     palette,
                 ))
