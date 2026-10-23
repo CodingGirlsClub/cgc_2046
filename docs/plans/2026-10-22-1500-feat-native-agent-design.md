@@ -397,7 +397,7 @@ Provider 设置（demo 面板内）——`agent_store::ProviderPrefs`（base_url
 - `desktop/crates/agent_core`（cgc-agent-core）：Thread/Entry + 单轮 loop（流式文本、用量累计、停止原因、取消、tool_call 收集），12 项单测；
 - `desktop/crates/agent_tools`（cgc-agent-tools）：Tool trait、ToolRegistry、工作区路径约束（拒绝绝对路径与 `..` 逃逸）、审批分类、`read_file` / `list_directory` 只读工具，8 项单测。
 - 工具执行已接入 loop：tool_call → 审批（Allow / Deny / Ask + 本会话授权缓存）→ 执行 → 结果回灌，最多 8 步；`prompt_with_tools` + `Approver` trait（Auto / Deny 实现），14 项单测。
-- 工具集：`read_file` / `list_directory` / `write_file`（Ask）/ `run_command`（Ask，30s 默认超时、输出截断、工作区 cwd 约束）；16 项单测。
+- 工具集：`read_file` / `list_directory` / `write_file`（Ask）/ `run_command`（Ask，30s 默认超时、输出截断、工作区 cwd 约束）；**危险命令策略**：`CommandPolicy` 在审批前硬拦截破坏性命令（rm -rf /、mkfs、dd of=/dev/、shutdown、fork bomb 等），其余走 Ask；`ToolRegistry::with_command_policy` 可替换策略；39 项 tools 单测。
 - 本地会话持久化完成——`agent_store::SessionStore`（SQLite `<data_root>/agent/threads.db`，schema 按 §3.4，WAL + 外键级联），5 项单测；GPUI demo 启动恢复上次会话（模型一致时）、每轮保存。
 - OS 沙箱完成——`agent_tools::sandbox`：`SandboxPolicy`、macOS Seatbelt profile、Linux bwrap 参数、`CommandSandbox` 包装；`run_command` 带策略时自动进沙箱（macOS 实测沙箱内 echo 通过），Windows 降级为审批；demo/app 默认启用。
 - P1a 切片全部完成；正式对话面板替换 demo 窗口、课程页 AppAction（open_page / highlight）留待后续。

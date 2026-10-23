@@ -31,8 +31,17 @@ impl ToolRegistry {
     pub fn with_builtin_tools() -> Self {
         let mut registry = Self::with_read_tools();
         registry.register(Arc::new(crate::builtin::WriteFileTool));
-        registry.register(Arc::new(crate::builtin::RunCommandTool));
+        registry.register(Arc::new(crate::builtin::RunCommandTool::new()));
         registry
+    }
+
+    /// 替换 run_command 的命令策略（默认拦截破坏性命令）。
+    pub fn with_command_policy(mut self, policy: crate::policy::CommandPolicy) -> Self {
+        self.tools.retain(|tool| tool.name() != "run_command");
+        self.register(Arc::new(crate::builtin::RunCommandTool::with_policy(
+            policy,
+        )));
+        self
     }
 
     /// 内置工具 + 应用内动作工具（open_page / highlight_range）。

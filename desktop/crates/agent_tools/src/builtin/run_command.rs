@@ -10,6 +10,7 @@ use futures::{channel::oneshot, future::BoxFuture};
 use crate::{
     approval::Approval,
     error::ToolError,
+    policy::{CommandDecision, CommandPolicy},
     sandbox::{CommandSandbox, SandboxPolicy},
     tool::{Tool, ToolContext, ToolResult},
 };
@@ -18,8 +19,21 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_OUTPUT_BYTES: usize = 32 * 1024;
 
-/// 在工作区内执行一条 shell 命令；默认需要用户确认。
-pub struct RunCommandTool;
+/// 在工作区内执行一条 shell 命令；默认需要用户确认，危险命令直接拒绝。
+#[derive(Default)]
+pub struct RunCommandTool {
+    policy: CommandPolicy,
+}
+
+impl RunCommandTool {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_policy(policy: CommandPolicy) -> Self {
+        Self { policy }
+    }
+}
 
 impl Tool for RunCommandTool {
     fn name(&self) -> &'static str {
@@ -42,8 +56,14 @@ impl Tool for RunCommandTool {
         })
     }
 
-    fn approval(&self, _args: &serde_json::Value) -> Approval {
-        Approval::Ask
+    fn approval(&self, args: &serde_json::Value) -> Approval {
+        let Some(command) = args.get("command").and_then(|value| value.as_str()) else {
+            return Approval::Ask;
+        };
+        match self.policy.classify(command) {
+            CommandDecision::Deny(reason) => Approval::Deny(reason),
+            CommandDecision::Ask => Approval::Ask,
+        }
     }
 
     fn run(
@@ -219,7 +239,7 @@ mod tests {
         let workspace = temp_workspace("echo");
         let context = ToolContext::new(&workspace);
         let result = futures::executor::block_on(
-            RunCommandTool.run(serde_json::json!({"command": "echo hello"}), context),
+            RunCommandTool::new().run(serde_json::json!({"command": "echo hello"}), context),
         )
         .expect("run");
         assert!(result.content.contains("hello"));
@@ -232,7 +252,7 @@ mod tests {
         let workspace = temp_workspace("false");
         let context = ToolContext::new(&workspace);
         let result = futures::executor::block_on(
-            RunCommandTool.run(serde_json::json!({"command": "exit 3"}), context),
+            RunCommandTool::new().run(serde_json::json!({"command": "exit 3"}), context),
         )
         .expect("run");
         assert!(result.is_error);
@@ -244,7 +264,7 @@ mod tests {
     fn timeout_kills_process() {
         let workspace = temp_workspace("timeout");
         let context = ToolContext::new(&workspace);
-        let result = futures::executor::block_on(RunCommandTool.run(
+        let result = futures::executor::block_on(RunCommandTool::new().run(
             serde_json::json!({"command": "sleep 5", "timeout_secs": 1}),
             context,
         ))
@@ -260,7 +280,7 @@ mod tests {
         let workspace = temp_workspace("sandbox");
         let context = ToolContext::new(&workspace).with_sandbox(SandboxPolicy::new(&workspace));
         let result = futures::executor::block_on(
-            RunCommandTool.run(serde_json::json!({"command": "echo sandbox-ok"}), context),
+            RunCommandTool::new().run(serde_json::json!({"command": "echo sandbox-ok"}), context),
         )
         .expect("run");
         assert!(result.content.contains("sandbox-ok"));
@@ -271,16 +291,32 @@ mod tests {
     #[test]
     fn run_requires_approval() {
         assert_eq!(
-            RunCommandTool.approval(&serde_json::json!({})),
+            RunCommandTool::new().approval(&serde_json::json!({})),
             Approval::Ask
         );
+    }
+
+    #[test]
+    fn destructive_command_is_denied_before_approval() {
+        let approval = RunCommandTool::new().approval(&serde_json::json!({
+            "command": "rm -rf / --no-preserve-root"
+        }));
+        assert!(matches!(approval, Approval::Deny(_)));
+    }
+
+    #[test]
+    fn normal_command_still_asks() {
+        let approval = RunCommandTool::new().approval(&serde_json::json!({
+            "command": "cargo test"
+        }));
+        assert_eq!(approval, Approval::Ask);
     }
 
     #[test]
     fn rejects_cwd_escape() {
         let workspace = temp_workspace("escape");
         let context = ToolContext::new(&workspace);
-        let error = futures::executor::block_on(RunCommandTool.run(
+        let error = futures::executor::block_on(RunCommandTool::new().run(
             serde_json::json!({"command": "pwd", "cwd": "../outside"}),
             context,
         ))
