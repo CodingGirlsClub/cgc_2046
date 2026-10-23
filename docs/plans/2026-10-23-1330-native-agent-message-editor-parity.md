@@ -127,3 +127,12 @@ h_flex 居中（max_content_width）
 键盘：Enter 发送/排队，Shift+Enter 换行，⌘↩ 生成中打断并立即发送（未生成时等同发送）。
 
 仍未做（进入 P1）：slash 命令弹层、@ 文件上下文、队列卡片、plan/todo 结构化卡片、权限 pattern 粒度、subagent 内联。
+
+### P0 视觉验收（2026-10-23，已解锁后实测）
+
+- 通过 Agent Panel「+」→「CGC Agent」进入 native 模式，并截图确认：
+  - composer 为**单一卡片**：placeholder 一行 + footer 一行；
+  - footer 左起：`＋`、`deepseek-flash`（模型）、`Ask`（审批）；右侧：`0 tokens`、灰色「发送」；
+  - provider 未开 supports_thinking 时**不显示推理档位**（符合预期）；
+  - header 不再重复 usage，只显示 `model: ... · 已恢复上次会话`。
+- 验收中发现并修复两处：恢复会话后 footer 显示 0 tokens（改为带入 thread.usage_total）；未支持 thinking 的 provider 仍显示「推理 —」（改为整体隐藏）。
