@@ -30,6 +30,18 @@ pub struct SessionStore {
     conn: Connection,
 }
 
+/// checkpoint 与会话的映射（设计稿 §3.7）。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CheckpointRecord {
+    pub thread_id: String,
+    pub user_entry_seq: i64,
+    pub ref_name: String,
+    pub sha: String,
+    pub base_head: Option<String>,
+    pub created_at: i64,
+    pub state: String,
+}
+
 /// 会话列表项，用于历史侧栏。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ThreadSummary {
@@ -79,6 +91,16 @@ impl SessionStore {
                 payload_json TEXT NOT NULL,
                 created_at INTEGER NOT NULL,
                 PRIMARY KEY (thread_id, seq)
+            );
+            CREATE TABLE IF NOT EXISTS checkpoints (
+                thread_id TEXT NOT NULL,
+                user_entry_seq INTEGER NOT NULL,
+                ref TEXT NOT NULL,
+                sha TEXT NOT NULL,
+                base_head TEXT,
+                created_at INTEGER NOT NULL,
+                state TEXT NOT NULL DEFAULT 'active',
+                PRIMARY KEY (thread_id, user_entry_seq)
             );",
         )?;
         Ok(())
@@ -185,6 +207,65 @@ impl SessionStore {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
+    pub fn save_checkpoint(
+        &mut self,
+        checkpoint: &cgc_agent_checkpoint::Checkpoint,
+        user_entry_seq: i64,
+        created_at: i64,
+    ) -> Result<(), SessionError> {
+        self.conn.execute(
+            "INSERT INTO checkpoints
+                (thread_id, user_entry_seq, ref, sha, base_head, created_at, state)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active')
+             ON CONFLICT(thread_id, user_entry_seq) DO UPDATE SET
+                ref = excluded.ref,
+                sha = excluded.sha,
+                base_head = excluded.base_head,
+                created_at = excluded.created_at,
+                state = 'active'",
+            params![
+                checkpoint.thread_id,
+                user_entry_seq,
+                checkpoint.ref_name,
+                checkpoint.sha,
+                checkpoint.base_head,
+                created_at
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_checkpoints(&self, thread_id: &str) -> Result<Vec<CheckpointRecord>, SessionError> {
+        let mut statement = self.conn.prepare(
+            "SELECT thread_id, user_entry_seq, ref, sha, base_head, created_at, state
+             FROM checkpoints WHERE thread_id = ?1 ORDER BY user_entry_seq ASC",
+        )?;
+        let rows = statement.query_map(params![thread_id], |row| {
+            Ok(CheckpointRecord {
+                thread_id: row.get(0)?,
+                user_entry_seq: row.get(1)?,
+                ref_name: row.get(2)?,
+                sha: row.get(3)?,
+                base_head: row.get(4)?,
+                created_at: row.get(5)?,
+                state: row.get(6)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    pub fn mark_checkpoint_invalid(
+        &mut self,
+        thread_id: &str,
+        user_entry_seq: i64,
+    ) -> Result<bool, SessionError> {
+        let updated = self.conn.execute(
+            "UPDATE checkpoints SET state = 'invalid' WHERE thread_id = ?1 AND user_entry_seq = ?2",
+            params![thread_id, user_entry_seq],
+        )?;
+        Ok(updated > 0)
+    }
+
     pub fn delete_thread(&mut self, id: &str) -> Result<bool, SessionError> {
         let deleted = self
             .conn
@@ -284,6 +365,30 @@ mod tests {
         assert!(store.delete_thread("t1").expect("delete"));
         assert!(store.load_thread("t1").expect("load").is_none());
         assert!(!store.delete_thread("t1").expect("delete missing"));
+    }
+
+    #[test]
+    fn checkpoint_mapping_roundtrip_and_invalidation() {
+        let mut store = SessionStore::open_in_memory().expect("store");
+        let thread = sample_thread();
+        store.save_thread(&thread).expect("save thread");
+        let checkpoint = cgc_agent_checkpoint::Checkpoint {
+            thread_id: "t1".into(),
+            seq: 1,
+            ref_name: "refs/cgc/checkpoints/t1/1".into(),
+            sha: "abc123".into(),
+            base_head: None,
+        };
+        store.save_checkpoint(&checkpoint, 1, 100).expect("save cp");
+        let listed = store.list_checkpoints("t1").expect("list");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].sha, "abc123");
+        assert_eq!(listed[0].state, "active");
+        assert!(store.mark_checkpoint_invalid("t1", 1).expect("invalidate"));
+        assert_eq!(
+            store.list_checkpoints("t1").expect("list")[0].state,
+            "invalid"
+        );
     }
 
     #[test]

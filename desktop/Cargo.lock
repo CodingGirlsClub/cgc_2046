@@ -956,6 +956,7 @@ dependencies = [
 name = "cgc-agent-store"
 version = "0.0.1"
 dependencies = [
+ "cgc-agent-checkpoint",
  "cgc-agent-core",
  "cgc-agent-provider",
  "rusqlite",
@@ -989,6 +990,7 @@ version = "0.0.1"
 dependencies = [
  "cgc-account",
  "cgc-agent-chat",
+ "cgc-agent-checkpoint",
  "cgc-agent-core",
  "cgc-agent-host",
  "cgc-agent-provider",

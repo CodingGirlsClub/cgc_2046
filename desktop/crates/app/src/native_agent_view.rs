@@ -6,6 +6,7 @@
 
 use std::sync::{Arc, Mutex};
 
+use cgc_agent_checkpoint::{Checkpoint, CheckpointManager};
 use cgc_agent_core::{
     Agent, AgentError, ApprovalRequest, Approver, CancelToken, SelectedModel, Thread,
 };
@@ -59,6 +60,9 @@ pub struct NativeAgentView {
     status: String,
     busy: bool,
     session_store: Option<SessionStore>,
+    checkpoint_manager: Option<CheckpointManager>,
+    last_checkpoint: Option<Checkpoint>,
+    turn_seq: u64,
     approval_sender: Arc<Mutex<Option<oneshot::Sender<ApprovalDecision>>>>,
     _input_subscription: Option<Subscription>,
 }
@@ -152,6 +156,9 @@ impl NativeAgentView {
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|_| std::env::temp_dir().join("cgc-native-agent-demo"));
         let _ = std::fs::create_dir_all(&workspace);
+        let checkpoint_manager = CheckpointManager::open(&workspace)
+            .or_else(|_| CheckpointManager::initialize(&workspace))
+            .ok();
         let input = cx.new(|cx| {
             TextareaState::new(window, cx).placeholder("问 native agent 一个问题，回车发送…")
         });
@@ -184,6 +191,9 @@ impl NativeAgentView {
             },
             busy: false,
             session_store,
+            checkpoint_manager,
+            last_checkpoint: None,
+            turn_seq: 0,
             approval_sender: Arc::new(Mutex::new(None)),
             _input_subscription: input_subscription,
         }
@@ -196,6 +206,10 @@ impl NativeAgentView {
         let text = self.input.read(cx).value().trim().to_string();
         if text.is_empty() {
             return;
+        }
+        self.turn_seq += 1;
+        if let Some(thread_id) = self.agent.as_ref().map(|agent| agent.thread().id.clone()) {
+            self.capture_checkpoint(&thread_id, self.turn_seq);
         }
         let Some(mut agent) = self.agent.take() else {
             return;
@@ -289,6 +303,38 @@ impl NativeAgentView {
         cx.notify();
     }
 
+    fn capture_checkpoint(&mut self, thread_id: &str, seq: u64) {
+        let Some(manager) = &self.checkpoint_manager else {
+            return;
+        };
+        match manager.snapshot(thread_id, seq) {
+            Ok(checkpoint) => {
+                if let Some(store) = &mut self.session_store {
+                    let _ = store.save_checkpoint(&checkpoint, seq as i64, now_secs());
+                }
+                self.last_checkpoint = Some(checkpoint);
+            }
+            Err(error) => self.status = format!("checkpoint 失败：{error}"),
+        }
+    }
+
+    fn undo_checkpoint(&mut self, cx: &mut Context<Self>) {
+        let Some(checkpoint) = self.last_checkpoint.clone() else {
+            return;
+        };
+        let Some(manager) = &self.checkpoint_manager else {
+            return;
+        };
+        match manager.restore(&checkpoint) {
+            Ok(()) => {
+                self.last_checkpoint = None;
+                self.status = "已回退到本轮前".to_string();
+            }
+            Err(error) => self.status = format!("回退失败：{error}"),
+        }
+        cx.notify();
+    }
+
     fn resolve_approval(&mut self, decision: ApprovalDecision, cx: &mut Context<Self>) {
         if let Ok(mut pending) = self.approval_sender.lock() {
             if let Some(sender) = pending.take() {
@@ -313,6 +359,7 @@ impl Render for NativeAgentView {
         let pending = self.state.pending_permission.clone();
         let usage = self.state.usage_total.total();
         let input = self.input.clone();
+        let can_undo = self.last_checkpoint.is_some() && !busy;
         let mut rows: Vec<AnyElement> = Vec::new();
         for message in messages {
             let color = match message.role {
@@ -450,6 +497,19 @@ impl Render for NativeAgentView {
                                     .w_full(),
                             ),
                     )
+                    .children(can_undo.then(|| {
+                        div()
+                            .id("native-agent-undo")
+                            .role(Role::Button)
+                            .aria_label("撤销文件改动")
+                            .px(space(2))
+                            .py(space(1))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .bg(palette.soft)
+                            .text_color(palette.ink)
+                            .child("撤销文件改动")
+                            .on_click(cx.listener(|this, _, _window, cx| this.undo_checkpoint(cx)))
+                    }))
                     .child(
                         div()
                             .id(if busy {
@@ -510,4 +570,11 @@ fn approval_button(
         .child(label)
         .on_click(cx.listener(move |this, _, _window, cx| action(this, cx)))
         .into_any_element()
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or_default()
 }

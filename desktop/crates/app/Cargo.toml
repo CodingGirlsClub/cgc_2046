@@ -23,6 +23,7 @@ cgc-agent-core = { path = "../agent_core" }
 cgc-agent-tools = { path = "../agent_tools" }
 cgc-agent-store = { path = "../agent_store" }
 cgc-agent-host = { path = "../agent_host" }
+cgc-agent-checkpoint = { path = "../agent_checkpoint" }
 cgc-courses.workspace = true
 cgc-events.workspace = true
 cgc-platform.workspace = true
