@@ -22,8 +22,9 @@ use cgc_agent_store::{
     provider_key_account, ActionAuditEntry, AuditLog, PrefsStore, ProviderPrefs, SessionStore,
 };
 use cgc_agent_tools::{
-    ActionSink, AgentState, AppAction, ApprovalDecision, SandboxPolicy, SharedAgentState,
-    SubagentEvent, SubagentEventSink, SubagentRequest, SubagentRunner, ToolContext, ToolRegistry,
+    ActionSink, AgentState, AppAction, ApprovalDecision, ItemStatus, SandboxPolicy,
+    SharedAgentState, SubagentEvent, SubagentEventSink, SubagentRequest, SubagentRunner,
+    ToolContext, ToolRegistry,
 };
 use cgc_platform::paths::AppPaths;
 use cgc_platform::session::KeychainStore;
@@ -113,7 +114,6 @@ pub struct NativeAgentView {
     model: Model,
     registry: Arc<ToolRegistry>,
     agent_state: SharedAgentState,
-    last_agent_summary: Option<String>,
     app_actions: Arc<Mutex<Vec<AppAction>>>,
     action_audit: Option<AuditLog>,
     subagent_tx: Arc<Mutex<Option<mpsc::UnboundedSender<AgentEvent>>>>,
@@ -351,7 +351,6 @@ impl NativeAgentView {
                     .with_subagent(subagent_runner, subagent_sink),
             ),
             agent_state,
-            last_agent_summary: None,
             app_actions,
             action_audit,
             subagent_tx,
@@ -555,7 +554,6 @@ impl NativeAgentView {
                     *slot = None;
                 }
                 this.drain_app_actions(cx);
-                this.refresh_agent_state_summary();
                 this.refresh_checkpoint_changes();
                 if let Ok(mut pending) = approval_sender.lock() {
                     pending.take();
@@ -623,21 +621,6 @@ impl NativeAgentView {
             } else {
                 summary
             });
-        }
-    }
-
-    fn refresh_agent_state_summary(&mut self) {
-        let summary = self
-            .agent_state
-            .lock()
-            .ok()
-            .and_then(|state| state.summary());
-        if summary != self.last_agent_summary {
-            match &summary {
-                Some(summary) => self.state.push_system(summary.clone()),
-                None => self.state.push_system("目标/计划/待办已清空"),
-            }
-            self.last_agent_summary = summary;
         }
     }
 
@@ -808,7 +791,6 @@ impl NativeAgentView {
         self.last_checkpoint = None;
         self.checkpoint_changes.clear();
         self.show_checkpoint_panel = false;
-        self.last_agent_summary = None;
         self.status = "新对话".to_string();
         cx.notify();
     }
@@ -870,7 +852,6 @@ impl NativeAgentView {
             state.push_system("Native agent：配置 Provider 后开始对话。");
         }
         self.state = state;
-        self.last_agent_summary = None;
     }
 
     fn capture_checkpoint(&mut self, thread_id: &str, seq: u64) {
@@ -941,6 +922,14 @@ impl Render for NativeAgentView {
         let slash_selected = self.slash_index.min(slash_matches.len().saturating_sub(1));
         let can_undo = self.last_checkpoint.is_some() && !busy;
         let change_count = self.checkpoint_changes.len();
+        let plan_state = self
+            .agent_state
+            .lock()
+            .map(|state| state.clone())
+            .unwrap_or_default();
+        let show_plan_card = !plan_state.todos.is_empty()
+            || !plan_state.plan.is_empty()
+            || plan_state.goal.is_some();
         let subagents = self.state.subagents.clone();
         let show_changes = self.show_checkpoint_panel && change_count > 0;
         let changes = self.checkpoint_changes.clone();
@@ -1220,6 +1209,117 @@ impl Render for NativeAgentView {
                             .text_size(px(10.0))
                             .text_color(palette.ink_3)
                             .child("允许一次只对本次调用生效；本会话允许会记住该工具的同类请求。"),
+                    )
+            }))
+            .children(show_plan_card.then(|| {
+                let status = |status: ItemStatus| match status {
+                    ItemStatus::Completed => ("✓", palette.ink_3),
+                    ItemStatus::InProgress => ("◐", palette.accent),
+                    ItemStatus::Blocked => ("!", palette.danger),
+                    ItemStatus::Pending => ("○", palette.ink_3),
+                };
+                let plan_done = plan_state
+                    .plan
+                    .iter()
+                    .filter(|step| step.status == ItemStatus::Completed)
+                    .count();
+                let todo_done = plan_state
+                    .todos
+                    .iter()
+                    .filter(|todo| todo.status == ItemStatus::Completed)
+                    .count();
+                div()
+                    .id("native-agent-plan-card")
+                    .flex()
+                    .flex_col()
+                    .gap(px(3.0))
+                    .mx(space(2))
+                    .mb(space(1))
+                    .p(space(2))
+                    .rounded(px(RADIUS_MEDIUM))
+                    .border_1()
+                    .border_color(palette.line)
+                    .bg(palette.card)
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(2))
+                            .child(div().text_size(px(12.0)).child("计划"))
+                            .children((plan_state.goal.is_some()).then(|| {
+                                div()
+                                    .flex_1()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .child(format!(
+                                        "目标：{}",
+                                        plan_state
+                                            .goal
+                                            .as_ref()
+                                            .map(|goal| goal.objective.clone())
+                                            .unwrap_or_default()
+                                    ))
+                            }))
+                            .child(div().text_size(px(10.0)).text_color(palette.ink_3).child(
+                                format!(
+                                    "计划 {plan_done}/{} · 待办 {todo_done}/{}",
+                                    plan_state.plan.len(),
+                                    plan_state.todos.len()
+                                ),
+                            )),
+                    )
+                    .children(plan_state.plan.iter().take(6).map(|step| {
+                        let (glyph, color) = status(step.status);
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(1))
+                            .child(
+                                div()
+                                    .w(px(12.0))
+                                    .text_size(px(11.0))
+                                    .text_color(color)
+                                    .child(glyph),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .child(step.title.clone()),
+                            )
+                    }))
+                    .children(plan_state.todos.iter().take(5).map(|todo| {
+                        let (glyph, color) = status(todo.status);
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(1))
+                            .child(
+                                div()
+                                    .w(px(12.0))
+                                    .text_size(px(11.0))
+                                    .text_color(color)
+                                    .child(glyph),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .child(todo.content.clone()),
+                            )
+                    }))
+                    .children(
+                        (!plan_state.todos.is_empty())
+                            .then(|| {
+                                div()
+                                    .text_size(px(10.0))
+                                    .text_color(palette.ink_3)
+                                    .child("待办")
+                            })
+                            .filter(|_| !plan_state.plan.is_empty()),
                     )
             }))
             .child({
