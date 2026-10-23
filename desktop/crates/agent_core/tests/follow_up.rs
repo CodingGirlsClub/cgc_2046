@@ -1,7 +1,6 @@
 use cgc_agent_core::{Agent, AutoApprover, TurnObserver, MAX_FOLLOW_UP_TURNS};
 use cgc_agent_provider::{
-    CompletionEvent, FakeProvider, Model, ModelId, ModelLimits, ProviderError, ProviderId,
-    StopReason,
+    CompletionEvent, FakeProvider, Model, ModelId, ModelLimits, ProviderId, StopReason,
 };
 use cgc_agent_tools::{ToolContext, ToolRegistry};
 
