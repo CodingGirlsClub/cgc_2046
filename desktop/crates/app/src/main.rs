@@ -131,7 +131,10 @@ fn main() {
         .expect("main window opens");
 
         if std::env::var_os("CGC_NATIVE_AGENT_DEMO").is_some() {
-            let _ = gpui_kit::open_window(main_window_options(), cx, |window, cx| {
+            // demo 窗口不抢焦点：正常客户端仍是前台窗口，Agent 只作为附加窗口。
+            let mut options = main_window_options();
+            options.focus = false;
+            let _ = gpui_kit::open_window(options, cx, |window, cx| {
                 cx.new(|cx| NativeAgentView::new(window, cx))
             });
         }
