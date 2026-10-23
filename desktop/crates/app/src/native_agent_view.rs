@@ -16,7 +16,9 @@ use cgc_agent_provider::{
     Provider, ProviderId,
 };
 use cgc_agent_store::{AgentPrefs, PrefsStore, ProviderPrefs, SessionStore};
-use cgc_agent_tools::{ApprovalDecision, SandboxPolicy, ToolContext, ToolRegistry};
+use cgc_agent_tools::{
+    AgentState, ApprovalDecision, SandboxPolicy, SharedAgentState, ToolContext, ToolRegistry,
+};
 use cgc_platform::session::KeychainStore;
 use futures::channel::{mpsc, oneshot};
 use futures::StreamExt as _;
@@ -57,6 +59,8 @@ pub struct NativeAgentView {
     provider: Arc<dyn Provider>,
     model: Model,
     registry: Arc<ToolRegistry>,
+    agent_state: SharedAgentState,
+    last_agent_summary: Option<String>,
     context: ToolContext,
     input: Entity<TextareaState>,
     cancel: CancelToken,
@@ -200,6 +204,7 @@ impl NativeAgentView {
         let agent = Agent::new(thread, None);
         let cancel = agent.cancel_token();
         let follow_up_sender = agent.follow_up_sender();
+        let agent_state: SharedAgentState = Arc::new(Mutex::new(AgentState::default()));
         let workspace = std::env::var("CGC_AGENT_WORKSPACE")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|_| std::env::temp_dir().join("cgc-native-agent-demo"));
@@ -242,7 +247,9 @@ impl NativeAgentView {
             agent: Some(agent),
             provider,
             model,
-            registry: Arc::new(ToolRegistry::with_builtin_tools()),
+            registry: Arc::new(ToolRegistry::with_agent_state(agent_state.clone())),
+            agent_state,
+            last_agent_summary: None,
             context: ToolContext::new(&workspace).with_sandbox(SandboxPolicy::new(&workspace)),
             input,
             cancel,
@@ -365,6 +372,7 @@ impl NativeAgentView {
                 if let (Some(store), Some(agent)) = (&mut this.session_store, &this.agent) {
                     let _ = store.save_thread(agent.thread());
                 }
+                this.refresh_agent_state_summary();
                 this.refresh_checkpoint_changes();
                 if let Ok(mut pending) = approval_sender.lock() {
                     pending.take();
@@ -427,6 +435,21 @@ impl NativeAgentView {
             }
         }
         cx.notify();
+    }
+
+    fn refresh_agent_state_summary(&mut self) {
+        let summary = self
+            .agent_state
+            .lock()
+            .ok()
+            .and_then(|state| state.summary());
+        if summary != self.last_agent_summary {
+            match &summary {
+                Some(summary) => self.state.push_system(summary.clone()),
+                None => self.state.push_system("目标/计划/待办已清空"),
+            }
+            self.last_agent_summary = summary;
+        }
     }
 
     fn refresh_checkpoint_changes(&mut self) {

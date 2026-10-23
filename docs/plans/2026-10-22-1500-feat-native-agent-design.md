@@ -364,6 +364,7 @@ UI（输入）→ NativeHost.prompt
 | P1b | Checkpoint / diff：Git 隐藏 ref、Keep/Reject、Restore；课程页灰度 | 2 周 | 恢复/拒绝/未跟踪/超大文件/冲突用例；灰度验收 |
 
 **P2 进度（2026-10-23）**：
+- **todo / plan / goal**：`agent_tools::state`（`AgentState` + `SharedAgentState`）与 `todo_write` / `plan_write` / `goal_write` 三个工具；CLI 每轮打印状态摘要，GPUI 面板在状态变化时追加 system 消息。26 项 tools 单测。
 - **follow-up**：`Agent` 支持 `queue_follow_up` / `follow_up_sender`，turn 结束后自动执行排队消息（最多 4 轮，`MAX_FOLLOW_UP_TURNS`）；`TurnObserver::on_follow_up_started` → `AgentEvent::FollowUpStarted`；HostState 归约时先落上一轮 assistant、再追加 user；GPUI 面板在 busy 时把输入转成 follow-up 排队。steering（打断当前 turn）尚未实现。
 Provider 设置（demo 面板内）——`agent_store::ProviderPrefs`（base_url / provider_name / model_id）落 `agent_prefs.json`；API Key 存系统钥匙串（account `native_agent_provider_api_key`），不落明文文件；面板可编辑并保存，重启 demo 窗口生效；启动优先 env，其次文件 + 钥匙串，最后回退 EchoProvider。12 项 store 单测。
 

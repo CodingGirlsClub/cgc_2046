@@ -35,6 +35,15 @@ impl ToolRegistry {
         registry
     }
 
+    /// 内置工具 + todo / plan / goal 状态工具。
+    pub fn with_agent_state(state: crate::state::SharedAgentState) -> Self {
+        let mut registry = Self::with_builtin_tools();
+        registry.register(Arc::new(crate::builtin::TodoWriteTool::new(state.clone())));
+        registry.register(Arc::new(crate::builtin::PlanWriteTool::new(state.clone())));
+        registry.register(Arc::new(crate::builtin::GoalWriteTool::new(state)));
+        registry
+    }
+
     pub fn register(&mut self, tool: Arc<dyn Tool>) {
         self.tools.push(tool);
     }

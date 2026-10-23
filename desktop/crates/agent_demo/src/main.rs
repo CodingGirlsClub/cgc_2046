@@ -20,7 +20,7 @@ use cgc_agent_provider::{
     CompletionEvent, FakeProvider, Model, ModelId, ModelLimits, OpenAiCompatibleConfig,
     OpenAiCompatibleProvider, ProviderId, StopReason, ToolUse,
 };
-use cgc_agent_tools::{SandboxPolicy, ToolContext, ToolRegistry};
+use cgc_agent_tools::{AgentState, SandboxPolicy, SharedAgentState, ToolContext, ToolRegistry};
 
 /// CLI 的流式打印：文本直接输出，工具调用走 stderr，避免污染答案。
 struct PrintObserver;
@@ -224,7 +224,9 @@ fn run_repl(options: Options) -> std::process::ExitCode {
     let system_prompt = std::env::var("CGC_AGENT_SYSTEM_PROMPT").ok();
     let mut agent = Agent::new(thread, system_prompt);
     let workspace = options.workspace;
-    let registry = ToolRegistry::with_builtin_tools();
+    let agent_state: SharedAgentState =
+        std::sync::Arc::new(std::sync::Mutex::new(AgentState::default()));
+    let registry = ToolRegistry::with_agent_state(agent_state.clone());
     let context = ToolContext::new(&workspace).with_sandbox(SandboxPolicy::new(&workspace));
 
     println!("CGC native agent demo");
@@ -310,7 +312,13 @@ fn run_repl(options: Options) -> std::process::ExitCode {
         };
 
         match result {
-            Ok(_text) => {}
+            Ok(_text) => {
+                if let Ok(state) = agent_state.lock() {
+                    if let Some(summary) = state.summary() {
+                        eprintln!("[{summary}]");
+                    }
+                }
+            }
             Err(AgentError::Provider(error)) => eprintln!("provider error: {error}"),
             Err(error) => eprintln!("error: {error}"),
         }
