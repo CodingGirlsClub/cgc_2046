@@ -365,7 +365,7 @@ UI（输入）→ NativeHost.prompt
 
 **P2 进度（2026-10-23）**：
 - **subagent（P2）**：`task` 工具 + `SubagentRunner`（宿主提供执行器）；`agent_core::run_subagent` 用独立 thread、只读工具、同一 provider/model 跑一次隔离 turn，返回最终文本；审批为 Ask。**进度事件已接**：`SubagentEvent::{Started, TextDelta, Finished}` 经 sink 回传，demo 打印到 stderr，GPUI 面板在 turn 结束转成 system 消息（Started / 完成 / 失败）。
-- **compaction（P2）**：请求前按 `context_window - max_output_tokens - 512` 做硬截断，保留最近消息并在最前插入「上下文已压缩」提示；`TurnObserver::on_compaction` → `AgentEvent::ContextCompacted` → HostState 显示 system 通知。尚未做 LLM 摘要式压缩。
+- **compaction（P2）**：**摘要式压缩已实现**——请求前按 `context_window - max_output_tokens - 512` 切出较早历史，调用同一 provider 生成中文摘要，写入 `Entry::Compaction`（持久化到 SQLite），请求中保留「历史摘要 + 最近消息」；摘要失败自动回退硬截断；`TurnObserver::on_compaction` → `AgentEvent::ContextCompacted` → HostState 显示 system 通知。
 - **slash 命令面板（P2）**：`agent_host::slash` 解析 6 个客户端命令（/help /clear /stop /tools /checkpoint /settings），GPUI 面板输入 `/` 时显示命令提示，命令不发给模型。4 项 host 测试。
 - **AppAction（P1a）**：`agent_tools::action`（`AppAction` + `ActionSink`）与 `open_page` / `highlight_range` 工具；路由仅允许 `/` 开头（拒绝外部 URL），高亮校验路径与行区间；CLI 直接打印动作，GPUI 面板在每轮结束把动作转成 system 消息（正式面板接入后改为真实跳转/高亮）。30 项 tools 单测。
 - **todo / plan / goal**：`agent_tools::state`（`AgentState` + `SharedAgentState`）与 `todo_write` / `plan_write` / `goal_write` 三个工具；CLI 每轮打印状态摘要，GPUI 面板在状态变化时追加 system 消息。26 项 tools 单测。

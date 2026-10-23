@@ -41,13 +41,18 @@ pub enum Entry {
         is_error: bool,
         at: i64,
     },
+    Compaction {
+        summary: String,
+        replaced_entries: usize,
+        at: i64,
+    },
 }
 
 impl Entry {
     pub fn text(&self) -> Option<&str> {
         match self {
             Self::User { text, .. } | Self::Assistant { text, .. } => Some(text),
-            Self::ToolResult { .. } => None,
+            Self::ToolResult { .. } | Self::Compaction { .. } => None,
         }
     }
 }
@@ -101,6 +106,36 @@ impl Thread {
         self.updated_at = now_secs();
     }
 
+    pub fn push_compaction(&mut self, summary: impl Into<String>, replaced_entries: usize) {
+        self.entries.push(Entry::Compaction {
+            summary: summary.into(),
+            replaced_entries,
+            at: now_secs(),
+        });
+        self.updated_at = now_secs();
+    }
+
+    /// 按预算把历史切成（较早、保留）两段；较早段用于摘要压缩。
+    pub fn partition_history(&self, budget_tokens: usize) -> (Vec<Entry>, usize) {
+        if budget_tokens == 0 {
+            return (Vec::new(), 0);
+        }
+        let mut older = Vec::new();
+        let mut used = 0usize;
+        let mut kept = 0usize;
+        for entry in self.entries.iter().rev() {
+            let estimate = estimate_entry_tokens(entry);
+            if kept > 0 && used + estimate > budget_tokens {
+                older.push(entry.clone());
+                continue;
+            }
+            used += estimate;
+            kept += 1;
+        }
+        older.reverse();
+        (older, kept)
+    }
+
     pub fn push_tool_result(
         &mut self,
         tool_use_id: impl Into<String>,
@@ -150,6 +185,9 @@ impl Thread {
                     content.clone(),
                     *is_error,
                 )),
+                Entry::Compaction { summary, .. } => {
+                    messages.push(Message::system(format!("历史摘要：{summary}")))
+                }
             }
         }
         messages
@@ -181,6 +219,24 @@ impl Thread {
             );
         }
         (kept, omitted)
+    }
+}
+
+fn estimate_entry_tokens(entry: &Entry) -> usize {
+    match entry {
+        Entry::User { text, .. } => text.chars().count() / 4 + 4,
+        Entry::Assistant {
+            text, tool_calls, ..
+        } => {
+            text.chars().count() / 4
+                + tool_calls
+                    .iter()
+                    .map(|tool_use| tool_use.args.to_string().chars().count() / 4 + 8)
+                    .sum::<usize>()
+                + 4
+        }
+        Entry::ToolResult { content, .. } => content.chars().count() / 4 + 4,
+        Entry::Compaction { summary, .. } => summary.chars().count() / 4 + 4,
     }
 }
 

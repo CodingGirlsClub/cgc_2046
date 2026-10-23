@@ -15,7 +15,7 @@ use cgc_agent_tools::{
 };
 use futures::{future::BoxFuture, StreamExt};
 
-use crate::thread::{SelectedModel, Thread};
+use crate::thread::{Entry, SelectedModel, Thread};
 
 /// 单轮工具循环的上限，防止模型无限调工具。
 pub const MAX_TOOL_STEPS: usize = 8;
@@ -218,10 +218,9 @@ impl Agent {
         let mut observer = NoopObserver;
         let mut steers = 0;
         loop {
-            let (request, omitted) = self.build_request(model, Vec::new());
-            if omitted > 0 {
-                observer.on_compaction(omitted);
-            }
+            let request = self
+                .build_request_with_compaction(provider, model, Vec::new(), &mut observer)
+                .await?;
             let outcome = run_stream(
                 provider,
                 model,
@@ -313,10 +312,9 @@ impl Agent {
                 if self.cancel.is_cancelled() {
                     return Err(AgentError::Cancelled);
                 }
-                let (request, omitted) = self.build_request(model, tools.schemas());
-                if omitted > 0 {
-                    observer.on_compaction(omitted);
-                }
+                let request = self
+                    .build_request_with_compaction(provider, model, tools.schemas(), observer)
+                    .await?;
                 let stream_outcome = run_stream(
                     provider,
                     model,
@@ -400,6 +398,102 @@ impl Agent {
             return Err(AgentError::ModelMismatch);
         }
         Ok(())
+    }
+
+    /// 请求前处理上下文预算：超限时先尝试让模型摘要旧历史，失败则回退硬截断。
+    async fn build_request_with_compaction(
+        &mut self,
+        provider: &dyn Provider,
+        model: &Model,
+        tools: Vec<cgc_agent_provider::ToolSchema>,
+        observer: &mut dyn TurnObserver,
+    ) -> Result<Request, AgentError> {
+        let budget = model
+            .limits
+            .context_window
+            .saturating_sub(model.limits.max_output_tokens)
+            .saturating_sub(512) as usize;
+        let (older, _kept) = self.thread.partition_history(budget);
+        if older.is_empty() {
+            return Ok(self.build_request(model, tools).0);
+        }
+        if let Some(summary) = Self::summarise_entries(provider, model, &older).await {
+            let replaced = older.len();
+            self.thread.push_compaction(summary.clone(), replaced);
+            observer.on_compaction(replaced);
+            let budget = model
+                .limits
+                .context_window
+                .saturating_sub(model.limits.max_output_tokens)
+                .saturating_sub(512) as usize;
+            let mut messages = Vec::new();
+            if let Some(system_prompt) = &self.system_prompt {
+                messages.push(Message::system(system_prompt.clone()));
+            }
+            let (history, _) = self.thread.messages_with_budget(budget);
+            let has_summary = history
+                .iter()
+                .any(|message| message.text().starts_with("历史摘要："));
+            messages.extend(history);
+            if !has_summary {
+                let insert_at = usize::from(self.system_prompt.is_some());
+                messages.insert(insert_at, Message::system(format!("历史摘要：{summary}")));
+            }
+            return Ok(Request::new(messages).with_tools(tools));
+        }
+        let (request, omitted) = self.build_request(model, tools);
+        if omitted > 0 {
+            observer.on_compaction(omitted);
+        }
+        Ok(request)
+    }
+
+    async fn summarise_entries(
+        provider: &dyn Provider,
+        model: &Model,
+        entries: &[Entry],
+    ) -> Option<String> {
+        let mut transcript = String::new();
+        for entry in entries {
+            match entry {
+                Entry::User { text, .. } => transcript.push_str(&format!("用户：{text}\n")),
+                Entry::Assistant {
+                    text, tool_calls, ..
+                } => {
+                    if !text.is_empty() {
+                        transcript.push_str(&format!("助手：{text}\n"));
+                    }
+                    for tool_use in tool_calls {
+                        transcript
+                            .push_str(&format!("工具调用：{} {}\n", tool_use.name, tool_use.args));
+                    }
+                }
+                Entry::ToolResult { content, .. } => {
+                    let preview: String = content.chars().take(500).collect();
+                    transcript.push_str(&format!("工具结果：{preview}\n"));
+                }
+                Entry::Compaction { summary, .. } => {
+                    transcript.push_str(&format!("历史摘要：{summary}\n"));
+                }
+            }
+        }
+        let request = Request::new(vec![
+            Message::system(
+                "你是对话压缩器。把下面的历史压缩成一段不超过 400 字的中文摘要，保留目标、结论、未完成事项与关键文件路径。只输出摘要。",
+            ),
+            Message::user(transcript),
+        ]);
+        let mut stream = provider.stream(model, request).await.ok()?;
+        let mut summary = String::new();
+        while let Some(event) = stream.next().await {
+            match event.ok()? {
+                CompletionEvent::Text(text) => summary.push_str(&text),
+                CompletionEvent::Stop(_) => break,
+                _ => {}
+            }
+        }
+        let summary = summary.trim().to_string();
+        (!summary.is_empty()).then_some(summary)
     }
 
     fn build_request(

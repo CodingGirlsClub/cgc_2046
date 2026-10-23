@@ -279,12 +279,16 @@ fn entry_kind(entry: &Entry) -> &'static str {
         Entry::User { .. } => "user",
         Entry::Assistant { .. } => "assistant",
         Entry::ToolResult { .. } => "tool_result",
+        Entry::Compaction { .. } => "compaction",
     }
 }
 
 fn entry_at(entry: &Entry) -> i64 {
     match entry {
-        Entry::User { at, .. } | Entry::Assistant { at, .. } | Entry::ToolResult { at, .. } => *at,
+        Entry::User { at, .. }
+        | Entry::Assistant { at, .. }
+        | Entry::ToolResult { at, .. }
+        | Entry::Compaction { at, .. } => *at,
     }
 }
 
@@ -389,6 +393,18 @@ mod tests {
             store.list_checkpoints("t1").expect("list")[0].state,
             "invalid"
         );
+    }
+
+    #[test]
+    fn compaction_entries_roundtrip() {
+        let mut store = SessionStore::open_in_memory().expect("store");
+        let mut thread = sample_thread();
+        thread.push_compaction("历史摘要内容", 12);
+        store.save_thread(&thread).expect("save");
+        let loaded = store.load_thread("t1").expect("load").expect("present");
+        assert!(loaded.entries.iter().any(
+            |entry| matches!(entry, Entry::Compaction { summary, .. } if summary == "历史摘要内容")
+        ));
     }
 
     #[test]
