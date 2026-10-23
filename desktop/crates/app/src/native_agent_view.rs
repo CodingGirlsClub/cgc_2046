@@ -704,6 +704,29 @@ impl NativeAgentView {
         cx.notify();
     }
 
+    /// Agent Panel 里点「新对话」：开一个新的 native 会话（不动外部 ACP 会话）。
+    pub fn start_new_thread(&mut self, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        let model = self.model.clone();
+        if let Some(agent) = &mut self.agent {
+            agent.replace_thread(Thread::new(
+                format!("native-demo-{}", now_secs()),
+                SelectedModel::new(model.provider_id.clone(), model.id.clone()),
+            ));
+        }
+        self.state = HostState::new();
+        self.state
+            .push_system("Native agent：新对话，配置 Provider 后开始。");
+        self.last_checkpoint = None;
+        self.checkpoint_changes.clear();
+        self.show_checkpoint_panel = false;
+        self.last_agent_summary = None;
+        self.status = "新对话".to_string();
+        cx.notify();
+    }
+
     /// 从 SQLite 拉取其他视图写入的最新会话，保持内联/独立窗口共享同一份历史。
     fn reload_latest_session(&mut self) {
         let Some(agent) = &self.agent else {

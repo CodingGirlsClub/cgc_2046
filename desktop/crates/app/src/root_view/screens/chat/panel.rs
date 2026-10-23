@@ -996,6 +996,32 @@ pub(in crate::root_view) fn render_chat_panel(
                 let dismiss = cx.entity().downgrade();
                 let new_root = root.clone();
                 let new_dismiss = dismiss.clone();
+                let cgc_root = root.clone();
+                let cgc_dismiss = dismiss.clone();
+                let cgc_row = crate::root_view::RootView::native_agent_enabled().then(|| {
+                    div()
+                        .id("chat-agent-cgc")
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(space(1))
+                        .px(space(1))
+                        .py(px(3.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .hover(|style| style.bg(palette.soft))
+                        .child(div().flex_1().child("CGC Agent"))
+                        .child(
+                            div()
+                                .text_size(px(10.0))
+                                .text_color(palette.ink_3)
+                                .child("Native"),
+                        )
+                        .on_click(move |_, window, cx| {
+                            let _ = cgc_root.update(cx, |this, cx| this.enter_native_chat(cx));
+                            let _ = cgc_dismiss.update(cx, |state, cx| state.dismiss(window, cx));
+                        })
+                        .into_any_element()
+                });
                 let mut new_row = Some(
                     div()
                         .id("chat-agent-new-thread")
@@ -1069,9 +1095,15 @@ pub(in crate::root_view) fn render_chat_panel(
                         .collect()
                 };
                 let mut rows = rows;
+                if let Some(cgc_row) = cgc_row {
+                    rows.insert(0, cgc_row);
+                }
                 let new_row = new_row.take();
                 if let Some(new_row) = new_row {
-                    rows.insert(0, new_row);
+                    rows.insert(
+                        usize::from(crate::root_view::RootView::native_agent_enabled()),
+                        new_row,
+                    );
                 }
                 let add_root = root.clone();
                 let add_dismiss = dismiss.clone();

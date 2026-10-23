@@ -1752,6 +1752,21 @@ impl RootView {
     }
 
     /// 打开独立设置窗口（对齐 Zed 的 SettingsWindow）：已存在则激活复用。
+    /// 「+」菜单选择 CGC Agent：在 Agent Panel 内切到 native agent。
+    pub fn enter_native_chat(&mut self, cx: &mut Context<Self>) {
+        self.native_chat_mode = true;
+        cx.notify();
+    }
+
+    /// 在 Agent Panel 内开启一个新的 native 会话。
+    pub fn new_native_chat(&mut self, cx: &mut Context<Self>) {
+        self.native_chat_mode = true;
+        if let Some(view) = &self.native_agent_view {
+            let _ = view.update(cx, |view, cx| view.start_new_thread(cx));
+        }
+        cx.notify();
+    }
+
     /// 课程页对话面板在 ACP 与 native agent 之间切换（P1b 内联灰度）。
     pub fn toggle_native_chat_mode(&mut self, cx: &mut Context<Self>) {
         self.native_chat_mode = !self.native_chat_mode;

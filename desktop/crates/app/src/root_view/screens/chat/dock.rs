@@ -12,7 +12,7 @@ pub(in crate::root_view) fn render_agent_panel(
         .current
         .as_ref()
         .is_some_and(|route_match| route_match.route.id == "courses.learning");
-    if learning && ctx.native_chat_mode && RootView::native_agent_enabled() {
+    if ctx.native_chat_mode && RootView::native_agent_enabled() {
         if ctx.native_agent_view.is_none() {
             let view = cx.new(|cx| crate::native_agent_view::NativeAgentView::new(window, cx));
             ctx.native_agent_view = Some(view);
@@ -40,6 +40,16 @@ pub(in crate::root_view) fn render_agent_panel(
                             .text_size(px(12.0))
                             .text_color(palette.ink_2)
                             .child("Native Agent"),
+                    )
+                    .child(
+                        div()
+                            .id("chat-native-new")
+                            .role(Role::Button)
+                            .aria_label("新对话")
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_3)
+                            .child("新对话")
+                            .on_click(cx.listener(|this, _, _, cx| this.new_native_chat(cx))),
                     )
                     .child(
                         div()
