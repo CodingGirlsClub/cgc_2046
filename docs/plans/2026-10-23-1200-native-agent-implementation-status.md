@@ -32,7 +32,7 @@ status: draft
 | P0 | Provider 四件套 / Fake / OpenAI-compatible / CLI+GPUI demo / 偏好持久化 | ✅ 完成 |
 | P1a | loop、工具、审批、OS 沙箱（Seatbelt/bwrap/Windows 降级）、SQLite 会话、Host 协议、AppAction + 审计、危险命令策略 | ✅ 完成 |
 | P1b | Git checkpoint、逐文件 diff/Keep/Reject、HEAD 漂移检测、灰度开关、课程页内联替换（可切回 ACP） | ✅ 完成 |
-| P2 | Provider 设置（Settings → AI / LLM Providers，多 provider + 钥匙串）、composer 模型/推理档位/审批模式、follow-up、steering、slash 面板、todo/plan/goal、摘要式 compaction、subagent + 实时卡片 | ✅ 完成（存在已知缺口，见 §4） |
+| P2 | Provider 设置（Settings → AI / LLM Providers，gpui-kit Settings 组件，多 provider + 钥匙串）、composer 模型/推理档位/审批模式、follow-up、steering、slash 面板、todo/plan/goal、摘要式 compaction、subagent + 实时卡片 | ✅ 完成（存在已知缺口，见 §4） |
 | P3 | 多 mate 定义下发、第三方 MCP、web agent 退役评估 | ⏳ 未开始 |
 
 ## 3. 验证方式

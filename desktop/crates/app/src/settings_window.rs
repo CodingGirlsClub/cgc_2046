@@ -12,6 +12,9 @@ use cgc_agent_store::{provider_key_account, PrefsStore, ProviderPrefs};
 use cgc_platform::paths::AppPaths;
 use cgc_platform::session::KeychainStore;
 use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::setting::{
+    SettingField, SettingGroup, SettingItem, SettingPage, Settings,
+};
 use gpui_kit::component::switch::Switch;
 use gpui_kit::InteractiveElement;
 use gpui_kit::*;
@@ -19,7 +22,7 @@ use gpui_kit::*;
 use crate::build_info;
 use crate::i18n::{translate, Key, Language};
 use crate::preferences;
-use crate::theme::{self, space, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL};
+use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 use cgc_platform::session::AuthApi;
 
 /// Settings 里的 provider 编辑草稿（输入框懒创建，避免 new() 需要 window）。
@@ -349,237 +352,397 @@ impl SettingsWindowView {
             .into_any_element()
     }
 
-    fn render_section(
-        title: &'static str,
-        body: AnyElement,
-        palette: &theme::Palette,
-    ) -> AnyElement {
-        div()
-            .flex()
-            .flex_col()
-            .gap(space(1))
-            .p(space(3))
-            .rounded(px(RADIUS_LARGE))
-            .border_1()
-            .border_color(palette.line)
-            .bg(palette.card)
-            .child(
-                div()
-                    .text_size(px(12.0))
-                    .text_color(palette.ink_3)
-                    .child(title),
-            )
-            .child(body)
-            .into_any_element()
-    }
-}
-
-impl Render for SettingsWindowView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn build_settings(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let language = self.language;
-        let palette = theme::palette_from_theme(cx);
         let shortcut = if cfg!(target_os = "macos") {
             "⌘,"
         } else {
             "Ctrl+,"
         };
         let account = self.email.clone().unwrap_or_else(|| self.user_id.clone());
+        let user_id = self.user_id.clone();
         let workspace = self.workspace.clone().unwrap_or_else(|| "—".to_string());
         let error = self.error.clone();
+        let notice = self.notice.clone();
         let revoking = self.revoking;
         let revoked = self.revoked;
+        let drafts = self.provider_drafts.clone();
+        let weak = cx.entity().downgrade();
+
+        let account_item = SettingItem::render(move |_options, _window, cx| {
+            let palette = theme::palette_from_theme(cx);
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(2.0))
+                .child(div().text_size(px(13.0)).child(account.clone()))
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_3)
+                        .child(format!("user_id: {user_id}")),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_3)
+                        .child(format!("Workspace: {workspace}")),
+                )
+                .into_any_element()
+        });
+        let close_to_tray_flag = self.close_to_tray.clone();
+        let close_to_tray = SettingItem::new(
+            translate(language, Key::AppSettingsCloseToTray),
+            SettingField::switch(
+                |_cx: &App| preferences::load().close_to_tray,
+                move |value: bool, _cx: &mut App| {
+                    close_to_tray_flag.store(value, Ordering::Relaxed);
+                    let mut prefs = preferences::load();
+                    prefs.close_to_tray = value;
+                    preferences::save(prefs);
+                },
+            ),
+        )
+        .description(translate(language, Key::AppSettingsCloseToTrayHint));
+        let native_agent = SettingItem::new(
+            "启用 Native Agent 入口",
+            SettingField::switch(
+                |_cx: &App| preferences::load().native_agent_enabled,
+                |value: bool, _cx: &mut App| {
+                    let mut prefs = preferences::load();
+                    prefs.native_agent_enabled = value;
+                    preferences::save(prefs);
+                },
+            ),
+        )
+        .description("灰度开关：账号菜单与课程页显示 Native Agent（Beta）");
+        let providers_weak = weak.clone();
+        let providers_item = SettingItem::render(move |_options, _window, cx| {
+            let palette = theme::palette_from_theme(cx);
+            render_provider_cards(
+                cx,
+                &providers_weak,
+                &drafts,
+                &palette,
+                notice.clone(),
+                error.clone(),
+            )
+        });
+        let about_item = SettingItem::render(move |_options, _window, cx| {
+            let palette = theme::palette_from_theme(cx);
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(2.0))
+                .child(div().text_size(px(13.0)).child(build_info::about_line()))
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_3)
+                        .child(format!(
+                            "{} {}",
+                            translate(language, Key::AppSettingsShortcutHint),
+                            shortcut
+                        )),
+                )
+                .into_any_element()
+        });
+        let revoke_weak = weak.clone();
+        let revoke_item = SettingItem::render(move |_options, _window, cx| {
+            let palette = theme::palette_from_theme(cx);
+            let weak = revoke_weak.clone();
+            let label = if revoking {
+                translate(language, Key::AppSettingsRevoking)
+            } else if revoked {
+                translate(language, Key::AppSettingsRevoked)
+            } else {
+                translate(language, Key::AppSettingsRevokeDevice)
+            };
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .gap(space(2))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.0))
+                        .child(
+                            div()
+                                .text_size(px(13.0))
+                                .child(translate(language, Key::AppSettingsRevokeDevice)),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_3)
+                                .child(translate(language, Key::AppSettingsRevokeHint)),
+                        ),
+                )
+                .child(
+                    div()
+                        .id("settings-window-revoke")
+                        .role(Role::Button)
+                        .aria_label(label)
+                        .px(space(2))
+                        .py(px(6.0))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .bg(if revoking || revoked {
+                            palette.soft
+                        } else {
+                            palette.danger
+                        })
+                        .text_color(if revoking || revoked {
+                            palette.ink_3
+                        } else {
+                            palette.canvas
+                        })
+                        .child(label)
+                        .on_click(move |_, _, cx| {
+                            let _ = weak.update(cx, |this, cx| this.revoke(cx));
+                        }),
+                )
+                .into_any_element()
+        });
+
+        let settings = Settings::new("cgc-settings")
+            .page(
+                SettingPage::new(translate(language, Key::AppSettingsAccount)).group(
+                    SettingGroup::new()
+                        .title(translate(language, Key::AppSettingsAccount))
+                        .item(account_item),
+                ),
+            )
+            .page(
+                SettingPage::new("通用").group(
+                    SettingGroup::new()
+                        .title("通用")
+                        .items(vec![close_to_tray, native_agent]),
+                ),
+            )
+            .page(
+                SettingPage::new("AI / LLM Providers")
+                    .group(SettingGroup::new().title("Providers").item(providers_item)),
+            )
+            .page(
+                SettingPage::new("关于").group(
+                    SettingGroup::new()
+                        .title("关于")
+                        .items(vec![about_item, revoke_item]),
+                ),
+            );
+        div().size_full().child(settings).into_any_element()
+    }
+}
+
+fn render_provider_cards(
+    _cx: &mut App,
+    weak: &WeakEntity<SettingsWindowView>,
+    drafts: &[ProviderDraft],
+    palette: &theme::Palette,
+    notice: Option<String>,
+    error: Option<String>,
+) -> AnyElement {
+    let mut cards: Vec<AnyElement> = Vec::new();
+    for (index, draft) in drafts.iter().enumerate() {
+        let (Some(base_input), Some(models_input), Some(key_input)) = (
+            draft.base_url_input.clone(),
+            draft.models_input.clone(),
+            draft.api_key_input.clone(),
+        ) else {
+            continue;
+        };
+        let status_color = if draft.has_key {
+            palette.ink_2
+        } else {
+            palette.ink_3
+        };
+        let status = if draft.has_key {
+            "API Key 已保存"
+        } else {
+            "未保存 API Key"
+        };
+        let remove_weak = weak.clone();
+        let save_weak = weak.clone();
+        let reset_weak = weak.clone();
+        let thinking_weak = weak.clone();
+        cards.push(
+            div()
+                .flex()
+                .flex_col()
+                .gap(space(1))
+                .p(space(1))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(space(2))
+                        .child(div().flex_1().text_size(px(13.0)).child(draft.name.clone()))
+                        .child(
+                            div()
+                                .text_size(px(10.0))
+                                .text_color(status_color)
+                                .child(status),
+                        )
+                        .child(
+                            div()
+                                .id(SharedString::from(format!(
+                                    "settings-provider-remove-{index}"
+                                )))
+                                .role(Role::Button)
+                                .aria_label("删除 provider")
+                                .px(space(1))
+                                .py(px(2.0))
+                                .rounded(px(RADIUS_SMALL))
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_3)
+                                .hover(|style| style.bg(palette.soft))
+                                .child("删除")
+                                .on_click(move |_, _, cx| {
+                                    let _ = remove_weak
+                                        .update(cx, |this, cx| this.remove_provider(index, cx));
+                                }),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .justify_between()
+                        .gap(space(2))
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_3)
+                                .child("支持推理档位（thinking）"),
+                        )
+                        .child(
+                            Switch::new(SharedString::from(format!(
+                                "settings-provider-thinking-{index}"
+                            )))
+                            .checked(draft.supports_thinking)
+                            .on_change(move |checked, _, cx| {
+                                let _ = thinking_weak.update(cx, |this, cx| {
+                                    if let Some(draft) = this.provider_drafts.get_mut(index) {
+                                        draft.supports_thinking = *checked;
+                                    }
+                                    cx.notify();
+                                });
+                            }),
+                        ),
+                )
+                .child(SettingsWindowView::render_provider_field(
+                    "Base URL", base_input, palette,
+                ))
+                .child(SettingsWindowView::render_provider_field(
+                    "Models（逗号分隔）",
+                    models_input,
+                    palette,
+                ))
+                .child(SettingsWindowView::render_provider_field(
+                    "API Key", key_input, palette,
+                ))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(space(2))
+                        .child(
+                            div()
+                                .id(SharedString::from(format!(
+                                    "settings-provider-save-{index}"
+                                )))
+                                .role(Role::Button)
+                                .aria_label("保存 provider")
+                                .px(space(2))
+                                .py(px(5.0))
+                                .rounded(px(RADIUS_MEDIUM))
+                                .bg(palette.accent)
+                                .text_color(palette.canvas)
+                                .text_size(px(11.0))
+                                .child("保存")
+                                .on_click(move |_, window, cx| {
+                                    let _ = save_weak.update(cx, |this, cx| {
+                                        this.save_provider(index, window, cx);
+                                    });
+                                }),
+                        )
+                        .child(
+                            div()
+                                .id(SharedString::from(format!(
+                                    "settings-provider-reset-{index}"
+                                )))
+                                .role(Role::Button)
+                                .aria_label("清除 provider API Key")
+                                .px(space(2))
+                                .py(px(5.0))
+                                .rounded(px(RADIUS_MEDIUM))
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_3)
+                                .hover(|style| style.bg(palette.soft))
+                                .child("清除 API Key")
+                                .on_click(move |_, _, cx| {
+                                    let _ = reset_weak
+                                        .update(cx, |this, cx| this.reset_provider_key(index, cx));
+                                }),
+                        ),
+                )
+                .into_any_element(),
+        );
+    }
+    let add_weak = weak.clone();
+    div()
+        .flex()
+        .flex_col()
+        .gap(space(2))
+        .children(cards)
+        .child(
+            div()
+                .id("settings-provider-add")
+                .role(Role::Button)
+                .aria_label("添加 provider")
+                .px(space(2))
+                .py(px(5.0))
+                .rounded(px(RADIUS_MEDIUM))
+                .border_1()
+                .border_color(palette.line)
+                .text_size(px(12.0))
+                .text_color(palette.ink_2)
+                .hover(|style| style.bg(palette.soft))
+                .child("＋ 添加 Provider（OpenAI compatible）")
+                .on_click(move |_, _, cx| {
+                    let _ = add_weak.update(cx, |this, cx| this.add_provider(cx));
+                }),
+        )
+        .children(notice.map(|notice| {
+            div()
+                .text_size(px(11.0))
+                .text_color(palette.ink_3)
+                .child(notice)
+        }))
+        .children(error.map(|error| {
+            div()
+                .text_size(px(11.0))
+                .text_color(palette.danger)
+                .child(error)
+        }))
+        .into_any_element()
+}
+
+impl Render for SettingsWindowView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let language = self.language;
+        let palette = theme::palette_from_theme(cx);
         let focus = self.focus.clone();
 
         for index in 0..self.provider_drafts.len() {
             self.ensure_provider_inputs(index, window, cx);
         }
-        let mut provider_cards: Vec<AnyElement> = Vec::new();
-        for index in 0..self.provider_drafts.len() {
-            let draft = self.provider_drafts[index].clone();
-            let (Some(base_input), Some(models_input), Some(key_input)) = (
-                draft.base_url_input.clone(),
-                draft.models_input.clone(),
-                draft.api_key_input.clone(),
-            ) else {
-                continue;
-            };
-            let status_color = if draft.has_key {
-                palette.ink_2
-            } else {
-                palette.ink_3
-            };
-            let status = if draft.has_key {
-                "API Key 已保存"
-            } else {
-                "未保存 API Key"
-            };
-            let remove_view = cx.entity().downgrade();
-            let save_view = cx.entity().downgrade();
-            let reset_view = cx.entity().downgrade();
-            let thinking_view = cx.entity().downgrade();
-            provider_cards.push(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(space(1))
-                    .p(space(2))
-                    .rounded(px(RADIUS_MEDIUM))
-                    .border_1()
-                    .border_color(palette.line)
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(space(2))
-                            .child(div().flex_1().text_size(px(13.0)).child(draft.name.clone()))
-                            .child(
-                                div()
-                                    .text_size(px(10.0))
-                                    .text_color(status_color)
-                                    .child(status),
-                            )
-                            .child(
-                                div()
-                                    .id(SharedString::from(format!(
-                                        "settings-provider-remove-{index}"
-                                    )))
-                                    .role(Role::Button)
-                                    .aria_label("删除 provider")
-                                    .px(space(1))
-                                    .py(px(2.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_3)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child("删除")
-                                    .on_click(move |_, _, cx| {
-                                        let _ = remove_view.update(cx, |this, cx| {
-                                            this.remove_provider(index, cx);
-                                        });
-                                    }),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .justify_between()
-                            .gap(space(2))
-                            .child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_3)
-                                    .child("支持推理档位（thinking）"),
-                            )
-                            .child(
-                                Switch::new(SharedString::from(format!(
-                                    "settings-provider-thinking-{index}"
-                                )))
-                                .checked(draft.supports_thinking)
-                                .on_change(
-                                    move |checked, _, cx| {
-                                        let _ = thinking_view.update(cx, |this, cx| {
-                                            if let Some(draft) = this.provider_drafts.get_mut(index)
-                                            {
-                                                draft.supports_thinking = *checked;
-                                            }
-                                            cx.notify();
-                                        });
-                                    },
-                                ),
-                            ),
-                    )
-                    .child(Self::render_provider_field(
-                        "Base URL", base_input, &palette,
-                    ))
-                    .child(Self::render_provider_field(
-                        "Models（逗号分隔）",
-                        models_input,
-                        &palette,
-                    ))
-                    .child(Self::render_provider_field("API Key", key_input, &palette))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(space(2))
-                            .child(
-                                div()
-                                    .id(SharedString::from(format!(
-                                        "settings-provider-save-{index}"
-                                    )))
-                                    .role(Role::Button)
-                                    .aria_label("保存 provider")
-                                    .px(space(2))
-                                    .py(px(5.0))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .bg(palette.accent)
-                                    .text_color(palette.canvas)
-                                    .text_size(px(11.0))
-                                    .child("保存")
-                                    .on_click(move |_, window, cx| {
-                                        let _ = save_view.update(cx, |this, cx| {
-                                            this.save_provider(index, window, cx);
-                                        });
-                                    }),
-                            )
-                            .child(
-                                div()
-                                    .id(SharedString::from(format!(
-                                        "settings-provider-reset-{index}"
-                                    )))
-                                    .role(Role::Button)
-                                    .aria_label("清除 provider API Key")
-                                    .px(space(2))
-                                    .py(px(5.0))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_3)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child("清除 API Key")
-                                    .on_click(move |_, _, cx| {
-                                        let _ = reset_view.update(cx, |this, cx| {
-                                            this.reset_provider_key(index, cx);
-                                        });
-                                    }),
-                            ),
-                    )
-                    .into_any_element(),
-            );
-        }
-        let add_view = cx.entity().downgrade();
-        let provider_section = div()
-            .flex()
-            .flex_col()
-            .gap(space(2))
-            .children(provider_cards)
-            .child(
-                div()
-                    .id("settings-provider-add")
-                    .role(Role::Button)
-                    .aria_label("添加 provider")
-                    .px(space(2))
-                    .py(px(5.0))
-                    .rounded(px(RADIUS_MEDIUM))
-                    .border_1()
-                    .border_color(palette.line)
-                    .text_size(px(12.0))
-                    .text_color(palette.ink_2)
-                    .hover(|style| style.bg(palette.soft))
-                    .child("＋ 添加 Provider（OpenAI compatible）")
-                    .on_click(move |_, _, cx| {
-                        let _ = add_view.update(cx, |this, cx| this.add_provider(cx));
-                    }),
-            )
-            .children(self.notice.clone().map(|notice| {
-                div()
-                    .text_size(px(11.0))
-                    .text_color(palette.ink_3)
-                    .child(notice)
-            }));
 
         div()
             .size_full()
@@ -644,227 +807,9 @@ impl Render for SettingsWindowView {
             .child(
                 div()
                     .id("settings-content")
-                    .flex()
-                    .flex_col()
-                    .gap(space(2))
-                    .w_full()
-                    .max_w(px(640.0))
-                    .p(space(5))
-                    .child(Self::render_section(
-                        translate(language, Key::AppSettingsAccount),
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(2.0))
-                            .child(div().text_size(px(14.0)).child(account))
-                            .child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_3)
-                                    .child(format!("user_id: {}", self.user_id)),
-                            )
-                            .into_any_element(),
-                        &palette,
-                    ))
-                    .child(Self::render_section(
-                        translate(language, Key::AppSettingsWorkspace),
-                        div()
-                            .text_size(px(14.0))
-                            .child(workspace)
-                            .into_any_element(),
-                        &palette,
-                    ))
-                    .child(Self::render_section(
-                        translate(language, Key::AppSettingsBehavior),
-                        {
-                            let close_to_tray = self.close_to_tray.clone();
-                            let view = cx.entity().downgrade();
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap(px(6.0))
-                                .child(
-                                    div()
-                                        .flex()
-                                        .items_center()
-                                        .justify_between()
-                                        .gap(space(2))
-                                        .child(
-                                            div()
-                                                .flex()
-                                                .flex_col()
-                                                .gap(px(2.0))
-                                                .child(div().text_size(px(13.0)).child(translate(
-                                                    language,
-                                                    Key::AppSettingsCloseToTray,
-                                                )))
-                                                .child(
-                                                    div()
-                                                        .text_size(px(11.0))
-                                                        .text_color(palette.ink_3)
-                                                        .child(translate(
-                                                            language,
-                                                            Key::AppSettingsCloseToTrayHint,
-                                                        )),
-                                                ),
-                                        )
-                                        .child(
-                                            Switch::new("settings-close-to-tray")
-                                                .checked(close_to_tray.load(Ordering::Relaxed))
-                                                .on_change(move |checked, _, cx| {
-                                                    close_to_tray
-                                                        .store(*checked, Ordering::Relaxed);
-                                                    let mut prefs = preferences::load();
-                                                    prefs.close_to_tray = *checked;
-                                                    preferences::save(prefs);
-                                                    let _ = view.update(cx, |_, cx| cx.notify());
-                                                }),
-                                        ),
-                                )
-                                .into_any_element()
-                        },
-                        &palette,
-                    ))
-                    .child(Self::render_section(
-                        "Native Agent（Beta）",
-                        {
-                            let view = cx.entity().downgrade();
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap(px(6.0))
-                                .child(
-                                    div()
-                                        .flex()
-                                        .items_center()
-                                        .justify_between()
-                                        .gap(space(2))
-                                        .child(
-                                            div()
-                                                .flex()
-                                                .flex_col()
-                                                .gap(px(2.0))
-                                                .child(
-                                                    div()
-                                                        .text_size(px(13.0))
-                                                        .child("启用 Native Agent 入口"),
-                                                )
-                                                .child(
-                                                    div()
-                                                        .text_size(px(11.0))
-                                                        .text_color(palette.ink_3)
-                                                        .child("灰度开关：账号菜单与课程页显示 Native Agent（Beta）"),
-                                                ),
-                                        )
-                                        .child(
-                                            Switch::new("settings-native-agent")
-                                                .checked(preferences::load().native_agent_enabled)
-                                                .on_change(move |checked, _, cx| {
-                                                    let mut prefs = preferences::load();
-                                                    prefs.native_agent_enabled = *checked;
-                                                    preferences::save(prefs);
-                                                    let _ = view.update(cx, |_, cx| cx.notify());
-                                                }),
-                                        ),
-                                )
-                                .into_any_element()
-                        },
-                        &palette,
-                    ))
-                    .child(Self::render_section(
-                        "AI / LLM Providers",
-                        provider_section.into_any_element(),
-                        &palette,
-                    ))
-                    .child(Self::render_section(
-                        translate(language, Key::AppSettingsBuild),
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(2.0))
-                            .child(div().text_size(px(13.0)).child(build_info::about_line()))
-                            .child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_3)
-                                    .child(translate(language, Key::AppSettingsShortcutHint)),
-                            )
-                            .into_any_element(),
-                        &palette,
-                    ))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .gap(space(2))
-                            .p(space(2))
-                            .rounded(px(RADIUS_LARGE))
-                            .border_1()
-                            .border_color(palette.line)
-                            .bg(palette.card)
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap(px(2.0))
-                                    .child(
-                                        div().text_size(px(13.0)).child(translate(
-                                            language,
-                                            Key::AppSettingsRevokeDevice,
-                                        )),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_size(px(11.0))
-                                            .text_color(palette.ink_3)
-                                            .child(translate(language, Key::AppSettingsRevokeHint)),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .id("settings-window-revoke")
-                                    .role(Role::Button)
-                                    .aria_label(translate(language, Key::AppSettingsRevokeDevice))
-                                    .px(space(2))
-                                    .py(px(6.0))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .bg(if revoking || revoked {
-                                        palette.soft
-                                    } else {
-                                        palette.danger
-                                    })
-                                    .text_color(if revoking || revoked {
-                                        palette.ink_3
-                                    } else {
-                                        palette.canvas
-                                    })
-                                    .child(if revoking {
-                                        translate(language, Key::AppSettingsRevoking)
-                                    } else if revoked {
-                                        translate(language, Key::AppSettingsRevoked)
-                                    } else {
-                                        translate(language, Key::AppSettingsRevokeDevice)
-                                    })
-                                    .on_click(cx.listener(|this, _, _, cx| this.revoke(cx))),
-                            ),
-                    )
-                    .children(error.map(|message| {
-                        div()
-                            .text_size(px(12.0))
-                            .text_color(palette.danger)
-                            .child(message)
-                    }))
-                    .child(
-                        div()
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_3)
-                            .child(format!(
-                                "{} {}",
-                                translate(language, Key::AppSettingsShortcutHint),
-                                shortcut
-                            )),
-                    ),
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .child(self.build_settings(window, cx)),
             )
     }
 }
