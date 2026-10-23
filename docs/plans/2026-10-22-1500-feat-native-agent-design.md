@@ -364,6 +364,7 @@ UI（输入）→ NativeHost.prompt
 | P1b | Checkpoint / diff：Git 隐藏 ref、Keep/Reject、Restore；课程页灰度 | 2 周 | 恢复/拒绝/未跟踪/超大文件/冲突用例；灰度验收 |
 
 **P2 进度（2026-10-23）**：
+- **compaction（P2）**：请求前按 `context_window - max_output_tokens - 512` 做硬截断，保留最近消息并在最前插入「上下文已压缩」提示；`TurnObserver::on_compaction` → `AgentEvent::ContextCompacted` → HostState 显示 system 通知。尚未做 LLM 摘要式压缩。
 - **slash 命令面板（P2）**：`agent_host::slash` 解析 6 个客户端命令（/help /clear /stop /tools /checkpoint /settings），GPUI 面板输入 `/` 时显示命令提示，命令不发给模型。4 项 host 测试。
 - **AppAction（P1a）**：`agent_tools::action`（`AppAction` + `ActionSink`）与 `open_page` / `highlight_range` 工具；路由仅允许 `/` 开头（拒绝外部 URL），高亮校验路径与行区间；CLI 直接打印动作，GPUI 面板在每轮结束把动作转成 system 消息（正式面板接入后改为真实跳转/高亮）。30 项 tools 单测。
 - **todo / plan / goal**：`agent_tools::state`（`AgentState` + `SharedAgentState`）与 `todo_write` / `plan_write` / `goal_write` 三个工具；CLI 每轮打印状态摘要，GPUI 面板在状态变化时追加 system 消息。26 项 tools 单测。

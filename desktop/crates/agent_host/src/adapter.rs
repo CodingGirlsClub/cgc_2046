@@ -47,6 +47,11 @@ impl TurnObserver for EventCollector {
         });
     }
 
+    fn on_compaction(&mut self, omitted_entries: usize) {
+        self.events
+            .push(AgentEvent::ContextCompacted { omitted_entries });
+    }
+
     fn on_text(&mut self, delta: &str) {
         self.events.push(AgentEvent::TextDelta {
             text: delta.to_string(),
@@ -120,6 +125,12 @@ impl TurnObserver for ChannelObserver {
         });
     }
 
+    fn on_compaction(&mut self, omitted_entries: usize) {
+        let _ = self
+            .sender
+            .send(AgentEvent::ContextCompacted { omitted_entries });
+    }
+
     fn on_text(&mut self, delta: &str) {
         let _ = self.sender.send(AgentEvent::TextDelta {
             text: delta.to_string(),
@@ -191,6 +202,12 @@ impl TurnObserver for AsyncChannelObserver {
         let _ = self.sender.unbounded_send(AgentEvent::SteerStarted {
             text: text.to_string(),
         });
+    }
+
+    fn on_compaction(&mut self, omitted_entries: usize) {
+        let _ = self
+            .sender
+            .unbounded_send(AgentEvent::ContextCompacted { omitted_entries });
     }
 
     fn on_text(&mut self, delta: &str) {

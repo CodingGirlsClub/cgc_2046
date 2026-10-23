@@ -14,6 +14,9 @@ pub enum AgentEvent {
     SteerStarted {
         text: String,
     },
+    ContextCompacted {
+        omitted_entries: usize,
+    },
     TextDelta {
         text: String,
     },

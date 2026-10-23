@@ -122,3 +122,12 @@ fn steer_flushes_streaming_and_appends_user_message() {
     assert_eq!(state.messages[1].text, "partial");
     assert_eq!(state.messages[2].text, "instead do this");
 }
+
+#[test]
+fn compaction_pushes_system_notice() {
+    let mut state = HostState::new();
+    state.apply(AgentEvent::ContextCompacted { omitted_entries: 7 });
+    assert_eq!(state.messages.len(), 1);
+    assert_eq!(state.messages[0].role, cgc_agent_host::UiRole::System);
+    assert!(state.messages[0].text.contains("省略 7 条"));
+}

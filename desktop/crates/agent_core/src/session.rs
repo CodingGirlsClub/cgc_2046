@@ -94,6 +94,7 @@ pub trait TurnObserver: Send {
     fn on_turn_started(&mut self, _thread_id: &str) {}
     fn on_follow_up_started(&mut self, _text: &str) {}
     fn on_steer_started(&mut self, _text: &str) {}
+    fn on_compaction(&mut self, _omitted_entries: usize) {}
     fn on_text(&mut self, _delta: &str) {}
     fn on_tool_call(&mut self, _tool_use: &ToolUse) {}
     fn on_permission_request(&mut self, _request: &ApprovalRequest) {}
@@ -215,7 +216,10 @@ impl Agent {
         let mut observer = NoopObserver;
         let mut steers = 0;
         loop {
-            let request = self.build_request(Vec::new());
+            let (request, omitted) = self.build_request(model, Vec::new());
+            if omitted > 0 {
+                observer.on_compaction(omitted);
+            }
             let outcome = run_stream(
                 provider,
                 model,
@@ -307,7 +311,10 @@ impl Agent {
                 if self.cancel.is_cancelled() {
                     return Err(AgentError::Cancelled);
                 }
-                let request = self.build_request(tools.schemas());
+                let (request, omitted) = self.build_request(model, tools.schemas());
+                if omitted > 0 {
+                    observer.on_compaction(omitted);
+                }
                 let stream_outcome = run_stream(
                     provider,
                     model,
@@ -393,13 +400,23 @@ impl Agent {
         Ok(())
     }
 
-    fn build_request(&self, tools: Vec<cgc_agent_provider::ToolSchema>) -> Request {
+    fn build_request(
+        &self,
+        model: &Model,
+        tools: Vec<cgc_agent_provider::ToolSchema>,
+    ) -> (Request, usize) {
         let mut messages = Vec::new();
         if let Some(system_prompt) = &self.system_prompt {
             messages.push(Message::system(system_prompt.clone()));
         }
-        messages.extend(self.thread.messages());
-        Request::new(messages).with_tools(tools)
+        let budget = model
+            .limits
+            .context_window
+            .saturating_sub(model.limits.max_output_tokens)
+            .saturating_sub(512) as usize;
+        let (history, omitted) = self.thread.messages_with_budget(budget);
+        messages.extend(history);
+        (Request::new(messages).with_tools(tools), omitted)
     }
 
     fn record_turn(&mut self, text: String, tool_calls: Vec<ToolUse>, usage: TokenUsage) {

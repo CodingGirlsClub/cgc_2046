@@ -154,6 +154,49 @@ impl Thread {
         }
         messages
     }
+
+    /// 按 token 预算保留最近消息；发生截断时在最前面加一条压缩提示。
+    pub fn messages_with_budget(&self, budget_tokens: usize) -> (Vec<Message>, usize) {
+        let messages = self.messages();
+        if budget_tokens == 0 {
+            return (messages, 0);
+        }
+        let mut kept: Vec<Message> = Vec::new();
+        let mut used = 0usize;
+        let mut omitted = 0usize;
+        for message in messages.iter().rev() {
+            let estimate = estimate_message_tokens(message);
+            if !kept.is_empty() && used + estimate > budget_tokens {
+                omitted += 1;
+                continue;
+            }
+            used += estimate;
+            kept.push(message.clone());
+        }
+        kept.reverse();
+        if omitted > 0 {
+            kept.insert(
+                0,
+                Message::system(format!("上下文已压缩：省略了 {omitted} 条更早的消息")),
+            );
+        }
+        (kept, omitted)
+    }
+}
+
+fn estimate_message_tokens(message: &Message) -> usize {
+    let chars: usize = message
+        .content
+        .iter()
+        .map(|content| match content {
+            Content::Text(text) => text.chars().count(),
+            Content::ToolUse(tool_use) => {
+                tool_use.args.to_string().chars().count() + tool_use.name.len()
+            }
+            Content::ToolResult { content, .. } => content.chars().count(),
+        })
+        .sum();
+    chars / 4 + 4
 }
 
 pub(crate) fn now_secs() -> i64 {
@@ -226,5 +269,49 @@ mod tests {
             cgc_agent_provider::ModelLimits::new(8_000, 1_000),
         );
         assert!(!selected().matches(&other));
+    }
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+    use cgc_agent_provider::ProviderId;
+
+    fn selected() -> SelectedModel {
+        SelectedModel::new(ProviderId::new("fake"), ModelId::new("m1"))
+    }
+
+    fn thread_with_turns(turns: usize) -> Thread {
+        let mut thread = Thread::new("t1", selected());
+        for index in 0..turns {
+            thread.push_user(format!("question {index} {}", "x".repeat(200)));
+            thread.push_assistant(
+                format!("answer {index} {}", "y".repeat(200)),
+                Vec::new(),
+                None,
+            );
+        }
+        thread
+    }
+
+    #[test]
+    fn small_budget_keeps_recent_messages_and_adds_notice() {
+        let thread = thread_with_turns(12);
+        let all = thread.messages();
+        let (kept, omitted) = thread.messages_with_budget(200);
+        assert!(omitted > 0);
+        assert!(kept.len() < all.len());
+        assert_eq!(kept[0].role, cgc_agent_provider::Role::System);
+        assert!(kept[0].text().contains("上下文已压缩"));
+        assert!(kept.last().unwrap().text().contains("answer 11"));
+    }
+
+    #[test]
+    fn large_budget_keeps_everything() {
+        let thread = thread_with_turns(3);
+        let all = thread.messages();
+        let (kept, omitted) = thread.messages_with_budget(100_000);
+        assert_eq!(omitted, 0);
+        assert_eq!(kept.len(), all.len());
     }
 }

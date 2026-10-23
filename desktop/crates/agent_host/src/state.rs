@@ -66,6 +66,9 @@ impl HostState {
                 }
                 self.push_user(text);
             }
+            AgentEvent::ContextCompacted { omitted_entries } => {
+                self.push_system(format!("上下文已压缩：省略 {omitted_entries} 条更早消息"));
+            }
             AgentEvent::TextDelta { text } => self.streaming.push_str(&text),
             AgentEvent::ToolCallStarted { .. } => {}
             AgentEvent::PermissionRequested {
