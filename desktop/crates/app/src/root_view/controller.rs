@@ -1762,6 +1762,7 @@ impl RootView {
     pub fn apply_native_agent_action(
         &mut self,
         action: cgc_agent_tools::AppAction,
+        workspace: std::path::PathBuf,
         cx: &mut Context<Self>,
     ) {
         match action {
@@ -1774,13 +1775,36 @@ impl RootView {
                 start_line,
                 end_line,
             } => {
+                let mut preview = Vec::new();
+                let mut error = None;
+                match std::fs::read_to_string(workspace.join(&path)) {
+                    Ok(text) => {
+                        let lines: Vec<&str> = text.lines().collect();
+                        let window_start = start_line.saturating_sub(4).max(1) as usize;
+                        let window_end = (end_line as usize + 4).min(lines.len());
+                        for line_number in window_start..=window_end {
+                            if let Some(line) = lines.get(line_number - 1) {
+                                preview.push((line_number as u32, line.to_string()));
+                            }
+                        }
+                    }
+                    Err(read_error) => error = Some(read_error.to_string()),
+                }
                 self.native_agent_highlight = Some(state::NativeAgentHighlight {
                     path,
                     start_line,
                     end_line,
+                    workspace,
+                    preview,
+                    error,
                 });
             }
         }
+        cx.notify();
+    }
+
+    pub fn clear_native_agent_highlight(&mut self, cx: &mut Context<Self>) {
+        self.native_agent_highlight = None;
         cx.notify();
     }
 

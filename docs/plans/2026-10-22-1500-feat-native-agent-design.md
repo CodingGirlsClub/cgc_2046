@@ -367,7 +367,7 @@ UI（输入）→ NativeHost.prompt
 - **subagent（P2）**：`task` 工具 + `SubagentRunner`（宿主提供执行器）；`agent_core::run_subagent` 用独立 thread、只读工具、同一 provider/model 跑一次隔离 turn，返回最终文本；审批为 Ask。**进度事件已接**：`SubagentEvent::{Started, TextDelta, Finished}` 经 sink 回传，demo 打印到 stderr；HostState 新增 `SubagentCard`（任务、累计文本、运行/完成/失败），GPUI 面板渲染子 agent 卡片；**子 agent 事件直接写入当前 turn 的 AgentEvent channel，卡片实时刷新**（turn 结束后停止接收）。
 - **compaction（P2）**：**摘要式压缩已实现**——请求前按 `context_window - max_output_tokens - 512` 切出较早历史，调用同一 provider 生成中文摘要，写入 `Entry::Compaction`（持久化到 SQLite），请求中保留「历史摘要 + 最近消息」；摘要失败自动回退硬截断；`TurnObserver::on_compaction` → `AgentEvent::ContextCompacted` → HostState 显示 system 通知。
 - **slash 命令面板（P2）**：`agent_host::slash` 解析 6 个客户端命令（/help /clear /stop /tools /checkpoint /settings），GPUI 面板输入 `/` 时显示命令提示，命令不发给模型。4 项 host 测试。
-- **AppAction（P1a）**：`agent_tools::action`（`AppAction` + `ActionSink`）与 `open_page` / `highlight_range` 工具；路由仅允许 `/` 开头（拒绝外部 URL），高亮校验路径与行区间；CLI 直接打印动作；**GPUI 已接真实动作**：`open_page` 经主窗口 `RootView::apply_native_agent_action` 导航，`highlight_range` 在主窗口内容区顶部显示高亮提示；找不到主窗口时回退为 system 消息。**动作审计已落盘**：每次执行写 `<data_root>/agent/actions.jsonl`（时间、动作、摘要、是否送达主窗口），JSONL 追加、损坏行跳过。30 项 tools 单测 + 3 项 audit 测试。
+- **AppAction（P1a）**：`agent_tools::action`（`AppAction` + `ActionSink`）与 `open_page` / `highlight_range` 工具；路由仅允许 `/` 开头（拒绝外部 URL），高亮校验路径与行区间；CLI 直接打印动作；**GPUI 已接真实动作**：`open_page` 经主窗口 `RootView::apply_native_agent_action` 导航；`highlight_range` 读取工作区文件，在主窗口内容区渲染**带行号的代码预览卡片**（高亮行区间、可关闭），文件读取失败时显示错误；找不到主窗口时回退为 system 消息。**动作审计已落盘**：每次执行写 `<data_root>/agent/actions.jsonl`（时间、动作、摘要、是否送达主窗口），JSONL 追加、损坏行跳过。30 项 tools 单测 + 3 项 audit 测试。
 - **todo / plan / goal**：`agent_tools::state`（`AgentState` + `SharedAgentState`）与 `todo_write` / `plan_write` / `goal_write` 三个工具；CLI 每轮打印状态摘要，GPUI 面板在状态变化时追加 system 消息。26 项 tools 单测。
 - **follow-up**：`Agent` 支持 `queue_follow_up` / `follow_up_sender`，turn 结束后自动执行排队消息（最多 4 轮，`MAX_FOLLOW_UP_TURNS`）；`TurnObserver::on_follow_up_started` → `AgentEvent::FollowUpStarted`；HostState 归约时先落上一轮 assistant、再追加 user；GPUI 面板在 busy 时把输入转成 follow-up 排队。**steering 已实现**：`steer_sender` 在流式读取中被打断（保留已生成文本），记录 assistant 片段后追加用户消息继续；最多 4 次（`MAX_STEERS`）；`TurnObserver::on_steer_started` → `AgentEvent::SteerStarted` → HostState 先落片再追加 user；面板 busy 且输入非空时显示「打断」按钮。
 Provider 设置（demo 面板内）——`agent_store::ProviderPrefs`（base_url / provider_name / model_id）落 `agent_prefs.json`；API Key 存系统钥匙串（account `native_agent_provider_api_key`），不落明文文件；面板可编辑并保存，重启 demo 窗口生效；启动优先 env，其次文件 + 钥匙串，最后回退 EchoProvider。12 项 store 单测。
@@ -392,6 +392,8 @@ Provider 设置（demo 面板内）——`agent_store::ProviderPrefs`（base_url
 - T0/T1/T2 完成——`desktop/crates/agent_provider`（cgc-agent-provider）已落地四件套、FakeProvider、OpenAI-compatible Provider（SSE 解析、thinking、tool_call 累积、usage、错误分类），19 项单测；
 - T3 完成——`desktop/crates/agent_demo`（`cgc-agent-demo`）提供可交互 CLI demo：真实 provider（env 配置）、`--allow-tools`、`--once`、`--selftest`；另有 GPUI 最小窗口（`CGC_NATIVE_AGENT_DEMO=1 cargo run -p cgc-desktop-app`，离线时用 `EchoProvider`，配置 env 后接真实模型；含发送/停止、工具结果摘要）；
 - T4 完成——`desktop/crates/agent_store`（`cgc-agent-store`）提供本地偏好存储（原子写入、损坏回退默认），模型选择落 `agent_prefs.json`；GPUI demo 启动时恢复、配置 provider 时保存；用量按轮次累计并在状态栏显示（内存态）。
+
+**多视图会话共享（2026-10-23）**：`Agent::replace_thread` + 各视图在每次发送前从 SQLite 拉取最新会话（模型一致且更新时替换本地 thread 并重建 UI 状态），内联面板与独立窗口共享同一份历史。
 
 **P1a 进度（2026-10-22）**：
 - `desktop/crates/agent_core`（cgc-agent-core）：Thread/Entry + 单轮 loop（流式文本、用量累计、停止原因、取消、tool_call 收集），12 项单测；

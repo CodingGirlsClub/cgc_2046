@@ -117,6 +117,9 @@ pub struct NativeAgentHighlight {
     pub path: String,
     pub start_line: u32,
     pub end_line: u32,
+    pub workspace: std::path::PathBuf,
+    pub preview: Vec<(u32, String)>,
+    pub error: Option<String>,
 }
 
 pub struct ShellState {

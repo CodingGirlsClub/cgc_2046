@@ -182,6 +182,16 @@ impl Agent {
         self.cancel.clone()
     }
 
+    /// 用磁盘上最新的 thread 替换当前会话（多视图共享会话）。
+    pub fn replace_thread(&mut self, thread: Thread) {
+        self.thread = thread;
+        self.session_grants.clear();
+        self.follow_ups.clear();
+        while self.follow_up_rx.try_recv().is_ok() {}
+        while self.steer_rx.try_recv().is_ok() {}
+        self.cancel.reset();
+    }
+
     /// 运行中也能用的 follow-up 投递口；UI 在 turn 进行时把新消息发进来。
     pub fn follow_up_sender(&self) -> mpsc::Sender<String> {
         self.follow_up_tx.clone()

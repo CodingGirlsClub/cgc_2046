@@ -66,8 +66,8 @@ CGC_NATIVE_AGENT_DEMO=1 cargo run -p cgc-desktop-app      # 启动即开 demo �
 
 ## 4. 已知缺口与风险（按优先级）
 
-1. **高亮只是提示**：`highlight_range` 目前只在主窗口内容区顶部显示「Agent 高亮：path:start-end」，未定位到具体代码块/编辑器。
-2. **会话未共享**：内联视图与独立窗口各自持有 `Agent`，可能各建一份会话；需要单例/共享 thread 或单窗口约束。
+1. ~~高亮只是提示~~：已升级为读取工作区文件的内容预览卡片（行号 + 高亮区间 + 关闭），但没有编辑器级定位/滚动。
+2. ~~会话未共享~~：已通过 `Agent::replace_thread` + 发送前从 SQLite 拉取最新会话解决；并发写入仍是 last-write-wins。
 3. **审批 UI 边界**：turn 结束后残留审批的清理只做了 sender 清理，未做状态机级处理。
 4. **审计无轮转**：`actions.jsonl` 只追加不清理；写入失败只有 `let _`，无告警。
 5. **compaction 摘要成本**：摘要调用未计入 thread usage，且摘要可能丢细节；失败回退硬截断。

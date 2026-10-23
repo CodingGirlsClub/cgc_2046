@@ -1308,7 +1308,7 @@ impl RootView {
         &self,
         language: Language,
         palette: &theme::Palette,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) -> AnyElement {
         let content = match &self.current {
             Some(route_match) => div()
@@ -1347,21 +1347,90 @@ impl RootView {
                 .into_any_element(),
         };
         match &self.native_agent_highlight {
-            Some(highlight) => div()
-                .flex()
-                .flex_col()
-                .gap(space(2))
-                .child(
+            Some(highlight) => {
+                let header = div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .gap(space(2))
+                    .child(
+                        div()
+                            .text_size(px(12.0))
+                            .text_color(palette.ink_2)
+                            .child(format!(
+                                "Agent 高亮：{}:{}-{}",
+                                highlight.path, highlight.start_line, highlight.end_line
+                            )),
+                    )
+                    .child(
+                        div()
+                            .id("native-agent-highlight-close")
+                            .role(Role::Button)
+                            .aria_label("关闭高亮")
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_3)
+                            .child("关闭")
+                            .on_click(
+                                cx.listener(|this, _, _, cx| this.clear_native_agent_highlight(cx)),
+                            ),
+                    );
+                let body = if let Some(error) = &highlight.error {
                     div()
-                        .text_size(px(12.0))
-                        .text_color(palette.ink_2)
-                        .child(format!(
-                            "Agent 高亮：{}:{}-{}",
-                            highlight.path, highlight.start_line, highlight.end_line
-                        )),
-                )
-                .child(content)
-                .into_any_element(),
+                        .text_size(px(11.0))
+                        .text_color(palette.danger)
+                        .child(format!("无法读取文件：{error}"))
+                        .into_any_element()
+                } else {
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(1.0))
+                        .children(highlight.preview.iter().map(|(line_number, text)| {
+                            let highlighted = *line_number >= highlight.start_line
+                                && *line_number <= highlight.end_line;
+                            let row = div()
+                                .flex()
+                                .flex_row()
+                                .gap(space(1))
+                                .text_size(px(11.0))
+                                .child(
+                                    div()
+                                        .w(px(36.0))
+                                        .text_color(palette.ink_3)
+                                        .child(format!("{line_number}")),
+                                )
+                                .child(
+                                    div()
+                                        .text_color(if highlighted {
+                                            palette.ink
+                                        } else {
+                                            palette.ink_2
+                                        })
+                                        .child(text.clone()),
+                                );
+                            if highlighted {
+                                row.bg(palette.soft)
+                            } else {
+                                row
+                            }
+                        }))
+                        .into_any_element()
+                };
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(space(1))
+                    .p(space(2))
+                    .rounded(px(RADIUS_MEDIUM))
+                    .border_1()
+                    .border_color(palette.line)
+                    .bg(palette.card)
+                    .child(header)
+                    .child(body)
+                    .child(content)
+                    .into_any_element()
+            }
             None => content,
         }
     }

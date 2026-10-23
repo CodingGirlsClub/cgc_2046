@@ -400,6 +400,7 @@ impl NativeAgentView {
             cx.notify();
             return;
         }
+        self.reload_latest_session();
         self.turn_seq += 1;
         if let Some(thread_id) = self.agent.as_ref().map(|agent| agent.thread().id.clone()) {
             self.capture_checkpoint(&thread_id, self.turn_seq);
@@ -578,10 +579,11 @@ impl NativeAgentView {
         for action in actions {
             let summary = action.summary();
             let mut dispatched = false;
+            let workspace = self.context.workspace().to_path_buf();
             for window in cx.windows() {
                 if let Some(root) = window.downcast::<crate::root_view::RootView>() {
                     let _ = root.update(cx, |root, _window, cx| {
-                        root.apply_native_agent_action(action.clone(), cx);
+                        root.apply_native_agent_action(action.clone(), workspace.clone(), cx);
                     });
                     dispatched = true;
                     break;
@@ -661,6 +663,66 @@ impl NativeAgentView {
             Err(error) => self.status = format!("回退失败：{error}"),
         }
         cx.notify();
+    }
+
+    /// 从 SQLite 拉取其他视图写入的最新会话，保持内联/独立窗口共享同一份历史。
+    fn reload_latest_session(&mut self) {
+        let Some(agent) = &self.agent else {
+            return;
+        };
+        let Some(store) = &self.session_store else {
+            return;
+        };
+        let Ok(summaries) = store.list_threads(1) else {
+            return;
+        };
+        let Some(summary) = summaries.first() else {
+            return;
+        };
+        let Ok(Some(loaded)) = store.load_thread(&summary.id) else {
+            return;
+        };
+        if loaded.model != agent.thread().model || &loaded == agent.thread() {
+            return;
+        }
+        if loaded.updated_at < agent.thread().updated_at {
+            return;
+        }
+        if let Some(agent) = &mut self.agent {
+            agent.replace_thread(loaded);
+        }
+        self.rebuild_state_from_thread();
+    }
+
+    fn rebuild_state_from_thread(&mut self) {
+        let Some(agent) = &self.agent else {
+            return;
+        };
+        let thread = agent.thread();
+        let mut state = HostState::new();
+        state.usage_total = thread.usage_total;
+        for entry in &thread.entries {
+            match entry {
+                cgc_agent_core::Entry::User { text, .. } => state.push_user(text),
+                cgc_agent_core::Entry::Assistant { text, .. } if !text.is_empty() => {
+                    state.push_assistant(text)
+                }
+                cgc_agent_core::Entry::ToolResult {
+                    tool_name,
+                    is_error,
+                    ..
+                } => state.push_tool(format!(
+                    "{tool_name} · {}",
+                    if *is_error { "失败" } else { "完成" }
+                )),
+                _ => {}
+            }
+        }
+        if state.messages.is_empty() {
+            state.push_system("Native agent：配置 Provider 后开始对话。");
+        }
+        self.state = state;
+        self.last_agent_summary = None;
     }
 
     fn capture_checkpoint(&mut self, thread_id: &str, seq: u64) {
