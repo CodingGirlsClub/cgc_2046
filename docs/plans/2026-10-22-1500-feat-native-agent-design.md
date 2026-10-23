@@ -363,7 +363,9 @@ UI（输入）→ NativeHost.prompt
 | P1a | turn loop + 读/写/终端 + 审批 + OS 沙箱 + 本地会话 + **交互核心**（Commands / Events / confirm / notify + AppAction：打开页面、高亮） | 6 周 | 课程 E2E；沙箱用例；交互链路；崩溃恢复 |
 | P1b | Checkpoint / diff：Git 隐藏 ref、Keep/Reject、Restore；课程页灰度 | 2 周 | 恢复/拒绝/未跟踪/超大文件/冲突用例；灰度验收 |
 
-**P2 进度（2026-10-23）**：Provider 设置（demo 面板内）——`agent_store::ProviderPrefs`（base_url / provider_name / model_id）落 `agent_prefs.json`；API Key 存系统钥匙串（account `native_agent_provider_api_key`），不落明文文件；面板可编辑并保存，重启 demo 窗口生效；启动优先 env，其次文件 + 钥匙串，最后回退 EchoProvider。12 项 store 单测。
+**P2 进度（2026-10-23）**：
+- **follow-up**：`Agent` 支持 `queue_follow_up` / `follow_up_sender`，turn 结束后自动执行排队消息（最多 4 轮，`MAX_FOLLOW_UP_TURNS`）；`TurnObserver::on_follow_up_started` → `AgentEvent::FollowUpStarted`；HostState 归约时先落上一轮 assistant、再追加 user；GPUI 面板在 busy 时把输入转成 follow-up 排队。steering（打断当前 turn）尚未实现。
+Provider 设置（demo 面板内）——`agent_store::ProviderPrefs`（base_url / provider_name / model_id）落 `agent_prefs.json`；API Key 存系统钥匙串（account `native_agent_provider_api_key`），不落明文文件；面板可编辑并保存，重启 demo 窗口生效；启动优先 env，其次文件 + 钥匙串，最后回退 EchoProvider。12 项 store 单测。
 
 **P1b 进度（2026-10-22）**：`desktop/crates/agent_checkpoint`（cgc-agent-checkpoint）——临时索引 + `write-tree`/`commit-tree` + 隐藏 ref `refs/cgc/checkpoints/<thread>/<seq>`；snapshot / list / diff（临时索引对比工作区）/ restore / prune（保留 50 个）/ HEAD 漂移失效检测；大文件（>2 MB）与常见二进制/压缩包排除；6 项真实 git 仓库测试。会话映射进 `agent_store` 的 `checkpoints` 表（save/list/mark invalid，1 项测试）；GPUI 面板每轮建 checkpoint，并提供「撤销文件改动」；`changed_files` + `restore_file` 支持逐文件 Keep/Reject（面板内变更列表、回退按钮），HEAD 失配时拒绝恢复并提示重新初始化。待做：课程页灰度。
 | P2 | Provider 设置 UI、模型选择器、用量、compaction、网关配额；**steering / follow-up、slash 面板、todo / plan / goal、subagent 进度、create_note AppAction** | 4–6 周 | 三平台真机 |

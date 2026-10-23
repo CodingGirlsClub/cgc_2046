@@ -1,8 +1,8 @@
 use std::{
-    collections::HashSet,
+    collections::{HashSet, VecDeque},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        mpsc, Arc,
     },
 };
 
@@ -17,6 +17,9 @@ use crate::thread::Thread;
 
 /// 单轮工具循环的上限，防止模型无限调工具。
 pub const MAX_TOOL_STEPS: usize = 8;
+
+/// 一次 prompt 内最多连续跟进（follow-up）的轮数。
+pub const MAX_FOLLOW_UP_TURNS: usize = 4;
 
 /// 取消句柄：UI 点击停止时调用 `cancel()`；Agent 在每个事件边界检查。
 #[derive(Clone, Debug, Default)]
@@ -86,6 +89,7 @@ pub trait Approver: Send + Sync {
 /// 一轮 turn 的过程事件。UI/Host 通过它把流式过程渲染出来。
 pub trait TurnObserver: Send {
     fn on_turn_started(&mut self, _thread_id: &str) {}
+    fn on_follow_up_started(&mut self, _text: &str) {}
     fn on_text(&mut self, _delta: &str) {}
     fn on_tool_call(&mut self, _tool_use: &ToolUse) {}
     fn on_permission_request(&mut self, _request: &ApprovalRequest) {}
@@ -135,15 +139,22 @@ pub struct Agent {
     system_prompt: Option<String>,
     cancel: CancelToken,
     session_grants: HashSet<String>,
+    follow_ups: VecDeque<String>,
+    follow_up_tx: mpsc::Sender<String>,
+    follow_up_rx: mpsc::Receiver<String>,
 }
 
 impl Agent {
     pub fn new(thread: Thread, system_prompt: Option<String>) -> Self {
+        let (follow_up_tx, follow_up_rx) = mpsc::channel();
         Self {
             thread,
             system_prompt,
             cancel: CancelToken::new(),
             session_grants: HashSet::new(),
+            follow_ups: VecDeque::new(),
+            follow_up_tx,
+            follow_up_rx,
         }
     }
 
@@ -157,6 +168,25 @@ impl Agent {
 
     pub fn cancel_token(&self) -> CancelToken {
         self.cancel.clone()
+    }
+
+    /// 运行中也能用的 follow-up 投递口；UI 在 turn 进行时把新消息发进来。
+    pub fn follow_up_sender(&self) -> mpsc::Sender<String> {
+        self.follow_up_tx.clone()
+    }
+
+    pub fn queue_follow_up(&mut self, text: impl Into<String>) {
+        self.follow_ups.push_back(text.into());
+    }
+
+    pub fn pending_follow_ups(&self) -> usize {
+        self.follow_ups.len()
+    }
+
+    fn drain_follow_ups(&mut self) {
+        while let Ok(text) = self.follow_up_rx.try_recv() {
+            self.follow_ups.push_back(text);
+        }
     }
 
     /// 纯文本一轮（不执行工具；tool_call 只记录）。
@@ -225,42 +255,54 @@ impl Agent {
         let mut all_tool_calls = Vec::new();
         let mut tool_results = Vec::new();
 
-        for step in 0..MAX_TOOL_STEPS {
-            if self.cancel.is_cancelled() {
-                return Err(AgentError::Cancelled);
+        let mut follow_up_turns = 0;
+        'turns: loop {
+            for step in 0..MAX_TOOL_STEPS {
+                if self.cancel.is_cancelled() {
+                    return Err(AgentError::Cancelled);
+                }
+                let request = self.build_request(tools.schemas());
+                let (text, usage, stop_reason, tool_calls) =
+                    run_stream(provider, model, request, &self.cancel, observer).await?;
+                self.record_turn(text.clone(), tool_calls.clone(), usage);
+                observer.on_usage(usage, self.thread.usage_total);
+                all_text.push_str(&text);
+                total_usage.add(usage);
+                all_tool_calls.extend(tool_calls.clone());
+                if stop_reason != StopReason::ToolUse || tool_calls.is_empty() {
+                    self.drain_follow_ups();
+                    if follow_up_turns < MAX_FOLLOW_UP_TURNS {
+                        if let Some(next) = self.follow_ups.pop_front() {
+                            follow_up_turns += 1;
+                            observer.on_follow_up_started(&next);
+                            self.thread.push_user(next);
+                            continue 'turns;
+                        }
+                    }
+                    let outcome = ToolTurnOutcome {
+                        text: all_text,
+                        usage: total_usage,
+                        stop_reason,
+                        tool_calls: all_tool_calls,
+                        tool_results,
+                    };
+                    observer.on_finished(&outcome);
+                    return Ok(outcome);
+                }
+                for tool_call in &tool_calls {
+                    observer.on_tool_call(tool_call);
+                    let summary = self
+                        .execute_tool_call(tool_call, tools, context, approver, observer)
+                        .await;
+                    observer.on_tool_result(&summary);
+                    tool_results.push(summary);
+                }
+                if step + 1 == MAX_TOOL_STEPS {
+                    return Err(AgentError::StepLimitExceeded);
+                }
             }
-            let request = self.build_request(tools.schemas());
-            let (text, usage, stop_reason, tool_calls) =
-                run_stream(provider, model, request, &self.cancel, observer).await?;
-            self.record_turn(text.clone(), tool_calls.clone(), usage);
-            observer.on_usage(usage, self.thread.usage_total);
-            all_text.push_str(&text);
-            total_usage.add(usage);
-            all_tool_calls.extend(tool_calls.clone());
-            if stop_reason != StopReason::ToolUse || tool_calls.is_empty() {
-                let outcome = ToolTurnOutcome {
-                    text: all_text,
-                    usage: total_usage,
-                    stop_reason,
-                    tool_calls: all_tool_calls,
-                    tool_results,
-                };
-                observer.on_finished(&outcome);
-                return Ok(outcome);
-            }
-            for tool_call in &tool_calls {
-                observer.on_tool_call(tool_call);
-                let summary = self
-                    .execute_tool_call(tool_call, tools, context, approver, observer)
-                    .await;
-                observer.on_tool_result(&summary);
-                tool_results.push(summary);
-            }
-            if step + 1 == MAX_TOOL_STEPS {
-                return Err(AgentError::StepLimitExceeded);
-            }
+            return Err(AgentError::StepLimitExceeded);
         }
-        Err(AgentError::StepLimitExceeded)
     }
 
     fn validate(&self, provider: &dyn Provider, model: &Model) -> Result<(), AgentError> {

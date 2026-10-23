@@ -82,3 +82,24 @@ fn events_are_serde_roundtrippable() {
     let back: AgentEvent = serde_json::from_str(&raw).expect("de");
     assert_eq!(back, event);
 }
+
+#[test]
+fn follow_up_flushes_streaming_and_appends_user_message() {
+    let mut state = HostState::new();
+    state.push_user("first");
+    state.apply(AgentEvent::TurnStarted {
+        thread_id: "t1".into(),
+    });
+    state.apply(AgentEvent::TextDelta {
+        text: "reply-one".into(),
+    });
+    state.apply(AgentEvent::FollowUpStarted {
+        text: "second".into(),
+    });
+    assert!(state.streaming.is_empty());
+    assert_eq!(
+        state.messages.last().map(|message| message.text.as_str()),
+        Some("second")
+    );
+    assert_eq!(state.messages.len(), 3);
+}

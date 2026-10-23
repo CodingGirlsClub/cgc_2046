@@ -35,6 +35,12 @@ impl TurnObserver for EventCollector {
         });
     }
 
+    fn on_follow_up_started(&mut self, text: &str) {
+        self.events.push(AgentEvent::FollowUpStarted {
+            text: text.to_string(),
+        });
+    }
+
     fn on_text(&mut self, delta: &str) {
         self.events.push(AgentEvent::TextDelta {
             text: delta.to_string(),
@@ -96,6 +102,12 @@ impl TurnObserver for ChannelObserver {
         });
     }
 
+    fn on_follow_up_started(&mut self, text: &str) {
+        let _ = self.sender.send(AgentEvent::FollowUpStarted {
+            text: text.to_string(),
+        });
+    }
+
     fn on_text(&mut self, delta: &str) {
         let _ = self.sender.send(AgentEvent::TextDelta {
             text: delta.to_string(),
@@ -154,6 +166,12 @@ impl TurnObserver for AsyncChannelObserver {
     fn on_turn_started(&mut self, thread_id: &str) {
         let _ = self.sender.unbounded_send(AgentEvent::TurnStarted {
             thread_id: thread_id.to_string(),
+        });
+    }
+
+    fn on_follow_up_started(&mut self, text: &str) {
+        let _ = self.sender.unbounded_send(AgentEvent::FollowUpStarted {
+            text: text.to_string(),
         });
     }
 

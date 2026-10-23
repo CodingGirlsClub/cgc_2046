@@ -6,6 +6,10 @@ pub enum AgentCommand {
     Prompt {
         text: String,
     },
+    /// turn 运行中排队，结束后执行。
+    FollowUp {
+        text: String,
+    },
     Stop,
     PermissionResponse {
         tool_call_id: String,

@@ -4,7 +4,7 @@
 //! 事件经 futures channel → `HostState` 归约 → 面板实时刷新；审批用
 //! `UiApprover` 把请求变成 UI 上的三个按钮，用户答复通过 oneshot 回填。
 
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc as std_mpsc, Arc, Mutex};
 
 use cgc_agent_checkpoint::{Checkpoint, CheckpointManager, FileChange};
 use cgc_agent_core::{
@@ -76,6 +76,7 @@ pub struct NativeAgentView {
     show_checkpoint_panel: bool,
     turn_seq: u64,
     approval_sender: Arc<Mutex<Option<oneshot::Sender<ApprovalDecision>>>>,
+    follow_up_sender: std_mpsc::Sender<String>,
     _input_subscription: Option<Subscription>,
 }
 
@@ -198,6 +199,7 @@ impl NativeAgentView {
         let restored = !state.messages.is_empty();
         let agent = Agent::new(thread, None);
         let cancel = agent.cancel_token();
+        let follow_up_sender = agent.follow_up_sender();
         let workspace = std::env::var("CGC_AGENT_WORKSPACE")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|_| std::env::temp_dir().join("cgc-native-agent-demo"));
@@ -229,7 +231,7 @@ impl NativeAgentView {
             |this, state, event: &InputEvent, window, cx| {
                 if let InputEvent::PressEnter { shift, .. } = event {
                     if !shift {
-                        this.send(cx);
+                        this.send(window, cx);
                         state.update(cx, |state, cx| state.set_value("", window, cx));
                         cx.notify();
                     }
@@ -264,16 +266,22 @@ impl NativeAgentView {
             show_checkpoint_panel: false,
             turn_seq: 0,
             approval_sender: Arc::new(Mutex::new(None)),
+            follow_up_sender,
             _input_subscription: input_subscription,
         }
     }
 
-    fn send(&mut self, cx: &mut Context<Self>) {
-        if self.busy {
-            return;
-        }
+    fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.input.read(cx).value().trim().to_string();
         if text.is_empty() {
+            return;
+        }
+        self.input
+            .update(cx, |state, cx| state.set_value("", window, cx));
+        if self.busy {
+            let _ = self.follow_up_sender.send(text);
+            self.status = "已排队 follow-up，当前 turn 结束后执行".to_string();
+            cx.notify();
             return;
         }
         self.turn_seq += 1;
@@ -828,11 +836,11 @@ impl Render for NativeAgentView {
                             .bg(if busy { palette.danger } else { palette.accent })
                             .text_color(palette.canvas)
                             .child(if busy { "停止" } else { "发送" })
-                            .on_click(cx.listener(move |this, _, _window, cx| {
+                            .on_click(cx.listener(move |this, _, window, cx| {
                                 if busy {
                                     this.stop(cx);
                                 } else {
-                                    this.send(cx);
+                                    this.send(window, cx);
                                 }
                             })),
                     ),

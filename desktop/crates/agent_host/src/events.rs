@@ -8,6 +8,9 @@ pub enum AgentEvent {
     TurnStarted {
         thread_id: String,
     },
+    FollowUpStarted {
+        text: String,
+    },
     TextDelta {
         text: String,
     },
