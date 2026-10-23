@@ -241,6 +241,14 @@ impl SettingsWindowView {
         };
         if let Some(api_key_input) = draft.api_key_input.clone() {
             let api_key = api_key_input.read(cx).value().trim().to_string();
+            if api_key.is_empty()
+                && self
+                    .keychain
+                    .load_secret(&provider_key_account(&provider.id))
+                    .is_some_and(|key| !key.is_empty())
+            {
+                provider.has_key = true;
+            }
             if !api_key.is_empty() {
                 match self
                     .keychain

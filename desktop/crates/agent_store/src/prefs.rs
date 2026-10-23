@@ -128,8 +128,14 @@ impl AgentPrefs {
 }
 
 /// 每个 provider 的 API key 在钥匙串里的 account。
+///
+/// `custom` 是旧版单 provider 的 id，沿用旧 account 以继承已保存的 key。
 pub fn provider_key_account(provider_id: &str) -> String {
-    format!("native_agent_provider_api_key:{provider_id}")
+    if provider_id == "custom" {
+        "native_agent_provider_api_key".to_string()
+    } else {
+        format!("native_agent_provider_api_key:{provider_id}")
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]

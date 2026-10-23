@@ -159,13 +159,11 @@ impl NativeAgentView {
             .unwrap_or_else(|| "custom".to_string());
         let base_url = env_base_url.or_else(|| active.map(|provider| provider.base_url.clone()));
         let api_key = env_api_key.or_else(|| {
-            active
-                .filter(|provider| provider.has_key)
-                .and_then(|provider| {
-                    keychain.as_ref().and_then(|keychain| {
-                        keychain.load_secret(&provider_key_account(&provider.id))
-                    })
-                })
+            active.and_then(|provider| {
+                keychain
+                    .as_ref()
+                    .and_then(|keychain| keychain.load_secret(&provider_key_account(&provider.id)))
+            })
         });
         let model_id = env_model
             .or_else(|| {
@@ -656,13 +654,10 @@ impl NativeAgentView {
         else {
             return;
         };
-        let api_key = self.keychain.as_ref().and_then(|keychain| {
-            if provider.has_key {
-                keychain.load_secret(&provider_key_account(&provider.id))
-            } else {
-                None
-            }
-        });
+        let api_key = self
+            .keychain
+            .as_ref()
+            .and_then(|keychain| keychain.load_secret(&provider_key_account(&provider.id)));
         let model = Model::new(
             ProviderId::new(provider.id.clone()),
             provider.name.clone(),
