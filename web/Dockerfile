@@ -1,16 +1,20 @@
 # cgc_2046 web 生产镜像（Next.js standalone）
 # 构建上下文必须是 web/ 目录：docker build -f Dockerfile .
 # 版本与 CI 对齐：Node 24 / pnpm 10.28.2
+#
+# 基镜像钉到 patch 版本（不再浮动 node:24-slim）：浮动 tag 只在有构建发生时才前进，
+# 安全发布与下一次部署之间的空档会让镜像停在旧 patch。Node 安全发布后 bump 三处 FROM。
+# 注意：Node 25+ 已移除 corepack，若升到 26 线，下方 `RUN corepack enable` 必须替换（独立安装 pnpm）。
 
 # ── deps: 拉依赖（pnpm-lock 不变时全量缓存）───────────────────
-FROM node:24-slim AS deps
+FROM node:24.22.1-slim AS deps
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile --prod=false
 
 # ── build: next build（standalone 产物）───────────────────────
-FROM node:24-slim AS build
+FROM node:24.22.1-slim AS build
 WORKDIR /app
 RUN corepack enable
 COPY --from=deps /app/node_modules ./node_modules
@@ -24,7 +28,7 @@ ENV BACKEND_URL=$BACKEND_URL
 RUN pnpm build
 
 # ── runtime: 仅 standalone server + static 产物 ───────────────
-FROM node:24-slim AS runtime
+FROM node:24.22.1-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0
 RUN groupadd -r app && useradd -r -g app app
