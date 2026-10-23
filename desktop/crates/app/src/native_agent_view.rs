@@ -976,9 +976,7 @@ impl Render for NativeAgentView {
                         div()
                             .text_size(px(11.0))
                             .text_color(palette.ink_3)
-                            .child(format!(
-                                "model: {model_label} · usage: {usage} tokens · {status}"
-                            )),
+                            .child(format!("model: {model_label} · {status}")),
                     ),
             )
             .children(slash_hint.then(|| {
@@ -1299,78 +1297,80 @@ impl Render for NativeAgentView {
                     "推理 —"
                 };
                 let current_level = self.thinking_level;
-                let effort_picker = Popover::new("native-thinking-picker")
-                    .trigger(
-                        Button::new("native-thinking-trigger")
-                            .label(thinking_label)
-                            .xsmall()
-                            .ghost()
-                            .tooltip("推理强度"),
-                    )
-                    .content(move |_, _, cx| {
-                        let dismiss = cx.entity().downgrade();
-                        let rows = [
-                            (ThinkingLevel::Off, "Off"),
-                            (ThinkingLevel::Low, "Low"),
-                            (ThinkingLevel::Medium, "Medium"),
-                            (ThinkingLevel::High, "High"),
-                        ]
-                        .into_iter()
-                        .map(|(level, label)| {
-                            let root = thinking_root.clone();
-                            let row_dismiss = dismiss.clone();
-                            let selected = level == current_level;
-                            div()
-                                .id(SharedString::from(format!("native-thinking-{label}")))
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .justify_between()
-                                .gap(space(2))
-                                .px(space(1))
-                                .py(px(3.0))
-                                .rounded(px(RADIUS_MEDIUM))
-                                .text_size(px(11.0))
-                                .text_color(if selected {
-                                    palette_copy.accent
-                                } else if thinking_supported {
-                                    palette_copy.ink_2
-                                } else {
-                                    palette_copy.ink_3
-                                })
-                                .hover(|style| style.bg(palette_copy.soft))
-                                .child(label)
-                                .children(selected.then_some("✓"))
-                                .on_click(move |_, window, cx| {
-                                    if !thinking_supported {
-                                        return;
-                                    }
-                                    let _ = root.update(cx, |this, cx| {
-                                        this.set_thinking_level(level, cx);
-                                    });
-                                    let _ = row_dismiss
-                                        .update(cx, |state, cx| state.dismiss(window, cx));
-                                })
-                                .into_any_element()
-                        })
-                        .collect::<Vec<_>>();
-                        div()
-                            .id("native-thinking-options")
-                            .flex()
-                            .flex_col()
-                            .gap(px(1.0))
-                            .w(px(160.0))
-                            .occlude()
-                            .children(rows)
-                            .children((!thinking_supported).then(|| {
+                let effort_picker = thinking_supported.then(|| {
+                    Popover::new("native-thinking-picker")
+                        .trigger(
+                            Button::new("native-thinking-trigger")
+                                .label(thinking_label)
+                                .xsmall()
+                                .ghost()
+                                .tooltip("推理强度"),
+                        )
+                        .content(move |_, _, cx| {
+                            let dismiss = cx.entity().downgrade();
+                            let rows = [
+                                (ThinkingLevel::Off, "Off"),
+                                (ThinkingLevel::Low, "Low"),
+                                (ThinkingLevel::Medium, "Medium"),
+                                (ThinkingLevel::High, "High"),
+                            ]
+                            .into_iter()
+                            .map(|(level, label)| {
+                                let root = thinking_root.clone();
+                                let row_dismiss = dismiss.clone();
+                                let selected = level == current_level;
                                 div()
+                                    .id(SharedString::from(format!("native-thinking-{label}")))
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .justify_between()
+                                    .gap(space(2))
                                     .px(space(1))
                                     .py(px(3.0))
-                                    .text_size(px(10.0))
-                                    .text_color(palette_copy.ink_3)
-                                    .child("该模型未开启 supports_thinking")
-                            }))
-                    });
+                                    .rounded(px(RADIUS_MEDIUM))
+                                    .text_size(px(11.0))
+                                    .text_color(if selected {
+                                        palette_copy.accent
+                                    } else if thinking_supported {
+                                        palette_copy.ink_2
+                                    } else {
+                                        palette_copy.ink_3
+                                    })
+                                    .hover(|style| style.bg(palette_copy.soft))
+                                    .child(label)
+                                    .children(selected.then_some("✓"))
+                                    .on_click(move |_, window, cx| {
+                                        if !thinking_supported {
+                                            return;
+                                        }
+                                        let _ = root.update(cx, |this, cx| {
+                                            this.set_thinking_level(level, cx);
+                                        });
+                                        let _ = row_dismiss
+                                            .update(cx, |state, cx| state.dismiss(window, cx));
+                                    })
+                                    .into_any_element()
+                            })
+                            .collect::<Vec<_>>();
+                            div()
+                                .id("native-thinking-options")
+                                .flex()
+                                .flex_col()
+                                .gap(px(1.0))
+                                .w(px(160.0))
+                                .occlude()
+                                .children(rows)
+                                .child(
+                                    div()
+                                        .px(space(1))
+                                        .py(px(3.0))
+                                        .text_size(px(10.0))
+                                        .text_color(palette_copy.ink_3)
+                                        .child("该模型未开启 supports_thinking"),
+                                )
+                        })
+                });
                 let current_approval = self.approval_mode;
                 let approval_picker = Popover::new("native-approval-picker")
                     .trigger(
@@ -1546,7 +1546,7 @@ impl Render for NativeAgentView {
                             )
                             .child(model_picker)
                             .children(thinking_toggle)
-                            .child(effort_picker)
+                            .children(effort_picker)
                             .child(approval_picker)
                             .child(div().flex_1())
                             .children((can_undo && change_count > 0).then(|| {
