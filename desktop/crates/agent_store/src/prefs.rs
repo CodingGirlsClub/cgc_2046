@@ -218,7 +218,7 @@ pub fn provider_key_account(provider_id: &str) -> String {
 pub fn builtin_providers() -> Vec<ProviderPrefs> {
     let mut cgc = ProviderPrefs {
         id: "cgc".to_string(),
-        name: "CGC".to_string(),
+        name: "CGC - 程序媛汇".to_string(),
         base_url: String::new(),
         models: Vec::new(),
         supports_thinking: false,
@@ -284,7 +284,53 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         supports_thinking: false,
     });
 
-    vec![cgc, deepseek, moonshot]
+    let mut minimax = ProviderPrefs {
+        id: "minimax".to_string(),
+        name: "MiniMax".to_string(),
+        base_url: "https://api.minimaxi.com/v1".to_string(),
+        models: vec!["MiniMax-M2".to_string(), "MiniMax-Text-01".to_string()],
+        supports_thinking: true,
+        has_key: false,
+        model_params: Vec::new(),
+        builtin: true,
+    };
+    minimax.upsert_model(ModelPrefs {
+        id: "MiniMax-M2".to_string(),
+        context_window: 204_800,
+        max_output_tokens: 32_768,
+        supports_thinking: true,
+    });
+    minimax.upsert_model(ModelPrefs {
+        id: "MiniMax-Text-01".to_string(),
+        context_window: 1_000_000,
+        max_output_tokens: 32_768,
+        supports_thinking: false,
+    });
+
+    let mut zhipu = ProviderPrefs {
+        id: "zhipu".to_string(),
+        name: "智谱".to_string(),
+        base_url: "https://open.bigmodel.cn/api/paas/v4".to_string(),
+        models: vec!["glm-4.6".to_string(), "glm-4.5-air".to_string()],
+        supports_thinking: true,
+        has_key: false,
+        model_params: Vec::new(),
+        builtin: true,
+    };
+    zhipu.upsert_model(ModelPrefs {
+        id: "glm-4.6".to_string(),
+        context_window: 200_000,
+        max_output_tokens: 16_384,
+        supports_thinking: true,
+    });
+    zhipu.upsert_model(ModelPrefs {
+        id: "glm-4.5-air".to_string(),
+        context_window: 128_000,
+        max_output_tokens: 16_384,
+        supports_thinking: true,
+    });
+
+    vec![cgc, deepseek, moonshot, minimax, zhipu]
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -503,7 +549,7 @@ mod model_param_tests {
             .iter()
             .map(|provider| provider.id.as_str())
             .collect();
-        assert_eq!(ids, vec!["cgc", "deepseek", "moonshot"]);
+        assert_eq!(ids, vec!["cgc", "deepseek", "moonshot", "minimax", "zhipu"]);
         assert!(providers.iter().all(|provider| provider.builtin));
         let deepseek = providers.iter().find(|p| p.id == "deepseek").unwrap();
         assert!(deepseek.model_config("deepseek-chat").context_window >= 64_000);
