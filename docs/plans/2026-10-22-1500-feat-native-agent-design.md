@@ -389,7 +389,7 @@ UI（输入）→ NativeHost.prompt
 - 工具集：`read_file` / `list_directory` / `write_file`（Ask）/ `run_command`（Ask，30s 默认超时、输出截断、工作区 cwd 约束）；16 项单测。
 - 本地会话持久化完成——`agent_store::SessionStore`（SQLite `<data_root>/agent/threads.db`，schema 按 §3.4，WAL + 外键级联），5 项单测；GPUI demo 启动恢复上次会话（模型一致时）、每轮保存。
 - OS 沙箱完成——`agent_tools::sandbox`：`SandboxPolicy`、macOS Seatbelt profile、Linux bwrap 参数、`CommandSandbox` 包装；`run_command` 带策略时自动进沙箱（macOS 实测沙箱内 echo 通过），Windows 降级为审批；demo/app 默认启用。
-- 待做：交互核心 UI 接入（HostState / 审批卡）。
+- P1a 切片全部完成；正式对话面板替换 demo 窗口、课程页 AppAction（open_page / highlight）留待后续。
 
 **P0 不做**：工具执行、审批、会话持久化、MCP、沙箱、多 mate、网关服务端。
 
@@ -453,7 +453,7 @@ UI（输入）→ NativeHost.prompt
 **P1 交互核心进度（2026-10-22）**：
 - `agent_core::TurnObserver` + `prompt_with_tools_observed`：文本增量、工具调用/结果、审批请求、用量、结束事件；
 - `desktop/crates/agent_host`（cgc-agent-host）：`AgentCommand`（prompt / stop / permission response）、`AgentEvent`、`HostState` 归约、`EventCollector`/`ChannelObserver`；测试覆盖事件序列与归约；
-- CLI demo 已用 observer 流式输出；GPUI 面板待切到 HostState（下一步）。
+- CLI demo 用 observer 流式输出；GPUI 面板已切到 `HostState`：文本增量实时刷新、工具结果、用量、审批卡（允许一次 / 本会话允许 / 拒绝，经 `UiApprover` + oneshot 回填）。
 - `ApprovalRequest` 补充 `tool_call_id`，审批响应可精确回填。
 
 **优先级**：P1 做 Commands（prompt/stop/approve/set_model）、Events（文本/思考/工具/notice/queue）、UI requests（confirm/notify）、AppAction（open_page / highlight_range）；P2 加 steering/follow-up、slash 命令面板、todo/plan/goal、subagent 进度、checkpoint/diff UI、create_note；P3 再评估 side question、widget/status 扩展、host URI、voice。

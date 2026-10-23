@@ -1,9 +1,10 @@
 use cgc_agent_core::{Agent, AutoApprover};
-use cgc_agent_host::{AgentEvent, ChannelObserver, EventCollector};
+use cgc_agent_host::{AgentEvent, AsyncChannelObserver, ChannelObserver, EventCollector};
 use cgc_agent_provider::{
     CompletionEvent, FakeProvider, Model, ModelId, ModelLimits, ProviderId, StopReason, ToolUse,
 };
 use cgc_agent_tools::{ToolContext, ToolRegistry};
+use futures::StreamExt as _;
 
 fn model() -> Model {
     Model::new(
@@ -119,5 +120,39 @@ fn channel_observer_streams_events() {
         events.last(),
         Some(AgentEvent::TurnFinished { .. })
     ));
+    let _ = std::fs::remove_dir_all(&workspace);
+}
+
+#[test]
+fn async_observer_streams_events() {
+    let fake = FakeProvider::new(ProviderId::new("fake"), "Fake", vec![model()]);
+    fake.push_script(vec![
+        Ok(CompletionEvent::Text("hi".into())),
+        Ok(CompletionEvent::Stop(StopReason::EndTurn)),
+    ]);
+    let (sender, mut receiver) = futures::channel::mpsc::unbounded();
+    let mut observer = AsyncChannelObserver::new(sender);
+    let registry = ToolRegistry::with_read_tools();
+    let workspace = temp_workspace("async");
+    let context = ToolContext::new(&workspace);
+    let mut agent = agent();
+    futures::executor::block_on(agent.prompt_with_tools_observed(
+        &fake,
+        &model(),
+        "hello",
+        &registry,
+        &context,
+        &AutoApprover,
+        &mut observer,
+    ))
+    .expect("turn");
+    drop(observer);
+    let mut events = Vec::new();
+    while let Some(event) = futures::executor::block_on(receiver.next()) {
+        events.push(event);
+    }
+    assert!(events
+        .iter()
+        .any(|event| matches!(event, AgentEvent::TextDelta { text } if text == "hi")));
     let _ = std::fs::remove_dir_all(&workspace);
 }

@@ -1,26 +1,50 @@
-//! Native agent 的最小 GPUI 界面（P0 T3 剩余部分）。
+//! Native agent 的 GPUI 面板（P1a UI 接入）。
 //!
-//! 通过环境变量 `CGC_NATIVE_AGENT_DEMO=1` 打开独立窗口，不影响现有 ACP 对话路径。
-//! 没有配置 provider 时用离线 EchoProvider，可直接演示流式对话与工具审批链路。
+//! 通过 `CGC_NATIVE_AGENT_DEMO=1` 打开独立窗口，不影响现有 ACP 对话路径。
+//! 事件经 futures channel → `HostState` 归约 → 面板实时刷新；审批用
+//! `UiApprover` 把请求变成 UI 上的三个按钮，用户答复通过 oneshot 回填。
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use cgc_agent_core::{Agent, CancelToken, SelectedModel, Thread};
+use cgc_agent_core::{
+    Agent, AgentError, ApprovalRequest, Approver, CancelToken, SelectedModel, Thread,
+};
+use cgc_agent_host::{AgentEvent, AsyncChannelObserver, HostState, UiRole};
 use cgc_agent_provider::{
     EchoProvider, Model, ModelLimits, OpenAiCompatibleConfig, OpenAiCompatibleProvider, Provider,
     ProviderId,
 };
 use cgc_agent_store::{AgentPrefs, PrefsStore, SessionStore};
-use cgc_agent_tools::{SandboxPolicy, ToolContext, ToolRegistry};
+use cgc_agent_tools::{ApprovalDecision, SandboxPolicy, ToolContext, ToolRegistry};
+use futures::channel::{mpsc, oneshot};
+use futures::StreamExt as _;
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::*;
 
 use crate::theme::{self, space, RADIUS_MEDIUM};
 
-#[derive(Clone)]
-struct ChatLine {
-    role: &'static str,
-    text: String,
+/// 把审批请求送到 UI；用户点击后通过 oneshot 回填。
+struct UiApprover {
+    events: mpsc::UnboundedSender<AgentEvent>,
+    pending: Arc<Mutex<Option<oneshot::Sender<ApprovalDecision>>>>,
+}
+
+impl Approver for UiApprover {
+    fn decide(
+        &self,
+        request: ApprovalRequest,
+    ) -> futures::future::BoxFuture<'static, ApprovalDecision> {
+        let _ = self.events.unbounded_send(AgentEvent::PermissionRequested {
+            tool_call_id: request.tool_call_id,
+            tool_name: request.tool_name,
+            args: request.args,
+        });
+        let (sender, receiver) = oneshot::channel();
+        if let Ok(mut pending) = self.pending.lock() {
+            *pending = Some(sender);
+        }
+        Box::pin(async move { receiver.await.unwrap_or(ApprovalDecision::Deny) })
+    }
 }
 
 pub struct NativeAgentView {
@@ -31,10 +55,11 @@ pub struct NativeAgentView {
     context: ToolContext,
     input: Entity<TextareaState>,
     cancel: CancelToken,
-    messages: Vec<ChatLine>,
+    state: HostState,
     status: String,
     busy: bool,
     session_store: Option<SessionStore>,
+    approval_sender: Arc<Mutex<Option<oneshot::Sender<ApprovalDecision>>>>,
     _input_subscription: Option<Subscription>,
 }
 
@@ -93,41 +118,34 @@ impl NativeAgentView {
             let thread = store.load_thread(&latest.id).ok().flatten()?;
             (thread.model == selected).then_some(thread)
         });
-        let (thread, restored_messages) = match restored_thread {
+        let mut state = HostState::new();
+        let thread = match restored_thread {
             Some(thread) => {
-                let messages = thread
-                    .entries
-                    .iter()
-                    .filter_map(|entry| match entry {
-                        cgc_agent_core::Entry::User { text, .. } => Some(ChatLine {
-                            role: "user",
-                            text: text.clone(),
-                        }),
+                for entry in &thread.entries {
+                    match entry {
+                        cgc_agent_core::Entry::User { text, .. } => state.push_user(text),
                         cgc_agent_core::Entry::Assistant { text, .. } if !text.is_empty() => {
-                            Some(ChatLine {
-                                role: "agent",
-                                text: text.clone(),
-                            })
+                            state.push_assistant(text)
                         }
                         cgc_agent_core::Entry::ToolResult {
                             tool_name,
                             is_error,
                             ..
-                        } => Some(ChatLine {
-                            role: "tool",
-                            text: format!(
-                                "{tool_name} · {}",
-                                if *is_error { "失败" } else { "完成" }
-                            ),
-                        }),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>();
-                (thread, messages)
+                        } => state.push_tool(format!(
+                            "{tool_name} · {}",
+                            if *is_error { "失败" } else { "完成" }
+                        )),
+                        _ => {}
+                    }
+                }
+                thread
             }
-            None => (Thread::new("native-demo", selected), Vec::new()),
+            None => {
+                state.push_system("Native agent demo：离线模式回显；配置环境变量后接真实模型。");
+                Thread::new("native-demo", selected)
+            }
         };
-        let restored = !restored_messages.is_empty();
+        let restored = !state.messages.is_empty();
         let agent = Agent::new(thread, None);
         let cancel = agent.cancel_token();
         let workspace = std::env::var("CGC_AGENT_WORKSPACE")
@@ -158,15 +176,7 @@ impl NativeAgentView {
             context: ToolContext::new(&workspace).with_sandbox(SandboxPolicy::new(&workspace)),
             input,
             cancel,
-            messages: if restored {
-                restored_messages
-            } else {
-                vec![ChatLine {
-                    role: "system",
-                    text: "Native agent demo：离线模式直接回显；配置环境变量后接真实模型。"
-                        .to_string(),
-                }]
-            },
+            state,
             status: if restored {
                 "已恢复上次会话".to_string()
             } else {
@@ -174,6 +184,7 @@ impl NativeAgentView {
             },
             busy: false,
             session_store,
+            approval_sender: Arc::new(Mutex::new(None)),
             _input_subscription: input_subscription,
         }
     }
@@ -182,86 +193,89 @@ impl NativeAgentView {
         if self.busy {
             return;
         }
-        let text = self.input.read(cx).value().to_string();
-        let text = text.trim().to_string();
+        let text = self.input.read(cx).value().trim().to_string();
         if text.is_empty() {
             return;
         }
         let Some(mut agent) = self.agent.take() else {
             return;
         };
-        self.messages.push(ChatLine {
-            role: "user",
-            text: text.clone(),
-        });
+        self.state.push_user(text.clone());
         self.busy = true;
         self.status = "思考中…".to_string();
         self.cancel.reset();
+
+        let (event_sender, mut event_receiver) = mpsc::unbounded::<AgentEvent>();
+        // UI 事件循环：把 agent 过程事件实时归约进 HostState。
+        cx.spawn(async move |this, cx| {
+            while let Some(event) = event_receiver.next().await {
+                if this
+                    .update(cx, |this, cx| {
+                        this.state.apply(event);
+                        cx.notify();
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
+
+        let approver = UiApprover {
+            events: event_sender.clone(),
+            pending: self.approval_sender.clone(),
+        };
         let provider = self.provider.clone();
         let model = self.model.clone();
         let registry = self.registry.clone();
         let context = self.context.clone();
+        let task_sender = event_sender.clone();
         let task = cx.background_executor().spawn(async move {
+            let mut observer = AsyncChannelObserver::new(task_sender.clone());
             let result = agent
-                .prompt_with_tools(
+                .prompt_with_tools_observed(
                     provider.as_ref(),
                     &model,
                     text,
                     registry.as_ref(),
                     &context,
-                    &cgc_agent_core::AutoApprover,
+                    &approver,
+                    &mut observer,
                 )
                 .await;
+            drop(observer);
+            drop(task_sender);
             (agent, result)
         });
+        let approval_sender = self.approval_sender.clone();
         cx.spawn(async move |this, cx| {
             let (agent, result) = task.await;
             let _ = this.update(cx, |this, cx| {
                 this.agent = Some(agent);
                 this.busy = false;
                 match result {
-                    Ok(outcome) => {
+                    Ok(_) => {
                         let total = this
                             .agent
                             .as_ref()
                             .map(|agent| agent.thread().usage_total.total())
                             .unwrap_or(0);
-                        this.status = format!(
-                            "完成 · 本轮 {} tokens · 本会话 {} tokens",
-                            outcome.usage.input + outcome.usage.output,
-                            total
-                        );
-                        if !outcome.text.is_empty() {
-                            this.messages.push(ChatLine {
-                                role: "agent",
-                                text: outcome.text,
-                            });
-                        }
-                        for tool_result in &outcome.tool_results {
-                            this.messages.push(ChatLine {
-                                role: "tool",
-                                text: format!(
-                                    "{} · {}",
-                                    tool_result.tool_name,
-                                    if tool_result.is_error {
-                                        "失败"
-                                    } else {
-                                        "完成"
-                                    }
-                                ),
-                            });
-                        }
-                        if let (Some(store), Some(agent)) = (&mut this.session_store, &this.agent) {
-                            let _ = store.save_thread(agent.thread());
-                        }
+                        this.status = format!("完成 · 本会话 {total} tokens");
                     }
+                    Err(AgentError::Cancelled) => this.status = "已停止".to_string(),
                     Err(error) => {
-                        this.status = format!("错误：{error}");
-                        this.messages.push(ChatLine {
-                            role: "error",
-                            text: error.to_string(),
+                        this.state.apply(AgentEvent::Error {
+                            message: error.to_string(),
                         });
+                        this.status = format!("错误：{error}");
                     }
+                }
+                if let (Some(store), Some(agent)) = (&mut this.session_store, &this.agent) {
+                    let _ = store.save_thread(agent.thread());
+                }
+                if let Ok(mut pending) = approval_sender.lock() {
+                    pending.take();
                 }
                 cx.notify();
             });
@@ -271,7 +285,19 @@ impl NativeAgentView {
 
     fn stop(&mut self, cx: &mut Context<Self>) {
         self.cancel.cancel();
-        self.status = "已请求停止".to_string();
+        self.status = "正在停止…".to_string();
+        cx.notify();
+    }
+
+    fn resolve_approval(&mut self, decision: ApprovalDecision, cx: &mut Context<Self>) {
+        if let Ok(mut pending) = self.approval_sender.lock() {
+            if let Some(sender) = pending.take() {
+                let _ = sender.send(decision);
+            }
+        }
+        if let Some(prompt) = self.state.pending_permission.clone() {
+            self.state.resolve_permission(&prompt.tool_call_id);
+        }
         cx.notify();
     }
 }
@@ -282,8 +308,52 @@ impl Render for NativeAgentView {
         let busy = self.busy;
         let model_label = format!("{}/{}", self.model.provider_id, self.model.id);
         let status = self.status.clone();
-        let messages = self.messages.clone();
+        let messages = self.state.messages.clone();
+        let streaming = self.state.streaming.clone();
+        let pending = self.state.pending_permission.clone();
+        let usage = self.state.usage_total.total();
         let input = self.input.clone();
+        let mut rows: Vec<AnyElement> = Vec::new();
+        for message in messages {
+            let color = match message.role {
+                UiRole::User => palette.accent,
+                UiRole::Error => palette.danger,
+                UiRole::Tool => palette.ink_3,
+                UiRole::System => palette.ink_3,
+                UiRole::Assistant => palette.ink,
+            };
+            rows.push(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.0))
+                    .child(
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(color)
+                            .child(role_label(message.role)),
+                    )
+                    .child(div().text_size(px(13.0)).child(message.text))
+                    .into_any_element(),
+            );
+        }
+        if !streaming.is_empty() {
+            rows.push(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.0))
+                    .child(
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(palette.accent)
+                            .child("agent"),
+                    )
+                    .child(div().text_size(px(13.0)).child(format!("{streaming}▌")))
+                    .into_any_element(),
+            );
+        }
+
         div()
             .size_full()
             .flex()
@@ -301,16 +371,14 @@ impl Render for NativeAgentView {
                     .py(space(2))
                     .border_b_1()
                     .border_color(palette.line)
-                    .child(
-                        div()
-                            .text_size(px(15.0))
-                            .child("Native Agent Demo（P0 T3）"),
-                    )
+                    .child(div().text_size(px(15.0)).child("Native Agent（P1a）"))
                     .child(
                         div()
                             .text_size(px(11.0))
                             .text_color(palette.ink_3)
-                            .child(format!("model: {model_label} · {status}")),
+                            .child(format!(
+                                "model: {model_label} · usage: {usage} tokens · {status}"
+                            )),
                     ),
             )
             .child(
@@ -322,22 +390,40 @@ impl Render for NativeAgentView {
                     .gap(space(2))
                     .p(space(3))
                     .overflow_y_scroll()
-                    .children(messages.into_iter().map(|line| {
-                        let color = match line.role {
-                            "user" => palette.accent,
-                            "error" => palette.danger,
-                            "tool" => palette.ink_3,
-                            "system" => palette.ink_3,
-                            _ => palette.ink,
-                        };
+                    .children(rows),
+            )
+            .children(pending.map(|prompt| {
+                let args = serde_json::to_string(&prompt.args).unwrap_or_default();
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(space(1))
+                    .px(space(3))
+                    .py(space(2))
+                    .border_t_1()
+                    .border_color(palette.line)
+                    .bg(palette.view)
+                    .child(
+                        div()
+                            .text_size(px(12.0))
+                            .child(format!("需要审批：{} {}", prompt.tool_name, args)),
+                    )
+                    .child(
                         div()
                             .flex()
-                            .flex_col()
-                            .gap(px(2.0))
-                            .child(div().text_size(px(11.0)).text_color(color).child(line.role))
-                            .child(div().text_size(px(13.0)).child(line.text))
-                    })),
-            )
+                            .flex_row()
+                            .gap(space(2))
+                            .child(approval_button("允许一次", true, cx, |this, cx| {
+                                this.resolve_approval(ApprovalDecision::AllowOnce, cx);
+                            }))
+                            .child(approval_button("本会话允许", true, cx, |this, cx| {
+                                this.resolve_approval(ApprovalDecision::AllowForSession, cx);
+                            }))
+                            .child(approval_button("拒绝", false, cx, |this, cx| {
+                                this.resolve_approval(ApprovalDecision::Deny, cx);
+                            })),
+                    )
+            }))
             .child(
                 div()
                     .flex()
@@ -389,4 +475,39 @@ impl Render for NativeAgentView {
                     ),
             )
     }
+}
+
+fn role_label(role: UiRole) -> &'static str {
+    match role {
+        UiRole::User => "you",
+        UiRole::Assistant => "agent",
+        UiRole::Tool => "tool",
+        UiRole::System => "system",
+        UiRole::Error => "error",
+    }
+}
+
+fn approval_button(
+    label: &'static str,
+    primary: bool,
+    cx: &mut Context<NativeAgentView>,
+    action: impl Fn(&mut NativeAgentView, &mut Context<NativeAgentView>) + 'static,
+) -> AnyElement {
+    let palette = theme::palette_from_theme(cx);
+    div()
+        .id(label)
+        .role(Role::Button)
+        .aria_label(label)
+        .px(space(2))
+        .py(space(1))
+        .rounded(px(RADIUS_MEDIUM))
+        .bg(if primary {
+            palette.accent
+        } else {
+            palette.soft
+        })
+        .text_color(if primary { palette.canvas } else { palette.ink })
+        .child(label)
+        .on_click(cx.listener(move |this, _, _window, cx| action(this, cx)))
+        .into_any_element()
 }

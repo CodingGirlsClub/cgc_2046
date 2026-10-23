@@ -15,12 +15,14 @@ gpui-kit.workspace = true
 qrcode = { version = "0.14.1", default-features = false }
 url = "2.5"
 uuid = "1"
+futures = "0.3"
 cgc-account.workspace = true
 cgc-agent-chat.workspace = true
 cgc-agent-provider = { path = "../agent_provider" }
 cgc-agent-core = { path = "../agent_core" }
 cgc-agent-tools = { path = "../agent_tools" }
 cgc-agent-store = { path = "../agent_store" }
+cgc-agent-host = { path = "../agent_host" }
 cgc-courses.workspace = true
 cgc-events.workspace = true
 cgc-platform.workspace = true

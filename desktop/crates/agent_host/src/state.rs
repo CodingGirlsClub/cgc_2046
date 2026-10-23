@@ -115,6 +115,27 @@ impl HostState {
         });
     }
 
+    pub fn push_assistant(&mut self, text: impl Into<String>) {
+        self.messages.push(UiMessage {
+            role: UiRole::Assistant,
+            text: text.into(),
+        });
+    }
+
+    pub fn push_tool(&mut self, text: impl Into<String>) {
+        self.messages.push(UiMessage {
+            role: UiRole::Tool,
+            text: text.into(),
+        });
+    }
+
+    pub fn push_system(&mut self, text: impl Into<String>) {
+        self.messages.push(UiMessage {
+            role: UiRole::System,
+            text: text.into(),
+        });
+    }
+
     pub fn resolve_permission(&mut self, tool_call_id: &str) -> Option<PermissionPrompt> {
         match &self.pending_permission {
             Some(prompt) if prompt.tool_call_id == tool_call_id => self.pending_permission.take(),
