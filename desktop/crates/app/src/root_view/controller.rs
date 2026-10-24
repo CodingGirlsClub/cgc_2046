@@ -1046,13 +1046,26 @@ impl RootView {
                                 this.chat.selected_agent = Some(prepared.agent_id.clone());
                                 this.chat.agent = prepared.agent_name;
                                 this.chat.phase = ChatPhase::Ready;
+                                this.chat.npx_cache_retry = false;
                                 this.chat.poll_generation += 1;
                                 let generation = this.chat.poll_generation;
                                 this.spawn_chat_poller(cx, generation);
                             }
                             Err(error) => {
+                                let message = error.to_string();
+                                let recovered = !this.chat.npx_cache_retry
+                                    && npx_cache_dir_from_error(&message).map(|dir| {
+                                        this.chat.npx_cache_retry = true;
+                                        let _ = std::fs::remove_dir_all(&dir);
+                                        true
+                                    }) == Some(true);
                                 this.revoke_lease_token(prepared.lease, cx);
-                                this.chat.phase = ChatPhase::Failed(error.to_string());
+                                if recovered {
+                                    this.chat.phase = ChatPhase::Idle;
+                                    this.start_chat(cx);
+                                } else {
+                                    this.chat.phase = ChatPhase::Failed(message);
+                                }
                             }
                         }
                     }
@@ -1666,6 +1679,7 @@ impl RootView {
             clear_chat_pointer(&course_id);
         }
         self.chat.title_override = None;
+        self.chat.npx_cache_retry = false;
         self.agent_panel_editing_title = false;
         self.agent_panel_title_hovered = false;
         self.reset_chat_local(cx);
@@ -1734,6 +1748,7 @@ impl RootView {
         self.agent_panel_title_hovered = false;
         self.reset_chat_local(cx);
         self.chat.title_override = load_acp_title_override(&session_id);
+        self.chat.npx_cache_retry = false;
         self.start_chat(cx);
     }
 
@@ -3284,6 +3299,7 @@ impl RootView {
         self.chat.session_id = None;
         self.chat.restore_id = None;
         self.chat.title_override = None;
+        self.chat.npx_cache_retry = false;
         self.agent_panel_editing_title = false;
         self.agent_panel_title_hovered = false;
         self.chat.configs.clear();
@@ -3815,4 +3831,35 @@ fn load_acp_title_override(session_id: &str) -> Option<String> {
     let store = cgc_agent_store::SessionStore::open(path).ok()?;
     let thread = store.load_thread(&format!("acp-{session_id}")).ok()??;
     thread.title_override
+}
+
+/// 从 npm ENOENT 错误里提取损坏的 npx 缓存目录（`.../_npx/<hash>/package.json`）。
+fn npx_cache_dir_from_error(message: &str) -> Option<std::path::PathBuf> {
+    if !message.contains("Could not read package.json") {
+        return None;
+    }
+    let marker = ".npm/_npx/";
+    let marker_index = message.find(marker)?;
+    let boundary = message[..marker_index]
+        .rfind(|ch: char| ch == '\'' || ch == '"' || ch.is_whitespace() || ch == '(' || ch == ':')
+        .unwrap_or(0);
+    let start = boundary + message[boundary..].chars().next()?.len_utf8();
+    let rest = &message[start..];
+    let end = rest.find("/package.json")?;
+    Some(std::path::PathBuf::from(&rest[..end]))
+}
+
+#[cfg(test)]
+mod npx_cache_tests {
+    use super::npx_cache_dir_from_error;
+
+    #[test]
+    fn extracts_corrupt_npx_cache_dir() {
+        let message = "acp connection: Internal error: Process exited with exit status: 254: npm error enoent Could not read package.json: Error: ENOENT: no such file or directory, open '/Users/x/.npm/_npx/1f87/package.json'";
+        assert_eq!(
+            npx_cache_dir_from_error(message).as_deref(),
+            Some(std::path::Path::new("/Users/x/.npm/_npx/1f87"))
+        );
+        assert!(npx_cache_dir_from_error("other error").is_none());
+    }
 }

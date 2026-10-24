@@ -226,6 +226,7 @@ enum ChatEntry {
 struct ChatUi {
     title_override: Option<String>,
     auto_start_queued: bool,
+    npx_cache_retry: bool,
     local_threads: Vec<cgc_agent_store::ThreadSummary>,
     phase: ChatPhase,
     agent: String,
