@@ -145,6 +145,36 @@ struct SentImage {
     preview: Option<Arc<RenderImage>>,
 }
 
+fn inserted_segment(previous: &str, current: &str) -> Option<String> {
+    if current.len() <= previous.len() {
+        return None;
+    }
+    let a = previous.as_bytes();
+    let b = current.as_bytes();
+    let mut prefix = 0;
+    while prefix < a.len() && prefix < b.len() && a[prefix] == b[prefix] {
+        prefix += 1;
+    }
+    let mut suffix = 0;
+    while suffix < a.len().saturating_sub(prefix)
+        && suffix < b.len().saturating_sub(prefix)
+        && a[a.len() - 1 - suffix] == b[b.len() - 1 - suffix]
+    {
+        suffix += 1;
+    }
+    String::from_utf8(b[prefix..b.len() - suffix].to_vec()).ok()
+}
+
+fn is_image_path(path: &std::path::Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|extension| extension.to_str())
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("png" | "jpg" | "jpeg" | "webp" | "gif")
+    )
+}
+
 fn decode_sent_images(images: &[ImageAttachment]) -> Vec<SentImage> {
     images
         .iter()
@@ -201,6 +231,7 @@ pub struct NativeAgentView {
     pending_images: Vec<PendingImage>,
     /// 已发送用户消息 index → 图片预览（仅当前进程内显示，不持久化）。
     sent_images: HashMap<usize, Vec<SentImage>>,
+    last_input_value: String,
     hovered_image: Option<usize>,
     hovered_sent_image: Option<Arc<RenderImage>>,
     queued_messages: Vec<String>,
@@ -395,6 +426,44 @@ impl NativeAgentView {
             |this, state, event: &InputEvent, window, cx| {
                 if let InputEvent::Change = event {
                     let value = this.input.read(cx).value().to_string();
+                    if value != this.last_input_value {
+                        let previous = this.last_input_value.clone();
+                        this.last_input_value = value.clone();
+                        if let Some(inserted) = inserted_segment(&previous, &value) {
+                            let image_paths: Vec<std::path::PathBuf> = cx
+                                .read_from_clipboard()
+                                .map(|item| {
+                                    item.entries
+                                        .iter()
+                                        .filter_map(|entry| match entry {
+                                            ClipboardEntry::ExternalPaths(paths) => {
+                                                Some(paths.paths().to_vec())
+                                            }
+                                            _ => None,
+                                        })
+                                        .flatten()
+                                        .filter(|path| is_image_path(path))
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+                            let inserted_matches_file = image_paths.iter().any(|path| {
+                                path.file_name()
+                                    .and_then(|name| name.to_str())
+                                    .map(|name| inserted.contains(name))
+                                    .unwrap_or(false)
+                                    || inserted.contains(path.to_string_lossy().as_ref())
+                            });
+                            if inserted_matches_file {
+                                this.add_images_from_paths(&image_paths, cx);
+                                this.input.update(cx, |state, cx| {
+                                    state.set_value(previous.clone(), window, cx)
+                                });
+                                this.last_input_value = previous;
+                                cx.notify();
+                                return;
+                            }
+                        }
+                    }
                     this.slash_dismissed = false;
                     this.slash_index = 0;
                     this.mention_index = 0;
@@ -488,6 +557,7 @@ impl NativeAgentView {
             steer_sender,
             pending_images: Vec::new(),
             sent_images: restored_images,
+            last_input_value: String::new(),
             hovered_image: None,
             hovered_sent_image: None,
             _input_subscription: input_subscription,
@@ -703,6 +773,38 @@ impl NativeAgentView {
         self.status = "已读取 Provider API Key，使用真实模型".to_string();
         self.state
             .push_system("已重新读取 Provider API Key，后续请求使用真实模型。");
+        cx.notify();
+    }
+
+    /// 从文件路径加载图片附件（粘贴文件、文件选择器共用）。
+    fn add_images_from_paths(&mut self, paths: &[std::path::PathBuf], cx: &mut Context<Self>) {
+        let mut added = 0;
+        for path in paths {
+            let Ok(bytes) = std::fs::read(path) else {
+                continue;
+            };
+            let Some((png, preview)) = prepare_clipboard_image(&bytes) else {
+                continue;
+            };
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("image.png")
+                .to_string();
+            let data = base64::engine::general_purpose::STANDARD.encode(&png);
+            self.pending_images.push(PendingImage {
+                name,
+                mime: "image/png".to_string(),
+                data,
+                preview: Some(preview),
+            });
+            added += 1;
+        }
+        if added > 0 {
+            self.status = "已添加图片附件".to_string();
+        } else {
+            self.status = "未能加载图片（格式不支持或超过 5MB）".to_string();
+        }
         cx.notify();
     }
 
