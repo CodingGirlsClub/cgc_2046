@@ -1433,9 +1433,39 @@ fn render_provider_cards(
                         .gap(px(2.0))
                         .child(
                             div()
-                                .text_size(px(11.0))
-                                .text_color(palette.ink_3)
-                                .child("Models"),
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .justify_between()
+                                .gap(space(2))
+                                .child(
+                                    div()
+                                        .text_size(px(11.0))
+                                        .text_color(palette.ink_3)
+                                        .child("Models"),
+                                )
+                                .child(
+                                    div()
+                                        .id(SharedString::from(format!(
+                                            "settings-model-add-{index}"
+                                        )))
+                                        .role(Role::Button)
+                                        .px(space(2))
+                                        .py(px(3.0))
+                                        .rounded(px(RADIUS_SMALL))
+                                        .border_1()
+                                        .border_color(palette.line)
+                                        .text_size(px(11.0))
+                                        .child("＋ Add Model")
+                                        .on_click({
+                                            let add_weak = weak.clone();
+                                            move |_, window, cx| {
+                                                let _ = add_weak.update(cx, |this, cx| {
+                                                    this.add_model(index, window, cx);
+                                                });
+                                            }
+                                        }),
+                                ),
                         )
                         .children(draft.model_fields.iter().enumerate().map(
                             |(model_index, field)| {
@@ -1593,28 +1623,6 @@ fn render_provider_cards(
                                     )
                             },
                         ))
-                        .child(
-                            div()
-                                .id(SharedString::from(format!(
-                                    "settings-model-add-{index}"
-                                )))
-                                .role(Role::Button)
-                                .px(space(2))
-                                .py(px(3.0))
-                                .rounded(px(RADIUS_SMALL))
-                                .border_1()
-                                .border_color(palette.line)
-                                .text_size(px(11.0))
-                                .child("＋ Add Model")
-                                .on_click({
-                                    let add_weak = weak.clone();
-                                    move |_, window, cx| {
-                                        let _ = add_weak.update(cx, |this, cx| {
-                                            this.add_model(index, window, cx);
-                                        });
-                                    }
-                                }),
-                        ),
                 )
                 .children({
                     let edit_weak = weak.clone();
