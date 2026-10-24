@@ -1345,9 +1345,15 @@ impl Render for NativeAgentView {
                     )
                     .child(div().text_size(px(13.0)).child(message.text.clone()))
                     .children(sent_images.get(&message_index).map(|images| {
+                        let row_weak = cx.entity().downgrade();
                         div().flex().flex_row().flex_wrap().gap(space(1)).children(
-                            images.iter().map(|image| {
+                            images.iter().enumerate().map(|(image_index, image)| {
+                                let hover_weak = row_weak.clone();
+                                let hover_preview = image.preview.clone();
                                 div()
+                                    .id(SharedString::from(format!(
+                                        "native-msg-image-{message_index}-{image_index}"
+                                    )))
                                     .flex()
                                     .flex_row()
                                     .items_center()
@@ -1359,6 +1365,16 @@ impl Render for NativeAgentView {
                                     .border_color(palette.line)
                                     .text_size(px(11.0))
                                     .text_color(palette.ink_2)
+                                    .on_hover(move |hovered: &bool, _window, cx| {
+                                        let _ = hover_weak.update(cx, |this, cx| {
+                                            this.hovered_sent_image = if *hovered {
+                                                hover_preview.clone()
+                                            } else {
+                                                None
+                                            };
+                                            cx.notify();
+                                        });
+                                    })
                                     .child(match image.preview.clone() {
                                         Some(preview) => img(preview)
                                             .max_w(px(16.0))
