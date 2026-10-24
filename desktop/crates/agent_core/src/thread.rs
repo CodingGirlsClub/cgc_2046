@@ -73,6 +73,9 @@ impl Entry {
 pub struct Thread {
     pub id: String,
     pub title: Option<String>,
+    /// 用户手动标题（优先于 LLM 生成标题）。
+    #[serde(default)]
+    pub title_override: Option<String>,
     pub model: SelectedModel,
     pub entries: Vec<Entry>,
     pub usage_total: TokenUsage,
@@ -86,12 +89,21 @@ impl Thread {
         Self {
             id: id.into(),
             title: None,
+            title_override: None,
             model,
             entries: Vec::new(),
             usage_total: TokenUsage::default(),
             created_at: now,
             updated_at: now,
         }
+    }
+
+    /// 展示用标题：用户覆盖优先，否则生成标题。
+    pub fn display_title(&self) -> Option<String> {
+        self.title_override
+            .clone()
+            .filter(|title| !title.trim().is_empty())
+            .or_else(|| self.title.clone())
     }
 
     pub fn push_user(&mut self, text: impl Into<String>) {
@@ -434,5 +446,24 @@ mod image_tests {
             .content
             .iter()
             .any(|content| matches!(content, Content::Image { .. })));
+    }
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::*;
+
+    #[test]
+    fn display_title_prefers_user_override() {
+        let mut thread = Thread::new(
+            "t",
+            SelectedModel::new(ProviderId::new("p"), ModelId::new("m")),
+        );
+        thread.title = Some("Generated".to_string());
+        assert_eq!(thread.display_title().as_deref(), Some("Generated"));
+        thread.title_override = Some("User Title".to_string());
+        assert_eq!(thread.display_title().as_deref(), Some("User Title"));
+        thread.title_override = Some("   ".to_string());
+        assert_eq!(thread.display_title().as_deref(), Some("Generated"));
     }
 }

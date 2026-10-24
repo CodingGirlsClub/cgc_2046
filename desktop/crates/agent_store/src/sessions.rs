@@ -78,6 +78,7 @@ impl SessionStore {
             "CREATE TABLE IF NOT EXISTS threads (
                 id TEXT PRIMARY KEY,
                 title TEXT,
+                title_override TEXT,
                 model_provider TEXT NOT NULL,
                 model_id TEXT NOT NULL,
                 usage_json TEXT,
@@ -92,6 +93,11 @@ impl SessionStore {
                 created_at INTEGER NOT NULL,
                 PRIMARY KEY (thread_id, seq)
             );
+            CREATE TABLE IF NOT EXISTS acp_thread_titles (
+                session_id TEXT PRIMARY KEY,
+                title_override TEXT,
+                updated_at INTEGER NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS checkpoints (
                 thread_id TEXT NOT NULL,
                 user_entry_seq INTEGER NOT NULL,
@@ -103,6 +109,10 @@ impl SessionStore {
                 PRIMARY KEY (thread_id, user_entry_seq)
             );",
         )?;
+        // 兼容旧库：补 title_override 列（已存在时忽略错误）。
+        let _ = self
+            .conn
+            .execute("ALTER TABLE threads ADD COLUMN title_override TEXT", []);
         Ok(())
     }
 
@@ -110,10 +120,11 @@ impl SessionStore {
         let usage_json = serde_json::to_string(&thread.usage_total)?;
         let transaction = self.conn.transaction()?;
         transaction.execute(
-            "INSERT INTO threads (id, title, model_provider, model_id, usage_json, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO threads (id, title, title_override, model_provider, model_id, usage_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
+                title_override = excluded.title_override,
                 model_provider = excluded.model_provider,
                 model_id = excluded.model_id,
                 usage_json = excluded.usage_json,
@@ -121,6 +132,7 @@ impl SessionStore {
             params![
                 thread.id,
                 thread.title,
+                thread.title_override,
                 thread.model.provider_id.as_str(),
                 thread.model.model_id.as_str(),
                 usage_json,
@@ -149,22 +161,32 @@ impl SessionStore {
         let row = self
             .conn
             .query_row(
-                "SELECT title, model_provider, model_id, usage_json, created_at, updated_at
+                "SELECT title, title_override, model_provider, model_id, usage_json, created_at, updated_at
                  FROM threads WHERE id = ?1",
                 params![id],
                 |row| {
                     Ok((
                         row.get::<_, Option<String>>(0)?,
-                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(1)?,
                         row.get::<_, String>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                        row.get::<_, i64>(4)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, Option<String>>(4)?,
                         row.get::<_, i64>(5)?,
+                        row.get::<_, i64>(6)?,
                     ))
                 },
             )
             .optional()?;
-        let Some((title, provider_id, model_id, usage_json, created_at, updated_at)) = row else {
+        let Some((
+            title,
+            title_override,
+            provider_id,
+            model_id,
+            usage_json,
+            created_at,
+            updated_at,
+        )) = row
+        else {
             return Ok(None);
         };
         let usage_total: TokenUsage = usage_json
@@ -182,6 +204,7 @@ impl SessionStore {
         Ok(Some(Thread {
             id: id.to_string(),
             title,
+            title_override,
             model: SelectedModel::new(ProviderId::new(provider_id), ModelId::new(model_id)),
             entries,
             usage_total,
@@ -192,7 +215,7 @@ impl SessionStore {
 
     pub fn list_threads(&self, limit: usize) -> Result<Vec<ThreadSummary>, SessionError> {
         let mut statement = self.conn.prepare(
-            "SELECT id, title, model_provider, model_id, updated_at
+            "SELECT id, COALESCE(title_override, title), model_provider, model_id, updated_at
              FROM threads ORDER BY updated_at DESC LIMIT ?1",
         )?;
         let rows = statement.query_map(params![limit as i64], |row| {
@@ -205,6 +228,40 @@ impl SessionStore {
             })
         })?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// 外部 ACP 会话的本地标题覆盖（不依赖 ACP 协议 rename）。
+    pub fn set_acp_title_override(
+        &self,
+        session_id: &str,
+        title: Option<&str>,
+    ) -> Result<(), SessionError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs() as i64)
+            .unwrap_or_default();
+        self.conn.execute(
+            "INSERT INTO acp_thread_titles (session_id, title_override, updated_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(session_id) DO UPDATE SET
+                title_override = excluded.title_override,
+                updated_at = excluded.updated_at",
+            params![session_id, title, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn acp_title_override(&self, session_id: &str) -> Result<Option<String>, SessionError> {
+        let title = self
+            .conn
+            .query_row(
+                "SELECT title_override FROM acp_thread_titles WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten();
+        Ok(title)
     }
 
     pub fn save_checkpoint(
@@ -411,5 +468,47 @@ mod tests {
     fn missing_thread_returns_none() {
         let store = SessionStore::open_in_memory().expect("store");
         assert!(store.load_thread("nope").expect("load").is_none());
+    }
+}
+
+#[cfg(test)]
+mod title_override_tests {
+    use super::*;
+
+    fn thread() -> Thread {
+        Thread::new(
+            "thread-1",
+            SelectedModel::new(ProviderId::new("p"), ModelId::new("m")),
+        )
+    }
+
+    #[test]
+    fn thread_title_override_roundtrips() {
+        let mut store = SessionStore::open_in_memory().expect("store");
+        let mut thread = thread();
+        thread.title = Some("Generated".to_string());
+        thread.title_override = Some("Custom".to_string());
+        store.save_thread(&thread).expect("save");
+        let loaded = store
+            .load_thread("thread-1")
+            .expect("load")
+            .expect("thread");
+        assert_eq!(loaded.display_title().as_deref(), Some("Custom"));
+        let summaries = store.list_threads(10).expect("list");
+        assert_eq!(summaries[0].title.as_deref(), Some("Custom"));
+    }
+
+    #[test]
+    fn acp_title_override_roundtrips() {
+        let store = SessionStore::open_in_memory().expect("store");
+        store
+            .set_acp_title_override("sess-1", Some("ACP Title"))
+            .expect("set");
+        assert_eq!(
+            store.acp_title_override("sess-1").expect("get").as_deref(),
+            Some("ACP Title")
+        );
+        store.set_acp_title_override("sess-1", None).expect("clear");
+        assert!(store.acp_title_override("sess-1").expect("get").is_none());
     }
 }
