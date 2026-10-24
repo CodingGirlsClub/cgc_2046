@@ -2405,14 +2405,6 @@ impl Render for NativeAgentView {
                                 .occlude()
                                 .children(rows)
                                 .child(off_row)
-                                .child(
-                                    div()
-                                        .px(space(1))
-                                        .py(px(3.0))
-                                        .text_size(px(10.0))
-                                        .text_color(palette_copy.ink_3)
-                                        .child("该模型未开启 supports_thinking"),
-                                )
                         })
                 });
                 let current_approval = self.approval_mode;
