@@ -2211,6 +2211,7 @@ impl Render for NativeAgentView {
                 let palette_copy = palette;
                 let model_id_for_label = current_model_id.clone();
                 let model_picker = Popover::new("native-model-picker")
+                        .anchor(Anchor::BottomRight)
                     .trigger(
                         Button::new("native-model-trigger")
                             .label(model_id_for_label)
@@ -2310,6 +2311,7 @@ impl Render for NativeAgentView {
                 let effort_levels_for_menu = effort_levels.clone();
                 let effort_picker = (thinking_supported && !effort_levels.is_empty()).then(|| {
                     Popover::new("native-thinking-picker")
+                        .anchor(Anchor::BottomRight)
                         .trigger(
                             Button::new("native-thinking-trigger")
                                 .label(thinking_label)
@@ -2415,6 +2417,7 @@ impl Render for NativeAgentView {
                 });
                 let current_approval = self.approval_mode;
                 let approval_picker = Popover::new("native-approval-picker")
+                    .anchor(Anchor::BottomRight)
                     .trigger(
                         Button::new("native-approval-trigger")
                             .label(current_approval.label())
@@ -2867,6 +2870,7 @@ impl Render for NativeAgentView {
                             .min_w(px(0.0))
                             .child(
                                 Popover::new("native-agent-add-menu")
+                                .anchor(Anchor::BottomLeft)
                                     .trigger(
                                         Button::new("native-agent-add-context")
                                             .label("＋")
@@ -2937,7 +2941,6 @@ impl Render for NativeAgentView {
                                             .into_any_element()
                                     }),
                             )
-                            .children(effort_picker)
                             .child(div().flex_1())
                             .children((can_undo && change_count > 0).then(|| {
                                 div()
@@ -2975,6 +2978,7 @@ impl Render for NativeAgentView {
                             }))
                             .child(approval_picker)
                             .child(model_picker)
+                            .children(effort_picker)
                             .child(context_usage)
                             .child(
                                 div()
