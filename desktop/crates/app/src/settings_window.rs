@@ -28,8 +28,17 @@ use crate::preferences;
 use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 use cgc_platform::session::AuthApi;
 
+#[derive(Clone)]
+struct ModelFieldInputs {
+    model_id: String,
+    context_input: Entity<InputState>,
+    output_input: Entity<InputState>,
+    enabled: bool,
+    thinking: bool,
+}
+
 /// Settings 里的 provider 编辑草稿（输入框懒创建，避免 new() 需要 window）。
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct ProviderDraft {
     id: String,
     name: String,
@@ -43,6 +52,7 @@ struct ProviderDraft {
     models_input: Option<Entity<TextareaState>>,
     api_key_input: Option<Entity<InputState>>,
     name_input: Option<Entity<InputState>>,
+    model_fields: Vec<ModelFieldInputs>,
 }
 
 fn format_model_lines(provider: &ProviderPrefs) -> String {
@@ -119,6 +129,7 @@ impl ProviderDraft {
             models_input: None,
             api_key_input: None,
             name_input: None,
+            model_fields: Vec::new(),
         }
     }
 
@@ -140,6 +151,7 @@ impl ProviderDraft {
             models_input: None,
             api_key_input: None,
             name_input: None,
+            model_fields: Vec::new(),
         }
     }
 
@@ -286,6 +298,30 @@ impl SettingsWindowView {
             input.update(cx, |state, cx| state.set_value(value, window, cx));
             self.provider_drafts[index].models_input = Some(input);
         }
+        let (_, parsed_models) = parse_model_lines(&draft.models);
+        let ids_match = self.provider_drafts[index].model_fields.len() == parsed_models.len()
+            && self.provider_drafts[index]
+                .model_fields
+                .iter()
+                .zip(&parsed_models)
+                .all(|(field, model)| field.model_id == model.id);
+        if !ids_match {
+            let mut fields = Vec::new();
+            for model in &parsed_models {
+                let context = model.context_window.to_string();
+                let output = model.max_output_tokens.to_string();
+                let context_input = cx.new(|cx| InputState::new(window, cx).default_value(context));
+                let output_input = cx.new(|cx| InputState::new(window, cx).default_value(output));
+                fields.push(ModelFieldInputs {
+                    model_id: model.id.clone(),
+                    context_input,
+                    output_input,
+                    enabled: model.enabled,
+                    thinking: model.supports_thinking,
+                });
+            }
+            self.provider_drafts[index].model_fields = fields;
+        }
         if !draft.builtin && draft.name_input.is_none() {
             let value = draft.name.clone();
             let input = cx.new(|cx| {
@@ -302,44 +338,137 @@ impl SettingsWindowView {
         }
     }
 
-    fn set_model_enabled(
+    fn sync_model_fields(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(draft) = self.provider_drafts.get_mut(index) else {
+            return;
+        };
+        if draft.model_fields.is_empty() {
+            return;
+        }
+        let text = draft
+            .model_fields
+            .iter()
+            .map(|field| {
+                let context = field.context_input.read(cx).value().trim().to_string();
+                let output = field.output_input.read(cx).value().trim().to_string();
+                format!(
+                    "{} | {} | {} | {} | {}",
+                    field.model_id,
+                    if context.is_empty() {
+                        "64000".to_string()
+                    } else {
+                        context
+                    },
+                    if output.is_empty() {
+                        "8000".to_string()
+                    } else {
+                        output
+                    },
+                    field.thinking,
+                    field.enabled
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        draft.models = text.clone();
+        if let Some(input) = draft.models_input.clone() {
+            input.update(cx, |state, cx| state.set_value(text, window, cx));
+        }
+    }
+
+    fn toggle_model_field(
         &mut self,
         index: usize,
-        model_id: String,
-        enabled: bool,
-        window: &mut Window,
+        model_index: usize,
+        thinking: bool,
         cx: &mut Context<Self>,
     ) {
         let Some(draft) = self.provider_drafts.get_mut(index) else {
             return;
         };
-        let (_, mut params) = parse_model_lines(&draft.models);
-        for model in &mut params {
-            if model.id == model_id {
-                model.enabled = enabled;
+        if let Some(field) = draft.model_fields.get_mut(model_index) {
+            if thinking {
+                field.thinking = !field.thinking;
+            } else {
+                field.enabled = !field.enabled;
             }
         }
-        let text = params
-            .iter()
-            .map(|model| {
-                format!(
-                    "{} | {} | {} | {} | {}",
-                    model.id,
-                    model.context_window,
-                    model.max_output_tokens,
-                    model.supports_thinking,
-                    model.enabled
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        draft.model_params = params;
-        draft.models = text.clone();
+        cx.notify();
+    }
+
+    fn remove_model_field(
+        &mut self,
+        index: usize,
+        model_index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.sync_model_fields(index, window, cx);
+        let Some(draft) = self.provider_drafts.get_mut(index) else {
+            return;
+        };
+        let mut lines: Vec<String> = draft.models.lines().map(str::to_string).collect();
+        if model_index < lines.len() {
+            lines.remove(model_index);
+        }
+        draft.models = lines.join("\n");
+        draft.model_fields.clear();
         if let Some(input) = draft.models_input.clone() {
             input.update(cx, |state, cx| {
-                state.set_value(text, window, cx);
+                state.set_value(draft.models.clone(), window, cx)
             });
         }
+        cx.notify();
+    }
+
+    fn add_model(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(draft) = self.provider_drafts.get_mut(index) else {
+            return;
+        };
+        let mut text = draft.models.clone();
+        if !text.trim().is_empty() {
+            text.push('\n');
+        }
+        text.push_str("new-model | 64000 | 8000 | false | true");
+        draft.models = text.clone();
+        draft.model_fields.clear();
+        if let Some(input) = draft.models_input.clone() {
+            input.update(cx, |state, cx| state.set_value(text, window, cx));
+        }
+        cx.notify();
+    }
+
+    fn restore_provider_default(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(draft) = self.provider_drafts.get(index).cloned() else {
+            return;
+        };
+        let Some(default) = builtin_providers()
+            .into_iter()
+            .find(|provider| provider.id == draft.id)
+        else {
+            return;
+        };
+        let models = format_model_lines(&default);
+        if let Some(input) = draft.models_input.clone() {
+            input.update(cx, |state, cx| state.set_value(models.clone(), window, cx));
+        }
+        if let Some(input) = draft.base_url_input.clone() {
+            input.update(cx, |state, cx| {
+                state.set_value(default.base_url.clone(), window, cx)
+            });
+        }
+        if let Some(slot) = self.provider_drafts.get_mut(index) {
+            slot.base_url = default.base_url.clone();
+            slot.models = models;
+            slot.model_params = default.model_params.clone();
+            slot.supports_thinking = default.supports_thinking;
+        }
+        self.notice = Some("已恢复默认参数（保存后生效）".to_string());
         cx.notify();
     }
 
@@ -388,6 +517,10 @@ impl SettingsWindowView {
             return;
         };
         let Some(models_input) = draft.models_input.clone() else {
+            return;
+        };
+        self.sync_model_fields(index, window, cx);
+        let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
         };
         let base_url = base_url_input.read(cx).value().trim().to_string();
@@ -530,43 +663,6 @@ impl SettingsWindowView {
             .into_any_element()
     }
 
-    fn render_provider_textarea(
-        label: &'static str,
-        input: Entity<TextareaState>,
-        palette: &theme::Palette,
-    ) -> AnyElement {
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(2.0))
-            .child(
-                div()
-                    .text_size(px(11.0))
-                    .text_color(palette.ink_3)
-                    .child(label),
-            )
-            .child(
-                div()
-                    .rounded(px(RADIUS_SMALL))
-                    .border_1()
-                    .border_color(palette.line)
-                    .p(space(1))
-                    .child(Textarea::new(&input).h(px(88.0)).w_full()),
-            )
-            .into_any_element()
-    }
-
-    fn breadcrumb_item(text: String) -> SettingItem {
-        SettingItem::render(move |_options, _window, cx| {
-            let palette = theme::palette_from_theme(cx);
-            div()
-                .text_size(px(12.0))
-                .text_color(palette.ink_2)
-                .child(text.clone())
-                .into_any_element()
-        })
-    }
-
     fn build_settings(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let language = self.language;
         let shortcut = if cfg!(target_os = "macos") {
@@ -705,12 +801,22 @@ impl SettingsWindowView {
             .and_then(|id| drafts.iter().find(|draft| &draft.id == id))
             .map(|draft| draft.name.clone())
             .unwrap_or_default();
+        let form_index = form_target
+            .as_ref()
+            .and_then(|id| drafts.iter().position(|draft| &draft.id == id))
+            .unwrap_or(0);
+        let form_is_builtin = drafts
+            .get(form_index)
+            .map(|draft| draft.builtin)
+            .unwrap_or(false);
         let form_back = {
             let back_weak = weak.clone();
             let form_name = form_name.clone();
             SettingItem::render(move |_options, _window, cx| {
                 let palette = theme::palette_from_theme(cx);
                 let weak = back_weak.clone();
+                let restore_weak_outer = weak.clone();
+                let cancel_weak = weak.clone();
                 div()
                     .id("settings-provider-form-back")
                     .role(Role::Button)
@@ -721,13 +827,74 @@ impl SettingsWindowView {
                     .text_size(px(12.0))
                     .text_color(palette.ink_2)
                     .hover(|style| style.bg(palette.soft))
-                    .child(format!("← 设置 / AI / 通用 / LLM Providers / {form_name}"))
-                    .on_click(move |_, _, cx| {
-                        let _ = weak.update(cx, |this, cx| {
-                            this.ai_view = AiRoute::Providers;
-                            cx.notify();
-                        });
-                    })
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_between()
+                            .gap(space(2))
+                            .child(
+                                div()
+                                    .id("settings-provider-form-back")
+                                    .role(Role::Button)
+                                    .aria_label("返回 LLM Providers")
+                                    .px(space(1))
+                                    .py(px(2.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .text_size(px(12.0))
+                                    .text_color(palette.ink_2)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child(format!(
+                                        "← 设置 / AI / 通用 / LLM Providers / {form_name}"
+                                    ))
+                                    .on_click(move |_, _, cx| {
+                                        let _ = weak.update(cx, |this, cx| {
+                                            this.ai_view = AiRoute::Providers;
+                                            cx.notify();
+                                        });
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .id("settings-provider-form-cancel")
+                                    .role(Role::Button)
+                                    .aria_label("取消")
+                                    .px(space(2))
+                                    .py(px(3.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_3)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child("取消")
+                                    .on_click(move |_, _, cx| {
+                                        let _ = cancel_weak.update(cx, |this, cx| {
+                                            this.ai_view = AiRoute::Providers;
+                                            cx.notify();
+                                        });
+                                    }),
+                            )
+                            .children(form_is_builtin.then(|| {
+                                let restore_weak = restore_weak_outer.clone();
+                                div()
+                                    .id("settings-provider-form-restore")
+                                    .role(Role::Button)
+                                    .aria_label("恢复默认")
+                                    .px(space(2))
+                                    .py(px(3.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child("恢复默认")
+                                    .on_click(move |_, window, cx| {
+                                        let _ = restore_weak.update(cx, |this, cx| {
+                                            this.restore_provider_default(form_index, window, cx);
+                                        });
+                                    })
+                            }))
+                            .into_any_element(),
+                    )
                     .into_any_element()
             })
         };
@@ -1128,14 +1295,13 @@ fn render_provider_cards(
 ) -> AnyElement {
     let mut cards: Vec<AnyElement> = Vec::new();
     for (index, draft) in drafts.iter().enumerate() {
-        let (Some(base_input), Some(models_input), Some(key_input)) = (
+        let (Some(base_input), Some(_models_input), Some(key_input)) = (
             draft.base_url_input.clone(),
             draft.models_input.clone(),
             draft.api_key_input.clone(),
         ) else {
             continue;
         };
-        let model_toggles = parse_model_lines(&draft.models).1;
         let status_color = if draft.has_key {
             palette.ink_2
         } else {
@@ -1223,46 +1389,161 @@ fn render_provider_cards(
                 .children(draft.name_input.clone().map(|input| {
                     SettingsWindowView::render_provider_field("Provider Name", input, palette)
                 }))
-                .child(SettingsWindowView::render_provider_textarea(
-                    "Models（每行：模型名 | context | max_output | thinking）",
-                    models_input,
-                    palette,
-                ))
-                .children(
-                    model_toggles
-                        .iter()
-                        .enumerate()
-                        .map(|(model_index, model)| {
-                            let enabled = model.enabled;
-                            let model_id = model.id.clone();
-                            let label = model.id.clone();
-                            let toggle_weak = weak.clone();
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.0))
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_3)
+                                .child("Models"),
+                        )
+                        .children(draft.model_fields.iter().enumerate().map(
+                            |(model_index, field)| {
+                                let enabled = field.enabled;
+                                let thinking = field.thinking;
+                                let model_id = field.model_id.clone();
+                                let toggle_weak = weak.clone();
+                                let thinking_weak = weak.clone();
+                                let remove_weak = weak.clone();
+                                let context_input = field.context_input.clone();
+                                let output_input = field.output_input.clone();
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(2.0))
+                                    .p(space(1))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .border_1()
+                                    .border_color(palette.line)
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_row()
+                                            .items_center()
+                                            .gap(space(1))
+                                            .child(
+                                                div()
+                                                    .id(SharedString::from(format!(
+                                                        "settings-model-enable-{index}-{model_index}"
+                                                    )))
+                                                    .role(Role::Button)
+                                                    .text_size(px(11.0))
+                                                    .text_color(palette.ink_2)
+                                                    .child(if enabled { "☑" } else { "☐" })
+                                                    .on_click(move |_, _, cx| {
+                                                        let _ = toggle_weak.update(cx, |this, cx| {
+                                                            this.toggle_model_field(
+                                                                index,
+                                                                model_index,
+                                                                false,
+                                                                cx,
+                                                            );
+                                                        });
+                                                    }),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_size(px(12.0))
+                                                    .child(model_id.clone()),
+                                            )
+                                            .child(div().flex_1())
+                                            .child(
+                                                div()
+                                                    .id(SharedString::from(format!(
+                                                        "settings-model-remove-{index}-{model_index}"
+                                                    )))
+                                                    .role(Role::Button)
+                                                    .px(space(1))
+                                                    .text_size(px(11.0))
+                                                    .text_color(palette.ink_3)
+                                                    .hover(|style| style.bg(palette.soft))
+                                                    .child("删除")
+                                                    .on_click(move |_, window, cx| {
+                                                        let _ = remove_weak.update(cx, |this, cx| {
+                                                            this.remove_model_field(
+                                                                index,
+                                                                model_index,
+                                                                window,
+                                                                cx,
+                                                            );
+                                                        });
+                                                    }),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_row()
+                                            .items_center()
+                                            .flex_wrap()
+                                            .gap(space(1))
+                                            .child(
+                                                div()
+                                                    .text_size(px(10.0))
+                                                    .text_color(palette.ink_3)
+                                                    .child("Context"),
+                                            )
+                                            .child(div().w(px(96.0)).child(Input::new(&context_input)))
+                                            .child(
+                                                div()
+                                                    .text_size(px(10.0))
+                                                    .text_color(palette.ink_3)
+                                                    .child("Max Output"),
+                                            )
+                                            .child(div().w(px(96.0)).child(Input::new(&output_input)))
+                                            .child(
+                                                div()
+                                                    .id(SharedString::from(format!(
+                                                        "settings-model-thinking-{index}-{model_index}"
+                                                    )))
+                                                    .role(Role::Button)
+                                                    .flex()
+                                                    .flex_row()
+                                                    .items_center()
+                                                    .gap(px(2.0))
+                                                    .text_size(px(10.0))
+                                                    .text_color(palette.ink_2)
+                                                    .child(if thinking { "☑" } else { "☐" })
+                                                    .child("thinking")
+                                                    .on_click(move |_, _, cx| {
+                                                        let _ = thinking_weak.update(cx, |this, cx| {
+                                                            this.toggle_model_field(
+                                                                index,
+                                                                model_index,
+                                                                true,
+                                                                cx,
+                                                            );
+                                                        });
+                                                    }),
+                                            ),
+                                    )
+                            },
+                        ))
+                        .child(
                             div()
                                 .id(SharedString::from(format!(
-                                    "settings-model-toggle-{index}-{model_index}"
+                                    "settings-model-add-{index}"
                                 )))
                                 .role(Role::Button)
-                                .aria_label(format!("启用模型 {label}"))
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .gap(space(1))
+                                .px(space(2))
+                                .py(px(3.0))
+                                .rounded(px(RADIUS_SMALL))
+                                .border_1()
+                                .border_color(palette.line)
                                 .text_size(px(11.0))
-                                .text_color(palette.ink_2)
-                                .child(if enabled { "☑" } else { "☐" })
-                                .child(label)
-                                .on_click(move |_, window, cx| {
-                                    let _ = toggle_weak.update(cx, |this, cx| {
-                                        this.set_model_enabled(
-                                            index,
-                                            model_id.clone(),
-                                            !enabled,
-                                            window,
-                                            cx,
-                                        );
-                                    });
-                                })
-                        }),
+                                .child("＋ Add Model")
+                                .on_click({
+                                    let add_weak = weak.clone();
+                                    move |_, window, cx| {
+                                        let _ = add_weak.update(cx, |this, cx| {
+                                            this.add_model(index, window, cx);
+                                        });
+                                    }
+                                }),
+                        ),
                 )
                 .child(SettingsWindowView::render_provider_field(
                     "API Key", key_input, palette,
