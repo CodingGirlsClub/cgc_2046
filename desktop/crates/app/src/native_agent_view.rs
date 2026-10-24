@@ -176,16 +176,34 @@ fn is_image_path(path: &std::path::Path) -> bool {
     )
 }
 
-/// 独立的图片查看窗口：大图 + 关闭（后续可加缩放）。
+/// 独立的图片查看窗口：大图 + 缩放/拖动 + 关闭。
 struct ImageViewer {
     name: String,
     image: Arc<RenderImage>,
     focus: FocusHandle,
+    base_width: f32,
+    base_height: f32,
+    fit_zoom: f32,
+    zoom: f32,
+    offset: Point<Pixels>,
+    dragging: bool,
+    drag_start: Option<Point<Pixels>>,
+    drag_origin: Point<Pixels>,
+}
+
+impl ImageViewer {
+    fn reset(&mut self) {
+        self.zoom = self.fit_zoom;
+        self.offset = point(px(0.0), px(0.0));
+    }
 }
 
 impl Render for ImageViewer {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = theme::palette_from_theme(cx);
+        let zoom = self.zoom;
+        let width = self.base_width * zoom;
+        let height = self.base_height * zoom;
         div()
             .size_full()
             .flex()
@@ -207,7 +225,7 @@ impl Render for ImageViewer {
                         div()
                             .text_size(px(12.0))
                             .text_color(palette.ink_2)
-                            .child(self.name.clone()),
+                            .child(format!("{} · {:.0}%", self.name, (zoom * 100.0).round())),
                     )
                     .child(
                         div()
@@ -226,20 +244,72 @@ impl Render for ImageViewer {
             .child(
                 div()
                     .flex_1()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .p(space(2))
+                    .relative()
+                    .overflow_hidden()
+                    .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _, cx| {
+                        let delta = match event.delta {
+                            ScrollDelta::Pixels(delta) => {
+                                let dy: f32 = delta.y.into();
+                                dy / 120.0
+                            }
+                            ScrollDelta::Lines(delta) => delta.y,
+                        };
+                        this.zoom = (this.zoom * (1.0 + delta * 0.15)).clamp(0.1, 8.0);
+                        cx.notify();
+                    }))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, event: &MouseDownEvent, _, cx| {
+                            if event.click_count == 2 {
+                                this.reset();
+                            } else {
+                                this.dragging = true;
+                                this.drag_start = Some(event.position);
+                                this.drag_origin = this.offset;
+                            }
+                            cx.notify();
+                        }),
+                    )
+                    .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+                        if this.dragging {
+                            if let Some(start) = this.drag_start {
+                                this.offset = this.drag_origin + (event.position - start);
+                                cx.notify();
+                            }
+                        }
+                    }))
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.dragging = false;
+                            this.drag_start = None;
+                            cx.notify();
+                        }),
+                    )
                     .child(
-                        img(self.image.clone())
-                            .max_w(px(860.0))
-                            .max_h(px(640.0))
-                            .object_fit(ObjectFit::Contain),
+                        div()
+                            .absolute()
+                            .left(self.offset.x)
+                            .top(self.offset.y)
+                            .child(img(self.image.clone()).w(px(width)).h(px(height))),
                     ),
             )
-            .on_key_down(cx.listener(|_, event: &KeyDownEvent, window, _cx| {
-                if event.keystroke.key == "escape" {
-                    window.remove_window();
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                match event.keystroke.key.as_str() {
+                    "escape" => window.remove_window(),
+                    "0" if event.keystroke.modifiers.platform => {
+                        this.reset();
+                        cx.notify();
+                    }
+                    "=" | "+" if event.keystroke.modifiers.platform => {
+                        this.zoom = (this.zoom * 1.2).clamp(0.1, 8.0);
+                        cx.notify();
+                    }
+                    "-" if event.keystroke.modifiers.platform => {
+                        this.zoom = (this.zoom / 1.2).clamp(0.1, 8.0);
+                        cx.notify();
+                    }
+                    _ => {}
                 }
             }))
     }
@@ -880,6 +950,12 @@ impl NativeAgentView {
             size: size(px(900.0), px(700.0)),
         };
         let focus = cx.focus_handle();
+        let image_size = image.size(0);
+        let base_width = image_size.width.0 as f32;
+        let base_height = image_size.height.0 as f32;
+        let fit_zoom = (820.0 / base_width.max(1.0))
+            .min(620.0 / base_height.max(1.0))
+            .min(1.0);
         let _ = cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -887,7 +963,19 @@ impl NativeAgentView {
             },
             move |window, cx| {
                 window.set_window_title("图片预览");
-                cx.new(|_| ImageViewer { name, image, focus })
+                cx.new(|_| ImageViewer {
+                    name,
+                    image,
+                    focus,
+                    base_width,
+                    base_height,
+                    fit_zoom,
+                    zoom: fit_zoom,
+                    offset: point(px(0.0), px(0.0)),
+                    dragging: false,
+                    drag_start: None,
+                    drag_origin: point(px(0.0), px(0.0)),
+                })
             },
         );
     }
