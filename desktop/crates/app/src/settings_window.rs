@@ -519,6 +519,17 @@ impl SettingsWindowView {
             .into_any_element()
     }
 
+    fn breadcrumb_item(text: String) -> SettingItem {
+        SettingItem::render(move |_options, _window, cx| {
+            let palette = theme::palette_from_theme(cx);
+            div()
+                .text_size(px(12.0))
+                .text_color(palette.ink_2)
+                .child(text.clone())
+                .into_any_element()
+        })
+    }
+
     fn build_settings(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let language = self.language;
         let shortcut = if cfg!(target_os = "macos") {
@@ -619,7 +630,7 @@ impl SettingsWindowView {
                             .text_size(px(12.0))
                             .text_color(palette.ink_2)
                             .hover(|style| style.bg(palette.soft))
-                            .child("← 设置 / AI / General / LLM Providers")
+                            .child("← 设置 / AI / 通用 / LLM Providers")
                             .on_click(move |_, _, cx| {
                                 let _ = weak.update(cx, |this, cx| {
                                     this.ai_view = AiRoute::General;
@@ -652,8 +663,14 @@ impl SettingsWindowView {
             AiRoute::Form(id) => Some(id.clone()),
             _ => None,
         };
+        let form_name = form_target
+            .as_ref()
+            .and_then(|id| drafts.iter().find(|draft| &draft.id == id))
+            .map(|draft| draft.name.clone())
+            .unwrap_or_default();
         let form_back = {
             let back_weak = weak.clone();
+            let form_name = form_name.clone();
             SettingItem::render(move |_options, _window, cx| {
                 let palette = theme::palette_from_theme(cx);
                 let weak = back_weak.clone();
@@ -667,7 +684,7 @@ impl SettingsWindowView {
                     .text_size(px(12.0))
                     .text_color(palette.ink_2)
                     .hover(|style| style.bg(palette.soft))
-                    .child("← 设置 / AI / General / LLM Providers")
+                    .child(format!("← 设置 / AI / 通用 / LLM Providers / {form_name}"))
                     .on_click(move |_, _, cx| {
                         let _ = weak.update(cx, |this, cx| {
                             this.ai_view = AiRoute::Providers;
@@ -817,11 +834,16 @@ impl SettingsWindowView {
             ..Default::default()
         };
         let ai_page = match &self.ai_view {
-            AiRoute::General => SettingPage::new("AI").group(
-                SettingGroup::new()
-                    .title("General")
-                    .items(vec![llm_link, native_agent]),
-            ),
+            AiRoute::General => SettingPage::new("AI")
+                .header_style(&hidden_header)
+                .groups(vec![
+                    SettingGroup::new()
+                        .variant(GroupBoxVariant::Normal)
+                        .item(Self::breadcrumb_item("设置 / AI".to_string())),
+                    SettingGroup::new()
+                        .title("通用")
+                        .items(vec![llm_link, native_agent]),
+                ]),
             AiRoute::Providers => SettingPage::new("AI")
                 .header_style(&hidden_header)
                 .groups(vec![
@@ -846,11 +868,16 @@ impl SettingsWindowView {
 
         let settings = Settings::new("cgc-settings")
             .page(
-                SettingPage::new(translate(language, Key::AppSettingsAccount)).group(
-                    SettingGroup::new()
-                        .title(translate(language, Key::AppSettingsAccount))
-                        .item(account_item),
-                ),
+                SettingPage::new(translate(language, Key::AppSettingsAccount))
+                    .header_style(&hidden_header)
+                    .groups(vec![
+                        SettingGroup::new()
+                            .variant(GroupBoxVariant::Normal)
+                            .item(Self::breadcrumb_item("设置 / 账号".to_string())),
+                        SettingGroup::new()
+                            .title(translate(language, Key::AppSettingsAccount))
+                            .item(account_item),
+                    ]),
             )
             .page(
                 SettingPage::new("通用")
@@ -858,11 +885,16 @@ impl SettingsWindowView {
             )
             .page(ai_page)
             .page(
-                SettingPage::new("关于").group(
-                    SettingGroup::new()
-                        .title("关于")
-                        .items(vec![about_item, revoke_item]),
-                ),
+                SettingPage::new("关于")
+                    .header_style(&hidden_header)
+                    .groups(vec![
+                        SettingGroup::new()
+                            .variant(GroupBoxVariant::Normal)
+                            .item(Self::breadcrumb_item("设置 / 关于".to_string())),
+                        SettingGroup::new()
+                            .title("关于")
+                            .items(vec![about_item, revoke_item]),
+                    ]),
             );
         div().size_full().child(settings).into_any_element()
     }
