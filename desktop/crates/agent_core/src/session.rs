@@ -155,6 +155,8 @@ pub struct Agent {
     reasoning_effort: Option<String>,
     /// 下一轮用户消息要携带的图片附件（MIME, base64）；发送一次后清空。
     pending_images: Vec<(String, String, String)>,
+    /// 下一条用户消息的 UI 展示文本（不含注入上下文）；发送一次后清空。
+    pending_user_display: Option<String>,
 }
 
 impl Agent {
@@ -174,12 +176,18 @@ impl Agent {
             steer_rx,
             reasoning_effort: None,
             pending_images: Vec::new(),
+            pending_user_display: None,
         }
     }
 
     /// 设置下一轮要随用户消息发送的图片（MIME, base64）；只生效一次。
     pub fn set_pending_images(&mut self, images: Vec<(String, String, String)>) {
         self.pending_images = images;
+    }
+
+    /// 设置下一条用户消息的 UI 展示文本（不含注入上下文）；只生效一次。
+    pub fn set_pending_user_display(&mut self, display: Option<String>) {
+        self.pending_user_display = display;
     }
 
     /// 把待发送图片挂到最近一条用户消息上（随 thread 持久化）。
@@ -268,7 +276,8 @@ impl Agent {
         text: impl Into<String>,
     ) -> Result<TurnOutcome, AgentError> {
         self.validate(provider, model)?;
-        self.thread.push_user(text);
+        let display = self.pending_user_display.take();
+        self.thread.push_user_with_display(text, display);
         self.persist_pending_images();
         let mut observer = NoopObserver;
         let mut steers = 0;
@@ -352,7 +361,8 @@ impl Agent {
         observer: &mut dyn TurnObserver,
     ) -> Result<ToolTurnOutcome, AgentError> {
         self.validate(provider, model)?;
-        self.thread.push_user(text);
+        let display = self.pending_user_display.take();
+        self.thread.push_user_with_display(text, display);
         self.persist_pending_images();
         observer.on_turn_started(&self.thread.id);
 

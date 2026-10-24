@@ -1414,6 +1414,7 @@ impl RootView {
                 ChatEntry::User(text) => Some(cgc_agent_core::Entry::User {
                     text: text.clone(),
                     images: Vec::new(),
+                    display: None,
                     at: now,
                 }),
                 ChatEntry::Assistant(text) if !text.is_empty() => {

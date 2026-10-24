@@ -407,8 +407,14 @@ fn apply_thread_entries(
     }
     for entry in entries {
         match entry {
-            cgc_agent_core::Entry::User { text, images, .. } => {
-                state.push_user(text);
+            cgc_agent_core::Entry::User {
+                text,
+                images,
+                display,
+                ..
+            } => {
+                // 展示文本优先用 display（不含技能/文件注入上下文），旧数据回退到 text。
+                state.push_user(display.clone().unwrap_or_else(|| text.clone()));
                 let previews = decode_sent_images(images);
                 if !previews.is_empty() {
                     restored_images.insert(state.messages.len() - 1, previews);
@@ -484,6 +490,10 @@ pub struct NativeAgentView {
     last_turn: Option<(String, String)>,
     /// 已展开的工具调用卡片 id。
     expanded_tools: std::collections::HashSet<String>,
+    /// 正在编辑的用户消息（UI message index）。
+    editing_user: Option<usize>,
+    /// 编辑态输入框；仅在 editing_user 有值时存在。
+    user_edit_input: Option<Entity<TextareaState>>,
     messages_scroll: ScrollHandle,
     approval_mode: ApprovalMode,
     approval_sender: Arc<Mutex<Option<oneshot::Sender<ApprovalDecision>>>>,
@@ -809,6 +819,8 @@ impl NativeAgentView {
             follow_output: true,
             last_turn: None,
             expanded_tools: std::collections::HashSet::new(),
+            editing_user: None,
+            user_edit_input: None,
             messages_scroll: ScrollHandle::new(),
             approval_mode: ApprovalMode::Ask,
             context: ToolContext::new(&workspace)
@@ -1243,6 +1255,8 @@ impl NativeAgentView {
         self.sent_images = restored_images;
         let prompt = build_workspace_system_prompt(self.context.workspace());
         self.agent = Some(Agent::new(thread, Some(prompt)));
+        self.editing_user = None;
+        self.user_edit_input = None;
         self.status = "已恢复线程".to_string();
         self.busy = false;
         self.checkpoint_changes.clear();
@@ -1367,6 +1381,8 @@ impl NativeAgentView {
             None
         };
         agent.set_reasoning_effort(effort);
+        // 记录 UI 展示文本（不含注入上下文），restore 时用户气泡不会显示上下文前缀。
+        agent.set_pending_user_display(Some(display.clone()));
         let approval_mode = self.approval_mode;
         if !retry {
             self.state.push_user(display);
@@ -1755,6 +1771,181 @@ impl NativeAgentView {
         cx.notify();
     }
 
+    /// 进入某条用户消息的行内编辑态（预填展示文本）。
+    fn begin_edit_user(
+        &mut self,
+        message_index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.busy {
+            self.status = "生成中，稍后再编辑".to_string();
+            cx.notify();
+            return;
+        }
+        let Some(message) = self.state.messages.get(message_index) else {
+            return;
+        };
+        if message.role != UiRole::User {
+            return;
+        }
+        let text = message.text.clone();
+        let input = cx.new(|cx| {
+            let mut state = TextareaState::new(window, cx).auto_grow(1, 8);
+            state.set_value(text, window, cx);
+            state
+        });
+        self.user_edit_input = Some(input);
+        self.editing_user = Some(message_index);
+        cx.notify();
+    }
+
+    fn cancel_edit_user(&mut self, cx: &mut Context<Self>) {
+        self.editing_user = None;
+        self.user_edit_input = None;
+        cx.notify();
+    }
+
+    /// 从某条用户消息重发（Zed 的 restart from this point）：回滚 checkpoint、
+    /// 截断线程到该消息之前，然后用编辑后的文本重跑这一轮。
+    fn restart_from_user_message(&mut self, message_index: usize, cx: &mut Context<Self>) {
+        if self.busy {
+            self.status = "生成中，稍后再试".to_string();
+            cx.notify();
+            return;
+        }
+        let Some(input) = self.user_edit_input.clone() else {
+            return;
+        };
+        let edited = input.read(cx).value().trim().to_string();
+        if edited.is_empty() {
+            self.status = "消息不能为空".to_string();
+            cx.notify();
+            return;
+        }
+        let Some(ordinal) = user_message_ordinal(&self.state.messages, message_index) else {
+            return;
+        };
+        let Some(agent) = self.agent.as_mut() else {
+            return;
+        };
+        let thread_id = agent.thread().id.clone();
+        let Some(entry_index) = thread_user_entry_index(&agent.thread().entries, ordinal) else {
+            self.status = "找不到对应的线程消息".to_string();
+            cx.notify();
+            return;
+        };
+        // checkpoint 回滚（尽力而为；失败只提示，不阻断重发）。
+        let mut note = String::new();
+        if let (Some(manager), Some(store)) = (&self.checkpoint_manager, &self.session_store) {
+            if let Ok(records) = store.list_checkpoints(&thread_id) {
+                if let Some(record) = checkpoint_for_ordinal(&records, ordinal) {
+                    let checkpoint = Checkpoint {
+                        thread_id: record.thread_id,
+                        seq: record.user_entry_seq.max(0) as u64,
+                        ref_name: record.ref_name,
+                        sha: record.sha,
+                        base_head: record.base_head,
+                    };
+                    match manager.is_valid(&checkpoint) {
+                        Ok(true) => match manager.restore(&checkpoint) {
+                            Ok(()) => note = " · 已回滚到该消息的 checkpoint".to_string(),
+                            Err(error) => note = format!(" · checkpoint 回滚失败：{error}"),
+                        },
+                        Ok(false) => note = " · checkpoint 已失配，未回滚文件".to_string(),
+                        Err(error) => note = format!(" · checkpoint 校验失败：{error}"),
+                    }
+                }
+            }
+        }
+        agent.thread_mut().entries.truncate(entry_index);
+        self.editing_user = None;
+        self.user_edit_input = None;
+        self.rebuild_state_from_thread();
+        // 截断到空历史时 rebuild 会补一条引导提示；重发场景不需要它。
+        self.state.messages.retain(|message| {
+            !(message.role == UiRole::System && message.text == EMPTY_THREAD_NOTICE)
+        });
+        self.state.push_user(edited.clone());
+        self.state.last_error = None;
+        self.state.streaming.clear();
+        self.last_turn = Some((edited.clone(), edited.clone()));
+        self.turn_seq += 1;
+        self.capture_checkpoint(&thread_id, self.turn_seq);
+        self.status = format!("从该消息重发{note}");
+        self.run_turn(edited.clone(), edited, true, cx);
+    }
+
+    /// 编辑态行内编辑器。
+    fn render_user_edit_row(
+        &self,
+        message_index: usize,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(input) = self.user_edit_input.clone() else {
+            return div().into_any_element();
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap(space(1))
+            .child(
+                div()
+                    .rounded(px(RADIUS_MEDIUM))
+                    .border_1()
+                    .border_color(palette.line_strong)
+                    .bg(palette.view)
+                    .px(space(2))
+                    .py(space(1))
+                    .child(
+                        Textarea::new(&input)
+                            .appearance(false)
+                            .bordered(false)
+                            .w_full(),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_end()
+                    .gap(space(1))
+                    .child(
+                        div()
+                            .id("native-user-edit-cancel")
+                            .role(Role::Button)
+                            .aria_label("取消编辑")
+                            .px(space(1))
+                            .py(px(2.0))
+                            .rounded(px(RADIUS_SMALL))
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_2)
+                            .hover(|style| style.bg(palette.soft))
+                            .child("取消")
+                            .on_click(cx.listener(|this, _, _, cx| this.cancel_edit_user(cx))),
+                    )
+                    .child(
+                        div()
+                            .id("native-user-edit-resend")
+                            .role(Role::Button)
+                            .aria_label("从这里重发")
+                            .px(space(2))
+                            .py(px(2.0))
+                            .rounded(px(RADIUS_SMALL))
+                            .bg(palette.accent)
+                            .text_color(palette.canvas)
+                            .text_size(px(11.0))
+                            .child("重发")
+                            .on_click(cx.listener(move |this, _, _window, cx| {
+                                this.restart_from_user_message(message_index, cx)
+                            })),
+                    ),
+            )
+            .into_any_element()
+    }
+
     /// 展开/折叠某张工具调用卡片。
     fn toggle_tool_call(&mut self, tool_call_id: String, cx: &mut Context<Self>) {
         if !self.expanded_tools.remove(&tool_call_id) {
@@ -1874,7 +2065,7 @@ impl NativeAgentView {
         state.usage_total = thread.usage_total;
         let restored_images = apply_thread_entries(&mut state, &thread.entries);
         if state.messages.is_empty() {
-            state.push_system("Native agent：配置 Provider 后开始对话。");
+            state.push_system(EMPTY_THREAD_NOTICE);
         }
         self.state = state;
         self.sent_images = restored_images;
@@ -1995,18 +2186,54 @@ impl Render for NativeAgentView {
                     .gap(px(2.0))
                     .child(
                         div()
-                            .text_size(px(11.0))
-                            .text_color(color)
-                            .child(role_label(message.role)),
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(1))
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(color)
+                                    .child(role_label(message.role)),
+                            )
+                            .children(
+                                (message.role == UiRole::User
+                                    && !self.busy
+                                    && self.editing_user != Some(message_index))
+                                .then(|| {
+                                    let edit_index = message_index;
+                                    div()
+                                        .id(SharedString::from(format!(
+                                            "native-edit-user-{edit_index}"
+                                        )))
+                                        .role(Role::Button)
+                                        .aria_label("编辑消息")
+                                        .px(px(3.0))
+                                        .rounded(px(RADIUS_SMALL))
+                                        .text_size(px(10.0))
+                                        .text_color(palette.ink_3)
+                                        .hover(|style| style.bg(palette.soft))
+                                        .child("编辑")
+                                        .on_click(cx.listener(move |this, _, window, cx| {
+                                            this.begin_edit_user(edit_index, window, cx)
+                                        }))
+                                }),
+                            ),
                     )
                     .child(match message.role {
                         UiRole::Assistant => {
                             render_assistant_markdown(message_index, &message.text)
                         }
-                        UiRole::User => div()
-                            .text_size(px(13.0))
-                            .child(mention::display_text(&message.text))
-                            .into_any_element(),
+                        UiRole::User => {
+                            if self.editing_user == Some(message_index) {
+                                self.render_user_edit_row(message_index, &palette, cx)
+                            } else {
+                                div()
+                                    .text_size(px(13.0))
+                                    .child(mention::display_text(&message.text))
+                                    .into_any_element()
+                            }
+                        }
                         UiRole::Tool => match &message.tool {
                             Some(tool) => {
                                 let tool_call_id = message.tool_call_id.clone().unwrap_or_default();
@@ -3743,6 +3970,44 @@ fn slash_entries_for(
         .flat_map(|(_, group)| group.into_iter().map(|(_, _, entry)| entry))
         .collect()
 }
+/// 第 `ordinal` 条用户消息（1-based）对应的有效 checkpoint（未失效）。
+fn checkpoint_for_ordinal(
+    records: &[cgc_agent_store::CheckpointRecord],
+    ordinal: usize,
+) -> Option<cgc_agent_store::CheckpointRecord> {
+    records
+        .iter()
+        .find(|record| record.user_entry_seq == ordinal as i64 && record.state != "invalid")
+        .cloned()
+}
+
+/// 第 `message_index` 条 UI 消息是第几条用户消息（1-based）。
+fn user_message_ordinal(
+    messages: &[cgc_agent_host::UiMessage],
+    message_index: usize,
+) -> Option<usize> {
+    let message = messages.get(message_index)?;
+    if message.role != UiRole::User {
+        return None;
+    }
+    Some(
+        messages[..=message_index]
+            .iter()
+            .filter(|message| message.role == UiRole::User)
+            .count(),
+    )
+}
+
+/// 第 `ordinal` 条用户消息（1-based）在 thread entries 里的下标。
+fn thread_user_entry_index(entries: &[cgc_agent_core::Entry], ordinal: usize) -> Option<usize> {
+    entries
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| matches!(entry, cgc_agent_core::Entry::User { .. }))
+        .nth(ordinal.checked_sub(1)?)
+        .map(|(index, _)| index)
+}
+
 /// 重试前把 UI 消息裁到最近一条用户消息为止，丢掉失败 turn 残留的部分回复/工具卡。
 fn trim_messages_to_last_user(messages: &mut Vec<cgc_agent_host::UiMessage>) -> Option<usize> {
     let index = messages
@@ -3887,6 +4152,9 @@ fn render_subagent_row(
         }))
         .into_any_element()
 }
+
+/// 空线程时的引导提示（重发重建状态时需要剔除，避免显示在编辑后的对话顶部）。
+const EMPTY_THREAD_NOTICE: &str = "Native agent：配置 Provider 后开始对话。";
 
 fn role_label(role: UiRole) -> &'static str {
     match role {
@@ -4397,6 +4665,7 @@ mod workspace_prompt_tests {
             Entry::User {
                 text: "跑一下".into(),
                 images: Vec::new(),
+                display: None,
                 at: 0,
             },
             Entry::Assistant {
@@ -4435,6 +4704,95 @@ mod workspace_prompt_tests {
         assert_eq!(super::tool_status_label(ToolCallStatus::Running), "运行中…");
         assert_eq!(super::tool_status_label(ToolCallStatus::Ok), "完成");
         assert_eq!(super::tool_status_label(ToolCallStatus::Failed), "失败");
+    }
+
+    #[test]
+    fn checkpoint_for_ordinal_skips_invalid_and_matches_seq() {
+        use cgc_agent_store::CheckpointRecord;
+        let record = |seq: i64, state: &str| CheckpointRecord {
+            thread_id: "t".into(),
+            user_entry_seq: seq,
+            ref_name: format!("refs/cgc/{seq}"),
+            sha: "abc".into(),
+            base_head: None,
+            created_at: 0,
+            state: state.into(),
+        };
+        let records = vec![record(1, "valid"), record(2, "invalid"), record(3, "valid")];
+        assert_eq!(
+            super::checkpoint_for_ordinal(&records, 1).map(|r| r.user_entry_seq),
+            Some(1)
+        );
+        assert!(
+            super::checkpoint_for_ordinal(&records, 2).is_none(),
+            "失效 checkpoint 跳过"
+        );
+        assert_eq!(
+            super::checkpoint_for_ordinal(&records, 3).map(|r| r.user_entry_seq),
+            Some(3)
+        );
+        assert!(super::checkpoint_for_ordinal(&records, 4).is_none());
+    }
+
+    #[test]
+    fn user_message_ordinal_and_thread_entry_mapping() {
+        use cgc_agent_core::Entry;
+        use cgc_agent_host::{UiMessage, UiRole};
+
+        let msg = |role, text: &str| UiMessage {
+            role,
+            text: text.into(),
+            tool_call_id: None,
+            tool: None,
+        };
+        let messages = vec![
+            msg(UiRole::User, "q1"),
+            msg(UiRole::Assistant, "a1"),
+            msg(UiRole::Tool, "t1"),
+            msg(UiRole::User, "q2"),
+            msg(UiRole::Assistant, "a2"),
+            msg(UiRole::User, "q3"),
+        ];
+        assert_eq!(super::user_message_ordinal(&messages, 0), Some(1));
+        assert_eq!(super::user_message_ordinal(&messages, 3), Some(2));
+        assert_eq!(super::user_message_ordinal(&messages, 5), Some(3));
+        assert_eq!(
+            super::user_message_ordinal(&messages, 1),
+            None,
+            "非用户消息"
+        );
+
+        let entries = vec![
+            Entry::User {
+                text: "q1".into(),
+                images: Vec::new(),
+                display: Some("q1".into()),
+                at: 0,
+            },
+            Entry::Assistant {
+                text: "a1".into(),
+                tool_calls: Vec::new(),
+                usage: None,
+                at: 0,
+            },
+            Entry::User {
+                text: "q2".into(),
+                images: Vec::new(),
+                display: Some("q2".into()),
+                at: 0,
+            },
+            Entry::User {
+                text: "q3".into(),
+                images: Vec::new(),
+                display: Some("q3".into()),
+                at: 0,
+            },
+        ];
+        assert_eq!(super::thread_user_entry_index(&entries, 1), Some(0));
+        assert_eq!(super::thread_user_entry_index(&entries, 2), Some(2));
+        assert_eq!(super::thread_user_entry_index(&entries, 3), Some(3));
+        assert_eq!(super::thread_user_entry_index(&entries, 4), None);
+        assert_eq!(super::thread_user_entry_index(&entries, 0), None);
     }
 
     #[test]

@@ -37,6 +37,9 @@ pub enum Entry {
         text: String,
         #[serde(default)]
         images: Vec<ImageAttachment>,
+        /// UI 展示文本（不含技能/文件注入上下文）；旧数据为 None，回退到 text。
+        #[serde(default)]
+        display: Option<String>,
         at: i64,
     },
     /// 推理过程（thinking），不进入 provider messages，仅用于历史展示/持久化。
@@ -122,9 +125,16 @@ impl Thread {
     }
 
     pub fn push_user(&mut self, text: impl Into<String>) {
+        self.push_user_with_display(text, None);
+    }
+
+    /// 记录用户消息：`text` 是真正发给模型的内容（可含注入上下文），
+    /// `display` 是 UI 展示用的原文（不含注入上下文）。
+    pub fn push_user_with_display(&mut self, text: impl Into<String>, display: Option<String>) {
         self.entries.push(Entry::User {
             text: text.into(),
             images: Vec::new(),
+            display,
             at: now_secs(),
         });
         self.updated_at = now_secs();
@@ -390,6 +400,47 @@ mod tests {
         );
         assert!(
             matches!(&messages[2].content[0], Content::ToolResult { content, .. } if content == "content")
+        );
+    }
+
+    #[test]
+    fn push_user_with_display_persists_display_separately() {
+        let mut thread = Thread::new("t1", selected());
+        thread.push_user_with_display(
+            "[技能: x]\nbody\n\n请执行 [@x](skill://global/x)",
+            Some("/x 请执行".to_string()),
+        );
+        thread.push_user("纯文本");
+        let raw = serde_json::to_string(&thread).expect("serialize");
+        let restored: Thread = serde_json::from_str(&raw).expect("deserialize");
+        match &restored.entries[0] {
+            Entry::User { text, display, .. } => {
+                assert!(text.contains("[技能: x]"), "prompt 保留注入上下文");
+                assert_eq!(display.as_deref(), Some("/x 请执行"));
+            }
+            other => panic!("expected user entry, got {other:?}"),
+        }
+        assert!(
+            matches!(&restored.entries[1], Entry::User { display: None, .. }),
+            "普通消息 display 为空"
+        );
+        // 旧版本线程 JSON（没有 display 字段）仍可反序列化。
+        let mut legacy_value: serde_json::Value =
+            serde_json::from_str(&raw).expect("serialize to value");
+        if let Some(entries) = legacy_value
+            .get_mut("entries")
+            .and_then(|entries| entries.as_array_mut())
+        {
+            for entry in entries {
+                if let Some(user) = entry.get_mut("User").and_then(|user| user.as_object_mut()) {
+                    user.remove("display");
+                }
+            }
+        }
+        let legacy_thread: Thread = serde_json::from_value(legacy_value).expect("legacy thread");
+        assert!(
+            matches!(&legacy_thread.entries[0], Entry::User { display: None, .. }),
+            "旧数据缺 display 时回退为 None"
         );
     }
 
