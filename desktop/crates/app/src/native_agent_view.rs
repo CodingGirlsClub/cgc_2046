@@ -11,7 +11,7 @@ use base64::Engine as _;
 use cgc_agent_checkpoint::{Checkpoint, CheckpointManager, FileChange};
 use cgc_agent_core::{
     run_subagent, Agent, AgentError, ApprovalRequest, Approver, AutoApprover, CancelToken,
-    SelectedModel, Thread,
+    ImageAttachment, SelectedModel, Thread,
 };
 use cgc_agent_host::{
     parse_slash, AgentEvent, AsyncChannelObserver, HostState, SlashCommand, UiRole, SLASH_COMMANDS,
@@ -136,6 +136,18 @@ fn prepare_clipboard_image(bytes: &[u8]) -> Option<(Vec<u8>, Arc<RenderImage>)> 
         decoded.into_rgba8(),
     )]));
     Some((png, preview))
+}
+
+fn decode_image_previews(images: &[ImageAttachment]) -> Vec<Arc<RenderImage>> {
+    images
+        .iter()
+        .filter_map(|image| {
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(image.data.as_bytes())
+                .ok()?;
+            prepare_clipboard_image(&bytes).map(|(_, preview)| preview)
+        })
+        .collect()
 }
 
 pub struct NativeAgentView {
@@ -266,11 +278,18 @@ impl NativeAgentView {
             (thread.model == selected).then_some(thread)
         });
         let mut state = HostState::new();
+        let mut restored_images: HashMap<usize, Vec<Arc<RenderImage>>> = HashMap::new();
         let thread = match restored_thread {
             Some(thread) => {
                 for entry in &thread.entries {
                     match entry {
-                        cgc_agent_core::Entry::User { text, .. } => state.push_user(text),
+                        cgc_agent_core::Entry::User { text, images, .. } => {
+                            state.push_user(text);
+                            let previews = decode_image_previews(images);
+                            if !previews.is_empty() {
+                                restored_images.insert(state.messages.len() - 1, previews);
+                            }
+                        }
                         cgc_agent_core::Entry::Assistant { text, .. } if !text.is_empty() => {
                             state.push_assistant(text)
                         }
@@ -454,7 +473,7 @@ impl NativeAgentView {
             queued_messages: Vec::new(),
             steer_sender,
             pending_images: Vec::new(),
-            sent_images: HashMap::new(),
+            sent_images: restored_images,
             hovered_image: None,
             _input_subscription: input_subscription,
         }
@@ -1162,9 +1181,16 @@ impl NativeAgentView {
         let thread = agent.thread();
         let mut state = HostState::new();
         state.usage_total = thread.usage_total;
+        let mut restored_images: HashMap<usize, Vec<Arc<RenderImage>>> = HashMap::new();
         for entry in &thread.entries {
             match entry {
-                cgc_agent_core::Entry::User { text, .. } => state.push_user(text),
+                cgc_agent_core::Entry::User { text, images, .. } => {
+                    state.push_user(text);
+                    let previews = decode_image_previews(images);
+                    if !previews.is_empty() {
+                        restored_images.insert(state.messages.len() - 1, previews);
+                    }
+                }
                 cgc_agent_core::Entry::Assistant { text, .. } if !text.is_empty() => {
                     state.push_assistant(text)
                 }
@@ -1183,6 +1209,7 @@ impl NativeAgentView {
             state.push_system("Native agent：配置 Provider 后开始对话。");
         }
         self.state = state;
+        self.sent_images = restored_images;
     }
 
     fn capture_checkpoint(&mut self, thread_id: &str, seq: u64) {

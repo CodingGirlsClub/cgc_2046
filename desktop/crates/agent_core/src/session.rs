@@ -15,7 +15,7 @@ use cgc_agent_tools::{
 };
 use futures::{future::BoxFuture, StreamExt};
 
-use crate::thread::{Entry, SelectedModel, Thread};
+use crate::thread::{Entry, ImageAttachment, SelectedModel, Thread};
 
 /// 单轮工具循环的上限，防止模型无限调工具。
 pub const MAX_TOOL_STEPS: usize = 8;
@@ -182,6 +182,18 @@ impl Agent {
         self.pending_images = images;
     }
 
+    /// 把待发送图片挂到最近一条用户消息上（随 thread 持久化）。
+    fn persist_pending_images(&mut self) {
+        if self.pending_images.is_empty() {
+            return;
+        }
+        let images = std::mem::take(&mut self.pending_images)
+            .into_iter()
+            .map(|(mime_type, data)| ImageAttachment { mime_type, data })
+            .collect::<Vec<_>>();
+        self.thread.attach_images_to_last_user(images);
+    }
+
     pub fn thread(&self) -> &Thread {
         &self.thread
     }
@@ -243,6 +255,7 @@ impl Agent {
     ) -> Result<TurnOutcome, AgentError> {
         self.validate(provider, model)?;
         self.thread.push_user(text);
+        self.persist_pending_images();
         let mut observer = NoopObserver;
         let mut steers = 0;
         loop {
@@ -326,6 +339,7 @@ impl Agent {
     ) -> Result<ToolTurnOutcome, AgentError> {
         self.validate(provider, model)?;
         self.thread.push_user(text);
+        self.persist_pending_images();
         observer.on_turn_started(&self.thread.id);
 
         let mut all_text = String::new();
@@ -540,21 +554,6 @@ impl Agent {
             .saturating_sub(512) as usize;
         let (history, omitted) = self.thread.messages_with_budget(budget);
         messages.extend(history);
-        if !self.pending_images.is_empty() {
-            let images: Vec<cgc_agent_provider::Content> = std::mem::take(&mut self.pending_images)
-                .into_iter()
-                .map(|(mime_type, data)| cgc_agent_provider::Content::Image { mime_type, data })
-                .collect();
-            if let Some(user) = messages
-                .iter_mut()
-                .rev()
-                .find(|message| message.role == cgc_agent_provider::Role::User)
-            {
-                user.content.extend(images);
-            } else {
-                messages.push(Message::new(cgc_agent_provider::Role::User, images));
-            }
-        }
         (
             Request::new(messages)
                 .with_tools(tools)

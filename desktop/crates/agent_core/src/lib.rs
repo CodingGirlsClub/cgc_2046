@@ -12,4 +12,4 @@ pub use session::{
     DenyApprover, NoopObserver, ToolResultSummary, ToolTurnOutcome, TurnObserver, TurnOutcome,
     MAX_FOLLOW_UP_TURNS, MAX_STEERS, MAX_TOOL_STEPS,
 };
-pub use thread::{Entry, SelectedModel, Thread};
+pub use thread::{Entry, ImageAttachment, SelectedModel, Thread};

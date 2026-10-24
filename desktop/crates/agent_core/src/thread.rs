@@ -21,11 +21,20 @@ impl SelectedModel {
     }
 }
 
+/// 用户消息里的图片附件（base64，随 thread 持久化）。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImageAttachment {
+    pub mime_type: String,
+    pub data: String,
+}
+
 /// 线程条目。工具调用挂在 Assistant 条目上，与工具结果分开存放。
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Entry {
     User {
         text: String,
+        #[serde(default)]
+        images: Vec<ImageAttachment>,
         at: i64,
     },
     Assistant {
@@ -86,9 +95,26 @@ impl Thread {
     pub fn push_user(&mut self, text: impl Into<String>) {
         self.entries.push(Entry::User {
             text: text.into(),
+            images: Vec::new(),
             at: now_secs(),
         });
         self.updated_at = now_secs();
+    }
+
+    /// 把图片挂到最近一条用户消息上（用于持久化与请求构建）。
+    pub fn attach_images_to_last_user(&mut self, images: Vec<ImageAttachment>) {
+        if images.is_empty() {
+            return;
+        }
+        if let Some(Entry::User { images: slot, .. }) = self
+            .entries
+            .iter_mut()
+            .rev()
+            .find(|entry| matches!(entry, Entry::User { .. }))
+        {
+            slot.extend(images);
+            self.updated_at = now_secs();
+        }
     }
 
     pub fn push_assistant(
@@ -158,7 +184,16 @@ impl Thread {
         let mut messages = Vec::new();
         for entry in &self.entries {
             match entry {
-                Entry::User { text, .. } => messages.push(Message::user(text.clone())),
+                Entry::User { text, images, .. } => {
+                    let mut message = Message::user(text.clone());
+                    message
+                        .content
+                        .extend(images.iter().map(|image| Content::Image {
+                            mime_type: image.mime_type.clone(),
+                            data: image.data.clone(),
+                        }));
+                    messages.push(message);
+                }
                 Entry::Assistant {
                     text, tool_calls, ..
                 } => {
@@ -371,5 +406,30 @@ mod budget_tests {
         let (kept, omitted) = thread.messages_with_budget(100_000);
         assert_eq!(omitted, 0);
         assert_eq!(kept.len(), all.len());
+    }
+}
+
+#[cfg(test)]
+mod image_tests {
+    use super::*;
+
+    #[test]
+    fn user_images_are_persisted_and_mapped_to_content() {
+        let mut thread = Thread::new(
+            "t",
+            SelectedModel::new(ProviderId::new("p"), ModelId::new("m")),
+        );
+        thread.push_user("看图");
+        thread.attach_images_to_last_user(vec![ImageAttachment {
+            mime_type: "image/png".to_string(),
+            data: "AAAA".to_string(),
+        }]);
+        let json = serde_json::to_string(thread.entries.first().unwrap()).expect("serialize");
+        assert!(json.contains("image/png"));
+        let messages = thread.messages();
+        assert!(messages[0]
+            .content
+            .iter()
+            .any(|content| matches!(content, Content::Image { .. })));
     }
 }
