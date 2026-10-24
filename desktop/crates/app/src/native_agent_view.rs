@@ -1126,12 +1126,13 @@ impl NativeAgentView {
         let fit_zoom = (820.0 / base_width.max(1.0))
             .min(620.0 / base_height.max(1.0))
             .min(1.0);
-        let _ = cx.open_window(
+        let _ = gpui_kit::open_window::<ImageViewer>(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
             },
-            move |window, cx| {
+            cx,
+            move |window: &mut Window, cx: &mut App| {
                 window.set_window_title("图片预览");
                 cx.new(|_| ImageViewer {
                     name,
