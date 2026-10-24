@@ -1440,6 +1440,7 @@ fn render_provider_cards(
                                                 Checkbox::new(SharedString::from(format!(
                                                     "settings-model-enable-{index}-{model_index}"
                                                 )))
+                                                .large()
                                                 .checked(enabled)
                                                 .on_click(move |_checked, _, cx| {
                                                     let _ = toggle_weak.update(cx, |this, cx| {
@@ -1512,7 +1513,7 @@ fn render_provider_cards(
                                                     .flex_row()
                                                     .items_center()
                                                     .gap(px(2.0))
-                                                    .text_size(px(13.0))
+                                                    .text_size(px(16.0))
                                                     .text_color(palette.ink_2)
                                                     .child(if thinking { "☑" } else { "☐" })
                                                     .child("thinking")
