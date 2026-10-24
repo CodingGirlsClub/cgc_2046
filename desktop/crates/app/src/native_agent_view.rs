@@ -176,6 +176,75 @@ fn is_image_path(path: &std::path::Path) -> bool {
     )
 }
 
+/// 独立的图片查看窗口：大图 + 关闭（后续可加缩放）。
+struct ImageViewer {
+    name: String,
+    image: Arc<RenderImage>,
+    focus: FocusHandle,
+}
+
+impl Render for ImageViewer {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let palette = theme::palette_from_theme(cx);
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .bg(palette.canvas)
+            .text_color(palette.ink)
+            .track_focus(&self.focus)
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .px(space(2))
+                    .py(space(1))
+                    .border_b_1()
+                    .border_color(palette.line)
+                    .child(
+                        div()
+                            .text_size(px(12.0))
+                            .text_color(palette.ink_2)
+                            .child(self.name.clone()),
+                    )
+                    .child(
+                        div()
+                            .id("native-image-viewer-close")
+                            .role(Role::Button)
+                            .aria_label("关闭")
+                            .px(space(1))
+                            .rounded(px(RADIUS_SMALL))
+                            .text_size(px(12.0))
+                            .text_color(palette.ink_2)
+                            .hover(|style| style.bg(palette.soft))
+                            .child("关闭")
+                            .on_click(|_, window, _cx| window.remove_window()),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .p(space(2))
+                    .child(
+                        img(self.image.clone())
+                            .max_w(px(860.0))
+                            .max_h(px(640.0))
+                            .object_fit(ObjectFit::Contain),
+                    ),
+            )
+            .on_key_down(cx.listener(|_, event: &KeyDownEvent, window, _cx| {
+                if event.keystroke.key == "escape" {
+                    window.remove_window();
+                }
+            }))
+    }
+}
+
 fn decode_sent_images(images: &[ImageAttachment]) -> Vec<SentImage> {
     images
         .iter()
@@ -803,6 +872,24 @@ impl NativeAgentView {
             self.status = "未能加载图片（格式不支持或超过 5MB）".to_string();
         }
         cx.notify();
+    }
+
+    fn open_image_viewer(&mut self, name: String, image: Arc<RenderImage>, cx: &mut Context<Self>) {
+        let bounds = Bounds {
+            origin: point(px(260.0), px(160.0)),
+            size: size(px(900.0), px(700.0)),
+        };
+        let focus = cx.focus_handle();
+        let _ = cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                ..Default::default()
+            },
+            move |window, cx| {
+                window.set_window_title("图片预览");
+                cx.new(|_| ImageViewer { name, image, focus })
+            },
+        );
     }
 
     fn send_prompt(&mut self, text: String, cx: &mut Context<Self>) {
@@ -1447,6 +1534,9 @@ impl Render for NativeAgentView {
                         div().flex().flex_row().flex_wrap().gap(space(1)).children(
                             images.iter().enumerate().map(|(image_index, image)| {
                                 let preview = image.preview.clone();
+                                let open_weak = cx.entity().downgrade();
+                                let open_preview = image.preview.clone();
+                                let open_name = image.name.clone();
                                 let trigger = div()
                                     .flex()
                                     .flex_row()
@@ -1481,6 +1571,14 @@ impl Render for NativeAgentView {
                                     .border_color(palette.line)
                                     .text_size(px(11.0))
                                     .text_color(palette.ink_2)
+                                    .on_click(move |_, _, cx| {
+                                        if let Some(preview) = open_preview.clone() {
+                                            let name = open_name.clone();
+                                            let _ = open_weak.update(cx, |this, cx| {
+                                                this.open_image_viewer(name, preview, cx);
+                                            });
+                                        }
+                                    })
                                     .child(
                                         HoverCard::new(SharedString::from(format!(
                                             "native-msg-image-hover-{message_index}-{image_index}"
@@ -2473,6 +2571,9 @@ impl Render for NativeAgentView {
                             .enumerate()
                             .map(|(index, image)| {
                                 let remove_weak = cx.entity().downgrade();
+                                let open_weak = cx.entity().downgrade();
+                                let open_preview = image.preview.clone();
+                                let open_name = image.name.clone();
                                 let preview = image.preview.clone();
                                 let trigger = div()
                                     .flex()
@@ -2504,6 +2605,14 @@ impl Render for NativeAgentView {
                                     .border_color(palette.line)
                                     .text_size(px(11.0))
                                     .text_color(palette.ink_2)
+                                    .on_click(move |_, _, cx| {
+                                        if let Some(preview) = open_preview.clone() {
+                                            let name = open_name.clone();
+                                            let _ = open_weak.update(cx, |this, cx| {
+                                                this.open_image_viewer(name, preview, cx);
+                                            });
+                                        }
+                                    })
                                     .child(
                                         HoverCard::new(SharedString::from(format!(
                                             "native-image-hover-{index}"
