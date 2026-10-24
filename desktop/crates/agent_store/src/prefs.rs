@@ -15,8 +15,6 @@ pub struct ProviderPrefs {
     #[serde(default)]
     pub models: Vec<String>,
     /// 该 provider 的模型是否支持 reasoning/thinking 档位。
-    #[serde(default)]
-    pub supports_thinking: bool,
     /// 是否已保存 API key（仅标记，key 本体在钥匙串）。
     #[serde(default)]
     pub has_key: bool,
@@ -41,6 +39,9 @@ pub struct ModelPrefs {
     /// 是否在 native agent 的模型选择器中启用。
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+    /// 该模型接受的 reasoning_effort 取值；空表示不下发该字段。
+    #[serde(default)]
+    pub reasoning_efforts: Vec<String>,
 }
 
 fn default_enabled() -> bool {
@@ -63,11 +64,16 @@ impl Default for ModelPrefs {
             max_output_tokens: default_max_output_tokens(),
             supports_thinking: false,
             enabled: true,
+            reasoning_efforts: Vec::new(),
         }
     }
 }
 
 impl ModelPrefs {
+    pub fn effort_at(&self, index: usize) -> Option<&str> {
+        self.reasoning_efforts.get(index).map(String::as_str)
+    }
+
     pub fn new(id: impl Into<String>) -> Self {
         Self {
             id: id.into(),
@@ -166,7 +172,6 @@ impl AgentPrefs {
             },
             base_url: legacy.base_url,
             models,
-            supports_thinking: false,
             has_key: false,
             model_params: Vec::new(),
             builtin: false,
@@ -230,7 +235,6 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
             name: name.to_string(),
             base_url: base_url.to_string(),
             models: Vec::new(),
-            supports_thinking: false,
             has_key: false,
             model_params: Vec::new(),
             builtin: true,
@@ -238,13 +242,13 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
     }
 
     let mut deepseek = provider("deepseek", "DeepSeek", "https://api.deepseek.com");
-    deepseek.supports_thinking = true;
     deepseek.upsert_model(ModelPrefs {
         id: "deepseek-flash".to_string(),
         context_window: 1_000_000,
         max_output_tokens: 384_000,
         supports_thinking: true,
         enabled: true,
+        reasoning_efforts: Vec::new(),
     });
     deepseek.upsert_model(ModelPrefs {
         id: "deepseek-v4-pro".to_string(),
@@ -252,10 +256,10 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         max_output_tokens: 384_000,
         supports_thinking: true,
         enabled: true,
+        reasoning_efforts: Vec::new(),
     });
 
     let mut moonshot = provider("moonshot", "Moonshot", "https://api.moonshot.cn/v1");
-    moonshot.supports_thinking = true;
     for (id, output) in [
         ("kimi-k3.1-pro", 32_768),
         ("kimi-k3.1-pro-highspeed", 32_768),
@@ -267,34 +271,37 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
             max_output_tokens: output,
             supports_thinking: true,
             enabled: true,
+            reasoning_efforts: Vec::new(),
         });
     }
 
     let mut minimax = provider("minimax", "MiniMax", "https://api.minimaxi.com/v1");
-    minimax.supports_thinking = true;
     minimax.upsert_model(ModelPrefs {
         id: "MiniMax-M2".to_string(),
         context_window: 1_048_576,
         max_output_tokens: 8_192,
         supports_thinking: true,
         enabled: true,
+        reasoning_efforts: Vec::new(),
     });
 
     let mut zhipu = provider("zhipu", "智谱", "https://open.bigmodel.cn/api/paas/v4");
-    zhipu.supports_thinking = true;
-    zhipu.upsert_model(ModelPrefs {
+    let glm53 = ModelPrefs {
         id: "glm-5.3".to_string(),
         context_window: 1_000_000,
         max_output_tokens: 131_072,
         supports_thinking: true,
         enabled: true,
-    });
+        reasoning_efforts: vec!["low".into(), "high".into(), "max".into()],
+    };
+    zhipu.upsert_model(glm53);
     zhipu.upsert_model(ModelPrefs {
         id: "glm-4.6".to_string(),
         context_window: 200_000,
         max_output_tokens: 131_072,
         supports_thinking: true,
         enabled: true,
+        reasoning_efforts: Vec::new(),
     });
 
     vec![deepseek, moonshot, minimax, zhipu]
@@ -374,7 +381,6 @@ mod tests {
             name: "Test".to_string(),
             base_url: base_url.to_string(),
             models: vec!["model-a".to_string()],
-            supports_thinking: false,
             has_key: true,
             model_params: Vec::new(),
             builtin: false,
@@ -541,6 +547,7 @@ mod model_param_tests {
             max_output_tokens: 32_000,
             supports_thinking: true,
             enabled: true,
+            reasoning_efforts: Vec::new(),
         });
         assert_eq!(provider.model_config("m1").context_window, 200_000);
         provider.remove_model("m1");
@@ -557,5 +564,49 @@ mod model_param_tests {
         prefs.normalize();
         assert_eq!(prefs.providers.len(), 1);
         assert!(prefs.providers[0].model_params.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod effort_tests {
+    use super::*;
+
+    #[test]
+    fn effort_at_maps_and_bounds() {
+        let mut model = ModelPrefs::new("m");
+        assert_eq!(model.effort_at(0), None);
+        model.reasoning_efforts = vec!["low".into(), "high".into(), "max".into()];
+        assert_eq!(model.effort_at(0), Some("low"));
+        assert_eq!(model.effort_at(2), Some("max"));
+        assert_eq!(model.effort_at(3), None);
+    }
+
+    #[test]
+    fn legacy_provider_json_ignores_supports_thinking() {
+        let raw = r#"{
+            "provider": {
+                "base_url": "https://api.deepseek.com",
+                "provider_name": "OpenAI Compatible",
+                "model_id": "deepseek-flash",
+                "supports_thinking": true
+            }
+        }"#;
+        let mut prefs: AgentPrefs = serde_json::from_str(raw).expect("legacy json");
+        prefs.normalize();
+        assert_eq!(prefs.providers.len(), 1);
+        assert_eq!(
+            prefs.providers[0].models,
+            vec!["deepseek-flash".to_string()]
+        );
+    }
+
+    #[test]
+    fn zhipu_glm53_has_low_high_max_efforts() {
+        let zhipu = builtin_providers()
+            .into_iter()
+            .find(|provider| provider.id == "zhipu")
+            .expect("zhipu");
+        let glm = zhipu.model_config("glm-5.3");
+        assert_eq!(glm.effort_at(2), Some("max"));
     }
 }

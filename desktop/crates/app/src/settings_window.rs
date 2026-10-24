@@ -46,7 +46,6 @@ struct ProviderDraft {
     name: String,
     base_url: String,
     models: String,
-    supports_thinking: bool,
     has_key: bool,
     model_params: Vec<ModelPrefs>,
     builtin: bool,
@@ -113,6 +112,7 @@ fn parse_model_lines(value: &str) -> (Vec<String>, Vec<ModelPrefs>) {
             max_output_tokens: output,
             supports_thinking: thinking,
             enabled,
+            reasoning_efforts: Vec::new(),
         });
     }
     (ids, params)
@@ -125,7 +125,6 @@ impl ProviderDraft {
             name: provider.name.clone(),
             base_url: provider.base_url.clone(),
             models: format_model_lines(provider),
-            supports_thinking: provider.supports_thinking,
             has_key: provider.has_key,
             model_params: provider.model_params.clone(),
             builtin: provider.builtin,
@@ -149,7 +148,6 @@ impl ProviderDraft {
             name: "OpenAI Compatible".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
             models: "gpt-4o-mini | 128000 | 16384 | false".to_string(),
-            supports_thinking: false,
             has_key: false,
             model_params: Vec::new(),
             builtin: false,
@@ -170,7 +168,6 @@ impl ProviderDraft {
             name: self.name.clone(),
             base_url: self.base_url.trim().to_string(),
             models,
-            supports_thinking: self.supports_thinking,
             has_key: self.has_key,
             model_params,
             builtin: false,
@@ -473,7 +470,6 @@ impl SettingsWindowView {
             slot.base_url = default.base_url.clone();
             slot.models = models;
             slot.model_params = default.model_params.clone();
-            slot.supports_thinking = default.supports_thinking;
         }
         self.notice = Some("已恢复默认参数（保存后生效）".to_string());
         cx.notify();
@@ -539,7 +535,16 @@ impl SettingsWindowView {
             .map(|input| input.read(cx).value().trim().to_string())
             .unwrap_or_else(|| draft.name.clone());
         let models_text = models_input.read(cx).value().to_string();
-        let (models, model_params) = parse_model_lines(&models_text);
+        let (models, mut model_params) = parse_model_lines(&models_text);
+        for model in &mut model_params {
+            if let Some(previous) = draft
+                .model_params
+                .iter()
+                .find(|previous| previous.id == model.id)
+            {
+                model.reasoning_efforts = previous.reasoning_efforts.clone();
+            }
+        }
         if base_url.is_empty() || models.is_empty() || name.is_empty() {
             self.error = Some("Provider Name、Base URL 与至少一个 Model 不能为空".to_string());
             cx.notify();
@@ -550,7 +555,6 @@ impl SettingsWindowView {
             name: name.clone(),
             base_url,
             models,
-            supports_thinking: draft.supports_thinking,
             has_key: draft.has_key,
             model_params,
             builtin: false,

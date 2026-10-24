@@ -58,12 +58,12 @@ impl ThinkingLevel {
         }
     }
 
-    fn reasoning_effort(self) -> Option<&'static str> {
+    fn level_index(self) -> Option<usize> {
         match self {
             Self::Off => None,
-            Self::Low => Some("low"),
-            Self::Medium => Some("medium"),
-            Self::High => Some("high"),
+            Self::Low => Some(0),
+            Self::Medium => Some(1),
+            Self::High => Some(2),
         }
     }
 }
@@ -498,21 +498,21 @@ impl NativeAgentView {
         let Some(mut agent) = self.agent.take() else {
             return;
         };
-        let model_supports_thinking = self
+        let model_config = self
             .providers
             .iter()
             .find(|provider| provider.id == self.model.provider_id.as_str())
-            .map(|provider| {
-                provider
-                    .model_config(self.model.id.as_str())
-                    .supports_thinking
-            })
-            .unwrap_or(false);
-        agent.set_reasoning_effort(if self.thinking_enabled && model_supports_thinking {
-            self.thinking_level.reasoning_effort().map(str::to_string)
+            .map(|provider| provider.model_config(self.model.id.as_str()))
+            .unwrap_or_default();
+        let effort = if self.thinking_enabled && model_config.supports_thinking {
+            self.thinking_level
+                .level_index()
+                .and_then(|index| model_config.effort_at(index))
+                .map(str::to_string)
         } else {
             None
-        });
+        };
+        agent.set_reasoning_effort(effort);
         let approval_mode = self.approval_mode;
         self.state.push_user(text.clone());
         let text = self.expand_mentions(&text);
@@ -1583,16 +1583,14 @@ impl Render for NativeAgentView {
             .child({
                 let current_provider_id = self.model.provider_id.as_str().to_string();
                 let current_model_id = self.model.id.as_str().to_string();
-                let thinking_supported = self
+                let current_model_config = self
                     .providers
                     .iter()
                     .find(|provider| provider.id == self.model.provider_id.as_str())
-                    .map(|provider| {
-                        provider
-                            .model_config(self.model.id.as_str())
-                            .supports_thinking
-                    })
-                    .unwrap_or(false);
+                    .map(|provider| provider.model_config(self.model.id.as_str()))
+                    .unwrap_or_default();
+                let thinking_supported = current_model_config.supports_thinking;
+                let effort_levels = current_model_config.reasoning_efforts.clone();
                 let providers_for_menu = self.providers.clone();
                 let model_root = cx.entity().downgrade();
                 let thinking_root = cx.entity().downgrade();
@@ -1688,7 +1686,7 @@ impl Render for NativeAgentView {
                     "推理 —"
                 };
                 let current_level = self.thinking_level;
-                let effort_picker = thinking_supported.then(|| {
+                let effort_picker = (thinking_supported && !effort_levels.is_empty()).then(|| {
                     Popover::new("native-thinking-picker")
                         .trigger(
                             Button::new("native-thinking-trigger")
