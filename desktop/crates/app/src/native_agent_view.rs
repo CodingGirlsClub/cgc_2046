@@ -202,6 +202,7 @@ pub struct NativeAgentView {
     /// 已发送用户消息 index → 图片预览（仅当前进程内显示，不持久化）。
     sent_images: HashMap<usize, Vec<SentImage>>,
     hovered_image: Option<usize>,
+    hovered_sent_image: Option<Arc<RenderImage>>,
     queued_messages: Vec<String>,
     steer_sender: std_mpsc::Sender<String>,
     _input_subscription: Option<Subscription>,
@@ -488,6 +489,7 @@ impl NativeAgentView {
             pending_images: Vec::new(),
             sent_images: restored_images,
             hovered_image: None,
+            hovered_sent_image: None,
             _input_subscription: input_subscription,
         }
     }
@@ -2410,18 +2412,17 @@ impl Render for NativeAgentView {
                                 self.hovered_image
                                     .and_then(|index| self.pending_images.get(index))
                                     .and_then(|image| image.preview.clone())
+                                    .or_else(|| self.hovered_sent_image.clone())
                                     .map(|preview| {
                                         div()
-                                            .id("native-image-preview-overlay")
                                             .absolute()
                                             .left(px(8.0))
-                                            .top(px(8.0))
+                                            .top(px(-196.0))
                                             .p(px(4.0))
                                             .rounded(px(RADIUS_SMALL))
                                             .border_1()
                                             .border_color(palette.line)
                                             .bg(palette.card)
-                                            .occlude()
                                             .child(
                                                 img(preview)
                                                     .max_h(px(180.0))
