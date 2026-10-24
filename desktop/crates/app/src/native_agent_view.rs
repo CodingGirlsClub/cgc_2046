@@ -1602,8 +1602,6 @@ impl Render for NativeAgentView {
         let add_menu_root = cx.entity().downgrade();
         let palette = theme::palette_from_theme(cx);
         let busy = self.busy;
-        let model_label = format!("{}/{}", self.model.provider_id, self.model.id);
-        let status = self.status.clone();
         let messages = self.state.messages.clone();
         let sent_images = self.sent_images.clone();
         let streaming = self.state.streaming.clone();
@@ -1785,43 +1783,6 @@ impl Render for NativeAgentView {
             .text_color(palette.ink)
             .font_family(theme::FONT_SANS)
             .text_size(px(13.0))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.0))
-                    .pl(if cfg!(target_os = "macos") {
-                        px(84.0)
-                    } else {
-                        space(3)
-                    })
-                    .pr(space(3))
-                    .pt(if cfg!(target_os = "macos") {
-                        px(6.0)
-                    } else {
-                        space(2)
-                    })
-                    .pb(space(2))
-                    .border_b_1()
-                    .border_color(palette.line)
-                    .child(div().text_size(px(15.0)).child("Native Agent（P1a）"))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(space(1))
-                            .children(
-                                busy.then(|| div().size(px(6.0)).rounded_full().bg(palette.accent)),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_3)
-                                    .child(format!("model: {model_label} · {status}")),
-                            ),
-                    ),
-            )
             .child(
                 div()
                     .id("native-agent-messages")
