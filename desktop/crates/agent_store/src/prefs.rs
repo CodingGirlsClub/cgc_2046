@@ -6,23 +6,16 @@ use serde::{Deserialize, Serialize};
 /// 一个 OpenAI-compatible provider（API key 存系统钥匙串，不落 JSON）。
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderPrefs {
-    #[serde(default)]
     pub id: String,
-    #[serde(default)]
     pub name: String,
-    #[serde(default)]
     pub base_url: String,
-    #[serde(default)]
     pub models: Vec<String>,
     /// 该 provider 的模型是否支持 reasoning/thinking 档位。
     /// 是否已保存 API key（仅标记，key 本体在钥匙串）。
-    #[serde(default)]
     pub has_key: bool,
     /// 模型级参数（按 model id 索引；缺省时用默认值）。
-    #[serde(default)]
     pub model_params: Vec<ModelPrefs>,
     /// 是否来自内置目录（内置条目不需要写入用户文件）。
-    #[serde(default)]
     pub builtin: bool,
 }
 
@@ -30,25 +23,15 @@ pub struct ProviderPrefs {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelPrefs {
     pub id: String,
-    #[serde(default = "default_context_window")]
     pub context_window: u32,
-    #[serde(default = "default_max_output_tokens")]
     pub max_output_tokens: u32,
-    #[serde(default)]
     pub supports_thinking: bool,
     /// 是否在 native agent 的模型选择器中启用。
-    #[serde(default = "default_enabled")]
     pub enabled: bool,
     /// 该模型是否支持工具调用。
-    #[serde(default = "default_enabled")]
     pub supports_tools: bool,
     /// 该模型接受的 reasoning_effort 取值；空表示不下发该字段。
-    #[serde(default)]
     pub reasoning_efforts: Vec<String>,
-}
-
-fn default_enabled() -> bool {
-    true
 }
 
 fn default_context_window() -> u32 {
@@ -124,67 +107,15 @@ impl ProviderPrefs {
     }
 }
 
-/// 旧版单 provider 字段（只读迁移用）。
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
-struct LegacyProvider {
-    #[serde(default)]
-    base_url: String,
-    #[serde(default)]
-    provider_name: String,
-    #[serde(default)]
-    model_id: String,
-}
-
 /// 跨会话保留的 agent 偏好。
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentPrefs {
-    #[serde(default)]
     pub selected_model: Option<SelectedModel>,
-    #[serde(default)]
     pub selected_provider: Option<String>,
-    #[serde(default)]
     pub providers: Vec<ProviderPrefs>,
-    /// 兼容旧版 `provider` 单对象；读取后迁移进 `providers`，不再写回。
-    #[serde(default, rename = "provider", skip_serializing)]
-    legacy_provider: Option<LegacyProvider>,
 }
 
 impl AgentPrefs {
-    /// 旧版单 provider 迁入列表；幂等。
-    pub fn normalize(&mut self) {
-        if !self.providers.is_empty() {
-            self.legacy_provider = None;
-            return;
-        }
-        let Some(legacy) = self.legacy_provider.take() else {
-            return;
-        };
-        if legacy.base_url.is_empty() {
-            return;
-        }
-        let models = if legacy.model_id.is_empty() {
-            Vec::new()
-        } else {
-            vec![legacy.model_id]
-        };
-        self.providers.push(ProviderPrefs {
-            id: "custom".to_string(),
-            name: if legacy.provider_name.is_empty() {
-                "OpenAI Compatible".to_string()
-            } else {
-                legacy.provider_name
-            },
-            base_url: legacy.base_url,
-            models,
-            has_key: false,
-            model_params: Vec::new(),
-            builtin: false,
-        });
-        if self.selected_provider.is_none() {
-            self.selected_provider = Some("custom".to_string());
-        }
-    }
-
     pub fn active_provider(&self) -> Option<&ProviderPrefs> {
         if let Some(id) = &self.selected_provider {
             if let Some(provider) = self.providers.iter().find(|provider| &provider.id == id) {
@@ -221,14 +152,8 @@ impl AgentPrefs {
 }
 
 /// 每个 provider 的 API key 在钥匙串里的 account。
-///
-/// `custom` 是旧版单 provider 的 id，沿用旧 account 以继承已保存的 key。
 pub fn provider_key_account(provider_id: &str) -> String {
-    if provider_id == "custom" {
-        "native_agent_provider_api_key".to_string()
-    } else {
-        format!("native_agent_provider_api_key:{provider_id}")
-    }
+    format!("native_agent_provider_api_key:{provider_id}")
 }
 
 /// 内置 provider 目录：第一次打开设置就能看到的默认配置（不写入用户文件）。
@@ -356,12 +281,10 @@ impl PrefsStore {
     }
 
     pub fn load(&self) -> AgentPrefs {
-        let mut prefs = std::fs::read_to_string(&self.path)
+        std::fs::read_to_string(&self.path)
             .ok()
             .and_then(|raw| serde_json::from_str::<AgentPrefs>(&raw).ok())
-            .unwrap_or_default();
-        prefs.normalize();
-        prefs
+            .unwrap_or_default()
     }
 
     /// 原子写入：先写 `.tmp` 再 rename，避免半截文件。
@@ -420,44 +343,9 @@ mod tests {
             selected_model: Some(selected()),
             selected_provider: Some("deepseek".to_string()),
             providers: vec![provider("deepseek", "https://api.deepseek.com/v1")],
-            ..AgentPrefs::default()
         };
         store.save(&prefs).expect("save");
         assert_eq!(store.load(), prefs);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn legacy_single_provider_is_migrated() {
-        let dir = temp_dir("legacy");
-        let store = PrefsStore::new(dir.join("agent_prefs.json"));
-        std::fs::write(
-            store.path(),
-            r#"{
-                "selected_model": {"provider_id": "custom", "model_id": "deepseek-flash"},
-                "provider": {
-                    "base_url": "https://api.deepseek.com",
-                    "provider_name": "OpenAI Compatible",
-                    "model_id": "deepseek-flash"
-                }
-            }"#,
-        )
-        .expect("write");
-        let prefs = store.load();
-        assert_eq!(prefs.providers.len(), 1);
-        assert_eq!(prefs.providers[0].id, "custom");
-        assert_eq!(
-            prefs.providers[0].models,
-            vec!["deepseek-flash".to_string()]
-        );
-        assert_eq!(
-            prefs.selected_model,
-            Some(SelectedModel::new(
-                ProviderId::new("custom"),
-                ModelId::new("deepseek-flash")
-            ))
-        );
-        assert_eq!(prefs.selected_provider.as_deref(), Some("custom"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -509,6 +397,16 @@ mod tests {
         prefs.remove_provider("b");
         assert_eq!(prefs.providers.len(), 1);
         assert_eq!(prefs.selected_provider.as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn corrupted_prefs_file_falls_back_to_default() {
+        let dir = temp_dir("corrupt");
+        let path = dir.join("agent_prefs.json");
+        std::fs::write(&path, "{ not json").expect("write");
+        let store = PrefsStore::new(path);
+        assert_eq!(store.load(), AgentPrefs::default());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -581,23 +479,6 @@ mod model_param_tests {
     }
 
     #[test]
-    fn legacy_models_string_list_still_loads() {
-        let raw = r#"{
-            "selected_model": {"provider_id": "custom", "model_id": "deepseek-flash"},
-            "provider": {"base_url": "https://api.deepseek.com", "provider_name": "OpenAI Compatible", "model_id": "deepseek-flash"}
-        }"#;
-        let mut prefs: AgentPrefs = serde_json::from_str(raw).expect("legacy json");
-        prefs.normalize();
-        assert_eq!(prefs.providers.len(), 1);
-        assert!(prefs.providers[0].model_params.is_empty());
-    }
-}
-
-#[cfg(test)]
-mod effort_tests {
-    use super::*;
-
-    #[test]
     fn model_defaults_support_tools() {
         assert!(ModelPrefs::new("m").supports_tools);
     }
@@ -610,25 +491,6 @@ mod effort_tests {
         assert_eq!(model.effort_at(0), Some("low"));
         assert_eq!(model.effort_at(2), Some("max"));
         assert_eq!(model.effort_at(3), None);
-    }
-
-    #[test]
-    fn legacy_provider_json_ignores_supports_thinking() {
-        let raw = r#"{
-            "provider": {
-                "base_url": "https://api.deepseek.com",
-                "provider_name": "OpenAI Compatible",
-                "model_id": "deepseek-flash",
-                "supports_thinking": true
-            }
-        }"#;
-        let mut prefs: AgentPrefs = serde_json::from_str(raw).expect("legacy json");
-        prefs.normalize();
-        assert_eq!(prefs.providers.len(), 1);
-        assert_eq!(
-            prefs.providers[0].models,
-            vec!["deepseek-flash".to_string()]
-        );
     }
 
     #[test]
