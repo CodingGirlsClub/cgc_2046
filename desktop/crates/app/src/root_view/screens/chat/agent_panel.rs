@@ -105,6 +105,11 @@ fn header(
     let palette = *palette;
     let root = cx.entity().downgrade();
     let native_mode = ctx.native_chat_mode && RootView::native_agent_enabled();
+    let agent_icon = if native_mode {
+        AssetIcon::Bot.path()
+    } else {
+        agent_icon_path(ctx.chat.selected_agent.as_deref().unwrap_or_default())
+    };
     let title = panel_title(ctx, cx);
     let editing = ctx.agent_panel_editing_title;
     let hovered = ctx.agent_panel_title_hovered;
@@ -192,6 +197,12 @@ fn header(
         .pb(space(1))
         .border_b_1()
         .border_color(palette.line)
+        .child(
+            Icon::default()
+                .path(agent_icon)
+                .text_color(palette.ink_3)
+                .small(),
+        )
         .child(title_area)
         .children(editing.then(|| {
             let save_root = save_root.clone();
