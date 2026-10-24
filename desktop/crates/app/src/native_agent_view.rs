@@ -3231,15 +3231,23 @@ impl Render for NativeAgentView {
                                 // placeholder 只按 \n 分行、不做宽度软换行
                                 // （shape_line 未传宽度约束），窄面板会直接裁切；
                                 // 上游修好前用 absolute overlay 折行并承担点击聚焦。
+                                //
+                                // 对齐 Textarea 的文字起点，否则光标与 placeholder 错行：
+                                // overlay 从 wrapper 的 border box 顶/左起算，
+                                //   top  = wrapper padding（py 4）
+                                //        + gpui-component Input 多行编辑区 padding（top 8）
+                                //   left = wrapper padding（space(1)）
+                                //        + Input 编辑区 padding（left 10）
+                                // 字号/行高与 Input 一致：text_sm 0.875rem、line_height 1.25rem。
                                 let focus = input_focus.clone();
                                 div()
                                     .id("native-agent-placeholder")
                                     .absolute()
-                                    .top(px(4.0))
-                                    .left(px(6.0))
-                                    .right(px(6.0))
-                                    .text_size(px(13.0))
-                                    .line_height(px(20.0))
+                                    .top(px(4.0 + 8.0))
+                                    .left(space(1) + px(10.0))
+                                    .right(space(1) + px(10.0))
+                                    .text_size(rems(0.875))
+                                    .line_height(rems(1.25))
                                     .text_color(palette.ink_3)
                                     .child(
                                         "给 CGC Agent 发消息… @ 引用上下文，/ 查看命令（Enter 发送，Shift+Enter 换行）",
