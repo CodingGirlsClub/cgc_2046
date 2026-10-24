@@ -1775,7 +1775,7 @@ impl RootView {
             div()
                 .id("agent-panel-toggle")
                 .role(Role::Button)
-                .aria_label(translate(language, Key::AgentChatPanelTitle))
+                .aria_label("Agent")
                 .tab_index(0isize)
                 .size(px(22.0))
                 .rounded(px(RADIUS_SMALL))
@@ -1799,11 +1799,7 @@ impl RootView {
                         .small(),
                 )
                 .tooltip(move |window, cx| {
-                    Tooltip::new(format!(
-                        "{} · {shortcut}",
-                        translate(language, Key::AgentChatPanelTitle)
-                    ))
-                    .build(window, cx)
+                    Tooltip::new(format!("Agent · {shortcut}")).build(window, cx)
                 })
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_agent_panel(cx);
