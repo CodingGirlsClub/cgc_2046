@@ -187,6 +187,15 @@ impl NativeAgentView {
             .or_else(|| active.map(|provider| provider.name.clone()))
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| "OpenAI Compatible".to_string());
+        let model_id = match active {
+            Some(provider) if !provider.model_config(&model_id).enabled => provider
+                .models
+                .iter()
+                .find(|id| provider.model_config(id).enabled)
+                .cloned()
+                .unwrap_or(model_id),
+            _ => model_id,
+        };
         let model_config = active
             .map(|provider| provider.model_config(&model_id))
             .unwrap_or_default();
@@ -1596,6 +1605,9 @@ impl Render for NativeAgentView {
                                     .into_any_element(),
                             );
                             for model in &provider.models {
+                                if !provider.model_config(model).enabled {
+                                    continue;
+                                }
                                 let provider_id = provider.id.clone();
                                 let model_id = model.clone();
                                 let root = model_root.clone();

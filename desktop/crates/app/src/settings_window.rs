@@ -50,8 +50,12 @@ fn format_model_lines(provider: &ProviderPrefs) -> String {
         .map(|id| {
             let model = provider.model_config(id);
             format!(
-                "{} | {} | {} | {}",
-                id, model.context_window, model.max_output_tokens, model.supports_thinking
+                "{} | {} | {} | {} | {}",
+                id,
+                model.context_window,
+                model.max_output_tokens,
+                model.supports_thinking,
+                model.enabled
             )
         })
         .collect::<Vec<_>>()
@@ -82,12 +86,17 @@ fn parse_model_lines(value: &str) -> (Vec<String>, Vec<ModelPrefs>) {
             .get(3)
             .map(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
             .unwrap_or(false);
+        let enabled = parts
+            .get(4)
+            .map(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
+            .unwrap_or(true);
         ids.push(id.to_string());
         params.push(ModelPrefs {
             id: id.to_string(),
             context_window: context,
             max_output_tokens: output,
             supports_thinking: thinking,
+            enabled,
         });
     }
     (ids, params)
@@ -664,7 +673,7 @@ impl SettingsWindowView {
                         .text_size(px(12.0))
                         .text_color(palette.ink_2)
                         .hover(|style| style.bg(palette.soft))
-                        .child("← AI / LLM Providers")
+                        .child("← 设置 / AI / General / LLM Providers")
                         .on_click(move |_, _, cx| {
                             let _ = weak.update(cx, |this, cx| {
                                 this.ai_view = AiView::General;

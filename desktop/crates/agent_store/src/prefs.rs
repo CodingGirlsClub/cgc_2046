@@ -38,6 +38,13 @@ pub struct ModelPrefs {
     pub max_output_tokens: u32,
     #[serde(default)]
     pub supports_thinking: bool,
+    /// 是否在 native agent 的模型选择器中启用。
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+}
+
+fn default_enabled() -> bool {
+    true
 }
 
 fn default_context_window() -> u32 {
@@ -55,6 +62,7 @@ impl Default for ModelPrefs {
             context_window: default_context_window(),
             max_output_tokens: default_max_output_tokens(),
             supports_thinking: false,
+            enabled: true,
         }
     }
 }
@@ -236,12 +244,14 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         context_window: 1_000_000,
         max_output_tokens: 384_000,
         supports_thinking: true,
+        enabled: true,
     });
     deepseek.upsert_model(ModelPrefs {
         id: "deepseek-v4-pro".to_string(),
         context_window: 1_000_000,
         max_output_tokens: 384_000,
         supports_thinking: true,
+        enabled: true,
     });
 
     let mut moonshot = provider("moonshot", "Moonshot", "https://api.moonshot.cn/v1");
@@ -256,6 +266,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
             context_window: 1_048_576,
             max_output_tokens: output,
             supports_thinking: true,
+            enabled: true,
         });
     }
 
@@ -266,6 +277,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         context_window: 1_048_576,
         max_output_tokens: 8_192,
         supports_thinking: true,
+        enabled: true,
     });
 
     let mut zhipu = provider("zhipu", "智谱", "https://open.bigmodel.cn/api/paas/v4");
@@ -275,12 +287,14 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         context_window: 1_000_000,
         max_output_tokens: 131_072,
         supports_thinking: true,
+        enabled: true,
     });
     zhipu.upsert_model(ModelPrefs {
         id: "glm-4.6".to_string(),
         context_window: 200_000,
         max_output_tokens: 131_072,
         supports_thinking: true,
+        enabled: true,
     });
 
     vec![deepseek, moonshot, minimax, zhipu]
@@ -526,6 +540,7 @@ mod model_param_tests {
             context_window: 200_000,
             max_output_tokens: 32_000,
             supports_thinking: true,
+            enabled: true,
         });
         assert_eq!(provider.model_config("m1").context_window, 200_000);
         provider.remove_model("m1");
