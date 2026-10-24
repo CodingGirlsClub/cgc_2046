@@ -187,7 +187,8 @@ enum AiRoute {
     #[default]
     General,
     Providers,
-    Form(String),
+    NewProvider(String),
+    EditProvider(String),
 }
 
 pub struct SettingsWindowView {
@@ -660,7 +661,7 @@ impl SettingsWindowView {
         let draft = ProviderDraft::new_custom();
         let id = draft.id.clone();
         self.provider_drafts.push(draft);
-        self.ai_view = AiRoute::Form(id);
+        self.ai_view = AiRoute::NewProvider(id);
         self.notice = Some("新增 Provider：填写名称/URL/模型后保存".to_string());
         cx.notify();
     }
@@ -836,9 +837,10 @@ impl SettingsWindowView {
                     .into_any_element()
             })
         };
-        let form_target = match &self.ai_view {
-            AiRoute::Form(id) => Some(id.clone()),
-            _ => None,
+        let (form_target, form_is_new) = match &self.ai_view {
+            AiRoute::NewProvider(id) => (Some(id.clone()), true),
+            AiRoute::EditProvider(id) => (Some(id.clone()), false),
+            _ => (None, false),
         };
         let form_name = form_target
             .as_ref()
@@ -891,7 +893,7 @@ impl SettingsWindowView {
                                     .hover(|style| style.bg(palette.soft))
                                     .child(format!(
                                         "← 设置 / AI / 通用 / LLM Providers / {}",
-                                        if form_name.is_empty() {
+                                        if form_is_new || form_name.is_empty() {
                                             "添加 Provider"
                                         } else {
                                             form_name.as_str()
@@ -1107,7 +1109,7 @@ impl SettingsWindowView {
                         .title("LLM Providers")
                         .item(providers_item),
                 ]),
-            AiRoute::Form(_) => SettingPage::new("AI")
+            AiRoute::NewProvider(_) | AiRoute::EditProvider(_) => SettingPage::new("AI")
                 .header_style(&hidden_header)
                 .groups(vec![
                     SettingGroup::new()
@@ -1264,7 +1266,7 @@ fn render_provider_list(
                         .child("高级配置 >")
                         .on_click(move |_, _, cx| {
                             let _ = weak_row.update(cx, |this, cx| {
-                                this.ai_view = AiRoute::Form(target.clone());
+                                this.ai_view = AiRoute::EditProvider(target.clone());
                                 cx.notify();
                             });
                         }),
