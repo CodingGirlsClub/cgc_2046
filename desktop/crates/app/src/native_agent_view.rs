@@ -14,7 +14,8 @@ use cgc_agent_core::{
     ImageAttachment, SelectedModel, Thread,
 };
 use cgc_agent_host::{
-    parse_slash, AgentEvent, AsyncChannelObserver, HostState, SlashCommand, UiRole, SLASH_COMMANDS,
+    parse_slash, AgentEvent, AsyncChannelObserver, HostState, SlashCommand, ToolCallStatus, UiRole,
+    UiToolCall, SLASH_COMMANDS,
 };
 use cgc_agent_provider::{
     CompletionEvent, EchoProvider, Message as ProviderMessage, Model, ModelLimits,
@@ -390,6 +391,62 @@ fn decode_sent_images(images: &[ImageAttachment]) -> Vec<SentImage> {
         .collect()
 }
 
+/// 把 thread entries 映射成 UI 状态：图片预览 + 工具调用参数/输出（工具卡片）。
+fn apply_thread_entries(
+    state: &mut HostState,
+    entries: &[cgc_agent_core::Entry],
+) -> HashMap<usize, Vec<SentImage>> {
+    let mut restored_images: HashMap<usize, Vec<SentImage>> = HashMap::new();
+    let mut tool_args: HashMap<String, (String, serde_json::Value)> = HashMap::new();
+    for entry in entries {
+        if let cgc_agent_core::Entry::Assistant { tool_calls, .. } = entry {
+            for call in tool_calls {
+                tool_args.insert(call.id.clone(), (call.name.clone(), call.args.clone()));
+            }
+        }
+    }
+    for entry in entries {
+        match entry {
+            cgc_agent_core::Entry::User { text, images, .. } => {
+                state.push_user(text);
+                let previews = decode_sent_images(images);
+                if !previews.is_empty() {
+                    restored_images.insert(state.messages.len() - 1, previews);
+                }
+            }
+            cgc_agent_core::Entry::Assistant { text, .. } if !text.is_empty() => {
+                state.push_assistant(text)
+            }
+            cgc_agent_core::Entry::ToolResult {
+                tool_use_id,
+                tool_name,
+                content,
+                is_error,
+                ..
+            } => {
+                let (name, args) = tool_args
+                    .get(tool_use_id)
+                    .cloned()
+                    .unwrap_or_else(|| (tool_name.clone(), serde_json::Value::Null));
+                let status = if *is_error {
+                    ToolCallStatus::Failed
+                } else {
+                    ToolCallStatus::Ok
+                };
+                state.push_tool_card(
+                    tool_use_id.clone(),
+                    name,
+                    args,
+                    status,
+                    Some(content.clone()),
+                );
+            }
+            _ => {}
+        }
+    }
+    restored_images
+}
+
 pub struct NativeAgentView {
     agent: Option<Agent>,
     provider: Arc<dyn Provider>,
@@ -423,6 +480,10 @@ pub struct NativeAgentView {
     workspace_files: Vec<String>,
     skills: Vec<SkillEntry>,
     follow_output: bool,
+    /// 最近一轮的 prompt / 展示文本，供失败后重试重放。
+    last_turn: Option<(String, String)>,
+    /// 已展开的工具调用卡片 id。
+    expanded_tools: std::collections::HashSet<String>,
     messages_scroll: ScrollHandle,
     approval_mode: ApprovalMode,
     approval_sender: Arc<Mutex<Option<oneshot::Sender<ApprovalDecision>>>>,
@@ -523,29 +584,7 @@ impl NativeAgentView {
         let mut restored_images: HashMap<usize, Vec<SentImage>> = HashMap::new();
         let thread = match restored_thread {
             Some(thread) => {
-                for entry in &thread.entries {
-                    match entry {
-                        cgc_agent_core::Entry::User { text, images, .. } => {
-                            state.push_user(text);
-                            let previews = decode_sent_images(images);
-                            if !previews.is_empty() {
-                                restored_images.insert(state.messages.len() - 1, previews);
-                            }
-                        }
-                        cgc_agent_core::Entry::Assistant { text, .. } if !text.is_empty() => {
-                            state.push_assistant(text)
-                        }
-                        cgc_agent_core::Entry::ToolResult {
-                            tool_name,
-                            is_error,
-                            ..
-                        } => state.push_tool(format!(
-                            "{tool_name} · {}",
-                            if *is_error { "失败" } else { "完成" }
-                        )),
-                        _ => {}
-                    }
-                }
+                restored_images = apply_thread_entries(&mut state, &thread.entries);
                 state.usage_total = thread.usage_total;
                 thread
             }
@@ -768,6 +807,8 @@ impl NativeAgentView {
             workspace_files,
             skills,
             follow_output: true,
+            last_turn: None,
+            expanded_tools: std::collections::HashSet::new(),
             messages_scroll: ScrollHandle::new(),
             approval_mode: ApprovalMode::Ask,
             context: ToolContext::new(&workspace)
@@ -890,7 +931,7 @@ impl NativeAgentView {
     }
 
     fn add_clipboard_image(&mut self, cx: &mut Context<Self>) {
-        self.refresh_provider_credentials(cx);
+        self.refresh_provider_credentials(cx, false);
         if !self.model_supports_images() {
             self.status = "当前模型不支持图片输入".to_string();
             cx.notify();
@@ -928,7 +969,7 @@ impl NativeAgentView {
 
     /// 对齐 Zed：＋ → Image 打开系统文件选择器（多选），再加载为附件。
     fn add_images_from_picker(&mut self, cx: &mut Context<Self>) {
-        self.refresh_provider_credentials(cx);
+        self.refresh_provider_credentials(cx, false);
         if !self.model_supports_images() {
             self.status = "当前模型不支持图片输入".to_string();
             cx.notify();
@@ -981,10 +1022,11 @@ impl NativeAgentView {
     }
 
     /// Settings 保存 Key 后，已打开的面板不会重建；发送前重载一次凭据。
-    fn refresh_provider_credentials(&mut self, cx: &mut Context<Self>) {
-        if !self.using_echo {
+    fn refresh_provider_credentials(&mut self, cx: &mut Context<Self>, force: bool) {
+        if !force && !self.using_echo {
             return;
         }
+        let was_echo = self.using_echo;
         let prefs = PrefsStore::new(AppPaths::from_env().agent_prefs_file()).load();
         self.providers = prefs.providers.clone();
         let Some(active) = prefs.active_provider() else {
@@ -1009,9 +1051,11 @@ impl NativeAgentView {
             vec![self.model.clone()],
         )));
         self.using_echo = false;
-        self.status = "已读取 Provider API Key，使用真实模型".to_string();
-        self.state
-            .push_system("已重新读取 Provider API Key，后续请求使用真实模型。");
+        if was_echo {
+            self.status = "已读取 Provider API Key，使用真实模型".to_string();
+            self.state
+                .push_system("已重新读取 Provider API Key，后续请求使用真实模型。");
+        }
         cx.notify();
     }
 
@@ -1193,25 +1237,10 @@ impl NativeAgentView {
             return;
         };
         let mut state = HostState::new();
-        for entry in &thread.entries {
-            match entry {
-                cgc_agent_core::Entry::User { text, .. } => state.push_user(text),
-                cgc_agent_core::Entry::Assistant { text, .. } if !text.is_empty() => {
-                    state.push_assistant(text)
-                }
-                cgc_agent_core::Entry::ToolResult {
-                    tool_name,
-                    is_error,
-                    ..
-                } => state.push_tool(format!(
-                    "{tool_name} · {}",
-                    if *is_error { "失败" } else { "完成" }
-                )),
-                _ => {}
-            }
-        }
+        let restored_images = apply_thread_entries(&mut state, &thread.entries);
         state.usage_total = thread.usage_total;
         self.state = state;
+        self.sent_images = restored_images;
         let prompt = build_workspace_system_prompt(self.context.workspace());
         self.agent = Some(Agent::new(thread, Some(prompt)));
         self.status = "已恢复线程".to_string();
@@ -1258,18 +1287,51 @@ impl NativeAgentView {
         );
     }
 
+    /// 发送一条新消息：记录本轮 prompt 供失败重试，然后跑一个 turn。
     fn send_prompt(&mut self, text: String, display: String, cx: &mut Context<Self>) {
-        self.refresh_provider_credentials(cx);
-        self.follow_output = true;
-        self.reload_latest_session();
-        self.turn_seq += 1;
-        if let Some(thread_id) = self.agent.as_ref().map(|agent| agent.thread().id.clone()) {
-            self.capture_checkpoint(&thread_id, self.turn_seq);
+        self.refresh_provider_credentials(cx, false);
+        self.last_turn = Some((text.clone(), display.clone()));
+        self.run_turn(text, display, false, cx);
+    }
+
+    /// 重试上一轮失败的请求：不新增用户气泡，直接用同一 prompt 重跑。
+    fn retry_last_turn(&mut self, cx: &mut Context<Self>) {
+        if !self.state.begin_retry() {
+            return;
         }
+        let Some((prompt, display)) = self.last_turn.clone() else {
+            self.state.push_system("没有可重试的请求");
+            cx.notify();
+            return;
+        };
+        // 重试 = 重放上一轮：线程侧丢掉失败那轮的 user 条目（prompt 会重新 push，
+        // 否则重启恢复后会出现重复用户气泡）；UI 侧丢掉失败 turn 的残留行。
+        if let Some(agent) = self.agent.as_mut() {
+            agent.thread_mut().truncate_before_last_user();
+        }
+        if let Some(index) = trim_messages_to_last_user(&mut self.state.messages) {
+            self.sent_images
+                .retain(|message_index, _| *message_index <= index);
+        }
+        // Settings 里改过 Key 后重试要能读到新凭据。
+        self.refresh_provider_credentials(cx, true);
+        self.run_turn(prompt, display, true, cx);
+    }
+
+    /// 执行一个 turn；`retry` = 重放上一轮（不重复 push 用户消息、不重拍 checkpoint）。
+    fn run_turn(&mut self, text: String, display: String, retry: bool, cx: &mut Context<Self>) {
+        if !retry {
+            self.reload_latest_session();
+            self.turn_seq += 1;
+            if let Some(thread_id) = self.agent.as_ref().map(|agent| agent.thread().id.clone()) {
+                self.capture_checkpoint(&thread_id, self.turn_seq);
+            }
+        }
+        self.follow_output = true;
         let Some(mut agent) = self.agent.take() else {
             return;
         };
-        if !self.pending_images.is_empty() {
+        if !retry && !self.pending_images.is_empty() {
             agent.set_pending_images(
                 self.pending_images
                     .iter()
@@ -1306,7 +1368,9 @@ impl NativeAgentView {
         };
         agent.set_reasoning_effort(effort);
         let approval_mode = self.approval_mode;
-        self.state.push_user(display);
+        if !retry {
+            self.state.push_user(display);
+        }
         self.busy = true;
         self.status = "思考中…".to_string();
         self.cancel.reset();
@@ -1691,6 +1755,14 @@ impl NativeAgentView {
         cx.notify();
     }
 
+    /// 展开/折叠某张工具调用卡片。
+    fn toggle_tool_call(&mut self, tool_call_id: String, cx: &mut Context<Self>) {
+        if !self.expanded_tools.remove(&tool_call_id) {
+            self.expanded_tools.insert(tool_call_id);
+        }
+        cx.notify();
+    }
+
     /// 消息区滚动到顶部（同时停止自动跟随输出）。
     fn scroll_messages_to_top(&mut self, cx: &mut Context<Self>) {
         self.follow_output = false;
@@ -1800,30 +1872,7 @@ impl NativeAgentView {
         let thread = agent.thread();
         let mut state = HostState::new();
         state.usage_total = thread.usage_total;
-        let mut restored_images: HashMap<usize, Vec<SentImage>> = HashMap::new();
-        for entry in &thread.entries {
-            match entry {
-                cgc_agent_core::Entry::User { text, images, .. } => {
-                    state.push_user(text);
-                    let previews = decode_sent_images(images);
-                    if !previews.is_empty() {
-                        restored_images.insert(state.messages.len() - 1, previews);
-                    }
-                }
-                cgc_agent_core::Entry::Assistant { text, .. } if !text.is_empty() => {
-                    state.push_assistant(text)
-                }
-                cgc_agent_core::Entry::ToolResult {
-                    tool_name,
-                    is_error,
-                    ..
-                } => state.push_tool(format!(
-                    "{tool_name} · {}",
-                    if *is_error { "失败" } else { "完成" }
-                )),
-                _ => {}
-            }
-        }
+        let restored_images = apply_thread_entries(&mut state, &thread.entries);
         if state.messages.is_empty() {
             state.push_system("Native agent：配置 Provider 后开始对话。");
         }
@@ -1958,6 +2007,24 @@ impl Render for NativeAgentView {
                             .text_size(px(13.0))
                             .child(mention::display_text(&message.text))
                             .into_any_element(),
+                        UiRole::Tool => match &message.tool {
+                            Some(tool) => {
+                                let tool_call_id = message.tool_call_id.clone().unwrap_or_default();
+                                let expanded = self.expanded_tools.contains(&tool_call_id)
+                                    || matches!(tool.status, ToolCallStatus::Running);
+                                let toggle_view = cx.entity().downgrade();
+                                let toggle_id = tool_call_id.clone();
+                                render_tool_card(tool, expanded, &palette, move |_, _, cx| {
+                                    let _ = toggle_view.update(cx, |this, cx| {
+                                        this.toggle_tool_call(toggle_id.clone(), cx)
+                                    });
+                                })
+                            }
+                            None => div()
+                                .text_size(px(13.0))
+                                .child(message.text.clone())
+                                .into_any_element(),
+                        },
                         _ => div()
                             .text_size(px(13.0))
                             .child(message.text.clone())
@@ -2086,6 +2153,58 @@ impl Render for NativeAgentView {
 
         for card in &remaining_subagents {
             rows.push(render_subagent_row(card, &palette));
+        }
+
+        if let Some(error) = self.state.last_error.clone() {
+            let hint = retry_hint_for_error(&error);
+            let can_retry = self.state.retry_available() && self.last_turn.is_some();
+            rows.push(
+                div()
+                    .id("native-agent-error")
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.0))
+                    .p(space(2))
+                    .rounded(px(RADIUS_MEDIUM))
+                    .border_1()
+                    .border_color(palette.danger)
+                    .bg(palette.view)
+                    .child(
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(palette.danger)
+                            .child("请求失败"),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.0))
+                            .text_color(palette.ink)
+                            .child(error),
+                    )
+                    .children(hint.map(|hint| {
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_3)
+                            .child(hint)
+                    }))
+                    .children(can_retry.then(|| {
+                        div()
+                            .id("native-agent-retry")
+                            .role(Role::Button)
+                            .aria_label("重试")
+                            .mt(px(2.0))
+                            .px(space(2))
+                            .py(px(3.0))
+                            .rounded(px(RADIUS_SMALL))
+                            .bg(palette.accent)
+                            .text_color(palette.canvas)
+                            .text_size(px(12.0))
+                            .hover(|style| style.opacity(0.9))
+                            .child("重试")
+                            .on_click(cx.listener(|this, _, _, cx| this.retry_last_turn(cx)))
+                    }))
+                    .into_any_element(),
+            );
         }
 
         if self.follow_output && !rows.is_empty() {
@@ -3624,6 +3743,119 @@ fn slash_entries_for(
         .flat_map(|(_, group)| group.into_iter().map(|(_, _, entry)| entry))
         .collect()
 }
+/// 重试前把 UI 消息裁到最近一条用户消息为止，丢掉失败 turn 残留的部分回复/工具卡。
+fn trim_messages_to_last_user(messages: &mut Vec<cgc_agent_host::UiMessage>) -> Option<usize> {
+    let index = messages
+        .iter()
+        .rposition(|message| message.role == UiRole::User)?;
+    messages.truncate(index + 1);
+    Some(index)
+}
+
+fn tool_status_label(status: ToolCallStatus) -> &'static str {
+    match status {
+        ToolCallStatus::Running => "运行中…",
+        ToolCallStatus::Ok => "完成",
+        ToolCallStatus::Failed => "失败",
+    }
+}
+
+/// 工具调用卡片：标题显示状态/名称，展开后展示 raw 参数与 raw 输出。
+fn render_tool_card(
+    tool: &UiToolCall,
+    expanded: bool,
+    palette: &theme::Palette,
+    on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    let (glyph, status_color) = match tool.status {
+        ToolCallStatus::Running => ("◐", palette.accent),
+        ToolCallStatus::Ok => ("✓", palette.ink_3),
+        ToolCallStatus::Failed => ("✗", palette.danger),
+    };
+    let args = if tool.args.is_null() {
+        String::new()
+    } else {
+        serde_json::to_string_pretty(&tool.args).unwrap_or_else(|_| tool.args.to_string())
+    };
+    let content = tool.content.clone().unwrap_or_default();
+    let body = expanded.then(|| {
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .px(space(2))
+            .pb(space(1))
+            .children((!args.is_empty()).then(|| {
+                div()
+                    .text_size(px(11.0))
+                    .text_color(palette.ink)
+                    .child(format!("参数\n{args}"))
+            }))
+            .children(
+                (!content.is_empty() || matches!(tool.status, ToolCallStatus::Running)).then(
+                    || {
+                        div().text_size(px(11.0)).text_color(palette.ink).child(
+                            if content.is_empty() {
+                                "输出\n（等待输出…）".to_string()
+                            } else {
+                                format!("输出\n{content}")
+                            },
+                        )
+                    },
+                ),
+            )
+    });
+    div()
+        .id("native-tool-card")
+        .flex()
+        .flex_col()
+        .gap(px(2.0))
+        .rounded(px(RADIUS_SMALL))
+        .border_1()
+        .border_color(palette.line)
+        .bg(palette.view)
+        .child(
+            div()
+                .id("native-tool-card-header")
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(space(1))
+                .px(space(2))
+                .py(px(3.0))
+                .hover(|style| style.bg(palette.soft))
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(status_color)
+                        .child(glyph),
+                )
+                .child(
+                    div()
+                        .font_family(theme::FONT_MONO)
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_2)
+                        .child(tool.name.clone()),
+                )
+                .child(
+                    div()
+                        .text_size(px(10.0))
+                        .text_color(palette.ink_3)
+                        .child(tool_status_label(tool.status)),
+                )
+                .child(div().flex_1())
+                .child(
+                    div()
+                        .text_size(px(10.0))
+                        .text_color(palette.ink_3)
+                        .child(if expanded { "▾" } else { "▸" }),
+                )
+                .on_click(on_toggle),
+        )
+        .children(body)
+        .into_any_element()
+}
+
 fn render_subagent_row(
     card: &cgc_agent_host::SubagentCard,
     palette: &theme::Palette,
@@ -3990,6 +4222,23 @@ fn humanize_tokens(count: u64) -> String {
 }
 
 /// 仅在没有可用 Provider 凭据（Echo 回退）时提示离线回显。
+/// 认证 / 凭据类错误的额外指引（对齐 Zed 的 credentials 提示）。
+fn retry_hint_for_error(error: &str) -> Option<&'static str> {
+    let lower = error.to_lowercase();
+    let credentials_issue = [
+        "401",
+        "403",
+        "api key",
+        "apikey",
+        "unauthorized",
+        "credential",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle));
+    credentials_issue
+        .then_some("去 Settings → AI → LLM Providers 检查 Provider Key，保存后点「重试」。")
+}
+
 fn offline_echo_notice(using_echo: bool) -> Option<&'static str> {
     using_echo.then_some(
         "未配置可用的 Provider API Key，当前离线回显模式。请在 Settings → AI → LLM Providers 保存 Key 后重新打开 Agent 面板。",
@@ -4137,6 +4386,100 @@ mod workspace_prompt_tests {
         assert_eq!(first, same);
         assert_ne!(first, other);
         assert!(first.starts_with("native-copy-code-"));
+    }
+
+    #[test]
+    fn apply_thread_entries_builds_tool_cards_with_args() {
+        use cgc_agent_core::Entry;
+        use cgc_agent_host::{HostState, ToolCallStatus};
+        use cgc_agent_provider::ToolUse;
+        let entries = vec![
+            Entry::User {
+                text: "跑一下".into(),
+                images: Vec::new(),
+                at: 0,
+            },
+            Entry::Assistant {
+                text: String::new(),
+                tool_calls: vec![ToolUse {
+                    id: "call_1".into(),
+                    name: "run_command".into(),
+                    args: serde_json::json!({"command": "echo hi"}),
+                }],
+                usage: None,
+                at: 0,
+            },
+            Entry::ToolResult {
+                tool_use_id: "call_1".into(),
+                tool_name: "run_command".into(),
+                content: "hi".into(),
+                is_error: false,
+                at: 0,
+            },
+        ];
+        let mut state = HostState::new();
+        super::apply_thread_entries(&mut state, &entries);
+        assert_eq!(state.messages.len(), 2, "user + tool card");
+        let tool = state.messages[1]
+            .tool
+            .as_ref()
+            .expect("structured tool data");
+        assert_eq!(tool.args["command"], "echo hi");
+        assert_eq!(tool.status, ToolCallStatus::Ok);
+        assert_eq!(tool.content.as_deref(), Some("hi"));
+    }
+
+    #[test]
+    fn tool_status_label_covers_all_states() {
+        use cgc_agent_host::ToolCallStatus;
+        assert_eq!(super::tool_status_label(ToolCallStatus::Running), "运行中…");
+        assert_eq!(super::tool_status_label(ToolCallStatus::Ok), "完成");
+        assert_eq!(super::tool_status_label(ToolCallStatus::Failed), "失败");
+    }
+
+    #[test]
+    fn trim_messages_to_last_user_drops_failed_turn_rows() {
+        use cgc_agent_host::{UiMessage, UiRole};
+        let mut messages = vec![
+            UiMessage {
+                role: UiRole::User,
+                text: "第一问".into(),
+                tool_call_id: None,
+                tool: None,
+            },
+            UiMessage {
+                role: UiRole::Assistant,
+                text: "第一答".into(),
+                tool_call_id: None,
+                tool: None,
+            },
+            UiMessage {
+                role: UiRole::User,
+                text: "第二问".into(),
+                tool_call_id: None,
+                tool: None,
+            },
+            UiMessage {
+                role: UiRole::Assistant,
+                text: "失败前的半截回复".into(),
+                tool_call_id: None,
+                tool: None,
+            },
+        ];
+        let kept = super::trim_messages_to_last_user(&mut messages);
+        assert_eq!(kept, Some(2));
+        assert_eq!(messages.len(), 3, "保留到最近一条用户消息");
+        assert_eq!(messages.last().unwrap().text, "第二问");
+        assert_eq!(super::trim_messages_to_last_user(&mut Vec::new()), None);
+    }
+
+    #[test]
+    fn retry_hint_only_for_credentials_errors() {
+        assert!(super::retry_hint_for_error("api 401: invalid key").is_some());
+        assert!(super::retry_hint_for_error("No credentials configured").is_some());
+        assert!(super::retry_hint_for_error("API Key 不能为空").is_some());
+        assert!(super::retry_hint_for_error("provider 500: internal error").is_none());
+        assert!(super::retry_hint_for_error("network timeout").is_none());
     }
 
     #[test]

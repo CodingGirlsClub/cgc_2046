@@ -131,6 +131,20 @@ impl Thread {
     }
 
     /// 把图片挂到最近一条用户消息上（用于持久化与请求构建）。
+    /// 丢弃最后一轮用户消息及其后的条目（失败重试用：prompt 会重新 push 同一条用户消息，
+    /// 不这样做线程里会留下两条重复用户消息，重启恢复后出现重复气泡）。
+    pub fn truncate_before_last_user(&mut self) -> bool {
+        let Some(index) = self
+            .entries
+            .iter()
+            .rposition(|entry| matches!(entry, Entry::User { .. }))
+        else {
+            return false;
+        };
+        self.entries.truncate(index);
+        true
+    }
+
     pub fn attach_images_to_last_user(&mut self, images: Vec<ImageAttachment>) {
         if images.is_empty() {
             return;
@@ -377,6 +391,28 @@ mod tests {
         assert!(
             matches!(&messages[2].content[0], Content::ToolResult { content, .. } if content == "content")
         );
+    }
+
+    #[test]
+    fn truncate_before_last_user_drops_failed_turn() {
+        let mut thread = Thread::new("t1", selected());
+        thread.push_user("question 1");
+        thread.push_assistant("answer 1", Vec::new(), None);
+        thread.push_user("question 2");
+        thread.push_tool_result("call_1", "read_file", "output", false);
+        assert!(thread.truncate_before_last_user());
+        assert_eq!(thread.entries.len(), 2, "只保留上一轮对话");
+        assert!(
+            matches!(thread.entries.last(), Some(Entry::Assistant { .. })),
+            "最后一轮用户消息应被移除"
+        );
+        let mut without_user = Thread::new("t2", selected());
+        without_user.push_assistant("orphan answer", Vec::new(), None);
+        assert!(
+            !without_user.truncate_before_last_user(),
+            "没有用户消息时不应误删"
+        );
+        assert_eq!(without_user.entries.len(), 1);
     }
 
     #[test]
