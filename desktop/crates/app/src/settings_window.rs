@@ -545,21 +545,25 @@ impl SettingsWindowView {
 
     fn render_provider_field(
         label: &'static str,
+        description: Option<&'static str>,
         input: Entity<InputState>,
         palette: &theme::Palette,
     ) -> AnyElement {
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(2.0))
-            .child(
+        let mut column = div().flex().flex_col().gap(px(2.0)).child(
+            div()
+                .text_size(px(12.0))
+                .text_color(palette.ink_2)
+                .child(label),
+        );
+        if let Some(description) = description {
+            column = column.child(
                 div()
-                    .text_size(px(11.0))
+                    .text_size(px(10.0))
                     .text_color(palette.ink_3)
-                    .child(label),
-            )
-            .child(Input::new(&input))
-            .into_any_element()
+                    .child(description),
+            );
+        }
+        column.child(Input::new(&input)).into_any_element()
     }
 
     fn breadcrumb_item(text: String) -> SettingItem {
@@ -1290,10 +1294,18 @@ fn render_provider_cards(
                         ),
                 )
                 .child(SettingsWindowView::render_provider_field(
-                    "Base URL *", base_input, palette,
+                    "API URL *",
+                    Some("兼容 API 的基础 URL。"),
+                    base_input,
+                    palette,
                 ))
                 .children(draft.name_input.clone().map(|input| {
-                    SettingsWindowView::render_provider_field("Provider Name *", input, palette)
+                    SettingsWindowView::render_provider_field(
+                        "Provider Name *",
+                        Some("用于识别此 Provider 的唯一名称。"),
+                        input,
+                        palette,
+                    )
                 }))
                 .child(
                     div()
@@ -1351,9 +1363,9 @@ fn render_provider_cards(
                                 div()
                                     .flex()
                                     .flex_col()
-                                    .gap(px(2.0))
-                                    .p(space(1))
-                                    .rounded(px(RADIUS_SMALL))
+                                    .gap(space(1))
+                                    .p(space(2))
+                                    .rounded(px(RADIUS_MEDIUM))
                                     .border_1()
                                     .border_color(palette.line)
                                     .child(
@@ -1381,8 +1393,9 @@ fn render_provider_cards(
                                             )
                                             .child(
                                                 div()
-                                                    .w(px(180.0))
-                                                    .child(Input::new(&field.name_input)),
+                                                    .text_size(px(12.0))
+                                                    .text_color(palette.ink_2)
+                                                    .child(format!("Model {}", model_index + 1)),
                                             )
                                             .child(div().flex_1())
                                             .child(
@@ -1408,27 +1421,29 @@ fn render_provider_cards(
                                                     }),
                                             ),
                                     )
+                                    .child(SettingsWindowView::render_provider_field(
+                                        "Model Name *",
+                                        Some("该模型在 Provider API 中的名称。"),
+                                        field.name_input.clone(),
+                                        palette,
+                                    ))
+                                    .child(SettingsWindowView::render_provider_field(
+                                        "Context Window *",
+                                        Some("模型上下文窗口大小（tokens）。"),
+                                        context_input,
+                                        palette,
+                                    ))
+                                    .child(SettingsWindowView::render_provider_field(
+                                        "Max Output Tokens *",
+                                        Some("模型单次可输出的最大 tokens。"),
+                                        output_input,
+                                        palette,
+                                    ))
                                     .child(
                                         div()
                                             .flex()
-                                            .flex_row()
-                                            .items_center()
-                                            .flex_wrap()
-                                            .gap(space(1))
-                                            .child(
-                                                div()
-                                                    .text_size(px(10.0))
-                                                    .text_color(palette.ink_3)
-                                                    .child("Context"),
-                                            )
-                                            .child(div().w(px(96.0)).child(Input::new(&context_input)))
-                                            .child(
-                                                div()
-                                                    .text_size(px(10.0))
-                                                    .text_color(palette.ink_3)
-                                                    .child("Max Output"),
-                                            )
-                                            .child(div().w(px(96.0)).child(Input::new(&output_input)))
+                                            .flex_col()
+                                            .gap(px(1.0))
                                             .child(
                                                 div()
                                                     .flex()
@@ -1456,38 +1471,58 @@ fn render_provider_cards(
                                                         div()
                                                             .text_size(px(11.0))
                                                             .text_color(palette.ink_2)
-                                                            .child("thinking"),
+                                                            .child("Supports thinking"),
+                                                    ),
+                                            )
+                                            .child(
+                                                div()
+                                                    .pl(px(26.0))
+                                                    .text_size(px(10.0))
+                                                    .text_color(palette.ink_3)
+                                                    .child("模型会输出推理内容。"),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_col()
+                                            .gap(px(1.0))
+                                            .child(
+                                                div()
+                                                    .flex()
+                                                    .flex_row()
+                                                    .items_center()
+                                                    .gap(px(4.0))
+                                                    .child(
+                                                        Checkbox::new(SharedString::from(format!(
+                                                            "settings-model-tools-{index}-{model_index}"
+                                                        )))
+                                                        .large()
+                                                        .checked(supports_tools)
+                                                        .on_click(move |_checked, _, cx| {
+                                                            let _ = tools_cb_weak.update(cx, |this, cx| {
+                                                                this.toggle_model_field(
+                                                                    index,
+                                                                    model_index,
+                                                                    2,
+                                                                    cx,
+                                                                );
+                                                            });
+                                                        }),
                                                     )
                                                     .child(
                                                         div()
-                                                            .flex()
-                                                            .flex_row()
-                                                            .items_center()
-                                                            .gap(px(4.0))
-                                                            .child(
-                                                                Checkbox::new(SharedString::from(format!(
-                                                                    "settings-model-tools-{index}-{model_index}"
-                                                                )))
-                                                                .large()
-                                                                .checked(supports_tools)
-                                                                .on_click(move |_checked, _, cx| {
-                                                                    let _ = tools_cb_weak.update(cx, |this, cx| {
-                                                                        this.toggle_model_field(
-                                                                            index,
-                                                                            model_index,
-                                                                            2,
-                                                                            cx,
-                                                                        );
-                                                                    });
-                                                                }),
-                                                            )
-                                                            .child(
-                                                                div()
-                                                                    .text_size(px(11.0))
-                                                                    .text_color(palette.ink_2)
-                                                                    .child("tools"),
-                                                            ),
+                                                            .text_size(px(11.0))
+                                                            .text_color(palette.ink_2)
+                                                            .child("Supports tools"),
                                                     ),
+                                            )
+                                            .child(
+                                                div()
+                                                    .pl(px(26.0))
+                                                    .text_size(px(10.0))
+                                                    .text_color(palette.ink_3)
+                                                    .child("允许模型调用工具。"),
                                             ),
                                     )
                             },
