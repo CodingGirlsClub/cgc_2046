@@ -97,11 +97,6 @@ impl SessionStore {
                 created_at INTEGER NOT NULL,
                 PRIMARY KEY (thread_id, seq)
             );
-            CREATE TABLE IF NOT EXISTS acp_thread_titles (
-                session_id TEXT PRIMARY KEY,
-                title_override TEXT,
-                updated_at INTEGER NOT NULL
-            );
             CREATE TABLE IF NOT EXISTS checkpoints (
                 thread_id TEXT NOT NULL,
                 user_entry_seq INTEGER NOT NULL,
@@ -124,6 +119,8 @@ impl SessionStore {
         let _ = self
             .conn
             .execute("ALTER TABLE threads ADD COLUMN session_id TEXT", []);
+        // 旧表迁移：ACP 标题覆盖收敛到 threads.title_override，然后删除旧表。
+        self.migrate_legacy_acp_titles()?;
         Ok(())
     }
 
@@ -253,38 +250,39 @@ impl SessionStore {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
-    /// 外部 ACP 会话的本地标题覆盖（不依赖 ACP 协议 rename）。
-    pub fn set_acp_title_override(
-        &self,
-        session_id: &str,
-        title: Option<&str>,
-    ) -> Result<(), SessionError> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| duration.as_secs() as i64)
-            .unwrap_or_default();
-        self.conn.execute(
-            "INSERT INTO acp_thread_titles (session_id, title_override, updated_at)
-             VALUES (?1, ?2, ?3)
-             ON CONFLICT(session_id) DO UPDATE SET
-                title_override = excluded.title_override,
-                updated_at = excluded.updated_at",
-            params![session_id, title, now],
-        )?;
-        Ok(())
-    }
-
-    pub fn acp_title_override(&self, session_id: &str) -> Result<Option<String>, SessionError> {
-        let title = self
+    /// 旧 `acp_thread_titles` 表迁移到 Thread.title_override 后删除。
+    fn migrate_legacy_acp_titles(&self) -> Result<(), SessionError> {
+        let legacy_exists: bool = self
             .conn
             .query_row(
-                "SELECT title_override FROM acp_thread_titles WHERE session_id = ?1",
-                params![session_id],
-                |row| row.get::<_, Option<String>>(0),
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='acp_thread_titles'",
+                [],
+                |row| row.get::<_, i64>(0),
             )
-            .optional()?
-            .flatten();
-        Ok(title)
+            .map(|count| count > 0)
+            .unwrap_or(false);
+        if !legacy_exists {
+            return Ok(());
+        }
+        let mut statement = self
+            .conn
+            .prepare("SELECT session_id, title_override FROM acp_thread_titles")?;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        })?;
+        for row in rows {
+            let (session_id, title) = row?;
+            if let Some(title) = title {
+                let _ = self.conn.execute(
+                    "UPDATE threads SET title_override = COALESCE(title_override, ?2)
+                     WHERE id = ?1",
+                    params![format!("acp-{session_id}"), title],
+                );
+            }
+        }
+        self.conn
+            .execute("DROP TABLE IF EXISTS acp_thread_titles", [])?;
+        Ok(())
     }
 
     pub fn save_checkpoint(
@@ -562,16 +560,43 @@ mod title_override_tests {
     }
 
     #[test]
-    fn acp_title_override_roundtrips() {
-        let store = SessionStore::open_in_memory().expect("store");
+    fn legacy_acp_titles_migrate_into_threads() {
+        let mut store = SessionStore::open_in_memory().expect("store");
+        let mut thread = thread();
+        thread.id = "acp-sess-1".to_string();
+        store.save_thread(&thread).expect("save");
         store
-            .set_acp_title_override("sess-1", Some("ACP Title"))
-            .expect("set");
-        assert_eq!(
-            store.acp_title_override("sess-1").expect("get").as_deref(),
-            Some("ACP Title")
-        );
-        store.set_acp_title_override("sess-1", None).expect("clear");
-        assert!(store.acp_title_override("sess-1").expect("get").is_none());
+            .conn
+            .execute_batch(
+                "CREATE TABLE acp_thread_titles (
+                    session_id TEXT PRIMARY KEY,
+                    title_override TEXT,
+                    updated_at INTEGER NOT NULL
+                );",
+            )
+            .expect("legacy table");
+        store
+            .conn
+            .execute(
+                "INSERT INTO acp_thread_titles (session_id, title_override, updated_at)
+                 VALUES ('sess-1', 'Legacy Title', 1)",
+                [],
+            )
+            .expect("legacy row");
+        store.migrate().expect("migrate");
+        let loaded = store
+            .load_thread("acp-sess-1")
+            .expect("load")
+            .expect("thread");
+        assert_eq!(loaded.title_override.as_deref(), Some("Legacy Title"));
+        let legacy_exists: i64 = store
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='acp_thread_titles'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count");
+        assert_eq!(legacy_exists, 0);
     }
 }

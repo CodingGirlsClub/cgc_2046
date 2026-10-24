@@ -549,8 +549,12 @@ impl RootView {
                     .data_root
                     .join("agent")
                     .join("threads.db");
-                if let Ok(store) = SessionStore::open(path) {
-                    let _ = store.set_acp_title_override(&session_id, title.as_deref());
+                if let Ok(mut store) = SessionStore::open(path) {
+                    let thread_id = format!("acp-{session_id}");
+                    if let Ok(Some(mut thread)) = store.load_thread(&thread_id) {
+                        thread.title_override = title.clone();
+                        let _ = store.save_thread(&thread);
+                    }
                 }
             }
         }

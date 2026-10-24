@@ -1280,7 +1280,15 @@ impl RootView {
                 .sessions
                 .retain(|session| session.session_id != session_id);
             if self.chat.session_id.as_deref() == Some(session_id) {
+                self.chat.host.take();
+                self.revoke_chat_lease(cx);
+                self.chat.phase = ChatPhase::Idle;
+                self.chat.messages.clear();
                 self.chat.session_id = None;
+                self.chat.restore_id = None;
+                if let Some(course_id) = self.chat.course_id.clone() {
+                    clear_chat_pointer(&course_id);
+                }
             }
         }
         self.chat
@@ -3778,10 +3786,6 @@ fn load_acp_title_override(session_id: &str) -> Option<String> {
         .join("agent")
         .join("threads.db");
     let store = cgc_agent_store::SessionStore::open(path).ok()?;
-    if let Ok(Some(thread)) = store.load_thread(&format!("acp-{session_id}")) {
-        if thread.title_override.is_some() {
-            return thread.title_override;
-        }
-    }
-    store.acp_title_override(session_id).ok().flatten()
+    let thread = store.load_thread(&format!("acp-{session_id}")).ok()??;
+    thread.title_override
 }
