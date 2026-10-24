@@ -226,7 +226,7 @@ fn header(
         }))
         .child(
             Popover::new("agent-panel-new")
-                .anchor(Anchor::BottomRight)
+                .anchor(Anchor::TopRight)
                 .trigger(
                     Button::new("agent-panel-new-trigger")
                         .label("＋")
@@ -357,7 +357,7 @@ fn header(
         )
         .child(
             Popover::new("agent-panel-more")
-                .anchor(Anchor::BottomRight)
+                .anchor(Anchor::TopRight)
                 .trigger(
                     Button::new("agent-panel-more-trigger")
                         .label("⋯")
