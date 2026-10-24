@@ -35,13 +35,16 @@ use futures::channel::{mpsc, oneshot};
 use futures::StreamExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::hover_card::HoverCard;
-use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
+use gpui_kit::component::input::{
+    InlineTokenContext, InputEvent, Position, Textarea, TextareaState,
+};
 use gpui_kit::component::popover::Popover;
 use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::Sizable;
+use gpui_kit::component::{Icon, Sizable};
 use gpui_kit::*;
 use image::GenericImageView as _;
 
+use crate::mention::{self, Mention, SkillEntry};
 use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 
 /// 审批模式：Ask = 逐次审批；Auto = 自动允许。
@@ -145,6 +148,13 @@ fn prepare_clipboard_image(bytes: &[u8]) -> Option<(Vec<u8>, Arc<RenderImage>)> 
 struct SentImage {
     name: String,
     preview: Option<Arc<RenderImage>>,
+}
+
+/// 排队等待发送的消息：`display` 用于界面展示，`prompt` 已解析好技能/文件上下文。
+#[derive(Clone)]
+struct QueuedMessage {
+    display: String,
+    prompt: String,
 }
 
 fn inserted_segment(previous: &str, current: &str) -> Option<String> {
@@ -408,7 +418,7 @@ pub struct NativeAgentView {
     slash_dismissed: bool,
     mention_index: usize,
     workspace_files: Vec<String>,
-    skills: Vec<(String, String, &'static str)>,
+    skills: Vec<SkillEntry>,
     follow_output: bool,
     messages_scroll: ScrollHandle,
     approval_mode: ApprovalMode,
@@ -417,7 +427,7 @@ pub struct NativeAgentView {
     /// 已发送用户消息 index → 图片预览（仅当前进程内显示，不持久化）。
     sent_images: HashMap<usize, Vec<SentImage>>,
     last_input_value: String,
-    queued_messages: Vec<String>,
+    queued_messages: Vec<QueuedMessage>,
     steer_sender: std_mpsc::Sender<String>,
     _input_subscription: Option<Subscription>,
     _key_interceptor: Option<Subscription>,
@@ -604,7 +614,7 @@ impl NativeAgentView {
             })
         };
         let workspace_files = collect_workspace_files(&workspace);
-        let skills = load_skills(&workspace);
+        let skills = mention::load_skills(&workspace);
         let input = cx.new(|cx| TextareaState::new(window, cx).auto_grow(4, 20));
         // Textarea 把 up/down 绑定成 MoveUp/MoveDown，在 action 阶段消费；
         // 用 keystroke interceptor 在 action dispatch 之前接管菜单导航。
@@ -838,7 +848,8 @@ impl NativeAgentView {
     }
 
     fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.input.read(cx).value().trim().to_string();
+        let content = self.input.read(cx).content();
+        let text = content.text().trim().to_string();
         if text.is_empty() {
             return;
         }
@@ -848,8 +859,11 @@ impl NativeAgentView {
             self.handle_slash(command, cx);
             return;
         }
+        // 气泡展示 humanize 文本；真正发给 agent 的 prompt 前置技能/文件上下文。
+        let display = mention::display_text(&text);
+        let prompt = mention::resolve_prompt(&content, self.context.workspace());
         if self.busy {
-            self.queued_messages.push(text);
+            self.queued_messages.push(QueuedMessage { display, prompt });
             self.status = format!(
                 "已排队 {} 条，当前 turn 结束后依次发送",
                 self.queued_messages.len()
@@ -857,7 +871,7 @@ impl NativeAgentView {
             cx.notify();
             return;
         }
-        self.send_prompt(text, cx);
+        self.send_prompt(prompt, display, cx);
     }
 
     fn model_supports_images(&self) -> bool {
@@ -1241,7 +1255,7 @@ impl NativeAgentView {
         );
     }
 
-    fn send_prompt(&mut self, text: String, cx: &mut Context<Self>) {
+    fn send_prompt(&mut self, text: String, display: String, cx: &mut Context<Self>) {
         self.refresh_provider_credentials(cx);
         self.reload_latest_session();
         self.turn_seq += 1;
@@ -1288,8 +1302,7 @@ impl NativeAgentView {
         };
         agent.set_reasoning_effort(effort);
         let approval_mode = self.approval_mode;
-        self.state.push_user(text.clone());
-        let text = self.expand_mentions(&text);
+        self.state.push_user(display);
         self.busy = true;
         self.status = "思考中…".to_string();
         self.cancel.reset();
@@ -1396,7 +1409,7 @@ impl NativeAgentView {
                 }
                 if !this.queued_messages.is_empty() {
                     let next = this.queued_messages.remove(0);
-                    this.send_prompt(next, cx);
+                    this.send_prompt(next.prompt, next.display, cx);
                 }
                 cx.notify();
             });
@@ -1591,40 +1604,46 @@ impl NativeAgentView {
     fn insert_mention(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
         let value = self.input.read(cx).value().to_string();
         if let Some((position, _)) = trailing_mention(&value) {
-            let next = format!("{}@{} ", &value[..position], path);
-            self.input
-                .update(cx, |state, cx| state.set_value(next, window, cx));
+            let mention = Mention::File { path };
+            self.insert_mention_chip(mention, &value[..position], window, cx);
         }
         self.mention_index = 0;
         cx.notify();
     }
 
-    fn expand_mentions(&self, text: &str) -> String {
-        let workspace = self.context.workspace().to_path_buf();
-        let mut context = String::new();
-        for token in text.split_whitespace() {
-            let Some(path) = token.strip_prefix('@') else {
-                continue;
-            };
-            if path.is_empty() || path.starts_with('/') {
-                continue;
-            }
-            let full = workspace.join(path);
-            let Ok(metadata) = std::fs::metadata(&full) else {
-                continue;
-            };
-            if !metadata.is_file() || metadata.len() > 256 * 1024 {
-                continue;
-            }
-            if let Ok(content) = std::fs::read_to_string(&full) {
-                context.push_str(&format!("[文件: {path}]\n{content}\n\n"));
-            }
-        }
-        if context.is_empty() {
-            text.to_string()
-        } else {
-            format!("{context}{text}")
-        }
+    fn insert_skill_mention(
+        &mut self,
+        skill: SkillEntry,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mention = Mention::skill(&skill);
+        self.insert_mention_chip(mention, "", window, cx);
+        self.slash_dismissed = true;
+        self.slash_index = 0;
+        cx.notify();
+    }
+
+    /// 把 mention 作为原子 chip 写进输入框（链接文本 + inline token），光标落到末尾。
+    fn insert_mention_chip(
+        &mut self,
+        mention: Mention,
+        prefix: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let content = mention.content_at(prefix, " ");
+        let text = content.text().to_string();
+        let end = Position::new(
+            text.matches('\n').count() as u32,
+            text.rsplit('\n').next().unwrap_or_default().chars().count() as u32,
+        );
+        self.input.update(cx, |state, cx| {
+            state.set_value(content, window, cx);
+            state.set_cursor_position(end, window, cx);
+        });
+        self.mention_index = 0;
+        cx.notify();
     }
 
     fn slash_entries(&self, value: &str) -> Vec<SlashEntry> {
@@ -1651,12 +1670,7 @@ impl NativeAgentView {
             return;
         }
         if let Some(skill) = entry.skill.clone() {
-            let text = format!("使用技能「{skill}」：");
-            self.input
-                .update(cx, |state, cx| state.set_value(text.clone(), window, cx));
-            self.slash_dismissed = true;
-            self.slash_index = 0;
-            cx.notify();
+            self.insert_skill_mention(skill, window, cx);
             return;
         }
         self.run_slash_command(&entry.label, window, cx);
@@ -1694,7 +1708,7 @@ impl NativeAgentView {
         };
         self.input
             .update(cx, |state, cx| state.set_value(next, window, cx));
-        self.status = "输入 @ 引用上下文（文件引用 P1 支持）".to_string();
+        self.status = "输入 @ 引用工作区文件".to_string();
         cx.notify();
     }
 
@@ -1854,6 +1868,7 @@ impl Render for NativeAgentView {
         let add_menu_root = cx.entity().downgrade();
         let model_supports_images = self.model_supports_images();
         let palette = theme::palette_from_theme(cx);
+        let chip_workspace = self.context.workspace().to_path_buf();
         let busy = self.busy;
         let messages = self.state.messages.clone();
         let sent_images = self.sent_images.clone();
@@ -1911,7 +1926,10 @@ impl Render for NativeAgentView {
                             .text_color(color)
                             .child(role_label(message.role)),
                     )
-                    .child(div().text_size(px(13.0)).child(message.text.clone()))
+                    .child(div().text_size(px(13.0)).child(match message.role {
+                        UiRole::User => mention::display_text(&message.text),
+                        _ => message.text.clone(),
+                    }))
                     .children(sent_images.get(&message_index).map(|images| {
                         div().flex().flex_row().flex_wrap().gap(space(1)).children(
                             images.iter().enumerate().map(|(image_index, image)| {
@@ -2298,8 +2316,8 @@ impl Render for NativeAgentView {
                                 queued_messages.len()
                             )),
                     )
-                    .children(queued_messages.iter().enumerate().map(|(index, text)| {
-                        let preview: String = text.chars().take(160).collect();
+                    .children(queued_messages.iter().enumerate().map(|(index, queued)| {
+                        let preview: String = queued.display.chars().take(160).collect();
                         let remove_view = cx.entity().downgrade();
                         div()
                             .flex()
@@ -2896,7 +2914,7 @@ impl Render for NativeAgentView {
                             let click_label = label.clone();
                             let tool = entry.tool.clone();
                             let skill = entry.skill.clone();
-                            let scope = entry.scope;
+                            let scope = entry.scope.clone();
                             let description = entry.description.clone();
                             rows.push(
                                 div()
@@ -2943,20 +2961,19 @@ impl Render for NativeAgentView {
                                         },
                                     ))
                                     .on_click(cx.listener(move |this, _, window, cx| {
-                                        let text = if let Some(tool) = tool.clone() {
-                                            Some(format!("使用 {tool} 工具："))
-                                        } else {
-                                            skill
-                                                .clone()
-                                                .map(|skill| format!("使用技能「{skill}」："))
-                                        };
-                                        if let Some(text) = text {
+                                        if let Some(tool) = tool.clone() {
                                             this.input.update(cx, |state, cx| {
-                                                state.set_value(text.clone(), window, cx)
+                                                state.set_value(
+                                                    format!("使用 {tool} 工具："),
+                                                    window,
+                                                    cx,
+                                                )
                                             });
                                             this.slash_dismissed = true;
                                             this.slash_index = 0;
                                             cx.notify();
+                                        } else if let Some(skill) = skill.clone() {
+                                            this.insert_skill_mention(skill, window, cx);
                                         } else {
                                             this.run_slash_command(&click_label, window, cx);
                                         }
@@ -2996,7 +3013,7 @@ impl Render for NativeAgentView {
                                                 .text_color(palette.ink)
                                                 .child(entry.label.clone()),
                                         )
-                                        .children(entry.scope.map(|scope| {
+                                        .children(entry.scope.clone().map(|scope| {
                                             div()
                                                 .text_size(px(9.0))
                                                 .text_color(palette.ink_3)
@@ -3204,7 +3221,10 @@ impl Render for NativeAgentView {
                                 Textarea::new(&input)
                                     .appearance(false)
                                     .bordered(false)
-                                    .w_full(),
+                                    .w_full()
+                                    .token(move |context, _window, _cx| {
+                                        render_mention_chip(context, palette, &chip_workspace)
+                                    }),
                             )
                             .children((!has_input).then(|| {
                                 // 自定义可换行 placeholder：gpui-base 的 Textarea
@@ -3428,130 +3448,128 @@ fn trailing_mention(text: &str) -> Option<(usize, String)> {
     Some((position, query.to_string()))
 }
 
+#[derive(Debug)]
 struct SlashEntry {
     category: &'static str,
     label: String,
     description: String,
     tool: Option<String>,
-    skill: Option<String>,
-    scope: Option<&'static str>,
+    skill: Option<SkillEntry>,
+    scope: Option<String>,
+}
+
+/// slash 菜单的匹配打分：名字精确 > 名字前缀 > 名字包含 > 描述包含。
+///
+/// 技能名匹配必须排在「工具描述里恰好包含同一个词」之前：
+/// 例如 `/answer` 想选 `answer-me-with-html`，而 `task` 工具的描述里也有
+/// "answer"——按固定类别顺序会让回车选错工具。
+fn slash_match_rank(query: &str, name: &str, description: &str) -> Option<u8> {
+    if query.is_empty() {
+        return Some(0);
+    }
+    let name = name.to_ascii_lowercase();
+    if name == query {
+        Some(0)
+    } else if name.starts_with(query) {
+        Some(1)
+    } else if name.contains(query) {
+        Some(2)
+    } else if description.to_ascii_lowercase().contains(query) {
+        Some(3)
+    } else {
+        None
+    }
 }
 
 fn slash_entries_for(
     registry: &ToolRegistry,
-    skills: &[(String, String, &'static str)],
+    skills: &[SkillEntry],
     value: &str,
 ) -> Vec<SlashEntry> {
     let trimmed = value.trim_start();
-    let Some(query) = trimmed.strip_prefix('/') else {
+    let Some(raw_query) = trimmed.strip_prefix('/') else {
         return Vec::new();
     };
-    let query = query.trim().to_ascii_lowercase();
-    let matches = |text: &str| query.is_empty() || text.to_ascii_lowercase().contains(&query);
-    let mut entries: Vec<SlashEntry> = SLASH_COMMANDS
+    let query = raw_query.trim().to_ascii_lowercase();
+
+    // 分组内按 (匹配质量, 原始顺序) 排序；分组之间按「该组最好匹配」再按类别优先级。
+    let commands: Vec<(u8, usize, SlashEntry)> = SLASH_COMMANDS
         .iter()
-        .filter(|(command, description)| matches(command) || matches(description))
-        .map(|(command, description)| SlashEntry {
-            category: "命令",
-            label: (*command).to_string(),
-            description: (*description).to_string(),
-            tool: None,
-            skill: None,
-            scope: None,
+        .enumerate()
+        .filter_map(|(index, (command, description))| {
+            slash_match_rank(&query, command.trim_start_matches('/'), description).map(|rank| {
+                (
+                    rank,
+                    index,
+                    SlashEntry {
+                        category: "命令",
+                        label: (*command).to_string(),
+                        description: (*description).to_string(),
+                        tool: None,
+                        skill: None,
+                        scope: None,
+                    },
+                )
+            })
         })
         .collect();
-    entries.extend(
-        registry
-            .list_descriptions()
-            .into_iter()
-            .filter(|(name, description)| matches(name) || matches(description))
-            .map(|(name, description)| SlashEntry {
-                category: "工具",
-                label: name.to_string(),
-                description: description.to_string(),
-                tool: Some(name.to_string()),
-                skill: None,
-                scope: None,
-            }),
-    );
-    entries.extend(
-        skills
-            .iter()
-            .filter(|(name, description, _)| matches(name) || matches(description))
-            .map(|(name, description, scope)| SlashEntry {
-                category: "技能",
-                label: name.clone(),
-                description: description.clone(),
-                tool: None,
-                skill: Some(name.clone()),
-                scope: Some(*scope),
-            }),
-    );
-    entries
-}
-
-/// 扫描工作区与用户目录下的 skills（`<dir>/skills/<name>/SKILL.md`），带 scope。
-fn load_skills(workspace: &std::path::Path) -> Vec<(String, String, &'static str)> {
-    let mut scanned: Vec<(std::path::PathBuf, &'static str)> = Vec::new();
-    if let Some(home) = std::env::var_os("HOME") {
-        scanned.push((
-            std::path::PathBuf::from(home)
-                .join(".agents")
-                .join("skills"),
-            "global",
-        ));
-    }
-    scanned.push((workspace.join(".agents").join("skills"), "project"));
-    scanned.push((workspace.join("skills"), "project"));
-    let mut skills: std::collections::BTreeMap<String, (String, &'static str)> =
-        std::collections::BTreeMap::new();
-    for (root, scope) in scanned {
-        let Ok(entries) = std::fs::read_dir(&root) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path().join("SKILL.md");
-            let Ok(content) = std::fs::read_to_string(&path) else {
-                continue;
-            };
-            let mut name = entry.file_name().to_string_lossy().to_string();
-            let mut description = String::new();
-            let mut in_frontmatter = false;
-            for line in content.lines() {
-                if line.trim() == "---" {
-                    in_frontmatter = !in_frontmatter;
-                    continue;
-                }
-                if !in_frontmatter {
-                    continue;
-                }
-                if let Some(value) = line.strip_prefix("name:") {
-                    name = value.trim().trim_matches('"').to_string();
-                } else if let Some(value) = line.strip_prefix("description:") {
-                    description = value.trim().trim_matches('"').to_string();
-                }
-            }
-            if description.is_empty() {
-                description = format!("技能：{name}");
-            }
-            // 同名时 project 覆盖 global。
-            let should_insert = match skills.get(&name) {
-                Some((_, existing_scope)) => scope == "project" && *existing_scope != "project",
-                None => true,
-            };
-            if should_insert {
-                skills.insert(name, (description, scope));
-            }
-        }
-    }
-    let mut result: Vec<(String, String, &'static str)> = skills
+    let tools: Vec<(u8, usize, SlashEntry)> = registry
+        .list_descriptions()
         .into_iter()
-        .map(|(name, (description, scope))| (name, description, scope))
+        .enumerate()
+        .filter_map(|(index, (name, description))| {
+            slash_match_rank(&query, name, description).map(|rank| {
+                (
+                    rank,
+                    index,
+                    SlashEntry {
+                        category: "工具",
+                        label: name.to_string(),
+                        description: description.to_string(),
+                        tool: Some(name.to_string()),
+                        skill: None,
+                        scope: None,
+                    },
+                )
+            })
+        })
         .collect();
-    result.truncate(50);
-    result
-}
+    let skills_group: Vec<(u8, usize, SlashEntry)> = skills
+        .iter()
+        .enumerate()
+        .filter_map(|(index, skill)| {
+            slash_match_rank(&query, &skill.name, &skill.description).map(|rank| {
+                (
+                    rank,
+                    index,
+                    SlashEntry {
+                        category: "技能",
+                        label: skill.name.clone(),
+                        description: skill.description.clone(),
+                        tool: None,
+                        skill: Some(skill.clone()),
+                        scope: Some(skill.scope.clone()),
+                    },
+                )
+            })
+        })
+        .collect();
 
+    let mut groups = [(0usize, commands), (1, tools), (2, skills_group)];
+    for (_, group) in groups.iter_mut() {
+        group.sort_by_key(|(rank, index, _)| (*rank, *index));
+    }
+    groups.sort_by_key(|(priority, group)| {
+        (
+            group.first().map(|(rank, _, _)| *rank).unwrap_or(u8::MAX),
+            *priority,
+        )
+    });
+    groups
+        .into_iter()
+        .flat_map(|(_, group)| group.into_iter().map(|(_, _, entry)| entry))
+        .collect()
+}
 fn render_subagent_row(
     card: &cgc_agent_host::SubagentCard,
     palette: &theme::Palette,
@@ -3592,6 +3610,57 @@ fn role_label(role: UiRole) -> &'static str {
         UiRole::System => "system",
         UiRole::Error => "error",
     }
+}
+
+/// composer 里的 mention chip：技能 / 文件各一个图标，hover 显示真实路径。
+fn render_mention_chip(
+    context: &InlineTokenContext,
+    palette: theme::Palette,
+    workspace: &std::path::Path,
+) -> AnyElement {
+    let mention = Mention::parse_token_id(context.token().id());
+    let (icon, label, tooltip) = match mention {
+        Some(mention) => (
+            mention.chip_icon_path(),
+            mention.chip_label(),
+            mention.tooltip(workspace),
+        ),
+        None => (
+            gpui_kit::assets::IconName::Bot.path(),
+            context.token().label().to_string(),
+            context.token().text().to_string(),
+        ),
+    };
+    let selected = context.is_selected();
+    div()
+        .id(SharedString::from(format!(
+            "native-mention-chip-{}-{}",
+            context.token().id(),
+            context.range().start
+        )))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(2.0))
+        .h(context.line_height())
+        .max_w(context.available_width())
+        .px(px(4.0))
+        .rounded(px(RADIUS_SMALL))
+        .bg(if selected {
+            palette.accent
+        } else {
+            palette.soft
+        })
+        .text_color(if selected {
+            palette.canvas
+        } else {
+            palette.ink_2
+        })
+        .text_size(px(11.0))
+        .child(Icon::default().path(icon).small())
+        .child(div().truncate().child(label))
+        .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+        .into_any_element()
 }
 
 fn approval_button(
@@ -3694,16 +3763,73 @@ mod workspace_prompt_tests {
     #[test]
     fn slash_entries_are_grouped_and_filtered() {
         let registry = cgc_agent_tools::ToolRegistry::with_read_tools();
-        let skills = vec![("demo-skill".to_string(), "演示技能".to_string(), "global")];
+        let skills = vec![super::SkillEntry {
+            name: "demo-skill".to_string(),
+            description: "演示技能".to_string(),
+            scope: "global".to_string(),
+            file_path: std::path::PathBuf::from("/tmp/demo-skill/SKILL.md"),
+        }];
         let all = super::slash_entries_for(&registry, &skills, "/");
         assert!(all.iter().any(|entry| entry.category == "命令"));
         assert!(all.iter().any(|entry| entry.category == "工具"));
-        assert!(all
-            .iter()
-            .any(|entry| entry.category == "技能" && entry.scope == Some("global")));
+        // 技能条目必须带技能文件路径，chip / 发送注入都依赖它。
+        assert!(all.iter().any(|entry| {
+            entry.category == "技能"
+                && entry.scope.as_deref() == Some("global")
+                && entry
+                    .skill
+                    .as_ref()
+                    .is_some_and(|skill| skill.file_path.ends_with("demo-skill/SKILL.md"))
+        }));
         let filtered = super::slash_entries_for(&registry, &skills, "/read");
         assert!(filtered.iter().all(|entry| entry.category == "工具"));
         assert!(!filtered.is_empty());
+    }
+
+    /// 回归：技能名匹配必须排在「工具描述里恰好包含该词」之前。
+    /// 实际用户路径：输入 `/answer` 想选 answer-me-with-html，但 task 工具的描述
+    /// 里也有 "answer"，原来的「命令→工具→技能」固定顺序让回车选中了 task。
+    #[test]
+    fn slash_menu_prefers_skill_name_match_over_tool_description_match() {
+        let registry = cgc_agent_tools::ToolRegistry::with_read_tools().with_subagent(
+            std::sync::Arc::new(|_, _| Box::pin(async { Ok(String::new()) })),
+            std::sync::Arc::new(|_| {}),
+        );
+        let skills = vec![super::SkillEntry {
+            name: "answer-me-with-html".to_string(),
+            description: "把答案做成网页".to_string(),
+            scope: "global".to_string(),
+            file_path: std::path::PathBuf::from("/tmp/answer-me-with-html/SKILL.md"),
+        }];
+
+        let entries = super::slash_entries_for(&registry, &skills, "/answer");
+        assert_eq!(
+            entries.first().map(|entry| entry.label.as_str()),
+            Some("answer-me-with-html"),
+            "技能名匹配应排在工具描述匹配之前：{entries:?}"
+        );
+        assert_eq!(entries[0].category, "技能");
+    }
+
+    #[test]
+    fn slash_menu_ranks_name_prefix_above_description_match() {
+        let registry = cgc_agent_tools::ToolRegistry::with_read_tools().with_subagent(
+            std::sync::Arc::new(|_, _| Box::pin(async { Ok(String::new()) })),
+            std::sync::Arc::new(|_| {}),
+        );
+        let entries = super::slash_entries_for(&registry, &[], "/che");
+        let labels = entries
+            .iter()
+            .map(|entry| entry.label.as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            labels.contains(&"/checkpoint"),
+            "命令名前缀匹配应被保留：{labels:?}"
+        );
+        assert_eq!(
+            entries.first().map(|entry| entry.label.as_str()),
+            Some("/checkpoint")
+        );
     }
 
     #[test]
