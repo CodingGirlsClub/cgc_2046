@@ -2921,7 +2921,8 @@ impl Render for NativeAgentView {
                                     })
                                     .child(
                                         div()
-                                            .w(px(96.0))
+                                            .w(px(150.0))
+                                            .truncate()
                                             .text_size(px(11.0))
                                             .child(label.clone()),
                                     )
@@ -2931,13 +2932,7 @@ impl Render for NativeAgentView {
                                             .text_color(palette.ink_3)
                                             .child(scope)
                                     }))
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .text_size(px(10.0))
-                                            .text_color(palette.ink_3)
-                                            .child(description),
-                                    )
+                                    .child(div().flex_1())
                                     .on_hover(cx.listener(
                                         move |this, hovered: &bool, _, cx| {
                                             if *hovered && this.slash_index != index {
@@ -2970,7 +2965,12 @@ impl Render for NativeAgentView {
                         }
                         let detail = slash_matches.get(slash_selected).map(|entry| {
                             div()
-                                .w(px(240.0))
+                                .id("native-slash-detail")
+                                .w(px(280.0))
+                                .flex_1()
+                                .min_w(px(0.0))
+                                .max_h(px(320.0))
+                                .overflow_y_scroll()
                                 .p(space(1))
                                 .mt(space(1))
                                 .rounded(px(RADIUS_SMALL))
@@ -3004,6 +3004,7 @@ impl Render for NativeAgentView {
                                 )
                                 .child(
                                     div()
+                                        .line_height(px(16.0))
                                         .text_size(px(10.0))
                                         .text_color(palette.ink_3)
                                         .child(entry.description.clone()),
@@ -3020,6 +3021,10 @@ impl Render for NativeAgentView {
                                     .flex()
                                     .flex_col()
                                     .gap(px(1.0))
+                                    .w(px(300.0))
+                                    .flex_none()
+                                    .max_h(px(320.0))
+                                    .overflow_y_scroll()
                                     .mx(space(1))
                                     .mt(space(1))
                                     .mb(px(2.0))
