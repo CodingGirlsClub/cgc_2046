@@ -1600,6 +1600,7 @@ impl NativeAgentView {
 impl Render for NativeAgentView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let add_menu_root = cx.entity().downgrade();
+        let model_supports_images = self.model_supports_images();
         let palette = theme::palette_from_theme(cx);
         let busy = self.busy;
         let messages = self.state.messages.clone();
@@ -2906,7 +2907,7 @@ impl Render for NativeAgentView {
                                                             .update(cx, |state, cx| state.dismiss(window, cx));
                                                     }),
                                             )
-                                            .child(
+                                            .children(model_supports_images.then(|| {
                                                 div()
                                                     .id("native-add-image-menu")
                                                     .role(Role::Button)
@@ -2928,8 +2929,8 @@ impl Render for NativeAgentView {
                                                         });
                                                         let _ = image_dismiss
                                                             .update(cx, |state, cx| state.dismiss(window, cx));
-                                                    }),
-                                            )
+                                                    })
+                                            }))
                                             .into_any_element()
                                     }),
                             )
