@@ -13,6 +13,7 @@ use cgc_agent_store::{
 };
 use cgc_platform::paths::AppPaths;
 use cgc_platform::session::KeychainStore;
+use gpui_kit::component::group_box::GroupBoxVariant;
 use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_kit::component::setting::{
     SettingField, SettingGroup, SettingItem, SettingPage, Settings,
@@ -595,6 +596,58 @@ impl SettingsWindowView {
                 error.clone(),
             )
         });
+        let providers_header = {
+            let header_weak = weak.clone();
+            SettingItem::render(move |_options, _window, cx| {
+                let palette = theme::palette_from_theme(cx);
+                let weak = header_weak.clone();
+                let add_weak = header_weak.clone();
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .gap(space(2))
+                    .child(
+                        div()
+                            .id("settings-providers-back")
+                            .role(Role::Button)
+                            .aria_label("返回 AI 设置")
+                            .px(space(1))
+                            .py(px(2.0))
+                            .rounded(px(RADIUS_SMALL))
+                            .text_size(px(12.0))
+                            .text_color(palette.ink_2)
+                            .hover(|style| style.bg(palette.soft))
+                            .child("← 设置 / AI / General / LLM Providers")
+                            .on_click(move |_, _, cx| {
+                                let _ = weak.update(cx, |this, cx| {
+                                    this.ai_view = AiRoute::General;
+                                    cx.notify();
+                                });
+                            }),
+                    )
+                    .child(
+                        div()
+                            .id("settings-providers-add")
+                            .role(Role::Button)
+                            .aria_label("添加 Provider")
+                            .px(space(2))
+                            .py(px(4.0))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .bg(palette.accent)
+                            .text_color(palette.canvas)
+                            .text_size(px(11.0))
+                            .child("＋ 添加 Provider")
+                            .on_click(move |_, _, cx| {
+                                let _ = add_weak.update(cx, |this, cx| {
+                                    this.add_provider(cx);
+                                });
+                            }),
+                    )
+                    .into_any_element()
+            })
+        };
         let form_target = match &self.ai_view {
             AiRoute::Form(id) => Some(id.clone()),
             _ => None,
@@ -759,49 +812,28 @@ impl SettingsWindowView {
                 )
                 .into_any_element()
         });
-        let back_weak = weak.clone();
-        let ai_back = SettingItem::render(move |_options, _window, cx| {
-            let palette = theme::palette_from_theme(cx);
-            let weak = back_weak.clone();
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(space(2))
-                .child(
-                    div()
-                        .id("settings-ai-back")
-                        .role(Role::Button)
-                        .aria_label("返回 AI 设置")
-                        .px(space(1))
-                        .py(px(2.0))
-                        .rounded(px(RADIUS_SMALL))
-                        .text_size(px(12.0))
-                        .text_color(palette.ink_2)
-                        .hover(|style| style.bg(palette.soft))
-                        .child("← 设置 / AI / General / LLM Providers")
-                        .on_click(move |_, _, cx| {
-                            let _ = weak.update(cx, |this, cx| {
-                                this.ai_view = AiRoute::General;
-                                cx.notify();
-                            });
-                        }),
-                )
-                .into_any_element()
-        });
-        let ai_group = match &self.ai_view {
-            AiRoute::General => SettingGroup::new()
-                .title("General")
-                .items(vec![llm_link, native_agent]),
-            AiRoute::Providers => SettingGroup::new()
-                .title("LLM Providers")
-                .items(vec![ai_back, providers_item]),
-            AiRoute::Form(_) => SettingGroup::new().title("Provider").items(
-                vec![form_back]
-                    .into_iter()
-                    .chain(form_item)
-                    .collect::<Vec<SettingItem>>(),
+        let ai_page = match &self.ai_view {
+            AiRoute::General => SettingPage::new("AI").group(
+                SettingGroup::new()
+                    .title("General")
+                    .items(vec![llm_link, native_agent]),
             ),
+            AiRoute::Providers => SettingPage::new("AI").groups(vec![
+                SettingGroup::new()
+                    .variant(GroupBoxVariant::Normal)
+                    .item(providers_header),
+                SettingGroup::new()
+                    .title("LLM Providers")
+                    .item(providers_item),
+            ]),
+            AiRoute::Form(_) => SettingPage::new("AI").groups(vec![
+                SettingGroup::new()
+                    .variant(GroupBoxVariant::Normal)
+                    .item(form_back),
+                SettingGroup::new()
+                    .title("Provider")
+                    .items(form_item.into_iter().collect::<Vec<SettingItem>>()),
+            ]),
         };
 
         let settings = Settings::new("cgc-settings")
@@ -816,7 +848,7 @@ impl SettingsWindowView {
                 SettingPage::new("通用")
                     .group(SettingGroup::new().title("通用").item(close_to_tray)),
             )
-            .page(SettingPage::new("AI").group(ai_group))
+            .page(ai_page)
             .page(
                 SettingPage::new("关于").group(
                     SettingGroup::new()
@@ -896,7 +928,6 @@ fn render_provider_list(
                 .into_any_element(),
         );
     }
-    let add_weak = weak.clone();
     div()
         .flex()
         .flex_col()
@@ -944,24 +975,6 @@ fn render_provider_list(
                 ),
         )
         .children(rows)
-        .child(
-            div()
-                .id("settings-provider-add")
-                .role(Role::Button)
-                .aria_label("添加 provider")
-                .px(space(2))
-                .py(px(5.0))
-                .rounded(px(RADIUS_MEDIUM))
-                .border_1()
-                .border_color(palette.line)
-                .text_size(px(12.0))
-                .text_color(palette.ink_2)
-                .hover(|style| style.bg(palette.soft))
-                .child("＋ 添加 Provider（OpenAI compatible）")
-                .on_click(move |_, _, cx| {
-                    let _ = add_weak.update(cx, |this, cx| this.add_provider(cx));
-                }),
-        )
         .children(notice.map(|notice| {
             div()
                 .text_size(px(11.0))
