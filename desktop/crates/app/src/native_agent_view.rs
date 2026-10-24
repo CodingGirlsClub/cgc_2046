@@ -540,9 +540,7 @@ impl NativeAgentView {
             }
         };
         let restored = !state.messages.is_empty();
-        let workspace = std::env::var("CGC_AGENT_WORKSPACE")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| std::env::temp_dir().join("cgc-native-agent-demo"));
+        let workspace = crate::agent_workspace_root();
         let _ = std::fs::create_dir_all(&workspace);
         let system_prompt = build_workspace_system_prompt(&workspace);
         let agent = Agent::new(thread, Some(system_prompt));

@@ -894,19 +894,11 @@ impl RootView {
         if self.chat.host.is_none() {
             self.revoke_chat_lease(cx);
         }
-        let context = match self.chat_course_context() {
-            Ok(context) => context,
-            Err(_) => {
-                self.chat.phase = ChatPhase::Failed(
-                    translate(self.language, Key::AgentChatChatContextRequired).to_string(),
-                );
-                return;
-            }
-        };
+        // 学习上下文是可选的：没有课程上下文时仍可启动通用 ACP 会话。
+        let context = self.chat_course_context().ok();
         let epoch = self.workspaces.epoch();
-        let cwd = std::env::temp_dir().join("cgc-desktop-chat");
-        let _ = std::fs::create_dir_all(&cwd);
-        let course_id = Some(context.course_id.clone());
+        let cwd = crate::agent_workspace_root();
+        let course_id = context.as_ref().map(|context| context.course_id.clone());
         let requested_agent = self.chat.selected_agent.clone();
         let load_agent = requested_agent.as_deref().unwrap_or("omp");
         let load_session = self.chat.restore_id.take().or_else(|| {
@@ -1265,8 +1257,83 @@ impl RootView {
                 }
             }
         }
+        self.persist_acp_thread();
         cx.notify();
         self.chat.host.is_some()
+    }
+
+    /// 把当前 ACP 会话镜像成 threads.db 中的 Thread（统一列表与恢复）。
+    fn persist_acp_thread(&mut self) {
+        let Some(session_id) = self.chat.session_id.clone() else {
+            return;
+        };
+        if self.chat.messages.is_empty() {
+            return;
+        }
+        let agent = self
+            .chat
+            .selected_agent
+            .clone()
+            .unwrap_or_else(|| self.chat.agent.clone());
+        let path = AppPaths::from_env()
+            .data_root
+            .join("agent")
+            .join("threads.db");
+        let Ok(mut store) = SessionStore::open(path) else {
+            return;
+        };
+        let thread_id = format!("acp-{session_id}");
+        let mut thread = store
+            .load_thread(&thread_id)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| {
+                cgc_agent_core::Thread::new(
+                    thread_id.clone(),
+                    cgc_agent_core::SelectedModel::new(
+                        cgc_agent_provider::ProviderId::new("acp"),
+                        cgc_agent_provider::ModelId::new(agent.clone()),
+                    ),
+                )
+            });
+        thread.agent = agent;
+        thread.session_id = Some(session_id.clone());
+        thread.title_override = self.chat.title_override.clone();
+        if thread.title.is_none() {
+            thread.title = self
+                .chat
+                .sessions
+                .iter()
+                .find(|session| session.session_id == session_id)
+                .and_then(|session| session.title.clone());
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs() as i64)
+            .unwrap_or_default();
+        thread.updated_at = now;
+        thread.entries = self
+            .chat
+            .messages
+            .iter()
+            .filter_map(|message| match message {
+                ChatEntry::User(text) => Some(cgc_agent_core::Entry::User {
+                    text: text.clone(),
+                    images: Vec::new(),
+                    at: now,
+                }),
+                ChatEntry::Assistant(text) if !text.is_empty() => {
+                    Some(cgc_agent_core::Entry::Assistant {
+                        text: text.clone(),
+                        tool_calls: Vec::new(),
+                        usage: None,
+                        at: now,
+                    })
+                }
+                _ => None,
+            })
+            .collect();
+        let _ = store.save_thread(&thread);
     }
 
     pub(in crate::root_view) fn reset_config_search(
@@ -1524,6 +1591,38 @@ impl RootView {
     pub(in crate::root_view) fn open_chat_history(&mut self, cx: &mut Context<Self>) {
         if let Some(host) = &self.chat.host {
             let _ = host.list_sessions();
+        }
+        // 统一线程列表：把持久化的 ACP 线程合并进 history。
+        let path = AppPaths::from_env()
+            .data_root
+            .join("agent")
+            .join("threads.db");
+        if let Ok(store) = SessionStore::open(path) {
+            if let Ok(threads) = store.list_threads(50) {
+                for thread in threads {
+                    if thread.agent == "native" {
+                        continue;
+                    }
+                    let Some(session_id) = thread.session_id else {
+                        continue;
+                    };
+                    if self
+                        .chat
+                        .sessions
+                        .iter()
+                        .any(|session| session.session_id == session_id)
+                    {
+                        continue;
+                    }
+                    self.chat
+                        .sessions
+                        .push(cgc_platform::acp::connection::SessionSummary {
+                            session_id,
+                            title: thread.title,
+                            updated_at: None,
+                        });
+                }
+            }
         }
         self.chat.show_sessions = true;
         cx.notify();

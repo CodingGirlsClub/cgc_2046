@@ -76,6 +76,12 @@ pub struct Thread {
     /// 用户手动标题（优先于 LLM 生成标题）。
     #[serde(default)]
     pub title_override: Option<String>,
+    /// 线程所属 agent：`native` 或 external agent id。
+    #[serde(default = "default_thread_agent")]
+    pub agent: String,
+    /// 外部 ACP agent 的协议 session id；native 线程为 None。
+    #[serde(default)]
+    pub session_id: Option<String>,
     pub model: SelectedModel,
     pub entries: Vec<Entry>,
     pub usage_total: TokenUsage,
@@ -90,6 +96,8 @@ impl Thread {
             id: id.into(),
             title: None,
             title_override: None,
+            agent: default_thread_agent(),
+            session_id: None,
             model,
             entries: Vec::new(),
             usage_total: TokenUsage::default(),
@@ -306,7 +314,11 @@ fn estimate_message_tokens(message: &Message) -> usize {
     chars / 4 + 4
 }
 
-pub(crate) fn now_secs() -> i64 {
+pub(crate) fn default_thread_agent() -> String {
+    "native".to_string()
+}
+
+fn now_secs() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

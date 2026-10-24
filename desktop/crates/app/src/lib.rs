@@ -2,6 +2,13 @@
 
 pub mod build_info;
 pub mod chat_state;
+
+/// Agent 使用的工作区根目录：`CGC_AGENT_WORKSPACE` 优先，否则用进程当前目录。
+pub(crate) fn agent_workspace_root() -> std::path::PathBuf {
+    std::env::var("CGC_AGENT_WORKSPACE")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| std::env::temp_dir()))
+}
 pub mod deep_link;
 pub mod formula;
 pub mod i18n;

@@ -47,6 +47,8 @@ pub struct CheckpointRecord {
 pub struct ThreadSummary {
     pub id: String,
     pub title: Option<String>,
+    pub agent: String,
+    pub session_id: Option<String>,
     pub provider_id: String,
     pub model_id: String,
     pub updated_at: i64,
@@ -79,6 +81,8 @@ impl SessionStore {
                 id TEXT PRIMARY KEY,
                 title TEXT,
                 title_override TEXT,
+                agent TEXT NOT NULL DEFAULT 'native',
+                session_id TEXT,
                 model_provider TEXT NOT NULL,
                 model_id TEXT NOT NULL,
                 usage_json TEXT,
@@ -113,6 +117,13 @@ impl SessionStore {
         let _ = self
             .conn
             .execute("ALTER TABLE threads ADD COLUMN title_override TEXT", []);
+        let _ = self.conn.execute(
+            "ALTER TABLE threads ADD COLUMN agent TEXT NOT NULL DEFAULT 'native'",
+            [],
+        );
+        let _ = self
+            .conn
+            .execute("ALTER TABLE threads ADD COLUMN session_id TEXT", []);
         Ok(())
     }
 
@@ -120,11 +131,13 @@ impl SessionStore {
         let usage_json = serde_json::to_string(&thread.usage_total)?;
         let transaction = self.conn.transaction()?;
         transaction.execute(
-            "INSERT INTO threads (id, title, title_override, model_provider, model_id, usage_json, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "INSERT INTO threads (id, title, title_override, agent, session_id, model_provider, model_id, usage_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
                 title_override = excluded.title_override,
+                agent = excluded.agent,
+                session_id = excluded.session_id,
                 model_provider = excluded.model_provider,
                 model_id = excluded.model_id,
                 usage_json = excluded.usage_json,
@@ -133,6 +146,8 @@ impl SessionStore {
                 thread.id,
                 thread.title,
                 thread.title_override,
+                thread.agent,
+                thread.session_id,
                 thread.model.provider_id.as_str(),
                 thread.model.model_id.as_str(),
                 usage_json,
@@ -161,7 +176,7 @@ impl SessionStore {
         let row = self
             .conn
             .query_row(
-                "SELECT title, title_override, model_provider, model_id, usage_json, created_at, updated_at
+                "SELECT title, title_override, agent, session_id, model_provider, model_id, usage_json, created_at, updated_at
                  FROM threads WHERE id = ?1",
                 params![id],
                 |row| {
@@ -169,10 +184,12 @@ impl SessionStore {
                         row.get::<_, Option<String>>(0)?,
                         row.get::<_, Option<String>>(1)?,
                         row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                        row.get::<_, i64>(5)?,
-                        row.get::<_, i64>(6)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, Option<String>>(6)?,
+                        row.get::<_, i64>(7)?,
+                        row.get::<_, i64>(8)?,
                     ))
                 },
             )
@@ -180,6 +197,8 @@ impl SessionStore {
         let Some((
             title,
             title_override,
+            agent,
+            session_id,
             provider_id,
             model_id,
             usage_json,
@@ -205,6 +224,8 @@ impl SessionStore {
             id: id.to_string(),
             title,
             title_override,
+            agent,
+            session_id,
             model: SelectedModel::new(ProviderId::new(provider_id), ModelId::new(model_id)),
             entries,
             usage_total,
@@ -215,16 +236,18 @@ impl SessionStore {
 
     pub fn list_threads(&self, limit: usize) -> Result<Vec<ThreadSummary>, SessionError> {
         let mut statement = self.conn.prepare(
-            "SELECT id, COALESCE(title_override, title), model_provider, model_id, updated_at
+            "SELECT id, COALESCE(title_override, title), agent, session_id, model_provider, model_id, updated_at
              FROM threads ORDER BY updated_at DESC LIMIT ?1",
         )?;
         let rows = statement.query_map(params![limit as i64], |row| {
             Ok(ThreadSummary {
                 id: row.get(0)?,
                 title: row.get(1)?,
-                provider_id: row.get(2)?,
-                model_id: row.get(3)?,
-                updated_at: row.get(4)?,
+                agent: row.get(2)?,
+                session_id: row.get(3)?,
+                provider_id: row.get(4)?,
+                model_id: row.get(5)?,
+                updated_at: row.get(6)?,
             })
         })?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
@@ -496,6 +519,24 @@ mod title_override_tests {
         assert_eq!(loaded.display_title().as_deref(), Some("Custom"));
         let summaries = store.list_threads(10).expect("list");
         assert_eq!(summaries[0].title.as_deref(), Some("Custom"));
+    }
+
+    #[test]
+    fn thread_agent_and_session_roundtrip() {
+        let mut store = SessionStore::open_in_memory().expect("store");
+        let mut thread = thread();
+        thread.agent = "omp".to_string();
+        thread.session_id = Some("sess-1".to_string());
+        store.save_thread(&thread).expect("save");
+        let loaded = store
+            .load_thread("thread-1")
+            .expect("load")
+            .expect("thread");
+        assert_eq!(loaded.agent, "omp");
+        assert_eq!(loaded.session_id.as_deref(), Some("sess-1"));
+        let summaries = store.list_threads(10).expect("list");
+        assert_eq!(summaries[0].agent, "omp");
+        assert_eq!(summaries[0].session_id.as_deref(), Some("sess-1"));
     }
 
     #[test]
