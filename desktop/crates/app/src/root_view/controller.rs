@@ -1262,6 +1262,27 @@ impl RootView {
         self.chat.host.is_some()
     }
 
+    /// 线程删除确认：第一次点击进入待确认，第二次点击才真正删除。
+    pub(in crate::root_view) fn request_delete_thread(
+        &mut self,
+        thread_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        if self.pending_thread_delete.as_deref() == Some(thread_id.as_str()) {
+            self.pending_thread_delete = None;
+            self.delete_local_thread(thread_id, cx);
+        } else {
+            self.pending_thread_delete = Some(thread_id);
+            cx.notify();
+        }
+    }
+
+    pub(in crate::root_view) fn cancel_thread_delete(&mut self, cx: &mut Context<Self>) {
+        if self.pending_thread_delete.take().is_some() {
+            cx.notify();
+        }
+    }
+
     /// 从统一线程列表删除一个本地线程。
     pub(in crate::root_view) fn delete_local_thread(
         &mut self,
@@ -1308,6 +1329,7 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.pending_thread_delete = None;
         self.native_chat_mode = true;
         crate::chat_state::save_native_chat_mode(true);
         if self.native_agent_view.is_none() {
@@ -1706,6 +1728,7 @@ impl RootView {
         session_id: String,
         cx: &mut Context<Self>,
     ) {
+        self.pending_thread_delete = None;
         self.chat.restore_id = Some(session_id.clone());
         self.agent_panel_editing_title = false;
         self.agent_panel_title_hovered = false;

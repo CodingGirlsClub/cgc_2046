@@ -879,6 +879,8 @@ pub(in crate::root_view) fn render_chat_panel(
                     let delete_id = format!("acp-{}", session.session_id);
                     let is_current =
                         ctx.chat.session_id.as_deref() == Some(session.session_id.as_str());
+                    let pending_delete =
+                        ctx.pending_thread_delete.as_deref() == Some(delete_id.as_str());
                     let title = session.title.clone().unwrap_or_else(|| {
                         let short = session.session_id.chars().take(10).collect::<String>();
                         format!("{short}…")
@@ -908,13 +910,17 @@ pub(in crate::root_view) fn render_chat_panel(
                                 .rounded(px(RADIUS_SMALL))
                                 .text_color(palette.ink_3)
                                 .hover(|style| style.bg(palette.card))
-                                .child("×")
+                                .child(if pending_delete { "删除?" } else { "×" })
                                 .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.delete_local_thread(delete_id.clone(), cx);
+                                    this.request_delete_thread(delete_id.clone(), cx);
                                 })),
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.restore_chat_session(session_id.clone(), cx);
+                            if this.pending_thread_delete.is_some() {
+                                this.cancel_thread_delete(cx);
+                            } else {
+                                this.restore_chat_session(session_id.clone(), cx);
+                            }
                         }))
                         .into_any_element()
                 })
@@ -938,6 +944,8 @@ pub(in crate::root_view) fn render_chat_panel(
                 let thread_id = thread.id.clone();
                 let delete_id = thread.id.clone();
                 let is_current = current_native.as_deref() == Some(thread.id.as_str());
+                let pending_delete =
+                    ctx.pending_thread_delete.as_deref() == Some(delete_id.as_str());
                 let title = thread
                     .title
                     .clone()
@@ -967,13 +975,17 @@ pub(in crate::root_view) fn render_chat_panel(
                             .rounded(px(RADIUS_SMALL))
                             .text_color(palette.ink_3)
                             .hover(|style| style.bg(palette.card))
-                            .child("×")
+                            .child(if pending_delete { "删除?" } else { "×" })
                             .on_click(cx.listener(move |this, _, _, cx| {
-                                this.delete_local_thread(delete_id.clone(), cx);
+                                this.request_delete_thread(delete_id.clone(), cx);
                             })),
                     )
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        this.open_local_native_thread(thread_id.clone(), window, cx);
+                        if this.pending_thread_delete.is_some() {
+                            this.cancel_thread_delete(cx);
+                        } else {
+                            this.open_local_native_thread(thread_id.clone(), window, cx);
+                        }
                     }))
                     .into_any_element()
             });
