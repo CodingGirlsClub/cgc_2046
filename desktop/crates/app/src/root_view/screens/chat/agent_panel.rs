@@ -5,7 +5,6 @@
 use super::super::super::*;
 use super::super::ScreenContext;
 use cgc_platform::agent::detect::AgentStatus;
-use cgc_platform::registry::manifest::Registry;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::popover::Popover;
@@ -166,22 +165,15 @@ fn header(
             .into_any_element()
     };
 
-    let installed: Vec<String> = ctx
+    // 对齐 Zed：只列本机已注册/已检测到 Ready 的 external agents；
+    // 未安装的通过 Add More Agents 进入安装页。
+    let mut agent_options: Vec<(String, String)> = ctx
         .agent_registry_rows
         .iter()
         .filter(|row| matches!(row.status, AgentStatus::Ready { .. }))
-        .map(|row| row.entry.id.clone())
+        .map(|row| (row.entry.id.clone(), row.entry.display_name.clone()))
         .collect();
-    let agent_options: Vec<(String, String)> = Registry::builtin()
-        .map(|registry| {
-            registry
-                .agents
-                .into_iter()
-                .filter(|entry| installed.is_empty() || installed.contains(&entry.id))
-                .map(|entry| (entry.id, entry.display_name))
-                .collect()
-        })
-        .unwrap_or_default();
+    agent_options.sort_unstable_by_key(|(_, name)| name.to_lowercase());
     let loading = ctx.agent_registry_loading;
     let registry_started = ctx.agent_registry_started;
     let menu_root = root.clone();
@@ -315,7 +307,7 @@ fn header(
                                 .py(px(3.0))
                                 .text_size(px(10.0))
                                 .text_color(palette.ink_3)
-                                .child(if loading {
+                                .child(if loading || !registry_started {
                                     "检测本机 agent…"
                                 } else {
                                     "没有已安装的 agent"
