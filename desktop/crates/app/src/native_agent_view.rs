@@ -672,13 +672,13 @@ impl NativeAgentView {
                             return;
                         }
                     }
-                    let candidates = slash_candidates_for(&value);
+                    let entries = this.slash_entries(&value);
                     if value.trim_start().starts_with('/')
                         && !this.slash_dismissed
-                        && !candidates.is_empty()
+                        && !entries.is_empty()
                     {
-                        let index = this.slash_index.min(candidates.len() - 1);
-                        this.run_slash_command(candidates[index].0, window, cx);
+                        let index = this.slash_index.min(entries.len() - 1);
+                        this.run_slash_entry(entries, index, window, cx);
                         return;
                     }
                     if *secondary && this.busy {
@@ -1586,6 +1586,32 @@ impl NativeAgentView {
         }
     }
 
+    fn slash_entries(&self, value: &str) -> Vec<SlashEntry> {
+        slash_entries_for(self.registry.as_ref(), value)
+    }
+
+    fn run_slash_entry(
+        &mut self,
+        entries: Vec<SlashEntry>,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(entry) = entries.get(index) else {
+            return;
+        };
+        if let Some(tool) = entry.tool {
+            let text = format!("使用 {tool} 工具：");
+            self.input
+                .update(cx, |state, cx| state.set_value(text.clone(), window, cx));
+            self.slash_dismissed = true;
+            self.slash_index = 0;
+            cx.notify();
+            return;
+        }
+        self.run_slash_command(entry.label, window, cx);
+    }
+
     fn run_slash_command(
         &mut self,
         command: &'static str,
@@ -1794,7 +1820,7 @@ impl Render for NativeAgentView {
         let input_value = self.input.read(cx).value().to_string();
         let has_input = !input_value.trim().is_empty();
         let slash_open = input_value.trim_start().starts_with('/') && !self.slash_dismissed;
-        let slash_matches = slash_candidates_for(&input_value);
+        let slash_matches = self.slash_entries(&input_value);
         let slash_selected = self.slash_index.min(slash_matches.len().saturating_sub(1));
         let mention = trailing_mention(&input_value);
         let mention_matches = mention
@@ -2810,40 +2836,80 @@ impl Render for NativeAgentView {
                             .border_color(palette.line)
                             .bg(palette.card)
                             .occlude()
-                            .children(slash_matches.iter().enumerate().map(
-                                |(index, (command, description))| {
-                                    let selected = index == slash_selected;
-                                    let command: &'static str = command;
-                                    div()
-                                        .id(SharedString::from(format!("native-slash-{index}")))
-                                        .role(Role::Button)
-                                        .aria_label(*description)
-                                        .flex()
-                                        .flex_row()
-                                        .items_center()
-                                        .gap(space(2))
-                                        .px(space(1))
-                                        .py(px(3.0))
-                                        .rounded(px(RADIUS_SMALL))
-                                        .bg(if selected { palette.soft } else { palette.card })
-                                        .text_color(if selected {
-                                            palette.accent
-                                        } else {
-                                            palette.ink_2
-                                        })
-                                        .child(div().w(px(86.0)).text_size(px(11.0)).child(command))
-                                        .child(
+                            .children({
+                                let mut rows: Vec<AnyElement> = Vec::new();
+                                let mut last_category = "";
+                                for (index, entry) in slash_matches.iter().enumerate() {
+                                    if entry.category != last_category {
+                                        last_category = entry.category;
+                                        rows.push(
                                             div()
-                                                .flex_1()
-                                                .text_size(px(10.0))
+                                                .px(space(1))
+                                                .pt(px(2.0))
+                                                .pb(px(1.0))
+                                                .text_size(px(9.0))
                                                 .text_color(palette.ink_3)
-                                                .child(*description),
-                                        )
-                                        .on_click(cx.listener(move |this, _, window, cx| {
-                                            this.run_slash_command(command, window, cx);
-                                        }))
-                                },
-                            ))
+                                                .child(entry.category)
+                                                .into_any_element(),
+                                        );
+                                    }
+                                    let selected = index == slash_selected;
+                                    let label = entry.label;
+                                    let tool = entry.tool;
+                                    let description = entry.description.clone();
+                                    rows.push(
+                                        div()
+                                            .id(SharedString::from(format!("native-slash-{index}")))
+                                            .role(Role::Button)
+                                            .aria_label(description.clone())
+                                            .flex()
+                                            .flex_row()
+                                            .items_center()
+                                            .gap(space(2))
+                                            .px(space(1))
+                                            .py(px(3.0))
+                                            .rounded(px(RADIUS_SMALL))
+                                            .bg(if selected {
+                                                palette.soft
+                                            } else {
+                                                palette.card
+                                            })
+                                            .text_color(if selected {
+                                                palette.accent
+                                            } else {
+                                                palette.ink_2
+                                            })
+                                            .child(
+                                                div()
+                                                    .w(px(86.0))
+                                                    .text_size(px(11.0))
+                                                    .child(label),
+                                            )
+                                            .child(
+                                                div()
+                                                    .flex_1()
+                                                    .text_size(px(10.0))
+                                                    .text_color(palette.ink_3)
+                                                    .child(description),
+                                            )
+                                            .on_click(cx.listener(move |this, _, window, cx| {
+                                                if let Some(tool) = tool {
+                                                    let text = format!("使用 {tool} 工具：");
+                                                    this.input.update(cx, |state, cx| {
+                                                        state.set_value(text.clone(), window, cx)
+                                                    });
+                                                    this.slash_dismissed = true;
+                                                    this.slash_index = 0;
+                                                    cx.notify();
+                                                } else {
+                                                    this.run_slash_command(label, window, cx);
+                                                }
+                                            }))
+                                            .into_any_element(),
+                                    );
+                                }
+                                rows
+                            })
                     }))
                     .children(mention_open.then(|| {
                         let query = mention
@@ -3231,24 +3297,50 @@ fn trailing_mention(text: &str) -> Option<(usize, String)> {
     Some((position, query.to_string()))
 }
 
-fn slash_candidates_for(value: &str) -> Vec<(&'static str, &'static str)> {
+struct SlashEntry {
+    category: &'static str,
+    label: &'static str,
+    description: String,
+    tool: Option<&'static str>,
+}
+
+fn slash_entries_for(registry: &ToolRegistry, value: &str) -> Vec<SlashEntry> {
     let trimmed = value.trim_start();
     let Some(query) = trimmed.strip_prefix('/') else {
         return Vec::new();
     };
     let query = query.trim().to_ascii_lowercase();
-    SLASH_COMMANDS
+    let mut entries: Vec<SlashEntry> = SLASH_COMMANDS
         .iter()
-        .copied()
         .filter(|(command, description)| {
             query.is_empty()
-                || command
-                    .trim_start_matches('/')
-                    .to_ascii_lowercase()
-                    .starts_with(&query)
+                || command.to_ascii_lowercase().contains(&query)
                 || description.to_ascii_lowercase().contains(&query)
         })
-        .collect()
+        .map(|(command, description)| SlashEntry {
+            category: "命令",
+            label: command,
+            description: description.to_string(),
+            tool: None,
+        })
+        .collect();
+    entries.extend(
+        registry
+            .list_descriptions()
+            .into_iter()
+            .filter(|(name, description)| {
+                query.is_empty()
+                    || name.to_ascii_lowercase().contains(&query)
+                    || description.to_ascii_lowercase().contains(&query)
+            })
+            .map(|(name, description)| SlashEntry {
+                category: "工具",
+                label: name,
+                description: description.to_string(),
+                tool: Some(name),
+            }),
+    );
+    entries
 }
 
 fn render_subagent_row(
@@ -3389,6 +3481,17 @@ fn now_secs() -> i64 {
 #[cfg(test)]
 mod workspace_prompt_tests {
     use super::{build_workspace_system_prompt, now_secs, offline_echo_notice};
+
+    #[test]
+    fn slash_entries_are_grouped_and_filtered() {
+        let registry = cgc_agent_tools::ToolRegistry::with_read_tools();
+        let all = super::slash_entries_for(&registry, "/");
+        assert!(all.iter().any(|entry| entry.category == "命令"));
+        assert!(all.iter().any(|entry| entry.category == "工具"));
+        let filtered = super::slash_entries_for(&registry, "/read");
+        assert!(filtered.iter().all(|entry| entry.category == "工具"));
+        assert!(!filtered.is_empty());
+    }
 
     #[test]
     fn offline_notice_only_when_using_echo() {

@@ -80,6 +80,14 @@ impl ToolRegistry {
         self.tools.iter().find(|tool| tool.name() == name)
     }
 
+    /// 工具名 + 描述，用于 UI 展示。
+    pub fn list_descriptions(&self) -> Vec<(&'static str, &'static str)> {
+        self.tools
+            .iter()
+            .map(|tool| (tool.name(), tool.description()))
+            .collect()
+    }
+
     pub fn schemas(&self) -> Vec<ToolSchema> {
         self.tools.iter().map(|tool| tool.to_schema()).collect()
     }
