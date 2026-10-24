@@ -280,7 +280,7 @@ impl NativeAgentView {
                 thread
             }
             None => {
-                state.push_system("Native agent demo：离线模式回显；配置环境变量后接真实模型。");
+                state.push_system("未配置可用的 Provider API Key，当前离线回显模式。请在 Settings → AI → LLM Providers 保存 Key 后重新打开 Agent 面板。");
                 Thread::new("native-demo", selected)
             }
         };
