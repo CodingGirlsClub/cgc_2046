@@ -37,6 +37,7 @@ use gpui_kit::component::popover::Popover;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::Sizable;
 use gpui_kit::*;
+use image::GenericImageView as _;
 
 use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 
@@ -86,6 +87,54 @@ struct PendingImage {
     mime: String,
     data: String,
     preview: Option<Arc<RenderImage>>,
+}
+
+/// 与 Zed `language_model::request` 对齐：单图编码后 PNG ≤5MB，最长边 1568px。
+const ANTHROPIC_SIZE_LIMIT: u32 = 1568;
+const IMAGE_MAX_BYTES: usize = 5 * 1024 * 1024;
+const MAX_IMAGE_DOWNSCALE_PASSES: usize = 8;
+
+fn encode_png(image: &image::DynamicImage) -> Option<Vec<u8>> {
+    let mut cursor = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut cursor, image::ImageFormat::Png).ok()?;
+    Some(cursor.into_inner())
+}
+
+/// 解码 → 尺寸降采样 → PNG 重编码 → 5MB 内迭代缩放。返回 (png 字节, 预览图)。
+fn prepare_clipboard_image(bytes: &[u8]) -> Option<(Vec<u8>, Arc<RenderImage>)> {
+    let mut decoded = image::load_from_memory(bytes).ok()?;
+    let (width, height) = decoded.dimensions();
+    if width > ANTHROPIC_SIZE_LIMIT || height > ANTHROPIC_SIZE_LIMIT {
+        let scale = ANTHROPIC_SIZE_LIMIT as f32 / width.max(height) as f32;
+        decoded = decoded.resize(
+            ((width as f32) * scale).round().max(1.0) as u32,
+            ((height as f32) * scale).round().max(1.0) as u32,
+            image::imageops::FilterType::Triangle,
+        );
+    }
+    let mut png = encode_png(&decoded)?;
+    for _ in 0..MAX_IMAGE_DOWNSCALE_PASSES {
+        if png.len() <= IMAGE_MAX_BYTES {
+            break;
+        }
+        let (width, height) = decoded.dimensions();
+        if width <= 1 || height <= 1 {
+            break;
+        }
+        decoded = decoded.resize(
+            ((width as f32) * 0.85).round().max(1.0) as u32,
+            ((height as f32) * 0.85).round().max(1.0) as u32,
+            image::imageops::FilterType::Triangle,
+        );
+        png = encode_png(&decoded)?;
+    }
+    if png.len() > IMAGE_MAX_BYTES {
+        return None;
+    }
+    let preview = Arc::new(RenderImage::new(vec![image::Frame::new(
+        decoded.into_rgba8(),
+    )]));
+    Some((png, preview))
 }
 
 pub struct NativeAgentView {
@@ -504,40 +553,18 @@ impl NativeAgentView {
             cx.notify();
             return;
         };
-        if self.pending_images.len() >= 4 {
-            self.status = "最多附加 4 张图片".to_string();
+        let Some((png, preview)) = prepare_clipboard_image(&image.bytes) else {
+            self.status = "图片无法处理（格式不支持或超过 5MB）".to_string();
             cx.notify();
             return;
-        }
-        if image.bytes.len() > 10 * 1024 * 1024 {
-            self.status = "图片超过 10MB 限制".to_string();
-            cx.notify();
-            return;
-        }
-        let mime = match image.format {
-            ImageFormat::Png => "image/png",
-            ImageFormat::Jpeg => "image/jpeg",
-            ImageFormat::Webp => "image/webp",
-            ImageFormat::Gif => "image/gif",
-            _ => {
-                self.status = "不支持的图片格式".to_string();
-                cx.notify();
-                return;
-            }
         };
-        let data = base64::engine::general_purpose::STANDARD.encode(&image.bytes);
-        let preview = image::load_from_memory(&image.bytes).ok().map(|decoded| {
-            Arc::new(RenderImage::new(vec![image::Frame::new(
-                decoded.into_rgba8(),
-            )]))
-        });
+        let data = base64::engine::general_purpose::STANDARD.encode(&png);
         let index = self.pending_images.len() + 1;
-        let extension = mime.trim_start_matches("image/");
         self.pending_images.push(PendingImage {
-            name: format!("pasted-image-{index}.{extension}"),
-            mime: mime.to_string(),
+            name: format!("pasted-image-{index}.png"),
+            mime: "image/png".to_string(),
             data,
-            preview,
+            preview: Some(preview),
         });
         self.status = "已添加图片附件".to_string();
         cx.notify();
