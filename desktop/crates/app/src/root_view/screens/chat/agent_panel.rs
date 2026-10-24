@@ -58,6 +58,23 @@ pub(in crate::root_view) fn render_agent_panel(
         .into_any_element()
 }
 
+fn menu_separator(palette: theme::Palette) -> AnyElement {
+    div()
+        .my(px(2.0))
+        .h(px(1.0))
+        .w_full()
+        .bg(palette.line)
+        .into_any_element()
+}
+
+fn agent_icon_path(id: &str) -> SharedString {
+    match id {
+        "claude_code" => AssetIcon::Asterisk.path(),
+        "codex" | "opencode" => AssetIcon::SquareTerminal.path(),
+        _ => AssetIcon::Bot.path(),
+    }
+}
+
 fn panel_title(ctx: &ScreenContext<'_>, cx: &mut Context<RootView>) -> String {
     if ctx.native_chat_mode && RootView::native_agent_enabled() {
         return ctx
@@ -244,42 +261,11 @@ fn header(
                 })
                 .content(move |_, _, cx| {
                     let dismiss = cx.entity().downgrade();
-                    let native_root = add_menu_root.clone();
-                    let native_dismiss = dismiss.clone();
-                    let rows: Vec<AnyElement> = agent_options
-                        .iter()
-                        .map(|(id, name)| {
-                            let row_root = add_menu_root.clone();
-                            let row_dismiss = dismiss.clone();
-                            let id = id.clone();
-                            let name = name.clone();
-                            div()
-                                .id(SharedString::from(format!("agent-panel-agent-{id}")))
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .gap(space(1))
-                                .px(space(1))
-                                .py(px(3.0))
-                                .rounded(px(RADIUS_SMALL))
-                                .text_size(px(11.0))
-                                .text_color(palette.ink_2)
-                                .hover(|style| style.bg(palette.soft))
-                                .child(div().flex_1().child(name.clone()))
-                                .on_click(move |_, window, cx| {
-                                    let _ = row_root.update(cx, |this, cx| {
-                                        this.select_chat_agent(id.clone(), name.clone(), cx);
-                                    });
-                                    let _ = row_dismiss
-                                        .update(cx, |state, cx| state.dismiss(window, cx));
-                                })
-                                .into_any_element()
-                        })
-                        .collect();
-                    let mut rows = rows;
+                    let mut rows: Vec<AnyElement> = Vec::new();
                     if RootView::native_agent_enabled() {
-                        rows.insert(
-                            0,
+                        let cgc_root = add_menu_root.clone();
+                        let cgc_dismiss = dismiss.clone();
+                        rows.push(
                             div()
                                 .id("agent-panel-native")
                                 .flex()
@@ -292,6 +278,7 @@ fn header(
                                 .text_size(px(11.0))
                                 .text_color(palette.ink_2)
                                 .hover(|style| style.bg(palette.soft))
+                                .child(Icon::default().path(AssetIcon::Bot.path()).small())
                                 .child(div().flex_1().child("CGC Agent"))
                                 .child(
                                     div()
@@ -300,17 +287,28 @@ fn header(
                                         .child("Native"),
                                 )
                                 .on_click(move |_, window, cx| {
-                                    let _ = native_root.update(cx, |this, cx| {
+                                    let _ = cgc_root.update(cx, |this, cx| {
                                         this.enter_native_chat(cx);
                                         this.new_native_chat(cx);
                                     });
-                                    let _ = native_dismiss
+                                    let _ = cgc_dismiss
                                         .update(cx, |state, cx| state.dismiss(window, cx));
                                 })
                                 .into_any_element(),
                         );
                     }
-                    if rows.is_empty() {
+                    rows.push(menu_separator(palette));
+                    rows.push(
+                        div()
+                            .px(space(1))
+                            .pt(px(2.0))
+                            .pb(px(1.0))
+                            .text_size(px(10.0))
+                            .text_color(palette.ink_3)
+                            .child("External Agents")
+                            .into_any_element(),
+                    );
+                    if agent_options.is_empty() {
                         rows.push(
                             div()
                                 .px(space(1))
@@ -324,18 +322,56 @@ fn header(
                                 })
                                 .into_any_element(),
                         );
+                    } else {
+                        for (id, name) in &agent_options {
+                            let row_root = add_menu_root.clone();
+                            let row_dismiss = dismiss.clone();
+                            let id = id.clone();
+                            let name = name.clone();
+                            let icon_path = agent_icon_path(&id);
+                            rows.push(
+                                div()
+                                    .id(SharedString::from(format!("agent-panel-agent-{id}")))
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap(space(1))
+                                    .px(space(1))
+                                    .py(px(3.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child(Icon::default().path(icon_path).small())
+                                    .child(div().flex_1().child(name.clone()))
+                                    .on_click(move |_, window, cx| {
+                                        let _ = row_root.update(cx, |this, cx| {
+                                            this.select_chat_agent(id.clone(), name.clone(), cx);
+                                        });
+                                        let _ = row_dismiss
+                                            .update(cx, |state, cx| state.dismiss(window, cx));
+                                    })
+                                    .into_any_element(),
+                            );
+                        }
                     }
+                    rows.push(menu_separator(palette));
                     let add_weak = add_menu_root.clone();
                     let add_dismiss = dismiss.clone();
                     rows.push(
                         div()
                             .id("agent-panel-add-more")
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(1))
                             .px(space(1))
                             .py(px(3.0))
                             .rounded(px(RADIUS_SMALL))
                             .text_size(px(11.0))
                             .text_color(palette.accent)
                             .hover(|style| style.bg(palette.soft))
+                            .child(Icon::default().path(AssetIcon::Plus.path()).small())
                             .child("Add More Agents")
                             .on_click(move |_, window, cx| {
                                 let _ = add_weak.update(cx, |this, cx| {
@@ -347,7 +383,7 @@ fn header(
                             .into_any_element(),
                     );
                     div()
-                        .w(px(220.0))
+                        .w(px(240.0))
                         .flex()
                         .flex_col()
                         .gap(px(1.0))
