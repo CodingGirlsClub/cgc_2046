@@ -159,6 +159,8 @@ pub struct NativeAgentView {
     show_checkpoint_panel: bool,
     turn_seq: u64,
     providers: Vec<ProviderPrefs>,
+    /// 当前 provider 是否为 Echo 回退（没有可用的 base URL / API Key）。
+    using_echo: bool,
     keychain: Option<KeychainStore>,
     effort_index: usize,
     thinking_enabled: bool,
@@ -236,6 +238,10 @@ impl NativeAgentView {
             model_id.clone(),
             model_id,
             ModelLimits::new(model_config.context_window, model_config.max_output_tokens),
+        );
+        let using_echo = !matches!(
+            (&base_url, &api_key),
+            (Some(base_url), Some(api_key)) if !base_url.is_empty() && !api_key.is_empty()
         );
         let provider: Arc<dyn Provider> = match (&base_url, &api_key) {
             (Some(base_url), Some(api_key)) if !base_url.is_empty() && !api_key.is_empty() => {
@@ -412,6 +418,7 @@ impl NativeAgentView {
             action_audit,
             subagent_tx,
             providers,
+            using_echo,
             keychain,
             effort_index: 0,
             thinking_enabled: true,
@@ -535,6 +542,7 @@ impl NativeAgentView {
     }
 
     fn add_clipboard_image(&mut self, cx: &mut Context<Self>) {
+        self.refresh_provider_credentials(cx);
         if !self.model_supports_images() {
             self.status = "当前模型不支持图片输入".to_string();
             cx.notify();
@@ -572,6 +580,7 @@ impl NativeAgentView {
 
     /// 对齐 Zed：＋ → Image 打开系统文件选择器（多选），再加载为附件。
     fn add_images_from_picker(&mut self, cx: &mut Context<Self>) {
+        self.refresh_provider_credentials(cx);
         if !self.model_supports_images() {
             self.status = "当前模型不支持图片输入".to_string();
             cx.notify();
@@ -623,7 +632,43 @@ impl NativeAgentView {
         .detach();
     }
 
+    /// Settings 保存 Key 后，已打开的面板不会重建；发送前重载一次凭据。
+    fn refresh_provider_credentials(&mut self, cx: &mut Context<Self>) {
+        if !self.using_echo {
+            return;
+        }
+        let prefs = PrefsStore::new(AppPaths::from_env().agent_prefs_file()).load();
+        self.providers = prefs.providers.clone();
+        let Some(active) = prefs.active_provider() else {
+            return;
+        };
+        if active.base_url.is_empty() {
+            return;
+        }
+        let Some(api_key) = self
+            .keychain
+            .as_ref()
+            .and_then(|keychain| keychain.load_secret(&provider_key_account(&active.id)))
+        else {
+            return;
+        };
+        if api_key.is_empty() {
+            return;
+        }
+        self.provider = Arc::new(OpenAiCompatibleProvider::new(OpenAiCompatibleConfig::new(
+            active.base_url.clone(),
+            api_key,
+            vec![self.model.clone()],
+        )));
+        self.using_echo = false;
+        self.status = "已读取 Provider API Key，使用真实模型".to_string();
+        self.state
+            .push_system("已重新读取 Provider API Key，后续请求使用真实模型。");
+        cx.notify();
+    }
+
     fn send_prompt(&mut self, text: String, cx: &mut Context<Self>) {
+        self.refresh_provider_credentials(cx);
         self.reload_latest_session();
         self.turn_seq += 1;
         if let Some(thread_id) = self.agent.as_ref().map(|agent| agent.thread().id.clone()) {
