@@ -14,7 +14,7 @@ use cgc_agent_store::{
 use cgc_platform::paths::AppPaths;
 use cgc_platform::session::KeychainStore;
 use gpui_kit::component::group_box::GroupBoxVariant;
-use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
+use gpui_kit::component::input::{Input, InputState, TextareaState};
 use gpui_kit::component::setting::{
     SettingField, SettingGroup, SettingItem, SettingPage, Settings,
 };
@@ -661,6 +661,17 @@ impl SettingsWindowView {
             )
             .child(Input::new(&input))
             .into_any_element()
+    }
+
+    fn breadcrumb_item(text: String) -> SettingItem {
+        SettingItem::render(move |_options, _window, cx| {
+            let palette = theme::palette_from_theme(cx);
+            div()
+                .text_size(px(12.0))
+                .text_color(palette.ink_2)
+                .child(text.clone())
+                .into_any_element()
+        })
     }
 
     fn build_settings(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
