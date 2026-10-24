@@ -1202,7 +1202,6 @@ fn render_provider_list(
                         )
                 }))
                 .children(draft.has_key.then(|| {
-                    let reset_weak = weak.clone();
                     div()
                         .id(SharedString::from(format!(
                             "settings-provider-reset-key-{index}"
@@ -1797,25 +1796,6 @@ fn render_provider_cards(
                                     });
                                 }),
                         )
-                        .child(
-                            div()
-                                .id(SharedString::from(format!(
-                                    "settings-provider-reset-{index}"
-                                )))
-                                .role(Role::Button)
-                                .aria_label("清除 provider API Key")
-                                .px(space(2))
-                                .py(px(5.0))
-                                .rounded(px(RADIUS_MEDIUM))
-                                .text_size(px(11.0))
-                                .text_color(palette.ink_3)
-                                .hover(|style| style.bg(palette.soft))
-                                .child("清除 API Key")
-                                .on_click(move |_, _, cx| {
-                                    let _ = reset_weak
-                                        .update(cx, |this, cx| this.reset_provider_key(index, cx));
-                                }),
-                        ),
                 )
                 .into_any_element(),
         );
