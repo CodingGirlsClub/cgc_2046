@@ -39,35 +39,6 @@ use gpui_kit::*;
 
 use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 
-/// 推理档位（映射到 OpenAI-compatible 的 reasoning_effort）。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ThinkingLevel {
-    Off,
-    Low,
-    Medium,
-    High,
-}
-
-impl ThinkingLevel {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Off => "推理 Off",
-            Self::Low => "推理 Low",
-            Self::Medium => "推理 Medium",
-            Self::High => "推理 High",
-        }
-    }
-
-    fn level_index(self) -> Option<usize> {
-        match self {
-            Self::Off => None,
-            Self::Low => Some(0),
-            Self::Medium => Some(1),
-            Self::High => Some(2),
-        }
-    }
-}
-
 /// 审批模式：Ask = 逐次审批；Auto = 自动允许。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ApprovalMode {
@@ -131,7 +102,7 @@ pub struct NativeAgentView {
     turn_seq: u64,
     providers: Vec<ProviderPrefs>,
     keychain: Option<KeychainStore>,
-    thinking_level: ThinkingLevel,
+    effort_index: usize,
     thinking_enabled: bool,
     slash_index: usize,
     slash_dismissed: bool,
@@ -382,7 +353,7 @@ impl NativeAgentView {
             subagent_tx,
             providers,
             keychain,
-            thinking_level: ThinkingLevel::Off,
+            effort_index: 0,
             thinking_enabled: true,
             slash_index: 0,
             slash_dismissed: false,
@@ -504,11 +475,11 @@ impl NativeAgentView {
             .find(|provider| provider.id == self.model.provider_id.as_str())
             .map(|provider| provider.model_config(self.model.id.as_str()))
             .unwrap_or_default();
+        let effort_index = self
+            .effort_index
+            .min(model_config.reasoning_efforts.len().saturating_sub(1));
         let effort = if self.thinking_enabled && model_config.supports_thinking {
-            self.thinking_level
-                .level_index()
-                .and_then(|index| model_config.effort_at(index))
-                .map(str::to_string)
+            model_config.effort_at(effort_index).map(str::to_string)
         } else {
             None
         };
@@ -857,11 +828,8 @@ impl NativeAgentView {
 
     fn set_thinking_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
         self.thinking_enabled = enabled;
-        if enabled && self.thinking_level == ThinkingLevel::Off {
-            self.thinking_level = ThinkingLevel::Medium;
-        }
         self.status = if enabled {
-            format!("Thinking 开 · {}", self.thinking_level.label())
+            "Thinking 开".to_string()
         } else {
             "Thinking 关".to_string()
         };
@@ -883,9 +851,9 @@ impl NativeAgentView {
         cx.notify();
     }
 
-    fn set_thinking_level(&mut self, level: ThinkingLevel, cx: &mut Context<Self>) {
-        self.thinking_level = level;
-        self.status = format!("推理档位：{}", level.label());
+    fn set_effort_index(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.effort_index = index;
+        self.status = format!("推理档位索引：{index}");
         cx.notify();
     }
 
@@ -1678,14 +1646,20 @@ impl Render for NativeAgentView {
                             .occlude()
                             .children(rows)
                     });
+                let current_effort = self
+                    .effort_index
+                    .min(effort_levels.len().saturating_sub(1));
                 let thinking_label = if thinking_supported && self.thinking_enabled {
-                    self.thinking_level.label()
+                    effort_levels
+                        .get(current_effort)
+                        .map(String::as_str)
+                        .unwrap_or("Thinking")
                 } else if thinking_supported {
                     "Thinking 关"
                 } else {
                     "推理 —"
                 };
-                let current_level = self.thinking_level;
+                let effort_levels_for_menu = effort_levels.clone();
                 let effort_picker = (thinking_supported && !effort_levels.is_empty()).then(|| {
                     Popover::new("native-thinking-picker")
                         .trigger(
@@ -1697,17 +1671,14 @@ impl Render for NativeAgentView {
                         )
                         .content(move |_, _, cx| {
                             let dismiss = cx.entity().downgrade();
-                            let rows = [
-                                (ThinkingLevel::Off, "Off"),
-                                (ThinkingLevel::Low, "Low"),
-                                (ThinkingLevel::Medium, "Medium"),
-                                (ThinkingLevel::High, "High"),
-                            ]
-                            .into_iter()
-                            .map(|(level, label)| {
+                            let rows = effort_levels_for_menu
+                            .iter()
+                            .cloned()
+                            .enumerate()
+                            .map(|(level_index, label)| {
                                 let root = thinking_root.clone();
                                 let row_dismiss = dismiss.clone();
-                                let selected = level == current_level;
+                                let selected = level_index == current_effort;
                                 div()
                                     .id(SharedString::from(format!("native-thinking-{label}")))
                                     .flex()
@@ -1734,7 +1705,7 @@ impl Render for NativeAgentView {
                                             return;
                                         }
                                         let _ = root.update(cx, |this, cx| {
-                                            this.set_thinking_level(level, cx);
+                                            this.set_effort_index(level_index, cx);
                                         });
                                         let _ = row_dismiss
                                             .update(cx, |state, cx| state.dismiss(window, cx));
