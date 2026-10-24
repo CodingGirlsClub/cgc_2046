@@ -498,7 +498,17 @@ impl NativeAgentView {
         let Some(mut agent) = self.agent.take() else {
             return;
         };
-        agent.set_reasoning_effort(if self.thinking_enabled {
+        let model_supports_thinking = self
+            .providers
+            .iter()
+            .find(|provider| provider.id == self.model.provider_id.as_str())
+            .map(|provider| {
+                provider
+                    .model_config(self.model.id.as_str())
+                    .supports_thinking
+            })
+            .unwrap_or(false);
+        agent.set_reasoning_effort(if self.thinking_enabled && model_supports_thinking {
             self.thinking_level.reasoning_effort().map(str::to_string)
         } else {
             None
@@ -1573,9 +1583,16 @@ impl Render for NativeAgentView {
             .child({
                 let current_provider_id = self.model.provider_id.as_str().to_string();
                 let current_model_id = self.model.id.as_str().to_string();
-                let thinking_supported = self.providers.iter().any(|provider| {
-                    provider.id == current_provider_id && provider.supports_thinking
-                });
+                let thinking_supported = self
+                    .providers
+                    .iter()
+                    .find(|provider| provider.id == self.model.provider_id.as_str())
+                    .map(|provider| {
+                        provider
+                            .model_config(self.model.id.as_str())
+                            .supports_thinking
+                    })
+                    .unwrap_or(false);
                 let providers_for_menu = self.providers.clone();
                 let model_root = cx.entity().downgrade();
                 let thinking_root = cx.entity().downgrade();

@@ -19,7 +19,6 @@ use gpui_kit::component::input::{Input, InputState, TextareaState};
 use gpui_kit::component::setting::{
     SettingField, SettingGroup, SettingItem, SettingPage, Settings,
 };
-use gpui_kit::component::switch::Switch;
 use gpui_kit::component::Sizable;
 use gpui_kit::InteractiveElement;
 use gpui_kit::*;
@@ -1337,7 +1336,6 @@ fn render_provider_cards(
         };
         let remove_weak = weak.clone();
         let save_weak = weak.clone();
-        let thinking_weak = weak.clone();
         cards.push(
             div()
                 .flex()
@@ -1375,34 +1373,6 @@ fn render_provider_cards(
                                     let _ = remove_weak
                                         .update(cx, |this, cx| this.remove_provider(index, cx));
                                 }),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .justify_between()
-                        .gap(space(2))
-                        .child(
-                            div()
-                                .text_size(px(11.0))
-                                .text_color(palette.ink_3)
-                                .child("支持推理档位（thinking）"),
-                        )
-                        .child(
-                            Switch::new(SharedString::from(format!(
-                                "settings-provider-thinking-{index}"
-                            )))
-                            .checked(draft.supports_thinking)
-                            .on_change(move |checked, _, cx| {
-                                let _ = thinking_weak.update(cx, |this, cx| {
-                                    if let Some(draft) = this.provider_drafts.get_mut(index) {
-                                        draft.supports_thinking = *checked;
-                                    }
-                                    cx.notify();
-                                });
-                            }),
                         ),
                 )
                 .child(SettingsWindowView::render_provider_field(
