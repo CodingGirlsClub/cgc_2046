@@ -229,16 +229,44 @@ impl Render for ImageViewer {
                     )
                     .child(
                         div()
-                            .id("native-image-viewer-close")
-                            .role(Role::Button)
-                            .aria_label("关闭")
-                            .px(space(1))
-                            .rounded(px(RADIUS_SMALL))
-                            .text_size(px(12.0))
-                            .text_color(palette.ink_2)
-                            .hover(|style| style.bg(palette.soft))
-                            .child("关闭")
-                            .on_click(|_, window, _cx| window.remove_window()),
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(2))
+                            .child(
+                                div().text_size(px(10.0)).text_color(palette.ink_3).child(
+                                    "滚轮缩放 · 拖动平移 · 双击还原 · Cmd+0 还原 · Esc 关闭",
+                                ),
+                            )
+                            .child(
+                                div()
+                                    .id("native-image-viewer-fit")
+                                    .role(Role::Button)
+                                    .aria_label("适应窗口")
+                                    .px(space(1))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .text_size(px(12.0))
+                                    .text_color(palette.ink_2)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child("适应窗口")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.reset();
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .id("native-image-viewer-close")
+                                    .role(Role::Button)
+                                    .aria_label("关闭")
+                                    .px(space(1))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .text_size(px(12.0))
+                                    .text_color(palette.ink_2)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child("关闭")
+                                    .on_click(|_, window, _cx| window.remove_window()),
+                            ),
                     ),
             )
             .child(
