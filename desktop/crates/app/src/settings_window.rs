@@ -343,6 +343,43 @@ impl SettingsWindowView {
         cx.notify();
     }
 
+    fn save_provider_key(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(draft) = self.provider_drafts.get(index).cloned() else {
+            return;
+        };
+        let Some(input) = draft.api_key_input.clone() else {
+            return;
+        };
+        let key = input.read(cx).value().trim().to_string();
+        if key.is_empty() {
+            self.error = Some("API Key 不能为空".to_string());
+            cx.notify();
+            return;
+        }
+        match self
+            .keychain
+            .save_secret(&provider_key_account(&draft.id), &key)
+        {
+            Ok(()) => {
+                input.update(cx, |state, cx| state.set_value("", window, cx));
+                if let Some(draft) = self.provider_drafts.get_mut(index) {
+                    draft.has_key = true;
+                    let provider = draft.to_prefs();
+                    let mut prefs = self.prefs_store.load();
+                    prefs.upsert_provider(provider);
+                    if prefs.selected_provider.as_deref().is_none() {
+                        prefs.selected_provider = Some(self.provider_drafts[index].id.clone());
+                    }
+                    let _ = self.prefs_store.save(&prefs);
+                }
+                self.notice = Some("API Key 已保存".to_string());
+                self.error = None;
+            }
+            Err(error) => self.error = Some(format!("API Key 保存失败：{error}")),
+        }
+        cx.notify();
+    }
+
     fn save_provider(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
@@ -944,6 +981,57 @@ fn render_provider_list(
                                 .child(format!("{status} · 已启用 {enabled}/{total} 模型")),
                         ),
                 )
+                .children((!draft.has_key).then(|| {
+                    let input = draft.api_key_input.clone().expect("key input created");
+                    let save_weak = weak.clone();
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(space(1))
+                        .child(div().w(px(220.0)).child(Input::new(&input)))
+                        .child(
+                            div()
+                                .id(SharedString::from(format!(
+                                    "settings-provider-save-key-{index}"
+                                )))
+                                .role(Role::Button)
+                                .aria_label("保存 API Key")
+                                .px(space(2))
+                                .py(px(3.0))
+                                .rounded(px(RADIUS_SMALL))
+                                .bg(palette.accent)
+                                .text_color(palette.canvas)
+                                .text_size(px(10.0))
+                                .child("保存 Key")
+                                .on_click(move |_, window, cx| {
+                                    let _ = save_weak.update(cx, |this, cx| {
+                                        this.save_provider_key(index, window, cx);
+                                    });
+                                }),
+                        )
+                }))
+                .children(draft.has_key.then(|| {
+                    let reset_weak = weak.clone();
+                    div()
+                        .id(SharedString::from(format!(
+                            "settings-provider-reset-key-{index}"
+                        )))
+                        .role(Role::Button)
+                        .aria_label("重置 API Key")
+                        .px(space(2))
+                        .py(px(3.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .text_size(px(10.0))
+                        .text_color(palette.ink_3)
+                        .hover(|style| style.bg(palette.soft))
+                        .child("重置 Key")
+                        .on_click(move |_, _, cx| {
+                            let _ = reset_weak.update(cx, |this, cx| {
+                                this.reset_provider_key(index, cx);
+                            });
+                        })
+                }))
                 .child(
                     div()
                         .id(SharedString::from(format!(
