@@ -1343,8 +1343,7 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         self.pending_thread_delete = None;
-        self.native_chat_mode = true;
-        crate::chat_state::save_native_chat_mode(true);
+        self.set_native_chat_mode(true);
         if self.native_agent_view.is_none() {
             let view = cx.new(|cx| crate::native_agent_view::NativeAgentView::new(window, cx));
             self.native_agent_view = Some(view);
@@ -1967,11 +1966,19 @@ impl RootView {
         keystroke.key == "," && (keystroke.modifiers.platform || keystroke.modifiers.control)
     }
 
+    /// 切换 Agent Panel 的 native/ACP 模式：内存态与持久化必须同时落。
+    ///
+    /// 只写 chat_state 会让内存里的 `native_chat_mode` 保持旧值，面板继续渲染
+    /// 旧模式（外部 ACP 会话在后台建出来却看不见）。
+    fn set_native_chat_mode(&mut self, enabled: bool) {
+        self.native_chat_mode = enabled;
+        crate::chat_state::save_native_chat_mode(enabled);
+    }
+
     /// 打开独立设置窗口（对齐 Zed 的 SettingsWindow）：已存在则激活复用。
     /// 「+」菜单选择 CGC Agent：在 Agent Panel 内切到 native agent。
     pub fn enter_native_chat(&mut self, cx: &mut Context<Self>) {
-        self.native_chat_mode = true;
-        crate::chat_state::save_native_chat_mode(true);
+        self.set_native_chat_mode(true);
         self.agent_panel_editing_title = false;
         self.agent_panel_title_hovered = false;
         cx.notify();
@@ -1979,8 +1986,7 @@ impl RootView {
 
     /// 在 Agent Panel 内开启一个新的 native 会话。
     pub fn new_native_chat(&mut self, cx: &mut Context<Self>) {
-        self.native_chat_mode = true;
-        crate::chat_state::save_native_chat_mode(true);
+        self.set_native_chat_mode(true);
         self.agent_panel_editing_title = false;
         self.agent_panel_title_hovered = false;
         if let Some(view) = &self.native_agent_view {
@@ -1991,8 +1997,8 @@ impl RootView {
 
     /// 课程页对话面板在 ACP 与 native agent 之间切换（P1b 内联灰度）。
     pub fn toggle_native_chat_mode(&mut self, cx: &mut Context<Self>) {
-        self.native_chat_mode = !self.native_chat_mode;
-        crate::chat_state::save_native_chat_mode(self.native_chat_mode);
+        let enabled = !self.native_chat_mode;
+        self.set_native_chat_mode(enabled);
         cx.notify();
     }
 
@@ -3280,21 +3286,22 @@ impl RootView {
         .detach();
     }
 
-    pub(in crate::root_view) fn select_chat_agent(
+    /// 切到 external ACP agent 前的面板状态重置（不含 host 生命周期与启动）。
+    ///
+    /// 必须把面板切回 ACP 视图：只写 chat_state 会让 Agent Panel 继续渲染
+    /// native 视图，ACP 会话在后台建出来却看不见。
+    pub(in crate::root_view) fn reset_chat_for_external_agent(
         &mut self,
-        id: String,
-        display_name: String,
-        cx: &mut Context<Self>,
+        id: &str,
+        display_name: &str,
     ) {
         self.site_tree_search_focused = false;
-        save_selected_agent(&id);
-        self.chat.selected_agent = Some(id);
-        self.chat.agent = display_name;
-        crate::chat_state::save_native_chat_mode(false);
+        save_selected_agent(id);
+        self.chat.selected_agent = Some(id.to_string());
+        self.chat.agent = display_name.to_string();
+        self.set_native_chat_mode(false);
         self.chat.phase = ChatPhase::Idle;
         self.chat.host.take();
-        self.revoke_chat_lease(cx);
-        self.chat.lease = None;
         self.chat.messages.clear();
         self.chat.session_id = None;
         self.chat.restore_id = None;
@@ -3306,6 +3313,16 @@ impl RootView {
         self.chat.commands.clear();
         self.chat.configs_applied = false;
         self.chat.auto_prompted = false;
+    }
+
+    pub(in crate::root_view) fn select_chat_agent(
+        &mut self,
+        id: String,
+        display_name: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.reset_chat_for_external_agent(&id, &display_name);
+        self.revoke_chat_lease(cx);
         self.start_chat(cx);
     }
 

@@ -2810,4 +2810,36 @@ mod tests {
         assert_eq!(view.wechat_login, WechatLoginView::Idle);
         assert_eq!(view.wechat_generation, generation + 2);
     }
+
+    /// 回归：从 native（CGC Agent）切到外部 ACP agent 时，Agent Panel 必须离开
+    /// native 视图。只写 chat_state 而不同步内存态，会让 ACP 会话在后台建出来
+    /// 却看不见（面板停在 native 视图）。
+    #[test]
+    fn selecting_external_agent_leaves_native_chat_mode() {
+        let state_file =
+            std::env::temp_dir().join(format!("cgc-chat-state-select-{}.json", std::process::id()));
+        let _ = std::fs::remove_file(&state_file);
+        // 隔离 chat_state 读写：测试不写本机真实状态，也不受已有登录/模式影响。
+        std::env::set_var("CGC_CHAT_STATE_FILE", &state_file);
+
+        let mut view = view();
+        view.native_chat_mode = true;
+        assert!(view.native_chat_mode, "前置条件：面板先处在 native 模式");
+
+        view.reset_chat_for_external_agent("claude_code", "Claude Code");
+
+        assert_eq!(view.chat.selected_agent.as_deref(), Some("claude_code"));
+        assert!(
+            !view.native_chat_mode,
+            "Agent Panel 仍停在 native 视图：ACP 会话建出来也看不见"
+        );
+        assert_eq!(
+            crate::chat_state::load_native_chat_mode(),
+            Some(false),
+            "持久化模式也要落回 ACP"
+        );
+
+        std::env::remove_var("CGC_CHAT_STATE_FILE");
+        let _ = std::fs::remove_file(&state_file);
+    }
 }
