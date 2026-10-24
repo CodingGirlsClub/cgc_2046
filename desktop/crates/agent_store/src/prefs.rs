@@ -112,14 +112,53 @@ impl ProviderPrefs {
 }
 
 /// 跨会话保留的 agent 偏好。
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentPrefs {
+    /// 配置 schema 版本；用于一次性迁移新能力字段的默认值。
+    #[serde(default)]
+    pub schema_version: u32,
     pub selected_model: Option<SelectedModel>,
     pub selected_provider: Option<String>,
     pub providers: Vec<ProviderPrefs>,
 }
 
+impl Default for AgentPrefs {
+    fn default() -> Self {
+        Self {
+            schema_version: 1,
+            selected_model: None,
+            selected_provider: None,
+            providers: Vec::new(),
+        }
+    }
+}
+
 impl AgentPrefs {
+    /// 一次性迁移：旧配置的模型能力字段取 catalog 默认值（如 DeepSeek flash 的图片支持）。
+    pub fn migrate(&mut self) {
+        if self.schema_version >= 1 {
+            return;
+        }
+        let catalog = builtin_providers();
+        for provider in &mut self.providers {
+            if !provider.builtin {
+                continue;
+            }
+            let Some(default) = catalog.iter().find(|item| item.id == provider.id) else {
+                continue;
+            };
+            for model in &mut provider.model_params {
+                let Some(catalog_model) =
+                    default.model_params.iter().find(|item| item.id == model.id)
+                else {
+                    continue;
+                };
+                model.supports_images = catalog_model.supports_images;
+            }
+        }
+        self.schema_version = 1;
+    }
+
     pub fn active_provider(&self) -> Option<&ProviderPrefs> {
         if let Some(id) = &self.selected_provider {
             if let Some(provider) = self.providers.iter().find(|provider| &provider.id == id) {
@@ -182,7 +221,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         supports_thinking: true,
         enabled: true,
         supports_tools: true,
-        supports_images: false,
+        supports_images: true,
         reasoning_efforts: vec!["low".into(), "high".into(), "max".into()],
     });
     deepseek.upsert_model(ModelPrefs {
@@ -292,10 +331,12 @@ impl PrefsStore {
     }
 
     pub fn load(&self) -> AgentPrefs {
-        std::fs::read_to_string(&self.path)
+        let mut prefs = std::fs::read_to_string(&self.path)
             .ok()
             .and_then(|raw| serde_json::from_str::<AgentPrefs>(&raw).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        prefs.migrate();
+        prefs
     }
 
     /// 原子写入：先写 `.tmp` 再 rename，避免半截文件。
@@ -351,6 +392,7 @@ mod tests {
         let dir = temp_dir("roundtrip");
         let store = PrefsStore::new(dir.join("agent_prefs.json"));
         let prefs = AgentPrefs {
+            schema_version: 1,
             selected_model: Some(selected()),
             selected_provider: Some("deepseek".to_string()),
             providers: vec![provider("deepseek", "https://api.deepseek.com/v1")],
@@ -408,6 +450,39 @@ mod tests {
         prefs.remove_provider("b");
         assert_eq!(prefs.providers.len(), 1);
         assert_eq!(prefs.selected_provider.as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn migration_enables_image_support_for_builtin_models() {
+        let dir = temp_dir("migrate-images");
+        let store = PrefsStore::new(dir.join("agent_prefs.json"));
+        let mut flash = ModelPrefs::new("deepseek-flash");
+        flash.supports_images = false;
+        let prefs = AgentPrefs {
+            schema_version: 0,
+            selected_model: None,
+            selected_provider: Some("deepseek".to_string()),
+            providers: vec![ProviderPrefs {
+                id: "deepseek".to_string(),
+                name: "DeepSeek".to_string(),
+                base_url: "https://api.deepseek.com".to_string(),
+                models: vec!["deepseek-flash".to_string()],
+                has_key: true,
+                model_params: vec![flash],
+                builtin: true,
+            }],
+        };
+        store.save(&prefs).expect("save");
+        let loaded = store.load();
+        assert!(
+            loaded
+                .provider("deepseek")
+                .unwrap()
+                .model_config("deepseek-flash")
+                .supports_images
+        );
+        assert_eq!(loaded.schema_version, 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
