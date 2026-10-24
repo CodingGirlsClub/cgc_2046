@@ -33,6 +33,7 @@ use cgc_platform::session::AuthApi;
 #[derive(Clone)]
 struct ModelFieldInputs {
     model_id: String,
+    name_input: Entity<InputState>,
     context_input: Entity<InputState>,
     output_input: Entity<InputState>,
     enabled: bool,
@@ -312,10 +313,13 @@ impl SettingsWindowView {
             for model in &parsed_models {
                 let context = model.context_window.to_string();
                 let output = model.max_output_tokens.to_string();
+                let name = model.id.clone();
+                let name_input = cx.new(|cx| InputState::new(window, cx).default_value(name));
                 let context_input = cx.new(|cx| InputState::new(window, cx).default_value(context));
                 let output_input = cx.new(|cx| InputState::new(window, cx).default_value(output));
                 fields.push(ModelFieldInputs {
                     model_id: model.id.clone(),
+                    name_input,
                     context_input,
                     output_input,
                     enabled: model.enabled,
@@ -353,21 +357,17 @@ impl SettingsWindowView {
             .map(|field| {
                 let context = field.context_input.read(cx).value().trim().to_string();
                 let output = field.output_input.read(cx).value().trim().to_string();
+                let name = field.name_input.read(cx).value().trim().to_string();
+                let name = if name.is_empty() {
+                    field.model_id.clone()
+                } else {
+                    name
+                };
+                let context: u32 = context.parse().unwrap_or(64_000).max(1);
+                let output: u32 = output.parse().unwrap_or(8_000).max(1).min(context);
                 format!(
                     "{} | {} | {} | {} | {}",
-                    field.model_id,
-                    if context.is_empty() {
-                        "64000".to_string()
-                    } else {
-                        context
-                    },
-                    if output.is_empty() {
-                        "8000".to_string()
-                    } else {
-                        output
-                    },
-                    field.thinking,
-                    field.enabled
+                    name, context, output, field.thinking, field.enabled
                 )
             })
             .collect::<Vec<_>>()
@@ -1417,7 +1417,6 @@ fn render_provider_cards(
                             |(model_index, field)| {
                                 let enabled = field.enabled;
                                 let thinking = field.thinking;
-                                let model_id = field.model_id.clone();
                                 let toggle_weak = weak.clone();
                                 let thinking_weak = weak.clone();
                                 let thinking_cb_weak = thinking_weak.clone();
@@ -1457,8 +1456,8 @@ fn render_provider_cards(
                                             )
                                             .child(
                                                 div()
-                                                    .text_size(px(12.0))
-                                                    .child(model_id.clone()),
+                                                    .w(px(180.0))
+                                                    .child(Input::new(&field.name_input)),
                                             )
                                             .child(div().flex_1())
                                             .child(
