@@ -1014,7 +1014,13 @@ impl SettingsWindowView {
             )
             .page(
                 SettingPage::new("通用")
-                    .group(SettingGroup::new().title("通用").item(close_to_tray)),
+                    .header_style(&hidden_header)
+                    .groups(vec![
+                        SettingGroup::new()
+                            .variant(GroupBoxVariant::Normal)
+                            .item(Self::breadcrumb_item("设置 / 通用".to_string())),
+                        SettingGroup::new().title("通用").item(close_to_tray),
+                    ]),
             )
             .page(ai_page)
             .page(
