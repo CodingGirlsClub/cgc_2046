@@ -322,6 +322,21 @@ impl Render for ImageViewer {
                             .child(img(self.image.clone()).w(px(width)).h(px(height))),
                     ),
             )
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .px(space(2))
+                    .py(px(3.0))
+                    .border_t_1()
+                    .border_color(palette.line)
+                    .text_size(px(10.0))
+                    .text_color(palette.ink_3)
+                    .child("滚轮缩放 · 拖动平移 · 双击还原 · Cmd+0 还原 · Esc 关闭")
+                    .child(format!("{:.0}%", (self.zoom * 100.0).round())),
+            )
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 match event.keystroke.key.as_str() {
                     "escape" => window.remove_window(),
