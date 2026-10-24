@@ -39,6 +39,9 @@ pub struct ModelPrefs {
     /// 是否在 native agent 的模型选择器中启用。
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+    /// 该模型是否支持工具调用。
+    #[serde(default = "default_enabled")]
+    pub supports_tools: bool,
     /// 该模型接受的 reasoning_effort 取值；空表示不下发该字段。
     #[serde(default)]
     pub reasoning_efforts: Vec<String>,
@@ -64,6 +67,7 @@ impl Default for ModelPrefs {
             max_output_tokens: default_max_output_tokens(),
             supports_thinking: false,
             enabled: true,
+            supports_tools: true,
             reasoning_efforts: Vec::new(),
         }
     }
@@ -248,6 +252,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         max_output_tokens: 384_000,
         supports_thinking: true,
         enabled: true,
+        supports_tools: true,
         reasoning_efforts: vec!["low".into(), "high".into(), "max".into()],
     });
     deepseek.upsert_model(ModelPrefs {
@@ -256,6 +261,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         max_output_tokens: 384_000,
         supports_thinking: true,
         enabled: true,
+        supports_tools: true,
         reasoning_efforts: vec!["low".into(), "high".into(), "max".into()],
     });
 
@@ -271,6 +277,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
             max_output_tokens: output,
             supports_thinking: true,
             enabled: true,
+            supports_tools: true,
             reasoning_efforts: vec!["low".into(), "high".into(), "max".into()],
         });
     }
@@ -282,6 +289,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         max_output_tokens: 32_768,
         supports_thinking: true,
         enabled: true,
+        supports_tools: true,
         reasoning_efforts: vec![
             "low".into(),
             "medium".into(),
@@ -296,6 +304,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         max_output_tokens: 32_768,
         supports_thinking: true,
         enabled: true,
+        supports_tools: true,
         reasoning_efforts: Vec::new(),
     });
 
@@ -306,6 +315,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         max_output_tokens: 131_072,
         supports_thinking: true,
         enabled: true,
+        supports_tools: true,
         reasoning_efforts: vec!["low".into(), "high".into(), "max".into()],
     };
     zhipu.upsert_model(glm53);
@@ -315,6 +325,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         max_output_tokens: 131_072,
         supports_thinking: true,
         enabled: true,
+        supports_tools: true,
         reasoning_efforts: Vec::new(),
     });
 
@@ -561,6 +572,7 @@ mod model_param_tests {
             max_output_tokens: 32_000,
             supports_thinking: true,
             enabled: true,
+            supports_tools: true,
             reasoning_efforts: Vec::new(),
         });
         assert_eq!(provider.model_config("m1").context_window, 200_000);
@@ -584,6 +596,11 @@ mod model_param_tests {
 #[cfg(test)]
 mod effort_tests {
     use super::*;
+
+    #[test]
+    fn model_defaults_support_tools() {
+        assert!(ModelPrefs::new("m").supports_tools);
+    }
 
     #[test]
     fn effort_at_maps_and_bounds() {

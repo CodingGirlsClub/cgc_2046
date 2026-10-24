@@ -37,6 +37,7 @@ struct ModelFieldInputs {
     output_input: Entity<InputState>,
     enabled: bool,
     thinking: bool,
+    supports_tools: bool,
 }
 
 /// Settings 里的 provider 编辑草稿（输入框懒创建，避免 new() 需要 window）。
@@ -65,12 +66,13 @@ fn format_model_lines(provider: &ProviderPrefs) -> String {
         .map(|id| {
             let model = provider.model_config(id);
             format!(
-                "{} | {} | {} | {} | {}",
+                "{} | {} | {} | {} | {} | {}",
                 id,
                 model.context_window,
                 model.max_output_tokens,
                 model.supports_thinking,
-                model.enabled
+                model.enabled,
+                model.supports_tools
             )
         })
         .collect::<Vec<_>>()
@@ -105,6 +107,10 @@ fn parse_model_lines(value: &str) -> (Vec<String>, Vec<ModelPrefs>) {
             .get(4)
             .map(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
             .unwrap_or(true);
+        let tools = parts
+            .get(5)
+            .map(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
+            .unwrap_or(true);
         ids.push(id.to_string());
         params.push(ModelPrefs {
             id: id.to_string(),
@@ -112,6 +118,7 @@ fn parse_model_lines(value: &str) -> (Vec<String>, Vec<ModelPrefs>) {
             max_output_tokens: output,
             supports_thinking: thinking,
             enabled,
+            supports_tools: tools,
             reasoning_efforts: Vec::new(),
         });
     }
@@ -147,7 +154,7 @@ impl ProviderDraft {
             id: format!("custom-{serial}"),
             name: "OpenAI Compatible".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
-            models: "gpt-4o-mini | 128000 | 16384 | false".to_string(),
+            models: "gpt-4o-mini | 128000 | 16384 | false | true | true".to_string(),
             has_key: false,
             model_params: Vec::new(),
             builtin: false,
@@ -326,6 +333,7 @@ impl SettingsWindowView {
                     output_input,
                     enabled: model.enabled,
                     thinking: model.supports_thinking,
+                    supports_tools: model.supports_tools,
                 });
             }
             self.provider_drafts[index].model_fields = fields;
@@ -384,17 +392,17 @@ impl SettingsWindowView {
         &mut self,
         index: usize,
         model_index: usize,
-        thinking: bool,
+        flag: u8,
         cx: &mut Context<Self>,
     ) {
         let Some(draft) = self.provider_drafts.get_mut(index) else {
             return;
         };
         if let Some(field) = draft.model_fields.get_mut(model_index) {
-            if thinking {
-                field.thinking = !field.thinking;
-            } else {
-                field.enabled = !field.enabled;
+            match flag {
+                1 => field.thinking = !field.thinking,
+                2 => field.supports_tools = !field.supports_tools,
+                _ => field.enabled = !field.enabled,
             }
         }
         cx.notify();
@@ -1400,9 +1408,11 @@ fn render_provider_cards(
                             |(model_index, field)| {
                                 let enabled = field.enabled;
                                 let thinking = field.thinking;
+                                let supports_tools = field.supports_tools;
                                 let toggle_weak = weak.clone();
                                 let thinking_weak = weak.clone();
                                 let thinking_cb_weak = thinking_weak.clone();
+                                let tools_cb_weak = weak.clone();
                                 let remove_weak = weak.clone();
                                 let context_input = field.context_input.clone();
                                 let output_input = field.output_input.clone();
@@ -1431,7 +1441,7 @@ fn render_provider_cards(
                                                         this.toggle_model_field(
                                                             index,
                                                             model_index,
-                                                            false,
+                                                            0,
                                                             cx,
                                                         );
                                                     });
@@ -1504,7 +1514,7 @@ fn render_provider_cards(
                                                                 this.toggle_model_field(
                                                                     index,
                                                                     model_index,
-                                                                    true,
+                                                                    1,
                                                                     cx,
                                                                 );
                                                             });
@@ -1515,6 +1525,36 @@ fn render_provider_cards(
                                                             .text_size(px(11.0))
                                                             .text_color(palette.ink_2)
                                                             .child("thinking"),
+                                                    )
+                                                    .child(
+                                                        div()
+                                                            .flex()
+                                                            .flex_row()
+                                                            .items_center()
+                                                            .gap(px(4.0))
+                                                            .child(
+                                                                Checkbox::new(SharedString::from(format!(
+                                                                    "settings-model-tools-{index}-{model_index}"
+                                                                )))
+                                                                .large()
+                                                                .checked(supports_tools)
+                                                                .on_click(move |_checked, _, cx| {
+                                                                    let _ = tools_cb_weak.update(cx, |this, cx| {
+                                                                        this.toggle_model_field(
+                                                                            index,
+                                                                            model_index,
+                                                                            2,
+                                                                            cx,
+                                                                        );
+                                                                    });
+                                                                }),
+                                                            )
+                                                            .child(
+                                                                div()
+                                                                    .text_size(px(11.0))
+                                                                    .text_color(palette.ink_2)
+                                                                    .child("tools"),
+                                                            ),
                                                     ),
                                             ),
                                     )

@@ -517,7 +517,17 @@ impl NativeAgentView {
         };
         let provider = self.provider.clone();
         let model = self.model.clone();
-        let registry = self.registry.clone();
+        let model_tools_supported = self
+            .providers
+            .iter()
+            .find(|provider| provider.id == self.model.provider_id.as_str())
+            .map(|provider| provider.model_config(self.model.id.as_str()).supports_tools)
+            .unwrap_or(true);
+        let registry = if model_tools_supported {
+            self.registry.clone()
+        } else {
+            Arc::new(ToolRegistry::new())
+        };
         let context = self.context.clone();
         let task_sender = event_sender.clone();
         let task = cx.background_executor().spawn(async move {
