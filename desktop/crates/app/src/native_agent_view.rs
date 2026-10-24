@@ -35,7 +35,7 @@ use futures::channel::{mpsc, oneshot};
 use futures::StreamExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::hover_card::HoverCard;
-use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
+use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::component::popover::Popover;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::Sizable;
@@ -416,12 +416,6 @@ pub struct NativeAgentView {
     /// 已发送用户消息 index → 图片预览（仅当前进程内显示，不持久化）。
     sent_images: HashMap<usize, Vec<SentImage>>,
     last_input_value: String,
-    editing_title: bool,
-    title_input: Option<Entity<InputState>>,
-    title_subscription: Option<Subscription>,
-    title_hovered: bool,
-    title_generating: bool,
-    title_error: Option<String>,
     queued_messages: Vec<String>,
     steer_sender: std_mpsc::Sender<String>,
     _input_subscription: Option<Subscription>,
@@ -746,12 +740,6 @@ impl NativeAgentView {
             pending_images: Vec::new(),
             sent_images: restored_images,
             last_input_value: String::new(),
-            editing_title: false,
-            title_input: None,
-            title_subscription: None,
-            title_hovered: false,
-            title_generating: false,
-            title_error: None,
             _input_subscription: input_subscription,
         }
     }
@@ -1000,76 +988,33 @@ impl NativeAgentView {
         cx.notify();
     }
 
-    fn thread_title(&self) -> String {
+    pub fn display_title(&self) -> String {
         self.agent
             .as_ref()
-            .and_then(|agent| agent.thread().title.clone())
-            .filter(|title| !title.trim().is_empty())
+            .and_then(|agent| agent.thread().display_title())
             .unwrap_or_else(|| "新对话".to_string())
     }
 
-    fn ensure_title_input(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Entity<InputState> {
-        if let Some(input) = &self.title_input {
-            return input.clone();
-        }
-        let title = self.thread_title();
-        let input = cx.new(|cx| InputState::new(window, cx).default_value(title));
-        self.title_subscription = Some(cx.subscribe_in(
-            &input,
-            window,
-            |this, _input, event: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { .. } = event {
-                    if this.editing_title {
-                        this.commit_title(window, cx);
-                    }
-                }
-            },
-        ));
-        self.title_input = Some(input.clone());
-        input
-    }
-
-    fn start_edit_title(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let title = self.thread_title();
-        let input = self.ensure_title_input(window, cx);
-        input.update(cx, |state, cx| state.set_value(title, window, cx));
-        let focus = input.read(cx).focus_handle(cx);
-        window.focus(&focus, cx);
-        self.editing_title = true;
-        cx.notify();
-    }
-
-    fn commit_title(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let Some(input) = self.title_input.clone() else {
-            return;
-        };
-        let title = input.read(cx).value().trim().to_string();
-        let title = if title.is_empty() { None } else { Some(title) };
+    pub fn set_title_override(&mut self, title: Option<String>, cx: &mut Context<Self>) {
         if let Some(agent) = &mut self.agent {
-            agent.set_thread_title(title);
+            agent.set_thread_title_override(title);
         }
         if let (Some(agent), Some(store)) = (self.agent.as_ref(), self.session_store.as_mut()) {
             let _ = store.save_thread(agent.thread());
         }
-        self.editing_title = false;
-        self.title_error = None;
         cx.notify();
     }
 
-    fn cancel_edit_title(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.editing_title = false;
-        cx.notify();
+    pub fn regenerate_title(&mut self, cx: &mut Context<Self>) {
+        if let Some(agent) = &mut self.agent {
+            agent.set_thread_title(None);
+            agent.set_thread_title_override(None);
+        }
+        self.generate_thread_title(cx);
     }
 
     /// 用当前模型生成会话标题（异步、失败回退首条用户消息）。
     fn generate_thread_title(&mut self, cx: &mut Context<Self>) {
-        if self.title_generating {
-            return;
-        }
         let Some(agent) = &self.agent else {
             return;
         };
@@ -1091,8 +1036,6 @@ impl NativeAgentView {
         }
         let provider = self.provider.clone();
         let model = self.model.clone();
-        self.title_generating = true;
-        self.title_error = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
             let request = ProviderRequest::new(vec![
@@ -1131,9 +1074,7 @@ impl NativeAgentView {
             let fallback = clean_thread_title(&truncate_text(&user_text, 30));
             let title = clean_thread_title(&generated);
             let _ = this.update(cx, |this, cx| {
-                this.title_generating = false;
                 if failed || title.is_empty() {
-                    this.title_error = Some(generated);
                     if !fallback.is_empty() {
                         if let Some(agent) = &mut this.agent {
                             agent.set_thread_title(Some(fallback.clone()));
@@ -1171,21 +1112,6 @@ impl NativeAgentView {
             return;
         }
         self.generate_thread_title(cx);
-    }
-
-    /// 从 native agent 窗口打开 Settings 并定位到 AI 页。
-    fn open_settings(&mut self, cx: &mut Context<Self>) {
-        for window in cx.windows() {
-            if let Some(root) = window.downcast::<crate::root_view::RootView>() {
-                let _ = root.update(cx, |root, _window, cx| root.open_settings_window(cx));
-            }
-        }
-        for window in cx.windows() {
-            if let Some(settings) = window.downcast::<crate::settings_window::SettingsWindowView>()
-            {
-                let _ = settings.update(cx, |view, _window, cx| view.open_ai(cx));
-            }
-        }
     }
 
     fn open_image_viewer(&mut self, name: String, image: Arc<RenderImage>, cx: &mut Context<Self>) {
@@ -1805,7 +1731,6 @@ impl NativeAgentView {
 impl Render for NativeAgentView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let add_menu_root = cx.entity().downgrade();
-        let thread_menu_root = cx.entity().downgrade();
         let model_supports_images = self.model_supports_images();
         let palette = theme::palette_from_theme(cx);
         let busy = self.busy;
@@ -1990,229 +1915,6 @@ impl Render for NativeAgentView {
             .text_color(palette.ink)
             .font_family(theme::FONT_SANS)
             .text_size(px(13.0))
-            .child(
-                div()
-                    .id("native-agent-header")
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(space(1))
-                    .px(space(2))
-                    .py(px(4.0))
-                    .border_b_1()
-                    .border_color(palette.line)
-                    .children(
-                        if self.editing_title {
-                            self.title_input.clone().map(|input| {
-                                div()
-                                    .flex_1()
-                                    .child(Input::new(&input).w_full())
-                                    .into_any_element()
-                            })
-                        } else {
-                            Some(
-                                div()
-                                    .id("native-agent-title")
-                                    .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .gap(px(4.0))
-                                    .px(space(1))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child(
-                                        div()
-                                            .text_size(px(13.0))
-                                            .child(self.thread_title()),
-                                    )
-                                    .children(self.title_hovered.then(|| {
-                                        div()
-                                            .id("native-agent-edit-title")
-                                            .role(Role::Button)
-                                            .aria_label("编辑标题")
-                                            .px(px(2.0))
-                                            .text_size(px(11.0))
-                                            .text_color(palette.ink_3)
-                                            .hover(|style| style.bg(palette.soft))
-                                            .child("✏")
-                                            .tooltip(|window, cx| {
-                                                Tooltip::new("Edit Thread Title").build(window, cx)
-                                            })
-                                            .on_click(cx.listener(|this, _, window, cx| {
-                                                this.start_edit_title(window, cx);
-                                            }))
-                                    }))
-                                    .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
-                                        this.title_hovered = *hovered;
-                                        cx.notify();
-                                    }))
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        if !this.editing_title {
-                                            this.start_edit_title(window, cx);
-                                        }
-                                    }))
-                                    .into_any_element(),
-                            )
-                        },
-                    )
-                    .children(self.editing_title.then(|| {
-                        let save_weak = cx.entity().downgrade();
-                        let cancel_weak = cx.entity().downgrade();
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(px(4.0))
-                            .child(
-                                div()
-                                    .id("native-agent-title-save")
-                                    .role(Role::Button)
-                                    .px(space(1))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .bg(palette.accent)
-                                    .text_color(palette.canvas)
-                                    .text_size(px(10.0))
-                                    .child("保存")
-                                    .on_click(move |_, window, cx| {
-                                        let _ = save_weak.update(cx, |this, cx| {
-                                            this.commit_title(window, cx);
-                                        });
-                                    }),
-                            )
-                            .child(
-                                div()
-                                    .id("native-agent-title-cancel")
-                                    .role(Role::Button)
-                                    .px(space(1))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .text_size(px(10.0))
-                                    .text_color(palette.ink_3)
-                                    .child("取消")
-                                    .on_click(move |_, window, cx| {
-                                        let _ = cancel_weak.update(cx, |this, cx| {
-                                            this.cancel_edit_title(window, cx);
-                                        });
-                                    }),
-                            )
-                    }))
-                    .child(div().flex_1())
-                    .children(if self.title_generating {
-                        Some(
-                            div()
-                                .text_size(px(10.0))
-                                .text_color(palette.ink_3)
-                                .child("生成标题中…")
-                                .into_any_element(),
-                        )
-                    } else {
-                        self.title_error.as_ref().map(|error| {
-                            div()
-                                .text_size(px(10.0))
-                                .text_color(palette.danger)
-                                .child(format!("标题生成失败：{}", truncate_text(error, 40)))
-                                .into_any_element()
-                        })
-                    })
-                    .child(
-                        div()
-                            .id("native-agent-new-thread")
-                            .role(Role::Button)
-                            .aria_label("新对话")
-                            .px(space(1))
-                            .py(px(2.0))
-                            .rounded(px(RADIUS_SMALL))
-                            .text_size(px(14.0))
-                            .text_color(palette.ink_3)
-                            .hover(|style| style.bg(palette.soft))
-                            .child("＋")
-                            .tooltip(|window, cx| Tooltip::new("新对话").build(window, cx))
-                            .on_click(cx.listener(|this, _, _window, cx| {
-                                this.start_new_thread(cx);
-                            })),
-                    )
-                    .child(
-                        Popover::new("native-agent-menu")
-                            .anchor(Anchor::BottomRight)
-                            .trigger(
-                                Button::new("native-agent-menu-trigger")
-                                    .label("⋯")
-                                    .xsmall()
-                                    .ghost()
-                                    .tooltip("Agent Menu"),
-                            )
-                            .content(move |_, _, cx| {
-                                let dismiss = cx.entity().downgrade();
-                                let regenerate_root = thread_menu_root.clone();
-                                let regenerate_dismiss = dismiss.clone();
-                                let settings_root = thread_menu_root.clone();
-                                let settings_dismiss = dismiss;
-                                div()
-                                    .w(px(230.0))
-                                    .flex()
-                                    .flex_col()
-                                    .gap(px(1.0))
-                                    .child(
-                                        div()
-                                            .id("native-agent-regenerate-title")
-                                            .role(Role::Button)
-                                            .flex()
-                                            .flex_row()
-                                            .items_center()
-                                            .gap(space(1))
-                                            .px(space(1))
-                                            .py(px(3.0))
-                                            .rounded(px(RADIUS_MEDIUM))
-                                            .text_size(px(11.0))
-                                            .text_color(palette.ink_2)
-                                            .hover(|style| style.bg(palette.soft))
-                                            .child("↻")
-                                            .child("Regenerate Thread Title")
-                                            .on_click(move |_, window, cx| {
-                                                let _ = regenerate_root.update(cx, |this, cx| {
-                                                    if let Some(agent) = &mut this.agent {
-                                                        agent.set_thread_title(None);
-                                                    }
-                                                    this.generate_thread_title(cx);
-                                                });
-                                                let _ = regenerate_dismiss.update(cx, |state, cx| {
-                                                    state.dismiss(window, cx)
-                                                });
-                                            }),
-                                    )
-                                    .child(
-                                        div()
-                                            .id("native-agent-open-settings")
-                                            .role(Role::Button)
-                                            .flex()
-                                            .flex_row()
-                                            .items_center()
-                                            .gap(space(1))
-                                            .px(space(1))
-                                            .py(px(3.0))
-                                            .rounded(px(RADIUS_MEDIUM))
-                                            .text_size(px(11.0))
-                                            .text_color(palette.ink_2)
-                                            .hover(|style| style.bg(palette.soft))
-                                            .child("⚙")
-                                            .child("Settings")
-                                            .on_click(move |_, window, cx| {
-                                                let _ = settings_root.update(cx, |this, cx| {
-                                                    this.open_settings(cx);
-                                                });
-                                                let _ = settings_dismiss.update(cx, |state, cx| {
-                                                    state.dismiss(window, cx)
-                                                });
-                                            }),
-                                    )
-                                    .into_any_element()
-                            }),
-                    ),
-            )
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                if this.editing_title && event.keystroke.key == "escape" {
-                    this.cancel_edit_title(window, cx);
-                }
-            }))
             .child(
                 div()
                     .id("native-agent-messages")

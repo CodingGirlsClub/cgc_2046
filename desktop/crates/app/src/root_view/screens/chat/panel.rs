@@ -966,7 +966,7 @@ pub(in crate::root_view) fn render_chat_panel(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let agent_picker = {
+    let _agent_picker = {
         let root = cx.entity().downgrade();
         let load_root = root.clone();
         let options = agent_options.clone();
@@ -1173,7 +1173,6 @@ pub(in crate::root_view) fn render_chat_panel(
                 .text_color(palette.ink)
                 .child(translate_registered(language, "agent_chat.panel.title")),
         )
-        .child(agent_picker)
         .child(div().flex_1());
     div()
         .flex()

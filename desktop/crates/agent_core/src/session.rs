@@ -202,9 +202,14 @@ impl Agent {
         &self.thread
     }
 
-    /// 更新线程标题（标题生成/用户重命名使用）。
+    /// 更新线程生成标题（LLM 标题使用）。
     pub fn set_thread_title(&mut self, title: Option<String>) {
         self.thread.title = title;
+    }
+
+    /// 更新用户标题覆盖（优先于生成标题）。
+    pub fn set_thread_title_override(&mut self, title: Option<String>) {
+        self.thread.title_override = title;
     }
 
     pub fn thread_mut(&mut self) -> &mut Thread {

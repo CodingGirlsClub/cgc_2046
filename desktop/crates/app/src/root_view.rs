@@ -17,6 +17,7 @@ use crate::chat_state::{
 };
 use crate::formula::render_markdown_with_math;
 use crate::safe_markdown::sanitize_markdown;
+use cgc_agent_store::SessionStore;
 use cgc_courses::catalog::{
     learning_context, CourseCatalogService, CourseDetailService, CourseSummary, CoursesApi,
     CoursesListState, FakeCoursesApi, HttpCoursesApi,
@@ -24,6 +25,7 @@ use cgc_courses::catalog::{
 use cgc_courses::content::{CourseContentService, CourseContentState, MaterialKind};
 use cgc_courses::projection::{LearningProjectionService, ProjectionState};
 use cgc_events::detail::{EventDetail, EventDetailService, PriceMode};
+use cgc_platform::paths::AppPaths;
 use gpui_kit::component::text::TextView;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -222,6 +224,7 @@ enum ChatEntry {
 
 #[derive(Default)]
 struct ChatUi {
+    title_override: Option<String>,
     phase: ChatPhase,
     agent: String,
     selected_agent: Option<String>,
@@ -423,6 +426,10 @@ impl Render for ResizeGhost {
 
 pub struct RootView {
     state: ShellState,
+    agent_panel_title_input: Option<Entity<InputState>>,
+    agent_panel_title_subscription: Option<Subscription>,
+    agent_panel_editing_title: bool,
+    agent_panel_title_hovered: bool,
 }
 
 impl std::ops::Deref for RootView {
@@ -443,6 +450,10 @@ impl RootView {
     pub fn new(registry: RouteRegistry) -> Self {
         Self {
             state: ShellState::new(registry),
+            agent_panel_title_input: None,
+            agent_panel_title_subscription: None,
+            agent_panel_editing_title: false,
+            agent_panel_title_hovered: false,
         }
     }
 
@@ -454,11 +465,127 @@ impl RootView {
     ) -> Self {
         Self {
             state: ShellState::with_session(registry, language, preference, session),
+            agent_panel_title_input: None,
+            agent_panel_title_subscription: None,
+            agent_panel_editing_title: false,
+            agent_panel_title_hovered: false,
         }
     }
 
     pub fn set_chat_input(&mut self, input: Entity<TextareaState>) {
         self.state.chat_input = Some(input);
+    }
+
+    pub(in crate::root_view) fn agent_panel_title(&self, cx: &App) -> String {
+        if self.native_chat_mode && RootView::native_agent_enabled() {
+            return self
+                .native_agent_view
+                .as_ref()
+                .map(|view| view.read(cx).display_title())
+                .unwrap_or_else(|| "新对话".to_string());
+        }
+        self.chat
+            .title_override
+            .clone()
+            .or_else(|| {
+                self.chat.session_id.as_ref().and_then(|session_id| {
+                    self.chat
+                        .sessions
+                        .iter()
+                        .find(|session| &session.session_id == session_id)
+                        .and_then(|session| session.title.clone())
+                })
+            })
+            .unwrap_or_else(|| "新对话".to_string())
+    }
+
+    fn ensure_agent_panel_title_input(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<InputState> {
+        if let Some(input) = &self.agent_panel_title_input {
+            return input.clone();
+        }
+        let title = self.agent_panel_title(cx);
+        let input = cx.new(|cx| InputState::new(window, cx).default_value(title));
+        self.agent_panel_title_subscription = Some(cx.subscribe_in(
+            &input,
+            window,
+            |this, _input, event: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    if this.agent_panel_editing_title {
+                        this.commit_agent_panel_title(window, cx);
+                    }
+                }
+            },
+        ));
+        self.agent_panel_title_input = Some(input.clone());
+        input
+    }
+
+    pub(in crate::root_view) fn start_edit_agent_panel_title(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let title = self.agent_panel_title(cx);
+        let input = self.ensure_agent_panel_title_input(window, cx);
+        input.update(cx, |state, cx| state.set_value(title, window, cx));
+        let focus = input.read(cx).focus_handle(cx);
+        window.focus(&focus, cx);
+        self.agent_panel_editing_title = true;
+        cx.notify();
+    }
+
+    pub(in crate::root_view) fn commit_agent_panel_title(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(input) = self.agent_panel_title_input.clone() else {
+            return;
+        };
+        let raw = input.read(cx).value().trim().to_string();
+        let title = if raw.is_empty() { None } else { Some(raw) };
+        if self.native_chat_mode && RootView::native_agent_enabled() {
+            if let Some(view) = &self.native_agent_view {
+                view.update(cx, |view, cx| view.set_title_override(title.clone(), cx));
+            }
+        } else {
+            self.chat.title_override = title.clone();
+            if let Some(session_id) = self.chat.session_id.clone() {
+                let path = AppPaths::from_env()
+                    .data_root
+                    .join("agent")
+                    .join("threads.db");
+                if let Ok(store) = SessionStore::open(path) {
+                    let _ = store.set_acp_title_override(&session_id, title.as_deref());
+                }
+            }
+        }
+        self.agent_panel_editing_title = false;
+        cx.notify();
+    }
+
+    pub(in crate::root_view) fn cancel_agent_panel_title(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.agent_panel_editing_title = false;
+        cx.notify();
+    }
+
+    pub(in crate::root_view) fn regenerate_agent_panel_title(&mut self, cx: &mut Context<Self>) {
+        if self.native_chat_mode && RootView::native_agent_enabled() {
+            if let Some(view) = &self.native_agent_view {
+                view.update(cx, |view, cx| view.regenerate_title(cx));
+            }
+        } else {
+            self.chat.title_override = None;
+        }
+        cx.notify();
     }
 
     pub fn set_config_search_input(&mut self, input: Entity<InputState>) {
