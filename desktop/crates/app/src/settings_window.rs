@@ -185,6 +185,7 @@ impl SettingsWindowView {
                     enabled: model.enabled,
                     thinking: model.supports_thinking,
                     supports_tools: model.supports_tools,
+                    supports_images: model.supports_images,
                 });
             }
             self.provider_drafts[index].model_fields = fields;
@@ -227,8 +228,14 @@ impl SettingsWindowView {
                 let context: u32 = context.parse().unwrap_or(64_000).max(1);
                 let output: u32 = output.parse().unwrap_or(8_000).max(1).min(context);
                 format!(
-                    "{} | {} | {} | {} | {}",
-                    name, context, output, field.thinking, field.enabled
+                    "{} | {} | {} | {} | {} | {} | {}",
+                    name,
+                    context,
+                    output,
+                    field.thinking,
+                    field.enabled,
+                    field.supports_tools,
+                    field.supports_images
                 )
             })
             .collect::<Vec<_>>()
@@ -253,6 +260,7 @@ impl SettingsWindowView {
             match flag {
                 1 => field.thinking = !field.thinking,
                 2 => field.supports_tools = !field.supports_tools,
+                3 => field.supports_images = !field.supports_images,
                 _ => field.enabled = !field.enabled,
             }
         }
@@ -1554,6 +1562,8 @@ fn render_provider_cards(
                                 let enabled = field.enabled;
                                 let thinking = field.thinking;
                                 let supports_tools = field.supports_tools;
+                                let supports_images = field.supports_images;
+                                let images_cb_weak = weak.clone();
                                 let toggle_weak = weak.clone();
                                 let thinking_weak = weak.clone();
                                 let thinking_cb_weak = thinking_weak.clone();
@@ -1724,6 +1734,49 @@ fn render_provider_cards(
                                                     .text_size(px(10.0))
                                                     .text_color(palette.ink_3)
                                                     .child("允许模型调用工具。"),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_col()
+                                            .gap(px(1.0))
+                                            .child(
+                                                div()
+                                                    .flex()
+                                                    .flex_row()
+                                                    .items_center()
+                                                    .gap(px(4.0))
+                                                    .child(
+                                                        Checkbox::new(SharedString::from(format!(
+                                                            "settings-model-images-{index}-{model_index}"
+                                                        )))
+                                                        .large()
+                                                        .checked(supports_images)
+                                                        .on_click(move |_checked, _, cx| {
+                                                            let _ = images_cb_weak.update(cx, |this, cx| {
+                                                                this.toggle_model_field(
+                                                                    index,
+                                                                    model_index,
+                                                                    3,
+                                                                    cx,
+                                                                );
+                                                            });
+                                                        }),
+                                                    )
+                                                    .child(
+                                                        div()
+                                                            .text_size(px(11.0))
+                                                            .text_color(palette.ink_2)
+                                                            .child("Supports images"),
+                                                    ),
+                                            )
+                                            .child(
+                                                div()
+                                                    .pl(px(26.0))
+                                                    .text_size(px(10.0))
+                                                    .text_color(palette.ink_3)
+                                                    .child("模型支持图片输入。"),
                                             ),
                                     )
                             },

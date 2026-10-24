@@ -30,6 +30,9 @@ pub struct ModelPrefs {
     pub enabled: bool,
     /// 该模型是否支持工具调用。
     pub supports_tools: bool,
+    /// 该模型是否支持图片输入（多模态）。新字段用默认值兼容既有本地配置。
+    #[serde(default)]
+    pub supports_images: bool,
     /// 该模型接受的 reasoning_effort 取值；空表示不下发该字段。
     pub reasoning_efforts: Vec<String>,
 }
@@ -51,6 +54,7 @@ impl Default for ModelPrefs {
             supports_thinking: false,
             enabled: true,
             supports_tools: true,
+            supports_images: false,
             reasoning_efforts: Vec::new(),
         }
     }
@@ -178,6 +182,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         supports_thinking: true,
         enabled: true,
         supports_tools: true,
+        supports_images: false,
         reasoning_efforts: vec!["low".into(), "high".into(), "max".into()],
     });
     deepseek.upsert_model(ModelPrefs {
@@ -187,6 +192,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         supports_thinking: true,
         enabled: true,
         supports_tools: true,
+        supports_images: false,
         reasoning_efforts: vec!["low".into(), "high".into(), "max".into()],
     });
 
@@ -203,6 +209,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
             supports_thinking: true,
             enabled: true,
             supports_tools: true,
+            supports_images: false,
             reasoning_efforts: vec!["low".into(), "high".into(), "max".into()],
         });
     }
@@ -215,6 +222,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         supports_thinking: true,
         enabled: true,
         supports_tools: true,
+        supports_images: false,
         reasoning_efforts: vec![
             "low".into(),
             "medium".into(),
@@ -230,6 +238,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         supports_thinking: true,
         enabled: true,
         supports_tools: true,
+        supports_images: false,
         reasoning_efforts: Vec::new(),
     });
 
@@ -241,6 +250,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         supports_thinking: true,
         enabled: true,
         supports_tools: true,
+        supports_images: false,
         reasoning_efforts: vec!["low".into(), "high".into(), "max".into()],
     };
     zhipu.upsert_model(glm53);
@@ -251,6 +261,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         supports_thinking: true,
         enabled: true,
         supports_tools: true,
+        supports_images: false,
         reasoning_efforts: Vec::new(),
     });
 
@@ -471,6 +482,7 @@ mod model_param_tests {
             supports_thinking: true,
             enabled: true,
             supports_tools: true,
+            supports_images: false,
             reasoning_efforts: Vec::new(),
         });
         assert_eq!(provider.model_config("m1").context_window, 200_000);

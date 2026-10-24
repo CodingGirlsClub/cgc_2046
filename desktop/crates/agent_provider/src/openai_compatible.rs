@@ -148,10 +148,32 @@ pub(crate) fn build_body(model: &Model, request: &Request) -> Value {
 
 fn message_to_json(message: &Message) -> Value {
     match message.role {
-        Role::System | Role::User => json!({
-            "role": if message.role == Role::System { "system" } else { "user" },
-            "content": message.text(),
-        }),
+        Role::System | Role::User => {
+            let images: Vec<Value> = message
+                .content
+                .iter()
+                .filter_map(|content| match content {
+                    Content::Image { mime_type, data } => Some(json!({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": format!("data:{mime_type};base64,{data}"),
+                        }
+                    })),
+                    _ => None,
+                })
+                .collect();
+            let content = if images.is_empty() {
+                json!(message.text())
+            } else {
+                let mut parts = vec![json!({"type": "text", "text": message.text()})];
+                parts.extend(images);
+                json!(parts)
+            };
+            json!({
+                "role": if message.role == Role::System { "system" } else { "user" },
+                "content": content,
+            })
+        }
         Role::Assistant => {
             let text = message.text();
             let tool_calls: Vec<Value> = message
@@ -553,5 +575,26 @@ mod tests {
             r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"x","arguments":"not json"}}]},"finish_reason":"tool_calls"}]}"#,
         ));
         assert!(result.is_err());
+    }
+}
+
+#[cfg(test)]
+mod image_tests {
+    use super::*;
+
+    #[test]
+    fn user_message_with_image_serializes_multimodal_content() {
+        let mut message = Message::user("看图");
+        message.content.push(Content::Image {
+            mime_type: "image/png".to_string(),
+            data: "AAAA".to_string(),
+        });
+        let json = message_to_json(&message);
+        let parts = json["content"].as_array().expect("multimodal parts");
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0]["type"], "text");
+        assert_eq!(parts[0]["text"], "看图");
+        assert_eq!(parts[1]["type"], "image_url");
+        assert_eq!(parts[1]["image_url"]["url"], "data:image/png;base64,AAAA");
     }
 }

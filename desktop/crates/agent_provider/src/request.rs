@@ -13,6 +13,11 @@ pub enum Role {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Content {
     Text(String),
+    /// 图片附件（base64 编码的原始字节 + MIME）。
+    Image {
+        mime_type: String,
+        data: String,
+    },
     ToolUse(ToolUse),
     ToolResult {
         tool_use_id: String,

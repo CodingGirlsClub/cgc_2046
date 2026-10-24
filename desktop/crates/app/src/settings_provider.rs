@@ -13,6 +13,7 @@ pub(crate) struct ModelFieldInputs {
     pub(crate) enabled: bool,
     pub(crate) thinking: bool,
     pub(crate) supports_tools: bool,
+    pub(crate) supports_images: bool,
 }
 
 /// Settings 里的 provider 编辑草稿（输入框懒创建，避免 new() 需要 window）。

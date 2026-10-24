@@ -246,6 +246,8 @@ fn estimate_message_tokens(message: &Message) -> usize {
         .iter()
         .map(|content| match content {
             Content::Text(text) => text.chars().count(),
+            // 图片 token 由 provider 计费口径决定，本地不估算。
+            Content::Image { .. } => 0,
             Content::ToolUse(tool_use) => {
                 tool_use.args.to_string().chars().count() + tool_use.name.len()
             }

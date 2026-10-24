@@ -10,13 +10,14 @@ pub fn format_model_lines(provider: &ProviderPrefs) -> String {
         .map(|id| {
             let model = provider.model_config(id);
             format!(
-                "{} | {} | {} | {} | {} | {}",
+                "{} | {} | {} | {} | {} | {} | {}",
                 id,
                 model.context_window,
                 model.max_output_tokens,
                 model.supports_thinking,
                 model.enabled,
-                model.supports_tools
+                model.supports_tools,
+                model.supports_images
             )
         })
         .collect::<Vec<_>>()
@@ -56,6 +57,10 @@ pub fn parse_model_lines(value: &str) -> (Vec<String>, Vec<ModelPrefs>) {
             .get(5)
             .map(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
             .unwrap_or(true);
+        let images = parts
+            .get(6)
+            .map(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
+            .unwrap_or(false);
         ids.push(id.to_string());
         params.push(ModelPrefs {
             id: id.to_string(),
@@ -64,6 +69,7 @@ pub fn parse_model_lines(value: &str) -> (Vec<String>, Vec<ModelPrefs>) {
             supports_thinking: thinking,
             enabled,
             supports_tools: tools,
+            supports_images: images,
             reasoning_efforts: Vec::new(),
         });
     }
@@ -97,7 +103,7 @@ mod tests {
         };
         assert_eq!(
             format_model_lines(&provider),
-            "deepseek-flash | 128000 | 16384 | true | true | true"
+            "deepseek-flash | 128000 | 16384 | true | true | true | false"
         );
     }
 
