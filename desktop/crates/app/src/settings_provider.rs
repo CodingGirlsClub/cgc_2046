@@ -34,71 +34,7 @@ pub(crate) struct ProviderDraft {
     pub(crate) confirm_clear: bool,
 }
 
-pub(crate) fn format_model_lines(provider: &ProviderPrefs) -> String {
-    provider
-        .models
-        .iter()
-        .map(|id| {
-            let model = provider.model_config(id);
-            format!(
-                "{} | {} | {} | {} | {} | {}",
-                id,
-                model.context_window,
-                model.max_output_tokens,
-                model.supports_thinking,
-                model.enabled,
-                model.supports_tools
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-pub(crate) fn parse_model_lines(value: &str) -> (Vec<String>, Vec<ModelPrefs>) {
-    let mut ids = Vec::new();
-    let mut params = Vec::new();
-    for line in value.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        let parts: Vec<&str> = line.split('|').map(str::trim).collect();
-        let Some(id) = parts.first().filter(|id| !id.is_empty()) else {
-            continue;
-        };
-        let context = parts
-            .get(1)
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(64_000);
-        let output = parts
-            .get(2)
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(8_000);
-        let thinking = parts
-            .get(3)
-            .map(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
-            .unwrap_or(false);
-        let enabled = parts
-            .get(4)
-            .map(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
-            .unwrap_or(true);
-        let tools = parts
-            .get(5)
-            .map(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
-            .unwrap_or(true);
-        ids.push(id.to_string());
-        params.push(ModelPrefs {
-            id: id.to_string(),
-            context_window: context,
-            max_output_tokens: output,
-            supports_thinking: thinking,
-            enabled,
-            supports_tools: tools,
-            reasoning_efforts: Vec::new(),
-        });
-    }
-    (ids, params)
-}
+pub(crate) use cgc_agent_store::model_lines::{format_model_lines, parse_model_lines};
 
 impl ProviderDraft {
     pub(crate) fn from_prefs(provider: &ProviderPrefs) -> Self {

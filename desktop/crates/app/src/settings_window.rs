@@ -8,7 +8,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use cgc_agent_store::{builtin_providers, provider_key_account, PrefsStore, ProviderPrefs};
+use cgc_agent_store::{
+    builtin_providers, normalized_provider_name, provider_key_account, PrefsStore, ProviderPrefs,
+};
 use cgc_platform::paths::AppPaths;
 use cgc_platform::session::KeychainStore;
 use gpui_kit::component::checkbox::Checkbox;
@@ -371,7 +373,19 @@ impl SettingsWindowView {
         cx.notify();
     }
 
+    fn sync_all_draft_names(&mut self, cx: &mut Context<Self>) {
+        for draft in &mut self.provider_drafts {
+            if let Some(input) = &draft.name_input {
+                let name = input.read(cx).value().trim().to_string();
+                if !name.is_empty() {
+                    draft.name = name;
+                }
+            }
+        }
+    }
+
     fn save_provider(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.sync_all_draft_names(cx);
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
         };
@@ -413,7 +427,7 @@ impl SettingsWindowView {
             .enumerate()
             .any(|(other_index, other)| {
                 other_index != index
-                    && other.name.trim().to_lowercase() == name.trim().to_lowercase()
+                    && normalized_provider_name(&other.name) == normalized_provider_name(&name)
             })
         {
             self.error = Some(format!("Provider Name「{name}」已存在，请换一个名称"));
