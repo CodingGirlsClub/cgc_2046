@@ -426,10 +426,6 @@ impl Render for ResizeGhost {
 
 pub struct RootView {
     state: ShellState,
-    agent_panel_title_input: Option<Entity<InputState>>,
-    agent_panel_title_subscription: Option<Subscription>,
-    agent_panel_editing_title: bool,
-    agent_panel_title_hovered: bool,
 }
 
 impl std::ops::Deref for RootView {
@@ -450,10 +446,6 @@ impl RootView {
     pub fn new(registry: RouteRegistry) -> Self {
         Self {
             state: ShellState::new(registry),
-            agent_panel_title_input: None,
-            agent_panel_title_subscription: None,
-            agent_panel_editing_title: false,
-            agent_panel_title_hovered: false,
         }
     }
 
@@ -465,10 +457,6 @@ impl RootView {
     ) -> Self {
         Self {
             state: ShellState::with_session(registry, language, preference, session),
-            agent_panel_title_input: None,
-            agent_panel_title_subscription: None,
-            agent_panel_editing_title: false,
-            agent_panel_title_hovered: false,
         }
     }
 

@@ -58,6 +58,29 @@ pub(in crate::root_view) fn render_agent_panel(
         .into_any_element()
 }
 
+fn panel_title(ctx: &ScreenContext<'_>, cx: &mut Context<RootView>) -> String {
+    if ctx.native_chat_mode && RootView::native_agent_enabled() {
+        return ctx
+            .native_agent_view
+            .as_ref()
+            .map(|view| view.read(cx).display_title())
+            .unwrap_or_else(|| "新对话".to_string());
+    }
+    ctx.chat
+        .title_override
+        .clone()
+        .or_else(|| {
+            ctx.chat.session_id.as_ref().and_then(|session_id| {
+                ctx.chat
+                    .sessions
+                    .iter()
+                    .find(|session| &session.session_id == session_id)
+                    .and_then(|session| session.title.clone())
+            })
+        })
+        .unwrap_or_else(|| "新对话".to_string())
+}
+
 fn header(
     ctx: &mut ScreenContext<'_>,
     palette: &theme::Palette,
@@ -66,10 +89,10 @@ fn header(
     let palette = *palette;
     let root = cx.entity().downgrade();
     let native_mode = ctx.native_chat_mode && RootView::native_agent_enabled();
-    let title = cx.entity().read(cx).agent_panel_title(cx);
-    let editing = cx.entity().read(cx).agent_panel_editing_title;
-    let hovered = cx.entity().read(cx).agent_panel_title_hovered;
-    let title_input = cx.entity().read(cx).agent_panel_title_input.clone();
+    let title = panel_title(ctx, cx);
+    let editing = ctx.agent_panel_editing_title;
+    let hovered = ctx.agent_panel_title_hovered;
+    let title_input = ctx.agent_panel_title_input.clone();
 
     let title_area: AnyElement = if editing {
         match title_input {
