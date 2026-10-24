@@ -408,7 +408,7 @@ pub struct NativeAgentView {
     slash_dismissed: bool,
     mention_index: usize,
     workspace_files: Vec<String>,
-    skills: Vec<(String, String)>,
+    skills: Vec<(String, String, &'static str)>,
     follow_output: bool,
     messages_scroll: ScrollHandle,
     approval_mode: ApprovalMode,
@@ -2895,6 +2895,7 @@ impl Render for NativeAgentView {
                             let click_label = label.clone();
                             let tool = entry.tool.clone();
                             let skill = entry.skill.clone();
+                            let scope = entry.scope;
                             let description = entry.description.clone();
                             rows.push(
                                 div()
@@ -2918,7 +2919,18 @@ impl Render for NativeAgentView {
                                     } else {
                                         palette.ink_2
                                     })
-                                    .child(div().w(px(96.0)).text_size(px(11.0)).child(label))
+                                    .child(
+                                        div()
+                                            .w(px(96.0))
+                                            .text_size(px(11.0))
+                                            .child(label.clone()),
+                                    )
+                                    .children(scope.map(|scope| {
+                                        div()
+                                            .text_size(px(9.0))
+                                            .text_color(palette.ink_3)
+                                            .child(scope)
+                                    }))
                                     .child(
                                         div()
                                             .flex_1()
@@ -2973,9 +2985,22 @@ impl Render for NativeAgentView {
                                 )
                                 .child(
                                     div()
-                                        .text_size(px(11.0))
-                                        .text_color(palette.ink)
-                                        .child(entry.label.clone()),
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap(space(1))
+                                        .child(
+                                            div()
+                                                .text_size(px(11.0))
+                                                .text_color(palette.ink)
+                                                .child(entry.label.clone()),
+                                        )
+                                        .children(entry.scope.map(|scope| {
+                                            div()
+                                                .text_size(px(9.0))
+                                                .text_color(palette.ink_3)
+                                                .child(scope)
+                                        })),
                                 )
                                 .child(
                                     div()
@@ -3399,11 +3424,12 @@ struct SlashEntry {
     description: String,
     tool: Option<String>,
     skill: Option<String>,
+    scope: Option<&'static str>,
 }
 
 fn slash_entries_for(
     registry: &ToolRegistry,
-    skills: &[(String, String)],
+    skills: &[(String, String, &'static str)],
     value: &str,
 ) -> Vec<SlashEntry> {
     let trimmed = value.trim_start();
@@ -3421,6 +3447,7 @@ fn slash_entries_for(
             description: (*description).to_string(),
             tool: None,
             skill: None,
+            scope: None,
         })
         .collect();
     entries.extend(
@@ -3434,38 +3461,41 @@ fn slash_entries_for(
                 description: description.to_string(),
                 tool: Some(name.to_string()),
                 skill: None,
+                scope: None,
             }),
     );
     entries.extend(
         skills
             .iter()
-            .filter(|(name, description)| matches(name) || matches(description))
-            .map(|(name, description)| SlashEntry {
+            .filter(|(name, description, _)| matches(name) || matches(description))
+            .map(|(name, description, scope)| SlashEntry {
                 category: "技能",
                 label: name.clone(),
                 description: description.clone(),
                 tool: None,
                 skill: Some(name.clone()),
+                scope: Some(*scope),
             }),
     );
     entries
 }
 
-/// 扫描工作区与用户目录下的 skills（`<dir>/skills/<name>/SKILL.md`）。
-fn load_skills(workspace: &std::path::Path) -> Vec<(String, String)> {
-    let mut roots = vec![
-        workspace.join(".agents").join("skills"),
-        workspace.join("skills"),
-    ];
+/// 扫描工作区与用户目录下的 skills（`<dir>/skills/<name>/SKILL.md`），带 scope。
+fn load_skills(workspace: &std::path::Path) -> Vec<(String, String, &'static str)> {
+    let mut scanned: Vec<(std::path::PathBuf, &'static str)> = Vec::new();
     if let Some(home) = std::env::var_os("HOME") {
-        roots.push(
+        scanned.push((
             std::path::PathBuf::from(home)
                 .join(".agents")
                 .join("skills"),
-        );
+            "global",
+        ));
     }
-    let mut skills = Vec::new();
-    for root in roots {
+    scanned.push((workspace.join(".agents").join("skills"), "project"));
+    scanned.push((workspace.join("skills"), "project"));
+    let mut skills: std::collections::BTreeMap<String, (String, &'static str)> =
+        std::collections::BTreeMap::new();
+    for (root, scope) in scanned {
         let Ok(entries) = std::fs::read_dir(&root) else {
             continue;
         };
@@ -3494,12 +3524,22 @@ fn load_skills(workspace: &std::path::Path) -> Vec<(String, String)> {
             if description.is_empty() {
                 description = format!("技能：{name}");
             }
-            skills.push((name, description));
+            // 同名时 project 覆盖 global。
+            let should_insert = match skills.get(&name) {
+                Some((_, existing_scope)) => scope == "project" && *existing_scope != "project",
+                None => true,
+            };
+            if should_insert {
+                skills.insert(name, (description, scope));
+            }
         }
     }
-    skills.sort_by(|left, right| left.0.cmp(&right.0));
-    skills.truncate(50);
-    skills
+    let mut result: Vec<(String, String, &'static str)> = skills
+        .into_iter()
+        .map(|(name, (description, scope))| (name, description, scope))
+        .collect();
+    result.truncate(50);
+    result
 }
 
 fn render_subagent_row(
@@ -3644,11 +3684,13 @@ mod workspace_prompt_tests {
     #[test]
     fn slash_entries_are_grouped_and_filtered() {
         let registry = cgc_agent_tools::ToolRegistry::with_read_tools();
-        let skills = vec![("demo-skill".to_string(), "演示技能".to_string())];
+        let skills = vec![("demo-skill".to_string(), "演示技能".to_string(), "global")];
         let all = super::slash_entries_for(&registry, &skills, "/");
         assert!(all.iter().any(|entry| entry.category == "命令"));
         assert!(all.iter().any(|entry| entry.category == "工具"));
-        assert!(all.iter().any(|entry| entry.category == "技能"));
+        assert!(all
+            .iter()
+            .any(|entry| entry.category == "技能" && entry.scope == Some("global")));
         let filtered = super::slash_entries_for(&registry, &skills, "/read");
         assert!(filtered.iter().all(|entry| entry.category == "工具"));
         assert!(!filtered.is_empty());
