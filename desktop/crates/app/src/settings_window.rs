@@ -1420,6 +1420,7 @@ fn render_provider_cards(
                                 let model_id = field.model_id.clone();
                                 let toggle_weak = weak.clone();
                                 let thinking_weak = weak.clone();
+                                let thinking_cb_weak = thinking_weak.clone();
                                 let remove_weak = weak.clone();
                                 let context_input = field.context_input.clone();
                                 let output_input = field.output_input.clone();
@@ -1506,28 +1507,33 @@ fn render_provider_cards(
                                             .child(div().w(px(96.0)).child(Input::new(&output_input)))
                                             .child(
                                                 div()
-                                                    .id(SharedString::from(format!(
-                                                        "settings-model-thinking-{index}-{model_index}"
-                                                    )))
-                                                    .role(Role::Button)
                                                     .flex()
                                                     .flex_row()
                                                     .items_center()
-                                                    .gap(px(2.0))
-                                                    .text_size(px(16.0))
-                                                    .text_color(palette.ink_2)
-                                                    .child(if thinking { "☑" } else { "☐" })
-                                                    .child("thinking")
-                                                    .on_click(move |_, _, cx| {
-                                                        let _ = thinking_weak.update(cx, |this, cx| {
-                                                            this.toggle_model_field(
-                                                                index,
-                                                                model_index,
-                                                                true,
-                                                                cx,
-                                                            );
-                                                        });
-                                                    }),
+                                                    .gap(px(4.0))
+                                                    .child(
+                                                        Checkbox::new(SharedString::from(format!(
+                                                            "settings-model-thinking-{index}-{model_index}"
+                                                        )))
+                                                        .large()
+                                                        .checked(thinking)
+                                                        .on_click(move |_checked, _, cx| {
+                                                            let _ = thinking_cb_weak.update(cx, |this, cx| {
+                                                                this.toggle_model_field(
+                                                                    index,
+                                                                    model_index,
+                                                                    true,
+                                                                    cx,
+                                                                );
+                                                            });
+                                                        }),
+                                                    )
+                                                    .child(
+                                                        div()
+                                                            .text_size(px(11.0))
+                                                            .text_color(palette.ink_2)
+                                                            .child("thinking"),
+                                                    ),
                                             ),
                                     )
                             },
