@@ -154,11 +154,12 @@ impl ProviderDraft {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum AiView {
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+enum AiRoute {
     #[default]
     General,
     Providers,
+    Form(String),
 }
 
 pub struct SettingsWindowView {
@@ -175,7 +176,7 @@ pub struct SettingsWindowView {
     error: Option<String>,
     notice: Option<String>,
     provider_drafts: Vec<ProviderDraft>,
-    ai_view: AiView,
+    ai_view: AiRoute,
     prefs_store: PrefsStore,
     keychain: KeychainStore,
 }
@@ -218,7 +219,7 @@ impl SettingsWindowView {
             error: None,
             notice: None,
             provider_drafts: drafts,
-            ai_view: AiView::General,
+            ai_view: AiRoute::General,
             prefs_store,
             keychain: KeychainStore::from_env(),
         }
@@ -392,8 +393,11 @@ impl SettingsWindowView {
     }
 
     fn add_provider(&mut self, cx: &mut Context<Self>) {
-        self.provider_drafts.push(ProviderDraft::new_custom());
-        self.notice = Some("已添加 provider，填写后点保存".to_string());
+        let draft = ProviderDraft::new_custom();
+        let id = draft.id.clone();
+        self.provider_drafts.push(draft);
+        self.ai_view = AiRoute::Form(id);
+        self.notice = Some("新增 Provider：填写名称/URL/模型后保存".to_string());
         cx.notify();
     }
 
@@ -519,16 +523,58 @@ impl SettingsWindowView {
         )
         .description("灰度开关：账号菜单与课程页显示 Native Agent（Beta）");
         let providers_weak = weak.clone();
+        let providers_drafts = drafts.clone();
         let providers_item = SettingItem::render(move |_options, _window, cx| {
             let palette = theme::palette_from_theme(cx);
-            render_provider_cards(
+            render_provider_list(
                 cx,
                 &providers_weak,
-                &drafts,
+                &providers_drafts,
                 &palette,
                 notice.clone(),
                 error.clone(),
             )
+        });
+        let form_target = match &self.ai_view {
+            AiRoute::Form(id) => Some(id.clone()),
+            _ => None,
+        };
+        let form_back = {
+            let back_weak = weak.clone();
+            SettingItem::render(move |_options, _window, cx| {
+                let palette = theme::palette_from_theme(cx);
+                let weak = back_weak.clone();
+                div()
+                    .id("settings-provider-form-back")
+                    .role(Role::Button)
+                    .aria_label("返回 LLM Providers")
+                    .px(space(1))
+                    .py(px(2.0))
+                    .rounded(px(RADIUS_SMALL))
+                    .text_size(px(12.0))
+                    .text_color(palette.ink_2)
+                    .hover(|style| style.bg(palette.soft))
+                    .child("← 设置 / AI / General / LLM Providers")
+                    .on_click(move |_, _, cx| {
+                        let _ = weak.update(cx, |this, cx| {
+                            this.ai_view = AiRoute::Providers;
+                            cx.notify();
+                        });
+                    })
+                    .into_any_element()
+            })
+        };
+        let form_item = form_target.as_ref().map(|target_id| {
+            let form_drafts: Vec<ProviderDraft> = drafts
+                .iter()
+                .filter(|draft| &draft.id == target_id)
+                .cloned()
+                .collect();
+            let form_weak = weak.clone();
+            SettingItem::render(move |_options, _window, cx| {
+                let palette = theme::palette_from_theme(cx);
+                render_provider_cards(cx, &form_weak, &form_drafts, &palette, None, None)
+            })
         });
         let about_item = SettingItem::render(move |_options, _window, cx| {
             let palette = theme::palette_from_theme(cx);
@@ -646,7 +692,7 @@ impl SettingsWindowView {
                         .child("Configure >")
                         .on_click(move |_, _, cx| {
                             let _ = weak.update(cx, |this, cx| {
-                                this.ai_view = AiView::Providers;
+                                this.ai_view = AiRoute::Providers;
                                 cx.notify();
                             });
                         }),
@@ -676,21 +722,26 @@ impl SettingsWindowView {
                         .child("← 设置 / AI / General / LLM Providers")
                         .on_click(move |_, _, cx| {
                             let _ = weak.update(cx, |this, cx| {
-                                this.ai_view = AiView::General;
+                                this.ai_view = AiRoute::General;
                                 cx.notify();
                             });
                         }),
                 )
                 .into_any_element()
         });
-        let ai_group = if self.ai_view == AiView::Providers {
-            SettingGroup::new()
-                .title("LLM Providers")
-                .items(vec![ai_back, providers_item])
-        } else {
-            SettingGroup::new()
+        let ai_group = match &self.ai_view {
+            AiRoute::General => SettingGroup::new()
                 .title("General")
-                .items(vec![llm_link, native_agent])
+                .items(vec![llm_link, native_agent]),
+            AiRoute::Providers => SettingGroup::new()
+                .title("LLM Providers")
+                .items(vec![ai_back, providers_item]),
+            AiRoute::Form(_) => SettingGroup::new().title("Provider").items(
+                vec![form_back]
+                    .into_iter()
+                    .chain(form_item)
+                    .collect::<Vec<SettingItem>>(),
+            ),
         };
 
         let settings = Settings::new("cgc-settings")
@@ -715,6 +766,155 @@ impl SettingsWindowView {
             );
         div().size_full().child(settings).into_any_element()
     }
+}
+
+fn render_provider_list(
+    _cx: &mut App,
+    weak: &WeakEntity<SettingsWindowView>,
+    drafts: &[ProviderDraft],
+    palette: &theme::Palette,
+    notice: Option<String>,
+    error: Option<String>,
+) -> AnyElement {
+    let mut rows: Vec<AnyElement> = Vec::new();
+    for (index, draft) in drafts.iter().enumerate() {
+        let total = parse_model_lines(&draft.models).0.len();
+        let enabled = draft
+            .model_params
+            .iter()
+            .filter(|model| model.enabled)
+            .count();
+        let status = if draft.has_key {
+            "✓ API Key 已配置"
+        } else {
+            "未配置 API Key"
+        };
+        let weak_row = weak.clone();
+        let target = draft.id.clone();
+        rows.push(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(space(2))
+                .p(space(1))
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .gap(px(1.0))
+                        .child(div().text_size(px(13.0)).child(draft.name.clone()))
+                        .child(
+                            div()
+                                .text_size(px(10.0))
+                                .text_color(palette.ink_3)
+                                .child(format!("{status} · 已启用 {enabled}/{total} 模型")),
+                        ),
+                )
+                .child(
+                    div()
+                        .id(SharedString::from(format!(
+                            "settings-provider-open-{index}"
+                        )))
+                        .role(Role::Button)
+                        .aria_label("高级配置")
+                        .px(space(2))
+                        .py(px(4.0))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .border_1()
+                        .border_color(palette.line)
+                        .text_size(px(11.0))
+                        .child("高级配置 >")
+                        .on_click(move |_, _, cx| {
+                            let _ = weak_row.update(cx, |this, cx| {
+                                this.ai_view = AiRoute::Form(target.clone());
+                                cx.notify();
+                            });
+                        }),
+                )
+                .into_any_element(),
+        );
+    }
+    let add_weak = weak.clone();
+    div()
+        .flex()
+        .flex_col()
+        .gap(space(1))
+        .child(
+            div()
+                .id("settings-cgc-placeholder")
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(space(2))
+                .p(space(1))
+                .rounded(px(RADIUS_MEDIUM))
+                .border_1()
+                .border_color(palette.line)
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .gap(px(1.0))
+                        .child(div().text_size(px(13.0)).child("CGC - 程序媛汇"))
+                        .child(
+                            div()
+                                .text_size(px(10.0))
+                                .text_color(palette.ink_3)
+                                .child("程序媛汇账号托管模型（网关接入中，占位）"),
+                        ),
+                )
+                .child(
+                    div()
+                        .id("settings-cgc-start")
+                        .role(Role::Button)
+                        .aria_label("开始使用 CGC")
+                        .px(space(2))
+                        .py(px(4.0))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .bg(palette.accent)
+                        .text_color(palette.canvas)
+                        .text_size(px(11.0))
+                        .child("开始使用")
+                        .on_click(move |_, _, cx| {
+                            cx.open_url("https://codinggirlsclub.com/");
+                        }),
+                ),
+        )
+        .children(rows)
+        .child(
+            div()
+                .id("settings-provider-add")
+                .role(Role::Button)
+                .aria_label("添加 provider")
+                .px(space(2))
+                .py(px(5.0))
+                .rounded(px(RADIUS_MEDIUM))
+                .border_1()
+                .border_color(palette.line)
+                .text_size(px(12.0))
+                .text_color(palette.ink_2)
+                .hover(|style| style.bg(palette.soft))
+                .child("＋ 添加 Provider（OpenAI compatible）")
+                .on_click(move |_, _, cx| {
+                    let _ = add_weak.update(cx, |this, cx| this.add_provider(cx));
+                }),
+        )
+        .children(notice.map(|notice| {
+            div()
+                .text_size(px(11.0))
+                .text_color(palette.ink_3)
+                .child(notice)
+        }))
+        .children(error.map(|error| {
+            div()
+                .text_size(px(11.0))
+                .text_color(palette.danger)
+                .child(error)
+        }))
+        .into_any_element()
 }
 
 fn render_provider_cards(
