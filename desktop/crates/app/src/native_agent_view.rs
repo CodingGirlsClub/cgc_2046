@@ -1485,7 +1485,7 @@ impl Render for NativeAgentView {
                                         HoverCard::new(SharedString::from(format!(
                                             "native-msg-image-hover-{message_index}-{image_index}"
                                         )))
-                                        .anchor(Anchor::TopCenter)
+                                        .anchor(Anchor::BottomCenter)
                                         .open_delay(std::time::Duration::from_millis(80))
                                         .trigger(trigger)
                                         .content(
@@ -2508,7 +2508,7 @@ impl Render for NativeAgentView {
                                         HoverCard::new(SharedString::from(format!(
                                             "native-image-hover-{index}"
                                         )))
-                                        .anchor(Anchor::TopCenter)
+                                        .anchor(Anchor::BottomCenter)
                                         .open_delay(std::time::Duration::from_millis(80))
                                         .trigger(trigger)
                                         .content(move |_, _, _| match preview.clone() {
