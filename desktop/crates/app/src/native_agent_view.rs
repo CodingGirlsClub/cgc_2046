@@ -2294,13 +2294,16 @@ impl Render for NativeAgentView {
                 let current_effort = self
                     .effort_index
                     .min(effort_levels.len().saturating_sub(1));
-                let thinking_label = if thinking_supported && self.thinking_enabled {
-                    effort_levels
-                        .get(current_effort)
-                        .map(String::as_str)
-                        .unwrap_or("Thinking")
-                } else if thinking_supported {
-                    "Thinking 关"
+                let thinking_enabled = self.thinking_enabled;
+                let thinking_label = if thinking_supported {
+                    if thinking_enabled {
+                        effort_levels
+                            .get(current_effort)
+                            .map(String::as_str)
+                            .unwrap_or("Thinking")
+                    } else {
+                        "Off"
+                    }
                 } else {
                     "推理 —"
                 };
@@ -2350,6 +2353,9 @@ impl Render for NativeAgentView {
                                             return;
                                         }
                                         let _ = root.update(cx, |this, cx| {
+                                            if !this.thinking_enabled {
+                                                this.set_thinking_enabled(true, cx);
+                                            }
                                             this.set_effort_index(level_index, cx);
                                         });
                                         let _ = row_dismiss
@@ -2358,6 +2364,36 @@ impl Render for NativeAgentView {
                                     .into_any_element()
                             })
                             .collect::<Vec<_>>();
+                            let off_root = thinking_root.clone();
+                            let off_dismiss = dismiss.clone();
+                            let off_selected = !thinking_enabled;
+                            let off_row = div()
+                                .id("native-thinking-off")
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .justify_between()
+                                .gap(space(2))
+                                .px(space(1))
+                                .py(px(3.0))
+                                .rounded(px(RADIUS_MEDIUM))
+                                .text_size(px(11.0))
+                                .text_color(if off_selected {
+                                    palette_copy.accent
+                                } else {
+                                    palette_copy.ink_2
+                                })
+                                .hover(|style| style.bg(palette_copy.soft))
+                                .child("Off")
+                                .children(off_selected.then_some("✓"))
+                                .on_click(move |_, window, cx| {
+                                    let _ = off_root.update(cx, |this, cx| {
+                                        this.set_thinking_enabled(false, cx);
+                                    });
+                                    let _ = off_dismiss
+                                        .update(cx, |state, cx| state.dismiss(window, cx));
+                                })
+                                .into_any_element();
                             div()
                                 .id("native-thinking-options")
                                 .flex()
@@ -2366,6 +2402,7 @@ impl Render for NativeAgentView {
                                 .w(px(160.0))
                                 .occlude()
                                 .children(rows)
+                                .child(off_row)
                                 .child(
                                     div()
                                         .px(space(1))
@@ -2438,39 +2475,23 @@ impl Render for NativeAgentView {
                             .children(rows)
                     });
 
-                let thinking_toggle = thinking_supported.then(|| {
-                    let enabled = self.thinking_enabled;
-                    div()
-                        .id("native-thinking-toggle")
-                        .role(Role::Button)
-                        .aria_label(if enabled {
-                            "关闭 Thinking"
-                        } else {
-                            "开启 Thinking"
-                        })
-                        .px(space(1))
-                        .py(px(2.0))
-                        .rounded(px(RADIUS_SMALL))
-                        .text_size(px(11.0))
-                        .text_color(if enabled {
-                            palette.accent
-                        } else {
-                            palette.ink_3
-                        })
-                        .bg(if enabled { palette.soft } else { palette.view })
-                        .child(if enabled { "Thinking" } else { "Thinking 关" })
-                        .on_click(cx.listener(move |this, _, _window, cx| {
-                            this.set_thinking_enabled(!enabled, cx)
-                        }))
-                });
-                let send_label = if busy {
+                let send_aria = if busy {
                     if has_input {
-                        "排队"
+                        "发送（排队）"
                     } else {
                         "停止"
                     }
                 } else {
                     "发送"
+                };
+                let send_label = if busy {
+                    if has_input {
+                        "⏳"
+                    } else {
+                        "■"
+                    }
+                } else {
+                    "↑"
                 };
                 let send_bg = if busy && !has_input {
                     palette.danger
@@ -2495,7 +2516,47 @@ impl Render for NativeAgentView {
                 } else {
                     "输入内容后可发送"
                 };
-                let usage_label = format!("{usage} tokens");
+                let context_window = self.model.limits.context_window.max(1) as u64;
+                let used_percent = if context_window == 0 {
+                    0
+                } else {
+                    ((usage as f64 / context_window as f64) * 100.0).round() as u64
+                };
+                let context_summary = format!(
+                    "{used_percent}% · {} / {}",
+                    humanize_tokens(usage),
+                    humanize_tokens(context_window)
+                );
+                let context_usage = HoverCard::new("native-context-usage")
+                    .anchor(Anchor::BottomCenter)
+                    .trigger(
+                        div()
+                            .text_size(px(10.0))
+                            .text_color(palette.ink_3)
+                            .child(context_summary.clone()),
+                    )
+                    .content(move |_, _, _| {
+                        div()
+                            .w(px(190.0))
+                            .p(space(1))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .border_1()
+                            .border_color(palette.line)
+                            .bg(palette.card)
+                            .child(
+                                div()
+                                    .text_size(px(10.0))
+                                    .text_color(palette.ink_3)
+                                    .child("Context"),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .child(context_summary.clone()),
+                            )
+                            .into_any_element()
+                    });
 
                 div()
                     .id("native-agent-composer")
@@ -2876,39 +2937,7 @@ impl Render for NativeAgentView {
                                             .into_any_element()
                                     }),
                             )
-                            .child(
-                                div()
-                                    .id("native-follow-toggle")
-                                    .role(Role::Button)
-                                    .aria_label(if self.follow_output {
-                                        "暂停跟随输出"
-                                    } else {
-                                        "跟随输出"
-                                    })
-                                    .px(space(1))
-                                    .py(px(2.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .text_size(px(11.0))
-                                    .text_color(if self.follow_output {
-                                        palette.accent
-                                    } else {
-                                        palette.ink_3
-                                    })
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child(if self.follow_output {
-                                        "跟随"
-                                    } else {
-                                        "暂停"
-                                    })
-                                    .on_click(cx.listener(|this, _, _window, cx| {
-                                        this.follow_output = !this.follow_output;
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(model_picker)
-                            .children(thinking_toggle)
                             .children(effort_picker)
-                            .child(approval_picker)
                             .child(div().flex_1())
                             .children((can_undo && change_count > 0).then(|| {
                                 div()
@@ -2944,12 +2973,9 @@ impl Render for NativeAgentView {
                                         }),
                                     )
                             }))
-                            .child(
-                                div()
-                                    .text_size(px(10.0))
-                                    .text_color(palette.ink_3)
-                                    .child(usage_label),
-                            )
+                            .child(approval_picker)
+                            .child(model_picker)
+                            .child(context_usage)
                             .child(
                                 div()
                                     .id(if busy {
@@ -2958,7 +2984,7 @@ impl Render for NativeAgentView {
                                         "native-agent-send"
                                     })
                                     .role(Role::Button)
-                                    .aria_label(send_label)
+                                    .aria_label(send_aria)
                                     .px(space(2))
                                     .py(px(3.0))
                                     .rounded(px(RADIUS_SMALL))
@@ -3112,6 +3138,16 @@ fn approval_button(
         .child(label)
         .on_click(cx.listener(move |this, _, _window, cx| action(this, cx)))
         .into_any_element()
+}
+
+fn humanize_tokens(count: u64) -> String {
+    if count >= 1_000_000 {
+        format!("{:.1}M", count as f64 / 1_000_000.0).replace(".0M", "M")
+    } else if count >= 1_000 {
+        format!("{:.1}k", count as f64 / 1_000.0).replace(".0k", "k")
+    } else {
+        count.to_string()
+    }
 }
 
 fn now_secs() -> i64 {
