@@ -1149,6 +1149,7 @@ fn render_provider_list(
             "未配置 API Key"
         };
         let weak_row = weak.clone();
+        let reset_weak = weak.clone();
         let target = draft.id.clone();
         rows.push(
             div()
@@ -1336,7 +1337,6 @@ fn render_provider_cards(
         };
         let remove_weak = weak.clone();
         let save_weak = weak.clone();
-        let reset_weak = weak.clone();
         let thinking_weak = weak.clone();
         cards.push(
             div()
