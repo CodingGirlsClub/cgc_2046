@@ -2352,17 +2352,6 @@ impl Render for NativeAgentView {
                             .pt(px(2.0))
                             .children(rows)
                     }))
-                    .children(
-                        self.hovered_image
-                            .and_then(|index| self.pending_images.get(index))
-                            .and_then(|image| image.preview.clone())
-                            .map(|preview| {
-                                div()
-                                    .px(space(1))
-                                    .pb(px(2.0))
-                                    .child(img(preview).max_h(px(160.0)).rounded(px(RADIUS_SMALL)))
-                            }),
-                    )
                     .child(
                         div()
                             .relative()
@@ -2373,6 +2362,30 @@ impl Render for NativeAgentView {
                                     .appearance(false)
                                     .bordered(false)
                                     .w_full(),
+                            )
+                            .children(
+                                self.hovered_image
+                                    .and_then(|index| self.pending_images.get(index))
+                                    .and_then(|image| image.preview.clone())
+                                    .map(|preview| {
+                                        div()
+                                            .id("native-image-preview-overlay")
+                                            .absolute()
+                                            .left(px(0.0))
+                                            .top(px(-196.0))
+                                            .p(px(4.0))
+                                            .rounded(px(RADIUS_SMALL))
+                                            .border_1()
+                                            .border_color(palette.line)
+                                            .bg(palette.card)
+                                            .occlude()
+                                            .child(
+                                                img(preview)
+                                                    .max_h(px(180.0))
+                                                    .max_w(px(280.0))
+                                                    .rounded(px(RADIUS_SMALL)),
+                                            )
+                                    }),
                             )
                             .children((!has_input).then(|| {
                                 // 自定义可换行 placeholder：gpui-base 的 Textarea
