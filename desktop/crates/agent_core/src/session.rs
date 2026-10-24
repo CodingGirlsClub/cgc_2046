@@ -202,6 +202,11 @@ impl Agent {
         &self.thread
     }
 
+    /// 更新线程标题（标题生成/用户重命名使用）。
+    pub fn set_thread_title(&mut self, title: Option<String>) {
+        self.thread.title = title;
+    }
+
     pub fn thread_mut(&mut self) -> &mut Thread {
         &mut self.thread
     }

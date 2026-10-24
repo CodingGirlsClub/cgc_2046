@@ -104,6 +104,12 @@ impl SettingsWindowView {
         }
     }
 
+    /// 从其他窗口打开 Settings 时直接定位到 AI 页。
+    pub fn open_ai(&mut self, cx: &mut Context<Self>) {
+        self.ai_view = AiRoute::General;
+        cx.notify();
+    }
+
     pub fn focus_handle(&self) -> FocusHandle {
         self.focus.clone()
     }
