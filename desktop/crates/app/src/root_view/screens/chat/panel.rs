@@ -15,8 +15,11 @@ pub(in crate::root_view) fn render_chat_panel(
     let phase = ctx.chat.phase.clone();
     let messages = ctx.chat.messages.clone();
     let input = ctx.chat.input.clone();
-    let agent_label = if ctx.chat.agent.is_empty() {
-        "agent".to_string()
+    let agent_label = if ctx.chat.agent.trim().is_empty() {
+        ctx.chat
+            .selected_agent
+            .clone()
+            .unwrap_or_else(|| "Agent".to_string())
     } else {
         ctx.chat.agent.clone()
     };

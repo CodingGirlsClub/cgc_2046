@@ -466,6 +466,27 @@ impl RootView {
         self.state.chat_input = Some(input);
     }
 
+    /// ACP 当前 agent 的展示名（未连接时用已选 agent id）。
+    pub(in crate::root_view) fn acp_agent_label(&self) -> String {
+        if !self.chat.agent.trim().is_empty() {
+            self.chat.agent.clone()
+        } else {
+            self.chat
+                .selected_agent
+                .clone()
+                .unwrap_or_else(|| "Agent".to_string())
+        }
+    }
+
+    /// 没有标题时的默认标题：New {agent} Thread。
+    fn new_thread_title(&self) -> String {
+        let agent = self.acp_agent_label();
+        match self.language {
+            Language::Zh => format!("新建 {agent} 对话"),
+            Language::En => format!("New {agent} Thread"),
+        }
+    }
+
     pub(in crate::root_view) fn agent_panel_title(&self, cx: &App) -> String {
         if self.native_chat_mode && RootView::native_agent_enabled() {
             return self
@@ -486,7 +507,7 @@ impl RootView {
                         .and_then(|session| session.title.clone())
                 })
             })
-            .unwrap_or_else(|| "新对话".to_string())
+            .unwrap_or_else(|| self.new_thread_title())
     }
 
     fn ensure_agent_panel_title_input(
