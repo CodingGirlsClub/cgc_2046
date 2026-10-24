@@ -277,7 +277,7 @@ fn header(
                         })
                         .collect();
                     let mut rows = rows;
-                    if native_mode {
+                    if RootView::native_agent_enabled() {
                         rows.insert(
                             0,
                             div()
@@ -292,7 +292,7 @@ fn header(
                                 .text_size(px(11.0))
                                 .text_color(palette.ink_2)
                                 .hover(|style| style.bg(palette.soft))
-                                .child(div().flex_1().child("Native Agent"))
+                                .child(div().flex_1().child("CGC Agent"))
                                 .child(
                                     div()
                                         .text_size(px(10.0))
