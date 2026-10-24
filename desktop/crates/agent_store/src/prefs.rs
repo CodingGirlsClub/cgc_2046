@@ -248,7 +248,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         max_output_tokens: 384_000,
         supports_thinking: true,
         enabled: true,
-        reasoning_efforts: Vec::new(),
+        reasoning_efforts: vec!["low".into(), "high".into(), "max".into()],
     });
     deepseek.upsert_model(ModelPrefs {
         id: "deepseek-v4-pro".to_string(),
@@ -256,7 +256,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         max_output_tokens: 384_000,
         supports_thinking: true,
         enabled: true,
-        reasoning_efforts: Vec::new(),
+        reasoning_efforts: vec!["low".into(), "high".into(), "max".into()],
     });
 
     let mut moonshot = provider("moonshot", "Moonshot", "https://api.moonshot.cn/v1");
@@ -271,15 +271,29 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
             max_output_tokens: output,
             supports_thinking: true,
             enabled: true,
-            reasoning_efforts: Vec::new(),
+            reasoning_efforts: vec!["low".into(), "high".into(), "max".into()],
         });
     }
 
-    let mut minimax = provider("minimax", "MiniMax", "https://api.minimaxi.com/v1");
+    let mut minimax = provider("minimax", "MiniMax", "https://api.minimax.io/v1");
     minimax.upsert_model(ModelPrefs {
-        id: "MiniMax-M2".to_string(),
-        context_window: 1_048_576,
-        max_output_tokens: 8_192,
+        id: "MiniMax-M3.1-Flash".to_string(),
+        context_window: 1_000_000,
+        max_output_tokens: 32_768,
+        supports_thinking: true,
+        enabled: true,
+        reasoning_efforts: vec![
+            "low".into(),
+            "medium".into(),
+            "high".into(),
+            "xhigh".into(),
+            "max".into(),
+        ],
+    });
+    minimax.upsert_model(ModelPrefs {
+        id: "MiniMax-M3".to_string(),
+        context_window: 1_000_000,
+        max_output_tokens: 32_768,
         supports_thinking: true,
         enabled: true,
         reasoning_efforts: Vec::new(),
