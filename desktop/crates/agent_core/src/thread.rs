@@ -24,6 +24,8 @@ impl SelectedModel {
 /// 用户消息里的图片附件（base64，随 thread 持久化）。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImageAttachment {
+    #[serde(default)]
+    pub name: String,
     pub mime_type: String,
     pub data: String,
 }
@@ -421,6 +423,7 @@ mod image_tests {
         );
         thread.push_user("看图");
         thread.attach_images_to_last_user(vec![ImageAttachment {
+            name: "a.png".to_string(),
             mime_type: "image/png".to_string(),
             data: "AAAA".to_string(),
         }]);

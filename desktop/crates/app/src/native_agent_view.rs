@@ -138,14 +138,27 @@ fn prepare_clipboard_image(bytes: &[u8]) -> Option<(Vec<u8>, Arc<RenderImage>)> 
     Some((png, preview))
 }
 
-fn decode_image_previews(images: &[ImageAttachment]) -> Vec<Arc<RenderImage>> {
+/// 已发送消息里展示用的图片引用（chip + 悬停预览）。
+#[derive(Clone)]
+struct SentImage {
+    name: String,
+    preview: Option<Arc<RenderImage>>,
+}
+
+fn decode_sent_images(images: &[ImageAttachment]) -> Vec<SentImage> {
     images
         .iter()
-        .filter_map(|image| {
-            let bytes = base64::engine::general_purpose::STANDARD
+        .map(|image| SentImage {
+            name: if image.name.is_empty() {
+                "image.png".to_string()
+            } else {
+                image.name.clone()
+            },
+            preview: base64::engine::general_purpose::STANDARD
                 .decode(image.data.as_bytes())
-                .ok()?;
-            prepare_clipboard_image(&bytes).map(|(_, preview)| preview)
+                .ok()
+                .and_then(|bytes| prepare_clipboard_image(&bytes))
+                .map(|(_, preview)| preview),
         })
         .collect()
 }
@@ -187,7 +200,7 @@ pub struct NativeAgentView {
     approval_sender: Arc<Mutex<Option<oneshot::Sender<ApprovalDecision>>>>,
     pending_images: Vec<PendingImage>,
     /// 已发送用户消息 index → 图片预览（仅当前进程内显示，不持久化）。
-    sent_images: HashMap<usize, Vec<Arc<RenderImage>>>,
+    sent_images: HashMap<usize, Vec<SentImage>>,
     hovered_image: Option<usize>,
     queued_messages: Vec<String>,
     steer_sender: std_mpsc::Sender<String>,
@@ -278,14 +291,14 @@ impl NativeAgentView {
             (thread.model == selected).then_some(thread)
         });
         let mut state = HostState::new();
-        let mut restored_images: HashMap<usize, Vec<Arc<RenderImage>>> = HashMap::new();
+        let mut restored_images: HashMap<usize, Vec<SentImage>> = HashMap::new();
         let thread = match restored_thread {
             Some(thread) => {
                 for entry in &thread.entries {
                     match entry {
                         cgc_agent_core::Entry::User { text, images, .. } => {
                             state.push_user(text);
-                            let previews = decode_image_previews(images);
+                            let previews = decode_sent_images(images);
                             if !previews.is_empty() {
                                 restored_images.insert(state.messages.len() - 1, previews);
                             }
@@ -705,17 +718,20 @@ impl NativeAgentView {
             agent.set_pending_images(
                 self.pending_images
                     .iter()
-                    .map(|image| (image.mime.clone(), image.data.clone()))
+                    .map(|image| (image.name.clone(), image.mime.clone(), image.data.clone()))
                     .collect(),
             );
-            let previews: Vec<Arc<RenderImage>> = self
+            let sent: Vec<SentImage> = self
                 .pending_images
                 .iter()
-                .filter_map(|image| image.preview.clone())
+                .map(|image| SentImage {
+                    name: image.name.clone(),
+                    preview: image.preview.clone(),
+                })
                 .collect();
-            if !previews.is_empty() {
+            if !sent.is_empty() {
                 let message_index = self.state.messages.len();
-                self.sent_images.insert(message_index, previews);
+                self.sent_images.insert(message_index, sent);
             }
             self.pending_images.clear();
         }
@@ -1181,12 +1197,12 @@ impl NativeAgentView {
         let thread = agent.thread();
         let mut state = HostState::new();
         state.usage_total = thread.usage_total;
-        let mut restored_images: HashMap<usize, Vec<Arc<RenderImage>>> = HashMap::new();
+        let mut restored_images: HashMap<usize, Vec<SentImage>> = HashMap::new();
         for entry in &thread.entries {
             match entry {
                 cgc_agent_core::Entry::User { text, images, .. } => {
                     state.push_user(text);
-                    let previews = decode_image_previews(images);
+                    let previews = decode_sent_images(images);
                     if !previews.is_empty() {
                         restored_images.insert(state.messages.len() - 1, previews);
                     }
@@ -1326,10 +1342,30 @@ impl Render for NativeAgentView {
                             .child(role_label(message.role)),
                     )
                     .child(div().text_size(px(13.0)).child(message.text.clone()))
-                    .children(sent_images.get(&message_index).map(|previews| {
+                    .children(sent_images.get(&message_index).map(|images| {
                         div().flex().flex_row().flex_wrap().gap(space(1)).children(
-                            previews.iter().cloned().map(|preview| {
-                                img(preview).max_h(px(120.0)).rounded(px(RADIUS_SMALL))
+                            images.iter().map(|image| {
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap(px(4.0))
+                                    .px(space(1))
+                                    .py(px(1.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .border_1()
+                                    .border_color(palette.line)
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .child(match image.preview.clone() {
+                                        Some(preview) => img(preview)
+                                            .max_w(px(16.0))
+                                            .max_h(px(16.0))
+                                            .rounded(px(2.0))
+                                            .into_any_element(),
+                                        None => "🖼".into_any_element(),
+                                    })
+                                    .child(image.name.clone())
                             }),
                         )
                     }))
@@ -2311,7 +2347,14 @@ impl Render for NativeAgentView {
                                     .border_color(palette.line)
                                     .text_size(px(11.0))
                                     .text_color(palette.ink_2)
-                                    .child("🖼")
+                                    .child(match image.preview.clone() {
+                                        Some(preview) => img(preview)
+                                            .max_w(px(16.0))
+                                            .max_h(px(16.0))
+                                            .rounded(px(2.0))
+                                            .into_any_element(),
+                                        None => "🖼".into_any_element(),
+                                    })
                                     .child(image.name.clone())
                                     .child(
                                         div()
@@ -2371,8 +2414,8 @@ impl Render for NativeAgentView {
                                         div()
                                             .id("native-image-preview-overlay")
                                             .absolute()
-                                            .left(px(0.0))
-                                            .top(px(-196.0))
+                                            .left(px(8.0))
+                                            .top(px(8.0))
                                             .p(px(4.0))
                                             .rounded(px(RADIUS_SMALL))
                                             .border_1()

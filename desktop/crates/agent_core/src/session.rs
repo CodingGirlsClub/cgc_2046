@@ -154,7 +154,7 @@ pub struct Agent {
     steer_rx: mpsc::Receiver<String>,
     reasoning_effort: Option<String>,
     /// 下一轮用户消息要携带的图片附件（MIME, base64）；发送一次后清空。
-    pending_images: Vec<(String, String)>,
+    pending_images: Vec<(String, String, String)>,
 }
 
 impl Agent {
@@ -178,7 +178,7 @@ impl Agent {
     }
 
     /// 设置下一轮要随用户消息发送的图片（MIME, base64）；只生效一次。
-    pub fn set_pending_images(&mut self, images: Vec<(String, String)>) {
+    pub fn set_pending_images(&mut self, images: Vec<(String, String, String)>) {
         self.pending_images = images;
     }
 
@@ -189,7 +189,11 @@ impl Agent {
         }
         let images = std::mem::take(&mut self.pending_images)
             .into_iter()
-            .map(|(mime_type, data)| ImageAttachment { mime_type, data })
+            .map(|(name, mime_type, data)| ImageAttachment {
+                name,
+                mime_type,
+                data,
+            })
             .collect::<Vec<_>>();
         self.thread.attach_images_to_last_user(images);
     }
