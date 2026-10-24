@@ -13,6 +13,7 @@ use cgc_agent_store::{
 };
 use cgc_platform::paths::AppPaths;
 use cgc_platform::session::KeychainStore;
+use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::group_box::GroupBoxVariant;
 use gpui_kit::component::input::{Input, InputState, TextareaState};
 use gpui_kit::component::setting::{
@@ -1436,24 +1437,20 @@ fn render_provider_cards(
                                             .items_center()
                                             .gap(space(1))
                                             .child(
-                                                div()
-                                                    .id(SharedString::from(format!(
-                                                        "settings-model-enable-{index}-{model_index}"
-                                                    )))
-                                                    .role(Role::Button)
-                                                    .text_size(px(11.0))
-                                                    .text_color(palette.ink_2)
-                                                    .child(if enabled { "☑" } else { "☐" })
-                                                    .on_click(move |_, _, cx| {
-                                                        let _ = toggle_weak.update(cx, |this, cx| {
-                                                            this.toggle_model_field(
-                                                                index,
-                                                                model_index,
-                                                                false,
-                                                                cx,
-                                                            );
-                                                        });
-                                                    }),
+                                                Checkbox::new(SharedString::from(format!(
+                                                    "settings-model-enable-{index}-{model_index}"
+                                                )))
+                                                .checked(enabled)
+                                                .on_click(move |_checked, _, cx| {
+                                                    let _ = toggle_weak.update(cx, |this, cx| {
+                                                        this.toggle_model_field(
+                                                            index,
+                                                            model_index,
+                                                            false,
+                                                            cx,
+                                                        );
+                                                    });
+                                                }),
                                             )
                                             .child(
                                                 div()
@@ -1515,7 +1512,7 @@ fn render_provider_cards(
                                                     .flex_row()
                                                     .items_center()
                                                     .gap(px(2.0))
-                                                    .text_size(px(10.0))
+                                                    .text_size(px(13.0))
                                                     .text_color(palette.ink_2)
                                                     .child(if thinking { "☑" } else { "☐" })
                                                     .child("thinking")
