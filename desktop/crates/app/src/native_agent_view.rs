@@ -33,6 +33,7 @@ use cgc_platform::session::KeychainStore;
 use futures::channel::{mpsc, oneshot};
 use futures::StreamExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::hover_card::HoverCard;
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::component::popover::Popover;
 use gpui_kit::component::tooltip::Tooltip;
@@ -232,8 +233,6 @@ pub struct NativeAgentView {
     /// 已发送用户消息 index → 图片预览（仅当前进程内显示，不持久化）。
     sent_images: HashMap<usize, Vec<SentImage>>,
     last_input_value: String,
-    hovered_image: Option<usize>,
-    hovered_sent_image: Option<Arc<RenderImage>>,
     queued_messages: Vec<String>,
     steer_sender: std_mpsc::Sender<String>,
     _input_subscription: Option<Subscription>,
@@ -558,8 +557,6 @@ impl NativeAgentView {
             pending_images: Vec::new(),
             sent_images: restored_images,
             last_input_value: String::new(),
-            hovered_image: None,
-            hovered_sent_image: None,
             _input_subscription: input_subscription,
         }
     }
@@ -1447,11 +1444,28 @@ impl Render for NativeAgentView {
                     )
                     .child(div().text_size(px(13.0)).child(message.text.clone()))
                     .children(sent_images.get(&message_index).map(|images| {
-                        let row_weak = cx.entity().downgrade();
                         div().flex().flex_row().flex_wrap().gap(space(1)).children(
                             images.iter().enumerate().map(|(image_index, image)| {
-                                let hover_weak = row_weak.clone();
-                                let hover_preview = image.preview.clone();
+                                let preview = image.preview.clone();
+                                let trigger = div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap(px(4.0))
+                                    .px(space(1))
+                                    .py(px(1.0))
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .child(match image.preview.clone() {
+                                        Some(preview) => img(preview)
+                                            .max_w(px(16.0))
+                                            .max_h(px(16.0))
+                                            .rounded(px(2.0))
+                                            .into_any_element(),
+                                        None => "🖼".into_any_element(),
+                                    })
+                                    .child(image.name.clone())
+                                    .into_any_element();
                                 div()
                                     .id(SharedString::from(format!(
                                         "native-msg-image-{message_index}-{image_index}"
@@ -1467,25 +1481,33 @@ impl Render for NativeAgentView {
                                     .border_color(palette.line)
                                     .text_size(px(11.0))
                                     .text_color(palette.ink_2)
-                                    .on_hover(move |hovered: &bool, _window, cx| {
-                                        let _ = hover_weak.update(cx, |this, cx| {
-                                            this.hovered_sent_image = if *hovered {
-                                                hover_preview.clone()
-                                            } else {
-                                                None
-                                            };
-                                            cx.notify();
-                                        });
-                                    })
-                                    .child(match image.preview.clone() {
-                                        Some(preview) => img(preview)
-                                            .max_w(px(16.0))
-                                            .max_h(px(16.0))
-                                            .rounded(px(2.0))
-                                            .into_any_element(),
-                                        None => "🖼".into_any_element(),
-                                    })
-                                    .child(image.name.clone())
+                                    .child(
+                                        HoverCard::new(SharedString::from(format!(
+                                            "native-msg-image-hover-{message_index}-{image_index}"
+                                        )))
+                                        .anchor(Anchor::TopCenter)
+                                        .open_delay(std::time::Duration::from_millis(80))
+                                        .trigger(trigger)
+                                        .content(
+                                            move |_, _, _| match preview.clone() {
+                                                Some(preview) => div()
+                                                    .p(px(4.0))
+                                                    .rounded(px(RADIUS_SMALL))
+                                                    .border_1()
+                                                    .border_color(palette.line)
+                                                    .bg(palette.card)
+                                                    .child(
+                                                        img(preview)
+                                                            .max_w(px(280.0))
+                                                            .max_h(px(180.0))
+                                                            .rounded(px(RADIUS_SMALL)),
+                                                    )
+                                                    .into_any_element(),
+                                                None => div().child("无预览").into_any_element(),
+                                            },
+                                        ),
+                                    )
+                                    .into_any_element()
                             }),
                         )
                     }))
@@ -2451,7 +2473,22 @@ impl Render for NativeAgentView {
                             .enumerate()
                             .map(|(index, image)| {
                                 let remove_weak = cx.entity().downgrade();
-                                let remove_weak_ui = cx.entity().downgrade();
+                                let preview = image.preview.clone();
+                                let trigger = div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap(px(4.0))
+                                    .child(match image.preview.clone() {
+                                        Some(preview) => img(preview)
+                                            .max_w(px(16.0))
+                                            .max_h(px(16.0))
+                                            .rounded(px(2.0))
+                                            .into_any_element(),
+                                        None => "🖼".into_any_element(),
+                                    })
+                                    .child(image.name.clone())
+                                    .into_any_element();
                                 div()
                                     .id(SharedString::from(format!(
                                         "native-image-chip-{index}"
@@ -2467,15 +2504,30 @@ impl Render for NativeAgentView {
                                     .border_color(palette.line)
                                     .text_size(px(11.0))
                                     .text_color(palette.ink_2)
-                                    .child(match image.preview.clone() {
-                                        Some(preview) => img(preview)
-                                            .max_w(px(16.0))
-                                            .max_h(px(16.0))
-                                            .rounded(px(2.0))
-                                            .into_any_element(),
-                                        None => "🖼".into_any_element(),
-                                    })
-                                    .child(image.name.clone())
+                                    .child(
+                                        HoverCard::new(SharedString::from(format!(
+                                            "native-image-hover-{index}"
+                                        )))
+                                        .anchor(Anchor::TopCenter)
+                                        .open_delay(std::time::Duration::from_millis(80))
+                                        .trigger(trigger)
+                                        .content(move |_, _, _| match preview.clone() {
+                                            Some(preview) => div()
+                                                .p(px(4.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .border_1()
+                                                .border_color(palette.line)
+                                                .bg(palette.card)
+                                                .child(
+                                                    img(preview)
+                                                        .max_w(px(280.0))
+                                                        .max_h(px(180.0))
+                                                        .rounded(px(RADIUS_SMALL)),
+                                                )
+                                                .into_any_element(),
+                                            None => div().child("无预览").into_any_element(),
+                                        }),
+                                    )
                                     .child(
                                         div()
                                             .id(SharedString::from(format!(
@@ -2491,18 +2543,10 @@ impl Render for NativeAgentView {
                                                     if index < this.pending_images.len() {
                                                         this.pending_images.remove(index);
                                                     }
-                                                    this.hovered_image = None;
                                                     cx.notify();
                                                 });
                                             }),
                                     )
-                                    .on_hover(move |hovered: &bool, _window, cx| {
-                                        let _ = remove_weak_ui.update(cx, |this, cx| {
-                                            this.hovered_image =
-                                                if *hovered { Some(index) } else { None };
-                                            cx.notify();
-                                        });
-                                    })
                                     .into_any_element()
                             })
                             .collect::<Vec<_>>();
@@ -2525,29 +2569,6 @@ impl Render for NativeAgentView {
                                     .appearance(false)
                                     .bordered(false)
                                     .w_full(),
-                            )
-                            .children(
-                                self.hovered_image
-                                    .and_then(|index| self.pending_images.get(index))
-                                    .and_then(|image| image.preview.clone())
-                                    .or_else(|| self.hovered_sent_image.clone())
-                                    .map(|preview| {
-                                        div()
-                                            .absolute()
-                                            .left(px(8.0))
-                                            .top(px(-196.0))
-                                            .p(px(4.0))
-                                            .rounded(px(RADIUS_SMALL))
-                                            .border_1()
-                                            .border_color(palette.line)
-                                            .bg(palette.card)
-                                            .child(
-                                                img(preview)
-                                                    .max_h(px(180.0))
-                                                    .max_w(px(280.0))
-                                                    .rounded(px(RADIUS_SMALL)),
-                                            )
-                                    }),
                             )
                             .children((!has_input).then(|| {
                                 // 自定义可换行 placeholder：gpui-base 的 Textarea
