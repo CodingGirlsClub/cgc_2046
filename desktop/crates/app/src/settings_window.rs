@@ -1293,12 +1293,6 @@ fn render_provider_cards(
                                 }),
                         ),
                 )
-                .child(SettingsWindowView::render_provider_field(
-                    "API URL *",
-                    Some("兼容 API 的基础 URL。"),
-                    base_input,
-                    palette,
-                ))
                 .children(draft.name_input.clone().map(|input| {
                     SettingsWindowView::render_provider_field(
                         "Provider Name *",
@@ -1307,6 +1301,213 @@ fn render_provider_cards(
                         palette,
                     )
                 }))
+                .child(SettingsWindowView::render_provider_field(
+                    "API URL *",
+                    Some("兼容 API 的基础 URL。"),
+                    base_input,
+                    palette,
+                ))
+                .children({
+                    let edit_weak = weak.clone();
+                    let reset_weak = weak.clone();
+                    let save_weak = weak.clone();
+                    let cancel_weak = weak.clone();
+                    let confirm_weak = weak.clone();
+                    let cancel_clear_weak = weak.clone();
+                    if draft.has_key && !draft.key_editing {
+                        Some(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(space(2))
+                                .child(
+                                    div()
+                                        .text_size(px(11.0))
+                                        .text_color(palette.ink_2)
+                                        .child("✓ API Key 已配置"),
+                                )
+                                .child(
+                                    div()
+                                        .id(SharedString::from(format!(
+                                            "settings-provider-change-key-{index}"
+                                        )))
+                                        .role(Role::Button)
+                                        .px(space(2))
+                                        .py(px(3.0))
+                                        .rounded(px(RADIUS_SMALL))
+                                        .text_size(px(11.0))
+                                        .text_color(palette.accent)
+                                        .hover(|style| style.bg(palette.soft))
+                                        .child("替换 Key")
+                                        .on_click(move |_, _, cx| {
+                                            let _ = edit_weak.update(cx, |this, cx| {
+                                                if let Some(draft) =
+                                                    this.provider_drafts.get_mut(index)
+                                                {
+                                                    draft.key_editing = true;
+                                                }
+                                                cx.notify();
+                                            });
+                                        }),
+                                )
+                                .child(
+                                    div()
+                                        .id(SharedString::from(format!(
+                                            "settings-provider-reset-key-{index}"
+                                        )))
+                                        .role(Role::Button)
+                                        .px(space(2))
+                                        .py(px(3.0))
+                                        .rounded(px(RADIUS_SMALL))
+                                        .text_size(px(11.0))
+                                        .text_color(palette.ink_3)
+                                        .hover(|style| style.bg(palette.soft))
+                                        .child("清除 Key")
+                                        .on_click(move |_, _, cx| {
+                                            let _ = reset_weak.update(cx, |this, cx| {
+                                                if let Some(draft) =
+                                                    this.provider_drafts.get_mut(index)
+                                                {
+                                                    draft.confirm_clear = true;
+                                                }
+                                                cx.notify();
+                                            });
+                                        }),
+                                )
+                                .children(draft.confirm_clear.then(|| {
+                                    div()
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap(space(2))
+                                        .child(
+                                            div()
+                                                .text_size(px(11.0))
+                                                .text_color(palette.danger)
+                                                .child("确认清除 API Key？"),
+                                        )
+                                        .child(
+                                            div()
+                                                .id(SharedString::from(format!(
+                                                    "settings-provider-confirm-clear-{index}"
+                                                )))
+                                                .role(Role::Button)
+                                                .px(space(2))
+                                                .py(px(3.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .bg(palette.danger)
+                                                .text_color(palette.canvas)
+                                                .text_size(px(11.0))
+                                                .child("确认清除")
+                                                .on_click(move |_, _, cx| {
+                                                    let _ = confirm_weak.update(cx, |this, cx| {
+                                                        this.reset_provider_key(index, cx);
+                                                    });
+                                                }),
+                                        )
+                                        .child(
+                                            div()
+                                                .id(SharedString::from(format!(
+                                                    "settings-provider-cancel-clear-{index}"
+                                                )))
+                                                .role(Role::Button)
+                                                .px(space(2))
+                                                .py(px(3.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .text_size(px(11.0))
+                                                .text_color(palette.ink_3)
+                                                .hover(|style| style.bg(palette.soft))
+                                                .child("取消")
+                                                .on_click(move |_, _, cx| {
+                                                    let _ = cancel_clear_weak.update(
+                                                        cx,
+                                                        |this, cx| {
+                                                            if let Some(draft) = this
+                                                                .provider_drafts
+                                                                .get_mut(index)
+                                                            {
+                                                                draft.confirm_clear = false;
+                                                            }
+                                                            cx.notify();
+                                                        },
+                                                    );
+                                                }),
+                                        )
+                                }))
+                                .into_any_element(),
+                        )
+                    } else {
+                        Some(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(2.0))
+                                .child(
+                                    div()
+                                        .text_size(px(11.0))
+                                        .text_color(palette.ink_3)
+                                        .child(if draft.has_key {
+                                            "输入新 Key 将替换现有 Key"
+                                        } else {
+                                            "API Key（保存到系统钥匙串）"
+                                        }),
+                                )
+                                .child(div().w(px(360.0)).child(Input::new(&key_input)))
+                                .child(
+                                    div()
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap(space(2))
+                                        .child(
+                                            div()
+                                                .id(SharedString::from(format!(
+                                                    "settings-provider-save-key-{index}"
+                                                )))
+                                                .role(Role::Button)
+                                                .px(space(2))
+                                                .py(px(3.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .bg(palette.accent)
+                                                .text_color(palette.canvas)
+                                                .text_size(px(11.0))
+                                                .child("保存 Key")
+                                                .on_click(move |_, window, cx| {
+                                                    let _ = save_weak.update(cx, |this, cx| {
+                                                        this.save_provider_key(index, window, cx);
+                                                    });
+                                                }),
+                                        )
+                                        .children(draft.has_key.then(|| {
+                                            div()
+                                                .id(SharedString::from(format!(
+                                                    "settings-provider-cancel-key-{index}"
+                                                )))
+                                                .role(Role::Button)
+                                                .px(space(2))
+                                                .py(px(3.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .text_size(px(11.0))
+                                                .text_color(palette.ink_3)
+                                                .hover(|style| style.bg(palette.soft))
+                                                .child("取消")
+                                                .on_click(move |_, _, cx| {
+                                                    let _ = cancel_weak.update(cx, |this, cx| {
+                                                        if let Some(draft) =
+                                                            this.provider_drafts.get_mut(index)
+                                                        {
+                                                            draft.key_editing = false;
+                                                        }
+                                                        cx.notify();
+                                                    });
+                                                })
+                                        })),
+                                )
+                                .into_any_element(),
+                        )
+                    }
+                })
                 .child(
                     div()
                         .flex()
@@ -1528,207 +1729,6 @@ fn render_provider_cards(
                             },
                         ))
                 )
-                .children({
-                    let edit_weak = weak.clone();
-                    let reset_weak = weak.clone();
-                    let save_weak = weak.clone();
-                    let cancel_weak = weak.clone();
-                    let confirm_weak = weak.clone();
-                    let cancel_clear_weak = weak.clone();
-                    if draft.has_key && !draft.key_editing {
-                        Some(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .gap(space(2))
-                                .child(
-                                    div()
-                                        .text_size(px(11.0))
-                                        .text_color(palette.ink_2)
-                                        .child("✓ API Key 已配置"),
-                                )
-                                .child(
-                                    div()
-                                        .id(SharedString::from(format!(
-                                            "settings-provider-change-key-{index}"
-                                        )))
-                                        .role(Role::Button)
-                                        .px(space(2))
-                                        .py(px(3.0))
-                                        .rounded(px(RADIUS_SMALL))
-                                        .text_size(px(11.0))
-                                        .text_color(palette.accent)
-                                        .hover(|style| style.bg(palette.soft))
-                                        .child("替换 Key")
-                                        .on_click(move |_, _, cx| {
-                                            let _ = edit_weak.update(cx, |this, cx| {
-                                                if let Some(draft) =
-                                                    this.provider_drafts.get_mut(index)
-                                                {
-                                                    draft.key_editing = true;
-                                                }
-                                                cx.notify();
-                                            });
-                                        }),
-                                )
-                                .child(
-                                    div()
-                                        .id(SharedString::from(format!(
-                                            "settings-provider-reset-key-{index}"
-                                        )))
-                                        .role(Role::Button)
-                                        .px(space(2))
-                                        .py(px(3.0))
-                                        .rounded(px(RADIUS_SMALL))
-                                        .text_size(px(11.0))
-                                        .text_color(palette.ink_3)
-                                        .hover(|style| style.bg(palette.soft))
-                                        .child("清除 Key")
-                                        .on_click(move |_, _, cx| {
-                                            let _ = reset_weak.update(cx, |this, cx| {
-                                                if let Some(draft) =
-                                                    this.provider_drafts.get_mut(index)
-                                                {
-                                                    draft.confirm_clear = true;
-                                                }
-                                                cx.notify();
-                                            });
-                                        }),
-                                )
-                                .children(draft.confirm_clear.then(|| {
-                                    div()
-                                        .flex()
-                                        .flex_row()
-                                        .items_center()
-                                        .gap(space(2))
-                                        .child(
-                                            div()
-                                                .text_size(px(11.0))
-                                                .text_color(palette.danger)
-                                                .child("确认清除 API Key？"),
-                                        )
-                                        .child(
-                                            div()
-                                                .id(SharedString::from(format!(
-                                                    "settings-provider-confirm-clear-{index}"
-                                                )))
-                                                .role(Role::Button)
-                                                .px(space(2))
-                                                .py(px(3.0))
-                                                .rounded(px(RADIUS_SMALL))
-                                                .bg(palette.danger)
-                                                .text_color(palette.canvas)
-                                                .text_size(px(11.0))
-                                                .child("确认清除")
-                                                .on_click(move |_, _, cx| {
-                                                    let _ = confirm_weak.update(cx, |this, cx| {
-                                                        this.reset_provider_key(index, cx);
-                                                    });
-                                                }),
-                                        )
-                                        .child(
-                                            div()
-                                                .id(SharedString::from(format!(
-                                                    "settings-provider-cancel-clear-{index}"
-                                                )))
-                                                .role(Role::Button)
-                                                .px(space(2))
-                                                .py(px(3.0))
-                                                .rounded(px(RADIUS_SMALL))
-                                                .text_size(px(11.0))
-                                                .text_color(palette.ink_3)
-                                                .hover(|style| style.bg(palette.soft))
-                                                .child("取消")
-                                                .on_click(move |_, _, cx| {
-                                                    let _ = cancel_clear_weak.update(
-                                                        cx,
-                                                        |this, cx| {
-                                                            if let Some(draft) = this
-                                                                .provider_drafts
-                                                                .get_mut(index)
-                                                            {
-                                                                draft.confirm_clear = false;
-                                                            }
-                                                            cx.notify();
-                                                        },
-                                                    );
-                                                }),
-                                        )
-                                }))
-                                .into_any_element(),
-                        )
-                    } else {
-                        Some(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap(px(2.0))
-                                .child(
-                                    div()
-                                        .text_size(px(11.0))
-                                        .text_color(palette.ink_3)
-                                        .child(if draft.has_key {
-                                            "输入新 Key 将替换现有 Key"
-                                        } else {
-                                            "API Key（保存到系统钥匙串）"
-                                        }),
-                                )
-                                .child(div().w(px(360.0)).child(Input::new(&key_input)))
-                                .child(
-                                    div()
-                                        .flex()
-                                        .flex_row()
-                                        .items_center()
-                                        .gap(space(2))
-                                        .child(
-                                            div()
-                                                .id(SharedString::from(format!(
-                                                    "settings-provider-save-key-{index}"
-                                                )))
-                                                .role(Role::Button)
-                                                .px(space(2))
-                                                .py(px(3.0))
-                                                .rounded(px(RADIUS_SMALL))
-                                                .bg(palette.accent)
-                                                .text_color(palette.canvas)
-                                                .text_size(px(11.0))
-                                                .child("保存 Key")
-                                                .on_click(move |_, window, cx| {
-                                                    let _ = save_weak.update(cx, |this, cx| {
-                                                        this.save_provider_key(index, window, cx);
-                                                    });
-                                                }),
-                                        )
-                                        .children(draft.has_key.then(|| {
-                                            div()
-                                                .id(SharedString::from(format!(
-                                                    "settings-provider-cancel-key-{index}"
-                                                )))
-                                                .role(Role::Button)
-                                                .px(space(2))
-                                                .py(px(3.0))
-                                                .rounded(px(RADIUS_SMALL))
-                                                .text_size(px(11.0))
-                                                .text_color(palette.ink_3)
-                                                .hover(|style| style.bg(palette.soft))
-                                                .child("取消")
-                                                .on_click(move |_, _, cx| {
-                                                    let _ = cancel_weak.update(cx, |this, cx| {
-                                                        if let Some(draft) =
-                                                            this.provider_drafts.get_mut(index)
-                                                        {
-                                                            draft.key_editing = false;
-                                                        }
-                                                        cx.notify();
-                                                    });
-                                                })
-                                        })),
-                                )
-                                .into_any_element(),
-                        )
-                    }
-                })
                 .child(
                     div()
                         .flex()
