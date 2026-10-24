@@ -57,6 +57,7 @@ struct ProviderDraft {
     name_input: Option<Entity<InputState>>,
     model_fields: Vec<ModelFieldInputs>,
     key_editing: bool,
+    confirm_clear: bool,
 }
 
 fn format_model_lines(provider: &ProviderPrefs) -> String {
@@ -135,6 +136,7 @@ impl ProviderDraft {
             name_input: None,
             model_fields: Vec::new(),
             key_editing: false,
+            confirm_clear: false,
         }
     }
 
@@ -158,6 +160,7 @@ impl ProviderDraft {
             name_input: None,
             model_fields: Vec::new(),
             key_editing: false,
+            confirm_clear: false,
         }
     }
 
@@ -508,7 +511,7 @@ impl SettingsWindowView {
                     }
                     let _ = self.prefs_store.save(&prefs);
                 }
-                self.notice = Some("API Key 已保存".to_string());
+                self.notice = Some("API Key 已保存；重新打开 Agent 面板后生效".to_string());
                 self.error = None;
             }
             Err(error) => self.error = Some(format!("API Key 保存失败：{error}")),
@@ -622,8 +625,9 @@ impl SettingsWindowView {
                 if let Some(draft) = self.provider_drafts.get_mut(index) {
                     draft.has_key = false;
                     draft.key_editing = false;
+                    draft.confirm_clear = false;
                 }
-                self.notice = Some("API Key 已清除".to_string());
+                self.notice = Some("API Key 已清除；重新打开 Agent 面板后生效".to_string());
                 self.error = None;
             }
             Err(error) => self.error = Some(format!("清除 API Key 失败：{error}")),
@@ -1211,7 +1215,7 @@ fn render_provider_list(
                         .text_size(px(10.0))
                         .text_color(palette.ink_3)
                         .hover(|style| style.bg(palette.soft))
-                        .child("重置 Key")
+                        .child("清除 Key")
                         .on_click(move |_, _, cx| {
                             let _ = reset_weak.update(cx, |this, cx| {
                                 this.reset_provider_key(index, cx);
@@ -1571,6 +1575,8 @@ fn render_provider_cards(
                     let reset_weak = weak.clone();
                     let save_weak = weak.clone();
                     let cancel_weak = weak.clone();
+                    let confirm_weak = weak.clone();
+                    let cancel_clear_weak = weak.clone();
                     if draft.has_key && !draft.key_editing {
                         Some(
                             div()
@@ -1596,7 +1602,7 @@ fn render_provider_cards(
                                         .text_size(px(11.0))
                                         .text_color(palette.accent)
                                         .hover(|style| style.bg(palette.soft))
-                                        .child("更换 Key")
+                                        .child("替换 Key")
                                         .on_click(move |_, _, cx| {
                                             let _ = edit_weak.update(cx, |this, cx| {
                                                 if let Some(draft) =
@@ -1620,13 +1626,78 @@ fn render_provider_cards(
                                         .text_size(px(11.0))
                                         .text_color(palette.ink_3)
                                         .hover(|style| style.bg(palette.soft))
-                                        .child("重置 Key")
+                                        .child("清除 Key")
                                         .on_click(move |_, _, cx| {
                                             let _ = reset_weak.update(cx, |this, cx| {
-                                                this.reset_provider_key(index, cx);
+                                                if let Some(draft) =
+                                                    this.provider_drafts.get_mut(index)
+                                                {
+                                                    draft.confirm_clear = true;
+                                                }
+                                                cx.notify();
                                             });
                                         }),
                                 )
+                                .children(draft.confirm_clear.then(|| {
+                                    div()
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap(space(2))
+                                        .child(
+                                            div()
+                                                .text_size(px(11.0))
+                                                .text_color(palette.danger)
+                                                .child("确认清除 API Key？"),
+                                        )
+                                        .child(
+                                            div()
+                                                .id(SharedString::from(format!(
+                                                    "settings-provider-confirm-clear-{index}"
+                                                )))
+                                                .role(Role::Button)
+                                                .px(space(2))
+                                                .py(px(3.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .bg(palette.danger)
+                                                .text_color(palette.canvas)
+                                                .text_size(px(11.0))
+                                                .child("确认清除")
+                                                .on_click(move |_, _, cx| {
+                                                    let _ = confirm_weak.update(cx, |this, cx| {
+                                                        this.reset_provider_key(index, cx);
+                                                    });
+                                                }),
+                                        )
+                                        .child(
+                                            div()
+                                                .id(SharedString::from(format!(
+                                                    "settings-provider-cancel-clear-{index}"
+                                                )))
+                                                .role(Role::Button)
+                                                .px(space(2))
+                                                .py(px(3.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .text_size(px(11.0))
+                                                .text_color(palette.ink_3)
+                                                .hover(|style| style.bg(palette.soft))
+                                                .child("取消")
+                                                .on_click(move |_, _, cx| {
+                                                    let _ = cancel_clear_weak.update(
+                                                        cx,
+                                                        |this, cx| {
+                                                            if let Some(draft) = this
+                                                                .provider_drafts
+                                                                .get_mut(index)
+                                                            {
+                                                                draft.confirm_clear = false;
+                                                            }
+                                                            cx.notify();
+                                                        },
+                                                    );
+                                                }),
+                                        )
+                                }))
                                 .into_any_element(),
                         )
                     } else {
