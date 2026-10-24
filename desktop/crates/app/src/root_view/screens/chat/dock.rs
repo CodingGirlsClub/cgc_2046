@@ -29,41 +29,6 @@ pub(in crate::root_view) fn render_agent_panel(
             .border_r_1()
             .border_color(palette.line)
             .bg(palette.canvas)
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .pb(space(1))
-                    .child(
-                        div()
-                            .text_size(px(12.0))
-                            .text_color(palette.ink_2)
-                            .child("Native Agent"),
-                    )
-                    .child(
-                        div()
-                            .id("chat-native-new")
-                            .role(Role::Button)
-                            .aria_label("新对话")
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_3)
-                            .child("新对话")
-                            .on_click(cx.listener(|this, _, _, cx| this.new_native_chat(cx))),
-                    )
-                    .child(
-                        div()
-                            .id("chat-switch-to-acp")
-                            .role(Role::Button)
-                            .aria_label("切回 ACP")
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_3)
-                            .child("切回 ACP")
-                            .on_click(
-                                cx.listener(|this, _, _, cx| this.toggle_native_chat_mode(cx)),
-                            ),
-                    ),
-            )
             .child(div().flex_1().min_h(px(0.0)).child(view))
             .into_any_element();
     }
