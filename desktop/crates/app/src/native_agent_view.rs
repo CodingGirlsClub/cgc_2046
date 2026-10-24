@@ -38,13 +38,16 @@ use gpui_kit::component::hover_card::HoverCard;
 use gpui_kit::component::input::{
     InlineTokenContext, InputEvent, Position, Textarea, TextareaState,
 };
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::popover::Popover;
+use gpui_kit::component::text::{SelectionFormat, TextView};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{Icon, Sizable};
 use gpui_kit::*;
 use image::GenericImageView as _;
 
 use crate::mention::{self, Mention, SkillEntry};
+use crate::safe_markdown::sanitize_markdown;
 use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 
 /// 审批模式：Ask = 逐次审批；Auto = 自动允许。
@@ -1257,6 +1260,7 @@ impl NativeAgentView {
 
     fn send_prompt(&mut self, text: String, display: String, cx: &mut Context<Self>) {
         self.refresh_provider_credentials(cx);
+        self.follow_output = true;
         self.reload_latest_session();
         self.turn_seq += 1;
         if let Some(thread_id) = self.agent.as_ref().map(|agent| agent.thread().id.clone()) {
@@ -1687,6 +1691,20 @@ impl NativeAgentView {
         cx.notify();
     }
 
+    /// 消息区滚动到顶部（同时停止自动跟随输出）。
+    fn scroll_messages_to_top(&mut self, cx: &mut Context<Self>) {
+        self.follow_output = false;
+        self.messages_scroll.set_offset(point(px(0.0), px(0.0)));
+        cx.notify();
+    }
+
+    /// 消息区滚动到底部，并恢复自动跟随。
+    fn scroll_messages_to_bottom(&mut self, cx: &mut Context<Self>) {
+        self.follow_output = true;
+        self.messages_scroll.scroll_to_bottom();
+        cx.notify();
+    }
+
     fn set_thinking_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
         self.thinking_enabled = enabled;
         self.status = if enabled {
@@ -1906,6 +1924,7 @@ impl Render for NativeAgentView {
         let show_changes = self.show_checkpoint_panel && change_count > 0;
         let changes = self.checkpoint_changes.clone();
         let mut rows: Vec<AnyElement> = Vec::new();
+        let menu_root = cx.entity().downgrade();
         let mut remaining_subagents = subagents.clone();
         for (message_index, message) in messages.iter().enumerate() {
             let color = match message.role {
@@ -1915,8 +1934,13 @@ impl Render for NativeAgentView {
                 UiRole::System => palette.ink_3,
                 UiRole::Assistant => palette.ink,
             };
+            let payloads = Arc::new(message_copy_payloads(message.role, &message.text));
+            let menu_view = menu_root.clone();
             rows.push(
                 div()
+                    .id(SharedString::from(format!(
+                        "native-message-{message_index}"
+                    )))
                     .flex()
                     .flex_col()
                     .gap(px(2.0))
@@ -1926,10 +1950,22 @@ impl Render for NativeAgentView {
                             .text_color(color)
                             .child(role_label(message.role)),
                     )
-                    .child(div().text_size(px(13.0)).child(match message.role {
-                        UiRole::User => mention::display_text(&message.text),
-                        _ => message.text.clone(),
-                    }))
+                    .child(match message.role {
+                        UiRole::Assistant => {
+                            render_assistant_markdown(message_index, &message.text)
+                        }
+                        UiRole::User => div()
+                            .text_size(px(13.0))
+                            .child(mention::display_text(&message.text))
+                            .into_any_element(),
+                        _ => div()
+                            .text_size(px(13.0))
+                            .child(message.text.clone())
+                            .into_any_element(),
+                    })
+                    .context_menu(move |menu, _window, _cx| {
+                        render_message_context_menu(menu, menu_view.clone(), payloads.clone())
+                    })
                     .children(sent_images.get(&message_index).map(|images| {
                         div().flex().flex_row().flex_wrap().gap(space(1)).children(
                             images.iter().enumerate().map(|(image_index, image)| {
@@ -2022,8 +2058,11 @@ impl Render for NativeAgentView {
             }
         }
         if !streaming.is_empty() {
+            let streaming_payloads = Arc::new(message_copy_payloads(UiRole::Assistant, &streaming));
+            let streaming_view = menu_root.clone();
             rows.push(
                 div()
+                    .id("native-message-streaming")
                     .flex()
                     .flex_col()
                     .gap(px(2.0))
@@ -2034,6 +2073,13 @@ impl Render for NativeAgentView {
                             .child("agent"),
                     )
                     .child(div().text_size(px(13.0)).child(format!("{streaming}▌")))
+                    .context_menu(move |menu, _window, _cx| {
+                        render_message_context_menu(
+                            menu,
+                            streaming_view.clone(),
+                            streaming_payloads.clone(),
+                        )
+                    })
                     .into_any_element(),
             );
         }
@@ -3620,6 +3666,219 @@ fn role_label(role: UiRole) -> &'static str {
     }
 }
 
+/// 一条消息的三种复制载荷（对齐 Zed 的 Copy / Copy as Markdown /
+/// Copy This Agent Response）。
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct MessageCopyPayloads {
+    plain: String,
+    markdown: String,
+    agent_response: Option<String>,
+}
+
+fn message_copy_payloads(role: UiRole, text: &str) -> MessageCopyPayloads {
+    let markdown = text.to_string();
+    let plain = match role {
+        UiRole::Assistant => markdown_to_plain(text),
+        UiRole::User => mention::display_text(text),
+        _ => text.to_string(),
+    };
+    // 只有 agent 消息才有「Copy This Agent Response」。
+    let agent_response = matches!(role, UiRole::Assistant).then(|| text.to_string());
+    MessageCopyPayloads {
+        plain,
+        markdown,
+        agent_response,
+    }
+}
+
+/// 把 Markdown 粗转成可读纯文本（复制用，不追求完整渲染语义）。
+fn markdown_to_plain(markdown: &str) -> String {
+    let mut out = String::with_capacity(markdown.len());
+    let mut in_fence = false;
+    let mut blank_pending = false;
+    for raw_line in markdown.lines() {
+        let trimmed = raw_line.trim();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence {
+            out.push_str(raw_line);
+            out.push('\n');
+            blank_pending = false;
+            continue;
+        }
+        if trimmed.is_empty() {
+            blank_pending = true;
+            continue;
+        }
+        // 分隔线（--- / *** / ___）
+        if trimmed.len() >= 3
+            && trimmed
+                .chars()
+                .all(|ch| matches!(ch, '-' | '*' | '_' | ' '))
+        {
+            continue;
+        }
+        let mut line = trimmed;
+        while let Some(rest) = line.strip_prefix('>') {
+            line = rest.trim_start();
+        }
+        let heading = line.trim_start_matches('#');
+        if heading.len() != line.len() {
+            line = heading.trim_start();
+        }
+        line = strip_list_prefix(line);
+        if blank_pending && !out.is_empty() {
+            out.push('\n');
+        }
+        blank_pending = false;
+        out.push_str(&strip_inline_markdown(line));
+        out.push('\n');
+    }
+    out.trim_end().to_string()
+}
+
+fn strip_list_prefix(line: &str) -> &str {
+    for marker in ["- ", "* ", "+ "] {
+        if let Some(rest) = line.strip_prefix(marker) {
+            return rest;
+        }
+    }
+    let digits = line.chars().take_while(|ch| ch.is_ascii_digit()).count();
+    if digits > 0 {
+        let rest = &line[digits..];
+        if rest.starts_with(". ") || rest.starts_with(") ") {
+            return &rest[2..];
+        }
+    }
+    line
+}
+
+fn strip_inline_markdown(line: &str) -> String {
+    let chars: Vec<char> = line.chars().collect();
+    let mut out = String::with_capacity(line.len());
+    let mut index = 0;
+    while index < chars.len() {
+        match chars[index] {
+            '\\' => {
+                if let Some(next) = chars.get(index + 1) {
+                    out.push(*next);
+                }
+                index += 2;
+            }
+            '!' if chars.get(index + 1) == Some(&'[') => {
+                if let Some((label, next)) = parse_link_like(&chars, index + 1) {
+                    out.push_str(&label);
+                    index = next;
+                } else {
+                    index += 1;
+                }
+            }
+            '[' => {
+                if let Some((label, next)) = parse_link_like(&chars, index) {
+                    out.push_str(&label);
+                    index = next;
+                } else {
+                    out.push('[');
+                    index += 1;
+                }
+            }
+            '`' | '*' | '_' | '~' => index += 1,
+            other => {
+                out.push(other);
+                index += 1;
+            }
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// 解析 `[label](url)`（从 bracket 位置的 '[' 开始），返回 label 与结束位置。
+fn parse_link_like(chars: &[char], bracket: usize) -> Option<(String, usize)> {
+    if chars.get(bracket) != Some(&'[') {
+        return None;
+    }
+    let close = chars.iter().skip(bracket + 1).position(|ch| *ch == ']')? + bracket + 1;
+    if chars.get(close + 1) != Some(&'(') {
+        return None;
+    }
+    let paren_close = chars.iter().skip(close + 2).position(|ch| *ch == ')')? + close + 2;
+    let label: String = chars[bracket + 1..close].iter().collect();
+    Some((label, paren_close + 1))
+}
+
+/// 代码块 Copy 按钮的稳定 id（同内容同 id，不同内容不同 id，避免元素状态串台）。
+fn code_block_copy_id(code: &str, lang: Option<&str>) -> String {
+    use std::hash::{Hash as _, Hasher as _};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    code.hash(&mut hasher);
+    lang.unwrap_or_default().hash(&mut hasher);
+    format!("native-copy-code-{:016x}", hasher.finish())
+}
+
+/// agent 回复用 Markdown 渲染（代码块右上角带 Copy 按钮，文本可选中复制）。
+fn render_assistant_markdown(message_index: usize, text: &str) -> AnyElement {
+    TextView::markdown(
+        SharedString::from(format!("native-assistant-markdown-{message_index}")),
+        sanitize_markdown(text),
+    )
+    .selectable(true)
+    .selection_format(SelectionFormat::Source)
+    .code_block_actions(|code_block, _window, _cx| {
+        let code = code_block.code().to_string();
+        let id = code_block_copy_id(&code, code_block.lang().as_deref());
+        Button::new(SharedString::from(id))
+            .label("Copy")
+            .xsmall()
+            .ghost()
+            .tooltip("Copy Code")
+            .on_click(move |_, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(code.clone()));
+            })
+    })
+    .into_any_element()
+}
+
+/// 消息右键菜单：Copy / Copy as Markdown / Copy This Agent Response / 滚动到顶/底。
+fn render_message_context_menu(
+    menu: PopupMenu,
+    view: WeakEntity<NativeAgentView>,
+    payloads: Arc<MessageCopyPayloads>,
+) -> PopupMenu {
+    let copy_plain = payloads.plain.clone();
+    let copy_markdown = payloads.markdown.clone();
+    let mut menu = menu
+        .item(PopupMenuItem::new("Copy").on_click(move |_, _, cx| {
+            cx.write_to_clipboard(ClipboardItem::new_string(copy_plain.clone()));
+        }))
+        .item(
+            PopupMenuItem::new("Copy as Markdown").on_click(move |_, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(copy_markdown.clone()));
+            }),
+        );
+    if let Some(agent_response) = payloads.agent_response.clone() {
+        menu = menu.item(PopupMenuItem::new("Copy This Agent Response").on_click(
+            move |_, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(agent_response.clone()));
+            },
+        ));
+    }
+    let top_view = view.clone();
+    let bottom_view = view;
+    menu.item(PopupMenuItem::separator())
+        .item(
+            PopupMenuItem::new("Scroll to Top").on_click(move |_, _, cx| {
+                let _ = top_view.update(cx, |this, cx| this.scroll_messages_to_top(cx));
+            }),
+        )
+        .item(
+            PopupMenuItem::new("Scroll to Bottom").on_click(move |_, _, cx| {
+                let _ = bottom_view.update(cx, |this, cx| this.scroll_messages_to_bottom(cx));
+            }),
+        )
+}
+
 /// composer 里的 mention chip：技能 / 文件各一个图标，hover 显示真实路径。
 fn render_mention_chip(
     context: &InlineTokenContext,
@@ -3838,6 +4097,46 @@ mod workspace_prompt_tests {
             entries.first().map(|entry| entry.label.as_str()),
             Some("/checkpoint")
         );
+    }
+
+    #[test]
+    fn message_copy_payloads_cover_assistant_and_user() {
+        let assistant = super::message_copy_payloads(
+            cgc_agent_host::UiRole::Assistant,
+            "## 标题\n**加粗** 和 `code`",
+        );
+        assert_eq!(assistant.markdown, "## 标题\n**加粗** 和 `code`");
+        assert_eq!(assistant.plain, "标题\n加粗 和 code");
+        assert_eq!(
+            assistant.agent_response.as_deref(),
+            Some("## 标题\n**加粗** 和 `code`")
+        );
+
+        let user =
+            super::message_copy_payloads(cgc_agent_host::UiRole::User, "看 [@a](file://a.md) 这个");
+        assert_eq!(user.plain, "看 @a 这个");
+        assert_eq!(user.markdown, "看 [@a](file://a.md) 这个");
+        assert!(user.agent_response.is_none(), "用户消息没有 agent response");
+    }
+
+    #[test]
+    fn markdown_to_plain_strips_common_syntax() {
+        let markdown = "# H1\n- a\n- **b**\n> quote\n`inline` **bold** [link](https://x.y)\n```rust\nfn main() {}\n```\n![图](https://i)";
+        assert_eq!(
+            super::markdown_to_plain(markdown),
+            "H1\na\nb\nquote\ninline bold link\nfn main() {}\n图"
+        );
+        assert_eq!(super::markdown_to_plain("plain text"), "plain text");
+    }
+
+    #[test]
+    fn code_block_copy_id_is_stable_and_unique() {
+        let first = super::code_block_copy_id("fn main() {}", Some("rust"));
+        let same = super::code_block_copy_id("fn main() {}", Some("rust"));
+        let other = super::code_block_copy_id("fn main() { }", Some("rust"));
+        assert_eq!(first, same);
+        assert_ne!(first, other);
+        assert!(first.starts_with("native-copy-code-"));
     }
 
     #[test]
