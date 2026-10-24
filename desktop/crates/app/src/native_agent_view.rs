@@ -2808,6 +2808,7 @@ impl Render for NativeAgentView {
 
                 div()
                     .id("native-agent-composer")
+                    .relative()
                     .flex()
                     .flex_col()
                     .gap(px(1.0))
@@ -3011,6 +3012,10 @@ impl Render for NativeAgentView {
                                 )
                         });
                         div()
+                            .absolute()
+                            .left(space(1))
+                            .right(space(1))
+                            .bottom(px(132.0))
                             .flex()
                             .flex_row()
                             .items_start()
