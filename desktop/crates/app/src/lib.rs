@@ -14,6 +14,7 @@ pub mod registration;
 pub mod root_view;
 pub mod routing;
 pub mod safe_markdown;
+pub(crate) mod settings_provider;
 pub mod settings_window;
 pub mod theme;
 pub mod workspace_state;

@@ -8,9 +8,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use cgc_agent_store::{
-    builtin_providers, provider_key_account, ModelPrefs, PrefsStore, ProviderPrefs,
-};
+use cgc_agent_store::{builtin_providers, provider_key_account, PrefsStore, ProviderPrefs};
 use cgc_platform::paths::AppPaths;
 use cgc_platform::session::KeychainStore;
 use gpui_kit::component::checkbox::Checkbox;
@@ -26,161 +24,11 @@ use gpui_kit::*;
 use crate::build_info;
 use crate::i18n::{translate, Key, Language};
 use crate::preferences;
+use crate::settings_provider::{
+    format_model_lines, parse_model_lines, ModelFieldInputs, ProviderDraft,
+};
 use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 use cgc_platform::session::AuthApi;
-
-#[derive(Clone)]
-struct ModelFieldInputs {
-    model_id: String,
-    name_input: Entity<InputState>,
-    context_input: Entity<InputState>,
-    output_input: Entity<InputState>,
-    enabled: bool,
-    thinking: bool,
-    supports_tools: bool,
-}
-
-/// Settings 里的 provider 编辑草稿（输入框懒创建，避免 new() 需要 window）。
-#[derive(Clone)]
-struct ProviderDraft {
-    id: String,
-    name: String,
-    base_url: String,
-    models: String,
-    has_key: bool,
-    model_params: Vec<ModelPrefs>,
-    builtin: bool,
-    base_url_input: Option<Entity<InputState>>,
-    models_input: Option<Entity<TextareaState>>,
-    api_key_input: Option<Entity<InputState>>,
-    name_input: Option<Entity<InputState>>,
-    model_fields: Vec<ModelFieldInputs>,
-    key_editing: bool,
-    confirm_clear: bool,
-}
-
-fn format_model_lines(provider: &ProviderPrefs) -> String {
-    provider
-        .models
-        .iter()
-        .map(|id| {
-            let model = provider.model_config(id);
-            format!(
-                "{} | {} | {} | {} | {} | {}",
-                id,
-                model.context_window,
-                model.max_output_tokens,
-                model.supports_thinking,
-                model.enabled,
-                model.supports_tools
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn parse_model_lines(value: &str) -> (Vec<String>, Vec<ModelPrefs>) {
-    let mut ids = Vec::new();
-    let mut params = Vec::new();
-    for line in value.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        let parts: Vec<&str> = line.split('|').map(str::trim).collect();
-        let Some(id) = parts.first().filter(|id| !id.is_empty()) else {
-            continue;
-        };
-        let context = parts
-            .get(1)
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(64_000);
-        let output = parts
-            .get(2)
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(8_000);
-        let thinking = parts
-            .get(3)
-            .map(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
-            .unwrap_or(false);
-        let enabled = parts
-            .get(4)
-            .map(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
-            .unwrap_or(true);
-        let tools = parts
-            .get(5)
-            .map(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
-            .unwrap_or(true);
-        ids.push(id.to_string());
-        params.push(ModelPrefs {
-            id: id.to_string(),
-            context_window: context,
-            max_output_tokens: output,
-            supports_thinking: thinking,
-            enabled,
-            supports_tools: tools,
-            reasoning_efforts: Vec::new(),
-        });
-    }
-    (ids, params)
-}
-
-impl ProviderDraft {
-    fn from_prefs(provider: &ProviderPrefs) -> Self {
-        Self {
-            id: provider.id.clone(),
-            name: provider.name.clone(),
-            base_url: provider.base_url.clone(),
-            models: format_model_lines(provider),
-            has_key: provider.has_key,
-            model_params: provider.model_params.clone(),
-            builtin: provider.builtin,
-            base_url_input: None,
-            models_input: None,
-            api_key_input: None,
-            name_input: None,
-            model_fields: Vec::new(),
-            key_editing: false,
-            confirm_clear: false,
-        }
-    }
-
-    fn new_custom() -> Self {
-        let serial = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| duration.as_millis())
-            .unwrap_or_default();
-        Self {
-            id: format!("custom-{serial}"),
-            name: "OpenAI Compatible".to_string(),
-            base_url: "https://api.openai.com/v1".to_string(),
-            models: "gpt-4o-mini | 128000 | 16384 | false | true | true".to_string(),
-            has_key: false,
-            model_params: Vec::new(),
-            builtin: false,
-            base_url_input: None,
-            models_input: None,
-            api_key_input: None,
-            name_input: None,
-            model_fields: Vec::new(),
-            key_editing: false,
-            confirm_clear: false,
-        }
-    }
-
-    fn to_prefs(&self) -> ProviderPrefs {
-        let (models, model_params) = parse_model_lines(&self.models);
-        ProviderPrefs {
-            id: self.id.clone(),
-            name: self.name.clone(),
-            base_url: self.base_url.trim().to_string(),
-            models,
-            has_key: self.has_key,
-            model_params,
-            builtin: false,
-        }
-    }
-}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 enum AiRoute {
