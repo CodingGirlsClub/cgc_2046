@@ -41,6 +41,7 @@ struct ProviderDraft {
     base_url_input: Option<Entity<InputState>>,
     models_input: Option<Entity<TextareaState>>,
     api_key_input: Option<Entity<InputState>>,
+    name_input: Option<Entity<InputState>>,
 }
 
 fn format_model_lines(provider: &ProviderPrefs) -> String {
@@ -116,6 +117,7 @@ impl ProviderDraft {
             base_url_input: None,
             models_input: None,
             api_key_input: None,
+            name_input: None,
         }
     }
 
@@ -136,6 +138,7 @@ impl ProviderDraft {
             base_url_input: None,
             models_input: None,
             api_key_input: None,
+            name_input: None,
         }
     }
 
@@ -282,11 +285,61 @@ impl SettingsWindowView {
             input.update(cx, |state, cx| state.set_value(value, window, cx));
             self.provider_drafts[index].models_input = Some(input);
         }
+        if !draft.builtin && draft.name_input.is_none() {
+            let value = draft.name.clone();
+            let input = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("Provider Name")
+                    .default_value(value)
+            });
+            self.provider_drafts[index].name_input = Some(input);
+        }
         if draft.api_key_input.is_none() {
             let input =
                 cx.new(|cx| InputState::new(window, cx).placeholder("API Key（保存到系统钥匙串）"));
             self.provider_drafts[index].api_key_input = Some(input);
         }
+    }
+
+    fn set_model_enabled(
+        &mut self,
+        index: usize,
+        model_id: String,
+        enabled: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(draft) = self.provider_drafts.get_mut(index) else {
+            return;
+        };
+        let (_, mut params) = parse_model_lines(&draft.models);
+        for model in &mut params {
+            if model.id == model_id {
+                model.enabled = enabled;
+            }
+        }
+        let text = params
+            .iter()
+            .map(|model| {
+                format!(
+                    "{} | {} | {} | {} | {}",
+                    model.id,
+                    model.context_window,
+                    model.max_output_tokens,
+                    model.supports_thinking,
+                    model.enabled
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        draft.model_params = params;
+        draft.models = text.clone();
+        if let Some(input) = draft.models_input.clone() {
+            input.update(cx, |state, cx| {
+                state.set_value(text, window, cx);
+            });
+        }
+        cx.notify();
     }
 
     fn save_provider(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -300,16 +353,21 @@ impl SettingsWindowView {
             return;
         };
         let base_url = base_url_input.read(cx).value().trim().to_string();
+        let name = draft
+            .name_input
+            .as_ref()
+            .map(|input| input.read(cx).value().trim().to_string())
+            .unwrap_or_else(|| draft.name.clone());
         let models_text = models_input.read(cx).value().to_string();
         let (models, model_params) = parse_model_lines(&models_text);
-        if base_url.is_empty() || models.is_empty() {
-            self.error = Some("Base URL 与至少一个 Model 不能为空".to_string());
+        if base_url.is_empty() || models.is_empty() || name.is_empty() {
+            self.error = Some("Provider Name、Base URL 与至少一个 Model 不能为空".to_string());
             cx.notify();
             return;
         }
         let mut provider = ProviderPrefs {
             id: draft.id.clone(),
-            name: draft.name.clone(),
+            name: name.clone(),
             base_url,
             models,
             supports_thinking: draft.supports_thinking,
@@ -357,8 +415,10 @@ impl SettingsWindowView {
             Ok(()) => {
                 self.error = None;
                 self.notice = Some("Provider 已保存".to_string());
+                self.ai_view = AiRoute::Providers;
                 if let Some(draft) = self.provider_drafts.get_mut(index) {
                     draft.base_url = provider.base_url.clone();
+                    draft.name = provider.name.clone();
                     draft.models = format_model_lines(&provider);
                     draft.model_params = provider.model_params.clone();
                     draft.has_key = provider.has_key;
@@ -934,6 +994,7 @@ fn render_provider_cards(
         ) else {
             continue;
         };
+        let model_toggles = parse_model_lines(&draft.models).1;
         let status_color = if draft.has_key {
             palette.ink_2
         } else {
@@ -1018,11 +1079,50 @@ fn render_provider_cards(
                 .child(SettingsWindowView::render_provider_field(
                     "Base URL", base_input, palette,
                 ))
+                .children(draft.name_input.clone().map(|input| {
+                    SettingsWindowView::render_provider_field("Provider Name", input, palette)
+                }))
                 .child(SettingsWindowView::render_provider_textarea(
                     "Models（每行：模型名 | context | max_output | thinking）",
                     models_input,
                     palette,
                 ))
+                .children(
+                    model_toggles
+                        .iter()
+                        .enumerate()
+                        .map(|(model_index, model)| {
+                            let enabled = model.enabled;
+                            let model_id = model.id.clone();
+                            let label = model.id.clone();
+                            let toggle_weak = weak.clone();
+                            div()
+                                .id(SharedString::from(format!(
+                                    "settings-model-toggle-{index}-{model_index}"
+                                )))
+                                .role(Role::Button)
+                                .aria_label(format!("启用模型 {label}"))
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(space(1))
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_2)
+                                .child(if enabled { "☑" } else { "☐" })
+                                .child(label)
+                                .on_click(move |_, window, cx| {
+                                    let _ = toggle_weak.update(cx, |this, cx| {
+                                        this.set_model_enabled(
+                                            index,
+                                            model_id.clone(),
+                                            !enabled,
+                                            window,
+                                            cx,
+                                        );
+                                    });
+                                })
+                        }),
+                )
                 .child(SettingsWindowView::render_provider_field(
                     "API Key", key_input, palette,
                 ))
@@ -1075,70 +1175,11 @@ fn render_provider_cards(
                 .into_any_element(),
         );
     }
-    let add_weak = weak.clone();
     div()
         .flex()
         .flex_col()
         .gap(space(2))
-        .child(
-            // CGC 托管模型网关尚未接入：这里只是占位说明 + 订阅入口。
-            div()
-                .id("settings-cgc-placeholder")
-                .flex()
-                .flex_col()
-                .gap(px(2.0))
-                .p(space(2))
-                .rounded(px(RADIUS_MEDIUM))
-                .border_1()
-                .border_color(palette.line)
-                .bg(palette.view)
-                .child(
-                    div()
-                        .text_size(px(13.0))
-                        .child("CGC - 程序媛汇"),
-                )
-                .child(
-                    div()
-                        .text_size(px(11.0))
-                        .text_color(palette.ink_3)
-                        .child("使用程序员汇账号调用模型。模型网关接入中，当前为占位项：订阅后走托管模型，未订阅则跳转订阅。"),
-                )
-                .child(
-                    div()
-                        .id("settings-cgc-start")
-                        .role(Role::Button)
-                        .aria_label("开始使用 CGC")
-                        .px(space(2))
-                        .py(px(5.0))
-                        .rounded(px(RADIUS_MEDIUM))
-                        .bg(palette.accent)
-                        .text_color(palette.canvas)
-                        .text_size(px(11.0))
-                        .child("开始使用")
-                        .on_click(move |_, _, cx| {
-                            cx.open_url("https://codinggirlsclub.com/");
-                        }),
-                ),
-        )
         .children(cards)
-        .child(
-            div()
-                .id("settings-provider-add")
-                .role(Role::Button)
-                .aria_label("添加 provider")
-                .px(space(2))
-                .py(px(5.0))
-                .rounded(px(RADIUS_MEDIUM))
-                .border_1()
-                .border_color(palette.line)
-                .text_size(px(12.0))
-                .text_color(palette.ink_2)
-                .hover(|style| style.bg(palette.soft))
-                .child("＋ 添加 Provider（OpenAI compatible）")
-                .on_click(move |_, _, cx| {
-                    let _ = add_weak.update(cx, |this, cx| this.add_provider(cx));
-                }),
-        )
         .children(notice.map(|notice| {
             div()
                 .text_size(px(11.0))
