@@ -6,6 +6,7 @@
 
 use std::sync::{mpsc as std_mpsc, Arc, Mutex};
 
+use base64::Engine as _;
 use cgc_agent_checkpoint::{Checkpoint, CheckpointManager, FileChange};
 use cgc_agent_core::{
     run_subagent, Agent, AgentError, ApprovalRequest, Approver, AutoApprover, CancelToken,
@@ -79,6 +80,14 @@ impl Approver for UiApprover {
     }
 }
 
+/// 待发送的图片附件（剪贴板或文件）。
+struct PendingImage {
+    name: String,
+    mime: String,
+    data: String,
+    preview: Option<Arc<RenderImage>>,
+}
+
 pub struct NativeAgentView {
     agent: Option<Agent>,
     provider: Arc<dyn Provider>,
@@ -112,6 +121,8 @@ pub struct NativeAgentView {
     messages_scroll: ScrollHandle,
     approval_mode: ApprovalMode,
     approval_sender: Arc<Mutex<Option<oneshot::Sender<ApprovalDecision>>>>,
+    pending_images: Vec<PendingImage>,
+    hovered_image: Option<usize>,
     queued_messages: Vec<String>,
     steer_sender: std_mpsc::Sender<String>,
     _input_subscription: Option<Subscription>,
@@ -383,6 +394,8 @@ impl NativeAgentView {
             approval_sender: Arc::new(Mutex::new(None)),
             queued_messages: Vec::new(),
             steer_sender,
+            pending_images: Vec::new(),
+            hovered_image: None,
             _input_subscription: input_subscription,
         }
     }
@@ -460,6 +473,66 @@ impl NativeAgentView {
         self.send_prompt(text, cx);
     }
 
+    fn model_supports_images(&self) -> bool {
+        self.providers
+            .iter()
+            .find(|provider| provider.id == self.model.provider_id.as_str())
+            .map(|provider| {
+                provider
+                    .model_config(self.model.id.as_str())
+                    .supports_images
+            })
+            .unwrap_or(false)
+    }
+
+    fn add_clipboard_image(&mut self, cx: &mut Context<Self>) {
+        if !self.model_supports_images() {
+            self.status = "当前模型不支持图片输入".to_string();
+            cx.notify();
+            return;
+        }
+        let Some(item) = cx.read_from_clipboard() else {
+            self.status = "读取剪贴板失败".to_string();
+            cx.notify();
+            return;
+        };
+        let Some(image) = item.entries.iter().find_map(|entry| match entry {
+            ClipboardEntry::Image(image) => Some(image),
+            _ => None,
+        }) else {
+            self.status = "剪贴板里没有图片".to_string();
+            cx.notify();
+            return;
+        };
+        let mime = match image.format {
+            ImageFormat::Png => "image/png",
+            ImageFormat::Jpeg => "image/jpeg",
+            ImageFormat::Webp => "image/webp",
+            ImageFormat::Gif => "image/gif",
+            _ => {
+                self.status = "不支持的图片格式".to_string();
+                cx.notify();
+                return;
+            }
+        };
+        let data = base64::engine::general_purpose::STANDARD.encode(&image.bytes);
+        let preview = image::load_from_memory(&image.bytes).ok().map(|decoded| {
+            Arc::new(RenderImage::new(vec![image::Frame::new(
+                decoded.into_rgba8(),
+            )]))
+        });
+        let index = self.pending_images.len() + 1;
+        let extension = mime.trim_start_matches("image/");
+        self.pending_images.push(PendingImage {
+            name: format!("pasted-image-{index}.{extension}"),
+            mime: mime.to_string(),
+            data,
+            preview,
+        });
+        self.status = "已添加图片附件".to_string();
+        cx.notify();
+    }
+
     fn send_prompt(&mut self, text: String, cx: &mut Context<Self>) {
         self.reload_latest_session();
         self.turn_seq += 1;
@@ -469,6 +542,15 @@ impl NativeAgentView {
         let Some(mut agent) = self.agent.take() else {
             return;
         };
+        if !self.pending_images.is_empty() {
+            agent.set_pending_images(
+                self.pending_images
+                    .iter()
+                    .map(|image| (image.mime.clone(), image.data.clone()))
+                    .collect(),
+            );
+            self.pending_images.clear();
+        }
         let model_config = self
             .providers
             .iter()
@@ -1006,6 +1088,7 @@ impl NativeAgentView {
 
 impl Render for NativeAgentView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let model_supports_images = self.model_supports_images();
         let palette = theme::palette_from_theme(cx);
         let busy = self.busy;
         let model_label = format!("{}/{}", self.model.provider_id, self.model.id);
@@ -2007,6 +2090,81 @@ impl Render for NativeAgentView {
                                     }))
                             }))
                     }))
+                    .children((!self.pending_images.is_empty()).then(|| {
+                        let rows = self
+                            .pending_images
+                            .iter()
+                            .enumerate()
+                            .map(|(index, image)| {
+                                let remove_weak = cx.entity().downgrade();
+                                let remove_weak_ui = cx.entity().downgrade();
+                                div()
+                                    .id(SharedString::from(format!(
+                                        "native-image-chip-{index}"
+                                    )))
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap(px(4.0))
+                                    .px(space(1))
+                                    .py(px(1.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .border_1()
+                                    .border_color(palette.line)
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .child("🖼")
+                                    .child(image.name.clone())
+                                    .child(
+                                        div()
+                                            .id(SharedString::from(format!(
+                                                "native-image-remove-{index}"
+                                            )))
+                                            .role(Role::Button)
+                                            .aria_label("移除图片")
+                                            .px(px(3.0))
+                                            .hover(|style| style.bg(palette.soft))
+                                            .child("×")
+                                            .on_click(move |_, _, cx| {
+                                                let _ = remove_weak.update(cx, |this, cx| {
+                                                    if index < this.pending_images.len() {
+                                                        this.pending_images.remove(index);
+                                                    }
+                                                    this.hovered_image = None;
+                                                    cx.notify();
+                                                });
+                                            }),
+                                    )
+                                    .on_hover(move |hovered: &bool, _window, cx| {
+                                        let _ = remove_weak_ui.update(cx, |this, cx| {
+                                            this.hovered_image =
+                                                if *hovered { Some(index) } else { None };
+                                            cx.notify();
+                                        });
+                                    })
+                                    .into_any_element()
+                            })
+                            .collect::<Vec<_>>();
+                        div()
+                            .flex()
+                            .flex_row()
+                            .flex_wrap()
+                            .gap(space(1))
+                            .px(space(1))
+                            .pt(px(2.0))
+                            .children(rows)
+                    }))
+                    .children(
+                        self.hovered_image
+                            .and_then(|index| self.pending_images.get(index))
+                            .and_then(|image| image.preview.clone())
+                            .map(|preview| {
+                                div()
+                                    .px(space(1))
+                                    .pb(px(2.0))
+                                    .child(img(preview).max_h(px(160.0)).rounded(px(RADIUS_SMALL)))
+                            }),
+                    )
                     .child(
                         div()
                             .relative()
@@ -2070,6 +2228,32 @@ impl Render for NativeAgentView {
                                     })
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.insert_context_marker(window, cx)
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .id("native-agent-add-image")
+                                    .role(Role::Button)
+                                    .aria_label("添加图片")
+                                    .size(px(24.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .text_size(px(13.0))
+                                    .text_color(palette.ink_3)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child("🖼")
+                                    .tooltip(move |window, cx| {
+                                        Tooltip::new(if model_supports_images {
+                                            "添加图片（从剪贴板）"
+                                        } else {
+                                            "当前模型不支持图片"
+                                        })
+                                        .build(window, cx)
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.add_clipboard_image(cx);
                                     })),
                             )
                             .child(

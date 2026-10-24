@@ -153,6 +153,8 @@ pub struct Agent {
     steer_tx: mpsc::Sender<String>,
     steer_rx: mpsc::Receiver<String>,
     reasoning_effort: Option<String>,
+    /// 下一轮用户消息要携带的图片附件（MIME, base64）；发送一次后清空。
+    pending_images: Vec<(String, String)>,
 }
 
 impl Agent {
@@ -171,7 +173,13 @@ impl Agent {
             steer_tx,
             steer_rx,
             reasoning_effort: None,
+            pending_images: Vec::new(),
         }
+    }
+
+    /// 设置下一轮要随用户消息发送的图片（MIME, base64）；只生效一次。
+    pub fn set_pending_images(&mut self, images: Vec<(String, String)>) {
+        self.pending_images = images;
     }
 
     pub fn thread(&self) -> &Thread {
@@ -517,7 +525,7 @@ impl Agent {
     }
 
     fn build_request(
-        &self,
+        &mut self,
         model: &Model,
         tools: Vec<cgc_agent_provider::ToolSchema>,
     ) -> (Request, usize) {
@@ -532,6 +540,21 @@ impl Agent {
             .saturating_sub(512) as usize;
         let (history, omitted) = self.thread.messages_with_budget(budget);
         messages.extend(history);
+        if !self.pending_images.is_empty() {
+            let images: Vec<cgc_agent_provider::Content> = std::mem::take(&mut self.pending_images)
+                .into_iter()
+                .map(|(mime_type, data)| cgc_agent_provider::Content::Image { mime_type, data })
+                .collect();
+            if let Some(user) = messages
+                .iter_mut()
+                .rev()
+                .find(|message| message.role == cgc_agent_provider::Role::User)
+            {
+                user.content.extend(images);
+            } else {
+                messages.push(Message::new(cgc_agent_provider::Role::User, images));
+            }
+        }
         (
             Request::new(messages)
                 .with_tools(tools)

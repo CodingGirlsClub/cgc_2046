@@ -988,6 +988,7 @@ dependencies = [
 name = "cgc-desktop-app"
 version = "0.0.1"
 dependencies = [
+ "base64 0.22.1",
  "cgc-account",
  "cgc-agent-chat",
  "cgc-agent-checkpoint",
@@ -1002,6 +1003,7 @@ dependencies = [
  "chrono",
  "futures",
  "gpui-kit",
+ "image",
  "qrcode",
  "ratex-gpui",
  "serde_json",
