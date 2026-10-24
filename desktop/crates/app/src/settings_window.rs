@@ -812,28 +812,36 @@ impl SettingsWindowView {
                 )
                 .into_any_element()
         });
+        let hidden_header = gpui_kit::StyleRefinement {
+            display: Some(gpui_kit::Display::None),
+            ..Default::default()
+        };
         let ai_page = match &self.ai_view {
             AiRoute::General => SettingPage::new("AI").group(
                 SettingGroup::new()
                     .title("General")
                     .items(vec![llm_link, native_agent]),
             ),
-            AiRoute::Providers => SettingPage::new("AI").groups(vec![
-                SettingGroup::new()
-                    .variant(GroupBoxVariant::Normal)
-                    .item(providers_header),
-                SettingGroup::new()
-                    .title("LLM Providers")
-                    .item(providers_item),
-            ]),
-            AiRoute::Form(_) => SettingPage::new("AI").groups(vec![
-                SettingGroup::new()
-                    .variant(GroupBoxVariant::Normal)
-                    .item(form_back),
-                SettingGroup::new()
-                    .title("Provider")
-                    .items(form_item.into_iter().collect::<Vec<SettingItem>>()),
-            ]),
+            AiRoute::Providers => SettingPage::new("AI")
+                .header_style(&hidden_header)
+                .groups(vec![
+                    SettingGroup::new()
+                        .variant(GroupBoxVariant::Normal)
+                        .item(providers_header),
+                    SettingGroup::new()
+                        .title("LLM Providers")
+                        .item(providers_item),
+                ]),
+            AiRoute::Form(_) => SettingPage::new("AI")
+                .header_style(&hidden_header)
+                .groups(vec![
+                    SettingGroup::new()
+                        .variant(GroupBoxVariant::Normal)
+                        .item(form_back),
+                    SettingGroup::new()
+                        .title("Provider")
+                        .items(form_item.into_iter().collect::<Vec<SettingItem>>()),
+                ]),
         };
 
         let settings = Settings::new("cgc-settings")
