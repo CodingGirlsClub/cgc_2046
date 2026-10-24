@@ -1113,6 +1113,43 @@ impl NativeAgentView {
         self.generate_thread_title(cx);
     }
 
+    /// 从统一线程列表恢复指定 native 线程。
+    pub fn open_thread(&mut self, thread_id: &str, cx: &mut Context<Self>) {
+        let Some(store) = &self.session_store else {
+            return;
+        };
+        let Ok(Some(thread)) = store.load_thread(thread_id) else {
+            return;
+        };
+        let mut state = HostState::new();
+        for entry in &thread.entries {
+            match entry {
+                cgc_agent_core::Entry::User { text, .. } => state.push_user(text),
+                cgc_agent_core::Entry::Assistant { text, .. } if !text.is_empty() => {
+                    state.push_assistant(text)
+                }
+                cgc_agent_core::Entry::ToolResult {
+                    tool_name,
+                    is_error,
+                    ..
+                } => state.push_tool(format!(
+                    "{tool_name} · {}",
+                    if *is_error { "失败" } else { "完成" }
+                )),
+                _ => {}
+            }
+        }
+        state.usage_total = thread.usage_total;
+        self.state = state;
+        let prompt = build_workspace_system_prompt(self.context.workspace());
+        self.agent = Some(Agent::new(thread, Some(prompt)));
+        self.status = "已恢复线程".to_string();
+        self.busy = false;
+        self.checkpoint_changes.clear();
+        self.show_checkpoint_panel = false;
+        cx.notify();
+    }
+
     fn open_image_viewer(&mut self, name: String, image: Arc<RenderImage>, cx: &mut Context<Self>) {
         let bounds = Bounds {
             origin: point(px(260.0), px(160.0)),

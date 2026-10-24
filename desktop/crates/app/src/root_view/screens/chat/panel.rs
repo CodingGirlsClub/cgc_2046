@@ -862,7 +862,7 @@ pub(in crate::root_view) fn render_chat_panel(
                 .into_any_element()
         }
     };
-    let history_rows = if ctx.chat.show_sessions {
+    let mut history_rows = if ctx.chat.show_sessions {
         if ctx.chat.sessions.is_empty() {
             vec![div()
                 .text_size(px(11.0))
@@ -900,6 +900,36 @@ pub(in crate::root_view) fn render_chat_panel(
     } else {
         Vec::new()
     };
+    if ctx.chat.show_sessions {
+        let native_rows = ctx
+            .chat
+            .local_threads
+            .iter()
+            .filter(|thread| thread.agent == "native")
+            .take(10)
+            .map(|thread| {
+                let thread_id = thread.id.clone();
+                let title = thread
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| "未命名线程".to_string());
+                div()
+                    .id(format!("chat-restore-native-{}", thread.id))
+                    .w_full()
+                    .px(space(1))
+                    .py(px(3.0))
+                    .rounded(px(RADIUS_SMALL))
+                    .text_size(px(11.0))
+                    .text_color(palette.ink_2)
+                    .hover(|style| style.bg(palette.soft))
+                    .child(format!("{title}  · native"))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_local_native_thread(thread_id.clone(), window, cx);
+                    }))
+                    .into_any_element()
+            });
+        history_rows.extend(native_rows);
+    }
     let thread_sidebar = ctx.chat.show_sessions.then(|| {
         div()
             .w(px(170.0))

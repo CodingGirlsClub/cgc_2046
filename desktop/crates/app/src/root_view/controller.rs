@@ -1262,6 +1262,26 @@ impl RootView {
         self.chat.host.is_some()
     }
 
+    /// 从统一线程列表恢复 native 线程。
+    pub(in crate::root_view) fn open_local_native_thread(
+        &mut self,
+        thread_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.native_chat_mode = true;
+        crate::chat_state::save_native_chat_mode(true);
+        if self.native_agent_view.is_none() {
+            let view = cx.new(|cx| crate::native_agent_view::NativeAgentView::new(window, cx));
+            self.native_agent_view = Some(view);
+        }
+        if let Some(view) = &self.native_agent_view {
+            view.update(cx, |view, cx| view.open_thread(&thread_id, cx));
+        }
+        self.agent_panel_open = true;
+        cx.notify();
+    }
+
     /// 把当前 ACP 会话镜像成 threads.db 中的 Thread（统一列表与恢复）。
     fn persist_acp_thread(&mut self) {
         let Some(session_id) = self.chat.session_id.clone() else {
@@ -1316,7 +1336,8 @@ impl RootView {
             .chat
             .messages
             .iter()
-            .filter_map(|message| match message {
+            .enumerate()
+            .filter_map(|(index, message)| match message {
                 ChatEntry::User(text) => Some(cgc_agent_core::Entry::User {
                     text: text.clone(),
                     images: Vec::new(),
@@ -1330,6 +1351,13 @@ impl RootView {
                         at: now,
                     })
                 }
+                ChatEntry::Tool { title, kind } => Some(cgc_agent_core::Entry::ToolResult {
+                    tool_use_id: format!("acp-{index}"),
+                    tool_name: kind.clone(),
+                    content: title.clone(),
+                    is_error: false,
+                    at: now,
+                }),
                 _ => None,
             })
             .collect();
@@ -1599,6 +1627,7 @@ impl RootView {
             .join("threads.db");
         if let Ok(store) = SessionStore::open(path) {
             if let Ok(threads) = store.list_threads(50) {
+                self.chat.local_threads = threads.clone();
                 for thread in threads {
                     if thread.agent == "native" {
                         continue;
@@ -3717,5 +3746,10 @@ fn load_acp_title_override(session_id: &str) -> Option<String> {
         .join("agent")
         .join("threads.db");
     let store = cgc_agent_store::SessionStore::open(path).ok()?;
+    if let Ok(Some(thread)) = store.load_thread(&format!("acp-{session_id}")) {
+        if thread.title_override.is_some() {
+            return thread.title_override;
+        }
+    }
     store.acp_title_override(session_id).ok().flatten()
 }
