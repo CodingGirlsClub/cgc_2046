@@ -2829,93 +2829,130 @@ impl Render for NativeAgentView {
                         }
                     }))
                     .children((slash_open && !slash_matches.is_empty()).then(|| {
-                        div()
-                            .id("native-agent-slash-menu")
-                            .flex()
-                            .flex_col()
-                            .gap(px(1.0))
-                            .mx(space(1))
-                            .mt(space(1))
-                            .mb(px(2.0))
-                            .rounded(px(RADIUS_SMALL))
-                            .border_1()
-                            .border_color(palette.line)
-                            .bg(palette.card)
-                            .occlude()
-                            .children({
-                                let mut rows: Vec<AnyElement> = Vec::new();
-                                let mut last_category = "";
-                                for (index, entry) in slash_matches.iter().enumerate() {
-                                    if entry.category != last_category {
-                                        last_category = entry.category;
-                                        rows.push(
-                                            div()
-                                                .px(space(1))
-                                                .pt(px(2.0))
-                                                .pb(px(1.0))
-                                                .text_size(px(9.0))
-                                                .text_color(palette.ink_3)
-                                                .child(entry.category)
-                                                .into_any_element(),
-                                        );
-                                    }
-                                    let selected = index == slash_selected;
-                                    let label = entry.label;
-                                    let tool = entry.tool;
-                                    let description = entry.description.clone();
-                                    rows.push(
+                        let mut rows: Vec<AnyElement> = Vec::new();
+                        let mut last_category = "";
+                        for (index, entry) in slash_matches.iter().enumerate() {
+                            if entry.category != last_category {
+                                last_category = entry.category;
+                                rows.push(
+                                    div()
+                                        .px(space(1))
+                                        .pt(px(2.0))
+                                        .pb(px(1.0))
+                                        .text_size(px(9.0))
+                                        .text_color(palette.ink_3)
+                                        .child(entry.category)
+                                        .into_any_element(),
+                                );
+                            }
+                            let selected = index == slash_selected;
+                            let label = entry.label;
+                            let tool = entry.tool;
+                            let description = entry.description.clone();
+                            rows.push(
+                                div()
+                                    .id(SharedString::from(format!("native-slash-{index}")))
+                                    .role(Role::Button)
+                                    .aria_label(description.clone())
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap(space(2))
+                                    .px(space(1))
+                                    .py(px(3.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .bg(if selected {
+                                        palette.soft
+                                    } else {
+                                        palette.card
+                                    })
+                                    .text_color(if selected {
+                                        palette.accent
+                                    } else {
+                                        palette.ink_2
+                                    })
+                                    .child(div().w(px(96.0)).text_size(px(11.0)).child(label))
+                                    .child(
                                         div()
-                                            .id(SharedString::from(format!("native-slash-{index}")))
-                                            .role(Role::Button)
-                                            .aria_label(description.clone())
-                                            .flex()
-                                            .flex_row()
-                                            .items_center()
-                                            .gap(space(2))
-                                            .px(space(1))
-                                            .py(px(3.0))
-                                            .rounded(px(RADIUS_SMALL))
-                                            .bg(if selected {
-                                                palette.soft
-                                            } else {
-                                                palette.card
-                                            })
-                                            .text_color(if selected {
-                                                palette.accent
-                                            } else {
-                                                palette.ink_2
-                                            })
-                                            .child(
-                                                div()
-                                                    .w(px(86.0))
-                                                    .text_size(px(11.0))
-                                                    .child(label),
-                                            )
-                                            .child(
-                                                div()
-                                                    .flex_1()
-                                                    .text_size(px(10.0))
-                                                    .text_color(palette.ink_3)
-                                                    .child(description),
-                                            )
-                                            .on_click(cx.listener(move |this, _, window, cx| {
-                                                if let Some(tool) = tool {
-                                                    let text = format!("使用 {tool} 工具：");
-                                                    this.input.update(cx, |state, cx| {
-                                                        state.set_value(text.clone(), window, cx)
-                                                    });
-                                                    this.slash_dismissed = true;
-                                                    this.slash_index = 0;
-                                                    cx.notify();
-                                                } else {
-                                                    this.run_slash_command(label, window, cx);
-                                                }
-                                            }))
-                                            .into_any_element(),
-                                    );
-                                }
-                                rows
-                            })
+                                            .flex_1()
+                                            .text_size(px(10.0))
+                                            .text_color(palette.ink_3)
+                                            .child(description),
+                                    )
+                                    .on_hover(cx.listener(
+                                        move |this, hovered: &bool, _, cx| {
+                                            if *hovered && this.slash_index != index {
+                                                this.slash_index = index;
+                                                cx.notify();
+                                            }
+                                        },
+                                    ))
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        if let Some(tool) = tool {
+                                            let text = format!("使用 {tool} 工具：");
+                                            this.input.update(cx, |state, cx| {
+                                                state.set_value(text.clone(), window, cx)
+                                            });
+                                            this.slash_dismissed = true;
+                                            this.slash_index = 0;
+                                            cx.notify();
+                                        } else {
+                                            this.run_slash_command(label, window, cx);
+                                        }
+                                    }))
+                                    .into_any_element(),
+                            );
+                        }
+                        let detail = slash_matches.get(slash_selected).map(|entry| {
+                            div()
+                                .w(px(240.0))
+                                .p(space(1))
+                                .mt(space(1))
+                                .rounded(px(RADIUS_SMALL))
+                                .border_1()
+                                .border_color(palette.line)
+                                .bg(palette.view)
+                                .child(
+                                    div()
+                                        .text_size(px(9.0))
+                                        .text_color(palette.ink_3)
+                                        .child(entry.category),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(11.0))
+                                        .text_color(palette.ink)
+                                        .child(entry.label),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(10.0))
+                                        .text_color(palette.ink_3)
+                                        .child(entry.description.clone()),
+                                )
+                        });
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_start()
+                            .gap(space(2))
+                            .child(
+                                div()
+                                    .id("native-agent-slash-menu")
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(1.0))
+                                    .mx(space(1))
+                                    .mt(space(1))
+                                    .mb(px(2.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .border_1()
+                                    .border_color(palette.line)
+                                    .bg(palette.card)
+                                    .occlude()
+                                    .children(rows),
+                            )
+                            .children(detail)
                     }))
                     .children(mention_open.then(|| {
                         let query = mention
