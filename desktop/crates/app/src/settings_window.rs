@@ -558,6 +558,16 @@ impl SettingsWindowView {
             cx.notify();
             return;
         }
+        if self
+            .provider_drafts
+            .iter()
+            .enumerate()
+            .any(|(other_index, other)| other_index != index && other.name == name)
+        {
+            self.error = Some(format!("Provider Name「{name}」已存在，请换一个名称"));
+            cx.notify();
+            return;
+        }
         let mut provider = ProviderPrefs {
             id: draft.id.clone(),
             name: name.clone(),
@@ -1388,10 +1398,10 @@ fn render_provider_cards(
                         ),
                 )
                 .child(SettingsWindowView::render_provider_field(
-                    "Base URL", base_input, palette,
+                    "Base URL *", base_input, palette,
                 ))
                 .children(draft.name_input.clone().map(|input| {
-                    SettingsWindowView::render_provider_field("Provider Name", input, palette)
+                    SettingsWindowView::render_provider_field("Provider Name *", input, palette)
                 }))
                 .child(
                     div()
