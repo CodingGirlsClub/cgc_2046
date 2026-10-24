@@ -2773,7 +2773,7 @@ impl Render for NativeAgentView {
                     .border_1()
                     .border_color(palette.line)
                     .bg(palette.view)
-                    .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
+                    .capture_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
                         if event.keystroke.key == "v" && event.keystroke.modifiers.platform {
                             let has_image = cx
                                 .read_from_clipboard()
@@ -2785,6 +2785,7 @@ impl Render for NativeAgentView {
                                 .unwrap_or(false);
                             if has_image {
                                 this.add_clipboard_image(cx);
+                                cx.stop_propagation();
                                 return;
                             }
                         }
@@ -2793,10 +2794,12 @@ impl Render for NativeAgentView {
                             match event.keystroke.key.as_str() {
                                 "up" => {
                                     this.mention_index = this.mention_index.saturating_sub(1);
+                                    cx.stop_propagation();
                                     cx.notify();
                                 }
                                 "down" => {
                                     this.mention_index += 1;
+                                    cx.stop_propagation();
                                     cx.notify();
                                 }
                                 _ => {}
@@ -2809,14 +2812,17 @@ impl Render for NativeAgentView {
                         match event.keystroke.key.as_str() {
                             "up" => {
                                 this.slash_index = this.slash_index.saturating_sub(1);
+                                cx.stop_propagation();
                                 cx.notify();
                             }
                             "down" => {
                                 this.slash_index += 1;
+                                cx.stop_propagation();
                                 cx.notify();
                             }
                             "escape" => {
                                 this.slash_dismissed = true;
+                                cx.stop_propagation();
                                 cx.notify();
                             }
                             _ => {}
