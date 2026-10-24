@@ -408,6 +408,7 @@ pub struct NativeAgentView {
     slash_dismissed: bool,
     mention_index: usize,
     workspace_files: Vec<String>,
+    skills: Vec<(String, String)>,
     follow_output: bool,
     messages_scroll: ScrollHandle,
     approval_mode: ApprovalMode,
@@ -419,6 +420,7 @@ pub struct NativeAgentView {
     queued_messages: Vec<String>,
     steer_sender: std_mpsc::Sender<String>,
     _input_subscription: Option<Subscription>,
+    _key_interceptor: Option<Subscription>,
 }
 
 impl NativeAgentView {
@@ -602,7 +604,44 @@ impl NativeAgentView {
             })
         };
         let workspace_files = collect_workspace_files(&workspace);
+        let skills = load_skills(&workspace);
         let input = cx.new(|cx| TextareaState::new(window, cx).auto_grow(4, 20));
+        // Textarea 把 up/down 绑定成 MoveUp/MoveDown，在 action 阶段消费；
+        // 用 keystroke interceptor 在 action dispatch 之前接管菜单导航。
+        let interceptor_weak = cx.entity().downgrade();
+        let key_interceptor = cx.intercept_keystrokes(move |event, window, cx| {
+            let key = event.keystroke.key.as_str();
+            if !matches!(key, "up" | "down" | "escape") {
+                return;
+            }
+            let _ = interceptor_weak.update(cx, |this, cx| {
+                let focused = this.input.read(cx).focus_handle(cx).is_focused(window);
+                if !focused {
+                    return;
+                }
+                let value = this.input.read(cx).value().to_string();
+                if value.trim_start().starts_with('/') && !this.slash_dismissed {
+                    match key {
+                        "up" => this.slash_index = this.slash_index.saturating_sub(1),
+                        "down" => this.slash_index += 1,
+                        "escape" => this.slash_dismissed = true,
+                        _ => {}
+                    }
+                    cx.stop_propagation();
+                    cx.notify();
+                    return;
+                }
+                if trailing_mention(&value).is_some() {
+                    match key {
+                        "up" => this.mention_index = this.mention_index.saturating_sub(1),
+                        "down" => this.mention_index += 1,
+                        _ => {}
+                    }
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+            });
+        });
         let input_subscription = Some(cx.subscribe_in(
             &input,
             window,
@@ -714,6 +753,7 @@ impl NativeAgentView {
             slash_dismissed: false,
             mention_index: 0,
             workspace_files,
+            skills,
             follow_output: true,
             messages_scroll: ScrollHandle::new(),
             approval_mode: ApprovalMode::Ask,
@@ -742,6 +782,7 @@ impl NativeAgentView {
             sent_images: restored_images,
             last_input_value: String::new(),
             _input_subscription: input_subscription,
+            _key_interceptor: Some(key_interceptor),
         }
     }
 
@@ -1587,7 +1628,7 @@ impl NativeAgentView {
     }
 
     fn slash_entries(&self, value: &str) -> Vec<SlashEntry> {
-        slash_entries_for(self.registry.as_ref(), value)
+        slash_entries_for(self.registry.as_ref(), &self.skills, value)
     }
 
     fn run_slash_entry(
@@ -1600,7 +1641,7 @@ impl NativeAgentView {
         let Some(entry) = entries.get(index) else {
             return;
         };
-        if let Some(tool) = entry.tool {
+        if let Some(tool) = entry.tool.clone() {
             let text = format!("使用 {tool} 工具：");
             self.input
                 .update(cx, |state, cx| state.set_value(text.clone(), window, cx));
@@ -1609,15 +1650,19 @@ impl NativeAgentView {
             cx.notify();
             return;
         }
-        self.run_slash_command(entry.label, window, cx);
+        if let Some(skill) = entry.skill.clone() {
+            let text = format!("使用技能「{skill}」：");
+            self.input
+                .update(cx, |state, cx| state.set_value(text.clone(), window, cx));
+            self.slash_dismissed = true;
+            self.slash_index = 0;
+            cx.notify();
+            return;
+        }
+        self.run_slash_command(&entry.label, window, cx);
     }
 
-    fn run_slash_command(
-        &mut self,
-        command: &'static str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn run_slash_command(&mut self, command: &str, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(command) = parse_slash(command) {
             self.handle_slash(command, cx);
         }
@@ -2846,8 +2891,10 @@ impl Render for NativeAgentView {
                                 );
                             }
                             let selected = index == slash_selected;
-                            let label = entry.label;
-                            let tool = entry.tool;
+                            let label = entry.label.clone();
+                            let click_label = label.clone();
+                            let tool = entry.tool.clone();
+                            let skill = entry.skill.clone();
                             let description = entry.description.clone();
                             rows.push(
                                 div()
@@ -2888,8 +2935,14 @@ impl Render for NativeAgentView {
                                         },
                                     ))
                                     .on_click(cx.listener(move |this, _, window, cx| {
-                                        if let Some(tool) = tool {
-                                            let text = format!("使用 {tool} 工具：");
+                                        let text = if let Some(tool) = tool.clone() {
+                                            Some(format!("使用 {tool} 工具："))
+                                        } else {
+                                            skill
+                                                .clone()
+                                                .map(|skill| format!("使用技能「{skill}」："))
+                                        };
+                                        if let Some(text) = text {
                                             this.input.update(cx, |state, cx| {
                                                 state.set_value(text.clone(), window, cx)
                                             });
@@ -2897,7 +2950,7 @@ impl Render for NativeAgentView {
                                             this.slash_index = 0;
                                             cx.notify();
                                         } else {
-                                            this.run_slash_command(label, window, cx);
+                                            this.run_slash_command(&click_label, window, cx);
                                         }
                                     }))
                                     .into_any_element(),
@@ -2922,7 +2975,7 @@ impl Render for NativeAgentView {
                                     div()
                                         .text_size(px(11.0))
                                         .text_color(palette.ink)
-                                        .child(entry.label),
+                                        .child(entry.label.clone()),
                                 )
                                 .child(
                                     div()
@@ -3342,48 +3395,111 @@ fn trailing_mention(text: &str) -> Option<(usize, String)> {
 
 struct SlashEntry {
     category: &'static str,
-    label: &'static str,
+    label: String,
     description: String,
-    tool: Option<&'static str>,
+    tool: Option<String>,
+    skill: Option<String>,
 }
 
-fn slash_entries_for(registry: &ToolRegistry, value: &str) -> Vec<SlashEntry> {
+fn slash_entries_for(
+    registry: &ToolRegistry,
+    skills: &[(String, String)],
+    value: &str,
+) -> Vec<SlashEntry> {
     let trimmed = value.trim_start();
     let Some(query) = trimmed.strip_prefix('/') else {
         return Vec::new();
     };
     let query = query.trim().to_ascii_lowercase();
+    let matches = |text: &str| query.is_empty() || text.to_ascii_lowercase().contains(&query);
     let mut entries: Vec<SlashEntry> = SLASH_COMMANDS
         .iter()
-        .filter(|(command, description)| {
-            query.is_empty()
-                || command.to_ascii_lowercase().contains(&query)
-                || description.to_ascii_lowercase().contains(&query)
-        })
+        .filter(|(command, description)| matches(command) || matches(description))
         .map(|(command, description)| SlashEntry {
             category: "命令",
-            label: command,
-            description: description.to_string(),
+            label: (*command).to_string(),
+            description: (*description).to_string(),
             tool: None,
+            skill: None,
         })
         .collect();
     entries.extend(
         registry
             .list_descriptions()
             .into_iter()
-            .filter(|(name, description)| {
-                query.is_empty()
-                    || name.to_ascii_lowercase().contains(&query)
-                    || description.to_ascii_lowercase().contains(&query)
-            })
+            .filter(|(name, description)| matches(name) || matches(description))
             .map(|(name, description)| SlashEntry {
                 category: "工具",
-                label: name,
+                label: name.to_string(),
                 description: description.to_string(),
-                tool: Some(name),
+                tool: Some(name.to_string()),
+                skill: None,
+            }),
+    );
+    entries.extend(
+        skills
+            .iter()
+            .filter(|(name, description)| matches(name) || matches(description))
+            .map(|(name, description)| SlashEntry {
+                category: "技能",
+                label: name.clone(),
+                description: description.clone(),
+                tool: None,
+                skill: Some(name.clone()),
             }),
     );
     entries
+}
+
+/// 扫描工作区与用户目录下的 skills（`<dir>/skills/<name>/SKILL.md`）。
+fn load_skills(workspace: &std::path::Path) -> Vec<(String, String)> {
+    let mut roots = vec![
+        workspace.join(".agents").join("skills"),
+        workspace.join("skills"),
+    ];
+    if let Some(home) = std::env::var_os("HOME") {
+        roots.push(
+            std::path::PathBuf::from(home)
+                .join(".agents")
+                .join("skills"),
+        );
+    }
+    let mut skills = Vec::new();
+    for root in roots {
+        let Ok(entries) = std::fs::read_dir(&root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path().join("SKILL.md");
+            let Ok(content) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let mut name = entry.file_name().to_string_lossy().to_string();
+            let mut description = String::new();
+            let mut in_frontmatter = false;
+            for line in content.lines() {
+                if line.trim() == "---" {
+                    in_frontmatter = !in_frontmatter;
+                    continue;
+                }
+                if !in_frontmatter {
+                    continue;
+                }
+                if let Some(value) = line.strip_prefix("name:") {
+                    name = value.trim().trim_matches('"').to_string();
+                } else if let Some(value) = line.strip_prefix("description:") {
+                    description = value.trim().trim_matches('"').to_string();
+                }
+            }
+            if description.is_empty() {
+                description = format!("技能：{name}");
+            }
+            skills.push((name, description));
+        }
+    }
+    skills.sort_by(|left, right| left.0.cmp(&right.0));
+    skills.truncate(50);
+    skills
 }
 
 fn render_subagent_row(
@@ -3528,10 +3644,12 @@ mod workspace_prompt_tests {
     #[test]
     fn slash_entries_are_grouped_and_filtered() {
         let registry = cgc_agent_tools::ToolRegistry::with_read_tools();
-        let all = super::slash_entries_for(&registry, "/");
+        let skills = vec![("demo-skill".to_string(), "演示技能".to_string())];
+        let all = super::slash_entries_for(&registry, &skills, "/");
         assert!(all.iter().any(|entry| entry.category == "命令"));
         assert!(all.iter().any(|entry| entry.category == "工具"));
-        let filtered = super::slash_entries_for(&registry, "/read");
+        assert!(all.iter().any(|entry| entry.category == "技能"));
+        let filtered = super::slash_entries_for(&registry, &skills, "/read");
         assert!(filtered.iter().all(|entry| entry.category == "工具"));
         assert!(!filtered.is_empty());
     }
