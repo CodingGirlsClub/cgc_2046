@@ -570,6 +570,59 @@ impl NativeAgentView {
         cx.notify();
     }
 
+    /// 对齐 Zed：＋ → Image 打开系统文件选择器（多选），再加载为附件。
+    fn add_images_from_picker(&mut self, cx: &mut Context<Self>) {
+        if !self.model_supports_images() {
+            self.status = "当前模型不支持图片输入".to_string();
+            cx.notify();
+            return;
+        }
+        let paths_receiver = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some("Select Images".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = paths_receiver.await else {
+                return;
+            };
+            let mut loaded = Vec::new();
+            for path in paths {
+                let Ok(bytes) = std::fs::read(&path) else {
+                    continue;
+                };
+                let Some((png, preview)) = prepare_clipboard_image(&bytes) else {
+                    continue;
+                };
+                let name = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("image.png")
+                    .to_string();
+                let data = base64::engine::general_purpose::STANDARD.encode(&png);
+                loaded.push((name, data, preview));
+            }
+            let _ = this.update(cx, |this, cx| {
+                if loaded.is_empty() {
+                    this.status = "未能加载所选图片（格式不支持或超过 5MB）".to_string();
+                } else {
+                    for (name, data, preview) in loaded {
+                        this.pending_images.push(PendingImage {
+                            name,
+                            mime: "image/png".to_string(),
+                            data,
+                            preview: Some(preview),
+                        });
+                    }
+                    this.status = "已添加图片附件".to_string();
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     fn send_prompt(&mut self, text: String, cx: &mut Context<Self>) {
         self.reload_latest_session();
         self.turn_seq += 1;
@@ -2323,7 +2376,7 @@ impl Render for NativeAgentView {
                                                     .child("Image")
                                                     .on_click(move |_, window, cx| {
                                                         let _ = image_root.update(cx, |this, cx| {
-                                                            this.add_clipboard_image(cx);
+                                                            this.add_images_from_picker(cx);
                                                         });
                                                         let _ = image_dismiss
                                                             .update(cx, |state, cx| state.dismiss(window, cx));
