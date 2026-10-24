@@ -1286,9 +1286,13 @@ impl RootView {
                 self.chat.messages.clear();
                 self.chat.session_id = None;
                 self.chat.restore_id = None;
+                self.chat.load_retry_available = false;
+                self.chat.auto_start_queued = false;
                 if let Some(course_id) = self.chat.course_id.clone() {
                     clear_chat_pointer(&course_id);
                 }
+                // 删除当前 ACP 线程后直接新开一个会话，避免停留在 Idle「连接中」。
+                self.start_chat(cx);
             }
         }
         self.chat
