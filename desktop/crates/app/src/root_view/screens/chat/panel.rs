@@ -1154,18 +1154,6 @@ pub(in crate::root_view) fn render_chat_panel(
                 )
                 .into_any_element()
         });
-    let toolbar = div()
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap(space(1))
-        .child(
-            div()
-                .text_size(px(15.0))
-                .text_color(palette.ink)
-                .child(translate_registered(language, "agent_chat.panel.title")),
-        )
-        .child(div().flex_1());
     div()
         .flex()
         .flex_row()
@@ -1182,7 +1170,6 @@ pub(in crate::root_view) fn render_chat_panel(
                 .min_w(px(0.0))
                 .flex_col()
                 .gap(space(1))
-                .child(toolbar)
                 .children(context_chip)
                 .child(body),
         )
