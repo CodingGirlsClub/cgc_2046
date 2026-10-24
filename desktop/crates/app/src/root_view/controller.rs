@@ -1504,6 +1504,9 @@ impl RootView {
         if let Some(course_id) = self.chat.course_id.clone() {
             clear_chat_pointer(&course_id);
         }
+        self.chat.title_override = None;
+        self.agent_panel_editing_title = false;
+        self.agent_panel_title_hovered = false;
         self.reset_chat_local(cx);
         self.start_chat(cx);
     }
@@ -1531,8 +1534,11 @@ impl RootView {
         session_id: String,
         cx: &mut Context<Self>,
     ) {
-        self.chat.restore_id = Some(session_id);
+        self.chat.restore_id = Some(session_id.clone());
+        self.agent_panel_editing_title = false;
+        self.agent_panel_title_hovered = false;
         self.reset_chat_local(cx);
+        self.chat.title_override = load_acp_title_override(&session_id);
         self.start_chat(cx);
     }
 
@@ -1755,12 +1761,16 @@ impl RootView {
     /// 「+」菜单选择 CGC Agent：在 Agent Panel 内切到 native agent。
     pub fn enter_native_chat(&mut self, cx: &mut Context<Self>) {
         self.native_chat_mode = true;
+        self.agent_panel_editing_title = false;
+        self.agent_panel_title_hovered = false;
         cx.notify();
     }
 
     /// 在 Agent Panel 内开启一个新的 native 会话。
     pub fn new_native_chat(&mut self, cx: &mut Context<Self>) {
         self.native_chat_mode = true;
+        self.agent_panel_editing_title = false;
+        self.agent_panel_title_hovered = false;
         if let Some(view) = &self.native_agent_view {
             view.update(cx, |view, cx| view.start_new_thread(cx));
         }
@@ -3068,6 +3078,9 @@ impl RootView {
         self.chat.messages.clear();
         self.chat.session_id = None;
         self.chat.restore_id = None;
+        self.chat.title_override = None;
+        self.agent_panel_editing_title = false;
+        self.agent_panel_title_hovered = false;
         self.chat.configs.clear();
         self.chat.commands.clear();
         self.chat.configs_applied = false;
@@ -3587,4 +3600,13 @@ impl RootView {
         })
         .detach();
     }
+}
+
+fn load_acp_title_override(session_id: &str) -> Option<String> {
+    let path = cgc_platform::paths::AppPaths::from_env()
+        .data_root
+        .join("agent")
+        .join("threads.db");
+    let store = cgc_agent_store::SessionStore::open(path).ok()?;
+    store.acp_title_override(session_id).ok().flatten()
 }
