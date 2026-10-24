@@ -540,7 +540,12 @@ impl NativeAgentView {
             }
         };
         let restored = !state.messages.is_empty();
-        let agent = Agent::new(thread, None);
+        let workspace = std::env::var("CGC_AGENT_WORKSPACE")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::env::temp_dir().join("cgc-native-agent-demo"));
+        let _ = std::fs::create_dir_all(&workspace);
+        let system_prompt = build_workspace_system_prompt(&workspace);
+        let agent = Agent::new(thread, Some(system_prompt));
         let cancel = agent.cancel_token();
         let steer_sender = agent.steer_sender();
         let agent_state: SharedAgentState = Arc::new(Mutex::new(AgentState::default()));
@@ -554,10 +559,6 @@ impl NativeAgentView {
                 }
             })
         };
-        let workspace = std::env::var("CGC_AGENT_WORKSPACE")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| std::env::temp_dir().join("cgc-native-agent-demo"));
-        let _ = std::fs::create_dir_all(&workspace);
         let checkpoint_manager = CheckpointManager::open(&workspace)
             .or_else(|_| CheckpointManager::initialize(&workspace))
             .ok();
@@ -3303,9 +3304,49 @@ fn humanize_tokens(count: u64) -> String {
     }
 }
 
+/// 启动时注入的工作区上下文：工作区根 + 规则文件（AGENTS/CLAUDE）。
+fn build_workspace_system_prompt(workspace: &std::path::Path) -> String {
+    let mut prompt = format!(
+        "你运行在用户的本地工作区：{}\n可以读写工作区文件、执行命令；修改前先读相关文件。\n",
+        workspace.display()
+    );
+    for relative in ["AGENTS.md", "CLAUDE.md", "desktop/AGENTS.md"] {
+        let path = workspace.join(relative);
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let content = truncate_text(&content, 20_000);
+        prompt.push_str(&format!(
+            "\n<workspace_rules source=\"{relative}\">\n{content}\n</workspace_rules>\n"
+        ));
+    }
+    prompt.push_str("\n遵循上述工作区规则；规则与用户指令冲突时以用户当前指令为准。");
+    prompt
+}
+
 fn now_secs() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs() as i64)
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod workspace_prompt_tests {
+    use super::{build_workspace_system_prompt, now_secs};
+
+    #[test]
+    fn workspace_prompt_includes_rules_files() {
+        let dir = std::env::temp_dir().join(format!(
+            "cgc-workspace-prompt-{}-{}",
+            std::process::id(),
+            now_secs()
+        ));
+        std::fs::create_dir_all(&dir).expect("dir");
+        std::fs::write(dir.join("AGENTS.md"), "root-rule").expect("root rule");
+        let prompt = build_workspace_system_prompt(&dir);
+        assert!(prompt.contains("root-rule"));
+        assert!(prompt.contains("workspace_rules"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
