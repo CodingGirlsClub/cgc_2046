@@ -563,7 +563,10 @@ impl SettingsWindowView {
             .provider_drafts
             .iter()
             .enumerate()
-            .any(|(other_index, other)| other_index != index && other.name == name)
+            .any(|(other_index, other)| {
+                other_index != index
+                    && other.name.trim().to_lowercase() == name.trim().to_lowercase()
+            })
         {
             self.error = Some(format!("Provider Name「{name}」已存在，请换一个名称"));
             cx.notify();
@@ -958,7 +961,19 @@ impl SettingsWindowView {
             let form_weak = weak.clone();
             SettingItem::render(move |_options, _window, cx| {
                 let palette = theme::palette_from_theme(cx);
-                render_provider_cards(cx, &form_weak, &form_drafts, &palette, None, None)
+                render_provider_cards(
+                    cx,
+                    &form_weak,
+                    &form_drafts,
+                    &palette,
+                    None,
+                    None,
+                    if form_is_new {
+                        "添加 Provider"
+                    } else {
+                        "保存"
+                    },
+                )
             })
         });
         let about_item = SettingItem::render(move |_options, _window, cx| {
@@ -1343,6 +1358,7 @@ fn render_provider_cards(
     palette: &theme::Palette,
     notice: Option<String>,
     error: Option<String>,
+    save_label: &'static str,
 ) -> AnyElement {
     let mut cards: Vec<AnyElement> = Vec::new();
     for (index, draft) in drafts.iter().enumerate() {
@@ -1820,7 +1836,7 @@ fn render_provider_cards(
                                 .bg(palette.accent)
                                 .text_color(palette.canvas)
                                 .text_size(px(11.0))
-                                .child("保存")
+                                .child(save_label)
                                 .on_click(move |_, window, cx| {
                                     let _ = save_weak.update(cx, |this, cx| {
                                         this.save_provider(index, window, cx);
