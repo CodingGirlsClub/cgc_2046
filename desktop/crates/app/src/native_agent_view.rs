@@ -4,6 +4,7 @@
 //! 事件经 futures channel → `HostState` 归约 → 面板实时刷新；审批用
 //! `UiApprover` 把请求变成 UI 上的三个按钮，用户答复通过 oneshot 回填。
 
+use std::collections::HashMap;
 use std::sync::{mpsc as std_mpsc, Arc, Mutex};
 
 use base64::Engine as _;
@@ -173,6 +174,8 @@ pub struct NativeAgentView {
     approval_mode: ApprovalMode,
     approval_sender: Arc<Mutex<Option<oneshot::Sender<ApprovalDecision>>>>,
     pending_images: Vec<PendingImage>,
+    /// 已发送用户消息 index → 图片预览（仅当前进程内显示，不持久化）。
+    sent_images: HashMap<usize, Vec<Arc<RenderImage>>>,
     hovered_image: Option<usize>,
     queued_messages: Vec<String>,
     steer_sender: std_mpsc::Sender<String>,
@@ -451,6 +454,7 @@ impl NativeAgentView {
             queued_messages: Vec::new(),
             steer_sender,
             pending_images: Vec::new(),
+            sent_images: HashMap::new(),
             hovered_image: None,
             _input_subscription: input_subscription,
         }
@@ -463,6 +467,7 @@ impl NativeAgentView {
                 .push_system("命令：/help /clear /stop /tools /checkpoint /settings"),
             SlashCommand::Clear => {
                 self.state.messages.clear();
+                self.sent_images.clear();
                 self.state.streaming.clear();
                 self.state.last_error = None;
                 self.status = "对话显示已清空".to_string();
@@ -684,6 +689,15 @@ impl NativeAgentView {
                     .map(|image| (image.mime.clone(), image.data.clone()))
                     .collect(),
             );
+            let previews: Vec<Arc<RenderImage>> = self
+                .pending_images
+                .iter()
+                .filter_map(|image| image.preview.clone())
+                .collect();
+            if !previews.is_empty() {
+                let message_index = self.state.messages.len();
+                self.sent_images.insert(message_index, previews);
+            }
             self.pending_images.clear();
         }
         let model_config = self
@@ -1229,6 +1243,7 @@ impl Render for NativeAgentView {
         let model_label = format!("{}/{}", self.model.provider_id, self.model.id);
         let status = self.status.clone();
         let messages = self.state.messages.clone();
+        let sent_images = self.sent_images.clone();
         let streaming = self.state.streaming.clone();
         let pending = self.state.pending_permission.clone();
         let usage = self.state.usage_total.total();
@@ -1264,7 +1279,7 @@ impl Render for NativeAgentView {
         let changes = self.checkpoint_changes.clone();
         let mut rows: Vec<AnyElement> = Vec::new();
         let mut remaining_subagents = subagents.clone();
-        for message in messages {
+        for (message_index, message) in messages.iter().enumerate() {
             let color = match message.role {
                 UiRole::User => palette.accent,
                 UiRole::Error => palette.danger,
@@ -1283,7 +1298,14 @@ impl Render for NativeAgentView {
                             .text_color(color)
                             .child(role_label(message.role)),
                     )
-                    .child(div().text_size(px(13.0)).child(message.text))
+                    .child(div().text_size(px(13.0)).child(message.text.clone()))
+                    .children(sent_images.get(&message_index).map(|previews| {
+                        div().flex().flex_row().flex_wrap().gap(space(1)).children(
+                            previews.iter().cloned().map(|preview| {
+                                img(preview).max_h(px(120.0)).rounded(px(RADIUS_SMALL))
+                            }),
+                        )
+                    }))
                     .into_any_element(),
             );
             if let Some(tool_call_id) = &message.tool_call_id {
