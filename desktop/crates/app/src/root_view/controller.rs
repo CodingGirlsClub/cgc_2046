@@ -1995,13 +1995,6 @@ impl RootView {
         cx.notify();
     }
 
-    /// 课程页对话面板在 ACP 与 native agent 之间切换（P1b 内联灰度）。
-    pub fn toggle_native_chat_mode(&mut self, cx: &mut Context<Self>) {
-        let enabled = !self.native_chat_mode;
-        self.set_native_chat_mode(enabled);
-        cx.notify();
-    }
-
     /// 执行 native agent 投递的应用内动作（AppAction）。
     pub fn apply_native_agent_action(
         &mut self,
