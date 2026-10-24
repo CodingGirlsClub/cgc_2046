@@ -125,7 +125,7 @@ pub struct AgentPrefs {
 impl Default for AgentPrefs {
     fn default() -> Self {
         Self {
-            schema_version: 1,
+            schema_version: 2,
             selected_model: None,
             selected_provider: None,
             providers: Vec::new(),
@@ -134,29 +134,49 @@ impl Default for AgentPrefs {
 }
 
 impl AgentPrefs {
-    /// 一次性迁移：旧配置的模型能力字段取 catalog 默认值（如 DeepSeek flash 的图片支持）。
+    /// 一次性迁移：旧配置的模型能力字段取 catalog 默认值。
     pub fn migrate(&mut self) {
-        if self.schema_version >= 1 {
-            return;
-        }
         let catalog = builtin_providers();
-        for provider in &mut self.providers {
-            if !provider.builtin {
-                continue;
-            }
-            let Some(default) = catalog.iter().find(|item| item.id == provider.id) else {
-                continue;
-            };
-            for model in &mut provider.model_params {
-                let Some(catalog_model) =
-                    default.model_params.iter().find(|item| item.id == model.id)
-                else {
+        if self.schema_version < 1 {
+            for provider in &mut self.providers {
+                if !provider.builtin {
+                    continue;
+                }
+                let Some(default) = catalog.iter().find(|item| item.id == provider.id) else {
                     continue;
                 };
-                model.supports_images = catalog_model.supports_images;
+                for model in &mut provider.model_params {
+                    let Some(catalog_model) =
+                        default.model_params.iter().find(|item| item.id == model.id)
+                    else {
+                        continue;
+                    };
+                    model.supports_images = catalog_model.supports_images;
+                }
             }
+            self.schema_version = 1;
         }
-        self.schema_version = 1;
+        if self.schema_version < 2 {
+            // 已保存的 provider 可能是用户副本（builtin=false），按 model id 对齐 catalog 能力。
+            for provider in &mut self.providers {
+                for model in &mut provider.model_params {
+                    let Some(default) = catalog
+                        .iter()
+                        .flat_map(|provider| provider.model_params.iter())
+                        .find(|item| item.id == model.id)
+                    else {
+                        continue;
+                    };
+                    if model.reasoning_efforts.is_empty() {
+                        model.reasoning_efforts = default.reasoning_efforts.clone();
+                    }
+                    if !model.supports_images && default.supports_images {
+                        model.supports_images = true;
+                    }
+                }
+            }
+            self.schema_version = 2;
+        }
     }
 
     pub fn active_provider(&self) -> Option<&ProviderPrefs> {
@@ -392,7 +412,7 @@ mod tests {
         let dir = temp_dir("roundtrip");
         let store = PrefsStore::new(dir.join("agent_prefs.json"));
         let prefs = AgentPrefs {
-            schema_version: 1,
+            schema_version: 2,
             selected_model: Some(selected()),
             selected_provider: Some("deepseek".to_string()),
             providers: vec![provider("deepseek", "https://api.deepseek.com/v1")],
@@ -481,7 +501,7 @@ mod tests {
                 .model_config("deepseek-flash")
                 .supports_images
         );
-        assert_eq!(loaded.schema_version, 1);
+        assert_eq!(loaded.schema_version, 2);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
