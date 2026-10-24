@@ -358,6 +358,7 @@ fn entry_kind(entry: &Entry) -> &'static str {
     match entry {
         Entry::User { .. } => "user",
         Entry::Assistant { .. } => "assistant",
+        Entry::Thinking { .. } => "thinking",
         Entry::ToolResult { .. } => "tool_result",
         Entry::Compaction { .. } => "compaction",
     }
@@ -367,6 +368,7 @@ fn entry_at(entry: &Entry) -> i64 {
     match entry {
         Entry::User { at, .. }
         | Entry::Assistant { at, .. }
+        | Entry::Thinking { at, .. }
         | Entry::ToolResult { at, .. }
         | Entry::Compaction { at, .. } => *at,
     }
@@ -537,6 +539,26 @@ mod title_override_tests {
         let summaries = store.list_threads(10).expect("list");
         assert_eq!(summaries[0].agent, "omp");
         assert_eq!(summaries[0].session_id.as_deref(), Some("sess-1"));
+    }
+
+    #[test]
+    fn thinking_entry_roundtrips() {
+        let mut store = SessionStore::open_in_memory().expect("store");
+        let mut thread = thread();
+        thread.entries.push(Entry::Thinking {
+            text: "推理过程".to_string(),
+            signature: None,
+            at: 1,
+        });
+        store.save_thread(&thread).expect("save");
+        let loaded = store
+            .load_thread("thread-1")
+            .expect("load")
+            .expect("thread");
+        assert!(matches!(
+            loaded.entries.first(),
+            Some(Entry::Thinking { text, .. }) if text == "推理过程"
+        ));
     }
 
     #[test]

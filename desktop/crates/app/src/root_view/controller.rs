@@ -1262,6 +1262,33 @@ impl RootView {
         self.chat.host.is_some()
     }
 
+    /// 从统一线程列表删除一个本地线程。
+    pub(in crate::root_view) fn delete_local_thread(
+        &mut self,
+        thread_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        let path = AppPaths::from_env()
+            .data_root
+            .join("agent")
+            .join("threads.db");
+        if let Ok(mut store) = SessionStore::open(path) {
+            let _ = store.delete_thread(&thread_id);
+        }
+        if let Some(session_id) = thread_id.strip_prefix("acp-") {
+            self.chat
+                .sessions
+                .retain(|session| session.session_id != session_id);
+            if self.chat.session_id.as_deref() == Some(session_id) {
+                self.chat.session_id = None;
+            }
+        }
+        self.chat
+            .local_threads
+            .retain(|thread| thread.id != thread_id);
+        cx.notify();
+    }
+
     /// 从统一线程列表恢复 native 线程。
     pub(in crate::root_view) fn open_local_native_thread(
         &mut self,
@@ -1351,6 +1378,11 @@ impl RootView {
                         at: now,
                     })
                 }
+                ChatEntry::Thinking { text, .. } => Some(cgc_agent_core::Entry::Thinking {
+                    text: text.clone(),
+                    signature: None,
+                    at: now,
+                }),
                 ChatEntry::Tool { title, kind } => Some(cgc_agent_core::Entry::ToolResult {
                     tool_use_id: format!("acp-{index}"),
                     tool_name: kind.clone(),

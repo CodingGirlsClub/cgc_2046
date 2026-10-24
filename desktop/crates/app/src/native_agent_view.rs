@@ -987,6 +987,10 @@ impl NativeAgentView {
         cx.notify();
     }
 
+    pub fn current_thread_id(&self) -> Option<String> {
+        self.agent.as_ref().map(|agent| agent.thread().id.clone())
+    }
+
     pub fn display_title(&self) -> String {
         self.agent
             .as_ref()

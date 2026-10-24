@@ -876,6 +876,9 @@ pub(in crate::root_view) fn render_chat_panel(
                 .take(10)
                 .map(|session| {
                     let session_id = session.session_id.clone();
+                    let delete_id = format!("acp-{}", session.session_id);
+                    let is_current =
+                        ctx.chat.session_id.as_deref() == Some(session.session_id.as_str());
                     let title = session.title.clone().unwrap_or_else(|| {
                         let short = session.session_id.chars().take(10).collect::<String>();
                         format!("{short}…")
@@ -883,13 +886,33 @@ pub(in crate::root_view) fn render_chat_panel(
                     div()
                         .id(format!("chat-restore-{}", session.session_id))
                         .w_full()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(space(1))
                         .px(space(1))
                         .py(px(3.0))
                         .rounded(px(RADIUS_SMALL))
                         .text_size(px(11.0))
-                        .text_color(palette.ink_2)
+                        .text_color(if is_current {
+                            palette.accent
+                        } else {
+                            palette.ink_2
+                        })
                         .hover(|style| style.bg(palette.soft))
-                        .child(title)
+                        .child(div().flex_1().child(title))
+                        .child(
+                            div()
+                                .id(format!("chat-delete-{}", session.session_id))
+                                .px(px(3.0))
+                                .rounded(px(RADIUS_SMALL))
+                                .text_color(palette.ink_3)
+                                .hover(|style| style.bg(palette.card))
+                                .child("×")
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.delete_local_thread(delete_id.clone(), cx);
+                                })),
+                        )
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.restore_chat_session(session_id.clone(), cx);
                         }))
@@ -901,6 +924,10 @@ pub(in crate::root_view) fn render_chat_panel(
         Vec::new()
     };
     if ctx.chat.show_sessions {
+        let current_native = ctx
+            .native_agent_view
+            .as_ref()
+            .and_then(|view| view.read(cx).current_thread_id());
         let native_rows = ctx
             .chat
             .local_threads
@@ -909,6 +936,8 @@ pub(in crate::root_view) fn render_chat_panel(
             .take(10)
             .map(|thread| {
                 let thread_id = thread.id.clone();
+                let delete_id = thread.id.clone();
+                let is_current = current_native.as_deref() == Some(thread.id.as_str());
                 let title = thread
                     .title
                     .clone()
@@ -916,13 +945,33 @@ pub(in crate::root_view) fn render_chat_panel(
                 div()
                     .id(format!("chat-restore-native-{}", thread.id))
                     .w_full()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(space(1))
                     .px(space(1))
                     .py(px(3.0))
                     .rounded(px(RADIUS_SMALL))
                     .text_size(px(11.0))
-                    .text_color(palette.ink_2)
+                    .text_color(if is_current {
+                        palette.accent
+                    } else {
+                        palette.ink_2
+                    })
                     .hover(|style| style.bg(palette.soft))
-                    .child(format!("{title}  · native"))
+                    .child(div().flex_1().child(format!("{title}  · native")))
+                    .child(
+                        div()
+                            .id(format!("chat-delete-native-{}", thread.id))
+                            .px(px(3.0))
+                            .rounded(px(RADIUS_SMALL))
+                            .text_color(palette.ink_3)
+                            .hover(|style| style.bg(palette.card))
+                            .child("×")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.delete_local_thread(delete_id.clone(), cx);
+                            })),
+                    )
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.open_local_native_thread(thread_id.clone(), window, cx);
                     }))

@@ -39,6 +39,13 @@ pub enum Entry {
         images: Vec<ImageAttachment>,
         at: i64,
     },
+    /// 推理过程（thinking），不进入 provider messages，仅用于历史展示/持久化。
+    Thinking {
+        text: String,
+        #[serde(default)]
+        signature: Option<String>,
+        at: i64,
+    },
     Assistant {
         text: String,
         tool_calls: Vec<ToolUse>,
@@ -63,7 +70,7 @@ impl Entry {
     pub fn text(&self) -> Option<&str> {
         match self {
             Self::User { text, .. } | Self::Assistant { text, .. } => Some(text),
-            Self::ToolResult { .. } | Self::Compaction { .. } => None,
+            Self::Thinking { .. } | Self::ToolResult { .. } | Self::Compaction { .. } => None,
         }
     }
 }
@@ -242,6 +249,7 @@ impl Thread {
                     content.clone(),
                     *is_error,
                 )),
+                Entry::Thinking { .. } => {}
                 Entry::Compaction { summary, .. } => {
                     messages.push(Message::system(format!("历史摘要：{summary}")))
                 }
@@ -292,6 +300,7 @@ fn estimate_entry_tokens(entry: &Entry) -> usize {
                     .sum::<usize>()
                 + 4
         }
+        Entry::Thinking { text, .. } => text.chars().count() / 4 + 4,
         Entry::ToolResult { content, .. } => content.chars().count() / 4 + 4,
         Entry::Compaction { summary, .. } => summary.chars().count() / 4 + 4,
     }

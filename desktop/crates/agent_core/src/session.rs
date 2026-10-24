@@ -528,6 +528,7 @@ impl Agent {
                     let preview: String = content.chars().take(500).collect();
                     transcript.push_str(&format!("工具结果：{preview}\n"));
                 }
+                Entry::Thinking { .. } => {}
                 Entry::Compaction { summary, .. } => {
                     transcript.push_str(&format!("历史摘要：{summary}\n"));
                 }
