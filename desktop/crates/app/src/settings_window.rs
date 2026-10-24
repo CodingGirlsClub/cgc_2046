@@ -20,6 +20,7 @@ use gpui_kit::component::setting::{
     SettingField, SettingGroup, SettingItem, SettingPage, Settings,
 };
 use gpui_kit::component::switch::Switch;
+use gpui_kit::component::Sizable;
 use gpui_kit::InteractiveElement;
 use gpui_kit::*;
 
