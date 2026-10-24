@@ -504,6 +504,16 @@ impl NativeAgentView {
             cx.notify();
             return;
         };
+        if self.pending_images.len() >= 4 {
+            self.status = "最多附加 4 张图片".to_string();
+            cx.notify();
+            return;
+        }
+        if image.bytes.len() > 10 * 1024 * 1024 {
+            self.status = "图片超过 10MB 限制".to_string();
+            cx.notify();
+            return;
+        }
         let mime = match image.format {
             ImageFormat::Png => "image/png",
             ImageFormat::Jpeg => "image/jpeg",
@@ -1088,7 +1098,7 @@ impl NativeAgentView {
 
 impl Render for NativeAgentView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let model_supports_images = self.model_supports_images();
+        let add_menu_root = cx.entity().downgrade();
         let palette = theme::palette_from_theme(cx);
         let busy = self.busy;
         let model_label = format!("{}/{}", self.model.provider_id, self.model.id);
@@ -1958,6 +1968,20 @@ impl Render for NativeAgentView {
                     .border_color(palette.line)
                     .bg(palette.view)
                     .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
+                        if event.keystroke.key == "v" && event.keystroke.modifiers.platform {
+                            let has_image = cx
+                                .read_from_clipboard()
+                                .map(|item| {
+                                    item.entries
+                                        .iter()
+                                        .any(|entry| matches!(entry, ClipboardEntry::Image(_)))
+                                })
+                                .unwrap_or(false);
+                            if has_image {
+                                this.add_clipboard_image(cx);
+                                return;
+                            }
+                        }
                         let value = this.input.read(cx).value().to_string();
                         if trailing_mention(&value).is_some() {
                             match event.keystroke.key.as_str() {
@@ -2210,51 +2234,76 @@ impl Render for NativeAgentView {
                             .w_full()
                             .min_w(px(0.0))
                             .child(
-                                div()
-                                    .id("native-agent-add-context")
-                                    .role(Role::Button)
-                                    .aria_label("添加上下文")
-                                    .size(px(24.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .text_size(px(14.0))
-                                    .text_color(palette.ink_3)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child("＋")
-                                    .tooltip(|window, cx| {
-                                        Tooltip::new("添加上下文（@）").build(window, cx)
-                                    })
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.insert_context_marker(window, cx)
-                                    })),
-                            )
-                            .child(
-                                div()
-                                    .id("native-agent-add-image")
-                                    .role(Role::Button)
-                                    .aria_label("添加图片")
-                                    .size(px(24.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .text_size(px(13.0))
-                                    .text_color(palette.ink_3)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child("🖼")
-                                    .tooltip(move |window, cx| {
-                                        Tooltip::new(if model_supports_images {
-                                            "添加图片（从剪贴板）"
-                                        } else {
-                                            "当前模型不支持图片"
-                                        })
-                                        .build(window, cx)
-                                    })
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.add_clipboard_image(cx);
-                                    })),
+                                Popover::new("native-agent-add-menu")
+                                    .trigger(
+                                        Button::new("native-agent-add-context")
+                                            .label("＋")
+                                            .xsmall()
+                                            .ghost()
+                                            .tooltip("添加上下文"),
+                                    )
+                                    .content(move |_, _, cx| {
+                                        let dismiss = cx.entity().downgrade();
+                                        let root = add_menu_root.clone();
+                                        let files_root = root.clone();
+                                        let files_dismiss = dismiss.clone();
+                                        let image_root = root.clone();
+                                        let image_dismiss = dismiss;
+                                        div()
+                                            .w(px(240.0))
+                                            .flex()
+                                            .flex_col()
+                                            .gap(px(1.0))
+                                            .child(
+                                                div()
+                                                    .id("native-add-files")
+                                                    .role(Role::Button)
+                                                    .flex()
+                                                    .flex_row()
+                                                    .items_center()
+                                                    .gap(space(1))
+                                                    .px(space(1))
+                                                    .py(px(3.0))
+                                                    .rounded(px(RADIUS_MEDIUM))
+                                                    .text_size(px(11.0))
+                                                    .text_color(palette.ink_2)
+                                                    .hover(|style| style.bg(palette.soft))
+                                                    .child("📄")
+                                                    .child("Files & Directories")
+                                                    .on_click(move |_, window, cx| {
+                                                        let _ = files_root.update(cx, |this, cx| {
+                                                            this.insert_context_marker(window, cx);
+                                                        });
+                                                        let _ = files_dismiss
+                                                            .update(cx, |state, cx| state.dismiss(window, cx));
+                                                    }),
+                                            )
+                                            .child(
+                                                div()
+                                                    .id("native-add-image-menu")
+                                                    .role(Role::Button)
+                                                    .flex()
+                                                    .flex_row()
+                                                    .items_center()
+                                                    .gap(space(1))
+                                                    .px(space(1))
+                                                    .py(px(3.0))
+                                                    .rounded(px(RADIUS_MEDIUM))
+                                                    .text_size(px(11.0))
+                                                    .text_color(palette.ink_2)
+                                                    .hover(|style| style.bg(palette.soft))
+                                                    .child("🖼")
+                                                    .child("Image")
+                                                    .on_click(move |_, window, cx| {
+                                                        let _ = image_root.update(cx, |this, cx| {
+                                                            this.add_clipboard_image(cx);
+                                                        });
+                                                        let _ = image_dismiss
+                                                            .update(cx, |state, cx| state.dismiss(window, cx));
+                                                    }),
+                                            )
+                                            .into_any_element()
+                                    }),
                             )
                             .child(
                                 div()
