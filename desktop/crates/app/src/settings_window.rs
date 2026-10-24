@@ -815,10 +815,11 @@ impl SettingsWindowView {
             })
         };
         let form_item = form_target.as_ref().map(|target_id| {
-            let form_drafts: Vec<ProviderDraft> = drafts
+            let form_drafts: Vec<(usize, ProviderDraft)> = drafts
                 .iter()
-                .filter(|draft| &draft.id == target_id)
-                .cloned()
+                .enumerate()
+                .filter(|(_, draft)| &draft.id == target_id)
+                .map(|(index, draft)| (index, draft.clone()))
                 .collect();
             let form_weak = weak.clone();
             SettingItem::render(move |_options, _window, cx| {
@@ -1216,14 +1217,14 @@ fn render_provider_list(
 fn render_provider_cards(
     _cx: &mut App,
     weak: &WeakEntity<SettingsWindowView>,
-    drafts: &[ProviderDraft],
+    drafts: &[(usize, ProviderDraft)],
     palette: &theme::Palette,
     notice: Option<String>,
     error: Option<String>,
     save_label: &'static str,
 ) -> AnyElement {
     let mut cards: Vec<AnyElement> = Vec::new();
-    for (index, draft) in drafts.iter().enumerate() {
+    for (index, draft) in drafts.iter().map(|(index, draft)| (*index, draft)) {
         let (Some(base_input), Some(_models_input), Some(key_input)) = (
             draft.base_url_input.clone(),
             draft.models_input.clone(),
