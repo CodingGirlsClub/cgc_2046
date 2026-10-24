@@ -890,7 +890,12 @@ impl SettingsWindowView {
                                     .text_color(palette.ink_2)
                                     .hover(|style| style.bg(palette.soft))
                                     .child(format!(
-                                        "← 设置 / AI / 通用 / LLM Providers / {form_name}"
+                                        "← 设置 / AI / 通用 / LLM Providers / {}",
+                                        if form_name.is_empty() {
+                                            "添加 Provider"
+                                        } else {
+                                            form_name.as_str()
+                                        }
                                     ))
                                     .on_click(move |_, _, cx| {
                                         let _ = weak.update(cx, |this, cx| {
