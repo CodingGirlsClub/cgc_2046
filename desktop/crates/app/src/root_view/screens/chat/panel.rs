@@ -20,6 +20,13 @@ pub(in crate::root_view) fn render_chat_panel(
     } else {
         ctx.chat.agent.clone()
     };
+    if !ctx.native_chat_mode && matches!(phase, ChatPhase::Idle) && !ctx.chat.auto_start_queued {
+        ctx.chat.auto_start_queued = true;
+        let root = cx.entity().downgrade();
+        cx.defer(move |cx| {
+            let _ = root.update(cx, |this, cx| this.start_chat(cx));
+        });
+    }
     let body: AnyElement = match &phase {
         ChatPhase::Idle => div()
             .flex()
@@ -30,22 +37,7 @@ pub(in crate::root_view) fn render_chat_panel(
                 div()
                     .text_size(px(12.0))
                     .text_color(palette.ink_3)
-                    .child(format!("{agent_label} · 本机运行")),
-            )
-            .child(
-                div()
-                    .id("chat-start")
-                    .role(Role::Button)
-                    .aria_label(translate(language, Key::AgentChatChatStart))
-                    .role(Role::Button)
-                    .aria_label(translate(language, Key::AgentChatChatStart))
-                    .px(space(2))
-                    .py(px(5.0))
-                    .rounded(px(RADIUS_MEDIUM))
-                    .bg(palette.accent)
-                    .text_color(palette.canvas)
-                    .child(translate(language, Key::AgentChatChatStart))
-                    .on_click(cx.listener(|this, _, _, cx| this.start_chat(cx))),
+                    .child(translate(language, Key::AgentChatChatStarting)),
             )
             .into_any_element(),
         ChatPhase::Starting => div()

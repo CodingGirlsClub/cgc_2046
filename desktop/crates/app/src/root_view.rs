@@ -225,6 +225,7 @@ enum ChatEntry {
 #[derive(Default)]
 struct ChatUi {
     title_override: Option<String>,
+    auto_start_queued: bool,
     phase: ChatPhase,
     agent: String,
     selected_agent: Option<String>,

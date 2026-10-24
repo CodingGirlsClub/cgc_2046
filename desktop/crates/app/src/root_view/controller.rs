@@ -2095,6 +2095,12 @@ impl RootView {
 
     pub(in crate::root_view) fn toggle_agent_panel(&mut self, cx: &mut Context<Self>) {
         self.agent_panel_open = !self.agent_panel_open;
+        if self.agent_panel_open
+            && !self.native_chat_mode
+            && matches!(self.chat.phase, ChatPhase::Idle)
+        {
+            self.start_chat(cx);
+        }
         cx.notify();
     }
 
