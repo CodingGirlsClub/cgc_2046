@@ -361,7 +361,7 @@ impl ShellState {
             projection,
             pending_link: None,
             native_agent_highlight: None,
-            native_chat_mode: false,
+            native_chat_mode: crate::chat_state::load_native_chat_mode().unwrap_or(true),
             native_agent_view: None,
             review_event_keys: std::collections::HashSet::new(),
             workspaces: build_workspace_service(),

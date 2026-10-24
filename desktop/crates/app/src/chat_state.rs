@@ -84,6 +84,16 @@ pub(crate) fn load_selected_agent() -> Option<String> {
         .map(str::to_string)
 }
 
+pub(crate) fn load_native_chat_mode() -> Option<bool> {
+    read_chat_state().get("native_chat_mode")?.as_bool()
+}
+
+pub(crate) fn save_native_chat_mode(enabled: bool) {
+    let mut state = read_chat_state();
+    state["native_chat_mode"] = serde_json::json!(enabled);
+    write_chat_state(&state);
+}
+
 pub(crate) fn save_selected_agent(agent: &str) {
     let mut state = read_chat_state();
     state["selected_agent"] = serde_json::json!(agent);

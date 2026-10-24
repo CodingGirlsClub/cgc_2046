@@ -1761,6 +1761,7 @@ impl RootView {
     /// 「+」菜单选择 CGC Agent：在 Agent Panel 内切到 native agent。
     pub fn enter_native_chat(&mut self, cx: &mut Context<Self>) {
         self.native_chat_mode = true;
+        crate::chat_state::save_native_chat_mode(true);
         self.agent_panel_editing_title = false;
         self.agent_panel_title_hovered = false;
         cx.notify();
@@ -1769,6 +1770,7 @@ impl RootView {
     /// 在 Agent Panel 内开启一个新的 native 会话。
     pub fn new_native_chat(&mut self, cx: &mut Context<Self>) {
         self.native_chat_mode = true;
+        crate::chat_state::save_native_chat_mode(true);
         self.agent_panel_editing_title = false;
         self.agent_panel_title_hovered = false;
         if let Some(view) = &self.native_agent_view {
@@ -1780,6 +1782,7 @@ impl RootView {
     /// 课程页对话面板在 ACP 与 native agent 之间切换（P1b 内联灰度）。
     pub fn toggle_native_chat_mode(&mut self, cx: &mut Context<Self>) {
         self.native_chat_mode = !self.native_chat_mode;
+        crate::chat_state::save_native_chat_mode(self.native_chat_mode);
         cx.notify();
     }
 
@@ -3077,6 +3080,7 @@ impl RootView {
         save_selected_agent(&id);
         self.chat.selected_agent = Some(id);
         self.chat.agent = display_name;
+        crate::chat_state::save_native_chat_mode(false);
         self.chat.phase = ChatPhase::Idle;
         self.chat.host.take();
         self.revoke_chat_lease(cx);
