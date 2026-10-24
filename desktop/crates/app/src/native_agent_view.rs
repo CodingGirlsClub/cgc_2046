@@ -535,7 +535,9 @@ impl NativeAgentView {
                 thread
             }
             None => {
-                state.push_system("未配置可用的 Provider API Key，当前离线回显模式。请在 Settings → AI → LLM Providers 保存 Key 后重新打开 Agent 面板。");
+                if let Some(notice) = offline_echo_notice(using_echo) {
+                    state.push_system(notice);
+                }
                 Thread::new("native-demo", selected)
             }
         };
@@ -3350,6 +3352,13 @@ fn humanize_tokens(count: u64) -> String {
     }
 }
 
+/// 仅在没有可用 Provider 凭据（Echo 回退）时提示离线回显。
+fn offline_echo_notice(using_echo: bool) -> Option<&'static str> {
+    using_echo.then_some(
+        "未配置可用的 Provider API Key，当前离线回显模式。请在 Settings → AI → LLM Providers 保存 Key 后重新打开 Agent 面板。",
+    )
+}
+
 /// 启动时注入的工作区上下文：工作区根 + 规则文件（AGENTS/CLAUDE）。
 fn build_workspace_system_prompt(workspace: &std::path::Path) -> String {
     let mut prompt = format!(
@@ -3379,7 +3388,13 @@ fn now_secs() -> i64 {
 
 #[cfg(test)]
 mod workspace_prompt_tests {
-    use super::{build_workspace_system_prompt, now_secs};
+    use super::{build_workspace_system_prompt, now_secs, offline_echo_notice};
+
+    #[test]
+    fn offline_notice_only_when_using_echo() {
+        assert!(offline_echo_notice(true).is_some());
+        assert!(offline_echo_notice(false).is_none());
+    }
 
     #[test]
     fn workspace_prompt_includes_rules_files() {
