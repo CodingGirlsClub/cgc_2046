@@ -987,6 +987,13 @@ impl NativeAgentView {
         cx.notify();
     }
 
+    pub fn is_empty_thread(&self) -> bool {
+        self.agent
+            .as_ref()
+            .map(|agent| agent.thread().entries.is_empty())
+            .unwrap_or(true)
+    }
+
     pub fn current_thread_id(&self) -> Option<String> {
         self.agent.as_ref().map(|agent| agent.thread().id.clone())
     }

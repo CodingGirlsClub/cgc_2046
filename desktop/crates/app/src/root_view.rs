@@ -479,21 +479,28 @@ impl RootView {
     }
 
     /// 没有标题时的默认标题：New {agent} Thread。
-    fn new_thread_title(&self) -> String {
-        let agent = self.acp_agent_label();
+    fn new_thread_title_for(&self, agent: &str) -> String {
         match self.language {
             Language::Zh => format!("新建 {agent} 对话"),
             Language::En => format!("New {agent} Thread"),
         }
     }
 
+    fn new_thread_title(&self) -> String {
+        let agent = self.acp_agent_label();
+        self.new_thread_title_for(&agent)
+    }
+
     pub(in crate::root_view) fn agent_panel_title(&self, cx: &App) -> String {
         if self.native_chat_mode && RootView::native_agent_enabled() {
-            return self
-                .native_agent_view
-                .as_ref()
-                .map(|view| view.read(cx).display_title())
-                .unwrap_or_else(|| "新对话".to_string());
+            if let Some(view) = &self.native_agent_view {
+                let view = view.read(cx);
+                if view.is_empty_thread() {
+                    return self.new_thread_title_for("CGC Agent");
+                }
+                return view.display_title();
+            }
+            return self.new_thread_title_for("CGC Agent");
         }
         self.chat
             .title_override
