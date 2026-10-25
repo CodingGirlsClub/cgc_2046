@@ -643,6 +643,125 @@ fn trim_entries_to_last_user(entries: &mut Vec<ConversationEntry>) -> Option<usi
     Some(index)
 }
 
+/// native 渲染行（阶段 2d：渲染函数切 `ConversationEntry` 前的本地视图模型）。
+///
+/// 字段名与旧 `UiMessage` 一致，渲染函数可以逐段迁移；类型留在 app 内，
+/// 不再依赖 `agent_host` 的 UI 类型。
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ViewRole {
+    User,
+    Assistant,
+    Thinking,
+    Tool,
+    System,
+    Error,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ViewToolStatus {
+    Running,
+    Ok,
+    Failed,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, PartialEq)]
+struct ViewTool {
+    name: String,
+    args: serde_json::Value,
+    status: ViewToolStatus,
+    content: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, PartialEq)]
+struct ViewRow {
+    role: ViewRole,
+    text: String,
+    tool_call_id: Option<String>,
+    tool: Option<ViewTool>,
+}
+
+#[allow(dead_code)]
+impl ViewRow {
+    /// 共享模型 entry → 渲染行；Permission/Notice/Compaction 先降级为 System/Error 行。
+    fn from_entry(entry: &ConversationEntry) -> Self {
+        match entry {
+            ConversationEntry::User { text } => Self {
+                role: ViewRole::User,
+                text: text.clone(),
+                tool_call_id: None,
+                tool: None,
+            },
+            ConversationEntry::Assistant { text } => Self {
+                role: ViewRole::Assistant,
+                text: text.clone(),
+                tool_call_id: None,
+                tool: None,
+            },
+            ConversationEntry::Thinking { text, .. } => Self {
+                role: ViewRole::Thinking,
+                text: text.clone(),
+                tool_call_id: None,
+                tool: None,
+            },
+            ConversationEntry::ToolCall {
+                tool_call_id,
+                title,
+                name,
+                status,
+                args,
+                output,
+                ..
+            } => Self {
+                role: ViewRole::Tool,
+                text: output.clone().unwrap_or_default(),
+                tool_call_id: Some(tool_call_id.clone()),
+                tool: Some(ViewTool {
+                    name: name.clone().unwrap_or_else(|| title.clone()),
+                    args: args
+                        .as_deref()
+                        .and_then(|args| serde_json::from_str(args).ok())
+                        .unwrap_or(serde_json::Value::Null),
+                    status: match status.as_str() {
+                        "completed" => ViewToolStatus::Ok,
+                        "failed" => ViewToolStatus::Failed,
+                        _ => ViewToolStatus::Running,
+                    },
+                    content: output.clone(),
+                }),
+            },
+            ConversationEntry::Permission { title, .. } => Self {
+                role: ViewRole::System,
+                text: format!("等待审批：{title}"),
+                tool_call_id: None,
+                tool: None,
+            },
+            ConversationEntry::Notice { level, text } => Self {
+                role: if matches!(level, cgc_agent_ui::conversation::NoticeLevel::Error) {
+                    ViewRole::Error
+                } else {
+                    ViewRole::System
+                },
+                text: text.clone(),
+                tool_call_id: None,
+                tool: None,
+            },
+            ConversationEntry::Compaction { status, summary } => Self {
+                role: ViewRole::System,
+                text: match summary {
+                    Some(summary) => format!("上下文压缩（{status}）：{summary}"),
+                    None => format!("上下文压缩（{status}）"),
+                },
+                tool_call_id: None,
+                tool: None,
+            },
+        }
+    }
+}
+
 pub struct NativeAgentView {
     agent: Option<Agent>,
     provider: Arc<dyn Provider>,
@@ -5867,6 +5986,68 @@ mod workspace_prompt_tests {
         assert_eq!(entries.len(), 3, "裁到最近一条用户消息（含）");
         assert!(matches!(entries[2], ConversationEntry::User { .. }));
         assert_eq!(super::trim_entries_to_last_user(&mut Vec::new()), None);
+    }
+
+    #[test]
+    fn view_row_maps_shared_entries_for_renderer_switch() {
+        use cgc_agent_ui::conversation::{Entry as ConversationEntry, NoticeLevel};
+        let tool = super::ViewRow::from_entry(&ConversationEntry::ToolCall {
+            tool_call_id: "c1".into(),
+            title: "run_command".into(),
+            name: Some("run_command".into()),
+            kind: "tool".into(),
+            status: "failed".into(),
+            args: Some("{\"command\":\"ls\"}".into()),
+            output: Some("boom".into()),
+            locations: Vec::new(),
+            expanded: false,
+        });
+        assert_eq!(tool.role, super::ViewRole::Tool);
+        let tool_data = tool.tool.expect("tool data");
+        assert_eq!(tool_data.name, "run_command");
+        assert_eq!(tool_data.args["command"], "ls");
+        assert_eq!(tool_data.status, super::ViewToolStatus::Failed);
+        assert_eq!(tool_data.content.as_deref(), Some("boom"));
+
+        assert_eq!(
+            super::ViewRow::from_entry(&ConversationEntry::Assistant { text: "a".into() }).role,
+            super::ViewRole::Assistant
+        );
+        assert_eq!(
+            super::ViewRow::from_entry(&ConversationEntry::Thinking {
+                text: "t".into(),
+                expanded: false
+            })
+            .role,
+            super::ViewRole::Thinking
+        );
+        assert_eq!(
+            super::ViewRow::from_entry(&ConversationEntry::Permission {
+                request_id: "p".into(),
+                title: "允许".into(),
+                tool_call_id: None,
+                args: None,
+                resolved: None,
+            })
+            .role,
+            super::ViewRole::System
+        );
+        assert_eq!(
+            super::ViewRow::from_entry(&ConversationEntry::Notice {
+                level: NoticeLevel::Error,
+                text: "e".into(),
+            })
+            .role,
+            super::ViewRole::Error
+        );
+        assert_eq!(
+            super::ViewRow::from_entry(&ConversationEntry::Compaction {
+                status: "completed".into(),
+                summary: Some("s".into()),
+            })
+            .role,
+            super::ViewRole::System
+        );
     }
 
     #[test]

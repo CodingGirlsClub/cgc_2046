@@ -273,8 +273,12 @@ native 没有 `Plan` 事件：plan 由 native 的工具（`todo_write`/plan step
 - 索引辅助开始迁模型：`thread_entry_ordinal`（用户消息 1-based ordinal）与
   `trim_entries_to_last_user`（重试裁剪）已落地并被 checkpoint/retry 路径使用，
   带单测；checkpoint 优先按模型 ordinal，旧行路径兜底。
+- 渲染行本地化：app 新增 `ViewRow`/`ViewRole`/`ViewTool`/`ViewToolStatus`（字段名与旧
+  行一致）及 `impl From<&Entry> for ViewRow`，渲染函数下一片直接切到该本地视图模型，
+  不再依赖 `agent_host` 的 UI 类型；映射单测已加。
 - 过渡期 `HostState` 仍保留 `messages/streaming` 字段（`messages` 已退化为投影缓存）；
-  下一步：渲染函数切 `ConversationEntry`，删除 projection 与旧字段/`UiMessage`。
+  下一步：渲染函数切 `ViewRow`，删除 projection 与旧字段/`UiMessage`。
+
 
 
 - 验证：agent_host 15 个 reducer/事件测试（含新增 thread 断言）、模型 18 个、
