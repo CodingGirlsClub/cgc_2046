@@ -79,6 +79,26 @@ HOME="$ROOT/home" CGC_NATIVE_AGENT_DEMO=1 CGC_AGENT_WORKSPACE="$ROOT/workspace" 
 ACP 回归需在用户正常实例（已登录 + 已安装外部 agent）或复制测试账号会话后进行；本轮未做，
 以免读取真实凭证。
 
+## 2d 离线真机回归（2026-10-25，native 切共享模型后）
+
+环境：HEAD `a05e9997` 构建，隔离 HOME + demo `.app` wrapper（`CGC_NATIVE_AGENT_DEMO=1`），
+EchoProvider 离线模式；未使用真实 provider/keychain。
+
+| 检查项 | 结果 | 证据 |
+|---|---|---|
+| 窗口身份/尺寸 | PASS | 窗口标题 `CGC Agent（demo）`、1000×760，与正式实例 identity 隔离 |
+| 发送 + 回合末操作栏 | PASS | AX：编辑消息/恢复检查点/Copy/Scroll to User/Scroll to Top；截图 2d-01 |
+| Copy This Agent Response | PASS | 剪贴板 `（离线 demo）收到：hello` |
+| 单回合底部 Scroll to Top | PASS | 唯一回合（底部）出现 Top |
+| slash 菜单 | PASS | AX 列出命令 6 项 + 工具 10 项；截图 2d-02 |
+| 审批 picker | PASS | AX：Ask（逐次审批）/Auto（自动允许） |
+| `/clear` | PASS | 发送后消息行与操作栏全部消失，仅剩 composer；截图 2d-03 |
+| 编辑消息入口 | PARTIAL | 按钮存在，CUA 点击未打开编辑态（可能需 hover 后点击），需人工确认 |
+| 工具卡/审批条/checkpoint/subagent/thinking | BLOCKED | EchoProvider 不产生工具调用，需真实 provider 实例（人工） |
+
+未发现 2d 收尾引入的渲染崩溃或操作栏回归；Permission 行与审批条是否重复仍需真实
+工具审批场景确认。
+
 ## 残余风险
 
 1. ACP 面板（含 Stage 0 修的滚动三按钮、1c 新增的代码块 Copy）尚未真机验证，建议合并前人工跑一次。
