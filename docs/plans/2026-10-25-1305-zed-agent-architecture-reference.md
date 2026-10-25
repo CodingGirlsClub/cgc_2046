@@ -281,6 +281,33 @@ seam 已经在裸奔，只是没抽出来。
 因此 Stage 1 的验收建议改为：**app 视图层净删 ≥800（2026-10-25 已达 -829）+ 双栈共享组件
 单源**；仓库级净删并入 Stage 2 验收（当前仓库总 LOC +588，继续抽取只会继续上升）。
 
+#### Stage 1 收尾（2026-10-25）
+
+**已单源到 `agent_ui`**：
+| 模块 | 覆盖 |
+|---|---|
+| `message_flow` | 操作栏 gating、整回合复制、Scroll to User、底部兜底条 |
+| `message_actions` | 操作栏与右键菜单渲染（id/aria/tooltip/hover 规则） |
+| `markdown_view` / `safe_markdown` | Markdown 视图（可选中、代码块 Copy）与安全净化 |
+| `markdown_text` | Markdown→纯文本 |
+| `message_row` | assistant / thinking 行渲染 |
+| `picker` | 模型 / 推理强度 / 审批模式 / ACP config 选择器弹层 |
+| `command_menu` | slash 命令菜单 |
+
+**实测**：app 视图层 **-829**（达到「app 层净删 ≥800」），仓库总 LOC **+588**。
+
+**未抽 composer（有意为之）**：两栈 composer 的能力面（native：附件/queue/steer/plan/
+checkpoint/审批模式/mention chip/自定义 placeholder；ACP：config pickers/安装引导）差异
+远大于共享骨架，抽「输入卡 + footer」只能省 ~30 行却要引入大量 slot 与回调，且 keyboard/
+focus 语义容易回归。建议并入 Stage 2（统一会话模型后 composer 只保留一份能力渲染）。
+
+**真机回归清单（待人工）**：
+1. native：消息操作栏（回合末/streaming 历史可见/底部隐藏）、整回合 Copy、thinking chevron、
+   assistant 行间距、picker（模型/推理/审批）滚动与选中、slash 菜单 hover 选中与 detail。
+2. ACP：同一组操作栏行为、config picker 搜索/滚动条、slash 菜单选中底色、Markdown 代码块
+   Copy（新增能力）、消息区滚动三按钮（track_scroll 修复后）。
+3. 双栈：`Scroll to Top` 仅底部、末尾停在工具卡时的兜底条、等审批时底部条隐藏。
+
 ### Stage 2：统一会话模型 + 单 UI（1–2 周，核心）
 
 - 把 `agent_ui`（现 31 行桩）做成真正的共享 UI/视图层：先承载 `message_flow`、消息流渲染与
