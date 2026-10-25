@@ -224,6 +224,21 @@ native 没有 `Plan` 事件：plan 由 native 的工具（`todo_write`/plan step
   （改坏状态合并/状态映射 → 测试红，还原 → 绿）。workspace 测试通过（`registry` fetch
   用例为已知并行超时 flake，单独重跑通过）。真机 ACP 回归仍需已登录实例（与人共做）。
 
+### 2b 实现状态（2026-10-25，已落地）
+
+- `agent_ui::conversation` 从 doc 桩变成共享模型：`ConversationThread`（thread_id/title/
+  entries/status/capabilities/usage/plan/checkpoint/pending_permission）、`Entry`（User/
+  Assistant/Thinking/ToolCall/Permission/Notice/Compaction）、`ThreadEvent`（协议无关）、
+  统一 reducer `apply`、能力位 `ThreadCapabilities::native()/acp()`。
+- reducer 规则：文本/思考增量聚合；工具卡后到来的文本开新 assistant entry（修掉 ACP
+  之前工具后文本被丢弃的路径）；工具更新按 id 合并、未知 id 忽略；审批置
+  `AwaitingApproval` 并要求显式 resolved；回合结束折叠 thinking/清 pending；失败转
+  `Failed + Notice(Error)`。
+- `ConversationThread::row_view()` 直接复用 `message_flow` 的 turn-end/复制/滚动判定。
+- 验证：7 个 reducer 单测（含「native 与 ACP 事件序列产出相同 entries」黄金测试、
+  工具后文本、工具合并、审批、回合结束/失败、loaded、row_view 契约）；变异验证
+  两处（工具状态合并、工具后文本开新 entry）→ 对应测试红，还原后绿。
+
 ## 5. 切片与回滚
 
 | 切片 | 内容 | 写入面 | 验收 | 回滚 |
