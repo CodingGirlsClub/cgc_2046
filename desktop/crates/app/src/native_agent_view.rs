@@ -4443,15 +4443,10 @@ impl Render for NativeAgentView {
                             })),
                     )
                     .child(
-                        div()
-                            .id("native-agent-composer-footer")
-                            .flex()
-                            .flex_row()
-                            .flex_wrap()
-                            .items_center()
-                            .gap(space(1))
-                            .w_full()
-                            .min_w(px(0.0))
+                        cgc_agent_ui::composer::composer_footer(
+                            native_composer_style(palette),
+                        )
+                        .id("native-agent-composer-footer")
                             .child(
                                 Popover::new("native-agent-add-menu")
                                 .anchor(Anchor::BottomLeft)
