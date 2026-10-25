@@ -282,9 +282,18 @@ native 没有 `Plan` 事件：plan 由 native 的工具（`todo_write`/plan step
   `ui_row_kind/ui_assistant_text/row_view(UiMessage)` 辅助与对应测试。
 - 行序列与行签名改读模型：`build_message_row_kinds`/`message_row_signature` 直接
   遍历 `thread.entries`（subagent 内联按 ToolCall tool_call_id），不再依赖投影缓存。
-- 过渡期 `HostState` 仍保留 `messages/streaming` 字段作为投影缓存（编辑/checkpoint/
-  图片等少数索引辅助仍读它，1:1 对齐）；下一步：删除 projection、host 旧字段/类型
-  并重写 host reducer 测试。
+- 剩余缓存依赖收尾：`restored` 判定、恢复时的空线程提示、发送图片 key 改用模型
+  entries；`/clear` 同时清空模型 entries/status/pending（否则下一帧 projection 会把
+  旧对话补回来）。
+- **2d 收尾状态**：native 渲染/行序列/行签名/发送/恢复/清空/系统提示/审批/rollback
+  已全部以共享模型为准，app 内无 `UiMessage` 渲染路径。仍待完成：
+  1) 删除 projection（`project_thread_to_messages`/`sync_ui_messages_from_thread`）
+     与编辑/checkpoint 兜底的旧 messages 读取；
+  2) 删除 `HostState.messages/streaming/thinking_streaming/turn_active` 与
+     `UiMessage/UiRole/UiToolCall/ToolCallStatus`，改写 agent_host 15 个旧 reducer
+     测试为模型断言；
+  3) native 真机回归（操作栏/复制/thinking/工具卡/审批/checkpoint/subagent/编辑重发）。
+
 
 
 

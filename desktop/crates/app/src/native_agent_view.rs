@@ -940,7 +940,7 @@ impl NativeAgentView {
             cost: None,
         };
         sync_ui_messages_from_thread(&mut state, &mut restored_thinking);
-        let restored = !state.messages.is_empty();
+        let restored = !state.thread.entries.is_empty();
         let system_prompt = build_workspace_system_prompt(&workspace);
         let agent = Agent::new(thread, Some(system_prompt));
         let cancel = agent.cancel_token();
@@ -1198,6 +1198,9 @@ impl NativeAgentView {
                 .push_system("命令：/help /clear /stop /tools /checkpoint /settings"),
             SlashCommand::Clear => {
                 self.state.messages.clear();
+                self.state.thread.entries.clear();
+                self.state.thread.status = cgc_agent_ui::conversation::ThreadStatus::Idle;
+                self.state.thread.pending_permission = None;
                 self.sent_images.clear();
                 self.state.streaming.clear();
                 self.state.last_error = None;
@@ -1731,7 +1734,7 @@ impl NativeAgentView {
                 })
                 .collect();
             if !sent.is_empty() {
-                let message_index = self.state.messages.len();
+                let message_index = self.state.thread.entries.len();
                 self.sent_images.insert(message_index, sent);
             }
             self.pending_images.clear();
@@ -2623,7 +2626,7 @@ impl NativeAgentView {
             size: self.model_context_size(),
             cost: None,
         };
-        if state.messages.is_empty() {
+        if state.thread.entries.is_empty() {
             if let Some(notice) = offline_echo_notice(self.using_echo) {
                 state.push_notice(notice);
             }
@@ -2703,7 +2706,7 @@ impl NativeAgentView {
             size: self.model_context_size(),
             cost: None,
         };
-        if state.messages.is_empty() {
+        if state.thread.entries.is_empty() {
             state.push_notice(EMPTY_THREAD_NOTICE);
         }
         sync_ui_messages_from_thread(&mut state, &mut std::collections::HashSet::new());
