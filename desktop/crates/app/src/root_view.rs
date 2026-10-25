@@ -222,6 +222,27 @@ enum ChatEntry {
     },
 }
 
+/// `ChatEntry` 接入双栈共享的消息流判定（`crate::message_flow`）。
+impl crate::message_flow::ChatRow for ChatEntry {
+    fn row_kind(&self) -> crate::message_flow::RowKind {
+        use crate::message_flow::RowKind;
+        match self {
+            ChatEntry::User(_) => RowKind::User,
+            ChatEntry::Assistant(_) => RowKind::Assistant,
+            ChatEntry::Thinking { .. } => RowKind::Thinking,
+            ChatEntry::Tool { .. } => RowKind::Tool,
+            ChatEntry::Permission { .. } => RowKind::Permission,
+        }
+    }
+
+    fn assistant_text(&self) -> Option<&str> {
+        match self {
+            ChatEntry::Assistant(text) => Some(text.as_str()),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Default)]
 struct ChatUi {
     title_override: Option<String>,
@@ -376,27 +397,6 @@ fn slash_candidates(commands: &[CommandView], input: &str) -> Vec<SlashCandidate
             })
     });
     candidates
-}
-
-fn agent_response_text(messages: &[ChatEntry], end_index: usize) -> String {
-    if messages.is_empty() {
-        return String::new();
-    }
-    let end = end_index.min(messages.len().saturating_sub(1));
-    let start = messages
-        .iter()
-        .take(end + 1)
-        .rposition(|entry| matches!(entry, ChatEntry::User(_)))
-        .map(|index| index + 1)
-        .unwrap_or(0);
-    messages[start..=end]
-        .iter()
-        .filter_map(|entry| match entry {
-            ChatEntry::Assistant(text) => Some(text.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n")
 }
 
 struct ChatStartError {
@@ -2440,8 +2440,8 @@ fn shortcut_kbd(stroke: &str) -> Kbd {
 #[cfg(test)]
 mod tests {
     use super::{
-        agent_response_text, fuzzy_score, slash_candidates, slash_query, ChatEntry, CommandView,
-        LoginError, LoginMode, RootView, WechatLoginView,
+        fuzzy_score, slash_candidates, slash_query, ChatEntry, CommandView, LoginError, LoginMode,
+        RootView, WechatLoginView,
     };
     use crate::i18n::{translate, Key, Language};
     use crate::registration::build_registry;
@@ -2566,6 +2566,7 @@ mod tests {
 
     #[test]
     fn copied_agent_response_excludes_thinking_and_previous_turns() {
+        use crate::message_flow;
         let messages = vec![
             ChatEntry::User("first".into()),
             ChatEntry::Assistant("answer one".into()),
@@ -2578,13 +2579,60 @@ mod tests {
             ChatEntry::Assistant("answer three".into()),
         ];
         assert_eq!(
-            agent_response_text(&messages, 3),
-            "answer one\n\nanswer two"
+            message_flow::turn_copy_text(&messages, 3).as_deref(),
+            Some("answer one\n\nanswer two")
         );
-        assert_eq!(agent_response_text(&messages, 5), "answer three");
-        assert!(!agent_response_text(&messages, 3).contains("private reasoning"));
-        assert_eq!(agent_response_text(&[], 0), "");
-        assert_eq!(agent_response_text(&messages, 99), "answer three");
+        assert_eq!(
+            message_flow::turn_copy_text(&messages, 5).as_deref(),
+            Some("answer three")
+        );
+        assert!(!message_flow::turn_copy_text(&messages, 3)
+            .unwrap_or_default()
+            .contains("private reasoning"));
+        assert_eq!(message_flow::turn_copy_text(&[] as &[ChatEntry], 0), None);
+        assert_eq!(
+            message_flow::turn_copy_text(&messages, 99),
+            None,
+            "越界由调用方忽略，不再返回最后一条"
+        );
+    }
+
+    #[test]
+    fn acp_rows_use_shared_turn_gating() {
+        use crate::message_flow;
+        let messages = vec![
+            ChatEntry::User("q1".into()),
+            ChatEntry::Assistant("a1".into()),
+            ChatEntry::Tool {
+                title: "read_file".into(),
+                kind: "read".into(),
+            },
+            ChatEntry::Assistant("a2".into()),
+            ChatEntry::User("q2".into()),
+            ChatEntry::Assistant("a3".into()),
+        ];
+        assert_eq!(message_flow::finalized_turn_end(&messages, 3), Some(true));
+        assert_eq!(
+            message_flow::finalized_turn_end(&messages, 1),
+            Some(false),
+            "工具调用之后还有回复，不是回合末"
+        );
+        assert_eq!(
+            message_flow::turn_copy_text(&messages, 3).as_deref(),
+            Some("a1\n\na2")
+        );
+        let plan = message_flow::action_plan(&messages, 5, false, false).expect("底部条");
+        assert_eq!(plan.scroll_to_user, Some(4));
+        assert!(plan.scroll_to_top);
+        assert_eq!(
+            message_flow::action_plan(&messages, 5, true, false),
+            None,
+            "流式生成中隐藏底部条"
+        );
+        assert!(
+            message_flow::action_plan(&messages, 3, true, false).is_some(),
+            "历史回合的操作栏在流式时仍可见"
+        );
     }
 
     #[test]

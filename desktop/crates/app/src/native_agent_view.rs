@@ -51,7 +51,9 @@ use gpui_kit::StatefulInteractiveElement as _;
 use gpui_kit::*;
 use image::GenericImageView as _;
 
+use crate::markdown_text::markdown_to_plain;
 use crate::mention::{self, Mention, SkillEntry};
+use crate::message_flow::{self, ChatRow, RowKind};
 use crate::safe_markdown::sanitize_markdown;
 use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 
@@ -2549,6 +2551,12 @@ impl NativeAgentView {
 }
 
 impl NativeAgentView {
+    /// 当前是否在跑一个回合。`busy` 在结果回调里落回 false，但事件队列可能还没
+    /// 消化完 TurnFinished，用 `turn_active` 补这个窗口（对齐 Zed 的 Generating）。
+    fn is_generating(&self) -> bool {
+        self.busy || self.state.turn_active
+    }
+
     /// 构建单条历史消息的行元素。
     fn render_message_row_element(
         &self,
@@ -2566,7 +2574,15 @@ impl NativeAgentView {
             UiRole::Thinking => palette.ink_3,
             UiRole::Assistant => palette.ink,
         };
-        let payloads = Arc::new(message_copy_payloads(message.role, &message.text));
+        // Copy This Agent Response = 整回合文本（对齐 Zed）；其它角色没有该动作。
+        let agent_response = (message.role == UiRole::Assistant)
+            .then(|| message_flow::turn_copy_text(&self.state.messages, message_index))
+            .flatten();
+        let payloads = Arc::new(message_copy_payloads(
+            message.role,
+            &message.text,
+            agent_response,
+        ));
         let menu_view = menu_root.clone();
         div()
             .id(SharedString::from(format!(
@@ -2592,9 +2608,18 @@ impl NativeAgentView {
                         .flex_col()
                         .gap(space(1))
                         .child(render_assistant_markdown(message_index, &message.text));
-                    if !self.busy {
-                        column = column.child(self.render_assistant_message_actions(
-                            message_index,
+                    // 对齐 Zed #61245 + #61362：只在回合末挂操作栏；历史消息的
+                    // 操作栏在流式时仍可见，仅底部条在生成/等审批时隐藏。
+                    if let Some(plan) = message_flow::action_plan(
+                        &self.state.messages,
+                        message_index,
+                        self.is_generating(),
+                        self.state.pending_permission.is_some(),
+                    ) {
+                        column = column.child(self.render_message_actions(
+                            &format!("native-message-actions-{message_index}"),
+                            message_flow::turn_copy_text(&self.state.messages, message_index),
+                            plan,
                             palette,
                             cx,
                         ));
@@ -2905,7 +2930,11 @@ impl NativeAgentView {
         if streaming.is_empty() {
             return div().into_any_element();
         }
-        let streaming_payloads = Arc::new(message_copy_payloads(UiRole::Assistant, streaming));
+        let streaming_payloads = Arc::new(message_copy_payloads(
+            UiRole::Assistant,
+            streaming,
+            Some(streaming.clone()),
+        ));
         let streaming_view = menu_root.clone();
         div()
             .id("native-message-streaming")
@@ -2983,61 +3012,63 @@ impl NativeAgentView {
             .into_any_element()
     }
 
-    /// 对齐 Zed：每条 assistant 消息下显示 Copy / Scroll to User Message / Scroll to Top。
-    fn render_assistant_message_actions(
+    /// 一组消息操作按钮（对齐 Zed：默认 40% 透明，hover 提亮）。
+    ///
+    /// gating 与复制内容来自 `crate::message_flow`，与 ACP 栈共用同一份实现；
+    /// 这里只负责 native 的渲染与元素 id。
+    fn render_message_actions(
         &self,
-        message_index: usize,
+        id_prefix: &str,
+        copy_text: Option<String>,
+        plan: message_flow::ActionPlan,
         palette: theme::Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let Some(message) = self.state.messages.get(message_index) else {
-            return div().into_any_element();
-        };
-        let copy_text = message.text.clone();
-        let copy_button = message_action_button(
-            format!("native-copy-response-{message_index}"),
-            "Copy This Agent Response",
-            palette,
-            gpui_kit::assets::IconName::Copy,
-            cx.listener(move |_this, _, _window, cx| {
-                cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
-            }),
-        );
-        let user_button = message_action_button(
-            format!("native-scroll-user-{message_index}"),
-            "Scroll to User Message",
-            palette,
-            gpui_kit::assets::IconName::User,
-            cx.listener(move |this, _, _window, cx| {
-                this.scroll_to_user_message_before(message_index, cx)
-            }),
-        );
-        let top_button = message_action_button(
-            format!("native-scroll-top-{message_index}"),
-            "Scroll to Top",
-            palette,
-            gpui_kit::assets::IconName::ArrowUp,
-            cx.listener(|this, _, _window, cx| this.scroll_messages_to_top(cx)),
-        );
-        div()
+        let mut row = div()
             .flex()
             .flex_row()
             .w_full()
             .items_center()
             .justify_end()
             .gap(space(1))
-            .child(copy_button)
-            .child(user_button)
-            .child(top_button)
-            .into_any_element()
+            .opacity(0.4)
+            .hover(|style| style.opacity(1.0));
+        if let Some(copy_text) = copy_text {
+            row = row.child(message_action_button(
+                format!("{id_prefix}-copy"),
+                "Copy This Agent Response",
+                palette,
+                gpui_kit::assets::IconName::Copy,
+                cx.listener(move |_this, _, _window, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
+                }),
+            ));
+        }
+        if let Some(user_index) = plan.scroll_to_user {
+            row = row.child(message_action_button(
+                format!("{id_prefix}-user"),
+                "Scroll to User Message",
+                palette,
+                gpui_kit::assets::IconName::User,
+                cx.listener(move |this, _, _window, cx| {
+                    this.scroll_to_user_message(user_index, cx)
+                }),
+            ));
+        }
+        if plan.scroll_to_top {
+            row = row.child(message_action_button(
+                format!("{id_prefix}-top"),
+                "Scroll to Top",
+                palette,
+                gpui_kit::assets::IconName::ArrowUp,
+                cx.listener(|this, _, _window, cx| this.scroll_messages_to_top(cx)),
+            ));
+        }
+        row.into_any_element()
     }
 
-    /// 滚到当前 assistant 消息之前最近的一条用户消息。
-    fn scroll_to_user_message_before(&mut self, assistant_index: usize, cx: &mut Context<Self>) {
-        let Some(user_index) = previous_user_message_index(&self.state.messages, assistant_index)
-        else {
-            return;
-        };
+    /// 滚到指定用户消息（再映射到 MessageScroller 的 item index）。
+    fn scroll_to_user_message(&mut self, user_index: usize, cx: &mut Context<Self>) {
         let kinds = self.message_row_kinds();
         if let Some(row) = kinds
             .iter()
@@ -3050,15 +3081,51 @@ impl NativeAgentView {
         }
     }
 
-    /// 消息区当前的行序列（历史消息 + 内联子 agent + 流式/错误行）。
+    /// 线程末尾兜底操作栏：回合停在工具卡等非 assistant 行时，在底部补一条
+    /// （对齐 Zed #61245 的 last-assistant fallback）。
+    fn render_trailing_actions(
+        &self,
+        palette: theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(plan) = message_flow::trailing_plan(
+            &self.state.messages,
+            self.is_generating(),
+            self.state.pending_permission.is_some(),
+        ) else {
+            return div().into_any_element();
+        };
+        self.render_message_actions(
+            "native-trailing-actions",
+            message_flow::turn_copy_text(&self.state.messages, plan.assistant_index),
+            message_flow::ActionPlan {
+                scroll_to_user: plan.scroll_to_user,
+                scroll_to_top: true,
+            },
+            palette,
+            cx,
+        )
+    }
+
+    /// 消息区当前的行序列（历史消息 + 内联子 agent + 流式/错误行 + 兜底操作栏）。
     fn message_row_kinds(&self) -> Vec<MessageRowKind> {
-        build_message_row_kinds(
+        let mut kinds = build_message_row_kinds(
             &self.state.messages,
             &self.state.subagents,
             !self.state.thinking_streaming.is_empty(),
             !self.state.streaming.is_empty(),
             self.state.last_error.is_some(),
+        );
+        if message_flow::trailing_plan(
+            &self.state.messages,
+            self.is_generating(),
+            self.state.pending_permission.is_some(),
         )
+        .is_some()
+        {
+            kinds.push(MessageRowKind::TrailingActions);
+        }
+        kinds
     }
 
     /// 行数变化时增量增删列表行；行高变化时只 remeasure 对应行。
@@ -3146,6 +3213,9 @@ impl NativeAgentView {
                     .hash(&mut hasher);
                 self.state.retry_available().hash(&mut hasher);
             }
+            MessageRowKind::TrailingActions => {
+                5u8.hash(&mut hasher);
+            }
         }
         hasher.finish()
     }
@@ -3171,6 +3241,7 @@ impl NativeAgentView {
             MessageRowKind::LiveThinking => self.render_live_thinking_row(palette, cx),
             MessageRowKind::Streaming => self.render_streaming_row(palette, menu_root),
             MessageRowKind::Error => self.render_error_row(palette, cx),
+            MessageRowKind::TrailingActions => self.render_trailing_actions(palette, cx),
         }
     }
 }
@@ -4822,17 +4893,6 @@ fn needs_checkpoint_confirm(
     !has_valid_checkpoint && pending != Some(message_index)
 }
 
-/// `message_index` 之前最近的一条用户消息 index。
-fn previous_user_message_index(
-    messages: &[cgc_agent_host::UiMessage],
-    message_index: usize,
-) -> Option<usize> {
-    messages
-        .get(..message_index)?
-        .iter()
-        .rposition(|message| message.role == UiRole::User)
-}
-
 /// 消息操作栏的单图标按钮（hover 显示 tooltip，样式对齐 Zed 的 muted icon button）。
 fn message_action_button(
     id: String,
@@ -4991,7 +5051,8 @@ fn transfer_live_thinking_expansion(
 
 /// 滚动是否已经在底部（GPUI 的 offset.y 越往下越负，max_offset 为正）。
 /// 2px 容差避免亚像素/取整导致的“差一点点”抖动。
-/// 消息区的行类型：历史消息、内联子 agent、流式思考、流式回复、错误。
+/// 消息区的行类型：历史消息、内联子 agent、流式思考、流式回复、错误，
+/// 以及回合末不是 assistant 时的底部兜底操作栏（Zed 的 last-assistant fallback）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MessageRowKind {
     Message(usize),
@@ -4999,6 +5060,7 @@ enum MessageRowKind {
     LiveThinking,
     Streaming,
     Error,
+    TrailingActions,
 }
 
 /// 计算消息区的行序列；子 agent 卡内联到触发它的 tool 消息后面，
@@ -5204,6 +5266,23 @@ fn role_label(role: UiRole) -> &'static str {
     }
 }
 
+/// `UiMessage` 接入双栈共享的消息流判定（`crate::message_flow`）。
+impl ChatRow for UiMessage {
+    fn row_kind(&self) -> RowKind {
+        match self.role {
+            UiRole::User => RowKind::User,
+            UiRole::Assistant => RowKind::Assistant,
+            UiRole::Thinking => RowKind::Thinking,
+            UiRole::Tool => RowKind::Tool,
+            UiRole::System | UiRole::Error => RowKind::Status,
+        }
+    }
+
+    fn assistant_text(&self) -> Option<&str> {
+        (self.role == UiRole::Assistant).then_some(self.text.as_str())
+    }
+}
+
 /// 一条消息的三种复制载荷（对齐 Zed 的 Copy / Copy as Markdown /
 /// Copy This Agent Response）。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -5213,137 +5292,22 @@ struct MessageCopyPayloads {
     agent_response: Option<String>,
 }
 
-fn message_copy_payloads(role: UiRole, text: &str) -> MessageCopyPayloads {
+fn message_copy_payloads(
+    role: UiRole,
+    text: &str,
+    agent_response: Option<String>,
+) -> MessageCopyPayloads {
     let markdown = text.to_string();
     let plain = match role {
         UiRole::Assistant => markdown_to_plain(text),
         UiRole::User => mention::display_text(text),
         _ => text.to_string(),
     };
-    // 只有 agent 消息才有「Copy This Agent Response」。
-    let agent_response = matches!(role, UiRole::Assistant).then(|| text.to_string());
     MessageCopyPayloads {
         plain,
         markdown,
         agent_response,
     }
-}
-
-/// 把 Markdown 粗转成可读纯文本（复制用，不追求完整渲染语义）。
-pub(crate) fn markdown_to_plain(markdown: &str) -> String {
-    let mut out = String::with_capacity(markdown.len());
-    let mut in_fence = false;
-    let mut blank_pending = false;
-    for raw_line in markdown.lines() {
-        let trimmed = raw_line.trim();
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            in_fence = !in_fence;
-            continue;
-        }
-        if in_fence {
-            out.push_str(raw_line);
-            out.push('\n');
-            blank_pending = false;
-            continue;
-        }
-        if trimmed.is_empty() {
-            blank_pending = true;
-            continue;
-        }
-        // 分隔线（--- / *** / ___）
-        if trimmed.len() >= 3
-            && trimmed
-                .chars()
-                .all(|ch| matches!(ch, '-' | '*' | '_' | ' '))
-        {
-            continue;
-        }
-        let mut line = trimmed;
-        while let Some(rest) = line.strip_prefix('>') {
-            line = rest.trim_start();
-        }
-        let heading = line.trim_start_matches('#');
-        if heading.len() != line.len() {
-            line = heading.trim_start();
-        }
-        line = strip_list_prefix(line);
-        if blank_pending && !out.is_empty() {
-            out.push('\n');
-        }
-        blank_pending = false;
-        out.push_str(&strip_inline_markdown(line));
-        out.push('\n');
-    }
-    out.trim_end().to_string()
-}
-
-fn strip_list_prefix(line: &str) -> &str {
-    for marker in ["- ", "* ", "+ "] {
-        if let Some(rest) = line.strip_prefix(marker) {
-            return rest;
-        }
-    }
-    let digits = line.chars().take_while(|ch| ch.is_ascii_digit()).count();
-    if digits > 0 {
-        let rest = &line[digits..];
-        if rest.starts_with(". ") || rest.starts_with(") ") {
-            return &rest[2..];
-        }
-    }
-    line
-}
-
-fn strip_inline_markdown(line: &str) -> String {
-    let chars: Vec<char> = line.chars().collect();
-    let mut out = String::with_capacity(line.len());
-    let mut index = 0;
-    while index < chars.len() {
-        match chars[index] {
-            '\\' => {
-                if let Some(next) = chars.get(index + 1) {
-                    out.push(*next);
-                }
-                index += 2;
-            }
-            '!' if chars.get(index + 1) == Some(&'[') => {
-                if let Some((label, next)) = parse_link_like(&chars, index + 1) {
-                    out.push_str(&label);
-                    index = next;
-                } else {
-                    index += 1;
-                }
-            }
-            '[' => {
-                if let Some((label, next)) = parse_link_like(&chars, index) {
-                    out.push_str(&label);
-                    index = next;
-                } else {
-                    out.push('[');
-                    index += 1;
-                }
-            }
-            '`' | '*' | '_' | '~' => index += 1,
-            other => {
-                out.push(other);
-                index += 1;
-            }
-        }
-    }
-    out.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// 解析 `[label](url)`（从 bracket 位置的 '[' 开始），返回 label 与结束位置。
-fn parse_link_like(chars: &[char], bracket: usize) -> Option<(String, usize)> {
-    if chars.get(bracket) != Some(&'[') {
-        return None;
-    }
-    let close = chars.iter().skip(bracket + 1).position(|ch| *ch == ']')? + bracket + 1;
-    if chars.get(close + 1) != Some(&'(') {
-        return None;
-    }
-    let paren_close = chars.iter().skip(close + 2).position(|ch| *ch == ')')? + close + 2;
-    let label: String = chars[bracket + 1..close].iter().collect();
-    Some((label, paren_close + 1))
 }
 
 /// 代码块 Copy 按钮的稳定 id（同内容同 id，不同内容不同 id，避免元素状态串台）。
@@ -5664,29 +5628,78 @@ mod workspace_prompt_tests {
         let assistant = super::message_copy_payloads(
             cgc_agent_host::UiRole::Assistant,
             "## 标题\n**加粗** 和 `code`",
+            Some("整回合文本".into()),
         );
         assert_eq!(assistant.markdown, "## 标题\n**加粗** 和 `code`");
         assert_eq!(assistant.plain, "标题\n加粗 和 code");
         assert_eq!(
             assistant.agent_response.as_deref(),
-            Some("## 标题\n**加粗** 和 `code`")
+            Some("整回合文本"),
+            "Copy This Agent Response 由调用方传入整回合文本"
         );
 
-        let user =
-            super::message_copy_payloads(cgc_agent_host::UiRole::User, "看 [@a](file://a.md) 这个");
+        let user = super::message_copy_payloads(
+            cgc_agent_host::UiRole::User,
+            "看 [@a](file://a.md) 这个",
+            None,
+        );
         assert_eq!(user.plain, "看 @a 这个");
         assert_eq!(user.markdown, "看 [@a](file://a.md) 这个");
         assert!(user.agent_response.is_none(), "用户消息没有 agent response");
     }
 
     #[test]
-    fn markdown_to_plain_strips_common_syntax() {
-        let markdown = "# H1\n- a\n- **b**\n> quote\n`inline` **bold** [link](https://x.y)\n```rust\nfn main() {}\n```\n![图](https://i)";
+    fn ui_message_rows_use_shared_turn_gating_and_copy() {
+        use crate::message_flow::{self, ChatRow};
+        use cgc_agent_host::{UiMessage, UiRole};
+        let message = |role, text: &str| UiMessage {
+            role,
+            text: text.into(),
+            tool_call_id: None,
+            tool: None,
+        };
+        let messages = vec![
+            message(UiRole::User, "q1"),
+            message(UiRole::Assistant, "a1"),
+            message(UiRole::Tool, "read_file"),
+            message(UiRole::Assistant, "a2"),
+            message(UiRole::User, "q2"),
+            message(UiRole::Assistant, "a3"),
+        ];
         assert_eq!(
-            super::markdown_to_plain(markdown),
-            "H1\na\nb\nquote\ninline bold link\nfn main() {}\n图"
+            messages[1].row_kind(),
+            crate::message_flow::RowKind::Assistant
         );
-        assert_eq!(super::markdown_to_plain("plain text"), "plain text");
+        assert_eq!(
+            messages[2].assistant_text(),
+            None,
+            "tool 行没有 assistant 文本"
+        );
+        assert_eq!(
+            message_flow::finalized_turn_end(&messages, 3),
+            Some(true),
+            "下一条用户消息前的 assistant 才是回合末"
+        );
+        assert_eq!(message_flow::finalized_turn_end(&messages, 1), Some(false));
+        assert_eq!(
+            message_flow::turn_copy_text(&messages, 3).as_deref(),
+            Some("a1\n\na2"),
+            "Copy This Agent Response 复制整回合"
+        );
+        assert_eq!(
+            message_flow::turn_copy_text(&messages, 5).as_deref(),
+            Some("a3")
+        );
+        assert_eq!(
+            message_flow::action_plan(&messages, 5, false, false).map(|plan| plan.scroll_to_top),
+            Some(true),
+            "底部条允许 Scroll to Top"
+        );
+        assert_eq!(
+            message_flow::action_plan(&messages, 5, true, false),
+            None,
+            "生成中隐藏底部条"
+        );
     }
 
     #[test]
@@ -5886,34 +5899,6 @@ mod workspace_prompt_tests {
         assert_eq!(super::thread_user_entry_index(&entries, 3), Some(3));
         assert_eq!(super::thread_user_entry_index(&entries, 4), None);
         assert_eq!(super::thread_user_entry_index(&entries, 0), None);
-    }
-
-    #[test]
-    fn previous_user_message_index_finds_latest_prior_user() {
-        use cgc_agent_host::{UiMessage, UiRole};
-        let message = |role, text: &str| UiMessage {
-            role,
-            text: text.into(),
-            tool_call_id: None,
-            tool: None,
-        };
-        let messages = vec![
-            message(UiRole::User, "u1"),
-            message(UiRole::Assistant, "a1"),
-            message(UiRole::Thinking, "t"),
-            message(UiRole::User, "u2"),
-            message(UiRole::Assistant, "a2"),
-        ];
-        assert_eq!(super::previous_user_message_index(&messages, 4), Some(3));
-        assert_eq!(super::previous_user_message_index(&messages, 1), Some(0));
-        assert_eq!(
-            super::previous_user_message_index(&messages, 0),
-            None,
-            "第一条消息之前没有用户消息"
-        );
-
-        let no_user = vec![message(UiRole::Assistant, "a")];
-        assert_eq!(super::previous_user_message_index(&no_user, 0), None);
     }
 
     #[test]

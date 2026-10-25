@@ -165,6 +165,8 @@ pub(in crate::root_view) fn render_chat_panel(
         ChatPhase::Ready | ChatPhase::Streaming => {
             let view_weak = cx.entity().downgrade();
             let mut rows = Vec::with_capacity(messages.len());
+            // 底部条在等审批时隐藏；每行都查一次没必要，循环外算一次。
+            let needs_confirmation = has_unresolved_permission(&messages);
             for (index, entry) in messages.iter().enumerate() {
                 let row = match entry {
                     ChatEntry::User(text) => div()
@@ -206,90 +208,62 @@ pub(in crate::root_view) fn render_chat_panel(
                             }
                         })
                         .into_any_element(),
-                    ChatEntry::Assistant(text) => div()
-                        .id(SharedString::from(format!("chat-assistant-{index}")))
-                        .flex()
-                        .flex_col()
-                        .gap(px(2.0))
-                        .child(
-                            div()
-                                .text_size(px(11.0))
-                                .text_color(palette.ink_3)
-                                .child(agent_label.clone()),
-                        )
-                        .child(
-                            TextView::markdown(
-                                format!("chat-markdown-{index}"),
-                                sanitize_markdown(text),
+                    ChatEntry::Assistant(text) => {
+                        // 对齐 Zed #61245 + #61362：只在回合末挂操作栏；历史消息
+                        // 的操作栏在流式时仍可见，仅底部条在生成/等审批时隐藏。
+                        let plan = crate::message_flow::action_plan(
+                            &messages,
+                            index,
+                            phase == ChatPhase::Streaming,
+                            needs_confirmation,
+                        );
+                        let agent_response = crate::message_flow::turn_copy_text(&messages, index);
+                        div()
+                            .id(SharedString::from(format!("chat-assistant-{index}")))
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.0))
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_3)
+                                    .child(agent_label.clone()),
                             )
-                            .into_any_element(),
-                        )
-                        .children((phase == ChatPhase::Ready && !text.is_empty()).then(|| {
-                            let copy_view = view_weak.clone();
-                            let user_view = view_weak.clone();
-                            let top_view = view_weak.clone();
-                            div()
-                                .id(SharedString::from(format!("chat-controls-{index}")))
-                                .flex()
-                                .flex_row()
-                                .w_full()
-                                .items_center()
-                                .justify_end()
-                                .gap(px(2.0))
-                                .pr(space(1))
-                                .opacity(0.4)
-                                .hover(|style| style.opacity(1.0))
-                                .child(chat_action_button(
-                                    format!("chat-copy-{index}"),
-                                    "Copy This Agent Response",
-                                    AssetIcon::Copy.path(),
-                                    *palette,
-                                    move |_, _, cx| {
-                                        let _ = copy_view.update(cx, |this, cx| {
-                                            this.copy_chat_response(index, cx);
-                                        });
-                                    },
-                                ))
-                                .child(chat_action_button(
-                                    format!("chat-scroll-user-{index}"),
-                                    "Scroll to User Message",
-                                    AssetIcon::UserRoundArrowLeft.path(),
-                                    *palette,
-                                    move |_, _, cx| {
-                                        let _ = user_view.update(cx, |this, cx| {
-                                            this.scroll_chat_to_user_before(index, cx);
-                                        });
-                                    },
-                                ))
-                                .child(chat_action_button(
-                                    format!("chat-scroll-top-{index}"),
-                                    "Scroll to Top",
-                                    AssetIcon::ArrowUp.path(),
-                                    *palette,
-                                    move |_, _, cx| {
-                                        let _ = top_view.update(cx, |this, cx| {
-                                            this.scroll_chat_to_top(cx);
-                                        });
-                                    },
-                                ))
-                        }))
-                        .context_menu({
-                            let view = view_weak.clone();
-                            let text = text.clone();
-                            move |menu, _, _| {
-                                chat_message_context_menu(
-                                    menu,
-                                    view.clone(),
-                                    index,
-                                    ChatMenuPayload {
-                                        plain: crate::native_agent_view::markdown_to_plain(&text),
-                                        markdown: text.clone(),
-                                        agent_response: Some(text.clone()),
-                                    },
+                            .child(
+                                TextView::markdown(
+                                    format!("chat-markdown-{index}"),
+                                    sanitize_markdown(text),
                                 )
-                            }
-                        })
-                        .into_any_element(),
+                                .into_any_element(),
+                            )
+                            .children(plan.map(|plan| {
+                                render_chat_message_controls(
+                                    "chat-controls",
+                                    index,
+                                    plan,
+                                    agent_response.clone(),
+                                    &view_weak,
+                                    palette,
+                                )
+                            }))
+                            .context_menu({
+                                let view = view_weak.clone();
+                                let text = text.clone();
+                                move |menu, _, _| {
+                                    chat_message_context_menu(
+                                        menu,
+                                        view.clone(),
+                                        index,
+                                        ChatMenuPayload {
+                                            plain: crate::markdown_text::markdown_to_plain(&text),
+                                            markdown: text.clone(),
+                                            agent_response: agent_response.clone(),
+                                        },
+                                    )
+                                }
+                            })
+                            .into_any_element()
+                    }
                     ChatEntry::Thinking { text, expanded } => {
                         let expanded = *expanded;
                         div()
@@ -429,12 +403,34 @@ pub(in crate::root_view) fn render_chat_panel(
                 };
                 rows.push(row);
             }
+            // 回合停在工具卡等非 assistant 行时，底部补一条兜底操作栏
+            // （对齐 Zed 的 last-assistant fallback）。
+            if let Some(plan) = crate::message_flow::trailing_plan(
+                &messages,
+                phase == ChatPhase::Streaming,
+                needs_confirmation,
+            ) {
+                rows.push(render_chat_message_controls(
+                    "chat-trailing-controls",
+                    plan.assistant_index,
+                    crate::message_flow::ActionPlan {
+                        scroll_to_user: plan.scroll_to_user,
+                        scroll_to_top: true,
+                    },
+                    crate::message_flow::turn_copy_text(&messages, plan.assistant_index),
+                    &view_weak,
+                    palette,
+                ));
+            }
             let streaming = phase == ChatPhase::Streaming;
             let status = if streaming {
                 translate(language, Key::AgentChatChatThinking).to_string()
             } else {
                 String::new()
             };
+            // ScrollHandle 必须绑定到真正的滚动容器，否则 Scroll to User/Top/Bottom
+            // 全是空操作（gpui-pre 靠 track_scroll 记录 child_bounds）。
+            let chat_scroll = ctx.chat.chat_scroll.clone();
             div()
                 .flex_1()
                 .min_h(px(0.0))
@@ -446,6 +442,7 @@ pub(in crate::root_view) fn render_chat_panel(
                         .id("chat-messages")
                         .flex_1()
                         .min_h(px(120.0))
+                        .track_scroll(&chat_scroll)
                         .overflow_y_scroll()
                         .flex()
                         .flex_col()
@@ -1276,6 +1273,75 @@ fn chat_action_button(
         .into_any_element()
 }
 
+/// 消息操作栏（Copy / Scroll to User Message / Scroll to Top）。
+///
+/// gating 与复制内容来自 `crate::message_flow`，与 native 栈共用同一份实现；
+/// 这里只负责 ACP 面板的渲染与元素 id。`copy_text` 为 `None` 时不画 Copy，
+/// 避免出现点了没反应的按钮。
+fn render_chat_message_controls(
+    id_prefix: &str,
+    index: usize,
+    plan: crate::message_flow::ActionPlan,
+    copy_text: Option<String>,
+    view: &WeakEntity<RootView>,
+    palette: &theme::Palette,
+) -> AnyElement {
+    let mut row = div()
+        .id(SharedString::from(format!("{id_prefix}-{index}")))
+        .flex()
+        .flex_row()
+        .w_full()
+        .items_center()
+        .justify_end()
+        .gap(px(2.0))
+        .pr(space(1))
+        .opacity(0.4)
+        .hover(|style| style.opacity(1.0));
+    if let Some(copy_text) = copy_text {
+        row = row.child(chat_action_button(
+            format!("{id_prefix}-copy-{index}"),
+            "Copy This Agent Response",
+            AssetIcon::Copy.path(),
+            *palette,
+            move |_, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
+            },
+        ));
+    }
+    if let Some(user_index) = plan.scroll_to_user {
+        let user_view = view.clone();
+        row = row.child(chat_action_button(
+            format!("{id_prefix}-user-{index}"),
+            "Scroll to User Message",
+            AssetIcon::UserRoundArrowLeft.path(),
+            *palette,
+            move |_, _, cx| {
+                let _ = user_view.update(cx, |this, cx| this.scroll_chat_to_user(user_index, cx));
+            },
+        ));
+    }
+    if plan.scroll_to_top {
+        let top_view = view.clone();
+        row = row.child(chat_action_button(
+            format!("{id_prefix}-top-{index}"),
+            "Scroll to Top",
+            AssetIcon::ArrowUp.path(),
+            *palette,
+            move |_, _, cx| {
+                let _ = top_view.update(cx, |this, cx| this.scroll_chat_to_top(cx));
+            },
+        ));
+    }
+    row.into_any_element()
+}
+
+/// 是否有等待用户决定的审批（底部操作栏此时隐藏，对齐 Zed）。
+fn has_unresolved_permission(messages: &[ChatEntry]) -> bool {
+    messages
+        .iter()
+        .any(|entry| matches!(entry, ChatEntry::Permission { resolved: None, .. }))
+}
+
 struct ChatMenuPayload {
     plain: String,
     markdown: String,
@@ -1322,4 +1388,27 @@ fn chat_message_context_menu(
                 let _ = bottom_view.update(cx, |this, cx| this.scroll_chat_to_bottom(cx));
             }),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_unresolved_permission;
+    use crate::root_view::ChatEntry;
+
+    #[test]
+    fn unresolved_permission_hides_bottom_controls() {
+        assert!(!has_unresolved_permission(&[]));
+        let resolved = vec![ChatEntry::Permission {
+            request_id: "p1".into(),
+            title: "run".into(),
+            resolved: Some(true),
+        }];
+        assert!(!has_unresolved_permission(&resolved));
+        let pending = vec![ChatEntry::Permission {
+            request_id: "p2".into(),
+            title: "run".into(),
+            resolved: None,
+        }];
+        assert!(has_unresolved_permission(&pending));
+    }
 }
