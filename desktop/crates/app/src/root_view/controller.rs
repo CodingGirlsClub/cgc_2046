@@ -1,6 +1,6 @@
 use super::*;
 use cgc_agent_ui::conversation::{
-    ConversationThread, Entry as ConversationEntry, PlanStep, ThreadEvent,
+    ConversationThread, Entry as ConversationEntry, PlanStep, ThreadCapabilities, ThreadEvent,
 };
 use cgc_platform::notifications::NotificationsApi as _;
 use cgc_platform::registry::install::{install_entry, SystemRunner};
@@ -937,7 +937,8 @@ impl RootView {
         self.chat.configs_applied = false;
         self.chat.history_open = load_session.is_some();
         self.chat.phase = ChatPhase::Starting;
-        self.chat.thread = ConversationThread::default();
+        self.chat.thread =
+            ConversationThread::default().with_capabilities(ThreadCapabilities::acp());
         self.chat.auto_prompted = false;
         let task = cx.background_executor().spawn(async move {
             let api = build_learning_host_api();
@@ -1373,7 +1374,8 @@ impl RootView {
                 self.chat.host.take();
                 self.revoke_chat_lease(cx);
                 self.chat.phase = ChatPhase::Idle;
-                self.chat.thread = ConversationThread::default();
+                self.chat.thread =
+                    ConversationThread::default().with_capabilities(ThreadCapabilities::acp());
                 self.chat.session_id = None;
                 self.chat.restore_id = None;
                 self.chat.load_retry_available = false;
@@ -1905,7 +1907,8 @@ impl RootView {
         self.chat.phase = ChatPhase::Idle;
         self.chat.agent.clear();
         self.chat.version = None;
-        self.chat.thread = ConversationThread::default();
+        self.chat.thread =
+            ConversationThread::default().with_capabilities(ThreadCapabilities::acp());
         self.chat.input.clear();
         self.chat.focused = false;
         self.chat.auto_prompted = false;
@@ -3358,7 +3361,8 @@ impl RootView {
         self.set_native_chat_mode(false);
         self.chat.phase = ChatPhase::Idle;
         self.chat.host.take();
-        self.chat.thread = ConversationThread::default();
+        self.chat.thread =
+            ConversationThread::default().with_capabilities(ThreadCapabilities::acp());
         self.chat.session_id = None;
         self.chat.restore_id = None;
         self.chat.title_override = None;

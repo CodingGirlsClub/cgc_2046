@@ -739,16 +739,25 @@ pub(in crate::root_view) fn render_chat_panel(
                                             })),
                                     )
                                     .children(config_pickers)
-                                    .children((ctx.chat.thread.usage.size > 0).then(|| {
-                                        div().text_size(px(10.0)).text_color(palette.ink_3).child(
-                                            format!(
-                                                "{}% · {}/{}",
-                                                ctx.chat.thread.usage.percent().unwrap_or_default(),
-                                                clipped_count(ctx.chat.thread.usage.used),
-                                                clipped_count(ctx.chat.thread.usage.size),
-                                            ),
-                                        )
-                                    }))
+                                    .children(
+                                        (ctx.chat.thread.capabilities.usage
+                                            && ctx.chat.thread.usage.size > 0)
+                                            .then(|| {
+                                                div()
+                                                    .text_size(px(10.0))
+                                                    .text_color(palette.ink_3)
+                                                    .child(format!(
+                                                        "{}% · {}/{}",
+                                                        ctx.chat
+                                                            .thread
+                                                            .usage
+                                                            .percent()
+                                                            .unwrap_or_default(),
+                                                        clipped_count(ctx.chat.thread.usage.used),
+                                                        clipped_count(ctx.chat.thread.usage.size),
+                                                    ))
+                                            }),
+                                    )
                                     .child(cgc_agent_ui::composer::render_send_button(
                                         cgc_agent_ui::composer::SendButtonSpec {
                                             id: if streaming { "chat-stop" } else { "chat-send" }
