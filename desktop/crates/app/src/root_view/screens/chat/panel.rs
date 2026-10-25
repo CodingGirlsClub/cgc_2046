@@ -211,13 +211,13 @@ pub(in crate::root_view) fn render_chat_panel(
                     ChatEntry::Assistant(text) => {
                         // 对齐 Zed #61245 + #61362：只在回合末挂操作栏；历史消息
                         // 的操作栏在流式时仍可见，仅底部条在生成/等审批时隐藏。
-                        let plan = crate::message_flow::action_plan(
-                            &messages,
+                        let plan = crate::root_view::chat_row_view(&messages).action_plan(
                             index,
                             phase == ChatPhase::Streaming,
                             needs_confirmation,
                         );
-                        let agent_response = crate::message_flow::turn_copy_text(&messages, index);
+                        let agent_response =
+                            crate::root_view::chat_row_view(&messages).turn_copy_text(index);
                         div()
                             .id(SharedString::from(format!("chat-assistant-{index}")))
                             .flex()
@@ -255,7 +255,9 @@ pub(in crate::root_view) fn render_chat_panel(
                                         view.clone(),
                                         index,
                                         ChatMenuPayload {
-                                            plain: crate::markdown_text::markdown_to_plain(&text),
+                                            plain: cgc_agent_ui::markdown_text::markdown_to_plain(
+                                                &text,
+                                            ),
                                             markdown: text.clone(),
                                             agent_response: agent_response.clone(),
                                         },
@@ -405,19 +407,17 @@ pub(in crate::root_view) fn render_chat_panel(
             }
             // 回合停在工具卡等非 assistant 行时，底部补一条兜底操作栏
             // （对齐 Zed 的 last-assistant fallback）。
-            if let Some(plan) = crate::message_flow::trailing_plan(
-                &messages,
-                phase == ChatPhase::Streaming,
-                needs_confirmation,
-            ) {
+            if let Some(plan) = crate::root_view::chat_row_view(&messages)
+                .trailing_plan(phase == ChatPhase::Streaming, needs_confirmation)
+            {
                 rows.push(render_chat_message_controls(
                     "chat-trailing-controls",
                     plan.assistant_index,
-                    crate::message_flow::ActionPlan {
+                    cgc_agent_ui::message_flow::ActionPlan {
                         scroll_to_user: plan.scroll_to_user,
                         scroll_to_top: true,
                     },
-                    crate::message_flow::turn_copy_text(&messages, plan.assistant_index),
+                    crate::root_view::chat_row_view(&messages).turn_copy_text(plan.assistant_index),
                     &view_weak,
                     palette,
                 ));
@@ -1275,13 +1275,13 @@ fn chat_action_button(
 
 /// 消息操作栏（Copy / Scroll to User Message / Scroll to Top）。
 ///
-/// gating 与复制内容来自 `crate::message_flow`，与 native 栈共用同一份实现；
+/// gating 与复制内容来自 `agent_ui::message_flow`，与 native 栈共用同一份实现；
 /// 这里只负责 ACP 面板的渲染与元素 id。`copy_text` 为 `None` 时不画 Copy，
 /// 避免出现点了没反应的按钮。
 fn render_chat_message_controls(
     id_prefix: &str,
     index: usize,
-    plan: crate::message_flow::ActionPlan,
+    plan: cgc_agent_ui::message_flow::ActionPlan,
     copy_text: Option<String>,
     view: &WeakEntity<RootView>,
     palette: &theme::Palette,

@@ -5,9 +5,11 @@ GPUI + gpui-kit 的原生桌面客户端。组织方式对齐 Zed：`crates/` �
 `_bmad-output/initiative-desktop/architecture-desktop/architecture-desktop.md`（AD-1 至 AD-24）与
 `docs/adr/0024-0028`；根 `AGENTS.md` 的许可、安全与人工合并规则同样适用。
 
-> 状态提示（2026-10-25）：ADR-0028 的 native agent 已按 P1b/P2 落地，但架构脊柱 AD-4 与
-> ADR-0028 状态尚未同步（仍写「不实现 native agent」/`proposed`），以代码与 ADR-0028 为准，
-> 修订需人决策。分析见 `docs/plans/2026-10-25-1305-zed-agent-architecture-reference.md`。
+> 状态提示（2026-10-25）：ADR-0028 已转 **Accepted**，决策 2/3/6/11 同日修订（双轨长期、
+> 共享客户端会话模型与 `agent_ui`、MCP 客户端资产 + v1 平台租赁、Git 仅 checkpoint 前提）。
+> 架构脊柱 `_bmad-output/.../architecture-desktop.md` 的 AD-4/AD-5/AD-15/AD-16/AD-17 仍按
+> 「仅 ACP」描述，且该目录被本地 git exclude，修订需人工同步。分析见
+> `docs/plans/2026-10-25-1305-zed-agent-architecture-reference.md`。
 
 ## 硬约束
 
@@ -33,10 +35,10 @@ GPUI + gpui-kit 的原生桌面客户端。组织方式对齐 Zed：`crates/` �
 | `crates/platform/src/registry` | `agent_servers` 的安装部分 | 清单、checksum、安装 |
 | `crates/platform/src/mcp` | `context_server`（简化） | MCP 注入与 lease |
 | `crates/agent_provider` / `agent_core` / `agent_tools` / `agent_store` / `agent_checkpoint` / `agent_host` | `agent`（native 运行时） | 第一方 native agent：provider、turn loop、工具与审批、会话/偏好存储、Git checkpoint、事件归约 |
-| `crates/app/src/native_agent_view.rs` | `agent_ui`（native 面板） | native 对话面板；与 ACP 面板共用 `crates/app/src/message_flow.rs` 的消息流判定 |
+| `crates/app/src/native_agent_view.rs` | `agent_ui`（native 面板） | native 对话面板；与 ACP 面板共用 `agent_ui::message_flow` 的消息流判定 |
 
 双轨形态（ADR-0028）：native 是默认学习 agent，external ACP agent 保留为高级模式；`provider`/`tools`/沙箱/checkpoint
 存储归 native，MCP/registry/安装引导归 ACP，**不要为「统一」合并这些运行时能力**。
-两套对话 UI 允许保留，但消息操作栏/复制/滚动定位等**行为判定必须共用 `crates/app/src/message_flow.rs`**，
-纯文本转换共用 `crates/app/src/markdown_text.rs`，不要在任一视图里另写一份。
+两套对话 UI 允许保留，但消息操作栏/复制/滚动定位等**行为判定必须共用 `agent_ui::message_flow`**，
+纯文本转换共用 `agent_ui::markdown_text`，不要在任一视图里另写一份。
 拆 crate 的门槛：出现第二个消费者（如全局助手）、独立依赖面、或需要并行隔离时才拆；否则先在 crate 内加 module。

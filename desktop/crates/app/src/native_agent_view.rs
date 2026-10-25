@@ -51,11 +51,11 @@ use gpui_kit::StatefulInteractiveElement as _;
 use gpui_kit::*;
 use image::GenericImageView as _;
 
-use crate::markdown_text::markdown_to_plain;
 use crate::mention::{self, Mention, SkillEntry};
-use crate::message_flow::{self, ChatRow, RowKind};
 use crate::safe_markdown::sanitize_markdown;
 use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
+use cgc_agent_ui::markdown_text::markdown_to_plain;
+use cgc_agent_ui::message_flow::{self, RowKind, RowView};
 
 /// 审批模式：Ask = 逐次审批；Auto = 自动允许。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2576,7 +2576,7 @@ impl NativeAgentView {
         };
         // Copy This Agent Response = 整回合文本（对齐 Zed）；其它角色没有该动作。
         let agent_response = (message.role == UiRole::Assistant)
-            .then(|| message_flow::turn_copy_text(&self.state.messages, message_index))
+            .then(|| row_view(&self.state.messages).turn_copy_text(message_index))
             .flatten();
         let payloads = Arc::new(message_copy_payloads(
             message.role,
@@ -2610,15 +2610,14 @@ impl NativeAgentView {
                         .child(render_assistant_markdown(message_index, &message.text));
                     // 对齐 Zed #61245 + #61362：只在回合末挂操作栏；历史消息的
                     // 操作栏在流式时仍可见，仅底部条在生成/等审批时隐藏。
-                    if let Some(plan) = message_flow::action_plan(
-                        &self.state.messages,
+                    if let Some(plan) = row_view(&self.state.messages).action_plan(
                         message_index,
                         self.is_generating(),
                         self.state.pending_permission.is_some(),
                     ) {
                         column = column.child(self.render_message_actions(
                             &format!("native-message-actions-{message_index}"),
-                            message_flow::turn_copy_text(&self.state.messages, message_index),
+                            row_view(&self.state.messages).turn_copy_text(message_index),
                             plan,
                             palette,
                             cx,
@@ -3014,7 +3013,7 @@ impl NativeAgentView {
 
     /// 一组消息操作按钮（对齐 Zed：默认 40% 透明，hover 提亮）。
     ///
-    /// gating 与复制内容来自 `crate::message_flow`，与 ACP 栈共用同一份实现；
+    /// gating 与复制内容来自 `agent_ui::message_flow`，与 ACP 栈共用同一份实现；
     /// 这里只负责 native 的渲染与元素 id。
     fn render_message_actions(
         &self,
@@ -3088,8 +3087,7 @@ impl NativeAgentView {
         palette: theme::Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let Some(plan) = message_flow::trailing_plan(
-            &self.state.messages,
+        let Some(plan) = row_view(&self.state.messages).trailing_plan(
             self.is_generating(),
             self.state.pending_permission.is_some(),
         ) else {
@@ -3097,7 +3095,7 @@ impl NativeAgentView {
         };
         self.render_message_actions(
             "native-trailing-actions",
-            message_flow::turn_copy_text(&self.state.messages, plan.assistant_index),
+            row_view(&self.state.messages).turn_copy_text(plan.assistant_index),
             message_flow::ActionPlan {
                 scroll_to_user: plan.scroll_to_user,
                 scroll_to_top: true,
@@ -3116,12 +3114,12 @@ impl NativeAgentView {
             !self.state.streaming.is_empty(),
             self.state.last_error.is_some(),
         );
-        if message_flow::trailing_plan(
-            &self.state.messages,
-            self.is_generating(),
-            self.state.pending_permission.is_some(),
-        )
-        .is_some()
+        if row_view(&self.state.messages)
+            .trailing_plan(
+                self.is_generating(),
+                self.state.pending_permission.is_some(),
+            )
+            .is_some()
         {
             kinds.push(MessageRowKind::TrailingActions);
         }
@@ -5266,21 +5264,24 @@ fn role_label(role: UiRole) -> &'static str {
     }
 }
 
-/// `UiMessage` 接入双栈共享的消息流判定（`crate::message_flow`）。
-impl ChatRow for UiMessage {
-    fn row_kind(&self) -> RowKind {
-        match self.role {
-            UiRole::User => RowKind::User,
-            UiRole::Assistant => RowKind::Assistant,
-            UiRole::Thinking => RowKind::Thinking,
-            UiRole::Tool => RowKind::Tool,
-            UiRole::System | UiRole::Error => RowKind::Status,
-        }
+/// 把 native 的 `UiMessage` 映射到共享消息流（`agent_ui::message_flow`）。
+fn ui_row_kind(message: &UiMessage) -> RowKind {
+    match message.role {
+        UiRole::User => RowKind::User,
+        UiRole::Assistant => RowKind::Assistant,
+        UiRole::Thinking => RowKind::Thinking,
+        UiRole::Tool => RowKind::Tool,
+        UiRole::System | UiRole::Error => RowKind::Status,
     }
+}
 
-    fn assistant_text(&self) -> Option<&str> {
-        (self.role == UiRole::Assistant).then_some(self.text.as_str())
-    }
+fn ui_assistant_text(message: &UiMessage) -> Option<&str> {
+    (message.role == UiRole::Assistant).then_some(message.text.as_str())
+}
+
+/// native 消息行的共享只读视图（Stage 1：判定逻辑归 `agent_ui`）。
+fn row_view(messages: &[UiMessage]) -> RowView<'_, UiMessage> {
+    RowView::new(messages, ui_row_kind, ui_assistant_text)
 }
 
 /// 一条消息的三种复制载荷（对齐 Zed 的 Copy / Copy as Markdown /
@@ -5650,8 +5651,8 @@ mod workspace_prompt_tests {
 
     #[test]
     fn ui_message_rows_use_shared_turn_gating_and_copy() {
-        use crate::message_flow::{self, ChatRow};
         use cgc_agent_host::{UiMessage, UiRole};
+        use cgc_agent_ui::message_flow::RowKind;
         let message = |role, text: &str| UiMessage {
             role,
             text: text.into(),
@@ -5666,40 +5667,32 @@ mod workspace_prompt_tests {
             message(UiRole::User, "q2"),
             message(UiRole::Assistant, "a3"),
         ];
+        assert_eq!(super::ui_row_kind(&messages[1]), RowKind::Assistant);
         assert_eq!(
-            messages[1].row_kind(),
-            crate::message_flow::RowKind::Assistant
-        );
-        assert_eq!(
-            messages[2].assistant_text(),
+            super::ui_assistant_text(&messages[2]),
             None,
             "tool 行没有 assistant 文本"
         );
+        let rows = super::row_view(&messages);
         assert_eq!(
-            message_flow::finalized_turn_end(&messages, 3),
+            rows.finalized_turn_end(3),
             Some(true),
             "下一条用户消息前的 assistant 才是回合末"
         );
-        assert_eq!(message_flow::finalized_turn_end(&messages, 1), Some(false));
+        assert_eq!(rows.finalized_turn_end(1), Some(false));
         assert_eq!(
-            message_flow::turn_copy_text(&messages, 3).as_deref(),
+            rows.turn_copy_text(3).as_deref(),
             Some("a1\n\na2"),
             "Copy This Agent Response 复制整回合"
         );
+        assert_eq!(rows.turn_copy_text(5).as_deref(), Some("a3"));
         assert_eq!(
-            message_flow::turn_copy_text(&messages, 5).as_deref(),
-            Some("a3")
-        );
-        assert_eq!(
-            message_flow::action_plan(&messages, 5, false, false).map(|plan| plan.scroll_to_top),
+            rows.action_plan(5, false, false)
+                .map(|plan| plan.scroll_to_top),
             Some(true),
             "底部条允许 Scroll to Top"
         );
-        assert_eq!(
-            message_flow::action_plan(&messages, 5, true, false),
-            None,
-            "生成中隐藏底部条"
-        );
+        assert_eq!(rows.action_plan(5, true, false), None, "生成中隐藏底部条");
     }
 
     #[test]

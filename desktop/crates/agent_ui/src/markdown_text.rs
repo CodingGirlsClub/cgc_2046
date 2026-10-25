@@ -5,7 +5,7 @@
 //! 复制纯文本、`Copy`/`Copy as Markdown` 载荷都走这里，两栈不再各带一份。
 
 /// 把 Markdown 粗转成可读纯文本（复制用，不追求完整渲染语义）。
-pub(crate) fn markdown_to_plain(markdown: &str) -> String {
+pub fn markdown_to_plain(markdown: &str) -> String {
     let mut out = String::with_capacity(markdown.len());
     let mut in_fence = false;
     let mut blank_pending = false;
