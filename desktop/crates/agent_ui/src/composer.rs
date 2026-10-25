@@ -134,6 +134,59 @@ pub fn render_composer(spec: ComposerSpec) -> AnyElement {
         .into_any_element()
 }
 
+/// 发送/停止按钮（两栈共用外观与交互语义）。
+pub struct SendButtonSpec {
+    pub id: SharedString,
+    pub streaming: bool,
+    pub aria: SharedString,
+    pub tooltip: SharedString,
+    pub glyph: AnyElement,
+    pub bg: Hsla,
+    pub fg: Hsla,
+    pub radius: f32,
+    pub padding_x: f32,
+    pub padding_y: f32,
+    pub text_size: f32,
+    pub on_click: ComposerAction,
+}
+
+pub fn render_send_button(spec: SendButtonSpec) -> AnyElement {
+    let SendButtonSpec {
+        id,
+        streaming,
+        aria,
+        tooltip,
+        glyph,
+        bg,
+        fg,
+        radius,
+        padding_x,
+        padding_y,
+        text_size,
+        on_click,
+    } = spec;
+    let _ = streaming;
+    div()
+        .id(id)
+        .role(Role::Button)
+        .aria_label(aria)
+        .px(px(padding_x))
+        .py(px(padding_y))
+        .rounded(px(radius))
+        .bg(bg)
+        .text_color(fg)
+        .text_size(px(text_size))
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(glyph)
+        .tooltip(move |window, cx| {
+            gpui_kit::component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
+        })
+        .on_click(move |_, window, cx| on_click(window, cx))
+        .into_any_element()
+}
+
 #[cfg(test)]
 mod tests {
     use super::ComposerStyle;
