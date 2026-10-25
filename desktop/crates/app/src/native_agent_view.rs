@@ -493,6 +493,8 @@ pub struct NativeAgentView {
     expanded_tools: std::collections::HashSet<String>,
     /// 已展开的思考折叠块（UI message index）。
     expanded_thinking: std::collections::HashSet<usize>,
+    /// 流式思考块是否被用户折叠（默认自动展开）。
+    live_thinking_collapsed: bool,
     /// 正在编辑的用户消息（UI message index）。
     editing_user: Option<usize>,
     /// 编辑态输入框；仅在 editing_user 有值时存在。
@@ -823,6 +825,7 @@ impl NativeAgentView {
             last_turn: None,
             expanded_tools: std::collections::HashSet::new(),
             expanded_thinking: std::collections::HashSet::new(),
+            live_thinking_collapsed: false,
             editing_user: None,
             user_edit_input: None,
             messages_scroll: ScrollHandle::new(),
@@ -1405,7 +1408,23 @@ impl NativeAgentView {
                 let turn_finished = matches!(event, AgentEvent::TurnFinished { .. });
                 if this
                     .update(cx, |this, cx| {
+                        let had_thinking = !this.state.thinking_streaming.is_empty();
                         this.state.apply(event);
+                        let thinking_flushed =
+                            had_thinking && this.state.thinking_streaming.is_empty();
+                        if should_auto_expand_live_thinking(
+                            had_thinking,
+                            !this.state.thinking_streaming.is_empty(),
+                        ) {
+                            this.live_thinking_collapsed = false;
+                        }
+                        if thinking_flushed {
+                            transfer_live_thinking_expansion(
+                                &this.state.messages,
+                                this.live_thinking_collapsed,
+                                &mut this.expanded_thinking,
+                            );
+                        }
                         if turn_finished {
                             this.maybe_generate_thread_title(cx);
                         }
@@ -2406,6 +2425,51 @@ impl Render for NativeAgentView {
                 }
             }
         }
+        let thinking_streaming = self.state.thinking_streaming.clone();
+        if !thinking_streaming.is_empty() {
+            let expanded = !self.live_thinking_collapsed;
+            let toggle_view = cx.entity().downgrade();
+            rows.push(
+                div()
+                    .id("native-live-thinking")
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.0))
+                    .child(
+                        div()
+                            .id("native-live-thinking-toggle")
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(3.0))
+                            .text_size(px(11.0))
+                            .text_color(palette.accent)
+                            .child(if expanded { "▾" } else { "▸" })
+                            .child("Thinking…")
+                            .on_click(move |_, _, cx| {
+                                let _ = toggle_view.update(cx, |this, cx| {
+                                    this.live_thinking_collapsed = !this.live_thinking_collapsed;
+                                    cx.notify();
+                                });
+                            }),
+                    )
+                    .children(expanded.then(|| {
+                        div()
+                            .pl(space(2))
+                            .border_l_1()
+                            .border_color(palette.line)
+                            .child(
+                                markdown_text_view(
+                                    "native-streaming-thinking",
+                                    &thinking_streaming,
+                                )
+                                .stream_fade(true),
+                            )
+                    }))
+                    .into_any_element(),
+            );
+        }
+
         if !streaming.is_empty() {
             let streaming_payloads = Arc::new(message_copy_payloads(UiRole::Assistant, &streaming));
             let streaming_view = menu_root.clone();
@@ -4085,6 +4149,28 @@ fn thread_user_entry_index(entries: &[cgc_agent_core::Entry], ordinal: usize) ->
         .map(|(index, _)| index)
 }
 
+/// 流式思考开始（空 → 非空）时自动展开思考块（对齐 Zed 的 streaming thought）。
+fn should_auto_expand_live_thinking(was_empty: bool, now_nonempty: bool) -> bool {
+    was_empty && now_nonempty
+}
+
+/// 思考 flush 成正式 Thinking 消息后，把实时块的展开状态转移到该消息上。
+fn transfer_live_thinking_expansion(
+    messages: &[cgc_agent_host::UiMessage],
+    live_collapsed: bool,
+    expanded: &mut std::collections::HashSet<usize>,
+) -> Option<usize> {
+    let index = messages
+        .iter()
+        .rposition(|message| message.role == UiRole::Thinking)?;
+    if live_collapsed {
+        expanded.remove(&index);
+    } else {
+        expanded.insert(index);
+    }
+    Some(index)
+}
+
 /// 重试前把 UI 消息裁到最近一条用户消息为止，丢掉失败 turn 残留的部分回复/工具卡。
 fn trim_messages_to_last_user(messages: &mut Vec<cgc_agent_host::UiMessage>) -> Option<usize> {
     let index = messages
@@ -4883,6 +4969,43 @@ mod workspace_prompt_tests {
         assert_eq!(super::thread_user_entry_index(&entries, 3), Some(3));
         assert_eq!(super::thread_user_entry_index(&entries, 4), None);
         assert_eq!(super::thread_user_entry_index(&entries, 0), None);
+    }
+
+    #[test]
+    fn live_thinking_auto_expands_and_transfers_state() {
+        use cgc_agent_host::{UiMessage, UiRole};
+        assert!(super::should_auto_expand_live_thinking(true, true));
+        assert!(!super::should_auto_expand_live_thinking(false, true));
+        assert!(!super::should_auto_expand_live_thinking(true, false));
+
+        let message = |role, text: &str| UiMessage {
+            role,
+            text: text.into(),
+            tool_call_id: None,
+            tool: None,
+        };
+        let messages = vec![
+            message(UiRole::User, "问"),
+            message(UiRole::Thinking, "想"),
+            message(UiRole::Assistant, "答"),
+        ];
+        let mut expanded = std::collections::HashSet::new();
+        assert_eq!(
+            super::transfer_live_thinking_expansion(&messages, false, &mut expanded),
+            Some(1),
+            "展开状态应转移到第 1 条 Thinking"
+        );
+        assert!(expanded.contains(&1));
+        assert_eq!(
+            super::transfer_live_thinking_expansion(&messages, true, &mut expanded),
+            Some(1)
+        );
+        assert!(!expanded.contains(&1), "用户折叠时不应展开");
+        let no_thinking = vec![message(UiRole::User, "问")];
+        assert_eq!(
+            super::transfer_live_thinking_expansion(&no_thinking, false, &mut expanded),
+            None
+        );
     }
 
     #[test]
