@@ -1,4 +1,7 @@
 use super::*;
+use cgc_agent_ui::conversation::{
+    ConversationThread, Entry as ConversationEntry, PlanStep, ThreadEvent,
+};
 use cgc_platform::notifications::NotificationsApi as _;
 use cgc_platform::registry::install::{install_entry, SystemRunner};
 use gpui_kit::component::breadcrumb::{Breadcrumb, BreadcrumbItem};
@@ -933,9 +936,8 @@ impl RootView {
         self.chat.commands.clear();
         self.chat.configs_applied = false;
         self.chat.history_open = load_session.is_some();
-        self.chat.streaming_message_open = false;
         self.chat.phase = ChatPhase::Starting;
-        self.chat.messages.clear();
+        self.chat.thread = ConversationThread::default();
         self.chat.auto_prompted = false;
         let task = cx.background_executor().spawn(async move {
             let api = build_learning_host_api();
@@ -1191,37 +1193,15 @@ impl RootView {
                 }
                 HostEvent::ThoughtDelta(chunk) => {
                     self.chat.phase = ChatPhase::Streaming;
-                    if let Some(ChatEntry::Thinking { text, .. }) = self.chat.messages.last_mut() {
-                        text.push_str(&chunk);
-                    } else {
-                        self.chat.messages.push(ChatEntry::Thinking {
-                            text: chunk,
-                            expanded: true,
-                        });
-                    }
-                    self.chat.streaming_message_open = false;
+                    self.chat.thread.apply(ThreadEvent::ThinkingDelta(chunk));
                 }
                 HostEvent::Delta(chunk) => {
-                    if self.chat.history_open {
-                        match self.chat.messages.last_mut() {
-                            Some(ChatEntry::Assistant(text)) => text.push_str(&chunk),
-                            _ => self.chat.messages.push(ChatEntry::Assistant(chunk)),
-                        }
-                        continue;
-                    }
                     self.chat.phase = ChatPhase::Streaming;
-                    if self.chat.streaming_message_open {
-                        if let Some(ChatEntry::Assistant(text)) = self.chat.messages.last_mut() {
-                            text.push_str(&chunk);
-                        }
-                    } else {
-                        self.chat.messages.push(ChatEntry::Assistant(chunk));
-                        self.chat.streaming_message_open = true;
-                    }
+                    self.chat.thread.apply(ThreadEvent::TextDelta(chunk));
                 }
                 HostEvent::ToolCall { call } => {
                     self.chat.phase = ChatPhase::Streaming;
-                    self.chat.messages.push(ChatEntry::Tool {
+                    self.chat.thread.apply(ThreadEvent::ToolCallStarted {
                         tool_call_id: call.tool_call_id,
                         title: call.title,
                         name: call.name,
@@ -1229,7 +1209,7 @@ impl RootView {
                         status: call.status,
                         args: call.args,
                         output: call.output,
-                        expanded: false,
+                        locations: call.locations,
                     });
                 }
                 HostEvent::ToolCallUpdated {
@@ -1238,59 +1218,64 @@ impl RootView {
                     status,
                     output,
                 } => {
-                    let merged = super::merge_tool_update(
-                        &mut self.chat.messages,
-                        &tool_call_id,
-                        title.clone(),
-                        status.clone(),
-                        output.clone(),
-                    );
-                    if !merged {
-                        // 兼容只发 update 不发首帧的 agent：补一张最小的工具卡。
-                        self.chat.messages.push(ChatEntry::Tool {
-                            tool_call_id,
-                            title: title.unwrap_or_default(),
-                            name: None,
-                            kind: String::new(),
-                            status: status.unwrap_or_else(|| "unknown".to_string()),
-                            args: None,
-                            output,
-                            expanded: false,
-                        });
-                    }
+                    self.chat.thread.apply(ThreadEvent::ToolCallUpdated {
+                        tool_call_id,
+                        title,
+                        status,
+                        output,
+                    });
                 }
-                HostEvent::PlanUpdated { .. }
-                | HostEvent::ModeUpdated { .. }
-                | HostEvent::CompactionUpdated { .. } => {
-                    // 2a 先把事件带上来；plan/compaction 的渲染留到 2c/2e。
+                HostEvent::PlanUpdated { steps } => {
+                    self.chat.thread.apply(ThreadEvent::PlanUpdated(
+                        steps
+                            .into_iter()
+                            .map(|step| PlanStep {
+                                content: step.content,
+                                priority: step.priority,
+                                status: step.status,
+                            })
+                            .collect(),
+                    ));
                 }
-                HostEvent::UsageUpdated { used, size, .. } => {
-                    self.chat.usage_used = used;
-                    self.chat.usage_size = size;
+                HostEvent::ModeUpdated { .. } => {}
+                HostEvent::CompactionUpdated { status, error } => {
+                    self.chat.thread.apply(ThreadEvent::CompactionUpdated {
+                        status,
+                        summary: error,
+                    });
+                }
+                HostEvent::UsageUpdated { used, size, cost } => {
+                    self.chat
+                        .thread
+                        .apply(ThreadEvent::UsageUpdated { used, size, cost });
                 }
                 HostEvent::TitleUpdated { title } => {
+                    self.chat
+                        .thread
+                        .apply(ThreadEvent::TitleUpdated(title.clone()));
                     self.chat.title_override = title;
                 }
                 HostEvent::PermissionRequested {
-                    request_id, title, ..
+                    request_id,
+                    title,
+                    tool_call_id,
+                    args,
                 } => {
-                    self.chat.messages.push(ChatEntry::Permission {
+                    self.chat.thread.apply(ThreadEvent::PermissionRequested {
                         request_id,
                         title,
-                        resolved: None,
+                        tool_call_id,
+                        args,
                     });
                     if std::env::var("CGC_AUTO_APPROVE").as_deref() == Ok("1") {
                         self.respond_chat_permission(true, cx);
                     }
                 }
-                HostEvent::TurnEnd { .. } => {
+                HostEvent::TurnEnd { cancelled, .. } => {
                     self.chat.phase = ChatPhase::Ready;
-                    self.chat.streaming_message_open = false;
-                    for entry in &mut self.chat.messages {
-                        if let ChatEntry::Thinking { expanded, .. } = entry {
-                            *expanded = false;
-                        }
-                    }
+                    self.chat
+                        .thread
+                        .apply(ThreadEvent::TurnFinished { cancelled });
                 }
                 HostEvent::Error { message } => {
                     if Self::should_retry_stale_session(self.chat.load_retry_available, &message) {
@@ -1308,7 +1293,8 @@ impl RootView {
                         cx.notify();
                         return false;
                     }
-                    self.chat.phase = ChatPhase::Failed(message);
+                    self.chat.phase = ChatPhase::Failed(message.clone());
+                    self.chat.thread.apply(ThreadEvent::Failed(message));
                 }
                 HostEvent::Exited => {
                     // 先到的 Error 更具体，不要用通用退出文案覆盖它。
@@ -1387,7 +1373,7 @@ impl RootView {
                 self.chat.host.take();
                 self.revoke_chat_lease(cx);
                 self.chat.phase = ChatPhase::Idle;
-                self.chat.messages.clear();
+                self.chat.thread = ConversationThread::default();
                 self.chat.session_id = None;
                 self.chat.restore_id = None;
                 self.chat.load_retry_available = false;
@@ -1430,7 +1416,7 @@ impl RootView {
         let Some(session_id) = self.chat.session_id.clone() else {
             return;
         };
-        if self.chat.messages.is_empty() {
+        if self.chat.thread.entries.is_empty() {
             return;
         }
         let agent = self
@@ -1477,17 +1463,18 @@ impl RootView {
         thread.updated_at = now;
         thread.entries = self
             .chat
-            .messages
+            .thread
+            .entries
             .iter()
             .enumerate()
-            .filter_map(|(index, message)| match message {
-                ChatEntry::User(text) => Some(cgc_agent_core::Entry::User {
+            .filter_map(|(index, entry)| match entry {
+                ConversationEntry::User { text } => Some(cgc_agent_core::Entry::User {
                     text: text.clone(),
                     images: Vec::new(),
                     display: None,
                     at: now,
                 }),
-                ChatEntry::Assistant(text) if !text.is_empty() => {
+                ConversationEntry::Assistant { text } if !text.is_empty() => {
                     Some(cgc_agent_core::Entry::Assistant {
                         text: text.clone(),
                         tool_calls: Vec::new(),
@@ -1495,12 +1482,13 @@ impl RootView {
                         at: now,
                     })
                 }
-                ChatEntry::Thinking { text, .. } => Some(cgc_agent_core::Entry::Thinking {
+                ConversationEntry::Assistant { .. } => None,
+                ConversationEntry::Thinking { text, .. } => Some(cgc_agent_core::Entry::Thinking {
                     text: text.clone(),
                     signature: None,
                     at: now,
                 }),
-                ChatEntry::Tool {
+                ConversationEntry::ToolCall {
                     tool_call_id,
                     title,
                     name,
@@ -1523,7 +1511,9 @@ impl RootView {
                     is_error: status == "failed",
                     at: now,
                 }),
-                _ => None,
+                ConversationEntry::Permission { .. }
+                | ConversationEntry::Notice { .. }
+                | ConversationEntry::Compaction { .. } => None,
             })
             .collect();
         let _ = store.save_thread(&thread);
@@ -1578,8 +1568,8 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn toggle_chat_tool(&mut self, index: usize, cx: &mut Context<Self>) {
-        if let Some(ChatEntry::Tool { expanded, .. }) = self.chat.messages.get_mut(index) {
-            *expanded = !*expanded;
+        if let Some(entry) = self.chat.thread.entries.get_mut(index) {
+            entry.toggle_tool();
             cx.notify();
         }
     }
@@ -1589,8 +1579,8 @@ impl RootView {
         index: usize,
         cx: &mut Context<Self>,
     ) {
-        if let Some(ChatEntry::Thinking { expanded, .. }) = self.chat.messages.get_mut(index) {
-            *expanded = !*expanded;
+        if let Some(entry) = self.chat.thread.entries.get_mut(index) {
+            entry.toggle_thinking();
             cx.notify();
         }
     }
@@ -1690,8 +1680,9 @@ impl RootView {
             return;
         }
         self.chat.history_open = false;
-        self.chat.streaming_message_open = false;
-        self.chat.messages.push(ChatEntry::User(text));
+        self.chat
+            .thread
+            .apply(ThreadEvent::TurnStarted { user_text: text });
         self.chat.phase = ChatPhase::Streaming;
         cx.notify();
     }
@@ -1708,29 +1699,16 @@ impl RootView {
         allow: bool,
         cx: &mut Context<Self>,
     ) {
-        let Some((request_id, index)) =
-            self.chat
-                .messages
-                .iter()
-                .enumerate()
-                .rev()
-                .find_map(|(index, entry)| match entry {
-                    ChatEntry::Permission {
-                        request_id,
-                        resolved: None,
-                        ..
-                    } => Some((request_id.clone(), index)),
-                    _ => None,
-                })
-        else {
+        let Some(pending) = self.chat.thread.pending_permission.clone() else {
             return;
         };
         if let Some(host) = &self.chat.host {
-            let _ = host.respond_permission(&request_id, allow);
+            let _ = host.respond_permission(&pending.request_id, allow);
         }
-        if let Some(ChatEntry::Permission { resolved, .. }) = self.chat.messages.get_mut(index) {
-            *resolved = Some(allow);
-        }
+        self.chat.thread.apply(ThreadEvent::PermissionResolved {
+            request_id: pending.request_id,
+            allowed: allow,
+        });
         cx.notify();
     }
 
@@ -1927,7 +1905,7 @@ impl RootView {
         self.chat.phase = ChatPhase::Idle;
         self.chat.agent.clear();
         self.chat.version = None;
-        self.chat.messages.clear();
+        self.chat.thread = ConversationThread::default();
         self.chat.input.clear();
         self.chat.focused = false;
         self.chat.auto_prompted = false;
@@ -1938,7 +1916,6 @@ impl RootView {
         self.chat.course_id = None;
         self.chat.configs_applied = false;
         self.chat.history_open = false;
-        self.chat.streaming_message_open = false;
         self.chat.guidance = None;
         self.chat.load_retry_available = false;
         self.chat.commands.clear();
@@ -3381,7 +3358,7 @@ impl RootView {
         self.set_native_chat_mode(false);
         self.chat.phase = ChatPhase::Idle;
         self.chat.host.take();
-        self.chat.messages.clear();
+        self.chat.thread = ConversationThread::default();
         self.chat.session_id = None;
         self.chat.restore_id = None;
         self.chat.title_override = None;

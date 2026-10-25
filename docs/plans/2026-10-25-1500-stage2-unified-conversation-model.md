@@ -239,6 +239,19 @@ native 没有 `Plan` 事件：plan 由 native 的工具（`todo_write`/plan step
   工具后文本、工具合并、审批、回合结束/失败、loaded、row_view 契约）；变异验证
   两处（工具状态合并、工具后文本开新 entry）→ 对应测试红，还原后绿。
 
+### 2c 实现状态（2026-10-25，已落地）
+
+- `RootView::ChatUi.messages` 换成 `ConversationThread`；controller 把 `HostEvent`
+  映射成 `ThreadEvent` 交给统一 reducer，`ChatEntry`、`chat_row_view`、
+  `merge_tool_update`、`streaming_message_open` 全部删除；审批 `resolved` 由
+  `PermissionResolved` 维护；本地线程持久化改为遍历模型 entries 映射。
+- ACP 面板行渲染读 `thread.entries`，操作栏/整回合复制/滚动 gating 改用
+  `thread.row_view()`；新增 Notice/Compaction 状态行；usage footer 读
+  `thread.usage`；`has_unresolved_permission` 改用模型 Entry。
+- 行为改善：工具卡之后到达的文本会开新 assistant entry（此前 ACP 可能丢文本）。
+- 验证：app 117 + agent_ui 29 测试绿；fmt/clippy 干净；`registry::discovery` 的
+  HTTP fetch 用例为本机并行超时 flake（串行重跑通过）；app 文件净 -156 行。
+
 ## 5. 切片与回滚
 
 | 切片 | 内容 | 写入面 | 验收 | 回滚 |

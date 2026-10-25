@@ -3,6 +3,7 @@ use super::super::ScreenContext;
 use cgc_agent_ui::command_menu::{
     render_command_menu, CommandMenuItem, CommandMenuSpec, CommandMenuStyle,
 };
+use cgc_agent_ui::conversation::{Entry as ConversationEntry, NoticeLevel};
 use cgc_agent_ui::message_actions::{
     render_action_bar, render_message_menu, ActionBarSpec, ActionCallbacks, ActionGlyph,
     ActionGlyphs, ActionStyle, MenuPayloads,
@@ -26,7 +27,8 @@ pub(in crate::root_view) fn render_chat_panel(
     cx: &mut Context<RootView>,
 ) -> AnyElement {
     let phase = ctx.chat.phase.clone();
-    let messages = ctx.chat.messages.clone();
+    let thread = ctx.chat.thread.clone();
+    let row_view = thread.row_view();
     let input = ctx.chat.input.clone();
     let agent_label = if ctx.chat.agent.trim().is_empty() {
         ctx.chat
@@ -176,12 +178,12 @@ pub(in crate::root_view) fn render_chat_panel(
         }
         ChatPhase::Ready | ChatPhase::Streaming => {
             let view_weak = cx.entity().downgrade();
-            let mut rows = Vec::with_capacity(messages.len());
+            let mut rows = Vec::with_capacity(thread.entries.len());
             // 底部条在等审批时隐藏；每行都查一次没必要，循环外算一次。
-            let needs_confirmation = has_unresolved_permission(&messages);
-            for (index, entry) in messages.iter().enumerate() {
+            let needs_confirmation = has_unresolved_permission(&thread.entries);
+            for (index, entry) in thread.entries.iter().enumerate() {
                 let row = match entry {
-                    ChatEntry::User(text) => div()
+                    ConversationEntry::User { text } => div()
                         .id(SharedString::from(format!("chat-user-{index}")))
                         .flex()
                         .flex_col()
@@ -219,16 +221,15 @@ pub(in crate::root_view) fn render_chat_panel(
                             }
                         })
                         .into_any_element(),
-                    ChatEntry::Assistant(text) => {
+                    ConversationEntry::Assistant { text } => {
                         // 对齐 Zed #61245 + #61362：只在回合末挂操作栏；历史消息的
                         // 操作栏在流式时仍可见，仅底部条在生成/等审批时隐藏。
-                        let plan = crate::root_view::chat_row_view(&messages).action_plan(
+                        let plan = row_view.action_plan(
                             index,
                             phase == ChatPhase::Streaming,
                             needs_confirmation,
                         );
-                        let agent_response =
-                            crate::root_view::chat_row_view(&messages).turn_copy_text(index);
+                        let agent_response = row_view.turn_copy_text(index);
                         let actions = plan.map(|plan| {
                             render_chat_message_controls(
                                 "chat-controls",
@@ -266,7 +267,7 @@ pub(in crate::root_view) fn render_chat_panel(
                             }))
                             .into_any_element()
                     }
-                    ChatEntry::Thinking { text, expanded } => {
+                    ConversationEntry::Thinking { text, expanded } => {
                         let expanded = *expanded;
                         let toggle_view = view_weak.clone();
                         render_thinking_row(ThinkingRowSpec {
@@ -284,7 +285,7 @@ pub(in crate::root_view) fn render_chat_panel(
                             }),
                         })
                     }
-                    ChatEntry::Tool {
+                    ConversationEntry::ToolCall {
                         title,
                         name,
                         kind,
@@ -376,10 +377,11 @@ pub(in crate::root_view) fn render_chat_panel(
                         }
                         row.into_any_element()
                     }
-                    ChatEntry::Permission {
+                    ConversationEntry::Permission {
                         request_id,
                         title,
                         resolved,
+                        ..
                     } => {
                         let status = match resolved {
                             Some(true) => "已允许",
@@ -446,13 +448,39 @@ pub(in crate::root_view) fn render_chat_panel(
                             .children(buttons)
                             .into_any_element()
                     }
+                    ConversationEntry::Notice { level, text } => {
+                        let color = match level {
+                            NoticeLevel::Info => palette.ink_3,
+                            NoticeLevel::Warning => palette.ink_2,
+                            NoticeLevel::Error => palette.danger,
+                        };
+                        div()
+                            .id(SharedString::from(format!("chat-notice-{index}")))
+                            .px(space(1))
+                            .py(px(2.0))
+                            .text_size(px(11.0))
+                            .text_color(color)
+                            .child(text.clone())
+                            .into_any_element()
+                    }
+                    ConversationEntry::Compaction { status, summary } => div()
+                        .id(SharedString::from(format!("chat-compaction-{index}")))
+                        .px(space(1))
+                        .py(px(2.0))
+                        .text_size(px(10.0))
+                        .text_color(palette.ink_3)
+                        .child(match summary {
+                            Some(summary) => format!("上下文压缩（{status}）：{summary}"),
+                            None => format!("上下文压缩（{status}）"),
+                        })
+                        .into_any_element(),
                 };
                 rows.push(row);
             }
             // 回合停在工具卡等非 assistant 行时，底部补一条兜底操作栏
             // （对齐 Zed 的 last-assistant fallback）。
-            if let Some(plan) = crate::root_view::chat_row_view(&messages)
-                .trailing_plan(phase == ChatPhase::Streaming, needs_confirmation)
+            if let Some(plan) =
+                row_view.trailing_plan(phase == ChatPhase::Streaming, needs_confirmation)
             {
                 rows.push(render_chat_message_controls(
                     "chat-trailing-controls",
@@ -461,7 +489,7 @@ pub(in crate::root_view) fn render_chat_panel(
                         scroll_to_user: plan.scroll_to_user,
                         scroll_to_top: true,
                     },
-                    crate::root_view::chat_row_view(&messages).turn_copy_text(plan.assistant_index),
+                    row_view.turn_copy_text(plan.assistant_index),
                     &view_weak,
                     palette,
                 ));
@@ -726,16 +754,19 @@ pub(in crate::root_view) fn render_chat_panel(
                                                 })),
                                         )
                                         .children(config_pickers)
-                                        .children((ctx.chat.usage_size > 0).then(|| {
+                                        .children((ctx.chat.thread.usage.size > 0).then(|| {
                                             div()
                                                 .text_size(px(10.0))
                                                 .text_color(palette.ink_3)
                                                 .child(format!(
                                                     "{}% · {}/{}",
-                                                    (ctx.chat.usage_used * 100)
-                                                        / ctx.chat.usage_size.max(1),
-                                                    clipped_count(ctx.chat.usage_used),
-                                                    clipped_count(ctx.chat.usage_size),
+                                                    ctx.chat
+                                                        .thread
+                                                        .usage
+                                                        .percent()
+                                                        .unwrap_or_default(),
+                                                    clipped_count(ctx.chat.thread.usage.used),
+                                                    clipped_count(ctx.chat.thread.usage.size),
                                                 ))
                                         }))
                                         .child(
@@ -1350,29 +1381,33 @@ fn render_chat_message_menu(
 }
 
 /// 是否有等待用户决定的审批（底部操作栏此时隐藏，对齐 Zed）。
-fn has_unresolved_permission(messages: &[ChatEntry]) -> bool {
-    messages
+fn has_unresolved_permission(entries: &[ConversationEntry]) -> bool {
+    entries
         .iter()
-        .any(|entry| matches!(entry, ChatEntry::Permission { resolved: None, .. }))
+        .any(|entry| matches!(entry, ConversationEntry::Permission { resolved: None, .. }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::has_unresolved_permission;
-    use crate::root_view::ChatEntry;
+    use cgc_agent_ui::conversation::Entry as ConversationEntry;
 
     #[test]
     fn unresolved_permission_hides_bottom_controls() {
         assert!(!has_unresolved_permission(&[]));
-        let resolved = vec![ChatEntry::Permission {
+        let resolved = vec![ConversationEntry::Permission {
             request_id: "p1".into(),
             title: "run".into(),
+            tool_call_id: None,
+            args: None,
             resolved: Some(true),
         }];
         assert!(!has_unresolved_permission(&resolved));
-        let pending = vec![ChatEntry::Permission {
+        let pending = vec![ConversationEntry::Permission {
             request_id: "p2".into(),
             title: "run".into(),
+            tool_call_id: None,
+            args: None,
             resolved: None,
         }];
         assert!(has_unresolved_permission(&pending));

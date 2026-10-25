@@ -17,7 +17,7 @@ use crate::chat_state::{
 };
 use crate::formula::render_markdown_with_math;
 use cgc_agent_store::SessionStore;
-use cgc_agent_ui::message_flow::{RowKind, RowView};
+use cgc_agent_ui::conversation::ConversationThread;
 use cgc_agent_ui::safe_markdown::sanitize_markdown;
 use cgc_courses::catalog::{
     learning_context, CourseCatalogService, CourseDetailService, CourseSummary, CoursesApi,
@@ -204,86 +204,6 @@ enum ChatPhase {
     Failed(String),
 }
 
-#[derive(Clone, Debug)]
-enum ChatEntry {
-    User(String),
-    Assistant(String),
-    Thinking {
-        text: String,
-        expanded: bool,
-    },
-    Tool {
-        tool_call_id: String,
-        title: String,
-        name: Option<String>,
-        kind: String,
-        status: String,
-        args: Option<String>,
-        output: Option<String>,
-        expanded: bool,
-    },
-    Permission {
-        request_id: String,
-        title: String,
-        resolved: Option<bool>,
-    },
-}
-
-/// 把 ACP 的 `ChatEntry` 映射到共享消息流（`agent_ui::message_flow`）。
-fn chat_row_kind(entry: &ChatEntry) -> RowKind {
-    match entry {
-        ChatEntry::User(_) => RowKind::User,
-        ChatEntry::Assistant(_) => RowKind::Assistant,
-        ChatEntry::Thinking { .. } => RowKind::Thinking,
-        ChatEntry::Tool { .. } => RowKind::Tool,
-        ChatEntry::Permission { .. } => RowKind::Permission,
-    }
-}
-
-/// 把 `ToolCallUpdated` 合并到已有的工具卡（按 `tool_call_id`）；找不到则返回 `false`
-/// 由调用方决定是否新建。只覆盖 `Some` 字段，保留 agent 首帧给的 args/kind。
-fn merge_tool_update(
-    messages: &mut [ChatEntry],
-    tool_call_id: &str,
-    title: Option<String>,
-    status: Option<String>,
-    output: Option<String>,
-) -> bool {
-    let Some(ChatEntry::Tool {
-        title: entry_title,
-        status: entry_status,
-        output: entry_output,
-        ..
-    }) = messages.iter_mut().find(
-        |entry| matches!(entry, ChatEntry::Tool { tool_call_id: id, .. } if id == tool_call_id),
-    )
-    else {
-        return false;
-    };
-    if let Some(title) = title {
-        *entry_title = title;
-    }
-    if let Some(status) = status {
-        *entry_status = status;
-    }
-    if let Some(output) = output {
-        *entry_output = Some(output);
-    }
-    true
-}
-
-fn chat_assistant_text(entry: &ChatEntry) -> Option<&str> {
-    match entry {
-        ChatEntry::Assistant(text) => Some(text.as_str()),
-        _ => None,
-    }
-}
-
-/// ACP 消息行的共享只读视图（Stage 1：判定逻辑归 `agent_ui`）。
-fn chat_row_view(messages: &[ChatEntry]) -> RowView<'_, ChatEntry> {
-    RowView::new(messages, chat_row_kind, chat_assistant_text)
-}
-
 #[derive(Default)]
 struct ChatUi {
     title_override: Option<String>,
@@ -295,10 +215,7 @@ struct ChatUi {
     selected_agent: Option<String>,
     context_dismissed: bool,
     version: Option<String>,
-    messages: Vec<ChatEntry>,
-    /// ACP `usage_update` 的上下文用量（2a：footer 展示；模型统一后进 ConversationThread）。
-    usage_used: u64,
-    usage_size: u64,
+    thread: ConversationThread,
     chat_scroll: ScrollHandle,
     input: String,
     focused: bool,
@@ -322,7 +239,6 @@ struct ChatUi {
     restore_id: Option<String>,
     configs_applied: bool,
     history_open: bool,
-    streaming_message_open: bool,
     guidance: Option<ChatGuidance>,
     load_retry_available: bool,
 }
@@ -2484,12 +2400,13 @@ fn shortcut_kbd(stroke: &str) -> Kbd {
 #[cfg(test)]
 mod tests {
     use super::{
-        fuzzy_score, slash_candidates, slash_query, ChatEntry, CommandView, LoginError, LoginMode,
-        RootView, WechatLoginView,
+        fuzzy_score, slash_candidates, slash_query, CommandView, LoginError, LoginMode, RootView,
+        WechatLoginView,
     };
     use crate::i18n::{translate, Key, Language};
     use crate::registration::build_registry;
     use crate::theme::ThemePreference;
+    use cgc_agent_ui::conversation::{ConversationThread, Entry as ConversationEntry};
     use cgc_platform::session::{
         AuthError, FakeAuthApi, MemoryStore, SessionService, SignedInSession,
     };
@@ -2610,32 +2527,46 @@ mod tests {
 
     #[test]
     fn copied_agent_response_excludes_thinking_and_previous_turns() {
-        let messages = vec![
-            ChatEntry::User("first".into()),
-            ChatEntry::Assistant("answer one".into()),
-            ChatEntry::Thinking {
-                text: "private reasoning".into(),
-                expanded: false,
-            },
-            ChatEntry::Assistant("answer two".into()),
-            ChatEntry::User("second".into()),
-            ChatEntry::Assistant("answer three".into()),
-        ];
+        let thread = ConversationThread {
+            entries: vec![
+                ConversationEntry::User {
+                    text: "first".into(),
+                },
+                ConversationEntry::Assistant {
+                    text: "answer one".into(),
+                },
+                ConversationEntry::Thinking {
+                    text: "private reasoning".into(),
+                    expanded: false,
+                },
+                ConversationEntry::Assistant {
+                    text: "answer two".into(),
+                },
+                ConversationEntry::User {
+                    text: "second".into(),
+                },
+                ConversationEntry::Assistant {
+                    text: "answer three".into(),
+                },
+            ],
+            ..Default::default()
+        };
+        let view = thread.row_view();
         assert_eq!(
-            super::chat_row_view(&messages).turn_copy_text(3).as_deref(),
+            view.turn_copy_text(3).as_deref(),
             Some("answer one\n\nanswer two")
         );
-        assert_eq!(
-            super::chat_row_view(&messages).turn_copy_text(5).as_deref(),
-            Some("answer three")
-        );
-        assert!(!super::chat_row_view(&messages)
+        assert_eq!(view.turn_copy_text(5).as_deref(), Some("answer three"));
+        assert!(!view
             .turn_copy_text(3)
             .unwrap_or_default()
             .contains("private reasoning"));
-        assert_eq!(super::chat_row_view(&[]).turn_copy_text(0), None);
         assert_eq!(
-            super::chat_row_view(&messages).turn_copy_text(99),
+            ConversationThread::default().row_view().turn_copy_text(0),
+            None
+        );
+        assert_eq!(
+            view.turn_copy_text(99),
             None,
             "越界由调用方忽略，不再返回最后一条"
         );
@@ -2643,52 +2574,44 @@ mod tests {
 
     #[test]
     fn acp_rows_use_shared_turn_gating() {
-        let messages = vec![
-            ChatEntry::User("q1".into()),
-            ChatEntry::Assistant("a1".into()),
-            ChatEntry::Tool {
-                tool_call_id: "call-1".into(),
-                name: Some("read_file".into()),
-                title: "read_file".into(),
-                kind: "Read".into(),
-                status: "completed".into(),
-                args: Some("{\"path\":\"a.rs\"}".into()),
-                output: Some("ok".into()),
-                expanded: false,
-            },
-            ChatEntry::Assistant("a2".into()),
-            ChatEntry::User("q2".into()),
-            ChatEntry::Assistant("a3".into()),
-        ];
+        let thread = ConversationThread {
+            entries: vec![
+                ConversationEntry::User { text: "q1".into() },
+                ConversationEntry::Assistant { text: "a1".into() },
+                ConversationEntry::ToolCall {
+                    tool_call_id: "call-1".into(),
+                    title: "read_file".into(),
+                    name: Some("read_file".into()),
+                    kind: "Read".into(),
+                    status: "completed".into(),
+                    args: Some("{\"path\":\"a.rs\"}".into()),
+                    output: Some("ok".into()),
+                    locations: Vec::new(),
+                    expanded: false,
+                },
+                ConversationEntry::Assistant { text: "a2".into() },
+                ConversationEntry::User { text: "q2".into() },
+                ConversationEntry::Assistant { text: "a3".into() },
+            ],
+            ..Default::default()
+        };
+        let view = thread.row_view();
+        assert_eq!(view.finalized_turn_end(3), Some(true));
         assert_eq!(
-            super::chat_row_view(&messages).finalized_turn_end(3),
-            Some(true)
-        );
-        assert_eq!(
-            super::chat_row_view(&messages).finalized_turn_end(1),
+            view.finalized_turn_end(1),
             Some(false),
             "工具调用之后还有回复，不是回合末"
         );
-        assert_eq!(
-            super::chat_row_view(&messages).turn_copy_text(3).as_deref(),
-            Some("a1\n\na2")
-        );
-        let plan = super::chat_row_view(&messages)
-            .action_plan(5, false, false)
-            .expect("底部条");
+        assert_eq!(view.turn_copy_text(3).as_deref(), Some("a1\n\na2"));
+        let plan = view.action_plan(5, false, false).expect("底部条");
         assert_eq!(plan.scroll_to_user, Some(4));
         assert!(plan.scroll_to_top);
         assert_eq!(
-            super::chat_row_view(&messages).action_plan(5, true, false),
+            view.action_plan(5, true, false),
             None,
             "流式生成中隐藏底部条"
         );
-        assert!(
-            super::chat_row_view(&messages)
-                .action_plan(3, true, false)
-                .is_some(),
-            "历史回合的操作栏在流式时仍可见"
-        );
+        assert!(view.finalized_turn_end(5).is_none(), "线程末尾交给底部兜底");
     }
 
     #[test]
@@ -2946,96 +2869,5 @@ mod tests {
 
         std::env::remove_var("CGC_CHAT_STATE_FILE");
         let _ = std::fs::remove_file(&state_file);
-    }
-
-    #[test]
-    fn tool_update_merges_by_id_and_preserves_existing_fields() {
-        let mut messages = vec![
-            ChatEntry::User("q".into()),
-            ChatEntry::Tool {
-                tool_call_id: "call-1".into(),
-                title: "Read file".into(),
-                name: Some("read_file".into()),
-                kind: "Read".into(),
-                status: "in_progress".into(),
-                args: Some("{\"path\":\"a.rs\"}".into()),
-                output: None,
-                expanded: false,
-            },
-        ];
-        let merged = super::merge_tool_update(
-            &mut messages,
-            "call-1",
-            Some("Read file (done)".into()),
-            Some("completed".into()),
-            Some("hello".into()),
-        );
-        assert!(merged);
-        let ChatEntry::Tool {
-            title,
-            status,
-            output,
-            args,
-            expanded,
-            ..
-        } = &messages[1]
-        else {
-            panic!("tool entry");
-        };
-        assert_eq!(title, "Read file (done)");
-        assert_eq!(status, "completed");
-        assert_eq!(output.as_deref(), Some("hello"));
-        assert_eq!(
-            args.as_deref(),
-            Some("{\"path\":\"a.rs\"}"),
-            "旧字段不被清空"
-        );
-        assert!(!expanded);
-    }
-
-    #[test]
-    fn tool_update_without_matching_id_is_not_created_here() {
-        let mut messages = vec![ChatEntry::User("q".into())];
-        assert!(!super::merge_tool_update(
-            &mut messages,
-            "missing",
-            Some("t".into()),
-            None,
-            None
-        ));
-        assert_eq!(messages.len(), 1);
-    }
-
-    #[test]
-    fn tool_update_only_overwrites_some_fields() {
-        let mut messages = vec![ChatEntry::Tool {
-            tool_call_id: "c".into(),
-            title: "t".into(),
-            name: None,
-            kind: "Other".into(),
-            status: "pending".into(),
-            args: None,
-            output: Some("old".into()),
-            expanded: false,
-        }];
-        assert!(super::merge_tool_update(
-            &mut messages,
-            "c",
-            None,
-            Some("failed".into()),
-            None
-        ));
-        let ChatEntry::Tool {
-            title,
-            status,
-            output,
-            ..
-        } = &messages[0]
-        else {
-            panic!("tool entry");
-        };
-        assert_eq!(title, "t");
-        assert_eq!(status, "failed");
-        assert_eq!(output.as_deref(), Some("old"));
     }
 }
