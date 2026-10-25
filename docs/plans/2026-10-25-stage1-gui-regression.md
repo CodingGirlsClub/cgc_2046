@@ -145,3 +145,23 @@ EchoProvider 离线模式；未使用真实 provider/keychain。
 
 **已知小问题**：审批卡最右侧「拒绝」文字在窄布局下被裁切，需要在审批行按钮布局上收一下宽度
 （不影响操作，可点击区域仍在）。
+
+## ACP 真机回归（2026-10-25，BLOCKED）
+
+尝试路径：本地 Phoenix 后端（`localhost:4000`，新建开发库 + seeds + 测试账号
+`demo@example.com/demo1234`）+ App 隔离 `CGC_DATA_DIR`/`CGC_SESSION_FILE` +
+`CGC_API_URL` 指向本地后端。
+
+已验证：
+- 本地后端 health 200；后端 GraphQL `listCourses`（含 workspace scope）返回演示课程；
+- 课程已通过 Ash `:create` + SQL status=open 出现在 App 课程页（截图确认「ACP 回归课程」）；
+- App 确实请求本地后端（后端日志可见 graphql/listCourses/myEnrollment 调用）。
+
+阻塞点：
+1. CUA 对 GPUI 自定义课程列表的坐标点击无法打开课程详情（普通/双击/不同坐标系均未触发）；
+   AX 树不暴露课程列表项，无法用元素索引点击；
+2. 课程详情内的 ACP 会话还需要学习上下文/MCP lease；当前 App 左侧 Agent 面板仍显示
+   「学习上下文不可用（workspace/课程版本缺失）」。
+
+结论：ACP 真机回归需要人工点击课程详情（或安装正式 App 后从课程页进入）后执行；
+自动化在当前 CUA/GPUI 组合下无法进入课程详情。清单见 Stage 1 报告的 A1–A4。
