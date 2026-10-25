@@ -41,6 +41,7 @@ use gpui_kit::component::input::{
 };
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::popover::Popover;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::text::{SelectionFormat, TextView};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{Icon, Sizable};
@@ -495,6 +496,9 @@ pub struct NativeAgentView {
     expanded_thinking: std::collections::HashSet<usize>,
     /// 流式思考块是否被用户折叠（默认自动展开）。
     live_thinking_collapsed: bool,
+    /// 上次自动跟随时的内容长度快照（messages / streaming / thinking），
+    /// 只有内容新增时才自动滚动，避免每次重渲染都把视图拽回底部。
+    last_followed_content: (usize, usize, usize),
     /// 正在编辑的用户消息（UI message index）。
     editing_user: Option<usize>,
     /// 编辑态输入框；仅在 editing_user 有值时存在。
@@ -826,6 +830,7 @@ impl NativeAgentView {
             expanded_tools: std::collections::HashSet::new(),
             expanded_thinking: std::collections::HashSet::new(),
             live_thinking_collapsed: false,
+            last_followed_content: (0, 0, 0),
             editing_user: None,
             user_edit_input: None,
             messages_scroll: ScrollHandle::new(),
@@ -1985,6 +1990,14 @@ impl NativeAgentView {
         cx.notify();
     }
 
+    /// 当前滚动位置是否已在底部。
+    fn is_scrolled_to_bottom(&self) -> bool {
+        scrolled_to_bottom(
+            self.messages_scroll.offset().y,
+            self.messages_scroll.max_offset().y,
+        )
+    }
+
     /// 消息区滚动到顶部（同时停止自动跟随输出）。
     fn scroll_messages_to_top(&mut self, cx: &mut Context<Self>) {
         self.follow_output = false;
@@ -2556,9 +2569,23 @@ impl Render for NativeAgentView {
             );
         }
 
-        if self.follow_output && !rows.is_empty() {
+        let content_snapshot = (
+            self.state.messages.len(),
+            self.state.streaming.len(),
+            self.state.thinking_streaming.len(),
+        );
+        if should_auto_scroll(
+            self.follow_output,
+            self.last_followed_content,
+            content_snapshot,
+            !rows.is_empty(),
+        ) {
+            // 只有“正在跟随 + 内容有新增”才自动滚到底；单纯重渲染不再抢滚动位置。
             self.messages_scroll.scroll_to_item(rows.len() - 1);
+            self.last_followed_content = content_snapshot;
         }
+        let show_scroll_to_bottom =
+            !self.follow_output && self.messages_scroll.max_offset().y > px(0.0);
 
         div()
             .size_full()
@@ -2570,15 +2597,65 @@ impl Render for NativeAgentView {
             .text_size(px(13.0))
             .child(
                 div()
-                    .id("native-agent-messages")
                     .flex_1()
-                    .flex()
-                    .flex_col()
-                    .gap(space(2))
-                    .p(space(3))
-                    .overflow_y_scroll()
-                    .track_scroll(&self.messages_scroll)
-                    .children(rows),
+                    .min_h(px(0.0))
+                    .relative()
+                    .child(
+                        div()
+                            .id("native-agent-messages")
+                            .size_full()
+                            .flex()
+                            .flex_col()
+                            .gap(space(2))
+                            .p(space(3))
+                            .overflow_y_scroll()
+                            .track_scroll(&self.messages_scroll)
+                            .vertical_scrollbar(&self.messages_scroll)
+                            .on_scroll_wheel(cx.listener(
+                                |this, _event: &ScrollWheelEvent, window, cx| {
+                                    // 用户一旦滚动就暂停自动跟随；滚动结束后若已回到
+                                    // 底部则恢复跟随（defer 里 offset 已完成 clamp）。
+                                    if this.follow_output {
+                                        this.follow_output = false;
+                                        cx.notify();
+                                    }
+                                    let entity = cx.entity().downgrade();
+                                    window.defer(cx, move |_window, cx| {
+                                        let _ = entity.update(cx, |this, cx| {
+                                            if !this.follow_output && this.is_scrolled_to_bottom() {
+                                                this.follow_output = true;
+                                                cx.notify();
+                                            }
+                                        });
+                                    });
+                                },
+                            ))
+                            .children(rows),
+                    )
+                    .children(show_scroll_to_bottom.then(|| {
+                        div()
+                            .id("native-scroll-to-bottom")
+                            .role(Role::Button)
+                            .aria_label("回到最新消息")
+                            .absolute()
+                            .bottom(space(3))
+                            .right(space(3))
+                            .px(space(2))
+                            .py(px(3.0))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .border_1()
+                            .border_color(palette.line)
+                            .bg(palette.card)
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_2)
+                            .hover(|style| style.bg(palette.soft))
+                            .child("↓ 回到最新")
+                            .on_click(cx.listener(|this, _, _window, cx| {
+                                this.follow_output = true;
+                                this.messages_scroll.scroll_to_bottom();
+                                cx.notify();
+                            }))
+                    })),
             )
             .children(show_changes.then(|| {
                 div()
@@ -4171,6 +4248,27 @@ fn transfer_live_thinking_expansion(
     Some(index)
 }
 
+/// 滚动是否已经在底部（GPUI 的 offset.y 越往下越负，max_offset 为正）。
+/// 2px 容差避免亚像素/取整导致的“差一点点”抖动。
+fn scrolled_to_bottom(offset_y: Pixels, max_y: Pixels) -> bool {
+    max_y > px(0.0) && offset_y <= -max_y + px(2.0)
+}
+
+/// 是否应该自动滚动到底部：仅在“跟随模式 + 有消息行 + 内容有新增”时触发。
+fn should_auto_scroll(
+    follow: bool,
+    previous: (usize, usize, usize),
+    current: (usize, usize, usize),
+    has_rows: bool,
+) -> bool {
+    follow && has_rows && content_grew(previous, current)
+}
+
+/// 内容是否有新增（messages / streaming / thinking 三段长度快照任一变化）。
+fn content_grew(previous: (usize, usize, usize), current: (usize, usize, usize)) -> bool {
+    current != previous
+}
+
 /// 重试前把 UI 消息裁到最近一条用户消息为止，丢掉失败 turn 残留的部分回复/工具卡。
 fn trim_messages_to_last_user(messages: &mut Vec<cgc_agent_host::UiMessage>) -> Option<usize> {
     let index = messages
@@ -4969,6 +5067,44 @@ mod workspace_prompt_tests {
         assert_eq!(super::thread_user_entry_index(&entries, 3), Some(3));
         assert_eq!(super::thread_user_entry_index(&entries, 4), None);
         assert_eq!(super::thread_user_entry_index(&entries, 0), None);
+    }
+
+    #[test]
+    fn scroll_helpers_detect_bottom_and_content_growth() {
+        use gpui_kit::px;
+
+        // max=0：内容没溢出，不算“能滚到底部”
+        assert!(!super::scrolled_to_bottom(px(0.0), px(0.0)));
+        // 正好停在底部
+        assert!(super::scrolled_to_bottom(px(-500.0), px(500.0)));
+        // 距底部 1px 以内仍算底部（亚像素容差）
+        assert!(super::scrolled_to_bottom(px(-499.0), px(500.0)));
+        // 上滑 100px 后不算底部
+        assert!(!super::scrolled_to_bottom(px(-400.0), px(500.0)));
+
+        assert!(super::content_grew((1, 0, 0), (2, 0, 0)), "新消息");
+        assert!(super::content_grew((2, 10, 0), (2, 20, 0)), "流式回复增长");
+        assert!(super::content_grew((2, 20, 5), (2, 20, 8)), "流式思考增长");
+        assert!(
+            !super::content_grew((2, 20, 8), (2, 20, 8)),
+            "内容没变不应触发自动滚动"
+        );
+
+        // 自动滚动需要同时满足：跟随中 + 有行 + 内容新增
+        assert!(super::should_auto_scroll(true, (1, 0, 0), (2, 0, 0), true));
+        assert!(!super::should_auto_scroll(
+            false,
+            (1, 0, 0),
+            (2, 0, 0),
+            true
+        ));
+        assert!(!super::should_auto_scroll(true, (2, 0, 0), (2, 0, 0), true));
+        assert!(!super::should_auto_scroll(
+            true,
+            (1, 0, 0),
+            (2, 0, 0),
+            false
+        ));
     }
 
     #[test]
