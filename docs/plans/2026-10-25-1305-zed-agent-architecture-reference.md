@@ -305,7 +305,12 @@ checkpoint/审批模式/mention chip/自定义 placeholder；ACP：config picker
 远大于共享骨架，抽「输入卡 + footer」只能省 ~30 行却要引入大量 slot 与回调，且 keyboard/
 focus 语义容易回归。建议并入 Stage 2（统一会话模型后 composer 只保留一份能力渲染）。
 
-**真机回归清单（待人工）**：
+**真机回归执行状态（2026-10-25）**：按上述清单在真机 macOS 跑过 native 面板（隔离实例 +
+EchoProvider / 种子 Fake Provider），操作栏、整回合复制、模型/推理/审批 picker、slash 菜单
+均通过；ACP 链路因隔离实例无真实登录与外部 agent 未执行。完整结果与截图见
+[2026-10-25-stage1-gui-regression.md](2026-10-25-stage1-gui-regression.md)。
+
+**真机回归清单（人工补测项见上）**：
 1. native：消息操作栏（回合末/streaming 历史可见/底部隐藏）、整回合 Copy、thinking chevron、
    assistant 行间距、picker（模型/推理/审批）滚动与选中、slash 菜单 hover 选中与 detail。
 2. ACP：同一组操作栏行为、config picker 搜索/滚动条、slash 菜单选中底色、Markdown 代码块
