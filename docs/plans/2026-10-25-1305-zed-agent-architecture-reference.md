@@ -319,6 +319,8 @@ EchoProvider / 种子 Fake Provider），操作栏、整回合复制、模型/�
 
 ### Stage 2：统一会话模型 + 单 UI（1–2 周，核心）
 
+> 设计与切片（2026-10-25）：[2026-10-25-1500-stage2-unified-conversation-model.md](2026-10-25-1500-stage2-unified-conversation-model.md)。
+
 - 把 `agent_ui`（现 31 行桩）做成真正的共享 UI/视图层：先承载 `message_flow`、消息流渲染与
   composer，再引入 `ConversationThread{entries, permission_requests, submissions, usage,
   checkpoint, capabilities}` + 单 reducer + 按条目索引事件 + `Connection` trait（能力方法）；
