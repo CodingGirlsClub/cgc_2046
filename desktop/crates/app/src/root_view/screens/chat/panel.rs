@@ -1,9 +1,11 @@
 use super::super::super::*;
 use super::super::ScreenContext;
-use cgc_agent_ui::markdown_view::markdown_text_view;
 use cgc_agent_ui::message_actions::{
     render_action_bar, render_message_menu, ActionBarSpec, ActionCallbacks, ActionGlyph,
     ActionGlyphs, ActionStyle, MenuPayloads,
+};
+use cgc_agent_ui::message_row::{
+    render_assistant_row, render_thinking_row, AssistantRowSpec, MessageStyle, ThinkingRowSpec,
 };
 use cgc_platform::acp::connection::ConfigOptionCategory;
 use gpui_kit::component::button::{Button, ButtonVariants};
@@ -213,8 +215,8 @@ pub(in crate::root_view) fn render_chat_panel(
                         })
                         .into_any_element(),
                     ChatEntry::Assistant(text) => {
-                        // 对齐 Zed #61245 + #61362：只在回合末挂操作栏；历史消息
-                        // 的操作栏在流式时仍可见，仅底部条在生成/等审批时隐藏。
+                        // 对齐 Zed #61245 + #61362：只在回合末挂操作栏；历史消息的
+                        // 操作栏在流式时仍可见，仅底部条在生成/等审批时隐藏。
                         let plan = crate::root_view::chat_row_view(&messages).action_plan(
                             index,
                             phase == ChatPhase::Streaming,
@@ -222,96 +224,60 @@ pub(in crate::root_view) fn render_chat_panel(
                         );
                         let agent_response =
                             crate::root_view::chat_row_view(&messages).turn_copy_text(index);
+                        let actions = plan.map(|plan| {
+                            render_chat_message_controls(
+                                "chat-controls",
+                                index,
+                                plan,
+                                agent_response.clone(),
+                                &view_weak,
+                                palette,
+                            )
+                        });
+                        let menu_view = view_weak.clone();
+                        let menu_text = text.clone();
                         div()
                             .id(SharedString::from(format!("chat-assistant-{index}")))
-                            .flex()
-                            .flex_col()
-                            .gap(px(2.0))
-                            .child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_3)
-                                    .child(agent_label.clone()),
-                            )
-                            .child(
-                                markdown_text_view(format!("chat-markdown-{index}"), text)
-                                    .into_any_element(),
-                            )
-                            .children(plan.map(|plan| {
-                                render_chat_message_controls(
-                                    "chat-controls",
-                                    index,
-                                    plan,
-                                    agent_response.clone(),
-                                    &view_weak,
-                                    palette,
+                            .context_menu(move |menu, _, _| {
+                                render_chat_message_menu(
+                                    menu,
+                                    menu_view.clone(),
+                                    MenuPayloads {
+                                        plain: cgc_agent_ui::markdown_text::markdown_to_plain(
+                                            &menu_text,
+                                        ),
+                                        markdown: menu_text.clone(),
+                                        agent_response: agent_response.clone(),
+                                    },
                                 )
-                            }))
-                            .context_menu({
-                                let view = view_weak.clone();
-                                let text = text.clone();
-                                move |menu, _, _| {
-                                    render_chat_message_menu(
-                                        menu,
-                                        view.clone(),
-                                        MenuPayloads {
-                                            plain: cgc_agent_ui::markdown_text::markdown_to_plain(
-                                                &text,
-                                            ),
-                                            markdown: text.clone(),
-                                            agent_response: agent_response.clone(),
-                                        },
-                                    )
-                                }
                             })
+                            .child(render_assistant_row(AssistantRowSpec {
+                                row_id: SharedString::from(format!("chat-assistant-row-{index}")),
+                                markdown_id: SharedString::from(format!("chat-markdown-{index}")),
+                                markdown: text.clone(),
+                                label: Some(agent_label.clone()),
+                                style: chat_message_style(palette),
+                                actions,
+                            }))
                             .into_any_element()
                     }
                     ChatEntry::Thinking { text, expanded } => {
                         let expanded = *expanded;
-                        div()
-                            .id(SharedString::from(format!("chat-thinking-{index}")))
-                            .flex()
-                            .flex_col()
-                            .gap(px(2.0))
-                            .child(
-                                div()
-                                    .id(SharedString::from(format!("chat-thinking-toggle-{index}")))
-                                    .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .gap(px(4.0))
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_3)
-                                    .child(
-                                        Icon::default()
-                                            .path(if expanded {
-                                                AssetIcon::ChevronDown.path()
-                                            } else {
-                                                AssetIcon::ChevronRight.path()
-                                            })
-                                            .small(),
-                                    )
-                                    .child("Thinking")
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.toggle_chat_thinking(index, cx);
-                                    })),
-                            )
-                            .children(expanded.then(|| {
-                                div()
-                                    .pl(space(2))
-                                    .border_l_1()
-                                    .border_color(palette.line)
-                                    .text_size(px(12.0))
-                                    .text_color(palette.ink_2)
-                                    .child(
-                                        markdown_text_view(
-                                            format!("chat-thinking-markdown-{index}"),
-                                            text,
-                                        )
-                                        .into_any_element(),
-                                    )
-                            }))
-                            .into_any_element()
+                        let toggle_view = view_weak.clone();
+                        render_thinking_row(ThinkingRowSpec {
+                            row_id: SharedString::from(format!("chat-thinking-{index}")),
+                            toggle_id: SharedString::from(format!("chat-thinking-toggle-{index}")),
+                            markdown_id: SharedString::from(format!(
+                                "chat-thinking-markdown-{index}"
+                            )),
+                            markdown: text.clone(),
+                            expanded,
+                            style: chat_message_style(palette),
+                            on_toggle: Box::new(move |cx: &mut App| {
+                                let _ = toggle_view
+                                    .update(cx, |this, cx| this.toggle_chat_thinking(index, cx));
+                            }),
+                        })
                     }
                     ChatEntry::Tool { title, kind } => div()
                         .flex()
@@ -1298,6 +1264,15 @@ fn chat_action_glyphs() -> ActionGlyphs {
         copy: ActionGlyph::Named(AssetIcon::Copy),
         user: ActionGlyph::Named(AssetIcon::UserRoundArrowLeft),
         top: ActionGlyph::Named(AssetIcon::ArrowUp),
+    }
+}
+
+fn chat_message_style(palette: &theme::Palette) -> MessageStyle {
+    MessageStyle {
+        ink_2: palette.ink_2,
+        ink_3: palette.ink_3,
+        line: palette.line,
+        radius: RADIUS_MEDIUM,
     }
 }
 

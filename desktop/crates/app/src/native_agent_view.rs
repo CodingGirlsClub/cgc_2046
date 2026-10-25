@@ -43,7 +43,6 @@ use gpui_kit::component::input::{
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu};
 use gpui_kit::component::message_scroller::{MessageScroller, MessageScrollerState};
 use gpui_kit::component::popover::Popover;
-use gpui_kit::component::text::TextView;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{Icon, Sizable};
 use gpui_kit::InteractiveElement as _;
@@ -60,7 +59,9 @@ use cgc_agent_ui::message_actions::{
     ActionGlyphs, ActionStyle, MenuPayloads,
 };
 use cgc_agent_ui::message_flow::{self, RowKind, RowView};
-use cgc_agent_ui::safe_markdown::sanitize_markdown;
+use cgc_agent_ui::message_row::{
+    render_assistant_row, render_thinking_row, AssistantRowSpec, MessageStyle, ThinkingRowSpec,
+};
 
 /// 审批模式：Ask = 逐次审批；Auto = 自动允许。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2608,27 +2609,33 @@ impl NativeAgentView {
             )
             .child(match message.role {
                 UiRole::Assistant => {
-                    let mut column = div()
-                        .flex()
-                        .flex_col()
-                        .gap(space(1))
-                        .child(render_assistant_markdown(message_index, &message.text));
                     // 对齐 Zed #61245 + #61362：只在回合末挂操作栏；历史消息的
                     // 操作栏在流式时仍可见，仅底部条在生成/等审批时隐藏。
-                    if let Some(plan) = row_view(&self.state.messages).action_plan(
-                        message_index,
-                        self.is_generating(),
-                        self.state.pending_permission.is_some(),
-                    ) {
-                        column = column.child(self.render_message_actions(
-                            &format!("native-message-actions-{message_index}"),
-                            row_view(&self.state.messages).turn_copy_text(message_index),
-                            plan,
-                            palette,
-                            cx,
-                        ));
-                    }
-                    column.into_any_element()
+                    let actions = row_view(&self.state.messages)
+                        .action_plan(
+                            message_index,
+                            self.is_generating(),
+                            self.state.pending_permission.is_some(),
+                        )
+                        .map(|plan| {
+                            self.render_message_actions(
+                                &format!("native-message-actions-{message_index}"),
+                                row_view(&self.state.messages).turn_copy_text(message_index),
+                                plan,
+                                palette,
+                                cx,
+                            )
+                        });
+                    render_assistant_row(AssistantRowSpec {
+                        row_id: SharedString::from(format!("native-assistant-{message_index}")),
+                        markdown_id: SharedString::from(format!(
+                            "native-assistant-markdown-{message_index}"
+                        )),
+                        markdown: message.text.clone(),
+                        label: None,
+                        style: native_message_style(palette),
+                        actions,
+                    })
                 }
                 UiRole::User => {
                     if self.editing_user == Some(message_index) {
@@ -2729,44 +2736,22 @@ impl NativeAgentView {
                 UiRole::Thinking => {
                     let expanded = self.expanded_thinking.contains(&message_index);
                     let toggle_view = cx.entity().downgrade();
-                    let thinking_text = message.text.clone();
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(2.0))
-                        .child(
-                            div()
-                                .id(SharedString::from(format!(
-                                    "native-thinking-toggle-{message_index}"
-                                )))
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .gap(px(3.0))
-                                .text_size(px(11.0))
-                                .text_color(palette.ink_3)
-                                .hover(|style| style.text_color(palette.ink_2))
-                                .child(if expanded { "▾" } else { "▸" })
-                                .child("Thinking")
-                                .on_click(move |_, _, cx| {
-                                    let _ = toggle_view.update(cx, |this, cx| {
-                                        this.toggle_thinking(message_index, cx)
-                                    });
-                                }),
-                        )
-                        .children(expanded.then(|| {
-                            div()
-                                .pl(space(2))
-                                .border_l_1()
-                                .border_color(palette.line)
-                                .child(TextView::markdown(
-                                    SharedString::from(format!(
-                                        "native-thinking-markdown-{message_index}"
-                                    )),
-                                    sanitize_markdown(&thinking_text),
-                                ))
-                        }))
-                        .into_any_element()
+                    render_thinking_row(ThinkingRowSpec {
+                        row_id: SharedString::from(format!("native-thinking-{message_index}")),
+                        toggle_id: SharedString::from(format!(
+                            "native-thinking-toggle-{message_index}"
+                        )),
+                        markdown_id: SharedString::from(format!(
+                            "native-thinking-markdown-{message_index}"
+                        )),
+                        markdown: message.text.clone(),
+                        expanded,
+                        style: native_message_style(palette),
+                        on_toggle: Box::new(move |cx: &mut App| {
+                            let _ = toggle_view
+                                .update(cx, |this, cx| this.toggle_thinking(message_index, cx));
+                        }),
+                    })
                 }
                 UiRole::Tool => match &message.tool {
                     Some(tool) => {
@@ -5249,6 +5234,16 @@ fn row_view(messages: &[UiMessage]) -> RowView<'_, UiMessage> {
     RowView::new(messages, ui_row_kind, ui_assistant_text)
 }
 
+/// native 主题 → 共享消息行样式。
+fn native_message_style(palette: theme::Palette) -> MessageStyle {
+    MessageStyle {
+        ink_2: palette.ink_2,
+        ink_3: palette.ink_3,
+        line: palette.line,
+        radius: RADIUS_MEDIUM,
+    }
+}
+
 /// 一条消息的三种复制载荷（对齐 Zed 的 Copy / Copy as Markdown /
 /// native 侧把一行消息转成共享菜单载荷（user 的 plain 走 mention 展开）。
 fn message_menu_payloads(role: UiRole, text: &str, agent_response: Option<String>) -> MenuPayloads {
@@ -5300,12 +5295,6 @@ fn render_native_message_menu(
             let _ = bottom_view.update(cx, |this, cx| this.scroll_messages_to_bottom(cx));
         }),
     )
-}
-
-/// agent 回复用 Markdown 渲染。
-fn render_assistant_markdown(message_index: usize, text: &str) -> AnyElement {
-    markdown_text_view(format!("native-assistant-markdown-{message_index}"), text)
-        .into_any_element()
 }
 
 /// composer 里的 mention chip：技能 / 文件各一个图标，hover 显示真实路径。
