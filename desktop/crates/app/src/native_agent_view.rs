@@ -969,7 +969,7 @@ impl NativeAgentView {
                         this.run_slash_entry(entries, index, window, cx);
                         return;
                     }
-                    if *secondary && this.busy {
+                    if *secondary && this.busy && this.state.thread.capabilities.steer_available() {
                         // ⌘↩：生成中立即打断并发送。
                         this.steer(window, cx);
                     } else {
@@ -3199,9 +3199,14 @@ impl NativeAgentView {
 
     /// 消息区当前的行序列（历史消息 + 内联子 agent + 流式/错误行 + 兜底操作栏）。
     fn message_row_kinds(&self) -> Vec<MessageRowKind> {
+        let subagents: &[SubagentCard] = if self.state.thread.capabilities.subagent_available() {
+            &self.state.subagents
+        } else {
+            &[]
+        };
         let mut kinds = build_message_row_kinds(
             &self.state.thread.entries,
-            &self.state.subagents,
+            subagents,
             self.state.last_error.is_some(),
         );
         if self
@@ -3354,7 +3359,9 @@ impl Render for NativeAgentView {
         let mention_selected = self
             .mention_index
             .min(mention_matches.len().saturating_sub(1));
-        let can_undo = self.last_checkpoint.is_some() && !busy;
+        let can_undo = self.state.thread.capabilities.checkpoint_available()
+            && self.last_checkpoint.is_some()
+            && !busy;
         let change_count = self.checkpoint_changes.len();
         let plan_state = self
             .agent_state
@@ -3362,9 +3369,10 @@ impl Render for NativeAgentView {
             .map(|state| state.clone())
             .unwrap_or_default();
         let queued_messages = self.queued_messages.clone();
-        let show_plan_card = !plan_state.todos.is_empty()
-            || !plan_state.plan.is_empty()
-            || plan_state.goal.is_some();
+        let show_plan_card = self.state.thread.capabilities.plan_available()
+            && (!plan_state.todos.is_empty()
+                || !plan_state.plan.is_empty()
+                || plan_state.goal.is_some());
         let show_changes = self.show_checkpoint_panel && change_count > 0;
         let changes = self.checkpoint_changes.clone();
         let row_kinds = self.message_row_kinds();
@@ -3639,7 +3647,10 @@ impl Render for NativeAgentView {
                             .child("允许一次只对本次调用生效；本会话允许会记住该工具的同类请求。"),
                     )
             }))
-            .children((!queued_messages.is_empty()).then(|| {
+            .children(
+                (!queued_messages.is_empty()
+                    && self.state.thread.capabilities.queue_available())
+                    .then(|| {
                 div()
                     .id("native-agent-queue")
                     .flex()
@@ -4563,7 +4574,13 @@ impl Render for NativeAgentView {
                             .child(approval_picker)
                             .child(model_picker)
                             .children(effort_picker)
-                            .child(context_usage)
+                            .children(
+                                self.state
+                                    .thread
+                                    .capabilities
+                                    .usage_available()
+                                    .then_some(context_usage),
+                            )
                             .child(cgc_agent_ui::composer::render_send_button(
                                 cgc_agent_ui::composer::SendButtonSpec {
                                     id: if busy {
