@@ -893,13 +893,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cgc-agent-chat"
-version = "0.0.1"
-dependencies = [
- "cgc-platform",
-]
-
-[[package]]
 name = "cgc-agent-checkpoint"
 version = "0.0.1"
 dependencies = [
@@ -977,6 +970,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cgc-agent-ui"
+version = "0.0.1"
+dependencies = [
+ "cgc-platform",
+]
+
+[[package]]
 name = "cgc-courses"
 version = "0.0.1"
 dependencies = [
@@ -990,13 +990,13 @@ version = "0.0.1"
 dependencies = [
  "base64 0.22.1",
  "cgc-account",
- "cgc-agent-chat",
  "cgc-agent-checkpoint",
  "cgc-agent-core",
  "cgc-agent-host",
  "cgc-agent-provider",
  "cgc-agent-store",
  "cgc-agent-tools",
+ "cgc-agent-ui",
  "cgc-courses",
  "cgc-events",
  "cgc-platform",

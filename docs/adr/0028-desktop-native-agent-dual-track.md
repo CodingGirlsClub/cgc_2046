@@ -30,7 +30,7 @@ Zed 的实践提供了直接参照：native agent 是进程内 Rust 实现，与
    - `agent_tools`：工具 trait、schema 规范化、审批决策、危险命令规则；
    - `agent_store`：本地会话持久化（SQLite）；
    - `agent_mcp`：MCP 客户端（平台工具与第三方 MCP server）。
-   UI 仍在 `app`（chat 面板）与 `agent_chat`（domain 边界），沿用 AD-4 的模块归属。
+   UI 仍在 `app`（chat 面板）与 `agent_ui`（domain 边界），沿用 AD-4 的模块归属。
 4. **Provider 可配置**：照 Zed 的 `language_model_core` 四件套实现。首批：
    - 官方：**CGC 网关**（OpenAI 兼容，登录 token，订阅额度，小白默认）；
    - 国产 BYO：DeepSeek / 通义 / Kimi / GLM / 豆包 / 硅基流动（OpenAI 兼容 + 每模型 capability 覆盖）；

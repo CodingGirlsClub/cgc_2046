@@ -172,7 +172,7 @@ seam 已经在裸奔，只是没抽出来。
 - 架构脊柱 AD-4（`_bmad-output/.../architecture-desktop.md:76`）仍写「不实现 native agent、LLM 客户端与工具沙箱」；
   `desktop/AGENTS.md:32` 仍写「故意不做：native agent」。
 - ADR-0028 决策 2「单一 HostEvent/HostCommand 契约 + NativeHost」未落地；
-  决策 3「UI 归 `agent_chat`」未落地（该 crate 是 **31 行 doc 桩**，ACP UI 在 `app/root_view`，
+  决策 3「UI 归 `agent_ui`」未落地（该 crate 是 **31 行 doc 桩**，ACP UI 在 `app/root_view`，
   native UI 在 `app/native_agent_view.rs`），app 不再是纯组合根。
 - ADR-0028 决策 6（native 经 MCP 拿学习工具）、决策 11（Git 为硬前提）未实现 →
   **双轨能力不等价**：native 目前做不了课程学习工具。
@@ -261,9 +261,11 @@ seam 已经在裸奔，只是没抽出来。
 
 ### Stage 2：统一会话模型 + 单 UI（1–2 周，核心）
 
-- 新建/激活共享 crate（`agent_chat` 从 31 行桩变成真正的 view-model crate，或新 crate）：
-  `ConversationThread{entries, permission_requests, submissions, usage, checkpoint,
-  capabilities}` + 单 reducer + 按条目索引事件 + `Connection` trait（能力方法）。
+- 把 `agent_ui`（现 31 行桩）做成真正的共享 UI/视图层：先承载 `message_flow`、消息流渲染与
+  composer，再引入 `ConversationThread{entries, permission_requests, submissions, usage,
+  checkpoint, capabilities}` + 单 reducer + 按条目索引事件 + `Connection` trait（能力方法）；
+  会话模型先放同一 crate，出现第二个消费者或独立依赖面时再裂出 model crate（对齐 Zed 的
+  `agent_ui` / `acp_thread` 分法，但不为拆而拆）。
 - 两个 ingestion 入口：ACP 把 `HostEvent`/协议 update 映射进来（**先补 ACP 事件**：
   工具 args/输出/状态、用量、plan/compaction——这同时修掉 ACP 工具卡信息量不足的历史债）；
   native 直接调用 typed API（无序列化）。
@@ -288,14 +290,28 @@ seam 已经在裸奔，只是没抽出来。
 
 ---
 
-## 6. 开放问题（需要产品/架构决策）
+## 6. 决策与开放问题
 
-1. 双轨是长期形态还是过渡？决定 Stage 2 投入与是否做 transcript 迁移。
-2. Copy 语义：整回合（Zed）还是单条回复（我们现状）？建议整回合，与操作栏「回合末」一致。
-3. ACP 用户是否要 checkpoint？客户端侧 Git checkpoint 技术上可做，但 restore 需要会话 rewind
-   （ACP 无此方法）→ 先只做「创建 + 文件 diff/restore」，还是等协议。
-4. native 何时补 MCP/学习工具（双轨能力等价）？
-5. `agent_chat` 保留（变真）还是删除/改名？架构文档目前让它看起来「UI 已归位」。
+> 2026-10-25 讨论后更新：Q1/Q2/Q3/Q5 已拍板，Q4 仍在讨论（见下）。
+
+1. **【已定｜产品】双轨是长期形态，不是过渡。** 与 Zed 一致：native 默认 + external ACP 高级模式；
+   投入 Stage 2 收敛成「一套 UI + 一个客户端会话模型」；**不做 transcript 迁移**；
+   Stage 2 之后按真实使用数据 review 是否调整 external 的定位。
+2. **【已定｜抄 Zed】Copy This Agent Response = 该回合完整 agent 回复**（上一用户消息之后、
+   下一用户消息之前的所有 assistant 正文，跳过 thinking）；右键 `Copy` / `Copy as Markdown`
+   仍是单块内容。Stage 0 已按此实现，两栈一致。
+3. **【已定｜不做】ACP checkpoint。** Zed 的 checkpoint/编辑重发/restore 全由 `can_rewind_to`
+   门控，要求 `connection.truncate()`；该能力只有 native 实现（ACP v1/v2 均无，协议也没有
+   rewind 方法）。因此外部 ACP agent 在 Zed 里同样没有 checkpoint → 我们保持 native-only，
+   等 ACP 协议出现 rewind 能力再评估。
+4. **【讨论中】MCP 的客户端配置与 native 接入。** 方向：抄 Zed「MCP 是客户端资产」的架构
+   （Stdio/Http 配置形状 + 按 session 下发/注入 + 两个 runtime 都消费）；但 v1 的配置来源是
+   平台租赁（`learning_host` 的 CGC MCP，5 个学习工具）而非学员手填，用户可编辑的
+   `context_servers` 作为后续高级模式开口。native MCP client 与「native 在课程页转默认」同批，
+   避免学员缺学习工具。待确认：v1 是否开放用户自定义 MCP server。
+5. **【已定｜已执行】`agent_chat` 改名为 `agent_ui`**（2026-10-25，对齐 Zed 命名）；
+   crates/package/模块引用已改，路由 id 与 i18n key（`agent_chat.panel*`）暂留作页面标识。
+   Stage 1 先搬共享消息流渲染/composer 进去，Stage 2 再搬会话模型；暂不拆独立 model crate。
 
 ---
 

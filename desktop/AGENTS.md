@@ -27,7 +27,7 @@ GPUI + gpui-kit 的原生桌面客户端。组织方式对齐 Zed：`crates/` �
 
 | 位置 | Zed 对应 | 职责 |
 | --- | --- | --- |
-| `crates/agent_chat` | `agent_ui` 的子集 | 课程页对话面板、会话视图、审批卡、历史、每 agent 设置（当前仍多为 doc 桩） |
+| `crates/agent_ui` | `agent_ui` 的子集 | 课程页对话面板、会话视图、审批卡、历史、每 agent 设置（当前仍多为 doc 桩） |
 | `crates/platform/src/acp` | `acp_thread` | 协议/连接/会话/审批桥 |
 | `crates/platform/src/agent` | `agent_servers` | 探测、启动、进程生命周期 |
 | `crates/platform/src/registry` | `agent_servers` 的安装部分 | 清单、checksum、安装 |

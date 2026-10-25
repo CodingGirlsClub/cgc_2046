@@ -19,7 +19,7 @@ url = "2.5"
 uuid = "1"
 futures = "0.3"
 cgc-account.workspace = true
-cgc-agent-chat.workspace = true
+cgc-agent-ui.workspace = true
 cgc-agent-provider = { path = "../agent_provider" }
 cgc-agent-core = { path = "../agent_core" }
 cgc-agent-tools = { path = "../agent_tools" }

@@ -30,7 +30,7 @@ pub fn domain_route_sets() -> Vec<(&'static str, &'static [Route])> {
         ("account", cgc_account::registration::ROUTES),
         ("events", cgc_events::registration::ROUTES),
         ("courses", cgc_courses::registration::ROUTES),
-        ("agent_chat", cgc_agent_chat::registration::ROUTES),
+        ("agent_ui", cgc_agent_ui::registration::ROUTES),
     ]
 }
 
@@ -40,7 +40,7 @@ pub fn domain_i18n_key_sets() -> Vec<(&'static str, &'static [&'static str])> {
         ("account", cgc_account::registration::I18N_KEYS),
         ("events", cgc_events::registration::I18N_KEYS),
         ("courses", cgc_courses::registration::I18N_KEYS),
-        ("agent_chat", cgc_agent_chat::registration::I18N_KEYS),
+        ("agent_ui", cgc_agent_ui::registration::I18N_KEYS),
     ]
 }
 
