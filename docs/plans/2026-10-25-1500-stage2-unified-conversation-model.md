@@ -260,6 +260,10 @@ native 没有 `Plan` 事件：plan 由 native 的工具（`todo_write`/plan step
   `thread: ConversationThread` / `context_size` 并在 `apply(AgentEvent)` 里映射
   到 `ThreadEvent`（文本/思考/工具/审批/usage/压缩/错误/结束）；`app` 侧临时的
   `native_conversation` adapter 删除，改由 host 单点负责。
+- 持久化线程投影进模型：`apply_thread_entries` 在重建 `HostState` 时同步填充
+  `state.thread.entries`（User/Assistant/Thinking/ToolResult/Compaction），并写入
+  thread_id、usage（used/size）与 context window；native 发送路径同步把 user
+  消息 apply 进模型。
 - 为小步迁移，`HostState` 暂时并行保留 `messages`/streaming 字段（视图仍渲染旧
   路径）；下一步：视图切到 `state.thread`，删除旧字段与 `UiMessage` 渲染。
 - 验证：agent_host 15 个 reducer/事件测试（含新增 thread 断言）、模型 18 个、

@@ -55,6 +55,7 @@ use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 use cgc_agent_ui::command_menu::{
     render_command_menu, CommandMenuItem, CommandMenuSpec, CommandMenuStyle,
 };
+use cgc_agent_ui::conversation::{Entry as ConversationEntry, ThreadEvent, Usage};
 use cgc_agent_ui::markdown_text::markdown_to_plain;
 use cgc_agent_ui::markdown_view::markdown_text_view;
 use cgc_agent_ui::message_actions::{
@@ -469,6 +470,57 @@ fn apply_thread_entries(
             _ => {}
         }
     }
+    // 同步投影进共享会话模型（Stage 2d：视图渲染切换前置）。
+    state.thread.entries.clear();
+    for entry in entries {
+        match entry {
+            cgc_agent_core::Entry::User { text, display, .. } => {
+                state.thread.entries.push(ConversationEntry::User {
+                    text: display.clone().unwrap_or_else(|| text.clone()),
+                })
+            }
+            cgc_agent_core::Entry::Assistant { text, .. } if !text.is_empty() => state
+                .thread
+                .entries
+                .push(ConversationEntry::Assistant { text: text.clone() }),
+            cgc_agent_core::Entry::Thinking { text, .. } => {
+                state.thread.entries.push(ConversationEntry::Thinking {
+                    text: text.clone(),
+                    expanded: false,
+                })
+            }
+            cgc_agent_core::Entry::ToolResult {
+                tool_use_id,
+                tool_name,
+                content,
+                is_error,
+                ..
+            } => {
+                let (name, args) = tool_args
+                    .get(tool_use_id)
+                    .cloned()
+                    .unwrap_or_else(|| (tool_name.clone(), serde_json::Value::Null));
+                state.thread.entries.push(ConversationEntry::ToolCall {
+                    tool_call_id: tool_use_id.clone(),
+                    title: tool_name.clone(),
+                    name: Some(name),
+                    kind: "tool".to_string(),
+                    status: if *is_error { "failed" } else { "completed" }.to_string(),
+                    args: (!args.is_null()).then(|| args.to_string()),
+                    output: Some(content.clone()),
+                    locations: Vec::new(),
+                    expanded: false,
+                });
+            }
+            cgc_agent_core::Entry::Compaction { summary, .. } => {
+                state.thread.entries.push(ConversationEntry::Compaction {
+                    status: "completed".to_string(),
+                    summary: Some(summary.clone()),
+                })
+            }
+            _ => {}
+        }
+    }
     restored_images
 }
 
@@ -639,8 +691,15 @@ impl NativeAgentView {
                 if let Some(notice) = offline_echo_notice(using_echo) {
                     state.push_system(notice);
                 }
-                Thread::new(thread_id, selected)
+                Thread::new(thread_id.clone(), selected)
             }
+        };
+        state.set_context_size(model_config.context_window as u64);
+        state.thread.thread_id = thread_id.clone();
+        state.thread.usage = Usage {
+            used: state.usage_total.total(),
+            size: model_config.context_window as u64,
+            cost: None,
         };
         let restored = !state.messages.is_empty();
         let system_prompt = build_workspace_system_prompt(&workspace);
@@ -1283,6 +1342,15 @@ impl NativeAgentView {
         self.generate_thread_title(cx);
     }
 
+    /// 当前 model 的 context window（用于共享模型的 usage 百分比）。
+    fn model_context_size(&self) -> u64 {
+        self.providers
+            .iter()
+            .find(|provider| provider.id == self.model.provider_id.as_str())
+            .map(|provider| provider.model_config(self.model.id.as_str()).context_window as u64)
+            .unwrap_or(0)
+    }
+
     /// 从统一线程列表恢复指定 native 线程。
     pub fn open_thread(&mut self, thread_id: &str, cx: &mut Context<Self>) {
         let Some(store) = &self.session_store else {
@@ -1294,6 +1362,13 @@ impl NativeAgentView {
         let mut state = HostState::new();
         let restored_images = apply_thread_entries(&mut state, &thread.entries);
         state.usage_total = thread.usage_total;
+        state.thread.thread_id = thread.id.clone();
+        state.set_context_size(self.model_context_size());
+        state.thread.usage = Usage {
+            used: thread.usage_total.total(),
+            size: self.model_context_size(),
+            cost: None,
+        };
         self.state = state;
         self.sent_images = restored_images;
         let prompt = build_workspace_system_prompt(self.context.workspace());
@@ -1437,6 +1512,9 @@ impl NativeAgentView {
         agent.set_pending_user_display(Some(display.clone()));
         let approval_mode = self.approval_mode;
         if !retry {
+            self.state.thread.apply(ThreadEvent::TurnStarted {
+                user_text: display.clone(),
+            });
             self.state.push_user(display);
         }
         self.busy = true;
@@ -2303,6 +2381,13 @@ impl NativeAgentView {
         let mut state = HostState::new();
         let restored_images = apply_thread_entries(&mut state, &thread.entries);
         state.usage_total = thread.usage_total;
+        state.thread.thread_id = thread.id.clone();
+        state.set_context_size(self.model_context_size());
+        state.thread.usage = Usage {
+            used: thread.usage_total.total(),
+            size: self.model_context_size(),
+            cost: None,
+        };
         if state.messages.is_empty() {
             if let Some(notice) = offline_echo_notice(self.using_echo) {
                 state.push_system(notice);
@@ -2376,6 +2461,13 @@ impl NativeAgentView {
         let mut state = HostState::new();
         state.usage_total = thread.usage_total;
         let restored_images = apply_thread_entries(&mut state, &thread.entries);
+        state.thread.thread_id = thread.id.clone();
+        state.set_context_size(self.model_context_size());
+        state.thread.usage = Usage {
+            used: thread.usage_total.total(),
+            size: self.model_context_size(),
+            cost: None,
+        };
         if state.messages.is_empty() {
             state.push_system(EMPTY_THREAD_NOTICE);
         }
@@ -5518,6 +5610,34 @@ mod workspace_prompt_tests {
         assert_eq!(tool.content.as_deref(), Some("hi"));
         assert_eq!(state.messages[2].role, super::UiRole::Thinking);
         assert_eq!(state.messages[2].text, "想一下");
+
+        // Stage 2d：同一批 entries 也投影进共享模型（渲染切换前置）。
+        use cgc_agent_ui::conversation::Entry as ConversationEntry;
+        assert_eq!(state.thread.entries.len(), 3);
+        assert!(matches!(
+            &state.thread.entries[0],
+            ConversationEntry::User { text } if text == "跑一下"
+        ));
+        let ConversationEntry::ToolCall {
+            tool_call_id,
+            name,
+            status,
+            args,
+            output,
+            ..
+        } = &state.thread.entries[1]
+        else {
+            panic!("thread tool call");
+        };
+        assert_eq!(tool_call_id, "call_1");
+        assert_eq!(name.as_deref(), Some("run_command"));
+        assert_eq!(status, "completed");
+        assert!(args.as_deref().unwrap_or_default().contains("echo hi"));
+        assert_eq!(output.as_deref(), Some("hi"));
+        assert!(matches!(
+            &state.thread.entries[2],
+            ConversationEntry::Thinking { text, .. } if text == "想一下"
+        ));
     }
 
     #[test]
