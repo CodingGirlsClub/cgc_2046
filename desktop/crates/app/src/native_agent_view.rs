@@ -55,9 +55,10 @@ use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 use cgc_agent_ui::command_menu::{
     render_command_menu, CommandMenuItem, CommandMenuSpec, CommandMenuStyle,
 };
-use cgc_agent_ui::conversation::{Entry as ConversationEntry, ThreadEvent, Usage};
+use cgc_agent_ui::conversation::{
+    ConversationThread, Entry as ConversationEntry, ThreadEvent, Usage,
+};
 use cgc_agent_ui::markdown_text::markdown_to_plain;
-use cgc_agent_ui::markdown_view::markdown_text_view;
 use cgc_agent_ui::message_actions::{
     render_action_bar, render_message_menu, ActionBarSpec, ActionCallbacks, ActionGlyph,
     ActionGlyphs, ActionStyle, MenuPayloads,
@@ -524,6 +525,102 @@ fn apply_thread_entries(
     restored_images
 }
 
+/// 把共享模型 entries 投影成旧的 `UiMessage` 行（渲染切换的过渡层）。
+///
+/// 1:1 保持 entries 顺序，保证 index 型状态（编辑/checkpoint/图片签名）仍可工作；
+/// Permission/Notice/Compaction 暂投影成 System/Error 行。
+fn project_thread_to_messages(thread: &ConversationThread) -> Vec<UiMessage> {
+    thread
+        .entries
+        .iter()
+        .map(|entry| match entry {
+            ConversationEntry::User { text } => UiMessage {
+                role: UiRole::User,
+                text: text.clone(),
+                tool_call_id: None,
+                tool: None,
+            },
+            ConversationEntry::Assistant { text } => UiMessage {
+                role: UiRole::Assistant,
+                text: text.clone(),
+                tool_call_id: None,
+                tool: None,
+            },
+            ConversationEntry::Thinking { text, .. } => UiMessage {
+                role: UiRole::Thinking,
+                text: text.clone(),
+                tool_call_id: None,
+                tool: None,
+            },
+            ConversationEntry::ToolCall {
+                tool_call_id,
+                title,
+                name,
+                status,
+                args,
+                output,
+                ..
+            } => UiMessage {
+                role: UiRole::Tool,
+                text: output.clone().unwrap_or_default(),
+                tool_call_id: Some(tool_call_id.clone()),
+                tool: Some(UiToolCall {
+                    name: name.clone().unwrap_or_else(|| title.clone()),
+                    args: args
+                        .as_deref()
+                        .and_then(|args| serde_json::from_str(args).ok())
+                        .unwrap_or(serde_json::Value::Null),
+                    status: match status.as_str() {
+                        "completed" => ToolCallStatus::Ok,
+                        "failed" => ToolCallStatus::Failed,
+                        _ => ToolCallStatus::Running,
+                    },
+                    content: output.clone(),
+                }),
+            },
+            ConversationEntry::Permission { title, .. } => UiMessage {
+                role: UiRole::System,
+                text: format!("等待审批：{title}"),
+                tool_call_id: None,
+                tool: None,
+            },
+            ConversationEntry::Notice { level, text } => UiMessage {
+                role: if matches!(level, cgc_agent_ui::conversation::NoticeLevel::Error) {
+                    UiRole::Error
+                } else {
+                    UiRole::System
+                },
+                text: text.clone(),
+                tool_call_id: None,
+                tool: None,
+            },
+            ConversationEntry::Compaction { status, summary } => UiMessage {
+                role: UiRole::System,
+                text: match summary {
+                    Some(summary) => format!("上下文压缩（{status}）：{summary}"),
+                    None => format!("上下文压缩（{status}）"),
+                },
+                tool_call_id: None,
+                tool: None,
+            },
+        })
+        .collect()
+}
+
+/// 用共享模型重建旧渲染行，并自动展开新出现的 thinking entry。
+fn sync_ui_messages_from_thread(
+    state: &mut HostState,
+    expanded_thinking: &mut std::collections::HashSet<usize>,
+) {
+    let old_len = state.messages.len();
+    state.messages = project_thread_to_messages(&state.thread);
+    for (index, entry) in state.thread.entries.iter().enumerate() {
+        if index >= old_len && matches!(entry, ConversationEntry::Thinking { .. }) {
+            expanded_thinking.insert(index);
+        }
+    }
+}
+
 pub struct NativeAgentView {
     agent: Option<Agent>,
     provider: Arc<dyn Provider>,
@@ -569,8 +666,6 @@ pub struct NativeAgentView {
     expanded_tools: std::collections::HashSet<String>,
     /// 已展开的思考折叠块（UI message index）。
     expanded_thinking: std::collections::HashSet<usize>,
-    /// 流式思考块是否被用户折叠（默认自动展开）。
-    live_thinking_collapsed: bool,
     /// 正在编辑的用户消息（UI message index）。
     editing_user: Option<usize>,
     /// 编辑态输入框；仅在 editing_user 有值时存在。
@@ -681,6 +776,7 @@ impl NativeAgentView {
         });
         let mut state = HostState::new();
         let mut restored_images: HashMap<usize, Vec<SentImage>> = HashMap::new();
+        let mut restored_thinking = std::collections::HashSet::new();
         let thread = match restored_thread {
             Some(thread) => {
                 restored_images = apply_thread_entries(&mut state, &thread.entries);
@@ -689,7 +785,7 @@ impl NativeAgentView {
             }
             None => {
                 if let Some(notice) = offline_echo_notice(using_echo) {
-                    state.push_system(notice);
+                    state.push_notice(notice);
                 }
                 Thread::new(thread_id.clone(), selected)
             }
@@ -701,6 +797,7 @@ impl NativeAgentView {
             size: model_config.context_window as u64,
             cost: None,
         };
+        sync_ui_messages_from_thread(&mut state, &mut restored_thinking);
         let restored = !state.messages.is_empty();
         let system_prompt = build_workspace_system_prompt(&workspace);
         let agent = Agent::new(thread, Some(system_prompt));
@@ -913,7 +1010,6 @@ impl NativeAgentView {
             last_turn: None,
             expanded_tools: std::collections::HashSet::new(),
             expanded_thinking: std::collections::HashSet::new(),
-            live_thinking_collapsed: false,
             editing_user: None,
             user_edit_input: None,
             message_scroller: cx.new(|cx| MessageScrollerState::new(0, cx)),
@@ -974,14 +1070,14 @@ impl NativeAgentView {
                     .map(|schema| schema.name.clone())
                     .collect::<Vec<_>>()
                     .join(" / ");
-                self.state.push_system(format!("可用工具：{tools}"));
+                self.state.push_notice(format!("可用工具：{tools}"));
             }
             SlashCommand::Checkpoint => {
                 if self.last_checkpoint.is_some() {
                     self.show_checkpoint_panel = true;
                     self.refresh_checkpoint_changes();
                 } else {
-                    self.state.push_system("当前没有可用的 checkpoint");
+                    self.state.push_notice("当前没有可用的 checkpoint");
                 }
             }
             SlashCommand::Settings => {
@@ -996,10 +1092,10 @@ impl NativeAgentView {
                     }
                 }
                 if !opened {
-                    self.state.push_system("请在账号菜单里打开设置");
+                    self.state.push_notice("请在账号菜单里打开设置");
                 }
             }
-            SlashCommand::Unknown(name) => self.state.push_system(format!("未知命令：/{name}")),
+            SlashCommand::Unknown(name) => self.state.push_notice(format!("未知命令：/{name}")),
         }
         cx.notify();
     }
@@ -1369,6 +1465,7 @@ impl NativeAgentView {
             size: self.model_context_size(),
             cost: None,
         };
+        sync_ui_messages_from_thread(&mut state, &mut self.expanded_thinking);
         self.state = state;
         self.sent_images = restored_images;
         let prompt = build_workspace_system_prompt(self.context.workspace());
@@ -1434,7 +1531,7 @@ impl NativeAgentView {
             return;
         }
         let Some((prompt, display)) = self.last_turn.clone() else {
-            self.state.push_system("没有可重试的请求");
+            self.state.push_notice("没有可重试的请求");
             cx.notify();
             return;
         };
@@ -1444,6 +1541,7 @@ impl NativeAgentView {
             agent.thread_mut().truncate_before_last_user();
         }
         if let Some(index) = trim_messages_to_last_user(&mut self.state.messages) {
+            self.state.thread.entries.truncate(index + 1);
             self.sent_images
                 .retain(|message_index, _| *message_index <= index);
         }
@@ -1516,6 +1614,7 @@ impl NativeAgentView {
                 user_text: display.clone(),
             });
             self.state.push_user(display);
+            self.state.messages = project_thread_to_messages(&self.state.thread);
         }
         self.busy = true;
         self.status = "思考中…".to_string();
@@ -1531,23 +1630,8 @@ impl NativeAgentView {
                 let turn_finished = matches!(event, AgentEvent::TurnFinished { .. });
                 if this
                     .update(cx, |this, cx| {
-                        let had_thinking = !this.state.thinking_streaming.is_empty();
                         this.state.apply(event);
-                        let thinking_flushed =
-                            had_thinking && this.state.thinking_streaming.is_empty();
-                        if should_auto_expand_live_thinking(
-                            had_thinking,
-                            !this.state.thinking_streaming.is_empty(),
-                        ) {
-                            this.live_thinking_collapsed = false;
-                        }
-                        if thinking_flushed {
-                            transfer_live_thinking_expansion(
-                                &this.state.messages,
-                                this.live_thinking_collapsed,
-                                &mut this.expanded_thinking,
-                            );
-                        }
+                        sync_ui_messages_from_thread(&mut this.state, &mut this.expanded_thinking);
                         if turn_finished {
                             this.maybe_generate_thread_title(cx);
                         }
@@ -1700,7 +1784,7 @@ impl NativeAgentView {
                     dispatched,
                 });
             }
-            self.state.push_system(if dispatched {
+            self.state.push_notice(if dispatched {
                 format!("已执行：{summary}")
             } else {
                 summary
@@ -2046,7 +2130,13 @@ impl NativeAgentView {
         self.state.messages.retain(|message| {
             !(message.role == UiRole::System && message.text == EMPTY_THREAD_NOTICE)
         });
+        self.state.thread.entries.retain(|entry| {
+            !matches!(entry, ConversationEntry::Notice { text, .. } if text == EMPTY_THREAD_NOTICE)
+        });
         self.state.push_user(edited_display.clone());
+        self.state.thread.apply(ThreadEvent::TurnStarted {
+            user_text: edited_display.clone(),
+        });
         self.state.last_error = None;
         self.state.streaming.clear();
         self.last_turn = Some((edited_prompt.clone(), edited_display.clone()));
@@ -2390,9 +2480,10 @@ impl NativeAgentView {
         };
         if state.messages.is_empty() {
             if let Some(notice) = offline_echo_notice(self.using_echo) {
-                state.push_system(notice);
+                state.push_notice(notice);
             }
         }
+        sync_ui_messages_from_thread(&mut state, &mut std::collections::HashSet::new());
         self.state = state;
         self.sent_images = restored_images;
         self.workspace_files = collect_workspace_files(&root);
@@ -2413,7 +2504,6 @@ impl NativeAgentView {
         self.expanded_thinking.clear();
         self.editing_user = None;
         self.user_edit_input = None;
-        self.live_thinking_collapsed = false;
         self.last_turn = None;
         self.queued_messages.clear();
         self.checkpoint_changes.clear();
@@ -2469,8 +2559,9 @@ impl NativeAgentView {
             cost: None,
         };
         if state.messages.is_empty() {
-            state.push_system(EMPTY_THREAD_NOTICE);
+            state.push_notice(EMPTY_THREAD_NOTICE);
         }
+        sync_ui_messages_from_thread(&mut state, &mut std::collections::HashSet::new());
         self.state = state;
         self.sent_images = restored_images;
     }
@@ -2612,6 +2703,9 @@ impl NativeAgentView {
         self.state.messages.retain(|message| {
             !(message.role == UiRole::System && message.text == EMPTY_THREAD_NOTICE)
         });
+        self.state.thread.entries.retain(|entry| {
+            !matches!(entry, ConversationEntry::Notice { text, .. } if text == EMPTY_THREAD_NOTICE)
+        });
         self.invalidate_checkpoints_from(ordinal, &thread_id);
         self.state
             .push_system("已恢复检查点：文件已回退，可以从这里重新发送消息");
@@ -2642,6 +2736,7 @@ impl NativeAgentView {
     }
 
     fn resolve_approval(&mut self, decision: ApprovalDecision, cx: &mut Context<Self>) {
+        let allowed = !matches!(decision, ApprovalDecision::Deny);
         if let Ok(mut pending) = self.approval_sender.lock() {
             if let Some(sender) = pending.take() {
                 let _ = sender.send(decision);
@@ -2649,6 +2744,10 @@ impl NativeAgentView {
         }
         if let Some(prompt) = self.state.pending_permission.clone() {
             self.state.resolve_permission(&prompt.tool_call_id);
+            self.state.thread.apply(ThreadEvent::PermissionResolved {
+                request_id: prompt.tool_call_id.clone(),
+                allowed,
+            });
         }
         cx.notify();
     }
@@ -2658,7 +2757,7 @@ impl NativeAgentView {
     /// 当前是否在跑一个回合。`busy` 在结果回调里落回 false，但事件队列可能还没
     /// 消化完 TurnFinished，用 `turn_active` 补这个窗口（对齐 Zed 的 Generating）。
     fn is_generating(&self) -> bool {
-        self.busy || self.state.turn_active
+        self.busy || self.state.thread.is_generating()
     }
 
     /// 构建单条历史消息的行元素。
@@ -2960,87 +3059,6 @@ impl NativeAgentView {
     }
 
     /// 当前流式思考行（默认展开，可折叠）。
-    fn render_live_thinking_row(
-        &self,
-        palette: theme::Palette,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let thinking_streaming = &self.state.thinking_streaming;
-        if thinking_streaming.is_empty() {
-            return div().into_any_element();
-        }
-        let expanded = !self.live_thinking_collapsed;
-        let toggle_view = cx.entity().downgrade();
-        div()
-            .id("native-live-thinking")
-            .flex()
-            .flex_col()
-            .gap(px(2.0))
-            .child(
-                div()
-                    .id("native-live-thinking-toggle")
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(3.0))
-                    .text_size(px(11.0))
-                    .text_color(palette.accent)
-                    .child(if expanded { "▾" } else { "▸" })
-                    .child("Thinking…")
-                    .on_click(move |_, _, cx| {
-                        let _ = toggle_view.update(cx, |this, cx| {
-                            this.live_thinking_collapsed = !this.live_thinking_collapsed;
-                            cx.notify();
-                        });
-                    }),
-            )
-            .children(expanded.then(|| {
-                div()
-                    .pl(space(2))
-                    .border_l_1()
-                    .border_color(palette.line)
-                    .child(
-                        markdown_text_view("native-streaming-thinking", thinking_streaming)
-                            .stream_fade(true),
-                    )
-            }))
-            .into_any_element()
-    }
-
-    /// 当前流式回复行（markdown 增量渲染）。
-    fn render_streaming_row(
-        &self,
-        palette: theme::Palette,
-        menu_root: &WeakEntity<Self>,
-    ) -> AnyElement {
-        let streaming = &self.state.streaming;
-        if streaming.is_empty() {
-            return div().into_any_element();
-        }
-        let streaming_payloads = Arc::new(message_menu_payloads(
-            UiRole::Assistant,
-            streaming,
-            Some(streaming.clone()),
-        ));
-        let streaming_view = menu_root.clone();
-        div()
-            .id("native-message-streaming")
-            .flex()
-            .flex_col()
-            .gap(px(2.0))
-            .child(
-                div()
-                    .text_size(px(11.0))
-                    .text_color(palette.accent)
-                    .child("agent"),
-            )
-            .child(markdown_text_view("native-streaming-markdown", streaming).stream_fade(true))
-            .context_menu(move |menu, _window, _cx| {
-                render_native_message_menu(menu, streaming_view.clone(), streaming_payloads.clone())
-            })
-            .into_any_element()
-    }
-
     /// 失败回调行（带重试）。
     fn render_error_row(&self, palette: theme::Palette, cx: &mut Context<Self>) -> AnyElement {
         let Some(error) = self.state.last_error.clone() else {
@@ -3182,8 +3200,6 @@ impl NativeAgentView {
         let mut kinds = build_message_row_kinds(
             &self.state.messages,
             &self.state.subagents,
-            !self.state.thinking_streaming.is_empty(),
-            !self.state.streaming.is_empty(),
             self.state.last_error.is_some(),
         );
         if row_view(&self.state.messages)
@@ -3265,15 +3281,6 @@ impl NativeAgentView {
                     card.finished.hash(&mut hasher);
                 }
             }
-            MessageRowKind::LiveThinking => {
-                2u8.hash(&mut hasher);
-                self.state.thinking_streaming.len().hash(&mut hasher);
-                self.live_thinking_collapsed.hash(&mut hasher);
-            }
-            MessageRowKind::Streaming => {
-                3u8.hash(&mut hasher);
-                self.state.streaming.len().hash(&mut hasher);
-            }
             MessageRowKind::Error => {
                 4u8.hash(&mut hasher);
                 self.state
@@ -3308,8 +3315,6 @@ impl NativeAgentView {
                 .get(index)
                 .map(|card| render_subagent_row(card, &palette))
                 .unwrap_or_else(|| div().into_any_element()),
-            MessageRowKind::LiveThinking => self.render_live_thinking_row(palette, cx),
-            MessageRowKind::Streaming => self.render_streaming_row(palette, menu_root),
             MessageRowKind::Error => self.render_error_row(palette, cx),
             MessageRowKind::TrailingActions => self.render_trailing_actions(palette, cx),
         }
@@ -4903,28 +4908,6 @@ fn thread_user_entry_index(entries: &[cgc_agent_core::Entry], ordinal: usize) ->
         .map(|(index, _)| index)
 }
 
-/// 流式思考开始（空 → 非空）时自动展开思考块（对齐 Zed 的 streaming thought）。
-fn should_auto_expand_live_thinking(was_empty: bool, now_nonempty: bool) -> bool {
-    was_empty && now_nonempty
-}
-
-/// 思考 flush 成正式 Thinking 消息后，把实时块的展开状态转移到该消息上。
-fn transfer_live_thinking_expansion(
-    messages: &[cgc_agent_host::UiMessage],
-    live_collapsed: bool,
-    expanded: &mut std::collections::HashSet<usize>,
-) -> Option<usize> {
-    let index = messages
-        .iter()
-        .rposition(|message| message.role == UiRole::Thinking)?;
-    if live_collapsed {
-        expanded.remove(&index);
-    } else {
-        expanded.insert(index);
-    }
-    Some(index)
-}
-
 /// 滚动是否已经在底部（GPUI 的 offset.y 越往下越负，max_offset 为正）。
 /// 2px 容差避免亚像素/取整导致的“差一点点”抖动。
 /// 消息区的行类型：历史消息、内联子 agent、流式思考、流式回复、错误，
@@ -4933,8 +4916,6 @@ fn transfer_live_thinking_expansion(
 enum MessageRowKind {
     Message(usize),
     Subagent(usize),
-    LiveThinking,
-    Streaming,
     Error,
     TrailingActions,
 }
@@ -4944,8 +4925,6 @@ enum MessageRowKind {
 fn build_message_row_kinds(
     messages: &[UiMessage],
     subagents: &[SubagentCard],
-    has_live_thinking: bool,
-    has_streaming: bool,
     has_error: bool,
 ) -> Vec<MessageRowKind> {
     let mut kinds = Vec::with_capacity(messages.len() + subagents.len() + 3);
@@ -4965,12 +4944,6 @@ fn build_message_row_kinds(
                 kinds.push(MessageRowKind::Subagent(subagent_index));
             }
         }
-    }
-    if has_live_thinking {
-        kinds.push(MessageRowKind::LiveThinking);
-    }
-    if has_streaming {
-        kinds.push(MessageRowKind::Streaming);
     }
     for (index, used) in used_subagents.into_iter().enumerate() {
         if !used {
@@ -5807,7 +5780,7 @@ mod workspace_prompt_tests {
             subagent(Some("call_2"), "tail"),
             subagent(Some("call_1"), "inline"),
         ];
-        let kinds = super::build_message_row_kinds(&messages, &subagents, true, true, true);
+        let kinds = super::build_message_row_kinds(&messages, &subagents, true);
         assert_eq!(
             kinds,
             vec![
@@ -5815,16 +5788,14 @@ mod workspace_prompt_tests {
                 super::MessageRowKind::Message(1),
                 super::MessageRowKind::Subagent(1),
                 super::MessageRowKind::Message(2),
-                super::MessageRowKind::LiveThinking,
-                super::MessageRowKind::Streaming,
                 super::MessageRowKind::Subagent(0),
                 super::MessageRowKind::Error,
             ],
-            "子 agent 应内联到触发它的 tool 消息后，尾部按 流式→剩余子 agent→错误 排列"
+            "子 agent 应内联到触发它的 tool 消息后，尾部按 剩余子 agent→错误 排列"
         );
 
         // 无流式/错误/子 agent 时只有历史消息行
-        let kinds = super::build_message_row_kinds(&messages, &[], false, false, false);
+        let kinds = super::build_message_row_kinds(&messages, &[], false);
         assert_eq!(
             kinds,
             vec![
@@ -5836,7 +5807,7 @@ mod workspace_prompt_tests {
 
         // 同一 tool_call_id 的重复子 agent 只内联第一个，其余留在尾部
         let duplicates = vec![subagent(Some("call_1"), "a"), subagent(Some("call_1"), "b")];
-        let kinds = super::build_message_row_kinds(&messages, &duplicates, false, false, false);
+        let kinds = super::build_message_row_kinds(&messages, &duplicates, false);
         assert_eq!(
             kinds,
             vec![
@@ -5846,43 +5817,6 @@ mod workspace_prompt_tests {
                 super::MessageRowKind::Message(2),
                 super::MessageRowKind::Subagent(1),
             ]
-        );
-    }
-
-    #[test]
-    fn live_thinking_auto_expands_and_transfers_state() {
-        use cgc_agent_host::{UiMessage, UiRole};
-        assert!(super::should_auto_expand_live_thinking(true, true));
-        assert!(!super::should_auto_expand_live_thinking(false, true));
-        assert!(!super::should_auto_expand_live_thinking(true, false));
-
-        let message = |role, text: &str| UiMessage {
-            role,
-            text: text.into(),
-            tool_call_id: None,
-            tool: None,
-        };
-        let messages = vec![
-            message(UiRole::User, "问"),
-            message(UiRole::Thinking, "想"),
-            message(UiRole::Assistant, "答"),
-        ];
-        let mut expanded = std::collections::HashSet::new();
-        assert_eq!(
-            super::transfer_live_thinking_expansion(&messages, false, &mut expanded),
-            Some(1),
-            "展开状态应转移到第 1 条 Thinking"
-        );
-        assert!(expanded.contains(&1));
-        assert_eq!(
-            super::transfer_live_thinking_expansion(&messages, true, &mut expanded),
-            Some(1)
-        );
-        assert!(!expanded.contains(&1), "用户折叠时不应展开");
-        let no_thinking = vec![message(UiRole::User, "问")];
-        assert_eq!(
-            super::transfer_live_thinking_expansion(&no_thinking, false, &mut expanded),
-            None
         );
     }
 

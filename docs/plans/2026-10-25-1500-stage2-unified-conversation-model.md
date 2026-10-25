@@ -264,8 +264,15 @@ native 没有 `Plan` 事件：plan 由 native 的工具（`todo_write`/plan step
   `state.thread.entries`（User/Assistant/Thinking/ToolResult/Compaction），并写入
   thread_id、usage（used/size）与 context window；native 发送路径同步把 user
   消息 apply 进模型。
-- 为小步迁移，`HostState` 暂时并行保留 `messages`/streaming 字段（视图仍渲染旧
-  路径）；下一步：视图切到 `state.thread`，删除旧字段与 `UiMessage` 渲染。
+- **视图已改读模型**：native 渲染的 `state.messages` 现在由
+  `project_thread_to_messages(thread)` 每帧从模型投影（1:1 保序），删除流式
+  thinking/streaming 两行（模型 entries 本身实时更新）、`live_thinking_collapsed`
+  与自动展开转移逻辑；系统提示统一走 `HostState::push_notice` 同时进模型 Notice；
+  审批解决同步 `PermissionResolved`；不吐流式增量的 provider 在 TurnFinished 补
+  TextDelta 兜底。渲染函数签名仍是旧行类型（下一片切 `ConversationEntry`）。
+- 过渡期 `HostState` 仍保留 `messages/streaming` 字段（`messages` 已退化为投影缓存）；
+  下一步：渲染函数切 `ConversationEntry`，删除 projection 与旧字段/`UiMessage`。
+
 - 验证：agent_host 15 个 reducer/事件测试（含新增 thread 断言）、模型 18 个、
   app 125 个全绿；fmt/clippy 干净。
 

@@ -1,7 +1,9 @@
 use cgc_agent_provider::TokenUsage;
 use serde::{Deserialize, Serialize};
 
-use cgc_agent_conversation::conversation::{ConversationThread, ThreadCapabilities, ThreadEvent};
+use cgc_agent_conversation::conversation::{
+    ConversationThread, NoticeLevel, ThreadCapabilities, ThreadEvent,
+};
 
 use crate::events::AgentEvent;
 
@@ -169,6 +171,13 @@ impl HostState {
     }
 
     pub fn apply(&mut self, event: AgentEvent) {
+        // 兼容不吐流式增量的 provider：回合结束只有最终文本时补一条 TextDelta，
+        // 否则共享模型会丢这段回复（旧 messages 路径由下面的 flush 兜底）。
+        if let AgentEvent::TurnFinished { text, .. } = &event {
+            if !text.is_empty() && self.streaming.is_empty() {
+                self.thread.apply(ThreadEvent::TextDelta(text.clone()));
+            }
+        }
         if let Some(thread_event) = thread_event(&event, self.context_size) {
             self.thread.apply(thread_event);
         }
@@ -285,6 +294,16 @@ impl HostState {
                 self.pending_permission = None;
             }
         }
+    }
+
+    /// 追加一条系统提示（同时进旧 messages 与共享模型 Notice）。
+    pub fn push_notice(&mut self, text: impl Into<String>) {
+        let text = text.into();
+        self.push_system(text.clone());
+        self.thread.apply(ThreadEvent::Notice {
+            level: NoticeLevel::Info,
+            text,
+        });
     }
 
     pub fn push_user(&mut self, text: impl Into<String>) {
