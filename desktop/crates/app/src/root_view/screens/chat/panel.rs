@@ -762,7 +762,6 @@ pub(in crate::root_view) fn render_chat_panel(
                                         cgc_agent_ui::composer::SendButtonSpec {
                                             id: if streaming { "chat-stop" } else { "chat-send" }
                                                 .into(),
-                                            streaming,
                                             aria: if streaming {
                                                 "Stop Generation"
                                             } else {

@@ -4589,7 +4589,6 @@ impl Render for NativeAgentView {
                                         "native-agent-send"
                                     }
                                     .into(),
-                                    streaming: busy && !has_input,
                                     aria: send_aria.into(),
                                     tooltip: send_tip.into(),
                                     glyph: div().child(send_label).into_any_element(),

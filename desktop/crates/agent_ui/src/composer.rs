@@ -27,8 +27,8 @@ pub type ComposerAction = Box<dyn Fn(&mut Window, &mut App) + 'static>;
 pub struct ComposerSpec {
     pub card_id: SharedString,
     pub focused: bool,
-    pub streaming: bool,
     pub style: ComposerStyle,
+    pub streaming: bool,
     /// 输入区（Textarea 或 fallback 的自定义输入行）。
     pub input: AnyElement,
     /// footer 左侧控件（附件、picker、usage…）。
@@ -79,8 +79,8 @@ pub fn render_composer(spec: ComposerSpec) -> AnyElement {
     let ComposerSpec {
         card_id,
         focused,
-        streaming,
         style,
+        streaming,
         input,
         footer,
         send_glyph,
@@ -149,7 +149,6 @@ pub fn render_composer(spec: ComposerSpec) -> AnyElement {
 /// 发送/停止按钮（两栈共用外观与交互语义）。
 pub struct SendButtonSpec {
     pub id: SharedString,
-    pub streaming: bool,
     pub aria: SharedString,
     pub tooltip: SharedString,
     pub glyph: AnyElement,
@@ -166,7 +165,6 @@ pub struct SendButtonSpec {
 pub fn render_send_button(spec: SendButtonSpec) -> AnyElement {
     let SendButtonSpec {
         id,
-        streaming,
         aria,
         tooltip,
         glyph,
@@ -179,7 +177,6 @@ pub fn render_send_button(spec: SendButtonSpec) -> AnyElement {
         ml_auto,
         on_click,
     } = spec;
-    let _ = streaming;
     let mut button = div()
         .id(id)
         .role(Role::Button)
