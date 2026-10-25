@@ -15,7 +15,7 @@ use cgc_agent_core::{
 };
 use cgc_agent_host::{
     parse_slash, AgentEvent, AsyncChannelObserver, HostState, SlashCommand, SubagentCard,
-    ToolCallStatus, UiMessage, UiRole, UiToolCall, SLASH_COMMANDS,
+    SLASH_COMMANDS,
 };
 use cgc_agent_provider::{
     CompletionEvent, EchoProvider, Message as ProviderMessage, Model, ModelLimits,
@@ -55,9 +55,7 @@ use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 use cgc_agent_ui::command_menu::{
     render_command_menu, CommandMenuItem, CommandMenuSpec, CommandMenuStyle,
 };
-use cgc_agent_ui::conversation::{
-    ConversationThread, Entry as ConversationEntry, ThreadEvent, Usage,
-};
+use cgc_agent_ui::conversation::{Entry as ConversationEntry, ThreadEvent, Usage};
 use cgc_agent_ui::markdown_text::markdown_to_plain;
 use cgc_agent_ui::message_actions::{
     render_action_bar, render_message_menu, ActionBarSpec, ActionCallbacks, ActionGlyph,
@@ -426,6 +424,7 @@ fn apply_thread_entries(
             }
         }
     }
+    state.thread.entries.clear();
     for entry in entries {
         match entry {
             cgc_agent_core::Entry::User {
@@ -434,52 +433,14 @@ fn apply_thread_entries(
                 display,
                 ..
             } => {
-                // 展示文本优先用 display（不含技能/文件注入上下文），旧数据回退到 text。
-                state.push_user(display.clone().unwrap_or_else(|| text.clone()));
-                let previews = decode_sent_images(images);
-                if !previews.is_empty() {
-                    restored_images.insert(state.messages.len() - 1, previews);
-                }
-            }
-            cgc_agent_core::Entry::Assistant { text, .. } if !text.is_empty() => {
-                state.push_assistant(text)
-            }
-            cgc_agent_core::Entry::Thinking { text, .. } => state.push_thinking(text),
-            cgc_agent_core::Entry::ToolResult {
-                tool_use_id,
-                tool_name,
-                content,
-                is_error,
-                ..
-            } => {
-                let (name, args) = tool_args
-                    .get(tool_use_id)
-                    .cloned()
-                    .unwrap_or_else(|| (tool_name.clone(), serde_json::Value::Null));
-                let status = if *is_error {
-                    ToolCallStatus::Failed
-                } else {
-                    ToolCallStatus::Ok
-                };
-                state.push_tool_card(
-                    tool_use_id.clone(),
-                    name,
-                    args,
-                    status,
-                    Some(content.clone()),
-                );
-            }
-            _ => {}
-        }
-    }
-    // 同步投影进共享会话模型（Stage 2d：视图渲染切换前置）。
-    state.thread.entries.clear();
-    for entry in entries {
-        match entry {
-            cgc_agent_core::Entry::User { text, display, .. } => {
+                let index = state.thread.entries.len();
                 state.thread.entries.push(ConversationEntry::User {
                     text: display.clone().unwrap_or_else(|| text.clone()),
-                })
+                });
+                let previews = decode_sent_images(images);
+                if !previews.is_empty() {
+                    restored_images.insert(index, previews);
+                }
             }
             cgc_agent_core::Entry::Assistant { text, .. } if !text.is_empty() => state
                 .thread
@@ -526,129 +487,7 @@ fn apply_thread_entries(
     restored_images
 }
 
-/// 把共享模型 entries 投影成旧的 `UiMessage` 行（渲染切换的过渡层）。
-///
-/// 1:1 保持 entries 顺序，保证 index 型状态（编辑/checkpoint/图片签名）仍可工作；
-/// Permission/Notice/Compaction 暂投影成 System/Error 行。
-fn project_thread_to_messages(thread: &ConversationThread) -> Vec<UiMessage> {
-    thread
-        .entries
-        .iter()
-        .map(|entry| match entry {
-            ConversationEntry::User { text } => UiMessage {
-                role: UiRole::User,
-                text: text.clone(),
-                tool_call_id: None,
-                tool: None,
-            },
-            ConversationEntry::Assistant { text } => UiMessage {
-                role: UiRole::Assistant,
-                text: text.clone(),
-                tool_call_id: None,
-                tool: None,
-            },
-            ConversationEntry::Thinking { text, .. } => UiMessage {
-                role: UiRole::Thinking,
-                text: text.clone(),
-                tool_call_id: None,
-                tool: None,
-            },
-            ConversationEntry::ToolCall {
-                tool_call_id,
-                title,
-                name,
-                status,
-                args,
-                output,
-                ..
-            } => UiMessage {
-                role: UiRole::Tool,
-                text: output.clone().unwrap_or_default(),
-                tool_call_id: Some(tool_call_id.clone()),
-                tool: Some(UiToolCall {
-                    name: name.clone().unwrap_or_else(|| title.clone()),
-                    args: args
-                        .as_deref()
-                        .and_then(|args| serde_json::from_str(args).ok())
-                        .unwrap_or(serde_json::Value::Null),
-                    status: match status.as_str() {
-                        "completed" => ToolCallStatus::Ok,
-                        "failed" => ToolCallStatus::Failed,
-                        _ => ToolCallStatus::Running,
-                    },
-                    content: output.clone(),
-                }),
-            },
-            ConversationEntry::Permission { title, .. } => UiMessage {
-                role: UiRole::System,
-                text: format!("等待审批：{title}"),
-                tool_call_id: None,
-                tool: None,
-            },
-            ConversationEntry::Notice { level, text } => UiMessage {
-                role: if matches!(level, cgc_agent_ui::conversation::NoticeLevel::Error) {
-                    UiRole::Error
-                } else {
-                    UiRole::System
-                },
-                text: text.clone(),
-                tool_call_id: None,
-                tool: None,
-            },
-            ConversationEntry::Compaction { status, summary } => UiMessage {
-                role: UiRole::System,
-                text: match summary {
-                    Some(summary) => format!("上下文压缩（{status}）：{summary}"),
-                    None => format!("上下文压缩（{status}）"),
-                },
-                tool_call_id: None,
-                tool: None,
-            },
-        })
-        .collect()
-}
-
-/// 用共享模型重建旧渲染行，并自动展开新出现的 thinking entry。
-fn sync_ui_messages_from_thread(
-    state: &mut HostState,
-    expanded_thinking: &mut std::collections::HashSet<usize>,
-) {
-    let old_len = state.messages.len();
-    state.messages = project_thread_to_messages(&state.thread);
-    for (index, entry) in state.thread.entries.iter().enumerate() {
-        if index >= old_len && matches!(entry, ConversationEntry::Thinking { .. }) {
-            expanded_thinking.insert(index);
-        }
-    }
-}
-
-/// 共享模型 entries 里的用户消息 ordinal（1-based），用于 checkpoint/图片等索引。
-fn thread_entry_ordinal(entries: &[ConversationEntry], index: usize) -> Option<usize> {
-    if !matches!(entries.get(index)?, ConversationEntry::User { .. }) {
-        return None;
-    }
-    Some(
-        entries[..=index]
-            .iter()
-            .filter(|entry| matches!(entry, ConversationEntry::User { .. }))
-            .count(),
-    )
-}
-
-/// 重试/编辑重发前把模型裁到最近一条用户消息（与旧 messages 裁剪保持同序）。
-fn trim_entries_to_last_user(entries: &mut Vec<ConversationEntry>) -> Option<usize> {
-    let index = entries
-        .iter()
-        .rposition(|entry| matches!(entry, ConversationEntry::User { .. }))?;
-    entries.truncate(index + 1);
-    Some(index)
-}
-
-/// native 渲染行（阶段 2d：渲染函数切 `ConversationEntry` 前的本地视图模型）。
-///
-/// 字段名与旧 `UiMessage` 一致，渲染函数可以逐段迁移；类型留在 app 内，
-/// 不再依赖 `agent_host` 的 UI 类型。
-#[allow(dead_code)]
+/// native 渲染行（app 内视图模型，不再依赖 agent_host 的 UI 类型）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ViewRole {
     User,
@@ -659,7 +498,6 @@ enum ViewRole {
     Error,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ViewToolStatus {
     Running,
@@ -667,7 +505,6 @@ enum ViewToolStatus {
     Failed,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq)]
 struct ViewTool {
     name: String,
@@ -676,7 +513,6 @@ struct ViewTool {
     content: Option<String>,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq)]
 struct ViewRow {
     role: ViewRole,
@@ -685,9 +521,7 @@ struct ViewRow {
     tool: Option<ViewTool>,
 }
 
-#[allow(dead_code)]
 impl ViewRow {
-    /// 共享模型 entry → 渲染行；Permission/Notice/Compaction 先降级为 System/Error 行。
     fn from_entry(entry: &ConversationEntry) -> Self {
         match entry {
             ConversationEntry::User { text } => Self {
@@ -761,6 +595,28 @@ impl ViewRow {
             },
         }
     }
+}
+
+/// 第 `index` 条模型 entry 的用户消息 ordinal（1-based）。
+fn thread_entry_ordinal(entries: &[ConversationEntry], index: usize) -> Option<usize> {
+    if !matches!(entries.get(index)?, ConversationEntry::User { .. }) {
+        return None;
+    }
+    Some(
+        entries[..=index]
+            .iter()
+            .filter(|entry| matches!(entry, ConversationEntry::User { .. }))
+            .count(),
+    )
+}
+
+/// 重试/编辑重发前把模型裁到最近一条用户消息。
+fn trim_entries_to_last_user(entries: &mut Vec<ConversationEntry>) -> Option<usize> {
+    let index = entries
+        .iter()
+        .rposition(|entry| matches!(entry, ConversationEntry::User { .. }))?;
+    entries.truncate(index + 1);
+    Some(index)
 }
 
 pub struct NativeAgentView {
@@ -918,7 +774,6 @@ impl NativeAgentView {
         });
         let mut state = HostState::new();
         let mut restored_images: HashMap<usize, Vec<SentImage>> = HashMap::new();
-        let mut restored_thinking = std::collections::HashSet::new();
         let thread = match restored_thread {
             Some(thread) => {
                 restored_images = apply_thread_entries(&mut state, &thread.entries);
@@ -939,7 +794,6 @@ impl NativeAgentView {
             size: model_config.context_window as u64,
             cost: None,
         };
-        sync_ui_messages_from_thread(&mut state, &mut restored_thinking);
         let restored = !state.thread.entries.is_empty();
         let system_prompt = build_workspace_system_prompt(&workspace);
         let agent = Agent::new(thread, Some(system_prompt));
@@ -1195,14 +1049,12 @@ impl NativeAgentView {
         match command {
             SlashCommand::Help => self
                 .state
-                .push_system("命令：/help /clear /stop /tools /checkpoint /settings"),
+                .push_notice("命令：/help /clear /stop /tools /checkpoint /settings"),
             SlashCommand::Clear => {
-                self.state.messages.clear();
                 self.state.thread.entries.clear();
                 self.state.thread.status = cgc_agent_ui::conversation::ThreadStatus::Idle;
                 self.state.thread.pending_permission = None;
                 self.sent_images.clear();
-                self.state.streaming.clear();
                 self.state.last_error = None;
                 self.status = "对话显示已清空".to_string();
             }
@@ -1409,7 +1261,7 @@ impl NativeAgentView {
         if was_echo {
             self.status = "已读取 Provider API Key，使用真实模型".to_string();
             self.state
-                .push_system("已重新读取 Provider API Key，后续请求使用真实模型。");
+                .push_notice("已重新读取 Provider API Key，后续请求使用真实模型。");
         }
         cx.notify();
     }
@@ -1610,7 +1462,6 @@ impl NativeAgentView {
             size: self.model_context_size(),
             cost: None,
         };
-        sync_ui_messages_from_thread(&mut state, &mut self.expanded_thinking);
         self.state = state;
         self.sent_images = restored_images;
         let prompt = build_workspace_system_prompt(self.context.workspace());
@@ -1685,13 +1536,9 @@ impl NativeAgentView {
         if let Some(agent) = self.agent.as_mut() {
             agent.thread_mut().truncate_before_last_user();
         }
-        if let Some(index) = trim_messages_to_last_user(&mut self.state.messages) {
-            if trim_entries_to_last_user(&mut self.state.thread.entries) != Some(index) {
-                // 预计 1:1；若不一致以旧行 index 为准，保持两源中渲染索引稳定。
-                self.state.thread.entries.truncate(index + 1);
-            }
+        if let Some(index) = trim_entries_to_last_user(&mut self.state.thread.entries) {
             self.sent_images
-                .retain(|message_index, _| *message_index <= index);
+                .retain(|entry_index, _| *entry_index <= index);
         }
         // Settings 里改过 Key 后重试要能读到新凭据。
         self.refresh_provider_credentials(cx, true);
@@ -1705,9 +1552,10 @@ impl NativeAgentView {
             // 本条用户消息即将 push（run_turn 里会 push），ordinal = 现有用户消息数 + 1。
             let ordinal = self
                 .state
-                .messages
+                .thread
+                .entries
                 .iter()
-                .filter(|message| message.role == UiRole::User)
+                .filter(|entry| matches!(entry, ConversationEntry::User { .. }))
                 .count()
                 + 1;
             if let Some(thread_id) = self.agent.as_ref().map(|agent| agent.thread().id.clone()) {
@@ -1761,8 +1609,6 @@ impl NativeAgentView {
             self.state.thread.apply(ThreadEvent::TurnStarted {
                 user_text: display.clone(),
             });
-            self.state.push_user(display);
-            self.state.messages = project_thread_to_messages(&self.state.thread);
         }
         self.busy = true;
         self.status = "思考中…".to_string();
@@ -1778,8 +1624,15 @@ impl NativeAgentView {
                 let turn_finished = matches!(event, AgentEvent::TurnFinished { .. });
                 if this
                     .update(cx, |this, cx| {
+                        let old_len = this.state.thread.entries.len();
                         this.state.apply(event);
-                        sync_ui_messages_from_thread(&mut this.state, &mut this.expanded_thinking);
+                        for (index, entry) in this.state.thread.entries.iter().enumerate() {
+                            if index >= old_len
+                                && matches!(entry, ConversationEntry::Thinking { .. })
+                            {
+                                this.expanded_thinking.insert(index);
+                            }
+                        }
                         if turn_finished {
                             this.maybe_generate_thread_title(cx);
                         }
@@ -2162,13 +2015,11 @@ impl NativeAgentView {
             cx.notify();
             return;
         }
-        let Some(message) = self.state.messages.get(message_index) else {
+        let Some(ConversationEntry::User { text }) = self.state.thread.entries.get(message_index)
+        else {
             return;
         };
-        if message.role != UiRole::User {
-            return;
-        }
-        let text = message.text.clone();
+        let text = text.clone();
         let skills = self.skills.clone();
         let input = cx.new(|cx| {
             let mut state = TextareaState::new(window, cx).auto_grow(1, 8);
@@ -2213,7 +2064,7 @@ impl NativeAgentView {
             return;
         }
         let edited_prompt = mention::resolve_prompt(&content, self.context.workspace());
-        let Some(ordinal) = user_message_ordinal(&self.state.messages, message_index) else {
+        let Some(ordinal) = thread_entry_ordinal(&self.state.thread.entries, message_index) else {
             return;
         };
         let has_valid_checkpoint = self
@@ -2275,24 +2126,20 @@ impl NativeAgentView {
         self.rebuild_state_from_thread();
         self.invalidate_checkpoints_from(ordinal + 1, &thread_id);
         // 截断到空历史时 rebuild 会补一条引导提示；重发场景不需要它。
-        self.state.messages.retain(|message| {
-            !(message.role == UiRole::System && message.text == EMPTY_THREAD_NOTICE)
-        });
         self.state.thread.entries.retain(|entry| {
             !matches!(entry, ConversationEntry::Notice { text, .. } if text == EMPTY_THREAD_NOTICE)
         });
-        self.state.push_user(edited_display.clone());
         self.state.thread.apply(ThreadEvent::TurnStarted {
             user_text: edited_display.clone(),
         });
         self.state.last_error = None;
-        self.state.streaming.clear();
         self.last_turn = Some((edited_prompt.clone(), edited_display.clone()));
         let ordinal = self
             .state
-            .messages
+            .thread
+            .entries
             .iter()
-            .filter(|message| message.role == UiRole::User)
+            .filter(|entry| matches!(entry, ConversationEntry::User { .. }))
             .count();
         self.capture_checkpoint(&thread_id, ordinal);
         self.status = format!("从该消息重发{note}");
@@ -2527,7 +2374,7 @@ impl NativeAgentView {
         }
         self.state = HostState::new();
         self.state
-            .push_system("Native agent：新对话，配置 Provider 后开始。");
+            .push_notice("Native agent：新对话，配置 Provider 后开始。");
         self.last_checkpoint = None;
         self.available_checkpoints.clear();
         self.checkpoint_changes.clear();
@@ -2631,7 +2478,6 @@ impl NativeAgentView {
                 state.push_notice(notice);
             }
         }
-        sync_ui_messages_from_thread(&mut state, &mut std::collections::HashSet::new());
         self.state = state;
         self.sent_images = restored_images;
         self.workspace_files = collect_workspace_files(&root);
@@ -2709,7 +2555,6 @@ impl NativeAgentView {
         if state.thread.entries.is_empty() {
             state.push_notice(EMPTY_THREAD_NOTICE);
         }
-        sync_ui_messages_from_thread(&mut state, &mut std::collections::HashSet::new());
         self.state = state;
         self.sent_images = restored_images;
     }
@@ -2721,7 +2566,7 @@ impl NativeAgentView {
             if !self.checkpoint_notice_reported {
                 self.checkpoint_notice_reported = true;
                 self.state
-                    .push_system("当前工作区不是 git 仓库：检查点不可用，本轮文件改动将无法回滚。");
+                    .push_notice("当前工作区不是 git 仓库：检查点不可用，本轮文件改动将无法回滚。");
             }
             return;
         };
@@ -2742,7 +2587,7 @@ impl NativeAgentView {
                 if !self.checkpoint_notice_reported {
                     self.checkpoint_notice_reported = true;
                     self.state
-                        .push_system(format!("本轮未创建检查点：{error}（文件改动将无法回滚）"));
+                        .push_notice(format!("本轮未创建检查点：{error}（文件改动将无法回滚）"));
                 }
             }
         }
@@ -2769,8 +2614,7 @@ impl NativeAgentView {
     /// 某条 UI 消息可用的 checkpoint（用户消息 ordinal 对应）。
     fn checkpoint_for_message(&self, message_index: usize) -> Option<Checkpoint> {
         // 渲染行与模型 entries 1:1，优先用模型 ordinal；旧路径作为兜底。
-        let ordinal = thread_entry_ordinal(&self.state.thread.entries, message_index)
-            .or_else(|| user_message_ordinal(&self.state.messages, message_index))?;
+        let ordinal = thread_entry_ordinal(&self.state.thread.entries, message_index)?;
         self.available_checkpoints
             .iter()
             .find(|(candidate, _)| *candidate == ordinal)
@@ -2807,7 +2651,7 @@ impl NativeAgentView {
         let Some(checkpoint) = self.checkpoint_for_message(message_index) else {
             return;
         };
-        let Some(ordinal) = user_message_ordinal(&self.state.messages, message_index) else {
+        let Some(ordinal) = thread_entry_ordinal(&self.state.thread.entries, message_index) else {
             return;
         };
         let Some(manager) = &self.checkpoint_manager else {
@@ -2850,15 +2694,12 @@ impl NativeAgentView {
         self.editing_user = None;
         self.user_edit_input = None;
         self.rebuild_state_from_thread();
-        self.state.messages.retain(|message| {
-            !(message.role == UiRole::System && message.text == EMPTY_THREAD_NOTICE)
-        });
         self.state.thread.entries.retain(|entry| {
             !matches!(entry, ConversationEntry::Notice { text, .. } if text == EMPTY_THREAD_NOTICE)
         });
         self.invalidate_checkpoints_from(ordinal, &thread_id);
         self.state
-            .push_system("已恢复检查点：文件已回退，可以从这里重新发送消息");
+            .push_notice("已恢复检查点：文件已回退，可以从这里重新发送消息");
         self.status = "已恢复检查点".to_string();
         cx.notify();
     }
@@ -2905,7 +2746,6 @@ impl NativeAgentView {
 
 impl NativeAgentView {
     /// 当前是否在跑一个回合。`busy` 在结果回调里落回 false，但事件队列可能还没
-    /// 消化完 TurnFinished，用 `turn_active` 补这个窗口（对齐 Zed 的 Generating）。
     fn is_generating(&self) -> bool {
         self.busy || self.state.thread.is_generating()
     }
@@ -5043,22 +4883,6 @@ fn checkpoint_for_ordinal(
 }
 
 /// 第 `message_index` 条 UI 消息是第几条用户消息（1-based）。
-fn user_message_ordinal(
-    messages: &[cgc_agent_host::UiMessage],
-    message_index: usize,
-) -> Option<usize> {
-    let message = messages.get(message_index)?;
-    if message.role != UiRole::User {
-        return None;
-    }
-    Some(
-        messages[..=message_index]
-            .iter()
-            .filter(|message| message.role == UiRole::User)
-            .count(),
-    )
-}
-
 /// 第 `ordinal` 条用户消息（1-based）在 thread entries 里的下标。
 fn thread_user_entry_index(entries: &[cgc_agent_core::Entry], ordinal: usize) -> Option<usize> {
     entries
@@ -5119,15 +4943,6 @@ fn build_message_row_kinds(
         kinds.push(MessageRowKind::Error);
     }
     kinds
-}
-
-/// 重试前把 UI 消息裁到最近一条用户消息为止，丢掉失败 turn 残留的部分回复/工具卡。
-fn trim_messages_to_last_user(messages: &mut Vec<cgc_agent_host::UiMessage>) -> Option<usize> {
-    let index = messages
-        .iter()
-        .rposition(|message| message.role == UiRole::User)?;
-    messages.truncate(index + 1);
-    Some(index)
 }
 
 fn tool_status_label(status: ViewToolStatus) -> &'static str {
@@ -5280,7 +5095,7 @@ fn role_label(role: ViewRole) -> &'static str {
     }
 }
 
-/// 把 native 的 `UiMessage` 映射到共享消息流（`agent_ui::message_flow`）。
+/// 把 native 的本地 `ViewRow` 映射到共享消息流（`agent_ui::message_flow`）。
 fn message_menu_payloads(
     role: ViewRole,
     text: &str,
@@ -5638,7 +5453,7 @@ mod workspace_prompt_tests {
     #[test]
     fn apply_thread_entries_builds_tool_cards_with_args() {
         use cgc_agent_core::Entry;
-        use cgc_agent_host::{HostState, ToolCallStatus};
+        use cgc_agent_host::HostState;
         use cgc_agent_provider::ToolUse;
         let entries = vec![
             Entry::User {
@@ -5672,18 +5487,7 @@ mod workspace_prompt_tests {
         ];
         let mut state = HostState::new();
         super::apply_thread_entries(&mut state, &entries);
-        assert_eq!(state.messages.len(), 3, "user + tool card + thinking");
-        let tool = state.messages[1]
-            .tool
-            .as_ref()
-            .expect("structured tool data");
-        assert_eq!(tool.args["command"], "echo hi");
-        assert_eq!(tool.status, ToolCallStatus::Ok);
-        assert_eq!(tool.content.as_deref(), Some("hi"));
-        assert_eq!(state.messages[2].role, super::UiRole::Thinking);
-        assert_eq!(state.messages[2].text, "想一下");
-
-        // Stage 2d：同一批 entries 也投影进共享模型（渲染切换前置）。
+        // Stage 2d：恢复的线程 entries 直接投影进共享模型。
         use cgc_agent_ui::conversation::Entry as ConversationEntry;
         assert_eq!(state.thread.entries.len(), 3);
         assert!(matches!(
@@ -5794,67 +5598,6 @@ mod workspace_prompt_tests {
             Some(3)
         );
         assert!(super::checkpoint_for_ordinal(&records, 4).is_none());
-    }
-
-    #[test]
-    fn user_message_ordinal_and_thread_entry_mapping() {
-        use cgc_agent_core::Entry;
-        use cgc_agent_host::{UiMessage, UiRole};
-
-        let msg = |role, text: &str| UiMessage {
-            role,
-            text: text.into(),
-            tool_call_id: None,
-            tool: None,
-        };
-        let messages = vec![
-            msg(UiRole::User, "q1"),
-            msg(UiRole::Assistant, "a1"),
-            msg(UiRole::Tool, "t1"),
-            msg(UiRole::User, "q2"),
-            msg(UiRole::Assistant, "a2"),
-            msg(UiRole::User, "q3"),
-        ];
-        assert_eq!(super::user_message_ordinal(&messages, 0), Some(1));
-        assert_eq!(super::user_message_ordinal(&messages, 3), Some(2));
-        assert_eq!(super::user_message_ordinal(&messages, 5), Some(3));
-        assert_eq!(
-            super::user_message_ordinal(&messages, 1),
-            None,
-            "非用户消息"
-        );
-
-        let entries = vec![
-            Entry::User {
-                text: "q1".into(),
-                images: Vec::new(),
-                display: Some("q1".into()),
-                at: 0,
-            },
-            Entry::Assistant {
-                text: "a1".into(),
-                tool_calls: Vec::new(),
-                usage: None,
-                at: 0,
-            },
-            Entry::User {
-                text: "q2".into(),
-                images: Vec::new(),
-                display: Some("q2".into()),
-                at: 0,
-            },
-            Entry::User {
-                text: "q3".into(),
-                images: Vec::new(),
-                display: Some("q3".into()),
-                at: 0,
-            },
-        ];
-        assert_eq!(super::thread_user_entry_index(&entries, 1), Some(0));
-        assert_eq!(super::thread_user_entry_index(&entries, 2), Some(2));
-        assert_eq!(super::thread_user_entry_index(&entries, 3), Some(3));
-        assert_eq!(super::thread_user_entry_index(&entries, 4), None);
-        assert_eq!(super::thread_user_entry_index(&entries, 0), None);
     }
 
     #[test]
@@ -6013,42 +5756,6 @@ mod workspace_prompt_tests {
             .role,
             super::ViewRole::System
         );
-    }
-
-    #[test]
-    fn trim_messages_to_last_user_drops_failed_turn_rows() {
-        use cgc_agent_host::{UiMessage, UiRole};
-        let mut messages = vec![
-            UiMessage {
-                role: UiRole::User,
-                text: "第一问".into(),
-                tool_call_id: None,
-                tool: None,
-            },
-            UiMessage {
-                role: UiRole::Assistant,
-                text: "第一答".into(),
-                tool_call_id: None,
-                tool: None,
-            },
-            UiMessage {
-                role: UiRole::User,
-                text: "第二问".into(),
-                tool_call_id: None,
-                tool: None,
-            },
-            UiMessage {
-                role: UiRole::Assistant,
-                text: "失败前的半截回复".into(),
-                tool_call_id: None,
-                tool: None,
-            },
-        ];
-        let kept = super::trim_messages_to_last_user(&mut messages);
-        assert_eq!(kept, Some(2));
-        assert_eq!(messages.len(), 3, "保留到最近一条用户消息");
-        assert_eq!(messages.last().unwrap().text, "第二问");
-        assert_eq!(super::trim_messages_to_last_user(&mut Vec::new()), None);
     }
 
     #[test]

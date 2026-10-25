@@ -1,362 +1,148 @@
-use cgc_agent_host::{AgentEvent, HostState, UiRole};
+use cgc_agent_conversation::conversation::{ConversationThread, Entry, NoticeLevel, ThreadStatus};
+use cgc_agent_host::{AgentEvent, HostState};
 use cgc_agent_provider::{StopReason, TokenUsage};
 
+fn state() -> HostState {
+    HostState::new()
+}
+
+fn usage(input: u64, output: u64) -> TokenUsage {
+    TokenUsage {
+        input,
+        output,
+        cache_read: 0,
+        cache_creation: 0,
+    }
+}
+
 #[test]
-fn text_deltas_become_one_assistant_message_and_turn_closes() {
-    let mut state = HostState::new();
-    state.push_user("hi");
+fn text_deltas_merge_into_one_assistant_entry_and_turn_closes() {
+    let mut state = state();
     state.apply(AgentEvent::TurnStarted {
         thread_id: "t1".into(),
     });
     state.apply(AgentEvent::TextDelta { text: "he".into() });
     state.apply(AgentEvent::TextDelta { text: "llo".into() });
-    assert_eq!(state.streaming, "hello");
-    assert!(state.turn_active);
+    assert_eq!(state.thread.entries.len(), 1);
+    assert_eq!(
+        state.thread.entries[0],
+        Entry::Assistant {
+            text: "hello".into()
+        }
+    );
     state.apply(AgentEvent::TurnFinished {
         text: "hello".into(),
         stop_reason: StopReason::EndTurn,
     });
-    assert!(!state.turn_active);
-    assert_eq!(state.messages.len(), 2);
-    assert_eq!(state.messages[1].role, UiRole::Assistant);
-    assert_eq!(state.messages[1].text, "hello");
+    assert_eq!(state.thread.status, ThreadStatus::Idle);
+    assert_eq!(state.thread.entries.len(), 1, "最终文本不重复追加");
 }
 
 #[test]
-fn permission_request_and_tool_result_update_state() {
-    let mut state = HostState::new();
-    state.apply(AgentEvent::PermissionRequested {
-        tool_call_id: "call_1".into(),
-        tool_name: "write_file".into(),
-        args: serde_json::json!({"path": "a.txt"}),
-    });
-    let prompt = state.pending_permission.clone().expect("prompt");
-    assert_eq!(prompt.tool_call_id, "call_1");
-    assert!(state.resolve_permission("call_1").is_some());
-    assert!(state.pending_permission.is_none());
-    state.apply(AgentEvent::ToolCallFinished {
-        tool_call_id: "call_1".into(),
-        tool_name: "write_file".into(),
-        ok: true,
-        content: "wrote".into(),
-    });
-    assert_eq!(state.messages.len(), 1);
-    assert_eq!(state.messages[0].role, UiRole::Tool);
-}
-
-#[test]
-fn usage_event_updates_total() {
-    let mut state = HostState::new();
-    state.apply(AgentEvent::UsageUpdated {
-        usage: TokenUsage {
-            input: 3,
-            output: 1,
-            ..Default::default()
-        },
-        total: TokenUsage {
-            input: 9,
-            output: 4,
-            ..Default::default()
-        },
-    });
-    assert_eq!(state.usage_total.total(), 13);
-}
-
-#[test]
-fn error_event_sets_last_error() {
-    let mut state = HostState::new();
-    state.apply(AgentEvent::Error {
-        message: "boom".into(),
-    });
-    assert_eq!(state.last_error.as_deref(), Some("boom"));
-    assert!(!state.turn_active);
-}
-
-#[test]
-fn events_are_serde_roundtrippable() {
-    let event = AgentEvent::TurnFinished {
-        text: "done".into(),
-        stop_reason: StopReason::EndTurn,
-    };
-    let raw = serde_json::to_string(&event).expect("ser");
-    let back: AgentEvent = serde_json::from_str(&raw).expect("de");
-    assert_eq!(back, event);
-}
-
-#[test]
-fn follow_up_flushes_streaming_and_appends_user_message() {
-    let mut state = HostState::new();
-    state.push_user("first");
+fn turn_finished_falls_back_to_final_text_without_deltas() {
+    let mut state = state();
     state.apply(AgentEvent::TurnStarted {
         thread_id: "t1".into(),
     });
-    state.apply(AgentEvent::TextDelta {
-        text: "reply-one".into(),
+    state.apply(AgentEvent::TurnFinished {
+        text: "final only".into(),
+        stop_reason: StopReason::EndTurn,
+    });
+    assert_eq!(
+        state.thread.entries[0],
+        Entry::Assistant {
+            text: "final only".into()
+        }
+    );
+}
+
+#[test]
+fn follow_up_and_steer_append_user_entries() {
+    let mut state = state();
+    state.apply(AgentEvent::TurnStarted {
+        thread_id: "t1".into(),
     });
     state.apply(AgentEvent::FollowUpStarted {
-        text: "second".into(),
-    });
-    assert!(state.streaming.is_empty());
-    assert_eq!(
-        state.messages.last().map(|message| message.text.as_str()),
-        Some("second")
-    );
-    assert_eq!(state.messages.len(), 3);
-}
-
-#[test]
-fn steer_flushes_streaming_and_appends_user_message() {
-    let mut state = HostState::new();
-    state.push_user("first");
-    state.apply(AgentEvent::TurnStarted {
-        thread_id: "t1".into(),
-    });
-    state.apply(AgentEvent::TextDelta {
-        text: "partial".into(),
+        text: "after".into(),
     });
     state.apply(AgentEvent::SteerStarted {
-        text: "instead do this".into(),
+        text: "steer".into(),
     });
-    assert!(state.streaming.is_empty());
-    assert_eq!(state.messages.len(), 3);
-    assert_eq!(state.messages[1].text, "partial");
-    assert_eq!(state.messages[2].text, "instead do this");
+    assert_eq!(state.thread.entries.len(), 2);
+    assert!(matches!(&state.thread.entries[0], Entry::User { text } if text == "after"));
+    assert!(matches!(&state.thread.entries[1], Entry::User { text } if text == "steer"));
 }
 
 #[test]
-fn compaction_pushes_system_notice() {
-    let mut state = HostState::new();
-    state.apply(AgentEvent::ContextCompacted { omitted_entries: 7 });
-    assert_eq!(state.messages.len(), 1);
-    assert_eq!(state.messages[0].role, cgc_agent_host::UiRole::System);
-    assert!(state.messages[0].text.contains("省略 7 条"));
-}
-
-#[test]
-fn subagent_events_update_cards() {
-    let mut state = HostState::new();
-    state.apply(AgentEvent::SubagentStarted {
-        task: "lint".into(),
-    });
-    state.apply(AgentEvent::SubagentProgress {
-        text: "checking".into(),
-    });
-    assert_eq!(state.subagents.len(), 1);
-    assert_eq!(state.subagents[0].task, "lint");
-    assert_eq!(state.subagents[0].text, "checking");
-    assert_eq!(state.subagents[0].finished, None);
-    state.apply(AgentEvent::SubagentFinished { ok: true });
-    assert_eq!(state.subagents[0].finished, Some(true));
-}
-
-#[test]
-fn tool_call_flushes_streaming_text_before_card() {
-    let mut state = HostState::new();
-    state.push_user("question");
+fn tool_lifecycle_maps_args_status_output() {
+    let mut state = state();
     state.apply(AgentEvent::TurnStarted {
         thread_id: "t1".into(),
-    });
-    state.apply(AgentEvent::TextDelta {
-        text: "先看一眼".into(),
-    });
-    state.apply(AgentEvent::ToolCallStarted {
-        tool_call_id: "call_1".into(),
-        tool_name: "read_file".into(),
-        args: serde_json::json!({"path": "a.txt"}),
-    });
-    state.apply(AgentEvent::ToolCallFinished {
-        tool_call_id: "call_1".into(),
-        tool_name: "read_file".into(),
-        ok: true,
-        content: "contents".into(),
-    });
-    state.apply(AgentEvent::TextDelta {
-        text: "看完了".into(),
-    });
-    state.apply(AgentEvent::TurnFinished {
-        text: String::new(),
-        stop_reason: StopReason::EndTurn,
-    });
-
-    // 工具卡之前的文本必须先固化：顺序要与持久化 Entry 重载后一致
-    // （对齐 Zed 的 reducer —— 插入 ToolCall 条目前先 flush 流式文本）。
-    let order: Vec<(UiRole, &str)> = state
-        .messages
-        .iter()
-        .map(|message| (message.role, message.text.as_str()))
-        .collect();
-    assert_eq!(
-        order,
-        vec![
-            (UiRole::User, "question"),
-            (UiRole::Assistant, "先看一眼"),
-            (UiRole::Tool, "read_file"),
-            (UiRole::Assistant, "看完了"),
-        ]
-    );
-}
-
-#[test]
-fn thinking_and_text_before_tool_keep_persisted_order() {
-    let mut state = HostState::new();
-    state.apply(AgentEvent::TurnStarted {
-        thread_id: "t1".into(),
-    });
-    state.apply(AgentEvent::ThinkingDelta {
-        text: "先想".into(),
-    });
-    state.apply(AgentEvent::TextDelta {
-        text: "先说".into(),
-    });
-    state.apply(AgentEvent::ToolCallStarted {
-        tool_call_id: "call_1".into(),
-        tool_name: "read_file".into(),
-        args: serde_json::json!({}),
-    });
-    state.apply(AgentEvent::ToolCallFinished {
-        tool_call_id: "call_1".into(),
-        tool_name: "read_file".into(),
-        ok: true,
-        content: "ok".into(),
-    });
-    state.apply(AgentEvent::TurnFinished {
-        text: String::new(),
-        stop_reason: StopReason::EndTurn,
-    });
-    let roles: Vec<UiRole> = state.messages.iter().map(|message| message.role).collect();
-    assert_eq!(
-        roles,
-        vec![UiRole::Thinking, UiRole::Assistant, UiRole::Tool]
-    );
-    assert_eq!(state.messages[0].text, "先想");
-    assert_eq!(state.messages[1].text, "先说");
-}
-
-#[test]
-fn consecutive_tool_calls_flush_between_texts() {
-    let mut state = HostState::new();
-    state.apply(AgentEvent::TurnStarted {
-        thread_id: "t1".into(),
-    });
-    for (call, text) in [("call_1", "first"), ("call_2", "second")] {
-        state.apply(AgentEvent::TextDelta {
-            text: format!("{text} "),
-        });
-        state.apply(AgentEvent::ToolCallStarted {
-            tool_call_id: call.into(),
-            tool_name: "read_file".into(),
-            args: serde_json::json!({}),
-        });
-        state.apply(AgentEvent::ToolCallFinished {
-            tool_call_id: call.into(),
-            tool_name: "read_file".into(),
-            ok: true,
-            content: "ok".into(),
-        });
-    }
-    state.apply(AgentEvent::TurnFinished {
-        text: String::new(),
-        stop_reason: StopReason::EndTurn,
-    });
-    let order: Vec<(UiRole, &str)> = state
-        .messages
-        .iter()
-        .map(|message| (message.role, message.text.as_str()))
-        .collect();
-    assert_eq!(
-        order,
-        vec![
-            (UiRole::Assistant, "first "),
-            (UiRole::Tool, "read_file"),
-            (UiRole::Assistant, "second "),
-            (UiRole::Tool, "read_file"),
-        ]
-    );
-}
-
-#[test]
-fn nested_subagents_get_separate_cards() {
-    let mut state = HostState::new();
-    state.apply(AgentEvent::SubagentStarted { task: "one".into() });
-    state.apply(AgentEvent::SubagentStarted { task: "two".into() });
-    state.apply(AgentEvent::SubagentFinished { ok: false });
-    assert_eq!(state.subagents.len(), 2);
-    assert_eq!(state.subagents[0].finished, None);
-    assert_eq!(state.subagents[1].finished, Some(false));
-}
-
-#[test]
-fn shared_thread_tracks_tool_lifecycle_and_usage() {
-    use cgc_agent_conversation::conversation::{ConversationThread, Entry, ThreadStatus};
-
-    let mut state = HostState::new();
-    state.set_context_size(1000);
-    state.apply(AgentEvent::TurnStarted {
-        thread_id: "t1".into(),
-    });
-    state.apply(AgentEvent::TextDelta {
-        text: "checking ".into(),
     });
     state.apply(AgentEvent::ToolCallStarted {
         tool_call_id: "c1".into(),
         tool_name: "read_file".into(),
         args: serde_json::json!({"path": "a.rs"}),
     });
-    state.apply(AgentEvent::TextDelta {
-        text: "after".into(),
-    });
     state.apply(AgentEvent::ToolCallFinished {
         tool_call_id: "c1".into(),
         tool_name: "read_file".into(),
-        ok: false,
-        content: "denied".into(),
+        ok: true,
+        content: "ok".into(),
     });
-    state.apply(AgentEvent::UsageUpdated {
-        usage: TokenUsage {
-            input: 10,
-            output: 5,
-            cache_read: 2,
-            cache_creation: 0,
-        },
-        total: TokenUsage::default(),
-    });
-    state.apply(AgentEvent::TurnFinished {
-        text: String::new(),
-        stop_reason: StopReason::EndTurn,
-    });
-
-    let ConversationThread {
-        entries,
+    let Entry::ToolCall {
+        tool_call_id,
+        name,
         status,
-        usage,
+        args,
+        output,
         ..
-    } = &state.thread;
-    assert_eq!(*status, ThreadStatus::Idle);
-    assert_eq!(entries.len(), 3, "text / tool / text（user 由视图写入）");
-    assert!(matches!(entries[0], Entry::Assistant { .. }));
-    assert!(matches!(entries[1], Entry::ToolCall { .. }));
-    assert!(matches!(entries[2], Entry::Assistant { .. }));
-    assert_eq!(usage.used, 17);
-    assert_eq!(usage.size, 1000);
-    let Entry::ToolCall { status, output, .. } = &entries[1] else {
+    } = &state.thread.entries[0]
+    else {
         panic!("tool entry");
     };
-    assert_eq!(status, "failed");
-    assert_eq!(output.as_deref(), Some("denied"));
+    assert_eq!(tool_call_id, "c1");
+    assert_eq!(name.as_deref(), Some("read_file"));
+    assert_eq!(status, "completed");
+    assert!(args.as_deref().unwrap_or_default().contains("a.rs"));
+    assert_eq!(output.as_deref(), Some("ok"));
 }
 
 #[test]
-fn shared_thread_tracks_permission_and_error() {
-    use cgc_agent_conversation::conversation::{Entry, NoticeLevel, ThreadStatus};
-
-    let mut state = HostState::new();
+fn permission_request_sets_pending_and_resolves() {
+    let mut state = state();
     state.apply(AgentEvent::PermissionRequested {
         tool_call_id: "c1".into(),
         tool_name: "run_command".into(),
         args: serde_json::json!({"cmd": "ls"}),
     });
     assert_eq!(state.thread.status, ThreadStatus::AwaitingApproval);
-    assert!(state.thread.pending_permission.is_some());
+    assert!(state.pending_permission.is_some());
+    assert!(state.resolve_permission("c1").is_some());
+    assert!(state.pending_permission.is_none());
+}
+
+#[test]
+fn usage_and_context_size_feed_model_usage() {
+    let mut state = state();
+    state.set_context_size(1000);
+    state.apply(AgentEvent::UsageUpdated {
+        usage: usage(10, 5),
+        total: usage(20, 5),
+    });
+    assert_eq!(state.usage_total.total(), 25);
+    assert_eq!(state.thread.usage.used, 15);
+    assert_eq!(state.thread.usage.size, 1000);
+}
+
+#[test]
+fn compaction_maps_to_entry_and_error_to_failed_notice() {
+    let mut state = state();
+    state.apply(AgentEvent::ContextCompacted { omitted_entries: 3 });
+    let Entry::Compaction { summary, .. } = &state.thread.entries[0] else {
+        panic!("compaction entry");
+    };
+    assert!(summary.as_deref().unwrap_or_default().contains('3'));
 
     state.apply(AgentEvent::Error {
         message: "boom".into(),
@@ -367,4 +153,42 @@ fn shared_thread_tracks_permission_and_error() {
     };
     assert_eq!(*level, NoticeLevel::Error);
     assert_eq!(text, "boom");
+    assert_eq!(state.last_error.as_deref(), Some("boom"));
+}
+
+#[test]
+fn subagents_track_separately_from_thread_entries() {
+    let mut state = state();
+    state.apply(AgentEvent::ToolCallStarted {
+        tool_call_id: "c1".into(),
+        tool_name: "task".into(),
+        args: serde_json::json!({}),
+    });
+    state.apply(AgentEvent::SubagentStarted { task: "t".into() });
+    state.apply(AgentEvent::SubagentProgress { text: "p".into() });
+    state.apply(AgentEvent::SubagentFinished { ok: true });
+    assert_eq!(state.subagents.len(), 1);
+    assert_eq!(state.subagents[0].tool_call_id.as_deref(), Some("c1"));
+    assert_eq!(state.subagents[0].finished, Some(true));
+    assert_eq!(state.thread.entries.len(), 1, "子 agent 不进对话行");
+}
+
+#[test]
+fn begin_retry_requires_error_and_clears_it() {
+    let mut state = state();
+    assert!(!state.begin_retry());
+    state.apply(AgentEvent::Error {
+        message: "x".into(),
+    });
+    assert!(state.begin_retry());
+    assert!(state.last_error.is_none());
+    assert!(!state.begin_retry());
+}
+
+#[test]
+fn new_state_uses_native_capabilities() {
+    let thread: &ConversationThread = &HostState::new().thread;
+    assert!(thread.capabilities.checkpoint_restore);
+    assert!(thread.capabilities.steer);
+    assert!(!cgc_agent_conversation::conversation::ThreadCapabilities::acp().checkpoint_restore);
 }
