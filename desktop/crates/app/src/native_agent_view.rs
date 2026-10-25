@@ -4015,6 +4015,7 @@ impl Render for NativeAgentView {
                 } else {
                     "输入内容后可发送"
                 };
+                let send_weak = cx.entity().downgrade();
                 let context_window = self.model.limits.context_window.max(1) as u64;
                 let used_percent = if context_window == 0 {
                     0
@@ -4563,33 +4564,35 @@ impl Render for NativeAgentView {
                             .child(model_picker)
                             .children(effort_picker)
                             .child(context_usage)
-                            .child(
-                                div()
-                                    .id(if busy {
+                            .child(cgc_agent_ui::composer::render_send_button(
+                                cgc_agent_ui::composer::SendButtonSpec {
+                                    id: if busy {
                                         "native-agent-stop"
                                     } else {
                                         "native-agent-send"
-                                    })
-                                    .role(Role::Button)
-                                    .aria_label(send_aria)
-                                    .px(space(2))
-                                    .py(px(3.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .bg(send_bg)
-                                    .text_color(send_fg)
-                                    .text_size(px(12.0))
-                                    .child(send_label)
-                                    .tooltip(move |window, cx| {
-                                        Tooltip::new(send_tip).build(window, cx)
-                                    })
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        if busy && !has_input {
-                                            this.stop(cx);
-                                        } else {
-                                            this.send(window, cx);
-                                        }
-                                    })),
-                            ),
+                                    }
+                                    .into(),
+                                    streaming: busy && !has_input,
+                                    aria: send_aria.into(),
+                                    tooltip: send_tip.into(),
+                                    glyph: div().child(send_label).into_any_element(),
+                                    bg: send_bg,
+                                    fg: send_fg,
+                                    radius: RADIUS_SMALL,
+                                    padding_x: 8.0,
+                                    padding_y: 3.0,
+                                    text_size: 12.0,
+                                    on_click: Box::new(move |window, cx| {
+                                        let _ = send_weak.update(cx, |this, cx| {
+                                            if busy && !has_input {
+                                                this.stop(cx);
+                                            } else {
+                                                this.send(window, cx);
+                                            }
+                                        });
+                                    }),
+                                },
+                            )),
                     )
             })
     }
