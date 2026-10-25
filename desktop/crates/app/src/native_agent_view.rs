@@ -2834,7 +2834,12 @@ impl NativeAgentView {
                     } else {
                         let edit_index = message_index;
                         let restore_index = message_index;
-                        let restore_checkpoint = self.checkpoint_for_message(message_index);
+                        let restore_checkpoint =
+                            if self.state.thread.capabilities.checkpoint_available() {
+                                self.checkpoint_for_message(message_index)
+                            } else {
+                                None
+                            };
                         div()
                             .flex()
                             .flex_col()
