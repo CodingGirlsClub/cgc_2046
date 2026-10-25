@@ -254,12 +254,16 @@ native 没有 `Plan` 事件：plan 由 native 的工具（`todo_write`/plan step
 
 ### 2d 进行中（2026-10-25）
 
-- 已落地 native ingestion adapter：`app::native_conversation` 把 typed `AgentEvent`
-  映射成 `ThreadEvent`（文本/思考/工具生命周期/审批/用量/压缩/错误/结束；subagent
-  卡片暂留 `HostState`；`TurnStarted` 由视图发送时写模型），8 个映射/收敛单测。
-- 下一步（同一 goal 继续）：native 视图持有 `ConversationThread` 并切换渲染源，
-  删除 `render_message_row_element` 的 `UiRole/UiMessage` 路径；随后 `HostState.messages`
-  退场、持久化改走模型 entries。
+- **模型 crate 拆分**：`cgc-agent-conversation`（gpui-free）= `conversation` +
+  `message_flow`；`agent_ui` re-export 保持下游路径不变。
+- **native ingestion 下沉**：`agent_host::HostState` 依赖模型 crate，新增
+  `thread: ConversationThread` / `context_size` 并在 `apply(AgentEvent)` 里映射
+  到 `ThreadEvent`（文本/思考/工具/审批/usage/压缩/错误/结束）；`app` 侧临时的
+  `native_conversation` adapter 删除，改由 host 单点负责。
+- 为小步迁移，`HostState` 暂时并行保留 `messages`/streaming 字段（视图仍渲染旧
+  路径）；下一步：视图切到 `state.thread`，删除旧字段与 `UiMessage` 渲染。
+- 验证：agent_host 15 个 reducer/事件测试（含新增 thread 断言）、模型 18 个、
+  app 125 个全绿；fmt/clippy 干净。
 
 ## 5. 切片与回滚
 

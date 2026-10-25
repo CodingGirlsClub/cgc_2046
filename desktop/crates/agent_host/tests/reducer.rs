@@ -284,3 +284,87 @@ fn nested_subagents_get_separate_cards() {
     assert_eq!(state.subagents[0].finished, None);
     assert_eq!(state.subagents[1].finished, Some(false));
 }
+
+#[test]
+fn shared_thread_tracks_tool_lifecycle_and_usage() {
+    use cgc_agent_conversation::conversation::{ConversationThread, Entry, ThreadStatus};
+
+    let mut state = HostState::new();
+    state.set_context_size(1000);
+    state.apply(AgentEvent::TurnStarted {
+        thread_id: "t1".into(),
+    });
+    state.apply(AgentEvent::TextDelta {
+        text: "checking ".into(),
+    });
+    state.apply(AgentEvent::ToolCallStarted {
+        tool_call_id: "c1".into(),
+        tool_name: "read_file".into(),
+        args: serde_json::json!({"path": "a.rs"}),
+    });
+    state.apply(AgentEvent::TextDelta {
+        text: "after".into(),
+    });
+    state.apply(AgentEvent::ToolCallFinished {
+        tool_call_id: "c1".into(),
+        tool_name: "read_file".into(),
+        ok: false,
+        content: "denied".into(),
+    });
+    state.apply(AgentEvent::UsageUpdated {
+        usage: TokenUsage {
+            input: 10,
+            output: 5,
+            cache_read: 2,
+            cache_creation: 0,
+        },
+        total: TokenUsage::default(),
+    });
+    state.apply(AgentEvent::TurnFinished {
+        text: String::new(),
+        stop_reason: StopReason::EndTurn,
+    });
+
+    let ConversationThread {
+        entries,
+        status,
+        usage,
+        ..
+    } = &state.thread;
+    assert_eq!(*status, ThreadStatus::Idle);
+    assert_eq!(entries.len(), 3, "text / tool / text（user 由视图写入）");
+    assert!(matches!(entries[0], Entry::Assistant { .. }));
+    assert!(matches!(entries[1], Entry::ToolCall { .. }));
+    assert!(matches!(entries[2], Entry::Assistant { .. }));
+    assert_eq!(usage.used, 17);
+    assert_eq!(usage.size, 1000);
+    let Entry::ToolCall { status, output, .. } = &entries[1] else {
+        panic!("tool entry");
+    };
+    assert_eq!(status, "failed");
+    assert_eq!(output.as_deref(), Some("denied"));
+}
+
+#[test]
+fn shared_thread_tracks_permission_and_error() {
+    use cgc_agent_conversation::conversation::{Entry, NoticeLevel, ThreadStatus};
+
+    let mut state = HostState::new();
+    state.apply(AgentEvent::PermissionRequested {
+        tool_call_id: "c1".into(),
+        tool_name: "run_command".into(),
+        args: serde_json::json!({"cmd": "ls"}),
+    });
+    assert_eq!(state.thread.status, ThreadStatus::AwaitingApproval);
+    assert!(state.thread.pending_permission.is_some());
+
+    state.apply(AgentEvent::Error {
+        message: "boom".into(),
+    });
+    assert_eq!(state.thread.status, ThreadStatus::Failed);
+    let Entry::Notice { level, text } = state.thread.entries.last().expect("notice") else {
+        panic!("notice entry");
+    };
+    assert_eq!(*level, NoticeLevel::Error);
+    assert_eq!(text, "boom");
+}

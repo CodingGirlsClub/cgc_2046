@@ -1,6 +1,8 @@
 use cgc_agent_provider::TokenUsage;
 use serde::{Deserialize, Serialize};
 
+use cgc_agent_conversation::conversation::{ConversationThread, ThreadCapabilities, ThreadEvent};
+
 use crate::events::AgentEvent;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,6 +66,13 @@ pub struct PermissionPrompt {
 /// 事件归约出的 UI 状态。UI 只读它渲染，不反向改 agent 线程。
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct HostState {
+    /// 共享会话模型（Stage 2d）：native 事件归约的单一模型源；视图切完后
+    /// `messages`/streaming 字段会删除，这里先并行维护以便小步迁移。
+    #[serde(skip)]
+    pub thread: ConversationThread,
+    /// 当前 model 的 context window，用于把 usage 换算成百分比（视图在切换模型时写入）。
+    #[serde(skip)]
+    pub context_size: u64,
     pub messages: Vec<UiMessage>,
     pub streaming: String,
     /// 正在流式输出的思考内容；在 assistant/tool/结束/错误时固化进 messages。
@@ -79,12 +88,90 @@ pub struct HostState {
     pub last_tool_call_id: Option<String>,
 }
 
+/// `AgentEvent` → 共享 `ThreadEvent`（协议无关模型输入）。
+///
+/// `TurnStarted` 不产生模型事件：native 的 user 气泡由视图发送时写入；
+/// subagent 事件暂留 `HostState.subagents`（模型暂无 subagent entry）。
+fn thread_event(event: &AgentEvent, context_size: u64) -> Option<ThreadEvent> {
+    match event {
+        AgentEvent::TurnStarted { .. } => None,
+        AgentEvent::FollowUpStarted { text } | AgentEvent::SteerStarted { text } => {
+            Some(ThreadEvent::TurnStarted {
+                user_text: text.clone(),
+            })
+        }
+        AgentEvent::SubagentStarted { .. }
+        | AgentEvent::SubagentProgress { .. }
+        | AgentEvent::SubagentFinished { .. } => None,
+        AgentEvent::ContextCompacted { omitted_entries } => Some(ThreadEvent::CompactionUpdated {
+            status: "completed".to_string(),
+            summary: Some(format!("省略 {omitted_entries} 条更早消息")),
+        }),
+        AgentEvent::TextDelta { text } => Some(ThreadEvent::TextDelta(text.clone())),
+        AgentEvent::ThinkingDelta { text } => Some(ThreadEvent::ThinkingDelta(text.clone())),
+        AgentEvent::ToolCallStarted {
+            tool_call_id,
+            tool_name,
+            args,
+        } => Some(ThreadEvent::ToolCallStarted {
+            tool_call_id: tool_call_id.clone(),
+            title: tool_name.clone(),
+            name: Some(tool_name.clone()),
+            kind: "tool".to_string(),
+            status: "in_progress".to_string(),
+            args: Some(args.to_string()),
+            output: None,
+            locations: Vec::new(),
+        }),
+        AgentEvent::PermissionRequested {
+            tool_call_id,
+            tool_name,
+            args,
+        } => Some(ThreadEvent::PermissionRequested {
+            request_id: tool_call_id.clone(),
+            title: format!("允许运行 {tool_name}？"),
+            tool_call_id: Some(tool_call_id.clone()),
+            args: Some(args.to_string()),
+        }),
+        AgentEvent::ToolCallFinished {
+            tool_call_id,
+            ok,
+            content,
+            ..
+        } => Some(ThreadEvent::ToolCallUpdated {
+            tool_call_id: tool_call_id.clone(),
+            title: None,
+            status: Some(if *ok { "completed" } else { "failed" }.to_string()),
+            output: Some(content.clone()),
+        }),
+        AgentEvent::UsageUpdated { usage, .. } => Some(ThreadEvent::UsageUpdated {
+            used: usage.total(),
+            size: context_size,
+            cost: None,
+        }),
+        AgentEvent::TurnFinished { .. } => Some(ThreadEvent::TurnFinished { cancelled: false }),
+        AgentEvent::Error { message } => Some(ThreadEvent::Failed(message.clone())),
+    }
+}
+
 impl HostState {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            thread: ConversationThread::new("native")
+                .with_capabilities(ThreadCapabilities::native()),
+            ..Self::default()
+        }
+    }
+
+    /// 切换 model 时同步 context window（视图在 provider/model 变化时调用）。
+    pub fn set_context_size(&mut self, size: u64) {
+        self.context_size = size;
     }
 
     pub fn apply(&mut self, event: AgentEvent) {
+        if let Some(thread_event) = thread_event(&event, self.context_size) {
+            self.thread.apply(thread_event);
+        }
         match event {
             AgentEvent::TurnStarted { .. } => {
                 self.turn_active = true;

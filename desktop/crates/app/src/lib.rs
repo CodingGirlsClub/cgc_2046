@@ -15,7 +15,6 @@ pub mod formula;
 pub mod i18n;
 pub mod mention;
 pub mod native_agent_view;
-pub mod native_conversation;
 pub mod notification_center;
 pub mod notifications;
 pub mod preferences;
