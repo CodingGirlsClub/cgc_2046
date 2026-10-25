@@ -2585,7 +2585,21 @@ impl NativeAgentView {
                 }),
             )
             .child(match message.role {
-                UiRole::Assistant => render_assistant_markdown(message_index, &message.text),
+                UiRole::Assistant => {
+                    let mut column = div()
+                        .flex()
+                        .flex_col()
+                        .gap(space(1))
+                        .child(render_assistant_markdown(message_index, &message.text));
+                    if !self.busy {
+                        column = column.child(self.render_assistant_message_actions(
+                            message_index,
+                            palette,
+                            cx,
+                        ));
+                    }
+                    column.into_any_element()
+                }
                 UiRole::User => {
                     if self.editing_user == Some(message_index) {
                         self.render_user_edit_row(message_index, &palette, cx)
@@ -2966,6 +2980,71 @@ impl NativeAgentView {
                     .on_click(cx.listener(|this, _, _, cx| this.retry_last_turn(cx)))
             }))
             .into_any_element()
+    }
+
+    /// 对齐 Zed：每条 assistant 消息下显示 Copy / Scroll to User Message / Scroll to Top。
+    fn render_assistant_message_actions(
+        &self,
+        message_index: usize,
+        palette: theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(message) = self.state.messages.get(message_index) else {
+            return div().into_any_element();
+        };
+        let copy_text = message.text.clone();
+        let copy_button = message_action_button(
+            format!("native-copy-response-{message_index}"),
+            "Copy This Agent Response",
+            palette,
+            gpui_kit::assets::IconName::Copy,
+            cx.listener(move |_this, _, _window, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
+            }),
+        );
+        let user_button = message_action_button(
+            format!("native-scroll-user-{message_index}"),
+            "Scroll to User Message",
+            palette,
+            gpui_kit::assets::IconName::User,
+            cx.listener(move |this, _, _window, cx| {
+                this.scroll_to_user_message_before(message_index, cx)
+            }),
+        );
+        let top_button = message_action_button(
+            format!("native-scroll-top-{message_index}"),
+            "Scroll to Top",
+            palette,
+            gpui_kit::assets::IconName::ArrowUp,
+            cx.listener(|this, _, _window, cx| this.scroll_messages_to_top(cx)),
+        );
+        div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(space(1))
+            .child(copy_button)
+            .child(user_button)
+            .child(top_button)
+            .into_any_element()
+    }
+
+    /// 滚到当前 assistant 消息之前最近的一条用户消息。
+    fn scroll_to_user_message_before(&mut self, assistant_index: usize, cx: &mut Context<Self>) {
+        let Some(user_index) = previous_user_message_index(&self.state.messages, assistant_index)
+        else {
+            return;
+        };
+        let kinds = self.message_row_kinds();
+        if let Some(row) = kinds
+            .iter()
+            .position(|kind| *kind == MessageRowKind::Message(user_index))
+        {
+            self.message_scroller.update(cx, |state, cx| {
+                let _ = state.scroll_to_item(row, cx);
+            });
+            cx.notify();
+        }
     }
 
     /// 消息区当前的行序列（历史消息 + 内联子 agent + 流式/错误行）。
@@ -4740,6 +4819,58 @@ fn needs_checkpoint_confirm(
     !has_valid_checkpoint && pending != Some(message_index)
 }
 
+/// `message_index` 之前最近的一条用户消息 index。
+fn previous_user_message_index(
+    messages: &[cgc_agent_host::UiMessage],
+    message_index: usize,
+) -> Option<usize> {
+    messages
+        .get(..message_index)?
+        .iter()
+        .rposition(|message| message.role == UiRole::User)
+}
+
+/// 消息操作栏的单图标按钮（hover 显示 tooltip，样式对齐 Zed 的 muted icon button）。
+fn message_action_button(
+    id: String,
+    label: &'static str,
+    palette: theme::Palette,
+    icon: gpui_kit::assets::IconName,
+    on_click: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut gpui_kit::App) + 'static,
+) -> AnyElement {
+    let tip_id = format!("{id}-tooltip");
+    let button = div()
+        .id(SharedString::from(id))
+        .role(Role::Button)
+        .aria_label(label)
+        .flex()
+        .items_center()
+        .justify_center()
+        .size(px(22.0))
+        .rounded(px(RADIUS_SMALL))
+        .text_color(palette.ink_3)
+        .hover(|style| style.bg(palette.soft).text_color(palette.ink_2))
+        .child(Icon::new(icon).xsmall())
+        .on_click(on_click);
+    HoverCard::new(SharedString::from(tip_id))
+        .anchor(Anchor::TopCenter)
+        .open_delay(std::time::Duration::from_millis(200))
+        .trigger(button)
+        .content(move |_, _, _| {
+            div()
+                .p(px(4.0))
+                .rounded(px(RADIUS_SMALL))
+                .border_1()
+                .border_color(palette.line)
+                .bg(palette.card)
+                .text_size(px(11.0))
+                .text_color(palette.ink_2)
+                .child(label)
+                .into_any_element()
+        })
+        .into_any_element()
+}
+
 /// 用户消息正文：普通文本 + mention chip（与 composer 的 chip 对齐）。
 fn render_user_message_body(text: &str, palette: &theme::Palette) -> AnyElement {
     let palette = *palette;
@@ -5768,6 +5899,34 @@ mod workspace_prompt_tests {
         assert_eq!(super::thread_user_entry_index(&entries, 3), Some(3));
         assert_eq!(super::thread_user_entry_index(&entries, 4), None);
         assert_eq!(super::thread_user_entry_index(&entries, 0), None);
+    }
+
+    #[test]
+    fn previous_user_message_index_finds_latest_prior_user() {
+        use cgc_agent_host::{UiMessage, UiRole};
+        let message = |role, text: &str| UiMessage {
+            role,
+            text: text.into(),
+            tool_call_id: None,
+            tool: None,
+        };
+        let messages = vec![
+            message(UiRole::User, "u1"),
+            message(UiRole::Assistant, "a1"),
+            message(UiRole::Thinking, "t"),
+            message(UiRole::User, "u2"),
+            message(UiRole::Assistant, "a2"),
+        ];
+        assert_eq!(super::previous_user_message_index(&messages, 4), Some(3));
+        assert_eq!(super::previous_user_message_index(&messages, 1), Some(0));
+        assert_eq!(
+            super::previous_user_message_index(&messages, 0),
+            None,
+            "第一条消息之前没有用户消息"
+        );
+
+        let no_user = vec![message(UiRole::Assistant, "a")];
+        assert_eq!(super::previous_user_message_index(&no_user, 0), None);
     }
 
     #[test]
