@@ -14,8 +14,8 @@ use cgc_agent_core::{
     ImageAttachment, SelectedModel, Thread,
 };
 use cgc_agent_host::{
-    parse_slash, AgentEvent, AsyncChannelObserver, HostState, SlashCommand, ToolCallStatus, UiRole,
-    UiToolCall, SLASH_COMMANDS,
+    parse_slash, AgentEvent, AsyncChannelObserver, HostState, SlashCommand, SubagentCard,
+    ToolCallStatus, UiMessage, UiRole, UiToolCall, SLASH_COMMANDS,
 };
 use cgc_agent_provider::{
     CompletionEvent, EchoProvider, Message as ProviderMessage, Model, ModelLimits,
@@ -40,8 +40,8 @@ use gpui_kit::component::input::{
     InlineTokenContext, InputEvent, Position, Textarea, TextareaState,
 };
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
+use gpui_kit::component::message_scroller::{MessageScroller, MessageScrollerState};
 use gpui_kit::component::popover::Popover;
-use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::text::{SelectionFormat, TextView};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{Icon, Sizable};
@@ -487,7 +487,6 @@ pub struct NativeAgentView {
     mention_index: usize,
     workspace_files: Vec<String>,
     skills: Vec<SkillEntry>,
-    follow_output: bool,
     /// 最近一轮的 prompt / 展示文本，供失败后重试重放。
     last_turn: Option<(String, String)>,
     /// 已展开的工具调用卡片 id。
@@ -496,17 +495,14 @@ pub struct NativeAgentView {
     expanded_thinking: std::collections::HashSet<usize>,
     /// 流式思考块是否被用户折叠（默认自动展开）。
     live_thinking_collapsed: bool,
-    /// 上次自动跟随时的内容长度快照（messages / streaming / thinking），
-    /// 只有内容新增时才自动滚动，避免每次重渲染都把视图拽回底部。
-    last_followed_content: (usize, usize, usize),
-    /// 滚轮事件已发生、等待 defer 里在 offset clamp 后判定是否回到底部。
-    /// 这段时间内 render 不得用旧 offset 重新开启跟随（否则会瞬间拽回底部）。
-    scroll_check_pending: bool,
     /// 正在编辑的用户消息（UI message index）。
     editing_user: Option<usize>,
     /// 编辑态输入框；仅在 editing_user 有值时存在。
     user_edit_input: Option<Entity<TextareaState>>,
-    messages_scroll: ScrollHandle,
+    /// 虚拟消息列表状态：只渲染可见行，并负责 tail 跟随/滚动条/回到最新按钮。
+    message_scroller: Entity<MessageScrollerState>,
+    /// 每行的高度签名；与下一帧比对，只 remeasure 变化的那一行。
+    message_row_signatures: Vec<u64>,
     approval_mode: ApprovalMode,
     approval_sender: Arc<Mutex<Option<oneshot::Sender<ApprovalDecision>>>>,
     pending_images: Vec<PendingImage>,
@@ -828,16 +824,14 @@ impl NativeAgentView {
             mention_index: 0,
             workspace_files,
             skills,
-            follow_output: true,
             last_turn: None,
             expanded_tools: std::collections::HashSet::new(),
             expanded_thinking: std::collections::HashSet::new(),
             live_thinking_collapsed: false,
-            last_followed_content: (0, 0, 0),
-            scroll_check_pending: false,
             editing_user: None,
             user_edit_input: None,
-            messages_scroll: ScrollHandle::new(),
+            message_scroller: cx.new(|cx| MessageScrollerState::new(0, cx)),
+            message_row_signatures: Vec::new(),
             approval_mode: ApprovalMode::Ask,
             context: ToolContext::new(&workspace)
                 .with_sandbox(SandboxPolicy::new(&workspace))
@@ -1277,6 +1271,7 @@ impl NativeAgentView {
         self.busy = false;
         self.checkpoint_changes.clear();
         self.show_checkpoint_panel = false;
+        self.scroll_messages_to_bottom(cx);
         cx.notify();
     }
 
@@ -1357,7 +1352,7 @@ impl NativeAgentView {
                 self.capture_checkpoint(&thread_id, self.turn_seq);
             }
         }
-        self.follow_output = true;
+        self.scroll_messages_to_bottom(cx);
         let Some(mut agent) = self.agent.take() else {
             return;
         };
@@ -1995,24 +1990,18 @@ impl NativeAgentView {
     }
 
     /// 当前滚动位置是否已在底部。
-    fn is_scrolled_to_bottom(&self) -> bool {
-        scrolled_to_bottom(
-            self.messages_scroll.offset().y,
-            self.messages_scroll.max_offset().y,
-        )
-    }
-
     /// 消息区滚动到顶部（同时停止自动跟随输出）。
     fn scroll_messages_to_top(&mut self, cx: &mut Context<Self>) {
-        self.follow_output = false;
-        self.messages_scroll.set_offset(point(px(0.0), px(0.0)));
+        self.message_scroller.update(cx, |state, cx| {
+            let _ = state.scroll_to_item(0, cx);
+        });
         cx.notify();
     }
 
-    /// 消息区滚动到底部，并恢复自动跟随。
+    /// 回到最新：恢复 tail 跟随并滚到列表末尾。
     fn scroll_messages_to_bottom(&mut self, cx: &mut Context<Self>) {
-        self.follow_output = true;
-        self.messages_scroll.scroll_to_bottom();
+        self.message_scroller
+            .update(cx, |state, cx| state.scroll_to_end(cx));
         cx.notify();
     }
 
@@ -2169,6 +2158,509 @@ impl NativeAgentView {
     }
 }
 
+impl NativeAgentView {
+    /// 构建单条历史消息的行元素。
+    fn render_message_row_element(
+        &self,
+        message_index: usize,
+        palette: theme::Palette,
+        menu_root: &WeakEntity<Self>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let message = &self.state.messages[message_index];
+        let color = match message.role {
+            UiRole::User => palette.accent,
+            UiRole::Error => palette.danger,
+            UiRole::Tool => palette.ink_3,
+            UiRole::System => palette.ink_3,
+            UiRole::Thinking => palette.ink_3,
+            UiRole::Assistant => palette.ink,
+        };
+        let payloads = Arc::new(message_copy_payloads(message.role, &message.text));
+        let menu_view = menu_root.clone();
+        div()
+            .id(SharedString::from(format!(
+                "native-message-{message_index}"
+            )))
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            // 对齐 Zed：只有 system/error 这类状态消息保留角色标签；
+            // user 用卡片区分、assistant 直接 markdown、tool/thinking 自带卡头。
+            .children(
+                matches!(message.role, UiRole::System | UiRole::Error).then(|| {
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(color)
+                        .child(role_label(message.role))
+                }),
+            )
+            .child(match message.role {
+                UiRole::Assistant => render_assistant_markdown(message_index, &message.text),
+                UiRole::User => {
+                    if self.editing_user == Some(message_index) {
+                        self.render_user_edit_row(message_index, &palette, cx)
+                    } else {
+                        let edit_index = message_index;
+                        div()
+                            .id(SharedString::from(format!("native-user-card-{edit_index}")))
+                            .group("native-user-msg")
+                            .relative()
+                            .w_full()
+                            .px(space(2))
+                            .py(space(2))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .border_1()
+                            .border_color(palette.line)
+                            .bg(palette.view)
+                            .hover(|style| style.border_color(palette.line_strong))
+                            .child(
+                                div()
+                                    .pr(px(28.0))
+                                    .text_size(px(13.0))
+                                    .text_color(palette.ink)
+                                    .child(mention::display_text(&message.text)),
+                            )
+                            .children((!self.busy && self.editing_user != Some(edit_index)).then(
+                                || {
+                                    div()
+                                        .id(SharedString::from(format!(
+                                            "native-edit-user-{edit_index}"
+                                        )))
+                                        .role(Role::Button)
+                                        .aria_label("编辑消息")
+                                        .absolute()
+                                        .top(px(4.0))
+                                        .right(space(1))
+                                        .px(space(1))
+                                        .py(px(1.0))
+                                        .rounded(px(RADIUS_SMALL))
+                                        .bg(palette.card)
+                                        .text_size(px(10.0))
+                                        .text_color(palette.ink_3)
+                                        .invisible()
+                                        .group_hover("native-user-msg", |style| style.visible())
+                                        .hover(|style| style.bg(palette.soft))
+                                        .child("编辑")
+                                        .on_click(cx.listener(move |this, _, window, cx| {
+                                            this.begin_edit_user(edit_index, window, cx)
+                                        }))
+                                },
+                            ))
+                            .into_any_element()
+                    }
+                }
+                UiRole::Thinking => {
+                    let expanded = self.expanded_thinking.contains(&message_index);
+                    let toggle_view = cx.entity().downgrade();
+                    let thinking_text = message.text.clone();
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.0))
+                        .child(
+                            div()
+                                .id(SharedString::from(format!(
+                                    "native-thinking-toggle-{message_index}"
+                                )))
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(px(3.0))
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_3)
+                                .hover(|style| style.text_color(palette.ink_2))
+                                .child(if expanded { "▾" } else { "▸" })
+                                .child("Thinking")
+                                .on_click(move |_, _, cx| {
+                                    let _ = toggle_view.update(cx, |this, cx| {
+                                        this.toggle_thinking(message_index, cx)
+                                    });
+                                }),
+                        )
+                        .children(expanded.then(|| {
+                            div()
+                                .pl(space(2))
+                                .border_l_1()
+                                .border_color(palette.line)
+                                .child(TextView::markdown(
+                                    SharedString::from(format!(
+                                        "native-thinking-markdown-{message_index}"
+                                    )),
+                                    sanitize_markdown(&thinking_text),
+                                ))
+                        }))
+                        .into_any_element()
+                }
+                UiRole::Tool => match &message.tool {
+                    Some(tool) => {
+                        let tool_call_id = message.tool_call_id.clone().unwrap_or_default();
+                        let expanded = self.expanded_tools.contains(&tool_call_id)
+                            || matches!(tool.status, ToolCallStatus::Running);
+                        let toggle_view = cx.entity().downgrade();
+                        let toggle_id = tool_call_id.clone();
+                        render_tool_card(tool, expanded, &palette, move |_, _, cx| {
+                            let _ = toggle_view.update(cx, |this, cx| {
+                                this.toggle_tool_call(toggle_id.clone(), cx)
+                            });
+                        })
+                    }
+                    None => div()
+                        .text_size(px(13.0))
+                        .child(message.text.clone())
+                        .into_any_element(),
+                },
+                _ => div()
+                    .text_size(px(13.0))
+                    .child(message.text.clone())
+                    .into_any_element(),
+            })
+            .context_menu(move |menu, _window, _cx| {
+                render_message_context_menu(menu, menu_view.clone(), payloads.clone())
+            })
+            .children(self.sent_images.get(&message_index).map(|images| {
+                div().flex().flex_row().flex_wrap().gap(space(1)).children(
+                    images.iter().enumerate().map(|(image_index, image)| {
+                        let preview = image.preview.clone();
+                        let open_weak = cx.entity().downgrade();
+                        let open_preview = image.preview.clone();
+                        let open_name = image.name.clone();
+                        let trigger = div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(4.0))
+                            .px(space(1))
+                            .py(px(1.0))
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_2)
+                            .child(match image.preview.clone() {
+                                Some(preview) => img(preview)
+                                    .max_w(px(16.0))
+                                    .max_h(px(16.0))
+                                    .rounded(px(2.0))
+                                    .into_any_element(),
+                                None => "🖼".into_any_element(),
+                            })
+                            .child(image.name.clone())
+                            .into_any_element();
+                        div()
+                            .id(SharedString::from(format!(
+                                "native-msg-image-{message_index}-{image_index}"
+                            )))
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(4.0))
+                            .px(space(1))
+                            .py(px(1.0))
+                            .rounded(px(RADIUS_SMALL))
+                            .border_1()
+                            .border_color(palette.line)
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_2)
+                            .on_click(move |_, _, cx| {
+                                if let Some(preview) = open_preview.clone() {
+                                    let name = open_name.clone();
+                                    let _ = open_weak.update(cx, |this, cx| {
+                                        this.open_image_viewer(name, preview, cx);
+                                    });
+                                }
+                            })
+                            .child(
+                                HoverCard::new(SharedString::from(format!(
+                                    "native-msg-image-hover-{message_index}-{image_index}"
+                                )))
+                                .anchor(Anchor::BottomCenter)
+                                .open_delay(std::time::Duration::from_millis(80))
+                                .trigger(trigger)
+                                .content(move |_, _, _| {
+                                    match preview.clone() {
+                                        Some(preview) => div()
+                                            .p(px(4.0))
+                                            .rounded(px(RADIUS_SMALL))
+                                            .border_1()
+                                            .border_color(palette.line)
+                                            .bg(palette.card)
+                                            .child(
+                                                img(preview)
+                                                    .max_w(px(280.0))
+                                                    .max_h(px(180.0))
+                                                    .rounded(px(RADIUS_SMALL)),
+                                            )
+                                            .into_any_element(),
+                                        None => div().child("无预览").into_any_element(),
+                                    }
+                                }),
+                            )
+                            .into_any_element()
+                    }),
+                )
+            }))
+            .into_any_element()
+    }
+
+    /// 当前流式思考行（默认展开，可折叠）。
+    fn render_live_thinking_row(
+        &self,
+        palette: theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let thinking_streaming = &self.state.thinking_streaming;
+        if thinking_streaming.is_empty() {
+            return div().into_any_element();
+        }
+        let expanded = !self.live_thinking_collapsed;
+        let toggle_view = cx.entity().downgrade();
+        div()
+            .id("native-live-thinking")
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .child(
+                div()
+                    .id("native-live-thinking-toggle")
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(3.0))
+                    .text_size(px(11.0))
+                    .text_color(palette.accent)
+                    .child(if expanded { "▾" } else { "▸" })
+                    .child("Thinking…")
+                    .on_click(move |_, _, cx| {
+                        let _ = toggle_view.update(cx, |this, cx| {
+                            this.live_thinking_collapsed = !this.live_thinking_collapsed;
+                            cx.notify();
+                        });
+                    }),
+            )
+            .children(expanded.then(|| {
+                div()
+                    .pl(space(2))
+                    .border_l_1()
+                    .border_color(palette.line)
+                    .child(
+                        markdown_text_view("native-streaming-thinking", thinking_streaming)
+                            .stream_fade(true),
+                    )
+            }))
+            .into_any_element()
+    }
+
+    /// 当前流式回复行（markdown 增量渲染）。
+    fn render_streaming_row(
+        &self,
+        palette: theme::Palette,
+        menu_root: &WeakEntity<Self>,
+    ) -> AnyElement {
+        let streaming = &self.state.streaming;
+        if streaming.is_empty() {
+            return div().into_any_element();
+        }
+        let streaming_payloads = Arc::new(message_copy_payloads(UiRole::Assistant, streaming));
+        let streaming_view = menu_root.clone();
+        div()
+            .id("native-message-streaming")
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(palette.accent)
+                    .child("agent"),
+            )
+            .child(markdown_text_view("native-streaming-markdown", streaming).stream_fade(true))
+            .context_menu(move |menu, _window, _cx| {
+                render_message_context_menu(
+                    menu,
+                    streaming_view.clone(),
+                    streaming_payloads.clone(),
+                )
+            })
+            .into_any_element()
+    }
+
+    /// 失败回调行（带重试）。
+    fn render_error_row(&self, palette: theme::Palette, cx: &mut Context<Self>) -> AnyElement {
+        let Some(error) = self.state.last_error.clone() else {
+            return div().into_any_element();
+        };
+        let hint = retry_hint_for_error(&error);
+        let can_retry = self.state.retry_available() && self.last_turn.is_some();
+        div()
+            .id("native-agent-error")
+            .flex()
+            .flex_col()
+            .gap(px(4.0))
+            .p(space(2))
+            .rounded(px(RADIUS_MEDIUM))
+            .border_1()
+            .border_color(palette.danger)
+            .bg(palette.view)
+            .child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(palette.danger)
+                    .child("请求失败"),
+            )
+            .child(
+                div()
+                    .text_size(px(12.0))
+                    .text_color(palette.ink)
+                    .child(error),
+            )
+            .children(hint.map(|hint| {
+                div()
+                    .text_size(px(11.0))
+                    .text_color(palette.ink_3)
+                    .child(hint)
+            }))
+            .children(can_retry.then(|| {
+                div()
+                    .id("native-agent-retry")
+                    .role(Role::Button)
+                    .aria_label("重试")
+                    .mt(px(2.0))
+                    .px(space(2))
+                    .py(px(3.0))
+                    .rounded(px(RADIUS_SMALL))
+                    .bg(palette.accent)
+                    .text_color(palette.canvas)
+                    .text_size(px(12.0))
+                    .hover(|style| style.opacity(0.9))
+                    .child("重试")
+                    .on_click(cx.listener(|this, _, _, cx| this.retry_last_turn(cx)))
+            }))
+            .into_any_element()
+    }
+
+    /// 消息区当前的行序列（历史消息 + 内联子 agent + 流式/错误行）。
+    fn message_row_kinds(&self) -> Vec<MessageRowKind> {
+        build_message_row_kinds(
+            &self.state.messages,
+            &self.state.subagents,
+            !self.state.thinking_streaming.is_empty(),
+            !self.state.streaming.is_empty(),
+            self.state.last_error.is_some(),
+        )
+    }
+
+    /// 行数变化时增量增删列表行；行高变化时只 remeasure 对应行。
+    fn sync_message_scroller(&mut self, row_kinds: &[MessageRowKind], cx: &mut Context<Self>) {
+        let desired = row_kinds.len();
+        let current = self.message_scroller.read(cx).item_count();
+        let signatures: Vec<u64> = row_kinds
+            .iter()
+            .map(|kind| self.message_row_signature(*kind))
+            .collect();
+        if desired > current {
+            self.message_scroller
+                .update(cx, |state, cx| state.append(desired - current, cx));
+            if current == 0 {
+                // 首次填充（打开线程/启动恢复）：Tail 跟随可能被开窗时的
+                // bounce/scroll 事件打断，显式滚到底并重新开启跟随。
+                self.message_scroller
+                    .update(cx, |state, cx| state.scroll_to_end(cx));
+            }
+        } else if desired < current {
+            self.message_scroller
+                .update(cx, |state, cx| state.splice(desired..current, 0, cx));
+        } else if self.message_row_signatures.len() == signatures.len() {
+            for (index, (new, old)) in signatures
+                .iter()
+                .zip(self.message_row_signatures.iter())
+                .enumerate()
+            {
+                if new != old {
+                    self.message_scroller.update(cx, |state, cx| {
+                        let _ = state.remeasure_items(index..index + 1, cx);
+                    });
+                }
+            }
+        }
+        self.message_row_signatures = signatures;
+    }
+
+    /// 行高签名：只含影响布局的字段，避免流式 token 触发全表重测。
+    fn message_row_signature(&self, kind: MessageRowKind) -> u64 {
+        use std::hash::{Hash as _, Hasher as _};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        match kind {
+            MessageRowKind::Message(index) => {
+                0u8.hash(&mut hasher);
+                if let Some(message) = self.state.messages.get(index) {
+                    format!("{:?}", message.role).hash(&mut hasher);
+                    message.text.len().hash(&mut hasher);
+                    self.expanded_thinking.contains(&index).hash(&mut hasher);
+                    (self.editing_user == Some(index)).hash(&mut hasher);
+                    message.tool_call_id.hash(&mut hasher);
+                    let tool_expanded = message
+                        .tool_call_id
+                        .as_deref()
+                        .is_some_and(|id| self.expanded_tools.contains(id));
+                    tool_expanded.hash(&mut hasher);
+                    self.sent_images
+                        .get(&index)
+                        .map(|images| images.len())
+                        .hash(&mut hasher);
+                }
+            }
+            MessageRowKind::Subagent(index) => {
+                1u8.hash(&mut hasher);
+                if let Some(card) = self.state.subagents.get(index) {
+                    card.text.len().hash(&mut hasher);
+                    card.finished.hash(&mut hasher);
+                }
+            }
+            MessageRowKind::LiveThinking => {
+                2u8.hash(&mut hasher);
+                self.state.thinking_streaming.len().hash(&mut hasher);
+                self.live_thinking_collapsed.hash(&mut hasher);
+            }
+            MessageRowKind::Streaming => {
+                3u8.hash(&mut hasher);
+                self.state.streaming.len().hash(&mut hasher);
+            }
+            MessageRowKind::Error => {
+                4u8.hash(&mut hasher);
+                self.state
+                    .last_error
+                    .as_ref()
+                    .map(String::len)
+                    .hash(&mut hasher);
+                self.state.retry_available().hash(&mut hasher);
+            }
+        }
+        hasher.finish()
+    }
+
+    /// 分发一行到对应的渲染函数。
+    fn render_message_row(
+        &self,
+        kind: MessageRowKind,
+        menu_root: &WeakEntity<Self>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let palette = theme::palette_from_theme(cx);
+        match kind {
+            MessageRowKind::Message(index) => {
+                self.render_message_row_element(index, palette, menu_root, cx)
+            }
+            MessageRowKind::Subagent(index) => self
+                .state
+                .subagents
+                .get(index)
+                .map(|card| render_subagent_row(card, &palette))
+                .unwrap_or_else(|| div().into_any_element()),
+            MessageRowKind::LiveThinking => self.render_live_thinking_row(palette, cx),
+            MessageRowKind::Streaming => self.render_streaming_row(palette, menu_root),
+            MessageRowKind::Error => self.render_error_row(palette, cx),
+        }
+    }
+}
+
 impl Render for NativeAgentView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let add_menu_root = cx.entity().downgrade();
@@ -2176,9 +2668,6 @@ impl Render for NativeAgentView {
         let palette = theme::palette_from_theme(cx);
         let chip_workspace = self.context.workspace().to_path_buf();
         let busy = self.busy;
-        let messages = self.state.messages.clone();
-        let sent_images = self.sent_images.clone();
-        let streaming = self.state.streaming.clone();
         let pending = self.state.pending_permission.clone();
         let usage = self.state.usage_total.total();
         let input = self.input.clone();
@@ -2208,431 +2697,13 @@ impl Render for NativeAgentView {
         let show_plan_card = !plan_state.todos.is_empty()
             || !plan_state.plan.is_empty()
             || plan_state.goal.is_some();
-        let subagents = self.state.subagents.clone();
         let show_changes = self.show_checkpoint_panel && change_count > 0;
         let changes = self.checkpoint_changes.clone();
-        let mut rows: Vec<AnyElement> = Vec::new();
-        let menu_root = cx.entity().downgrade();
-        let mut remaining_subagents = subagents.clone();
-        for (message_index, message) in messages.iter().enumerate() {
-            let color = match message.role {
-                UiRole::User => palette.accent,
-                UiRole::Error => palette.danger,
-                UiRole::Tool => palette.ink_3,
-                UiRole::System => palette.ink_3,
-                UiRole::Thinking => palette.ink_3,
-                UiRole::Assistant => palette.ink,
-            };
-            let payloads = Arc::new(message_copy_payloads(message.role, &message.text));
-            let menu_view = menu_root.clone();
-            rows.push(
-                div()
-                    .id(SharedString::from(format!(
-                        "native-message-{message_index}"
-                    )))
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.0))
-                    // 对齐 Zed：只有 system/error 这类状态消息保留角色标签；
-                    // user 用卡片区分、assistant 直接 markdown、tool/thinking 自带卡头。
-                    .children(
-                        matches!(message.role, UiRole::System | UiRole::Error).then(|| {
-                            div()
-                                .text_size(px(11.0))
-                                .text_color(color)
-                                .child(role_label(message.role))
-                        }),
-                    )
-                    .child(match message.role {
-                        UiRole::Assistant => {
-                            render_assistant_markdown(message_index, &message.text)
-                        }
-                        UiRole::User => {
-                            if self.editing_user == Some(message_index) {
-                                self.render_user_edit_row(message_index, &palette, cx)
-                            } else {
-                                let edit_index = message_index;
-                                div()
-                                    .id(SharedString::from(format!(
-                                        "native-user-card-{edit_index}"
-                                    )))
-                                    .group("native-user-msg")
-                                    .relative()
-                                    .w_full()
-                                    .px(space(2))
-                                    .py(space(2))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .border_1()
-                                    .border_color(palette.line)
-                                    .bg(palette.view)
-                                    .hover(|style| style.border_color(palette.line_strong))
-                                    .child(
-                                        div()
-                                            .pr(px(28.0))
-                                            .text_size(px(13.0))
-                                            .text_color(palette.ink)
-                                            .child(mention::display_text(&message.text)),
-                                    )
-                                    .children(
-                                        (!self.busy && self.editing_user != Some(edit_index)).then(
-                                            || {
-                                                div()
-                                                    .id(SharedString::from(format!(
-                                                        "native-edit-user-{edit_index}"
-                                                    )))
-                                                    .role(Role::Button)
-                                                    .aria_label("编辑消息")
-                                                    .absolute()
-                                                    .top(px(4.0))
-                                                    .right(space(1))
-                                                    .px(space(1))
-                                                    .py(px(1.0))
-                                                    .rounded(px(RADIUS_SMALL))
-                                                    .bg(palette.card)
-                                                    .text_size(px(10.0))
-                                                    .text_color(palette.ink_3)
-                                                    .invisible()
-                                                    .group_hover("native-user-msg", |style| {
-                                                        style.visible()
-                                                    })
-                                                    .hover(|style| style.bg(palette.soft))
-                                                    .child("编辑")
-                                                    .on_click(cx.listener(
-                                                        move |this, _, window, cx| {
-                                                            this.begin_edit_user(
-                                                                edit_index, window, cx,
-                                                            )
-                                                        },
-                                                    ))
-                                            },
-                                        ),
-                                    )
-                                    .into_any_element()
-                            }
-                        }
-                        UiRole::Thinking => {
-                            let expanded = self.expanded_thinking.contains(&message_index);
-                            let toggle_view = cx.entity().downgrade();
-                            let thinking_text = message.text.clone();
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap(px(2.0))
-                                .child(
-                                    div()
-                                        .id(SharedString::from(format!(
-                                            "native-thinking-toggle-{message_index}"
-                                        )))
-                                        .flex()
-                                        .flex_row()
-                                        .items_center()
-                                        .gap(px(3.0))
-                                        .text_size(px(11.0))
-                                        .text_color(palette.ink_3)
-                                        .hover(|style| style.text_color(palette.ink_2))
-                                        .child(if expanded { "▾" } else { "▸" })
-                                        .child("Thinking")
-                                        .on_click(move |_, _, cx| {
-                                            let _ = toggle_view.update(cx, |this, cx| {
-                                                this.toggle_thinking(message_index, cx)
-                                            });
-                                        }),
-                                )
-                                .children(expanded.then(|| {
-                                    div()
-                                        .pl(space(2))
-                                        .border_l_1()
-                                        .border_color(palette.line)
-                                        .child(TextView::markdown(
-                                            SharedString::from(format!(
-                                                "native-thinking-markdown-{message_index}"
-                                            )),
-                                            sanitize_markdown(&thinking_text),
-                                        ))
-                                }))
-                                .into_any_element()
-                        }
-                        UiRole::Tool => match &message.tool {
-                            Some(tool) => {
-                                let tool_call_id = message.tool_call_id.clone().unwrap_or_default();
-                                let expanded = self.expanded_tools.contains(&tool_call_id)
-                                    || matches!(tool.status, ToolCallStatus::Running);
-                                let toggle_view = cx.entity().downgrade();
-                                let toggle_id = tool_call_id.clone();
-                                render_tool_card(tool, expanded, &palette, move |_, _, cx| {
-                                    let _ = toggle_view.update(cx, |this, cx| {
-                                        this.toggle_tool_call(toggle_id.clone(), cx)
-                                    });
-                                })
-                            }
-                            None => div()
-                                .text_size(px(13.0))
-                                .child(message.text.clone())
-                                .into_any_element(),
-                        },
-                        _ => div()
-                            .text_size(px(13.0))
-                            .child(message.text.clone())
-                            .into_any_element(),
-                    })
-                    .context_menu(move |menu, _window, _cx| {
-                        render_message_context_menu(menu, menu_view.clone(), payloads.clone())
-                    })
-                    .children(sent_images.get(&message_index).map(|images| {
-                        div().flex().flex_row().flex_wrap().gap(space(1)).children(
-                            images.iter().enumerate().map(|(image_index, image)| {
-                                let preview = image.preview.clone();
-                                let open_weak = cx.entity().downgrade();
-                                let open_preview = image.preview.clone();
-                                let open_name = image.name.clone();
-                                let trigger = div()
-                                    .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .gap(px(4.0))
-                                    .px(space(1))
-                                    .py(px(1.0))
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_2)
-                                    .child(match image.preview.clone() {
-                                        Some(preview) => img(preview)
-                                            .max_w(px(16.0))
-                                            .max_h(px(16.0))
-                                            .rounded(px(2.0))
-                                            .into_any_element(),
-                                        None => "🖼".into_any_element(),
-                                    })
-                                    .child(image.name.clone())
-                                    .into_any_element();
-                                div()
-                                    .id(SharedString::from(format!(
-                                        "native-msg-image-{message_index}-{image_index}"
-                                    )))
-                                    .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .gap(px(4.0))
-                                    .px(space(1))
-                                    .py(px(1.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .border_1()
-                                    .border_color(palette.line)
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_2)
-                                    .on_click(move |_, _, cx| {
-                                        if let Some(preview) = open_preview.clone() {
-                                            let name = open_name.clone();
-                                            let _ = open_weak.update(cx, |this, cx| {
-                                                this.open_image_viewer(name, preview, cx);
-                                            });
-                                        }
-                                    })
-                                    .child(
-                                        HoverCard::new(SharedString::from(format!(
-                                            "native-msg-image-hover-{message_index}-{image_index}"
-                                        )))
-                                        .anchor(Anchor::BottomCenter)
-                                        .open_delay(std::time::Duration::from_millis(80))
-                                        .trigger(trigger)
-                                        .content(
-                                            move |_, _, _| match preview.clone() {
-                                                Some(preview) => div()
-                                                    .p(px(4.0))
-                                                    .rounded(px(RADIUS_SMALL))
-                                                    .border_1()
-                                                    .border_color(palette.line)
-                                                    .bg(palette.card)
-                                                    .child(
-                                                        img(preview)
-                                                            .max_w(px(280.0))
-                                                            .max_h(px(180.0))
-                                                            .rounded(px(RADIUS_SMALL)),
-                                                    )
-                                                    .into_any_element(),
-                                                None => div().child("无预览").into_any_element(),
-                                            },
-                                        ),
-                                    )
-                                    .into_any_element()
-                            }),
-                        )
-                    }))
-                    .into_any_element(),
-            );
-            if let Some(tool_call_id) = &message.tool_call_id {
-                if let Some(index) = remaining_subagents
-                    .iter()
-                    .position(|card| card.tool_call_id.as_deref() == Some(tool_call_id.as_str()))
-                {
-                    let card = remaining_subagents.remove(index);
-                    rows.push(render_subagent_row(&card, &palette));
-                }
-            }
-        }
-        let thinking_streaming = self.state.thinking_streaming.clone();
-        if !thinking_streaming.is_empty() {
-            let expanded = !self.live_thinking_collapsed;
-            let toggle_view = cx.entity().downgrade();
-            rows.push(
-                div()
-                    .id("native-live-thinking")
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.0))
-                    .child(
-                        div()
-                            .id("native-live-thinking-toggle")
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(px(3.0))
-                            .text_size(px(11.0))
-                            .text_color(palette.accent)
-                            .child(if expanded { "▾" } else { "▸" })
-                            .child("Thinking…")
-                            .on_click(move |_, _, cx| {
-                                let _ = toggle_view.update(cx, |this, cx| {
-                                    this.live_thinking_collapsed = !this.live_thinking_collapsed;
-                                    cx.notify();
-                                });
-                            }),
-                    )
-                    .children(expanded.then(|| {
-                        div()
-                            .pl(space(2))
-                            .border_l_1()
-                            .border_color(palette.line)
-                            .child(
-                                markdown_text_view(
-                                    "native-streaming-thinking",
-                                    &thinking_streaming,
-                                )
-                                .stream_fade(true),
-                            )
-                    }))
-                    .into_any_element(),
-            );
-        }
-
-        if !streaming.is_empty() {
-            let streaming_payloads = Arc::new(message_copy_payloads(UiRole::Assistant, &streaming));
-            let streaming_view = menu_root.clone();
-            rows.push(
-                div()
-                    .id("native-message-streaming")
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.0))
-                    .child(
-                        div()
-                            .text_size(px(11.0))
-                            .text_color(palette.accent)
-                            .child("agent"),
-                    )
-                    .child(
-                        markdown_text_view("native-streaming-markdown", &streaming)
-                            .stream_fade(true),
-                    )
-                    .context_menu(move |menu, _window, _cx| {
-                        render_message_context_menu(
-                            menu,
-                            streaming_view.clone(),
-                            streaming_payloads.clone(),
-                        )
-                    })
-                    .into_any_element(),
-            );
-        }
-
-        for card in &remaining_subagents {
-            rows.push(render_subagent_row(card, &palette));
-        }
-
-        if let Some(error) = self.state.last_error.clone() {
-            let hint = retry_hint_for_error(&error);
-            let can_retry = self.state.retry_available() && self.last_turn.is_some();
-            rows.push(
-                div()
-                    .id("native-agent-error")
-                    .flex()
-                    .flex_col()
-                    .gap(px(4.0))
-                    .p(space(2))
-                    .rounded(px(RADIUS_MEDIUM))
-                    .border_1()
-                    .border_color(palette.danger)
-                    .bg(palette.view)
-                    .child(
-                        div()
-                            .text_size(px(11.0))
-                            .text_color(palette.danger)
-                            .child("请求失败"),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(12.0))
-                            .text_color(palette.ink)
-                            .child(error),
-                    )
-                    .children(hint.map(|hint| {
-                        div()
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_3)
-                            .child(hint)
-                    }))
-                    .children(can_retry.then(|| {
-                        div()
-                            .id("native-agent-retry")
-                            .role(Role::Button)
-                            .aria_label("重试")
-                            .mt(px(2.0))
-                            .px(space(2))
-                            .py(px(3.0))
-                            .rounded(px(RADIUS_SMALL))
-                            .bg(palette.accent)
-                            .text_color(palette.canvas)
-                            .text_size(px(12.0))
-                            .hover(|style| style.opacity(0.9))
-                            .child("重试")
-                            .on_click(cx.listener(|this, _, _, cx| this.retry_last_turn(cx)))
-                    }))
-                    .into_any_element(),
-            );
-        }
-
-        let content_snapshot = (
-            self.state.messages.len(),
-            self.state.streaming.len(),
-            self.state.thinking_streaming.len(),
-        );
-        if should_auto_scroll(
-            self.follow_output,
-            self.last_followed_content,
-            content_snapshot,
-            !rows.is_empty(),
-        ) {
-            // 只有“正在跟随 + 内容有新增”才自动滚到底；单纯重渲染不再抢滚动位置。
-            // 注意用 scroll_to_bottom 而不是 scroll_to_item(last)：消息区外面包了一层
-            // 列容器（max-width 居中）后，rows 不再是滚动容器的直接子节点。
-            self.messages_scroll.scroll_to_bottom();
-            self.last_followed_content = content_snapshot;
-        }
-        let at_bottom = self.is_scrolled_to_bottom();
-        let content_changed = content_grew(self.last_followed_content, content_snapshot);
-        if should_rearm_follow(
-            self.follow_output,
-            at_bottom,
-            self.scroll_check_pending,
-            content_changed,
-        ) {
-            // 用户已经滚到底部（或按钮点击后刚好到底），恢复自动跟随。
-            self.follow_output = true;
-        }
-        let show_scroll_to_bottom = should_show_scroll_to_bottom(
-            self.follow_output,
-            at_bottom,
-            self.messages_scroll.max_offset().y,
-        );
+        let row_kinds = self.message_row_kinds();
+        self.sync_message_scroller(&row_kinds, cx);
+        let row_kinds = Arc::new(row_kinds);
+        let weak_view = cx.entity().downgrade();
+        let message_menu_root = cx.entity().downgrade();
 
         div()
             .size_full()
@@ -2643,83 +2714,34 @@ impl Render for NativeAgentView {
             .font_family(theme::FONT_SANS)
             .text_size(px(13.0))
             .child(
-                div()
-                    .flex_1()
-                    .min_h(px(0.0))
-                    .relative()
-                    .child(
-                        div()
-                            .id("native-agent-messages")
-                            .size_full()
-                            .flex()
-                            .flex_col()
-                            .gap(space(2))
-                            .p(space(3))
-                            .overflow_y_scroll()
-                            .track_scroll(&self.messages_scroll)
-                            .items_center()
-                            .vertical_scrollbar(&self.messages_scroll)
-                            .on_scroll_wheel(cx.listener(
-                                |this, _event: &ScrollWheelEvent, window, cx| {
-                                    // 用户一旦滚动就暂停自动跟随；滚动结束后若已回到
-                                    // 底部则恢复跟随（defer 里 offset 已完成 clamp）。
-                                    if this.follow_output {
-                                        this.follow_output = false;
-                                        cx.notify();
-                                    }
-                                    this.scroll_check_pending = true;
-                                    let entity = cx.entity().downgrade();
-                                    window.defer(cx, move |_window, cx| {
-                                        let _ = entity.update(cx, |this, cx| {
-                                            this.scroll_check_pending = false;
-                                            let at_bottom = this.is_scrolled_to_bottom();
-                                            if should_rearm_follow(
-                                                this.follow_output,
-                                                at_bottom,
-                                                false,
-                                                false,
-                                            ) {
-                                                this.follow_output = true;
-                                            }
-                                            cx.notify();
-                                        });
-                                    });
-                                },
-                            ))
-                            .child(
-                                div()
-                                    .w_full()
-                                    .max_w(px(850.0))
-                                    .flex()
-                                    .flex_col()
-                                    .gap(space(2))
-                                    .children(rows),
-                            ),
+                div().flex_1().min_h(px(0.0)).child(
+                    MessageScroller::new(
+                        "native-agent-messages",
+                        self.message_scroller.clone(),
+                        move |index, _window, cx| {
+                            let Some(kind) = row_kinds.get(index).copied() else {
+                                return div().into_any_element();
+                            };
+                            let menu_root = message_menu_root.clone();
+                            let row = weak_view
+                                .update(cx, |view, cx| {
+                                    view.render_message_row(kind, &menu_root, cx)
+                                })
+                                .unwrap_or_else(|_| div().into_any_element());
+                            div()
+                                .w_full()
+                                .max_w(px(850.0))
+                                .mx_auto()
+                                .child(row)
+                                .into_any_element()
+                        },
                     )
-                    .children(show_scroll_to_bottom.then(|| {
-                        div()
-                            .id("native-scroll-to-bottom")
-                            .role(Role::Button)
-                            .aria_label("回到最新消息")
-                            .absolute()
-                            .bottom(space(3))
-                            .right(space(3))
-                            .px(space(2))
-                            .py(px(3.0))
-                            .rounded(px(RADIUS_MEDIUM))
-                            .border_1()
-                            .border_color(palette.line)
-                            .bg(palette.card)
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_2)
-                            .hover(|style| style.bg(palette.soft))
-                            .child("↓ 回到最新")
-                            .on_click(cx.listener(|this, _, _window, cx| {
-                                this.follow_output = true;
-                                this.messages_scroll.scroll_to_bottom();
-                                cx.notify();
-                            }))
-                    })),
+                    .scrollbar(true)
+                    .jump_button(true)
+                    .with_jump_button_label("回到最新")
+                    .with_list_style(StyleRefinement::default().p(space(3)))
+                    .with_row_style(StyleRefinement::default().pb(space(2))),
+                ),
             )
             .children(show_changes.then(|| {
                 div()
@@ -4314,39 +4336,58 @@ fn transfer_live_thinking_expansion(
 
 /// 滚动是否已经在底部（GPUI 的 offset.y 越往下越负，max_offset 为正）。
 /// 2px 容差避免亚像素/取整导致的“差一点点”抖动。
-fn scrolled_to_bottom(offset_y: Pixels, max_y: Pixels) -> bool {
-    max_y > px(0.0) && offset_y <= -max_y + px(2.0)
+/// 消息区的行类型：历史消息、内联子 agent、流式思考、流式回复、错误。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MessageRowKind {
+    Message(usize),
+    Subagent(usize),
+    LiveThinking,
+    Streaming,
+    Error,
 }
 
-/// 是否显示「回到最新」按钮：未跟随、内容可滚动、且确实不在底部。
-fn should_show_scroll_to_bottom(follow: bool, at_bottom: bool, max_offset: Pixels) -> bool {
-    !follow && max_offset > px(0.0) && !at_bottom
-}
-
-/// 是否在 render 里恢复跟随：未跟随、已在底部、没有待处理滚轮判定，
-/// 且本帧内容没有增长（避免流式期间用旧的 max_offset 误判“在底部”而抢滚动）。
-fn should_rearm_follow(
-    follow: bool,
-    at_bottom: bool,
-    pending: bool,
-    content_changed: bool,
-) -> bool {
-    !follow && at_bottom && !pending && !content_changed
-}
-
-/// 是否应该自动滚动到底部：仅在“跟随模式 + 有消息行 + 内容有新增”时触发。
-fn should_auto_scroll(
-    follow: bool,
-    previous: (usize, usize, usize),
-    current: (usize, usize, usize),
-    has_rows: bool,
-) -> bool {
-    follow && has_rows && content_grew(previous, current)
-}
-
-/// 内容是否有新增（messages / streaming / thinking 三段长度快照任一变化）。
-fn content_grew(previous: (usize, usize, usize), current: (usize, usize, usize)) -> bool {
-    current != previous
+/// 计算消息区的行序列；子 agent 卡内联到触发它的 tool 消息后面，
+/// 其余子 agent 与流式/错误行按旧渲染顺序排在末尾。
+fn build_message_row_kinds(
+    messages: &[UiMessage],
+    subagents: &[SubagentCard],
+    has_live_thinking: bool,
+    has_streaming: bool,
+    has_error: bool,
+) -> Vec<MessageRowKind> {
+    let mut kinds = Vec::with_capacity(messages.len() + subagents.len() + 3);
+    let mut used_subagents = vec![false; subagents.len()];
+    for (message_index, message) in messages.iter().enumerate() {
+        kinds.push(MessageRowKind::Message(message_index));
+        if let Some(tool_call_id) = message.tool_call_id.as_deref() {
+            if let Some(subagent_index) = subagents
+                .iter()
+                .enumerate()
+                .find(|(index, card)| {
+                    !used_subagents[*index] && card.tool_call_id.as_deref() == Some(tool_call_id)
+                })
+                .map(|(index, _)| index)
+            {
+                used_subagents[subagent_index] = true;
+                kinds.push(MessageRowKind::Subagent(subagent_index));
+            }
+        }
+    }
+    if has_live_thinking {
+        kinds.push(MessageRowKind::LiveThinking);
+    }
+    if has_streaming {
+        kinds.push(MessageRowKind::Streaming);
+    }
+    for (index, used) in used_subagents.into_iter().enumerate() {
+        if !used {
+            kinds.push(MessageRowKind::Subagent(index));
+        }
+    }
+    if has_error {
+        kinds.push(MessageRowKind::Error);
+    }
+    kinds
 }
 
 /// 重试前把 UI 消息裁到最近一条用户消息为止，丢掉失败 turn 残留的部分回复/工具卡。
@@ -5150,60 +5191,72 @@ mod workspace_prompt_tests {
     }
 
     #[test]
-    fn scroll_helpers_detect_bottom_and_content_growth() {
-        use gpui_kit::px;
+    fn message_row_kinds_keep_inline_subagents_and_tail_rows_in_order() {
+        use cgc_agent_host::{SubagentCard, UiMessage, UiRole};
 
-        // max=0：内容没溢出，不算“能滚到底部”
-        assert!(!super::scrolled_to_bottom(px(0.0), px(0.0)));
-        // 正好停在底部
-        assert!(super::scrolled_to_bottom(px(-500.0), px(500.0)));
-        // 距底部 1px 以内仍算底部（亚像素容差）
-        assert!(super::scrolled_to_bottom(px(-499.0), px(500.0)));
-        // 上滑 100px 后不算底部
-        assert!(!super::scrolled_to_bottom(px(-400.0), px(500.0)));
+        let message = |role, text: &str, tool_call_id: Option<&str>| UiMessage {
+            role,
+            text: text.into(),
+            tool_call_id: tool_call_id.map(str::to_string),
+            tool: None,
+        };
+        let subagent = |tool_call_id: Option<&str>, text: &str| SubagentCard {
+            task: "task".into(),
+            text: text.into(),
+            finished: Some(true),
+            tool_call_id: tool_call_id.map(str::to_string),
+        };
 
-        assert!(super::content_grew((1, 0, 0), (2, 0, 0)), "新消息");
-        assert!(super::content_grew((2, 10, 0), (2, 20, 0)), "流式回复增长");
-        assert!(super::content_grew((2, 20, 5), (2, 20, 8)), "流式思考增长");
-        assert!(
-            !super::content_grew((2, 20, 8), (2, 20, 8)),
-            "内容没变不应触发自动滚动"
+        let messages = vec![
+            message(UiRole::User, "hi", None),
+            message(UiRole::Tool, "tool done", Some("call_1")),
+            message(UiRole::Assistant, "answer", None),
+        ];
+        // 故意让尾部 card 排在前面：正确实现应按 tool_call_id 匹配到 index 1
+        let subagents = vec![
+            subagent(Some("call_2"), "tail"),
+            subagent(Some("call_1"), "inline"),
+        ];
+        let kinds = super::build_message_row_kinds(&messages, &subagents, true, true, true);
+        assert_eq!(
+            kinds,
+            vec![
+                super::MessageRowKind::Message(0),
+                super::MessageRowKind::Message(1),
+                super::MessageRowKind::Subagent(1),
+                super::MessageRowKind::Message(2),
+                super::MessageRowKind::LiveThinking,
+                super::MessageRowKind::Streaming,
+                super::MessageRowKind::Subagent(0),
+                super::MessageRowKind::Error,
+            ],
+            "子 agent 应内联到触发它的 tool 消息后，尾部按 流式→剩余子 agent→错误 排列"
         );
 
-        // 按钮只在“未跟随 + 可滚动 + 不在底部”时显示
-        assert!(super::should_show_scroll_to_bottom(false, false, px(100.0)));
-        assert!(!super::should_show_scroll_to_bottom(true, false, px(100.0)));
-        assert!(!super::should_show_scroll_to_bottom(false, true, px(100.0)));
-        assert!(!super::should_show_scroll_to_bottom(false, false, px(0.0)));
-
-        // 只有在“未跟随 + 已在底部 + 没有待处理滚轮判定”时才恢复跟随
-        assert!(super::should_rearm_follow(false, true, false, false));
-        assert!(!super::should_rearm_follow(true, true, false, false));
-        assert!(!super::should_rearm_follow(false, false, false, false));
-        assert!(
-            !super::should_rearm_follow(false, true, true, false),
-            "滚轮事件后的 pending 期间不能用旧 offset 重新跟随"
-        );
-        assert!(
-            !super::should_rearm_follow(false, true, false, true),
-            "内容增长期间（max_offset 还是旧值）不能用误判的“底部”重新跟随"
+        // 无流式/错误/子 agent 时只有历史消息行
+        let kinds = super::build_message_row_kinds(&messages, &[], false, false, false);
+        assert_eq!(
+            kinds,
+            vec![
+                super::MessageRowKind::Message(0),
+                super::MessageRowKind::Message(1),
+                super::MessageRowKind::Message(2),
+            ]
         );
 
-        // 自动滚动需要同时满足：跟随中 + 有行 + 内容新增
-        assert!(super::should_auto_scroll(true, (1, 0, 0), (2, 0, 0), true));
-        assert!(!super::should_auto_scroll(
-            false,
-            (1, 0, 0),
-            (2, 0, 0),
-            true
-        ));
-        assert!(!super::should_auto_scroll(true, (2, 0, 0), (2, 0, 0), true));
-        assert!(!super::should_auto_scroll(
-            true,
-            (1, 0, 0),
-            (2, 0, 0),
-            false
-        ));
+        // 同一 tool_call_id 的重复子 agent 只内联第一个，其余留在尾部
+        let duplicates = vec![subagent(Some("call_1"), "a"), subagent(Some("call_1"), "b")];
+        let kinds = super::build_message_row_kinds(&messages, &duplicates, false, false, false);
+        assert_eq!(
+            kinds,
+            vec![
+                super::MessageRowKind::Message(0),
+                super::MessageRowKind::Message(1),
+                super::MessageRowKind::Subagent(0),
+                super::MessageRowKind::Message(2),
+                super::MessageRowKind::Subagent(1),
+            ]
+        );
     }
 
     #[test]
