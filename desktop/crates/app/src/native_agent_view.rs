@@ -4582,6 +4582,7 @@ impl Render for NativeAgentView {
                                     padding_x: 8.0,
                                     padding_y: 3.0,
                                     text_size: 12.0,
+                                    ml_auto: false,
                                     on_click: Box::new(move |window, cx| {
                                         let _ = send_weak.update(cx, |this, cx| {
                                             if busy && !has_input {

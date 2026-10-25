@@ -147,6 +147,7 @@ pub struct SendButtonSpec {
     pub padding_x: f32,
     pub padding_y: f32,
     pub text_size: f32,
+    pub ml_auto: bool,
     pub on_click: ComposerAction,
 }
 
@@ -163,10 +164,11 @@ pub fn render_send_button(spec: SendButtonSpec) -> AnyElement {
         padding_x,
         padding_y,
         text_size,
+        ml_auto,
         on_click,
     } = spec;
     let _ = streaming;
-    div()
+    let mut button = div()
         .id(id)
         .role(Role::Button)
         .aria_label(aria)
@@ -178,7 +180,11 @@ pub fn render_send_button(spec: SendButtonSpec) -> AnyElement {
         .text_size(px(text_size))
         .flex()
         .items_center()
-        .justify_center()
+        .justify_center();
+    if ml_auto {
+        button = button.ml_auto();
+    }
+    button
         .child(glyph)
         .tooltip(move |window, cx| {
             gpui_kit::component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)

@@ -749,53 +749,57 @@ pub(in crate::root_view) fn render_chat_panel(
                                             ),
                                         )
                                     }))
-                                    .child(
-                                        div()
-                                            .id(if streaming { "chat-stop" } else { "chat-send" })
-                                            .role(Role::Button)
-                                            .aria_label(if streaming {
+                                    .child(cgc_agent_ui::composer::render_send_button(
+                                        cgc_agent_ui::composer::SendButtonSpec {
+                                            id: if streaming { "chat-stop" } else { "chat-send" }
+                                                .into(),
+                                            streaming,
+                                            aria: if streaming {
                                                 "Stop Generation"
                                             } else {
                                                 translate(language, Key::AgentChatChatSend)
-                                            })
-                                            .size(px(24.0))
-                                            .rounded(px(RADIUS_SMALL))
-                                            .flex()
-                                            .items_center()
-                                            .justify_center()
-                                            .ml_auto()
-                                            .bg(if streaming {
+                                            }
+                                            .into(),
+                                            tooltip: if streaming {
+                                                "Stop Generation"
+                                            } else {
+                                                translate(language, Key::AgentChatChatSend)
+                                            }
+                                            .into(),
+                                            glyph: Icon::default()
+                                                .path(if streaming {
+                                                    AssetIcon::Square.path()
+                                                } else {
+                                                    AssetIcon::ArrowUp.path()
+                                                })
+                                                .small()
+                                                .into_any_element(),
+                                            bg: if streaming {
                                                 palette.danger
                                             } else {
                                                 palette.accent
-                                            })
-                                            .text_color(palette.canvas)
-                                            .child(
-                                                Icon::default()
-                                                    .path(if streaming {
-                                                        AssetIcon::Square.path()
-                                                    } else {
-                                                        AssetIcon::ArrowUp.path()
-                                                    })
-                                                    .small(),
-                                            )
-                                            .tooltip(move |window, cx| {
-                                                let label = if streaming {
-                                                    "Stop Generation"
-                                                } else {
-                                                    translate(language, Key::AgentChatChatSend)
-                                                };
-                                                Tooltip::new(label).build(window, cx)
-                                            })
-                                            .on_click(cx.listener(move |this, _, window, cx| {
-                                                if streaming {
-                                                    this.stop_chat_turn(cx);
-                                                } else {
-                                                    this.send_chat(cx);
-                                                    this.clear_chat_input(window, cx);
-                                                }
-                                            })),
-                                    ),
+                                            },
+                                            fg: palette.canvas,
+                                            radius: RADIUS_SMALL,
+                                            padding_x: 4.0,
+                                            padding_y: 4.0,
+                                            text_size: 12.0,
+                                            ml_auto: true,
+                                            on_click: {
+                                                let view = cx.entity().downgrade();
+                                                Box::new(move |window, cx| {
+                                                    let _ = view.update(cx, |this, cx| {
+                                                        if streaming {
+                                                            this.stop_chat_turn(cx);
+                                                        } else {
+                                                            this.send_chat(cx);
+                                                            this.clear_chat_input(window, cx);
+                                                        }
+                                                    });
+                                                })
+                                            },
+                                        },
+                                    )),
                             ),
                         )
                         .children(slash_rows.map(|menu| {
