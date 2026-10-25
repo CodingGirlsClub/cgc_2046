@@ -4076,19 +4076,14 @@ impl Render for NativeAgentView {
                             .into_any_element()
                     });
 
-                div()
-                    .id("native-agent-composer")
-                    .relative()
-                    .flex()
-                    .flex_col()
-                    .gap(px(1.0))
-                    .mx(space(2))
-                    .mb(space(2))
-                    .p(space(1))
-                    .rounded(px(RADIUS_MEDIUM))
-                    .border_1()
-                    .border_color(palette.line)
-                    .bg(palette.view)
+                cgc_agent_ui::composer::composer_card(
+                    "native-agent-composer",
+                    false,
+                    native_composer_style(palette),
+                )
+                .relative()
+                .mx(space(2))
+                .mb(space(2))
                     .capture_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
                         if event.keystroke.key == "v" && event.keystroke.modifiers.platform {
                             let has_image = cx
@@ -5114,6 +5109,19 @@ fn message_menu_payloads(
 }
 
 /// native 主题 → 共享消息行样式。
+fn native_composer_style(palette: theme::Palette) -> cgc_agent_ui::composer::ComposerStyle {
+    cgc_agent_ui::composer::ComposerStyle {
+        view: palette.view,
+        line: palette.line,
+        accent: palette.accent,
+        danger: palette.danger,
+        canvas: palette.canvas,
+        radius: RADIUS_MEDIUM,
+        padding: 4.0,
+        gap: 1.0,
+    }
+}
+
 fn native_message_style(palette: theme::Palette) -> MessageStyle {
     MessageStyle {
         ink_2: palette.ink_2,
