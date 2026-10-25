@@ -46,6 +46,7 @@ use gpui_kit::component::popover::Popover;
 use gpui_kit::component::text::{SelectionFormat, TextView};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{Icon, Sizable};
+use gpui_kit::InteractiveElement as _;
 use gpui_kit::*;
 use image::GenericImageView as _;
 
@@ -941,8 +942,9 @@ impl NativeAgentView {
             self.handle_slash(command, cx);
             return;
         }
-        // 气泡展示 humanize 文本；真正发给 agent 的 prompt 前置技能/文件上下文。
-        let display = mention::display_text(&text);
+        // 气泡保留原始 mention 链接（渲染时转 chip，编辑时可重建 token）；
+        // 真正发给 agent 的 prompt 前置技能/文件上下文。
+        let display = text.clone();
         let prompt = mention::resolve_prompt(&content, self.context.workspace());
         if self.busy {
             self.queued_messages.push(QueuedMessage { display, prompt });
@@ -1842,9 +1844,16 @@ impl NativeAgentView {
             return;
         }
         let text = message.text.clone();
+        let skills = self.skills.clone();
         let input = cx.new(|cx| {
             let mut state = TextareaState::new(window, cx).auto_grow(1, 8);
-            state.set_value(text, window, cx);
+            let content = mention::content_with_mentions(&text, |scope, name| {
+                skills
+                    .iter()
+                    .find(|skill| skill.name == name && skill.scope == scope)
+                    .map(|skill| skill.file_path.clone())
+            });
+            state.set_value(content, window, cx);
             state
         });
         self.pending_restart_confirm = None;
@@ -1871,12 +1880,14 @@ impl NativeAgentView {
         let Some(input) = self.user_edit_input.clone() else {
             return;
         };
-        let edited = input.read(cx).value().trim().to_string();
-        if edited.is_empty() {
+        let content = input.read(cx).content();
+        let edited_display = content.text().trim().to_string();
+        if edited_display.is_empty() {
             self.status = "消息不能为空".to_string();
             cx.notify();
             return;
         }
+        let edited_prompt = mention::resolve_prompt(&content, self.context.workspace());
         let Some(ordinal) = user_message_ordinal(&self.state.messages, message_index) else {
             return;
         };
@@ -1942,10 +1953,10 @@ impl NativeAgentView {
         self.state.messages.retain(|message| {
             !(message.role == UiRole::System && message.text == EMPTY_THREAD_NOTICE)
         });
-        self.state.push_user(edited.clone());
+        self.state.push_user(edited_display.clone());
         self.state.last_error = None;
         self.state.streaming.clear();
-        self.last_turn = Some((edited.clone(), edited.clone()));
+        self.last_turn = Some((edited_prompt.clone(), edited_display.clone()));
         let ordinal = self
             .state
             .messages
@@ -1954,7 +1965,7 @@ impl NativeAgentView {
             .count();
         self.capture_checkpoint(&thread_id, ordinal);
         self.status = format!("从该消息重发{note}");
-        self.run_turn(edited.clone(), edited, true, cx);
+        self.run_turn(edited_prompt, edited_display, true, cx);
     }
 
     /// 编辑态行内编辑器。
@@ -2602,11 +2613,10 @@ impl NativeAgentView {
                                     .bg(palette.view)
                                     .hover(|style| style.border_color(palette.line_strong))
                                     .child(
-                                        div()
-                                            .pr(px(28.0))
-                                            .text_size(px(13.0))
-                                            .text_color(palette.ink)
-                                            .child(mention::display_text(&message.text)),
+                                        div().pr(px(28.0)).child(render_user_message_body(
+                                            &message.text,
+                                            &palette,
+                                        )),
                                     )
                                     .children(
                                         (!self.busy && self.editing_user != Some(edit_index)).then(
@@ -4728,6 +4738,73 @@ fn needs_checkpoint_confirm(
     message_index: usize,
 ) -> bool {
     !has_valid_checkpoint && pending != Some(message_index)
+}
+
+/// 用户消息正文：普通文本 + mention chip（与 composer 的 chip 对齐）。
+fn render_user_message_body(text: &str, palette: &theme::Palette) -> AnyElement {
+    let palette = *palette;
+    let segments = mention::display_segments(text);
+    div()
+        .flex()
+        .flex_row()
+        .flex_wrap()
+        .items_center()
+        .gap(px(2.0))
+        .children(segments.into_iter().enumerate().map(|(index, segment)| {
+            match segment {
+                mention::DisplaySegment::Text(text) => div()
+                    .text_size(px(13.0))
+                    .text_color(palette.ink)
+                    .child(text)
+                    .into_any_element(),
+                mention::DisplaySegment::Mention {
+                    label,
+                    kind,
+                    target,
+                } => {
+                    let icon = match kind {
+                        mention::MentionKind::Skill => gpui_kit::assets::IconName::Sparkle,
+                        mention::MentionKind::File => gpui_kit::assets::IconName::FileText,
+                    };
+                    let chip = div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(2.0))
+                        .px(px(4.0))
+                        .py(px(1.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .border_1()
+                        .border_color(palette.line)
+                        .bg(palette.soft)
+                        .child(Icon::new(icon).xsmall().text_color(palette.ink_3))
+                        .child(
+                            div()
+                                .text_size(px(12.0))
+                                .text_color(palette.ink_2)
+                                .child(label),
+                        );
+                    HoverCard::new(SharedString::from(format!("native-mention-chip-{index}")))
+                        .anchor(Anchor::TopCenter)
+                        .open_delay(std::time::Duration::from_millis(200))
+                        .trigger(chip)
+                        .content(move |_, _, _| {
+                            div()
+                                .p(px(4.0))
+                                .rounded(px(RADIUS_SMALL))
+                                .border_1()
+                                .border_color(palette.line)
+                                .bg(palette.card)
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_2)
+                                .child(target.clone())
+                                .into_any_element()
+                        })
+                        .into_any_element()
+                }
+            }
+        }))
+        .into_any_element()
 }
 
 /// 每个 workspace scope 一条 native 线程（ADR-0028）。

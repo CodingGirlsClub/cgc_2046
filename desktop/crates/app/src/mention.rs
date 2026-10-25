@@ -180,6 +180,178 @@ pub(crate) fn resolve_prompt(content: &InputContent, workspace: &Path) -> String
     }
 }
 
+/// mention 引用类型（用于消息里的 chip）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MentionKind {
+    Skill,
+    File,
+}
+
+/// 一条消息渲染出来的片段：普通文本，或一个 mention chip。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum DisplaySegment {
+    Text(String),
+    Mention {
+        /// chip 上显示的短标签（技能名 / 文件路径）。
+        label: String,
+        kind: MentionKind,
+        /// chip tooltip 用（file://path 或 skill://scope/name）。
+        target: String,
+    },
+}
+
+/// 解析消息文本里所有 mention 链接（`[@label](file://...)` / `skill://...`）。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct MentionLink {
+    pub start: usize,
+    pub end: usize,
+    pub kind: MentionKind,
+    /// 链接 label 解码后的展示文本（`/技能名`、`@路径` 用）。
+    pub display_label: String,
+    /// chip 短标签：技能名 / 文件路径。
+    pub chip_label: String,
+    pub skill_scope: Option<String>,
+    pub skill_name: Option<String>,
+    pub path: Option<String>,
+    pub target: String,
+}
+
+pub(crate) fn mention_links(text: &str) -> Vec<MentionLink> {
+    let mut links = Vec::new();
+    let mut cursor = 0usize;
+    while let Some(relative) = text[cursor..].find("[@") {
+        let start = cursor + relative;
+        let Some((link, next)) = parse_mention_link_detail(text, start) else {
+            cursor = start + 2;
+            continue;
+        };
+        links.push(link);
+        cursor = next;
+    }
+    links
+}
+
+/// 展示片段：文本 + mention chip；普通 markdown 链接保持原文。
+pub(crate) fn display_segments(text: &str) -> Vec<DisplaySegment> {
+    let links = mention_links(text);
+    if links.is_empty() {
+        return vec![DisplaySegment::Text(text.to_string())];
+    }
+    let mut segments = Vec::new();
+    let mut cursor = 0usize;
+    for link in links {
+        if link.start > cursor {
+            segments.push(DisplaySegment::Text(text[cursor..link.start].to_string()));
+        }
+        let target = match (&link.kind, &link.path) {
+            (MentionKind::File, Some(path)) => path.clone(),
+            _ => link.target,
+        };
+        segments.push(DisplaySegment::Mention {
+            label: link.chip_label,
+            kind: link.kind,
+            target,
+        });
+        cursor = link.end;
+    }
+    if cursor < text.len() {
+        segments.push(DisplaySegment::Text(text[cursor..].to_string()));
+    }
+    segments
+}
+
+/// 编辑消息时重建带 inline token 的内容，保证 chip 与发送时的上下文注入不丢失。
+pub(crate) fn content_with_mentions(
+    text: &str,
+    resolve_skill: impl Fn(&str, &str) -> Option<PathBuf>,
+) -> InputContent {
+    let mut content = InputContent::new(text);
+    for link in mention_links(text) {
+        let mention = match link.kind {
+            MentionKind::File => Mention::File {
+                path: link.path.unwrap_or_default(),
+            },
+            MentionKind::Skill => {
+                let scope = link.skill_scope.unwrap_or_default();
+                let name = link.skill_name.unwrap_or_default();
+                let Some(file_path) = resolve_skill(&scope, &name) else {
+                    continue;
+                };
+                Mention::Skill {
+                    name,
+                    scope,
+                    file_path,
+                }
+            }
+        };
+        let token = InlineToken::new(mention.token_id(), text[link.start..link.end].to_string())
+            .with_label(mention.chip_label());
+        content = content
+            .with_token(link.start..link.end, token)
+            .expect("mention token range must match its link text");
+    }
+    content
+}
+
+fn parse_mention_link_detail(text: &str, start: usize) -> Option<(MentionLink, usize)> {
+    let after = &text[start + 2..];
+    let label_end = after.find("](")?;
+    let label = &after[..label_end];
+    let target_start = label_end + 2;
+    let target_rest = after.get(target_start..)?;
+    let target_end = target_rest.find(')')?;
+    let target = &target_rest[..target_end];
+    let next = start + 2 + target_start + target_end + 1;
+    let display_label = decode_component(label);
+    if let Some(rest) = target.strip_prefix("skill://") {
+        let (scope, name) = rest.split_once('/')?;
+        let scope = decode_component(scope);
+        let name = decode_component(name);
+        let chip_label = if name.is_empty() {
+            display_label.clone()
+        } else {
+            name.clone()
+        };
+        return Some((
+            MentionLink {
+                start,
+                end: next,
+                kind: MentionKind::Skill,
+                display_label,
+                chip_label,
+                skill_scope: Some(scope),
+                skill_name: Some(name),
+                path: None,
+                target: target.to_string(),
+            },
+            next,
+        ));
+    }
+    if let Some(rest) = target.strip_prefix("file://") {
+        let path = decode_component(rest);
+        let chip_label = if path.is_empty() {
+            display_label.clone()
+        } else {
+            path.clone()
+        };
+        return Some((
+            MentionLink {
+                start,
+                end: next,
+                kind: MentionKind::File,
+                display_label,
+                chip_label,
+                skill_scope: None,
+                skill_name: None,
+                path: Some(path),
+                target: target.to_string(),
+            },
+            next,
+        ));
+    }
+    None
+}
+
 /// 展示用文本：把 mention 链接还原成 `/技能名`、`@文件路径`，普通 markdown 链接不动。
 pub(crate) fn display_text(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -505,6 +677,78 @@ mod tests {
             "[普通链接](https://example.com)"
         );
         assert_eq!(display_text("[@没有闭合"), "[@没有闭合");
+    }
+
+    #[test]
+    fn display_segments_splits_text_and_chips() {
+        let text = "看 [@a b.md](file://a%20b.md) 和 [@deploy](skill://project/deploy) 以及 [普通链接](https://example.com)";
+        let segments = display_segments(text);
+        assert_eq!(
+            segments,
+            vec![
+                DisplaySegment::Text("看 ".into()),
+                DisplaySegment::Mention {
+                    label: "a b.md".into(),
+                    kind: MentionKind::File,
+                    target: "a b.md".into(),
+                },
+                DisplaySegment::Text(" 和 ".into()),
+                DisplaySegment::Mention {
+                    label: "deploy".into(),
+                    kind: MentionKind::Skill,
+                    target: "skill://project/deploy".into(),
+                },
+                DisplaySegment::Text(" 以及 [普通链接](https://example.com)".into()),
+            ]
+        );
+        // 普通文本/普通链接/坏链接都退化为纯文本，不丢内容。
+        assert_eq!(
+            display_segments("纯文本"),
+            vec![DisplaySegment::Text("纯文本".into())]
+        );
+        assert_eq!(
+            display_segments("[普通链接](https://example.com)"),
+            vec![DisplaySegment::Text(
+                "[普通链接](https://example.com)".into()
+            )]
+        );
+        assert_eq!(
+            display_segments("看 [@坏链接"),
+            vec![DisplaySegment::Text("看 [@坏链接".into())]
+        );
+    }
+
+    #[test]
+    fn content_with_mentions_rebuilds_tokens() {
+        let text = "引用 [@a b.md](file://a%20b.md) 和 [@deploy](skill://project/deploy)";
+        let content = content_with_mentions(text, |scope, name| {
+            (scope == "project" && name == "deploy")
+                .then(|| PathBuf::from("/workspace/.agents/skills/deploy/SKILL.md"))
+        });
+        assert_eq!(content.text().as_ref(), text);
+        let tokens = content.tokens();
+        assert_eq!(tokens.len(), 2, "两个 mention 都应重建 token");
+        assert_eq!(tokens[0].token().label(), "a b.md");
+        assert_eq!(
+            Mention::parse_token_id(tokens[0].token().id()),
+            Some(Mention::File {
+                path: "a b.md".into()
+            })
+        );
+        assert_eq!(tokens[1].token().label(), "deploy");
+        assert_eq!(
+            Mention::parse_token_id(tokens[1].token().id()),
+            Some(Mention::Skill {
+                name: "deploy".into(),
+                scope: "project".into(),
+                file_path: PathBuf::from("/workspace/.agents/skills/deploy/SKILL.md"),
+            })
+        );
+
+        // 技能解析不到文件时跳过 token，但文本保持原样。
+        let unresolved = content_with_mentions(text, |_, _| None);
+        assert_eq!(unresolved.text().as_ref(), text);
+        assert_eq!(unresolved.tokens().len(), 1, "只有 file mention 能重建");
     }
 
     #[test]
