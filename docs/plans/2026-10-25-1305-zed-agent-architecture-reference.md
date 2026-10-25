@@ -292,7 +292,7 @@ seam 已经在裸奔，只是没抽出来。
 
 ## 6. 决策与开放问题
 
-> 2026-10-25 讨论后更新：Q1/Q2/Q3/Q5 已拍板，Q4 仍在讨论（见下）。
+> 2026-10-25 讨论后更新：Q1/Q2/Q3/Q4/Q5 均已拍板（见下）。
 
 1. **【已定｜产品】双轨是长期形态，不是过渡。** 与 Zed 一致：native 默认 + external ACP 高级模式；
    投入 Stage 2 收敛成「一套 UI + 一个客户端会话模型」；**不做 transcript 迁移**；
@@ -304,11 +304,11 @@ seam 已经在裸奔，只是没抽出来。
    门控，要求 `connection.truncate()`；该能力只有 native 实现（ACP v1/v2 均无，协议也没有
    rewind 方法）。因此外部 ACP agent 在 Zed 里同样没有 checkpoint → 我们保持 native-only，
    等 ACP 协议出现 rewind 能力再评估。
-4. **【讨论中】MCP 的客户端配置与 native 接入。** 方向：抄 Zed「MCP 是客户端资产」的架构
-   （Stdio/Http 配置形状 + 按 session 下发/注入 + 两个 runtime 都消费）；但 v1 的配置来源是
-   平台租赁（`learning_host` 的 CGC MCP，5 个学习工具）而非学员手填，用户可编辑的
-   `context_servers` 作为后续高级模式开口。native MCP client 与「native 在课程页转默认」同批，
-   避免学员缺学习工具。待确认：v1 是否开放用户自定义 MCP server。
+4. **【已定｜2026-10-25 产品确认】MCP = 客户端资产，两个 runtime 都消费。** 抄 Zed 的形态
+   （Stdio/Http 配置形状 + 客户端唯一 registry + 按 session 下发/注入）；**v1 配置来源只有平台
+   租赁**（`learning_host` 的 CGC MCP，5 个学习工具，session 级不落盘），**不开放用户自定义
+   MCP server**；用户可编辑的 `context_servers` 留作后续高级模式开口（受 ADR-0026 签名清单/
+   白名单与 ADR-0021 scopes 约束）。native MCP client 与「native 在课程页转默认」同批（P1b）交付。
 5. **【已定｜已执行】`agent_chat` 改名为 `agent_ui`**（2026-10-25，对齐 Zed 命名）；
    crates/package/模块引用已改，路由 id 与 i18n key（`agent_chat.panel*`）暂留作页面标识。
    Stage 1 先搬共享消息流渲染/composer 进去，Stage 2 再搬会话模型；暂不拆独立 model crate。
