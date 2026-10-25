@@ -316,6 +316,20 @@ impl ConversationThread {
                 tool_call_id,
                 args,
             } => {
+                // native/ACP 都可能对同一次审批重复发事件（工具执行与 UI 各一次）：
+                // 同一个未解决的审批只保留一条 entry，避免重复「等待审批」行。
+                let duplicate = self.entries.iter().rev().any(|entry| match entry {
+                    Entry::Permission {
+                        resolved: None,
+                        tool_call_id: pending_tool,
+                        title: pending_title,
+                        ..
+                    } => pending_tool == &tool_call_id && pending_title == &title,
+                    _ => false,
+                });
+                if duplicate {
+                    return;
+                }
                 self.status = ThreadStatus::AwaitingApproval;
                 self.entries.push(Entry::Permission {
                     request_id: request_id.clone(),
@@ -723,5 +737,36 @@ mod tests {
             view.action_plan(3, false, false).map(|p| p.scroll_to_user),
             Some(Some(2))
         );
+    }
+
+    #[test]
+    fn duplicate_permission_requests_are_deduped() {
+        let mut thread = started_thread();
+        thread.apply(ThreadEvent::PermissionRequested {
+            request_id: "p1".into(),
+            title: "允许运行 run_command？".into(),
+            tool_call_id: Some("c1".into()),
+            args: None,
+        });
+        thread.apply(ThreadEvent::PermissionRequested {
+            request_id: "p2".into(),
+            title: "允许运行 run_command？".into(),
+            tool_call_id: Some("c1".into()),
+            args: None,
+        });
+        assert_eq!(thread.entries.len(), 1, "同一次审批只保留一行");
+        assert_eq!(thread.status, ThreadStatus::AwaitingApproval);
+        thread.apply(ThreadEvent::PermissionResolved {
+            request_id: "p1".into(),
+            allowed: true,
+        });
+        // 解决后再次重复请求（不同轮）仍允许新增一行。
+        thread.apply(ThreadEvent::PermissionRequested {
+            request_id: "p3".into(),
+            title: "允许运行 run_command？".into(),
+            tool_call_id: Some("c1".into()),
+            args: None,
+        });
+        assert_eq!(thread.entries.len(), 2);
     }
 }
