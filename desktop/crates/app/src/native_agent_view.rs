@@ -3596,6 +3596,7 @@ impl Render for NativeAgentView {
                         div()
                             .flex()
                             .flex_row()
+                            .flex_wrap()
                             .items_center()
                             .gap(space(2))
                             .child(approval_button("允许一次", true, cx, |this, cx| {
