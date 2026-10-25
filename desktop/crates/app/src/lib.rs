@@ -9,6 +9,7 @@ pub(crate) fn agent_workspace_root() -> std::path::PathBuf {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| std::env::temp_dir()))
 }
+pub(crate) mod agent_scope;
 pub mod deep_link;
 pub mod formula;
 pub mod i18n;

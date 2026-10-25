@@ -34,6 +34,24 @@ impl RootView {
         self.account_menu_open = false;
     }
 
+    /// 根据登录用户 + 当前 active tab 刷新全局 agent 工作区 scope。
+    /// 由 RootView 渲染前调用；NativeAgentView 渲染时比较并切换线程/工作区。
+    pub(in crate::root_view) fn refresh_agent_scope(&self) {
+        if self.session.signed_in().is_none() && std::env::var_os("CGC_AGENT_WORKSPACE").is_none() {
+            return;
+        }
+        let user_id = self
+            .session
+            .signed_in()
+            .map(|session| session.user_id.as_str());
+        let active_path = self
+            .active_tab
+            .as_deref()
+            .and_then(|active| self.tabs.iter().find(|tab| tab.id == active))
+            .map(|tab| tab.path.as_str());
+        crate::agent_scope::set_current(crate::agent_scope::resolve(user_id, active_path));
+    }
+
     pub fn is_signed_in(&self) -> bool {
         self.session.signed_in().is_some()
     }
@@ -897,7 +915,9 @@ impl RootView {
         // 学习上下文是可选的：没有课程上下文时仍可启动通用 ACP 会话。
         let context = self.chat_course_context().ok();
         let epoch = self.workspaces.epoch();
-        let cwd = crate::agent_workspace_root();
+        let cwd = crate::agent_scope::current()
+            .map(|scope| scope.root)
+            .unwrap_or_else(crate::agent_workspace_root);
         let course_id = context.as_ref().map(|context| context.course_id.clone());
         let requested_agent = self.chat.selected_agent.clone();
         let load_agent = requested_agent.as_deref().unwrap_or("omp");

@@ -618,6 +618,7 @@ impl RootView {
 
 impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.refresh_agent_scope();
         let mode = theme::resolve(self.preference, window.appearance());
         let _ = mode;
         let palette = theme::palette_from_theme(cx);

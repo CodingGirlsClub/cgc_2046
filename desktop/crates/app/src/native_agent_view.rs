@@ -469,6 +469,8 @@ pub struct NativeAgentView {
     input: Entity<TextareaState>,
     cancel: CancelToken,
     state: HostState,
+    /// 当前工作区 scope（ADR-0028：课程页/助手页各一个工作区）。
+    scope: crate::agent_scope::AgentScope,
     status: String,
     busy: bool,
     session_store: Option<SessionStore>,
@@ -478,6 +480,10 @@ pub struct NativeAgentView {
     available_checkpoints: Vec<(usize, Checkpoint)>,
     checkpoint_changes: Vec<FileChange>,
     show_checkpoint_panel: bool,
+    /// checkpoint 不可用/失败是否已经给过一次可见提示。
+    checkpoint_notice_reported: bool,
+    /// 无可用 checkpoint 时，编辑重发需要二次确认的消息 index。
+    pending_restart_confirm: Option<usize>,
     providers: Vec<ProviderPrefs>,
     /// 当前 provider 是否为 Echo 回退（没有可用的 base URL / API Key）。
     using_echo: bool,
@@ -595,9 +601,14 @@ impl NativeAgentView {
         let providers = prefs.providers.clone();
         let session_store =
             SessionStore::open(paths.data_root.join("agent").join("threads.db")).ok();
+        // 工作区按页面 scope 解析（CGC_AGENT_WORKSPACE 优先）；线程按 scope 一条。
+        let scope = crate::agent_scope::current()
+            .unwrap_or_else(|| crate::agent_scope::resolve(None, None));
+        let thread_id = scope_thread_id(&scope);
+        let workspace = scope.root.clone();
+        let _ = std::fs::create_dir_all(&workspace);
         let restored_thread = session_store.as_ref().and_then(|store| {
-            let latest = store.list_threads(1).ok()?.into_iter().next()?;
-            let thread = store.load_thread(&latest.id).ok().flatten()?;
+            let thread = store.load_thread(&thread_id).ok().flatten()?;
             (thread.model == selected).then_some(thread)
         });
         let mut state = HostState::new();
@@ -612,12 +623,10 @@ impl NativeAgentView {
                 if let Some(notice) = offline_echo_notice(using_echo) {
                     state.push_system(notice);
                 }
-                Thread::new("native-demo", selected)
+                Thread::new(thread_id, selected)
             }
         };
         let restored = !state.messages.is_empty();
-        let workspace = crate::agent_workspace_root();
-        let _ = std::fs::create_dir_all(&workspace);
         let system_prompt = build_workspace_system_prompt(&workspace);
         let agent = Agent::new(thread, Some(system_prompt));
         let cancel = agent.cancel_token();
@@ -841,6 +850,7 @@ impl NativeAgentView {
             input,
             cancel,
             state,
+            scope,
             status: if restored {
                 "已恢复上次会话".to_string()
             } else {
@@ -853,6 +863,8 @@ impl NativeAgentView {
             available_checkpoints: Vec::new(),
             checkpoint_changes: Vec::new(),
             show_checkpoint_panel: false,
+            checkpoint_notice_reported: false,
+            pending_restart_confirm: None,
             approval_sender: Arc::new(Mutex::new(None)),
             queued_messages: Vec::new(),
             steer_sender,
@@ -1835,6 +1847,7 @@ impl NativeAgentView {
             state.set_value(text, window, cx);
             state
         });
+        self.pending_restart_confirm = None;
         self.user_edit_input = Some(input);
         self.editing_user = Some(message_index);
         cx.notify();
@@ -1843,6 +1856,7 @@ impl NativeAgentView {
     fn cancel_edit_user(&mut self, cx: &mut Context<Self>) {
         self.editing_user = None;
         self.user_edit_input = None;
+        self.pending_restart_confirm = None;
         cx.notify();
     }
 
@@ -1866,6 +1880,27 @@ impl NativeAgentView {
         let Some(ordinal) = user_message_ordinal(&self.state.messages, message_index) else {
             return;
         };
+        let has_valid_checkpoint = self
+            .available_checkpoints
+            .iter()
+            .find(|(candidate, _)| *candidate == ordinal)
+            .map(|(_, checkpoint)| {
+                self.checkpoint_manager
+                    .as_ref()
+                    .and_then(|manager| manager.is_valid(checkpoint).ok())
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
+        if needs_checkpoint_confirm(
+            has_valid_checkpoint,
+            self.pending_restart_confirm,
+            message_index,
+        ) {
+            self.pending_restart_confirm = Some(message_index);
+            cx.notify();
+            return;
+        }
+        self.pending_restart_confirm = None;
         let Some(agent) = self.agent.as_mut() else {
             return;
         };
@@ -1989,6 +2024,71 @@ impl NativeAgentView {
                             })),
                     ),
             )
+            .children(
+                (self.pending_restart_confirm == Some(message_index)).then(|| {
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(space(1))
+                        .p(space(2))
+                        .rounded(px(RADIUS_SMALL))
+                        .border_1()
+                        .border_color(palette.danger)
+                        .bg(palette.view)
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(palette.danger)
+                                .child("没有可用检查点"),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_2)
+                                .child("继续只会回滚对话，无法回滚工作区文件。"),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .justify_end()
+                                .gap(space(1))
+                                .child(
+                                    div()
+                                        .id("native-restart-cancel")
+                                        .role(Role::Button)
+                                        .aria_label("取消重发")
+                                        .px(space(1))
+                                        .py(px(2.0))
+                                        .rounded(px(RADIUS_SMALL))
+                                        .text_size(px(11.0))
+                                        .text_color(palette.ink_2)
+                                        .hover(|style| style.bg(palette.soft))
+                                        .child("取消")
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.pending_restart_confirm = None;
+                                            cx.notify();
+                                        })),
+                                )
+                                .child(
+                                    div()
+                                        .id("native-restart-confirm")
+                                        .role(Role::Button)
+                                        .aria_label("仍然重发")
+                                        .px(space(2))
+                                        .py(px(2.0))
+                                        .rounded(px(RADIUS_SMALL))
+                                        .bg(palette.danger)
+                                        .text_color(palette.canvas)
+                                        .text_size(px(11.0))
+                                        .child("仍然重发")
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.restart_from_user_message(message_index, cx)
+                                        })),
+                                ),
+                        )
+                }),
+            )
             .into_any_element()
     }
 
@@ -2066,24 +2166,159 @@ impl NativeAgentView {
         if self.busy {
             return;
         }
+        let thread_id = scope_thread_id(&self.scope);
         let model = self.model.clone();
         if let Some(agent) = &mut self.agent {
             agent.replace_thread(Thread::new(
-                format!("native-demo-{}", now_secs()),
+                thread_id.clone(),
                 SelectedModel::new(model.provider_id.clone(), model.id.clone()),
             ));
+        }
+        // 新会话复用 scope 线程 id，旧 checkpoint 记录必须作废。
+        if let Some(store) = &mut self.session_store {
+            for (ordinal, _) in &self.available_checkpoints {
+                let _ = store.mark_checkpoint_invalid(&thread_id, *ordinal as i64);
+            }
+        }
+        if let (Some(store), Some(agent)) = (&mut self.session_store, &self.agent) {
+            let _ = store.save_thread(agent.thread());
         }
         self.state = HostState::new();
         self.state
             .push_system("Native agent：新对话，配置 Provider 后开始。");
         self.last_checkpoint = None;
+        self.available_checkpoints.clear();
         self.checkpoint_changes.clear();
         self.show_checkpoint_panel = false;
+        self.pending_restart_confirm = None;
         self.status = "新对话".to_string();
         cx.notify();
     }
 
-    /// 从 SQLite 拉取其他视图写入的最新会话，保持内联/独立窗口共享同一份历史。
+    /// 渲染前同步全局 scope；变化时切换工作区与线程。
+    fn ensure_scope(&mut self, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        let Some(current) = crate::agent_scope::current() else {
+            return;
+        };
+        if current == self.scope {
+            return;
+        }
+        self.switch_scope(current, cx);
+    }
+
+    fn action_sink_for(&self) -> ActionSink {
+        let app_actions = self.app_actions.clone();
+        Arc::new(move |action: AppAction| {
+            if let Ok(mut actions) = app_actions.lock() {
+                actions.push(action);
+            }
+        })
+    }
+
+    fn build_registry_for(&self, workspace: &std::path::Path) -> Arc<ToolRegistry> {
+        let provider = self.provider.clone();
+        let model = self.model.clone();
+        let workspace = workspace.to_path_buf();
+        let subagent_runner: SubagentRunner =
+            Arc::new(move |request: SubagentRequest, events: SubagentEventSink| {
+                let provider = provider.clone();
+                let model = model.clone();
+                let workspace = workspace.clone();
+                Box::pin(async move {
+                    run_subagent(
+                        provider,
+                        model,
+                        request.task,
+                        request.system_prompt,
+                        workspace,
+                        events,
+                    )
+                    .await
+                    .map_err(|error| error.to_string())
+                })
+            });
+        let subagent_tx = self.subagent_tx.clone();
+        let subagent_sink: SubagentEventSink = Arc::new(move |event: SubagentEvent| {
+            let agent_event = match event {
+                SubagentEvent::Started { task } => AgentEvent::SubagentStarted { task },
+                SubagentEvent::TextDelta { text } => AgentEvent::SubagentProgress { text },
+                SubagentEvent::Finished { ok } => AgentEvent::SubagentFinished { ok },
+            };
+            if let Ok(slot) = subagent_tx.lock() {
+                if let Some(sender) = slot.as_ref() {
+                    let _ = sender.unbounded_send(agent_event);
+                }
+            }
+        });
+        Arc::new(
+            ToolRegistry::with_agent_state(self.agent_state.clone())
+                .with_app_actions()
+                .with_subagent(subagent_runner, subagent_sink),
+        )
+    }
+
+    /// 切换工作区 scope：保存当前线程，载入目标 scope 的线程并重建运行时。
+    fn switch_scope(&mut self, scope: crate::agent_scope::AgentScope, cx: &mut Context<Self>) {
+        if let (Some(store), Some(agent)) = (&mut self.session_store, &self.agent) {
+            let _ = store.save_thread(agent.thread());
+        }
+        let root = scope.root.clone();
+        let thread_id = scope_thread_id(&scope);
+        let selected = SelectedModel::new(self.model.provider_id.clone(), self.model.id.clone());
+        let thread = self
+            .session_store
+            .as_ref()
+            .and_then(|store| store.load_thread(&thread_id).ok().flatten())
+            .filter(|thread| thread.model == selected)
+            .unwrap_or_else(|| Thread::new(thread_id.clone(), selected));
+        let mut state = HostState::new();
+        let restored_images = apply_thread_entries(&mut state, &thread.entries);
+        state.usage_total = thread.usage_total;
+        if state.messages.is_empty() {
+            if let Some(notice) = offline_echo_notice(self.using_echo) {
+                state.push_system(notice);
+            }
+        }
+        self.state = state;
+        self.sent_images = restored_images;
+        self.workspace_files = collect_workspace_files(&root);
+        self.skills = mention::load_skills(&root);
+        self.scope = scope;
+        self.checkpoint_manager = CheckpointManager::open(&root)
+            .or_else(|_| CheckpointManager::initialize(&root))
+            .ok();
+        self.context = ToolContext::new(&root)
+            .with_sandbox(SandboxPolicy::new(&root))
+            .with_action_sink(self.action_sink_for());
+        self.agent = Some(Agent::new(
+            thread,
+            Some(build_workspace_system_prompt(&root)),
+        ));
+        self.registry = self.build_registry_for(&root);
+        self.expanded_tools.clear();
+        self.expanded_thinking.clear();
+        self.editing_user = None;
+        self.user_edit_input = None;
+        self.live_thinking_collapsed = false;
+        self.last_turn = None;
+        self.queued_messages.clear();
+        self.checkpoint_changes.clear();
+        self.show_checkpoint_panel = false;
+        self.pending_restart_confirm = None;
+        self.checkpoint_notice_reported = false;
+        self.available_checkpoints.clear();
+        self.last_checkpoint = None;
+        self.pending_images.clear();
+        self.busy = false;
+        self.status = format!("已切换工作区：{}", root.display());
+        self.reload_thread_checkpoints();
+        cx.notify();
+    }
+
+    /// 从 SQLite 拉取当前 scope 线程的最新内容，保持内联/独立窗口共享同一份历史。
     fn reload_latest_session(&mut self) {
         let Some(agent) = &self.agent else {
             return;
@@ -2091,13 +2326,8 @@ impl NativeAgentView {
         let Some(store) = &self.session_store else {
             return;
         };
-        let Ok(summaries) = store.list_threads(1) else {
-            return;
-        };
-        let Some(summary) = summaries.first() else {
-            return;
-        };
-        let Ok(Some(loaded)) = store.load_thread(&summary.id) else {
+        let thread_id = agent.thread().id.clone();
+        let Ok(Some(loaded)) = store.load_thread(&thread_id) else {
             return;
         };
         if loaded.model != agent.thread().model || &loaded == agent.thread() {
@@ -2131,6 +2361,11 @@ impl NativeAgentView {
     /// 用消息 ordinal 而不是进程内计数器作 key：重启/恢复线程后仍能对上。
     fn capture_checkpoint(&mut self, thread_id: &str, ordinal: usize) {
         let Some(manager) = &self.checkpoint_manager else {
+            if !self.checkpoint_notice_reported {
+                self.checkpoint_notice_reported = true;
+                self.state
+                    .push_system("当前工作区不是 git 仓库：检查点不可用，本轮文件改动将无法回滚。");
+            }
             return;
         };
         match manager.snapshot(thread_id, ordinal as u64) {
@@ -2145,7 +2380,14 @@ impl NativeAgentView {
                 self.available_checkpoints
                     .sort_by_key(|(ordinal, _)| *ordinal);
             }
-            Err(error) => self.status = format!("checkpoint 失败：{error}"),
+            Err(error) => {
+                self.status = format!("checkpoint 失败：{error}");
+                if !self.checkpoint_notice_reported {
+                    self.checkpoint_notice_reported = true;
+                    self.state
+                        .push_system(format!("本轮未创建检查点：{error}（文件改动将无法回滚）"));
+                }
+            }
         }
     }
 
@@ -2843,6 +3085,8 @@ impl NativeAgentView {
 
 impl Render for NativeAgentView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 页面 scope 变化时先切换工作区/线程，再渲染。
+        self.ensure_scope(cx);
         let add_menu_root = cx.entity().downgrade();
         let model_supports_images = self.model_supports_images();
         let palette = theme::palette_from_theme(cx);
@@ -4477,6 +4721,20 @@ fn checkpoints_from_records(records: &[CheckpointRecord]) -> Vec<(usize, Checkpo
     checkpoints
 }
 
+/// 无可用 checkpoint 时，编辑重发必须先二次确认。
+fn needs_checkpoint_confirm(
+    has_valid_checkpoint: bool,
+    pending: Option<usize>,
+    message_index: usize,
+) -> bool {
+    !has_valid_checkpoint && pending != Some(message_index)
+}
+
+/// 每个 workspace scope 一条 native 线程（ADR-0028）。
+fn scope_thread_id(scope: &crate::agent_scope::AgentScope) -> String {
+    format!("native-{}", scope.key)
+}
+
 fn checkpoint_for_ordinal(
     records: &[cgc_agent_store::CheckpointRecord],
     ordinal: usize,
@@ -5301,6 +5559,17 @@ mod workspace_prompt_tests {
         assert_eq!(super::tool_status_label(ToolCallStatus::Running), "运行中…");
         assert_eq!(super::tool_status_label(ToolCallStatus::Ok), "完成");
         assert_eq!(super::tool_status_label(ToolCallStatus::Failed), "失败");
+    }
+
+    #[test]
+    fn checkpoint_confirm_required_only_without_valid_snapshot() {
+        // 有有效快照：静默重发（对齐 Zed）。
+        assert!(!super::needs_checkpoint_confirm(true, None, 3));
+        // 没有快照：第一次点击先弹确认。
+        assert!(super::needs_checkpoint_confirm(false, None, 3));
+        assert!(super::needs_checkpoint_confirm(false, Some(2), 3));
+        // 已对同一条消息确认过：放行。
+        assert!(!super::needs_checkpoint_confirm(false, Some(3), 3));
     }
 
     #[test]
