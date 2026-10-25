@@ -113,3 +113,17 @@ EchoProvider 离线模式；未使用真实 provider/keychain。
 - `03-model-picker.jpeg`：模型 picker 分组 + 选中 fake-8（accent + ✓）
 - `04-thinking-picker.jpeg`：推理强度 low/high/Off
 - `05-slash-menu.jpeg`：slash 菜单分组 + 选中 `/help` + 右侧 detail
+
+## 2e composer 真机回归（2026-10-25，部分完成）
+
+环境：隔离 HOME + `preferences.json{ nativeAgentEnabled:true }` + `CGC_NATIVE_AGENT=1`
++ `CGC_AUTH=fake` 假登录；构建自 `e24b0ce1`。
+
+| 检查项 | 结果 | 证据 |
+|---|---|---|
+| native composer 卡片/footer/发送按钮渲染 | PASS | 输入框、Ask、echo、发送按钮正常；单窗口布局（左 Agent/中内容/右目录） |
+| 发送 + 回合末操作栏 | PASS | 编辑消息/恢复检查点/Copy/Scroll to User/Scroll to Top |
+| 真实 provider 工具/审批/checkpoint | BLOCKED | 隔离 HOME 下 keychain 不可用→EchoProvider；真实 HOME 假登录时课程页恢复 ACP(omp)，MCP lease 不可用 |
+| ACP 全链路 | BLOCKED | 需真实登录 + 外部 agent |
+
+未发现 2e composer 重构引入的渲染回归；功能段（工具/审批）需人工切到 native 模式跑一次。

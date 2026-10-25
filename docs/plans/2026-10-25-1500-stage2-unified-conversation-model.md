@@ -374,3 +374,29 @@ native 没有 `Plan` 事件：plan 由 native 的工具（`todo_write`/plan step
   conversation 824、composer 226；
 - 事件契约：ACP/native 两套 HostEvent/AgentEvent → 统一 `ThreadEvent`（reducer 单源）；
 - 2e 本段：`e5ce6b27^..HEAD` 6 文件 +494 / -183。
+
+## 10. Stage 2 验收与合并准备（2026-10-25）
+
+### 验收状态
+
+| 项 | 状态 | 证据 |
+|---|---|---|
+| 2a ACP 事件面 | ✅ | `b3789f35`；映射单测 + reducer |
+| 2b 共享会话模型 | ✅ | `f28b6501`/`42352992`/`6a2bb10a`；20+ 测试 |
+| 2c ACP 切模型 | ✅ | `33631745`；ChatEntry 退场 |
+| 2d native 切模型 | ✅ | `836dd8a8`..`a88dd767`；真机验收通过（含 `6b46af40` 审批去重） |
+| 2e composer 单源 | ✅ 代码/渲染；⚠️ 功能段待人工 | card/footer/按钮双栈共享、能力位入口收口；native composer 真机 PASS；真实 provider 工具/审批 BLOCKED（环境） |
+| 2f 验收/度量 | ✅ 度量已记录（§9）；⚠️ 两轨 e2e 仅 native 基础段 | ACP 待真实账号 |
+| ACP 真机回归 | ⛔ BLOCKED | 需真实登录 + 外部 agent |
+
+### 合并准备
+
+- **develop 对齐**：`git fetch origin && git merge origin/develop`（仓库禁 rebase/squash）；
+  冲突重点：`desktop/Cargo.lock`、`desktop/AGENTS.md`、`docs/adr/**`、回归报告。
+- **PR 拆分建议**：PR1 模型/宿主层（`f28b6501`..`a88dd767` + `6b46af40`）；PR2 composer/能力位
+  （`e5ce6b27`..`e24b0ce1` 及后续）；PR3 文档/回归报告。或单 PR + 说明（由人决定）。
+- **人工合并范围**：`desktop/Cargo.lock`（新增 `cgc-agent-conversation`）、`desktop/AGENTS.md`、
+  `docs/adr/**`；CI/质量门按仓库授权表。
+- **合并前门禁**：fmt/clippy/workspace tests（排除 `cgc-agent-tools` 本机沙箱用例）+
+  change-quality 收据 + pr-review；native 工具/审批段人工回归一次。
+- **已知遗留**：`registry` fetch / `cgc-events` 的 HTTP 用例在本机并行负载下偶发超时（单独/串行重跑通过，与本改动无关）；未 push。
