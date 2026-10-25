@@ -706,63 +706,59 @@ pub(in crate::root_view) fn render_chat_panel(
                                     .into_any_element(),
                             })
                             .child(
-                                div()
-                                    .flex()
-                                    .flex_row()
-                                    .flex_wrap()
-                                    .items_center()
-                                    .gap(space(1))
-                                    .w_full()
-                                    .min_w(px(0.0))
-                                    .child(
-                                        div()
-                                            .id("chat-add-context")
-                                            .size(px(24.0))
-                                            .rounded(px(RADIUS_SMALL))
-                                            .flex()
-                                            .items_center()
-                                            .justify_center()
-                                            .text_color(palette.ink_3)
-                                            .hover(|style| style.bg(palette.soft))
-                                            .child(
-                                                Icon::default()
-                                                    .path(AssetIcon::Paperclip.path())
-                                                    .small(),
-                                            )
-                                            .on_click(cx.listener(|this, _, window, cx| {
-                                                let current = this.chat.input.clone();
-                                                this.set_chat_input_text(
-                                                    format!("{current}@"),
-                                                    window,
-                                                    cx,
-                                                );
-                                            })),
-                                    )
-                                    .children(if ctx.chat.thread.capabilities.config_options {
-                                        config_pickers
-                                    } else {
-                                        Vec::new()
-                                    })
-                                    .children(
-                                        (ctx.chat.thread.capabilities.usage
-                                            && ctx.chat.thread.usage.size > 0)
-                                            .then(|| {
-                                                div()
-                                                    .text_size(px(10.0))
-                                                    .text_color(palette.ink_3)
-                                                    .child(format!(
-                                                        "{}% · {}/{}",
-                                                        ctx.chat
-                                                            .thread
-                                                            .usage
-                                                            .percent()
-                                                            .unwrap_or_default(),
-                                                        clipped_count(ctx.chat.thread.usage.used),
-                                                        clipped_count(ctx.chat.thread.usage.size),
-                                                    ))
-                                            }),
-                                    )
-                                    .child(cgc_agent_ui::composer::render_send_button(
+                                cgc_agent_ui::composer::composer_footer(chat_composer_style(
+                                    palette,
+                                ))
+                                .child(
+                                    div()
+                                        .id("chat-add-context")
+                                        .size(px(24.0))
+                                        .rounded(px(RADIUS_SMALL))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .text_color(palette.ink_3)
+                                        .hover(|style| style.bg(palette.soft))
+                                        .child(
+                                            Icon::default()
+                                                .path(AssetIcon::Paperclip.path())
+                                                .small(),
+                                        )
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            let current = this.chat.input.clone();
+                                            this.set_chat_input_text(
+                                                format!("{current}@"),
+                                                window,
+                                                cx,
+                                            );
+                                        })),
+                                )
+                                .children(if ctx.chat.thread.capabilities.config_options {
+                                    config_pickers
+                                } else {
+                                    Vec::new()
+                                })
+                                .children(
+                                    (ctx.chat.thread.capabilities.usage
+                                        && ctx.chat.thread.usage.size > 0)
+                                        .then(|| {
+                                            div()
+                                                .text_size(px(10.0))
+                                                .text_color(palette.ink_3)
+                                                .child(format!(
+                                                    "{}% · {}/{}",
+                                                    ctx.chat
+                                                        .thread
+                                                        .usage
+                                                        .percent()
+                                                        .unwrap_or_default(),
+                                                    clipped_count(ctx.chat.thread.usage.used),
+                                                    clipped_count(ctx.chat.thread.usage.size),
+                                                ))
+                                        }),
+                                )
+                                .child(
+                                    cgc_agent_ui::composer::render_send_button(
                                         cgc_agent_ui::composer::SendButtonSpec {
                                             id: if streaming { "chat-stop" } else { "chat-send" }
                                                 .into(),
@@ -812,7 +808,8 @@ pub(in crate::root_view) fn render_chat_panel(
                                                 })
                                             },
                                         },
-                                    )),
+                                    ),
+                                ),
                             ),
                         )
                         .children(slash_rows.map(|menu| {

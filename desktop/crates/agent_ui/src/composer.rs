@@ -62,6 +62,18 @@ pub fn composer_card(
         .bg(style.view)
 }
 
+/// composer footer 行容器（左控件 + 右侧发送/停止，允许换行）。
+pub fn composer_footer(style: ComposerStyle) -> gpui_kit::Div {
+    div()
+        .flex()
+        .flex_row()
+        .flex_wrap()
+        .items_center()
+        .gap(px(style.gap))
+        .w_full()
+        .min_w(px(0.0))
+}
+
 /// 渲染 composer 卡片（输入区 + footer + 发送/停止）。
 pub fn render_composer(spec: ComposerSpec) -> AnyElement {
     let ComposerSpec {
