@@ -499,6 +499,9 @@ pub struct NativeAgentView {
     /// 上次自动跟随时的内容长度快照（messages / streaming / thinking），
     /// 只有内容新增时才自动滚动，避免每次重渲染都把视图拽回底部。
     last_followed_content: (usize, usize, usize),
+    /// 滚轮事件已发生、等待 defer 里在 offset clamp 后判定是否回到底部。
+    /// 这段时间内 render 不得用旧 offset 重新开启跟随（否则会瞬间拽回底部）。
+    scroll_check_pending: bool,
     /// 正在编辑的用户消息（UI message index）。
     editing_user: Option<usize>,
     /// 编辑态输入框；仅在 editing_user 有值时存在。
@@ -831,6 +834,7 @@ impl NativeAgentView {
             expanded_thinking: std::collections::HashSet::new(),
             live_thinking_collapsed: false,
             last_followed_content: (0, 0, 0),
+            scroll_check_pending: false,
             editing_user: None,
             user_edit_input: None,
             messages_scroll: ScrollHandle::new(),
@@ -2608,11 +2612,27 @@ impl Render for NativeAgentView {
             !rows.is_empty(),
         ) {
             // 只有“正在跟随 + 内容有新增”才自动滚到底；单纯重渲染不再抢滚动位置。
-            self.messages_scroll.scroll_to_item(rows.len() - 1);
+            // 注意用 scroll_to_bottom 而不是 scroll_to_item(last)：消息区外面包了一层
+            // 列容器（max-width 居中）后，rows 不再是滚动容器的直接子节点。
+            self.messages_scroll.scroll_to_bottom();
             self.last_followed_content = content_snapshot;
         }
-        let show_scroll_to_bottom =
-            !self.follow_output && self.messages_scroll.max_offset().y > px(0.0);
+        let at_bottom = self.is_scrolled_to_bottom();
+        let content_changed = content_grew(self.last_followed_content, content_snapshot);
+        if should_rearm_follow(
+            self.follow_output,
+            at_bottom,
+            self.scroll_check_pending,
+            content_changed,
+        ) {
+            // 用户已经滚到底部（或按钮点击后刚好到底），恢复自动跟随。
+            self.follow_output = true;
+        }
+        let show_scroll_to_bottom = should_show_scroll_to_bottom(
+            self.follow_output,
+            at_bottom,
+            self.messages_scroll.max_offset().y,
+        );
 
         div()
             .size_full()
@@ -2647,13 +2667,21 @@ impl Render for NativeAgentView {
                                         this.follow_output = false;
                                         cx.notify();
                                     }
+                                    this.scroll_check_pending = true;
                                     let entity = cx.entity().downgrade();
                                     window.defer(cx, move |_window, cx| {
                                         let _ = entity.update(cx, |this, cx| {
-                                            if !this.follow_output && this.is_scrolled_to_bottom() {
+                                            this.scroll_check_pending = false;
+                                            let at_bottom = this.is_scrolled_to_bottom();
+                                            if should_rearm_follow(
+                                                this.follow_output,
+                                                at_bottom,
+                                                false,
+                                                false,
+                                            ) {
                                                 this.follow_output = true;
-                                                cx.notify();
                                             }
+                                            cx.notify();
                                         });
                                     });
                                 },
@@ -4290,6 +4318,22 @@ fn scrolled_to_bottom(offset_y: Pixels, max_y: Pixels) -> bool {
     max_y > px(0.0) && offset_y <= -max_y + px(2.0)
 }
 
+/// 是否显示「回到最新」按钮：未跟随、内容可滚动、且确实不在底部。
+fn should_show_scroll_to_bottom(follow: bool, at_bottom: bool, max_offset: Pixels) -> bool {
+    !follow && max_offset > px(0.0) && !at_bottom
+}
+
+/// 是否在 render 里恢复跟随：未跟随、已在底部、没有待处理滚轮判定，
+/// 且本帧内容没有增长（避免流式期间用旧的 max_offset 误判“在底部”而抢滚动）。
+fn should_rearm_follow(
+    follow: bool,
+    at_bottom: bool,
+    pending: bool,
+    content_changed: bool,
+) -> bool {
+    !follow && at_bottom && !pending && !content_changed
+}
+
 /// 是否应该自动滚动到底部：仅在“跟随模式 + 有消息行 + 内容有新增”时触发。
 fn should_auto_scroll(
     follow: bool,
@@ -5124,6 +5168,25 @@ mod workspace_prompt_tests {
         assert!(
             !super::content_grew((2, 20, 8), (2, 20, 8)),
             "内容没变不应触发自动滚动"
+        );
+
+        // 按钮只在“未跟随 + 可滚动 + 不在底部”时显示
+        assert!(super::should_show_scroll_to_bottom(false, false, px(100.0)));
+        assert!(!super::should_show_scroll_to_bottom(true, false, px(100.0)));
+        assert!(!super::should_show_scroll_to_bottom(false, true, px(100.0)));
+        assert!(!super::should_show_scroll_to_bottom(false, false, px(0.0)));
+
+        // 只有在“未跟随 + 已在底部 + 没有待处理滚轮判定”时才恢复跟随
+        assert!(super::should_rearm_follow(false, true, false, false));
+        assert!(!super::should_rearm_follow(true, true, false, false));
+        assert!(!super::should_rearm_follow(false, false, false, false));
+        assert!(
+            !super::should_rearm_follow(false, true, true, false),
+            "滚轮事件后的 pending 期间不能用旧 offset 重新跟随"
+        );
+        assert!(
+            !super::should_rearm_follow(false, true, false, true),
+            "内容增长期间（max_offset 还是旧值）不能用误判的“底部”重新跟随"
         );
 
         // 自动滚动需要同时满足：跟随中 + 有行 + 内容新增
