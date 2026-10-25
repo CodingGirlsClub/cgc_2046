@@ -9,6 +9,7 @@
 
 pub mod approval;
 pub mod command_menu;
+pub mod composer;
 pub mod history;
 pub mod markdown_text;
 pub mod markdown_view;
