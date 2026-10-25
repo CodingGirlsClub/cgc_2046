@@ -621,6 +621,28 @@ fn sync_ui_messages_from_thread(
     }
 }
 
+/// 共享模型 entries 里的用户消息 ordinal（1-based），用于 checkpoint/图片等索引。
+fn thread_entry_ordinal(entries: &[ConversationEntry], index: usize) -> Option<usize> {
+    if !matches!(entries.get(index)?, ConversationEntry::User { .. }) {
+        return None;
+    }
+    Some(
+        entries[..=index]
+            .iter()
+            .filter(|entry| matches!(entry, ConversationEntry::User { .. }))
+            .count(),
+    )
+}
+
+/// 重试/编辑重发前把模型裁到最近一条用户消息（与旧 messages 裁剪保持同序）。
+fn trim_entries_to_last_user(entries: &mut Vec<ConversationEntry>) -> Option<usize> {
+    let index = entries
+        .iter()
+        .rposition(|entry| matches!(entry, ConversationEntry::User { .. }))?;
+    entries.truncate(index + 1);
+    Some(index)
+}
+
 pub struct NativeAgentView {
     agent: Option<Agent>,
     provider: Arc<dyn Provider>,
@@ -1541,7 +1563,10 @@ impl NativeAgentView {
             agent.thread_mut().truncate_before_last_user();
         }
         if let Some(index) = trim_messages_to_last_user(&mut self.state.messages) {
-            self.state.thread.entries.truncate(index + 1);
+            if trim_entries_to_last_user(&mut self.state.thread.entries) != Some(index) {
+                // 预计 1:1；若不一致以旧行 index 为准，保持两源中渲染索引稳定。
+                self.state.thread.entries.truncate(index + 1);
+            }
             self.sent_images
                 .retain(|message_index, _| *message_index <= index);
         }
@@ -2620,7 +2645,9 @@ impl NativeAgentView {
 
     /// 某条 UI 消息可用的 checkpoint（用户消息 ordinal 对应）。
     fn checkpoint_for_message(&self, message_index: usize) -> Option<Checkpoint> {
-        let ordinal = user_message_ordinal(&self.state.messages, message_index)?;
+        // 渲染行与模型 entries 1:1，优先用模型 ordinal；旧路径作为兜底。
+        let ordinal = thread_entry_ordinal(&self.state.thread.entries, message_index)
+            .or_else(|| user_message_ordinal(&self.state.messages, message_index))?;
         self.available_checkpoints
             .iter()
             .find(|(candidate, _)| *candidate == ordinal)
@@ -5818,6 +5845,28 @@ mod workspace_prompt_tests {
                 super::MessageRowKind::Subagent(1),
             ]
         );
+    }
+
+    #[test]
+    fn thread_ordinal_and_trim_helpers_work_on_model_entries() {
+        use cgc_agent_ui::conversation::Entry as ConversationEntry;
+        let mut entries = vec![
+            ConversationEntry::User { text: "q1".into() },
+            ConversationEntry::Assistant { text: "a1".into() },
+            ConversationEntry::User { text: "q2".into() },
+            ConversationEntry::Thinking {
+                text: "t".into(),
+                expanded: false,
+            },
+        ];
+        assert_eq!(super::thread_entry_ordinal(&entries, 0), Some(1));
+        assert_eq!(super::thread_entry_ordinal(&entries, 1), None);
+        assert_eq!(super::thread_entry_ordinal(&entries, 2), Some(2));
+        assert_eq!(super::thread_entry_ordinal(&entries, 9), None);
+        assert_eq!(super::trim_entries_to_last_user(&mut entries), Some(2));
+        assert_eq!(entries.len(), 3, "裁到最近一条用户消息（含）");
+        assert!(matches!(entries[2], ConversationEntry::User { .. }));
+        assert_eq!(super::trim_entries_to_last_user(&mut Vec::new()), None);
     }
 
     #[test]

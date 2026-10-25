@@ -270,8 +270,12 @@ native 没有 `Plan` 事件：plan 由 native 的工具（`todo_write`/plan step
   与自动展开转移逻辑；系统提示统一走 `HostState::push_notice` 同时进模型 Notice；
   审批解决同步 `PermissionResolved`；不吐流式增量的 provider 在 TurnFinished 补
   TextDelta 兜底。渲染函数签名仍是旧行类型（下一片切 `ConversationEntry`）。
+- 索引辅助开始迁模型：`thread_entry_ordinal`（用户消息 1-based ordinal）与
+  `trim_entries_to_last_user`（重试裁剪）已落地并被 checkpoint/retry 路径使用，
+  带单测；checkpoint 优先按模型 ordinal，旧行路径兜底。
 - 过渡期 `HostState` 仍保留 `messages/streaming` 字段（`messages` 已退化为投影缓存）；
   下一步：渲染函数切 `ConversationEntry`，删除 projection 与旧字段/`UiMessage`。
+
 
 - 验证：agent_host 15 个 reducer/事件测试（含新增 thread 断言）、模型 18 个、
   app 125 个全绿；fmt/clippy 干净。
