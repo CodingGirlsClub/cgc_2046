@@ -150,6 +150,131 @@ fn subagent_events_update_cards() {
 }
 
 #[test]
+fn tool_call_flushes_streaming_text_before_card() {
+    let mut state = HostState::new();
+    state.push_user("question");
+    state.apply(AgentEvent::TurnStarted {
+        thread_id: "t1".into(),
+    });
+    state.apply(AgentEvent::TextDelta {
+        text: "先看一眼".into(),
+    });
+    state.apply(AgentEvent::ToolCallStarted {
+        tool_call_id: "call_1".into(),
+        tool_name: "read_file".into(),
+        args: serde_json::json!({"path": "a.txt"}),
+    });
+    state.apply(AgentEvent::ToolCallFinished {
+        tool_call_id: "call_1".into(),
+        tool_name: "read_file".into(),
+        ok: true,
+        content: "contents".into(),
+    });
+    state.apply(AgentEvent::TextDelta {
+        text: "看完了".into(),
+    });
+    state.apply(AgentEvent::TurnFinished {
+        text: String::new(),
+        stop_reason: StopReason::EndTurn,
+    });
+
+    // 工具卡之前的文本必须先固化：顺序要与持久化 Entry 重载后一致
+    // （对齐 Zed 的 reducer —— 插入 ToolCall 条目前先 flush 流式文本）。
+    let order: Vec<(UiRole, &str)> = state
+        .messages
+        .iter()
+        .map(|message| (message.role, message.text.as_str()))
+        .collect();
+    assert_eq!(
+        order,
+        vec![
+            (UiRole::User, "question"),
+            (UiRole::Assistant, "先看一眼"),
+            (UiRole::Tool, "read_file"),
+            (UiRole::Assistant, "看完了"),
+        ]
+    );
+}
+
+#[test]
+fn thinking_and_text_before_tool_keep_persisted_order() {
+    let mut state = HostState::new();
+    state.apply(AgentEvent::TurnStarted {
+        thread_id: "t1".into(),
+    });
+    state.apply(AgentEvent::ThinkingDelta {
+        text: "先想".into(),
+    });
+    state.apply(AgentEvent::TextDelta {
+        text: "先说".into(),
+    });
+    state.apply(AgentEvent::ToolCallStarted {
+        tool_call_id: "call_1".into(),
+        tool_name: "read_file".into(),
+        args: serde_json::json!({}),
+    });
+    state.apply(AgentEvent::ToolCallFinished {
+        tool_call_id: "call_1".into(),
+        tool_name: "read_file".into(),
+        ok: true,
+        content: "ok".into(),
+    });
+    state.apply(AgentEvent::TurnFinished {
+        text: String::new(),
+        stop_reason: StopReason::EndTurn,
+    });
+    let roles: Vec<UiRole> = state.messages.iter().map(|message| message.role).collect();
+    assert_eq!(
+        roles,
+        vec![UiRole::Thinking, UiRole::Assistant, UiRole::Tool]
+    );
+    assert_eq!(state.messages[0].text, "先想");
+    assert_eq!(state.messages[1].text, "先说");
+}
+
+#[test]
+fn consecutive_tool_calls_flush_between_texts() {
+    let mut state = HostState::new();
+    state.apply(AgentEvent::TurnStarted {
+        thread_id: "t1".into(),
+    });
+    for (call, text) in [("call_1", "first"), ("call_2", "second")] {
+        state.apply(AgentEvent::TextDelta {
+            text: format!("{text} "),
+        });
+        state.apply(AgentEvent::ToolCallStarted {
+            tool_call_id: call.into(),
+            tool_name: "read_file".into(),
+            args: serde_json::json!({}),
+        });
+        state.apply(AgentEvent::ToolCallFinished {
+            tool_call_id: call.into(),
+            tool_name: "read_file".into(),
+            ok: true,
+            content: "ok".into(),
+        });
+    }
+    state.apply(AgentEvent::TurnFinished {
+        text: String::new(),
+        stop_reason: StopReason::EndTurn,
+    });
+    let order: Vec<(UiRole, &str)> = state
+        .messages
+        .iter()
+        .map(|message| (message.role, message.text.as_str()))
+        .collect();
+    assert_eq!(
+        order,
+        vec![
+            (UiRole::Assistant, "first "),
+            (UiRole::Tool, "read_file"),
+            (UiRole::Assistant, "second "),
+            (UiRole::Tool, "read_file"),
+        ]
+    );
+}
+
+#[test]
 fn nested_subagents_get_separate_cards() {
     let mut state = HostState::new();
     state.apply(AgentEvent::SubagentStarted { task: "one".into() });

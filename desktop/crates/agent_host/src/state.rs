@@ -94,26 +94,12 @@ impl HostState {
             }
             AgentEvent::FollowUpStarted { text } => {
                 self.flush_thinking();
-                if !self.streaming.is_empty() {
-                    self.messages.push(UiMessage {
-                        role: UiRole::Assistant,
-                        text: std::mem::take(&mut self.streaming),
-                        tool_call_id: None,
-                        tool: None,
-                    });
-                }
+                self.flush_streaming();
                 self.push_user(text);
             }
             AgentEvent::SteerStarted { text } => {
                 self.flush_thinking();
-                if !self.streaming.is_empty() {
-                    self.messages.push(UiMessage {
-                        role: UiRole::Assistant,
-                        text: std::mem::take(&mut self.streaming),
-                        tool_call_id: None,
-                        tool: None,
-                    });
-                }
+                self.flush_streaming();
                 self.push_user(text);
             }
             AgentEvent::SubagentStarted { task } => {
@@ -158,6 +144,9 @@ impl HostState {
                 args,
             } => {
                 self.flush_thinking();
+                // 工具卡之前先把已吐出的正文固化，否则实时视图会把这段文本
+                // 排到工具卡之后，和持久化 Entry 重载后的顺序不一致。
+                self.flush_streaming();
                 self.last_tool_call_id = Some(tool_call_id.clone());
                 self.push_tool_call_started(tool_call_id, tool_name, args);
             }
@@ -192,19 +181,9 @@ impl HostState {
             AgentEvent::TurnFinished { text, .. } => {
                 self.flush_thinking();
                 if !self.streaming.is_empty() {
-                    self.messages.push(UiMessage {
-                        role: UiRole::Assistant,
-                        text: std::mem::take(&mut self.streaming),
-                        tool_call_id: None,
-                        tool: None,
-                    });
+                    self.flush_streaming();
                 } else if !text.is_empty() {
-                    self.messages.push(UiMessage {
-                        role: UiRole::Assistant,
-                        text,
-                        tool_call_id: None,
-                        tool: None,
-                    });
+                    self.push_assistant(text);
                 }
                 self.turn_active = false;
                 self.pending_permission = None;
@@ -213,14 +192,7 @@ impl HostState {
             AgentEvent::Error { message } => {
                 self.flush_thinking();
                 // 保留出错前已经吐出的部分回复，别让用户丢失已看到的内容。
-                if !self.streaming.is_empty() {
-                    self.messages.push(UiMessage {
-                        role: UiRole::Assistant,
-                        text: std::mem::take(&mut self.streaming),
-                        tool_call_id: None,
-                        tool: None,
-                    });
-                }
+                self.flush_streaming();
                 self.last_error = Some(message);
                 self.turn_active = false;
                 self.pending_permission = None;
@@ -253,6 +225,18 @@ impl HostState {
         }
         let text = std::mem::take(&mut self.thinking_streaming);
         self.push_thinking(text);
+    }
+
+    /// 把流式正文固化成一条 Assistant 消息（幂等：空缓冲时不做事）。
+    ///
+    /// 工具卡开始、插入用户消息（follow-up/steer）、回合结束与出错时都要先
+    /// flush，保证「实时视图的条目顺序」与「持久化 Entry 重载后的顺序」一致。
+    fn flush_streaming(&mut self) {
+        if self.streaming.is_empty() {
+            return;
+        }
+        let text = std::mem::take(&mut self.streaming);
+        self.push_assistant(text);
     }
 
     pub fn push_assistant(&mut self, text: impl Into<String>) {
