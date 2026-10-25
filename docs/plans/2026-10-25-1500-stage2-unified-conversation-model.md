@@ -337,3 +337,40 @@ native 没有 `Plan` 事件：plan 由 native 的工具（`todo_write`/plan step
 3. compaction 在 UI 上是折叠行、Notice 还是顶部 banner？→ 2c 真机看 external agent 行为再定。
 4. ACP `HostEvent` 是否保留 `ToolCall {title, kind}` 变体作为兼容？→ 不保留；内部契约直接替换。
 5. 是否把 `ConversationThread` 裂成独立 crate？→ 等第二个消费者（全局助手/CLI）出现，不在本阶段。
+
+## 9. 2e 边界与能力位入口表（2026-10-25）
+
+### composer 共享边界
+
+**共享（agent_ui::composer）**：输入卡容器、footer 行布局、发送/停止按钮外观与
+交互语义、composer 样式结构。
+
+**各栈 adapter（有意保留差异，不再抽）**：
+- native：附件/图片、queue 区、⌘↩ steer、审批模式 picker、模型/推理 picker、
+  plan 卡、checkpoint 撤销入口；
+- ACP：config pickers、安装/引导提示、slash 命令面板。
+
+### 能力位入口表
+
+| 入口 | 能力位 | ACP | native |
+|---|---|---|---|
+| 恢复检查点 / 撤销文件改动 | checkpoint | 隐藏 | 显示 |
+| ⌘↩ steer | steer | 不生效（走 send） | 生效 |
+| queue 区 | queue | 隐藏 | 显示 |
+| subagent 行 | subagent | 隐藏 | 显示 |
+| plan 卡 | plan | 按 agent 是否发 Plan | 显示 |
+| usage hover/footer | usage | 按 agent 是否发 usage | 显示 |
+| config pickers / 模型·推理·审批 picker | config | 显示 | 显示 |
+
+访问器统一为 `ThreadCapabilities::{checkpoint,steer,queue,subagent,plan,usage,config}_available()`；
+变异验证：把 native().subagent / acp().checkpoint 改动后对应 gating 测试变红，还原变绿。
+
+### Stage 2 度量（2026-10-25，`b3789f35^..HEAD`）
+
+- 全部代码：+2866 / -1604 = **+1262**（模型/共享层新增，app 侧净增 +146，host 净删 -359）；
+- app：+1072 / -926 = +146；agent_host：+278 / -637 = **-359**；
+- 共享层（agent_ui + agent_conversation）：+1076 / -6；
+- 文件行数：native_agent_view 5818（Stage 1 时 6019）、ACP panel 1415、
+  conversation 824、composer 226；
+- 事件契约：ACP/native 两套 HostEvent/AgentEvent → 统一 `ThreadEvent`（reducer 单源）；
+- 2e 本段：`e5ce6b27^..HEAD` 6 文件 +494 / -183。
