@@ -47,6 +47,7 @@ use gpui_kit::component::text::{SelectionFormat, TextView};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{Icon, Sizable};
 use gpui_kit::InteractiveElement as _;
+use gpui_kit::StatefulInteractiveElement as _;
 use gpui_kit::*;
 use image::GenericImageView as _;
 
@@ -4840,8 +4841,7 @@ fn message_action_button(
     icon: gpui_kit::assets::IconName,
     on_click: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut gpui_kit::App) + 'static,
 ) -> AnyElement {
-    let tip_id = format!("{id}-tooltip");
-    let button = div()
+    div()
         .id(SharedString::from(id))
         .role(Role::Button)
         .aria_label(label)
@@ -4853,23 +4853,8 @@ fn message_action_button(
         .text_color(palette.ink_3)
         .hover(|style| style.bg(palette.soft).text_color(palette.ink_2))
         .child(Icon::new(icon).xsmall())
-        .on_click(on_click);
-    HoverCard::new(SharedString::from(tip_id))
-        .anchor(Anchor::TopCenter)
-        .open_delay(std::time::Duration::from_millis(200))
-        .trigger(button)
-        .content(move |_, _, _| {
-            div()
-                .p(px(4.0))
-                .rounded(px(RADIUS_SMALL))
-                .border_1()
-                .border_color(palette.line)
-                .bg(palette.card)
-                .text_size(px(11.0))
-                .text_color(palette.ink_2)
-                .child(label)
-                .into_any_element()
-        })
+        .tooltip(move |window, cx| Tooltip::new(label).build(window, cx))
+        .on_click(on_click)
         .into_any_element()
 }
 
