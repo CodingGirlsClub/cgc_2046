@@ -213,8 +213,14 @@ enum ChatEntry {
         expanded: bool,
     },
     Tool {
+        tool_call_id: String,
         title: String,
+        name: Option<String>,
         kind: String,
+        status: String,
+        args: Option<String>,
+        output: Option<String>,
+        expanded: bool,
     },
     Permission {
         request_id: String,
@@ -232,6 +238,38 @@ fn chat_row_kind(entry: &ChatEntry) -> RowKind {
         ChatEntry::Tool { .. } => RowKind::Tool,
         ChatEntry::Permission { .. } => RowKind::Permission,
     }
+}
+
+/// 把 `ToolCallUpdated` 合并到已有的工具卡（按 `tool_call_id`）；找不到则返回 `false`
+/// 由调用方决定是否新建。只覆盖 `Some` 字段，保留 agent 首帧给的 args/kind。
+fn merge_tool_update(
+    messages: &mut [ChatEntry],
+    tool_call_id: &str,
+    title: Option<String>,
+    status: Option<String>,
+    output: Option<String>,
+) -> bool {
+    let Some(ChatEntry::Tool {
+        title: entry_title,
+        status: entry_status,
+        output: entry_output,
+        ..
+    }) = messages.iter_mut().find(
+        |entry| matches!(entry, ChatEntry::Tool { tool_call_id: id, .. } if id == tool_call_id),
+    )
+    else {
+        return false;
+    };
+    if let Some(title) = title {
+        *entry_title = title;
+    }
+    if let Some(status) = status {
+        *entry_status = status;
+    }
+    if let Some(output) = output {
+        *entry_output = Some(output);
+    }
+    true
 }
 
 fn chat_assistant_text(entry: &ChatEntry) -> Option<&str> {
@@ -258,6 +296,9 @@ struct ChatUi {
     context_dismissed: bool,
     version: Option<String>,
     messages: Vec<ChatEntry>,
+    /// ACP `usage_update` 的上下文用量（2a：footer 展示；模型统一后进 ConversationThread）。
+    usage_used: u64,
+    usage_size: u64,
     chat_scroll: ScrollHandle,
     input: String,
     focused: bool,
@@ -2606,8 +2647,14 @@ mod tests {
             ChatEntry::User("q1".into()),
             ChatEntry::Assistant("a1".into()),
             ChatEntry::Tool {
+                tool_call_id: "call-1".into(),
+                name: Some("read_file".into()),
                 title: "read_file".into(),
-                kind: "read".into(),
+                kind: "Read".into(),
+                status: "completed".into(),
+                args: Some("{\"path\":\"a.rs\"}".into()),
+                output: Some("ok".into()),
+                expanded: false,
             },
             ChatEntry::Assistant("a2".into()),
             ChatEntry::User("q2".into()),
@@ -2899,5 +2946,96 @@ mod tests {
 
         std::env::remove_var("CGC_CHAT_STATE_FILE");
         let _ = std::fs::remove_file(&state_file);
+    }
+
+    #[test]
+    fn tool_update_merges_by_id_and_preserves_existing_fields() {
+        let mut messages = vec![
+            ChatEntry::User("q".into()),
+            ChatEntry::Tool {
+                tool_call_id: "call-1".into(),
+                title: "Read file".into(),
+                name: Some("read_file".into()),
+                kind: "Read".into(),
+                status: "in_progress".into(),
+                args: Some("{\"path\":\"a.rs\"}".into()),
+                output: None,
+                expanded: false,
+            },
+        ];
+        let merged = super::merge_tool_update(
+            &mut messages,
+            "call-1",
+            Some("Read file (done)".into()),
+            Some("completed".into()),
+            Some("hello".into()),
+        );
+        assert!(merged);
+        let ChatEntry::Tool {
+            title,
+            status,
+            output,
+            args,
+            expanded,
+            ..
+        } = &messages[1]
+        else {
+            panic!("tool entry");
+        };
+        assert_eq!(title, "Read file (done)");
+        assert_eq!(status, "completed");
+        assert_eq!(output.as_deref(), Some("hello"));
+        assert_eq!(
+            args.as_deref(),
+            Some("{\"path\":\"a.rs\"}"),
+            "旧字段不被清空"
+        );
+        assert!(!expanded);
+    }
+
+    #[test]
+    fn tool_update_without_matching_id_is_not_created_here() {
+        let mut messages = vec![ChatEntry::User("q".into())];
+        assert!(!super::merge_tool_update(
+            &mut messages,
+            "missing",
+            Some("t".into()),
+            None,
+            None
+        ));
+        assert_eq!(messages.len(), 1);
+    }
+
+    #[test]
+    fn tool_update_only_overwrites_some_fields() {
+        let mut messages = vec![ChatEntry::Tool {
+            tool_call_id: "c".into(),
+            title: "t".into(),
+            name: None,
+            kind: "Other".into(),
+            status: "pending".into(),
+            args: None,
+            output: Some("old".into()),
+            expanded: false,
+        }];
+        assert!(super::merge_tool_update(
+            &mut messages,
+            "c",
+            None,
+            Some("failed".into()),
+            None
+        ));
+        let ChatEntry::Tool {
+            title,
+            status,
+            output,
+            ..
+        } = &messages[0]
+        else {
+            panic!("tool entry");
+        };
+        assert_eq!(title, "t");
+        assert_eq!(status, "failed");
+        assert_eq!(output.as_deref(), Some("old"));
     }
 }

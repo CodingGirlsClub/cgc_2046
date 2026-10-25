@@ -1219,11 +1219,61 @@ impl RootView {
                         self.chat.streaming_message_open = true;
                     }
                 }
-                HostEvent::ToolCall { title, kind } => {
+                HostEvent::ToolCall { call } => {
                     self.chat.phase = ChatPhase::Streaming;
-                    self.chat.messages.push(ChatEntry::Tool { title, kind });
+                    self.chat.messages.push(ChatEntry::Tool {
+                        tool_call_id: call.tool_call_id,
+                        title: call.title,
+                        name: call.name,
+                        kind: call.kind,
+                        status: call.status,
+                        args: call.args,
+                        output: call.output,
+                        expanded: false,
+                    });
                 }
-                HostEvent::PermissionRequested { request_id, title } => {
+                HostEvent::ToolCallUpdated {
+                    tool_call_id,
+                    title,
+                    status,
+                    output,
+                } => {
+                    let merged = super::merge_tool_update(
+                        &mut self.chat.messages,
+                        &tool_call_id,
+                        title.clone(),
+                        status.clone(),
+                        output.clone(),
+                    );
+                    if !merged {
+                        // 兼容只发 update 不发首帧的 agent：补一张最小的工具卡。
+                        self.chat.messages.push(ChatEntry::Tool {
+                            tool_call_id,
+                            title: title.unwrap_or_default(),
+                            name: None,
+                            kind: String::new(),
+                            status: status.unwrap_or_else(|| "unknown".to_string()),
+                            args: None,
+                            output,
+                            expanded: false,
+                        });
+                    }
+                }
+                HostEvent::PlanUpdated { .. }
+                | HostEvent::ModeUpdated { .. }
+                | HostEvent::CompactionUpdated { .. } => {
+                    // 2a 先把事件带上来；plan/compaction 的渲染留到 2c/2e。
+                }
+                HostEvent::UsageUpdated { used, size, .. } => {
+                    self.chat.usage_used = used;
+                    self.chat.usage_size = size;
+                }
+                HostEvent::TitleUpdated { title } => {
+                    self.chat.title_override = title;
+                }
+                HostEvent::PermissionRequested {
+                    request_id, title, ..
+                } => {
                     self.chat.messages.push(ChatEntry::Permission {
                         request_id,
                         title,
@@ -1450,11 +1500,27 @@ impl RootView {
                     signature: None,
                     at: now,
                 }),
-                ChatEntry::Tool { title, kind } => Some(cgc_agent_core::Entry::ToolResult {
-                    tool_use_id: format!("acp-{index}"),
-                    tool_name: kind.clone(),
-                    content: title.clone(),
-                    is_error: false,
+                ChatEntry::Tool {
+                    tool_call_id,
+                    title,
+                    name,
+                    kind,
+                    status,
+                    args,
+                    output,
+                    ..
+                } => Some(cgc_agent_core::Entry::ToolResult {
+                    tool_use_id: if tool_call_id.is_empty() {
+                        format!("acp-{index}")
+                    } else {
+                        tool_call_id.clone()
+                    },
+                    tool_name: name.clone().unwrap_or_else(|| kind.clone()),
+                    content: output
+                        .clone()
+                        .or_else(|| args.clone())
+                        .unwrap_or_else(|| title.clone()),
+                    is_error: status == "failed",
                     at: now,
                 }),
                 _ => None,
@@ -1508,6 +1574,13 @@ impl RootView {
             input.update(cx, |input, cx| {
                 input.set_value("", window, cx);
             });
+        }
+    }
+
+    pub(in crate::root_view) fn toggle_chat_tool(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(ChatEntry::Tool { expanded, .. }) = self.chat.messages.get_mut(index) {
+            *expanded = !*expanded;
+            cx.notify();
         }
     }
 

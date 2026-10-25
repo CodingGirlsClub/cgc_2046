@@ -21,9 +21,10 @@ use agent_client_protocol::schema::v1::{
     RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
     SessionConfigId, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
     SessionConfigOptionValue, SessionConfigSelectOptions, SessionConfigValueId, SessionId,
-    SessionNotification, SessionUpdate, SetSessionConfigOptionRequest, TextContent,
+    SessionNotification, SessionUpdate, SetSessionConfigOptionRequest, TextContent, ToolCall,
+    ToolCallContent, ToolCallLocation, ToolCallStatus,
 };
-use agent_client_protocol::schema::ProtocolVersion;
+use agent_client_protocol::schema::{MaybeUndefined, ProtocolVersion};
 use agent_client_protocol::{
     on_receive_notification, on_receive_request, AcpAgent, Agent, Client, ConnectionTo,
 };
@@ -120,6 +121,29 @@ pub struct CommandView {
     pub requires_argument: bool,
 }
 
+/// 工具卡视图：字段全部可选/降级，兼容只发 `ToolCall` 不发 `ToolCallUpdate` 的旧 agent。
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct ToolCallView {
+    pub tool_call_id: String,
+    pub title: String,
+    pub name: Option<String>,
+    pub kind: String,
+    pub status: String,
+    /// 原始入参的 JSON 文本（`None` 表示 agent 没给；可能含敏感内容，只用于本地展示）。
+    pub args: Option<String>,
+    /// 原始输出/内容文本（可能含敏感内容，只用于本地展示）。
+    pub output: Option<String>,
+    pub locations: Vec<String>,
+}
+
+/// 计划步骤视图（ACP `Plan` 每次全量替换）。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlanStepView {
+    pub content: String,
+    pub priority: String,
+    pub status: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HostEvent {
     Ready {
@@ -133,13 +157,39 @@ pub enum HostEvent {
         commands: Vec<CommandView>,
     },
     ToolCall {
-        title: String,
-        kind: String,
+        call: ToolCallView,
+    },
+    /// 工具状态/输出更新：按 `tool_call_id` 合并到已有工具卡。
+    ToolCallUpdated {
+        tool_call_id: String,
+        title: Option<String>,
+        status: Option<String>,
+        output: Option<String>,
+    },
+    PlanUpdated {
+        steps: Vec<PlanStepView>,
+    },
+    UsageUpdated {
+        used: u64,
+        size: u64,
+        cost: Option<String>,
+    },
+    TitleUpdated {
+        title: Option<String>,
+    },
+    ModeUpdated {
+        mode_id: String,
+    },
+    CompactionUpdated {
+        status: String,
+        error: Option<String>,
     },
     /// 审批请求：UI 必须显式允许/拒绝（5.7）。request_id 用于回传决定。
     PermissionRequested {
         request_id: String,
         title: String,
+        tool_call_id: Option<String>,
+        args: Option<String>,
     },
     Sessions {
         sessions: Vec<SessionSummary>,
@@ -317,37 +367,8 @@ async fn run_connection(
         .name("cgc-desktop")
         .on_receive_notification(
             async move |notification: SessionNotification, _cx| {
-                match notification.update {
-                    SessionUpdate::AgentMessageChunk(chunk) => {
-                        if let ContentBlock::Text(text) = chunk.content {
-                            send_event(&events_for_notifications, HostEvent::Delta(text.text));
-                        }
-                    }
-                    SessionUpdate::AgentThoughtChunk(chunk) => {
-                        if let ContentBlock::Text(text) = chunk.content {
-                            send_event(
-                                &events_for_notifications,
-                                HostEvent::ThoughtDelta(text.text),
-                            );
-                        }
-                    }
-                    SessionUpdate::AvailableCommandsUpdate(update) => {
-                        let commands = command_views(update.available_commands);
-                        send_event(
-                            &events_for_notifications,
-                            HostEvent::AvailableCommands { commands },
-                        );
-                    }
-                    SessionUpdate::ToolCall(call) => {
-                        send_event(
-                            &events_for_notifications,
-                            HostEvent::ToolCall {
-                                title: call.title,
-                                kind: format!("{:?}", call.kind),
-                            },
-                        );
-                    }
-                    _ => {}
+                if let Some(event) = host_event_from_update(notification.update) {
+                    send_event(&events_for_notifications, event);
                 }
                 Ok(())
             },
@@ -388,6 +409,13 @@ async fn run_connection(
                     HostEvent::PermissionRequested {
                         request_id,
                         title,
+                        tool_call_id: Some(request.tool_call.tool_call_id.0.to_string()),
+                        args: request
+                            .tool_call
+                            .fields
+                            .raw_input
+                            .as_ref()
+                            .map(json_text),
                     },
                 );
                 let timeout = sleep(Duration::from_secs(300));
@@ -563,6 +591,143 @@ async fn send_sessions(
             },
         ),
         Err(message) => send_event(events, HostEvent::Error { message }),
+    }
+}
+
+fn json_text(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(text) => text.clone(),
+        other => other.to_string(),
+    }
+}
+
+fn debug_label(value: impl std::fmt::Debug) -> String {
+    format!("{value:?}").to_lowercase()
+}
+
+fn tool_status_label(status: ToolCallStatus) -> String {
+    match status {
+        ToolCallStatus::Pending => "pending",
+        ToolCallStatus::InProgress => "in_progress",
+        ToolCallStatus::Completed => "completed",
+        ToolCallStatus::Failed => "failed",
+        _ => "unknown",
+    }
+    .to_string()
+}
+
+fn tool_output_text(content: &[ToolCallContent]) -> Option<String> {
+    let mut parts = Vec::new();
+    for item in content {
+        match item {
+            ToolCallContent::Content(content) => {
+                if let ContentBlock::Text(text) = &content.content {
+                    parts.push(text.text.clone());
+                }
+            }
+            ToolCallContent::Diff(diff) => parts.push(format!("diff: {}", diff.path.display())),
+            ToolCallContent::Terminal(terminal) => {
+                parts.push(format!("terminal: {}", terminal.terminal_id.0));
+            }
+            _ => {}
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("\n"))
+}
+
+fn tool_locations(locations: &[ToolCallLocation]) -> Vec<String> {
+    locations
+        .iter()
+        .map(|location| match location.line {
+            Some(line) => format!("{}:{line}", location.path.display()),
+            None => location.path.display().to_string(),
+        })
+        .collect()
+}
+
+fn tool_call_view(call: ToolCall) -> ToolCallView {
+    ToolCallView {
+        tool_call_id: call.tool_call_id.0.to_string(),
+        title: call.title,
+        name: call.name,
+        kind: format!("{:?}", call.kind),
+        status: tool_status_label(call.status),
+        args: call.raw_input.as_ref().map(json_text),
+        output: call
+            .raw_output
+            .as_ref()
+            .map(json_text)
+            .or_else(|| tool_output_text(&call.content)),
+        locations: tool_locations(&call.locations),
+    }
+}
+
+/// 把 ACP `session/update` 映射成 UI 事件；未识别/不再关心的变体返回 `None`。
+fn host_event_from_update(update: SessionUpdate) -> Option<HostEvent> {
+    match update {
+        SessionUpdate::AgentMessageChunk(chunk) => match chunk.content {
+            ContentBlock::Text(text) => Some(HostEvent::Delta(text.text)),
+            _ => None,
+        },
+        SessionUpdate::AgentThoughtChunk(chunk) => match chunk.content {
+            ContentBlock::Text(text) => Some(HostEvent::ThoughtDelta(text.text)),
+            _ => None,
+        },
+        SessionUpdate::AvailableCommandsUpdate(update) => Some(HostEvent::AvailableCommands {
+            commands: command_views(update.available_commands),
+        }),
+        SessionUpdate::ToolCall(call) => Some(HostEvent::ToolCall {
+            call: tool_call_view(call),
+        }),
+        SessionUpdate::ToolCallUpdate(update) => Some(HostEvent::ToolCallUpdated {
+            tool_call_id: update.tool_call_id.0.to_string(),
+            title: update.fields.title,
+            status: update.fields.status.map(tool_status_label),
+            output: update
+                .fields
+                .raw_output
+                .as_ref()
+                .map(json_text)
+                .or_else(|| update.fields.content.as_deref().and_then(tool_output_text)),
+        }),
+        SessionUpdate::Plan(plan) => Some(HostEvent::PlanUpdated {
+            steps: plan
+                .entries
+                .into_iter()
+                .map(|entry| PlanStepView {
+                    content: entry.content,
+                    priority: debug_label(entry.priority),
+                    status: debug_label(entry.status),
+                })
+                .collect(),
+        }),
+        SessionUpdate::UsageUpdate(usage) => Some(HostEvent::UsageUpdated {
+            used: usage.used,
+            size: usage.size,
+            cost: usage
+                .cost
+                .map(|cost| format!("{:.2} {}", cost.amount, cost.currency)),
+        }),
+        SessionUpdate::ConfigOptionUpdate(update) => Some(HostEvent::ConfigOptions {
+            options: config_option_views(&update.config_options),
+        }),
+        SessionUpdate::CurrentModeUpdate(update) => Some(HostEvent::ModeUpdated {
+            mode_id: update.current_mode_id.0.to_string(),
+        }),
+        SessionUpdate::SessionInfoUpdate(update) => Some(HostEvent::TitleUpdated {
+            title: match update.title {
+                MaybeUndefined::Value(title) => Some(title),
+                _ => None,
+            },
+        }),
+        SessionUpdate::CompactionUpdate(update) => Some(HostEvent::CompactionUpdated {
+            status: debug_label(update.status),
+            error: match update.error {
+                MaybeUndefined::Value(error) => Some(error),
+                _ => None,
+            },
+        }),
+        _ => None,
     }
 }
 
@@ -906,5 +1071,130 @@ mod tests {
             }
         }
         panic!("event not received within {seconds}s");
+    }
+
+    #[test]
+    fn tool_call_maps_id_status_args_output_and_locations() {
+        use agent_client_protocol::schema::v1::{
+            ToolCall, ToolCallLocation, ToolCallStatus, ToolKind,
+        };
+        let call = ToolCall::new("call-1", "Edit file")
+            .name("edit_file")
+            .kind(ToolKind::Edit)
+            .status(ToolCallStatus::InProgress)
+            .raw_input(serde_json::json!({"path": "src/main.rs"}))
+            .raw_output(serde_json::json!({"ok": true}))
+            .locations(vec![ToolCallLocation::new("/tmp/a.rs").line(Some(3))]);
+        let event = super::host_event_from_update(SessionUpdate::ToolCall(call)).expect("event");
+        let HostEvent::ToolCall { call } = event else {
+            panic!("expected ToolCall event");
+        };
+        assert_eq!(call.tool_call_id, "call-1");
+        assert_eq!(call.title, "Edit file");
+        assert_eq!(call.name.as_deref(), Some("edit_file"));
+        assert_eq!(call.kind, "Edit");
+        assert_eq!(call.status, "in_progress");
+        assert_eq!(call.args.as_deref(), Some(r#"{"path":"src/main.rs"}"#));
+        assert_eq!(call.output.as_deref(), Some(r#"{"ok":true}"#));
+        assert_eq!(call.locations, vec!["/tmp/a.rs:3"]);
+    }
+
+    #[test]
+    fn tool_call_update_maps_status_title_and_output() {
+        use agent_client_protocol::schema::v1::{
+            ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields,
+        };
+        let update = ToolCallUpdate::new(
+            "call-1",
+            ToolCallUpdateFields::new()
+                .title(Some("Edited".to_string()))
+                .status(Some(ToolCallStatus::Completed))
+                .raw_output(Some(serde_json::json!("done"))),
+        );
+        let event =
+            super::host_event_from_update(SessionUpdate::ToolCallUpdate(update)).expect("event");
+        let HostEvent::ToolCallUpdated {
+            tool_call_id,
+            title,
+            status,
+            output,
+        } = event
+        else {
+            panic!("expected ToolCallUpdated");
+        };
+        assert_eq!(tool_call_id, "call-1");
+        assert_eq!(title.as_deref(), Some("Edited"));
+        assert_eq!(status.as_deref(), Some("completed"));
+        assert_eq!(output.as_deref(), Some("done"));
+    }
+
+    #[test]
+    fn tool_call_content_is_flattened_when_raw_output_missing() {
+        use agent_client_protocol::schema::v1::{TextContent, ToolCall, ToolCallContent};
+        let call = ToolCall::new("call-2", "Read file")
+            .kind(agent_client_protocol::schema::v1::ToolKind::Read)
+            .content(vec![ToolCallContent::Content(
+                agent_client_protocol::schema::v1::Content::new(
+                    agent_client_protocol::schema::v1::ContentBlock::Text(TextContent::new(
+                        "line 1",
+                    )),
+                ),
+            )]);
+        let event = super::host_event_from_update(SessionUpdate::ToolCall(call)).expect("event");
+        let HostEvent::ToolCall { call } = event else {
+            panic!("expected ToolCall");
+        };
+        assert_eq!(call.output.as_deref(), Some("line 1"));
+    }
+
+    #[test]
+    fn plan_and_usage_updates_map_to_events() {
+        use agent_client_protocol::schema::v1::{
+            Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus, UsageUpdate,
+        };
+        let plan = Plan::new(vec![
+            PlanEntry::new(
+                "inspect",
+                PlanEntryPriority::High,
+                PlanEntryStatus::Completed,
+            ),
+            PlanEntry::new(
+                "implement",
+                PlanEntryPriority::Medium,
+                PlanEntryStatus::InProgress,
+            ),
+        ]);
+        let event = super::host_event_from_update(SessionUpdate::Plan(plan)).expect("event");
+        let HostEvent::PlanUpdated { steps } = event else {
+            panic!("expected PlanUpdated");
+        };
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].content, "inspect");
+        assert_eq!(steps[0].priority, "high");
+        assert_eq!(steps[0].status, "completed");
+        assert_eq!(steps[1].status, "inprogress");
+
+        let usage = UsageUpdate::new(1200, 64_000);
+        let event =
+            super::host_event_from_update(SessionUpdate::UsageUpdate(usage)).expect("event");
+        let HostEvent::UsageUpdated { used, size, cost } = event else {
+            panic!("expected UsageUpdated");
+        };
+        assert_eq!((used, size, cost), (1200, 64_000, None));
+    }
+
+    #[test]
+    fn unknown_session_update_is_ignored() {
+        use agent_client_protocol::schema::v1::{CurrentModeUpdate, SessionModeId};
+        let event = super::host_event_from_update(SessionUpdate::CurrentModeUpdate(
+            CurrentModeUpdate::new(SessionModeId::new("plan")),
+        ))
+        .expect("mode event");
+        assert_eq!(
+            event,
+            HostEvent::ModeUpdated {
+                mode_id: "plan".to_string()
+            }
+        );
     }
 }

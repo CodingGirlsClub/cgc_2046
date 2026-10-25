@@ -284,27 +284,98 @@ pub(in crate::root_view) fn render_chat_panel(
                             }),
                         })
                     }
-                    ChatEntry::Tool { title, kind } => div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap(space(1))
-                        .px(space(1))
-                        .py(px(3.0))
-                        .rounded(px(RADIUS_SMALL))
-                        .border_1()
-                        .border_color(palette.line)
-                        .text_size(px(12.0))
-                        .text_color(palette.ink_2)
-                        .child("🔧")
-                        .child(title.clone())
-                        .child(
-                            div()
-                                .text_size(px(10.0))
-                                .text_color(palette.ink_3)
-                                .child(kind.clone()),
-                        )
-                        .into_any_element(),
+                    ChatEntry::Tool {
+                        title,
+                        name,
+                        kind,
+                        status,
+                        args,
+                        output,
+                        expanded,
+                        ..
+                    } => {
+                        let expanded = *expanded;
+                        let has_details = args.is_some() || output.is_some();
+                        let status_color = match status.as_str() {
+                            "failed" => palette.danger,
+                            "completed" => palette.ink_2,
+                            _ => palette.ink_3,
+                        };
+                        let tool_name = name.as_deref().unwrap_or(kind);
+                        let details: Vec<AnyElement> = if expanded {
+                            let mut details = Vec::new();
+                            if let Some(args) = args {
+                                details.push(
+                                    div()
+                                        .text_size(px(10.0))
+                                        .text_color(palette.ink_3)
+                                        .child(format!("参数：{}", clipped(args, 600)))
+                                        .into_any_element(),
+                                );
+                            }
+                            if let Some(output) = output {
+                                details.push(
+                                    div()
+                                        .text_size(px(10.0))
+                                        .text_color(palette.ink_3)
+                                        .child(format!("输出：{}", clipped(output, 1200)))
+                                        .into_any_element(),
+                                );
+                            }
+                            details
+                        } else {
+                            Vec::new()
+                        };
+                        let mut row = div()
+                            .id(SharedString::from(format!("chat-tool-row-{index}")))
+                            .role(Role::Button)
+                            .aria_label(format!("{title} {tool_name} {status}"))
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.0))
+                            .px(space(1))
+                            .py(px(3.0))
+                            .rounded(px(RADIUS_SMALL))
+                            .border_1()
+                            .border_color(palette.line)
+                            .text_size(px(12.0))
+                            .text_color(palette.ink_2)
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap(space(1))
+                                    .child("🔧")
+                                    .child(title.clone())
+                                    .child(
+                                        div()
+                                            .text_size(px(10.0))
+                                            .text_color(palette.ink_3)
+                                            .child(tool_name.to_string()),
+                                    )
+                                    .children((!status.is_empty()).then(|| {
+                                        div()
+                                            .text_size(px(9.0))
+                                            .text_color(status_color)
+                                            .child(status.clone())
+                                    }))
+                                    .children(has_details.then(|| {
+                                        div()
+                                            .ml_auto()
+                                            .text_size(px(9.0))
+                                            .text_color(palette.ink_3)
+                                            .child(if expanded { "收起" } else { "详情" })
+                                    })),
+                            )
+                            .children(details);
+                        if has_details {
+                            row = row.on_click(cx.listener(move |this, _, _, cx| {
+                                this.toggle_chat_tool(index, cx);
+                            }));
+                        }
+                        row.into_any_element()
+                    }
                     ChatEntry::Permission {
                         request_id,
                         title,
@@ -655,6 +726,18 @@ pub(in crate::root_view) fn render_chat_panel(
                                                 })),
                                         )
                                         .children(config_pickers)
+                                        .children((ctx.chat.usage_size > 0).then(|| {
+                                            div()
+                                                .text_size(px(10.0))
+                                                .text_color(palette.ink_3)
+                                                .child(format!(
+                                                    "{}% · {}/{}",
+                                                    (ctx.chat.usage_used * 100)
+                                                        / ctx.chat.usage_size.max(1),
+                                                    clipped_count(ctx.chat.usage_used),
+                                                    clipped_count(ctx.chat.usage_size),
+                                                ))
+                                        }))
                                         .child(
                                             div()
                                                 .id(if streaming {
@@ -1176,6 +1259,26 @@ fn chat_action_glyphs() -> ActionGlyphs {
         copy: ActionGlyph::Named(AssetIcon::Copy),
         user: ActionGlyph::Named(AssetIcon::UserRoundArrowLeft),
         top: ActionGlyph::Named(AssetIcon::ArrowUp),
+    }
+}
+
+/// 工具卡详情截断：避免单条 args/output 撑爆卡片（隐私与性能都受益）。
+fn clipped(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    let mut clipped: String = text.chars().take(max_chars).collect();
+    clipped.push('…');
+    clipped
+}
+
+fn clipped_count(value: u64) -> String {
+    if value >= 1_000_000 {
+        format!("{:.1}M", value as f64 / 1_000_000.0)
+    } else if value >= 1_000 {
+        format!("{:.1}k", value as f64 / 1_000.0)
+    } else {
+        value.to_string()
     }
 }
 

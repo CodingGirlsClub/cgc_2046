@@ -207,6 +207,23 @@ native 没有 `Plan` 事件：plan 由 native 的工具（`todo_write`/plan step
 - `cargo fmt --check` / `clippy -D warnings` / `cargo test --workspace --exclude cgc-agent-tools` 绿。
 - 真机：用现有 external agent 跑一次（需已登录实例；可与原生 ACP 回归合并做）。
 
+### 2a 实现状态（2026-10-25，已落地）
+
+- `platform/acp/connection.rs`：`HostEvent` 扩展为 `ToolCallView`（id/title/name/kind/status/
+  args/output/locations）、`ToolCallUpdated`、`PlanUpdated`、`UsageUpdated`、`TitleUpdated`、
+  `ModeUpdated`、`CompactionUpdated`，`PermissionRequested` 增加 `tool_call_id`/`args`；
+  `host_event_from_update` 统一映射 `SessionUpdate`（ToolCall/ToolCallUpdate/Plan/Usage/
+  ConfigOption/CurrentMode/SessionInfo/Compaction），未知变体忽略。
+- `app`：`ChatEntry::Tool` 扩展并按 `tool_call_id` 合并（`merge_tool_update`，update 先到时
+  补最小卡）；ACP 工具卡显示状态 chip + 参数/输出折叠（截断上限 600/1200 字符）；composer
+  footer 显示真实 context 用量；`TitleUpdated` 映射到已有 `title_override`；本地 thread
+  持久化的 `Entry::ToolResult` 保真（id/name/content/is_error）。
+- **延后**：plan/compaction 的 UI 呈现（事件已带上来，controller 先 no-op，留 2c/2e）；
+  permission 的 args 展示与 mode UI 同批。
+- 验证：platform 新增 5 个映射单测；app 新增 3 个合并单测；两处关键守卫做变异验证
+  （改坏状态合并/状态映射 → 测试红，还原 → 绿）。workspace 测试通过（`registry` fetch
+  用例为已知并行超时 flake，单独重跑通过）。真机 ACP 回归仍需已登录实例（与人共做）。
+
 ## 5. 切片与回滚
 
 | 切片 | 内容 | 写入面 | 验收 | 回滚 |
