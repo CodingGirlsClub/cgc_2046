@@ -9,6 +9,7 @@ use cgc_desktop_app::registration::{build_registry, validate};
 use cgc_desktop_app::root_view::{main_window_options, RootView};
 use cgc_desktop_app::theme;
 use gpui_kit::AppContext as _;
+use gpui_kit::{point, px, size, Bounds, WindowBounds};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
@@ -52,7 +53,17 @@ fn main() {
     }
     application.run(move |cx| {
         gpui_kit::init(cx);
-        cx.set_app_identity("com.codinggirlsclub.cgc2046.desktop", "程序媛汇");
+        // demo / 真机回归实例使用独立 identity 与 display name，避免和正式客户端在
+        // Dock / 应用切换 / 单实例激活上混在一起（2026-10-25 真机回归发现）。
+        let demo_mode = std::env::var_os("CGC_NATIVE_AGENT_DEMO").is_some();
+        if demo_mode {
+            cx.set_app_identity(
+                "com.codinggirlsclub.cgc2046.desktop.demo",
+                "程序媛汇（demo）",
+            );
+        } else {
+            cx.set_app_identity("com.codinggirlsclub.cgc2046.desktop", "程序媛汇");
+        }
         cx.set_quit_mode(gpui_kit::QuitMode::Explicit);
         {
             let notification_responses = notification_responses.clone();
@@ -130,10 +141,19 @@ fn main() {
         })
         .expect("main window opens");
 
-        if std::env::var_os("CGC_NATIVE_AGENT_DEMO").is_some() {
+        if demo_mode {
             // demo 窗口不抢焦点：正常客户端仍是前台窗口，Agent 只作为附加窗口。
+            // 关键：显式给独立 bounds + 标题。`window_bounds: None` 会继承主窗口
+            // bounds，在真机回归时几乎铺满屏幕、把客户端界面整体盖住（2026-10-25）。
             let mut options = main_window_options();
             options.focus = false;
+            if let Some(titlebar) = options.titlebar.as_mut() {
+                titlebar.title = Some("CGC Agent（demo）".into());
+            }
+            options.window_bounds = Some(WindowBounds::Windowed(Bounds {
+                origin: point(px(80.0), px(80.0)),
+                size: size(px(1000.0), px(760.0)),
+            }));
             let _ = gpui_kit::open_window(options, cx, |window, cx| {
                 cx.new(|cx| NativeAgentView::new(window, cx))
             });

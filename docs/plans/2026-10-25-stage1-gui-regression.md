@@ -40,6 +40,26 @@
 | A4 | ACP 面板：消息区滚动三按钮（`track_scroll` 修复） | BLOCKED | 同上 |
 | N15 | 消息区滚动三按钮点击效果 | NOT COVERED | 两回合短消息无需滚动；仅验证了按钮出现位置。需长线程人工确认 |
 
+## 回归过程中发现的问题与修复（2026-10-25）
+
+**现象**：回归启动的同款 app 被看到「全屏都是 Agent，看不到客户端中间的内容与其他 Panel」。
+
+**原因链**：
+1. 真机回归用的是隔离 demo 实例（`CGC_NATIVE_AGENT_DEMO=1`），启动时会额外打开 Native Agent 窗口；
+   该窗口 `WindowOptions.window_bounds = None` 会继承主窗口 bounds，尺寸接近全屏、盖住主窗口。
+2. 隔离 HOME 下主窗口停在登录页，没有客户端内容与面板，所以视觉上只剩 Agent。
+3. `cx.set_app_identity("com.codinggirlsclub.cgc2046.desktop", "程序媛汇")` 硬编码：demo 实例与
+   正式客户端同 identity/display name，macOS Dock 与应用切换可能把测试实例当作正式 app，
+   进一步造成「客户端不见了」的错觉。
+
+**修复**（`crates/app/src/main.rs`）：
+- `CGC_NATIVE_AGENT_DEMO=1` 时改用独立 identity/display name：`...desktop.demo` / `程序媛汇（demo）`；
+- demo Agent 窗口显式 `WindowBounds::Windowed(1000×760)`、标题 `CGC Agent（demo）`，不再继承主窗口 bounds；
+- 正式实例行为不变。
+
+**验证**：编译与门禁通过；窗口尺寸/标题改为代码显式指定。测试实例已停止、隔离目录（含临时 wrapper 与
+截图）已删除，不再在 LaunchServices 里留下测试 app。
+
 ## 复现方式
 
 ```bash
@@ -52,6 +72,9 @@ cargo build -p cgc-desktop-app
 HOME="$ROOT/home" CGC_NATIVE_AGENT_DEMO=1 CGC_AGENT_WORKSPACE="$ROOT/workspace" \
   /path/to/worktree/desktop/target/debug/cgc-desktop-app
 ```
+
+> 注意：demo 模式现在使用独立 app identity/display name（`程序媛汇（demo）`），Agent 窗口固定
+> 1000×760 且标题为 `CGC Agent（demo）`，不会与正式客户端实例混淆。
 
 ACP 回归需在用户正常实例（已登录 + 已安装外部 agent）或复制测试账号会话后进行；本轮未做，
 以免读取真实凭证。
