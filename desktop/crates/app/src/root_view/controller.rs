@@ -1533,16 +1533,21 @@ impl RootView {
         }
     }
 
-    pub(in crate::root_view) fn scroll_chat_to_last_user(&mut self, cx: &mut Context<Self>) {
-        if let Some(index) = self
-            .chat
-            .messages
-            .iter()
-            .rposition(|entry| matches!(entry, ChatEntry::User(_)))
-        {
+    /// 滚到第 `assistant_index` 条消息之前最近的一条用户消息。
+    pub(in crate::root_view) fn scroll_chat_to_user_before(
+        &mut self,
+        assistant_index: usize,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(index) = previous_user_chat_index(&self.chat.messages, assistant_index) {
             self.chat.chat_scroll.scroll_to_top_of_item(index);
             cx.notify();
         }
+    }
+
+    pub(in crate::root_view) fn scroll_chat_to_bottom(&mut self, cx: &mut Context<Self>) {
+        self.chat.chat_scroll.scroll_to_bottom();
+        cx.notify();
     }
 
     pub(in crate::root_view) fn scroll_chat_to_top(&mut self, cx: &mut Context<Self>) {
@@ -3878,6 +3883,38 @@ fn npx_cache_dir_from_error(message: &str) -> Option<std::path::PathBuf> {
     let rest = &message[start..];
     let end = rest.find("/package.json")?;
     Some(std::path::PathBuf::from(&rest[..end]))
+}
+
+/// 第 `assistant_index` 条 chat 消息之前最近的一条用户消息 index。
+fn previous_user_chat_index(messages: &[ChatEntry], assistant_index: usize) -> Option<usize> {
+    messages
+        .get(..assistant_index)?
+        .iter()
+        .rposition(|entry| matches!(entry, ChatEntry::User(_)))
+}
+
+#[cfg(test)]
+mod chat_helpers_tests {
+    use crate::root_view::ChatEntry;
+
+    #[test]
+    fn previous_user_chat_index_finds_latest_prior_user() {
+        let messages = vec![
+            ChatEntry::User("u1".into()),
+            ChatEntry::Assistant("a1".into()),
+            ChatEntry::Thinking {
+                text: "t".into(),
+                expanded: false,
+            },
+            ChatEntry::User("u2".into()),
+            ChatEntry::Assistant("a2".into()),
+        ];
+        assert_eq!(super::previous_user_chat_index(&messages, 4), Some(3));
+        assert_eq!(super::previous_user_chat_index(&messages, 1), Some(0));
+        assert_eq!(super::previous_user_chat_index(&messages, 0), None);
+        let no_user = vec![ChatEntry::Assistant("a".into())];
+        assert_eq!(super::previous_user_chat_index(&no_user, 0), None);
+    }
 }
 
 #[cfg(test)]

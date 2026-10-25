@@ -3,6 +3,7 @@ use super::super::ScreenContext;
 use cgc_platform::acp::connection::ConfigOptionCategory;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, Textarea};
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::popover::Popover;
 use gpui_kit::component::scroll::ScrollableElement as _;
 
@@ -162,9 +163,7 @@ pub(in crate::root_view) fn render_chat_panel(
                 .into_any_element()
         }
         ChatPhase::Ready | ChatPhase::Streaming => {
-            let last_assistant = messages
-                .iter()
-                .rposition(|entry| matches!(entry, ChatEntry::Assistant(_)));
+            let view_weak = cx.entity().downgrade();
             let mut rows = Vec::with_capacity(messages.len());
             for (index, entry) in messages.iter().enumerate() {
                 let row = match entry {
@@ -190,6 +189,22 @@ pub(in crate::root_view) fn render_chat_panel(
                                 .text_color(palette.ink)
                                 .child(text.clone()),
                         )
+                        .context_menu({
+                            let view = view_weak.clone();
+                            let text = text.clone();
+                            move |menu, _, _| {
+                                chat_message_context_menu(
+                                    menu,
+                                    view.clone(),
+                                    index,
+                                    ChatMenuPayload {
+                                        plain: text.clone(),
+                                        markdown: text.clone(),
+                                        agent_response: None,
+                                    },
+                                )
+                            }
+                        })
                         .into_any_element(),
                     ChatEntry::Assistant(text) => div()
                         .id(SharedString::from(format!("chat-assistant-{index}")))
@@ -209,6 +224,71 @@ pub(in crate::root_view) fn render_chat_panel(
                             )
                             .into_any_element(),
                         )
+                        .children((phase == ChatPhase::Ready && !text.is_empty()).then(|| {
+                            let copy_view = view_weak.clone();
+                            let user_view = view_weak.clone();
+                            let top_view = view_weak.clone();
+                            div()
+                                .id(SharedString::from(format!("chat-controls-{index}")))
+                                .flex()
+                                .flex_row()
+                                .w_full()
+                                .items_center()
+                                .justify_end()
+                                .gap(px(2.0))
+                                .pr(space(1))
+                                .opacity(0.4)
+                                .hover(|style| style.opacity(1.0))
+                                .child(chat_action_button(
+                                    format!("chat-copy-{index}"),
+                                    "Copy This Agent Response",
+                                    AssetIcon::Copy.path(),
+                                    *palette,
+                                    move |_, _, cx| {
+                                        let _ = copy_view.update(cx, |this, cx| {
+                                            this.copy_chat_response(index, cx);
+                                        });
+                                    },
+                                ))
+                                .child(chat_action_button(
+                                    format!("chat-scroll-user-{index}"),
+                                    "Scroll to User Message",
+                                    AssetIcon::UserRoundArrowLeft.path(),
+                                    *palette,
+                                    move |_, _, cx| {
+                                        let _ = user_view.update(cx, |this, cx| {
+                                            this.scroll_chat_to_user_before(index, cx);
+                                        });
+                                    },
+                                ))
+                                .child(chat_action_button(
+                                    format!("chat-scroll-top-{index}"),
+                                    "Scroll to Top",
+                                    AssetIcon::ArrowUp.path(),
+                                    *palette,
+                                    move |_, _, cx| {
+                                        let _ = top_view.update(cx, |this, cx| {
+                                            this.scroll_chat_to_top(cx);
+                                        });
+                                    },
+                                ))
+                        }))
+                        .context_menu({
+                            let view = view_weak.clone();
+                            let text = text.clone();
+                            move |menu, _, _| {
+                                chat_message_context_menu(
+                                    menu,
+                                    view.clone(),
+                                    index,
+                                    ChatMenuPayload {
+                                        plain: crate::native_agent_view::markdown_to_plain(&text),
+                                        markdown: text.clone(),
+                                        agent_response: Some(text.clone()),
+                                    },
+                                )
+                            }
+                        })
                         .into_any_element(),
                     ChatEntry::Thinking { text, expanded } => {
                         let expanded = *expanded;
@@ -348,82 +428,6 @@ pub(in crate::root_view) fn render_chat_panel(
                     }
                 };
                 rows.push(row);
-                if phase == ChatPhase::Ready && Some(index) == last_assistant {
-                    rows.push(
-                        div()
-                            .id(SharedString::from(format!("chat-controls-{index}")))
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .justify_end()
-                            .gap(px(2.0))
-                            .pr(space(1))
-                            .opacity(0.4)
-                            .hover(|style| style.opacity(1.0))
-                            .child(
-                                div()
-                                    .id(SharedString::from(format!("chat-copy-{index}")))
-                                    .role(Role::Button)
-                                    .aria_label("Copy This Agent Response")
-                                    .size(px(22.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child(Icon::default().path(AssetIcon::Copy.path()).small())
-                                    .tooltip(|window, cx| {
-                                        Tooltip::new("Copy This Agent Response").build(window, cx)
-                                    })
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.copy_chat_response(index, cx);
-                                    })),
-                            )
-                            .child(
-                                div()
-                                    .id(SharedString::from(format!("chat-scroll-user-{index}")))
-                                    .role(Role::Button)
-                                    .aria_label("Scroll to User Message")
-                                    .size(px(22.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child(
-                                        Icon::default()
-                                            .path(AssetIcon::UserRoundArrowLeft.path())
-                                            .small(),
-                                    )
-                                    .tooltip(|window, cx| {
-                                        Tooltip::new("Scroll to User Message").build(window, cx)
-                                    })
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.scroll_chat_to_last_user(cx);
-                                    })),
-                            )
-                            .child(
-                                div()
-                                    .id(SharedString::from(format!("chat-scroll-top-{index}")))
-                                    .role(Role::Button)
-                                    .aria_label("Scroll to Top")
-                                    .size(px(22.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child(Icon::default().path(AssetIcon::ArrowUp.path()).small())
-                                    .tooltip(|window, cx| {
-                                        Tooltip::new("Scroll to Top").build(window, cx)
-                                    })
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.scroll_chat_to_top(cx);
-                                    })),
-                            )
-                            .into_any_element(),
-                    );
-                }
             }
             let streaming = phase == ChatPhase::Streaming;
             let status = if streaming {
@@ -1246,4 +1250,76 @@ pub(in crate::root_view) fn render_chat_panel(
                 .child(body),
         )
         .into_any_element()
+}
+
+/// ACP 消息操作栏的单图标按钮。
+fn chat_action_button(
+    id: String,
+    label: &'static str,
+    icon_path: SharedString,
+    palette: theme::Palette,
+    on_click: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut gpui_kit::App) + 'static,
+) -> AnyElement {
+    div()
+        .id(SharedString::from(id))
+        .role(Role::Button)
+        .aria_label(label)
+        .size(px(22.0))
+        .rounded(px(RADIUS_SMALL))
+        .flex()
+        .items_center()
+        .justify_center()
+        .hover(|style| style.bg(palette.soft))
+        .child(Icon::default().path(icon_path).small())
+        .tooltip(move |window, cx| Tooltip::new(label).build(window, cx))
+        .on_click(on_click)
+        .into_any_element()
+}
+
+struct ChatMenuPayload {
+    plain: String,
+    markdown: String,
+    agent_response: Option<String>,
+}
+
+/// ACP 消息右键菜单（对齐 native 的 Copy / Copy as Markdown / Copy This Agent
+/// Response / Scroll to Top/Bottom）。
+fn chat_message_context_menu(
+    menu: PopupMenu,
+    view: WeakEntity<RootView>,
+    index: usize,
+    payloads: ChatMenuPayload,
+) -> PopupMenu {
+    let copy_plain = payloads.plain.clone();
+    let copy_markdown = payloads.markdown.clone();
+    let mut menu = menu
+        .item(PopupMenuItem::new("Copy").on_click(move |_, _, cx| {
+            cx.write_to_clipboard(ClipboardItem::new_string(copy_plain.clone()));
+        }))
+        .item(
+            PopupMenuItem::new("Copy as Markdown").on_click(move |_, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(copy_markdown.clone()));
+            }),
+        );
+    if let Some(agent_response) = payloads.agent_response.clone() {
+        menu = menu.item(PopupMenuItem::new("Copy This Agent Response").on_click(
+            move |_, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(agent_response.clone()));
+            },
+        ));
+    }
+    let top_view = view.clone();
+    let bottom_view = view;
+    let _ = index;
+    menu.item(PopupMenuItem::separator())
+        .item(
+            PopupMenuItem::new("Scroll to Top").on_click(move |_, _, cx| {
+                let _ = top_view.update(cx, |this, cx| this.scroll_chat_to_top(cx));
+            }),
+        )
+        .item(
+            PopupMenuItem::new("Scroll to Bottom").on_click(move |_, _, cx| {
+                let _ = bottom_view.update(cx, |this, cx| this.scroll_chat_to_bottom(cx));
+            }),
+        )
 }
