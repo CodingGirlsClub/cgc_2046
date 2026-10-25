@@ -285,22 +285,14 @@ native 没有 `Plan` 事件：plan 由 native 的工具（`todo_write`/plan step
 - 剩余缓存依赖收尾：`restored` 判定、恢复时的空线程提示、发送图片 key 改用模型
   entries；`/clear` 同时清空模型 entries/status/pending（否则下一帧 projection 会把
   旧对话补回来）。
-- **2d 收尾状态**：native 渲染/行序列/行签名/发送/恢复/清空/系统提示/审批/rollback
-  已全部以共享模型为准，app 内无 `UiMessage` 渲染路径。仍待完成：
-  1) 删除 projection（`project_thread_to_messages`/`sync_ui_messages_from_thread`）
-     与编辑/checkpoint 兜底的旧 messages 读取；
-  2) 删除 `HostState.messages/streaming/thinking_streaming/turn_active` 与
-     `UiMessage/UiRole/UiToolCall/ToolCallStatus`，改写 agent_host 15 个旧 reducer
-     测试为模型断言；
-  3) native 真机回归（操作栏/复制/thinking/工具卡/审批/checkpoint/subagent/编辑重发）。
-
-
-
-
-
-
-- 验证：agent_host 15 个 reducer/事件测试（含新增 thread 断言）、模型 18 个、
-  app 125 个全绿；fmt/clippy 干净。
+- **2d 已完成（2026-10-25）**：native 渲染/行序列/行签名/发送/恢复/清空/系统提示/
+  审批/rollback 全部以共享模型为准；删除 projection、`HostState.messages/streaming/
+  thinking_streaming/turn_active` 与 `UiMessage/UiRole/UiToolCall/ToolCallStatus`；
+  agent_host reducer 测试重写为模型断言。本切片净删除约 843 行。
+- 待人工：native 真机回归（操作栏/复制/thinking/工具卡/审批/checkpoint/subagent/
+  编辑重发；重点看 Permission 行与审批条是否重复）。
+- **2e 未开始（预算原因）**：composer 单源 + 能力位 gating 留待下一目标；§5 的
+  2c/2d 验收已达成，2e 按原计划继续。
 
 ## 5. 切片与回滚
 
