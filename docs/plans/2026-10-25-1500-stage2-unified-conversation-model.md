@@ -252,6 +252,15 @@ native 没有 `Plan` 事件：plan 由 native 的工具（`todo_write`/plan step
 - 验证：app 117 + agent_ui 29 测试绿；fmt/clippy 干净；`registry::discovery` 的
   HTTP fetch 用例为本机并行超时 flake（串行重跑通过）；app 文件净 -156 行。
 
+### 2d 进行中（2026-10-25）
+
+- 已落地 native ingestion adapter：`app::native_conversation` 把 typed `AgentEvent`
+  映射成 `ThreadEvent`（文本/思考/工具生命周期/审批/用量/压缩/错误/结束；subagent
+  卡片暂留 `HostState`；`TurnStarted` 由视图发送时写模型），8 个映射/收敛单测。
+- 下一步（同一 goal 继续）：native 视图持有 `ConversationThread` 并切换渲染源，
+  删除 `render_message_row_element` 的 `UiRole/UiMessage` 路径；随后 `HostState.messages`
+  退场、持久化改走模型 entries。
+
 ## 5. 切片与回滚
 
 | 切片 | 内容 | 写入面 | 验收 | 回滚 |
