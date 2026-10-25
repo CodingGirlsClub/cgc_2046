@@ -61,6 +61,37 @@ impl ThreadCapabilities {
     }
 }
 
+impl ThreadCapabilities {
+    /// 以下访问器供 UI gating 使用（不在视图里直接读字段，便于未来扩展能力位语义）。
+    pub fn checkpoint_available(&self) -> bool {
+        self.checkpoint_restore
+    }
+
+    pub fn steer_available(&self) -> bool {
+        self.steer
+    }
+
+    pub fn queue_available(&self) -> bool {
+        self.queue
+    }
+
+    pub fn subagent_available(&self) -> bool {
+        self.subagent
+    }
+
+    pub fn plan_available(&self) -> bool {
+        self.plan
+    }
+
+    pub fn usage_available(&self) -> bool {
+        self.usage
+    }
+
+    pub fn config_available(&self) -> bool {
+        self.config_options
+    }
+}
+
 /// 上下文用量（ACP `usage_update` / native `UsageUpdated`）。
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Usage {
@@ -768,5 +799,26 @@ mod tests {
             args: None,
         });
         assert_eq!(thread.entries.len(), 2);
+    }
+
+    #[test]
+    fn capability_accessors_follow_track() {
+        let native = super::ThreadCapabilities::native();
+        assert!(native.checkpoint_available());
+        assert!(native.steer_available());
+        assert!(native.queue_available());
+        assert!(native.subagent_available());
+        assert!(native.plan_available());
+        assert!(native.usage_available());
+        assert!(native.config_available());
+
+        let acp = super::ThreadCapabilities::acp();
+        assert!(!acp.checkpoint_available());
+        assert!(!acp.steer_available());
+        assert!(!acp.queue_available());
+        assert!(!acp.subagent_available());
+        assert!(acp.plan_available());
+        assert!(acp.usage_available());
+        assert!(acp.config_available());
     }
 }

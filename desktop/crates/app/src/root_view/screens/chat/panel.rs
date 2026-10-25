@@ -733,7 +733,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                             );
                                         })),
                                 )
-                                .children(if ctx.chat.thread.capabilities.config_options {
+                                .children(if ctx.chat.thread.capabilities.config_available() {
                                     config_pickers
                                 } else {
                                     Vec::new()
