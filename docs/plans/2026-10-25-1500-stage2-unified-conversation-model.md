@@ -280,9 +280,12 @@ native 没有 `Plan` 事件：plan 由 native 的工具（`todo_write`/plan step
   `state.thread.entries[index]` 构造 `ViewRow`（tool 卡/菜单/角色标签/状态标签同步用
   本地类型），操作栏 gating 改用 `thread.row_view()`；删除 app 内旧的
   `ui_row_kind/ui_assistant_text/row_view(UiMessage)` 辅助与对应测试。
+- 行序列与行签名改读模型：`build_message_row_kinds`/`message_row_signature` 直接
+  遍历 `thread.entries`（subagent 内联按 ToolCall tool_call_id），不再依赖投影缓存。
 - 过渡期 `HostState` 仍保留 `messages/streaming` 字段作为投影缓存（编辑/checkpoint/
-  图片等索引辅助仍读它，1:1 对齐）；下一步：删除 projection、host 旧字段/类型并
-  重写 host reducer 测试。
+  图片等少数索引辅助仍读它，1:1 对齐）；下一步：删除 projection、host 旧字段/类型
+  并重写 host reducer 测试。
+
 
 
 

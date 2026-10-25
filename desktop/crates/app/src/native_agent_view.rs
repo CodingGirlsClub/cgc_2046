@@ -3352,7 +3352,7 @@ impl NativeAgentView {
     /// 消息区当前的行序列（历史消息 + 内联子 agent + 流式/错误行 + 兜底操作栏）。
     fn message_row_kinds(&self) -> Vec<MessageRowKind> {
         let mut kinds = build_message_row_kinds(
-            &self.state.messages,
+            &self.state.thread.entries,
             &self.state.subagents,
             self.state.last_error.is_some(),
         );
@@ -3414,13 +3414,14 @@ impl NativeAgentView {
         match kind {
             MessageRowKind::Message(index) => {
                 0u8.hash(&mut hasher);
-                if let Some(message) = self.state.messages.get(index) {
-                    format!("{:?}", message.role).hash(&mut hasher);
-                    message.text.len().hash(&mut hasher);
+                if let Some(entry) = self.state.thread.entries.get(index) {
+                    let row = ViewRow::from_entry(entry);
+                    format!("{:?}", row.role).hash(&mut hasher);
+                    row.text.len().hash(&mut hasher);
                     self.expanded_thinking.contains(&index).hash(&mut hasher);
                     (self.editing_user == Some(index)).hash(&mut hasher);
-                    message.tool_call_id.hash(&mut hasher);
-                    let tool_expanded = message
+                    row.tool_call_id.hash(&mut hasher);
+                    let tool_expanded = row
                         .tool_call_id
                         .as_deref()
                         .is_some_and(|id| self.expanded_tools.contains(id));
@@ -5080,15 +5081,19 @@ enum MessageRowKind {
 /// 计算消息区的行序列；子 agent 卡内联到触发它的 tool 消息后面，
 /// 其余子 agent 与流式/错误行按旧渲染顺序排在末尾。
 fn build_message_row_kinds(
-    messages: &[UiMessage],
+    entries: &[ConversationEntry],
     subagents: &[SubagentCard],
     has_error: bool,
 ) -> Vec<MessageRowKind> {
-    let mut kinds = Vec::with_capacity(messages.len() + subagents.len() + 3);
+    let mut kinds = Vec::with_capacity(entries.len() + subagents.len() + 3);
     let mut used_subagents = vec![false; subagents.len()];
-    for (message_index, message) in messages.iter().enumerate() {
+    for (message_index, entry) in entries.iter().enumerate() {
         kinds.push(MessageRowKind::Message(message_index));
-        if let Some(tool_call_id) = message.tool_call_id.as_deref() {
+        let tool_call_id = match entry {
+            ConversationEntry::ToolCall { tool_call_id, .. } => Some(tool_call_id.as_str()),
+            _ => None,
+        };
+        if let Some(tool_call_id) = tool_call_id {
             if let Some(subagent_index) = subagents
                 .iter()
                 .enumerate()
@@ -5851,14 +5856,9 @@ mod workspace_prompt_tests {
 
     #[test]
     fn message_row_kinds_keep_inline_subagents_and_tail_rows_in_order() {
-        use cgc_agent_host::{SubagentCard, UiMessage, UiRole};
+        use cgc_agent_host::SubagentCard;
+        use cgc_agent_ui::conversation::Entry as ConversationEntry;
 
-        let message = |role, text: &str, tool_call_id: Option<&str>| UiMessage {
-            role,
-            text: text.into(),
-            tool_call_id: tool_call_id.map(str::to_string),
-            tool: None,
-        };
         let subagent = |tool_call_id: Option<&str>, text: &str| SubagentCard {
             task: "task".into(),
             text: text.into(),
@@ -5867,9 +5867,21 @@ mod workspace_prompt_tests {
         };
 
         let messages = vec![
-            message(UiRole::User, "hi", None),
-            message(UiRole::Tool, "tool done", Some("call_1")),
-            message(UiRole::Assistant, "answer", None),
+            ConversationEntry::User { text: "hi".into() },
+            ConversationEntry::ToolCall {
+                tool_call_id: "call_1".into(),
+                title: "tool done".into(),
+                name: None,
+                kind: "tool".into(),
+                status: "completed".into(),
+                args: None,
+                output: None,
+                locations: Vec::new(),
+                expanded: false,
+            },
+            ConversationEntry::Assistant {
+                text: "answer".into(),
+            },
         ];
         // 故意让尾部 card 排在前面：正确实现应按 tool_call_id 匹配到 index 1
         let subagents = vec![
