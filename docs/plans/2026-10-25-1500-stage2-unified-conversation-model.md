@@ -276,8 +276,14 @@ native 没有 `Plan` 事件：plan 由 native 的工具（`todo_write`/plan step
 - 渲染行本地化：app 新增 `ViewRow`/`ViewRole`/`ViewTool`/`ViewToolStatus`（字段名与旧
   行一致）及 `impl From<&Entry> for ViewRow`，渲染函数下一片直接切到该本地视图模型，
   不再依赖 `agent_host` 的 UI 类型；映射单测已加。
-- 过渡期 `HostState` 仍保留 `messages/streaming` 字段（`messages` 已退化为投影缓存）；
-  下一步：渲染函数切 `ViewRow`，删除 projection 与旧字段/`UiMessage`。
+- **渲染函数已切本地 `ViewRow`**：`render_message_row_element` 直接从
+  `state.thread.entries[index]` 构造 `ViewRow`（tool 卡/菜单/角色标签/状态标签同步用
+  本地类型），操作栏 gating 改用 `thread.row_view()`；删除 app 内旧的
+  `ui_row_kind/ui_assistant_text/row_view(UiMessage)` 辅助与对应测试。
+- 过渡期 `HostState` 仍保留 `messages/streaming` 字段作为投影缓存（编辑/checkpoint/
+  图片等索引辅助仍读它，1:1 对齐）；下一步：删除 projection、host 旧字段/类型并
+  重写 host reducer 测试。
+
 
 
 

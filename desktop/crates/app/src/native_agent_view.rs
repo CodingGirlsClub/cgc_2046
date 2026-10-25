@@ -63,7 +63,8 @@ use cgc_agent_ui::message_actions::{
     render_action_bar, render_message_menu, ActionBarSpec, ActionCallbacks, ActionGlyph,
     ActionGlyphs, ActionStyle, MenuPayloads,
 };
-use cgc_agent_ui::message_flow::{self, RowKind, RowView};
+use cgc_agent_ui::message_flow;
+
 use cgc_agent_ui::message_row::{
     render_assistant_row, render_thinking_row, AssistantRowSpec, MessageStyle, ThinkingRowSpec,
 };
@@ -2914,18 +2915,19 @@ impl NativeAgentView {
         menu_root: &WeakEntity<Self>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let message = &self.state.messages[message_index];
+        let message = ViewRow::from_entry(&self.state.thread.entries[message_index]);
+        let message = &message;
         let color = match message.role {
-            UiRole::User => palette.accent,
-            UiRole::Error => palette.danger,
-            UiRole::Tool => palette.ink_3,
-            UiRole::System => palette.ink_3,
-            UiRole::Thinking => palette.ink_3,
-            UiRole::Assistant => palette.ink,
+            ViewRole::User => palette.accent,
+            ViewRole::Error => palette.danger,
+            ViewRole::Tool => palette.ink_3,
+            ViewRole::System => palette.ink_3,
+            ViewRole::Thinking => palette.ink_3,
+            ViewRole::Assistant => palette.ink,
         };
         // Copy This Agent Response = 整回合文本（对齐 Zed）；其它角色没有该动作。
-        let agent_response = (message.role == UiRole::Assistant)
-            .then(|| row_view(&self.state.messages).turn_copy_text(message_index))
+        let agent_response = (message.role == ViewRole::Assistant)
+            .then(|| self.state.thread.row_view().turn_copy_text(message_index))
             .flatten();
         let payloads = Arc::new(message_menu_payloads(
             message.role,
@@ -2943,7 +2945,7 @@ impl NativeAgentView {
             // 对齐 Zed：只有 system/error 这类状态消息保留角色标签；
             // user 用卡片区分、assistant 直接 markdown、tool/thinking 自带卡头。
             .children(
-                matches!(message.role, UiRole::System | UiRole::Error).then(|| {
+                matches!(message.role, ViewRole::System | ViewRole::Error).then(|| {
                     div()
                         .text_size(px(11.0))
                         .text_color(color)
@@ -2951,10 +2953,13 @@ impl NativeAgentView {
                 }),
             )
             .child(match message.role {
-                UiRole::Assistant => {
+                ViewRole::Assistant => {
                     // 对齐 Zed #61245 + #61362：只在回合末挂操作栏；历史消息的
                     // 操作栏在流式时仍可见，仅底部条在生成/等审批时隐藏。
-                    let actions = row_view(&self.state.messages)
+                    let actions = self
+                        .state
+                        .thread
+                        .row_view()
                         .action_plan(
                             message_index,
                             self.is_generating(),
@@ -2963,7 +2968,7 @@ impl NativeAgentView {
                         .map(|plan| {
                             self.render_message_actions(
                                 &format!("native-message-actions-{message_index}"),
-                                row_view(&self.state.messages).turn_copy_text(message_index),
+                                self.state.thread.row_view().turn_copy_text(message_index),
                                 plan,
                                 palette,
                                 cx,
@@ -2980,7 +2985,7 @@ impl NativeAgentView {
                         actions,
                     })
                 }
-                UiRole::User => {
+                ViewRole::User => {
                     if self.editing_user == Some(message_index) {
                         self.render_user_edit_row(message_index, &palette, cx)
                     } else {
@@ -3076,7 +3081,7 @@ impl NativeAgentView {
                             .into_any_element()
                     }
                 }
-                UiRole::Thinking => {
+                ViewRole::Thinking => {
                     let expanded = self.expanded_thinking.contains(&message_index);
                     let toggle_view = cx.entity().downgrade();
                     render_thinking_row(ThinkingRowSpec {
@@ -3096,11 +3101,11 @@ impl NativeAgentView {
                         }),
                     })
                 }
-                UiRole::Tool => match &message.tool {
+                ViewRole::Tool => match &message.tool {
                     Some(tool) => {
                         let tool_call_id = message.tool_call_id.clone().unwrap_or_default();
                         let expanded = self.expanded_tools.contains(&tool_call_id)
-                            || matches!(tool.status, ToolCallStatus::Running);
+                            || matches!(tool.status, ViewToolStatus::Running);
                         let toggle_view = cx.entity().downgrade();
                         let toggle_id = tool_call_id.clone();
                         render_tool_card(tool, expanded, &palette, move |_, _, cx| {
@@ -3323,7 +3328,7 @@ impl NativeAgentView {
         palette: theme::Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let Some(plan) = row_view(&self.state.messages).trailing_plan(
+        let Some(plan) = self.state.thread.row_view().trailing_plan(
             self.is_generating(),
             self.state.pending_permission.is_some(),
         ) else {
@@ -3331,7 +3336,10 @@ impl NativeAgentView {
         };
         self.render_message_actions(
             "native-trailing-actions",
-            row_view(&self.state.messages).turn_copy_text(plan.assistant_index),
+            self.state
+                .thread
+                .row_view()
+                .turn_copy_text(plan.assistant_index),
             message_flow::ActionPlan {
                 scroll_to_user: plan.scroll_to_user,
                 scroll_to_top: true,
@@ -3348,7 +3356,10 @@ impl NativeAgentView {
             &self.state.subagents,
             self.state.last_error.is_some(),
         );
-        if row_view(&self.state.messages)
+        if self
+            .state
+            .thread
+            .row_view()
             .trailing_plan(
                 self.is_generating(),
                 self.state.pending_permission.is_some(),
@@ -5111,25 +5122,25 @@ fn trim_messages_to_last_user(messages: &mut Vec<cgc_agent_host::UiMessage>) -> 
     Some(index)
 }
 
-fn tool_status_label(status: ToolCallStatus) -> &'static str {
+fn tool_status_label(status: ViewToolStatus) -> &'static str {
     match status {
-        ToolCallStatus::Running => "运行中…",
-        ToolCallStatus::Ok => "完成",
-        ToolCallStatus::Failed => "失败",
+        ViewToolStatus::Running => "运行中…",
+        ViewToolStatus::Ok => "完成",
+        ViewToolStatus::Failed => "失败",
     }
 }
 
 /// 工具调用卡片：标题显示状态/名称，展开后展示 raw 参数与 raw 输出。
 fn render_tool_card(
-    tool: &UiToolCall,
+    tool: &ViewTool,
     expanded: bool,
     palette: &theme::Palette,
     on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let (glyph, status_color) = match tool.status {
-        ToolCallStatus::Running => ("◐", palette.accent),
-        ToolCallStatus::Ok => ("✓", palette.ink_3),
-        ToolCallStatus::Failed => ("✗", palette.danger),
+        ViewToolStatus::Running => ("◐", palette.accent),
+        ViewToolStatus::Ok => ("✓", palette.ink_3),
+        ViewToolStatus::Failed => ("✗", palette.danger),
     };
     let args = if tool.args.is_null() {
         String::new()
@@ -5151,7 +5162,7 @@ fn render_tool_card(
                     .child(format!("参数\n{args}"))
             }))
             .children(
-                (!content.is_empty() || matches!(tool.status, ToolCallStatus::Running)).then(
+                (!content.is_empty() || matches!(tool.status, ViewToolStatus::Running)).then(
                     || {
                         div().text_size(px(11.0)).text_color(palette.ink).child(
                             if content.is_empty() {
@@ -5250,35 +5261,55 @@ fn render_subagent_row(
 /// 空线程时的引导提示（重发重建状态时需要剔除，避免显示在编辑后的对话顶部）。
 const EMPTY_THREAD_NOTICE: &str = "Native agent：配置 Provider 后开始对话。";
 
-fn role_label(role: UiRole) -> &'static str {
+fn role_label(role: ViewRole) -> &'static str {
     match role {
-        UiRole::User => "you",
-        UiRole::Assistant => "agent",
-        UiRole::Thinking => "thinking",
-        UiRole::Tool => "tool",
-        UiRole::System => "system",
-        UiRole::Error => "error",
+        ViewRole::User => "you",
+        ViewRole::Assistant => "agent",
+        ViewRole::Thinking => "thinking",
+        ViewRole::Tool => "tool",
+        ViewRole::System => "system",
+        ViewRole::Error => "error",
     }
 }
 
 /// 把 native 的 `UiMessage` 映射到共享消息流（`agent_ui::message_flow`）。
-fn ui_row_kind(message: &UiMessage) -> RowKind {
-    match message.role {
-        UiRole::User => RowKind::User,
-        UiRole::Assistant => RowKind::Assistant,
-        UiRole::Thinking => RowKind::Thinking,
-        UiRole::Tool => RowKind::Tool,
-        UiRole::System | UiRole::Error => RowKind::Status,
+fn message_menu_payloads(
+    role: ViewRole,
+    text: &str,
+    agent_response: Option<String>,
+) -> MenuPayloads {
+    let plain = match role {
+        ViewRole::Assistant => markdown_to_plain(text),
+        ViewRole::User => mention::display_text(text),
+        _ => text.to_string(),
+    };
+    MenuPayloads {
+        plain,
+        markdown: text.to_string(),
+        agent_response,
     }
 }
 
-fn ui_assistant_text(message: &UiMessage) -> Option<&str> {
-    (message.role == UiRole::Assistant).then_some(message.text.as_str())
+/// native 主题 → 共享消息行样式。
+fn native_message_style(palette: theme::Palette) -> MessageStyle {
+    MessageStyle {
+        ink_2: palette.ink_2,
+        ink_3: palette.ink_3,
+        line: palette.line,
+        radius: RADIUS_MEDIUM,
+    }
 }
 
-/// native 消息行的共享只读视图（Stage 1：判定逻辑归 `agent_ui`）。
-fn row_view(messages: &[UiMessage]) -> RowView<'_, UiMessage> {
-    RowView::new(messages, ui_row_kind, ui_assistant_text)
+/// native 主题 → 共享 picker 样式。
+fn native_picker_style(palette: theme::Palette) -> PickerStyle {
+    PickerStyle {
+        accent: palette.accent,
+        ink_2: palette.ink_2,
+        ink_3: palette.ink_3,
+        soft: palette.soft,
+        card: palette.card,
+        radius: RADIUS_MEDIUM,
+    }
 }
 
 /// native 主题 → 共享 slash 菜单样式（选中 = soft 背景 + accent 文本）。
@@ -5296,43 +5327,6 @@ fn native_command_menu_style(palette: theme::Palette) -> CommandMenuStyle {
         selected_text: palette.accent,
         radius: RADIUS_SMALL,
         padding: 0.0,
-    }
-}
-
-/// native 主题 → 共享 picker 样式。
-fn native_picker_style(palette: theme::Palette) -> PickerStyle {
-    PickerStyle {
-        accent: palette.accent,
-        ink_2: palette.ink_2,
-        ink_3: palette.ink_3,
-        soft: palette.soft,
-        card: palette.card,
-        radius: RADIUS_MEDIUM,
-    }
-}
-
-/// native 主题 → 共享消息行样式。
-fn native_message_style(palette: theme::Palette) -> MessageStyle {
-    MessageStyle {
-        ink_2: palette.ink_2,
-        ink_3: palette.ink_3,
-        line: palette.line,
-        radius: RADIUS_MEDIUM,
-    }
-}
-
-/// 一条消息的三种复制载荷（对齐 Zed 的 Copy / Copy as Markdown /
-/// native 侧把一行消息转成共享菜单载荷（user 的 plain 走 mention 展开）。
-fn message_menu_payloads(role: UiRole, text: &str, agent_response: Option<String>) -> MenuPayloads {
-    let plain = match role {
-        UiRole::Assistant => markdown_to_plain(text),
-        UiRole::User => mention::display_text(text),
-        _ => text.to_string(),
-    };
-    MenuPayloads {
-        plain,
-        markdown: text.to_string(),
-        agent_response,
     }
 }
 
@@ -5614,7 +5608,7 @@ mod workspace_prompt_tests {
     #[test]
     fn message_copy_payloads_cover_assistant_and_user() {
         let assistant = super::message_menu_payloads(
-            cgc_agent_host::UiRole::Assistant,
+            super::ViewRole::Assistant,
             "## 标题\n**加粗** 和 `code`",
             Some("整回合文本".into()),
         );
@@ -5626,60 +5620,11 @@ mod workspace_prompt_tests {
             "Copy This Agent Response 由调用方传入整回合文本"
         );
 
-        let user = super::message_menu_payloads(
-            cgc_agent_host::UiRole::User,
-            "看 [@a](file://a.md) 这个",
-            None,
-        );
+        let user =
+            super::message_menu_payloads(super::ViewRole::User, "看 [@a](file://a.md) 这个", None);
         assert_eq!(user.plain, "看 @a 这个");
         assert_eq!(user.markdown, "看 [@a](file://a.md) 这个");
         assert!(user.agent_response.is_none(), "用户消息没有 agent response");
-    }
-
-    #[test]
-    fn ui_message_rows_use_shared_turn_gating_and_copy() {
-        use cgc_agent_host::{UiMessage, UiRole};
-        use cgc_agent_ui::message_flow::RowKind;
-        let message = |role, text: &str| UiMessage {
-            role,
-            text: text.into(),
-            tool_call_id: None,
-            tool: None,
-        };
-        let messages = vec![
-            message(UiRole::User, "q1"),
-            message(UiRole::Assistant, "a1"),
-            message(UiRole::Tool, "read_file"),
-            message(UiRole::Assistant, "a2"),
-            message(UiRole::User, "q2"),
-            message(UiRole::Assistant, "a3"),
-        ];
-        assert_eq!(super::ui_row_kind(&messages[1]), RowKind::Assistant);
-        assert_eq!(
-            super::ui_assistant_text(&messages[2]),
-            None,
-            "tool 行没有 assistant 文本"
-        );
-        let rows = super::row_view(&messages);
-        assert_eq!(
-            rows.finalized_turn_end(3),
-            Some(true),
-            "下一条用户消息前的 assistant 才是回合末"
-        );
-        assert_eq!(rows.finalized_turn_end(1), Some(false));
-        assert_eq!(
-            rows.turn_copy_text(3).as_deref(),
-            Some("a1\n\na2"),
-            "Copy This Agent Response 复制整回合"
-        );
-        assert_eq!(rows.turn_copy_text(5).as_deref(), Some("a3"));
-        assert_eq!(
-            rows.action_plan(5, false, false)
-                .map(|plan| plan.scroll_to_top),
-            Some(true),
-            "底部条允许 Scroll to Top"
-        );
-        assert_eq!(rows.action_plan(5, true, false), None, "生成中隐藏底部条");
     }
 
     #[test]
@@ -5761,10 +5706,15 @@ mod workspace_prompt_tests {
 
     #[test]
     fn tool_status_label_covers_all_states() {
-        use cgc_agent_host::ToolCallStatus;
-        assert_eq!(super::tool_status_label(ToolCallStatus::Running), "运行中…");
-        assert_eq!(super::tool_status_label(ToolCallStatus::Ok), "完成");
-        assert_eq!(super::tool_status_label(ToolCallStatus::Failed), "失败");
+        assert_eq!(
+            super::tool_status_label(super::ViewToolStatus::Running),
+            "运行中…"
+        );
+        assert_eq!(super::tool_status_label(super::ViewToolStatus::Ok), "完成");
+        assert_eq!(
+            super::tool_status_label(super::ViewToolStatus::Failed),
+            "失败"
+        );
     }
 
     #[test]
