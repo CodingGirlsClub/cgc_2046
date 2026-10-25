@@ -23,7 +23,8 @@ use cgc_agent_provider::{
     Request as ProviderRequest,
 };
 use cgc_agent_store::{
-    provider_key_account, ActionAuditEntry, AuditLog, PrefsStore, ProviderPrefs, SessionStore,
+    provider_key_account, ActionAuditEntry, AuditLog, CheckpointRecord, PrefsStore, ProviderPrefs,
+    SessionStore,
 };
 use cgc_agent_tools::{
     ActionSink, AgentState, AppAction, ApprovalDecision, ItemStatus, SandboxPolicy,
@@ -473,9 +474,10 @@ pub struct NativeAgentView {
     session_store: Option<SessionStore>,
     checkpoint_manager: Option<CheckpointManager>,
     last_checkpoint: Option<Checkpoint>,
+    /// 当前线程持久化的 checkpoint（user 消息 ordinal → checkpoint）。
+    available_checkpoints: Vec<(usize, Checkpoint)>,
     checkpoint_changes: Vec<FileChange>,
     show_checkpoint_panel: bool,
-    turn_seq: u64,
     providers: Vec<ProviderPrefs>,
     /// 当前 provider 是否为 Echo 回退（没有可用的 base URL / API Key）。
     using_echo: bool,
@@ -801,7 +803,7 @@ impl NativeAgentView {
                 }
             },
         ));
-        Self {
+        let mut view = Self {
             agent: Some(agent),
             provider,
             model,
@@ -848,9 +850,9 @@ impl NativeAgentView {
             session_store,
             checkpoint_manager,
             last_checkpoint: None,
+            available_checkpoints: Vec::new(),
             checkpoint_changes: Vec::new(),
             show_checkpoint_panel: false,
-            turn_seq: 0,
             approval_sender: Arc::new(Mutex::new(None)),
             queued_messages: Vec::new(),
             steer_sender,
@@ -859,7 +861,9 @@ impl NativeAgentView {
             last_input_value: String::new(),
             _input_subscription: input_subscription,
             _key_interceptor: Some(key_interceptor),
-        }
+        };
+        view.reload_thread_checkpoints();
+        view
     }
 
     fn handle_slash(&mut self, command: SlashCommand, cx: &mut Context<Self>) {
@@ -1267,6 +1271,7 @@ impl NativeAgentView {
         self.agent = Some(Agent::new(thread, Some(prompt)));
         self.editing_user = None;
         self.user_edit_input = None;
+        self.reload_thread_checkpoints();
         self.status = "已恢复线程".to_string();
         self.busy = false;
         self.checkpoint_changes.clear();
@@ -1347,9 +1352,16 @@ impl NativeAgentView {
     fn run_turn(&mut self, text: String, display: String, retry: bool, cx: &mut Context<Self>) {
         if !retry {
             self.reload_latest_session();
-            self.turn_seq += 1;
+            // 本条用户消息即将 push（run_turn 里会 push），ordinal = 现有用户消息数 + 1。
+            let ordinal = self
+                .state
+                .messages
+                .iter()
+                .filter(|message| message.role == UiRole::User)
+                .count()
+                + 1;
             if let Some(thread_id) = self.agent.as_ref().map(|agent| agent.thread().id.clone()) {
-                self.capture_checkpoint(&thread_id, self.turn_seq);
+                self.capture_checkpoint(&thread_id, ordinal);
             }
         }
         self.scroll_messages_to_bottom(cx);
@@ -1510,6 +1522,7 @@ impl NativeAgentView {
                 if let (Some(store), Some(agent)) = (&mut this.session_store, &this.agent) {
                     let _ = store.save_thread(agent.thread());
                 }
+                this.reload_thread_checkpoints();
                 if let Ok(mut slot) = subagent_tx.lock() {
                     *slot = None;
                 }
@@ -1889,6 +1902,7 @@ impl NativeAgentView {
         self.editing_user = None;
         self.user_edit_input = None;
         self.rebuild_state_from_thread();
+        self.invalidate_checkpoints_from(ordinal + 1, &thread_id);
         // 截断到空历史时 rebuild 会补一条引导提示；重发场景不需要它。
         self.state.messages.retain(|message| {
             !(message.role == UiRole::System && message.text == EMPTY_THREAD_NOTICE)
@@ -1897,8 +1911,13 @@ impl NativeAgentView {
         self.state.last_error = None;
         self.state.streaming.clear();
         self.last_turn = Some((edited.clone(), edited.clone()));
-        self.turn_seq += 1;
-        self.capture_checkpoint(&thread_id, self.turn_seq);
+        let ordinal = self
+            .state
+            .messages
+            .iter()
+            .filter(|message| message.role == UiRole::User)
+            .count();
+        self.capture_checkpoint(&thread_id, ordinal);
         self.status = format!("从该消息重发{note}");
         self.run_turn(edited.clone(), edited, true, cx);
     }
@@ -2108,19 +2127,136 @@ impl NativeAgentView {
         self.sent_images = restored_images;
     }
 
-    fn capture_checkpoint(&mut self, thread_id: &str, seq: u64) {
+    /// 为第 `ordinal` 条用户消息（1-based）拍 checkpoint 并持久化。
+    /// 用消息 ordinal 而不是进程内计数器作 key：重启/恢复线程后仍能对上。
+    fn capture_checkpoint(&mut self, thread_id: &str, ordinal: usize) {
         let Some(manager) = &self.checkpoint_manager else {
             return;
         };
-        match manager.snapshot(thread_id, seq) {
+        match manager.snapshot(thread_id, ordinal as u64) {
             Ok(checkpoint) => {
                 if let Some(store) = &mut self.session_store {
-                    let _ = store.save_checkpoint(&checkpoint, seq as i64, now_secs());
+                    let _ = store.save_checkpoint(&checkpoint, ordinal as i64, now_secs());
                 }
-                self.last_checkpoint = Some(checkpoint);
+                self.last_checkpoint = Some(checkpoint.clone());
+                self.available_checkpoints
+                    .retain(|(existing, _)| *existing != ordinal);
+                self.available_checkpoints.push((ordinal, checkpoint));
+                self.available_checkpoints
+                    .sort_by_key(|(ordinal, _)| *ordinal);
             }
             Err(error) => self.status = format!("checkpoint 失败：{error}"),
         }
+    }
+
+    /// 从持久化存储重载当前线程的 checkpoint 列表。
+    fn reload_thread_checkpoints(&mut self) {
+        self.available_checkpoints.clear();
+        self.last_checkpoint = None;
+        let (Some(store), Some(agent)) = (&self.session_store, &self.agent) else {
+            return;
+        };
+        let thread_id = agent.thread().id.clone();
+        if let Ok(records) = store.list_checkpoints(&thread_id) {
+            self.available_checkpoints = checkpoints_from_records(&records);
+            self.last_checkpoint = self
+                .available_checkpoints
+                .last()
+                .map(|(_, checkpoint)| checkpoint.clone());
+        }
+        self.refresh_checkpoint_changes();
+    }
+
+    /// 某条 UI 消息可用的 checkpoint（用户消息 ordinal 对应）。
+    fn checkpoint_for_message(&self, message_index: usize) -> Option<Checkpoint> {
+        let ordinal = user_message_ordinal(&self.state.messages, message_index)?;
+        self.available_checkpoints
+            .iter()
+            .find(|(candidate, _)| *candidate == ordinal)
+            .map(|(_, checkpoint)| checkpoint.clone())
+    }
+
+    /// 会话回退后，把 `ordinal >= from_ordinal` 的 checkpoint 标记失效。
+    fn invalidate_checkpoints_from(&mut self, from_ordinal: usize, thread_id: &str) {
+        if let Some(store) = &mut self.session_store {
+            for (ordinal, _) in self
+                .available_checkpoints
+                .iter()
+                .filter(|(ordinal, _)| *ordinal >= from_ordinal)
+            {
+                let _ = store.mark_checkpoint_invalid(thread_id, *ordinal as i64);
+            }
+        }
+        self.available_checkpoints
+            .retain(|(ordinal, _)| *ordinal < from_ordinal);
+        self.last_checkpoint = self
+            .available_checkpoints
+            .last()
+            .map(|(_, checkpoint)| checkpoint.clone());
+        self.refresh_checkpoint_changes();
+    }
+
+    /// Zed 的 Restore Checkpoint：回退工作区文件，并把会话截断到该消息之前。
+    fn restore_to_checkpoint(&mut self, message_index: usize, cx: &mut Context<Self>) {
+        if self.busy {
+            self.status = "生成中，稍后再恢复".to_string();
+            cx.notify();
+            return;
+        }
+        let Some(checkpoint) = self.checkpoint_for_message(message_index) else {
+            return;
+        };
+        let Some(ordinal) = user_message_ordinal(&self.state.messages, message_index) else {
+            return;
+        };
+        let Some(manager) = &self.checkpoint_manager else {
+            self.status = "当前工作区没有 checkpoint 能力".to_string();
+            cx.notify();
+            return;
+        };
+        match manager.is_valid(&checkpoint) {
+            Ok(true) => {}
+            Ok(false) => {
+                if let (Some(store), Some(agent)) = (&mut self.session_store, &self.agent) {
+                    let _ = store.mark_checkpoint_invalid(&agent.thread().id, ordinal as i64);
+                }
+                self.reload_thread_checkpoints();
+                self.status = "检查点已失效（工作区 HEAD 已变化）".to_string();
+                cx.notify();
+                return;
+            }
+            Err(error) => {
+                self.status = format!("检查点校验失败：{error}");
+                cx.notify();
+                return;
+            }
+        }
+        if let Err(error) = manager.restore(&checkpoint) {
+            self.status = format!("回退失败：{error}");
+            cx.notify();
+            return;
+        }
+        let Some(agent) = self.agent.as_mut() else {
+            return;
+        };
+        let thread_id = agent.thread().id.clone();
+        if let Some(entry_index) = thread_user_entry_index(&agent.thread().entries, ordinal) {
+            agent.thread_mut().entries.truncate(entry_index);
+        }
+        if let Some(store) = &mut self.session_store {
+            let _ = store.save_thread(agent.thread());
+        }
+        self.editing_user = None;
+        self.user_edit_input = None;
+        self.rebuild_state_from_thread();
+        self.state.messages.retain(|message| {
+            !(message.role == UiRole::System && message.text == EMPTY_THREAD_NOTICE)
+        });
+        self.invalidate_checkpoints_from(ordinal, &thread_id);
+        self.state
+            .push_system("已恢复检查点：文件已回退，可以从这里重新发送消息");
+        self.status = "已恢复检查点".to_string();
+        cx.notify();
     }
 
     fn undo_checkpoint(&mut self, cx: &mut Context<Self>) {
@@ -2202,51 +2338,95 @@ impl NativeAgentView {
                         self.render_user_edit_row(message_index, &palette, cx)
                     } else {
                         let edit_index = message_index;
+                        let restore_index = message_index;
+                        let restore_checkpoint = self.checkpoint_for_message(message_index);
                         div()
-                            .id(SharedString::from(format!("native-user-card-{edit_index}")))
-                            .group("native-user-msg")
-                            .relative()
-                            .w_full()
-                            .px(space(2))
-                            .py(space(2))
-                            .rounded(px(RADIUS_MEDIUM))
-                            .border_1()
-                            .border_color(palette.line)
-                            .bg(palette.view)
-                            .hover(|style| style.border_color(palette.line_strong))
+                            .flex()
+                            .flex_col()
+                            .gap(space(1))
                             .child(
                                 div()
-                                    .pr(px(28.0))
-                                    .text_size(px(13.0))
-                                    .text_color(palette.ink)
-                                    .child(mention::display_text(&message.text)),
+                                    .id(SharedString::from(format!(
+                                        "native-user-card-{edit_index}"
+                                    )))
+                                    .group("native-user-msg")
+                                    .relative()
+                                    .w_full()
+                                    .px(space(2))
+                                    .py(space(2))
+                                    .rounded(px(RADIUS_MEDIUM))
+                                    .border_1()
+                                    .border_color(palette.line)
+                                    .bg(palette.view)
+                                    .hover(|style| style.border_color(palette.line_strong))
+                                    .child(
+                                        div()
+                                            .pr(px(28.0))
+                                            .text_size(px(13.0))
+                                            .text_color(palette.ink)
+                                            .child(mention::display_text(&message.text)),
+                                    )
+                                    .children(
+                                        (!self.busy && self.editing_user != Some(edit_index)).then(
+                                            || {
+                                                div()
+                                                    .id(SharedString::from(format!(
+                                                        "native-edit-user-{edit_index}"
+                                                    )))
+                                                    .role(Role::Button)
+                                                    .aria_label("编辑消息")
+                                                    .absolute()
+                                                    .top(px(4.0))
+                                                    .right(space(1))
+                                                    .px(space(1))
+                                                    .py(px(1.0))
+                                                    .rounded(px(RADIUS_SMALL))
+                                                    .bg(palette.card)
+                                                    .text_size(px(10.0))
+                                                    .text_color(palette.ink_3)
+                                                    .invisible()
+                                                    .group_hover("native-user-msg", |style| {
+                                                        style.visible()
+                                                    })
+                                                    .hover(|style| style.bg(palette.soft))
+                                                    .child("编辑")
+                                                    .on_click(cx.listener(
+                                                        move |this, _, window, cx| {
+                                                            this.begin_edit_user(
+                                                                edit_index, window, cx,
+                                                            )
+                                                        },
+                                                    ))
+                                            },
+                                        ),
+                                    )
+                                    .into_any_element(),
                             )
-                            .children((!self.busy && self.editing_user != Some(edit_index)).then(
-                                || {
+                            .children(
+                                (!self.busy
+                                    && restore_checkpoint.is_some()
+                                    && self.editing_user != Some(edit_index))
+                                .then(|| {
                                     div()
                                         .id(SharedString::from(format!(
-                                            "native-edit-user-{edit_index}"
+                                            "native-restore-checkpoint-{restore_index}"
                                         )))
                                         .role(Role::Button)
-                                        .aria_label("编辑消息")
-                                        .absolute()
-                                        .top(px(4.0))
-                                        .right(space(1))
-                                        .px(space(1))
-                                        .py(px(1.0))
-                                        .rounded(px(RADIUS_SMALL))
-                                        .bg(palette.card)
+                                        .aria_label("恢复检查点")
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap(px(3.0))
+                                        .self_end()
                                         .text_size(px(10.0))
                                         .text_color(palette.ink_3)
-                                        .invisible()
-                                        .group_hover("native-user-msg", |style| style.visible())
-                                        .hover(|style| style.bg(palette.soft))
-                                        .child("编辑")
-                                        .on_click(cx.listener(move |this, _, window, cx| {
-                                            this.begin_edit_user(edit_index, window, cx)
+                                        .hover(|style| style.text_color(palette.ink_2))
+                                        .child("⟲ 恢复检查点")
+                                        .on_click(cx.listener(move |this, _, _window, cx| {
+                                            this.restore_to_checkpoint(restore_index, cx)
                                         }))
-                                },
-                            ))
+                                }),
+                            )
                             .into_any_element()
                     }
                 }
@@ -4275,6 +4455,28 @@ fn slash_entries_for(
         .collect()
 }
 /// 第 `ordinal` 条用户消息（1-based）对应的有效 checkpoint（未失效）。
+/// 持久化记录 → (用户消息 ordinal, Checkpoint)：过滤 invalid / 非法 seq，按 ordinal 升序。
+fn checkpoints_from_records(records: &[CheckpointRecord]) -> Vec<(usize, Checkpoint)> {
+    let mut checkpoints: Vec<(usize, Checkpoint)> = records
+        .iter()
+        .filter(|record| record.state != "invalid" && record.user_entry_seq > 0)
+        .map(|record| {
+            (
+                record.user_entry_seq as usize,
+                Checkpoint {
+                    thread_id: record.thread_id.clone(),
+                    seq: record.user_entry_seq.max(0) as u64,
+                    ref_name: record.ref_name.clone(),
+                    sha: record.sha.clone(),
+                    base_head: record.base_head.clone(),
+                },
+            )
+        })
+        .collect();
+    checkpoints.sort_by_key(|(ordinal, _)| *ordinal);
+    checkpoints
+}
+
 fn checkpoint_for_ordinal(
     records: &[cgc_agent_store::CheckpointRecord],
     ordinal: usize,
@@ -5099,6 +5301,38 @@ mod workspace_prompt_tests {
         assert_eq!(super::tool_status_label(ToolCallStatus::Running), "运行中…");
         assert_eq!(super::tool_status_label(ToolCallStatus::Ok), "完成");
         assert_eq!(super::tool_status_label(ToolCallStatus::Failed), "失败");
+    }
+
+    #[test]
+    fn checkpoints_from_records_filters_invalid_and_sorts_by_ordinal() {
+        use cgc_agent_store::CheckpointRecord;
+
+        let record = |seq: i64, state: &str| CheckpointRecord {
+            thread_id: "t".into(),
+            user_entry_seq: seq,
+            ref_name: format!("refs/cgc/checkpoints/{seq}"),
+            sha: format!("sha-{seq}"),
+            base_head: None,
+            created_at: seq,
+            state: state.into(),
+        };
+        let records = vec![
+            record(2, "active"),
+            record(1, "invalid"),
+            record(0, "active"),
+            record(3, "active"),
+        ];
+        let checkpoints = super::checkpoints_from_records(&records);
+        assert_eq!(
+            checkpoints
+                .iter()
+                .map(|(ordinal, checkpoint)| (*ordinal, checkpoint.sha.clone()))
+                .collect::<Vec<_>>(),
+            vec![(2, "sha-2".to_string()), (3, "sha-3".to_string())],
+            "过滤 invalid/0 并按 ordinal 升序"
+        );
+        assert_eq!(checkpoints[0].1.seq, 2, "Checkpoint.seq 与 ordinal 对齐");
+        assert_eq!(checkpoints[0].1.ref_name, "refs/cgc/checkpoints/2");
     }
 
     #[test]
