@@ -16,9 +16,9 @@ use crate::chat_state::{
     save_selected_agent,
 };
 use crate::formula::render_markdown_with_math;
-use crate::safe_markdown::sanitize_markdown;
 use cgc_agent_store::SessionStore;
 use cgc_agent_ui::message_flow::{RowKind, RowView};
+use cgc_agent_ui::safe_markdown::sanitize_markdown;
 use cgc_courses::catalog::{
     learning_context, CourseCatalogService, CourseDetailService, CourseSummary, CoursesApi,
     CoursesListState, FakeCoursesApi, HttpCoursesApi,

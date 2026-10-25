@@ -40,5 +40,7 @@ GPUI + gpui-kit 的原生桌面客户端。组织方式对齐 Zed：`crates/` �
 双轨形态（ADR-0028）：native 是默认学习 agent，external ACP agent 保留为高级模式；`provider`/`tools`/沙箱/checkpoint
 存储归 native，MCP/registry/安装引导归 ACP，**不要为「统一」合并这些运行时能力**。
 两套对话 UI 允许保留，但消息操作栏/复制/滚动定位等**行为判定必须共用 `agent_ui::message_flow`**，
-纯文本转换共用 `agent_ui::markdown_text`，不要在任一视图里另写一份。
+操作栏/右键菜单渲染共用 `agent_ui::message_actions`，Markdown 视图共用 `agent_ui::markdown_view`
+（安全净化在 `agent_ui::safe_markdown`），纯文本转换共用 `agent_ui::markdown_text`；
+不要在任一视图里另写一份。
 拆 crate 的门槛：出现第二个消费者（如全局助手）、独立依赖面、或需要并行隔离时才拆；否则先在 crate 内加 module。

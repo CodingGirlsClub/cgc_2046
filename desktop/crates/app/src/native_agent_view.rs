@@ -43,7 +43,7 @@ use gpui_kit::component::input::{
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu};
 use gpui_kit::component::message_scroller::{MessageScroller, MessageScrollerState};
 use gpui_kit::component::popover::Popover;
-use gpui_kit::component::text::{SelectionFormat, TextView};
+use gpui_kit::component::text::TextView;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{Icon, Sizable};
 use gpui_kit::InteractiveElement as _;
@@ -52,14 +52,15 @@ use gpui_kit::*;
 use image::GenericImageView as _;
 
 use crate::mention::{self, Mention, SkillEntry};
-use crate::safe_markdown::sanitize_markdown;
 use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 use cgc_agent_ui::markdown_text::markdown_to_plain;
+use cgc_agent_ui::markdown_view::markdown_text_view;
 use cgc_agent_ui::message_actions::{
     render_action_bar, render_message_menu, ActionBarSpec, ActionCallbacks, ActionGlyph,
     ActionGlyphs, ActionStyle, MenuPayloads,
 };
 use cgc_agent_ui::message_flow::{self, RowKind, RowView};
+use cgc_agent_ui::safe_markdown::sanitize_markdown;
 
 /// 审批模式：Ask = 逐次审批；Auto = 自动允许。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -5301,37 +5302,6 @@ fn render_native_message_menu(
     )
 }
 
-/// 代码块 Copy 按钮的稳定 id（同内容同 id，不同内容不同 id，避免元素状态串台）。
-fn code_block_copy_id(code: &str, lang: Option<&str>) -> String {
-    use std::hash::{Hash as _, Hasher as _};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    code.hash(&mut hasher);
-    lang.unwrap_or_default().hash(&mut hasher);
-    format!("native-copy-code-{:016x}", hasher.finish())
-}
-
-/// 构造 Markdown TextView（代码块右上角 Copy 按钮、文本可选中复制）。
-///
-/// `id` 决定 element state：流式渲染时复用同一个 id，gpui-base 会对追加的文本
-/// 走 `push_str` 增量解析，而不是每帧重新 parse 全文。
-fn markdown_text_view(id: impl Into<ElementId>, text: &str) -> TextView {
-    TextView::markdown(id, sanitize_markdown(text))
-        .selectable(true)
-        .selection_format(SelectionFormat::Source)
-        .code_block_actions(|code_block, _window, _cx| {
-            let code = code_block.code().to_string();
-            let id = code_block_copy_id(&code, code_block.lang().as_deref());
-            Button::new(SharedString::from(id))
-                .label("Copy")
-                .xsmall()
-                .ghost()
-                .tooltip("Copy Code")
-                .on_click(move |_, _, cx| {
-                    cx.write_to_clipboard(ClipboardItem::new_string(code.clone()));
-                })
-        })
-}
-
 /// agent 回复用 Markdown 渲染。
 fn render_assistant_markdown(message_index: usize, text: &str) -> AnyElement {
     markdown_text_view(format!("native-assistant-markdown-{message_index}"), text)
@@ -5644,16 +5614,6 @@ mod workspace_prompt_tests {
             "底部条允许 Scroll to Top"
         );
         assert_eq!(rows.action_plan(5, true, false), None, "生成中隐藏底部条");
-    }
-
-    #[test]
-    fn code_block_copy_id_is_stable_and_unique() {
-        let first = super::code_block_copy_id("fn main() {}", Some("rust"));
-        let same = super::code_block_copy_id("fn main() {}", Some("rust"));
-        let other = super::code_block_copy_id("fn main() { }", Some("rust"));
-        assert_eq!(first, same);
-        assert_ne!(first, other);
-        assert!(first.starts_with("native-copy-code-"));
     }
 
     #[test]

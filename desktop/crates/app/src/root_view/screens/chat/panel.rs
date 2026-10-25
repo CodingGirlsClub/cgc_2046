@@ -1,5 +1,6 @@
 use super::super::super::*;
 use super::super::ScreenContext;
+use cgc_agent_ui::markdown_view::markdown_text_view;
 use cgc_agent_ui::message_actions::{
     render_action_bar, render_message_menu, ActionBarSpec, ActionCallbacks, ActionGlyph,
     ActionGlyphs, ActionStyle, MenuPayloads,
@@ -233,11 +234,8 @@ pub(in crate::root_view) fn render_chat_panel(
                                     .child(agent_label.clone()),
                             )
                             .child(
-                                TextView::markdown(
-                                    format!("chat-markdown-{index}"),
-                                    sanitize_markdown(text),
-                                )
-                                .into_any_element(),
+                                markdown_text_view(format!("chat-markdown-{index}"), text)
+                                    .into_any_element(),
                             )
                             .children(plan.map(|plan| {
                                 render_chat_message_controls(
@@ -305,11 +303,13 @@ pub(in crate::root_view) fn render_chat_panel(
                                     .border_color(palette.line)
                                     .text_size(px(12.0))
                                     .text_color(palette.ink_2)
-                                    .child(TextView::markdown(
-                                        format!("chat-thinking-markdown-{index}"),
-                                        sanitize_markdown(text),
-                                    ))
-                                    .into_any_element()
+                                    .child(
+                                        markdown_text_view(
+                                            format!("chat-thinking-markdown-{index}"),
+                                            text,
+                                        )
+                                        .into_any_element(),
+                                    )
                             }))
                             .into_any_element()
                     }

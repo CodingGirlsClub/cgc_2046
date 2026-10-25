@@ -28,7 +28,7 @@ fn main() {
     let started = Instant::now();
     let mut sanitized_bytes = 0;
     for _ in 0..iterations {
-        sanitized_bytes = cgc_desktop_app::safe_markdown::sanitize_markdown(&markdown).len();
+        sanitized_bytes = cgc_agent_ui::safe_markdown::sanitize_markdown(&markdown).len();
     }
     let sanitize_elapsed = started.elapsed();
     println!(

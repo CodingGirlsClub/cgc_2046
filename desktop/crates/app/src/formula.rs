@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use gpui_kit::{div, img, px, AnyElement, Hsla, IntoElement, ParentElement, RenderImage, Styled};
 
-use crate::safe_markdown::sanitize_markdown;
+use cgc_agent_ui::safe_markdown::sanitize_markdown;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MathSegment {

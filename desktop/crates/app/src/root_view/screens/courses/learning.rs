@@ -327,7 +327,7 @@ pub(in crate::root_view) fn render_course_materials(
                             sanitize_markdown(body),
                         )
                         .on_link_click(move |url, _, _, cx| {
-                            if crate::safe_markdown::is_safe_link(url) {
+                            if cgc_agent_ui::safe_markdown::is_safe_link(url) {
                                 let url = url.to_string();
                                 let _ = view_handle.update(cx, |this, cx| {
                                     this.pending_link = Some(url);
