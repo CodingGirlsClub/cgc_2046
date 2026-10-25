@@ -7,12 +7,14 @@ use cgc_agent_ui::message_actions::{
 use cgc_agent_ui::message_row::{
     render_assistant_row, render_thinking_row, AssistantRowSpec, MessageStyle, ThinkingRowSpec,
 };
+use cgc_agent_ui::picker::{
+    render_picker_popover, PickerGroup, PickerItem, PickerPopoverSpec, PickerSearch, PickerStyle,
+};
 use cgc_platform::acp::connection::ConfigOptionCategory;
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::input::{Input, Textarea};
+use gpui_kit::component::input::Textarea;
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu};
 use gpui_kit::component::popover::Popover;
-use gpui_kit::component::scroll::ScrollableElement as _;
 
 pub(in crate::root_view) fn render_chat_panel(
     ctx: &mut ScreenContext<'_>,
@@ -522,129 +524,72 @@ pub(in crate::root_view) fn render_chat_panel(
                         .enumerate()
                         .map(|(index, config)| {
                             let root = cx.entity().downgrade();
-                            let palette = *palette;
                             let name = config.name.clone();
                             let current = config.current.clone();
-                            let selected_value = config.current.clone();
                             let searchable = config.category == ConfigOptionCategory::Model;
                             let query = if searchable {
                                 config_query.as_str()
                             } else {
                                 ""
                             };
-                            let options = config
+                            let options: Vec<(String, String)> = config
                                 .values
                                 .iter()
                                 .filter(|(_, label)| {
                                     query.is_empty() || label.to_lowercase().contains(query)
                                 })
                                 .cloned()
-                                .collect::<Vec<_>>();
-                            let content_root = root.clone();
-                            let open_root = root.clone();
-                            let content_search_input = if searchable {
-                                config_search_input.clone()
-                            } else {
-                                None
-                            };
-                            let content_scroll = config_scroll.clone();
-                            Popover::new(SharedString::from(format!("chat-config-popover-{index}")))
-                                .trigger(
-                                    Button::new(SharedString::from(format!(
-                                        "chat-config-trigger-{index}"
-                                    )))
-                                    .label(current)
-                                    .xsmall()
-                                    .ghost()
-                                    .max_w(px(180.0))
-                                    .tooltip(name),
-                                )
-                                .content(move |_, _, cx| {
-                                    let dismiss = cx.entity().downgrade();
-                                    let search_input = content_search_input.clone();
-                                    let scroll = content_scroll.clone();
-                                    let rows = options.iter().map(|(value, label)| {
-                                        let value = value.clone();
-                                        let label = label.clone();
-                                        let selected = value == selected_value;
-                                        let row_root = content_root.clone();
-                                        let row_dismiss = dismiss.clone();
-                                        div()
-                                            .id(SharedString::from(format!(
-                                                "chat-config-{index}-{value}"
-                                            )))
-                                            .flex()
-                                            .flex_row()
-                                            .items_center()
-                                            .justify_between()
-                                            .gap(space(2))
-                                            .px(space(1))
-                                            .py(px(3.0))
-                                            .rounded(px(RADIUS_SMALL))
-                                            .text_size(px(11.0))
-                                            .text_color(if selected {
-                                                palette.accent
-                                            } else {
-                                                palette.ink_2
-                                            })
-                                            .hover(|style| style.bg(palette.soft))
-                                            .child(label)
-                                            .children(selected.then_some("✓"))
-                                            .on_click(move |_, window, cx| {
-                                                let _ = row_root.update(cx, |this, cx| {
-                                                    this.set_chat_config(index, value.clone(), cx);
-                                                });
-                                                let _ = row_dismiss.update(cx, |state, cx| {
-                                                    state.dismiss(window, cx)
-                                                });
-                                            })
-                                            .into_any_element()
+                                .collect();
+                            let items: Vec<PickerItem> = options
+                                .iter()
+                                .map(|(value, label)| {
+                                    PickerItem::new(
+                                        format!("chat-config-{index}-{value}"),
+                                        label.clone(),
+                                    )
+                                    .selected(*value == current)
+                                })
+                                .collect();
+                            let search = searchable
+                                .then(|| config_search_input.clone())
+                                .flatten()
+                                .map(|input| PickerSearch {
+                                    input,
+                                    scroll: config_scroll.clone(),
+                                    on_open: Some(Box::new({
+                                        let reset_root = root.clone();
+                                        move |window, cx| {
+                                            let _ = reset_root.update(cx, |this, cx| {
+                                                this.reset_config_search(window, cx)
+                                            });
+                                        }
+                                    })),
+                                });
+                            render_picker_popover(PickerPopoverSpec {
+                                popover_id: SharedString::from(format!(
+                                    "chat-config-popover-{index}"
+                                )),
+                                trigger_id: SharedString::from(format!(
+                                    "chat-config-trigger-{index}"
+                                )),
+                                trigger_label: current.clone(),
+                                trigger_tooltip: name,
+                                trigger_max_width: Some(180.0),
+                                anchor: None,
+                                groups: vec![PickerGroup::flat(items)],
+                                style: chat_picker_style(palette),
+                                width: 260.0,
+                                list_max_height: Some(244.0),
+                                search,
+                                on_select: Box::new(move |selected, _window, cx| {
+                                    let Some((value, _)) = options.get(selected).cloned() else {
+                                        return;
+                                    };
+                                    let _ = root.update(cx, |this, cx| {
+                                        this.set_chat_config(index, value, cx)
                                     });
-                                    let list = div()
-                                        .id(SharedString::from(format!("chat-config-list-{index}")))
-                                        .flex()
-                                        .flex_col()
-                                        .gap(px(1.0))
-                                        .max_h(px(244.0))
-                                        .track_scroll(&scroll)
-                                        .overflow_y_scroll()
-                                        .occlude()
-                                        .children(rows);
-                                    let list = list.vertical_scrollbar(&scroll);
-                                    div()
-                                        .id(SharedString::from(format!(
-                                            "chat-config-options-{index}"
-                                        )))
-                                        .flex()
-                                        .flex_col()
-                                        .w(px(260.0))
-                                        .max_h(px(280.0))
-                                        .occlude()
-                                        .children(search_input.map(|input| {
-                                            div()
-                                                .px(space(1))
-                                                .pb(space(1))
-                                                .mb(space(1))
-                                                .border_b_1()
-                                                .border_color(palette.line)
-                                                .child(
-                                                    Input::new(&input)
-                                                        .small()
-                                                        .appearance(false)
-                                                        .w_full(),
-                                                )
-                                                .into_any_element()
-                                        }))
-                                        .child(list)
-                                })
-                                .on_open_change(move |open, window, cx| {
-                                    if *open && searchable {
-                                        let _ = open_root.update(cx, |this, cx| {
-                                            this.reset_config_search(window, cx);
-                                        });
-                                    }
-                                })
-                                .flex_none()
+                                }),
+                            })
                         })
                         .collect::<Vec<_>>();
                     let placeholder = match language {
@@ -1264,6 +1209,17 @@ fn chat_action_glyphs() -> ActionGlyphs {
         copy: ActionGlyph::Named(AssetIcon::Copy),
         user: ActionGlyph::Named(AssetIcon::UserRoundArrowLeft),
         top: ActionGlyph::Named(AssetIcon::ArrowUp),
+    }
+}
+
+fn chat_picker_style(palette: &theme::Palette) -> PickerStyle {
+    PickerStyle {
+        accent: palette.accent,
+        ink_2: palette.ink_2,
+        ink_3: palette.ink_3,
+        soft: palette.soft,
+        card: palette.card,
+        radius: RADIUS_SMALL,
     }
 }
 

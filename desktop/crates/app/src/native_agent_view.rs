@@ -62,6 +62,9 @@ use cgc_agent_ui::message_flow::{self, RowKind, RowView};
 use cgc_agent_ui::message_row::{
     render_assistant_row, render_thinking_row, AssistantRowSpec, MessageStyle, ThinkingRowSpec,
 };
+use cgc_agent_ui::picker::{
+    render_picker_popover, PickerGroup, PickerItem, PickerPopoverSpec, PickerStyle,
+};
 
 /// 审批模式：Ask = 逐次审批；Auto = 自动允许。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3715,90 +3718,61 @@ impl Render for NativeAgentView {
                 let model_root = cx.entity().downgrade();
                 let thinking_root = cx.entity().downgrade();
                 let approval_root = cx.entity().downgrade();
-                let palette_copy = palette;
                 let model_id_for_label = current_model_id.clone();
-                let model_picker = Popover::new("native-model-picker")
-                        .anchor(Anchor::BottomRight)
-                    .trigger(
-                        Button::new("native-model-trigger")
-                            .label(model_id_for_label)
-                            .xsmall()
-                            .ghost()
-                            .tooltip("选择模型"),
-                    )
-                    .content(move |_, _, cx| {
-                        let dismiss = cx.entity().downgrade();
-                        let mut rows: Vec<AnyElement> = Vec::new();
-                        for provider in &providers_for_menu {
-                            rows.push(
-                                div()
-                                    .px(space(1))
-                                    .pt(px(4.0))
-                                    .pb(px(2.0))
-                                    .text_size(px(9.0))
-                                    .text_color(palette_copy.ink_3)
-                                    .child(provider.name.clone())
-                                    .into_any_element(),
-                            );
-                            for model in &provider.models {
-                                if !provider.model_config(model).enabled {
-                                    continue;
-                                }
-                                let provider_id = provider.id.clone();
-                                let model_id = model.clone();
-                                let root = model_root.clone();
-                                let row_dismiss = dismiss.clone();
-                                let selected = provider_id == current_provider_id
-                                    && model_id == current_model_id;
-                                rows.push(
-                                    div()
-                                        .id(SharedString::from(format!(
-                                            "native-model-{}-{}",
-                                            provider_id, model_id
-                                        )))
-                                        .flex()
-                                        .flex_row()
-                                        .items_center()
-                                        .justify_between()
-                                        .gap(space(2))
-                                        .px(space(1))
-                                        .py(px(3.0))
-                                        .rounded(px(RADIUS_MEDIUM))
-                                        .text_size(px(11.0))
-                                        .text_color(if selected {
-                                            palette_copy.accent
-                                        } else {
-                                            palette_copy.ink_2
-                                        })
-                                        .hover(|style| style.bg(palette_copy.soft))
-                                        .child(model.clone())
-                                        .children(selected.then_some("✓"))
-                                        .on_click(move |_, window, cx| {
-                                            let _ = root.update(cx, |this, cx| {
-                                                this.select_model(
-                                                    provider_id.clone(),
-                                                    model_id.clone(),
-                                                    cx,
-                                                );
-                                            });
-                                            let _ = row_dismiss
-                                                .update(cx, |state, cx| state.dismiss(window, cx));
-                                        })
-                                        .into_any_element(),
-                                );
-                            }
-                        }
-                        div()
-                            .id("native-model-options")
-                            .flex()
-                            .flex_col()
-                            .gap(px(1.0))
-                            .w(px(240.0))
-                            .max_h(px(280.0))
-                            .overflow_y_scroll()
-                            .occlude()
-                            .children(rows)
-                    });
+                let model_groups: Vec<PickerGroup> = providers_for_menu
+                    .iter()
+                    .filter_map(|provider| {
+                        let items: Vec<PickerItem> = provider
+                            .models
+                            .iter()
+                            .filter(|model| provider.model_config(model).enabled)
+                            .map(|model| {
+                                PickerItem::new(
+                                    format!("native-model-{}-{}", provider.id, model),
+                                    model.clone(),
+                                )
+                                .selected(
+                                    provider.id == current_provider_id
+                                        && *model == current_model_id,
+                                )
+                            })
+                            .collect();
+                        (!items.is_empty())
+                            .then(|| PickerGroup::titled(provider.name.clone(), items))
+                    })
+                    .collect();
+                let model_targets: Vec<(String, String)> = providers_for_menu
+                    .iter()
+                    .flat_map(|provider| {
+                        provider
+                            .models
+                            .iter()
+                            .filter(|model| provider.model_config(model).enabled)
+                            .map(|model| (provider.id.clone(), model.clone()))
+                            .collect::<Vec<_>>()
+                    })
+                    .collect();
+                let model_picker = render_picker_popover(PickerPopoverSpec {
+                    popover_id: SharedString::from("native-model-picker"),
+                    trigger_id: SharedString::from("native-model-trigger"),
+                    trigger_label: model_id_for_label,
+                    trigger_tooltip: "选择模型".to_string(),
+                    trigger_max_width: None,
+                    anchor: Some(Anchor::BottomRight),
+                    groups: model_groups,
+                    style: native_picker_style(palette),
+                    width: 240.0,
+                    list_max_height: Some(280.0),
+                    search: None,
+                    on_select: Box::new(move |index, _window, cx| {
+                        let Some((provider_id, model_id)) = model_targets.get(index).cloned() else {
+                            return;
+                        };
+                        let _ = model_root.update(cx, |this, cx| {
+                            this.select_model(provider_id, model_id, cx);
+                        });
+                    }),
+                });
                 let current_effort = self
                     .effort_index
                     .min(effort_levels.len().saturating_sub(1));
@@ -3815,168 +3789,90 @@ impl Render for NativeAgentView {
                 } else {
                     "推理 —"
                 };
-                let effort_levels_for_menu = effort_levels.clone();
                 let effort_picker = (thinking_supported && !effort_levels.is_empty()).then(|| {
-                    Popover::new("native-thinking-picker")
-                        .anchor(Anchor::BottomRight)
-                        .trigger(
-                            Button::new("native-thinking-trigger")
-                                .label(thinking_label)
-                                .xsmall()
-                                .ghost()
-                                .tooltip("推理强度"),
-                        )
-                        .content(move |_, _, cx| {
-                            let dismiss = cx.entity().downgrade();
-                            let rows = effort_levels_for_menu
-                            .iter()
-                            .cloned()
-                            .enumerate()
-                            .map(|(level_index, label)| {
-                                let root = thinking_root.clone();
-                                let row_dismiss = dismiss.clone();
-                                let selected = level_index == current_effort;
-                                div()
-                                    .id(SharedString::from(format!("native-thinking-{label}")))
-                                    .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .justify_between()
-                                    .gap(space(2))
-                                    .px(space(1))
-                                    .py(px(3.0))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .text_size(px(11.0))
-                                    .text_color(if selected {
-                                        palette_copy.accent
-                                    } else if thinking_supported {
-                                        palette_copy.ink_2
-                                    } else {
-                                        palette_copy.ink_3
-                                    })
-                                    .hover(|style| style.bg(palette_copy.soft))
-                                    .child(label)
-                                    .children(selected.then_some("✓"))
-                                    .on_click(move |_, window, cx| {
-                                        if !thinking_supported {
-                                            return;
-                                        }
-                                        let _ = root.update(cx, |this, cx| {
-                                            if !this.thinking_enabled {
-                                                this.set_thinking_enabled(true, cx);
-                                            }
-                                            this.set_effort_index(level_index, cx);
-                                        });
-                                        let _ = row_dismiss
-                                            .update(cx, |state, cx| state.dismiss(window, cx));
-                                    })
-                                    .into_any_element()
-                            })
-                            .collect::<Vec<_>>();
-                            let off_root = thinking_root.clone();
-                            let off_dismiss = dismiss.clone();
-                            let off_selected = !thinking_enabled;
-                            let off_row = div()
-                                .id("native-thinking-off")
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .justify_between()
-                                .gap(space(2))
-                                .px(space(1))
-                                .py(px(3.0))
-                                .rounded(px(RADIUS_MEDIUM))
-                                .text_size(px(11.0))
-                                .text_color(if off_selected {
-                                    palette_copy.accent
-                                } else {
-                                    palette_copy.ink_2
-                                })
-                                .hover(|style| style.bg(palette_copy.soft))
-                                .child("Off")
-                                .children(off_selected.then_some("✓"))
-                                .on_click(move |_, window, cx| {
-                                    let _ = off_root.update(cx, |this, cx| {
-                                        this.set_thinking_enabled(false, cx);
-                                    });
-                                    let _ = off_dismiss
-                                        .update(cx, |state, cx| state.dismiss(window, cx));
-                                })
-                                .into_any_element();
-                            div()
-                                .id("native-thinking-options")
-                                .flex()
-                                .flex_col()
-                                .gap(px(1.0))
-                                .w(px(160.0))
-                                .occlude()
-                                .children(rows)
-                                .child(off_row)
+                    let levels_len = effort_levels.len();
+                    let mut items: Vec<PickerItem> = effort_levels
+                        .iter()
+                        .enumerate()
+                        .map(|(level_index, label)| {
+                            PickerItem::new(
+                                format!("native-thinking-{label}"),
+                                label.clone(),
+                            )
+                            .selected(thinking_enabled && level_index == current_effort)
                         })
+                        .collect();
+                    items.push(
+                        PickerItem::new("native-thinking-off", "Off")
+                            .selected(!thinking_enabled),
+                    );
+                    let root = thinking_root.clone();
+                    render_picker_popover(PickerPopoverSpec {
+                        popover_id: SharedString::from("native-thinking-picker"),
+                        trigger_id: SharedString::from("native-thinking-trigger"),
+                        trigger_label: thinking_label.to_string(),
+                        trigger_tooltip: "推理强度".to_string(),
+                        trigger_max_width: None,
+                        anchor: Some(Anchor::BottomRight),
+                        groups: vec![PickerGroup::flat(items)],
+                        style: native_picker_style(palette),
+                        width: 160.0,
+                        list_max_height: None,
+                        search: None,
+                        on_select: Box::new(move |index, _window, cx| {
+                            let _ = root.update(cx, |this, cx| {
+                                if index < levels_len {
+                                    if !this.thinking_enabled {
+                                        this.set_thinking_enabled(true, cx);
+                                    }
+                                    this.set_effort_index(index, cx);
+                                } else {
+                                    this.set_thinking_enabled(false, cx);
+                                }
+                            });
+                        }),
+                    })
                 });
                 let current_approval = self.approval_mode;
-                let approval_picker = Popover::new("native-approval-picker")
-                    .anchor(Anchor::BottomRight)
-                    .trigger(
-                        Button::new("native-approval-trigger")
-                            .label(current_approval.label())
-                            .xsmall()
-                            .ghost()
-                            .tooltip("审批模式"),
-                    )
-                    .content(move |_, _, cx| {
-                        let dismiss = cx.entity().downgrade();
-                        let rows = [ApprovalMode::Ask, ApprovalMode::Auto]
-                            .into_iter()
-                            .map(|mode| {
-                                let root = approval_root.clone();
-                                let row_dismiss = dismiss.clone();
-                                let selected = mode == current_approval;
-                                div()
-                                    .id(SharedString::from(format!(
-                                        "native-approval-{}",
-                                        mode.label()
-                                    )))
-                                    .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .justify_between()
-                                    .gap(space(2))
-                                    .px(space(1))
-                                    .py(px(3.0))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .text_size(px(11.0))
-                                    .text_color(if selected {
-                                        palette_copy.accent
-                                    } else {
-                                        palette_copy.ink_2
-                                    })
-                                    .hover(|style| style.bg(palette_copy.soft))
-                                    .child(match mode {
-                                        ApprovalMode::Ask => "Ask（逐次审批）",
-                                        ApprovalMode::Auto => "Auto（自动允许）",
-                                    })
-                                    .children(selected.then_some("✓"))
-                                    .on_click(move |_, window, cx| {
-                                        let _ = root.update(cx, |this, cx| {
-                                            this.set_approval_mode(mode, cx);
-                                        });
-                                        let _ = row_dismiss
-                                            .update(cx, |state, cx| state.dismiss(window, cx));
-                                    })
-                                    .into_any_element()
-                            })
-                            .collect::<Vec<_>>();
-                        div()
-                            .id("native-approval-options")
-                            .flex()
-                            .flex_col()
-                            .gap(px(1.0))
-                            .w(px(200.0))
-                            .occlude()
-                            .children(rows)
-                    });
-
+                let approval_picker = {
+                    let modes = [ApprovalMode::Ask, ApprovalMode::Auto];
+                    let items: Vec<PickerItem> = modes
+                        .iter()
+                        .map(|mode| {
+                            let label = match mode {
+                                ApprovalMode::Ask => "Ask（逐次审批）",
+                                ApprovalMode::Auto => "Auto（自动允许）",
+                            };
+                            PickerItem::new(
+                                format!("native-approval-{}", mode.label()),
+                                label,
+                            )
+                            .selected(*mode == current_approval)
+                        })
+                        .collect();
+                    let root = approval_root.clone();
+                    render_picker_popover(PickerPopoverSpec {
+                        popover_id: SharedString::from("native-approval-picker"),
+                        trigger_id: SharedString::from("native-approval-trigger"),
+                        trigger_label: current_approval.label().to_string(),
+                        trigger_tooltip: "审批模式".to_string(),
+                        trigger_max_width: None,
+                        anchor: Some(Anchor::BottomRight),
+                        groups: vec![PickerGroup::flat(items)],
+                        style: native_picker_style(palette),
+                        width: 200.0,
+                        list_max_height: None,
+                        search: None,
+                        on_select: Box::new(move |index, _window, cx| {
+                            let Some(mode) = modes.get(index).copied() else {
+                                return;
+                            };
+                            let _ = root.update(cx, |this, cx| {
+                                this.set_approval_mode(mode, cx);
+                            });
+                        }),
+                    })
+                };
                 let send_aria = if busy {
                     if has_input {
                         "发送（排队）"
@@ -5232,6 +5128,18 @@ fn ui_assistant_text(message: &UiMessage) -> Option<&str> {
 /// native 消息行的共享只读视图（Stage 1：判定逻辑归 `agent_ui`）。
 fn row_view(messages: &[UiMessage]) -> RowView<'_, UiMessage> {
     RowView::new(messages, ui_row_kind, ui_assistant_text)
+}
+
+/// native 主题 → 共享 picker 样式。
+fn native_picker_style(palette: theme::Palette) -> PickerStyle {
+    PickerStyle {
+        accent: palette.accent,
+        ink_2: palette.ink_2,
+        ink_3: palette.ink_3,
+        soft: palette.soft,
+        card: palette.card,
+        radius: RADIUS_MEDIUM,
+    }
 }
 
 /// native 主题 → 共享消息行样式。

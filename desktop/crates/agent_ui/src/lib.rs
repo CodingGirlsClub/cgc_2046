@@ -16,6 +16,7 @@ pub mod message_actions;
 pub mod message_flow;
 pub mod message_row;
 pub mod panel;
+pub mod picker;
 pub mod settings;
 
 pub mod registration;
