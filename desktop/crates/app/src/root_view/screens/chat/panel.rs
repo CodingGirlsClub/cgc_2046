@@ -1,9 +1,13 @@
 use super::super::super::*;
 use super::super::ScreenContext;
+use cgc_agent_ui::message_actions::{
+    render_action_bar, render_message_menu, ActionBarSpec, ActionCallbacks, ActionGlyph,
+    ActionGlyphs, ActionStyle, MenuPayloads,
+};
 use cgc_platform::acp::connection::ConfigOptionCategory;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, Textarea};
-use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu};
 use gpui_kit::component::popover::Popover;
 use gpui_kit::component::scroll::ScrollableElement as _;
 
@@ -195,11 +199,10 @@ pub(in crate::root_view) fn render_chat_panel(
                             let view = view_weak.clone();
                             let text = text.clone();
                             move |menu, _, _| {
-                                chat_message_context_menu(
+                                render_chat_message_menu(
                                     menu,
                                     view.clone(),
-                                    index,
-                                    ChatMenuPayload {
+                                    MenuPayloads {
                                         plain: text.clone(),
                                         markdown: text.clone(),
                                         agent_response: None,
@@ -250,11 +253,10 @@ pub(in crate::root_view) fn render_chat_panel(
                                 let view = view_weak.clone();
                                 let text = text.clone();
                                 move |menu, _, _| {
-                                    chat_message_context_menu(
+                                    render_chat_message_menu(
                                         menu,
                                         view.clone(),
-                                        index,
-                                        ChatMenuPayload {
+                                        MenuPayloads {
                                             plain: cgc_agent_ui::markdown_text::markdown_to_plain(
                                                 &text,
                                             ),
@@ -1249,30 +1251,6 @@ pub(in crate::root_view) fn render_chat_panel(
         .into_any_element()
 }
 
-/// ACP 消息操作栏的单图标按钮。
-fn chat_action_button(
-    id: String,
-    label: &'static str,
-    icon_path: SharedString,
-    palette: theme::Palette,
-    on_click: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut gpui_kit::App) + 'static,
-) -> AnyElement {
-    div()
-        .id(SharedString::from(id))
-        .role(Role::Button)
-        .aria_label(label)
-        .size(px(22.0))
-        .rounded(px(RADIUS_SMALL))
-        .flex()
-        .items_center()
-        .justify_center()
-        .hover(|style| style.bg(palette.soft))
-        .child(Icon::default().path(icon_path).small())
-        .tooltip(move |window, cx| Tooltip::new(label).build(window, cx))
-        .on_click(on_click)
-        .into_any_element()
-}
-
 /// 消息操作栏（Copy / Scroll to User Message / Scroll to Top）。
 ///
 /// gating 与复制内容来自 `agent_ui::message_flow`，与 native 栈共用同一份实现；
@@ -1286,53 +1264,71 @@ fn render_chat_message_controls(
     view: &WeakEntity<RootView>,
     palette: &theme::Palette,
 ) -> AnyElement {
-    let mut row = div()
-        .id(SharedString::from(format!("{id_prefix}-{index}")))
-        .flex()
-        .flex_row()
-        .w_full()
-        .items_center()
-        .justify_end()
-        .gap(px(2.0))
-        .pr(space(1))
-        .opacity(0.4)
-        .hover(|style| style.opacity(1.0));
+    let mut callbacks = ActionCallbacks::default();
     if let Some(copy_text) = copy_text {
-        row = row.child(chat_action_button(
-            format!("{id_prefix}-copy-{index}"),
-            "Copy This Agent Response",
-            AssetIcon::Copy.path(),
-            *palette,
-            move |_, _, cx| {
-                cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
-            },
-        ));
+        callbacks.on_copy = Some(Box::new(move |cx: &mut App| {
+            cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
+        }));
     }
     if let Some(user_index) = plan.scroll_to_user {
         let user_view = view.clone();
-        row = row.child(chat_action_button(
-            format!("{id_prefix}-user-{index}"),
-            "Scroll to User Message",
-            AssetIcon::UserRoundArrowLeft.path(),
-            *palette,
-            move |_, _, cx| {
-                let _ = user_view.update(cx, |this, cx| this.scroll_chat_to_user(user_index, cx));
-            },
-        ));
+        callbacks.on_scroll_user = Some(Box::new(move |cx: &mut App| {
+            let _ = user_view.update(cx, |this, cx| this.scroll_chat_to_user(user_index, cx));
+        }));
     }
     if plan.scroll_to_top {
         let top_view = view.clone();
-        row = row.child(chat_action_button(
-            format!("{id_prefix}-top-{index}"),
-            "Scroll to Top",
-            AssetIcon::ArrowUp.path(),
-            *palette,
-            move |_, _, cx| {
-                let _ = top_view.update(cx, |this, cx| this.scroll_chat_to_top(cx));
-            },
-        ));
+        callbacks.on_scroll_top = Some(Box::new(move |cx: &mut App| {
+            let _ = top_view.update(cx, |this, cx| this.scroll_chat_to_top(cx));
+        }));
     }
-    row.into_any_element()
+    render_action_bar(ActionBarSpec {
+        row_id: SharedString::from(format!("{id_prefix}-{index}")),
+        copy_id: SharedString::from(format!("{id_prefix}-copy-{index}")),
+        user_id: SharedString::from(format!("{id_prefix}-user-{index}")),
+        top_id: SharedString::from(format!("{id_prefix}-top-{index}")),
+        glyphs: chat_action_glyphs(),
+        style: chat_action_style(palette),
+        callbacks,
+    })
+}
+
+fn chat_action_glyphs() -> ActionGlyphs {
+    ActionGlyphs {
+        copy: ActionGlyph::Named(AssetIcon::Copy),
+        user: ActionGlyph::Named(AssetIcon::UserRoundArrowLeft),
+        top: ActionGlyph::Named(AssetIcon::ArrowUp),
+    }
+}
+
+fn chat_action_style(palette: &theme::Palette) -> ActionStyle {
+    ActionStyle {
+        icon_color: palette.ink_3,
+        hover_bg: palette.soft,
+        button_size: 22.0,
+        radius: RADIUS_SMALL,
+        gap: 2.0,
+    }
+}
+
+/// ACP 的消息右键菜单：滚动回调注入到共享菜单渲染。
+fn render_chat_message_menu(
+    menu: PopupMenu,
+    view: WeakEntity<RootView>,
+    payloads: MenuPayloads,
+) -> PopupMenu {
+    let top_view = view.clone();
+    let bottom_view = view;
+    render_message_menu(
+        menu,
+        payloads,
+        Box::new(move |cx| {
+            let _ = top_view.update(cx, |this, cx| this.scroll_chat_to_top(cx));
+        }),
+        Box::new(move |cx| {
+            let _ = bottom_view.update(cx, |this, cx| this.scroll_chat_to_bottom(cx));
+        }),
+    )
 }
 
 /// 是否有等待用户决定的审批（底部操作栏此时隐藏，对齐 Zed）。
@@ -1340,54 +1336,6 @@ fn has_unresolved_permission(messages: &[ChatEntry]) -> bool {
     messages
         .iter()
         .any(|entry| matches!(entry, ChatEntry::Permission { resolved: None, .. }))
-}
-
-struct ChatMenuPayload {
-    plain: String,
-    markdown: String,
-    agent_response: Option<String>,
-}
-
-/// ACP 消息右键菜单（对齐 native 的 Copy / Copy as Markdown / Copy This Agent
-/// Response / Scroll to Top/Bottom）。
-fn chat_message_context_menu(
-    menu: PopupMenu,
-    view: WeakEntity<RootView>,
-    index: usize,
-    payloads: ChatMenuPayload,
-) -> PopupMenu {
-    let copy_plain = payloads.plain.clone();
-    let copy_markdown = payloads.markdown.clone();
-    let mut menu = menu
-        .item(PopupMenuItem::new("Copy").on_click(move |_, _, cx| {
-            cx.write_to_clipboard(ClipboardItem::new_string(copy_plain.clone()));
-        }))
-        .item(
-            PopupMenuItem::new("Copy as Markdown").on_click(move |_, _, cx| {
-                cx.write_to_clipboard(ClipboardItem::new_string(copy_markdown.clone()));
-            }),
-        );
-    if let Some(agent_response) = payloads.agent_response.clone() {
-        menu = menu.item(PopupMenuItem::new("Copy This Agent Response").on_click(
-            move |_, _, cx| {
-                cx.write_to_clipboard(ClipboardItem::new_string(agent_response.clone()));
-            },
-        ));
-    }
-    let top_view = view.clone();
-    let bottom_view = view;
-    let _ = index;
-    menu.item(PopupMenuItem::separator())
-        .item(
-            PopupMenuItem::new("Scroll to Top").on_click(move |_, _, cx| {
-                let _ = top_view.update(cx, |this, cx| this.scroll_chat_to_top(cx));
-            }),
-        )
-        .item(
-            PopupMenuItem::new("Scroll to Bottom").on_click(move |_, _, cx| {
-                let _ = bottom_view.update(cx, |this, cx| this.scroll_chat_to_bottom(cx));
-            }),
-        )
 }
 
 #[cfg(test)]

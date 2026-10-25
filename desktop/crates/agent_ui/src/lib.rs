@@ -11,6 +11,7 @@ pub mod approval;
 pub mod conversation;
 pub mod history;
 pub mod markdown_text;
+pub mod message_actions;
 pub mod message_flow;
 pub mod panel;
 pub mod settings;

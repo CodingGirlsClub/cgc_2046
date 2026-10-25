@@ -974,6 +974,7 @@ name = "cgc-agent-ui"
 version = "0.0.1"
 dependencies = [
  "cgc-platform",
+ "gpui-kit",
 ]
 
 [[package]]

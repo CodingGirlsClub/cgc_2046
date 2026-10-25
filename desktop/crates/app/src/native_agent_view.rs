@@ -40,7 +40,7 @@ use gpui_kit::component::hover_card::HoverCard;
 use gpui_kit::component::input::{
     InlineTokenContext, InputEvent, Position, Textarea, TextareaState,
 };
-use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu};
 use gpui_kit::component::message_scroller::{MessageScroller, MessageScrollerState};
 use gpui_kit::component::popover::Popover;
 use gpui_kit::component::text::{SelectionFormat, TextView};
@@ -55,6 +55,10 @@ use crate::mention::{self, Mention, SkillEntry};
 use crate::safe_markdown::sanitize_markdown;
 use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 use cgc_agent_ui::markdown_text::markdown_to_plain;
+use cgc_agent_ui::message_actions::{
+    render_action_bar, render_message_menu, ActionBarSpec, ActionCallbacks, ActionGlyph,
+    ActionGlyphs, ActionStyle, MenuPayloads,
+};
 use cgc_agent_ui::message_flow::{self, RowKind, RowView};
 
 /// 审批模式：Ask = 逐次审批；Auto = 自动允许。
@@ -2578,7 +2582,7 @@ impl NativeAgentView {
         let agent_response = (message.role == UiRole::Assistant)
             .then(|| row_view(&self.state.messages).turn_copy_text(message_index))
             .flatten();
-        let payloads = Arc::new(message_copy_payloads(
+        let payloads = Arc::new(message_menu_payloads(
             message.role,
             &message.text,
             agent_response,
@@ -2787,7 +2791,7 @@ impl NativeAgentView {
                     .into_any_element(),
             })
             .context_menu(move |menu, _window, _cx| {
-                render_message_context_menu(menu, menu_view.clone(), payloads.clone())
+                render_native_message_menu(menu, menu_view.clone(), payloads.clone())
             })
             .children(self.sent_images.get(&message_index).map(|images| {
                 div().flex().flex_row().flex_wrap().gap(space(1)).children(
@@ -2929,7 +2933,7 @@ impl NativeAgentView {
         if streaming.is_empty() {
             return div().into_any_element();
         }
-        let streaming_payloads = Arc::new(message_copy_payloads(
+        let streaming_payloads = Arc::new(message_menu_payloads(
             UiRole::Assistant,
             streaming,
             Some(streaming.clone()),
@@ -2948,11 +2952,7 @@ impl NativeAgentView {
             )
             .child(markdown_text_view("native-streaming-markdown", streaming).stream_fade(true))
             .context_menu(move |menu, _window, _cx| {
-                render_message_context_menu(
-                    menu,
-                    streaming_view.clone(),
-                    streaming_payloads.clone(),
-                )
+                render_native_message_menu(menu, streaming_view.clone(), streaming_payloads.clone())
             })
             .into_any_element()
     }
@@ -3023,47 +3023,35 @@ impl NativeAgentView {
         palette: theme::Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let mut row = div()
-            .flex()
-            .flex_row()
-            .w_full()
-            .items_center()
-            .justify_end()
-            .gap(space(1))
-            .opacity(0.4)
-            .hover(|style| style.opacity(1.0));
+        let view = cx.entity().downgrade();
+        let mut callbacks = ActionCallbacks::default();
         if let Some(copy_text) = copy_text {
-            row = row.child(message_action_button(
-                format!("{id_prefix}-copy"),
-                "Copy This Agent Response",
-                palette,
-                gpui_kit::assets::IconName::Copy,
-                cx.listener(move |_this, _, _window, cx| {
-                    cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
-                }),
-            ));
+            callbacks.on_copy = Some(Box::new(move |cx: &mut App| {
+                cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
+            }));
         }
         if let Some(user_index) = plan.scroll_to_user {
-            row = row.child(message_action_button(
-                format!("{id_prefix}-user"),
-                "Scroll to User Message",
-                palette,
-                gpui_kit::assets::IconName::User,
-                cx.listener(move |this, _, _window, cx| {
-                    this.scroll_to_user_message(user_index, cx)
-                }),
-            ));
+            let user_view = view.clone();
+            callbacks.on_scroll_user = Some(Box::new(move |cx: &mut App| {
+                let _ =
+                    user_view.update(cx, |this, cx| this.scroll_to_user_message(user_index, cx));
+            }));
         }
         if plan.scroll_to_top {
-            row = row.child(message_action_button(
-                format!("{id_prefix}-top"),
-                "Scroll to Top",
-                palette,
-                gpui_kit::assets::IconName::ArrowUp,
-                cx.listener(|this, _, _window, cx| this.scroll_messages_to_top(cx)),
-            ));
+            let top_view = view;
+            callbacks.on_scroll_top = Some(Box::new(move |cx: &mut App| {
+                let _ = top_view.update(cx, |this, cx| this.scroll_messages_to_top(cx));
+            }));
         }
-        row.into_any_element()
+        render_action_bar(ActionBarSpec {
+            row_id: SharedString::from(format!("{id_prefix}-row")),
+            copy_id: SharedString::from(format!("{id_prefix}-copy")),
+            user_id: SharedString::from(format!("{id_prefix}-user")),
+            top_id: SharedString::from(format!("{id_prefix}-top")),
+            glyphs: native_action_glyphs(),
+            style: native_action_style(palette),
+            callbacks,
+        })
     }
 
     /// 滚到指定用户消息（再映射到 MessageScroller 的 item index）。
@@ -4892,30 +4880,6 @@ fn needs_checkpoint_confirm(
 }
 
 /// 消息操作栏的单图标按钮（hover 显示 tooltip，样式对齐 Zed 的 muted icon button）。
-fn message_action_button(
-    id: String,
-    label: &'static str,
-    palette: theme::Palette,
-    icon: gpui_kit::assets::IconName,
-    on_click: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut gpui_kit::App) + 'static,
-) -> AnyElement {
-    div()
-        .id(SharedString::from(id))
-        .role(Role::Button)
-        .aria_label(label)
-        .flex()
-        .items_center()
-        .justify_center()
-        .size(px(22.0))
-        .rounded(px(RADIUS_SMALL))
-        .text_color(palette.ink_3)
-        .hover(|style| style.bg(palette.soft).text_color(palette.ink_2))
-        .child(Icon::new(icon).xsmall())
-        .tooltip(move |window, cx| Tooltip::new(label).build(window, cx))
-        .on_click(on_click)
-        .into_any_element()
-}
-
 /// 用户消息正文：普通文本 + mention chip（与 composer 的 chip 对齐）。
 fn render_user_message_body(text: &str, palette: &theme::Palette) -> AnyElement {
     let palette = *palette;
@@ -5285,30 +5249,56 @@ fn row_view(messages: &[UiMessage]) -> RowView<'_, UiMessage> {
 }
 
 /// 一条消息的三种复制载荷（对齐 Zed 的 Copy / Copy as Markdown /
-/// Copy This Agent Response）。
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct MessageCopyPayloads {
-    plain: String,
-    markdown: String,
-    agent_response: Option<String>,
-}
-
-fn message_copy_payloads(
-    role: UiRole,
-    text: &str,
-    agent_response: Option<String>,
-) -> MessageCopyPayloads {
-    let markdown = text.to_string();
+/// native 侧把一行消息转成共享菜单载荷（user 的 plain 走 mention 展开）。
+fn message_menu_payloads(role: UiRole, text: &str, agent_response: Option<String>) -> MenuPayloads {
     let plain = match role {
         UiRole::Assistant => markdown_to_plain(text),
         UiRole::User => mention::display_text(text),
         _ => text.to_string(),
     };
-    MessageCopyPayloads {
+    MenuPayloads {
         plain,
-        markdown,
+        markdown: text.to_string(),
         agent_response,
     }
+}
+
+fn native_action_glyphs() -> ActionGlyphs {
+    ActionGlyphs {
+        copy: ActionGlyph::Named(gpui_kit::assets::IconName::Copy),
+        user: ActionGlyph::Named(gpui_kit::assets::IconName::User),
+        top: ActionGlyph::Named(gpui_kit::assets::IconName::ArrowUp),
+    }
+}
+
+fn native_action_style(palette: theme::Palette) -> ActionStyle {
+    ActionStyle {
+        icon_color: palette.ink_3,
+        hover_bg: palette.soft,
+        button_size: 22.0,
+        radius: RADIUS_SMALL,
+        gap: 4.0,
+    }
+}
+
+/// native 的消息右键菜单：滚动回调注入到共享菜单渲染。
+fn render_native_message_menu(
+    menu: PopupMenu,
+    view: WeakEntity<NativeAgentView>,
+    payloads: Arc<MenuPayloads>,
+) -> PopupMenu {
+    let top_view = view.clone();
+    let bottom_view = view;
+    render_message_menu(
+        menu,
+        (*payloads).clone(),
+        Box::new(move |cx| {
+            let _ = top_view.update(cx, |this, cx| this.scroll_messages_to_top(cx));
+        }),
+        Box::new(move |cx| {
+            let _ = bottom_view.update(cx, |this, cx| this.scroll_messages_to_bottom(cx));
+        }),
+    )
 }
 
 /// 代码块 Copy 按钮的稳定 id（同内容同 id，不同内容不同 id，避免元素状态串台）。
@@ -5346,45 +5336,6 @@ fn markdown_text_view(id: impl Into<ElementId>, text: &str) -> TextView {
 fn render_assistant_markdown(message_index: usize, text: &str) -> AnyElement {
     markdown_text_view(format!("native-assistant-markdown-{message_index}"), text)
         .into_any_element()
-}
-
-/// 消息右键菜单：Copy / Copy as Markdown / Copy This Agent Response / 滚动到顶/底。
-fn render_message_context_menu(
-    menu: PopupMenu,
-    view: WeakEntity<NativeAgentView>,
-    payloads: Arc<MessageCopyPayloads>,
-) -> PopupMenu {
-    let copy_plain = payloads.plain.clone();
-    let copy_markdown = payloads.markdown.clone();
-    let mut menu = menu
-        .item(PopupMenuItem::new("Copy").on_click(move |_, _, cx| {
-            cx.write_to_clipboard(ClipboardItem::new_string(copy_plain.clone()));
-        }))
-        .item(
-            PopupMenuItem::new("Copy as Markdown").on_click(move |_, _, cx| {
-                cx.write_to_clipboard(ClipboardItem::new_string(copy_markdown.clone()));
-            }),
-        );
-    if let Some(agent_response) = payloads.agent_response.clone() {
-        menu = menu.item(PopupMenuItem::new("Copy This Agent Response").on_click(
-            move |_, _, cx| {
-                cx.write_to_clipboard(ClipboardItem::new_string(agent_response.clone()));
-            },
-        ));
-    }
-    let top_view = view.clone();
-    let bottom_view = view;
-    menu.item(PopupMenuItem::separator())
-        .item(
-            PopupMenuItem::new("Scroll to Top").on_click(move |_, _, cx| {
-                let _ = top_view.update(cx, |this, cx| this.scroll_messages_to_top(cx));
-            }),
-        )
-        .item(
-            PopupMenuItem::new("Scroll to Bottom").on_click(move |_, _, cx| {
-                let _ = bottom_view.update(cx, |this, cx| this.scroll_messages_to_bottom(cx));
-            }),
-        )
 }
 
 /// composer 里的 mention chip：技能 / 文件各一个图标，hover 显示真实路径。
@@ -5626,7 +5577,7 @@ mod workspace_prompt_tests {
 
     #[test]
     fn message_copy_payloads_cover_assistant_and_user() {
-        let assistant = super::message_copy_payloads(
+        let assistant = super::message_menu_payloads(
             cgc_agent_host::UiRole::Assistant,
             "## 标题\n**加粗** 和 `code`",
             Some("整回合文本".into()),
@@ -5639,7 +5590,7 @@ mod workspace_prompt_tests {
             "Copy This Agent Response 由调用方传入整回合文本"
         );
 
-        let user = super::message_copy_payloads(
+        let user = super::message_menu_payloads(
             cgc_agent_host::UiRole::User,
             "看 [@a](file://a.md) 这个",
             None,
