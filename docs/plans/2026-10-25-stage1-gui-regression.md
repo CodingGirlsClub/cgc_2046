@@ -127,3 +127,21 @@ EchoProvider 离线模式；未使用真实 provider/keychain。
 | ACP 全链路 | BLOCKED | 需真实登录 + 外部 agent |
 
 未发现 2e composer 重构引入的渲染回归；功能段（工具/审批）需人工切到 native 模式跑一次。
+
+## 2e composer 真实 provider 回归（2026-10-25，PASS）
+
+环境：真实 HOME（keychain 可用）+ 独立 `CGC_DATA_DIR`（不碰真实 data/prefs）+
+`nativeAgentEnabled=true` + 空 chat_state + `CGC_AUTH=fake` 假登录 + `CGC_NATIVE_AGENT=1`；
+真实 DeepSeek（`deepseek-flash`），构建自 `912e4f8d`。
+
+| 检查项 | 结果 | 证据 |
+|---|---|---|
+| native composer（共享 card/footer/发送按钮） | PASS | 输入框/Ask/deepseek-flash/low/发送；生成中切换为红色 Stop |
+| 真实工具卡 | PASS | `run_command` 显示 参数 JSON、输出（等待→完成）、状态「运行中…」 |
+| 审批卡 | PASS | 允许一次/本会话允许/前缀允许/拒绝；只有一个审批卡 |
+| 审批重复行（2d 修复验证） | PASS | 截图仅一条「等待审批：允许运行 run_command？」 |
+| 回合末操作栏 + Copy | PASS | 编辑/恢复检查点/Copy/ScrollToUser/Top；剪贴板为本回合完整回复（含 stdout `hi`） |
+| 停止按钮 | PASS | 生成中显示停止（红），完成后恢复发送 |
+
+**已知小问题**：审批卡最右侧「拒绝」文字在窄布局下被裁切，需要在审批行按钮布局上收一下宽度
+（不影响操作，可点击区域仍在）。
