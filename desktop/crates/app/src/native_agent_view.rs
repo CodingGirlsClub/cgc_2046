@@ -423,6 +423,7 @@ fn apply_thread_entries(
             cgc_agent_core::Entry::Assistant { text, .. } if !text.is_empty() => {
                 state.push_assistant(text)
             }
+            cgc_agent_core::Entry::Thinking { text, .. } => state.push_thinking(text),
             cgc_agent_core::Entry::ToolResult {
                 tool_use_id,
                 tool_name,
@@ -490,6 +491,8 @@ pub struct NativeAgentView {
     last_turn: Option<(String, String)>,
     /// 已展开的工具调用卡片 id。
     expanded_tools: std::collections::HashSet<String>,
+    /// 已展开的思考折叠块（UI message index）。
+    expanded_thinking: std::collections::HashSet<usize>,
     /// 正在编辑的用户消息（UI message index）。
     editing_user: Option<usize>,
     /// 编辑态输入框；仅在 editing_user 有值时存在。
@@ -819,6 +822,7 @@ impl NativeAgentView {
             follow_output: true,
             last_turn: None,
             expanded_tools: std::collections::HashSet::new(),
+            expanded_thinking: std::collections::HashSet::new(),
             editing_user: None,
             user_edit_input: None,
             messages_scroll: ScrollHandle::new(),
@@ -1946,6 +1950,14 @@ impl NativeAgentView {
             .into_any_element()
     }
 
+    /// 展开/折叠一条思考块。
+    fn toggle_thinking(&mut self, message_index: usize, cx: &mut Context<Self>) {
+        if !self.expanded_thinking.remove(&message_index) {
+            self.expanded_thinking.insert(message_index);
+        }
+        cx.notify();
+    }
+
     /// 展开/折叠某张工具调用卡片。
     fn toggle_tool_call(&mut self, tool_call_id: String, cx: &mut Context<Self>) {
         if !self.expanded_tools.remove(&tool_call_id) {
@@ -2172,6 +2184,7 @@ impl Render for NativeAgentView {
                 UiRole::Error => palette.danger,
                 UiRole::Tool => palette.ink_3,
                 UiRole::System => palette.ink_3,
+                UiRole::Thinking => palette.ink_3,
                 UiRole::Assistant => palette.ink,
             };
             let payloads = Arc::new(message_copy_payloads(message.role, &message.text));
@@ -2190,12 +2203,12 @@ impl Render for NativeAgentView {
                             .flex_row()
                             .items_center()
                             .gap(space(1))
-                            .child(
+                            .children((message.role != UiRole::Thinking).then(|| {
                                 div()
                                     .text_size(px(11.0))
                                     .text_color(color)
-                                    .child(role_label(message.role)),
-                            )
+                                    .child(role_label(message.role))
+                            }))
                             .children(
                                 (message.role == UiRole::User
                                     && !self.busy
@@ -2233,6 +2246,48 @@ impl Render for NativeAgentView {
                                     .child(mention::display_text(&message.text))
                                     .into_any_element()
                             }
+                        }
+                        UiRole::Thinking => {
+                            let expanded = self.expanded_thinking.contains(&message_index);
+                            let toggle_view = cx.entity().downgrade();
+                            let thinking_text = message.text.clone();
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(2.0))
+                                .child(
+                                    div()
+                                        .id(SharedString::from(format!(
+                                            "native-thinking-toggle-{message_index}"
+                                        )))
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap(px(3.0))
+                                        .text_size(px(11.0))
+                                        .text_color(palette.ink_3)
+                                        .hover(|style| style.text_color(palette.ink_2))
+                                        .child(if expanded { "▾" } else { "▸" })
+                                        .child("Thinking")
+                                        .on_click(move |_, _, cx| {
+                                            let _ = toggle_view.update(cx, |this, cx| {
+                                                this.toggle_thinking(message_index, cx)
+                                            });
+                                        }),
+                                )
+                                .children(expanded.then(|| {
+                                    div()
+                                        .pl(space(2))
+                                        .border_l_1()
+                                        .border_color(palette.line)
+                                        .child(TextView::markdown(
+                                            SharedString::from(format!(
+                                                "native-thinking-markdown-{message_index}"
+                                            )),
+                                            sanitize_markdown(&thinking_text),
+                                        ))
+                                }))
+                                .into_any_element()
                         }
                         UiRole::Tool => match &message.tool {
                             Some(tool) => {
@@ -3185,6 +3240,13 @@ impl Render for NativeAgentView {
                     humanize_tokens(usage),
                     humanize_tokens(context_window)
                 );
+                let usage_total = self.state.usage_total;
+                let usage_breakdown = format!(
+                    "输入 {} · 输出 {} · 缓存读 {}",
+                    humanize_tokens(usage_total.input),
+                    humanize_tokens(usage_total.output),
+                    humanize_tokens(usage_total.cache_read)
+                );
                 let context_usage = HoverCard::new("native-context-usage")
                     .anchor(Anchor::BottomCenter)
                     .trigger(
@@ -3212,6 +3274,18 @@ impl Render for NativeAgentView {
                                     .text_size(px(11.0))
                                     .text_color(palette.ink_2)
                                     .child(context_summary.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(10.0))
+                                    .text_color(palette.ink_3)
+                                    .child("Tokens"),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .child(usage_breakdown.clone()),
                             )
                             .into_any_element()
                     });
@@ -4160,6 +4234,7 @@ fn role_label(role: UiRole) -> &'static str {
     match role {
         UiRole::User => "you",
         UiRole::Assistant => "agent",
+        UiRole::Thinking => "thinking",
         UiRole::Tool => "tool",
         UiRole::System => "system",
         UiRole::Error => "error",
@@ -4685,10 +4760,15 @@ mod workspace_prompt_tests {
                 is_error: false,
                 at: 0,
             },
+            Entry::Thinking {
+                text: "想一下".into(),
+                signature: None,
+                at: 0,
+            },
         ];
         let mut state = HostState::new();
         super::apply_thread_entries(&mut state, &entries);
-        assert_eq!(state.messages.len(), 2, "user + tool card");
+        assert_eq!(state.messages.len(), 3, "user + tool card + thinking");
         let tool = state.messages[1]
             .tool
             .as_ref()
@@ -4696,6 +4776,8 @@ mod workspace_prompt_tests {
         assert_eq!(tool.args["command"], "echo hi");
         assert_eq!(tool.status, ToolCallStatus::Ok);
         assert_eq!(tool.content.as_deref(), Some("hi"));
+        assert_eq!(state.messages[2].role, super::UiRole::Thinking);
+        assert_eq!(state.messages[2].text, "想一下");
     }
 
     #[test]

@@ -98,6 +98,7 @@ pub trait TurnObserver: Send {
     fn on_steer_started(&mut self, _text: &str) {}
     fn on_compaction(&mut self, _omitted_entries: usize) {}
     fn on_text(&mut self, _delta: &str) {}
+    fn on_thinking(&mut self, _delta: &str) {}
     fn on_tool_call(&mut self, _tool_use: &ToolUse) {}
     fn on_permission_request(&mut self, _request: &ApprovalRequest) {}
     fn on_tool_result(&mut self, _summary: &ToolResultSummary) {}
@@ -297,10 +298,12 @@ impl Agent {
             match outcome {
                 StreamOutcome::Finished {
                     text,
+                    thinking,
                     usage,
                     stop_reason,
                     tool_calls,
                 } => {
+                    self.record_thinking(thinking);
                     self.record_turn(text.clone(), tool_calls.clone(), usage);
                     return Ok(TurnOutcome {
                         text,
@@ -311,9 +314,11 @@ impl Agent {
                 }
                 StreamOutcome::Steered {
                     text,
+                    thinking,
                     usage,
                     steer_text,
                 } => {
+                    self.record_thinking(thinking);
                     self.record_turn(text, Vec::new(), usage);
                     self.thread.push_user(steer_text);
                     steers += 1;
@@ -390,18 +395,21 @@ impl Agent {
                     &mut self.steer_rx,
                 )
                 .await?;
-                let (text, usage, stop_reason, tool_calls) = match stream_outcome {
+                let (text, thinking, usage, stop_reason, tool_calls) = match stream_outcome {
                     StreamOutcome::Finished {
                         text,
+                        thinking,
                         usage,
                         stop_reason,
                         tool_calls,
-                    } => (text, usage, stop_reason, tool_calls),
+                    } => (text, thinking, usage, stop_reason, tool_calls),
                     StreamOutcome::Steered {
                         text,
+                        thinking,
                         usage,
                         steer_text,
                     } => {
+                        self.record_thinking(thinking);
                         self.record_turn(text.clone(), Vec::new(), usage);
                         observer.on_usage(usage, self.thread.usage_total);
                         all_text.push_str(&text);
@@ -415,6 +423,7 @@ impl Agent {
                         continue 'turns;
                     }
                 };
+                self.record_thinking(thinking);
                 self.record_turn(text.clone(), tool_calls.clone(), usage);
                 observer.on_usage(usage, self.thread.usage_total);
                 all_text.push_str(&text);
@@ -585,6 +594,12 @@ impl Agent {
                 .with_reasoning_effort(self.reasoning_effort.clone()),
             omitted,
         )
+    }
+
+    fn record_thinking(&mut self, thinking: String) {
+        if !thinking.is_empty() {
+            self.thread.push_thinking(thinking);
+        }
     }
 
     fn record_turn(&mut self, text: String, tool_calls: Vec<ToolUse>, usage: TokenUsage) {
@@ -782,12 +797,14 @@ pub async fn run_subagent(
 enum StreamOutcome {
     Finished {
         text: String,
+        thinking: String,
         usage: TokenUsage,
         stop_reason: StopReason,
         tool_calls: Vec<ToolUse>,
     },
     Steered {
         text: String,
+        thinking: String,
         usage: TokenUsage,
         steer_text: String,
     },
@@ -803,6 +820,7 @@ async fn run_stream(
 ) -> Result<StreamOutcome, AgentError> {
     let mut stream = provider.stream(model, request).await?;
     let mut text = String::new();
+    let mut thinking = String::new();
     let mut usage = TokenUsage::default();
     let mut stop_reason = None;
     let mut tool_calls: Vec<ToolUse> = Vec::new();
@@ -816,7 +834,10 @@ async fn run_stream(
                 observer.on_text(&chunk);
                 text.push_str(&chunk);
             }
-            CompletionEvent::Thinking { .. } => {}
+            CompletionEvent::Thinking { text: chunk, .. } => {
+                observer.on_thinking(&chunk);
+                thinking.push_str(&chunk);
+            }
             CompletionEvent::ToolUse(tool_use) => tool_calls.push(tool_use),
             CompletionEvent::Usage(delta) => usage.add(delta),
             CompletionEvent::Stop(reason) => {
@@ -827,6 +848,7 @@ async fn run_stream(
         if let Ok(steer_text) = steers.try_recv() {
             return Ok(StreamOutcome::Steered {
                 text,
+                thinking,
                 usage,
                 steer_text,
             });
@@ -834,6 +856,7 @@ async fn run_stream(
     }
     Ok(StreamOutcome::Finished {
         text,
+        thinking,
         usage,
         stop_reason: stop_reason.unwrap_or_else(|| StopReason::Other("stream ended".to_string())),
         tool_calls,

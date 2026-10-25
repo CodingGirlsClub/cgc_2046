@@ -29,6 +29,10 @@ pub enum AgentEvent {
     TextDelta {
         text: String,
     },
+    /// 流式思考内容（reasoning），只用于 UI 展示，不进入 provider messages。
+    ThinkingDelta {
+        text: String,
+    },
     ToolCallStarted {
         tool_call_id: String,
         tool_name: String,

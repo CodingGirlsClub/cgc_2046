@@ -128,6 +128,16 @@ impl Thread {
         self.push_user_with_display(text, None);
     }
 
+    /// 记录一条思考（thinking）内容：只用于历史展示/持久化，不进入 provider messages。
+    pub fn push_thinking(&mut self, text: impl Into<String>) {
+        self.entries.push(Entry::Thinking {
+            text: text.into(),
+            signature: None,
+            at: now_secs(),
+        });
+        self.updated_at = now_secs();
+    }
+
     /// 记录用户消息：`text` 是真正发给模型的内容（可含注入上下文），
     /// `display` 是 UI 展示用的原文（不含注入上下文）。
     pub fn push_user_with_display(&mut self, text: impl Into<String>, display: Option<String>) {
@@ -441,6 +451,28 @@ mod tests {
         assert!(
             matches!(&legacy_thread.entries[0], Entry::User { display: None, .. }),
             "旧数据缺 display 时回退为 None"
+        );
+    }
+
+    #[test]
+    fn thinking_entries_persist_but_stay_out_of_provider_messages() {
+        let mut thread = Thread::new("t1", selected());
+        thread.push_user("q");
+        thread.push_thinking("先想一下");
+        thread.push_assistant("a", Vec::new(), None);
+        let messages = thread.messages();
+        assert_eq!(messages.len(), 2, "thinking 不进 provider messages");
+        assert_eq!(messages[0].text(), "q");
+        assert_eq!(messages[1].text(), "a");
+        assert!(
+            matches!(&thread.entries[1], Entry::Thinking { text, .. } if text == "先想一下"),
+            "thinking 应持久化在 entries 里"
+        );
+        let raw = serde_json::to_string(&thread).expect("serialize");
+        let restored: Thread = serde_json::from_str(&raw).expect("deserialize");
+        assert!(
+            matches!(&restored.entries[1], Entry::Thinking { text, .. } if text == "先想一下"),
+            "thinking 可 JSON roundtrip"
         );
     }
 

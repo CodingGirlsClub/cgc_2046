@@ -58,6 +58,12 @@ impl TurnObserver for EventCollector {
         });
     }
 
+    fn on_thinking(&mut self, delta: &str) {
+        self.events.push(AgentEvent::ThinkingDelta {
+            text: delta.to_string(),
+        });
+    }
+
     fn on_tool_call(&mut self, tool_use: &ToolUse) {
         self.events.push(AgentEvent::ToolCallStarted {
             tool_call_id: tool_use.id.clone(),
@@ -137,6 +143,12 @@ impl TurnObserver for ChannelObserver {
         });
     }
 
+    fn on_thinking(&mut self, delta: &str) {
+        let _ = self.sender.send(AgentEvent::ThinkingDelta {
+            text: delta.to_string(),
+        });
+    }
+
     fn on_tool_call(&mut self, tool_use: &ToolUse) {
         let _ = self.sender.send(AgentEvent::ToolCallStarted {
             tool_call_id: tool_use.id.clone(),
@@ -212,6 +224,12 @@ impl TurnObserver for AsyncChannelObserver {
 
     fn on_text(&mut self, delta: &str) {
         let _ = self.sender.unbounded_send(AgentEvent::TextDelta {
+            text: delta.to_string(),
+        });
+    }
+
+    fn on_thinking(&mut self, delta: &str) {
+        let _ = self.sender.unbounded_send(AgentEvent::ThinkingDelta {
             text: delta.to_string(),
         });
     }

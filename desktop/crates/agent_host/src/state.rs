@@ -7,6 +7,8 @@ use crate::events::AgentEvent;
 pub enum UiRole {
     User,
     Assistant,
+    /// 思考（reasoning）折叠块，只展示，不进入 provider messages。
+    Thinking,
     Tool,
     System,
     Error,
@@ -64,6 +66,9 @@ pub struct PermissionPrompt {
 pub struct HostState {
     pub messages: Vec<UiMessage>,
     pub streaming: String,
+    /// 正在流式输出的思考内容；在 assistant/tool/结束/错误时固化进 messages。
+    #[serde(default)]
+    pub thinking_streaming: String,
     pub turn_active: bool,
     pub pending_permission: Option<PermissionPrompt>,
     pub usage_total: TokenUsage,
@@ -84,9 +89,11 @@ impl HostState {
             AgentEvent::TurnStarted { .. } => {
                 self.turn_active = true;
                 self.streaming.clear();
+                self.thinking_streaming.clear();
                 self.last_error = None;
             }
             AgentEvent::FollowUpStarted { text } => {
+                self.flush_thinking();
                 if !self.streaming.is_empty() {
                     self.messages.push(UiMessage {
                         role: UiRole::Assistant,
@@ -98,6 +105,7 @@ impl HostState {
                 self.push_user(text);
             }
             AgentEvent::SteerStarted { text } => {
+                self.flush_thinking();
                 if !self.streaming.is_empty() {
                     self.messages.push(UiMessage {
                         role: UiRole::Assistant,
@@ -143,11 +151,13 @@ impl HostState {
                 self.push_system(format!("上下文已压缩：省略 {omitted_entries} 条更早消息"));
             }
             AgentEvent::TextDelta { text } => self.streaming.push_str(&text),
+            AgentEvent::ThinkingDelta { text } => self.thinking_streaming.push_str(&text),
             AgentEvent::ToolCallStarted {
                 tool_call_id,
                 tool_name,
                 args,
             } => {
+                self.flush_thinking();
                 self.last_tool_call_id = Some(tool_call_id.clone());
                 self.push_tool_call_started(tool_call_id, tool_name, args);
             }
@@ -180,6 +190,7 @@ impl HostState {
             }
             AgentEvent::UsageUpdated { total, .. } => self.usage_total = total,
             AgentEvent::TurnFinished { text, .. } => {
+                self.flush_thinking();
                 if !self.streaming.is_empty() {
                     self.messages.push(UiMessage {
                         role: UiRole::Assistant,
@@ -200,6 +211,7 @@ impl HostState {
                 self.last_tool_call_id = None;
             }
             AgentEvent::Error { message } => {
+                self.flush_thinking();
                 // 保留出错前已经吐出的部分回复，别让用户丢失已看到的内容。
                 if !self.streaming.is_empty() {
                     self.messages.push(UiMessage {
@@ -223,6 +235,24 @@ impl HostState {
             tool_call_id: None,
             tool: None,
         });
+    }
+
+    pub fn push_thinking(&mut self, text: impl Into<String>) {
+        self.messages.push(UiMessage {
+            role: UiRole::Thinking,
+            text: text.into(),
+            tool_call_id: None,
+            tool: None,
+        });
+    }
+
+    /// 把流式思考固化成一条 Thinking 消息（幂等：空缓冲时不做事）。
+    fn flush_thinking(&mut self) {
+        if self.thinking_streaming.is_empty() {
+            return;
+        }
+        let text = std::mem::take(&mut self.thinking_streaming);
+        self.push_thinking(text);
     }
 
     pub fn push_assistant(&mut self, text: impl Into<String>) {
@@ -367,6 +397,48 @@ mod tests {
             message: "provider 500".into(),
         });
         state
+    }
+
+    #[test]
+    fn thinking_flushes_before_assistant_and_tool_cards() {
+        let mut state = HostState::new();
+        state.apply(AgentEvent::TurnStarted {
+            thread_id: "t".into(),
+        });
+        state.apply(AgentEvent::ThinkingDelta {
+            text: "先想".into(),
+        });
+        state.apply(AgentEvent::ToolCallStarted {
+            tool_call_id: "c1".into(),
+            tool_name: "read_file".into(),
+            args: serde_json::json!({"path": "a.txt"}),
+        });
+        assert_eq!(state.messages.len(), 2, "thinking + tool card");
+        assert_eq!(state.messages[0].role, super::UiRole::Thinking);
+        assert_eq!(state.messages[0].text, "先想");
+        assert_eq!(state.messages[1].role, super::UiRole::Tool);
+        assert!(state.thinking_streaming.is_empty(), "固化后缓冲清空");
+
+        state.apply(AgentEvent::ThinkingDelta {
+            text: "再想".into(),
+        });
+        state.apply(AgentEvent::TurnFinished {
+            text: "答复".into(),
+            stop_reason: cgc_agent_provider::StopReason::EndTurn,
+        });
+        let roles: Vec<_> = state.messages.iter().map(|message| message.role).collect();
+        assert_eq!(
+            roles,
+            vec![
+                super::UiRole::Thinking,
+                super::UiRole::Tool,
+                super::UiRole::Thinking,
+                super::UiRole::Assistant
+            ],
+            "thinking 固定在 assistant/tool 之前"
+        );
+        assert_eq!(state.messages[3].text, "答复");
+        assert!(state.thinking_streaming.is_empty());
     }
 
     #[test]
