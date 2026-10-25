@@ -165,3 +165,34 @@ EchoProvider 离线模式；未使用真实 provider/keychain。
 
 结论：ACP 真机回归需要人工点击课程详情（或安装正式 App 后从课程页进入）后执行；
 自动化在当前 CUA/GPUI 组合下无法进入课程详情。清单见 Stage 1 报告的 A1–A4。
+
+## ACP 真机回归（2026-10-25 深夜，进展 + BLOCKED）
+
+### 已打通
+
+用「真实 HOME（Host 已配对、omp 已装、keychain 可用）+ 隔离 `CGC_DATA_DIR`
+（含课程配置）+ 隔离 `CGC_SESSION_FILE` + 本地 Phoenix 后端」启动 App：
+
+- 本地后端：测试账号 `demo@example.com/demo1234`，课程 `42ac85f2-…` 已报名
+  （enrollment confirmed）并绑定 `CourseRevision`（`current_revision_id`）；
+- App：课程详情出现「开始学习」，按 Enter 进入学习页，页面显示
+  「工作台 75717622… / 课程版本 1 / 学习进度 0/0」——学习上下文 PASS；
+- 在隔离 `chat_state.json` 写入 `{课程 id: {"agent": "omp"}}` 后启动 App，
+  **`omp acp` 进程成功拉起**（pgrep 实测），说明 ACP 会话链路可以启动。
+
+### 阻塞
+
+设备进入锁屏/睡眠后（约 22:00 起），App 进程虽在，但窗口数 0：
+`CUA getApp` 返回 `cgWindowNotFound`，`System Events` 查询窗口数为 0。
+多次清数据/换 bundle/重启均复现，与用户睡觉、屏幕锁定时间吻合。
+因此无法用 CUA 操作 ACP 面板，composer/config/usage/slash/操作栏与
+Copy/滚动清单均未能在真机执行。
+
+### 恢复步骤（解锁 Mac 后）
+
+1. 运行 `/tmp/cgc-acp-live/CGCACP2.app`（wrapper 已含真实 HOME + 隔离
+   data2/session + `CGC_API_URL=localhost:4000`；`data2/chat_state.json`
+   指针课程→omp）；
+2. 登录态沿用；进入「课程」→「ACP 回归课程」→ 开始学习；
+3. 等 `omp acp` 进程出现（pgrep），ACP 面板即可操作；
+4. 按 Stage 1 报告 A1–A4 清单执行并截图。
