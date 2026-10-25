@@ -52,6 +52,9 @@ use image::GenericImageView as _;
 
 use crate::mention::{self, Mention, SkillEntry};
 use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
+use cgc_agent_ui::command_menu::{
+    render_command_menu, CommandMenuItem, CommandMenuSpec, CommandMenuStyle,
+};
 use cgc_agent_ui::markdown_text::markdown_to_plain;
 use cgc_agent_ui::markdown_view::markdown_text_view;
 use cgc_agent_ui::message_actions::{
@@ -4044,94 +4047,43 @@ impl Render for NativeAgentView {
                         }
                     }))
                     .children((slash_open && !slash_matches.is_empty()).then(|| {
-                        let mut rows: Vec<AnyElement> = Vec::new();
-                        let mut last_category = "";
-                        for (index, entry) in slash_matches.iter().enumerate() {
-                            if entry.category != last_category {
-                                last_category = entry.category;
-                                rows.push(
-                                    div()
-                                        .px(space(1))
-                                        .pt(px(2.0))
-                                        .pb(px(1.0))
-                                        .text_size(px(9.0))
-                                        .text_color(palette.ink_3)
-                                        .child(entry.category)
-                                        .into_any_element(),
-                                );
-                            }
-                            let selected = index == slash_selected;
-                            let label = entry.label.clone();
-                            let click_label = label.clone();
-                            let tool = entry.tool.clone();
-                            let skill = entry.skill.clone();
-                            let scope = entry.scope.clone();
-                            let description = entry.description.clone();
-                            rows.push(
-                                div()
-                                    .id(SharedString::from(format!("native-slash-{index}")))
-                                    .role(Role::Button)
-                                    .aria_label(description.clone())
-                                    .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .gap(space(2))
-                                    .px(space(1))
-                                    .py(px(3.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .bg(if selected {
-                                        palette.soft
-                                    } else {
-                                        palette.card
-                                    })
-                                    .text_color(if selected {
-                                        palette.accent
-                                    } else {
-                                        palette.ink_2
-                                    })
-                                    .child(
-                                        div()
-                                            .w(px(150.0))
-                                            .truncate()
-                                            .text_size(px(11.0))
-                                            .child(label.clone()),
-                                    )
-                                    .children(scope.map(|scope| {
-                                        div()
-                                            .text_size(px(9.0))
-                                            .text_color(palette.ink_3)
-                                            .child(scope)
-                                    }))
-                                    .child(div().flex_1())
-                                    .on_hover(cx.listener(
-                                        move |this, hovered: &bool, _, cx| {
-                                            if *hovered && this.slash_index != index {
-                                                this.slash_index = index;
-                                                cx.notify();
-                                            }
-                                        },
-                                    ))
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        if let Some(tool) = tool.clone() {
-                                            this.input.update(cx, |state, cx| {
-                                                state.set_value(
-                                                    format!("使用 {tool} 工具："),
-                                                    window,
-                                                    cx,
-                                                )
-                                            });
-                                            this.slash_dismissed = true;
-                                            this.slash_index = 0;
-                                            cx.notify();
-                                        } else if let Some(skill) = skill.clone() {
-                                            this.insert_skill_mention(skill, window, cx);
-                                        } else {
-                                            this.run_slash_command(&click_label, window, cx);
-                                        }
-                                    }))
-                                    .into_any_element(),
-                            );
-                        }
+                        let items: Vec<CommandMenuItem> = slash_matches
+                            .iter()
+                            .enumerate()
+                            .map(|(index, entry)| CommandMenuItem {
+                                id: SharedString::from(format!("native-slash-{index}")),
+                                label: entry.label.clone(),
+                                description: entry.description.clone(),
+                                scope: entry.scope.clone(),
+                                group: entry.category.to_string(),
+                                selected: index == slash_selected,
+                            })
+                            .collect();
+                        let entries = slash_matches.clone();
+                        let hover_root = cx.entity().downgrade();
+                        let click_root = cx.entity().downgrade();
+                        let menu = render_command_menu(CommandMenuSpec {
+                            menu_id: SharedString::from("native-agent-slash-menu"),
+                            items,
+                            style: native_command_menu_style(palette),
+                            label_width: 150.0,
+                            width: Some(300.0),
+                            max_height: 320.0,
+                            row_height: None,
+                            on_hover: Some(Box::new(move |index, cx| {
+                                let _ = hover_root.update(cx, |this, cx| {
+                                    if this.slash_index != index {
+                                        this.slash_index = index;
+                                        cx.notify();
+                                    }
+                                });
+                            })),
+                            on_click: Box::new(move |index, window, cx| {
+                                let _ = click_root.update(cx, |this, cx| {
+                                    this.run_slash_entry(entries.clone(), index, window, cx);
+                                });
+                            }),
+                        });
                         let detail = slash_matches.get(slash_selected).map(|entry| {
                             div()
                                 .id("native-slash-detail")
@@ -4190,23 +4142,11 @@ impl Render for NativeAgentView {
                             .gap(space(2))
                             .child(
                                 div()
-                                    .id("native-agent-slash-menu")
-                                    .flex()
-                                    .flex_col()
-                                    .gap(px(1.0))
-                                    .w(px(300.0))
                                     .flex_none()
-                                    .max_h(px(320.0))
-                                    .overflow_y_scroll()
                                     .mx(space(1))
                                     .mt(space(1))
                                     .mb(px(2.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .border_1()
-                                    .border_color(palette.line)
-                                    .bg(palette.card)
-                                    .occlude()
-                                    .children(rows),
+                                    .child(menu),
                             )
                             .children(detail)
                     }))
@@ -4607,7 +4547,7 @@ fn trailing_mention(text: &str) -> Option<(usize, String)> {
     Some((position, query.to_string()))
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct SlashEntry {
     category: &'static str,
     label: String,
@@ -5128,6 +5068,24 @@ fn ui_assistant_text(message: &UiMessage) -> Option<&str> {
 /// native 消息行的共享只读视图（Stage 1：判定逻辑归 `agent_ui`）。
 fn row_view(messages: &[UiMessage]) -> RowView<'_, UiMessage> {
     RowView::new(messages, ui_row_kind, ui_assistant_text)
+}
+
+/// native 主题 → 共享 slash 菜单样式（选中 = soft 背景 + accent 文本）。
+fn native_command_menu_style(palette: theme::Palette) -> CommandMenuStyle {
+    CommandMenuStyle {
+        card: palette.card,
+        line: palette.line,
+        soft: palette.soft,
+        accent: palette.accent,
+        canvas: palette.canvas,
+        ink: palette.ink,
+        ink_2: palette.ink_2,
+        ink_3: palette.ink_3,
+        selected_bg: palette.soft,
+        selected_text: palette.accent,
+        radius: RADIUS_SMALL,
+        padding: 0.0,
+    }
 }
 
 /// native 主题 → 共享 picker 样式。

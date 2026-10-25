@@ -8,6 +8,7 @@
 //! 窄函数构造 `RowView`，不反向依赖彼此。
 
 pub mod approval;
+pub mod command_menu;
 pub mod conversation;
 pub mod history;
 pub mod markdown_text;

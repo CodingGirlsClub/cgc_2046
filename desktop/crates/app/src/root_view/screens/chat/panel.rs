@@ -1,5 +1,8 @@
 use super::super::super::*;
 use super::super::ScreenContext;
+use cgc_agent_ui::command_menu::{
+    render_command_menu, CommandMenuItem, CommandMenuSpec, CommandMenuStyle,
+};
 use cgc_agent_ui::message_actions::{
     render_action_bar, render_message_menu, ActionBarSpec, ActionCallbacks, ActionGlyph,
     ActionGlyphs, ActionStyle, MenuPayloads,
@@ -432,87 +435,51 @@ pub(in crate::root_view) fn render_chat_panel(
                         .chat
                         .slash_selection
                         .min(slash_candidates.len().saturating_sub(1));
+                    let slash_items: Vec<CommandMenuItem> = slash_candidates
+                        .iter()
+                        .enumerate()
+                        .map(|(index, candidate)| {
+                            let command = &ctx.chat.commands[candidate.command_index];
+                            CommandMenuItem {
+                                id: SharedString::from(format!("chat-slash-{}", command.name)),
+                                label: format!("/{}", command.name),
+                                description: command.description.clone(),
+                                scope: None,
+                                group: candidate.group.to_string(),
+                                selected: index == selected_slash,
+                            }
+                        })
+                        .collect();
+                    let slash_commands = ctx.chat.commands.clone();
+                    let slash_candidates_for_click = slash_candidates.clone();
+                    let slash_click_root = cx.entity().downgrade();
                     let slash_rows = (slash_query(&input).is_some()
                         && !ctx.chat.slash_dismissed
                         && !slash_candidates.is_empty())
                     .then(|| {
-                        let mut rows: Vec<AnyElement> = Vec::new();
-                        let mut last_group = None;
-                        for (index, candidate) in slash_candidates.iter().enumerate() {
-                            if last_group != Some(candidate.group) {
-                                last_group = Some(candidate.group);
-                                rows.push(
-                                    div()
-                                        .px(space(1))
-                                        .pt(px(4.0))
-                                        .pb(px(2.0))
-                                        .text_size(px(9.0))
-                                        .text_color(palette.ink_3)
-                                        .child(candidate.group)
-                                        .into_any_element(),
-                                );
-                            }
-                            let command = &ctx.chat.commands[candidate.command_index];
-                            let name = command.name.clone();
-                            let insert = format!("/{} ", command.name);
-                            let active = index == selected_slash;
-                            rows.push(
-                                div()
-                                    .id(SharedString::from(format!("chat-slash-{name}")))
-                                    .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .gap(space(2))
-                                    .h(px(24.0))
-                                    .px(space(1))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .text_size(px(11.0))
-                                    .text_color(if active { palette.canvas } else { palette.ink })
-                                    .bg(if active { palette.accent } else { palette.card })
-                                    .hover(|style| {
-                                        style.bg(if active { palette.accent } else { palette.soft })
-                                    })
-                                    .child(
-                                        div()
-                                            .w(px(170.0))
-                                            .flex_shrink_0()
-                                            .truncate()
-                                            .child(format!("/{name}")),
-                                    )
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_w(px(0.0))
-                                            .truncate()
-                                            .text_size(px(10.0))
-                                            .text_color(if active {
-                                                palette.canvas
-                                            } else {
-                                                palette.ink_3
-                                            })
-                                            .child(command.description.clone()),
-                                    )
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.set_chat_input_text(insert.clone(), window, cx);
-                                    }))
-                                    .into_any_element(),
-                            );
-                        }
-                        div()
-                            .id("chat-slash-menu")
-                            .flex()
-                            .flex_col()
-                            .gap(px(1.0))
-                            .p(space(1))
-                            .rounded(px(RADIUS_MEDIUM))
-                            .border_1()
-                            .border_color(palette.line_strong)
-                            .bg(palette.card)
-                            .occlude()
-                            .max_h(px(280.0))
-                            .overflow_y_scroll()
-                            .children(rows)
-                            .into_any_element()
+                        render_command_menu(CommandMenuSpec {
+                            menu_id: SharedString::from("chat-slash-menu"),
+                            items: slash_items,
+                            style: chat_command_menu_style(palette),
+                            label_width: 170.0,
+                            width: None,
+                            max_height: 280.0,
+                            row_height: Some(24.0),
+                            on_hover: None,
+                            on_click: Box::new(move |index, window, cx| {
+                                let Some(candidate) = slash_candidates_for_click.get(index) else {
+                                    return;
+                                };
+                                let Some(command) = slash_commands.get(candidate.command_index)
+                                else {
+                                    return;
+                                };
+                                let insert = format!("/{} ", command.name);
+                                let _ = slash_click_root.update(cx, |this, cx| {
+                                    this.set_chat_input_text(insert.clone(), window, cx);
+                                });
+                            }),
+                        })
                     });
                     let config_query = ctx.chat.config_search.to_lowercase();
                     let config_search_input = ctx.chat.config_search_input.clone();
@@ -1209,6 +1176,23 @@ fn chat_action_glyphs() -> ActionGlyphs {
         copy: ActionGlyph::Named(AssetIcon::Copy),
         user: ActionGlyph::Named(AssetIcon::UserRoundArrowLeft),
         top: ActionGlyph::Named(AssetIcon::ArrowUp),
+    }
+}
+
+fn chat_command_menu_style(palette: &theme::Palette) -> CommandMenuStyle {
+    CommandMenuStyle {
+        card: palette.card,
+        line: palette.line_strong,
+        soft: palette.soft,
+        accent: palette.accent,
+        canvas: palette.canvas,
+        ink: palette.ink,
+        ink_2: palette.ink_2,
+        ink_3: palette.ink_3,
+        selected_bg: palette.accent,
+        selected_text: palette.canvas,
+        radius: RADIUS_MEDIUM,
+        padding: 4.0,
     }
 }
 
