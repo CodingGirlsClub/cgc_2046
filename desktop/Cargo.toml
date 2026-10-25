@@ -6,6 +6,7 @@ members = [
   "crates/events",
   "crates/courses",
   "crates/agent_ui",
+  "crates/agent_conversation",
   "crates/agent_provider",
   "crates/agent_core",
   "crates/agent_tools",
@@ -28,6 +29,7 @@ rust-version = "1.98"
 [workspace.dependencies]
 gpui-kit = "0.8.0"
 cgc-account = { path = "crates/account" }
+cgc-agent-conversation = { path = "crates/agent_conversation" }
 cgc-events = { path = "crates/events" }
 cgc-courses = { path = "crates/courses" }
 cgc-agent-ui = { path = "crates/agent_ui" }

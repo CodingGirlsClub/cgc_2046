@@ -900,6 +900,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cgc-agent-conversation"
+version = "0.0.1"
+
+[[package]]
 name = "cgc-agent-core"
 version = "0.0.1"
 dependencies = [
@@ -926,6 +930,7 @@ dependencies = [
 name = "cgc-agent-host"
 version = "0.0.1"
 dependencies = [
+ "cgc-agent-conversation",
  "cgc-agent-core",
  "cgc-agent-provider",
  "cgc-agent-tools",
@@ -973,6 +978,7 @@ dependencies = [
 name = "cgc-agent-ui"
 version = "0.0.1"
 dependencies = [
+ "cgc-agent-conversation",
  "cgc-platform",
  "gpui-kit",
 ]
