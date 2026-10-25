@@ -2229,41 +2229,15 @@ impl Render for NativeAgentView {
                     .flex()
                     .flex_col()
                     .gap(px(2.0))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(space(1))
-                            .children((message.role != UiRole::Thinking).then(|| {
-                                div()
-                                    .text_size(px(11.0))
-                                    .text_color(color)
-                                    .child(role_label(message.role))
-                            }))
-                            .children(
-                                (message.role == UiRole::User
-                                    && !self.busy
-                                    && self.editing_user != Some(message_index))
-                                .then(|| {
-                                    let edit_index = message_index;
-                                    div()
-                                        .id(SharedString::from(format!(
-                                            "native-edit-user-{edit_index}"
-                                        )))
-                                        .role(Role::Button)
-                                        .aria_label("编辑消息")
-                                        .px(px(3.0))
-                                        .rounded(px(RADIUS_SMALL))
-                                        .text_size(px(10.0))
-                                        .text_color(palette.ink_3)
-                                        .hover(|style| style.bg(palette.soft))
-                                        .child("编辑")
-                                        .on_click(cx.listener(move |this, _, window, cx| {
-                                            this.begin_edit_user(edit_index, window, cx)
-                                        }))
-                                }),
-                            ),
+                    // 对齐 Zed：只有 system/error 这类状态消息保留角色标签；
+                    // user 用卡片区分、assistant 直接 markdown、tool/thinking 自带卡头。
+                    .children(
+                        matches!(message.role, UiRole::System | UiRole::Error).then(|| {
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(color)
+                                .child(role_label(message.role))
+                        }),
                     )
                     .child(match message.role {
                         UiRole::Assistant => {
@@ -2273,9 +2247,62 @@ impl Render for NativeAgentView {
                             if self.editing_user == Some(message_index) {
                                 self.render_user_edit_row(message_index, &palette, cx)
                             } else {
+                                let edit_index = message_index;
                                 div()
-                                    .text_size(px(13.0))
-                                    .child(mention::display_text(&message.text))
+                                    .id(SharedString::from(format!(
+                                        "native-user-card-{edit_index}"
+                                    )))
+                                    .group("native-user-msg")
+                                    .relative()
+                                    .w_full()
+                                    .px(space(2))
+                                    .py(space(2))
+                                    .rounded(px(RADIUS_MEDIUM))
+                                    .border_1()
+                                    .border_color(palette.line)
+                                    .bg(palette.view)
+                                    .hover(|style| style.border_color(palette.line_strong))
+                                    .child(
+                                        div()
+                                            .pr(px(28.0))
+                                            .text_size(px(13.0))
+                                            .text_color(palette.ink)
+                                            .child(mention::display_text(&message.text)),
+                                    )
+                                    .children(
+                                        (!self.busy && self.editing_user != Some(edit_index)).then(
+                                            || {
+                                                div()
+                                                    .id(SharedString::from(format!(
+                                                        "native-edit-user-{edit_index}"
+                                                    )))
+                                                    .role(Role::Button)
+                                                    .aria_label("编辑消息")
+                                                    .absolute()
+                                                    .top(px(4.0))
+                                                    .right(space(1))
+                                                    .px(space(1))
+                                                    .py(px(1.0))
+                                                    .rounded(px(RADIUS_SMALL))
+                                                    .bg(palette.card)
+                                                    .text_size(px(10.0))
+                                                    .text_color(palette.ink_3)
+                                                    .invisible()
+                                                    .group_hover("native-user-msg", |style| {
+                                                        style.visible()
+                                                    })
+                                                    .hover(|style| style.bg(palette.soft))
+                                                    .child("编辑")
+                                                    .on_click(cx.listener(
+                                                        move |this, _, window, cx| {
+                                                            this.begin_edit_user(
+                                                                edit_index, window, cx,
+                                                            )
+                                                        },
+                                                    ))
+                                            },
+                                        ),
+                                    )
                                     .into_any_element()
                             }
                         }
@@ -2610,6 +2637,7 @@ impl Render for NativeAgentView {
                             .p(space(3))
                             .overflow_y_scroll()
                             .track_scroll(&self.messages_scroll)
+                            .items_center()
                             .vertical_scrollbar(&self.messages_scroll)
                             .on_scroll_wheel(cx.listener(
                                 |this, _event: &ScrollWheelEvent, window, cx| {
@@ -2630,7 +2658,15 @@ impl Render for NativeAgentView {
                                     });
                                 },
                             ))
-                            .children(rows),
+                            .child(
+                                div()
+                                    .w_full()
+                                    .max_w(px(850.0))
+                                    .flex()
+                                    .flex_col()
+                                    .gap(space(2))
+                                    .children(rows),
+                            ),
                     )
                     .children(show_scroll_to_bottom.then(|| {
                         div()
