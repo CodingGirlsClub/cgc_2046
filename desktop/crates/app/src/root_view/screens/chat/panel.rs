@@ -672,157 +672,131 @@ pub(in crate::root_view) fn render_chat_panel(
                         .flex_col()
                         .gap(space(1))
                         .child(
-                            div()
-                                .id("chat-composer")
-                                .flex()
-                                .flex_col()
-                                .gap(space(1))
-                                .p(space(1))
-                                .rounded(px(RADIUS_MEDIUM))
-                                .border_1()
-                                .border_color(if ctx.chat.focused {
-                                    palette.accent
-                                } else {
-                                    palette.line
-                                })
-                                .bg(palette.view)
-                                .child(match ctx.chat_input.clone() {
-                                    Some(state) => Textarea::new(&state)
-                                        .appearance(false)
-                                        .bordered(false)
-                                        .aria_label(translate(
-                                            language,
-                                            Key::AgentChatChatInputHint,
-                                        ))
-                                        .h(px(38.0))
-                                        .w_full()
-                                        .into_any_element(),
-                                    None => div()
-                                        .id("chat-input")
-                                        .role(Role::TextInput)
-                                        .aria_label(translate(
-                                            language,
-                                            Key::AgentChatChatInputHint,
-                                        ))
-                                        .min_h(px(38.0))
-                                        .px(space(1))
-                                        .py(px(3.0))
-                                        .text_size(px(13.0))
-                                        .text_color(if input.is_empty() {
-                                            palette.ink_3
-                                        } else {
-                                            palette.ink
-                                        })
-                                        .child(if input.is_empty() {
-                                            placeholder
-                                        } else {
-                                            input.clone()
-                                        })
-                                        .into_any_element(),
-                                })
-                                .child(
-                                    div()
-                                        .flex()
-                                        .flex_row()
-                                        .flex_wrap()
-                                        .items_center()
-                                        .gap(space(1))
-                                        .w_full()
-                                        .min_w(px(0.0))
-                                        .child(
-                                            div()
-                                                .id("chat-add-context")
-                                                .size(px(24.0))
-                                                .rounded(px(RADIUS_SMALL))
-                                                .flex()
-                                                .items_center()
-                                                .justify_center()
-                                                .text_color(palette.ink_3)
-                                                .hover(|style| style.bg(palette.soft))
-                                                .child(
-                                                    Icon::default()
-                                                        .path(AssetIcon::Paperclip.path())
-                                                        .small(),
-                                                )
-                                                .on_click(cx.listener(|this, _, window, cx| {
-                                                    let current = this.chat.input.clone();
-                                                    this.set_chat_input_text(
-                                                        format!("{current}@"),
-                                                        window,
-                                                        cx,
-                                                    );
-                                                })),
+                            cgc_agent_ui::composer::composer_card(
+                                "chat-composer",
+                                ctx.chat.focused,
+                                chat_composer_style(palette),
+                            )
+                            .child(match ctx.chat_input.clone() {
+                                Some(state) => Textarea::new(&state)
+                                    .appearance(false)
+                                    .bordered(false)
+                                    .aria_label(translate(language, Key::AgentChatChatInputHint))
+                                    .h(px(38.0))
+                                    .w_full()
+                                    .into_any_element(),
+                                None => div()
+                                    .id("chat-input")
+                                    .role(Role::TextInput)
+                                    .aria_label(translate(language, Key::AgentChatChatInputHint))
+                                    .min_h(px(38.0))
+                                    .px(space(1))
+                                    .py(px(3.0))
+                                    .text_size(px(13.0))
+                                    .text_color(if input.is_empty() {
+                                        palette.ink_3
+                                    } else {
+                                        palette.ink
+                                    })
+                                    .child(if input.is_empty() {
+                                        placeholder
+                                    } else {
+                                        input.clone()
+                                    })
+                                    .into_any_element(),
+                            })
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .flex_wrap()
+                                    .items_center()
+                                    .gap(space(1))
+                                    .w_full()
+                                    .min_w(px(0.0))
+                                    .child(
+                                        div()
+                                            .id("chat-add-context")
+                                            .size(px(24.0))
+                                            .rounded(px(RADIUS_SMALL))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .text_color(palette.ink_3)
+                                            .hover(|style| style.bg(palette.soft))
+                                            .child(
+                                                Icon::default()
+                                                    .path(AssetIcon::Paperclip.path())
+                                                    .small(),
+                                            )
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                let current = this.chat.input.clone();
+                                                this.set_chat_input_text(
+                                                    format!("{current}@"),
+                                                    window,
+                                                    cx,
+                                                );
+                                            })),
+                                    )
+                                    .children(config_pickers)
+                                    .children((ctx.chat.thread.usage.size > 0).then(|| {
+                                        div().text_size(px(10.0)).text_color(palette.ink_3).child(
+                                            format!(
+                                                "{}% · {}/{}",
+                                                ctx.chat.thread.usage.percent().unwrap_or_default(),
+                                                clipped_count(ctx.chat.thread.usage.used),
+                                                clipped_count(ctx.chat.thread.usage.size),
+                                            ),
                                         )
-                                        .children(config_pickers)
-                                        .children((ctx.chat.thread.usage.size > 0).then(|| {
-                                            div()
-                                                .text_size(px(10.0))
-                                                .text_color(palette.ink_3)
-                                                .child(format!(
-                                                    "{}% · {}/{}",
-                                                    ctx.chat
-                                                        .thread
-                                                        .usage
-                                                        .percent()
-                                                        .unwrap_or_default(),
-                                                    clipped_count(ctx.chat.thread.usage.used),
-                                                    clipped_count(ctx.chat.thread.usage.size),
-                                                ))
-                                        }))
-                                        .child(
-                                            div()
-                                                .id(if streaming {
-                                                    "chat-stop"
-                                                } else {
-                                                    "chat-send"
-                                                })
-                                                .role(Role::Button)
-                                                .aria_label(if streaming {
+                                    }))
+                                    .child(
+                                        div()
+                                            .id(if streaming { "chat-stop" } else { "chat-send" })
+                                            .role(Role::Button)
+                                            .aria_label(if streaming {
+                                                "Stop Generation"
+                                            } else {
+                                                translate(language, Key::AgentChatChatSend)
+                                            })
+                                            .size(px(24.0))
+                                            .rounded(px(RADIUS_SMALL))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .ml_auto()
+                                            .bg(if streaming {
+                                                palette.danger
+                                            } else {
+                                                palette.accent
+                                            })
+                                            .text_color(palette.canvas)
+                                            .child(
+                                                Icon::default()
+                                                    .path(if streaming {
+                                                        AssetIcon::Square.path()
+                                                    } else {
+                                                        AssetIcon::ArrowUp.path()
+                                                    })
+                                                    .small(),
+                                            )
+                                            .tooltip(move |window, cx| {
+                                                let label = if streaming {
                                                     "Stop Generation"
                                                 } else {
                                                     translate(language, Key::AgentChatChatSend)
-                                                })
-                                                .size(px(24.0))
-                                                .rounded(px(RADIUS_SMALL))
-                                                .flex()
-                                                .items_center()
-                                                .justify_center()
-                                                .ml_auto()
-                                                .bg(if streaming {
-                                                    palette.danger
+                                                };
+                                                Tooltip::new(label).build(window, cx)
+                                            })
+                                            .on_click(cx.listener(move |this, _, window, cx| {
+                                                if streaming {
+                                                    this.stop_chat_turn(cx);
                                                 } else {
-                                                    palette.accent
-                                                })
-                                                .text_color(palette.canvas)
-                                                .child(
-                                                    Icon::default()
-                                                        .path(if streaming {
-                                                            AssetIcon::Square.path()
-                                                        } else {
-                                                            AssetIcon::ArrowUp.path()
-                                                        })
-                                                        .small(),
-                                                )
-                                                .tooltip(move |window, cx| {
-                                                    let label = if streaming {
-                                                        "Stop Generation"
-                                                    } else {
-                                                        translate(language, Key::AgentChatChatSend)
-                                                    };
-                                                    Tooltip::new(label).build(window, cx)
-                                                })
-                                                .on_click(cx.listener(
-                                                    move |this, _, window, cx| {
-                                                        if streaming {
-                                                            this.stop_chat_turn(cx);
-                                                        } else {
-                                                            this.send_chat(cx);
-                                                            this.clear_chat_input(window, cx);
-                                                        }
-                                                    },
-                                                )),
-                                        ),
-                                ),
+                                                    this.send_chat(cx);
+                                                    this.clear_chat_input(window, cx);
+                                                }
+                                            })),
+                                    ),
+                            ),
                         )
                         .children(slash_rows.map(|menu| {
                             div()
@@ -1338,6 +1312,19 @@ fn chat_picker_style(palette: &theme::Palette) -> PickerStyle {
         soft: palette.soft,
         card: palette.card,
         radius: RADIUS_SMALL,
+    }
+}
+
+fn chat_composer_style(palette: &theme::Palette) -> cgc_agent_ui::composer::ComposerStyle {
+    cgc_agent_ui::composer::ComposerStyle {
+        view: palette.view,
+        line: palette.line,
+        accent: palette.accent,
+        danger: palette.danger,
+        canvas: palette.canvas,
+        radius: RADIUS_MEDIUM,
+        padding: 4.0,
+        gap: 4.0,
     }
 }
 

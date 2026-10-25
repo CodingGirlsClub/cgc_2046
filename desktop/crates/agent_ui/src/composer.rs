@@ -42,6 +42,26 @@ pub struct ComposerSpec {
     pub on_stop: ComposerAction,
 }
 
+/// composer 输入卡容器（两栈共用：圆角/focus 边框/背景/padding）。
+///
+/// 返回 `Div`，调用方继续 `.child(...)` 链式添加输入区与 footer，便于渐进迁移。
+pub fn composer_card(
+    id: impl Into<SharedString>,
+    focused: bool,
+    style: ComposerStyle,
+) -> gpui_kit::Stateful<gpui_kit::Div> {
+    div()
+        .id(id.into())
+        .flex()
+        .flex_col()
+        .gap(px(style.gap))
+        .p(px(style.padding))
+        .rounded(px(style.radius))
+        .border_1()
+        .border_color(if focused { style.accent } else { style.line })
+        .bg(style.view)
+}
+
 /// 渲染 composer 卡片（输入区 + footer + 发送/停止）。
 pub fn render_composer(spec: ComposerSpec) -> AnyElement {
     let ComposerSpec {
