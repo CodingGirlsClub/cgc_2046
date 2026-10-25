@@ -43,6 +43,11 @@ pub struct FileChange {
 #[derive(Debug)]
 pub struct CheckpointManager {
     repo: PathBuf,
+    /// `git rev-parse --absolute-git-dir` 的结果。worktree / 子目录下不能用
+    /// `<repo>/.git` 拼临时索引路径（linked worktree 的 .git 是文件）。
+    git_dir: PathBuf,
+    /// 持久化的增量索引；每轮快照只更新变化的文件。
+    index_path: PathBuf,
     max_refs: usize,
 }
 
@@ -59,8 +64,12 @@ impl CheckpointManager {
         if !output.status.success() {
             return Err(CheckpointError::NotRepo(repo.display().to_string()));
         }
+        let git_dir = resolve_git_dir(&repo)?;
+        let index_path = git_dir.join("cgc-checkpoint.index");
         Ok(Self {
             repo,
+            git_dir,
+            index_path,
             max_refs: DEFAULT_MAX_REFS,
         })
     }
@@ -90,6 +99,10 @@ impl CheckpointManager {
         &self.repo
     }
 
+    pub fn git_dir(&self) -> &Path {
+        &self.git_dir
+    }
+
     /// 当前 HEAD；空仓库返回 `None`。
     pub fn head(&self) -> Result<Option<String>, CheckpointError> {
         let output = self.git(["rev-parse", "--verify", "HEAD"])?;
@@ -104,11 +117,9 @@ impl CheckpointManager {
 
     /// 创建快照并写入隐藏 ref。
     pub fn snapshot(&self, thread_id: &str, seq: u64) -> Result<Checkpoint, CheckpointError> {
-        let index_path = self.temp_index_path();
-        let _ = std::fs::remove_file(&index_path);
-        self.populate_index(&index_path)?;
-        self.drop_ignored_entries(&index_path)?;
-        let tree = self.git_with_index(&index_path, ["write-tree"])?;
+        self.populate_index()?;
+        self.drop_ignored_entries()?;
+        let tree = self.git_with_index(&self.index_path, ["write-tree"])?;
         if !tree.status.success() {
             return Err(CheckpointError::Git(stderr(&tree)));
         }
@@ -139,8 +150,6 @@ impl CheckpointManager {
         if !update.status.success() {
             return Err(CheckpointError::Git(stderr(&update)));
         }
-        let _ = std::fs::remove_file(&index_path);
-
         self.prune(thread_id)?;
         Ok(Checkpoint {
             thread_id: thread_id.to_string(),
@@ -190,14 +199,11 @@ impl CheckpointManager {
     /// 用临时索引把工作区（含未跟踪文件、尊重 ignore）装进 index，
     /// 再 `git diff --cached <sha>` 对比；不碰用户自己的 index。
     pub fn diff(&self, checkpoint: &Checkpoint) -> Result<String, CheckpointError> {
-        let index_path = self.temp_index_path();
-        let _ = std::fs::remove_file(&index_path);
-        self.populate_index(&index_path)?;
+        self.populate_index()?;
         let output = self.git_with_index(
-            &index_path,
+            &self.index_path,
             ["diff", "--cached", checkpoint.sha.as_str(), "--", "."],
         );
-        let _ = std::fs::remove_file(&index_path);
         let output = output?;
         if !output.status.success() {
             return Err(CheckpointError::Git(stderr(&output)));
@@ -210,11 +216,9 @@ impl CheckpointManager {
         &self,
         checkpoint: &Checkpoint,
     ) -> Result<Vec<FileChange>, CheckpointError> {
-        let index_path = self.temp_index_path();
-        let _ = std::fs::remove_file(&index_path);
-        self.populate_index(&index_path)?;
+        self.populate_index()?;
         let output = self.git_with_index(
-            &index_path,
+            &self.index_path,
             [
                 "diff",
                 "--cached",
@@ -224,7 +228,6 @@ impl CheckpointManager {
                 ".",
             ],
         );
-        let _ = std::fs::remove_file(&index_path);
         let output = output?;
         if !output.status.success() {
             return Err(CheckpointError::Git(stderr(&output)));
@@ -292,22 +295,35 @@ impl CheckpointManager {
         }
     }
 
-    fn populate_index(&self, index_path: &Path) -> Result<(), CheckpointError> {
-        // 空索引起步，再把工作区全部文件加进去（尊重 .gitignore）。
-        let read_tree = self.git_with_index(index_path, ["read-tree", "--empty"])?;
+    /// 用持久索引把工作区同步进树；首次创建时先 read-tree --empty。
+    /// 每轮只让 git 更新变化文件，避免全量重建索引。
+    fn populate_index(&self) -> Result<(), CheckpointError> {
+        if !self.index_path.exists() {
+            let read_tree = self.git_with_index(&self.index_path, ["read-tree", "--empty"])?;
+            if !read_tree.status.success() {
+                return Err(CheckpointError::Git(stderr(&read_tree)));
+            }
+        }
+        let add = self.git_with_index(&self.index_path, ["add", "--all", "--", "."])?;
+        if add.status.success() {
+            return Ok(());
+        }
+        // 索引可能被外部进程写坏：删掉重来一次。
+        let _ = std::fs::remove_file(&self.index_path);
+        let read_tree = self.git_with_index(&self.index_path, ["read-tree", "--empty"])?;
         if !read_tree.status.success() {
             return Err(CheckpointError::Git(stderr(&read_tree)));
         }
-        let add = self.git_with_index(index_path, ["add", "--all", "--", "."])?;
-        if !add.status.success() {
-            return Err(CheckpointError::Git(stderr(&add)));
+        let retry = self.git_with_index(&self.index_path, ["add", "--all", "--", "."])?;
+        if !retry.status.success() {
+            return Err(CheckpointError::Git(stderr(&retry)));
         }
         Ok(())
     }
 
     /// 从临时索引里剔除超大文件与常见二进制/压缩包。
-    fn drop_ignored_entries(&self, index_path: &Path) -> Result<(), CheckpointError> {
-        let listed = self.git_with_index(index_path, ["ls-files", "--stage", "-z"])?;
+    fn drop_ignored_entries(&self) -> Result<(), CheckpointError> {
+        let listed = self.git_with_index(&self.index_path, ["ls-files", "--stage", "-z"])?;
         if !listed.status.success() {
             return Err(CheckpointError::Git(stderr(&listed)));
         }
@@ -329,7 +345,7 @@ impl CheckpointManager {
         }
         for path in dropped {
             let _ = self.git_with_index(
-                index_path,
+                &self.index_path,
                 ["rm", "--cached", "--quiet", "--", path.as_str()],
             );
         }
@@ -346,16 +362,6 @@ impl CheckpointManager {
             }
         }
         Ok(())
-    }
-
-    fn temp_index_path(&self) -> PathBuf {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let serial = COUNTER.fetch_add(1, Ordering::Relaxed);
-        self.repo.join(".git").join(format!(
-            "cgc-checkpoint-{}-{serial}.index",
-            std::process::id()
-        ))
     }
 
     fn git<const N: usize>(
@@ -398,6 +404,41 @@ impl CheckpointManager {
     }
 }
 
+/// 解析真实 git 目录：支持 linked worktree 与仓库子目录。
+/// linked worktree 根目录的 `.git` 是文件，`<repo>/.git` 拼路径会失败。
+fn resolve_git_dir(repo: &Path) -> Result<PathBuf, CheckpointError> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["rev-parse", "--absolute-git-dir"])
+        .output()
+        .map_err(|error| CheckpointError::Io(error.to_string()))?;
+    let path = if output.status.success() {
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    } else {
+        // 老版本 git 没有 --absolute-git-dir，回退 --git-dir 并转绝对路径。
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["rev-parse", "--git-dir"])
+            .output()
+            .map_err(|error| CheckpointError::Io(error.to_string()))?;
+        if !output.status.success() {
+            return Err(CheckpointError::Git(stderr(&output)));
+        }
+        let raw = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
+        if raw.is_absolute() {
+            raw.display().to_string()
+        } else {
+            repo.join(raw).display().to_string()
+        }
+    };
+    if path.is_empty() {
+        return Err(CheckpointError::NotRepo(repo.display().to_string()));
+    }
+    Ok(PathBuf::from(path))
+}
+
 fn should_skip(path: &str) -> bool {
     const BINARY_EXTENSIONS: &[&str] = &[
         "zip", "gz", "tgz", "7z", "rar", "png", "jpg", "jpeg", "gif", "webp", "pdf", "mp4", "mov",
@@ -413,4 +454,140 @@ fn should_skip(path: &str) -> bool {
 
 fn stderr(output: &std::process::Output) -> String {
     String::from_utf8_lossy(&output.stderr).trim().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let serial = COUNTER.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "cgc-checkpoint-test-{}-{name}-{serial}",
+            std::process::id()
+        ))
+    }
+
+    fn git(dir: &Path, args: &[&str]) -> std::process::Output {
+        Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .expect("run git")
+    }
+
+    fn git_ok(dir: &Path, args: &[&str]) {
+        let output = git(dir, args);
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn init_repo(root: &Path) {
+        std::fs::create_dir_all(root).expect("create repo dir");
+        git_ok(root, &["init", "--quiet"]);
+        std::fs::write(root.join("a.txt"), "one\n").expect("write a.txt");
+        git_ok(root, &["add", "--all"]);
+        git_ok(
+            root,
+            &[
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.com",
+                "commit",
+                "--quiet",
+                "-m",
+                "init",
+            ],
+        );
+    }
+
+    #[test]
+    fn snapshot_works_in_regular_repo_even_without_file_changes() {
+        let root = temp_dir("regular");
+        init_repo(&root);
+        let manager = CheckpointManager::open(&root).expect("open repo");
+
+        let first = manager.snapshot("native-test", 1).expect("first snapshot");
+        assert_eq!(manager.list("native-test").unwrap().len(), 1);
+
+        // 没有改文件也要有 checkpoint（只是 diff 为空）——对齐 Zed 的每轮快照。
+        let second = manager.snapshot("native-test", 2).expect("second snapshot");
+        assert_eq!(manager.list("native-test").unwrap().len(), 2);
+        assert!(
+            manager.changed_files(&second).unwrap().is_empty(),
+            "chat-only turn should have an empty diff"
+        );
+
+        std::fs::write(root.join("a.txt"), "two\n").expect("modify a.txt");
+        let changes = manager.changed_files(&first).unwrap();
+        assert_eq!(changes.len(), 1, "one modified file");
+        assert_eq!(changes[0].path, "a.txt");
+        let _third = manager.snapshot("native-test", 3).expect("third snapshot");
+
+        // 回滚到第一轮：文件内容与 diff 都应恢复。
+        manager.restore(&first).expect("restore snapshot");
+        assert_eq!(
+            std::fs::read_to_string(root.join("a.txt")).unwrap(),
+            "one\n"
+        );
+        assert!(manager.changed_files(&first).unwrap().is_empty());
+
+        // 增量索引应落在真实 git 目录里。
+        assert!(manager.git_dir().join("cgc-checkpoint.index").exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn snapshot_works_in_linked_worktree_subdir() {
+        let main = temp_dir("main");
+        let worktree = temp_dir("worktree");
+        init_repo(&main);
+        let worktree_s = worktree.display().to_string();
+        git_ok(
+            &main,
+            &[
+                "worktree",
+                "add",
+                "--quiet",
+                "-b",
+                "cgc-test-wt",
+                &worktree_s,
+            ],
+        );
+        let sub = worktree.join("sub");
+        std::fs::create_dir_all(&sub).expect("create subdir");
+
+        // 修复前这里会失败：worktree 根的 .git 是文件，subdir 没有 .git 目录。
+        let manager = CheckpointManager::open(&sub).expect("open worktree subdir");
+        assert!(
+            manager.git_dir().is_absolute(),
+            "git dir must be resolved absolutely"
+        );
+        std::fs::write(sub.join("inside.txt"), "hello\n").expect("write inside.txt");
+        let checkpoint = manager
+            .snapshot("native-wt", 1)
+            .expect("snapshot in worktree");
+        assert_eq!(manager.list("native-wt").unwrap().len(), 1);
+        assert_eq!(checkpoint.seq, 1);
+        assert!(manager.git_dir().join("cgc-checkpoint.index").exists());
+
+        std::fs::write(sub.join("inside.txt"), "changed\n").expect("modify inside.txt");
+        assert_eq!(manager.changed_files(&checkpoint).unwrap().len(), 1);
+        let _second = manager.snapshot("native-wt", 2).expect("second snapshot");
+        manager.restore(&checkpoint).expect("restore in worktree");
+        assert_eq!(
+            std::fs::read_to_string(sub.join("inside.txt")).unwrap(),
+            "hello\n"
+        );
+        let _ = std::fs::remove_dir_all(main);
+        let _ = std::fs::remove_dir_all(worktree);
+    }
 }
