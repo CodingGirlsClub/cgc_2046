@@ -1740,6 +1740,23 @@ impl NativeAgentView {
         let old_len = self.state.thread.entries.len();
         let mut finished = None;
         for event in events {
+            // Stage 3.2b：settings 级规则优先。决定性 allow/deny 且请求里有对应
+            // kind 的 option 时自动回传、不弹卡，并在会话里补一条 system Notice；
+            // 否则（ask/confirm、无匹配 option）照常走共享权限卡。
+            // Auto 模式由 runtime 内 AutoApprover 决定，不叠加规则。
+            if self.approval_mode == ApprovalMode::Ask {
+                if let Some(auto) = crate::approval_rules::auto_permission_for_event(
+                    &crate::approval_rules::ApprovalRules::load(),
+                    &event,
+                ) {
+                    if let Some(host) = &self.acp_host {
+                        let _ = host.respond_permission_option(&auto.request_id, &auto.option_id);
+                    }
+                    agent_ingest::apply_notice(&mut self.state.thread, auto.notice);
+                    cx.notify();
+                    continue;
+                }
+            }
             self.state.apply_host_event(&event);
             match &event {
                 HostEvent::PermissionRequested { .. } => {

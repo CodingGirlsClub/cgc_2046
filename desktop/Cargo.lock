@@ -1016,6 +1016,8 @@ dependencies = [
  "image",
  "qrcode",
  "ratex-gpui",
+ "regex",
+ "serde",
  "serde_json",
  "url",
  "uuid",

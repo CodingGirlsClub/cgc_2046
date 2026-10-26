@@ -9,7 +9,7 @@
 //! `app` 连接；不新增 domain→platform 的反向依赖。
 
 use cgc_agent_ui::conversation::{
-    ConversationThread, PermissionOption, PermissionOptionKind, PlanStep, ThreadEvent,
+    ConversationThread, NoticeLevel, PermissionOption, PermissionOptionKind, PlanStep, ThreadEvent,
 };
 use cgc_platform::acp::connection::{HostEvent, PermissionOptionView};
 
@@ -93,6 +93,14 @@ pub fn apply_thread_event(thread: &mut ConversationThread, event: &HostEvent) ->
     };
     thread.apply(thread_event);
     true
+}
+
+/// 追加一条 system Notice（两轨共用；规则自动决定、系统提示都走这里）。
+pub fn apply_notice(thread: &mut ConversationThread, text: impl Into<String>) {
+    thread.apply(ThreadEvent::Notice {
+        level: NoticeLevel::Info,
+        text: text.into(),
+    });
 }
 
 /// 用户发起一轮（两轨共用）：UI 已把输入框内容作为 user 行落进模型。

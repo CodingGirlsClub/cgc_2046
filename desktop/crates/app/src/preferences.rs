@@ -4,11 +4,15 @@ use std::path::PathBuf;
 
 use serde_json::{json, Value};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+use crate::approval_rules::ToolPermissionSettings;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Preferences {
     pub close_to_tray: bool,
     pub tray_hint_shown: bool,
     pub native_agent_enabled: bool,
+    /// Stage 3.2b：settings 级审批规则（`toolPermissions`），缺省 = 全部询问。
+    pub tool_permissions: ToolPermissionSettings,
 }
 
 impl Default for Preferences {
@@ -17,6 +21,7 @@ impl Default for Preferences {
             close_to_tray: true,
             tray_hint_shown: false,
             native_agent_enabled: false,
+            tool_permissions: ToolPermissionSettings::default(),
         }
     }
 }
@@ -34,6 +39,16 @@ pub fn load() -> Preferences {
     let Ok(value) = serde_json::from_str::<Value>(&raw) else {
         return Preferences::default();
     };
+    parse(&value)
+}
+
+/// 从已解析的 JSON 读写偏好；旧文件缺字段全部按默认（向后兼容，无需迁移）。
+fn parse(value: &Value) -> Preferences {
+    let tool_permissions = value
+        .get("toolPermissions")
+        .cloned()
+        .and_then(|raw| serde_json::from_value::<ToolPermissionSettings>(raw).ok())
+        .unwrap_or_default();
     Preferences {
         close_to_tray: value
             .get("closeToTray")
@@ -47,6 +62,7 @@ pub fn load() -> Preferences {
             .get("nativeAgentEnabled")
             .and_then(Value::as_bool)
             .unwrap_or(false),
+        tool_permissions,
     }
 }
 
@@ -59,6 +75,8 @@ pub fn save(preferences: Preferences) {
         "closeToTray": preferences.close_to_tray,
         "trayHintShown": preferences.tray_hint_shown,
         "nativeAgentEnabled": preferences.native_agent_enabled,
+        "toolPermissions": serde_json::to_value(&preferences.tool_permissions)
+            .unwrap_or(Value::Null),
     })
     .to_string();
     let tmp = path.with_extension("json.tmp");
@@ -77,6 +95,93 @@ mod tests {
         assert!(defaults.close_to_tray);
         assert!(!defaults.tray_hint_shown);
         assert!(!defaults.native_agent_enabled);
+    }
+
+    #[test]
+    fn missing_tool_permissions_keeps_old_preferences_compatible() {
+        let preferences = parse(&json!({
+            "closeToTray": false,
+            "trayHintShown": true,
+            "nativeAgentEnabled": true,
+        }));
+        assert!(!preferences.close_to_tray);
+        assert_eq!(
+            preferences.tool_permissions,
+            crate::approval_rules::ToolPermissionSettings::default(),
+            "旧 preferences.json 无 toolPermissions 时默认全部询问"
+        );
+    }
+
+    #[test]
+    fn tool_permissions_are_parsed_from_preferences_json() {
+        let preferences = parse(&json!({
+            "toolPermissions": {
+                "default": "deny",
+                "tools": {
+                    "run_command": {
+                        "alwaysAllow": ["^ls"],
+                        "alwaysDeny": ["rm -rf"],
+                        "alwaysConfirm": ["git push"]
+                    }
+                }
+            }
+        }));
+        assert_eq!(
+            preferences.tool_permissions.default,
+            crate::approval_rules::ToolPermissionDefault::Deny
+        );
+        let rules = preferences
+            .tool_permissions
+            .tools
+            .get("run_command")
+            .expect("run_command rules");
+        assert_eq!(rules.always_allow, vec!["^ls".to_string()]);
+        assert_eq!(rules.always_deny, vec!["rm -rf".to_string()]);
+        assert_eq!(rules.always_confirm, vec!["git push".to_string()]);
+    }
+
+    #[test]
+    fn malformed_tool_permissions_fall_back_to_defaults() {
+        // 类型错误（不是对象）→ 整块规则回默认；未知 default 值 → ask。
+        assert_eq!(
+            parse(&json!({"toolPermissions": 3})).tool_permissions,
+            crate::approval_rules::ToolPermissionSettings::default()
+        );
+        let preferences = parse(&json!({
+            "toolPermissions": {"default": "not-a-policy"}
+        }));
+        assert_eq!(
+            preferences.tool_permissions.default,
+            crate::approval_rules::ToolPermissionDefault::Ask
+        );
+    }
+
+    #[test]
+    fn tool_permissions_round_trip_serialization() {
+        use crate::approval_rules::{ToolPermissionDefault, ToolRuleSet};
+        let mut preferences = Preferences::default();
+        preferences.tool_permissions.default = ToolPermissionDefault::Allow;
+        preferences.tool_permissions.tools.insert(
+            "run_command".to_string(),
+            ToolRuleSet {
+                always_allow: vec!["^ls".to_string()],
+                always_deny: vec!["rm -rf".to_string()],
+                always_confirm: vec!["git push".to_string()],
+            },
+        );
+        let serialized = serde_json::to_value(&preferences.tool_permissions).expect("serialize");
+        assert_eq!(
+            serialized.get("default").and_then(Value::as_str),
+            Some("allow"),
+            "写回 preferences.json 的 default 用小写枚举值"
+        );
+        assert!(serialized
+            .get("tools")
+            .and_then(|tools| tools.get("run_command"))
+            .and_then(|rules| rules.get("alwaysAllow"))
+            .is_some());
+        let parsed = parse(&json!({ "toolPermissions": serialized }));
+        assert_eq!(parsed.tool_permissions, preferences.tool_permissions);
     }
 
     #[test]

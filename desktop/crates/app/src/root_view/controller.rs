@@ -1141,6 +1141,20 @@ impl RootView {
             }
         }
         for event in events {
+            // Stage 3.2b：settings 级审批规则优先（两轨同一入口/同一 helper）：
+            // 决定性 allow/deny 且有对应 kind 的 option 时自动回传、不弹卡，
+            // 只补一条 system Notice；ask/confirm 或无匹配 option 时照常弹卡。
+            if let Some(auto) = crate::approval_rules::auto_permission_for_event(
+                &crate::approval_rules::ApprovalRules::load(),
+                &event,
+            ) {
+                if let Some(host) = &self.chat.host {
+                    let _ = host.respond_permission_option(&auto.request_id, &auto.option_id);
+                }
+                agent_ingest::apply_notice(&mut self.chat.thread, auto.notice);
+                cx.notify();
+                continue;
+            }
             // 会话行（消息 / 工具卡 / 计划 / 用量 / 审批 / 结束 / 错误）统一走两轨共用的
             // ingestion；这里只保留 ACP 连接自身的会话级状态（就绪、配置、历史、退出）。
             agent_ingest::apply_thread_event(&mut self.chat.thread, &event);
