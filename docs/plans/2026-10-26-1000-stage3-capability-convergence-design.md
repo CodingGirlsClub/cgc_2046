@@ -209,7 +209,7 @@ ACP agent 自定义非标准 options；已由纯函数/两轨对照测试覆盖�
 
 ## 13. Stage 3.6 Phase B 进展与收口说明（2026-10-26）
 
-Phase B 的目标：native 与 external ACP 只向 `ConversationThread` + `ThreadCapabilities` + 共享 surface 供数，UI 按能力位显隐，最终删除 `native_agent_view.rs`。当前状态：**B1–B3 完成；B4a 完成；B4b（删除旧视图）按计划暂缓**，等两轨真机验收后执行。
+Phase B 的目标：native 与 external ACP 只向 `ConversationThread` + `ThreadCapabilities` + 共享 surface 供数，UI 按能力位显隐，最终删除 `native_agent_view.rs`。当前状态：**B1–B3 完成；B4a 完成；B4b（删除旧视图）仍暂缓**，等两轨真机验收后执行；3.4a/b/c 与 3.5b 已在 headless 侧完成（见 §13.6）。
 
 ### 13.1 已完成切片（本地 commit，未 push）
 
@@ -261,3 +261,34 @@ Phase B 的目标：native 与 external ACP 只向 `ConversationThread` + `Threa
 - **3.4b/c**：MCP 工具注册到 native ToolRegistry + 两轨注入（native/external ACP），需真机验证后推进。
 - **3.5b**：新会话默认 native（非课程页；课程页仍依赖 3.4 MCP），部分已实现（默认模式 + env/prefs 覆盖），课程页默认切换待 3.4。
 - **B4b → B5**：真机验收后删除旧视图，补 B5 文档（README/ADR-0028 收口）并移除临时 flag。
+
+### 13.6 夜间增量（2026-10-27 00:00–00:30，headless）
+
+真机 UI 不可用（屏幕锁定）期间完成的、可 headless 验证的切片：
+
+| 切片 | commit | 内容 |
+|---|---|---|
+| 3.4a | `a81ca587` | `platform::mcp::client::McpHttpClient`：Streamable HTTP JSON-RPC（initialize/tools/list/tools/call）、Bearer、SSE/JSON 解析、401/403/超时/非法 JSON fail-closed、Debug 脱敏 |
+| 3.4b | `cc2a2f9b` | `agent_tools::mcp::McpTool` + 5 个只读课程工具白名单（`get_course_content`/`get_course_revision`/`get_learning_state`/`get_role_playbook`/`get_enrollment_summary`），白名单外不注册、只读审批 Allow |
+| — | `c698fe93` | `register_read_only_mcp_tools(_from_lease)` 注册入口（无 token fail-closed） |
+| 3.4c | `8cbe7430` | `NativePanelHost::McpInjection` + `set_mcp_lease`（复用 RootView lease）+ `register_mcp_tools_for_host`，两个 `ToolRegistry` 构造点注入；env `CGC_MCP_ENDPOINT/TOKEN` 作为 headless seam |
+| 3.5b | `c6cfdd87` | `preferences.nativeAgentEnabled` 默认 true；`resolve_native_agent_enabled` 去掉课程页默认分支（`CGC_NATIVE_AGENT=0` > demo > 设置，默认 native）；设置文案更新 |
+| B4b 准备 | `f0850812` | `native_view_model.rs`（gpui-free 行模型/顺序/checkpoint 纯函数），视图 6095→5851 行 |
+
+门禁口径（本机 Rockxy/Clash 代理会污染 localhost mock，必须清代理并串行）：
+
+```bash
+cd desktop
+env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY     -u http_proxy -u https_proxy -u all_proxy -u no_proxy   cargo fmt --check
+env ... cargo clippy --workspace --all-targets -- -D warnings
+env ... cargo test --workspace --exclude cgc-agent-tools -- --test-threads=1
+# 实测：596 passed / 0 failed
+```
+
+headless 已验证：MCP client 握手/工具列表/调用/错误映射/token 脱敏；白名单过滤与 registry 注入；无 lease 时 0 注册；默认 native 的 env/prefs 覆盖。
+
+**仍需真机验证**（阻塞 B4b 与收尾）：
+1. flag 0/1 两轨 composer 全功能（send/stop/steer/附件/mention/slash/queue/pickers/checkpoint/subagent）；
+2. 登录后 native 工具列表出现 `mcp:cgc-2046-learning:*` 5 个只读工具；调用返回内容；无 lease 时无工具；
+3. 默认 native（含课程页）+ 设置关闭回退 + external agent 可选；
+4. 以上通过后执行 §13.4 B4b，报 `git diff --stat` 净删行数，并移除 `CGC_NATIVE_SHARED_VIEW`。
