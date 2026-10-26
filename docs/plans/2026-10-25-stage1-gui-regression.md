@@ -210,9 +210,12 @@ Copy/滚动清单均未能在真机执行。
 | 文本回合 | PASS | 发送后收到 omp 回复（含 Thinking 折叠） |
 | 生成中停止按钮 | PASS | 生成中变 Stop，点击后恢复「发送」 |
 | 整回合 Copy | PASS | 点 Copy 后剪贴板为完整回复文本（已核对） |
-| 滚动操作栏 | PASS | Scroll to User Message / Scroll to Top 存在且可点 |
+| 滚动操作栏 | PASS | Scroll to User Message / Scroll to Top 存在、点击无异常 |
 | slash 菜单 | PASS | 输入 `/` 弹出命令面板（omp 命令/skills 列表，100+ 项） |
 | config pickers | PASS | agent 配置（default）/ 权限（auto）/ 模型选择 dialog 均可打开 |
-| Markdown 代码块 Copy | 待补 | 误切到未配置的 openai-codex 模型导致生成卡住，未完成该项；下次新会话（默认 deepseek）补测 |
+| Markdown 代码块 Copy | PASS | 代码块右上角 Copy 点击后剪贴板为 `echo hello`（已核对） |
 
 说明：误切模型是测试操作副作用，不是 2e 回归；重启新会话即可恢复默认模型。
+
+最终结论：ACP 真机回归清单 **全部 PASS**（2026-10-26 晨）。误切模型问题已通过恢复
+`chat_state.prefs.omp.model=deepseek/deepseek-flash` 重启解决。
