@@ -183,7 +183,19 @@ struct TrackResult {
     errored: bool,
 }
 
-fn drive_turn(host: &AcpHost, rules: &ApprovalRules) -> TrackResult {
+/// native 轨驱动（与 `NativeAgentView::drain_acp_events` 一致：弹卡前先走
+/// settings 级 toolPermissions 规则，决定性 allow/deny 自动回传 + Notice + 不落 Permission 行）。
+fn drive_native_turn(host: &AcpHost, rules: &ApprovalRules) -> TrackResult {
+    drive_turn_with_auto(host, Some(rules))
+}
+
+/// external ACP 轨驱动（与 `RootView::drain_chat_events` 一致：**不做**规则自动
+/// 决定，收到 request_permission 一律进共享审批卡，由用户选 option 回传）。
+fn drive_acp_turn(host: &AcpHost) -> TrackResult {
+    drive_turn_with_auto(host, None)
+}
+
+fn drive_turn_with_auto(host: &AcpHost, auto_rules: Option<&ApprovalRules>) -> TrackResult {
     assert!(host.prompt("run"));
     let mut thread = ConversationThread::new("rules");
     let mut autos = Vec::new();
@@ -198,8 +210,8 @@ fn drive_turn(host: &AcpHost, rules: &ApprovalRules) -> TrackResult {
             errored = true;
         }
         let turn_end = matches!(event, HostEvent::TurnEnd { .. });
-        // —— 与 native/ACP 视图 drain 一致的规则优先逻辑 ——
-        if let Some(auto) = auto_permission_for_event(rules, &event) {
+        // native 轨才走规则自动决定；ACP 轨此处恒为 None（客户端不拦截）。
+        if let Some(auto) = auto_rules.and_then(|rules| auto_permission_for_event(rules, &event)) {
             assert!(
                 host.respond_permission_option(&auto.request_id, &auto.option_id),
                 "auto option must be answerable"
@@ -213,7 +225,7 @@ fn drive_turn(host: &AcpHost, rules: &ApprovalRules) -> TrackResult {
         }
         apply_thread_event(&mut thread, &event);
         if let HostEvent::PermissionRequested { request_id, .. } = &event {
-            // 回退到共享权限卡：测试里直接选第一个 allow 选项，模拟用户点按钮。
+            // 共享权限卡：测试里直接选第一个 allow 选项，模拟用户点按钮。
             manual_cards += 1;
             let allowed_option = thread
                 .pending_permission
@@ -321,7 +333,7 @@ fn deny_ls_rules() -> ApprovalRules {
 fn native_rules_auto_allow_skips_card_and_completes_turn() {
     let host = start_native();
     wait_ready(&host);
-    let result = drive_turn(&host, &allow_ls_rules());
+    let result = drive_native_turn(&host, &allow_ls_rules());
     assert_turn_completed(&result);
     assert_eq!(result.manual_cards, 0, "自动允许不得弹卡");
     assert_eq!(result.autos.len(), 1);
@@ -343,7 +355,7 @@ fn native_rules_auto_allow_skips_card_and_completes_turn() {
 fn native_rules_auto_deny_skips_card_and_completes_turn() {
     let host = start_native();
     wait_ready(&host);
-    let result = drive_turn(&host, &deny_ls_rules());
+    let result = drive_native_turn(&host, &deny_ls_rules());
     assert_turn_completed(&result);
     assert_eq!(result.manual_cards, 0, "自动拒绝不得弹卡");
     assert_eq!(result.autos.len(), 1);
@@ -357,62 +369,74 @@ fn native_rules_auto_deny_skips_card_and_completes_turn() {
     host.shutdown();
 }
 
+/// 路线 A 核心断言：即使规则命中（引擎判定 Allow），external ACP 轨也必须弹
+/// 共享审批卡、不得由客户端自动回传——策略只作用于 native。
 #[test]
-fn acp_rules_auto_allow_skips_card_and_completes_turn() {
+fn acp_matching_allow_rule_still_shows_shared_card() {
+    let rules = allow_ls_rules();
+    assert_eq!(
+        rules.decide(Some("run_command"), Some("{\"command\":\"ls\"}")),
+        cgc_desktop_app::approval_rules::RuleDecision::Allow,
+        "规则本身对 stub ACP 工具名/参数是命中的（用于证明 ACP 轨仍不拦截）"
+    );
     let host = start_acp();
     wait_ready(&host);
-    let result = drive_turn(&host, &allow_ls_rules());
+    let result = drive_acp_turn(&host);
     assert_turn_completed(&result);
-    assert_eq!(result.manual_cards, 0);
-    assert_eq!(result.autos.len(), 1);
-    assert!(result.autos[0].allowed);
-    assert_eq!(result.autos[0].option_id, "allow_once");
-    assert_eq!(permission_rows(&result.thread), 0);
-    assert_eq!(
-        notices(&result.thread),
-        vec!["已按设置自动允许 run_command"]
-    );
+    assert!(result.autos.is_empty(), "ACP 轨不得自动决定/自动回传");
+    assert_eq!(result.manual_cards, 1, "ACP 命中规则也必须弹共享审批卡");
+    assert_eq!(permission_rows(&result.thread), 1);
+    assert!(notices(&result.thread).is_empty(), "ACP 无自动决定 Notice");
     host.shutdown();
 }
 
+/// 同上：deny 规则对 ACP 同样不生效（不自动拒绝），一律交给共享卡。
 #[test]
-fn acp_rules_auto_deny_skips_card_and_completes_turn() {
+fn acp_matching_deny_rule_still_shows_shared_card() {
+    let rules = deny_ls_rules();
+    assert_eq!(
+        rules.decide(Some("run_command"), Some("{\"command\":\"ls\"}")),
+        cgc_desktop_app::approval_rules::RuleDecision::Deny,
+        "规则本身判定 deny"
+    );
     let host = start_acp();
     wait_ready(&host);
-    let result = drive_turn(&host, &deny_ls_rules());
+    let result = drive_acp_turn(&host);
     assert_turn_completed(&result);
-    assert_eq!(result.manual_cards, 0);
-    assert_eq!(result.autos.len(), 1);
-    assert!(!result.autos[0].allowed);
-    assert_eq!(result.autos[0].option_id, "deny");
-    assert_eq!(permission_rows(&result.thread), 0);
-    assert_eq!(
-        notices(&result.thread),
-        vec!["已按设置自动拒绝 run_command"]
-    );
+    assert!(result.autos.is_empty(), "ACP 轨不得自动拒绝");
+    assert_eq!(result.manual_cards, 1);
+    assert_eq!(permission_rows(&result.thread), 1);
+    assert!(notices(&result.thread).is_empty());
     host.shutdown();
 }
 
+/// 两轨对照（路线 A）：同一份规则下 native 自动放行（不弹卡 + Notice），
+/// external ACP 仍弹卡（客户端不拦截）。
 #[test]
-fn two_tracks_same_rules_produce_same_auto_decision_and_notice() {
+fn same_rules_auto_apply_only_to_native_track() {
     let native_host = start_native();
     wait_ready(&native_host);
-    let native = drive_turn(&native_host, &allow_ls_rules());
+    let native = drive_native_turn(&native_host, &allow_ls_rules());
     let acp_host = start_acp();
     wait_ready(&acp_host);
-    let acp = drive_turn(&acp_host, &allow_ls_rules());
+    let acp = drive_acp_turn(&acp_host);
 
     assert_turn_completed(&native);
     assert_turn_completed(&acp);
-    assert_eq!(native.autos.len(), acp.autos.len());
-    assert_eq!(native.autos[0].option_id, acp.autos[0].option_id);
-    assert_eq!(native.autos[0].allowed, acp.autos[0].allowed);
-    assert_eq!(native.autos[0].notice, acp.autos[0].notice);
-    assert_eq!(notices(&native.thread), notices(&acp.thread));
+    // native：规则生效，自动 allow、无卡、有 Notice。
+    assert_eq!(native.manual_cards, 0);
+    assert_eq!(native.autos.len(), 1);
+    assert!(native.autos[0].allowed);
+    assert_eq!(permission_rows(&native.thread), 0);
     assert_eq!(
-        permission_rows(&native.thread),
-        permission_rows(&acp.thread)
+        notices(&native.thread),
+        vec!["已按设置自动允许 run_command"]
     );
+    // ACP：规则不生效，仍是共享卡 + 用户选择。
+    assert!(acp.autos.is_empty());
+    assert_eq!(acp.manual_cards, 1);
+    assert_eq!(permission_rows(&acp.thread), 1);
+    assert!(notices(&acp.thread).is_empty());
     native_host.shutdown();
     acp_host.shutdown();
 }
@@ -421,7 +445,7 @@ fn two_tracks_same_rules_produce_same_auto_decision_and_notice() {
 fn unmatched_rules_fall_back_to_shared_card() {
     let host = start_native();
     wait_ready(&host);
-    let result = drive_turn(&host, &rules_from(serde_json::json!({})));
+    let result = drive_native_turn(&host, &rules_from(serde_json::json!({})));
     assert_turn_completed(&result);
     assert!(result.autos.is_empty());
     assert_eq!(result.manual_cards, 1, "无规则时必须回退共享权限卡");
@@ -437,7 +461,7 @@ fn confirm_beats_default_allow_and_forces_card() {
         "default": "allow",
         "tools": { "run_command": { "alwaysConfirm": ["ls"] } }
     }));
-    let result = drive_turn(&host, &rules);
+    let result = drive_native_turn(&host, &rules);
     assert_turn_completed(&result);
     assert!(
         result.autos.is_empty(),

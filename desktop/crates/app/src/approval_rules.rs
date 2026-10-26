@@ -14,9 +14,12 @@
 //! 优先级：deny > allow > confirm > default(ask)。匹配对象 = 工具名或参数 JSON
 //! 序列化字符串（command 等参数子串都能命中）；非法正则忽略并记录 warning，不 panic。
 //!
-//! 决策点在客户端 ingestion 层（native/ACP 两轨共用同一入口）：规则给出
-//! allow/deny 且请求里有对应 kind 的 option 时自动回传、不弹卡，并在会话里补一条
-//! Notice；否则回退到共享权限卡（ask/confirm、无匹配类 option 都不误放行）。
+//! 路线 A（Zed 对齐）：settings 级规则**只作用于 native agent**。native 在弹卡前
+//! 判定：allow/deny 决定性且请求里有对应 kind 的 option 时自动回传、不弹卡，并在
+//! 会话里补一条 Notice；ask/confirm 或无匹配类 option 时回退共享权限卡（不误放行）。
+//! external ACP agent 的审批完全由 agent 自身模式与 options 决定，客户端只渲染共享
+//! 审批卡并按用户选择回传，**不做策略拦截/自动决定**（[`auto_permission_for_event`]
+//! 仅 native 轨使用）。
 
 use std::collections::BTreeMap;
 
@@ -210,8 +213,9 @@ pub struct AutoPermission {
     pub notice: String,
 }
 
-/// 规则 → 自动决定（两轨共用）。仅当 allow/deny 且请求里有对应 kind 的 option
-/// 时返回 `Some`；否则返回 `None` 表示继续弹共享卡（不误放行、不死锁）。
+/// 规则 → 自动决定（**仅 native 轨**）。仅当 allow/deny 且请求里有对应 kind 的
+/// option 时返回 `Some`；否则返回 `None` 表示继续弹共享卡（不误放行、不死锁）。
+/// external ACP 轨不调用本函数：由 agent 自身的模式/选项决定审批。
 pub fn auto_permission_for_event(
     rules: &ApprovalRules,
     event: &HostEvent,

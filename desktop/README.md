@@ -73,6 +73,44 @@ cgc://courses/<uuid>/learn
 - 托盘菜单的 `通知` 也会打开通知中心；主窗口已关闭时会先恢复窗口。
 - 当前不做「全部已读」，因为后端只有单条 `markNotificationRead`。
 
+## 审批规则（toolPermissions，native-only）
+
+设置级审批规则（Stage 3.2b，路线 A / Zed 对齐）**只作用于 native agent**，保存在
+`preferences.json`（与 `closeToTray` 同文件；MVP 暂无设置 GUI，手改文件后**下一次
+审批即时生效**）：
+
+```json
+{
+  "toolPermissions": {
+    "default": "ask",
+    "tools": {
+      "run_command": {
+        "alwaysAllow": ["^ls"],
+        "alwaysDeny": ["rm -rf"],
+        "alwaysConfirm": ["git push"]
+      }
+    }
+  }
+}
+```
+
+- `default`：`ask`（默认，弹共享权限卡）/ `allow` / `deny` / `confirm`。
+- `tools.<toolName>`：对**精确工具名**生效（native 工具如 `run_command` /
+  `write_file` / `read_file`）；每个字段是正则列表，匹配对象 = **工具名或参数
+  JSON 文本**（`echo` 这类命令子串可直接命中）；非法正则忽略该条并在 stderr 记录
+  warning，不影响其他规则。
+- 优先级：`deny > allow > confirm > default(ask)`；同一 kind 命中任一规则即生效。
+- 命中 `allow` / `deny` 时不弹审批卡，直接回传对应选项，并在会话里留一条 system
+  提示（如「已按设置自动允许 run_command」）；`confirm` 强制弹卡（即使
+  `default=allow`）；无匹配规则或请求里没有对应类选项时回退弹共享权限卡。
+- native 的 Auto 模式同样不叠加规则（Auto 由 runtime 内部 `AutoApprover` 放行）。
+
+**external ACP agent 不适用本规则**：omp / codex 等外部 agent 的审批完全由它自己的
+模式与 options 决定——客户端只渲染 agent 提供的共享审批卡、按用户点击的
+`option_id` 原样回传，不做策略拦截、也不会自动 allow/deny。若 agent 在自己的模式里
+自动批准（例如 codex 的 `auto` 模式），客户端根本收不到 `session/request_permission`；
+要让 external agent 询问审批，需在 **agent 自己的配置里切到 ask/default 模式**。
+
 ## 目录与依赖方向（脊柱 AD-1）
 
 ```text
