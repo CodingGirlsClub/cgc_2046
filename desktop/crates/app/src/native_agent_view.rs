@@ -3285,15 +3285,13 @@ impl NativeAgentView {
                 let _ = top_view.update(cx, |this, cx| this.scroll_messages_to_top(cx));
             }));
         }
-        render_action_bar(ActionBarSpec {
-            row_id: SharedString::from(format!("{id_prefix}-row")),
-            copy_id: SharedString::from(format!("{id_prefix}-copy")),
-            user_id: SharedString::from(format!("{id_prefix}-user")),
-            top_id: SharedString::from(format!("{id_prefix}-top")),
-            glyphs: native_action_glyphs(),
-            style: native_action_style(palette),
+        // 共享渲染：本函数只组装 spec 与回调（P9）。
+        render_action_bar(native_action_bar_spec(
+            id_prefix,
+            native_action_style(palette),
+            native_action_glyphs(),
             callbacks,
-        })
+        ))
     }
 
     /// 滚到指定用户消息（再映射到 MessageScroller 的 item index）。
@@ -5150,6 +5148,35 @@ fn native_command_menu_style(palette: theme::Palette) -> CommandMenuStyle {
     }
 }
 
+/// P9：native → 共享 `message_actions::ActionBarSpec` 的 id 组装（纯函数，可单测）。
+fn native_action_bar_ids(prefix: &str) -> (SharedString, SharedString, SharedString, SharedString) {
+    (
+        SharedString::from(format!("{prefix}-row")),
+        SharedString::from(format!("{prefix}-copy")),
+        SharedString::from(format!("{prefix}-user")),
+        SharedString::from(format!("{prefix}-top")),
+    )
+}
+
+/// P9：native → 共享 action bar spec（纯组装；回调由调用方注入）。
+fn native_action_bar_spec(
+    prefix: &str,
+    style: ActionStyle,
+    glyphs: ActionGlyphs,
+    callbacks: ActionCallbacks,
+) -> ActionBarSpec {
+    let (row_id, copy_id, user_id, top_id) = native_action_bar_ids(prefix);
+    ActionBarSpec {
+        row_id,
+        copy_id,
+        user_id,
+        top_id,
+        glyphs,
+        style,
+        callbacks,
+    }
+}
+
 fn native_action_glyphs() -> ActionGlyphs {
     ActionGlyphs {
         copy: ActionGlyph::Named(gpui_kit::assets::IconName::Copy),
@@ -5306,6 +5333,18 @@ mod workspace_prompt_tests {
             "面板未打开"
         );
         assert!(!super::checkpoint_panel_visible(true, true, 0), "无变更");
+    }
+
+    #[test]
+    fn action_bar_ids_follow_shared_prefix_convention() {
+        let (row, copy, user, top) = super::native_action_bar_ids("native-message-actions-7");
+        assert_eq!(row.as_ref(), "native-message-actions-7-row");
+        assert_eq!(copy.as_ref(), "native-message-actions-7-copy");
+        assert_eq!(user.as_ref(), "native-message-actions-7-user");
+        assert_eq!(top.as_ref(), "native-message-actions-7-top");
+        // trailing 兜底栏同样走同一组装函数
+        let (row, ..) = super::native_action_bar_ids("native-trailing-actions");
+        assert_eq!(row.as_ref(), "native-trailing-actions-row");
     }
 
     #[test]
