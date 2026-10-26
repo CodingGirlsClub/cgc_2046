@@ -79,8 +79,8 @@ use cgc_agent_ui::permission_card::{
 
 use cgc_agent_ui::message_row::{
     render_assistant_row, render_error_row as shared_render_error_row, render_status_row,
-    render_thinking_row, render_tool_row, AssistantRowSpec, ErrorRowSpec, MessageStyle, RowPalette,
-    StatusRowSpec, ThinkingRowSpec, ToolRowSpec,
+    render_thinking_row, render_tool_row, render_user_row, AssistantRowSpec, ErrorRowSpec,
+    MessageStyle, RowPalette, StatusRowSpec, ThinkingRowSpec, ToolRowSpec, UserRowSpec,
 };
 use cgc_agent_ui::picker::{
     render_picker_popover, PickerGroup, PickerItem, PickerPopoverSpec, PickerStyle,
@@ -2785,101 +2785,52 @@ impl NativeAgentView {
                     if self.editing_user == Some(message_index) {
                         self.render_user_edit_row(message_index, &palette, cx)
                     } else {
-                        let edit_index = message_index;
-                        let restore_index = message_index;
                         let restore_checkpoint =
                             if self.state.thread.capabilities.checkpoint_available() {
                                 self.checkpoint_for_message(message_index)
                             } else {
                                 None
                             };
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(space(1))
-                            .child(
-                                div()
-                                    .id(SharedString::from(format!(
-                                        "native-user-card-{edit_index}"
-                                    )))
-                                    .group("native-user-msg")
-                                    .relative()
-                                    .w_full()
-                                    .px(space(2))
-                                    .py(space(2))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .border_1()
-                                    .border_color(palette.line)
-                                    .bg(palette.view)
-                                    .hover(|style| style.border_color(palette.line_strong))
-                                    .child(
-                                        div().pr(px(28.0)).child(render_user_message_body(
-                                            &message.text,
-                                            &palette,
-                                        )),
-                                    )
-                                    .children(
-                                        (!self.busy && self.editing_user != Some(edit_index)).then(
-                                            || {
-                                                div()
-                                                    .id(SharedString::from(format!(
-                                                        "native-edit-user-{edit_index}"
-                                                    )))
-                                                    .role(Role::Button)
-                                                    .aria_label("编辑消息")
-                                                    .absolute()
-                                                    .top(px(4.0))
-                                                    .right(space(1))
-                                                    .px(space(1))
-                                                    .py(px(1.0))
-                                                    .rounded(px(RADIUS_SMALL))
-                                                    .bg(palette.card)
-                                                    .text_size(px(10.0))
-                                                    .text_color(palette.ink_3)
-                                                    .invisible()
-                                                    .group_hover("native-user-msg", |style| {
-                                                        style.visible()
-                                                    })
-                                                    .hover(|style| style.bg(palette.soft))
-                                                    .child("编辑")
-                                                    .on_click(cx.listener(
-                                                        move |this, _, window, cx| {
-                                                            this.begin_edit_user(
-                                                                edit_index, window, cx,
-                                                            )
-                                                        },
-                                                    ))
-                                            },
-                                        ),
-                                    )
-                                    .into_any_element(),
-                            )
-                            .children(
-                                (!self.busy
-                                    && restore_checkpoint.is_some()
-                                    && self.editing_user != Some(edit_index))
-                                .then(|| {
-                                    div()
-                                        .id(SharedString::from(format!(
-                                            "native-restore-checkpoint-{restore_index}"
-                                        )))
-                                        .role(Role::Button)
-                                        .aria_label("恢复检查点")
-                                        .flex()
-                                        .flex_row()
-                                        .items_center()
-                                        .gap(px(3.0))
-                                        .self_end()
-                                        .text_size(px(10.0))
-                                        .text_color(palette.ink_3)
-                                        .hover(|style| style.text_color(palette.ink_2))
-                                        .child("⟲ 恢复检查点")
-                                        .on_click(cx.listener(move |this, _, _window, cx| {
-                                            this.restore_to_checkpoint(restore_index, cx)
-                                        }))
+                        {
+                            let content = render_user_message_body(&message.text, &palette);
+                            let edit_view = cx.entity().downgrade();
+                            let restore_view = cx.entity().downgrade();
+                            let edit_index = message_index;
+                            let restore_index = message_index;
+                            let (show_edit, show_restore) =
+                                cgc_agent_ui::message_row::user_row_action_visibility(
+                                    self.busy,
+                                    self.editing_user == Some(edit_index),
+                                    restore_checkpoint.is_some(),
+                                );
+                            render_user_row(UserRowSpec {
+                                row_id: SharedString::from(format!("native-user-{edit_index}")),
+                                card_id: SharedString::from(format!(
+                                    "native-user-card-{edit_index}"
+                                )),
+                                edit_id: SharedString::from(format!(
+                                    "native-edit-user-{edit_index}"
+                                )),
+                                restore_id: SharedString::from(format!(
+                                    "native-restore-checkpoint-{restore_index}"
+                                )),
+                                hover_group: SharedString::from("native-user-msg"),
+                                content,
+                                show_edit,
+                                show_restore,
+                                style: native_row_palette(&palette),
+                                on_edit: Box::new(move |window, cx| {
+                                    let _ = edit_view.update(cx, |this, cx| {
+                                        this.begin_edit_user(edit_index, window, cx);
+                                    });
                                 }),
-                            )
-                            .into_any_element()
+                                on_restore: Box::new(move |_window, cx| {
+                                    let _ = restore_view.update(cx, |this, cx| {
+                                        this.restore_to_checkpoint(restore_index, cx);
+                                    });
+                                }),
+                            })
+                        }
                     }
                 }
                 ViewRole::Thinking => {
@@ -4700,7 +4651,9 @@ fn native_row_palette(palette: &theme::Palette) -> RowPalette {
         ink_2: palette.ink_2,
         ink_3: palette.ink_3,
         line: palette.line,
+        line_strong: palette.line_strong,
         view: palette.view,
+        card: palette.card,
         canvas: palette.canvas,
         accent: palette.accent,
         danger: palette.danger,

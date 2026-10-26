@@ -118,8 +118,25 @@ pub fn render_thinking_row(spec: ThinkingRowSpec) -> AnyElement {
 mod tests {
     // 渲染是纯 GPUI 组合，行为断言在 message_flow / message_actions；这里只钉住
     // 样式结构可复制（Clone/Copy）与常量不漂移。
-    use super::MessageStyle;
+    use super::{user_row_action_visibility, MessageStyle};
     use gpui_kit::Hsla;
+
+    #[test]
+    fn user_row_action_visibility_gates_on_busy_editing_and_checkpoint() {
+        assert_eq!(user_row_action_visibility(false, false, true), (true, true));
+        assert_eq!(
+            user_row_action_visibility(false, false, false),
+            (true, false)
+        );
+        assert_eq!(
+            user_row_action_visibility(true, false, true),
+            (false, false)
+        );
+        assert_eq!(
+            user_row_action_visibility(false, true, true),
+            (false, false)
+        );
+    }
 
     #[test]
     fn message_style_is_copy() {
@@ -142,9 +159,11 @@ pub struct RowPalette {
     pub ink_3: Hsla,
     pub line: Hsla,
     pub view: Hsla,
+    pub card: Hsla,
     pub canvas: Hsla,
     pub accent: Hsla,
     pub danger: Hsla,
+    pub line_strong: Hsla,
     pub soft: Hsla,
     pub radius: f32,
     /// tool 卡/重试按钮延续原来的 RADIUS_SMALL。
@@ -348,6 +367,103 @@ pub fn render_error_row(spec: ErrorRowSpec) -> AnyElement {
                 .hover(|hovered| hovered.opacity(0.9))
                 .child("重试")
                 .on_click(move |_, _, cx| on_retry(cx))
+        }))
+        .into_any_element()
+}
+
+/// 带 window 的行内动作回调（编辑消息需要 window 聚焦输入框）。
+pub type WindowActionCallback = Box<dyn Fn(&mut Window, &mut App) + 'static>;
+
+/// user 行 hover 动作显隐（纯函数，可单测）：(编辑, 恢复检查点)。
+pub fn user_row_action_visibility(busy: bool, editing: bool, has_checkpoint: bool) -> (bool, bool) {
+    let idle = !busy && !editing;
+    (idle, idle && has_checkpoint)
+}
+
+/// user 行：卡片 + mention 正文 slot + hover「编辑」/「恢复检查点」。
+pub struct UserRowSpec {
+    pub row_id: gpui_kit::SharedString,
+    pub card_id: gpui_kit::SharedString,
+    pub edit_id: gpui_kit::SharedString,
+    pub restore_id: gpui_kit::SharedString,
+    pub hover_group: gpui_kit::SharedString,
+    pub content: AnyElement,
+    pub show_edit: bool,
+    pub show_restore: bool,
+    pub style: RowPalette,
+    pub on_edit: WindowActionCallback,
+    pub on_restore: WindowActionCallback,
+}
+
+pub fn render_user_row(spec: UserRowSpec) -> AnyElement {
+    let UserRowSpec {
+        row_id,
+        card_id,
+        edit_id,
+        restore_id,
+        hover_group,
+        content,
+        show_edit,
+        show_restore,
+        style,
+        on_edit,
+        on_restore,
+    } = spec;
+    div()
+        .id(row_id)
+        .flex()
+        .flex_col()
+        .gap(px(4.0))
+        .child(
+            div()
+                .id(card_id)
+                .group(hover_group.clone())
+                .relative()
+                .w_full()
+                .px(px(8.0))
+                .py(px(8.0))
+                .rounded(px(style.radius))
+                .border_1()
+                .border_color(style.line)
+                .bg(style.view)
+                .hover(move |hovered| hovered.border_color(style.line_strong))
+                .child(div().pr(px(28.0)).child(content))
+                .children(show_edit.then(|| {
+                    div()
+                        .id(edit_id)
+                        .role(Role::Button)
+                        .aria_label("编辑消息")
+                        .absolute()
+                        .top(px(4.0))
+                        .right(px(4.0))
+                        .px(px(4.0))
+                        .py(px(1.0))
+                        .rounded(px(style.radius_small))
+                        .bg(style.card)
+                        .text_size(px(10.0))
+                        .text_color(style.ink_3)
+                        .invisible()
+                        .group_hover(hover_group.clone(), |hidden| hidden.visible())
+                        .hover(|hovered| hovered.bg(style.soft))
+                        .child("编辑")
+                        .on_click(move |_, window, cx| on_edit(window, cx))
+                })),
+        )
+        .children(show_restore.then(|| {
+            div()
+                .id(restore_id)
+                .role(Role::Button)
+                .aria_label("恢复检查点")
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(3.0))
+                .self_end()
+                .text_size(px(10.0))
+                .text_color(style.ink_3)
+                .hover(|hovered| hovered.text_color(style.ink_2))
+                .child("⟲ 恢复检查点")
+                .on_click(move |_, window, cx| on_restore(window, cx))
         }))
         .into_any_element()
 }
