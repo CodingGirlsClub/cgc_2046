@@ -100,6 +100,36 @@ struct PendingImage {
     preview: Option<Arc<RenderImage>>,
 }
 
+/// B3a：native composer 三个 picker 的渲染产物（capability 不可用时为空）。
+#[derive(Default)]
+struct NativeComposerPickers {
+    model: Option<AnyElement>,
+    thinking: Option<AnyElement>,
+    approval: Option<AnyElement>,
+}
+
+/// picker 的 capability gating（native-only；ACP 轨用自己的 config options picker）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct NativeComposerGating {
+    config_options: bool,
+    /// native 轨道标记：ACP 无 checkpoint 能力，用它区分两轨（后续如加显式
+    /// track 能力位可替换）。
+    native_only: bool,
+}
+
+impl NativeComposerGating {
+    fn from_capabilities(capabilities: cgc_agent_ui::conversation::ThreadCapabilities) -> Self {
+        Self {
+            config_options: capabilities.config_available(),
+            native_only: capabilities.checkpoint_available(),
+        }
+    }
+
+    fn pickers_available(&self) -> bool {
+        self.config_options && self.native_only
+    }
+}
+
 /// composer 渲染的前置值快照（B2b-3a：纯搬迁第一步，收敛 render 里的局部变量）。
 struct ComposerDraft {
     busy: bool,
@@ -3871,160 +3901,7 @@ impl NativeAgentView {
         let _weak_view = cx.entity().downgrade();
         let _message_menu_root = cx.entity().downgrade();
 
-        let current_provider_id = self.model.provider_id.as_str().to_string();
-        let current_model_id = self.model.id.as_str().to_string();
-        let current_model_config = self
-            .providers
-            .iter()
-            .find(|provider| provider.id == self.model.provider_id.as_str())
-            .map(|provider| provider.model_config(self.model.id.as_str()))
-            .unwrap_or_default();
-        let thinking_supported = current_model_config.supports_thinking;
-        let effort_levels = current_model_config.reasoning_efforts.clone();
-        let providers_for_menu = self.providers.clone();
-        let model_root = cx.entity().downgrade();
-        let thinking_root = cx.entity().downgrade();
-        let approval_root = cx.entity().downgrade();
-        let model_id_for_label = current_model_id.clone();
-        let model_groups: Vec<PickerGroup> = providers_for_menu
-            .iter()
-            .filter_map(|provider| {
-                let items: Vec<PickerItem> = provider
-                    .models
-                    .iter()
-                    .filter(|model| provider.model_config(model).enabled)
-                    .map(|model| {
-                        PickerItem::new(
-                            format!("native-model-{}-{}", provider.id, model),
-                            model.clone(),
-                        )
-                        .selected(provider.id == current_provider_id && *model == current_model_id)
-                    })
-                    .collect();
-                (!items.is_empty()).then(|| PickerGroup::titled(provider.name.clone(), items))
-            })
-            .collect();
-        let model_targets: Vec<(String, String)> = providers_for_menu
-            .iter()
-            .flat_map(|provider| {
-                provider
-                    .models
-                    .iter()
-                    .filter(|model| provider.model_config(model).enabled)
-                    .map(|model| (provider.id.clone(), model.clone()))
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-        let model_picker = render_picker_popover(PickerPopoverSpec {
-            popover_id: SharedString::from("native-model-picker"),
-            trigger_id: SharedString::from("native-model-trigger"),
-            trigger_label: model_id_for_label,
-            trigger_tooltip: "选择模型".to_string(),
-            trigger_max_width: None,
-            anchor: Some(Anchor::BottomRight),
-            groups: model_groups,
-            style: native_picker_style(palette),
-            width: 240.0,
-            list_max_height: Some(280.0),
-            search: None,
-            on_select: Box::new(move |index, _window, cx| {
-                let Some((provider_id, model_id)) = model_targets.get(index).cloned() else {
-                    return;
-                };
-                let _ = model_root.update(cx, |this, cx| {
-                    this.select_model(provider_id, model_id, cx);
-                });
-            }),
-        });
-        let current_effort = self.effort_index.min(effort_levels.len().saturating_sub(1));
-        let thinking_enabled = self.thinking_enabled;
-        let thinking_label = if thinking_supported {
-            if thinking_enabled {
-                effort_levels
-                    .get(current_effort)
-                    .map(String::as_str)
-                    .unwrap_or("Thinking")
-            } else {
-                "Off"
-            }
-        } else {
-            "推理 —"
-        };
-        let effort_picker = (thinking_supported && !effort_levels.is_empty()).then(|| {
-            let levels_len = effort_levels.len();
-            let mut items: Vec<PickerItem> = effort_levels
-                .iter()
-                .enumerate()
-                .map(|(level_index, label)| {
-                    PickerItem::new(format!("native-thinking-{label}"), label.clone())
-                        .selected(thinking_enabled && level_index == current_effort)
-                })
-                .collect();
-            items.push(PickerItem::new("native-thinking-off", "Off").selected(!thinking_enabled));
-            let root = thinking_root.clone();
-            render_picker_popover(PickerPopoverSpec {
-                popover_id: SharedString::from("native-thinking-picker"),
-                trigger_id: SharedString::from("native-thinking-trigger"),
-                trigger_label: thinking_label.to_string(),
-                trigger_tooltip: "推理强度".to_string(),
-                trigger_max_width: None,
-                anchor: Some(Anchor::BottomRight),
-                groups: vec![PickerGroup::flat(items)],
-                style: native_picker_style(palette),
-                width: 160.0,
-                list_max_height: None,
-                search: None,
-                on_select: Box::new(move |index, _window, cx| {
-                    let _ = root.update(cx, |this, cx| {
-                        if index < levels_len {
-                            if !this.thinking_enabled {
-                                this.set_thinking_enabled(true, cx);
-                            }
-                            this.set_effort_index(index, cx);
-                        } else {
-                            this.set_thinking_enabled(false, cx);
-                        }
-                    });
-                }),
-            })
-        });
-        let current_approval = self.approval_mode;
-        let approval_picker = {
-            let modes = [ApprovalMode::Ask, ApprovalMode::Auto];
-            let items: Vec<PickerItem> = modes
-                .iter()
-                .map(|mode| {
-                    let label = match mode {
-                        ApprovalMode::Ask => "Ask（逐次审批）",
-                        ApprovalMode::Auto => "Auto（自动允许）",
-                    };
-                    PickerItem::new(format!("native-approval-{}", mode.label()), label)
-                        .selected(*mode == current_approval)
-                })
-                .collect();
-            let root = approval_root.clone();
-            render_picker_popover(PickerPopoverSpec {
-                popover_id: SharedString::from("native-approval-picker"),
-                trigger_id: SharedString::from("native-approval-trigger"),
-                trigger_label: current_approval.label().to_string(),
-                trigger_tooltip: "审批模式".to_string(),
-                trigger_max_width: None,
-                anchor: Some(Anchor::BottomRight),
-                groups: vec![PickerGroup::flat(items)],
-                style: native_picker_style(palette),
-                width: 200.0,
-                list_max_height: None,
-                search: None,
-                on_select: Box::new(move |index, _window, cx| {
-                    let Some(mode) = modes.get(index).copied() else {
-                        return;
-                    };
-                    let _ = root.update(cx, |this, cx| {
-                        this.set_approval_mode(mode, cx);
-                    });
-                }),
-            })
-        };
+        let pickers = self.native_composer_pickers(palette, cx);
         let send_aria = if busy {
             if has_input {
                 "发送（排队）"
@@ -4481,9 +4358,9 @@ impl NativeAgentView {
                                         }),
                                     )
                             }))
-                            .child(approval_picker)
-                            .child(model_picker)
-                            .children(effort_picker)
+                            .children(pickers.approval)
+                            .children(pickers.model)
+                            .children(pickers.thinking)
                             .children(
                                 self.state
                                     .thread
@@ -4526,6 +4403,178 @@ impl NativeAgentView {
     /// Phase B2b-3c/3d：native 主 composer 的共享版（flag=1 时使用）。
     /// 共享 send/stop + 附件 chips + attach + slash/mention 菜单 + queue 提示；
     /// context chip 为 ACP 面板能力，native 本就没有，不在此渲染。
+    /// B3a：native 模型 / 推理强度 / 审批模式 picker（legacy 与 shared composer 共用）。
+    /// capability gated：config options 不可用时三个 picker 都不渲染。
+    fn native_composer_pickers(
+        &self,
+        palette: theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> NativeComposerPickers {
+        let gating = NativeComposerGating::from_capabilities(self.state.thread.capabilities);
+        if !gating.pickers_available() {
+            return NativeComposerPickers::default();
+        }
+        let current_provider_id = self.model.provider_id.as_str().to_string();
+        let current_model_id = self.model.id.as_str().to_string();
+        let current_model_config = self
+            .providers
+            .iter()
+            .find(|provider| provider.id == self.model.provider_id.as_str())
+            .map(|provider| provider.model_config(self.model.id.as_str()))
+            .unwrap_or_default();
+        let thinking_supported = current_model_config.supports_thinking;
+        let effort_levels = current_model_config.reasoning_efforts.clone();
+        let providers_for_menu = self.providers.clone();
+        let model_root = cx.entity().downgrade();
+        let thinking_root = cx.entity().downgrade();
+        let approval_root = cx.entity().downgrade();
+        let model_id_for_label = current_model_id.clone();
+        let model_groups: Vec<PickerGroup> = providers_for_menu
+            .iter()
+            .filter_map(|provider| {
+                let items: Vec<PickerItem> = provider
+                    .models
+                    .iter()
+                    .filter(|model| provider.model_config(model).enabled)
+                    .map(|model| {
+                        PickerItem::new(
+                            format!("native-model-{}-{}", provider.id, model),
+                            model.clone(),
+                        )
+                        .selected(provider.id == current_provider_id && *model == current_model_id)
+                    })
+                    .collect();
+                (!items.is_empty()).then(|| PickerGroup::titled(provider.name.clone(), items))
+            })
+            .collect();
+        let model_targets: Vec<(String, String)> = providers_for_menu
+            .iter()
+            .flat_map(|provider| {
+                provider
+                    .models
+                    .iter()
+                    .filter(|model| provider.model_config(model).enabled)
+                    .map(|model| (provider.id.clone(), model.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let model_picker = render_picker_popover(PickerPopoverSpec {
+            popover_id: SharedString::from("native-model-picker"),
+            trigger_id: SharedString::from("native-model-trigger"),
+            trigger_label: model_id_for_label,
+            trigger_tooltip: "选择模型".to_string(),
+            trigger_max_width: None,
+            anchor: Some(Anchor::BottomRight),
+            groups: model_groups,
+            style: native_picker_style(palette),
+            width: 240.0,
+            list_max_height: Some(280.0),
+            search: None,
+            on_select: Box::new(move |index, _window, cx| {
+                let Some((provider_id, model_id)) = model_targets.get(index).cloned() else {
+                    return;
+                };
+                let _ = model_root.update(cx, |this, cx| {
+                    this.select_model(provider_id, model_id, cx);
+                });
+            }),
+        });
+        let current_effort = self.effort_index.min(effort_levels.len().saturating_sub(1));
+        let thinking_enabled = self.thinking_enabled;
+        let thinking_label = if thinking_supported {
+            if thinking_enabled {
+                effort_levels
+                    .get(current_effort)
+                    .map(String::as_str)
+                    .unwrap_or("Thinking")
+            } else {
+                "Off"
+            }
+        } else {
+            "推理 —"
+        };
+        let effort_picker = (thinking_supported && !effort_levels.is_empty()).then(|| {
+            let levels_len = effort_levels.len();
+            let mut items: Vec<PickerItem> = effort_levels
+                .iter()
+                .enumerate()
+                .map(|(level_index, label)| {
+                    PickerItem::new(format!("native-thinking-{label}"), label.clone())
+                        .selected(thinking_enabled && level_index == current_effort)
+                })
+                .collect();
+            items.push(PickerItem::new("native-thinking-off", "Off").selected(!thinking_enabled));
+            let root = thinking_root.clone();
+            render_picker_popover(PickerPopoverSpec {
+                popover_id: SharedString::from("native-thinking-picker"),
+                trigger_id: SharedString::from("native-thinking-trigger"),
+                trigger_label: thinking_label.to_string(),
+                trigger_tooltip: "推理强度".to_string(),
+                trigger_max_width: None,
+                anchor: Some(Anchor::BottomRight),
+                groups: vec![PickerGroup::flat(items)],
+                style: native_picker_style(palette),
+                width: 160.0,
+                list_max_height: None,
+                search: None,
+                on_select: Box::new(move |index, _window, cx| {
+                    let _ = root.update(cx, |this, cx| {
+                        if index < levels_len {
+                            if !this.thinking_enabled {
+                                this.set_thinking_enabled(true, cx);
+                            }
+                            this.set_effort_index(index, cx);
+                        } else {
+                            this.set_thinking_enabled(false, cx);
+                        }
+                    });
+                }),
+            })
+        });
+        let current_approval = self.approval_mode;
+        let approval_picker = {
+            let modes = [ApprovalMode::Ask, ApprovalMode::Auto];
+            let items: Vec<PickerItem> = modes
+                .iter()
+                .map(|mode| {
+                    let label = match mode {
+                        ApprovalMode::Ask => "Ask（逐次审批）",
+                        ApprovalMode::Auto => "Auto（自动允许）",
+                    };
+                    PickerItem::new(format!("native-approval-{}", mode.label()), label)
+                        .selected(*mode == current_approval)
+                })
+                .collect();
+            let root = approval_root.clone();
+            render_picker_popover(PickerPopoverSpec {
+                popover_id: SharedString::from("native-approval-picker"),
+                trigger_id: SharedString::from("native-approval-trigger"),
+                trigger_label: current_approval.label().to_string(),
+                trigger_tooltip: "审批模式".to_string(),
+                trigger_max_width: None,
+                anchor: Some(Anchor::BottomRight),
+                groups: vec![PickerGroup::flat(items)],
+                style: native_picker_style(palette),
+                width: 200.0,
+                list_max_height: None,
+                search: None,
+                on_select: Box::new(move |index, _window, cx| {
+                    let Some(mode) = modes.get(index).copied() else {
+                        return;
+                    };
+                    let _ = root.update(cx, |this, cx| {
+                        this.set_approval_mode(mode, cx);
+                    });
+                }),
+            })
+        };
+        NativeComposerPickers {
+            model: Some(model_picker),
+            thinking: effort_picker,
+            approval: Some(approval_picker),
+        }
+    }
+
     fn render_shared_native_composer(
         &mut self,
         draft: &ComposerDraft,
@@ -4544,6 +4593,7 @@ impl NativeAgentView {
         let remove_weak_for_chips = remove_weak.clone();
         let slash_menu = self.render_slash_menu(cx);
         let mention_menu = self.render_mention_menu(cx);
+        let pickers = self.native_composer_pickers(palette, cx);
         let queue_hint = (!self.queued_messages.is_empty()).then(|| {
             div()
                 .mx(space(1))
@@ -4601,6 +4651,9 @@ impl NativeAgentView {
                                     move |_, window, cx| (attach)(window, cx)
                                 }),
                         )
+                        .children(pickers.approval)
+                        .children(pickers.model)
+                        .children(pickers.thinking)
                         .children(busy.then(|| {
                             let steer = steer.clone();
                             Button::new("native-shared-steer")
@@ -5763,7 +5816,7 @@ fn now_secs() -> i64 {
 mod workspace_prompt_tests {
     use super::{
         build_workspace_system_prompt, composer_has_input, now_secs, offline_echo_notice,
-        queued_panel_header_text, queued_status_text,
+        queued_panel_header_text, queued_status_text, NativeComposerGating,
     };
 
     #[test]
@@ -5775,6 +5828,18 @@ mod workspace_prompt_tests {
         assert_eq!(
             queued_panel_header_text(3),
             "排队中 3 条 · 当前 turn 结束后自动发送"
+        );
+    }
+
+    #[test]
+    fn picker_gating_follows_capabilities() {
+        use cgc_agent_ui::conversation::ThreadCapabilities;
+        let native = NativeComposerGating::from_capabilities(ThreadCapabilities::native());
+        assert!(native.pickers_available(), "native 渲染三个 picker");
+        let acp = NativeComposerGating::from_capabilities(ThreadCapabilities::acp());
+        assert!(
+            !acp.pickers_available(),
+            "ACP 走自己的 config options picker"
         );
     }
 
