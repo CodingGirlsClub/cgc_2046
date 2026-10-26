@@ -82,9 +82,11 @@ pub(in crate::root_view) fn render_right_dock(
         .flex()
         .flex_col()
         .min_h(px(0.0))
-        .border_l_1()
-        .border_color(palette.line)
-        .bg(palette.view)
+        .bg(if panel == RightPanel::SiteTree {
+            palette.frame
+        } else {
+            palette.canvas
+        })
         .children(header)
         .child(
             div()
@@ -104,7 +106,11 @@ pub(in crate::root_view) fn render_right_dock(
                     })
                     .detach();
                 }))
-                .p(space(1))
+                .p(if panel == RightPanel::SiteTree {
+                    px(0.0)
+                } else {
+                    space(1)
+                })
                 .text_size(px(12.0))
                 .text_color(palette.ink_2)
                 .child(body),
@@ -382,9 +388,7 @@ fn render_notifications_dock(
         .flex()
         .flex_col()
         .min_h(px(0.0))
-        .border_l_1()
-        .border_color(palette.line)
-        .bg(palette.view)
+        .bg(palette.canvas)
         .child(header)
         .child(filters)
         .child(
@@ -764,6 +768,8 @@ fn render_site_tree(
         .header(header)
         .children(items)
         .w_full()
+        .border_l_0()
+        .bg(palette.frame)
         .into_any_element()
 }
 
