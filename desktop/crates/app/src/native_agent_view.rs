@@ -24,7 +24,6 @@ use cgc_agent_provider::{
 };
 use cgc_agent_store::{
     provider_key_account, ActionAuditEntry, AuditLog, CheckpointRecord, PrefsStore, ProviderPrefs,
-    SessionStore,
 };
 use cgc_agent_tools::{
     ActionSink, AgentState, AppAction, ItemStatus, SandboxPolicy, SharedAgentState, SubagentEvent,
@@ -58,6 +57,7 @@ use crate::native_context::{
     trailing_mention, truncate_text, SlashEntry,
 };
 use crate::native_runtime::{NativeRuntimeConfig, NativeRuntimeHandle};
+use crate::native_session::NativeSessionStore;
 use crate::native_thread_state::{NativeThreadState, SubagentCard};
 use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 use cgc_agent_ui::command_menu::{
@@ -654,7 +654,7 @@ pub struct NativeAgentView {
     scope: crate::agent_scope::AgentScope,
     status: String,
     busy: bool,
-    session_store: Option<SessionStore>,
+    session_store: NativeSessionStore,
     checkpoint_manager: Option<CheckpointManager>,
     last_checkpoint: Option<Checkpoint>,
     /// 当前线程持久化的 checkpoint（user 消息 ordinal → checkpoint）。
@@ -784,18 +784,16 @@ impl NativeAgentView {
         };
         let selected = SelectedModel::new(model.provider_id.clone(), model.id.clone());
         let providers = prefs.providers.clone();
-        let session_store =
-            SessionStore::open(paths.data_root.join("agent").join("threads.db")).ok();
+        let session_store = NativeSessionStore::open(&paths.data_root);
         // 全局 assistant scope（CGC_AGENT_WORKSPACE 优先）；所有页面共用一条线程。
         let scope =
             crate::agent_scope::current().unwrap_or_else(|| crate::agent_scope::resolve(None));
         let thread_id = scope_thread_id(&scope);
         let workspace = scope.root.clone();
         let _ = std::fs::create_dir_all(&workspace);
-        let restored_thread = session_store.as_ref().and_then(|store| {
-            let thread = store.load_thread(&thread_id).ok().flatten()?;
-            (thread.model == selected).then_some(thread)
-        });
+        let restored_thread = session_store
+            .load_thread(&thread_id)
+            .filter(|thread| thread.model == selected);
         let mut state = NativeThreadState::new();
         let mut restored_images: HashMap<usize, Vec<SentImage>> = HashMap::new();
         let thread = match restored_thread {
@@ -1417,8 +1415,8 @@ impl NativeAgentView {
         if let Some(agent) = &mut self.agent {
             agent.set_thread_title_override(title);
         }
-        if let (Some(agent), Some(store)) = (self.agent.as_ref(), self.session_store.as_mut()) {
-            let _ = store.save_thread(agent.thread());
+        if let Some(agent) = self.agent.as_ref() {
+            let _ = self.session_store.save_thread(agent.thread());
         }
         cx.notify();
     }
@@ -1498,7 +1496,7 @@ impl NativeAgentView {
                             agent.set_thread_title(Some(fallback.clone()));
                         }
                         if let (Some(agent), Some(store)) =
-                            (this.agent.as_ref(), this.session_store.as_mut())
+                            (this.agent.as_ref(), this.session_store.session_mut())
                         {
                             let _ = store.save_thread(agent.thread());
                         }
@@ -1508,7 +1506,7 @@ impl NativeAgentView {
                         agent.set_thread_title(Some(title.clone()));
                     }
                     if let (Some(agent), Some(store)) =
-                        (this.agent.as_ref(), this.session_store.as_mut())
+                        (this.agent.as_ref(), this.session_store.session_mut())
                     {
                         let _ = store.save_thread(agent.thread());
                     }
@@ -1543,7 +1541,7 @@ impl NativeAgentView {
 
     /// 从统一线程列表恢复指定 native 线程。
     pub fn open_thread(&mut self, thread_id: &str, cx: &mut Context<Self>) {
-        let Some(store) = &self.session_store else {
+        let Some(store) = self.session_store.session() else {
             return;
         };
         let Ok(Some(thread)) = store.load_thread(thread_id) else {
@@ -1965,7 +1963,7 @@ impl NativeAgentView {
                 self.status = format!("错误：{message}");
             }
         }
-        if let (Some(store), Some(agent)) = (&mut self.session_store, &self.agent) {
+        if let (Some(store), Some(agent)) = (self.session_store.session_mut(), &self.agent) {
             let _ = store.save_thread(agent.thread());
         }
         self.reload_thread_checkpoints();
@@ -2367,7 +2365,9 @@ impl NativeAgentView {
         };
         // checkpoint 回滚（尽力而为；失败只提示，不阻断重发）。
         let mut note = String::new();
-        if let (Some(manager), Some(store)) = (&self.checkpoint_manager, &self.session_store) {
+        if let (Some(manager), Some(store)) =
+            (&self.checkpoint_manager, self.session_store.session())
+        {
             if let Ok(records) = store.list_checkpoints(&thread_id) {
                 if let Some(record) = checkpoint_for_ordinal(&records, ordinal) {
                     let checkpoint = Checkpoint {
@@ -2632,12 +2632,12 @@ impl NativeAgentView {
             ));
         }
         // 新会话复用 scope 线程 id，旧 checkpoint 记录必须作废。
-        if let Some(store) = &mut self.session_store {
-            for (ordinal, _) in &self.available_checkpoints {
-                let _ = store.mark_checkpoint_invalid(&thread_id, *ordinal as i64);
-            }
+        for (ordinal, _) in &self.available_checkpoints {
+            let _ = self
+                .session_store
+                .mark_checkpoint_invalid(&thread_id, *ordinal as i64);
         }
-        if let (Some(store), Some(agent)) = (&mut self.session_store, &self.agent) {
+        if let (Some(store), Some(agent)) = (self.session_store.session_mut(), &self.agent) {
             let _ = store.save_thread(agent.thread());
         }
         self.state = NativeThreadState::new();
@@ -2719,7 +2719,7 @@ impl NativeAgentView {
 
     /// 切换工作区 scope：保存当前线程，载入目标 scope 的线程并重建运行时。
     fn switch_scope(&mut self, scope: crate::agent_scope::AgentScope, cx: &mut Context<Self>) {
-        if let (Some(store), Some(agent)) = (&mut self.session_store, &self.agent) {
+        if let (Some(store), Some(agent)) = (self.session_store.session_mut(), &self.agent) {
             let _ = store.save_thread(agent.thread());
         }
         let root = scope.root.clone();
@@ -2727,8 +2727,7 @@ impl NativeAgentView {
         let selected = SelectedModel::new(self.model.provider_id.clone(), self.model.id.clone());
         let thread = self
             .session_store
-            .as_ref()
-            .and_then(|store| store.load_thread(&thread_id).ok().flatten())
+            .load_thread(&thread_id)
             .filter(|thread| thread.model == selected)
             .unwrap_or_else(|| Thread::new(thread_id.clone(), selected));
         let mut state = NativeThreadState::new();
@@ -2786,7 +2785,7 @@ impl NativeAgentView {
         let Some(agent) = &self.agent else {
             return;
         };
-        let Some(store) = &self.session_store else {
+        let Some(store) = self.session_store.session() else {
             return;
         };
         let thread_id = agent.thread().id.clone();
@@ -2840,9 +2839,9 @@ impl NativeAgentView {
         };
         match manager.snapshot(thread_id, ordinal as u64) {
             Ok(checkpoint) => {
-                if let Some(store) = &mut self.session_store {
-                    let _ = store.save_checkpoint(&checkpoint, ordinal as i64, now_secs());
-                }
+                let _ = self
+                    .session_store
+                    .save_checkpoint(&checkpoint, ordinal as i64, now_secs());
                 self.last_checkpoint = Some(checkpoint.clone());
                 self.available_checkpoints
                     .retain(|(existing, _)| *existing != ordinal);
@@ -2865,17 +2864,19 @@ impl NativeAgentView {
     fn reload_thread_checkpoints(&mut self) {
         self.available_checkpoints.clear();
         self.last_checkpoint = None;
-        let (Some(store), Some(agent)) = (&self.session_store, &self.agent) else {
+        let Some(agent) = self.agent.as_ref() else {
             return;
         };
-        let thread_id = agent.thread().id.clone();
-        if let Ok(records) = store.list_checkpoints(&thread_id) {
-            self.available_checkpoints = checkpoints_from_records(&records);
-            self.last_checkpoint = self
-                .available_checkpoints
-                .last()
-                .map(|(_, checkpoint)| checkpoint.clone());
+        if !self.session_store.is_available() {
+            return;
         }
+        let thread_id = agent.thread().id.clone();
+        let records = self.session_store.list_checkpoints(&thread_id);
+        self.available_checkpoints = checkpoints_from_records(&records);
+        self.last_checkpoint = self
+            .available_checkpoints
+            .last()
+            .map(|(_, checkpoint)| checkpoint.clone());
         self.refresh_checkpoint_changes();
     }
 
@@ -2891,7 +2892,7 @@ impl NativeAgentView {
 
     /// 会话回退后，把 `ordinal >= from_ordinal` 的 checkpoint 标记失效。
     fn invalidate_checkpoints_from(&mut self, from_ordinal: usize, thread_id: &str) {
-        if let Some(store) = &mut self.session_store {
+        if let Some(store) = self.session_store.session_mut() {
             for (ordinal, _) in self
                 .available_checkpoints
                 .iter()
@@ -2930,7 +2931,8 @@ impl NativeAgentView {
         match manager.is_valid(&checkpoint) {
             Ok(true) => {}
             Ok(false) => {
-                if let (Some(store), Some(agent)) = (&mut self.session_store, &self.agent) {
+                if let (Some(store), Some(agent)) = (self.session_store.session_mut(), &self.agent)
+                {
                     let _ = store.mark_checkpoint_invalid(&agent.thread().id, ordinal as i64);
                 }
                 self.reload_thread_checkpoints();
@@ -2956,7 +2958,7 @@ impl NativeAgentView {
         if let Some(entry_index) = thread_user_entry_index(&agent.thread().entries, ordinal) {
             agent.thread_mut().entries.truncate(entry_index);
         }
-        if let Some(store) = &mut self.session_store {
+        if let Some(store) = self.session_store.session_mut() {
             let _ = store.save_thread(agent.thread());
         }
         self.editing_user = None;
