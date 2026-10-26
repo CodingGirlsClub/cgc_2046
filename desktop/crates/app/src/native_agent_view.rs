@@ -3637,6 +3637,121 @@ impl NativeAgentView {
     }
 
     /// Phase B2b-3b：native composer 的 legacy 渲染（render 内联链纯搬迁，行为不变）。
+    /// Phase B2b-3d-2a：slash 菜单（legacy 与 shared composer 共用）。
+    fn render_slash_menu(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let input_value = self.input.read(cx).value().to_string();
+        let slash_open = input_value.trim_start().starts_with('/') && !self.slash_dismissed;
+        let slash_matches = self.slash_entries(&input_value);
+        let slash_selected = self.slash_index.min(slash_matches.len().saturating_sub(1));
+        if !(slash_open && !slash_matches.is_empty()) {
+            return None;
+        }
+        let palette = theme::palette_from_theme(cx);
+        let items: Vec<CommandMenuItem> = slash_matches
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| CommandMenuItem {
+                id: SharedString::from(format!("native-slash-{index}")),
+                label: entry.label.clone(),
+                description: entry.description.clone(),
+                scope: entry.scope.clone(),
+                group: entry.category.to_string(),
+                selected: index == slash_selected,
+            })
+            .collect();
+        let entries = slash_matches.clone();
+        let hover_root = cx.entity().downgrade();
+        let click_root = cx.entity().downgrade();
+        let menu = render_command_menu(CommandMenuSpec {
+            menu_id: SharedString::from("native-agent-slash-menu"),
+            items,
+            style: native_command_menu_style(palette),
+            label_width: 150.0,
+            width: Some(300.0),
+            max_height: 320.0,
+            row_height: None,
+            on_hover: Some(Box::new(move |index, cx| {
+                let _ = hover_root.update(cx, |this, cx| {
+                    if this.slash_index != index {
+                        this.slash_index = index;
+                        cx.notify();
+                    }
+                });
+            })),
+            on_click: Box::new(move |index, window, cx| {
+                let _ = click_root.update(cx, |this, cx| {
+                    this.run_slash_entry(entries.clone(), index, window, cx);
+                });
+            }),
+        });
+        let detail = slash_matches.get(slash_selected).map(|entry| {
+            div()
+                .id("native-slash-detail")
+                .w(px(280.0))
+                .flex_1()
+                .min_w(px(0.0))
+                .max_h(px(320.0))
+                .overflow_y_scroll()
+                .p(space(1))
+                .mt(space(1))
+                .rounded(px(RADIUS_SMALL))
+                .border_1()
+                .border_color(palette.line)
+                .bg(palette.view)
+                .child(
+                    div()
+                        .text_size(px(9.0))
+                        .text_color(palette.ink_3)
+                        .child(entry.category),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(space(1))
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(palette.ink)
+                                .child(entry.label.clone()),
+                        )
+                        .children(entry.scope.clone().map(|scope| {
+                            div()
+                                .text_size(px(9.0))
+                                .text_color(palette.ink_3)
+                                .child(scope)
+                        })),
+                )
+                .child(
+                    div()
+                        .line_height(px(16.0))
+                        .text_size(px(10.0))
+                        .text_color(palette.ink_3)
+                        .child(entry.description.clone()),
+                )
+        });
+        let element = div()
+            .absolute()
+            .left(space(1))
+            .right(space(1))
+            .bottom(px(132.0))
+            .flex()
+            .flex_row()
+            .items_start()
+            .gap(space(2))
+            .child(
+                div()
+                    .flex_none()
+                    .mx(space(1))
+                    .mt(space(1))
+                    .mb(px(2.0))
+                    .child(menu),
+            )
+            .children(detail);
+        Some(element.into_any_element())
+    }
+
     fn render_native_composer_legacy(
         &mut self,
         draft: &ComposerDraft,
@@ -3657,7 +3772,7 @@ impl NativeAgentView {
         let _pending = self.state.thread.pending_permission.clone();
         let slash_open = input_value.trim_start().starts_with('/') && !self.slash_dismissed;
         let slash_matches = self.slash_entries(&input_value);
-        let slash_selected = self.slash_index.min(slash_matches.len().saturating_sub(1));
+        let _slash_selected = self.slash_index.min(slash_matches.len().saturating_sub(1));
         let mention = trailing_mention(&input_value);
         let mention_matches = mention
             .as_ref()
@@ -4009,110 +4124,7 @@ impl NativeAgentView {
                             _ => {}
                         }
                     }))
-                    .children((slash_open && !slash_matches.is_empty()).then(|| {
-                        let items: Vec<CommandMenuItem> = slash_matches
-                            .iter()
-                            .enumerate()
-                            .map(|(index, entry)| CommandMenuItem {
-                                id: SharedString::from(format!("native-slash-{index}")),
-                                label: entry.label.clone(),
-                                description: entry.description.clone(),
-                                scope: entry.scope.clone(),
-                                group: entry.category.to_string(),
-                                selected: index == slash_selected,
-                            })
-                            .collect();
-                        let entries = slash_matches.clone();
-                        let hover_root = cx.entity().downgrade();
-                        let click_root = cx.entity().downgrade();
-                        let menu = render_command_menu(CommandMenuSpec {
-                            menu_id: SharedString::from("native-agent-slash-menu"),
-                            items,
-                            style: native_command_menu_style(palette),
-                            label_width: 150.0,
-                            width: Some(300.0),
-                            max_height: 320.0,
-                            row_height: None,
-                            on_hover: Some(Box::new(move |index, cx| {
-                                let _ = hover_root.update(cx, |this, cx| {
-                                    if this.slash_index != index {
-                                        this.slash_index = index;
-                                        cx.notify();
-                                    }
-                                });
-                            })),
-                            on_click: Box::new(move |index, window, cx| {
-                                let _ = click_root.update(cx, |this, cx| {
-                                    this.run_slash_entry(entries.clone(), index, window, cx);
-                                });
-                            }),
-                        });
-                        let detail = slash_matches.get(slash_selected).map(|entry| {
-                            div()
-                                .id("native-slash-detail")
-                                .w(px(280.0))
-                                .flex_1()
-                                .min_w(px(0.0))
-                                .max_h(px(320.0))
-                                .overflow_y_scroll()
-                                .p(space(1))
-                                .mt(space(1))
-                                .rounded(px(RADIUS_SMALL))
-                                .border_1()
-                                .border_color(palette.line)
-                                .bg(palette.view)
-                                .child(
-                                    div()
-                                        .text_size(px(9.0))
-                                        .text_color(palette.ink_3)
-                                        .child(entry.category),
-                                )
-                                .child(
-                                    div()
-                                        .flex()
-                                        .flex_row()
-                                        .items_center()
-                                        .gap(space(1))
-                                        .child(
-                                            div()
-                                                .text_size(px(11.0))
-                                                .text_color(palette.ink)
-                                                .child(entry.label.clone()),
-                                        )
-                                        .children(entry.scope.clone().map(|scope| {
-                                            div()
-                                                .text_size(px(9.0))
-                                                .text_color(palette.ink_3)
-                                                .child(scope)
-                                        })),
-                                )
-                                .child(
-                                    div()
-                                        .line_height(px(16.0))
-                                        .text_size(px(10.0))
-                                        .text_color(palette.ink_3)
-                                        .child(entry.description.clone()),
-                                )
-                        });
-                        div()
-                            .absolute()
-                            .left(space(1))
-                            .right(space(1))
-                            .bottom(px(132.0))
-                            .flex()
-                            .flex_row()
-                            .items_start()
-                            .gap(space(2))
-                            .child(
-                                div()
-                                    .flex_none()
-                                    .mx(space(1))
-                                    .mt(space(1))
-                                    .mb(px(2.0))
-                                    .child(menu),
-                            )
-                            .children(detail)
-                    }))
+                    .children(self.render_slash_menu(cx))
                     .children(mention_open.then(|| {
                         let query = mention
                             .as_ref()
