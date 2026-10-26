@@ -4538,6 +4538,7 @@ impl NativeAgentView {
         let busy = draft.busy;
         let send = surface.callbacks.send.clone();
         let attach = surface.callbacks.attach.clone();
+        let steer = surface.callbacks.steer.clone();
         let stop_weak = cx.entity().downgrade();
         let remove_weak = cx.entity().downgrade();
         let remove_weak_for_chips = remove_weak.clone();
@@ -4600,6 +4601,15 @@ impl NativeAgentView {
                                     move |_, window, cx| (attach)(window, cx)
                                 }),
                         )
+                        .children(busy.then(|| {
+                            let steer = steer.clone();
+                            Button::new("native-shared-steer")
+                                .label("⇥↑")
+                                .xsmall()
+                                .ghost()
+                                .tooltip("打断并立即发送（⌘↩）")
+                                .on_click(move |_, window, cx| (steer)(window, cx))
+                        }))
                         .child(
                             Button::new(SharedString::from(if busy {
                                 "native-shared-stop"
