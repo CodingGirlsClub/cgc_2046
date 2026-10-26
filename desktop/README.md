@@ -73,6 +73,43 @@ cgc://courses/<uuid>/learn
 - 托盘菜单的 `通知` 也会打开通知中心；主窗口已关闭时会先恢复窗口。
 - 当前不做「全部已读」，因为后端只有单条 `markNotificationRead`。
 
+## 审批规则（toolPermissions）
+
+设置级审批规则（Stage 3.2b）保存在 `preferences.json`（与 `closeToTray` 同文件；
+MVP 暂无设置 GUI，手改文件后**下一次审批即时生效**）：
+
+```json
+{
+  "toolPermissions": {
+    "default": "ask",
+    "tools": {
+      "run_command": {
+        "alwaysAllow": ["^ls"],
+        "alwaysDeny": ["rm -rf"],
+        "alwaysConfirm": ["git push"]
+      },
+      "*": { "alwaysDeny": ["echo"] }
+    }
+  }
+}
+```
+
+- `default`：`ask`（默认，弹共享权限卡）/ `allow` / `deny` / `confirm`。
+- `tools.<toolName>`：对**精确工具名**生效；`"*"` 是**通配键**，对任意工具生效
+  （external ACP agent 的工具名与 native 不同，例如 codex 的 `exec_command`）。
+  精确键与 `"*"` 规则**合并**判定。
+- 每个字段是正则列表，匹配对象 = **工具名或参数 JSON 文本**（`echo` 这类命令
+  子串可直接命中）；非法正则忽略该条并在 stderr 记录 warning，不影响其他规则。
+- 优先级：`deny > allow > confirm > default(ask)`；同一 kind 命中任一规则即生效。
+- 命中 `allow` / `deny` 时不弹审批卡，直接回传对应选项，并在会话里留一条 system
+  提示（如「已按设置自动允许 run_command」）；`confirm` 强制弹卡（即使
+  `default=allow`）；无匹配规则或请求里没有对应类选项时回退弹共享权限卡。
+
+**限制（重要）**：规则只在 agent 发出 `session/request_permission` 时生效。如果
+agent 在自己的模式里自动批准（例如 codex 的 `auto` 模式），客户端根本收不到审批
+请求，规则无法拦截；要让审批规则生效，agent 需处于**询问/默认（ask/default）模式**。
+native 的 Auto 模式同样不叠加规则（Auto 由 runtime 内部 `AutoApprover` 放行）。
+
 ## 目录与依赖方向（脊柱 AD-1）
 
 ```text
