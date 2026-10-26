@@ -5,6 +5,7 @@
 //! 整个窗口显示登录页（guard），登录成功后进入壳；登出在头像下拉里（同 Zed 的
 //! sign out）。网络调用放后台线程，结果回主线程刷新。
 
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::InteractiveElement;
 use gpui_kit::*;
 
@@ -2343,12 +2344,27 @@ fn render_panel_resize_handle(
     };
     div()
         .id(id)
+        .relative()
         .w(px(5.0))
         .flex_none()
         .h_full()
         .cursor_col_resize()
-        .bg(palette.line)
-        .hover(|style| style.bg(palette.accent))
+        .when(side == ResizeSide::Left, |this| {
+            // Keep the 5 px drag target while painting only a 1 px separator.
+            this.group(id).child(
+                div()
+                    .absolute()
+                    .left(px(2.0))
+                    .w(px(1.0))
+                    .h_full()
+                    .bg(palette.line)
+                    .group_hover(id, |style| style.bg(palette.accent)),
+            )
+        })
+        .when(side == ResizeSide::Right, |this| {
+            this.bg(palette.line)
+                .hover(|style| style.bg(palette.accent))
+        })
         .on_drag(side, move |_, position, _, cx| {
             let _ = root.update(cx, |this, cx| {
                 let width = match side {

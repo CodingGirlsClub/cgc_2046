@@ -1035,7 +1035,7 @@ pub(in crate::root_view) fn render_chat_panel(
         .gap(space(1))
         .h_full()
         .p(space(2))
-        .bg(palette.card)
+        .bg(palette.canvas)
         .child(
             div()
                 .flex()
