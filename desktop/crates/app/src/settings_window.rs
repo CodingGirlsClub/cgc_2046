@@ -6,7 +6,7 @@
 //! 导航壳，设置不再占用 footer 导航位（`app.settings` 路由仅内部保留）。
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use cgc_agent_store::{
     builtin_providers, normalized_provider_name, provider_key_account, PrefsStore, ProviderPrefs,
@@ -58,6 +58,9 @@ pub struct SettingsWindowView {
     ai_view: AiRoute,
     prefs_store: PrefsStore,
     keychain: KeychainStore,
+    /// Stage 3.3：清空 ACP 对话历史的二次确认状态与结果提示。
+    clear_acp_history_armed: Arc<AtomicBool>,
+    clear_acp_history_notice: Arc<Mutex<Option<String>>>,
 }
 
 impl SettingsWindowView {
@@ -101,6 +104,8 @@ impl SettingsWindowView {
             ai_view: AiRoute::General,
             prefs_store,
             keychain: KeychainStore::from_env(),
+            clear_acp_history_armed: Arc::new(AtomicBool::new(false)),
+            clear_acp_history_notice: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -655,6 +660,65 @@ impl SettingsWindowView {
             ),
         )
         .description("灰度开关：账号菜单与课程页显示 Native Agent（Beta）");
+        // Stage 3.3：清空 ACP 对话历史（二次确认；只清 conversations.db，
+        // native threads.db 完全不碰）。
+        let clear_armed = self.clear_acp_history_armed.clone();
+        let clear_notice = self.clear_acp_history_notice.clone();
+        let clear_history_weak = weak.clone();
+        let clear_acp_history = SettingItem::render(move |_options, _window, cx| {
+            let palette = theme::palette_from_theme(cx);
+            let armed = clear_armed.load(Ordering::Relaxed);
+            let notice = clear_notice.lock().ok().and_then(|notice| notice.clone());
+            let armed_for_click = clear_armed.clone();
+            let notice_for_click = clear_notice.clone();
+            let weak_for_click = clear_history_weak.clone();
+            let mut column = div()
+                .flex()
+                .flex_col()
+                .gap(px(3.0))
+                .child(div().text_size(px(11.0)).text_color(palette.ink_3).child(
+                    "只清外部 ACP agent 的本地记录（conversations.db）；native 历史不受影响。",
+                ))
+                .child(
+                    div()
+                        .id("settings-clear-acp-history")
+                        .role(Role::Button)
+                        .aria_label("清空 ACP 对话历史")
+                        .px(space(2))
+                        .py(px(4.0))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .border_1()
+                        .border_color(if armed { palette.danger } else { palette.line })
+                        .text_size(px(12.0))
+                        .text_color(if armed { palette.danger } else { palette.ink_2 })
+                        .child(if armed {
+                            "再次点击确认清空"
+                        } else {
+                            "清空 ACP 对话历史"
+                        })
+                        .on_click(move |_, _, cx| {
+                            if !armed_for_click.load(Ordering::Relaxed) {
+                                armed_for_click.store(true, Ordering::Relaxed);
+                            } else {
+                                let removed = crate::acp_history::clear_acp_history();
+                                armed_for_click.store(false, Ordering::Relaxed);
+                                if let Ok(mut notice) = notice_for_click.lock() {
+                                    *notice = Some(format!("已清空 ACP 对话历史（{removed} 条）"));
+                                }
+                            }
+                            let _ = weak_for_click.update(cx, |_this, cx| cx.notify());
+                        }),
+                );
+            if let Some(notice) = notice {
+                column = column.child(
+                    div()
+                        .text_size(px(10.0))
+                        .text_color(palette.ink_3)
+                        .child(notice),
+                );
+            }
+            column.into_any_element()
+        });
         let providers_weak = weak.clone();
         let providers_drafts = drafts.clone();
         let providers_item = SettingItem::render(move |_options, _window, cx| {
@@ -991,9 +1055,11 @@ impl SettingsWindowView {
                     SettingGroup::new()
                         .variant(GroupBoxVariant::Normal)
                         .item(Self::breadcrumb_item("设置 / AI".to_string())),
-                    SettingGroup::new()
-                        .title("通用")
-                        .items(vec![llm_link, native_agent]),
+                    SettingGroup::new().title("通用").items(vec![
+                        llm_link,
+                        native_agent,
+                        clear_acp_history,
+                    ]),
                 ]),
             AiRoute::Providers => SettingPage::new("AI")
                 .header_style(&hidden_header)

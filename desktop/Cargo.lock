@@ -902,6 +902,9 @@ dependencies = [
 [[package]]
 name = "cgc-agent-conversation"
 version = "0.0.1"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "cgc-agent-core"
@@ -957,6 +960,7 @@ name = "cgc-agent-store"
 version = "0.0.1"
 dependencies = [
  "cgc-agent-checkpoint",
+ "cgc-agent-conversation",
  "cgc-agent-core",
  "cgc-agent-provider",
  "rusqlite",

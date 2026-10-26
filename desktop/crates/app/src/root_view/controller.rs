@@ -1,8 +1,7 @@
 use super::*;
 use crate::agent_ingest;
-use cgc_agent_ui::conversation::{
-    ConversationThread, Entry as ConversationEntry, ThreadCapabilities,
-};
+use cgc_agent_store::SessionStore;
+use cgc_agent_ui::conversation::{ConversationThread, ThreadCapabilities};
 use cgc_platform::notifications::NotificationsApi as _;
 use cgc_platform::registry::install::{install_entry, SystemRunner};
 use gpui_kit::component::breadcrumb::{Breadcrumb, BreadcrumbItem};
@@ -938,8 +937,12 @@ impl RootView {
         self.chat.configs_applied = false;
         self.chat.history_open = load_session.is_some();
         self.chat.phase = ChatPhase::Starting;
-        self.chat.thread =
-            ConversationThread::default().with_capabilities(ThreadCapabilities::acp());
+        // Stage 3.3：从本地历史恢复时保留已加载的内容先渲染（离线可读），
+        // 新会话/普通启动才清空线程。
+        if self.chat.replay.is_none() {
+            self.chat.thread =
+                ConversationThread::default().with_capabilities(ThreadCapabilities::acp());
+        }
         self.chat.auto_prompted = false;
         let task = cx.background_executor().spawn(async move {
             let api = build_learning_host_api();
@@ -1140,6 +1143,8 @@ impl RootView {
                 events.push(event);
             }
         }
+        let had_events = !events.is_empty();
+        let mut turn_ended = false;
         for event in events {
             // Stage 3.2b 路线 A（Zed 对齐）：settings 级 toolPermissions 规则只作用于
             // native agent。external ACP agent 的审批完全由 agent 自身模式与 options
@@ -1148,7 +1153,16 @@ impl RootView {
             //
             // 会话行（消息 / 工具卡 / 计划 / 用量 / 审批 / 结束 / 错误）统一走两轨共用的
             // ingestion；这里只保留 ACP 连接自身的会话级状态（就绪、配置、历史、退出）。
-            agent_ingest::apply_thread_event(&mut self.chat.thread, &event);
+            //
+            // Stage 3.3：从本地历史恢复 ACP 会话时，agent 经 session/load 回放的历史
+            // 先收进 replay 线程；Ready 时按 resume_decision 决定替换本地内容或降级。
+            if let Some(replay) = self.chat.replay.as_mut() {
+                if agent_ingest::apply_thread_event(&mut replay.thread, &event) {
+                    replay.saw_events = true;
+                }
+            } else {
+                agent_ingest::apply_thread_event(&mut self.chat.thread, &event);
+            }
             match &event {
                 HostEvent::Ready {
                     agent_name,
@@ -1167,6 +1181,8 @@ impl RootView {
                             .unwrap_or_else(|| "omp".to_string());
                         save_chat_pointer(&course_id, &agent_id, session_id);
                     }
+                    // Stage 3.3：本地历史恢复结果（回放替换 / 降级保留本地记录）。
+                    self.finish_history_restore(cx);
                 }
                 HostEvent::AvailableCommands { commands } => {
                     self.chat.commands = commands.clone();
@@ -1192,6 +1208,9 @@ impl RootView {
                 HostEvent::Sessions { sessions } => {
                     self.chat.sessions = sessions.clone();
                     self.chat.show_sessions = true;
+                    // Stage 3.3：历史侧栏用统一列表（native + ACP 本地），
+                    // agent 的 session 列表只用于标题/指针，不再作为唯一来源。
+                    self.chat.history = self.load_unified_history();
                     if std::env::var("CGC_AUTO_RESTORE").as_deref() == Ok("1")
                         && !self.chat.auto_prompted
                         && !self.chat.sessions.is_empty()
@@ -1204,8 +1223,10 @@ impl RootView {
                 HostEvent::ThoughtDelta(_) | HostEvent::Delta(_) | HostEvent::ToolCall { .. } => {
                     self.chat.phase = ChatPhase::Streaming;
                 }
-                HostEvent::TitleUpdated { title } => {
-                    self.chat.title_override = title.clone();
+                HostEvent::TitleUpdated { .. } => {
+                    // Stage 3.3：TitleUpdated 是 agent 生成的标题（ingestion 已写入
+                    // thread.title）；title_override 只由用户重命名写入，二者互不覆盖。
+                    self.schedule_acp_transcript_save(cx);
                 }
                 HostEvent::PermissionRequested { .. } => {
                     if std::env::var("CGC_AUTO_APPROVE").as_deref() == Ok("1") {
@@ -1214,8 +1235,33 @@ impl RootView {
                 }
                 HostEvent::TurnEnd { .. } => {
                     self.chat.phase = ChatPhase::Ready;
+                    turn_ended = true;
                 }
                 HostEvent::Error { message } => {
+                    // Stage 3.3：本地历史恢复失败（session/load 不可用）→ 保留本地
+                    // 记录并提示，不再清指针重开新会话（用户可点「新建会话」）。
+                    if self.chat.replay.is_some() {
+                        let replay = self.chat.replay.take().expect("replay state");
+                        if crate::acp_history::resume_decision(
+                            true,
+                            replay.has_local_content,
+                            replay.saw_events,
+                        ) == crate::acp_history::ResumeDecision::KeepLocalRecord
+                        {
+                            self.chat.host.take();
+                            self.chat.load_retry_available = false;
+                            self.chat.restore_id = None;
+                            self.chat.resumed_without_history = true;
+                            self.chat.phase = ChatPhase::Ready;
+                            agent_ingest::apply_notice(
+                                &mut self.chat.thread,
+                                crate::acp_history::RESUMED_WITHOUT_HISTORY,
+                            );
+                            // 降级提示只是 UI 层 Notice，不重复写回本地 transcript。
+                            cx.notify();
+                            return false;
+                        }
+                    }
                     if Self::should_retry_stale_session(self.chat.load_retry_available, message) {
                         // session/load 的错误是在 host 线程异步返回的，不是 AcpHost::start
                         // 的同步 Err；这里丢弃旧 host、清指针并重开 session/new。
@@ -1269,9 +1315,52 @@ impl RootView {
                 }
             }
         }
-        self.persist_acp_thread();
+        if had_events {
+            if turn_ended {
+                // 回合结束立刻落库（内容 + metadata），保证进程退出/重启前已持久化。
+                self.save_acp_transcript_now();
+            } else if !self.chat.thread.entries.is_empty() {
+                self.schedule_acp_transcript_save(cx);
+            }
+        }
         cx.notify();
         self.chat.host.is_some()
+    }
+
+    /// 本地历史恢复收尾：回放可用则替换为 agent 回放内容；否则保留本地记录并提示
+    /// （Zed `resumed_without_history` 语义）。
+    fn finish_history_restore(&mut self, cx: &mut Context<Self>) {
+        let Some(replay) = self.chat.replay.take() else {
+            return;
+        };
+        match crate::acp_history::resume_decision(
+            false,
+            replay.has_local_content,
+            replay.saw_events,
+        ) {
+            crate::acp_history::ResumeDecision::UseReplay => {
+                self.chat.thread = replay.thread;
+                self.chat.resumed_without_history = false;
+            }
+            crate::acp_history::ResumeDecision::KeepLocalRecord => {
+                self.chat.resumed_without_history = true;
+                agent_ingest::apply_notice(
+                    &mut self.chat.thread,
+                    crate::acp_history::RESUMED_WITHOUT_HISTORY,
+                );
+                // 降级提示只是 UI 层 Notice，不重复写回本地 transcript。
+                cx.notify();
+                return;
+            }
+            crate::acp_history::ResumeDecision::NewSession
+            | crate::acp_history::ResumeDecision::Empty => {
+                self.chat.resumed_without_history = false;
+            }
+        }
+        if !self.chat.thread.entries.is_empty() {
+            self.save_acp_transcript_now();
+        }
+        cx.notify();
     }
 
     /// 线程删除确认：第一次点击进入待确认，第二次点击才真正删除。
@@ -1295,27 +1384,24 @@ impl RootView {
         }
     }
 
-    /// 从统一线程列表删除一个本地线程。
+    /// 从统一线程列表删除一个本地线程（native → threads.db，ACP → conversations.db）。
     pub(in crate::root_view) fn delete_local_thread(
         &mut self,
         thread_id: String,
         cx: &mut Context<Self>,
     ) {
-        let path = AppPaths::from_env()
-            .data_root
-            .join("agent")
-            .join("threads.db");
-        if let Ok(mut store) = SessionStore::open(path) {
-            let _ = store.delete_thread(&thread_id);
-        }
-        if let Some(session_id) = thread_id.strip_prefix("acp-") {
+        if let Some(session_id) = crate::acp_history::session_id_from_thread_id(&thread_id) {
+            let session_id = session_id.to_string();
+            crate::acp_history::delete_local_transcript(&thread_id);
             self.chat
                 .sessions
                 .retain(|session| session.session_id != session_id);
-            if self.chat.session_id.as_deref() == Some(session_id) {
+            if self.chat.session_id.as_deref() == Some(session_id.as_str()) {
                 self.chat.host.take();
                 self.revoke_chat_lease(cx);
                 self.chat.phase = ChatPhase::Idle;
+                self.chat.replay = None;
+                self.chat.resumed_without_history = false;
                 self.chat.thread =
                     ConversationThread::default().with_capabilities(ThreadCapabilities::acp());
                 self.chat.session_id = None;
@@ -1328,10 +1414,18 @@ impl RootView {
                 // 删除当前 ACP 线程后直接新开一个会话，避免停留在 Idle「连接中」。
                 self.start_chat(cx);
             }
+        } else {
+            let path = AppPaths::from_env()
+                .data_root
+                .join("agent")
+                .join("threads.db");
+            if let Ok(mut store) = SessionStore::open(path) {
+                let _ = store.delete_thread(&thread_id);
+            }
         }
         self.chat
-            .local_threads
-            .retain(|thread| thread.id != thread_id);
+            .history
+            .retain(|entry| entry.thread_id != thread_id);
         cx.notify();
     }
 
@@ -1355,112 +1449,73 @@ impl RootView {
         cx.notify();
     }
 
-    /// 把当前 ACP 会话镜像成 threads.db 中的 Thread（统一列表与恢复）。
-    fn persist_acp_thread(&mut self) {
+    /// Stage 3.3：把当前 ACP 会话写入本地 conversations.db（内容 + metadata）。
+    fn save_acp_transcript_now(&mut self) {
         let Some(session_id) = self.chat.session_id.clone() else {
             return;
         };
         if self.chat.thread.entries.is_empty() {
             return;
         }
-        let agent = self
+        let agent_id = self
             .chat
             .selected_agent
             .clone()
             .unwrap_or_else(|| self.chat.agent.clone());
-        let path = AppPaths::from_env()
+        if agent_id.trim().is_empty() {
+            return;
+        }
+        let Ok(mut store) = crate::acp_history::open_conversation_store() else {
+            return;
+        };
+        let now = cgc_agent_store::now_utc_rfc3339();
+        let _ = crate::acp_history::save_transcript(
+            &mut store,
+            &self.chat.thread,
+            &session_id,
+            &agent_id,
+            self.chat.title_override.as_deref(),
+            &now,
+        );
+        // 本地历史排序依赖 conversations.db 的 updated_at：保存后刷新统一列表。
+        self.chat.history = self.load_unified_history();
+    }
+
+    /// 事件驱动保存做防抖：流式期间每批事件只重置计时器，空闲 400ms 后落库。
+    fn schedule_acp_transcript_save(&mut self, cx: &mut Context<Self>) {
+        self.chat.acp_save_generation = self.chat.acp_save_generation.wrapping_add(1);
+        let generation = self.chat.acp_save_generation;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(400))
+                .await;
+            let _ = this.update(cx, |this, _cx| {
+                if this.chat.acp_save_generation == generation {
+                    this.save_acp_transcript_now();
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// 统一历史：native（threads.db，仅 native agent）+ ACP（conversations.db），
+    /// 按 updated_at 倒序。native store 的 schema/内容不变。
+    pub(in crate::root_view) fn load_unified_history(
+        &self,
+    ) -> Vec<crate::acp_history::HistoryEntry> {
+        let native_path = AppPaths::from_env()
             .data_root
             .join("agent")
             .join("threads.db");
-        let Ok(mut store) = SessionStore::open(path) else {
-            return;
-        };
-        let thread_id = format!("acp-{session_id}");
-        let mut thread = store
-            .load_thread(&thread_id)
+        let native = SessionStore::open(native_path)
             .ok()
-            .flatten()
-            .unwrap_or_else(|| {
-                cgc_agent_core::Thread::new(
-                    thread_id.clone(),
-                    cgc_agent_core::SelectedModel::new(
-                        cgc_agent_provider::ProviderId::new("acp"),
-                        cgc_agent_provider::ModelId::new(agent.clone()),
-                    ),
-                )
-            });
-        thread.agent = agent;
-        thread.session_id = Some(session_id.clone());
-        thread.title_override = self.chat.title_override.clone();
-        if thread.title.is_none() {
-            thread.title = self
-                .chat
-                .sessions
-                .iter()
-                .find(|session| session.session_id == session_id)
-                .and_then(|session| session.title.clone());
-        }
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| duration.as_secs() as i64)
+            .and_then(|store| store.list_threads(50).ok())
             .unwrap_or_default();
-        thread.updated_at = now;
-        thread.entries = self
-            .chat
-            .thread
-            .entries
-            .iter()
-            .enumerate()
-            .filter_map(|(index, entry)| match entry {
-                ConversationEntry::User { text } => Some(cgc_agent_core::Entry::User {
-                    text: text.clone(),
-                    images: Vec::new(),
-                    display: None,
-                    at: now,
-                }),
-                ConversationEntry::Assistant { text } if !text.is_empty() => {
-                    Some(cgc_agent_core::Entry::Assistant {
-                        text: text.clone(),
-                        tool_calls: Vec::new(),
-                        usage: None,
-                        at: now,
-                    })
-                }
-                ConversationEntry::Assistant { .. } => None,
-                ConversationEntry::Thinking { text, .. } => Some(cgc_agent_core::Entry::Thinking {
-                    text: text.clone(),
-                    signature: None,
-                    at: now,
-                }),
-                ConversationEntry::ToolCall {
-                    tool_call_id,
-                    title,
-                    name,
-                    kind,
-                    status,
-                    args,
-                    output,
-                    ..
-                } => Some(cgc_agent_core::Entry::ToolResult {
-                    tool_use_id: if tool_call_id.is_empty() {
-                        format!("acp-{index}")
-                    } else {
-                        tool_call_id.clone()
-                    },
-                    tool_name: name.clone().unwrap_or_else(|| kind.clone()),
-                    content: output
-                        .clone()
-                        .or_else(|| args.clone())
-                        .unwrap_or_else(|| title.clone()),
-                    is_error: status == "failed",
-                    at: now,
-                }),
-                ConversationEntry::Permission { .. }
-                | ConversationEntry::Notice { .. }
-                | ConversationEntry::Compaction { .. } => None,
-            })
-            .collect();
-        let _ = store.save_thread(&thread);
+        let acp = crate::acp_history::open_conversation_store()
+            .ok()
+            .and_then(|store| store.list_sidebar(50).ok())
+            .unwrap_or_default();
+        crate::acp_history::merge_history(native, acp)
     }
 
     pub(in crate::root_view) fn reset_config_search(
@@ -1731,58 +1786,56 @@ impl RootView {
         }
     }
 
+    /// 打开统一历史（native + ACP 本地 transcript），按 updated_at 倒序。
     pub(in crate::root_view) fn open_chat_history(&mut self, cx: &mut Context<Self>) {
         if let Some(host) = &self.chat.host {
             let _ = host.list_sessions();
         }
-        // 统一线程列表：把持久化的 ACP 线程合并进 history。
-        let path = AppPaths::from_env()
-            .data_root
-            .join("agent")
-            .join("threads.db");
-        if let Ok(store) = SessionStore::open(path) {
-            if let Ok(threads) = store.list_threads(50) {
-                self.chat.local_threads = threads.clone();
-                for thread in threads {
-                    if thread.agent == "native" {
-                        continue;
-                    }
-                    let Some(session_id) = thread.session_id else {
-                        continue;
-                    };
-                    if self
-                        .chat
-                        .sessions
-                        .iter()
-                        .any(|session| session.session_id == session_id)
-                    {
-                        continue;
-                    }
-                    self.chat
-                        .sessions
-                        .push(cgc_platform::acp::connection::SessionSummary {
-                            session_id,
-                            title: thread.title,
-                            updated_at: None,
-                        });
-                }
-            }
-        }
+        self.chat.history = self.load_unified_history();
         self.chat.show_sessions = true;
         cx.notify();
     }
 
+    /// 恢复 ACP 会话（`session/load` 路径）：先从本地 history 读内容离线渲染。
     pub(in crate::root_view) fn restore_chat_session(
         &mut self,
         session_id: String,
         cx: &mut Context<Self>,
     ) {
+        let thread_id = crate::acp_history::acp_thread_id(&session_id);
+        self.open_acp_history_thread(thread_id, session_id, cx);
+    }
+
+    /// 打开 ACP 历史：先用本地 content 渲染（离线可读），后台尝试 `session/load`；
+    /// 成功且 agent 回放 → 用回放替换；失败/无回放 → 降级提示 + 新建会话入口。
+    pub(in crate::root_view) fn open_acp_history_thread(
+        &mut self,
+        thread_id: String,
+        session_id: String,
+        cx: &mut Context<Self>,
+    ) {
         self.pending_thread_delete = None;
-        self.chat.restore_id = Some(session_id.clone());
         self.agent_panel_editing_title = false;
         self.agent_panel_title_hovered = false;
         self.reset_chat_local(cx);
-        self.chat.title_override = load_acp_title_override(&session_id);
+        let sidebar = crate::acp_history::load_local_sidebar(&thread_id);
+        self.chat.title_override = sidebar
+            .as_ref()
+            .and_then(|sidebar| sidebar.title_override.clone());
+        let local = crate::acp_history::load_local_transcript(&thread_id);
+        let has_local_content = local
+            .as_ref()
+            .is_some_and(|thread| !thread.entries.is_empty());
+        if let Some(local) = local {
+            self.chat.thread = local;
+        }
+        self.chat.replay = Some(ReplayState {
+            thread: ConversationThread::default().with_capabilities(ThreadCapabilities::acp()),
+            saw_events: false,
+            has_local_content,
+        });
+        self.chat.resumed_without_history = false;
+        self.chat.restore_id = Some(session_id);
         self.chat.npx_cache_retry = false;
         self.start_chat(cx);
     }
@@ -1891,6 +1944,9 @@ impl RootView {
         self.chat.history_open = false;
         self.chat.guidance = None;
         self.chat.load_retry_available = false;
+        self.chat.replay = None;
+        self.chat.resumed_without_history = false;
+        self.chat.acp_save_generation = self.chat.acp_save_generation.wrapping_add(1);
         self.chat.commands.clear();
         self.chat.slash_selection = 0;
         self.chat.slash_dismissed = false;
@@ -3868,16 +3924,6 @@ impl RootView {
         })
         .detach();
     }
-}
-
-fn load_acp_title_override(session_id: &str) -> Option<String> {
-    let path = cgc_platform::paths::AppPaths::from_env()
-        .data_root
-        .join("agent")
-        .join("threads.db");
-    let store = cgc_agent_store::SessionStore::open(path).ok()?;
-    let thread = store.load_thread(&format!("acp-{session_id}")).ok()??;
-    thread.title_override
 }
 
 /// 从 npm ENOENT 错误里提取损坏的 npx 缓存目录（`.../_npx/<hash>/package.json`）。

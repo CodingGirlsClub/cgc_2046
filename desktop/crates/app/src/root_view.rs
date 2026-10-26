@@ -16,7 +16,6 @@ use crate::chat_state::{
     save_selected_agent,
 };
 use crate::formula::render_markdown_with_math;
-use cgc_agent_store::SessionStore;
 use cgc_agent_ui::conversation::ConversationThread;
 use cgc_agent_ui::safe_markdown::sanitize_markdown;
 use cgc_courses::catalog::{
@@ -209,7 +208,14 @@ struct ChatUi {
     title_override: Option<String>,
     auto_start_queued: bool,
     npx_cache_retry: bool,
-    local_threads: Vec<cgc_agent_store::ThreadSummary>,
+    /// 统一历史列表（native threads.db + ACP conversations.db，按 updated_at 倒序）。
+    history: Vec<crate::acp_history::HistoryEntry>,
+    /// 从本地 history 打开 ACP 会话时，agent 回放的 thread（Ready 后替换本地内容）。
+    replay: Option<ReplayState>,
+    /// 外部 agent 无法恢复历史（load 失败 / 无回放）：展示本地记录 + 新建会话入口。
+    resumed_without_history: bool,
+    /// ACP transcript 防抖保存的世代号。
+    acp_save_generation: u64,
     phase: ChatPhase,
     agent: String,
     selected_agent: Option<String>,
@@ -241,6 +247,14 @@ struct ChatUi {
     history_open: bool,
     guidance: Option<ChatGuidance>,
     load_retry_available: bool,
+}
+
+/// 从本地历史打开 ACP 会话时的回放状态：agent 通过 `session/load` 回放的历史
+/// 先收在独立 thread 里，Ready 后按 `resume_decision` 决定替换本地内容或降级提示。
+struct ReplayState {
+    thread: ConversationThread,
+    saw_events: bool,
+    has_local_content: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -466,6 +480,7 @@ impl RootView {
         self.chat
             .title_override
             .clone()
+            .or_else(|| crate::acp_history::thread_display_title(&self.chat.thread))
             .or_else(|| {
                 self.chat.session_id.as_ref().and_then(|session_id| {
                     self.chat
@@ -534,17 +549,13 @@ impl RootView {
         } else {
             self.chat.title_override = title.clone();
             if let Some(session_id) = self.chat.session_id.clone() {
-                let path = AppPaths::from_env()
-                    .data_root
-                    .join("agent")
-                    .join("threads.db");
-                if let Ok(mut store) = SessionStore::open(path) {
-                    let thread_id = format!("acp-{session_id}");
-                    if let Ok(Some(mut thread)) = store.load_thread(&thread_id) {
-                        thread.title_override = title.clone();
-                        let _ = store.save_thread(&thread);
-                    }
+                // Stage 3.3：用户重命名写 conversations.db 的 title_override，
+                // 列表展示 override 优先，agent 生成标题更新不会覆盖它。
+                if let Ok(store) = crate::acp_history::open_conversation_store() {
+                    let thread_id = crate::acp_history::acp_thread_id(&session_id);
+                    let _ = store.set_title_override(&thread_id, title.as_deref());
                 }
+                self.chat.history = self.load_unified_history();
             }
         }
         self.agent_panel_editing_title = false;
@@ -567,6 +578,13 @@ impl RootView {
             }
         } else {
             self.chat.title_override = None;
+            if let Some(session_id) = self.chat.session_id.clone() {
+                if let Ok(store) = crate::acp_history::open_conversation_store() {
+                    let thread_id = crate::acp_history::acp_thread_id(&session_id);
+                    let _ = store.set_title_override(&thread_id, None);
+                }
+                self.chat.history = self.load_unified_history();
+            }
         }
         cx.notify();
     }

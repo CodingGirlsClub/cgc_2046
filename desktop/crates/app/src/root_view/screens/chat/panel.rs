@@ -487,6 +487,37 @@ pub(in crate::root_view) fn render_chat_panel(
                         .into_any_element()
                 }))
                 .child({
+                    // Stage 3.3：外部 agent 无法恢复会话时的降级 UI——本地记录只读，
+                    // 提供「新建会话」入口（Zed resumed_without_history 语义）。
+                    if ctx.chat.resumed_without_history {
+                        return div()
+                            .flex()
+                            .flex_col()
+                            .gap(space(1))
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_3)
+                                    .child(crate::acp_history::RESUMED_WITHOUT_HISTORY),
+                            )
+                            .child(
+                                div()
+                                    .id("chat-history-new-session")
+                                    .role(Role::Button)
+                                    .aria_label("新建会话")
+                                    .px(space(2))
+                                    .py(px(5.0))
+                                    .rounded(px(RADIUS_MEDIUM))
+                                    .bg(palette.accent)
+                                    .text_color(palette.canvas)
+                                    .text_size(px(12.0))
+                                    .child("新建会话")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.new_chat(cx);
+                                    })),
+                            )
+                            .into_any_element();
+                    }
                     let slash_candidates = slash_candidates(&ctx.chat.commands, &input);
                     let selected_slash = ctx
                         .chat
@@ -783,31 +814,45 @@ pub(in crate::root_view) fn render_chat_panel(
                 .into_any_element()
         }
     };
-    let mut history_rows = if ctx.chat.show_sessions {
-        if ctx.chat.sessions.is_empty() {
+    let history_rows: Vec<AnyElement> = if ctx.chat.show_sessions {
+        if ctx.chat.history.is_empty() {
             vec![div()
                 .text_size(px(11.0))
                 .text_color(palette.ink_3)
                 .child(translate(language, Key::AgentChatChatNoHistory))
                 .into_any_element()]
         } else {
+            let current_native = ctx
+                .native_agent_view
+                .as_ref()
+                .and_then(|view| view.read(cx).current_thread_id());
             ctx.chat
-                .sessions
+                .history
                 .iter()
                 .take(10)
-                .map(|session| {
-                    let session_id = session.session_id.clone();
-                    let delete_id = format!("acp-{}", session.session_id);
-                    let is_current =
-                        ctx.chat.session_id.as_deref() == Some(session.session_id.as_str());
+                .map(|entry| {
+                    let thread_id = entry.thread_id.clone();
+                    let session_id = entry.session_id.clone();
+                    let source = entry.source;
+                    let delete_id = thread_id.clone();
+                    let is_current = match source {
+                        crate::acp_history::HistorySource::Native => {
+                            current_native.as_deref() == Some(thread_id.as_str())
+                        }
+                        crate::acp_history::HistorySource::Acp => session_id
+                            .as_deref()
+                            .is_some_and(|session| ctx.chat.session_id.as_deref() == Some(session)),
+                    };
                     let pending_delete =
                         ctx.pending_thread_delete.as_deref() == Some(delete_id.as_str());
-                    let title = session.title.clone().unwrap_or_else(|| {
-                        let short = session.session_id.chars().take(10).collect::<String>();
-                        format!("{short}…")
-                    });
+                    let title = entry
+                        .title
+                        .clone()
+                        .filter(|title| !title.trim().is_empty())
+                        .unwrap_or_else(|| "未命名对话".to_string());
+                    let agent_label = entry.agent_label().to_string();
                     div()
-                        .id(format!("chat-restore-{}", session.session_id))
+                        .id(format!("chat-history-{}", thread_id))
                         .w_full()
                         .flex()
                         .flex_row()
@@ -823,10 +868,10 @@ pub(in crate::root_view) fn render_chat_panel(
                             palette.ink_2
                         })
                         .hover(|style| style.bg(palette.soft))
-                        .child(div().flex_1().child(title))
+                        .child(div().flex_1().child(format!("{title}  · {agent_label}")))
                         .child(
                             div()
-                                .id(format!("chat-delete-{}", session.session_id))
+                                .id(format!("chat-delete-{}", thread_id))
                                 .px(px(3.0))
                                 .rounded(px(RADIUS_SMALL))
                                 .text_color(palette.ink_3)
@@ -836,11 +881,19 @@ pub(in crate::root_view) fn render_chat_panel(
                                     this.request_delete_thread(delete_id.clone(), cx);
                                 })),
                         )
-                        .on_click(cx.listener(move |this, _, _, cx| {
+                        .on_click(cx.listener(move |this, _, window, cx| {
                             if this.pending_thread_delete.is_some() {
                                 this.cancel_thread_delete(cx);
-                            } else {
-                                this.restore_chat_session(session_id.clone(), cx);
+                                return;
+                            }
+                            match source {
+                                crate::acp_history::HistorySource::Native => {
+                                    this.open_local_native_thread(thread_id.clone(), window, cx);
+                                }
+                                crate::acp_history::HistorySource::Acp => {
+                                    let session_id = session_id.clone().unwrap_or_default();
+                                    this.open_acp_history_thread(thread_id.clone(), session_id, cx);
+                                }
                             }
                         }))
                         .into_any_element()
@@ -850,68 +903,6 @@ pub(in crate::root_view) fn render_chat_panel(
     } else {
         Vec::new()
     };
-    if ctx.chat.show_sessions {
-        let current_native = ctx
-            .native_agent_view
-            .as_ref()
-            .and_then(|view| view.read(cx).current_thread_id());
-        let native_rows = ctx
-            .chat
-            .local_threads
-            .iter()
-            .filter(|thread| thread.agent == "native")
-            .take(10)
-            .map(|thread| {
-                let thread_id = thread.id.clone();
-                let delete_id = thread.id.clone();
-                let is_current = current_native.as_deref() == Some(thread.id.as_str());
-                let pending_delete =
-                    ctx.pending_thread_delete.as_deref() == Some(delete_id.as_str());
-                let title = thread
-                    .title
-                    .clone()
-                    .unwrap_or_else(|| "未命名线程".to_string());
-                div()
-                    .id(format!("chat-restore-native-{}", thread.id))
-                    .w_full()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(space(1))
-                    .px(space(1))
-                    .py(px(3.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .text_size(px(11.0))
-                    .text_color(if is_current {
-                        palette.accent
-                    } else {
-                        palette.ink_2
-                    })
-                    .hover(|style| style.bg(palette.soft))
-                    .child(div().flex_1().child(format!("{title}  · native")))
-                    .child(
-                        div()
-                            .id(format!("chat-delete-native-{}", thread.id))
-                            .px(px(3.0))
-                            .rounded(px(RADIUS_SMALL))
-                            .text_color(palette.ink_3)
-                            .hover(|style| style.bg(palette.card))
-                            .child(if pending_delete { "删除?" } else { "×" })
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.request_delete_thread(delete_id.clone(), cx);
-                            })),
-                    )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        if this.pending_thread_delete.is_some() {
-                            this.cancel_thread_delete(cx);
-                        } else {
-                            this.open_local_native_thread(thread_id.clone(), window, cx);
-                        }
-                    }))
-                    .into_any_element()
-            });
-        history_rows.extend(native_rows);
-    }
     let thread_sidebar = ctx.chat.show_sessions.then(|| {
         div()
             .w(px(170.0))
