@@ -255,6 +255,20 @@ Phase B 的目标：native 与 external ACP 只向 `ConversationThread` + `Threa
 
 删除清单与净删预估：`native_agent_view.rs` 约 6095 行 + `native_thread_state.rs` 635 行；扣除需迁移的小类型/测试（约 200–500 行），预计净删 **6000–6400 行**（以 `git diff --stat` 实测为准）。风险：删除后 native 轨失去旧 UI，必须先在真机确认共享路径等价；flag off 回退路径消失需在 README/ADR 记录。
 
+### 13.7 B4b 预演结论（2026-10-27，临时 worktree，未改主分支）
+
+在临时 worktree 删除 `native_agent_view.rs` + `native_thread_state.rs` 后预演：
+
+- 引用面只有 **9 处**（controller 3、agent_panel 1、state 1、root_view 1、main.rs 2、native_view_model 1），全部是「创建/持有视图」，说明数据与 composer 能力已迁出。
+- 但视图内仍有两类代码无法靠 200–400 行薄视图替代：
+  1. **渲染组装 ≈ 1900–2100 行**：`impl Render`（611，含 plan card/queue/permission/图片 chips）、`render_native_composer_legacy`（837）、`render_shared_native_composer`（116）、`render_user_edit_row`（133）、user 行 hover/mention、图片查看器（~90）、菜单/工具卡 dispatch 剩余；
+  2. **runtime/orchestration ≈ 2000+ 行**：ACP 事件轮询、send/stop/steer、turn end、thread restore/persist、checkpoint 操作、model 切换、标题生成、附件管线等（仍在视图内，未迁 host）。
+- 结论：B4b 不能只做「文件替换」，必须拆为：
+  - **B4b-a**：runtime/orchestration 迁 `NativePanelHost`/`native_runtime`（行为不变，独立 commit）；
+  - **B4b-b**：新建 `native_panel_view.rs`（预估 1200–1600 行）承载 Render 组装 + legacy composer 原样搬入，保留旧文件并存，改 9 处引用；
+  - **B4b-c**：真机验证通过后删除旧文件，实测 `git diff --stat` 净删。
+- **净删修正预估：约 3300–4500 行**（原 6000+ 估计偏乐观）；若要把 legacy composer/plan/queue/图片查看器也共享化，需再开 2–3 片。
+
 ### 13.5 剩余排期（2026-10-27 更新）
 
 - **3.4a（MCP client）**：✅ 完成（`a81ca587`）。Streamable HTTP JSON-RPC、Bearer、SSE/JSON、超时/401/403 fail-closed、token 脱敏；mock server 单测。
