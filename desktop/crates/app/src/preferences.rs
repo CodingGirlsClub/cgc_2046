@@ -13,6 +13,8 @@ pub struct Preferences {
     pub native_agent_enabled: bool,
     /// Stage 3.2b：settings 级审批规则（`toolPermissions`），缺省 = 全部询问。
     pub tool_permissions: ToolPermissionSettings,
+    /// Stage 3.3：历史侧栏开关状态（重启后恢复；Zed threads_sidebar 语义）。
+    pub history_sidebar_open: bool,
 }
 
 impl Default for Preferences {
@@ -22,6 +24,7 @@ impl Default for Preferences {
             tray_hint_shown: false,
             native_agent_enabled: false,
             tool_permissions: ToolPermissionSettings::default(),
+            history_sidebar_open: false,
         }
     }
 }
@@ -63,7 +66,21 @@ fn parse(value: &Value) -> Preferences {
             .and_then(Value::as_bool)
             .unwrap_or(false),
         tool_permissions,
+        history_sidebar_open: value
+            .get("historySidebarOpen")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
     }
+}
+
+/// 只改历史侧栏开关并落盘（其它字段保持当前值）。
+pub fn save_history_sidebar_open(open: bool) {
+    let mut preferences = load();
+    if preferences.history_sidebar_open == open {
+        return;
+    }
+    preferences.history_sidebar_open = open;
+    save(preferences);
 }
 
 pub fn save(preferences: Preferences) {
@@ -75,6 +92,7 @@ pub fn save(preferences: Preferences) {
         "closeToTray": preferences.close_to_tray,
         "trayHintShown": preferences.tray_hint_shown,
         "nativeAgentEnabled": preferences.native_agent_enabled,
+        "historySidebarOpen": preferences.history_sidebar_open,
         "toolPermissions": serde_json::to_value(&preferences.tool_permissions)
             .unwrap_or(Value::Null),
     })
@@ -95,6 +113,13 @@ mod tests {
         assert!(defaults.close_to_tray);
         assert!(!defaults.tray_hint_shown);
         assert!(!defaults.native_agent_enabled);
+    }
+
+    #[test]
+    fn history_sidebar_open_defaults_false_and_parses() {
+        assert!(!Preferences::default().history_sidebar_open);
+        assert!(!parse(&json!({"closeToTray": true})).history_sidebar_open);
+        assert!(parse(&json!({"historySidebarOpen": true})).history_sidebar_open);
     }
 
     #[test]

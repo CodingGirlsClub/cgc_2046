@@ -23,6 +23,7 @@ impl RootView {
 
     pub(in crate::root_view) fn close_history_sidebar(&mut self, cx: &mut Context<Self>) {
         self.history_sidebar = None;
+        crate::preferences::save_history_sidebar_open(false);
         cx.notify();
     }
 

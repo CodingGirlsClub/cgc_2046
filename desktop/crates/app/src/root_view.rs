@@ -425,6 +425,14 @@ impl std::ops::DerefMut for RootView {
 }
 
 impl RootView {
+    /// 启动时恢复历史侧栏开关（main 读取 preferences 后传入；默认关闭）。
+    pub fn set_history_sidebar_persisted(&mut self, open: bool) {
+        if open {
+            self.history_sidebar =
+                Some(crate::root_view::history_sidebar::HistorySidebar::default());
+        }
+    }
+
     pub fn new(registry: RouteRegistry) -> Self {
         Self {
             state: ShellState::new(registry),

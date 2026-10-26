@@ -36,6 +36,7 @@ fn main() {
         };
     let os_urls = Arc::new(Mutex::new(Vec::<String>::new()));
     let preferences = cgc_desktop_app::preferences::load();
+    let history_sidebar_open = preferences.history_sidebar_open;
     let close_to_tray = Arc::new(AtomicBool::new(preferences.close_to_tray));
     let tray_hint_shown = Arc::new(AtomicBool::new(preferences.tray_hint_shown));
     let notification_responses = Arc::new(Mutex::new(
@@ -100,6 +101,7 @@ fn main() {
             let view = cx.new(move |_| RootView::new(view_registry));
             view.update(cx, |this, cx| {
                 cgc_desktop_app::root_view::register_history_root(cx.entity().downgrade());
+                this.set_history_sidebar_persisted(history_sidebar_open);
                 this.set_tray_preferences(close_to_tray.clone(), tray_hint_shown.clone());
                 this.install_main_window_lifecycle(window, cx);
                 this.set_chat_input(chat_input);

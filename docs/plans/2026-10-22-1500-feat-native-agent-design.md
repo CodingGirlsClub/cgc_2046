@@ -475,6 +475,16 @@ UI（输入）→ NativeHost.prompt
 
 **实施状态**：截至 2026-10-23，P0–P2 的已实现范围、验证命令、剩余缺口见 `docs/plans/2026-10-23-1200-native-agent-implementation-status.md`。
 
+## Stage 3 实现状态追加（2026-10-26）
+
+Stage 3 桌面单端收口已按 `docs/plans/2026-10-26-1000-stage3-capability-convergence-design.md` 推进，本文旧描述据此修正：
+
+- **native 改为进程内 ACP server（Phase A）**：双轨共用 `HostEvent` ingestion / `ConversationThread` 与共享审批卡；本文原「NativeHost 实现同一 HostEvent 接口」的方案被 Zed 对齐的「native 直接作为 ACP server」取代；`HostState::apply` 已删除。
+- **会话/历史统一（3.3）**：ACP transcript 落 `conversations.db`（native 仍 threads.db）；统一历史侧栏、Rename/Archive、自动归档、Agent 品牌图标；Web 端 agent 与 `cgc-host` 已删除，桌面是唯一 agent 入口。
+- **审批规则（3.2b）**：`toolPermissions` 仅 native 生效（路线 A）；external ACP 审批由 agent 自身模式/options 决定，客户端只渲染与回传。
+- **MCP（3.4）暂缓**：native MCP client 未实现，本文 §3.5 的「启动会话构造 MCP client、tools/list、5 个学习工具」仍待产品确认白名单后开工；3.5b「默认 native」依赖 MCP，保持灰度。
+- **3.5a 进行中**：全局 Agent Panel + 课程页只传上下文（去除课程页专用 scope/会话指针），默认 agent 暂不切换。
+
 ## 参考
 
 - `docs/tmp/agent-research/zed-native-agent.md`：Zed native agent 执行模型、工具、审批、沙箱、持久化、prompt、subagent

@@ -161,8 +161,10 @@ bash scripts/verify-package.sh                          # Windows: pwsh scripts/
 
 ## Agent 历史与 MCP 状态（Stage 3，2026-10-26）
 
+- **唯一入口=桌面**：Web 端 agent 与 `cgc-host` 已删除；桌面客户端（native CGC Agent + external ACP agents）是唯一 agent 入口。
 - **统一历史**：native 与 external ACP agent 共用历史侧栏（footer 时钟图标 / Agent Panel `⋯` → Toggle Threads Sidebar / `⌥⌘J`）；Rename（写 `title_override`）、Archive/Unarchive、今天/昨天/最近 7 天/更早分桶、过滤；ACP 每 agent 最近 5 条自动归档。
 - **ACP transcript 本地库**：`<data_root>/conversations.db`（0600、WAL，`thread_content` + `sidebar_threads`；另有 `native_archived` 表存 native 归档标记）。打开历史先显示本地记录，`session/load` 成功则回放替换，失败显示「外部 agent 无法恢复会话，以下为本地记录」。
 - **永久清空**：Settings → AI →「清空 ACP 对话历史」（二次确认，仅 ACP；native 不受影响）。Archive 只隐藏，不删除。
 - **审批规则**：`preferences.json` 的 `toolPermissions` **仅 native 生效**（详见上文「审批规则」）；external agent 的审批由 agent 自身模式决定。
 - **MCP**：3.4 native MCP client 暂缓，待产品确认白名单；当前 external ACP agent 的 MCP 注入保持现状。
+- **侧栏状态**：历史侧栏开关会写入 `preferences.json`（`historySidebarOpen`），重启后恢复。

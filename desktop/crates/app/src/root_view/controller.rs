@@ -1788,6 +1788,18 @@ impl RootView {
         self.chat.title_override = sidebar
             .as_ref()
             .and_then(|sidebar| sidebar.title_override.clone());
+        // 3.3 收尾：历史条目的 agent 与当前选中不一致时同步面板 header 的
+        // agent 图标/名称（否则 header 会显示打开前的 agent）。
+        if let Some(agent_id) = sidebar
+            .as_ref()
+            .and_then(|sidebar| sidebar.agent_id.clone())
+        {
+            if !agent_id.trim().is_empty() && self.chat.selected_agent.as_deref() != Some(&agent_id)
+            {
+                crate::chat_state::save_selected_agent(&agent_id);
+                self.chat.selected_agent = Some(agent_id);
+            }
+        }
         let local = crate::acp_history::load_local_transcript(&thread_id);
         let has_local_content = local
             .as_ref()
