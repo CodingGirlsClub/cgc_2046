@@ -1352,11 +1352,16 @@ impl RootView {
         if self.native_agent_view.is_none() {
             let state: cgc_agent_tools::SharedAgentState =
                 std::sync::Arc::new(std::sync::Mutex::new(cgc_agent_tools::AgentState::default()));
-            let host = crate::native_panel_host::NativePanelHost::new_with_audit(
+            let mut host = crate::native_panel_host::NativePanelHost::new_with_audit(
                 state,
                 Some(cgc_agent_store::AuditLog::new(
                     AppPaths::from_env().agent_audit_file(),
                 )),
+            );
+            // 3.4c：复用 RootView 已持有的 lease 注入 native MCP（不重复请求平台）。
+            host.set_mcp_lease(
+                self.chat.lease.clone(),
+                std::env::var("CGC_API_URL").ok().as_deref(),
             );
             let view = cx.new(|cx| {
                 crate::native_agent_view::NativeAgentView::new_with_host(window, cx, host)

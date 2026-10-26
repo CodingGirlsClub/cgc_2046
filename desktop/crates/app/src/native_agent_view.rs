@@ -897,15 +897,17 @@ impl NativeAgentView {
                 }
             },
         ));
+        let mut registry = ToolRegistry::with_agent_state(agent_state.clone())
+            .with_app_actions()
+            .with_subagent(subagent_runner, subagent_sink);
+        // 3.4c：native MCP 只读工具注入（无 lease/injection → 0 个，fail-closed）。
+        let _mcp_tools =
+            crate::native_panel_host::register_mcp_tools_for_host(&mut registry, &host);
         let mut view = Self {
             agent: Some(agent),
             provider,
             model,
-            registry: Arc::new(
-                ToolRegistry::with_agent_state(agent_state.clone())
-                    .with_app_actions()
-                    .with_subagent(subagent_runner, subagent_sink),
-            ),
+            registry: Arc::new(registry),
             host,
             app_actions,
             subagent_tx,
@@ -2610,11 +2612,12 @@ impl NativeAgentView {
                 }
             }
         });
-        Arc::new(
-            ToolRegistry::with_agent_state(self.host.agent_state.clone())
-                .with_app_actions()
-                .with_subagent(subagent_runner, subagent_sink),
-        )
+        let mut registry = ToolRegistry::with_agent_state(self.host.agent_state.clone())
+            .with_app_actions()
+            .with_subagent(subagent_runner, subagent_sink);
+        let _mcp_tools =
+            crate::native_panel_host::register_mcp_tools_for_host(&mut registry, &self.host);
+        Arc::new(registry)
     }
 
     /// 切换工作区 scope：保存当前线程，载入目标 scope 的线程并重建运行时。
