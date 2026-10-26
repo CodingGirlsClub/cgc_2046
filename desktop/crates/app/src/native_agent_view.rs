@@ -549,9 +549,15 @@ impl ViewRow {
                     content: output.clone(),
                 }),
             },
-            ConversationEntry::Permission { title, .. } => Self {
+            ConversationEntry::Permission {
+                title, resolved, ..
+            } => Self {
                 role: ViewRole::System,
-                text: format!("等待审批：{title}"),
+                text: match resolved {
+                    None => format!("等待审批：{title}"),
+                    Some(true) => format!("已允许：{title}"),
+                    Some(false) => format!("已拒绝：{title}"),
+                },
                 tool_call_id: None,
                 tool: None,
             },
@@ -1770,6 +1776,7 @@ impl NativeAgentView {
             }
         }
         self.state.pair_unlinked_subagents();
+        self.state.sync_pending_permission();
         if self.busy {
             if let Some(state) = finished {
                 self.finish_turn(state, cx);
@@ -2887,6 +2894,7 @@ impl NativeAgentView {
 
     fn resolve_approval(&mut self, decision: ApprovalDecision, cx: &mut Context<Self>) {
         let allowed = !matches!(decision, ApprovalDecision::Deny);
+        self.state.sync_pending_permission();
         let Some(pending) = self.state.pending_permission.clone() else {
             return;
         };
@@ -5639,6 +5647,27 @@ mod workspace_prompt_tests {
         assert_eq!(user.plain, "看 @a 这个");
         assert_eq!(user.markdown, "看 [@a](file://a.md) 这个");
         assert!(user.agent_response.is_none(), "用户消息没有 agent response");
+    }
+
+    /// 回归（真机 bug 1）：Permission 行必须反映 resolved 状态，不能永远是
+    /// 「等待审批」；文案与 ACP 轨一致（已允许 / 已拒绝 / 等待审批）。
+    #[test]
+    fn permission_row_text_reflects_resolved_state() {
+        use cgc_agent_ui::conversation::Entry as ConversationEntry;
+
+        let row = |resolved: Option<bool>| {
+            super::ViewRow::from_entry(&ConversationEntry::Permission {
+                request_id: "perm-1".into(),
+                title: "允许运行 run_command？".into(),
+                tool_call_id: Some("call-1".into()),
+                args: None,
+                resolved,
+            })
+            .text
+        };
+        assert_eq!(row(None), "等待审批：允许运行 run_command？");
+        assert_eq!(row(Some(true)), "已允许：允许运行 run_command？");
+        assert_eq!(row(Some(false)), "已拒绝：允许运行 run_command？");
     }
 
     #[test]

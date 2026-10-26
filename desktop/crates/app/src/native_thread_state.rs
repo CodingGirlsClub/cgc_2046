@@ -5,6 +5,11 @@
 //! 这里只保留 ACP v1 表达不了的 native 辅助态：审批卡渲染所需的 tool name/args、
 //! 子 agent 卡（实时进度走 native 辅助通道，Phase B 再收口）。
 //!
+//! 审批卡的**事实源是共享 `ConversationThread`**（`thread.pending_permission`）：
+//! `sync_pending_permission` 用它兜底/清理辅助态，保证「运行时在等审批」时 UI 一定
+//! 能渲染出可点的审批卡（真机 bug 2 回归）。工具执行的 `tool_call_update` 不是审批
+//! 生命周期事件，不得清除 pending。
+//!
 //! 原来的 `cgc_agent_host::HostState`（`AgentEvent → ThreadEvent` reducer）已删除：
 //! 事件映射只在 ACP server 适配层做一次。
 
@@ -114,18 +119,13 @@ impl NativeThreadState {
             HostEvent::ToolCall { call } => {
                 self.last_tool_call_id = Some(call.tool_call_id.clone());
             }
-            HostEvent::ToolCallUpdated {
-                tool_call_id,
-                status,
-                ..
-            } => {
+            HostEvent::ToolCallUpdated { status, .. } => {
+                // 工具执行结果不是审批生命周期事件。历史上这里按 tool_call_id 清
+                // pending（真机 bug 2：跨回合/乱序的 tool_call_update 会把下一轮
+                // 审批卡清掉，运行时却仍在等响应）。pending 只由对应 request 的
+                // resolve / TurnEnd / Error / cancel 清除。
                 if matches!(status.as_deref(), Some("completed") | Some("failed")) {
                     self.last_tool_call_id = None;
-                    if self.pending_permission.as_ref().is_some_and(|pending| {
-                        pending.tool_call_id.as_deref() == Some(tool_call_id)
-                    }) {
-                        self.pending_permission = None;
-                    }
                 }
             }
             HostEvent::PermissionRequested {
@@ -154,6 +154,57 @@ impl NativeThreadState {
             _ => {}
         }
         applied
+    }
+
+    /// 以共享 `ConversationThread` 为审批卡事实源做同步：
+    /// - shared 里有未解决审批、辅助态缺失/request_id 不一致 → 重建可渲染的卡
+    ///   （两轨同一数据源，避免 native 辅助态被清掉后运行时还在等响应）；
+    /// - shared 里没有未解决审批 → 清掉辅助态残留。
+    pub fn sync_pending_permission(&mut self) {
+        match &self.thread.pending_permission {
+            Some(shared) => {
+                if self
+                    .pending_permission
+                    .as_ref()
+                    .is_some_and(|pending| pending.request_id == shared.request_id)
+                {
+                    return;
+                }
+                if let Some(aux) = self.pending_permission.take() {
+                    // 客户端同一时刻只能有一个在途审批：辅助态里有**另一个**
+                    // request 说明共享模型里的那条是上一轮遗留（例如 PermissionResolved
+                    // 丢在批处理边界）。把遗留行标记为已失效后以新请求为准，
+                    // 否则回传会打到旧 request_id，运行时继续等 → turn timeout。
+                    let stale_request = shared.request_id.clone();
+                    agent_ingest::apply_permission_resolved(&mut self.thread, stale_request, false);
+                    self.pending_permission = Some(aux);
+                    return;
+                }
+                let aux = self.pending_permission.take();
+                let tool_name = aux
+                    .as_ref()
+                    .map(|pending| pending.tool_name.clone())
+                    .filter(|name| !name.is_empty())
+                    .unwrap_or_else(|| tool_name_from_title(&shared.title));
+                let args = shared
+                    .args
+                    .as_deref()
+                    .map(|raw| parse_args(Some(raw)))
+                    .filter(|args| !args.is_null())
+                    .unwrap_or_else(|| {
+                        aux.as_ref()
+                            .map(|pending| pending.args.clone())
+                            .unwrap_or(serde_json::Value::Null)
+                    });
+                self.pending_permission = Some(PendingPermission {
+                    request_id: shared.request_id.clone(),
+                    tool_call_id: shared.tool_call_id.clone(),
+                    tool_name,
+                    args,
+                });
+            }
+            None => self.pending_permission = None,
+        }
     }
 
     /// native 辅助通道：子 agent 实时进度（不进 ACP update）。
@@ -225,6 +276,22 @@ impl NativeThreadState {
                 card.tool_call_id = Some(tool_call_id);
             }
         }
+    }
+}
+
+/// 从共享模型的标题里提取工具名（辅助态缺失时的兜底；标题兜底为空串）。
+fn tool_name_from_title(title: &str) -> String {
+    const PREFIX: &str = "允许运行 ";
+    let trimmed = title.trim();
+    let rest = trimmed
+        .strip_prefix(PREFIX)
+        .unwrap_or(trimmed)
+        .trim_end_matches(['？', '?'])
+        .trim();
+    if rest.is_empty() || rest == title.trim() {
+        String::new()
+    } else {
+        rest.to_string()
     }
 }
 
@@ -388,5 +455,179 @@ mod tests {
                 .checkpoint_restore
         );
         assert!(!ThreadCapabilities::acp().checkpoint_restore);
+    }
+
+    /// 回归：ToolCallUpdated 是工具执行结果，不是审批生命周期事件；即使跨越/乱序
+    /// 到达（例如上一轮同名工具、或 provider 复用 tool_call_id），也不能清掉
+    /// 当前 pending 审批，否则 UI 审批卡消失、运行时还在等响应（真机 bug 2）。
+    #[test]
+    fn out_of_order_tool_call_update_must_not_clear_pending_permission() {
+        let mut state = NativeThreadState::new();
+        assert!(state.apply_host_event(&HostEvent::PermissionRequested {
+            request_id: "perm-2".to_string(),
+            title: "允许运行 run_command？".to_string(),
+            tool_call_id: Some("call-1".to_string()),
+            tool_name: Some("run_command".to_string()),
+            args: Some("{\"command\":\"echo hi\"}".to_string()),
+            options: Vec::new(),
+        }));
+        let pending = state.pending_permission.clone().expect("pending");
+        // 乱序/跨回合的 tool_call_update 先到：不得清 pending。
+        assert!(state.apply_host_event(&HostEvent::ToolCallUpdated {
+            tool_call_id: pending.tool_call_id.clone().unwrap_or_default(),
+            title: None,
+            status: Some("completed".to_string()),
+            output: Some("stale".to_string()),
+        }));
+        assert!(
+            state.pending_permission.is_some(),
+            "tool_call_update 不得清除待审批状态"
+        );
+        // 只有对应 request 的 resolve 才能清。
+        let resolved = state
+            .resolve_permission(&pending.request_id)
+            .expect("resolve");
+        assert_eq!(resolved.request_id, "perm-2");
+        assert!(state.pending_permission.is_none());
+    }
+
+    /// 回归：连续两轮各一次审批（同一工具），第一轮 resolve 后 pending 清空、
+    /// 行标记已允许；第二轮请求不得被上一轮状态吞掉，resolve 后正常结束。
+    #[test]
+    fn consecutive_turns_each_keep_their_own_pending_permission() {
+        let mut state = NativeThreadState::new();
+        for (turn, request_id) in [(1, "perm-1"), (2, "perm-2")] {
+            apply_user_turn(&mut state.thread, format!("第 {turn} 轮"));
+            assert!(state.apply_host_event(&HostEvent::PermissionRequested {
+                request_id: request_id.to_string(),
+                title: "允许运行 run_command？".to_string(),
+                tool_call_id: Some(format!("call-{turn}")),
+                tool_name: Some("run_command".to_string()),
+                args: Some("{\"command\":\"echo hi\"}".to_string()),
+                options: Vec::new(),
+            }));
+            let pending = state
+                .pending_permission
+                .clone()
+                .unwrap_or_else(|| panic!("第 {turn} 轮审批必须可渲染"));
+            assert_eq!(pending.request_id, request_id);
+            // 用户点击前先到一条本轮工具收尾（乱序防护）：仍不得清 pending。
+            assert!(state.apply_host_event(&HostEvent::ToolCallUpdated {
+                tool_call_id: format!("call-{turn}"),
+                title: None,
+                status: Some("completed".to_string()),
+                output: Some("ok".to_string()),
+            }));
+            assert!(
+                state.pending_permission.is_some(),
+                "第 {turn} 轮 tool_call_update 不得清 pending"
+            );
+            // UI 回传决定。
+            state.resolve_permission(request_id).expect("resolve");
+            apply_permission_resolved(&mut state.thread, request_id, true);
+            assert!(state.pending_permission.is_none());
+            assert!(state.apply_host_event(&HostEvent::TurnEnd {
+                cancelled: false,
+                stop_reason: "EndTurn".to_string(),
+            }));
+        }
+        let permission_rows = state
+            .thread
+            .entries
+            .iter()
+            .filter(|entry| matches!(entry, Entry::Permission { .. }))
+            .count();
+        assert_eq!(permission_rows, 2, "两轮审批都应留痕");
+        assert!(state
+            .thread
+            .entries
+            .iter()
+            .all(|entry| !matches!(entry, Entry::Permission { resolved: None, .. })));
+    }
+
+    /// 回归：共享模型里有未解决审批、但 native 辅助态缺失时，必须能从
+    /// ConversationThread 兜底重建可渲染审批卡（两轨同一数据源）。
+    #[test]
+    fn pending_permission_recovers_from_shared_thread_model() {
+        let mut state = NativeThreadState::new();
+        // 只让共享模型看到审批（模拟辅助态在批处理中被清掉的极端情况）。
+        assert!(agent_ingest::apply_thread_event(
+            &mut state.thread,
+            &HostEvent::PermissionRequested {
+                request_id: "perm-9".to_string(),
+                title: "允许运行 run_command？".to_string(),
+                tool_call_id: Some("call-9".to_string()),
+                tool_name: Some("run_command".to_string()),
+                args: Some("{\"command\":\"ls\"}".to_string()),
+                options: Vec::new(),
+            }
+        ));
+        assert!(state.pending_permission.is_none());
+        state.sync_pending_permission();
+        let pending = state
+            .pending_permission
+            .clone()
+            .expect("审批必须能从共享模型恢复");
+        assert_eq!(pending.request_id, "perm-9");
+        assert!(pending.tool_name.is_empty() || pending.tool_name == "run_command");
+        // 线程里 resolve 后辅助态必须同步清空。
+        apply_permission_resolved(&mut state.thread, "perm-9", false);
+        state.sync_pending_permission();
+        assert!(state.pending_permission.is_none());
+    }
+
+    /// 回归（真机 bug 2 的残留机制）：共享模型里残留上一轮未解决的审批、辅助态
+    /// 已有新的 request 时，必须以新 request 为准（否则回传打到旧 id，运行时
+    /// 继续等审批 → 60s turn timeout）。
+    #[test]
+    fn stale_shared_pending_does_not_steal_new_permission_request() {
+        let mut state = NativeThreadState::new();
+        // 上一轮请求只进了共享模型（模拟 resolve 事件丢失）。
+        assert!(agent_ingest::apply_thread_event(
+            &mut state.thread,
+            &HostEvent::PermissionRequested {
+                request_id: "perm-1".to_string(),
+                title: "允许运行 run_command？".to_string(),
+                tool_call_id: Some("call-1".to_string()),
+                tool_name: Some("run_command".to_string()),
+                args: Some("{\"command\":\"echo hi\"}".to_string()),
+                options: Vec::new(),
+            }
+        ));
+        // 新请求走完整 apply_host_event（辅助态 = perm-2）。
+        assert!(state.apply_host_event(&HostEvent::PermissionRequested {
+            request_id: "perm-2".to_string(),
+            title: "允许运行 run_command？".to_string(),
+            tool_call_id: Some("call-1".to_string()),
+            tool_name: Some("run_command".to_string()),
+            args: Some("{\"command\":\"echo hi\"}".to_string()),
+            options: Vec::new(),
+        }));
+        state.sync_pending_permission();
+        assert_eq!(
+            state
+                .pending_permission
+                .as_ref()
+                .map(|pending| pending.request_id.as_str()),
+            Some("perm-2"),
+            "必须回传新 request，不能沿用遗留的 perm-1"
+        );
+        // 共享模型里遗留的 pending 被清掉，且旧行标记为未允许（失效）。
+        assert!(state.thread.pending_permission.is_none());
+        let stale_row = state
+            .thread
+            .entries
+            .iter()
+            .find(|entry| {
+                matches!(
+                    entry,
+                    Entry::Permission { request_id, .. } if request_id == "perm-1"
+                )
+            })
+            .expect("stale row");
+        let Entry::Permission { resolved, .. } = stale_row else {
+            unreachable!()
+        };
+        assert_eq!(*resolved, Some(false));
     }
 }
