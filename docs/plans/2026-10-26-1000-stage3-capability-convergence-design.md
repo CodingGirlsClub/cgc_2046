@@ -160,3 +160,36 @@ ACP agent 自定义非标准 options；已由纯函数/两轨对照测试覆盖�
 - 真机验收：native `run_command.alwaysDeny:["echo"]` → 自动拒绝 Notice + 工具失败 + 回合正常结束；
   同规则下 OMP（ask/default）仍出现共享审批卡，点 Reject → 历史行「已拒绝」、工具 `failed`、回合正常结束。
 - 无设置 GUI（手改 `preferences.json`，即时生效）；`desktop/README.md` 已写规则说明与 ACP 模式限制。
+
+## 11. Stage 3.3 / 3.3b 实现记录（2026-10-26）
+
+3.3 数据层（Zed ThreadStore + metadata 语义）：
+
+| commit | 内容 |
+|---|---|
+| `e6e16bc7` | `conversations.db`（thread_content + sidebar_threads，0600/WAL/迁移/容错） |
+| `a8f9c23c` | ACP transcript 落库、统一历史、标题/override、恢复降级、设置清空 |
+| `f7c08560` | `session/load` 回放替换 / 失败降级 e2e |
+
+3.3b 历史交互（Zed 对齐）：
+
+| commit | 内容 |
+|---|---|
+| `6c7fafa6` | 全局历史 + Rename/Archive/自动归档/Archive 视图（P0 三 bug 修复） |
+| `bcabb9c2` | 历史从模态改为 Zed 式左侧边栏 |
+| `e52872e2` | 行操作改为 hover 铅笔/归档图标（对齐 Zed ThreadSwitcher 行） |
+| `cf7896c0` | Agent Panel `⋯` 菜单 Toggle Threads Sidebar + `⌥⌘J` |
+| `60565a17` | native 行归档（`native_archived` 迁移，不改 threads.db） |
+| `02c066ad` | 各 Agent 品牌图标（native 应用 logo；codex/claude/opencode 官方 ACP registry SVG；omp 单色 mark） |
+| `1cfe945e` | OMP 单色 currentColor 修复 + 单色资产守卫测试 |
+
+实现要点：
+- 历史侧栏：最近（按 agent 分组）/归档（今天/昨天/最近 7 天/更早分桶 + 过滤）；行首品牌图标；hover 铅笔/归档/取消归档；行正文点击打开，侧栏保持并高亮；`＋` 按当前轨新建。
+- Archive 仅隐藏；永久删除只在 Settings「清空 ACP 对话历史」（native 不受影响）；ACP 每 agent 最近 5 条自动归档。
+- `#` 事件冒泡 bug：历史行不再挂整体 on_click，菜单位置与打开区域为兄弟节点；`×` 裸删除已移除。
+- 真机已复现并修复的 bug：× 无响应、native 模式历史入口消失、清空后列表不刷新。
+- 品牌图标资产来源：Codex/Claude/OpenCode 取自官方 ACP registry CDN 对应 agent icon，OMP 取自 omp.sh 单色 mark；仅用于标识对应 agent；若需法务/设计替换，渲染层不变。
+
+门禁（Lead 独立复跑）：fmt ✅、clippy `-D warnings` ✅、workspace 测试 **536 passed / 0 failed**（registry 网络 mock 用例偶发超时，重跑即绿，既有 flake）。
+
+真机待最终确认（用户复验）：侧栏开关/高亮、hover 图标、Rename 持久化、Archive/Unarchive、过滤/分桶、清空刷新、品牌图标观感。
