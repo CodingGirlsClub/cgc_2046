@@ -57,3 +57,9 @@ depends = ["libsecret-tools"]
 schemes = ["cgc"]
 name = "cgc2046"
 role = "viewer"
+
+[dev-dependencies]
+# 两轨对照测试（Phase A）：在 app 组合根里同时驱动 native in-process ACP server
+# 与一个 stub ACP agent，验证同一语义输入产出同一 HostEvent 序列/会话模型。
+# 该 crate 已由 cgc-platform / cgc-agent-host 依赖，版本一致，不新增外部依赖。
+agent-client-protocol = { version = "3.4" }
