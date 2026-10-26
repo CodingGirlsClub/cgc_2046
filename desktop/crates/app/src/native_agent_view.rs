@@ -3606,18 +3606,13 @@ impl Render for NativeAgentView {
                                     view.render_message_row(kind, &menu_root, cx)
                                 })
                                 .unwrap_or_else(|_| div().into_any_element());
-                            div()
-                                .w_full()
-                                .max_w(px(850.0))
-                                .mx_auto()
-                                .child(row)
-                                .into_any_element()
+                            div().w_full().child(row).into_any_element()
                         },
                     )
                     .scrollbar(true)
                     .jump_button(true)
                     .with_jump_button_label("回到最新")
-                    .with_list_style(StyleRefinement::default().p(space(3)))
+                    .with_list_style(StyleRefinement::default().p(space(2)))
                     .with_row_style(StyleRefinement::default().pb(space(2))),
                 ),
             )
