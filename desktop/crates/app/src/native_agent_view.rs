@@ -79,8 +79,9 @@ use cgc_agent_ui::permission_card::{
 
 use cgc_agent_ui::message_row::{
     render_assistant_row, render_error_row as shared_render_error_row, render_status_row,
-    render_thinking_row, render_tool_row, render_user_row, AssistantRowSpec, ErrorRowSpec,
-    MessageStyle, RowPalette, StatusRowSpec, ThinkingRowSpec, ToolRowSpec, UserRowSpec,
+    render_thinking_row, render_tool_row, render_user_edit_row as shared_render_user_edit_row,
+    render_user_row, user_edit_confirm_visible, AssistantRowSpec, ErrorRowSpec, MessageStyle,
+    RowPalette, StatusRowSpec, ThinkingRowSpec, ToolRowSpec, UserEditRowSpec, UserRowSpec,
 };
 use cgc_agent_ui::picker::{
     render_picker_popover, PickerGroup, PickerItem, PickerPopoverSpec, PickerStyle,
@@ -2111,129 +2112,39 @@ impl NativeAgentView {
         let Some(input) = self.user_edit_input.clone() else {
             return div().into_any_element();
         };
-        div()
-            .flex()
-            .flex_col()
-            .gap(space(1))
-            .child(
-                div()
-                    .rounded(px(RADIUS_MEDIUM))
-                    .border_1()
-                    .border_color(palette.line_strong)
-                    .bg(palette.view)
-                    .px(space(2))
-                    .py(space(1))
-                    .child(
-                        Textarea::new(&input)
-                            .appearance(false)
-                            .bordered(false)
-                            .w_full(),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .justify_end()
-                    .gap(space(1))
-                    .child(
-                        div()
-                            .id("native-user-edit-cancel")
-                            .role(Role::Button)
-                            .aria_label("取消编辑")
-                            .px(space(1))
-                            .py(px(2.0))
-                            .rounded(px(RADIUS_SMALL))
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_2)
-                            .hover(|style| style.bg(palette.soft))
-                            .child("取消")
-                            .on_click(cx.listener(|this, _, _, cx| this.cancel_edit_user(cx))),
-                    )
-                    .child(
-                        div()
-                            .id("native-user-edit-resend")
-                            .role(Role::Button)
-                            .aria_label("从这里重发")
-                            .px(space(2))
-                            .py(px(2.0))
-                            .rounded(px(RADIUS_SMALL))
-                            .bg(palette.accent)
-                            .text_color(palette.canvas)
-                            .text_size(px(11.0))
-                            .child("重发")
-                            .on_click(cx.listener(move |this, _, _window, cx| {
-                                this.restart_from_user_message(message_index, cx)
-                            })),
-                    ),
-            )
-            .children(
-                (self.pending_restart_confirm == Some(message_index)).then(|| {
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(space(1))
-                        .p(space(2))
-                        .rounded(px(RADIUS_SMALL))
-                        .border_1()
-                        .border_color(palette.danger)
-                        .bg(palette.view)
-                        .child(
-                            div()
-                                .text_size(px(11.0))
-                                .text_color(palette.danger)
-                                .child("没有可用检查点"),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(11.0))
-                                .text_color(palette.ink_2)
-                                .child("继续只会回滚对话，无法回滚工作区文件。"),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .justify_end()
-                                .gap(space(1))
-                                .child(
-                                    div()
-                                        .id("native-restart-cancel")
-                                        .role(Role::Button)
-                                        .aria_label("取消重发")
-                                        .px(space(1))
-                                        .py(px(2.0))
-                                        .rounded(px(RADIUS_SMALL))
-                                        .text_size(px(11.0))
-                                        .text_color(palette.ink_2)
-                                        .hover(|style| style.bg(palette.soft))
-                                        .child("取消")
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.pending_restart_confirm = None;
-                                            cx.notify();
-                                        })),
-                                )
-                                .child(
-                                    div()
-                                        .id("native-restart-confirm")
-                                        .role(Role::Button)
-                                        .aria_label("仍然重发")
-                                        .px(space(2))
-                                        .py(px(2.0))
-                                        .rounded(px(RADIUS_SMALL))
-                                        .bg(palette.danger)
-                                        .text_color(palette.canvas)
-                                        .text_size(px(11.0))
-                                        .child("仍然重发")
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.restart_from_user_message(message_index, cx)
-                                        })),
-                                ),
-                        )
-                }),
-            )
-            .into_any_element()
+        let view = cx.entity().downgrade();
+        let cancel_view = view.clone();
+        let resend_view = view.clone();
+        let confirm_cancel_view = view.clone();
+        let confirm_resend_view = view;
+        shared_render_user_edit_row(UserEditRowSpec {
+            input,
+            cancel_id: SharedString::from("native-user-edit-cancel"),
+            resend_id: SharedString::from("native-user-edit-resend"),
+            confirm_cancel_id: SharedString::from("native-restart-cancel"),
+            confirm_resend_id: SharedString::from("native-restart-confirm"),
+            pending_confirm: user_edit_confirm_visible(self.pending_restart_confirm, message_index),
+            style: native_row_palette(palette),
+            on_cancel: Box::new(move |cx| {
+                let _ = cancel_view.update(cx, |this, cx| this.cancel_edit_user(cx));
+            }),
+            on_resend: Box::new(move |cx| {
+                let _ = resend_view.update(cx, |this, cx| {
+                    this.restart_from_user_message(message_index, cx)
+                });
+            }),
+            on_confirm_cancel: Box::new(move |cx| {
+                let _ = confirm_cancel_view.update(cx, |this, cx| {
+                    this.pending_restart_confirm = None;
+                    cx.notify();
+                });
+            }),
+            on_confirm_resend: Box::new(move |cx| {
+                let _ = confirm_resend_view.update(cx, |this, cx| {
+                    this.restart_from_user_message(message_index, cx)
+                });
+            }),
+        })
     }
 
     /// 展开/折叠一条思考块。

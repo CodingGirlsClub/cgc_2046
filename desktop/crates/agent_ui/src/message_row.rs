@@ -6,6 +6,7 @@
 //!
 //! 两栈只提供数据、样式与回调，渲染/间距/id 规则在这里统一。
 
+use gpui_kit::component::input::{Textarea, TextareaState};
 use gpui_kit::component::{Icon, Sizable};
 use gpui_kit::InteractiveElement as _;
 use gpui_kit::StatefulInteractiveElement as _;
@@ -466,4 +467,169 @@ pub fn render_user_row(spec: UserRowSpec) -> AnyElement {
                 .on_click(move |_, window, cx| on_restore(window, cx))
         }))
         .into_any_element()
+}
+
+/// 编辑态行（user 消息编辑/重发）。
+pub struct UserEditRowSpec {
+    pub input: Entity<TextareaState>,
+    pub cancel_id: SharedString,
+    pub resend_id: SharedString,
+    pub confirm_cancel_id: SharedString,
+    pub confirm_resend_id: SharedString,
+    pub pending_confirm: bool,
+    pub style: RowPalette,
+    pub on_cancel: ActionCallback,
+    pub on_resend: ActionCallback,
+    pub on_confirm_cancel: ActionCallback,
+    pub on_confirm_resend: ActionCallback,
+}
+
+/// 编辑态行：输入框 + 取消/重发；无检查点时二次确认面板（纯函数可单测）。
+pub fn user_edit_confirm_visible(
+    pending_confirm_for_message: Option<usize>,
+    message_index: usize,
+) -> bool {
+    pending_confirm_for_message == Some(message_index)
+}
+
+pub fn render_user_edit_row(spec: UserEditRowSpec) -> AnyElement {
+    let UserEditRowSpec {
+        input,
+        cancel_id,
+        resend_id,
+        confirm_cancel_id,
+        confirm_resend_id,
+        pending_confirm,
+        style,
+        on_cancel,
+        on_resend,
+        on_confirm_cancel,
+        on_confirm_resend,
+    } = spec;
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(4.0))
+        .child(
+            div()
+                .rounded(px(style.radius))
+                .border_1()
+                .border_color(style.line_strong)
+                .bg(style.view)
+                .px(px(8.0))
+                .py(px(4.0))
+                .child(
+                    Textarea::new(&input)
+                        .appearance(false)
+                        .bordered(false)
+                        .w_full(),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_end()
+                .gap(px(4.0))
+                .child(
+                    div()
+                        .id(cancel_id)
+                        .role(Role::Button)
+                        .aria_label("取消编辑")
+                        .px(px(4.0))
+                        .py(px(2.0))
+                        .rounded(px(style.radius_small))
+                        .text_size(px(11.0))
+                        .text_color(style.ink_2)
+                        .hover(|hovered| hovered.bg(style.soft))
+                        .child("取消")
+                        .on_click(move |_, _, cx| on_cancel(cx)),
+                )
+                .child(
+                    div()
+                        .id(resend_id)
+                        .role(Role::Button)
+                        .aria_label("从这里重发")
+                        .px(px(8.0))
+                        .py(px(2.0))
+                        .rounded(px(style.radius_small))
+                        .bg(style.accent)
+                        .text_color(style.canvas)
+                        .text_size(px(11.0))
+                        .child("重发")
+                        .on_click(move |_, _, cx| on_resend(cx)),
+                ),
+        )
+        .children(pending_confirm.then(|| {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(4.0))
+                .p(px(8.0))
+                .rounded(px(style.radius_small))
+                .border_1()
+                .border_color(style.danger)
+                .bg(style.view)
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(style.danger)
+                        .child("没有可用检查点"),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(style.ink_2)
+                        .child("继续只会回滚对话，无法回滚工作区文件。"),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .justify_end()
+                        .gap(px(4.0))
+                        .child(
+                            div()
+                                .id(confirm_cancel_id)
+                                .role(Role::Button)
+                                .aria_label("取消重发")
+                                .px(px(4.0))
+                                .py(px(2.0))
+                                .rounded(px(style.radius_small))
+                                .text_size(px(11.0))
+                                .text_color(style.ink_2)
+                                .hover(|hovered| hovered.bg(style.soft))
+                                .child("取消")
+                                .on_click(move |_, _, cx| on_confirm_cancel(cx)),
+                        )
+                        .child(
+                            div()
+                                .id(confirm_resend_id)
+                                .role(Role::Button)
+                                .aria_label("仍然重发")
+                                .px(px(8.0))
+                                .py(px(2.0))
+                                .rounded(px(style.radius_small))
+                                .bg(style.danger)
+                                .text_color(style.canvas)
+                                .text_size(px(11.0))
+                                .child("仍然重发")
+                                .on_click(move |_, _, cx| on_confirm_resend(cx)),
+                        ),
+                )
+        }))
+        .into_any_element()
+}
+
+#[cfg(test)]
+mod user_edit_tests {
+    use super::user_edit_confirm_visible;
+
+    #[test]
+    fn confirm_panel_only_for_matching_message() {
+        assert!(user_edit_confirm_visible(Some(3), 3));
+        assert!(!user_edit_confirm_visible(Some(3), 4));
+        assert!(!user_edit_confirm_visible(None, 4));
+    }
 }
