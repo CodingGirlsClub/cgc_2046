@@ -23,7 +23,7 @@ use cgc_agent_provider::{
     Request as ProviderRequest,
 };
 use cgc_agent_store::{
-    provider_key_account, ActionAuditEntry, AuditLog, CheckpointRecord, PrefsStore, ProviderPrefs,
+    provider_key_account, ActionAuditEntry, AuditLog, PrefsStore, ProviderPrefs,
 };
 use cgc_agent_tools::{
     ActionSink, AgentState, AppAction, ItemStatus, SandboxPolicy, SharedAgentState, SubagentEvent,
@@ -59,6 +59,12 @@ use crate::native_context::{
 use crate::native_runtime::{NativeRuntimeConfig, NativeRuntimeHandle};
 use crate::native_session::NativeSessionStore;
 use crate::native_thread_state::{NativeThreadState, SubagentCard};
+use crate::native_view_model::{
+    build_message_row_kinds, checkpoint_for_ordinal, checkpoints_from_records,
+    needs_checkpoint_confirm, subagent_cards_for_rows, thread_entry_ordinal,
+    thread_user_entry_index, trim_entries_to_last_user, MessageRowKind, ViewRole, ViewRow,
+    ViewTool, ViewToolStatus,
+};
 use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 use cgc_agent_ui::command_menu::{
     render_command_menu, CommandMenuItem, CommandMenuSpec, CommandMenuStyle,
@@ -483,144 +489,6 @@ fn apply_thread_entries(
         }
     }
     restored_images
-}
-
-/// native 渲染行（app 内视图模型，不再依赖 agent_host 的 UI 类型）。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ViewRole {
-    User,
-    Assistant,
-    Thinking,
-    Tool,
-    System,
-    Error,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ViewToolStatus {
-    Running,
-    Ok,
-    Failed,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-struct ViewTool {
-    name: String,
-    args: serde_json::Value,
-    status: ViewToolStatus,
-    content: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-struct ViewRow {
-    role: ViewRole,
-    text: String,
-    tool_call_id: Option<String>,
-    tool: Option<ViewTool>,
-}
-
-impl ViewRow {
-    fn from_entry(entry: &ConversationEntry) -> Self {
-        match entry {
-            ConversationEntry::User { text } => Self {
-                role: ViewRole::User,
-                text: text.clone(),
-                tool_call_id: None,
-                tool: None,
-            },
-            ConversationEntry::Assistant { text } => Self {
-                role: ViewRole::Assistant,
-                text: text.clone(),
-                tool_call_id: None,
-                tool: None,
-            },
-            ConversationEntry::Thinking { text, .. } => Self {
-                role: ViewRole::Thinking,
-                text: text.clone(),
-                tool_call_id: None,
-                tool: None,
-            },
-            ConversationEntry::ToolCall {
-                tool_call_id,
-                title,
-                name,
-                status,
-                args,
-                output,
-                ..
-            } => Self {
-                role: ViewRole::Tool,
-                text: output.clone().unwrap_or_default(),
-                tool_call_id: Some(tool_call_id.clone()),
-                tool: Some(ViewTool {
-                    name: name.clone().unwrap_or_else(|| title.clone()),
-                    args: args
-                        .as_deref()
-                        .and_then(|args| serde_json::from_str(args).ok())
-                        .unwrap_or(serde_json::Value::Null),
-                    status: match status.as_str() {
-                        "completed" => ViewToolStatus::Ok,
-                        "failed" => ViewToolStatus::Failed,
-                        _ => ViewToolStatus::Running,
-                    },
-                    content: output.clone(),
-                }),
-            },
-            ConversationEntry::Permission {
-                title, resolved, ..
-            } => Self {
-                role: ViewRole::System,
-                text: match resolved {
-                    None => format!("等待审批：{title}"),
-                    Some(true) => format!("已允许：{title}"),
-                    Some(false) => format!("已拒绝：{title}"),
-                },
-                tool_call_id: None,
-                tool: None,
-            },
-            ConversationEntry::Notice { level, text } => Self {
-                role: if matches!(level, cgc_agent_ui::conversation::NoticeLevel::Error) {
-                    ViewRole::Error
-                } else {
-                    ViewRole::System
-                },
-                text: text.clone(),
-                tool_call_id: None,
-                tool: None,
-            },
-            ConversationEntry::Compaction { status, summary } => Self {
-                role: ViewRole::System,
-                text: match summary {
-                    Some(summary) => format!("上下文压缩（{status}）：{summary}"),
-                    None => format!("上下文压缩（{status}）"),
-                },
-                tool_call_id: None,
-                tool: None,
-            },
-        }
-    }
-}
-
-/// 第 `index` 条模型 entry 的用户消息 ordinal（1-based）。
-fn thread_entry_ordinal(entries: &[ConversationEntry], index: usize) -> Option<usize> {
-    if !matches!(entries.get(index)?, ConversationEntry::User { .. }) {
-        return None;
-    }
-    Some(
-        entries[..=index]
-            .iter()
-            .filter(|entry| matches!(entry, ConversationEntry::User { .. }))
-            .count(),
-    )
-}
-
-/// 重试/编辑重发前把模型裁到最近一条用户消息。
-fn trim_entries_to_last_user(entries: &mut Vec<ConversationEntry>) -> Option<usize> {
-    let index = entries
-        .iter()
-        .rposition(|entry| matches!(entry, ConversationEntry::User { .. }))?;
-    entries.truncate(index + 1);
-    Some(index)
 }
 
 pub struct NativeAgentView {
@@ -5059,37 +4927,13 @@ impl Render for NativeAgentView {
     }
 }
 
-fn checkpoints_from_records(records: &[CheckpointRecord]) -> Vec<(usize, Checkpoint)> {
-    let mut checkpoints: Vec<(usize, Checkpoint)> = records
-        .iter()
-        .filter(|record| record.state != "invalid" && record.user_entry_seq > 0)
-        .map(|record| {
-            (
-                record.user_entry_seq as usize,
-                Checkpoint {
-                    thread_id: record.thread_id.clone(),
-                    seq: record.user_entry_seq.max(0) as u64,
-                    ref_name: record.ref_name.clone(),
-                    sha: record.sha.clone(),
-                    base_head: record.base_head.clone(),
-                },
-            )
-        })
-        .collect();
-    checkpoints.sort_by_key(|(ordinal, _)| *ordinal);
-    checkpoints
+/// 每个 workspace scope 一条 native 线程（ADR-0028）。
+fn scope_thread_id(scope: &crate::agent_scope::AgentScope) -> String {
+    format!("native-{}", scope.key)
 }
 
-/// 无可用 checkpoint 时，编辑重发必须先二次确认。
-fn needs_checkpoint_confirm(
-    has_valid_checkpoint: bool,
-    pending: Option<usize>,
-    message_index: usize,
-) -> bool {
-    !has_valid_checkpoint && pending != Some(message_index)
-}
-
-/// 消息操作栏的单图标按钮（hover 显示 tooltip，样式对齐 Zed 的 muted icon button）。
+/// 滚动是否已经在底部（GPUI 的 offset.y 越往下越负，max_offset 为正）。
+/// 2px 容差避免亚像素/取整导致的“差一点点”抖动。
 /// 用户消息正文：普通文本 + mention chip（与 composer 的 chip 对齐）。
 fn render_user_message_body(text: &str, palette: &theme::Palette) -> AnyElement {
     let palette = *palette;
@@ -5155,94 +4999,6 @@ fn render_user_message_body(text: &str, palette: &theme::Palette) -> AnyElement 
             }
         }))
         .into_any_element()
-}
-
-/// 每个 workspace scope 一条 native 线程（ADR-0028）。
-fn scope_thread_id(scope: &crate::agent_scope::AgentScope) -> String {
-    format!("native-{}", scope.key)
-}
-
-fn checkpoint_for_ordinal(
-    records: &[cgc_agent_store::CheckpointRecord],
-    ordinal: usize,
-) -> Option<cgc_agent_store::CheckpointRecord> {
-    records
-        .iter()
-        .find(|record| record.user_entry_seq == ordinal as i64 && record.state != "invalid")
-        .cloned()
-}
-
-/// 第 `message_index` 条 UI 消息是第几条用户消息（1-based）。
-/// 第 `ordinal` 条用户消息（1-based）在 thread entries 里的下标。
-fn thread_user_entry_index(entries: &[cgc_agent_core::Entry], ordinal: usize) -> Option<usize> {
-    entries
-        .iter()
-        .enumerate()
-        .filter(|(_, entry)| matches!(entry, cgc_agent_core::Entry::User { .. }))
-        .nth(ordinal.checked_sub(1)?)
-        .map(|(index, _)| index)
-}
-
-/// 滚动是否已经在底部（GPUI 的 offset.y 越往下越负，max_offset 为正）。
-/// 2px 容差避免亚像素/取整导致的“差一点点”抖动。
-/// 消息区的行类型：历史消息、内联子 agent、流式思考、流式回复、错误，
-/// 以及回合末不是 assistant 时的底部兜底操作栏（Zed 的 last-assistant fallback）。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum MessageRowKind {
-    Message(usize),
-    Subagent(usize),
-    Error,
-    TrailingActions,
-}
-
-/// 计算消息区的行序列；子 agent 卡内联到触发它的 tool 消息后面，
-/// 其余子 agent 与流式/错误行按旧渲染顺序排在末尾。
-/// B3c：capability gating —— 无 subagent 能力时行序列不注入子 agent 行
-/// （ACP 走自己的 subagent 展示，native 版不硬塞）。
-fn subagent_cards_for_rows(subagent_available: bool, cards: &[SubagentCard]) -> &[SubagentCard] {
-    if subagent_available {
-        cards
-    } else {
-        &[]
-    }
-}
-
-fn build_message_row_kinds(
-    entries: &[ConversationEntry],
-    subagents: &[SubagentCard],
-    has_error: bool,
-) -> Vec<MessageRowKind> {
-    let mut kinds = Vec::with_capacity(entries.len() + subagents.len() + 3);
-    let mut used_subagents = vec![false; subagents.len()];
-    for (message_index, entry) in entries.iter().enumerate() {
-        kinds.push(MessageRowKind::Message(message_index));
-        let tool_call_id = match entry {
-            ConversationEntry::ToolCall { tool_call_id, .. } => Some(tool_call_id.as_str()),
-            _ => None,
-        };
-        if let Some(tool_call_id) = tool_call_id {
-            if let Some(subagent_index) = subagents
-                .iter()
-                .enumerate()
-                .find(|(index, card)| {
-                    !used_subagents[*index] && card.tool_call_id.as_deref() == Some(tool_call_id)
-                })
-                .map(|(index, _)| index)
-            {
-                used_subagents[subagent_index] = true;
-                kinds.push(MessageRowKind::Subagent(subagent_index));
-            }
-        }
-    }
-    for (index, used) in used_subagents.into_iter().enumerate() {
-        if !used {
-            kinds.push(MessageRowKind::Subagent(index));
-        }
-    }
-    if has_error {
-        kinds.push(MessageRowKind::Error);
-    }
-    kinds
 }
 
 fn tool_status_label(status: ViewToolStatus) -> &'static str {

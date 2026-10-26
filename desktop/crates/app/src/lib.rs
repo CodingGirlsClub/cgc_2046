@@ -24,6 +24,7 @@ pub mod native_panel_host;
 pub mod native_runtime;
 pub mod native_session;
 pub mod native_thread_state;
+pub mod native_view_model;
 pub mod notification_center;
 pub mod notifications;
 pub mod page_context;
