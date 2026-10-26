@@ -17,7 +17,7 @@ pub use acp_server::{
     NativeAcpServer, NativeAcpServerConfig, NativeTurn, NativeTurnRuntime, OPTION_ALLOW_ONCE,
     OPTION_ALLOW_SESSION, OPTION_DENY,
 };
-pub use adapter::{AsyncChannelObserver, ChannelObserver, EventCollector};
+pub use adapter::{ChannelObserver, EventCollector};
 pub use commands::{AgentCommand, PermissionDecision};
 pub use events::AgentEvent;
 pub use slash::{parse as parse_slash, SlashCommand, COMMANDS as SLASH_COMMANDS};
