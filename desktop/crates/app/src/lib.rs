@@ -20,6 +20,7 @@ pub mod i18n;
 pub mod mention;
 pub mod native_agent_view;
 pub mod native_context;
+pub mod native_panel_host;
 pub mod native_runtime;
 pub mod native_session;
 pub mod native_thread_state;

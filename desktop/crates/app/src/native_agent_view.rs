@@ -628,7 +628,7 @@ pub struct NativeAgentView {
     provider: Arc<dyn Provider>,
     model: Model,
     registry: Arc<ToolRegistry>,
-    agent_state: SharedAgentState,
+    host: crate::native_panel_host::NativePanelHost,
     app_actions: Arc<Mutex<Vec<AppAction>>>,
     action_audit: Option<AuditLog>,
     subagent_tx: Arc<Mutex<Option<mpsc::UnboundedSender<AgentEvent>>>>,
@@ -636,8 +636,6 @@ pub struct NativeAgentView {
     input: Entity<TextareaState>,
     cancel: CancelToken,
     state: NativeThreadState,
-    /// 进程内 ACP 连接：native 运行时被包装成 ACP agent，与外部 ACP 走同一客户端路径。
-    acp_host: Option<AcpHost>,
     /// native ACP server 的上下文窗口句柄（usage_update.size 用）。
     acp_context_size: Option<ContextSizeHandle>,
     /// turn 期间 Agent 交给它的运行时句柄（turn 结束后取回）。
@@ -822,6 +820,8 @@ impl NativeAgentView {
         let cancel = agent.cancel_token();
         let steer_sender = agent.steer_sender();
         let agent_state: SharedAgentState = Arc::new(Mutex::new(AgentState::default()));
+        let host = crate::native_panel_host::NativePanelHost::new(agent_state.clone());
+        debug_assert!(host.has_agent_state());
         let action_audit = Some(AuditLog::new(paths.agent_audit_file()));
         let app_actions: Arc<Mutex<Vec<AppAction>>> = Arc::new(Mutex::new(Vec::new()));
         let action_sink: ActionSink = {
@@ -1011,7 +1011,7 @@ impl NativeAgentView {
                     .with_app_actions()
                     .with_subagent(subagent_runner, subagent_sink),
             ),
-            agent_state,
+            host,
             app_actions,
             action_audit,
             subagent_tx,
@@ -1034,7 +1034,6 @@ impl NativeAgentView {
             message_row_signatures: Vec::new(),
             approval_mode: ApprovalMode::Ask,
             runtime: NativeRuntimeHandle::new(),
-            acp_host: None,
             acp_context_size: None,
             acp_poller_generation: 0,
             acp_poller_running: false,
@@ -1740,6 +1739,7 @@ impl NativeAgentView {
         self.runtime.put_agent(agent);
         self.ensure_acp_poller(cx);
         let prompted = self
+            .host
             .acp_host
             .as_ref()
             .map(|host| host.prompt(text))
@@ -1752,7 +1752,7 @@ impl NativeAgentView {
 
     /// 建立 native 的进程内 ACP 连接（client 侧与外部 ACP agent 完全同一条路径）。
     fn ensure_acp_host(&mut self) -> bool {
-        if self.acp_host.is_some() {
+        if self.host.acp_connected() {
             return true;
         }
         let server = NativeAcpServer::new(Box::new(self.runtime.clone())).with_config(
@@ -1766,7 +1766,7 @@ impl NativeAgentView {
         match AcpHost::start_in_process(AcpHostConfig::new("", cwd).with_name("cgc-native"), server)
         {
             Ok(host) => {
-                self.acp_host = Some(host);
+                self.host.set_acp_host(Some(host));
                 true
             }
             Err(error) => {
@@ -1809,13 +1809,13 @@ impl NativeAgentView {
         }
         self.retrieve_awaiting_agent(cx);
         let mut events = Vec::new();
-        if let Some(host) = &self.acp_host {
+        if let Some(host) = &self.host.acp_host {
             while let Some(event) = host.try_recv() {
                 events.push(event);
             }
         }
         if events.is_empty() {
-            return self.acp_host.is_some() || self.awaiting_agent;
+            return self.host.acp_connected() || self.awaiting_agent;
         }
         let old_len = self.state.thread.entries.len();
         let mut finished = None;
@@ -1829,7 +1829,7 @@ impl NativeAgentView {
                     &crate::approval_rules::ApprovalRules::load(),
                     &event,
                 ) {
-                    if let Some(host) = &self.acp_host {
+                    if let Some(host) = &self.host.acp_host {
                         let _ = host.respond_permission_option(&auto.request_id, &auto.option_id);
                     }
                     agent_ingest::apply_notice(&mut self.state.thread, auto.notice);
@@ -1872,7 +1872,7 @@ impl NativeAgentView {
                     finished = Some(TurnEndState::Failed(message.clone()));
                 }
                 HostEvent::Exited => {
-                    self.acp_host = None;
+                    self.host.set_acp_host(None);
                     self.acp_poller_running = false;
                     finished = Some(TurnEndState::Failed("agent connection exited".to_string()));
                 }
@@ -1893,7 +1893,7 @@ impl NativeAgentView {
             }
         }
         cx.notify();
-        self.acp_host.is_some() || self.awaiting_agent
+        self.host.acp_connected() || self.awaiting_agent
     }
 
     /// cancel 宽限期内 client 可能先收到合成 TurnEnd，而 server 稍后才把 Agent
@@ -2023,7 +2023,7 @@ impl NativeAgentView {
         // 双保险：ACP session/cancel 经 server 触发 runtime 的 cancel 回调；
         // 直接 cancel 本地 token 保证即使连接未建立也能立即停。
         self.cancel.cancel();
-        if let Some(host) = &self.acp_host {
+        if let Some(host) = &self.host.acp_host {
             let _ = host.stop();
         }
         self.status = "正在停止…".to_string();
@@ -2711,7 +2711,7 @@ impl NativeAgentView {
             }
         });
         Arc::new(
-            ToolRegistry::with_agent_state(self.agent_state.clone())
+            ToolRegistry::with_agent_state(self.host.agent_state.clone())
                 .with_app_actions()
                 .with_subagent(subagent_runner, subagent_sink),
         )
@@ -3004,7 +3004,7 @@ impl NativeAgentView {
             return;
         };
         let allowed = agent_ingest::permission_option_allowed(&pending.options, option_id);
-        if let Some(host) = &self.acp_host {
+        if let Some(host) = &self.host.acp_host {
             let _ = host.respond_permission_option(&pending.request_id, option_id);
         }
         self.state.resolve_permission(&pending.request_id);
@@ -3821,6 +3821,7 @@ impl NativeAgentView {
             && !busy;
         let change_count = self.checkpoint_changes.len();
         let plan_state = self
+            .host
             .agent_state
             .lock()
             .map(|state| state.clone())
@@ -4771,6 +4772,7 @@ impl Render for NativeAgentView {
             && !busy;
         let change_count = self.checkpoint_changes.len();
         let plan_state = self
+            .host
             .agent_state
             .lock()
             .map(|state| state.clone())
