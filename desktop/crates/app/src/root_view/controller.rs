@@ -1631,6 +1631,29 @@ impl RootView {
         cx.notify();
     }
 
+    /// 按 ACP option_id 回传审批（共享权限卡的按钮路径，两轨同一接口）。
+    pub(in crate::root_view) fn respond_chat_permission_option(
+        &mut self,
+        option_id: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(pending) = self.chat.thread.pending_permission.clone() else {
+            return;
+        };
+        let allowed = crate::agent_ingest::permission_option_allowed(&pending.options, option_id);
+        if let Some(host) = &self.chat.host {
+            let _ = host.respond_permission_option(&pending.request_id, option_id);
+        }
+        crate::agent_ingest::apply_permission_resolved(
+            &mut self.chat.thread,
+            pending.request_id,
+            allowed,
+        );
+        cx.notify();
+    }
+
+    /// 允许/拒绝的折叠路径（键盘快捷键 + QA 自动批准）：优先按 options 里的
+    /// allow_*/reject_* 选具体 option，没有匹配选项时回退到旧的二态回传。
     pub(in crate::root_view) fn respond_chat_permission(
         &mut self,
         allow: bool,
@@ -1639,6 +1662,12 @@ impl RootView {
         let Some(pending) = self.chat.thread.pending_permission.clone() else {
             return;
         };
+        let option = crate::agent_ingest::first_permission_option(&pending.options, allow)
+            .map(|option| option.id.clone());
+        if let Some(option_id) = option {
+            self.respond_chat_permission_option(&option_id, cx);
+            return;
+        }
         if let Some(host) = &self.chat.host {
             let _ = host.respond_permission(&pending.request_id, allow);
         }

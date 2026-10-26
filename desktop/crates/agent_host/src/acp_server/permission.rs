@@ -159,6 +159,25 @@ mod tests {
                 OPTION_DENY.to_string(),
             ]
         );
+        // 3.2a：id/label/kind 三件套都要完整，共享权限卡按 kind 决定样式、
+        // 按 label 渲染按钮文案（两轨一致）。
+        use agent_client_protocol::schema::v1::PermissionOptionKind as Kind;
+        assert_eq!(
+            options.iter().map(|option| option.kind).collect::<Vec<_>>(),
+            vec![
+                Kind::AllowOnce,
+                Kind::AllowAlways,
+                Kind::AllowAlways,
+                Kind::RejectOnce,
+            ]
+        );
+        assert_eq!(
+            options
+                .iter()
+                .map(|option| option.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["允许一次", "本会话允许", "本会话允许 ls 前缀", "拒绝",]
+        );
     }
 
     #[test]

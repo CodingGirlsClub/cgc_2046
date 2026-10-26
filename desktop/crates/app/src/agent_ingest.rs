@@ -126,6 +126,29 @@ pub fn permission_options_from_host(options: &[PermissionOptionView]) -> Vec<Per
         .collect()
 }
 
+/// 某个 option_id 是否代表「允许」（两轨共用的判定：按钮回传后如何标记 resolved）。
+pub fn permission_option_allowed(options: &[PermissionOption], option_id: &str) -> bool {
+    options
+        .iter()
+        .find(|option| option.id == option_id)
+        .map(|option| option.kind.is_allow())
+        .unwrap_or(false)
+}
+
+/// 折叠路径（键盘快捷键 / QA 自动批准）：找第一个 allow_* 或 reject_* 选项。
+pub fn first_permission_option(
+    options: &[PermissionOption],
+    allow: bool,
+) -> Option<&PermissionOption> {
+    options.iter().find(|option| {
+        if allow {
+            option.kind.is_allow()
+        } else {
+            option.kind.is_reject()
+        }
+    })
+}
+
 /// 用户答复审批后落行（两轨共用；`allowed` 为 false 时 Permission 行标记为拒绝）。
 pub fn apply_permission_resolved(
     thread: &mut ConversationThread,
@@ -325,6 +348,45 @@ mod tests {
         assert_eq!(options[4].kind, PermissionOptionKind::Other);
         assert!(options[0].kind.is_allow());
         assert!(options[3].kind.is_reject());
+    }
+
+    #[test]
+    fn permission_option_selection_helpers_match_kinds() {
+        let options = permission_options_from_host(&[
+            PermissionOptionView {
+                option_id: "deny".to_string(),
+                name: "拒绝".to_string(),
+                kind: "reject_once".to_string(),
+            },
+            PermissionOptionView {
+                option_id: "allow_once".to_string(),
+                name: "允许一次".to_string(),
+                kind: "allow_once".to_string(),
+            },
+            PermissionOptionView {
+                option_id: "allow_session".to_string(),
+                name: "本会话允许".to_string(),
+                kind: "allow_always".to_string(),
+            },
+        ]);
+        assert!(permission_option_allowed(&options, "allow_once"));
+        assert!(permission_option_allowed(&options, "allow_session"));
+        assert!(!permission_option_allowed(&options, "deny"));
+        assert!(!permission_option_allowed(&options, "unknown"));
+        assert_eq!(
+            first_permission_option(&options, true).map(|option| option.id.as_str()),
+            Some("allow_once")
+        );
+        assert_eq!(
+            first_permission_option(&options, false).map(|option| option.id.as_str()),
+            Some("deny")
+        );
+        let only_reject = permission_options_from_host(&[PermissionOptionView {
+            option_id: "deny".to_string(),
+            name: "拒绝".to_string(),
+            kind: "reject_once".to_string(),
+        }]);
+        assert_eq!(first_permission_option(&only_reject, true), None);
     }
 
     #[test]

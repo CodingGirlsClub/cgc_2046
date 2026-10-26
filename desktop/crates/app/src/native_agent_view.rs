@@ -14,9 +14,8 @@ use base64::Engine as _;
 use cgc_agent_checkpoint::{Checkpoint, CheckpointManager, FileChange};
 use cgc_agent_core::{run_subagent, Agent, CancelToken, ImageAttachment, SelectedModel, Thread};
 use cgc_agent_host::{
-    allow_pattern_option_id, parse_slash, AgentEvent, ContextSizeHandle, NativeAcpServer,
-    NativeAcpServerConfig, SlashCommand, OPTION_ALLOW_ONCE, OPTION_ALLOW_SESSION, OPTION_DENY,
-    SLASH_COMMANDS,
+    parse_slash, AgentEvent, ContextSizeHandle, NativeAcpServer, NativeAcpServerConfig,
+    SlashCommand, SLASH_COMMANDS,
 };
 use cgc_agent_provider::{
     CompletionEvent, EchoProvider, Message as ProviderMessage, Model, ModelLimits,
@@ -28,9 +27,8 @@ use cgc_agent_store::{
     SessionStore,
 };
 use cgc_agent_tools::{
-    ActionSink, AgentState, AppAction, ApprovalDecision, ItemStatus, SandboxPolicy,
-    SharedAgentState, SubagentEvent, SubagentEventSink, SubagentRequest, SubagentRunner,
-    ToolContext, ToolRegistry,
+    ActionSink, AgentState, AppAction, ItemStatus, SandboxPolicy, SharedAgentState, SubagentEvent,
+    SubagentEventSink, SubagentRequest, SubagentRunner, ToolContext, ToolRegistry,
 };
 use cgc_platform::acp::connection::{AcpHost, AcpHostConfig, HostEvent};
 use cgc_platform::paths::AppPaths;
@@ -67,6 +65,9 @@ use cgc_agent_ui::message_actions::{
     ActionGlyphs, ActionStyle, MenuPayloads,
 };
 use cgc_agent_ui::message_flow;
+use cgc_agent_ui::permission_card::{
+    render_permission_card, PermissionCardModel, PermissionCardSpec, PermissionSelectCallback,
+};
 
 use cgc_agent_ui::message_row::{
     render_assistant_row, render_thinking_row, AssistantRowSpec, MessageStyle, ThinkingRowSpec,
@@ -1742,9 +1743,21 @@ impl NativeAgentView {
             self.state.apply_host_event(&event);
             match &event {
                 HostEvent::PermissionRequested { .. } => {
-                    // Auto 模式在 runtime 内已放行，不应出现审批请求；防御性放行。
+                    // Auto 模式在 runtime 内已放行，不应出现审批请求；防御性按
+                    // agent 提供的第一个 allow 选项回传。
                     if self.approval_mode == ApprovalMode::Auto {
-                        self.resolve_approval(ApprovalDecision::AllowOnce, cx);
+                        let option_id = self
+                            .state
+                            .thread
+                            .pending_permission
+                            .as_ref()
+                            .and_then(|request| {
+                                request.options.iter().find(|option| option.kind.is_allow())
+                            })
+                            .map(|option| option.id.clone());
+                        if let Some(option_id) = option_id {
+                            self.resolve_permission_option(&option_id, cx);
+                        }
                     }
                 }
                 HostEvent::TurnEnd {
@@ -2892,18 +2905,14 @@ impl NativeAgentView {
         cx.notify();
     }
 
-    fn resolve_approval(&mut self, decision: ApprovalDecision, cx: &mut Context<Self>) {
-        let allowed = !matches!(decision, ApprovalDecision::Deny);
+    /// 共享权限卡的按钮回调：按 ACP `option_id` 精确回传，随后按共享模型把
+    /// Permission 行标记 resolved（不再经过 native 专属 ApprovalDecision）。
+    fn resolve_permission_option(&mut self, option_id: &str, cx: &mut Context<Self>) {
         self.state.sync_pending_permission();
-        let Some(pending) = self.state.pending_permission.clone() else {
+        let Some(pending) = self.state.thread.pending_permission.clone() else {
             return;
         };
-        let option_id = match decision {
-            ApprovalDecision::AllowOnce => OPTION_ALLOW_ONCE.to_string(),
-            ApprovalDecision::AllowForSession => OPTION_ALLOW_SESSION.to_string(),
-            ApprovalDecision::AllowPattern(prefix) => allow_pattern_option_id(&prefix),
-            ApprovalDecision::Deny => OPTION_DENY.to_string(),
-        };
+        let allowed = agent_ingest::permission_option_allowed(&pending.options, option_id);
         if let Some(host) = &self.acp_host {
             let _ = host.respond_permission_option(&pending.request_id, option_id);
         }
@@ -2979,7 +2988,7 @@ impl NativeAgentView {
                         .action_plan(
                             message_index,
                             self.is_generating(),
-                            self.state.pending_permission.is_some(),
+                            self.state.thread.pending_permission.is_some(),
                         )
                         .map(|plan| {
                             self.render_message_actions(
@@ -3351,7 +3360,7 @@ impl NativeAgentView {
     ) -> AnyElement {
         let Some(plan) = self.state.thread.row_view().trailing_plan(
             self.is_generating(),
-            self.state.pending_permission.is_some(),
+            self.state.thread.pending_permission.is_some(),
         ) else {
             return div().into_any_element();
         };
@@ -3388,7 +3397,7 @@ impl NativeAgentView {
             .row_view()
             .trailing_plan(
                 self.is_generating(),
-                self.state.pending_permission.is_some(),
+                self.state.thread.pending_permission.is_some(),
             )
             .is_some()
         {
@@ -3514,7 +3523,7 @@ impl Render for NativeAgentView {
         let palette = theme::palette_from_theme(cx);
         let chip_workspace = self.context.workspace().to_path_buf();
         let busy = self.busy;
-        let pending = self.state.pending_permission.clone();
+        let pending = self.state.thread.pending_permission.clone();
         let usage = self.state.usage_total.total();
         let input = self.input.clone();
         let input_focus = self.input.read(cx).focus_handle(cx).clone();
@@ -3693,133 +3702,21 @@ impl Render for NativeAgentView {
                             )
                     }))
             }))
-            .children(pending.map(|prompt| {
-                let args = serde_json::to_string(&prompt.args).unwrap_or_default();
-                let args: String = args.chars().take(400).collect();
-                let description = match prompt.tool_name.as_str() {
-                    "run_command" => "将在工作区内执行 shell 命令（危险命令已被策略拦截）",
-                    "write_file" | "edit_file" => "将修改工作区文件，可在完成后用 Keep/Reject 处理",
-                    "read_file" | "list_directory" => "将读取工作区内容",
-                    _ => "该操作需要你的确认",
-                };
-                let pattern_prefix = prompt
-                    .args
-                    .get("command")
-                    .and_then(|value| value.as_str())
-                    .and_then(|command| command.split_whitespace().next())
-                    .map(str::to_string)
-                    .or_else(|| {
-                        prompt
-                            .args
-                            .get("path")
-                            .and_then(|value| value.as_str())
-                            .and_then(|path| path.rsplit_once('/').map(|(dir, _)| dir.to_string()))
-                    })
-                    .filter(|prefix| !prefix.is_empty());
-                div()
-                    .id("native-agent-permission")
-                    .flex()
-                    .flex_col()
-                    .gap(space(1))
-                    .mx(space(2))
-                    .mb(space(2))
-                    .p(space(2))
-                    .rounded(px(RADIUS_MEDIUM))
-                    .border_1()
-                    .border_color(palette.line)
-                    .bg(palette.card)
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(space(1))
-                            .child(
-                                div()
-                                    .text_size(px(12.0))
-                                    .text_color(palette.ink)
-                                    .child("需要审批"),
-                            )
-                            .child(
-                                div()
-                                    .px(space(1))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .bg(palette.soft)
-                                    .text_size(px(10.0))
-                                    .text_color(palette.accent)
-                                    .child(prompt.tool_name.clone()),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_3)
-                            .child(description),
-                    )
-                    .child(
-                        div()
-                            .p(space(1))
-                            .rounded(px(RADIUS_SMALL))
-                            .bg(palette.view)
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_2)
-                            .child(args),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .flex_wrap()
-                            .items_center()
-                            .gap(space(2))
-                            .child(approval_button("允许一次", true, cx, |this, cx| {
-                                this.resolve_approval(ApprovalDecision::AllowOnce, cx);
-                            }))
-                            .child(approval_button("本会话允许", false, cx, |this, cx| {
-                                this.resolve_approval(ApprovalDecision::AllowForSession, cx);
-                            }))
-                            .children(pattern_prefix.map(|prefix| {
-                                div()
-                                    .id("native-agent-allow-pattern")
-                                    .role(Role::Button)
-                                    .aria_label(format!("本会话允许 {prefix} 前缀"))
-                                    .px(space(2))
-                                    .py(space(1))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .text_size(px(12.0))
-                                    .text_color(palette.ink_2)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child(format!("允许 `{prefix}` 前缀"))
-                                    .on_click(cx.listener(move |this, _, _window, cx| {
-                                        this.resolve_approval(
-                                            ApprovalDecision::AllowPattern(prefix.clone()),
-                                            cx,
-                                        );
-                                    }))
-                            }))
-                            .child({
-                                div()
-                                    .id("native-agent-deny")
-                                    .role(Role::Button)
-                                    .aria_label("拒绝")
-                                    .px(space(2))
-                                    .py(space(1))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .text_size(px(12.0))
-                                    .text_color(palette.danger)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child("拒绝")
-                                    .on_click(cx.listener(|this, _, _window, cx| {
-                                        this.resolve_approval(ApprovalDecision::Deny, cx);
-                                    }))
-                            }),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(10.0))
-                            .text_color(palette.ink_3)
-                            .child("允许一次只对本次调用生效；本会话允许会记住该工具的同类请求。"),
-                    )
+            .children(pending.map(|request| {
+                let view = cx.entity().downgrade();
+                let on_select: PermissionSelectCallback =
+                    Arc::new(move |option_id: &str, cx: &mut App| {
+                        let _ = view.update(cx, |this, cx| {
+                            this.resolve_permission_option(option_id, cx)
+                        });
+                    });
+                render_permission_card(PermissionCardSpec {
+                    id: SharedString::from("native-agent-permission"),
+                    model: PermissionCardModel::from_request(&request),
+                    hint: None,
+                    style: crate::permission_ui::card_style(&palette),
+                    on_select: Some(on_select),
+                })
             }))
             .children(
                 (!queued_messages.is_empty()
@@ -5438,31 +5335,6 @@ fn render_mention_chip(
         .child(Icon::default().path(icon).small())
         .child(div().truncate().child(label))
         .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
-        .into_any_element()
-}
-
-fn approval_button(
-    label: &'static str,
-    primary: bool,
-    cx: &mut Context<NativeAgentView>,
-    action: impl Fn(&mut NativeAgentView, &mut Context<NativeAgentView>) + 'static,
-) -> AnyElement {
-    let palette = theme::palette_from_theme(cx);
-    div()
-        .id(label)
-        .role(Role::Button)
-        .aria_label(label)
-        .px(space(2))
-        .py(space(1))
-        .rounded(px(RADIUS_MEDIUM))
-        .bg(if primary {
-            palette.accent
-        } else {
-            palette.soft
-        })
-        .text_color(if primary { palette.canvas } else { palette.ink })
-        .child(label)
-        .on_click(cx.listener(move |this, _, _window, cx| action(this, cx)))
         .into_any_element()
 }
 

@@ -11,6 +11,9 @@ use cgc_agent_ui::message_actions::{
 use cgc_agent_ui::message_row::{
     render_assistant_row, render_thinking_row, AssistantRowSpec, MessageStyle, ThinkingRowSpec,
 };
+use cgc_agent_ui::permission_card::{
+    render_permission_card, PermissionCardModel, PermissionCardSpec,
+};
 use cgc_agent_ui::picker::{
     render_picker_popover, PickerGroup, PickerItem, PickerPopoverSpec, PickerSearch, PickerStyle,
 };
@@ -377,76 +380,31 @@ pub(in crate::root_view) fn render_chat_panel(
                         }
                         row.into_any_element()
                     }
-                    ConversationEntry::Permission {
-                        request_id,
-                        title,
-                        resolved,
-                        ..
-                    } => {
-                        let status = match resolved {
-                            Some(true) => "已允许",
-                            Some(false) => "已拒绝",
-                            None => "等待你的决定",
-                        };
-                        let buttons: Vec<AnyElement> = if resolved.is_none() {
-                            vec![
-                                div()
-                                    .id(format!("perm-allow-{request_id}"))
-                                    .role(Role::Button)
-                                    .aria_label("允许")
-                                    .px(space(1))
-                                    .py(px(3.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .bg(palette.accent)
-                                    .text_color(palette.canvas)
-                                    .child("允许")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.respond_chat_permission(true, cx);
-                                    }))
-                                    .into_any_element(),
-                                div()
-                                    .id(format!("perm-deny-{request_id}"))
-                                    .role(Role::Button)
-                                    .aria_label("拒绝")
-                                    .px(space(1))
-                                    .py(px(3.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .bg(palette.soft)
-                                    .text_color(palette.ink_2)
-                                    .child("拒绝")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.respond_chat_permission(false, cx);
-                                    }))
-                                    .into_any_element(),
-                            ]
-                        } else {
-                            Vec::new()
-                        };
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(space(1))
-                            .p(space(1))
-                            .rounded(px(RADIUS_SMALL))
-                            .border_1()
-                            .border_color(palette.line_strong)
-                            .text_size(px(12.0))
-                            .text_color(palette.ink)
-                            .child(format!("需要你的同意 · {title}"))
-                            .child(
-                                div()
-                                    .text_size(px(10.0))
-                                    .text_color(palette.ink_3)
-                                    .child(status),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(10.0))
-                                    .text_color(palette.ink_3)
-                                    .child("Ctrl+Shift+Y 允许 · Ctrl+Shift+N 拒绝"),
-                            )
-                            .children(buttons)
-                            .into_any_element()
+                    ConversationEntry::Permission { .. } => {
+                        // 两轨共用同一张权限卡（agent 提供的 options 顺序/样式）；
+                        // 历史行同样走它，已解决时只展示状态、不再渲染按钮。
+                        let model =
+                            PermissionCardModel::from_entry(entry).expect("permission entry");
+                        let root = cx.entity().downgrade();
+                        let resolved = model.resolved.is_some();
+                        let on_select: Option<
+                            cgc_agent_ui::permission_card::PermissionSelectCallback,
+                        > = model.resolved.is_none().then(|| {
+                            std::sync::Arc::new(move |option_id: &str, cx: &mut App| {
+                                let _ = root.update(cx, |this, cx| {
+                                    this.respond_chat_permission_option(option_id, cx)
+                                });
+                            })
+                                as cgc_agent_ui::permission_card::PermissionSelectCallback
+                        });
+                        render_permission_card(PermissionCardSpec {
+                            id: SharedString::from(format!("chat-permission-{index}")),
+                            model,
+                            hint: (!resolved)
+                                .then(|| "Ctrl+Shift+Y 允许 · Ctrl+Shift+N 拒绝".to_string()),
+                            style: crate::permission_ui::card_style(palette),
+                            on_select,
+                        })
                     }
                     ConversationEntry::Notice { level, text } => {
                         let color = match level {

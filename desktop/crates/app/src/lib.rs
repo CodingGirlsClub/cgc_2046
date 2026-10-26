@@ -20,6 +20,7 @@ pub mod native_runtime;
 pub mod native_thread_state;
 pub mod notification_center;
 pub mod notifications;
+pub mod permission_ui;
 pub mod preferences;
 pub mod qr;
 pub mod registration;
