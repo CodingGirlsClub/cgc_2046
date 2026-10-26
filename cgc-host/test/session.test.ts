@@ -2,13 +2,16 @@
 // 新开对话、重启恢复、上下文块、停止、空闲回收。断言的是跨边界的消息：页面收到的帧、假 OMP 收到的请求。
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import type { PromptResponse } from "@agentclientprotocol/sdk";
+import { CANCEL_ACK_TIMEOUT_MS, TURN_TIMEOUT_MS } from "../src/acp/session";
 import { join } from "node:path";
-import { stateDir, workDir } from "../src/state";
+import { loadState, ownerHash, saveState, stateDir, workDir } from "../src/state";
 import {
   API,
   chatHost,
   chatPage,
   cleanup,
+  codexTestRecord,
   CONTEXT,
   connect,
   COURSE,
@@ -17,6 +20,7 @@ import {
   helloed,
   identity,
   type Msg,
+  ompTestRecord,
   pair,
   refused,
   tempHome,
@@ -33,6 +37,13 @@ type Page = Awaited<ReturnType<typeof helloed>>;
 const attach = (page: Page) => page.call("chat.attach", { courseId: COURSE });
 const send = (page: Page, text: string, context: unknown = CONTEXT) => page.call("chat.send", { courseId: COURSE, text, context });
 const ended = (page: Page) => page.next((m) => m.method === "turn.end");
+const endedWithin = (page: Page, ms: number) =>
+  Promise.race([
+    ended(page),
+    Bun.sleep(ms).then(() => {
+      throw new Error(`等待 turn.end 超时（${ms}ms）`);
+    }),
+  ]);
 const pointer = (home: string): string | undefined => JSON.parse(readFileSync(join(stateDir(home), "state.json"), "utf8")).sessions[COURSE]?.omp;
 const cgcServer = (token: string) => [{ type: "http", name: "cgc-2046", url: `${API}/mcp`, headers: [{ name: "authorization", value: `Bearer ${token}` }] }];
 /** 录制转录里审批请求的四个选项（终端里看到的同一组） */
@@ -142,6 +153,18 @@ describe("加载会话（KTD6）", () => {
     ]);
   });
 
+  test("旧状态没有归属记录时，cwd 层兜底：指针指向别的账号目录也不加载", async () => {
+    const fake = fakeAgent();
+    const home = tempHome();
+    // 旧 Host 留下的状态：只有指针、没有 sessionOwners
+    saveState(home, { pairing: null, sessions: { [COURSE]: { omp: "old-session" } }, agents: {}, sessionOwners: {} });
+    fake.store.set("old-session", { cwd: workDir(home, USER_B, COURSE), history: [], updatedAt: new Date().toISOString() });
+    const { page } = await chatPage(fake, { home });
+    expect(await attach(page)).toMatchObject({ method: "history", params: { events: [] } });
+    expect(fake.calledWith("session/list").at(-1)).toEqual({ cwd: workDir(home, USER_A, COURSE) });
+    expect(fake.calledWith("session/load")).toEqual([]);
+  });
+
   test("cwd 与当前课程不符的会话拒绝加载：换了账号，指针还指着上一个账号的对话", async () => {
     const fake = fakeAgent();
     const { host, page } = await chatPage(fake);
@@ -152,7 +175,8 @@ describe("加载会话（KTD6）", () => {
     const b = await pair(host, USER_B);
     const pageB = await helloed(host, b.browserKey, USER_B);
     expect(await attach(pageB)).toMatchObject({ method: "history", params: { events: [] } });
-    expect(fake.calledWith("session/list").at(-1)).toEqual({ cwd: workDir(host.home, USER_B, COURSE) });
+    // 归属记录（A 建的会话）先于 cwd 校验拦住：连 session/list 都不必发
+    expect(fake.calledWith("session/list")).toEqual([]);
     expect(fake.calledWith("session/load")).toEqual([]);
     // 旧指针清掉后照常为新账号建一条新会话（首条消息之前也要有设置可改）
     expect(pointer(host.home)).toBe("session-2");
@@ -286,6 +310,35 @@ test("一轮没结束时再发消息回 busy", async () => {
   await ended(page);
 });
 
+test("看门狗：prompt 永不应答时到点本地按 error 收尾；旧 prompt settle 前隔离新回合", async () => {
+  const fake = fakeAgent();
+  const { page } = await chatPage(fake, { turnTimeoutMs: 40 });
+  const normal = fake.script;
+  let release!: (res: PromptResponse) => void;
+  fake.script = () => new Promise<PromptResponse>((resolve) => { release = resolve; });
+  await attach(page);
+  await send(page, "一");
+  expect(await endedWithin(page, 2000)).toMatchObject({ params: { courseId: COURSE, stopReason: "error" } });
+
+  // 旧 prompt 还在 agent 里跑：新回合被隔离（否则它的审批会挂到新回合上）
+  expect(await send(page, "二")).toMatchObject(refused("busy"));
+  release({ stopReason: "cancelled" });
+  await Bun.sleep(20);
+  fake.script = normal;
+  expect(await send(page, "三")).toMatchObject({ method: "turn.delta", params: { kind: "user", text: "三" } });
+  expect(await endedWithin(page, 2000)).toMatchObject({ params: { stopReason: "end_turn" } });
+});
+
+test("看门狗：agent 忽略 session/cancel 时，取消应答上限到点按 cancelled 收尾", async () => {
+  const fake = fakeAgent();
+  const { page } = await chatPage(fake, { cancelAckTimeoutMs: 40, turnTimeoutMs: 60_000 });
+  fake.script = () => new Promise<never>(() => {}); // 既不回 prompt，也不理会 cancel
+  await attach(page);
+  await send(page, "一");
+  page.send({ method: "chat.stop", params: { courseId: COURSE, agent: "omp" } });
+  expect(await endedWithin(page, 2000)).toMatchObject({ params: { courseId: COURSE, stopReason: "cancelled" } });
+});
+
 test("找不到或起不来 OMP：对话方法回 chat_unavailable，不留下进行中的回合", async () => {
   const fake = fakeAgent();
   fake.start = async () => {
@@ -295,6 +348,231 @@ test("找不到或起不来 OMP：对话方法回 chat_unavailable，不留下�
   await attach(page);
   expect(await send(page, "你好")).toMatchObject(refused("chat_unavailable"));
   expect(await send(page, "你好")).toMatchObject(refused("chat_unavailable")); // 不是 busy
+});
+
+test("R25：对话内容不落进 state.json，也不进 Host 日志", async () => {
+  const fake = fakeAgent();
+  const marker = "R25-MARKER-7f3c";
+  const logs: string[] = [];
+  const origLog = console.log;
+  const origError = console.error;
+  console.log = (...args: unknown[]) => void logs.push(args.map((a) => String(a)).join(" "));
+  console.error = (...args: unknown[]) => void logs.push(args.map((a) => String(a)).join(" "));
+  try {
+    fake.script = async (t) => {
+      await t.emit({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `${marker}-reply` } });
+      await t.emit({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: `${marker}-thought` } });
+      await t.emit({
+        sessionUpdate: "tool_call",
+        toolCallId: "r25",
+        title: `${marker}-tool`,
+        kind: "execute",
+        status: "completed",
+        rawInput: { cmd: `${marker}-cmd` },
+      });
+      return { stopReason: "end_turn", usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } };
+    };
+    const { host, page } = await chatPage(fake);
+    await attach(page);
+    await send(page, `${marker}-question`);
+    await ended(page);
+
+    // 防假绿：内容确实经过 Host 交给了页面
+    expect(JSON.stringify(page.inbox)).toContain(marker);
+    // 状态文件只有指针，没有对话
+    const state = readFileSync(join(stateDir(host.home), "state.json"), "utf8");
+    expect(state).not.toContain(marker);
+    // 日志没有消息/思考/工具内容
+    expect(logs.join("\n")).not.toContain(marker);
+
+    // 新开对话会重写状态文件（指针改指新会话），同样不得带出任何对话内容
+    await page.call("chat.new", { courseId: COURSE });
+    expect(readFileSync(join(stateDir(host.home), "state.json"), "utf8")).not.toContain(marker);
+  } finally {
+    console.log = origLog;
+    console.error = origError;
+  }
+});
+
+test("看门狗强制收尾后隔离会话：旧 prompt 未 settle 前拒绝新回合，settle 后自动恢复", async () => {
+  const fake = fakeAgent();
+  const { page } = await chatPage(fake, { cancelAckTimeoutMs: 40, turnTimeoutMs: 60_000 });
+  const normal = fake.script;
+  let release!: (res: PromptResponse) => void;
+  fake.script = () => new Promise<PromptResponse>((resolve) => { release = resolve; });
+  await attach(page);
+  await send(page, "一");
+  page.send({ method: "chat.stop", params: { courseId: COURSE, agent: "omp" } });
+  expect(await endedWithin(page, 2000)).toMatchObject({ params: { stopReason: "cancelled" } });
+
+  // 旧 prompt 还在 agent 里跑：这时开新回合会让旧审批挂到新回合上，必须先拒绝
+  expect(await send(page, "二")).toMatchObject(refused("busy"));
+
+  // 旧 prompt 真正结束：解除隔离，正常继续
+  release({ stopReason: "cancelled" });
+  await Bun.sleep(20);
+  fake.script = normal;
+  expect(await send(page, "三")).toMatchObject({ method: "turn.delta", params: { kind: "user", text: "三" } });
+  expect(await endedWithin(page, 2000)).toMatchObject({ params: { stopReason: "end_turn" } });
+});
+
+test("看门狗强制收尾后：chat.new 换会话即解除隔离（旧会话的请求不再可路由）", async () => {
+  const fake = fakeAgent();
+  const { page } = await chatPage(fake, { cancelAckTimeoutMs: 40, turnTimeoutMs: 60_000 });
+  fake.script = () => new Promise<PromptResponse>(() => {});
+  await attach(page);
+  await send(page, "一");
+  page.send({ method: "chat.stop", params: { courseId: COURSE, agent: "omp" } });
+  expect(await endedWithin(page, 2000)).toMatchObject({ params: { stopReason: "cancelled" } });
+  expect(await send(page, "二")).toMatchObject(refused("busy"));
+
+  expect(await page.call("chat.new", { courseId: COURSE, agent: "omp" })).toMatchObject({ method: "history" });
+  fake.script = async () => ({ stopReason: "end_turn" });
+  expect(await send(page, "三")).toMatchObject({ method: "turn.delta" });
+  expect(await endedWithin(page, 2000)).toMatchObject({ params: { stopReason: "end_turn" } });
+});
+
+test("会话归属绑定账号：别的账号的指针不加载、不列出、不可 open；新会话记在当前账号名下", async () => {
+  const fake = fakeAgent();
+  const home = tempHome();
+  saveState(home, {
+    pairing: null,
+    sessions: { [COURSE]: { omp: "old-session" } },
+    agents: {},
+    sessionOwners: { "omp:old-session": ownerHash(USER_B) },
+  });
+  fake.store.set("old-session", { cwd: workDir(home, USER_A, COURSE), history: [], updatedAt: new Date().toISOString() });
+  const { page } = await chatPage(fake, { home });
+  const history = await attach(page);
+  expect(fake.calledWith("session/load")).toEqual([]); // 归属是 USER_B：不算数
+  expect(history.params.events).toEqual([]);
+  const list = await page.call("chat.sessions", { courseId: COURSE });
+  expect((list.params?.sessions as { sessionId: string }[]).map((s) => s.sessionId)).not.toContain("old-session");
+  expect(await page.call("chat.open", { courseId: COURSE, sessionId: "old-session" })).toMatchObject({
+    method: "error",
+    params: { code: "bad_request" },
+  });
+  await send(page, "一");
+  await endedWithin(page, 2000);
+  const state = loadState(home);
+  const mine = state.sessions[COURSE]?.omp;
+  expect(mine).toBeTruthy();
+  expect(state.sessionOwners[`omp:${mine}`]).toBe(ownerHash(USER_A));
+});
+
+test("别的 agent 的进程换代不清掉本课程的隔离标记（Codex review P2）", async () => {
+  const omp = fakeAgent();
+  const codex = fakeAgent();
+  const home = tempHome();
+  const OTHER = "dddddddd-4444-4444-8444-444444444444";
+  const { page } = await chatPage(omp, {
+    home,
+    records: [ompTestRecord(omp), codexTestRecord(codex)],
+    cancelAckTimeoutMs: 40,
+    turnTimeoutMs: 60_000,
+    preparationTimeoutMs: 60,
+  });
+  // omp 课程：一轮永不 settle → stop → 看门狗强制收尾 → 隔离
+  omp.script = () => new Promise<PromptResponse>(() => {});
+  await attach(page);
+  await send(page, "一");
+  page.send({ method: "chat.stop", params: { courseId: COURSE, agent: "omp" } });
+  expect(await endedWithin(page, 2000)).toMatchObject({ params: { stopReason: "cancelled" } });
+  expect(await send(page, "二")).toMatchObject(refused("busy"));
+
+  // codex 在另一门课拉起，握手永不应答 → 准备超时 → 只有 codex 这一代被废弃
+  codex.hangInitialize = true;
+  expect(await page.call("chat.attach", { courseId: OTHER, agent: "codex" })).toMatchObject({
+    method: "error",
+    params: { code: "chat_unavailable" },
+  });
+
+  // omp 的隔离必须还在：旧 prompt 仍在跑，这时开新回合会把它的审批挂上来
+  expect(await send(page, "三")).toMatchObject(refused("busy"));
+});
+
+test("准备阶段 stop：不提前本地收尾，先回 user 事件再以 cancelled 结束；之后可继续", async () => {
+  const fake = fakeAgent();
+  const { page } = await chatPage(fake, { cancelAckTimeoutMs: 40 });
+  fake.delayNewMs = 120; // attach 的 session/new 慢：send 排在其后，停在准备阶段
+  page.send({ method: "chat.attach", params: { courseId: COURSE } });
+  page.send({ method: "chat.send", params: { courseId: COURSE, text: "一", context: CONTEXT } });
+  await Bun.sleep(10);
+  page.send({ method: "chat.stop", params: { courseId: COURSE, agent: "omp" } });
+
+  // 准备阶段没发出 session/cancel：不能由取消应答看门狗先收尾；第一条应是 user 事件
+  const first = await page.next((m) => m.method === "turn.delta" || m.method === "turn.end");
+  expect(first).toMatchObject({ method: "turn.delta", params: { kind: "user", text: "一" } });
+  expect(await endedWithin(page, 2000)).toMatchObject({ params: { stopReason: "cancelled" } });
+
+  fake.delayNewMs = 0;
+  await send(page, "二");
+  await endedWithin(page, 2000);
+});
+
+test("强制收尾后 agent 继续推的更新不进历史（Codex review P2）", async () => {
+  const fake = fakeAgent();
+  const { page } = await chatPage(fake, { turnTimeoutMs: 60 });
+  const changed = structuredClone(fake.configOptions).map((o) => (o.id === "model" ? { ...o, currentValue: "beta/two" } : o));
+  fake.script = async (t) => {
+    await t.emit({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "正常内容" } });
+    // 看门狗本地收尾之后才到的更新：消息与设置变更都不能再进缓冲/推给页面
+    setTimeout(() => {
+      void t.emit({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "迟到内容" } });
+      void t.emit({ sessionUpdate: "config_option_update", configOptions: changed });
+    }, 150);
+    return new Promise<PromptResponse>(() => {});
+  };
+  await attach(page);
+  await send(page, "一");
+  expect(await endedWithin(page, 2000)).toMatchObject({ params: { stopReason: "error" } });
+  await Bun.sleep(300);
+
+  const history = await attach(page);
+  const events = history.params.events as { kind: string; text?: string }[];
+  expect(events.some((e) => (e.text ?? "").includes("正常内容"))).toBe(true);
+  expect(events.some((e) => (e.text ?? "").includes("迟到内容"))).toBe(false);
+  expect(events.at(-1)?.kind).toBe("end");
+  // 晚到的设置变更同样不能生效：不推 chat.settings，history 里的模型仍是原值
+  expect(page.inbox.filter((m) => m.method === "chat.settings")).toEqual([]);
+  const model = (history.params.settings as { id: string; currentValue: string }[]).find((x) => x.id === "model");
+  expect(model?.currentValue).toBe("alpha/one");
+});
+
+test("看门狗默认值与 AGENTS 契约一致（15 秒取消应答 / 30 分钟单轮上限）", () => {
+  expect(CANCEL_ACK_TIMEOUT_MS).toBe(15_000);
+  expect(TURN_TIMEOUT_MS).toBe(30 * 60_000);
+});
+
+test("进程回收后重新接上：真实回放不含 usage，Host 补最后一条已知用量", async () => {
+  const fake = fakeAgent();
+  const host = chatHost(fake, { idleMs: 50 });
+  host.platform.tokens.set("cgch_usage", identity(USER_A, "token-usage"));
+  host.dialog.answer = "allow";
+  const pairing = await connect(host.port);
+  const { browserKey } = (await pairing.call("pair.request", { token: "cgch_usage" })).params;
+  await pairing.close();
+  const page = await helloed(host, browserKey);
+  await page.call("chat.attach", { courseId: COURSE });
+  fake.script = async (t) => {
+    await t.emit({ sessionUpdate: "usage_update", used: 1200, size: 128_000 });
+    return { stopReason: "end_turn", usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } };
+  };
+  await page.call("chat.send", { courseId: COURSE, text: "一", context: CONTEXT });
+  await ended(page);
+  // 真实 OMP/codex 的 load 回放只有消息与工具：从假存储里删掉 usage，模拟真实回放
+  fake.store.get("session-1")!.history = fake.store.get("session-1")!.history.filter((u) => u.sessionUpdate !== "usage_update");
+  let closed = false;
+  void fake.conn!.closed.then(() => (closed = true));
+  await page.close();
+  await until(() => closed);
+
+  const page2 = await helloed(host, browserKey);
+  const history = await page2.call("chat.attach", { courseId: COURSE });
+  const usage = (history.params.events as { kind: string; used?: number; size?: number }[]).filter((e) => e.kind === "usage").at(-1);
+  expect(usage).toMatchObject({ used: 1200, size: 128_000 });
+  await send(page2, "二");
+  await ended(page2);
 });
 
 test("KTD13 空闲回收：没有页面、没有在跑的回合，超过空闲期结束进程；下次需要时拉起并 session/load 恢复", async () => {

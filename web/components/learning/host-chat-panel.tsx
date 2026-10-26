@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { copyText } from "@/lib/clipboard";
 import HostChatCard from "./host-chat-cards";
 import HostChatHistory from "./host-chat-history";
@@ -615,8 +615,19 @@ function ChatSettings({ chat }: { chat: HostChat }) {
 	);
 }
 
+/** 用量展示：token 取 1 位小数的 k，费用按 locale + 币种格式化（Intl 不认的币种回退原文） */
+const formatTokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+const formatCost = (cost: { amount: number; currency: string }, locale: string) => {
+	try {
+		return new Intl.NumberFormat(locale, { style: "currency", currency: cost.currency }).format(cost.amount);
+	} catch {
+		return `${cost.amount.toFixed(2)} ${cost.currency}`;
+	}
+};
+
 function Conversation({ chat, workDir, unitId }: { chat: HostChat; workDir: string; unitId: string | null }) {
 	const t = useTranslations("hostChat");
+	const locale = useLocale();
 	const [draft, setDraft] = useState("");
 	const logRef = useRef<HTMLDivElement>(null);
 
@@ -723,6 +734,12 @@ function Conversation({ chat, workDir, unitId }: { chat: HostChat; workDir: stri
 				<span className="learning-chat__workdir" title={workDir}>
 					{t("workDir", { path: workDir })}
 				</span>
+				{chat.usage ? (
+					<span className="learning-chat__usage">
+						{t("usage.context", { used: formatTokens(chat.usage.used), size: formatTokens(chat.usage.size) })}
+						{chat.usage.cost ? ` · ${t("usage.cost", { cost: formatCost(chat.usage.cost, locale) })}` : null}
+					</span>
+				) : null}
 			</form>
 		</>
 	);

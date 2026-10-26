@@ -44,11 +44,14 @@ export function codexLocation(home: string, env: Record<string, string>, envErro
 export async function verifyReuseLocation(
   location: AgentLocation,
   home: string,
-  probe: (entry: string, codexPath: string) => Promise<boolean> = probeCodexAcp,
+  probe: (entry: string, codexPath: string, env: Record<string, string>) => Promise<boolean> = (entry, codexPath, env) =>
+    probeCodexAcp(entry, codexPath, undefined, env),
 ): Promise<AgentLocation> {
   if (!location.path || installVariant(home) !== "reuse" || !location.env.CODEX_PATH) return location;
   try {
-    if (await probe(location.path, location.env.CODEX_PATH)) return location;
+    // 与真实启动同一份环境（登录 shell 的 PATH）：否则 launchd/systemd 下 PATH 安装的 codex 找不到 node，
+    // 探针把可用的 engine 判成不兼容，页面进入「装好又显示没装」的循环。
+    if (await probe(location.path, location.env.CODEX_PATH, location.env)) return location;
   } catch {
     // 探针自身异常也按不兼容处理
   }

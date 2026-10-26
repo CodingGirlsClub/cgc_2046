@@ -18,7 +18,7 @@ import { ClockIcon } from "./chat-icons";
 import TooltipButton from "./chat-tooltip";
 
 interface HistoryState {
-	rows: { sessionId: string; updatedAt: string | null; messageCount: number | null }[];
+	rows: { sessionId: string; title: string | null; updatedAt: string | null; messageCount: number | null }[];
 	current: string | null;
 	nextCursor: string | null;
 	loading: boolean;
@@ -132,15 +132,17 @@ export default function HostChatHistory({ chat, compact = false }: { chat: HostC
 					{state && !state.loading && !state.error && state.rows.length === 0 ? <p className="learning-chat__hint">{t("empty")}</p> : null}
 					{state?.rows.map((row) => {
 						const current = row.sessionId === state.current;
+						const meta = t("entry", { time: row.updatedAt ? formatDateTime(row.updatedAt) : "—", count: row.messageCount ?? 0 });
 						return (
 							<button
 								key={row.sessionId}
 								type="button"
 								className="learning-chat__history-item"
+								title={row.title ? meta : undefined}
 								disabled={current || !chat.canSend || state.loadingMore}
 								onClick={() => void switchTo(row.sessionId)}
 							>
-								<span>{t("entry", { time: row.updatedAt ? formatDateTime(row.updatedAt) : "—", count: row.messageCount ?? 0 })}</span>
+								<span>{row.title ?? meta}</span>
 								{current ? <span className="learning-chat__history-mark">{t("current")}</span> : null}
 							</button>
 						);

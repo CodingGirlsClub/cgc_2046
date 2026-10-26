@@ -309,6 +309,23 @@ describe("reuse 变体（#1154）", () => {
 		expect(compatible.path).toBe(located.path);
 	});
 
+	test("verifyReuseLocation：运行期探针拿到定位结果里的登录 shell env（launchd 下 PATH codex 的关键）", async () => {
+		const home = tempHome();
+		await installCodexAcp({ home, run: fakeInstaller(), reuseEngine: engine, probe: async () => true });
+		const hits = [{ source: "chatgpt-app" as const, path: engine, version: "0.163.0" }];
+		const shellEnv = { PATH: "/opt/fake-node/bin:/usr/bin", HOME: home };
+		const located = codexLocation(home, shellEnv, null, hits);
+		expect(located.path).not.toBeNull();
+
+		let seen: Record<string, string> | undefined;
+		const result = await verifyReuseLocation(located, home, async (_entry, _engine, env) => {
+			seen = env;
+			return true;
+		});
+		expect(seen).toBe(located.env); // 与真实启动同一份对象，不是 process.env
+		expect(result.path).toBe(located.path);
+	});
+
 	test("probeCodexAcp：适配器回 initialize 即通过；不回则超时失败", async () => {
 		const home = tempHome();
 		const dir = join(home, "probe");

@@ -93,7 +93,6 @@ const status = (
 ): HostStatus => ({
 	state,
 	pairedUserId: state === "unpaired" ? null : USER,
-	pairedDisplayName: state === "unpaired" ? null : "学员甲",
 	deviceName: "Ada 的 MacBook",
 	tokenId: state === "unpaired" ? null : "tok_this",
 	agents,
@@ -433,7 +432,7 @@ describe("卡片（R19、R20）", () => {
 		ws.push({ method: "turn.card", params: PERMISSION });
 
 		fireEvent.click(screen.getByRole("button", { name: "停止" }));
-		expect(ws.sent.at(-1)).toEqual({ method: "chat.stop", params: { courseId: COURSE } });
+		expect(ws.sent.at(-1)).toEqual({ method: "chat.stop", params: { agent: "omp", courseId: COURSE } });
 		expect(screen.queryByRole("group", { name: "需要你的确认" })).not.toBeInTheDocument();
 
 		ws.push({ method: "turn.card.closed", params: { courseId: COURSE, cardId: "card-p", reason: "cancelled" } });
@@ -443,6 +442,30 @@ describe("卡片（R19、R20）", () => {
 		expect(screen.getByText("已停止这一轮。")).toBeInTheDocument();
 		fireEvent.change(input(), { target: { value: "下一条" } });
 		expect(screen.getByRole("button", { name: "发送" })).toBeEnabled();
+	});
+
+	it("用量：usage 事件显示上下文与本会话累计费用", async () => {
+		const ws = await readyPanel();
+		ws.pushEvent({ kind: "usage", used: 12_345, size: 200_000, cost: { amount: 0.42, currency: "CNY" } });
+		await waitFor(() => expect(screen.getByText(/12\.3k \/ 200\.0k/)).toBeInTheDocument());
+		expect(screen.getByText(/0\.42/)).toBeInTheDocument();
+	});
+
+	it("用量：history 里回放的 usage 同样显示（重新接上对话后不丢）", async () => {
+		renderPanel();
+		await attach([{ kind: "usage", used: 6_000, size: 200_000 }]);
+		await waitFor(() => expect(screen.getByText(/6\.0k \/ 200\.0k/)).toBeInTheDocument());
+	});
+
+	it("Covers 停止不切走 agent：Codex 课程发 chat.stop 时带上当前 agent", async () => {
+		renderPanel();
+		const ws = await attach([], true, undefined, [
+			{ kind: "codex", present: true },
+			{ kind: "omp", present: true },
+		]);
+		await screen.findByRole("textbox", { name: "发给 agent 的消息" });
+		fireEvent.click(screen.getByRole("button", { name: "停止" }));
+		expect(ws.sent.at(-1)).toEqual({ method: "chat.stop", params: { agent: "codex", courseId: COURSE } });
 	});
 });
 
@@ -805,6 +828,24 @@ describe("历史对话（Session History）", () => {
 		await ws.reply("chat.open", "history", { courseId: COURSE, running: false, events: [{ kind: "user", text: "旧会话的消息" }] });
 		await waitFor(() => expect(screen.queryByRole("button", { name: /条消息/ })).toBeNull());
 		expect(screen.getByText("旧会话的消息")).toBeInTheDocument();
+	});
+
+	it("会话标题：有 title 显示标题、时间·条数退到悬浮提示；没有 title 回退旧样式", async () => {
+		const ws = await readyV2();
+		fireEvent.click(screen.getByRole("button", { name: "历史对话" }));
+		await waitFor(() => expect(ws.sent.at(-1)?.method).toBe("chat.sessions"));
+		await ws.reply("chat.sessions", "sessions", {
+			courseId: COURSE,
+			sessions: [
+				{ sessionId: "session-1", title: "第一段学习", updatedAt: "2026-10-15T02:00:00Z", messageCount: 4 },
+				{ sessionId: "session-2", title: null, updatedAt: "2026-10-16T02:00:00Z", messageCount: 2 },
+			],
+			current: "session-2",
+			nextCursor: null,
+		});
+		expect(await screen.findByText("第一段学习")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "第一段学习" })).toHaveAttribute("title", expect.stringContaining("4 条消息"));
+		expect(screen.getByRole("button", { name: /2 条消息/ })).toBeInTheDocument();
 	});
 
 	it("切换失败（session_unavailable）：下拉内就地提示，对话不变", async () => {

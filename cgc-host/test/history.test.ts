@@ -11,7 +11,7 @@ const OTHER_COURSE = "dddddddd-4444-4444-8444-444444444444";
 const open = (page: Page, sessionId: unknown) => page.call("chat.open", { courseId: COURSE, sessionId });
 const listOf = async (page: Page, cursor?: string) =>
   (await page.call("chat.sessions", { courseId: COURSE, ...(cursor ? { cursor } : {}) })).params as {
-    sessions: { sessionId: string; updatedAt: string | null; messageCount: number | null }[];
+    sessions: { sessionId: string; title: string | null; updatedAt: string | null; messageCount: number | null }[];
     current: string | null;
     nextCursor: string | null;
   };
@@ -30,6 +30,9 @@ test("chat.sessions：只列本课程工作目录下的会话，带时间与消�
   expect(first.sessions).toHaveLength(1);
   expect(first.sessions[0]).toMatchObject({ sessionId: "session-1", messageCount: 1 });
   expect(typeof first.sessions[0].updatedAt).toBe("string");
+  expect(first.sessions[0].title).toBeNull(); // agent 没给标题：页面回退时间 + 条数
+  fake.store.get("session-1")!.title = "第一段学习";
+  expect((await listOf(page)).sessions.find((s) => s.sessionId === "session-1")?.title).toBe("第一段学习");
   expect(first.current).toBe("session-1");
 
   await page.call("chat.new", { courseId: COURSE });
@@ -42,6 +45,18 @@ test("chat.sessions：只列本课程工作目录下的会话，带时间与消�
   await say(page, "别的课", OTHER_COURSE);
   const again = await listOf(page);
   expect(again.sessions.map((x) => x.sessionId).sort()).toEqual(["session-1", "session-2"]);
+});
+
+test("适配器忽略 session/list 的 cwd 过滤时，Host 仍只认本课程目录的会话", async () => {
+  const fake = fakeAgent();
+  const { page } = await chatPage(fake);
+  await say(page, "本课程的对话"); // session-1，cwd = 本课程目录
+  fake.store.set("foreign-1", { cwd: "/some/other/course", history: [], updatedAt: new Date().toISOString() });
+  fake.listIgnoresCwd = true;
+
+  const list = await listOf(page);
+  expect(list.sessions.map((s) => s.sessionId)).toEqual(["session-1"]); // foreign 不出现在列表
+  expect(await open(page, "foreign-1")).toMatchObject(refused("bad_request")); // 也不接受切换
 });
 
 test("chat.sessions：分页游标原样透传，最后一页没有 nextCursor", async () => {
@@ -86,8 +101,15 @@ test("chat.open：不属于本课程目录的会话 id 回 bad_request（乱写�
   const fake = fakeAgent();
   const { page } = await chatPage(fake);
   await say(page, "甲");
+  const loads = fake.calledWith("session/load").length;
   expect(await open(page, "session-999")).toMatchObject(refused("bad_request"));
   expect(await open(page, 42)).toMatchObject(refused("bad_request"));
+
+  // 事务性：失败的 open 不销毁当前会话——下一条消息直接发给当前会话，不再 load
+  expect(await page.call("chat.send", { courseId: COURSE, text: "接着聊", context: CONTEXT })).toMatchObject({ method: "turn.delta" });
+  await page.next((m) => m.method === "turn.end");
+  expect(fake.calledWith("session/load").length).toBe(loads);
+  expect(fake.calledWith("session/prompt").at(-1)).toMatchObject({ sessionId: "session-1" });
 });
 
 test("chat.open：有回合在跑时拒绝（busy），不动任何状态", async () => {
@@ -121,6 +143,13 @@ test("chat.open 加载失败：回 session_unavailable、指针不动、原会�
   expect(errors.mock.calls.some((c) => String(c[0]).includes('切换对话失败：Internal error {"details":"fake restore failure"}'))).toBe(true);
   errors.mockRestore();
   expect(loadState(host.home).sessions[COURSE]?.omp).toBe("session-2"); // 指针保持
+
+  // 事务性：同一连接里当前会话也没有被销毁——继续发消息直接发给 session-2，不再 load
+  const loads = fake.calledWith("session/load").length;
+  expect(await page.call("chat.send", { courseId: COURSE, text: "接着聊", context: CONTEXT })).toMatchObject({ method: "turn.delta" });
+  await page.next((m) => m.method === "turn.end");
+  expect(fake.calledWith("session/load").length).toBe(loads);
+  expect(fake.calledWith("session/prompt").at(-1)).toMatchObject({ sessionId: "session-2" });
 
   // 原会话仍可用：新连接（同浏览器密钥）attach 会加载 session-2 并回放“当前这段”
   const back = await helloed(host, browserKey);

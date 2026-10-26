@@ -3664,6 +3664,7 @@ enum OrderSortField {
   EXPIRE_AT
   REFUNDED_AT
   CANCEL_REASON
+  INSERTED_AT
   TIER_NAME
   ENROLLMENT_STATUS
   LEARNER_EMAIL
@@ -3778,6 +3779,19 @@ input OrderFilterTierName {
   stringStartsWith: String
   like: String
   ilike: String
+}
+
+input OrderFilterInsertedAt {
+  isNil: Boolean
+  eq: DateTime
+  notEq: DateTime
+  in: [DateTime!]
+  lessThan: DateTime
+  greaterThan: DateTime
+  lessThanOrEqual: DateTime
+  greaterThanOrEqual: DateTime
+  isDistinctFrom: DateTime
+  isNotDistinctFrom: DateTime
 }
 
 input OrderFilterCancelReason {
@@ -4032,6 +4046,8 @@ input OrderFilterInput {
 
   cancelReason: OrderFilterCancelReason
 
+  insertedAt: OrderFilterInsertedAt
+
   "下单时档位快照名（R3 改价不追溯）"
   tierName: OrderFilterTierName
 
@@ -4087,6 +4103,8 @@ type Order {
 
   cancelReason: String
 
+  insertedAt: DateTime!
+
   "下单时档位快照名（R3 改价不追溯）"
   tierName: String
 
@@ -4095,6 +4113,24 @@ type Order {
 
   "报名人邮箱（管理面识别付款人）"
   learnerEmail: String
+
+  "报名人展示名（可选附加，非身份锚点）"
+  learnerName: String
+
+  "报名人手机号掩码（身份锚点；不含完整号码）"
+  learnerPhoneMasked: String
+
+  "报名人会员编号（由 user id 确定性生成，非敏感）"
+  learnerMemberNumber: String
+
+  "订单所属活动\/课程现值标题"
+  offeringTitle: String
+
+  "订单所属供给物类型（event | course）"
+  offeringKind: String
+
+  "报名时间（报名人加入项目的时点）"
+  enrollmentInsertedAt: DateTime
 
   "关联报名所属 Event（KTD2：订单按活动筛选）"
   eventId: ID

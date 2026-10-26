@@ -88,7 +88,7 @@ export type ChatErrorCode = string;
 
 /** chat.sessions 的返回：本课程的历史对话（updatedAt / messageCount 缺省为 null，OMP 版本差异） */
 export interface SessionsPage {
-	sessions: { sessionId: string; updatedAt: string | null; messageCount: number | null }[];
+	sessions: { sessionId: string; title: string | null; updatedAt: string | null; messageCount: number | null }[];
 	current: string | null;
 	nextCursor: string | null;
 }
@@ -108,6 +108,13 @@ export type ChatView =
 	| { state: "checking" | "noAgent" | "disconnected" | "unpaired" | "confirming" | "denied" | "ready" | "evicted" }
 	| { state: "pairingFailed"; reason: PairingErrorReason };
 
+/** 本会话的上下文用量（Host 的 usage 事件）；cost 是 agent 报的本会话累计费用 */
+export interface ChatUsage {
+	used: number;
+	size: number;
+	cost?: { amount: number; currency: string };
+}
+
 interface ChatState {
 	/** 收到本连接的 history：这条连接持有这门课，可以发送 */
 	attached: boolean;
@@ -120,6 +127,8 @@ interface ChatState {
 	stopping: boolean;
 	evicted: boolean;
 	error: ChatErrorCode | null;
+	/** 上下文用量（不进对话记录）；null 表示还没有 usage 事件 */
+	usage: ChatUsage | null;
 }
 
 const INITIAL: ChatState = {
@@ -132,11 +141,13 @@ const INITIAL: ChatState = {
 	stopping: false,
 	evicted: false,
 	error: null,
+	usage: null,
 };
 
 type Action =
 	| { type: "reset" }
-	| { type: "history"; running: boolean; events: ChatEvent[]; settings: HostChatSetting[] }
+	| { type: "history"; running: boolean; events: ChatEvent[]; settings: HostChatSetting[]; usage: ChatUsage | null }
+	| { type: "usage"; usage: ChatUsage }
 	| { type: "settings"; settings: HostChatSetting[] }
 	| { type: "delta"; event: ChatEvent }
 	| { type: "card"; card: ChatCard }
@@ -171,7 +182,10 @@ function reduce(state: ChatState, action: Action): ChatState {
 				running: action.running,
 				events: action.events.reduce(append, []),
 				settings: action.settings,
+				usage: action.usage,
 			};
+		case "usage":
+			return { ...state, usage: action.usage };
 		case "settings":
 			// 设置不进对话记录，只刷新入口的当前值与可选值
 			return { ...state, settings: action.settings };
@@ -214,6 +228,28 @@ function eventOf(params: Record<string, unknown>): ChatEvent | null {
 	const event = { ...params };
 	delete event.courseId;
 	return event.kind === "usage" ? null : (event as unknown as ChatEvent);
+}
+
+/** usage 事件不进对话记录，只更新用量行；形状不合约返回 null */
+function usageOf(raw: Record<string, unknown>): ChatUsage | null {
+	if (raw.kind !== "usage" || typeof raw.used !== "number" || typeof raw.size !== "number") return null;
+	if (!Number.isFinite(raw.used) || !Number.isFinite(raw.size) || raw.used < 0 || raw.size <= 0) return null;
+	const cost = raw.cost as { amount?: unknown; currency?: unknown } | undefined;
+	return {
+		used: raw.used,
+		size: raw.size,
+		...(typeof cost?.amount === "number" && typeof cost.currency === "string" ? { cost: { amount: cost.amount, currency: cost.currency } } : {}),
+	};
+}
+
+/** history.events 里最后一条 usage（Host 回放时按原样带出） */
+function lastUsageOf(events: unknown): ChatUsage | null {
+	if (!Array.isArray(events)) return null;
+	for (let i = events.length - 1; i >= 0; i--) {
+		const usage = usageOf(events[i] as Record<string, unknown>);
+		if (usage) return usage;
+	}
+	return null;
 }
 
 /** settings 载荷只应来自 Host：形状不合就按空处理（旧版 Host 不带这个字段，页面据此不渲染入口） */
@@ -440,7 +476,7 @@ export function useHostChat({
 				const remembered = typeof params.agent === "string" ? params.agent : "";
 				if (remembered) setPreferred((current) => current || remembered);
 				setLogin(null); // 会话接上了就说明现在不需要登录（学员可能刚在页面外完成）
-				dispatch({ type: "history", running: params.running === true, events, settings: settingsOf(params) });
+				dispatch({ type: "history", running: params.running === true, events, settings: settingsOf(params), usage: lastUsageOf(params.events) });
 				return refetch();
 			}
 			if (reply.method === "chat.settings") {
@@ -448,10 +484,20 @@ export function useHostChat({
 				return;
 			}
 			if (reply.method === "turn.card.closed") return dispatch({ type: "cardClosed", cardId: String(params.cardId) });
+			// usage 是状态不是对话条目：截获后只更新用量行
+			if (reply.method === "turn.delta" && params.kind === "usage") {
+				const usage = usageOf(params);
+				if (usage) dispatch({ type: "usage", usage });
+				return;
+			}
 			const event = reply.method === "turn.delta" ? eventOf(params) : null;
 			if (event) dispatch({ type: "delta", event });
 		},
 		[refetch],
+	);
+	const withAgent = useCallback(
+		(params: Record<string, unknown>) => (agent && !("agent" in params) ? { agent, ...params } : params),
+		[agent],
 	);
 	// Host 回复仍回原 socket；接管、断线或重新 attach 后，旧请求不能再改本页状态。
 	// raw：只做代次校验与 not_holder 失效，不把回复交给归约——历史列表/切换失败要在调用方就地呈现。
@@ -471,15 +517,13 @@ export function useHostChat({
 		) => {
 			if (!socket) return null;
 			const generation = ownership.current;
-			// 带的是本机实际能用的 agent（记忆不在本机时已回落）；调用方显式给了就以它为准（切换那一刻要立刻带新的）
-			const withAgent = agent && !("agent" in params) ? { agent, ...params } : params;
-			const reply = await socket.request(method, withAgent, { timeoutMs })
+			const reply = await socket.request(method, withAgent(params), { timeoutMs })
 				.catch((e: Error): HostMessage => ({ method: "error", params: { code: e.message } }));
 			if (generation !== ownership.current) return null;
 			if (reply.method === "error" && reply.params?.code === "not_holder") ownership.current += 1;
 			return reply;
 		},
-		[socket, agent],
+		[socket, withAgent],
 	);
 	const requestChat = useCallback(
 		async (
@@ -536,6 +580,12 @@ export function useHostChat({
 			socket.on(
 				"turn.delta",
 				mine((params) => {
+					// usage 是状态不是对话条目：只更新用量行
+					if (params.kind === "usage") {
+						const usage = usageOf(params);
+						if (usage) dispatch({ type: "usage", usage });
+						return;
+					}
 					const event = eventOf(params);
 					if (event) dispatch({ type: "delta", event });
 				}),
@@ -588,9 +638,11 @@ export function useHostChat({
 	);
 
 	const stop = useCallback(() => {
-		socket?.send("chat.stop", { courseId });
+		if (!socket) return;
+		// Host 对 chat.stop 不回包：用 send（不等待回复），但必须带 agent——否则旧 Host 会把它当成「换 agent」。
+		socket.send("chat.stop", withAgent({ courseId }));
 		dispatch({ type: "stop" });
-	}, [socket, courseId]);
+	}, [socket, courseId, withAgent]);
 
 	const newChat = useCallback(() => {
 		if (!canSend) return;

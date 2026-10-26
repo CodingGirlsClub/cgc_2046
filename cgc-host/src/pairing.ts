@@ -73,7 +73,7 @@ export type PairOutcome =
   | { error: "bad_request" | "not_paired" | "busy" | "invalid_token" | "platform_unavailable" };
 
 /**
- * pair.request 的流程（KTD3）。同一时间只有一个配对在进行（从核实到弹窗关闭），每次弹窗之后再冷却一段时间。
+ * pair.request 的流程（KTD3）。同一时间只有一个配对在进行（从核实到弹窗关闭）；受理即开始冷却，弹窗关闭后再静默一段（取较晚者）。
  * - 带 token：平台核实 → kind 必须是 learning_host → 弹窗点名平台返回的账号 → 允许则保存（替换的是另一枚就先用旧凭证自撤销），
  *   拒绝、超时、取消则用这枚凭证自撤销；核实不通过时什么都不存、也不撤销（401 撤不动；别的 kind 可能是学员终端的 token）。
  * - 不带 token：本机已配对时，弹窗点名已存的账号，允许只换发浏览器密钥，不碰平台。
@@ -104,6 +104,9 @@ export function createPairing(deps: {
       const start = deps.getPairing();
       if (token === undefined && !start) return { error: "not_paired" };
       if (pending || Date.now() < cooldownUntil) return { error: "busy" };
+      // 冷却从受理开始（而不是弹窗关闭）：无效 token / 平台不可达的早退同样受限，
+      // 避免同源页面反复驱动 Host 调平台 /mcp/token。
+      cooldownUntil = Date.now() + deps.cooldownMs;
 
       const controller = new AbortController();
       pending = { owner, controller };
@@ -122,8 +125,6 @@ export function createPairing(deps: {
               console.error("cgc-host: 确认弹窗无法启动", e);
               return "deny";
             });
-        cooldownUntil = Date.now() + deps.cooldownMs;
-
         if (answer !== "allow") {
           if (token !== undefined) await revokeToken(deps.apiBase, token);
           return { allowed: false };
@@ -141,6 +142,9 @@ export function createPairing(deps: {
         }
         return { allowed: true, browserKey };
       } finally {
+        // 弹窗关闭后再静默一段时间（与受理时的冷却取较晚者）：生产弹窗最长 60s，
+        // 远长于默认 3s 冷却，只在受理时设置的话，拒绝/超时后可以立刻再弹一次确认框。
+        cooldownUntil = Math.max(cooldownUntil, Date.now() + deps.cooldownMs);
         pending = null;
       }
     },
