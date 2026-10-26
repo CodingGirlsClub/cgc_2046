@@ -3752,6 +3752,73 @@ impl NativeAgentView {
         Some(element.into_any_element())
     }
 
+    /// Phase B2b-3d-2b：@mention 菜单（legacy 与 shared composer 共用）。
+    fn render_mention_menu(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let input_value = self.input.read(cx).value().to_string();
+        let mention = trailing_mention(&input_value);
+        let mention_matches = mention
+            .as_ref()
+            .map(|(_, query)| self.mention_matches(query))
+            .unwrap_or_default();
+        let slash_open = input_value.trim_start().starts_with('/') && !self.slash_dismissed;
+        if !(mention.is_some() && !slash_open && !mention_matches.is_empty()) {
+            return None;
+        }
+        let mention_selected = self
+            .mention_index
+            .min(mention_matches.len().saturating_sub(1));
+        let palette = theme::palette_from_theme(cx);
+        let query = mention
+            .as_ref()
+            .map(|(_, query)| query.clone())
+            .unwrap_or_default();
+        let element = div()
+            .id("native-agent-mention-menu")
+            .flex()
+            .flex_col()
+            .gap(px(1.0))
+            .mx(space(1))
+            .mt(space(1))
+            .mb(px(2.0))
+            .rounded(px(RADIUS_SMALL))
+            .border_1()
+            .border_color(palette.line)
+            .bg(palette.card)
+            .occlude()
+            .child(
+                div()
+                    .px(space(1))
+                    .py(px(2.0))
+                    .text_size(px(9.0))
+                    .text_color(palette.ink_3)
+                    .child(format!("@{query} 匹配文件")),
+            )
+            .children(mention_matches.iter().enumerate().map(|(index, path)| {
+                let selected = index == mention_selected;
+                let path = path.clone();
+                div()
+                    .id(SharedString::from(format!("native-mention-{index}")))
+                    .role(Role::Button)
+                    .aria_label(path.clone())
+                    .px(space(1))
+                    .py(px(3.0))
+                    .rounded(px(RADIUS_SMALL))
+                    .bg(if selected { palette.soft } else { palette.card })
+                    .text_size(px(11.0))
+                    .text_color(if selected {
+                        palette.accent
+                    } else {
+                        palette.ink_2
+                    })
+                    .child(path.clone())
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.insert_mention(path.clone(), window, cx);
+                    }))
+            }))
+            .into_any_element();
+        Some(element)
+    }
+
     fn render_native_composer_legacy(
         &mut self,
         draft: &ComposerDraft,
@@ -3778,8 +3845,8 @@ impl NativeAgentView {
             .as_ref()
             .map(|(_, query)| self.mention_matches(query))
             .unwrap_or_default();
-        let mention_open = mention.is_some() && !slash_open && !mention_matches.is_empty();
-        let mention_selected = self
+        let _mention_open = mention.is_some() && !slash_open && !mention_matches.is_empty();
+        let _mention_selected = self
             .mention_index
             .min(mention_matches.len().saturating_sub(1));
         let can_undo = self.state.thread.capabilities.checkpoint_available()
@@ -4125,55 +4192,7 @@ impl NativeAgentView {
                         }
                     }))
                     .children(self.render_slash_menu(cx))
-                    .children(mention_open.then(|| {
-                        let query = mention
-                            .as_ref()
-                            .map(|(_, query)| query.clone())
-                            .unwrap_or_default();
-                        div()
-                            .id("native-agent-mention-menu")
-                            .flex()
-                            .flex_col()
-                            .gap(px(1.0))
-                            .mx(space(1))
-                            .mt(space(1))
-                            .mb(px(2.0))
-                            .rounded(px(RADIUS_SMALL))
-                            .border_1()
-                            .border_color(palette.line)
-                            .bg(palette.card)
-                            .occlude()
-                            .child(
-                                div()
-                                    .px(space(1))
-                                    .py(px(2.0))
-                                    .text_size(px(9.0))
-                                    .text_color(palette.ink_3)
-                                    .child(format!("@{query} 匹配文件")),
-                            )
-                            .children(mention_matches.iter().enumerate().map(|(index, path)| {
-                                let selected = index == mention_selected;
-                                let path = path.clone();
-                                div()
-                                    .id(SharedString::from(format!("native-mention-{index}")))
-                                    .role(Role::Button)
-                                    .aria_label(path.clone())
-                                    .px(space(1))
-                                    .py(px(3.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .bg(if selected { palette.soft } else { palette.card })
-                                    .text_size(px(11.0))
-                                    .text_color(if selected {
-                                        palette.accent
-                                    } else {
-                                        palette.ink_2
-                                    })
-                                    .child(path.clone())
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.insert_mention(path.clone(), window, cx);
-                                    }))
-                            }))
-                    }))
+                    .children(self.render_mention_menu(cx))
                     .children((!self.pending_images.is_empty()
                         && crate::root_view::shared_surface::choose_composer(
                             crate::root_view::shared_surface::native_shared_view_enabled(),
