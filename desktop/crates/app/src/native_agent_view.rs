@@ -12,7 +12,7 @@ use std::sync::{mpsc as std_mpsc, Arc, Mutex};
 
 use base64::Engine as _;
 use cgc_agent_checkpoint::{Checkpoint, CheckpointManager, FileChange};
-use cgc_agent_core::{run_subagent, Agent, CancelToken, ImageAttachment, SelectedModel, Thread};
+use cgc_agent_core::{run_subagent, Agent, CancelToken, SelectedModel, Thread};
 use cgc_agent_host::{
     parse_slash, AgentEvent, ContextSizeHandle, NativeAcpServer, NativeAcpServerConfig,
     SlashCommand,
@@ -48,9 +48,9 @@ use gpui_kit::component::{Icon, Sizable};
 use gpui_kit::InteractiveElement as _;
 use gpui_kit::StatefulInteractiveElement as _;
 use gpui_kit::*;
-use image::GenericImageView as _;
 
 use crate::agent_ingest;
+use crate::attachment::{decode_sent_images, is_image_path, prepare_clipboard_image, SentImage};
 use crate::mention::{self, Mention, SkillEntry};
 use crate::native_context::{
     build_workspace_system_prompt, clean_thread_title, collect_workspace_files, humanize_tokens,
@@ -199,61 +199,6 @@ impl NativeAgentView {
     }
 }
 
-/// 与 Zed `language_model::request` 对齐：单图编码后 PNG ≤5MB，最长边 1568px。
-const ANTHROPIC_SIZE_LIMIT: u32 = 1568;
-const IMAGE_MAX_BYTES: usize = 5 * 1024 * 1024;
-const MAX_IMAGE_DOWNSCALE_PASSES: usize = 8;
-
-fn encode_png(image: &image::DynamicImage) -> Option<Vec<u8>> {
-    let mut cursor = std::io::Cursor::new(Vec::new());
-    image.write_to(&mut cursor, image::ImageFormat::Png).ok()?;
-    Some(cursor.into_inner())
-}
-
-/// 解码 → 尺寸降采样 → PNG 重编码 → 5MB 内迭代缩放。返回 (png 字节, 预览图)。
-fn prepare_clipboard_image(bytes: &[u8]) -> Option<(Vec<u8>, Arc<RenderImage>)> {
-    let mut decoded = image::load_from_memory(bytes).ok()?;
-    let (width, height) = decoded.dimensions();
-    if width > ANTHROPIC_SIZE_LIMIT || height > ANTHROPIC_SIZE_LIMIT {
-        let scale = ANTHROPIC_SIZE_LIMIT as f32 / width.max(height) as f32;
-        decoded = decoded.resize(
-            ((width as f32) * scale).round().max(1.0) as u32,
-            ((height as f32) * scale).round().max(1.0) as u32,
-            image::imageops::FilterType::Triangle,
-        );
-    }
-    let mut png = encode_png(&decoded)?;
-    for _ in 0..MAX_IMAGE_DOWNSCALE_PASSES {
-        if png.len() <= IMAGE_MAX_BYTES {
-            break;
-        }
-        let (width, height) = decoded.dimensions();
-        if width <= 1 || height <= 1 {
-            break;
-        }
-        decoded = decoded.resize(
-            ((width as f32) * 0.85).round().max(1.0) as u32,
-            ((height as f32) * 0.85).round().max(1.0) as u32,
-            image::imageops::FilterType::Triangle,
-        );
-        png = encode_png(&decoded)?;
-    }
-    if png.len() > IMAGE_MAX_BYTES {
-        return None;
-    }
-    let preview = Arc::new(RenderImage::new(vec![image::Frame::new(
-        decoded.into_rgba8(),
-    )]));
-    Some((png, preview))
-}
-
-/// 已发送消息里展示用的图片引用（chip + 悬停预览）。
-#[derive(Clone)]
-struct SentImage {
-    name: String,
-    preview: Option<Arc<RenderImage>>,
-}
-
 /// 排队等待发送的消息：`display` 用于界面展示，`prompt` 已解析好技能/文件上下文。
 #[derive(Clone)]
 struct QueuedMessage {
@@ -279,16 +224,6 @@ fn inserted_segment(previous: &str, current: &str) -> Option<String> {
         suffix += 1;
     }
     String::from_utf8(b[prefix..b.len() - suffix].to_vec()).ok()
-}
-
-fn is_image_path(path: &std::path::Path) -> bool {
-    matches!(
-        path.extension()
-            .and_then(|extension| extension.to_str())
-            .map(str::to_ascii_lowercase)
-            .as_deref(),
-        Some("png" | "jpg" | "jpeg" | "webp" | "gif")
-    )
 }
 
 /// 独立的图片查看窗口：大图 + 缩放/拖动 + 关闭。
@@ -471,24 +406,6 @@ impl Render for ImageViewer {
                 }
             }))
     }
-}
-
-fn decode_sent_images(images: &[ImageAttachment]) -> Vec<SentImage> {
-    images
-        .iter()
-        .map(|image| SentImage {
-            name: if image.name.is_empty() {
-                "image.png".to_string()
-            } else {
-                image.name.clone()
-            },
-            preview: base64::engine::general_purpose::STANDARD
-                .decode(image.data.as_bytes())
-                .ok()
-                .and_then(|bytes| prepare_clipboard_image(&bytes))
-                .map(|(_, preview)| preview),
-        })
-        .collect()
 }
 
 /// 把 thread entries 映射成 UI 状态：图片预览 + 工具调用参数/输出（工具卡片）。

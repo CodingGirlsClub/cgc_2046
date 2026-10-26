@@ -3,6 +3,7 @@
 pub mod acp_history;
 pub mod agent_ingest;
 pub mod approval_rules;
+pub mod attachment;
 pub mod build_info;
 pub mod chat_state;
 
