@@ -202,11 +202,32 @@ pub(in crate::root_view) fn render_chat_panel(
                             this.set_chat_input_text(format!("{current}@"), window, ctx);
                         });
                     }),
+                    // B2b：ACP 无附件/图片能力位，这些回调不启用；native adapter
+                    // 在 B2b-2 接入真实实现后由能力位 gating。
+                    attach_pick: std::sync::Arc::new(|_, _| {}),
+                    add_images_from_paths: std::sync::Arc::new(|_, _, _| {}),
+                    add_clipboard_image: std::sync::Arc::new(|_, _| {}),
+                    insert_mention: std::sync::Arc::new(|_, _, _| {}),
+                    insert_skill_mention: std::sync::Arc::new(|_, _, _| {}),
                 },
+                attachments: Vec::new(),
             };
+            // B2b seam 占位：这些入口由能力位 gating，native adapter 接入后消费。
+            let _ = (
+                &composer.callbacks.attach_pick,
+                &composer.callbacks.add_images_from_paths,
+                &composer.callbacks.add_clipboard_image,
+                &composer.callbacks.insert_mention,
+                &composer.callbacks.insert_skill_mention,
+                &composer.attachments,
+            );
             let mut rows = Vec::with_capacity(thread.entries.len());
             // 底部条在等审批时隐藏；每行都查一次没必要，循环外算一次。
             let needs_confirmation = has_unresolved_permission(&thread.entries);
+            let _ = (
+                super::surface::attachment_entry_visible(surface_flags),
+                super::surface::image_entry_visible(surface_flags),
+            );
             let composer_visibility = super::surface::composer_visibility(
                 surface_flags,
                 true,

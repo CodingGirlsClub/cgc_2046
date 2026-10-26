@@ -25,6 +25,7 @@ pub enum ThreadStatus {
 
 /// 双轨能力位：模型字段照常存在，UI 按位决定是否显示入口（编辑/恢复/steer/queue）。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ThreadCapabilities {
     pub checkpoint_restore: bool,
     pub steer: bool,
@@ -33,6 +34,10 @@ pub struct ThreadCapabilities {
     pub config_options: bool,
     pub plan: bool,
     pub usage: bool,
+    /// 附件（文件/图片）输入能力（B2b：native true，external ACP false）。
+    pub attachments: bool,
+    /// 图片附件能力（B2b：native true，external ACP false）。
+    pub images: bool,
 }
 
 impl ThreadCapabilities {
@@ -46,6 +51,8 @@ impl ThreadCapabilities {
             config_options: true,
             plan: true,
             usage: true,
+            attachments: true,
+            images: true,
         }
     }
 
@@ -60,6 +67,8 @@ impl ThreadCapabilities {
             config_options: true,
             plan: true,
             usage: true,
+            attachments: false,
+            images: false,
         }
     }
 }

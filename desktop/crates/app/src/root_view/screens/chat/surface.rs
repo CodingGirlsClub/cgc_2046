@@ -6,6 +6,7 @@
 //! 统一的 `ChatSurfaceFlags`（纯函数、可单测），panel 从此读 surface 而不是直接
 //! 散读 `thread.capabilities`；后续 B2/B3 再把 composer/action 回调迁进来。
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use cgc_agent_ui::conversation::{ConversationThread, ThreadCapabilities};
@@ -22,6 +23,10 @@ pub(in crate::root_view) struct ChatSurfaceFlags {
     pub config_options: bool,
     pub plan: bool,
     pub usage: bool,
+    /// 附件输入入口（B2b）。
+    pub attachments: bool,
+    /// 图片输入入口（B2b）。
+    pub images: bool,
 }
 
 impl ChatSurfaceFlags {
@@ -35,6 +40,8 @@ impl ChatSurfaceFlags {
             config_options: capabilities.config_available(),
             plan: capabilities.plan,
             usage: capabilities.usage,
+            attachments: capabilities.attachments,
+            images: capabilities.images,
         }
     }
 }
@@ -101,14 +108,45 @@ type ComposerCallback = Arc<dyn Fn(&mut Window, &mut App)>;
 pub(in crate::root_view) struct ComposerSurface {
     pub input: Option<Entity<TextareaState>>,
     pub callbacks: ComposerCallbacks,
+    /// 已附加的附件 chip（两轨共用渲染；B2b ACP 恒空）。
+    pub attachments: Vec<AttachmentChip>,
 }
 
+/// 附件 chip 数据（路径/名称/是否图片；预览由渲染层按 image 能力决定）。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::root_view) struct AttachmentChip {
+    pub id: String,
+    pub label: String,
+    pub is_image: bool,
+}
+
+#[allow(clippy::type_complexity)]
 #[derive(Clone)]
 pub(in crate::root_view) struct ComposerCallbacks {
     /// 发送当前输入（行为等价于旧 composer 的 send + clear input）。
     pub send: ComposerCallback,
     /// 附件/上下文入口（B2a 对齐旧 paperclip：插入 `@` 触发 mention）。
     pub attach: ComposerCallback,
+    /// 文件选择入口（B2b；无附件能力位时不渲染/不调用）。
+    pub attach_pick: ComposerCallback,
+    /// 追加指定路径图片（native adapter 用）。
+    pub add_images_from_paths: Arc<dyn Fn(Vec<PathBuf>, &mut Window, &mut App)>,
+    /// 粘贴图片（native adapter 用）。
+    pub add_clipboard_image: ComposerCallback,
+    /// 插入 mention（path 或引用文本）。
+    pub insert_mention: Arc<dyn Fn(String, &mut Window, &mut App)>,
+    /// 插入 skill mention（skill 标识）。
+    pub insert_skill_mention: Arc<dyn Fn(String, &mut Window, &mut App)>,
+}
+
+/// 附件入口是否可见（B2b：能力位关闭时不渲染入口）。
+pub(in crate::root_view) fn attachment_entry_visible(flags: ChatSurfaceFlags) -> bool {
+    flags.attachments
+}
+
+/// 图片入口是否可见。
+pub(in crate::root_view) fn image_entry_visible(flags: ChatSurfaceFlags) -> bool {
+    flags.images
 }
 
 /// composer 操作显隐（纯函数；`phase_active` = Ready/Streaming，`busy` = 生成中）。
@@ -167,6 +205,16 @@ mod composer_tests {
         assert!(!visibility.can_send);
         assert!(!visibility.can_queue, "ACP 无 queue 能力位");
         assert!(!visibility.can_steer, "ACP 无 steer 能力位");
+    }
+
+    #[test]
+    fn attachment_and_image_entries_follow_capabilities() {
+        let native_flags = super::ChatSurfaceFlags::from_capabilities(ThreadCapabilities::native());
+        assert!(super::attachment_entry_visible(native_flags));
+        assert!(super::image_entry_visible(native_flags));
+        let acp_flags = super::ChatSurfaceFlags::from_capabilities(ThreadCapabilities::acp());
+        assert!(!super::attachment_entry_visible(acp_flags));
+        assert!(!super::image_entry_visible(acp_flags));
     }
 
     #[test]
