@@ -4523,11 +4523,9 @@ impl NativeAgentView {
                     )
             .into_any_element()
     }
-    /// Phase B2b-3c：native 主 composer 的共享基础版（flag=1 时使用）。
-    /// 本片只接 send/stop + 附件 chips + attach（文件/图片选择）；slash 菜单/
-    /// context chip/queue 提示留 TODO(B2b-3d)，mention 文本 token 继续由既有
-    /// send 解析（Textarea 内容不变）。
-    #[allow(unused_variables)] // TODO(B2b-3d)：addon 参数接入后回收。
+    /// Phase B2b-3c/3d：native 主 composer 的共享版（flag=1 时使用）。
+    /// 共享 send/stop + 附件 chips + attach + slash/mention 菜单 + queue 提示；
+    /// context chip 为 ACP 面板能力，native 本就没有，不在此渲染。
     fn render_shared_native_composer(
         &mut self,
         draft: &ComposerDraft,
@@ -4543,6 +4541,16 @@ impl NativeAgentView {
         let stop_weak = cx.entity().downgrade();
         let remove_weak = cx.entity().downgrade();
         let remove_weak_for_chips = remove_weak.clone();
+        let slash_menu = self.render_slash_menu(cx);
+        let mention_menu = self.render_mention_menu(cx);
+        let queue_hint = (!self.queued_messages.is_empty()).then(|| {
+            div()
+                .mx(space(1))
+                .mt(space(1))
+                .text_size(px(10.0))
+                .text_color(palette.ink_3)
+                .child(queued_panel_header_text(self.queued_messages.len()))
+        });
         div()
             .relative()
             .mx(space(2))
@@ -4561,6 +4569,9 @@ impl NativeAgentView {
                             .w_full(),
                     ),
                 )
+                .children(slash_menu)
+                .children(mention_menu)
+                .children(queue_hint)
                 .children(render_attachment_chips(
                     &surface.attachments,
                     &palette,
