@@ -5,6 +5,8 @@ date: 2026-10-17
 
 # ADR-0023：课程学习页对话栏支持多个本机 agent（先接 Codex）
 
+> **Superseded（2026-10-26）：Web 端学习搭子与 cgc-host 已移除，本 ADR 仅作历史记录。**
+
 > 日期：2026-10-17 ｜ 状态：**已接受（Accepted）**（2026-10-17 随 PR #1152 落地：接缝与 Codex/页面合并成一次 `0.2.0`；期 2 的一键安装随后落地：Host 用随包发布的 `bun.lock`（整棵树带 sha512）经自带 Bun 装到 `~/.cgc2046/agents/`，页面按 `capabilities` 探测入口，`MIN_HOST_VERSION` 保持 `0.2.0`）
 
 ADR-0022 让课程学习页经 CGC 本机 Host 驱动学员自己的 agent，接的只是 OMP（`omp acp`）。但学员的 agent 不止一种：已经有人用 Codex、Claude Code，把各自的模型额度、审批习惯与会话历史留在那边。ADR-0022 否决「Host 与 OMP 之间用私有 RPC」时的理由正是「ACP 是标准协议，之后其他 agent 可以从同一接缝接入」——本 ADR 兑现那条理由：Host 里写死的 OMP 变成 agent 注册表，先接入 Codex。完整设计、需求与验收见 `docs/plans/2026-10-17-1139-feat-multi-local-agent-selection-plan.md`，下文的 KTD 编号均指该计划。

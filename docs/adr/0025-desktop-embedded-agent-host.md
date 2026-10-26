@@ -5,6 +5,8 @@ date: 2026-10-19
 
 # ADR-0025：桌面客户端内化本机 Host（Rust + ACP）
 
+> **Superseded（2026-10-26）：Web 端学习搭子与 cgc-host 已移除，本 ADR 仅作历史记录（桌面客户端内化 Host 的决策仍被 ADR-0028 承接）。**
+
 > 日期：2026-10-19 ｜ 状态：**已接受（Accepted）** ｜ 决策者：用户（product owner）
 > 关联：ADR-0022、ADR-0023、架构脊柱 `_bmad-output/initiative-desktop/architecture-desktop/architecture-desktop.md`（AD-3、AD-4、AD-5、AD-8）
 
