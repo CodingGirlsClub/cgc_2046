@@ -1294,7 +1294,7 @@ impl RootView {
         }
         if matches!(self.chat.phase, ChatPhase::Ready)
             && std::env::var("CGC_AUTO_HISTORY").as_deref() == Ok("1")
-            && self.history_overlay.is_none()
+            && self.history_sidebar.is_none()
         {
             self.open_chat_history(cx);
         }
@@ -1704,7 +1704,7 @@ impl RootView {
         self.start_chat(cx);
     }
 
-    /// 打开统一历史 overlay（native + ACP 本地 transcript）。
+    /// 打开统一历史侧边栏（native + ACP 本地 transcript；Zed Threads sidebar 形态）。
     pub(in crate::root_view) fn open_chat_history(&mut self, cx: &mut Context<Self>) {
         if let Some(host) = &self.chat.host {
             let _ = host.list_sessions();
@@ -1712,7 +1712,7 @@ impl RootView {
         self.history_dirty_seen = crate::acp_history::history_dirty_generation();
         self.history_cleared_seen = crate::acp_history::history_cleared_generation();
         self.chat.history = self.load_unified_history();
-        self.history_overlay = Some(crate::root_view::history_overlay::HistoryOverlay::default());
+        self.history_sidebar = Some(crate::root_view::history_sidebar::HistorySidebar::default());
         cx.notify();
     }
 

@@ -198,8 +198,8 @@ pub struct ShellState {
     pub(in crate::root_view) agent_panel_title_subscription: Option<Subscription>,
     pub(in crate::root_view) agent_panel_editing_title: bool,
     pub(in crate::root_view) agent_panel_title_hovered: bool,
-    pub(in crate::root_view) history_overlay:
-        Option<crate::root_view::history_overlay::HistoryOverlay>,
+    pub(in crate::root_view) history_sidebar:
+        Option<crate::root_view::history_sidebar::HistorySidebar>,
     pub(in crate::root_view) history_dirty_seen: u64,
     pub(in crate::root_view) history_cleared_seen: u64,
     pub(in crate::root_view) chat: ChatUi,
@@ -342,7 +342,7 @@ impl ShellState {
             agent_panel_title_subscription: None,
             agent_panel_editing_title: false,
             agent_panel_title_hovered: false,
-            history_overlay: None,
+            history_sidebar: None,
             history_dirty_seen: 0,
             history_cleared_seen: 0,
             agent_registry_rows: Vec::new(),

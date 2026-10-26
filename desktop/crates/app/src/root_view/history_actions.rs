@@ -1,28 +1,28 @@
-//! 全局历史 overlay 的动作层（打开/关闭/重命名/归档/unarchive/dirty 刷新）。
+//! 全局历史侧边栏的动作层（打开/关闭/重命名/归档/unarchive/dirty 刷新）。
 //!
-//! 与 `history_overlay` 的渲染分开：这里只做状态迁移和存储调用，便于单测与复用；
+//! 与 `history_sidebar` 的渲染分开：这里只做状态迁移和存储调用，便于单测与复用；
 //! native / ACP 两轨共用（native 只能 Rename；ACP 支持 Rename/Archive/Unarchive）。
 
 use std::sync::{Mutex, OnceLock};
 
 use super::*;
 use crate::acp_history::{self, HistorySource};
-use crate::root_view::history_overlay::{HistoryOverlay, HistoryRename, HistoryTab};
+use crate::root_view::history_sidebar::{HistoryRename, HistorySidebar, HistoryTab};
 use gpui_kit::component::input::InputState;
 
 impl RootView {
-    pub(in crate::root_view) fn toggle_history_overlay(&mut self, cx: &mut Context<Self>) {
-        if self.history_overlay.is_some() {
-            self.history_overlay = None;
+    pub(in crate::root_view) fn toggle_history_sidebar(&mut self, cx: &mut Context<Self>) {
+        if self.history_sidebar.is_some() {
+            self.history_sidebar = None;
         } else {
-            self.history_overlay = Some(HistoryOverlay::default());
+            self.history_sidebar = Some(HistorySidebar::default());
             self.chat.history = self.load_unified_history();
         }
         cx.notify();
     }
 
-    pub(in crate::root_view) fn close_history_overlay(&mut self, cx: &mut Context<Self>) {
-        self.history_overlay = None;
+    pub(in crate::root_view) fn close_history_sidebar(&mut self, cx: &mut Context<Self>) {
+        self.history_sidebar = None;
         cx.notify();
     }
 
@@ -31,14 +31,14 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<InputState> {
-        let Some(overlay) = self.history_overlay.as_mut() else {
+        let Some(sidebar) = self.history_sidebar.as_mut() else {
             return cx.new(|cx| InputState::new(window, cx));
         };
-        if let Some(input) = &overlay.filter_input {
+        if let Some(input) = &sidebar.filter_input {
             return input.clone();
         }
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("过滤标题 / agent"));
-        overlay.filter_subscription = Some(cx.subscribe_in(
+        sidebar.filter_subscription = Some(cx.subscribe_in(
             &input,
             window,
             |_this, _input, event: &InputEvent, _window, cx| {
@@ -47,8 +47,21 @@ impl RootView {
                 }
             },
         ));
-        overlay.filter_input = Some(input.clone());
+        sidebar.filter_input = Some(input.clone());
         input
+    }
+
+    /// 侧栏「＋」：按当前轨新建对话（native 走 native view，ACP 走 new_chat）。
+    pub(in crate::root_view) fn start_new_thread_from_history(&mut self, cx: &mut Context<Self>) {
+        self.agent_panel_open = true;
+        if self.native_chat_mode && RootView::native_agent_enabled() {
+            if let Some(view) = &self.native_agent_view {
+                view.update(cx, |view, cx| view.start_new_thread(cx));
+            }
+        } else {
+            self.new_chat(cx);
+        }
+        cx.notify();
     }
 
     pub(in crate::root_view) fn set_history_tab(
@@ -56,9 +69,9 @@ impl RootView {
         tab: HistoryTab,
         cx: &mut Context<Self>,
     ) {
-        if let Some(overlay) = self.history_overlay.as_mut() {
-            overlay.tab = tab;
-            overlay.rename = None;
+        if let Some(sidebar) = self.history_sidebar.as_mut() {
+            sidebar.tab = tab;
+            sidebar.rename = None;
         }
         cx.notify();
     }
@@ -74,24 +87,24 @@ impl RootView {
         let input = cx.new(|cx| InputState::new(window, cx).default_value(initial));
         let focus = input.read(cx).focus_handle(cx);
         window.focus(&focus, cx);
-        if let Some(overlay) = self.history_overlay.as_mut() {
-            overlay.rename = Some(HistoryRename { thread_id, input });
+        if let Some(sidebar) = self.history_sidebar.as_mut() {
+            sidebar.rename = Some(HistoryRename { thread_id, input });
         }
         cx.notify();
     }
 
     pub(in crate::root_view) fn cancel_history_rename(&mut self, cx: &mut Context<Self>) {
-        if let Some(overlay) = self.history_overlay.as_mut() {
-            overlay.rename = None;
+        if let Some(sidebar) = self.history_sidebar.as_mut() {
+            sidebar.rename = None;
         }
         cx.notify();
     }
 
     pub(in crate::root_view) fn commit_history_rename(&mut self, cx: &mut Context<Self>) {
-        let Some(overlay) = self.history_overlay.as_mut() else {
+        let Some(sidebar) = self.history_sidebar.as_mut() else {
             return;
         };
-        let Some(rename) = overlay.rename.take() else {
+        let Some(rename) = sidebar.rename.take() else {
             return;
         };
         let raw = rename.input.read(cx).value().trim().to_string();
@@ -155,10 +168,11 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.history_overlay = None;
+        // 侧边栏保持可见（Zed threads sidebar 行为），打开线程后仅高亮当前行。
         match source {
             HistorySource::Native => self.open_local_native_thread(thread_id, window, cx),
             HistorySource::Acp => {
+                self.agent_panel_open = true;
                 let session_id = session_id.unwrap_or_default();
                 self.open_acp_history_thread(thread_id, session_id, cx);
             }

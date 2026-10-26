@@ -82,7 +82,7 @@ mod controller;
 mod history_actions;
 pub(crate) use history_actions::notify_history_changed;
 pub use history_actions::register_history_root;
-mod history_overlay;
+mod history_sidebar;
 mod screens;
 mod state;
 
@@ -996,6 +996,11 @@ impl Render for RootView {
                             .flex_1()
                             .min_h(px(0.0))
                             .w_full()
+                            .children(
+                                self.history_sidebar
+                                    .is_some()
+                                    .then(|| self.render_history_sidebar(window, cx)),
+                            )
                             .children(self.agent_panel_open.then(|| {
                                 screens::render_agent_panel(
                                     &mut screens::ScreenContext::new(&mut self.state),
@@ -1217,9 +1222,6 @@ impl Render for RootView {
                     sign_out_label,
                     cx,
                 ));
-            }
-            if self.history_overlay.is_some() {
-                root = root.child(self.render_history_overlay(window, cx));
             }
             root
         }
@@ -1828,7 +1830,7 @@ impl RootView {
                 .into_any_element()
         });
         let history_toggle = include_nav.then(|| {
-            let active = self.history_overlay.is_some();
+            let active = self.history_sidebar.is_some();
             div()
                 .id("chat-history-toggle")
                 .role(Role::Button)
@@ -1857,7 +1859,7 @@ impl RootView {
                 )
                 .tooltip(move |window, cx| Tooltip::new("历史对话").build(window, cx))
                 .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_history_overlay(cx);
+                    this.toggle_history_sidebar(cx);
                 }))
                 .into_any_element()
         });
