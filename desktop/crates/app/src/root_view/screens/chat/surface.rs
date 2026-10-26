@@ -16,7 +16,7 @@ use gpui_kit::{App, Entity, Window};
 
 /// 聊天视图各入口的显隐位（来自 [`ThreadCapabilities`] 的稳定映射）。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(in crate::root_view) struct ChatSurfaceFlags {
+pub(crate) struct ChatSurfaceFlags {
     pub checkpoint_restore: bool,
     pub steer: bool,
     pub queue: bool,
@@ -49,7 +49,7 @@ impl ChatSurfaceFlags {
 
 /// 一个 thread 的共享视图参数（Phase B2 起在这里挂 composer/action 回调）。
 #[derive(Clone, Copy, Debug)]
-pub(in crate::root_view) struct ChatSurface<'a> {
+pub(crate) struct ChatSurface<'a> {
     pub thread: &'a ConversationThread,
     pub flags: ChatSurfaceFlags,
 }
@@ -106,7 +106,7 @@ type ComposerCallback = Arc<dyn Fn(&mut Window, &mut App)>;
 /// Phase B2a：共享 composer 的输入句柄 + 发送/附件回调（行为由调用方注入）。
 /// B2b/c 再把 queue/steer 等回调与 native adapter 接进来。
 #[derive(Clone)]
-pub(in crate::root_view) struct ComposerSurface {
+pub(crate) struct ComposerSurface {
     pub input: Option<Entity<TextareaState>>,
     pub callbacks: ComposerCallbacks,
     /// 已附加的附件 chip（两轨共用渲染；B2b ACP 恒空）。
@@ -115,7 +115,7 @@ pub(in crate::root_view) struct ComposerSurface {
 
 /// 附件 chip 数据（路径/名称/是否图片；预览由渲染层按 image 能力决定）。
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(in crate::root_view) struct AttachmentChip {
+pub(crate) struct AttachmentChip {
     pub id: String,
     pub label: String,
     pub is_image: bool,
@@ -123,7 +123,7 @@ pub(in crate::root_view) struct AttachmentChip {
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone)]
-pub(in crate::root_view) struct ComposerCallbacks {
+pub(crate) struct ComposerCallbacks {
     /// 发送当前输入（行为等价于旧 composer 的 send + clear input）。
     pub send: ComposerCallback,
     /// 附件/上下文入口（B2a 对齐旧 paperclip：插入 `@` 触发 mention）。
@@ -141,10 +141,8 @@ pub(in crate::root_view) struct ComposerCallbacks {
 }
 
 /// native 附件 chip 映射：`(name, is_image)` → 共享 `AttachmentChip`（id 用序号）。
-// TODO(B2b-2)：native view adapter 接入后移除 allow。
 /// 由 native view 注入数据，surface 不反向依赖 native view。
-#[allow(dead_code)]
-pub(in crate::root_view) fn attachment_chips_from_images(
+pub(crate) fn attachment_chips_from_images(
     images: impl IntoIterator<Item = (String, bool)>,
 ) -> Vec<AttachmentChip> {
     images
@@ -160,18 +158,16 @@ pub(in crate::root_view) fn attachment_chips_from_images(
 
 /// `CGC_NATIVE_SHARED_VIEW=1`：native 面板使用共享 composer（Phase B2b 灰度，
 /// 默认关闭；关闭时旧 native composer 行为完全不变）。
-#[allow(dead_code)]
-pub(in crate::root_view) fn native_shared_view_enabled() -> bool {
+pub(crate) fn native_shared_view_enabled() -> bool {
     native_shared_view_enabled_from(std::env::var("CGC_NATIVE_SHARED_VIEW").ok().as_deref())
 }
 
-#[allow(dead_code)]
 fn native_shared_view_enabled_from(value: Option<&str>) -> bool {
     value == Some("1")
 }
 
 /// 共享附件 chip 渲染（路径/名称/图片标记；空列表不渲染）。
-pub(in crate::root_view) fn render_attachment_chips(
+pub(crate) fn render_attachment_chips(
     chips: &[AttachmentChip],
     palette: &theme::Palette,
     on_remove: impl Fn(&str) + Clone + 'static,
@@ -215,24 +211,24 @@ pub(in crate::root_view) fn render_attachment_chips(
 }
 
 /// 附件入口是否可见（B2b：能力位关闭时不渲染入口）。
-pub(in crate::root_view) fn attachment_entry_visible(flags: ChatSurfaceFlags) -> bool {
+pub(crate) fn attachment_entry_visible(flags: ChatSurfaceFlags) -> bool {
     flags.attachments
 }
 
 /// 图片入口是否可见。
-pub(in crate::root_view) fn image_entry_visible(flags: ChatSurfaceFlags) -> bool {
+pub(crate) fn image_entry_visible(flags: ChatSurfaceFlags) -> bool {
     flags.images
 }
 
 /// composer 操作显隐（纯函数；`phase_active` = Ready/Streaming，`busy` = 生成中）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::root_view) struct ComposerVisibility {
+pub(crate) struct ComposerVisibility {
     pub can_send: bool,
     pub can_queue: bool,
     pub can_steer: bool,
 }
 
-pub(in crate::root_view) fn composer_visibility(
+pub(crate) fn composer_visibility(
     flags: ChatSurfaceFlags,
     phase_active: bool,
     permission_pending: bool,

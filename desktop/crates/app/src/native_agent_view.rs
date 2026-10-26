@@ -1112,6 +1112,64 @@ impl NativeAgentView {
         cx.notify();
     }
 
+    /// Phase B2b-2：native composer 的共享 surface（附件/mention 真实回调）。
+    /// 仅在 `CGC_NATIVE_SHARED_VIEW=1` 的共享渲染路径消费；flag off 时旧 composer
+    /// 行为完全不变。skills 数据由 native 注入（surface 不反向依赖 view）。
+    fn shared_composer_surface(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> crate::root_view::shared_surface::ComposerSurface {
+        use crate::root_view::shared_surface::{
+            attachment_chips_from_images, ComposerCallbacks, ComposerSurface,
+        };
+        let weak = cx.entity().downgrade();
+        let send_weak = weak.clone();
+        let pick_weak = weak.clone();
+        let paths_weak = weak.clone();
+        let clipboard_weak = weak.clone();
+        let mention_weak = weak.clone();
+        let skill_weak = weak.clone();
+        ComposerSurface {
+            input: Some(self.input.clone()),
+            callbacks: ComposerCallbacks {
+                send: std::sync::Arc::new(move |window, cx| {
+                    let _ = send_weak.update(cx, |this, ctx| this.send(window, ctx));
+                }),
+                attach: std::sync::Arc::new(move |_window, cx| {
+                    let _ = pick_weak.update(cx, |this, ctx| this.add_images_from_picker(ctx));
+                }),
+                attach_pick: std::sync::Arc::new(move |_window, cx| {
+                    let _ = paths_weak.update(cx, |this, ctx| this.add_images_from_picker(ctx));
+                }),
+                add_images_from_paths: std::sync::Arc::new(move |paths, _window, cx| {
+                    let _ = clipboard_weak
+                        .update(cx, |this, ctx| this.add_images_from_paths(&paths, ctx));
+                }),
+                add_clipboard_image: std::sync::Arc::new(move |_window, cx| {
+                    let _ = mention_weak.update(cx, |this, ctx| this.add_clipboard_image(ctx));
+                }),
+                insert_mention: std::sync::Arc::new(move |path, window, cx| {
+                    let _ = skill_weak.update(cx, |this, ctx| {
+                        this.insert_mention(path, window, ctx);
+                    });
+                }),
+                insert_skill_mention: std::sync::Arc::new(move |key, window, cx| {
+                    let _ = weak.update(cx, |this, ctx| {
+                        let skill = this.skills.iter().find(|skill| skill.name == key).cloned();
+                        if let Some(skill) = skill {
+                            this.insert_skill_mention(skill, window, ctx);
+                        }
+                    });
+                }),
+            },
+            attachments: attachment_chips_from_images(
+                self.pending_images
+                    .iter()
+                    .map(|image| (image.name.clone(), true)),
+            ),
+        }
+    }
+
     fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let content = self.input.read(cx).content();
         let text = content.text().trim().to_string();
@@ -4395,7 +4453,9 @@ impl Render for NativeAgentView {
                                     }))
                             }))
                     }))
-                    .children((!self.pending_images.is_empty()).then(|| {
+                    .children((!self.pending_images.is_empty()
+                        && !crate::root_view::shared_surface::native_shared_view_enabled())
+                        .then(|| {
                         let rows = self
                             .pending_images
                             .iter()
@@ -4499,6 +4559,26 @@ impl Render for NativeAgentView {
                             .pt(px(2.0))
                             .children(rows)
                     }))
+                    .children(
+                        crate::root_view::shared_surface::native_shared_view_enabled()
+                            .then(|| {
+                                let composer = self.shared_composer_surface(cx);
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .flex_wrap()
+                                    .gap(space(1))
+                                    .px(space(1))
+                                    .pt(px(2.0))
+                                    .children(
+                                        crate::root_view::shared_surface::render_attachment_chips(
+                                            &composer.attachments,
+                                            &palette,
+                                            |_| {},
+                                        ),
+                                    )
+                            }),
+                    )
                     .child(
                         div()
                             .relative()
