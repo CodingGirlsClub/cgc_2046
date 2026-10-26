@@ -174,7 +174,7 @@ fn native_shared_view_enabled_from(value: Option<&str>) -> bool {
 pub(crate) fn render_attachment_chips(
     chips: &[AttachmentChip],
     palette: &theme::Palette,
-    on_remove: impl Fn(&str) + Clone + 'static,
+    on_remove: impl Fn(&str, &mut Window, &mut App) + Clone + 'static,
 ) -> Vec<AnyElement> {
     chips
         .iter()
@@ -207,7 +207,7 @@ pub(crate) fn render_attachment_chips(
                         )))
                         .hover(|style| style.bg(palette.soft))
                         .child("×")
-                        .on_click(move |_, _, _| remove(&id)),
+                        .on_click(move |_, window, cx| remove(&id, window, cx)),
                 )
                 .into_any_element()
         })

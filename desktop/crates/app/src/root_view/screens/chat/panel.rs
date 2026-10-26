@@ -758,7 +758,7 @@ pub(in crate::root_view) fn render_chat_panel(
                             .children(super::surface::render_attachment_chips(
                                 &composer.attachments,
                                 palette,
-                                |_| {},
+                                |_, _, _| {},
                             ))
                             .child(
                                 cgc_agent_ui::composer::composer_footer(chat_composer_style(

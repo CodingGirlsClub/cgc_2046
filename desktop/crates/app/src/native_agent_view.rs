@@ -4280,7 +4280,7 @@ impl NativeAgentView {
                                         crate::root_view::shared_surface::render_attachment_chips(
                                             &composer.attachments,
                                             &palette,
-                                            |_| {},
+                                            |_, _, _| {},
                                         ),
                                     )
                             }),
@@ -4483,6 +4483,98 @@ impl NativeAgentView {
                                 },
                             )),
                     )
+            .into_any_element()
+    }
+    /// Phase B2b-3c：native 主 composer 的共享基础版（flag=1 时使用）。
+    /// 本片只接 send/stop + 附件 chips + attach（文件/图片选择）；slash 菜单/
+    /// context chip/queue 提示留 TODO(B2b-3d)，mention 文本 token 继续由既有
+    /// send 解析（Textarea 内容不变）。
+    #[allow(unused_variables)] // TODO(B2b-3d)：addon 参数接入后回收。
+    fn render_shared_native_composer(
+        &mut self,
+        draft: &ComposerDraft,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        use crate::root_view::shared_surface::render_attachment_chips;
+        let palette = theme::palette_from_theme(cx);
+        let surface = self.shared_composer_surface(cx);
+        let input = draft.input.clone();
+        let busy = draft.busy;
+        let send = surface.callbacks.send.clone();
+        let attach = surface.callbacks.attach.clone();
+        let stop_weak = cx.entity().downgrade();
+        let remove_weak = cx.entity().downgrade();
+        let remove_weak_for_chips = remove_weak.clone();
+        div()
+            .relative()
+            .mx(space(2))
+            .mb(space(2))
+            .child(
+                cgc_agent_ui::composer::composer_card(
+                    "native-agent-composer-shared",
+                    false,
+                    native_composer_style(palette),
+                )
+                .child(
+                    div().relative().px(space(1)).py(px(4.0)).child(
+                        Textarea::new(&input)
+                            .appearance(false)
+                            .bordered(false)
+                            .w_full(),
+                    ),
+                )
+                .children(render_attachment_chips(
+                    &surface.attachments,
+                    &palette,
+                    move |id: &str, _window, cx| {
+                        let index = id.trim_start_matches("attachment-").parse::<usize>().ok();
+                        if let Some(index) = index {
+                            let _ = remove_weak_for_chips.update(cx, |this, ctx| {
+                                if index < this.pending_images.len() {
+                                    this.pending_images.remove(index);
+                                    ctx.notify();
+                                }
+                            });
+                        }
+                    },
+                ))
+                .child(
+                    cgc_agent_ui::composer::composer_footer(native_composer_style(palette))
+                        .child(
+                            Button::new("native-shared-add-context")
+                                .label("＋")
+                                .xsmall()
+                                .ghost()
+                                .tooltip("添加图片/上下文（共享 composer 基础版）")
+                                .on_click({
+                                    let attach = attach.clone();
+                                    move |_, window, cx| (attach)(window, cx)
+                                }),
+                        )
+                        .child(
+                            Button::new(SharedString::from(if busy {
+                                "native-shared-stop"
+                            } else {
+                                "native-shared-send"
+                            }))
+                            .label(if busy { "■" } else { "↑" })
+                            .xsmall()
+                            .ghost()
+                            .tooltip(if busy {
+                                "停止生成"
+                            } else {
+                                "发送（Enter）"
+                            })
+                            .on_click(move |_, window, cx| {
+                                if busy {
+                                    let _ = stop_weak.update(cx, |this, ctx| this.stop(ctx));
+                                } else {
+                                    (send)(window, cx);
+                                }
+                            }),
+                        ),
+                ),
+            )
             .into_any_element()
     }
 }
@@ -4858,7 +4950,16 @@ impl Render for NativeAgentView {
                             .filter(|_| !plan_state.plan.is_empty()),
                     )
             }))
-            .child(self.render_native_composer_legacy(&draft, cx))
+            .child({
+                use crate::root_view::shared_surface::{
+                    choose_composer, native_shared_view_enabled, ComposerKind,
+                };
+                if choose_composer(native_shared_view_enabled()) == ComposerKind::Shared {
+                    self.render_shared_native_composer(&draft, cx)
+                } else {
+                    self.render_native_composer_legacy(&draft, cx)
+                }
+            })
     }
 }
 
