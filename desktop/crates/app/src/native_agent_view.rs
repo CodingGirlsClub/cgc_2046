@@ -4488,121 +4488,6 @@ impl NativeAgentView {
             }))
             .into_any_element()
     }
-
-    fn render_shared_native_composer(
-        &mut self,
-        draft: &ComposerDraft,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        use crate::root_view::shared_surface::render_attachment_chips;
-        let palette = theme::palette_from_theme(cx);
-        let surface = self.shared_composer_surface(cx);
-        let input = draft.input.clone();
-        let busy = draft.busy;
-        let send = surface.callbacks.send.clone();
-        let attach = surface.callbacks.attach.clone();
-        let steer = surface.callbacks.steer.clone();
-        let stop_weak = cx.entity().downgrade();
-        let remove_weak = cx.entity().downgrade();
-        let remove_weak_for_chips = remove_weak.clone();
-        let slash_menu = self.render_slash_menu(cx);
-        let mention_menu = self.render_mention_menu(cx);
-        let pickers = self.native_composer_pickers(palette, cx);
-        let queue_hint = (!self.queued_messages.is_empty()).then(|| {
-            div()
-                .mx(space(1))
-                .mt(space(1))
-                .text_size(px(10.0))
-                .text_color(palette.ink_3)
-                .child(queued_panel_header_text(self.queued_messages.len()))
-        });
-        div()
-            .relative()
-            .mx(space(2))
-            .mb(space(2))
-            .child(
-                cgc_agent_ui::composer::composer_card(
-                    "native-agent-composer-shared",
-                    false,
-                    native_composer_style(palette),
-                )
-                .child(
-                    div().relative().px(space(1)).py(px(4.0)).child(
-                        Textarea::new(&input)
-                            .appearance(false)
-                            .bordered(false)
-                            .w_full(),
-                    ),
-                )
-                .children(slash_menu)
-                .children(mention_menu)
-                .children(queue_hint)
-                .children(render_attachment_chips(
-                    &surface.attachments,
-                    &palette,
-                    move |id: &str, _window, cx| {
-                        let index = id.trim_start_matches("attachment-").parse::<usize>().ok();
-                        if let Some(index) = index {
-                            let _ = remove_weak_for_chips.update(cx, |this, ctx| {
-                                if index < this.pending_images.len() {
-                                    this.pending_images.remove(index);
-                                    ctx.notify();
-                                }
-                            });
-                        }
-                    },
-                ))
-                .child(
-                    cgc_agent_ui::composer::composer_footer(native_composer_style(palette))
-                        .child(
-                            Button::new("native-shared-add-context")
-                                .label("＋")
-                                .xsmall()
-                                .ghost()
-                                .tooltip("添加图片/上下文（共享 composer 基础版）")
-                                .on_click({
-                                    let attach = attach.clone();
-                                    move |_, window, cx| (attach)(window, cx)
-                                }),
-                        )
-                        .children(pickers.approval)
-                        .children(pickers.model)
-                        .children(pickers.thinking)
-                        .children(busy.then(|| {
-                            let steer = steer.clone();
-                            Button::new("native-shared-steer")
-                                .label("⇥↑")
-                                .xsmall()
-                                .ghost()
-                                .tooltip("打断并立即发送（⌘↩）")
-                                .on_click(move |_, window, cx| (steer)(window, cx))
-                        }))
-                        .child(
-                            Button::new(SharedString::from(if busy {
-                                "native-shared-stop"
-                            } else {
-                                "native-shared-send"
-                            }))
-                            .label(if busy { "■" } else { "↑" })
-                            .xsmall()
-                            .ghost()
-                            .tooltip(if busy {
-                                "停止生成"
-                            } else {
-                                "发送（Enter）"
-                            })
-                            .on_click(move |_, window, cx| {
-                                if busy {
-                                    let _ = stop_weak.update(cx, |this, ctx| this.stop(ctx));
-                                } else {
-                                    (send)(window, cx);
-                                }
-                            }),
-                        ),
-                ),
-            )
-            .into_any_element()
-    }
 }
 
 impl Render for NativeAgentView {
@@ -4881,14 +4766,11 @@ impl Render for NativeAgentView {
                     )
             }))
             .child({
-                use crate::root_view::shared_surface::{
-                    choose_composer, native_shared_view_enabled, ComposerKind,
-                };
-                if choose_composer(native_shared_view_enabled()) == ComposerKind::Shared {
-                    self.render_shared_native_composer(&draft, cx)
-                } else {
-                    self.render_native_composer_legacy(&draft, cx)
-                }
+                // B4b-b'1：两条 composer 渲染路径合一——legacy 实现是功能超集
+                // （附件/queue/slash/mention/pickers/checkpoint/usage 均在），
+                // 作为唯一 canonical 实现；共享化到 agent_ui 留到 B4b-c。
+                let _ = crate::root_view::shared_surface::merged_composer_path();
+                self.render_native_composer_legacy(&draft, cx)
             })
     }
 }

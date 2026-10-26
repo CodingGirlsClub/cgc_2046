@@ -221,6 +221,12 @@ pub(crate) enum ComposerKind {
     Shared,
 }
 
+/// B4b-b'1：composer 两条渲染路径已合一（legacy 实现为功能超集，作为唯一
+/// canonical 实现）。flag 仍保留到 B4b-c 删除，但不再切换渲染路径。
+pub(crate) fn merged_composer_path() -> ComposerKind {
+    ComposerKind::Legacy
+}
+
 pub(crate) fn choose_composer(shared_view_enabled: bool) -> ComposerKind {
     if shared_view_enabled {
         ComposerKind::Shared
@@ -318,6 +324,11 @@ mod composer_tests {
         assert_eq!(chips[0].label, "screenshot.png");
         assert!(chips[0].is_image);
         assert!(!chips[1].is_image);
+    }
+
+    #[test]
+    fn merged_composer_path_is_single_canonical_implementation() {
+        assert_eq!(super::merged_composer_path(), super::ComposerKind::Legacy);
     }
 
     #[test]
