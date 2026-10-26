@@ -115,6 +115,16 @@ fn composer_has_input(value: &str) -> bool {
     !value.trim().is_empty()
 }
 
+/// queue 状态文案（发送侧）：纯函数，legacy/shared composer 共用。
+fn queued_status_text(count: usize) -> String {
+    format!("已排队 {count} 条，当前 turn 结束后依次发送")
+}
+
+/// queue 提示面板标题（composer 侧）：纯函数，legacy/shared composer 共用。
+fn queued_panel_header_text(count: usize) -> String {
+    format!("排队中 {count} 条 · 当前 turn 结束后自动发送")
+}
+
 impl NativeAgentView {
     fn composer_draft(&self, cx: &mut Context<Self>) -> ComposerDraft {
         let input_value = self.input.read(cx).value().to_string();
@@ -1229,10 +1239,7 @@ impl NativeAgentView {
         let prompt = crate::page_context::attach_to_prompt(&prompt);
         if self.busy {
             self.queued_messages.push(QueuedMessage { display, prompt });
-            self.status = format!(
-                "已排队 {} 条，当前 turn 结束后依次发送",
-                self.queued_messages.len()
-            );
+            self.status = queued_status_text(self.queued_messages.len());
             cx.notify();
             return;
         }
@@ -4793,12 +4800,12 @@ impl Render for NativeAgentView {
                             .border_1()
                             .border_color(palette.line)
                             .bg(palette.view)
-                            .child(div().text_size(px(10.0)).text_color(palette.ink_3).child(
-                                format!(
-                                    "排队中 {} 条 · 当前 turn 结束后自动发送",
-                                    queued_messages.len()
-                                ),
-                            ))
+                            .child(
+                                div()
+                                    .text_size(px(10.0))
+                                    .text_color(palette.ink_3)
+                                    .child(queued_panel_header_text(queued_messages.len())),
+                            )
                             .children(queued_messages.iter().enumerate().map(|(index, queued)| {
                                 let preview: String = queued.display.chars().take(160).collect();
                                 let remove_view = cx.entity().downgrade();
@@ -5702,7 +5709,22 @@ fn now_secs() -> i64 {
 
 #[cfg(test)]
 mod workspace_prompt_tests {
-    use super::{build_workspace_system_prompt, composer_has_input, now_secs, offline_echo_notice};
+    use super::{
+        build_workspace_system_prompt, composer_has_input, now_secs, offline_echo_notice,
+        queued_panel_header_text, queued_status_text,
+    };
+
+    #[test]
+    fn queue_hint_texts_include_count() {
+        assert_eq!(
+            queued_status_text(2),
+            "已排队 2 条，当前 turn 结束后依次发送"
+        );
+        assert_eq!(
+            queued_panel_header_text(3),
+            "排队中 3 条 · 当前 turn 结束后自动发送"
+        );
+    }
 
     #[test]
     fn composer_has_input_trims_whitespace() {
