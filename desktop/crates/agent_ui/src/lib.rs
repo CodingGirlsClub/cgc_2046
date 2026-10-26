@@ -7,7 +7,6 @@
 //! `cgc_agent_conversation`，本 crate 保留 `conversation` / `message_flow` 的 re-export
 //! 以免下游改路径。
 
-pub mod approval;
 pub mod command_menu;
 pub mod composer;
 pub mod history;
@@ -16,6 +15,7 @@ pub mod markdown_view;
 pub mod message_actions;
 pub mod message_row;
 pub mod panel;
+pub mod permission_card;
 pub mod picker;
 pub mod settings;
 
