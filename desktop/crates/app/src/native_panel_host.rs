@@ -3,12 +3,20 @@
 //! 先承载共享 agent 状态与进程内 ACP 连接；B4a-3b 再把 model/provider 选择、
 //! title/audit 迁入，视图只做渲染与事件委托。
 
+use cgc_agent_core::SelectedModel;
+use cgc_agent_store::AuditLog;
 use cgc_agent_tools::SharedAgentState;
 use cgc_platform::acp::connection::AcpHost;
 
 pub(crate) struct NativePanelHost {
     pub(crate) agent_state: SharedAgentState,
     pub(crate) acp_host: Option<AcpHost>,
+    /// 动作审计（apply_native_agent_action 写入）。
+    pub(crate) action_audit: Option<AuditLog>,
+    /// 用户手动标题镜像（真实来源仍是 Agent/Thread；host 供 UI 委托查询）。
+    title_override: Option<String>,
+    /// 当前选择模型镜像（真实来源是 view 的 Model/Provider；host 供委托/测试）。
+    selected_model: Option<SelectedModel>,
 }
 
 impl NativePanelHost {
@@ -16,6 +24,9 @@ impl NativePanelHost {
         Self {
             agent_state,
             acp_host: None,
+            action_audit: None,
+            title_override: None,
+            selected_model: None,
         }
     }
 
@@ -29,6 +40,28 @@ impl NativePanelHost {
 
     pub(crate) fn acp_connected(&self) -> bool {
         self.acp_host.is_some()
+    }
+
+    pub(crate) fn set_action_audit(&mut self, audit: Option<AuditLog>) {
+        self.action_audit = audit;
+    }
+
+    pub(crate) fn set_title_override(&mut self, title: Option<String>) {
+        self.title_override = title;
+    }
+
+    pub(crate) fn set_selected_model(&mut self, model: SelectedModel) {
+        self.selected_model = Some(model);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn title_override(&self) -> Option<&str> {
+        self.title_override.as_deref()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn selected_model(&self) -> Option<&SelectedModel> {
+        self.selected_model.as_ref()
     }
 }
 
@@ -48,6 +81,32 @@ mod tests {
         let host = host();
         assert!(host.has_agent_state());
         assert!(!host.acp_connected());
+    }
+
+    #[test]
+    fn title_override_set_and_clear() {
+        let mut host = host();
+        assert_eq!(host.title_override(), None);
+        host.set_title_override(Some("我的标题".into()));
+        assert_eq!(host.title_override(), Some("我的标题"));
+        host.set_title_override(None);
+        assert_eq!(host.title_override(), None);
+    }
+
+    #[test]
+    fn selected_model_delegation() {
+        let mut host = host();
+        assert!(host.selected_model().is_none());
+        host.set_selected_model(cgc_agent_core::SelectedModel::new(
+            cgc_agent_provider::ProviderId::new("p"),
+            cgc_agent_provider::ModelId::new("m"),
+        ));
+        let selected = host.selected_model().expect("selected");
+        assert_eq!(
+            selected.provider_id,
+            cgc_agent_provider::ProviderId::new("p")
+        );
+        assert_eq!(selected.model_id, cgc_agent_provider::ModelId::new("m"));
     }
 
     #[test]

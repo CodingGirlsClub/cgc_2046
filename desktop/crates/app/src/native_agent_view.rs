@@ -630,7 +630,6 @@ pub struct NativeAgentView {
     registry: Arc<ToolRegistry>,
     host: crate::native_panel_host::NativePanelHost,
     app_actions: Arc<Mutex<Vec<AppAction>>>,
-    action_audit: Option<AuditLog>,
     subagent_tx: Arc<Mutex<Option<mpsc::UnboundedSender<AgentEvent>>>>,
     context: ToolContext,
     input: Entity<TextareaState>,
@@ -820,9 +819,9 @@ impl NativeAgentView {
         let cancel = agent.cancel_token();
         let steer_sender = agent.steer_sender();
         let agent_state: SharedAgentState = Arc::new(Mutex::new(AgentState::default()));
-        let host = crate::native_panel_host::NativePanelHost::new(agent_state.clone());
+        let mut host = crate::native_panel_host::NativePanelHost::new(agent_state.clone());
         debug_assert!(host.has_agent_state());
-        let action_audit = Some(AuditLog::new(paths.agent_audit_file()));
+        host.set_action_audit(Some(AuditLog::new(paths.agent_audit_file())));
         let app_actions: Arc<Mutex<Vec<AppAction>>> = Arc::new(Mutex::new(Vec::new()));
         let action_sink: ActionSink = {
             let app_actions = app_actions.clone();
@@ -1013,7 +1012,6 @@ impl NativeAgentView {
             ),
             host,
             app_actions,
-            action_audit,
             subagent_tx,
             providers,
             using_echo,
@@ -1411,6 +1409,7 @@ impl NativeAgentView {
     }
 
     pub fn set_title_override(&mut self, title: Option<String>, cx: &mut Context<Self>) {
+        self.host.set_title_override(title.clone());
         if let Some(agent) = &mut self.agent {
             agent.set_thread_title_override(title);
         }
@@ -1421,6 +1420,7 @@ impl NativeAgentView {
     }
 
     pub fn regenerate_title(&mut self, cx: &mut Context<Self>) {
+        self.host.set_title_override(None);
         if let Some(agent) = &mut self.agent {
             agent.set_thread_title(None);
             agent.set_thread_title_override(None);
@@ -2049,7 +2049,7 @@ impl NativeAgentView {
                     break;
                 }
             }
-            if let Some(log) = &self.action_audit {
+            if let Some(log) = &self.host.action_audit {
                 let action_name = match &action {
                     AppAction::OpenPage { .. } => "open_page",
                     AppAction::HighlightRange { .. } => "highlight_range",
@@ -2128,6 +2128,10 @@ impl NativeAgentView {
 
     /// 切换到指定 provider 的指定模型；模型变化时换新 thread。
     fn select_model(&mut self, provider_id: String, model_id: String, cx: &mut Context<Self>) {
+        self.host.set_selected_model(SelectedModel::new(
+            ProviderId::new(provider_id.clone()),
+            cgc_agent_provider::ModelId::new(model_id.clone()),
+        ));
         let Some(provider) = self
             .providers
             .iter()
