@@ -130,6 +130,30 @@ impl NativeComposerGating {
     }
 }
 
+/// B3b：checkpoint 面板显隐（capability + 手动开关 + 有变更）。
+fn checkpoint_panel_visible(
+    checkpoint_available: bool,
+    show_panel: bool,
+    change_count: usize,
+) -> bool {
+    checkpoint_available && show_panel && change_count > 0
+}
+
+/// B3b：单条变更的展示文案（`M path`），fake checkpoint 单测覆盖。
+fn checkpoint_change_label(change: &FileChange) -> String {
+    format!("{} {}", change.status, change.path)
+}
+
+/// B3b：Keep 单个文件 = 从变更列表移除该路径。
+fn keep_change_by_path(changes: &mut Vec<FileChange>, path: &str) {
+    changes.retain(|change| change.path != path);
+}
+
+/// B3b：Reject all = 按变更列表顺序收集待回退路径。
+fn paths_for_restore_all(changes: &[FileChange]) -> Vec<String> {
+    changes.iter().map(|change| change.path.clone()).collect()
+}
+
 /// composer 渲染的前置值快照（B2b-3a：纯搬迁第一步，收敛 render 里的局部变量）。
 struct ComposerDraft {
     busy: bool,
@@ -2132,11 +2156,7 @@ impl NativeAgentView {
     }
 
     fn reject_all_changes(&mut self, cx: &mut Context<Self>) {
-        let paths = self
-            .checkpoint_changes
-            .iter()
-            .map(|change| change.path.clone())
-            .collect::<Vec<_>>();
+        let paths = paths_for_restore_all(&self.checkpoint_changes);
         for path in &paths {
             self.restore_checkpoint_file(path.clone(), cx);
         }
@@ -2160,7 +2180,7 @@ impl NativeAgentView {
     }
 
     fn keep_checkpoint_file(&mut self, path: String, cx: &mut Context<Self>) {
-        self.checkpoint_changes.retain(|change| change.path != path);
+        keep_change_by_path(&mut self.checkpoint_changes, &path);
         cx.notify();
     }
 
@@ -4575,6 +4595,116 @@ impl NativeAgentView {
         }
     }
 
+    /// B3b：本轮文件变更面板（capability gated，legacy/shared 视图共用同一渲染）。
+    fn render_checkpoint_panel(
+        &mut self,
+        palette: theme::Palette,
+        change_count: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let changes = self.checkpoint_changes.clone();
+        div()
+            .id("native-agent-checkpoint-panel")
+            .flex()
+            .flex_col()
+            .gap(space(1))
+            .px(space(3))
+            .py(space(2))
+            .border_t_1()
+            .border_color(palette.line)
+            .bg(palette.view)
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(space(1))
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_size(px(12.0))
+                            .child(format!("本轮文件变更（{change_count}）")),
+                    )
+                    .child(
+                        div()
+                            .id("native-keep-all")
+                            .role(Role::Button)
+                            .aria_label("全部保留")
+                            .px(space(1))
+                            .py(px(2.0))
+                            .rounded(px(RADIUS_SMALL))
+                            .text_size(px(10.0))
+                            .text_color(palette.ink_2)
+                            .hover(|style| style.bg(palette.soft))
+                            .child("全部保留")
+                            .on_click(
+                                cx.listener(|this, _, _window, cx| this.keep_all_changes(cx)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("native-reject-all")
+                            .role(Role::Button)
+                            .aria_label("全部回退")
+                            .px(space(1))
+                            .py(px(2.0))
+                            .rounded(px(RADIUS_SMALL))
+                            .text_size(px(10.0))
+                            .text_color(palette.danger)
+                            .hover(|style| style.bg(palette.soft))
+                            .child("全部回退")
+                            .on_click(
+                                cx.listener(|this, _, _window, cx| this.reject_all_changes(cx)),
+                            ),
+                    ),
+            )
+            .children(changes.into_iter().map(|change| {
+                let path = change.path.clone();
+                let restore_path = change.path.clone();
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(space(2))
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_size(px(12.0))
+                            .child(checkpoint_change_label(&change)),
+                    )
+                    .child(
+                        div()
+                            .id("checkpoint-keep")
+                            .role(Role::Button)
+                            .aria_label("保留")
+                            .px(space(1))
+                            .py(px(2.0))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .bg(palette.soft)
+                            .child("保留")
+                            .on_click(cx.listener(move |this, _, _window, cx| {
+                                this.keep_checkpoint_file(path.clone(), cx)
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("checkpoint-restore")
+                            .role(Role::Button)
+                            .aria_label("回退")
+                            .px(space(1))
+                            .py(px(2.0))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .bg(palette.accent)
+                            .text_color(palette.canvas)
+                            .child("回退")
+                            .on_click(cx.listener(move |this, _, _window, cx| {
+                                this.restore_checkpoint_file(restore_path.clone(), cx)
+                            })),
+                    )
+            }))
+            .into_any_element()
+    }
+
     fn render_shared_native_composer(
         &mut self,
         draft: &ComposerDraft,
@@ -4733,8 +4863,11 @@ impl Render for NativeAgentView {
             && (!plan_state.todos.is_empty()
                 || !plan_state.plan.is_empty()
                 || plan_state.goal.is_some());
-        let show_changes = self.show_checkpoint_panel && change_count > 0;
-        let changes = self.checkpoint_changes.clone();
+        let show_changes = checkpoint_panel_visible(
+            self.state.thread.capabilities.checkpoint_available(),
+            self.show_checkpoint_panel,
+            change_count,
+        );
         let row_kinds = self.message_row_kinds();
         self.sync_message_scroller(&row_kinds, cx);
         let row_kinds = Arc::new(row_kinds);
@@ -4774,107 +4907,7 @@ impl Render for NativeAgentView {
                     .with_row_style(StyleRefinement::default().pb(space(2))),
                 ),
             )
-            .children(show_changes.then(|| {
-                div()
-                    .id("native-agent-checkpoint-panel")
-                    .flex()
-                    .flex_col()
-                    .gap(space(1))
-                    .px(space(3))
-                    .py(space(2))
-                    .border_t_1()
-                    .border_color(palette.line)
-                    .bg(palette.view)
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(space(1))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .text_size(px(12.0))
-                                    .child(format!("本轮文件变更（{change_count}）")),
-                            )
-                            .child(
-                                div()
-                                    .id("native-keep-all")
-                                    .role(Role::Button)
-                                    .aria_label("全部保留")
-                                    .px(space(1))
-                                    .py(px(2.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .text_size(px(10.0))
-                                    .text_color(palette.ink_2)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child("全部保留")
-                                    .on_click(cx.listener(|this, _, _window, cx| {
-                                        this.keep_all_changes(cx)
-                                    })),
-                            )
-                            .child(
-                                div()
-                                    .id("native-reject-all")
-                                    .role(Role::Button)
-                                    .aria_label("全部回退")
-                                    .px(space(1))
-                                    .py(px(2.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .text_size(px(10.0))
-                                    .text_color(palette.danger)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child("全部回退")
-                                    .on_click(cx.listener(|this, _, _window, cx| {
-                                        this.reject_all_changes(cx)
-                                    })),
-                            ),
-                    )
-                    .children(changes.into_iter().map(|change| {
-                        let path = change.path.clone();
-                        let restore_path = change.path.clone();
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(space(2))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .text_size(px(12.0))
-                                    .child(format!("{} {}", change.status, change.path)),
-                            )
-                            .child(
-                                div()
-                                    .id("checkpoint-keep")
-                                    .role(Role::Button)
-                                    .aria_label("保留")
-                                    .px(space(1))
-                                    .py(px(2.0))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .bg(palette.soft)
-                                    .child("保留")
-                                    .on_click(cx.listener(move |this, _, _window, cx| {
-                                        this.keep_checkpoint_file(path.clone(), cx)
-                                    })),
-                            )
-                            .child(
-                                div()
-                                    .id("checkpoint-restore")
-                                    .role(Role::Button)
-                                    .aria_label("回退")
-                                    .px(space(1))
-                                    .py(px(2.0))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .bg(palette.accent)
-                                    .text_color(palette.canvas)
-                                    .child("回退")
-                                    .on_click(cx.listener(move |this, _, _window, cx| {
-                                        this.restore_checkpoint_file(restore_path.clone(), cx)
-                                    })),
-                            )
-                    }))
-            }))
+            .children(show_changes.then(|| self.render_checkpoint_panel(palette, change_count, cx)))
             .children(pending.map(|request| {
                 let view = cx.entity().downgrade();
                 let on_select: PermissionSelectCallback =
@@ -5829,6 +5862,40 @@ mod workspace_prompt_tests {
             queued_panel_header_text(3),
             "排队中 3 条 · 当前 turn 结束后自动发送"
         );
+    }
+
+    #[test]
+    fn checkpoint_keep_and_restore_paths_from_fake_changes() {
+        use cgc_agent_checkpoint::FileChange;
+        let mut changes = vec![
+            FileChange {
+                path: "a.rs".into(),
+                status: "M".into(),
+            },
+            FileChange {
+                path: "b.rs".into(),
+                status: "A".into(),
+            },
+        ];
+        assert_eq!(super::checkpoint_change_label(&changes[0]), "M a.rs");
+        assert_eq!(super::paths_for_restore_all(&changes), vec!["a.rs", "b.rs"]);
+        super::keep_change_by_path(&mut changes, "a.rs");
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].path, "b.rs");
+    }
+
+    #[test]
+    fn checkpoint_panel_visibility_follows_capability_and_changes() {
+        assert!(super::checkpoint_panel_visible(true, true, 2));
+        assert!(
+            !super::checkpoint_panel_visible(false, true, 2),
+            "ACP 无 checkpoint 能力"
+        );
+        assert!(
+            !super::checkpoint_panel_visible(true, false, 2),
+            "面板未打开"
+        );
+        assert!(!super::checkpoint_panel_visible(true, true, 0), "无变更");
     }
 
     #[test]
