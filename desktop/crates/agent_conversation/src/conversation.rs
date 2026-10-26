@@ -115,13 +115,48 @@ pub struct PlanStep {
     pub status: String,
 }
 
-/// 待审批请求（模型只存 UI 需要的字段；批准逻辑在运行时）。
+/// 审批选项类别（ACP `PermissionOptionKind` 的协议无关形态）。
+///
+/// 只影响 UI 样式与「允许/拒绝」语义判断；具体语义（一次/本会话/前缀）由
+/// `label` 与 `id` 表达，运行时按 `id` 回传。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PermissionOptionKind {
+    AllowOnce,
+    AllowAlways,
+    RejectOnce,
+    RejectAlways,
+    Other,
+}
+
+impl PermissionOptionKind {
+    pub fn is_allow(self) -> bool {
+        matches!(self, Self::AllowOnce | Self::AllowAlways)
+    }
+
+    pub fn is_reject(self) -> bool {
+        matches!(self, Self::RejectOnce | Self::RejectAlways)
+    }
+}
+
+/// 一个审批选项（ACP 形状：`option_id` + 展示名 + kind，顺序由请求方决定）。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PermissionOption {
+    pub id: String,
+    pub label: String,
+    pub kind: PermissionOptionKind,
+}
+
+/// 待审批请求（ACP 形状：`{ id, tool, args, options }`；批准逻辑在运行时）。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PermissionRequest {
     pub request_id: String,
     pub title: String,
+    /// 发起审批的工具名（native 为 `run_command` 等；ACP agent 可能不给）。
+    pub tool: Option<String>,
     pub tool_call_id: Option<String>,
     pub args: Option<String>,
+    /// 请求方提供的选项（顺序即 UI 渲染顺序；两轨都原样透传）。
+    pub options: Vec<PermissionOption>,
 }
 
 /// checkpoint 摘要（native 有，ACP 恒 `None`）。
@@ -164,8 +199,10 @@ pub enum Entry {
     Permission {
         request_id: String,
         title: String,
+        tool: Option<String>,
         tool_call_id: Option<String>,
         args: Option<String>,
+        options: Vec<PermissionOption>,
         resolved: Option<bool>,
     },
     Notice {
@@ -344,8 +381,10 @@ impl ConversationThread {
             ThreadEvent::PermissionRequested {
                 request_id,
                 title,
+                tool,
                 tool_call_id,
                 args,
+                options,
             } => {
                 // native/ACP 都可能对同一次审批重复发事件（工具执行与 UI 各一次）：
                 // 同一个未解决的审批只保留一条 entry，避免重复「等待审批」行。
@@ -365,15 +404,19 @@ impl ConversationThread {
                 self.entries.push(Entry::Permission {
                     request_id: request_id.clone(),
                     title: title.clone(),
+                    tool: tool.clone(),
                     tool_call_id: tool_call_id.clone(),
                     args: args.clone(),
+                    options: options.clone(),
                     resolved: None,
                 });
                 self.pending_permission = Some(PermissionRequest {
                     request_id,
                     title,
+                    tool,
                     tool_call_id,
                     args,
+                    options,
                 });
             }
             ThreadEvent::PermissionResolved {
@@ -465,8 +508,10 @@ pub enum ThreadEvent {
     PermissionRequested {
         request_id: String,
         title: String,
+        tool: Option<String>,
         tool_call_id: Option<String>,
         args: Option<String>,
+        options: Vec<PermissionOption>,
     },
     PermissionResolved {
         request_id: String,
@@ -534,8 +579,21 @@ mod tests {
             ThreadEvent::PermissionRequested {
                 request_id: "perm-1".into(),
                 title: "approve".into(),
+                tool: Some("run_command".into()),
                 tool_call_id: Some("call-1".into()),
                 args: None,
+                options: vec![
+                    super::PermissionOption {
+                        id: "allow_once".into(),
+                        label: "允许一次".into(),
+                        kind: super::PermissionOptionKind::AllowOnce,
+                    },
+                    super::PermissionOption {
+                        id: "deny".into(),
+                        label: "拒绝".into(),
+                        kind: super::PermissionOptionKind::RejectOnce,
+                    },
+                ],
             },
             ThreadEvent::PermissionResolved {
                 request_id: "perm-1".into(),
@@ -682,6 +740,86 @@ mod tests {
         assert_eq!(first_status, "pending");
     }
 
+    fn native_permission_options() -> Vec<super::PermissionOption> {
+        use super::{PermissionOption, PermissionOptionKind};
+        vec![
+            PermissionOption {
+                id: "allow_once".into(),
+                label: "允许一次".into(),
+                kind: PermissionOptionKind::AllowOnce,
+            },
+            PermissionOption {
+                id: "allow_session".into(),
+                label: "本会话允许".into(),
+                kind: PermissionOptionKind::AllowAlways,
+            },
+            PermissionOption {
+                id: "allow_pattern:ls".into(),
+                label: "本会话允许 ls 前缀".into(),
+                kind: PermissionOptionKind::AllowAlways,
+            },
+            PermissionOption {
+                id: "deny".into(),
+                label: "拒绝".into(),
+                kind: PermissionOptionKind::RejectOnce,
+            },
+        ]
+    }
+
+    /// 3.2：审批请求必须把 ACP 形状的 options（id/label/kind，顺序保持）带进
+    /// 共享模型（pending + 历史 Entry），两轨 UI 才能共用同一张权限卡。
+    #[test]
+    fn permission_request_carries_options_into_pending_and_entry() {
+        let mut thread = started_thread();
+        let options = native_permission_options();
+        thread.apply(ThreadEvent::PermissionRequested {
+            request_id: "p1".into(),
+            title: "允许运行 run_command？".into(),
+            tool: Some("run_command".into()),
+            tool_call_id: Some("c1".into()),
+            args: Some("{\"command\":\"ls\"}".into()),
+            options: options.clone(),
+        });
+
+        let pending = thread.pending_permission.as_ref().expect("pending");
+        assert_eq!(pending.request_id, "p1");
+        assert_eq!(pending.tool.as_deref(), Some("run_command"));
+        assert_eq!(pending.options, options, "options 顺序与内容原样保留");
+        assert!(pending.options[0].kind.is_allow());
+        assert!(pending.options[1].kind.is_allow());
+        assert!(pending.options[3].kind.is_reject());
+        assert!(!pending.options[3].kind.is_allow());
+
+        let Entry::Permission {
+            options: entry_options,
+            tool,
+            resolved,
+            ..
+        } = &thread.entries[0]
+        else {
+            panic!("permission entry");
+        };
+        assert_eq!(entry_options, &options);
+        assert_eq!(tool.as_deref(), Some("run_command"));
+        assert_eq!(*resolved, None);
+
+        // resolve 之后 options 仍在历史行里（复盘/审计用）。
+        thread.apply(ThreadEvent::PermissionResolved {
+            request_id: "p1".into(),
+            allowed: true,
+        });
+        let Entry::Permission {
+            options: entry_options,
+            resolved,
+            ..
+        } = &thread.entries[0]
+        else {
+            panic!("permission entry");
+        };
+        assert_eq!(entry_options, &options);
+        assert_eq!(*resolved, Some(true));
+    }
+
     #[test]
     fn permission_request_blocks_and_resolution_clears_pending() {
         let mut thread = started_thread();
@@ -691,8 +829,10 @@ mod tests {
         thread.apply(ThreadEvent::PermissionRequested {
             request_id: "p1".into(),
             title: "approve".into(),
+            tool: Some("run_command".into()),
             tool_call_id: Some("c1".into()),
             args: Some("{}".into()),
+            options: native_permission_options(),
         });
         assert_eq!(thread.status, ThreadStatus::AwaitingApproval);
         assert!(thread.is_generating());
@@ -776,14 +916,18 @@ mod tests {
         thread.apply(ThreadEvent::PermissionRequested {
             request_id: "p1".into(),
             title: "允许运行 run_command？".into(),
+            tool: Some("run_command".into()),
             tool_call_id: Some("c1".into()),
             args: None,
+            options: native_permission_options(),
         });
         thread.apply(ThreadEvent::PermissionRequested {
             request_id: "p2".into(),
             title: "允许运行 run_command？".into(),
+            tool: Some("run_command".into()),
             tool_call_id: Some("c1".into()),
             args: None,
+            options: native_permission_options(),
         });
         assert_eq!(thread.entries.len(), 1, "同一次审批只保留一行");
         assert_eq!(thread.status, ThreadStatus::AwaitingApproval);
@@ -795,8 +939,10 @@ mod tests {
         thread.apply(ThreadEvent::PermissionRequested {
             request_id: "p3".into(),
             title: "允许运行 run_command？".into(),
+            tool: Some("run_command".into()),
             tool_call_id: Some("c1".into()),
             args: None,
+            options: native_permission_options(),
         });
         assert_eq!(thread.entries.len(), 2);
     }

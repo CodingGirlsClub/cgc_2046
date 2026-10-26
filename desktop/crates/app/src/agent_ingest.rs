@@ -8,8 +8,10 @@
 //! `ConversationThread` 属于共享模型层（`cgc-agent-conversation`），两者由组合根
 //! `app` 连接；不新增 domain→platform 的反向依赖。
 
-use cgc_agent_ui::conversation::{ConversationThread, PlanStep, ThreadEvent};
-use cgc_platform::acp::connection::HostEvent;
+use cgc_agent_ui::conversation::{
+    ConversationThread, PermissionOption, PermissionOptionKind, PlanStep, ThreadEvent,
+};
+use cgc_platform::acp::connection::{HostEvent, PermissionOptionView};
 
 /// 把一条 ACP 客户端事件归约进共享会话模型。
 ///
@@ -66,14 +68,17 @@ pub fn apply_thread_event(thread: &mut ConversationThread, event: &HostEvent) ->
         HostEvent::PermissionRequested {
             request_id,
             title,
+            tool_name,
             tool_call_id,
             args,
-            ..
+            options,
         } => ThreadEvent::PermissionRequested {
             request_id: request_id.clone(),
             title: title.clone(),
+            tool: tool_name.clone(),
             tool_call_id: tool_call_id.clone(),
             args: args.clone(),
+            options: permission_options_from_host(options),
         },
         HostEvent::TurnEnd { cancelled, .. } => ThreadEvent::TurnFinished {
             cancelled: *cancelled,
@@ -95,6 +100,30 @@ pub fn apply_user_turn(thread: &mut ConversationThread, user_text: impl Into<Str
     thread.apply(ThreadEvent::TurnStarted {
         user_text: user_text.into(),
     });
+}
+
+/// ACP `PermissionOptionKind` 的 wire 标签 → 共享枚举。未知/扩展值归 `Other`，
+/// 两轨（native 4 档 / external ACP 原样透传）都走这一份映射。
+pub fn permission_option_kind(kind: &str) -> PermissionOptionKind {
+    match kind {
+        "allow_once" => PermissionOptionKind::AllowOnce,
+        "allow_always" => PermissionOptionKind::AllowAlways,
+        "reject_once" => PermissionOptionKind::RejectOnce,
+        "reject_always" => PermissionOptionKind::RejectAlways,
+        _ => PermissionOptionKind::Other,
+    }
+}
+
+/// 协议层选项视图 → 共享模型选项（id/label/kind，顺序保持）。
+pub fn permission_options_from_host(options: &[PermissionOptionView]) -> Vec<PermissionOption> {
+    options
+        .iter()
+        .map(|option| PermissionOption {
+            id: option.option_id.clone(),
+            label: option.name.clone(),
+            kind: permission_option_kind(&option.kind),
+        })
+        .collect()
 }
 
 /// 用户答复审批后落行（两轨共用；`allowed` 为 false 时 Permission 行标记为拒绝）。
@@ -245,6 +274,57 @@ mod tests {
         };
         assert_eq!(*resolved, Some(true));
         assert_eq!(thread.status, ThreadStatus::Generating);
+    }
+
+    #[test]
+    fn permission_options_from_host_preserve_order_ids_labels_and_kinds() {
+        let options = permission_options_from_host(&[
+            PermissionOptionView {
+                option_id: "allow_once".to_string(),
+                name: "允许一次".to_string(),
+                kind: "allow_once".to_string(),
+            },
+            PermissionOptionView {
+                option_id: "allow_session".to_string(),
+                name: "本会话允许".to_string(),
+                kind: "allow_always".to_string(),
+            },
+            PermissionOptionView {
+                option_id: "allow_pattern:ls".to_string(),
+                name: "本会话允许 ls 前缀".to_string(),
+                kind: "allow_always".to_string(),
+            },
+            PermissionOptionView {
+                option_id: "deny".to_string(),
+                name: "拒绝".to_string(),
+                kind: "reject_once".to_string(),
+            },
+            PermissionOptionView {
+                option_id: "ext".to_string(),
+                name: "扩展".to_string(),
+                kind: "something_new".to_string(),
+            },
+        ]);
+        assert_eq!(
+            options
+                .iter()
+                .map(|option| option.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "allow_once",
+                "allow_session",
+                "allow_pattern:ls",
+                "deny",
+                "ext"
+            ]
+        );
+        assert_eq!(options[0].label, "允许一次");
+        assert_eq!(options[0].kind, PermissionOptionKind::AllowOnce);
+        assert_eq!(options[1].kind, PermissionOptionKind::AllowAlways);
+        assert_eq!(options[3].kind, PermissionOptionKind::RejectOnce);
+        assert_eq!(options[4].kind, PermissionOptionKind::Other);
+        assert!(options[0].kind.is_allow());
+        assert!(options[3].kind.is_reject());
     }
 
     #[test]

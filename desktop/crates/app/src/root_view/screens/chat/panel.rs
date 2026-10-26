@@ -1398,16 +1398,20 @@ mod tests {
         let resolved = vec![ConversationEntry::Permission {
             request_id: "p1".into(),
             title: "run".into(),
+            tool: Some("run_command".into()),
             tool_call_id: None,
             args: None,
+            options: Vec::new(),
             resolved: Some(true),
         }];
         assert!(!has_unresolved_permission(&resolved));
         let pending = vec![ConversationEntry::Permission {
             request_id: "p2".into(),
             title: "run".into(),
+            tool: Some("run_command".into()),
             tool_call_id: None,
             args: None,
+            options: Vec::new(),
             resolved: None,
         }];
         assert!(has_unresolved_permission(&pending));

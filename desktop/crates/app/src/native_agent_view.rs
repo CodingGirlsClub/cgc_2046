@@ -5659,8 +5659,10 @@ mod workspace_prompt_tests {
             super::ViewRow::from_entry(&ConversationEntry::Permission {
                 request_id: "perm-1".into(),
                 title: "允许运行 run_command？".into(),
+                tool: Some("run_command".into()),
                 tool_call_id: Some("call-1".into()),
                 args: None,
+                options: Vec::new(),
                 resolved,
             })
             .text
@@ -5953,8 +5955,10 @@ mod workspace_prompt_tests {
             super::ViewRow::from_entry(&ConversationEntry::Permission {
                 request_id: "p".into(),
                 title: "允许".into(),
+                tool: None,
                 tool_call_id: None,
                 args: None,
+                options: Vec::new(),
                 resolved: None,
             })
             .role,

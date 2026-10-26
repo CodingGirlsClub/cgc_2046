@@ -181,9 +181,11 @@ impl NativeThreadState {
                     return;
                 }
                 let aux = self.pending_permission.take();
-                let tool_name = aux
-                    .as_ref()
-                    .map(|pending| pending.tool_name.clone())
+                let tool_name = shared
+                    .tool
+                    .clone()
+                    .filter(|name| !name.is_empty())
+                    .or_else(|| aux.as_ref().map(|pending| pending.tool_name.clone()))
                     .filter(|name| !name.is_empty())
                     .unwrap_or_else(|| tool_name_from_title(&shared.title));
                 let args = shared
