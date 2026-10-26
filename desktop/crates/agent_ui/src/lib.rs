@@ -17,6 +17,8 @@ pub mod message_row;
 pub mod panel;
 pub mod permission_card;
 pub mod picker;
+pub mod plan_card;
+pub mod queue_panel;
 pub mod settings;
 pub mod subagent_row;
 

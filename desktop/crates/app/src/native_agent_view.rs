@@ -4596,65 +4596,50 @@ impl Render for NativeAgentView {
             .children(
                 (!queued_messages.is_empty() && self.state.thread.capabilities.queue_available())
                     .then(|| {
-                        div()
-                            .id("native-agent-queue")
-                            .flex()
-                            .flex_col()
-                            .gap(px(2.0))
-                            .mx(space(2))
-                            .mb(space(1))
-                            .p(space(2))
-                            .rounded(px(RADIUS_MEDIUM))
-                            .border_1()
-                            .border_color(palette.line)
-                            .bg(palette.view)
-                            .child(
-                                div()
-                                    .text_size(px(10.0))
-                                    .text_color(palette.ink_3)
-                                    .child(queued_panel_header_text(queued_messages.len())),
-                            )
-                            .children(queued_messages.iter().enumerate().map(|(index, queued)| {
-                                let preview: String = queued.display.chars().take(160).collect();
+                        use cgc_agent_ui::queue_panel::{
+                            queue_preview, render_queue_panel, QueuePanelItem, QueuePanelSpec,
+                            QueuePanelStyle,
+                        };
+                        let items = queued_messages
+                            .iter()
+                            .enumerate()
+                            .map(|(index, queued)| {
                                 let remove_view = cx.entity().downgrade();
-                                div()
-                                    .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .gap(space(1))
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .text_size(px(11.0))
-                                            .text_color(palette.ink_2)
-                                            .child(preview),
-                                    )
-                                    .child(
-                                        div()
-                                            .id(SharedString::from(format!(
-                                                "native-queue-remove-{index}"
-                                            )))
-                                            .role(Role::Button)
-                                            .aria_label("取消排队消息")
-                                            .px(space(1))
-                                            .rounded(px(RADIUS_SMALL))
-                                            .text_size(px(11.0))
-                                            .text_color(palette.ink_3)
-                                            .hover(|style| style.bg(palette.soft))
-                                            .child("×")
-                                            .on_click(move |_, _, cx| {
-                                                let _ = remove_view.update(cx, |this, cx| {
-                                                    if index < this.queued_messages.len() {
-                                                        this.queued_messages.remove(index);
-                                                        cx.notify();
-                                                    }
-                                                });
-                                            }),
-                                    )
-                            }))
+                                QueuePanelItem {
+                                    preview: queue_preview(&queued.display, 160),
+                                    remove_id: SharedString::from(format!(
+                                        "native-queue-remove-{index}"
+                                    )),
+                                    on_remove: Box::new(move |cx: &mut App| {
+                                        let _ = remove_view.update(cx, |this, cx| {
+                                            if index < this.queued_messages.len() {
+                                                this.queued_messages.remove(index);
+                                                cx.notify();
+                                            }
+                                        });
+                                    }),
+                                }
+                            })
+                            .collect();
+                        render_queue_panel(QueuePanelSpec {
+                            row_id: SharedString::from("native-agent-queue"),
+                            header: queued_panel_header_text(queued_messages.len()),
+                            items,
+                            style: QueuePanelStyle {
+                                line: palette.line,
+                                view: palette.view,
+                                ink_2: palette.ink_2,
+                                ink_3: palette.ink_3,
+                                soft: palette.soft,
+                                radius: RADIUS_MEDIUM,
+                            },
+                        })
                     }),
             )
             .children(show_plan_card.then(|| {
+                use cgc_agent_ui::plan_card::{
+                    render_plan_card, PlanCardSpec, PlanCardStyle, PlanStepView, PlanTodoView,
+                };
                 let status = |status: ItemStatus| match status {
                     ItemStatus::Completed => ("✓", palette.ink_3),
                     ItemStatus::InProgress => ("◐", palette.accent),
@@ -4671,99 +4656,47 @@ impl Render for NativeAgentView {
                     .iter()
                     .filter(|todo| todo.status == ItemStatus::Completed)
                     .count();
-                div()
-                    .id("native-agent-plan-card")
-                    .flex()
-                    .flex_col()
-                    .gap(px(3.0))
-                    .mx(space(2))
-                    .mb(space(1))
-                    .p(space(2))
-                    .rounded(px(RADIUS_MEDIUM))
-                    .border_1()
-                    .border_color(palette.line)
-                    .bg(palette.card)
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(space(2))
-                            .child(div().text_size(px(12.0)).child("计划"))
-                            .children((plan_state.goal.is_some()).then(|| {
-                                div()
-                                    .flex_1()
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_2)
-                                    .child(format!(
-                                        "目标：{}",
-                                        plan_state
-                                            .goal
-                                            .as_ref()
-                                            .map(|goal| goal.objective.clone())
-                                            .unwrap_or_default()
-                                    ))
-                            }))
-                            .child(div().text_size(px(10.0)).text_color(palette.ink_3).child(
-                                format!(
-                                    "计划 {plan_done}/{} · 待办 {todo_done}/{}",
-                                    plan_state.plan.len(),
-                                    plan_state.todos.len()
-                                ),
-                            )),
-                    )
-                    .children(plan_state.plan.iter().take(6).map(|step| {
+                let steps = plan_state
+                    .plan
+                    .iter()
+                    .map(|step| {
                         let (glyph, color) = status(step.status);
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(space(1))
-                            .child(
-                                div()
-                                    .w(px(12.0))
-                                    .text_size(px(11.0))
-                                    .text_color(color)
-                                    .child(glyph),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_2)
-                                    .child(step.title.clone()),
-                            )
-                    }))
-                    .children(plan_state.todos.iter().take(5).map(|todo| {
+                        PlanStepView {
+                            title: step.title.clone(),
+                            glyph,
+                            color,
+                        }
+                    })
+                    .collect();
+                let todos = plan_state
+                    .todos
+                    .iter()
+                    .map(|todo| {
                         let (glyph, color) = status(todo.status);
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(space(1))
-                            .child(
-                                div()
-                                    .w(px(12.0))
-                                    .text_size(px(11.0))
-                                    .text_color(color)
-                                    .child(glyph),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_2)
-                                    .child(todo.content.clone()),
-                            )
-                    }))
-                    .children(
-                        (!plan_state.todos.is_empty())
-                            .then(|| {
-                                div()
-                                    .text_size(px(10.0))
-                                    .text_color(palette.ink_3)
-                                    .child("待办")
-                            })
-                            .filter(|_| !plan_state.plan.is_empty()),
-                    )
+                        PlanTodoView {
+                            content: todo.content.clone(),
+                            glyph,
+                            color,
+                        }
+                    })
+                    .collect();
+                render_plan_card(PlanCardSpec {
+                    row_id: SharedString::from("native-agent-plan-card"),
+                    goal: plan_state.goal.as_ref().map(|goal| goal.objective.clone()),
+                    plan_done,
+                    plan_total: plan_state.plan.len(),
+                    todo_done,
+                    todo_total: plan_state.todos.len(),
+                    steps,
+                    todos,
+                    style: PlanCardStyle {
+                        line: palette.line,
+                        card: palette.card,
+                        ink_2: palette.ink_2,
+                        ink_3: palette.ink_3,
+                        radius: RADIUS_MEDIUM,
+                    },
+                })
             }))
             .child({
                 // B4b-b'1：两条 composer 渲染路径合一——legacy 实现是功能超集
