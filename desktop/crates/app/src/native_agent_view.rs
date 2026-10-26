@@ -81,7 +81,9 @@ use cgc_agent_ui::permission_card::{
 };
 
 use cgc_agent_ui::message_row::{
-    render_assistant_row, render_thinking_row, AssistantRowSpec, MessageStyle, ThinkingRowSpec,
+    render_assistant_row, render_error_row as shared_render_error_row, render_status_row,
+    render_thinking_row, render_tool_row, AssistantRowSpec, ErrorRowSpec, MessageStyle, RowPalette,
+    StatusRowSpec, ThinkingRowSpec, ToolRowSpec,
 };
 use cgc_agent_ui::picker::{
     render_picker_popover, PickerGroup, PickerItem, PickerPopoverSpec, PickerStyle,
@@ -2963,14 +2965,6 @@ impl NativeAgentView {
             .gap(px(2.0))
             // 对齐 Zed：只有 system/error 这类状态消息保留角色标签；
             // user 用卡片区分、assistant 直接 markdown、tool/thinking 自带卡头。
-            .children(
-                matches!(message.role, ViewRole::System | ViewRole::Error).then(|| {
-                    div()
-                        .text_size(px(11.0))
-                        .text_color(color)
-                        .child(role_label(message.role))
-                }),
-            )
             .child(match message.role {
                 ViewRole::Assistant => {
                     // 对齐 Zed #61245 + #61362：只在回合末挂操作栏；历史消息的
@@ -3132,7 +3126,7 @@ impl NativeAgentView {
                             || matches!(tool.status, ViewToolStatus::Running);
                         let toggle_view = cx.entity().downgrade();
                         let toggle_id = tool_call_id.clone();
-                        render_tool_card(tool, expanded, &palette, move |_, _, cx| {
+                        render_tool_card(tool, expanded, &palette, move |cx| {
                             let _ = toggle_view.update(cx, |this, cx| {
                                 this.toggle_tool_call(toggle_id.clone(), cx)
                             });
@@ -3143,10 +3137,14 @@ impl NativeAgentView {
                         .child(message.text.clone())
                         .into_any_element(),
                 },
-                _ => div()
-                    .text_size(px(13.0))
-                    .child(message.text.clone())
-                    .into_any_element(),
+                _ => render_status_row(StatusRowSpec {
+                    row_id: SharedString::from(format!("native-status-{message_index}")),
+                    label: matches!(message.role, ViewRole::System | ViewRole::Error)
+                        .then(|| role_label(message.role).to_string()),
+                    label_color: color,
+                    text: message.text.clone(),
+                    style: native_row_palette(&palette),
+                }),
             })
             .context_menu(move |menu, _window, _cx| {
                 render_native_message_menu(menu, menu_view.clone(), payloads.clone())
@@ -3241,51 +3239,18 @@ impl NativeAgentView {
         };
         let hint = retry_hint_for_error(&error);
         let can_retry = self.state.retry_available() && self.last_turn.is_some();
-        div()
-            .id("native-agent-error")
-            .flex()
-            .flex_col()
-            .gap(px(4.0))
-            .p(space(2))
-            .rounded(px(RADIUS_MEDIUM))
-            .border_1()
-            .border_color(palette.danger)
-            .bg(palette.view)
-            .child(
-                div()
-                    .text_size(px(11.0))
-                    .text_color(palette.danger)
-                    .child("请求失败"),
-            )
-            .child(
-                div()
-                    .text_size(px(12.0))
-                    .text_color(palette.ink)
-                    .child(error),
-            )
-            .children(hint.map(|hint| {
-                div()
-                    .text_size(px(11.0))
-                    .text_color(palette.ink_3)
-                    .child(hint)
-            }))
-            .children(can_retry.then(|| {
-                div()
-                    .id("native-agent-retry")
-                    .role(Role::Button)
-                    .aria_label("重试")
-                    .mt(px(2.0))
-                    .px(space(2))
-                    .py(px(3.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .bg(palette.accent)
-                    .text_color(palette.canvas)
-                    .text_size(px(12.0))
-                    .hover(|style| style.opacity(0.9))
-                    .child("重试")
-                    .on_click(cx.listener(|this, _, _, cx| this.retry_last_turn(cx)))
-            }))
-            .into_any_element()
+        let retry_view = cx.entity().downgrade();
+        shared_render_error_row(ErrorRowSpec {
+            row_id: SharedString::from("native-agent-error"),
+            retry_id: SharedString::from("native-agent-retry"),
+            message: error,
+            hint: hint.map(str::to_string),
+            can_retry,
+            style: native_row_palette(&palette),
+            on_retry: Box::new(move |cx: &mut App| {
+                let _ = retry_view.update(cx, |this, cx| this.retry_last_turn(cx));
+            }),
+        })
     }
 
     /// 一组消息操作按钮（对齐 Zed：默认 40% 透明，hover 提亮）。
@@ -5013,99 +4978,57 @@ fn tool_status_label(status: ViewToolStatus) -> &'static str {
 }
 
 /// 工具调用卡片：标题显示状态/名称，展开后展示 raw 参数与 raw 输出。
+/// P8：工具卡状态 → (glyph, 文案)，纯函数可单测。
+fn tool_row_status_parts(status: ViewToolStatus) -> (&'static str, &'static str) {
+    match status {
+        ViewToolStatus::Running => ("◐", tool_status_label(status)),
+        ViewToolStatus::Ok => ("✓", tool_status_label(status)),
+        ViewToolStatus::Failed => ("✗", tool_status_label(status)),
+    }
+}
+
 fn render_tool_card(
     tool: &ViewTool,
     expanded: bool,
     palette: &theme::Palette,
-    on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    on_toggle: impl Fn(&mut App) + 'static,
 ) -> AnyElement {
-    let (glyph, status_color) = match tool.status {
-        ViewToolStatus::Running => ("◐", palette.accent),
-        ViewToolStatus::Ok => ("✓", palette.ink_3),
-        ViewToolStatus::Failed => ("✗", palette.danger),
-    };
-    let args = if tool.args.is_null() {
-        String::new()
+    let (glyph, status_label) = tool_row_status_parts(tool.status);
+    let args = if tool.args.is_null() || !expanded {
+        None
     } else {
-        serde_json::to_string_pretty(&tool.args).unwrap_or_else(|_| tool.args.to_string())
+        Some(serde_json::to_string_pretty(&tool.args).unwrap_or_else(|_| tool.args.to_string()))
     };
     let content = tool.content.clone().unwrap_or_default();
-    let body = expanded.then(|| {
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(2.0))
-            .px(space(2))
-            .pb(space(1))
-            .children((!args.is_empty()).then(|| {
-                div()
-                    .text_size(px(11.0))
-                    .text_color(palette.ink)
-                    .child(format!("参数\n{args}"))
-            }))
-            .children(
-                (!content.is_empty() || matches!(tool.status, ViewToolStatus::Running)).then(
-                    || {
-                        div().text_size(px(11.0)).text_color(palette.ink).child(
-                            if content.is_empty() {
-                                "输出\n（等待输出…）".to_string()
-                            } else {
-                                format!("输出\n{content}")
-                            },
-                        )
-                    },
-                ),
-            )
+    let output = expanded.then(|| {
+        if content.is_empty() {
+            if matches!(tool.status, ViewToolStatus::Running) {
+                "（等待输出…）".to_string()
+            } else {
+                String::new()
+            }
+        } else {
+            content
+        }
     });
-    div()
-        .id("native-tool-card")
-        .flex()
-        .flex_col()
-        .gap(px(2.0))
-        .rounded(px(RADIUS_SMALL))
-        .border_1()
-        .border_color(palette.line)
-        .bg(palette.view)
-        .child(
-            div()
-                .id("native-tool-card-header")
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(space(1))
-                .px(space(2))
-                .py(px(3.0))
-                .hover(|style| style.bg(palette.soft))
-                .child(
-                    div()
-                        .text_size(px(11.0))
-                        .text_color(status_color)
-                        .child(glyph),
-                )
-                .child(
-                    div()
-                        .font_family(theme::FONT_MONO)
-                        .text_size(px(11.0))
-                        .text_color(palette.ink_2)
-                        .child(tool.name.clone()),
-                )
-                .child(
-                    div()
-                        .text_size(px(10.0))
-                        .text_color(palette.ink_3)
-                        .child(tool_status_label(tool.status)),
-                )
-                .child(div().flex_1())
-                .child(
-                    div()
-                        .text_size(px(10.0))
-                        .text_color(palette.ink_3)
-                        .child(if expanded { "▾" } else { "▸" }),
-                )
-                .on_click(on_toggle),
-        )
-        .children(body)
-        .into_any_element()
+    let status_color = match tool.status {
+        ViewToolStatus::Running => palette.accent,
+        ViewToolStatus::Ok => palette.ink_3,
+        ViewToolStatus::Failed => palette.danger,
+    };
+    render_tool_row(ToolRowSpec {
+        row_id: SharedString::from("native-tool-card"),
+        header_id: SharedString::from("native-tool-card-header"),
+        name: tool.name.clone(),
+        status_label: status_label.to_string(),
+        glyph,
+        status_color,
+        args,
+        output: output.filter(|text| !text.is_empty()),
+        expanded,
+        style: native_row_palette(palette),
+        on_toggle: Box::new(move |cx: &mut App| on_toggle(cx)),
+    })
 }
 
 /// B3c：native `SubagentCard` → 共享 `agent_ui::subagent_row` 的 adapter。
@@ -5167,6 +5090,24 @@ fn native_composer_style(palette: theme::Palette) -> cgc_agent_ui::composer::Com
         radius: RADIUS_MEDIUM,
         padding: 4.0,
         gap: 1.0,
+    }
+}
+
+/// P8：native 主题 → 共享 message_row 的行调色板（共享层不依赖 app theme）。
+fn native_row_palette(palette: &theme::Palette) -> RowPalette {
+    RowPalette {
+        ink: palette.ink,
+        ink_2: palette.ink_2,
+        ink_3: palette.ink_3,
+        line: palette.line,
+        view: palette.view,
+        canvas: palette.canvas,
+        accent: palette.accent,
+        danger: palette.danger,
+        soft: palette.soft,
+        radius: RADIUS_MEDIUM,
+        radius_small: RADIUS_SMALL,
+        mono_font: theme::FONT_MONO.into(),
     }
 }
 
@@ -5365,6 +5306,22 @@ mod workspace_prompt_tests {
             "面板未打开"
         );
         assert!(!super::checkpoint_panel_visible(true, true, 0), "无变更");
+    }
+
+    #[test]
+    fn tool_row_status_parts_map_glyph_and_label() {
+        assert_eq!(
+            super::tool_row_status_parts(super::ViewToolStatus::Running),
+            ("◐", "运行中…")
+        );
+        assert_eq!(
+            super::tool_row_status_parts(super::ViewToolStatus::Ok),
+            ("✓", "完成")
+        );
+        assert_eq!(
+            super::tool_row_status_parts(super::ViewToolStatus::Failed),
+            ("✗", "失败")
+        );
     }
 
     #[test]
