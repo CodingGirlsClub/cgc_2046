@@ -206,3 +206,58 @@ ACP agent 自定义非标准 options；已由纯函数/两轨对照测试覆盖�
 
 测试：`page_context` 单测（note 格式化、dismiss/换页重置、attach 行为）；`agent_scope` 单测改为「所有页面同一 assistant scope」；workspace 门禁全量通过。
 真机待验（用户）：课程页发消息时上下文 chip 与 agent 回复是否引用课程/单元；切换页面后同一 thread 延续；非课程页不再出现上下文 chip。
+
+## 13. Stage 3.6 Phase B 进展与收口说明（2026-10-26）
+
+Phase B 的目标：native 与 external ACP 只向 `ConversationThread` + `ThreadCapabilities` + 共享 surface 供数，UI 按能力位显隐，最终删除 `native_agent_view.rs`。当前状态：**B1–B3 完成；B4a 完成；B4b（删除旧视图）按计划暂缓**，等两轨真机验收后执行。
+
+### 13.1 已完成切片（本地 commit，未 push）
+
+| 切片 | commit | 内容 |
+|---|---|---|
+| B1 | `13c94818` | `ChatSurfaceFlags` + `ChatSurface`，panel 改读 surface 能力位 |
+| B2a | `2db21bb5` | 共享 `ComposerSurface`（input + send/attach 回调）+ `composer_visibility` 纯函数 |
+| B2b-1 | `06104bf6` | `ThreadCapabilities` 增 `attachments/images`（serde default）；surface 附件 chip 数据结构 + attach/mention/skill 回调 |
+| B2b-2 | `7b29e23b`、`d34db6d7` | native adapter 接 `pending_images`/图片/mention/skill 回调；`CGC_NATIVE_SHARED_VIEW` flag + 附件 chip 共享渲染 |
+| B2c | `d87091a1` | queue/steer 回调接入 surface + native adapter |
+| B2b-3a–d | `509a5f3f`–`13444ece` | `ComposerDraft`、legacy composer 抽函数、`choose_composer`、shared composer 基础版、slash/mention/context/queue addon 抽取与注入 |
+| B2c-2 | `ab807f22` | 共享 composer 消费 queue/steer |
+| B3a | `d2bdb2a7` | 模型/thinking/审批 picker 抽共享 helper（native-only，capability gated） |
+| B3b | `123fe4a3` | checkpoint 列表/恢复/Keep-Reject 抽 `render_checkpoint_panel`（复用 `agent_checkpoint`） |
+| B3c | `7d6440f0` | subagent 行迁 `agent_ui::subagent_row`，顺序语义与 gating 保持 |
+| B4a-1 | `6cc4ca7f` | 纯逻辑 → `native_context.rs`（prompt/slash/mention/文件扫描） |
+| B4a-2a | `11f3e00c` | 图片管线 → `attachment.rs` |
+| B4a-2b | `8804e3e8` | `NativeSessionStore`（thread/checkpoint 存储薄接口） |
+| B4a-3a/b | `cc78c4a0`、`544e81e1`、`dd7e749d` | `NativePanelHost` 抽离（agent_state/acp_host/title/audit/selected model）+ controller/root_view 经 host 接线 |
+
+### 13.2 能力迁移现状
+
+- `ThreadCapabilities`：`checkpoint_restore/steer/queue/subagent/config_options/plan/usage/attachments/images`；native 全真，external ACP 除 `config_options/plan/usage` 外为 false。
+- 共享层：`agent_ui::message_row`、`agent_ui::subagent_row`、`agent_ui::composer`（共享 card/footer/发送按钮）、`chat/surface.rs`（`ChatSurface`/`ComposerSurface`/附件 chip/mention 回调）、`chat` 内 native composer 的 legacy 与 shared 两条渲染路径。
+- 共享渲染：native 在 flag=1 时由 `render_shared_native_composer` 渲染（textarea + 附件 chips + slash/mention/context/queue addon + pickers + queue/steer/send/stop）；flag=0 仍走 `render_native_composer_legacy`（纯搬迁后的旧链）。
+- 数据/宿主：`native_context.rs`（工作区 prompt、slash/mention 匹配）、`attachment.rs`（PNG 编解码/预览/已发送图片）、`native_session.rs`（thread/checkpoint 持久化）、`native_panel_host.rs`（agent_state、ACP host、title/audit/model 选择镜像）。
+
+### 13.3 `CGC_NATIVE_SHARED_VIEW` flag
+
+- 语义：`1` = native 主 composer 使用共享渲染路径；缺省/其它值 = legacy 渲染。
+- 默认值：**关闭**（`native_shared_view_enabled()` 仅识别 `"1"`）。
+- 移除条件：B4b 删除 `render_native_composer_legacy` 与 `native_agent_view.rs` 后，flag 与 `choose_composer` 分支一并删除；删除前必须完成两轨真机验收（flag=0/1 各一轮）与共享 composer 功能对齐（slash/context/mention/附件/queue/steer/pickers/checkpoint/subagent）。
+
+### 13.4 B4b（待执行）：删除旧视图
+
+前置条件：B4a 已完成（本次）；用户/Lead 真机冒烟 flag 0/1；共享路径覆盖 native 全部入口（含 workspace prompt、session/checkpoint、title/audit、model/approval/thinking、附件/mention/slash）。
+
+适配层设计（B4b 执行时）：
+1. `NativeThreadState` 中仍被共享层使用的类型（`SubagentCard`、`PendingImage`、queued message、permission 状态）先迁到 `native_panel_host.rs` 或 `attachment.rs`；仅视图使用的行类型随视图删除。
+2. `NativeAgentView` 的 Render/消息行/菜单/图片查看器/plan/queue/checkpoint 面板 UI 不再保留，native 面板由 host + 共享 surface 渲染入口承载（必要时新增薄 `NativePanelView`）。
+3. controller/root_view 的 `Entity<NativeAgentView>` 引用改为 host/共享面板实体；`open_local_native_thread` 逻辑留在 controller。
+4. 删除 `CGC_NATIVE_SHARED_VIEW` flag、`choose_composer` 分支与 `render_native_composer_legacy`。
+
+删除清单与净删预估：`native_agent_view.rs` 约 6095 行 + `native_thread_state.rs` 635 行；扣除需迁移的小类型/测试（约 200–500 行），预计净删 **6000–6400 行**（以 `git diff --stat` 实测为准）。风险：删除后 native 轨失去旧 UI，必须先在真机确认共享路径等价；flag off 回退路径消失需在 README/ADR 记录。
+
+### 13.5 剩余排期
+
+- **3.4a（MCP client，mock 测试）**：Streamable HTTP JSON-RPC（initialize/tools/list/tools/call）、Bearer、超时/取消/401/403 fail-closed、token 脱敏；mock server 单测。已按 3.4a 提交，3.4b/3.4c（工具注册与两轨注入）待产品白名单与真机验证。
+- **3.4b/c**：MCP 工具注册到 native ToolRegistry + 两轨注入（native/external ACP），需真机验证后推进。
+- **3.5b**：新会话默认 native（非课程页；课程页仍依赖 3.4 MCP），部分已实现（默认模式 + env/prefs 覆盖），课程页默认切换待 3.4。
+- **B4b → B5**：真机验收后删除旧视图，补 B5 文档（README/ADR-0028 收口）并移除临时 flag。

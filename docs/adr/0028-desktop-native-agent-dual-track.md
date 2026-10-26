@@ -144,3 +144,13 @@ Stage 3 已按设计文档 `docs/plans/2026-10-26-1000-stage3-capability-converg
 - **ACP transcript 落本地 `conversations.db`**（thread_content + sidebar_threads，0600/WAL）：统一历史侧栏、Rename/Archive、每 agent 最近 5 条自动归档、Archive 分桶/过滤；永久清空在 Settings（仅 ACP）。
 - **Web 端 agent 与 `cgc-host` 已删除**：原文「external 路径与 `cgc-host` 保持现状」不再成立；桌面是唯一 agent 入口。
 - **MCP 暂缓**：3.4 native MCP client 待产品确认白名单（建议 5 个只读课程工具）与第三方 MCP 排期；3.5b 默认 native 依赖 MCP，暂不推进。
+
+## Phase B 进展（Stage 3.6，2026-10-26）
+
+双轨收敛进入「共享视图」阶段（见 `docs/plans/2026-10-26-1000-stage3-capability-convergence-design.md` §13）：
+
+- **分层**：`agent_ui` 提供共享渲染（消息行、审批卡、composer card/footer、subagent 行）；`app/root_view/screens/chat/surface.rs` 提供 `ChatSurface` / `ComposerSurface`（能力位 + send/attach/mention/skill/queue/steer/附件回调）；native 只做 adapter（`NativeAgentView` → 共享数据/回调），不再各自维护一套 composer 行为。
+- **能力位**：`ThreadCapabilities` 新增 `attachments/images`；native 全真，external ACP 仅 `config_options/plan/usage`。UI 入口一律按能力位显隐，native-only 能力（模型/thinking/审批 picker、checkpoint、queue/steer、subagent 进度）不得出现在 ACP 轨。
+- **临时 flag**：`CGC_NATIVE_SHARED_VIEW=1` 让 native 主 composer 走共享渲染；缺省为 legacy。移除条件：旧视图 `native_agent_view.rs` 删除（B4b）且两轨真机验收通过；删除后回退路径不再存在，需在本 ADR/README 记录。
+- **B4b 计划**：先把 `native_thread_state` 中仍被共享层使用的类型迁到 `native_panel_host`/`attachment`，再把 controller 的 `Entity<NativeAgentView>` 改为 host/共享面板入口，最后删除 `native_agent_view.rs`（约 6100 行）与 `native_thread_state.rs`（635 行），预计净删 6000–6400 行（以 `git diff --stat` 实测为准）。
+- **剩余依赖**：3.4a MCP Streamable HTTP client 已提交（mock 测试）；3.4b/c（工具注册与两轨注入）待产品确认白名单与真机验证；3.5b 默认 native 仅非课程页生效（课程页默认切换依赖 3.4）。

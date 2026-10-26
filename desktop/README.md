@@ -169,3 +169,11 @@ bash scripts/verify-package.sh                          # Windows: pwsh scripts/
 - **MCP**：3.4 native MCP client 暂缓，待产品确认白名单；当前 external ACP agent 的 MCP 注入保持现状。
 - **侧栏状态**：历史侧栏开关会写入 `preferences.json`（`historySidebarOpen`），重启后恢复。
 - **全局 Agent Panel（3.5a）**：任意页面打开同一 Agent Panel / 同一线程；课程学习页自动把 course/revision/unit 作为上下文附加到每条 prompt（native/ACP 同一段文本，输入气泡不显示），上下文 chip 可移除。不再有课程页专用工作区/会话指针。默认 agent 切换（默认 native）待 3.5b/MCP。
+
+## 共享视图（Stage 3.6 Phase B，2026-10-26）
+
+- **共享层**：native 与 external ACP 共用 `ConversationThread` + `ThreadCapabilities` + `agent_ui` 消息行/审批卡/composer 组件；能力位（`checkpoint_restore/steer/queue/subagent/config_options/plan/usage/attachments/images`）决定入口显隐。
+- **shared composer（灰度）**：`CGC_NATIVE_SHARED_VIEW=1` 时 native 主 composer 使用共享渲染（textarea + 附件 chips + slash/mention/context/queue addon + 模型/thinking/审批 picker + queue/steer/send/stop）；缺省/`0` 走 legacy composer。flag 为临时灰度开关，B4b 删除旧视图后移除。
+- **B3 能力**：模型 / thinking / 审批模式 picker 为 native-only 且 capability gated（ACP 用自己的 config options picker）；checkpoint 变更列表/全部保留/全部回退/单文件 Keep-Restore 已抽为共享面板 helper（数据层复用 `agent_checkpoint`）；subagent 进度行迁到 `agent_ui::subagent_row`，native 与共享视图共用、行顺序由 `message_row_kinds` 决定。
+- **B4a 迁移**：native 面板非 UI 逻辑已抽到 `app/src/native_context.rs`（workspace prompt/slash/mention）、`attachment.rs`（图片编解码/预览）、`native_session.rs`（thread/checkpoint 持久化）、`native_panel_host.rs`（agent_state/ACP host/title/audit/model 选择）；controller 创建 native 面板时经 host 注入。
+- **已知限制**：`native_agent_view.rs`（约 6100 行）尚未删除（B4b 等两轨真机验收后进行）；`CGC_NATIVE_SHARED_VIEW` flag 仍在；native MCP client（3.4a 起）只完成 client 层，工具注册/两轨注入（3.4b/c）待产品白名单；默认 native 仅非课程页生效（课程页依赖 3.4）。
