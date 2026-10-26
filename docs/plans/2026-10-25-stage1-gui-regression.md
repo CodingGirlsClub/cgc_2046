@@ -196,3 +196,23 @@ Copy/滚动清单均未能在真机执行。
 2. 登录态沿用；进入「课程」→「ACP 回归课程」→ 开始学习；
 3. 等 `omp acp` 进程出现（pgrep），ACP 面板即可操作；
 4. 按 Stage 1 报告 A1–A4 清单执行并截图。
+
+## ACP 真机回归（2026-10-26 晨，PASS 主体 / 1 项待补）
+
+设备解锁后继续，环境：真实 HOME（Host 已配对、omp 已装、keychain 可用）+
+隔离 `CGC_DATA_DIR`（data2，含 chat_state 指针 课程→agent=omp）+ 隔离 session +
+本地 Phoenix 后端（课程 `42ac85f2-…` 已报名、已绑定 revision）。
+
+| 检查项 | 结果 | 证据 |
+|---|---|---|
+| ACP 会话启动 | PASS | 学习页左侧出现 ACP composer；`omp acp` 进程实测存在 |
+| 共享 composer 卡片/footer/发送按钮 | PASS | ACP footer：附件、default、model（deepseek-flash）、auto、usage「1% · 13.9K/1.0M」、发送按钮 |
+| 文本回合 | PASS | 发送后收到 omp 回复（含 Thinking 折叠） |
+| 生成中停止按钮 | PASS | 生成中变 Stop，点击后恢复「发送」 |
+| 整回合 Copy | PASS | 点 Copy 后剪贴板为完整回复文本（已核对） |
+| 滚动操作栏 | PASS | Scroll to User Message / Scroll to Top 存在且可点 |
+| slash 菜单 | PASS | 输入 `/` 弹出命令面板（omp 命令/skills 列表，100+ 项） |
+| config pickers | PASS | agent 配置（default）/ 权限（auto）/ 模型选择 dialog 均可打开 |
+| Markdown 代码块 Copy | 待补 | 误切到未配置的 openai-codex 模型导致生成卡住，未完成该项；下次新会话（默认 deepseek）补测 |
+
+说明：误切模型是测试操作副作用，不是 2e 回归；重启新会话即可恢复默认模型。
