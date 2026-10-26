@@ -1,9 +1,8 @@
 /**
  * license-rule.mjs — 依赖许可判定的共享规则（AGPL-3.0 兼容性）。
  * 规则来源：docs/开源合规/依赖引入规则.md §2（白名单）/ §3（黑名单兜底）/ §6（未列出 → 先开 issue）。
- * 被两处使用：
+ * 被一处使用：
  * - web/scripts/check-licenses.mjs：pnpm 全树的基础扫描（规则 §5 的黑名单兜底）
- * - cgc-host/scripts/check-agent-lock.mjs：页面一键安装的锁（**新引入的运行时依赖**，按 §2 白名单 fail-closed）
  * 数据类 CC-BY 的窄名单与 miniprogram/scripts/license-policy.mjs 保持一致。
  */
 
