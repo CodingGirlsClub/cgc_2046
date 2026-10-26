@@ -14,14 +14,6 @@
 //! 优先级：deny > allow > confirm > default(ask)。匹配对象 = 工具名或参数 JSON
 //! 序列化字符串（command 等参数子串都能命中）；非法正则忽略并记录 warning，不 panic。
 //!
-//! `tools` 支持通配键 `"*"`：对任意工具生效（external ACP agent 的工具名与 native
-//! 不同，例如 codex 的 `exec_command`）；精确键与 `"*"` 规则**合并**判定，冲突时
-//! 仍 deny > allow > confirm。同 kind 多规则命中任一即生效。
-//!
-//! 协议限制（设置指南需写明）：若 agent 在自己的模式里自动批准（例如 codex 的
-//! `auto` 模式），客户端根本收不到 `session/request_permission`，本规则无法生效；
-//! 要让规则生效，agent 需处于询问/默认（ask/default）模式。
-//!
 //! 决策点在客户端 ingestion 层（native/ACP 两轨共用同一入口）：规则给出
 //! allow/deny 且请求里有对应 kind 的 option 时自动回传、不弹卡，并在会话里补一条
 //! Notice；否则回退到共享权限卡（ask/confirm、无匹配类 option 都不误放行）。
@@ -34,9 +26,6 @@ use serde::{Deserialize, Serialize};
 use cgc_platform::acp::connection::HostEvent;
 
 use crate::agent_ingest;
-
-/// `toolPermissions.tools` 的通配键：对任意工具生效。
-pub const WILDCARD_TOOL: &str = "*";
 
 /// 未命中任何工具规则时的默认策略（`toolPermissions.default`）。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,8 +57,7 @@ pub struct ToolRuleSet {
 pub struct ToolPermissionSettings {
     #[serde(deserialize_with = "deserialize_tool_permission_default")]
     pub default: ToolPermissionDefault,
-    /// 工具名 → 规则；`"*"` 为通配规则（对任意工具生效，与精确规则合并判定）。
-    /// 工具名精确匹配（大小写敏感，见报告）。
+    /// 工具名 → 规则；工具名精确匹配（不区分大小写暂不支持，见报告）。
     pub tools: BTreeMap<String, ToolRuleSet>,
 }
 
@@ -165,33 +153,17 @@ impl ApprovalRules {
     }
 
     /// 优先级 deny > allow > confirm > default；匹配对象 = 工具名或参数 JSON 文本。
-    ///
-    /// 精确工具规则与通配 `"*"` 规则合并判定：先对所有来源查 deny，再查 allow、
-    /// 最后 confirm（跨来源冲突时 deny 优先）。
     pub fn decide(&self, tool: Option<&str>, args: Option<&str>) -> RuleDecision {
-        let exact = tool.and_then(|tool| self.tools.get(tool));
-        let wildcard = self.tools.get(WILDCARD_TOOL);
-        let rule_sets = [exact, wildcard];
-        if rule_sets
-            .iter()
-            .flatten()
-            .any(|rule_set| matches_any(&rule_set.always_deny, tool, args))
-        {
-            return RuleDecision::Deny;
-        }
-        if rule_sets
-            .iter()
-            .flatten()
-            .any(|rule_set| matches_any(&rule_set.always_allow, tool, args))
-        {
-            return RuleDecision::Allow;
-        }
-        if rule_sets
-            .iter()
-            .flatten()
-            .any(|rule_set| matches_any(&rule_set.always_confirm, tool, args))
-        {
-            return RuleDecision::Confirm;
+        if let Some(rule_set) = tool.and_then(|tool| self.tools.get(tool)) {
+            if matches_any(&rule_set.always_deny, tool, args) {
+                return RuleDecision::Deny;
+            }
+            if matches_any(&rule_set.always_allow, tool, args) {
+                return RuleDecision::Allow;
+            }
+            if matches_any(&rule_set.always_confirm, tool, args) {
+                return RuleDecision::Confirm;
+            }
         }
         match self.default {
             ToolPermissionDefault::Ask => RuleDecision::Ask,
@@ -425,122 +397,6 @@ mod tests {
             RuleDecision::Allow,
             "未命中 confirm 时回落 default"
         );
-    }
-
-    /// 3.2b 补丁 A：`"*"` 通配键对任意工具生效（ACP 工具名与 native 不同，
-    /// 例如 codex 的 `exec_command`；规则用命令子串 `echo` 命中 args）。
-    #[test]
-    fn wildcard_rules_apply_to_any_tool() {
-        let deny = compiled(serde_json::json!({
-            "tools": { "*": { "alwaysDeny": ["echo"] } }
-        }));
-        assert_eq!(
-            deny.decide(Some("exec_command"), Some("{\"command\":\"echo hi\"}")),
-            RuleDecision::Deny,
-            "通配规则按 args 命中非 native 工具名"
-        );
-        assert_eq!(
-            deny.decide(Some("some_other_tool"), None),
-            RuleDecision::Ask,
-            "通配规则不命中时回落默认"
-        );
-
-        let allow = compiled(serde_json::json!({
-            "tools": { "*": { "alwaysAllow": ["^exec_"] } }
-        }));
-        assert_eq!(
-            allow.decide(Some("exec_command"), Some("{}")),
-            RuleDecision::Allow,
-            "通配规则也可以匹配工具名"
-        );
-
-        let confirm = compiled(serde_json::json!({
-            "tools": { "*": { "alwaysConfirm": ["exec_command"] } }
-        }));
-        assert_eq!(
-            confirm.decide(Some("exec_command"), None),
-            RuleDecision::Confirm
-        );
-    }
-
-    /// 精确工具规则与 `"*"` 规则**合并**判定，跨来源仍 deny > allow > confirm。
-    #[test]
-    fn exact_and_wildcard_rules_merge_with_deny_priority() {
-        let rules = compiled(serde_json::json!({
-            "tools": {
-                "exec_command": { "alwaysAllow": ["echo"] },
-                "*": { "alwaysDeny": ["echo"] }
-            }
-        }));
-        assert_eq!(
-            rules.decide(Some("exec_command"), Some("{\"command\":\"echo hi\"}")),
-            RuleDecision::Deny,
-            "跨精确/通配来源 deny 优先于 allow"
-        );
-
-        let exact_deny = compiled(serde_json::json!({
-            "tools": {
-                "exec_command": { "alwaysDeny": ["is-dangerous"] },
-                "*": { "alwaysAllow": ["exec_command"] }
-            }
-        }));
-        assert_eq!(
-            exact_deny.decide(Some("exec_command"), Some("{\"command\":\"is-dangerous\"}")),
-            RuleDecision::Deny,
-            "精确规则的 deny 不被通配 allow 覆盖"
-        );
-
-        let allow_merge = compiled(serde_json::json!({
-            "tools": {
-                "exec_command": { "alwaysConfirm": ["echo"] },
-                "*": { "alwaysAllow": ["echo"] }
-            }
-        }));
-        assert_eq!(
-            allow_merge.decide(Some("exec_command"), Some("{\"command\":\"echo hi\"}")),
-            RuleDecision::Allow,
-            "跨来源 allow 优先于 confirm"
-        );
-    }
-
-    /// 通配规则同样对非法正则容错：忽略该条 warning，其余规则照常生效。
-    #[test]
-    fn wildcard_invalid_regex_is_ignored_with_warning() {
-        let rules = compiled(serde_json::json!({
-            "tools": { "*": { "alwaysDeny": ["[", "echo"] } }
-        }));
-        assert!(!rules.warnings.is_empty());
-        assert_eq!(
-            rules.decide(Some("exec_command"), Some("{\"command\":\"echo hi\"}")),
-            RuleDecision::Deny,
-            "非法正则被忽略后，合法的通配规则仍生效"
-        );
-    }
-
-    /// 通配 allow/deny 规则同样走自动决定（两轨共用），无匹配 option 时回退弹卡。
-    #[test]
-    fn wildcard_rules_drive_auto_decision_for_other_tool_names() {
-        let rules = compiled(serde_json::json!({
-            "tools": { "*": { "alwaysDeny": ["echo"] } }
-        }));
-        let event = HostEvent::PermissionRequested {
-            request_id: "perm-7".to_string(),
-            title: "允许运行 exec_command？".to_string(),
-            tool_call_id: Some("call-7".to_string()),
-            tool_name: Some("exec_command".to_string()),
-            args: Some("{\"command\":\"echo hi\"}".to_string()),
-            options: native_options(),
-        };
-        let auto = auto_permission_for_event(&rules, &event).expect("auto deny via wildcard");
-        assert!(!auto.allowed);
-        assert_eq!(auto.option_id, "deny");
-        assert_eq!(auto.notice, "已按设置自动拒绝 exec_command");
-
-        // 通配 confirm 只强制弹卡，不产生自动决定。
-        let confirm = compiled(serde_json::json!({
-            "tools": { "*": { "alwaysConfirm": ["echo"] } }
-        }));
-        assert!(auto_permission_for_event(&confirm, &event).is_none());
     }
 
     #[test]
