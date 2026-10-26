@@ -6,16 +6,44 @@
 //! `SessionStore` 读，ACP 历史从 `ConversationStore` 读，再在这里合并成统一列表。
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use cgc_agent_store::{
     ConversationStore, ConversationStoreError, SidebarThread, ThreadSummary, CONVERSATIONS_DB,
 };
 use cgc_agent_ui::conversation::{ConversationThread, Entry};
+use chrono::{DateTime, Local};
 
 /// ACP 历史 thread_id 前缀（`acp-<session_id>`，沿用旧统一列表约定）。
 pub const ACP_THREAD_PREFIX: &str = "acp-";
 /// agent 历史回放不可用时的降级提示（Zed `resumed_without_history` 语义）。
 pub const RESUMED_WITHOUT_HISTORY: &str = "外部 agent 无法恢复会话，以下为本地记录";
+/// 主列表每个 agent 保留的最近条数（更早的自动归档，对应 Zed auto-archive）。
+/// 可改：改这里即可调整保留窗口（测试通过传参验证边界）。
+pub const RECENT_PER_AGENT: usize = 5;
+
+/// 全局历史脏标记：任何窗口（设置清空、归档、重命名）改库后递增；
+/// RootView 在渲染/轮询时发现变化即重载统一历史。
+static HISTORY_DIRTY_GENERATION: AtomicU64 = AtomicU64::new(0);
+/// 永久清空（Settings）专属世代号：RootView 据此判断"清掉的正是当前会话"。
+static HISTORY_CLEARED_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+pub fn mark_history_dirty() {
+    HISTORY_DIRTY_GENERATION.fetch_add(1, Ordering::Relaxed);
+}
+
+pub fn history_cleared_generation() -> u64 {
+    HISTORY_CLEARED_GENERATION.load(Ordering::Relaxed)
+}
+
+pub fn history_dirty_generation() -> u64 {
+    HISTORY_DIRTY_GENERATION.load(Ordering::Relaxed)
+}
+
+/// 测试隔离用：把脏计数推进到指定值之后（不重置，避免跨测试串扰）。
+pub fn history_dirty_generation_for_test() -> u64 {
+    history_dirty_generation()
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HistorySource {
@@ -32,6 +60,8 @@ pub struct HistoryEntry {
     /// 展示标题（ACP override 优先；native 已是 COALESCE(override,title)）。
     pub title: Option<String>,
     pub updated_at: String,
+    /// 归档标记（仅 ACP 可归档；native 恒 false）。
+    pub archived: bool,
     pub source: HistorySource,
 }
 
@@ -166,11 +196,15 @@ pub fn delete_local_transcript(thread_id: &str) -> bool {
 }
 
 /// 清空全部 ACP 历史（只动 conversations.db，不碰 native threads.db）。
+/// 清空后推进 dirty/cleared 世代号，RootView 下一帧刷新列表并处理当前会话。
 pub fn clear_acp_history() -> usize {
-    open_conversation_store()
+    let removed = open_conversation_store()
         .ok()
         .and_then(|store| store.clear_all().ok())
-        .unwrap_or(0)
+        .unwrap_or(0);
+    HISTORY_CLEARED_GENERATION.fetch_add(1, Ordering::Relaxed);
+    mark_history_dirty();
+    removed
 }
 
 /// 合并 native（threads.db）与 ACP（conversations.db）历史，按 updated_at 倒序。
@@ -187,6 +221,7 @@ pub fn merge_history(
             agent_id: Some(thread.agent),
             title: thread.title,
             updated_at: cgc_agent_store::format_epoch_rfc3339(thread.updated_at),
+            archived: false,
             source: HistorySource::Native,
         })
         .chain(acp_threads.into_iter().map(|thread| {
@@ -200,6 +235,7 @@ pub fn merge_history(
                 agent_id: thread.agent_id,
                 title,
                 updated_at: thread.updated_at,
+                archived: thread.archived,
                 source: HistorySource::Acp,
             }
         }))
@@ -211,6 +247,172 @@ pub fn merge_history(
             .then_with(|| right.thread_id.cmp(&left.thread_id))
     });
     entries
+}
+
+/// 主列表：ACP 每个 agent 只保留最近 `keep_per_agent` 条；native 全部保留
+/// （native threads.db 没有 archived 列，不能归档，截断会导致旧记录不可达）。
+pub fn main_list(entries: &[HistoryEntry], keep_per_agent: usize) -> Vec<HistoryEntry> {
+    let mut acp_seen: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    entries
+        .iter()
+        .filter(|entry| !entry.archived)
+        .filter(|entry| match entry.source {
+            HistorySource::Native => true,
+            HistorySource::Acp => {
+                let agent = entry.agent_id.clone().unwrap_or_default();
+                let count = acp_seen.entry(agent).or_insert(0);
+                *count += 1;
+                *count <= keep_per_agent
+            }
+        })
+        .cloned()
+        .collect()
+}
+
+/// 归档视图条数（含 archived）。
+pub fn archive_entries(entries: &[HistoryEntry]) -> Vec<HistoryEntry> {
+    entries
+        .iter()
+        .filter(|entry| entry.archived)
+        .cloned()
+        .collect()
+}
+
+/// 标题/agent/thread_id 子串过滤（大小写不敏感）。
+pub fn filter_history(entries: Vec<HistoryEntry>, query: &str) -> Vec<HistoryEntry> {
+    let query = query.trim().to_lowercase();
+    if query.is_empty() {
+        return entries;
+    }
+    entries
+        .into_iter()
+        .filter(|entry| {
+            let title = entry.title.as_deref().unwrap_or("").to_lowercase();
+            let agent = entry.agent_label().to_lowercase();
+            title.contains(&query)
+                || agent.contains(&query)
+                || entry.thread_id.to_lowercase().contains(&query)
+        })
+        .collect()
+}
+
+/// 相对时间标签：`now` / `2m` / `2h` / `1d`（Zed 侧栏样式）。
+pub fn relative_time_label(updated_at: &str, now: &DateTime<Local>) -> String {
+    let Ok(then) = DateTime::parse_from_rfc3339(updated_at) else {
+        return String::new();
+    };
+    let seconds = now.timestamp() - then.timestamp();
+    if seconds < 0 {
+        return "now".to_string();
+    }
+    if seconds < 60 {
+        "now".to_string()
+    } else if seconds < 3_600 {
+        format!("{}m", seconds / 60)
+    } else if seconds < 86_400 {
+        format!("{}h", seconds / 3_600)
+    } else {
+        format!("{}d", seconds / 86_400)
+    }
+}
+
+/// 归档视图分桶（Zed：今天 / 昨天 / 最近 7 天 / 更早）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ArchiveBucket {
+    Today,
+    Yesterday,
+    Last7Days,
+    Earlier,
+}
+
+impl ArchiveBucket {
+    pub fn label(self) -> &'static str {
+        match self {
+            ArchiveBucket::Today => "今天",
+            ArchiveBucket::Yesterday => "昨天",
+            ArchiveBucket::Last7Days => "最近 7 天",
+            ArchiveBucket::Earlier => "更早",
+        }
+    }
+}
+
+pub fn archive_bucket(updated_at: &str, now: &DateTime<Local>) -> Option<ArchiveBucket> {
+    let then = DateTime::parse_from_rfc3339(updated_at).ok()?;
+    let then_local = then.with_timezone(&Local);
+    let days = (now.date_naive() - then_local.date_naive()).num_days();
+    Some(if days <= 0 {
+        ArchiveBucket::Today
+    } else if days == 1 {
+        ArchiveBucket::Yesterday
+    } else if days <= 7 {
+        ArchiveBucket::Last7Days
+    } else {
+        ArchiveBucket::Earlier
+    })
+}
+
+/// 归档视图：按桶分组（跳过空桶），组内按 updated_at 倒序。
+pub fn group_archive(
+    entries: &[HistoryEntry],
+    now: &DateTime<Local>,
+) -> Vec<(ArchiveBucket, Vec<HistoryEntry>)> {
+    let mut buckets: Vec<(ArchiveBucket, Vec<HistoryEntry>)> = Vec::new();
+    for entry in entries.iter().filter(|entry| entry.archived) {
+        let Some(bucket) = archive_bucket(&entry.updated_at, now) else {
+            continue;
+        };
+        match buckets.iter_mut().find(|(existing, _)| *existing == bucket) {
+            Some((_, rows)) => rows.push(entry.clone()),
+            None => buckets.push((bucket, vec![entry.clone()])),
+        }
+    }
+    buckets.sort_by_key(|(bucket, _)| *bucket);
+    for (_, rows) in &mut buckets {
+        rows.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+    }
+    buckets
+}
+
+/// 当前本地时间（归档分桶/时间标签用；测试可注入固定时间）。
+pub fn now_local() -> DateTime<Local> {
+    Local::now()
+}
+
+/// 归档（仅 ACP；native 返回 false 表示不支持）。
+pub fn archive_thread(thread_id: &str) -> bool {
+    if !thread_id.starts_with(ACP_THREAD_PREFIX) {
+        return false;
+    }
+    open_conversation_store()
+        .ok()
+        .map(|store| store.set_archived(thread_id, true).unwrap_or(false))
+        .unwrap_or(false)
+}
+
+pub fn unarchive_thread(thread_id: &str) -> bool {
+    if !thread_id.starts_with(ACP_THREAD_PREFIX) {
+        return false;
+    }
+    open_conversation_store()
+        .ok()
+        .map(|store| store.set_archived(thread_id, false).unwrap_or(false))
+        .unwrap_or(false)
+}
+
+/// 重命名（写 title_override；None = 清除 override 回落生成标题）。
+pub fn rename_override(thread_id: &str, title: Option<&str>) -> bool {
+    open_conversation_store()
+        .ok()
+        .map(|store| store.set_title_override(thread_id, title).is_ok())
+        .unwrap_or(false)
+}
+
+/// 自动归档：读历史前执行（幂等），每个 agent 保留最近 N 条。
+pub fn auto_archive_recent(keep_per_agent: usize) -> usize {
+    open_conversation_store()
+        .ok()
+        .and_then(|store| store.auto_archive_recent(keep_per_agent).ok())
+        .unwrap_or(0)
 }
 
 /// 恢复会话时内容来源的判定（纯函数，单测覆盖）。
@@ -251,6 +453,7 @@ pub fn resume_decision(
 mod tests {
     use super::*;
     use cgc_agent_ui::conversation::{ThreadCapabilities, ThreadEvent};
+    use chrono::TimeZone;
 
     fn thread_with(entries: Vec<Entry>, title: Option<&str>) -> ConversationThread {
         ConversationThread {
@@ -439,6 +642,165 @@ mod tests {
         assert!(store.delete_thread("acp-sess-9").expect("delete"));
         assert_eq!(store.load_content("acp-sess-9").expect("load"), None);
         assert_eq!(store.clear_all().expect("clear"), 0);
+    }
+
+    #[test]
+    fn main_list_limits_acp_per_agent_but_keeps_all_native() {
+        let mut native = Vec::new();
+        for index in 0..6 {
+            native.push(ThreadSummary {
+                id: format!("native-{index}"),
+                title: Some(format!("native {index}")),
+                agent: "native".to_string(),
+                session_id: None,
+                provider_id: "p".to_string(),
+                model_id: "m".to_string(),
+                updated_at: 1_790_000_000 + index,
+            });
+        }
+        let mut acp = Vec::new();
+        for (agent, count) in [("omp", 7), ("codex", 3)] {
+            for index in 0..count {
+                acp.push(SidebarThread {
+                    thread_id: format!("acp-{agent}-{index}"),
+                    agent_id: Some(agent.to_string()),
+                    session_id: Some(format!("{agent}-{index}")),
+                    title: Some(format!("{agent} {index}")),
+                    title_override: None,
+                    created_at: "2026-10-26T10:00:00Z".to_string(),
+                    updated_at: format!("2026-10-26T12:0{index}:00Z"),
+                    archived: false,
+                });
+            }
+        }
+        let merged = merge_history(native, acp);
+        let listed = main_list(&merged, 5);
+        assert_eq!(
+            listed
+                .iter()
+                .filter(|e| e.agent_label() == "native")
+                .count(),
+            6,
+            "native 无 archived 列，不截断"
+        );
+        assert_eq!(
+            listed.iter().filter(|e| e.agent_label() == "omp").count(),
+            5
+        );
+        assert_eq!(
+            listed.iter().filter(|e| e.agent_label() == "codex").count(),
+            3
+        );
+        // 归档行从主列表消失。
+        let mut archived = listed.clone();
+        archived[0].archived = true;
+        assert!(main_list(&archived, 5)
+            .iter()
+            .all(|entry| entry.thread_id != archived[0].thread_id));
+    }
+
+    fn entry(id: &str, updated_at: &str, archived: bool) -> HistoryEntry {
+        HistoryEntry {
+            thread_id: id.to_string(),
+            session_id: Some(id.trim_start_matches("acp-").to_string()),
+            agent_id: Some("omp".to_string()),
+            title: Some(format!("title {id}")),
+            updated_at: updated_at.to_string(),
+            archived,
+            source: HistorySource::Acp,
+        }
+    }
+
+    #[test]
+    fn archive_buckets_split_today_yesterday_last7_earlier() {
+        let now = now_local();
+        let day = 86_400;
+        let now_epoch = now.timestamp();
+        let entries = vec![
+            entry(
+                "acp-today",
+                &cgc_agent_store::format_epoch_rfc3339(now_epoch - 60),
+                true,
+            ),
+            entry(
+                "acp-yesterday",
+                &cgc_agent_store::format_epoch_rfc3339(now_epoch - day),
+                true,
+            ),
+            entry(
+                "acp-last7",
+                &cgc_agent_store::format_epoch_rfc3339(now_epoch - 3 * day),
+                true,
+            ),
+            entry(
+                "acp-earlier",
+                &cgc_agent_store::format_epoch_rfc3339(now_epoch - 10 * day),
+                true,
+            ),
+            entry(
+                "acp-active",
+                &cgc_agent_store::format_epoch_rfc3339(now_epoch),
+                false,
+            ),
+        ];
+        let groups = group_archive(&entries, &now);
+        assert_eq!(
+            groups
+                .iter()
+                .map(|(bucket, _)| bucket.label())
+                .collect::<Vec<_>>(),
+            vec!["今天", "昨天", "最近 7 天", "更早"]
+        );
+        assert_eq!(groups[0].1[0].thread_id, "acp-today");
+        assert_eq!(groups[3].1[0].thread_id, "acp-earlier");
+        assert_eq!(
+            archive_entries(&entries).len(),
+            4,
+            "只有 archived 进入归档视图"
+        );
+    }
+
+    #[test]
+    fn relative_time_labels_are_compact() {
+        let now = Local
+            .timestamp_opt(1_790_000_000, 0)
+            .single()
+            .expect("local time");
+        let label = |seconds_ago: i64| {
+            relative_time_label(
+                &cgc_agent_store::format_epoch_rfc3339(1_790_000_000 - seconds_ago),
+                &now,
+            )
+        };
+        assert_eq!(label(10), "now");
+        assert_eq!(label(120), "2m");
+        assert_eq!(label(2 * 3_600), "2h");
+        assert_eq!(label(86_400), "1d");
+        assert_eq!(relative_time_label("not-a-time", &now), "");
+    }
+
+    #[test]
+    fn filter_history_matches_title_agent_or_id_case_insensitively() {
+        let entries = vec![
+            entry("acp-alpha", "2026-10-26T12:00:00Z", false),
+            HistoryEntry {
+                title: Some("Debug Rust".to_string()),
+                agent_id: Some("codex".to_string()),
+                ..entry("acp-beta", "2026-10-26T11:00:00Z", false)
+            },
+        ];
+        assert_eq!(filter_history(entries.clone(), "debug").len(), 1);
+        assert_eq!(filter_history(entries.clone(), "CODEX").len(), 1);
+        assert_eq!(filter_history(entries.clone(), "acp-alpha").len(), 1);
+        assert_eq!(filter_history(entries, "   ").len(), 2);
+    }
+
+    #[test]
+    fn dirty_generation_advances_on_mark() {
+        let before = history_dirty_generation_for_test();
+        mark_history_dirty();
+        let after = history_dirty_generation_for_test();
+        assert!(after > before, "mark_history_dirty 必须推进世代号");
     }
 
     #[test]

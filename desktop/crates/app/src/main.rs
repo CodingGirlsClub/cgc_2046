@@ -99,6 +99,7 @@ fn main() {
             });
             let view = cx.new(move |_| RootView::new(view_registry));
             view.update(cx, |this, cx| {
+                cgc_desktop_app::root_view::register_history_root(cx.entity().downgrade());
                 this.set_tray_preferences(close_to_tray.clone(), tray_hint_shown.clone());
                 this.install_main_window_lifecycle(window, cx);
                 this.set_chat_input(chat_input);

@@ -256,8 +256,47 @@ impl ConversationStore {
             .map_err(Into::into)
     }
 
-    /// 历史列表：按 `updated_at` 倒序（RFC3339 字典序即时间序）。
+    /// 主历史列表：只返回未归档行，按 `updated_at` 倒序（RFC3339 字典序即时间序）。
     pub fn list_sidebar(&self, limit: usize) -> Result<Vec<SidebarThread>, ConversationStoreError> {
+        let mut statement = self.conn.prepare(
+            "SELECT thread_id, agent_id, session_id, title, title_override,
+                    COALESCE(created_at, ''), COALESCE(updated_at, ''), archived
+             FROM sidebar_threads
+             WHERE archived = 0
+             ORDER BY updated_at DESC, thread_id DESC
+             LIMIT ?1",
+        )?;
+        let rows = statement.query_map(params![limit as i64], row_to_sidebar)?;
+        let mut threads = Vec::new();
+        for row in rows {
+            threads.push(row?);
+        }
+        Ok(threads)
+    }
+
+    /// 归档视图：只返回已归档行（updated_at 倒序）。
+    pub fn list_archived(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<SidebarThread>, ConversationStoreError> {
+        let mut statement = self.conn.prepare(
+            "SELECT thread_id, agent_id, session_id, title, title_override,
+                    COALESCE(created_at, ''), COALESCE(updated_at, ''), archived
+             FROM sidebar_threads
+             WHERE archived = 1
+             ORDER BY updated_at DESC, thread_id DESC
+             LIMIT ?1",
+        )?;
+        let rows = statement.query_map(params![limit as i64], row_to_sidebar)?;
+        let mut threads = Vec::new();
+        for row in rows {
+            threads.push(row?);
+        }
+        Ok(threads)
+    }
+
+    /// 全部行（含归档；统一列表用于 Archive 视图）。
+    pub fn list_all(&self, limit: usize) -> Result<Vec<SidebarThread>, ConversationStoreError> {
         let mut statement = self.conn.prepare(
             "SELECT thread_id, agent_id, session_id, title, title_override,
                     COALESCE(created_at, ''), COALESCE(updated_at, ''), archived
@@ -271,6 +310,57 @@ impl ConversationStore {
             threads.push(row?);
         }
         Ok(threads)
+    }
+
+    /// 归档 / 取消归档（不动 updated_at，避免历史重排）；返回是否命中。
+    pub fn set_archived(
+        &self,
+        thread_id: &str,
+        archived: bool,
+    ) -> Result<bool, ConversationStoreError> {
+        let changed = self.conn.execute(
+            "UPDATE sidebar_threads SET archived = ?2 WHERE thread_id = ?1",
+            params![thread_id, i64::from(archived)],
+        )?;
+        Ok(changed > 0)
+    }
+
+    /// 自动归档：每个 agent 只保留最近 `keep_per_agent` 条 active，其余置
+    /// archived=1（幂等；返回本次新归档条数）。对应 Zed 的 per-project 最近 N 条。
+    pub fn auto_archive_recent(
+        &self,
+        keep_per_agent: usize,
+    ) -> Result<usize, ConversationStoreError> {
+        let mut statement = self.conn.prepare(
+            "SELECT thread_id, COALESCE(agent_id, '') FROM sidebar_threads
+             WHERE archived = 0
+             ORDER BY COALESCE(agent_id, '') ASC, updated_at DESC, thread_id DESC",
+        )?;
+        let mut archived = Vec::new();
+        let mut current_agent: Option<String> = None;
+        let mut rank = 0usize;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (thread_id, agent_id) = row?;
+            if current_agent.as_deref() != Some(agent_id.as_str()) {
+                current_agent = Some(agent_id.clone());
+                rank = 0;
+            }
+            rank += 1;
+            if rank > keep_per_agent {
+                archived.push(thread_id);
+            }
+        }
+        drop(statement);
+        for thread_id in &archived {
+            self.conn.execute(
+                "UPDATE sidebar_threads SET archived = 1 WHERE thread_id = ?1",
+                params![thread_id],
+            )?;
+        }
+        Ok(archived.len())
     }
 
     /// 删除单条会话（content + metadata）；返回是否存在。
@@ -660,6 +750,81 @@ mod tests {
         assert_eq!(store.clear_all().expect("clear"), 2);
         assert!(store.list_sidebar(10).expect("list").is_empty());
         assert_eq!(store.load_content("acp-3").expect("content"), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn archive_and_unarchive_round_trip_filters_lists() {
+        let dir = temp_dir("archive");
+        let mut store = ConversationStore::open(dir.join(CONVERSATIONS_DB)).expect("open");
+        for (id, at) in [
+            ("acp-1", "2026-10-26T12:00:00Z"),
+            ("acp-2", "2026-10-26T12:01:00Z"),
+        ] {
+            store
+                .save_thread(&sample_thread(id), &sidebar(id, at))
+                .expect("save");
+        }
+        assert!(store.set_archived("acp-2", true).expect("archive"));
+        let active = store.list_sidebar(10).expect("active");
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].thread_id, "acp-1");
+        let archived = store.list_archived(10).expect("archived");
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0].thread_id, "acp-2");
+        assert!(archived[0].archived);
+        // content 不因归档变化
+        assert!(store.load_content("acp-2").expect("content").is_some());
+        assert_eq!(store.list_all(10).expect("all").len(), 2);
+        assert!(store.set_archived("acp-2", false).expect("unarchive"));
+        assert_eq!(store.list_sidebar(10).expect("active").len(), 2);
+        assert!(store.list_archived(10).expect("archived").is_empty());
+        assert!(!store.set_archived("missing", true).expect("noop"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn auto_archive_keeps_recent_n_per_agent_and_is_idempotent() {
+        let dir = temp_dir("autoarchive");
+        let mut store = ConversationStore::open(dir.join(CONVERSATIONS_DB)).expect("open");
+        // omp 7 条（应归档 2 条）、codex 3 条（不应归档）、native 不写 conversations.db。
+        for index in 0..7 {
+            let id = format!("acp-omp-{index}");
+            let at = format!("2026-10-26T12:0{index}:00Z");
+            let mut meta = sidebar(&id, &at);
+            meta.agent_id = Some("omp".to_string());
+            store.save_thread(&sample_thread(&id), &meta).expect("save");
+        }
+        for index in 0..3 {
+            let id = format!("acp-codex-{index}");
+            let at = format!("2026-10-26T13:0{index}:00Z");
+            let mut meta = sidebar(&id, &at);
+            meta.agent_id = Some("codex".to_string());
+            store.save_thread(&sample_thread(&id), &meta).expect("save");
+        }
+        assert_eq!(store.auto_archive_recent(5).expect("auto archive"), 2);
+        let active = store.list_sidebar(100).expect("active");
+        assert_eq!(active.len(), 8, "每 agent 保留最近 5 条（omp 5 + codex 3）");
+        let omp_active = active
+            .iter()
+            .filter(|row| row.agent_id.as_deref() == Some("omp"))
+            .count();
+        assert_eq!(omp_active, 5);
+        let archived = store.list_archived(100).expect("archived");
+        assert_eq!(archived.len(), 2);
+        assert_eq!(
+            archived
+                .iter()
+                .map(|row| row.thread_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["acp-omp-1", "acp-omp-0"],
+            "归档最旧的两条（updated_at 倒序保留）"
+        );
+        // 幂等：没有新的超出项时不再归档。
+        assert_eq!(store.auto_archive_recent(5).expect("again"), 0);
+        // 取消归档后重新自动归档会再次归档它（仍超过 N）。
+        store.set_archived("acp-omp-0", false).expect("unarchive");
+        assert_eq!(store.auto_archive_recent(5).expect("third"), 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

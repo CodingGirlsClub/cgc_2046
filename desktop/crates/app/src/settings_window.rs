@@ -677,7 +677,7 @@ impl SettingsWindowView {
                 .flex_col()
                 .gap(px(3.0))
                 .child(div().text_size(px(11.0)).text_color(palette.ink_3).child(
-                    "只清外部 ACP agent 的本地记录（conversations.db）；native 历史不受影响。",
+                    "永久删除外部 ACP agent 的本地记录（conversations.db，不可恢复）；native 历史不受影响。Archive 仅隐藏条目。",
                 ))
                 .child(
                     div()
@@ -705,6 +705,9 @@ impl SettingsWindowView {
                                 if let Ok(mut notice) = notice_for_click.lock() {
                                     *notice = Some(format!("已清空 ACP 对话历史（{removed} 条）"));
                                 }
+                                // 主窗口的 chat.history 是缓存：直接通知 RootView 重载，
+                                // 并处理"清掉的正是当前 ACP 会话"的回到新会话场景。
+                                crate::root_view::notify_history_changed(cx);
                             }
                             let _ = weak_for_click.update(cx, |_this, cx| cx.notify());
                         }),

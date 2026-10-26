@@ -79,6 +79,10 @@ use crate::settings_window::SettingsWindowView;
 use crate::theme::{self, space, ThemePreference, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL};
 
 mod controller;
+mod history_actions;
+pub(crate) use history_actions::notify_history_changed;
+pub use history_actions::register_history_root;
+mod history_overlay;
 mod screens;
 mod state;
 
@@ -239,7 +243,7 @@ struct ChatUi {
     slash_selection: usize,
     slash_dismissed: bool,
     sessions: Vec<SessionSummary>,
-    show_sessions: bool,
+    opened_from_history: bool,
     session_id: Option<String>,
     course_id: Option<String>,
     restore_id: Option<String>,
@@ -597,6 +601,7 @@ impl RootView {
 impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.refresh_agent_scope();
+        self.refresh_history_if_dirty(cx);
         let mode = theme::resolve(self.preference, window.appearance());
         let _ = mode;
         let palette = theme::palette_from_theme(cx);
@@ -1213,6 +1218,9 @@ impl Render for RootView {
                     cx,
                 ));
             }
+            if self.history_overlay.is_some() {
+                root = root.child(self.render_history_overlay(window, cx));
+            }
             root
         }
     }
@@ -1820,7 +1828,7 @@ impl RootView {
                 .into_any_element()
         });
         let history_toggle = include_nav.then(|| {
-            let active = self.chat.show_sessions && self.agent_panel_open;
+            let active = self.history_overlay.is_some();
             div()
                 .id("chat-history-toggle")
                 .role(Role::Button)
@@ -1849,7 +1857,7 @@ impl RootView {
                 )
                 .tooltip(move |window, cx| Tooltip::new("历史对话").build(window, cx))
                 .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_chat_history(cx);
+                    this.toggle_history_overlay(cx);
                 }))
                 .into_any_element()
         });

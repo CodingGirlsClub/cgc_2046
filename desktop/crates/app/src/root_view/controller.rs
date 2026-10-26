@@ -1207,9 +1207,7 @@ impl RootView {
                 }
                 HostEvent::Sessions { sessions } => {
                     self.chat.sessions = sessions.clone();
-                    self.chat.show_sessions = true;
-                    // Stage 3.3：历史侧栏用统一列表（native + ACP 本地），
-                    // agent 的 session 列表只用于标题/指针，不再作为唯一来源。
+                    // agent 的 session 列表只用于标题/指针；统一历史从本地库加载。
                     self.chat.history = self.load_unified_history();
                     if std::env::var("CGC_AUTO_RESTORE").as_deref() == Ok("1")
                         && !self.chat.auto_prompted
@@ -1296,12 +1294,9 @@ impl RootView {
         }
         if matches!(self.chat.phase, ChatPhase::Ready)
             && std::env::var("CGC_AUTO_HISTORY").as_deref() == Ok("1")
-            && !self.chat.show_sessions
+            && self.history_overlay.is_none()
         {
-            if let Some(host) = &self.chat.host {
-                let _ = host.list_sessions();
-            }
-            self.chat.show_sessions = true;
+            self.open_chat_history(cx);
         }
         // QA/截图：Ready 后自动发一条 prompt。
         if matches!(self.chat.phase, ChatPhase::Ready)
@@ -1363,72 +1358,6 @@ impl RootView {
         cx.notify();
     }
 
-    /// 线程删除确认：第一次点击进入待确认，第二次点击才真正删除。
-    pub(in crate::root_view) fn request_delete_thread(
-        &mut self,
-        thread_id: String,
-        cx: &mut Context<Self>,
-    ) {
-        if self.pending_thread_delete.as_deref() == Some(thread_id.as_str()) {
-            self.pending_thread_delete = None;
-            self.delete_local_thread(thread_id, cx);
-        } else {
-            self.pending_thread_delete = Some(thread_id);
-            cx.notify();
-        }
-    }
-
-    pub(in crate::root_view) fn cancel_thread_delete(&mut self, cx: &mut Context<Self>) {
-        if self.pending_thread_delete.take().is_some() {
-            cx.notify();
-        }
-    }
-
-    /// 从统一线程列表删除一个本地线程（native → threads.db，ACP → conversations.db）。
-    pub(in crate::root_view) fn delete_local_thread(
-        &mut self,
-        thread_id: String,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(session_id) = crate::acp_history::session_id_from_thread_id(&thread_id) {
-            let session_id = session_id.to_string();
-            crate::acp_history::delete_local_transcript(&thread_id);
-            self.chat
-                .sessions
-                .retain(|session| session.session_id != session_id);
-            if self.chat.session_id.as_deref() == Some(session_id.as_str()) {
-                self.chat.host.take();
-                self.revoke_chat_lease(cx);
-                self.chat.phase = ChatPhase::Idle;
-                self.chat.replay = None;
-                self.chat.resumed_without_history = false;
-                self.chat.thread =
-                    ConversationThread::default().with_capabilities(ThreadCapabilities::acp());
-                self.chat.session_id = None;
-                self.chat.restore_id = None;
-                self.chat.load_retry_available = false;
-                self.chat.auto_start_queued = false;
-                if let Some(course_id) = self.chat.course_id.clone() {
-                    clear_chat_pointer(&course_id);
-                }
-                // 删除当前 ACP 线程后直接新开一个会话，避免停留在 Idle「连接中」。
-                self.start_chat(cx);
-            }
-        } else {
-            let path = AppPaths::from_env()
-                .data_root
-                .join("agent")
-                .join("threads.db");
-            if let Ok(mut store) = SessionStore::open(path) {
-                let _ = store.delete_thread(&thread_id);
-            }
-        }
-        self.chat
-            .history
-            .retain(|entry| entry.thread_id != thread_id);
-        cx.notify();
-    }
-
     /// 从统一线程列表恢复 native 线程。
     pub(in crate::root_view) fn open_local_native_thread(
         &mut self,
@@ -1436,7 +1365,6 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.pending_thread_delete = None;
         self.set_native_chat_mode(true);
         if self.native_agent_view.is_none() {
             let view = cx.new(|cx| crate::native_agent_view::NativeAgentView::new(window, cx));
@@ -1776,23 +1704,52 @@ impl RootView {
         self.start_chat(cx);
     }
 
-    pub(in crate::root_view) fn toggle_chat_history(&mut self, cx: &mut Context<Self>) {
-        self.agent_panel_open = true;
-        if self.chat.show_sessions {
-            self.chat.show_sessions = false;
-            cx.notify();
-        } else {
-            self.open_chat_history(cx);
-        }
-    }
-
-    /// 打开统一历史（native + ACP 本地 transcript），按 updated_at 倒序。
+    /// 打开统一历史 overlay（native + ACP 本地 transcript）。
     pub(in crate::root_view) fn open_chat_history(&mut self, cx: &mut Context<Self>) {
         if let Some(host) = &self.chat.host {
             let _ = host.list_sessions();
         }
+        self.history_dirty_seen = crate::acp_history::history_dirty_generation();
+        self.history_cleared_seen = crate::acp_history::history_cleared_generation();
         self.chat.history = self.load_unified_history();
-        self.chat.show_sessions = true;
+        self.history_overlay = Some(crate::root_view::history_overlay::HistoryOverlay::default());
+        cx.notify();
+    }
+
+    /// 设置窗口清空历史 / 归档等改库后，RootView 在下一帧发现脏标记并重载列表。
+    pub(in crate::root_view) fn refresh_history_if_dirty(&mut self, cx: &mut Context<Self>) {
+        let generation = crate::acp_history::history_dirty_generation();
+        if generation == self.history_dirty_seen {
+            return;
+        }
+        self.history_dirty_seen = generation;
+        let root = cx.entity().downgrade();
+        cx.defer(move |cx| {
+            let _ = root.update(cx, |this, cx| this.apply_history_dirty_refresh(cx));
+        });
+    }
+
+    pub(in crate::root_view) fn apply_history_dirty_refresh(&mut self, cx: &mut Context<Self>) {
+        self.chat.history = self.load_unified_history();
+        let cleared = crate::acp_history::history_cleared_generation();
+        if cleared != self.history_cleared_seen {
+            self.history_cleared_seen = cleared;
+            // 清空后当前 ACP 会话的本地记录也被删：回到新会话/空态并提示。
+            let transcript_missing = self.chat.session_id.as_deref().is_some_and(|session_id| {
+                let thread_id = crate::acp_history::acp_thread_id(session_id);
+                !self
+                    .chat
+                    .history
+                    .iter()
+                    .any(|entry| entry.thread_id == thread_id)
+            });
+            if transcript_missing
+                && (self.chat.opened_from_history || !self.chat.thread.entries.is_empty())
+            {
+                self.pane_notice = Some("ACP 对话历史已清空，已回到新会话".to_string());
+                self.new_chat(cx);
+            }
+        }
         cx.notify();
     }
 
@@ -1814,7 +1771,6 @@ impl RootView {
         session_id: String,
         cx: &mut Context<Self>,
     ) {
-        self.pending_thread_delete = None;
         self.agent_panel_editing_title = false;
         self.agent_panel_title_hovered = false;
         self.reset_chat_local(cx);
@@ -1834,6 +1790,7 @@ impl RootView {
             saw_events: false,
             has_local_content,
         });
+        self.chat.opened_from_history = true;
         self.chat.resumed_without_history = false;
         self.chat.restore_id = Some(session_id);
         self.chat.npx_cache_retry = false;
@@ -1937,7 +1894,7 @@ impl RootView {
         self.chat.auto_prompted = false;
         self.chat.configs.clear();
         self.chat.sessions.clear();
-        self.chat.show_sessions = false;
+        self.chat.opened_from_history = false;
         self.chat.session_id = None;
         self.chat.course_id = None;
         self.chat.configs_applied = false;
