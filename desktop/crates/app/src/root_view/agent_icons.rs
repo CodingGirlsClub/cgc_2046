@@ -65,22 +65,52 @@ pub(in crate::root_view) fn agent_icon_element(
         AgentIconKind::FallbackBot => Icon::default()
             .path(AssetIcon::Bot.path())
             .text_color(color)
-            .with_size(px(size))
+            .small()
             .into_any_element(),
     }
 }
 
 fn svg_icon(data: &'static [u8], size: f32, color: gpui::Hsla) -> AnyElement {
-    Icon::default()
+    // 直接用 gpui 的 Svg 元素 + 显式尺寸，避免 Icon::data 在部分图标上尺寸/
+    // tint 异常导致空白。
+    gpui_kit::svg()
         .data(data)
+        .w(px(size))
+        .h(px(size))
+        .flex_none()
         .text_color(color)
-        .with_size(px(size))
         .into_any_element()
 }
 
 #[cfg(test)]
 mod agent_icon_tests {
     use crate::root_view::agent_icons::{agent_icon_kind, AgentIconKind};
+
+    /// icon 资产守卫：`Icon::data` 对复杂 SVG 渲染不稳（灰块/空白），只允许
+    /// 单 path + currentColor 的极简形态。
+    #[test]
+    fn agent_icon_assets_are_simple_single_path() {
+        for (name, svg) in [
+            ("codex", super::CODEX_SVG),
+            ("claude", super::CLAUDE_SVG),
+            ("omp", super::OMP_SVG),
+            ("opencode", super::OPENCODE_SVG),
+        ] {
+            let text = std::str::from_utf8(svg).expect("utf8 svg");
+            assert_eq!(
+                text.matches("<path").count(),
+                1,
+                "{name}.svg 必须只有单个 <path>"
+            );
+            for forbidden in ["fill-rule", "clip-path", "transform=", "url("] {
+                assert!(
+                    !text.contains(forbidden),
+                    "{name}.svg 不能包含 {forbidden}（Icon::data 渲染不稳）"
+                );
+            }
+            assert!(text.contains("currentColor"), "{name}.svg 需 currentColor");
+        }
+    }
 
     #[test]
     fn agent_icons_map_ids_and_aliases() {
