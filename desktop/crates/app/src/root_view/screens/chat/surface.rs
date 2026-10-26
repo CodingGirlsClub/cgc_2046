@@ -214,6 +214,21 @@ pub(crate) fn render_attachment_chips(
         .collect()
 }
 
+/// native 主 composer 的渲染选择（B2b-3）：flag off 一律旧 composer。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ComposerKind {
+    Legacy,
+    Shared,
+}
+
+pub(crate) fn choose_composer(shared_view_enabled: bool) -> ComposerKind {
+    if shared_view_enabled {
+        ComposerKind::Shared
+    } else {
+        ComposerKind::Legacy
+    }
+}
+
 /// 附件入口是否可见（B2b：能力位关闭时不渲染入口）。
 pub(crate) fn attachment_entry_visible(flags: ChatSurfaceFlags) -> bool {
     flags.attachments
@@ -303,6 +318,12 @@ mod composer_tests {
         assert_eq!(chips[0].label, "screenshot.png");
         assert!(chips[0].is_image);
         assert!(!chips[1].is_image);
+    }
+
+    #[test]
+    fn choose_composer_follows_flag() {
+        assert_eq!(super::choose_composer(false), super::ComposerKind::Legacy);
+        assert_eq!(super::choose_composer(true), super::ComposerKind::Shared);
     }
 
     #[test]

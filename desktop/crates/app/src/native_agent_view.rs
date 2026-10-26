@@ -4462,7 +4462,9 @@ impl Render for NativeAgentView {
                             }))
                     }))
                     .children((!self.pending_images.is_empty()
-                        && !crate::root_view::shared_surface::native_shared_view_enabled())
+                        && crate::root_view::shared_surface::choose_composer(
+                            crate::root_view::shared_surface::native_shared_view_enabled(),
+                        ) == crate::root_view::shared_surface::ComposerKind::Legacy)
                         .then(|| {
                         let rows = self
                             .pending_images
@@ -4568,7 +4570,9 @@ impl Render for NativeAgentView {
                             .children(rows)
                     }))
                     .children(
-                        crate::root_view::shared_surface::native_shared_view_enabled()
+                        (crate::root_view::shared_surface::choose_composer(
+                            crate::root_view::shared_surface::native_shared_view_enabled(),
+                        ) == crate::root_view::shared_surface::ComposerKind::Shared)
                             .then(|| {
                                 let composer = self.shared_composer_surface(cx);
                                 div()
