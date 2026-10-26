@@ -6,7 +6,11 @@
 //! 统一的 `ChatSurfaceFlags`（纯函数、可单测），panel 从此读 surface 而不是直接
 //! 散读 `thread.capabilities`；后续 B2/B3 再把 composer/action 回调迁进来。
 
+use std::sync::Arc;
+
 use cgc_agent_ui::conversation::{ConversationThread, ThreadCapabilities};
+use gpui_kit::component::input::TextareaState;
+use gpui_kit::{App, Entity, Window};
 
 /// 聊天视图各入口的显隐位（来自 [`ThreadCapabilities`] 的稳定映射）。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -86,5 +90,90 @@ mod surface_tests {
         let surface = super::ChatSurface::new(&thread);
         assert!(surface.flags.steer);
         assert_eq!(surface.thread.entries.len(), 0);
+    }
+}
+
+type ComposerCallback = Arc<dyn Fn(&mut Window, &mut App)>;
+
+/// Phase B2a：共享 composer 的输入句柄 + 发送/附件回调（行为由调用方注入）。
+/// B2b/c 再把 queue/steer 等回调与 native adapter 接进来。
+#[derive(Clone)]
+pub(in crate::root_view) struct ComposerSurface {
+    pub input: Option<Entity<TextareaState>>,
+    pub callbacks: ComposerCallbacks,
+}
+
+#[derive(Clone)]
+pub(in crate::root_view) struct ComposerCallbacks {
+    /// 发送当前输入（行为等价于旧 composer 的 send + clear input）。
+    pub send: ComposerCallback,
+    /// 附件/上下文入口（B2a 对齐旧 paperclip：插入 `@` 触发 mention）。
+    pub attach: ComposerCallback,
+}
+
+/// composer 操作显隐（纯函数；`phase_active` = Ready/Streaming，`busy` = 生成中）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::root_view) struct ComposerVisibility {
+    pub can_send: bool,
+    pub can_queue: bool,
+    pub can_steer: bool,
+}
+
+pub(in crate::root_view) fn composer_visibility(
+    flags: ChatSurfaceFlags,
+    phase_active: bool,
+    permission_pending: bool,
+    busy: bool,
+) -> ComposerVisibility {
+    ComposerVisibility {
+        can_send: phase_active && !permission_pending && !busy,
+        can_queue: flags.queue && phase_active && busy && !permission_pending,
+        can_steer: flags.steer && phase_active && busy && !permission_pending,
+    }
+}
+
+#[cfg(test)]
+mod composer_tests {
+    use super::{composer_visibility, ChatSurfaceFlags};
+    use cgc_agent_ui::conversation::ThreadCapabilities;
+
+    fn native() -> ChatSurfaceFlags {
+        ChatSurfaceFlags::from_capabilities(ThreadCapabilities::native())
+    }
+
+    fn acp() -> ChatSurfaceFlags {
+        ChatSurfaceFlags::from_capabilities(ThreadCapabilities::acp())
+    }
+
+    #[test]
+    fn idle_ready_can_send() {
+        let visibility = composer_visibility(native(), true, false, false);
+        assert!(visibility.can_send);
+        assert!(!visibility.can_queue);
+        assert!(!visibility.can_steer);
+    }
+
+    #[test]
+    fn busy_native_can_queue_and_steer() {
+        let visibility = composer_visibility(native(), true, false, true);
+        assert!(!visibility.can_send);
+        assert!(visibility.can_queue);
+        assert!(visibility.can_steer);
+    }
+
+    #[test]
+    fn busy_acp_cannot_queue_or_steer() {
+        let visibility = composer_visibility(acp(), true, false, true);
+        assert!(!visibility.can_send);
+        assert!(!visibility.can_queue, "ACP 无 queue 能力位");
+        assert!(!visibility.can_steer, "ACP 无 steer 能力位");
+    }
+
+    #[test]
+    fn pending_permission_blocks_composer_actions() {
+        let visibility = composer_visibility(native(), true, true, false);
+        assert!(!visibility.can_send);
+        assert!(!visibility.can_queue);
+        assert!(!visibility.can_steer);
     }
 }

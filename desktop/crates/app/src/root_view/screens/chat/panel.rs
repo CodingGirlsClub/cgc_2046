@@ -183,9 +183,42 @@ pub(in crate::root_view) fn render_chat_panel(
         }
         ChatPhase::Ready | ChatPhase::Streaming => {
             let view_weak = cx.entity().downgrade();
+            // Phase B2a：ACP composer 消费共享 ComposerSurface（行为与旧 composer 等价）。
+            let composer_root = cx.entity().downgrade();
+            let composer_send_root = composer_root.clone();
+            let composer_attach_root = composer_root;
+            let composer = super::surface::ComposerSurface {
+                input: ctx.chat_input.clone(),
+                callbacks: super::surface::ComposerCallbacks {
+                    send: std::sync::Arc::new(move |window, cx| {
+                        let _ = composer_send_root.update(cx, |this, ctx| {
+                            this.send_chat(ctx);
+                            this.clear_chat_input(window, ctx);
+                        });
+                    }),
+                    attach: std::sync::Arc::new(move |window, cx| {
+                        let _ = composer_attach_root.update(cx, |this, ctx| {
+                            let current = this.chat.input.clone();
+                            this.set_chat_input_text(format!("{current}@"), window, ctx);
+                        });
+                    }),
+                },
+            };
             let mut rows = Vec::with_capacity(thread.entries.len());
             // 底部条在等审批时隐藏；每行都查一次没必要，循环外算一次。
             let needs_confirmation = has_unresolved_permission(&thread.entries);
+            let composer_visibility = super::surface::composer_visibility(
+                surface_flags,
+                true,
+                needs_confirmation,
+                phase == ChatPhase::Streaming,
+            );
+            // B2a 仅落 seam：B2b/c 用这三个位接 queue/steer/发送按钮的显隐。
+            let _ = (
+                composer_visibility.can_send,
+                composer_visibility.can_queue,
+                composer_visibility.can_steer,
+            );
             for (index, entry) in thread.entries.iter().enumerate() {
                 let row = match entry {
                     ConversationEntry::User { text } => div()
@@ -668,7 +701,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                 ctx.chat.focused,
                                 chat_composer_style(palette),
                             )
-                            .child(match ctx.chat_input.clone() {
+                            .child(match composer.input.clone() {
                                 Some(state) => Textarea::new(&state)
                                     .appearance(false)
                                     .bordered(false)
@@ -715,14 +748,12 @@ pub(in crate::root_view) fn render_chat_panel(
                                                 .path(AssetIcon::Paperclip.path())
                                                 .small(),
                                         )
-                                        .on_click(cx.listener(|this, _, window, cx| {
-                                            let current = this.chat.input.clone();
-                                            this.set_chat_input_text(
-                                                format!("{current}@"),
-                                                window,
-                                                cx,
-                                            );
-                                        })),
+                                        .on_click({
+                                            let attach = composer.callbacks.attach.clone();
+                                            move |_, window, cx| {
+                                                (attach)(window, cx);
+                                            }
+                                        }),
                                 )
                                 .children(if surface_flags.config_options {
                                     config_pickers
@@ -786,14 +817,14 @@ pub(in crate::root_view) fn render_chat_panel(
                                             ml_auto: true,
                                             on_click: {
                                                 let view = cx.entity().downgrade();
+                                                let send = composer.callbacks.send.clone();
                                                 Box::new(move |window, cx| {
+                                                    if !streaming {
+                                                        (send)(window, cx);
+                                                        return;
+                                                    }
                                                     let _ = view.update(cx, |this, cx| {
-                                                        if streaming {
-                                                            this.stop_chat_turn(cx);
-                                                        } else {
-                                                            this.send_chat(cx);
-                                                            this.clear_chat_input(window, cx);
-                                                        }
+                                                        this.stop_chat_turn(cx);
                                                     });
                                                 })
                                             },
