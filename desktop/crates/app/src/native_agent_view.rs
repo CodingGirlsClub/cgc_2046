@@ -100,6 +100,36 @@ struct PendingImage {
     preview: Option<Arc<RenderImage>>,
 }
 
+/// composer 渲染的前置值快照（B2b-3a：纯搬迁第一步，收敛 render 里的局部变量）。
+struct ComposerDraft {
+    busy: bool,
+    has_input: bool,
+    usage: u64,
+    model_supports_images: bool,
+    input: Entity<TextareaState>,
+    input_focus: gpui_kit::FocusHandle,
+    input_value: String,
+}
+
+fn composer_has_input(value: &str) -> bool {
+    !value.trim().is_empty()
+}
+
+impl NativeAgentView {
+    fn composer_draft(&self, cx: &mut Context<Self>) -> ComposerDraft {
+        let input_value = self.input.read(cx).value().to_string();
+        ComposerDraft {
+            busy: self.busy,
+            has_input: composer_has_input(&input_value),
+            usage: self.state.usage_total.total(),
+            model_supports_images: self.model_supports_images(),
+            input: self.input.clone(),
+            input_focus: self.input.read(cx).focus_handle(cx).clone(),
+            input_value,
+        }
+    }
+}
+
 /// 与 Zed `language_model::request` 对齐：单图编码后 PNG ≤5MB，最长边 1568px。
 const ANTHROPIC_SIZE_LIMIT: u32 = 1568;
 const IMAGE_MAX_BYTES: usize = 5 * 1024 * 1024;
@@ -3605,16 +3635,17 @@ impl Render for NativeAgentView {
         // 页面 scope 变化时先切换工作区/线程，再渲染。
         self.ensure_scope(cx);
         let add_menu_root = cx.entity().downgrade();
-        let model_supports_images = self.model_supports_images();
+        let draft = self.composer_draft(cx);
         let palette = theme::palette_from_theme(cx);
         let chip_workspace = self.context.workspace().to_path_buf();
-        let busy = self.busy;
         let pending = self.state.thread.pending_permission.clone();
-        let usage = self.state.usage_total.total();
-        let input = self.input.clone();
-        let input_focus = self.input.read(cx).focus_handle(cx).clone();
-        let input_value = self.input.read(cx).value().to_string();
-        let has_input = !input_value.trim().is_empty();
+        let model_supports_images = draft.model_supports_images;
+        let busy = draft.busy;
+        let usage = draft.usage;
+        let input = draft.input.clone();
+        let input_focus = draft.input_focus.clone();
+        let input_value = draft.input_value.clone();
+        let has_input = draft.has_input;
         let slash_open = input_value.trim_start().starts_with('/') && !self.slash_dismissed;
         let slash_matches = self.slash_entries(&input_value);
         let slash_selected = self.slash_index.min(slash_matches.len().saturating_sub(1));
@@ -5532,7 +5563,14 @@ fn now_secs() -> i64 {
 
 #[cfg(test)]
 mod workspace_prompt_tests {
-    use super::{build_workspace_system_prompt, now_secs, offline_echo_notice};
+    use super::{build_workspace_system_prompt, composer_has_input, now_secs, offline_echo_notice};
+
+    #[test]
+    fn composer_has_input_trims_whitespace() {
+        assert!(!composer_has_input("   \n\t "));
+        assert!(composer_has_input("hi"));
+        assert!(composer_has_input("  hi "));
+    }
 
     #[test]
     fn slash_entries_are_grouped_and_filtered() {
