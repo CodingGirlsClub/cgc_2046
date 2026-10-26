@@ -707,6 +707,24 @@ enum TurnEndState {
 
 impl NativeAgentView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self::new_inner(window, cx, None)
+    }
+
+    /// B4a-3b-2：controller 经 host 接线（注入 agent_state/audit）。
+    pub(crate) fn new_with_host(
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        host: crate::native_panel_host::NativePanelHost,
+    ) -> Self {
+        Self::new_inner(window, cx, Some(host))
+    }
+
+    fn new_inner(
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        host_override: Option<crate::native_panel_host::NativePanelHost>,
+    ) -> Self {
+        let injected_host = host_override.is_some();
         let paths = cgc_platform::paths::AppPaths::from_env();
         let prefs = PrefsStore::new(paths.agent_prefs_file()).load();
         let active = prefs.active_provider();
@@ -818,10 +836,20 @@ impl NativeAgentView {
         let agent = Agent::new(thread, Some(system_prompt));
         let cancel = agent.cancel_token();
         let steer_sender = agent.steer_sender();
-        let agent_state: SharedAgentState = Arc::new(Mutex::new(AgentState::default()));
-        let mut host = crate::native_panel_host::NativePanelHost::new(agent_state.clone());
+        let (agent_state, mut host): (SharedAgentState, _) = match host_override {
+            Some(host) => (host.agent_state.clone(), host),
+            None => {
+                let state: SharedAgentState = Arc::new(Mutex::new(AgentState::default()));
+                (
+                    state.clone(),
+                    crate::native_panel_host::NativePanelHost::new(state),
+                )
+            }
+        };
         debug_assert!(host.has_agent_state());
-        host.set_action_audit(Some(AuditLog::new(paths.agent_audit_file())));
+        if !injected_host {
+            host.set_action_audit(Some(AuditLog::new(paths.agent_audit_file())));
+        }
         let app_actions: Arc<Mutex<Vec<AppAction>>> = Arc::new(Mutex::new(Vec::new()));
         let action_sink: ActionSink = {
             let app_actions = app_actions.clone();
@@ -5578,6 +5606,15 @@ mod workspace_prompt_tests {
             "面板未打开"
         );
         assert!(!super::checkpoint_panel_visible(true, true, 0), "无变更");
+    }
+
+    #[test]
+    fn scope_key_maps_to_native_thread_id() {
+        let scope = crate::agent_scope::AgentScope {
+            key: "assistant-local".into(),
+            root: std::path::PathBuf::from("/tmp/ws"),
+        };
+        assert_eq!(super::scope_thread_id(&scope), "native-assistant-local");
     }
 
     #[test]

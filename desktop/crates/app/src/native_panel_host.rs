@@ -30,6 +30,17 @@ impl NativePanelHost {
         }
     }
 
+    /// controller 接线用：注入已构造的 agent_state + 审计日志。
+    pub(crate) fn new_with_audit(agent_state: SharedAgentState, audit: Option<AuditLog>) -> Self {
+        Self {
+            agent_state,
+            acp_host: None,
+            action_audit: audit,
+            title_override: None,
+            selected_model: None,
+        }
+    }
+
     pub(crate) fn has_agent_state(&self) -> bool {
         self.agent_state.try_lock().is_ok()
     }
@@ -81,6 +92,22 @@ mod tests {
         let host = host();
         assert!(host.has_agent_state());
         assert!(!host.acp_connected());
+    }
+
+    #[test]
+    fn new_with_audit_exposes_audit_path() {
+        use cgc_agent_tools::{AgentState, SharedAgentState};
+        use std::sync::{Arc, Mutex};
+        let state: SharedAgentState = Arc::new(Mutex::new(AgentState::default()));
+        let host = NativePanelHost::new_with_audit(
+            state,
+            Some(cgc_agent_store::AuditLog::new("/tmp/cgc-audit.jsonl")),
+        );
+        assert!(host.has_agent_state());
+        assert_eq!(
+            host.action_audit.as_ref().map(|audit| audit.path()),
+            Some(std::path::Path::new("/tmp/cgc-audit.jsonl"))
+        );
     }
 
     #[test]

@@ -471,6 +471,11 @@ impl RootView {
         }
     }
 
+    /// B4a-3b-2：native 面板接线唯一入口（host 注入在 controller 创建时完成）。
+    fn native_panel_view(&self) -> Option<&Entity<crate::native_agent_view::NativeAgentView>> {
+        self.native_agent_view.as_ref()
+    }
+
     fn new_thread_title(&self) -> String {
         let agent = self.acp_agent_label();
         self.new_thread_title_for(&agent)
@@ -478,7 +483,7 @@ impl RootView {
 
     pub(in crate::root_view) fn agent_panel_title(&self, cx: &App) -> String {
         if self.native_chat_mode && RootView::native_agent_enabled() {
-            if let Some(view) = &self.native_agent_view {
+            if let Some(view) = self.native_panel_view() {
                 let view = view.read(cx);
                 if view.is_empty_thread() {
                     return self.new_thread_title_for("CGC Agent");
@@ -553,7 +558,7 @@ impl RootView {
         let raw = input.read(cx).value().trim().to_string();
         let title = if raw.is_empty() { None } else { Some(raw) };
         if self.native_chat_mode && RootView::native_agent_enabled() {
-            if let Some(view) = &self.native_agent_view {
+            if let Some(view) = self.native_panel_view() {
                 view.update(cx, |view, cx| view.set_title_override(title.clone(), cx));
             }
         } else {
@@ -583,7 +588,7 @@ impl RootView {
 
     pub(in crate::root_view) fn regenerate_agent_panel_title(&mut self, cx: &mut Context<Self>) {
         if self.native_chat_mode && RootView::native_agent_enabled() {
-            if let Some(view) = &self.native_agent_view {
+            if let Some(view) = self.native_panel_view() {
                 view.update(cx, |view, cx| view.regenerate_title(cx));
             }
         } else {

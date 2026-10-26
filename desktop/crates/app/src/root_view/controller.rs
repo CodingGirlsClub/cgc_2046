@@ -1350,7 +1350,17 @@ impl RootView {
     ) {
         self.set_native_chat_mode(true);
         if self.native_agent_view.is_none() {
-            let view = cx.new(|cx| crate::native_agent_view::NativeAgentView::new(window, cx));
+            let state: cgc_agent_tools::SharedAgentState =
+                std::sync::Arc::new(std::sync::Mutex::new(cgc_agent_tools::AgentState::default()));
+            let host = crate::native_panel_host::NativePanelHost::new_with_audit(
+                state,
+                Some(cgc_agent_store::AuditLog::new(
+                    AppPaths::from_env().agent_audit_file(),
+                )),
+            );
+            let view = cx.new(|cx| {
+                crate::native_agent_view::NativeAgentView::new_with_host(window, cx, host)
+            });
             self.native_agent_view = Some(view);
         }
         if let Some(view) = &self.native_agent_view {
