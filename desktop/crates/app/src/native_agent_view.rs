@@ -3554,11 +3554,10 @@ impl NativeAgentView {
 
     /// 消息区当前的行序列（历史消息 + 内联子 agent + 流式/错误行 + 兜底操作栏）。
     fn message_row_kinds(&self) -> Vec<MessageRowKind> {
-        let subagents: &[SubagentCard] = if self.state.thread.capabilities.subagent_available() {
-            &self.state.subagents
-        } else {
-            &[]
-        };
+        let subagents = subagent_cards_for_rows(
+            self.state.thread.capabilities.subagent_available(),
+            &self.state.subagents,
+        );
         let mut kinds = build_message_row_kinds(
             &self.state.thread.entries,
             subagents,
@@ -5415,6 +5414,16 @@ enum MessageRowKind {
 
 /// 计算消息区的行序列；子 agent 卡内联到触发它的 tool 消息后面，
 /// 其余子 agent 与流式/错误行按旧渲染顺序排在末尾。
+/// B3c：capability gating —— 无 subagent 能力时行序列不注入子 agent 行
+/// （ACP 走自己的 subagent 展示，native 版不硬塞）。
+fn subagent_cards_for_rows(subagent_available: bool, cards: &[SubagentCard]) -> &[SubagentCard] {
+    if subagent_available {
+        cards
+    } else {
+        &[]
+    }
+}
+
 fn build_message_row_kinds(
     entries: &[ConversationEntry],
     subagents: &[SubagentCard],
@@ -5557,33 +5566,20 @@ fn render_tool_card(
         .into_any_element()
 }
 
+/// B3c：native `SubagentCard` → 共享 `agent_ui::subagent_row` 的 adapter。
+/// 只映射数据，不重排行顺序（顺序由 `message_row_kinds` 决定）。
 fn render_subagent_row(card: &SubagentCard, palette: &theme::Palette) -> AnyElement {
-    let status = match card.finished {
-        None => "运行中…",
-        Some(true) => "完成",
-        Some(false) => "失败",
-    };
-    let preview: String = card.text.chars().take(300).collect();
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(2.0))
-        .p(space(1))
-        .rounded(px(RADIUS_SMALL))
-        .bg(palette.view)
-        .child(
-            div()
-                .text_size(px(11.0))
-                .text_color(palette.ink_2)
-                .child(format!("子 agent · {status}：{}", card.task)),
-        )
-        .children((!preview.is_empty()).then(|| {
-            div()
-                .text_size(px(11.0))
-                .text_color(palette.ink_3)
-                .child(preview)
-        }))
-        .into_any_element()
+    cgc_agent_ui::subagent_row::render_subagent_row(cgc_agent_ui::subagent_row::SubagentRowSpec {
+        task: card.task.clone(),
+        text: card.text.clone(),
+        finished: card.finished,
+        style: cgc_agent_ui::subagent_row::SubagentRowStyle {
+            view: palette.view,
+            ink_2: palette.ink_2,
+            ink_3: palette.ink_3,
+            radius: RADIUS_SMALL,
+        },
+    })
 }
 
 /// 空线程时的引导提示（重发重建状态时需要剔除，避免显示在编辑后的对话顶部）。
@@ -5882,6 +5878,22 @@ mod workspace_prompt_tests {
         super::keep_change_by_path(&mut changes, "a.rs");
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].path, "b.rs");
+    }
+
+    #[test]
+    fn subagent_rows_hidden_without_capability() {
+        use super::SubagentCard;
+        let cards = vec![SubagentCard {
+            task: "t".into(),
+            text: "x".into(),
+            finished: None,
+            tool_call_id: None,
+        }];
+        assert_eq!(super::subagent_cards_for_rows(true, &cards).len(), 1);
+        assert!(
+            super::subagent_cards_for_rows(false, &cards).is_empty(),
+            "ACP 无 subagent 能力"
+        );
     }
 
     #[test]

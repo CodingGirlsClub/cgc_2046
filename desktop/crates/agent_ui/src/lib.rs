@@ -18,6 +18,7 @@ pub mod panel;
 pub mod permission_card;
 pub mod picker;
 pub mod settings;
+pub mod subagent_row;
 
 // 共享会话模型 crate（gpui-free）；保留 `agent_ui::conversation` / `message_flow` 路径。
 pub use cgc_agent_conversation::{conversation, message_flow};
