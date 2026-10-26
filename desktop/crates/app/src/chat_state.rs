@@ -1,4 +1,5 @@
-//! 对话本地状态：只保存每课会话指针与 agent 偏好，不保存任何对话内容。
+//! 对话本地状态：只保存 agent 偏好/安装记录，不保存任何对话内容。
+//! （Stage 3.5a 起移除 per-course 会话指针：会话恢复统一走历史侧栏。）
 
 fn chat_state_path() -> std::path::PathBuf {
     if let Some(path) = std::env::var_os("CGC_CHAT_STATE_FILE") {
@@ -25,33 +26,6 @@ pub(crate) fn write_chat_state_to(path: &std::path::Path, state: &serde_json::Va
     if let Ok(raw) = serde_json::to_string_pretty(state) {
         let _ = std::fs::write(path, raw);
     }
-}
-
-pub(crate) fn load_chat_pointer(course_id: &str, agent_id: &str) -> Option<String> {
-    let state = read_chat_state();
-    let pointer = state.get("pointers")?.get(course_id)?;
-    if pointer.get("agent")?.as_str()? != agent_id {
-        return None;
-    }
-    pointer.get("sessionId")?.as_str().map(str::to_string)
-}
-
-pub(crate) fn save_chat_pointer(course_id: &str, agent: &str, session_id: &str) {
-    let mut state = read_chat_state();
-    if let Some(pointers) = state.get_mut("pointers") {
-        pointers[course_id] = serde_json::json!({ "agent": agent, "sessionId": session_id });
-    }
-    write_chat_state(&state);
-}
-
-pub(crate) fn clear_chat_pointer(course_id: &str) {
-    let mut state = read_chat_state();
-    if let Some(pointers) = state.get_mut("pointers") {
-        if let Some(object) = pointers.as_object_mut() {
-            object.remove(course_id);
-        }
-    }
-    write_chat_state(&state);
 }
 
 pub(crate) fn load_installed_agents() -> std::collections::BTreeMap<String, String> {

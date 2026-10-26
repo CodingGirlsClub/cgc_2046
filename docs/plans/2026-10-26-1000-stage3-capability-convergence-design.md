@@ -193,3 +193,16 @@ ACP agent 自定义非标准 options；已由纯函数/两轨对照测试覆盖�
 门禁（Lead 独立复跑）：fmt ✅、clippy `-D warnings` ✅、workspace 测试 **536 passed / 0 failed**（registry 网络 mock 用例偶发超时，重跑即绿，既有 flake）。
 
 真机待最终确认（用户复验）：侧栏开关/高亮、hover 图标、Rename 持久化、Archive/Unarchive、过滤/分桶、清空刷新、品牌图标观感。
+
+## 12. Stage 3.5a 实现记录（2026-10-26，全局 Agent Panel + 课程页只传上下文）
+
+| 内容 | 说明 |
+|---|---|
+| 统一工作区 | `agent_scope` 移除课程页分支：所有页面共用 `~/cgc2046_workspace/assistant/<userId>`；native 线程/工作区不再随课程页切换（`CGC_AGENT_WORKSPACE` 仍优先） |
+| 删除课程页专用会话 | 移除 per-course ACP 会话指针（`load/save/clear_chat_pointer`）与 `chat.course_id`；会话恢复统一走历史侧栏 / `restore_id`；`chat_course_context` 删除 |
+| 课程上下文附加 | 新增 `app::page_context`：课程学习页写 course/revision/unit；native 与 ACP 发 prompt 时用同一段 `[当前学习上下文]…` 文本前置（用户气泡仍只显示原始输入）；上下文 chip 可 dismiss，换页/新会话恢复 |
+| 全局 Panel | Agent Panel 本就在 RootView 壳层任意页面渲染；配合统一 scope 后同一 thread 跨页面延续，footer 时钟/⌘J/⌥⌘J 等入口不变 |
+| 默认 agent | 3.5a 不改默认（仍按既有选择/灰度）；「默认 native」= 3.5b，依赖 3.4 MCP |
+
+测试：`page_context` 单测（note 格式化、dismiss/换页重置、attach 行为）；`agent_scope` 单测改为「所有页面同一 assistant scope」；workspace 门禁全量通过。
+真机待验（用户）：课程页发消息时上下文 chip 与 agent 回复是否引用课程/单元；切换页面后同一 thread 延续；非课程页不再出现上下文 chip。

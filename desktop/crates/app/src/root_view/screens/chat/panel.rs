@@ -995,10 +995,13 @@ pub(in crate::root_view) fn render_chat_panel(
                     .children(rows)
             })
     };
-    let context_chip = (ctx.active_tab.as_deref())
-        .and_then(|active| ctx.tabs.iter().find(|tab| tab.id == active))
-        .filter(|tab| tab.issue_id.is_some() && !ctx.chat.context_dismissed)
-        .map(|tab| {
+    let context_chip = crate::page_context::current()
+        .filter(|_| !crate::page_context::is_dismissed())
+        .map(|context| {
+            let label = match &context.unit {
+                Some(unit) => format!("上下文：{} · {}", context.course_title, unit.title),
+                None => format!("上下文：{}", context.course_title),
+            };
             div()
                 .id("chat-context-chip")
                 .flex()
@@ -1011,7 +1014,7 @@ pub(in crate::root_view) fn render_chat_panel(
                 .bg(palette.soft)
                 .text_size(px(11.0))
                 .text_color(palette.ink_3)
-                .child(format!("上下文：{}", tab.title))
+                .child(label)
                 .child(
                     div()
                         .id("chat-context-dismiss")

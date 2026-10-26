@@ -37,7 +37,7 @@ impl RootView {
         self.account_menu_open = false;
     }
 
-    /// 根据登录用户 + 当前 active tab 刷新全局 agent 工作区 scope。
+    /// 根据登录用户刷新全局 agent 工作区 scope（Stage 3.5a 起与页面无关）。
     /// 由 RootView 渲染前调用；NativeAgentView 渲染时比较并切换线程/工作区。
     pub(in crate::root_view) fn refresh_agent_scope(&self) {
         if self.session.signed_in().is_none() && std::env::var_os("CGC_AGENT_WORKSPACE").is_none() {
@@ -47,12 +47,39 @@ impl RootView {
             .session
             .signed_in()
             .map(|session| session.user_id.as_str());
-        let active_path = self
-            .active_tab
-            .as_deref()
-            .and_then(|active| self.tabs.iter().find(|tab| tab.id == active))
-            .map(|tab| tab.path.as_str());
-        crate::agent_scope::set_current(crate::agent_scope::resolve(user_id, active_path));
+        crate::agent_scope::set_current(crate::agent_scope::resolve(user_id));
+    }
+
+    /// Stage 3.5a：课程学习页把 course/revision/unit 写入全局页面上下文，
+    /// 发 prompt 时由 native/ACP 两轨以同一段文本附加（不再有课程页专用会话）。
+    pub(in crate::root_view) fn refresh_page_context(&self) {
+        let on_learning = self
+            .current
+            .as_ref()
+            .is_some_and(|route_match| route_match.route.id == "courses.learning");
+        let context = on_learning.then(|| {
+            self.course_detail.detail().map(|detail| {
+                let unit = self.active_issue_tab().map(|(_, issue_id)| {
+                    let title = self
+                        .active_tab
+                        .as_deref()
+                        .and_then(|active| self.tabs.iter().find(|tab| tab.id == active))
+                        .map(|tab| tab.title.clone())
+                        .unwrap_or_else(|| issue_id.to_string());
+                    crate::page_context::PageUnit {
+                        id: issue_id.to_string(),
+                        title,
+                    }
+                });
+                crate::page_context::PageContext {
+                    course_id: detail.id.clone(),
+                    course_title: detail.title.clone(),
+                    revision: detail.revision_number,
+                    unit,
+                }
+            })
+        });
+        crate::page_context::set_current(context.flatten());
     }
 
     pub fn is_signed_in(&self) -> bool {
@@ -867,26 +894,6 @@ impl RootView {
         .detach();
     }
 
-    pub(in crate::root_view) fn chat_course_context(
-        &self,
-    ) -> Result<CourseContext, cgc_platform::workspace::ContextError> {
-        let detail = self.course_detail.detail();
-        let mut provider = CourseContextProvider::from_parts(
-            self.session
-                .signed_in()
-                .map(|session| session.user_id.clone()),
-            self.workspaces
-                .current()
-                .map(|workspace| workspace.id.clone()),
-            detail.map(|detail| detail.id.clone()),
-            detail
-                .and_then(|detail| detail.revision_number)
-                .map(|revision| revision.to_string()),
-        );
-        provider.workspace_epoch = Some(self.workspaces.epoch());
-        provider.current()
-    }
-
     fn apply_installed_versions(detected: &mut [DetectedAgent]) {
         let installed = load_installed_agents();
         for row in detected {
@@ -915,22 +922,14 @@ impl RootView {
         if self.chat.host.is_none() {
             self.revoke_chat_lease(cx);
         }
-        // 学习上下文是可选的：没有课程上下文时仍可启动通用 ACP 会话。
-        let context = self.chat_course_context().ok();
         let epoch = self.workspaces.epoch();
         let cwd = crate::agent_scope::current()
             .map(|scope| scope.root)
             .unwrap_or_else(crate::agent_workspace_root);
-        let course_id = context.as_ref().map(|context| context.course_id.clone());
         let requested_agent = self.chat.selected_agent.clone();
-        let load_agent = requested_agent.as_deref().unwrap_or("omp");
-        let load_session = self.chat.restore_id.take().or_else(|| {
-            course_id
-                .as_deref()
-                .and_then(|course_id| load_chat_pointer(course_id, load_agent))
-        });
+        // Stage 3.5a：不再有课程页专用会话指针；只按历史侧栏的 restore_id 恢复。
+        let load_session = self.chat.restore_id.take();
         self.chat.load_retry_available = load_session.is_some();
-        self.chat.course_id = course_id;
         self.chat.session_id = None;
         self.chat.configs.clear();
         self.chat.commands.clear();
@@ -1055,14 +1054,9 @@ impl RootView {
                             Some(session_id) => match AcpHost::start(make_config(Some(session_id)))
                             {
                                 Ok(host) => Ok(host),
-                                Err(_) => {
-                                    // 本地会话指针可能指向 agent 已清理的 thread；重新建会话，
-                                    // 不把用户卡在“重试也会失败”的错误页。
-                                    if let Some(course_id) = this.chat.course_id.clone() {
-                                        clear_chat_pointer(&course_id);
-                                    }
-                                    AcpHost::start(make_config(None))
-                                }
+                                // 会话可能已被 agent 清理；重新建会话，
+                                // 不把用户卡在“重试也会失败”的错误页。
+                                Err(_) => AcpHost::start(make_config(None)),
                             },
                             None => AcpHost::start(make_config(None)),
                         };
@@ -1173,14 +1167,6 @@ impl RootView {
                     self.chat.version = Some(version.clone());
                     self.chat.session_id = Some(session_id.clone());
                     self.chat.phase = ChatPhase::Ready;
-                    if let Some(course_id) = self.chat.course_id.clone() {
-                        let agent_id = self
-                            .chat
-                            .selected_agent
-                            .clone()
-                            .unwrap_or_else(|| "omp".to_string());
-                        save_chat_pointer(&course_id, &agent_id, session_id);
-                    }
                     // Stage 3.3：本地历史恢复结果（回放替换 / 降级保留本地记录）。
                     self.finish_history_restore(cx);
                 }
@@ -1265,9 +1251,6 @@ impl RootView {
                         // 的同步 Err；这里丢弃旧 host、清指针并重开 session/new。
                         self.chat.load_retry_available = false;
                         self.chat.host.take();
-                        if let Some(course_id) = self.chat.course_id.clone() {
-                            clear_chat_pointer(&course_id);
-                        }
                         self.chat.restore_id = None;
                         self.chat.phase = ChatPhase::Idle;
                         self.start_chat(cx);
@@ -1608,10 +1591,7 @@ impl RootView {
         let Some(host) = &self.chat.host else {
             return;
         };
-        let prompt = match self.active_tab_context_note() {
-            Some(note) => format!("{note}\n\n{text}"),
-            None => text.clone(),
-        };
+        let prompt = crate::page_context::attach_to_prompt(&text);
         if !host.prompt(prompt) {
             self.chat.phase = ChatPhase::Failed("agent channel closed".to_string());
             return;
@@ -1703,9 +1683,6 @@ impl RootView {
 
     pub(in crate::root_view) fn new_chat(&mut self, cx: &mut Context<Self>) {
         self.agent_panel_open = true;
-        if let Some(course_id) = self.chat.course_id.clone() {
-            clear_chat_pointer(&course_id);
-        }
         self.chat.title_override = None;
         self.chat.npx_cache_retry = false;
         self.agent_panel_editing_title = false;
@@ -1918,7 +1895,6 @@ impl RootView {
         self.chat.sessions.clear();
         self.chat.opened_from_history = false;
         self.chat.session_id = None;
-        self.chat.course_id = None;
         self.chat.configs_applied = false;
         self.chat.history_open = false;
         self.chat.guidance = None;
@@ -2413,7 +2389,7 @@ impl RootView {
     fn open_tab(&mut self, tab: PaneTab, cx: &mut Context<Self>) {
         self.state.open_tab(tab.clone());
         self.site_tree_search_focused = false;
-        self.chat.context_dismissed = false;
+        crate::page_context::reset_dismissed();
         self.navigate(&tab.path);
         self.persist_current_workspace_state();
         cx.notify();
@@ -2425,7 +2401,7 @@ impl RootView {
         };
         self.active_tab = Some(tab.id.clone());
         self.site_tree_search_focused = false;
-        self.chat.context_dismissed = false;
+        crate::page_context::reset_dismissed();
         self.navigate(&tab.path);
         self.persist_current_workspace_state();
         cx.notify();
@@ -3404,7 +3380,7 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn dismiss_chat_context(&mut self, cx: &mut Context<Self>) {
-        self.chat.context_dismissed = true;
+        crate::page_context::dismiss();
         cx.notify();
     }
 
@@ -3418,19 +3394,6 @@ impl RootView {
         message: &str,
     ) -> bool {
         load_retry_available && Self::is_stale_session_error(message)
-    }
-
-    fn active_tab_context_note(&self) -> Option<String> {
-        if self.chat.context_dismissed {
-            return None;
-        }
-        let active = self.active_tab.as_deref()?;
-        let tab = self.tabs.iter().find(|tab| tab.id == active)?;
-        tab.issue_id.as_ref()?;
-        Some(format!(
-            "[当前学习上下文] 正在阅读：{} ({})。回答时优先结合这张 issue 卡。",
-            tab.title, tab.id
-        ))
     }
 
     pub(in crate::root_view) fn ensure_key_focus(&mut self, cx: &mut Context<Self>) -> FocusHandle {

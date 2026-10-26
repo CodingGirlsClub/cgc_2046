@@ -483,7 +483,7 @@ Stage 3 桌面单端收口已按 `docs/plans/2026-10-26-1000-stage3-capability-c
 - **会话/历史统一（3.3）**：ACP transcript 落 `conversations.db`（native 仍 threads.db）；统一历史侧栏、Rename/Archive、自动归档、Agent 品牌图标；Web 端 agent 与 `cgc-host` 已删除，桌面是唯一 agent 入口。
 - **审批规则（3.2b）**：`toolPermissions` 仅 native 生效（路线 A）；external ACP 审批由 agent 自身模式/options 决定，客户端只渲染与回传。
 - **MCP（3.4）暂缓**：native MCP client 未实现，本文 §3.5 的「启动会话构造 MCP client、tools/list、5 个学习工具」仍待产品确认白名单后开工；3.5b「默认 native」依赖 MCP，保持灰度。
-- **3.5a 进行中**：全局 Agent Panel + 课程页只传上下文（去除课程页专用 scope/会话指针），默认 agent 暂不切换。
+- **3.5a 已实现**：全局 Agent Panel + 课程页只传上下文（去除课程页专用 scope/会话指针，新增 `page_context` 附加 course/revision/unit），默认 agent 仍不切换（3.5b 依赖 MCP）。
 
 ## 参考
 

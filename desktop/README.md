@@ -168,3 +168,4 @@ bash scripts/verify-package.sh                          # Windows: pwsh scripts/
 - **审批规则**：`preferences.json` 的 `toolPermissions` **仅 native 生效**（详见上文「审批规则」）；external agent 的审批由 agent 自身模式决定。
 - **MCP**：3.4 native MCP client 暂缓，待产品确认白名单；当前 external ACP agent 的 MCP 注入保持现状。
 - **侧栏状态**：历史侧栏开关会写入 `preferences.json`（`historySidebarOpen`），重启后恢复。
+- **全局 Agent Panel（3.5a）**：任意页面打开同一 Agent Panel / 同一线程；课程学习页自动把 course/revision/unit 作为上下文附加到每条 prompt（native/ACP 同一段文本，输入气泡不显示），上下文 chip 可移除。不再有课程页专用工作区/会话指针。默认 agent 切换（默认 native）待 3.5b/MCP。

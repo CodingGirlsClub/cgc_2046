@@ -770,9 +770,9 @@ impl NativeAgentView {
         let providers = prefs.providers.clone();
         let session_store =
             SessionStore::open(paths.data_root.join("agent").join("threads.db")).ok();
-        // 工作区按页面 scope 解析（CGC_AGENT_WORKSPACE 优先）；线程按 scope 一条。
-        let scope = crate::agent_scope::current()
-            .unwrap_or_else(|| crate::agent_scope::resolve(None, None));
+        // 全局 assistant scope（CGC_AGENT_WORKSPACE 优先）；所有页面共用一条线程。
+        let scope =
+            crate::agent_scope::current().unwrap_or_else(|| crate::agent_scope::resolve(None));
         let thread_id = scope_thread_id(&scope);
         let workspace = scope.root.clone();
         let _ = std::fs::create_dir_all(&workspace);
@@ -1128,6 +1128,9 @@ impl NativeAgentView {
         // 真正发给 agent 的 prompt 前置技能/文件上下文。
         let display = text.clone();
         let prompt = mention::resolve_prompt(&content, self.context.workspace());
+        // Stage 3.5a：课程页上下文（course/revision/unit）对两轨同一段文本；
+        // 用户 dismiss 后不带，换页/新会话恢复。
+        let prompt = crate::page_context::attach_to_prompt(&prompt);
         if self.busy {
             self.queued_messages.push(QueuedMessage { display, prompt });
             self.status = format!(

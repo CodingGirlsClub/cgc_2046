@@ -11,9 +11,8 @@ use gpui_kit::*;
 use std::sync::{Arc, OnceLock};
 
 use crate::chat_state::{
-    clear_chat_pointer, load_chat_pointer, load_chat_pref, load_installed_agents,
-    load_selected_agent, save_chat_pointer, save_chat_pref, save_installed_agent,
-    save_selected_agent,
+    load_chat_pref, load_installed_agents, load_selected_agent, save_chat_pref,
+    save_installed_agent, save_selected_agent,
 };
 use crate::formula::render_markdown_with_math;
 use cgc_agent_ui::conversation::ConversationThread;
@@ -54,7 +53,6 @@ use cgc_platform::routes::NavIcon;
 use cgc_platform::session::{
     AuthError, SessionService, SessionState, SignedInSession, WechatLoginStatus,
 };
-use cgc_platform::workspace::{CourseContext, CourseContextPort, CourseContextProvider};
 use cgc_platform::workspace::{
     FakeWorkspaceApi, HttpWorkspaceApi, WorkspaceApi, WorkspaceListState, WorkspaceService,
 };
@@ -224,7 +222,6 @@ struct ChatUi {
     phase: ChatPhase,
     agent: String,
     selected_agent: Option<String>,
-    context_dismissed: bool,
     version: Option<String>,
     thread: ConversationThread,
     chat_scroll: ScrollHandle,
@@ -246,7 +243,6 @@ struct ChatUi {
     sessions: Vec<SessionSummary>,
     opened_from_history: bool,
     session_id: Option<String>,
-    course_id: Option<String>,
     restore_id: Option<String>,
     configs_applied: bool,
     history_open: bool,
@@ -610,6 +606,7 @@ impl RootView {
 impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.refresh_agent_scope();
+        self.refresh_page_context();
         self.refresh_history_if_dirty(cx);
         let mode = theme::resolve(self.preference, window.appearance());
         let _ = mode;
