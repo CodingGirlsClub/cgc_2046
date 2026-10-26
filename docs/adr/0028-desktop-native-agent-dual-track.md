@@ -134,3 +134,13 @@ Zed 的实践提供了直接参照：native agent 是进程内 Rust 实现，与
 - Zed 源码（网关鉴权）：`crates/language_models_cloud/src/language_models_cloud.rs:56-190,391-400`（`CloudLlmTokenProvider`、`authenticated_llm_request`、`x-zed-expired-token` / `x-zed-outdated-token` 重试、402 映射）、`crates/client/src/client.rs:350,1390-1400`（Bearer + 版本头）
 - 前期调研：`docs/tmp/agent-research/{zed-native-agent.md,cgc-agent-current-state.md,pi-runtime-and-embedding.md,legion-eval.md,elixir-gateway-candidates.md}`
 - 讨论页：`docs/tmp/answers/native-agent-provider-plan.html`
+
+## Stage 3 实现状态追加（2026-10-26）
+
+Stage 3 已按设计文档 `docs/plans/2026-10-26-1000-stage3-capability-convergence-design.md` 落地前三个切片，本 ADR 的旧描述据此修正：
+
+- **native 已是进程内 ACP server**（Phase A）：双轨共用 `AgentConnection`/`HostEvent` ingestion，删除 `HostState::apply`；审批统一为 ACP 形状 `PermissionRequest{options}` + 共享 `permission_card`。
+- **`toolPermissions` 仅作用于 native**（路线 A，Zed 对齐）：external ACP agent 的审批由其自身模式/options 决定，客户端只渲染与回传；agent 在 auto 模式自行批准时客户端收不到请求。
+- **ACP transcript 落本地 `conversations.db`**（thread_content + sidebar_threads，0600/WAL）：统一历史侧栏、Rename/Archive、每 agent 最近 5 条自动归档、Archive 分桶/过滤；永久清空在 Settings（仅 ACP）。
+- **Web 端 agent 与 `cgc-host` 已删除**：原文「external 路径与 `cgc-host` 保持现状」不再成立；桌面是唯一 agent 入口。
+- **MCP 暂缓**：3.4 native MCP client 待产品确认白名单（建议 5 个只读课程工具）与第三方 MCP 排期；3.5b 默认 native 依赖 MCP，暂不推进。

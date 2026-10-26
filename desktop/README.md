@@ -157,3 +157,12 @@ bash scripts/verify-package.sh                          # Windows: pwsh scripts/
 - **i18n**：真源是 `desktop/resources/i18n/keys.txt`（必需 key 清单）+ `{zh,en}.lang` 词表，key 规则 `feature.domain.key`。`crates/app/build.rs` 构建期校验：每个登记 key 在两个 locale 都存在、词表没有未登记 key、无重复/非法命名/空值；缺 key 直接构建失败并指出 key 与 locale，并生成强类型 `Key`（代码不能引用未登记 key，双表同删会编译失败）。启动语言用 `CGC_LANG=zh|en`（默认 `zh`）。
 - **注册 seam**：每个 domain crate 的 `src/registration.rs` 声明 `ROUTES` 与 `I18N_KEYS`；app 启动时聚合（`registration::build_registry` / `validate`）并拒绝重复 `Route.id`/path、动态段 `:`（v1 未支持）、domain 间重复 key、route 标题 key 重复与缺词条。对应单测直接调生产校验函数（不是测试内复刻），冲突会在 CI 变红并给出具体 id/path/key/两个 owner。
 - **字体**：Inter / Geist Mono 是 web 的目标字体，桌面端暂未随包（缺失时由 gpui 回退系统字体）；随包字体留到后续 story。
+
+
+## Agent 历史与 MCP 状态（Stage 3，2026-10-26）
+
+- **统一历史**：native 与 external ACP agent 共用历史侧栏（footer 时钟图标 / Agent Panel `⋯` → Toggle Threads Sidebar / `⌥⌘J`）；Rename（写 `title_override`）、Archive/Unarchive、今天/昨天/最近 7 天/更早分桶、过滤；ACP 每 agent 最近 5 条自动归档。
+- **ACP transcript 本地库**：`<data_root>/conversations.db`（0600、WAL，`thread_content` + `sidebar_threads`；另有 `native_archived` 表存 native 归档标记）。打开历史先显示本地记录，`session/load` 成功则回放替换，失败显示「外部 agent 无法恢复会话，以下为本地记录」。
+- **永久清空**：Settings → AI →「清空 ACP 对话历史」（二次确认，仅 ACP；native 不受影响）。Archive 只隐藏，不删除。
+- **审批规则**：`preferences.json` 的 `toolPermissions` **仅 native 生效**（详见上文「审批规则」）；external agent 的审批由 agent 自身模式决定。
+- **MCP**：3.4 native MCP client 暂缓，待产品确认白名单；当前 external ACP agent 的 MCP 注入保持现状。
