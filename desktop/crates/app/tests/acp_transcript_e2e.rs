@@ -219,3 +219,140 @@ fn acp_session_saved_reloaded_opened_and_deleted_with_titles() {
     assert!(store.list_sidebar(20).expect("list").is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ---------------------------------------------------------------------------
+// session/load 恢复：成功回放替换本地内容 / 失败或空回放降级保留本地记录
+// ---------------------------------------------------------------------------
+
+fn stub_load_agent(replay: bool) -> impl ConnectTo<Client> + 'static {
+    use agent_client_protocol::schema::v1::{LoadSessionRequest, LoadSessionResponse};
+    Agent
+        .builder()
+        .name("stub-acp-load")
+        .on_receive_request(
+            async |_req: InitializeRequest, responder, _cx| {
+                responder.respond(
+                    InitializeResponse::new(ProtocolVersion::V1)
+                        .agent_capabilities(AgentCapabilities::new()),
+                )
+            },
+            on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |_req: LoadSessionRequest, responder, cx| {
+                if replay {
+                    let connection = cx.clone();
+                    cx.spawn(async move {
+                        let session = SessionId::new(STUB_SESSION);
+                        connection.send_notification(SessionNotification::new(
+                            session.clone(),
+                            SessionUpdate::AgentMessageChunk(ContentChunk::new(
+                                ContentBlock::Text(TextContent::new("replayed history")),
+                            )),
+                        ))?;
+                        connection.send_notification(SessionNotification::new(
+                            session,
+                            SessionUpdate::SessionInfoUpdate(
+                                SessionInfoUpdate::new().title("回放标题".to_string()),
+                            ),
+                        ))?;
+                        responder.respond(LoadSessionResponse::new())
+                    })?;
+                    return Ok(());
+                }
+                responder.respond(LoadSessionResponse::new())
+            },
+            on_receive_request!(),
+        )
+}
+
+/// 收集直到 Ready（含回放事件）；返回 (事件, replay thread, saw_replay)。
+fn drive_load(host: &AcpHost) -> (Vec<HostEvent>, ConversationThread, bool) {
+    let mut events = Vec::new();
+    let mut replay = ConversationThread::new("replay");
+    let mut saw_replay = false;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        let Some(event) = host.recv_timeout(Duration::from_millis(50)) else {
+            continue;
+        };
+        if cgc_desktop_app::agent_ingest::apply_thread_event(&mut replay, &event) {
+            saw_replay = true;
+        }
+        let ready = matches!(event, HostEvent::Ready { .. });
+        events.push(event);
+        if ready {
+            break;
+        }
+    }
+    (events, replay, saw_replay)
+}
+
+#[test]
+fn successful_session_load_replay_replaces_local_record() {
+    let host = AcpHost::start_in_process(
+        AcpHostConfig::new("", temp_dir("replay")).with_load_session(STUB_SESSION),
+        stub_load_agent(true),
+    )
+    .expect("start host");
+    let (events, replay, saw_replay) = drive_load(&host);
+    assert!(saw_replay, "回放事件必须被 ingestion 捕获: {events:?}");
+    assert!(matches!(events.last(), Some(HostEvent::Ready { .. })));
+    assert_eq!(
+        resume_decision(false, true, saw_replay),
+        ResumeDecision::UseReplay,
+        "load 成功且回放 → 用回放替换本地内容"
+    );
+    assert_eq!(replay.title.as_deref(), Some("回放标题"));
+    assert!(replay.entries.iter().any(|entry| matches!(
+        entry,
+        Entry::Assistant { text } if text.contains("replayed history")
+    )));
+    host.shutdown();
+}
+
+#[test]
+fn load_without_replay_degrades_to_local_record() {
+    let host = AcpHost::start_in_process(
+        AcpHostConfig::new("", temp_dir("noreplay")).with_load_session(STUB_SESSION),
+        stub_load_agent(false),
+    )
+    .expect("start host");
+    let (events, _replay, saw_replay) = drive_load(&host);
+    assert!(!saw_replay, "无回放时不得误判为已恢复历史: {events:?}");
+    assert_eq!(
+        resume_decision(false, true, saw_replay),
+        ResumeDecision::KeepLocalRecord,
+        "load 成功但 agent 未回放 → 保留本地记录并提示"
+    );
+    host.shutdown();
+}
+
+#[test]
+fn load_failure_degrades_to_local_record() {
+    // agent 不支持 session/load（未注册 handler）→ 客户端收到 Error；
+    // 有本地记录时应降级保留，而不是清指针重开新会话。
+    let host = AcpHost::start_in_process(
+        AcpHostConfig::new("", temp_dir("loadfail")).with_load_session(STUB_SESSION),
+        stub_agent(),
+    )
+    .expect("start host");
+    let mut got_error = false;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        let Some(event) = host.recv_timeout(Duration::from_millis(50)) else {
+            continue;
+        };
+        if matches!(event, HostEvent::Error { .. }) {
+            got_error = true;
+            break;
+        }
+    }
+    assert!(got_error, "agent 不支持 session/load 时必须上报 Error");
+    assert_eq!(
+        resume_decision(true, true, false),
+        ResumeDecision::KeepLocalRecord,
+        "load 失败但有本地记录 → 降级提示 + 保留本地，可新建会话"
+    );
+    host.shutdown();
+}
