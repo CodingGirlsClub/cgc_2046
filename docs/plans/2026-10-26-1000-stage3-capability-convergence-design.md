@@ -90,3 +90,28 @@ XERJ `zed-agent` 语料（sha `07c8d71f`）显示 Zed 不是「两套审批模�
 ## 7. 验收环境
 
 本地 Phoenix 后端（`localhost:4000`）+ 测试账号 `demo@example.com/demo1234` + 已验证的 native/ACP 真机回归流程；测试数据只落 `/tmp` 隔离目录，不碰真实 data/keychain/Host。
+
+## 8. Phase A 实现与真机验收记录（2026-10-26）
+
+实现分支 `stage3/design`：
+
+| commit | 内容 |
+|---|---|
+| `3ca36397` | native 进程内 ACP server 地基（transport + server adapter + 权限桥 + cancel/守卫） |
+| `f87788a8` | 双轨共用 `HostEvent` ingestion + 两轨对照测试 |
+| `0722b2e4` | native 面板经进程内 ACP 接线，删除 `HostState::apply` 映射 |
+| `0984b845` | 自审修正（tool 支持门控、awaiting 交回期间不丢队列） |
+| `11086a76` | 删除迁移后不再使用的 `AsyncChannelObserver` |
+| `290c768e` | 真机审批两 bug 修复（已解决行不更新 / 第二轮审批卡丢失 + timeout） |
+
+门禁（Lead 独立复跑）：`cargo fmt --check`、`cargo clippy --workspace --all-targets -- -D warnings`、
+`cargo test --workspace --exclude cgc-agent-tools` → **467 passed / 0 failed**。
+
+真机验收（native + 真实 DeepSeek + 本地后端，2026-10-26）：
+- 第一轮 `run_command` 审批 → 允许一次 → 审批行变「已允许」、工具卡完成、输出 `hi`、退出码 0；
+- 紧接着第二轮同句 → **审批卡正常再次出现** → 允许一次 → 回合正常结束，无 Stop 常亮 / 无 `turn timeout`；
+- 回合末操作栏存在「Copy This Agent Response / Scroll to User Message / Scroll to Top / 编辑消息 / 恢复检查点」；
+- 整回合 Copy 复核：剪贴板为完整回合文本（含 ```bash 代码块与退出码说明）。
+
+未在本轮冒烟中重新点击验证：恢复检查点/编辑重发（Stage 2 已验证过，Phase A 只换事件来源，未改 checkpoint 逻辑）；
+Phase B 的共享视图/能力迁移仍按 §4 待做。
