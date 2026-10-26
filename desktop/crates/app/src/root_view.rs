@@ -78,6 +78,7 @@ use crate::routing::{Route, RouteMatch, RouteRegistry};
 use crate::settings_window::SettingsWindowView;
 use crate::theme::{self, space, ThemePreference, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL};
 
+mod agent_icons;
 mod controller;
 mod history_actions;
 pub(crate) use history_actions::notify_history_changed;

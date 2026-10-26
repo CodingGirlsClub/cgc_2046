@@ -1,5 +1,4 @@
 pub(in crate::root_view) use auth::{render_login_split, render_reset_login_card};
-pub(in crate::root_view) use chat::agent_panel::agent_icon_path;
 pub(in crate::root_view) use chat::dock::render_agent_panel;
 pub(in crate::root_view) use context::ScreenContext;
 pub(in crate::root_view) use courses::{

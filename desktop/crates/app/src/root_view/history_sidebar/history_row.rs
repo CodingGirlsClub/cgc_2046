@@ -21,14 +21,6 @@ pub(in crate::root_view) fn history_row_actions(entry: &HistoryEntry) -> History
     }
 }
 
-/// 行首 agent 图标（与 agent panel 的映射保持一致）。
-pub(in crate::root_view) fn history_agent_icon(agent_label: &str) -> SharedString {
-    match agent_label {
-        "native" => AssetIcon::Bot.path(),
-        other => crate::root_view::screens::agent_icon_path(other),
-    }
-}
-
 impl RootView {
     /// 历史行（Zed 侧栏形态）：两行布局（agent 图标 + 标题 / agent · 相对时间），
     /// hover 时右侧出现铅笔（重命名）与归档/取消归档图标按钮。
@@ -108,7 +100,6 @@ impl RootView {
         }
 
         let group_name = SharedString::from(format!("history-row-{thread_id}"));
-        let icon_path = history_agent_icon(&agent_label);
         let open_root = cx.entity().downgrade();
         let open_thread_id = thread_id.clone();
         let open_session_id = session_id.clone();
@@ -126,8 +117,11 @@ impl RootView {
             .child(
                 div()
                     .flex_none()
-                    .text_color(palette.ink_3)
-                    .child(Icon::default().path(icon_path).small()),
+                    .child(crate::root_view::agent_icons::agent_icon_element(
+                        &agent_label,
+                        14.0,
+                        palette.ink_3,
+                    )),
             )
             .child(
                 div()
@@ -287,8 +281,7 @@ impl RootView {
 #[cfg(test)]
 mod history_row_tests {
     use crate::acp_history::{HistoryEntry, HistorySource};
-    use crate::root_view::history_sidebar::history_row::{history_agent_icon, history_row_actions};
-    use gpui_kit::assets::IconName as AssetIcon;
+    use crate::root_view::history_sidebar::history_row::history_row_actions;
 
     fn entry(source: HistorySource, archived: bool) -> HistoryEntry {
         HistoryEntry {
@@ -312,16 +305,6 @@ mod history_row_tests {
         assert!(
             native.rename && native.archive && !native.unarchive,
             "native 也可归档（标记存 native_archived）"
-        );
-    }
-
-    #[test]
-    fn agent_icon_maps_native_and_external_agents() {
-        assert_eq!(history_agent_icon("native"), AssetIcon::Bot.path());
-        assert_eq!(
-            history_agent_icon("codex"),
-            AssetIcon::SquareTerminal.path(),
-            "与 agent panel 的 agent_icon_path 同映射"
         );
     }
 }

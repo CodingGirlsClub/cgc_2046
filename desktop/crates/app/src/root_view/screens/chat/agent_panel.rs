@@ -66,14 +66,6 @@ fn menu_separator(palette: theme::Palette) -> AnyElement {
         .into_any_element()
 }
 
-pub(in crate::root_view) fn agent_icon_path(id: &str) -> SharedString {
-    match id {
-        "claude_code" => AssetIcon::Asterisk.path(),
-        "codex" | "opencode" => AssetIcon::SquareTerminal.path(),
-        _ => AssetIcon::Bot.path(),
-    }
-}
-
 fn panel_title(ctx: &ScreenContext<'_>, cx: &mut Context<RootView>) -> String {
     if ctx.native_chat_mode && RootView::native_agent_enabled() {
         return ctx
@@ -105,10 +97,10 @@ fn header(
     let palette = *palette;
     let root = cx.entity().downgrade();
     let native_mode = ctx.native_chat_mode && RootView::native_agent_enabled();
-    let agent_icon = if native_mode {
-        AssetIcon::Bot.path()
+    let agent_icon_id = if native_mode {
+        "native".to_string()
     } else {
-        agent_icon_path(ctx.chat.selected_agent.as_deref().unwrap_or_default())
+        ctx.chat.selected_agent.clone().unwrap_or_default()
     };
     let title = panel_title(ctx, cx);
     let editing = ctx.agent_panel_editing_title;
@@ -197,12 +189,11 @@ fn header(
         .pb(space(1))
         .border_b_1()
         .border_color(palette.line)
-        .child(
-            Icon::default()
-                .path(agent_icon)
-                .text_color(palette.ink_3)
-                .small(),
-        )
+        .child(crate::root_view::agent_icons::agent_icon_element(
+            &agent_icon_id,
+            16.0,
+            palette.ink_3,
+        ))
         .child(title_area)
         .children(editing.then(|| {
             let save_root = save_root.clone();
@@ -281,7 +272,11 @@ fn header(
                                 .text_size(px(11.0))
                                 .text_color(palette.ink_2)
                                 .hover(|style| style.bg(palette.soft))
-                                .child(Icon::default().path(AssetIcon::Bot.path()).small())
+                                .child(crate::root_view::agent_icons::agent_icon_element(
+                                    "native",
+                                    14.0,
+                                    palette.ink_3,
+                                ))
                                 .child(div().flex_1().child("CGC Agent"))
                                 .child(
                                     div()
@@ -331,7 +326,6 @@ fn header(
                             let row_dismiss = dismiss.clone();
                             let id = id.clone();
                             let name = name.clone();
-                            let icon_path = agent_icon_path(&id);
                             rows.push(
                                 div()
                                     .id(SharedString::from(format!("agent-panel-agent-{id}")))
@@ -345,7 +339,11 @@ fn header(
                                     .text_size(px(11.0))
                                     .text_color(palette.ink_2)
                                     .hover(|style| style.bg(palette.soft))
-                                    .child(Icon::default().path(icon_path).small())
+                                    .child(crate::root_view::agent_icons::agent_icon_element(
+                                        &id,
+                                        14.0,
+                                        palette.ink_3,
+                                    ))
                                     .child(div().flex_1().child(name.clone()))
                                     .on_click(move |_, window, cx| {
                                         let _ = row_root.update(cx, |this, cx| {
