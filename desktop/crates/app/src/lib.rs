@@ -17,6 +17,7 @@ pub(crate) mod agent_scope;
 pub mod deep_link;
 pub mod formula;
 pub mod i18n;
+pub mod image_viewer;
 pub mod mention;
 pub mod native_agent_view;
 pub mod native_context;
