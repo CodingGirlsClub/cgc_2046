@@ -6,6 +6,7 @@
 //! 统一的 `ChatSurfaceFlags`（纯函数、可单测），panel 从此读 surface 而不是直接
 //! 散读 `thread.capabilities`；后续 B2/B3 再把 composer/action 回调迁进来。
 
+use super::super::super::*;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -139,6 +140,80 @@ pub(in crate::root_view) struct ComposerCallbacks {
     pub insert_skill_mention: Arc<dyn Fn(String, &mut Window, &mut App)>,
 }
 
+/// native 附件 chip 映射：`(name, is_image)` → 共享 `AttachmentChip`（id 用序号）。
+// TODO(B2b-2)：native view adapter 接入后移除 allow。
+/// 由 native view 注入数据，surface 不反向依赖 native view。
+#[allow(dead_code)]
+pub(in crate::root_view) fn attachment_chips_from_images(
+    images: impl IntoIterator<Item = (String, bool)>,
+) -> Vec<AttachmentChip> {
+    images
+        .into_iter()
+        .enumerate()
+        .map(|(index, (label, is_image))| AttachmentChip {
+            id: format!("attachment-{index}"),
+            label,
+            is_image,
+        })
+        .collect()
+}
+
+/// `CGC_NATIVE_SHARED_VIEW=1`：native 面板使用共享 composer（Phase B2b 灰度，
+/// 默认关闭；关闭时旧 native composer 行为完全不变）。
+#[allow(dead_code)]
+pub(in crate::root_view) fn native_shared_view_enabled() -> bool {
+    native_shared_view_enabled_from(std::env::var("CGC_NATIVE_SHARED_VIEW").ok().as_deref())
+}
+
+#[allow(dead_code)]
+fn native_shared_view_enabled_from(value: Option<&str>) -> bool {
+    value == Some("1")
+}
+
+/// 共享附件 chip 渲染（路径/名称/图片标记；空列表不渲染）。
+pub(in crate::root_view) fn render_attachment_chips(
+    chips: &[AttachmentChip],
+    palette: &theme::Palette,
+    on_remove: impl Fn(&str) + Clone + 'static,
+) -> Vec<AnyElement> {
+    chips
+        .iter()
+        .map(|chip| {
+            let remove = on_remove.clone();
+            let id = chip.id.clone();
+            div()
+                .id(SharedString::from(format!(
+                    "composer-attachment-{}",
+                    chip.id
+                )))
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(4.0))
+                .px(space(1))
+                .py(px(1.0))
+                .rounded(px(RADIUS_SMALL))
+                .border_1()
+                .border_color(palette.line)
+                .text_size(px(11.0))
+                .text_color(palette.ink_2)
+                .child(if chip.is_image { "🖼" } else { "📄" })
+                .child(chip.label.clone())
+                .child(
+                    div()
+                        .id(SharedString::from(format!(
+                            "composer-attachment-remove-{}",
+                            chip.id
+                        )))
+                        .hover(|style| style.bg(palette.soft))
+                        .child("×")
+                        .on_click(move |_, _, _| remove(&id)),
+                )
+                .into_any_element()
+        })
+        .collect()
+}
+
 /// 附件入口是否可见（B2b：能力位关闭时不渲染入口）。
 pub(in crate::root_view) fn attachment_entry_visible(flags: ChatSurfaceFlags) -> bool {
     flags.attachments
@@ -215,6 +290,26 @@ mod composer_tests {
         let acp_flags = super::ChatSurfaceFlags::from_capabilities(ThreadCapabilities::acp());
         assert!(!super::attachment_entry_visible(acp_flags));
         assert!(!super::image_entry_visible(acp_flags));
+    }
+
+    #[test]
+    fn attachment_chips_map_name_and_image_flag() {
+        let chips = super::attachment_chips_from_images(vec![
+            ("screenshot.png".to_string(), true),
+            ("notes.md".to_string(), false),
+        ]);
+        assert_eq!(chips.len(), 2);
+        assert_eq!(chips[0].id, "attachment-0");
+        assert_eq!(chips[0].label, "screenshot.png");
+        assert!(chips[0].is_image);
+        assert!(!chips[1].is_image);
+    }
+
+    #[test]
+    fn native_shared_view_flag_defaults_off_and_reads_env_value() {
+        assert!(!super::native_shared_view_enabled_from(None));
+        assert!(!super::native_shared_view_enabled_from(Some("0")));
+        assert!(super::native_shared_view_enabled_from(Some("1")));
     }
 
     #[test]
