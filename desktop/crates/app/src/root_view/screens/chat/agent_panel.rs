@@ -66,7 +66,7 @@ fn menu_separator(palette: theme::Palette) -> AnyElement {
         .into_any_element()
 }
 
-fn agent_icon_path(id: &str) -> SharedString {
+pub(in crate::root_view) fn agent_icon_path(id: &str) -> SharedString {
     match id {
         "claude_code" => AssetIcon::Asterisk.path(),
         "codex" | "opencode" => AssetIcon::SquareTerminal.path(),
