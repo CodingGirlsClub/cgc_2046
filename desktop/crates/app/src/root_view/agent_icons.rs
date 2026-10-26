@@ -5,7 +5,7 @@
 //! - codex.svg  ← https://cdn.agentclientprotocol.com/registry/v1/latest/codex-acp.svg
 //! - claude.svg ← https://cdn.agentclientprotocol.com/registry/v1/latest/claude-acp.svg
 //! - opencode.svg ← .../opencode.svg
-//! - omp.svg    ← https://omp.sh/favicon.svg
+//! - omp.svg    ← https://omp.sh 首页内联 logo（pi-mark 路径，转单色 currentColor）
 //!
 //! 未知 agent 回退 Bot 图标（Lucide）。品牌 mark 只用于标识对应 agent。
 
@@ -98,5 +98,32 @@ mod agent_icon_tests {
             agent_icon_kind("claude-code-nightly"),
             AgentIconKind::Claude
         );
+    }
+
+    /// `Icon::data` 把 SVG 当单色图标渲染（填充被主题色替换）：资产必须只用
+    /// currentColor 单色路径，不能带 gradient / 背景 rect / 外部 url 引用，
+    /// 否则会渲染成灰色方块（OMP favicon 曾如此）。
+    #[test]
+    fn agent_icon_assets_are_monochrome_current_color_svgs() {
+        for (name, svg) in [
+            ("codex", super::CODEX_SVG),
+            ("claude", super::CLAUDE_SVG),
+            ("omp", super::OMP_SVG),
+            ("opencode", super::OPENCODE_SVG),
+        ] {
+            let text = std::str::from_utf8(svg).expect("utf8 svg");
+            assert!(
+                !text.contains("url("),
+                "{name}.svg 不能引用 gradient/url（Icon::data 单色渲染）"
+            );
+            assert!(
+                !text.to_ascii_lowercase().contains("<rect"),
+                "{name}.svg 不能带背景 rect（会渲染成实心方块）"
+            );
+            assert!(
+                text.contains("currentColor"),
+                "{name}.svg 必须用 currentColor 跟随主题"
+            );
+        }
     }
 }
