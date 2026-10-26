@@ -212,17 +212,30 @@ pub fn merge_history(
     native_threads: Vec<ThreadSummary>,
     acp_threads: Vec<SidebarThread>,
 ) -> Vec<HistoryEntry> {
+    merge_history_with_native_archived(native_threads, acp_threads, &Default::default())
+}
+
+/// 同 [`merge_history`]，额外带上 native 线程的归档标记（threads.db schema 不变，
+/// 标记存在 conversations.db.native_archived）。
+pub fn merge_history_with_native_archived(
+    native_threads: Vec<ThreadSummary>,
+    acp_threads: Vec<SidebarThread>,
+    native_archived: &std::collections::HashSet<String>,
+) -> Vec<HistoryEntry> {
     let mut entries: Vec<HistoryEntry> = native_threads
         .into_iter()
         .filter(|thread| thread.agent == "native")
-        .map(|thread| HistoryEntry {
-            thread_id: thread.id,
-            session_id: thread.session_id,
-            agent_id: Some(thread.agent),
-            title: thread.title,
-            updated_at: cgc_agent_store::format_epoch_rfc3339(thread.updated_at),
-            archived: false,
-            source: HistorySource::Native,
+        .map(|thread| {
+            let archived = native_archived.contains(&thread.id);
+            HistoryEntry {
+                thread_id: thread.id,
+                session_id: thread.session_id,
+                agent_id: Some(thread.agent),
+                title: thread.title,
+                updated_at: cgc_agent_store::format_epoch_rfc3339(thread.updated_at),
+                archived,
+                source: HistorySource::Native,
+            }
         })
         .chain(acp_threads.into_iter().map(|thread| {
             let title = thread
@@ -249,8 +262,8 @@ pub fn merge_history(
     entries
 }
 
-/// 主列表：ACP 每个 agent 只保留最近 `keep_per_agent` 条；native 全部保留
-/// （native threads.db 没有 archived 列，不能归档，截断会导致旧记录不可达）。
+/// 主列表：ACP 每个 agent 只保留最近 `keep_per_agent` 条（更早自动归档）；
+/// native 不自动截断（threads.db 无 archived 列，手动归档的会从主列表消失）。
 pub fn main_list(entries: &[HistoryEntry], keep_per_agent: usize) -> Vec<HistoryEntry> {
     let mut acp_seen: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
     entries
@@ -378,24 +391,29 @@ pub fn now_local() -> DateTime<Local> {
     Local::now()
 }
 
-/// 归档（仅 ACP；native 返回 false 表示不支持）。
+/// 归档：ACP 写 sidebar_threads.archived；native 写 native_archived
+/// （threads.db schema 不变），两者都能从主列表消失、在 Archive 视图 Unarchive。
 pub fn archive_thread(thread_id: &str) -> bool {
-    if !thread_id.starts_with(ACP_THREAD_PREFIX) {
-        return false;
+    if thread_id.starts_with(ACP_THREAD_PREFIX) {
+        return open_conversation_store()
+            .ok()
+            .map(|store| store.set_archived(thread_id, true).unwrap_or(false))
+            .unwrap_or(false);
     }
     open_conversation_store()
-        .ok()
-        .map(|store| store.set_archived(thread_id, true).unwrap_or(false))
+        .map(|store| store.set_native_archived(thread_id, true).is_ok())
         .unwrap_or(false)
 }
 
 pub fn unarchive_thread(thread_id: &str) -> bool {
-    if !thread_id.starts_with(ACP_THREAD_PREFIX) {
-        return false;
+    if thread_id.starts_with(ACP_THREAD_PREFIX) {
+        return open_conversation_store()
+            .ok()
+            .map(|store| store.set_archived(thread_id, false).unwrap_or(false))
+            .unwrap_or(false);
     }
     open_conversation_store()
-        .ok()
-        .map(|store| store.set_archived(thread_id, false).unwrap_or(false))
+        .map(|store| store.set_native_archived(thread_id, false).is_ok())
         .unwrap_or(false)
 }
 
@@ -709,6 +727,49 @@ mod tests {
             archived,
             source: HistorySource::Acp,
         }
+    }
+
+    #[test]
+    fn native_archived_marks_hide_from_main_list_and_show_in_archive() {
+        let native = vec![
+            ThreadSummary {
+                id: "native-1".to_string(),
+                title: Some("native 1".to_string()),
+                agent: "native".to_string(),
+                session_id: None,
+                provider_id: "p".to_string(),
+                model_id: "m".to_string(),
+                updated_at: 1_790_000_000,
+            },
+            ThreadSummary {
+                id: "native-2".to_string(),
+                title: Some("native 2".to_string()),
+                agent: "native".to_string(),
+                session_id: None,
+                provider_id: "p".to_string(),
+                model_id: "m".to_string(),
+                updated_at: 1_790_000_100,
+            },
+        ];
+        let archived: std::collections::HashSet<String> =
+            ["native-1".to_string()].into_iter().collect();
+        let merged = merge_history_with_native_archived(native, Vec::new(), &archived);
+        let archived_entry = merged
+            .iter()
+            .find(|entry| entry.thread_id == "native-1")
+            .expect("native-1");
+        assert!(archived_entry.archived, "native 归档标记覆盖 archived 位");
+        assert!(
+            main_list(&merged, 5)
+                .iter()
+                .all(|entry| entry.thread_id != "native-1"),
+            "归档的 native 行从主列表消失"
+        );
+        assert_eq!(archive_entries(&merged).len(), 1);
+        assert_eq!(archive_entries(&merged)[0].thread_id, "native-1");
+        assert!(main_list(&merged, 5)
+            .iter()
+            .any(|entry| entry.thread_id == "native-2"));
     }
 
     #[test]

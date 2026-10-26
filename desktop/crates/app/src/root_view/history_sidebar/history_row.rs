@@ -11,11 +11,12 @@ pub(in crate::root_view) struct HistoryRowActions {
     pub unarchive: bool,
 }
 
-/// native 无 archived 列，只能 Rename；ACP 主列表可 Archive，归档列表可 Unarchive。
+/// 未归档行显示 Rename + Archive；归档行显示 Rename + Unarchive。
+/// native 的归档标记存在 conversations.db.native_archived（threads.db schema 不变）。
 pub(in crate::root_view) fn history_row_actions(entry: &HistoryEntry) -> HistoryRowActions {
     HistoryRowActions {
         rename: true,
-        archive: !entry.archived && entry.source == HistorySource::Acp,
+        archive: !entry.archived,
         unarchive: entry.archived,
     }
 }
@@ -309,8 +310,8 @@ mod history_row_tests {
         assert!(archived_acp.rename && !archived_acp.archive && archived_acp.unarchive);
         let native = history_row_actions(&entry(HistorySource::Native, false));
         assert!(
-            native.rename && !native.archive && !native.unarchive,
-            "native 无 archived 列"
+            native.rename && native.archive && !native.unarchive,
+            "native 也可归档（标记存 native_archived）"
         );
     }
 

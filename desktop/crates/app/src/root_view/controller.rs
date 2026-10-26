@@ -1428,9 +1428,14 @@ impl RootView {
 
     /// 统一历史：native（threads.db，仅 native agent）+ ACP（conversations.db），
     /// 按 updated_at 倒序。native store 的 schema/内容不变。
+    /// 统一历史：native（threads.db，仅 native agent）+ ACP（conversations.db），
+    /// 按 updated_at 倒序；读前执行 ACP 自动归档（每 agent 最近 N 条，幂等）。
+    /// ACP 归档在 sidebar_threads.archived；native 归档在 native_archived
+    /// （threads.db schema 不变），这里统一 merge 成 archived 位。
     pub(in crate::root_view) fn load_unified_history(
         &self,
     ) -> Vec<crate::acp_history::HistoryEntry> {
+        let _ = crate::acp_history::auto_archive_recent(crate::acp_history::RECENT_PER_AGENT);
         let native_path = AppPaths::from_env()
             .data_root
             .join("agent")
@@ -1439,11 +1444,16 @@ impl RootView {
             .ok()
             .and_then(|store| store.list_threads(50).ok())
             .unwrap_or_default();
-        let acp = crate::acp_history::open_conversation_store()
-            .ok()
-            .and_then(|store| store.list_sidebar(50).ok())
+        let store = crate::acp_history::open_conversation_store().ok();
+        let acp = store
+            .as_ref()
+            .and_then(|store| store.list_all(200).ok())
             .unwrap_or_default();
-        crate::acp_history::merge_history(native, acp)
+        let native_archived = store
+            .as_ref()
+            .and_then(|store| store.archived_native_threads().ok())
+            .unwrap_or_default();
+        crate::acp_history::merge_history_with_native_archived(native, acp, &native_archived)
     }
 
     pub(in crate::root_view) fn reset_config_search(

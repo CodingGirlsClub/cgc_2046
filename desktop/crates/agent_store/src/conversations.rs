@@ -16,8 +16,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 /// 数据库文件名（`<data_root>/conversations.db`）。
 pub const CONVERSATIONS_DB: &str = "conversations.db";
-/// 当前 schema 版本；迁移只增不改。
-pub const SCHEMA_VERSION: i64 = 1;
+/// 当前 schema 版本；迁移只增不改（v2：native 归档标记表）。
+pub const SCHEMA_VERSION: i64 = 2;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConversationStoreError {
@@ -110,7 +110,7 @@ impl ConversationStore {
                 applied_at TEXT NOT NULL
             );",
         )?;
-        let applied: i64 = self.conn.query_row(
+        let mut applied: i64 = self.conn.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
             [],
             |row| row.get(0),
@@ -155,6 +155,22 @@ impl ConversationStore {
             self.conn.execute(
                 "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
                 params![1_i64, now_utc_rfc3339()],
+            )?;
+            applied = 1;
+        }
+        if applied < 2 {
+            // v2：native 历史（threads.db）不能改 schema，归档标记单独存这里；
+            // 清空 ACP 历史不会碰这张表。
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS native_archived (
+                    thread_id TEXT PRIMARY KEY,
+                    archived INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL DEFAULT ''
+                );",
+            )?;
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+                params![2_i64, now_utc_rfc3339()],
             )?;
         }
         Ok(())
@@ -361,6 +377,37 @@ impl ConversationStore {
             )?;
         }
         Ok(archived.len())
+    }
+
+    /// native 线程归档标记（threads.db schema 不变，标记单独存此表）。
+    pub fn set_native_archived(
+        &self,
+        thread_id: &str,
+        archived: bool,
+    ) -> Result<(), ConversationStoreError> {
+        self.conn.execute(
+            "INSERT INTO native_archived (thread_id, archived, updated_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(thread_id) DO UPDATE SET archived = excluded.archived,
+                updated_at = excluded.updated_at",
+            params![thread_id, i64::from(archived), now_utc_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    /// 已归档的 native thread id 集合（统一列表 merge 时覆盖 archived 位）。
+    pub fn archived_native_threads(
+        &self,
+    ) -> Result<std::collections::HashSet<String>, ConversationStoreError> {
+        let mut statement = self
+            .conn
+            .prepare("SELECT thread_id FROM native_archived WHERE archived = 1")?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        let mut ids = std::collections::HashSet::new();
+        for row in rows {
+            ids.insert(row?);
+        }
+        Ok(ids)
     }
 
     /// 删除单条会话（content + metadata）；返回是否存在。
@@ -825,6 +872,44 @@ mod tests {
         // 取消归档后重新自动归档会再次归档它（仍超过 N）。
         store.set_archived("acp-omp-0", false).expect("unarchive");
         assert_eq!(store.auto_archive_recent(5).expect("third"), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn native_archive_mark_round_trips_and_survives_clear_acp_history() {
+        let dir = temp_dir("nativearchive");
+        let mut store = ConversationStore::open(dir.join(CONVERSATIONS_DB)).expect("open");
+        store
+            .save_thread(
+                &sample_thread("acp-x"),
+                &sidebar("acp-x", "2026-10-26T12:00:00Z"),
+            )
+            .expect("save acp");
+        store
+            .set_native_archived("native-1", true)
+            .expect("archive native");
+        store
+            .set_native_archived("native-2", false)
+            .expect("mark unarchived");
+        let archived = store.archived_native_threads().expect("list");
+        assert_eq!(archived.len(), 1);
+        assert!(archived.contains("native-1"));
+
+        // 清空 ACP 历史只动 sidebar_threads/thread_content，native 归档标记保留。
+        assert_eq!(store.clear_all().expect("clear"), 1);
+        let archived = store.archived_native_threads().expect("list after clear");
+        assert!(
+            archived.contains("native-1"),
+            "native 归档标记不受 ACP 清空影响"
+        );
+
+        store
+            .set_native_archived("native-1", false)
+            .expect("unarchive");
+        assert!(store
+            .archived_native_threads()
+            .expect("list final")
+            .is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

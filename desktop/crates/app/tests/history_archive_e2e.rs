@@ -219,6 +219,45 @@ fn unified_history_auto_archive_rename_unarchive_and_clear() {
         "Unarchive 后回主列表"
     );
 
+    // ---- native 行也可归档：标记存 conversations.db.native_archived，
+    //      threads.db schema 不变；主列表消失、Archive 视图可见、可 Unarchive ----
+    let native_archived_id = "native-0".to_string();
+    assert!(
+        acp_history::archive_thread(&native_archived_id),
+        "native 归档应成功（写 native_archived 表）"
+    );
+    let archived_native = acp_store
+        .archived_native_threads()
+        .expect("native archived");
+    assert!(archived_native.contains(&native_archived_id));
+    let merged_native = acp_history::merge_history_with_native_archived(
+        native_store.list_threads(50).expect("native"),
+        acp_store.list_all(200).expect("acp"),
+        &archived_native,
+    );
+    assert!(
+        main_list(&merged_native, RECENT_PER_AGENT)
+            .iter()
+            .all(|entry| entry.thread_id != native_archived_id),
+        "归档的 native 行从主列表消失"
+    );
+    assert_eq!(
+        acp_history::archive_entries(&merged_native)
+            .iter()
+            .filter(|entry| entry.thread_id == native_archived_id)
+            .count(),
+        1,
+        "归档的 native 行出现在 Archive 视图"
+    );
+    assert!(acp_history::unarchive_thread(&native_archived_id));
+    assert!(acp_store
+        .archived_native_threads()
+        .expect("native archived")
+        .is_empty());
+
+    // 再归档一次用于验证「清空 ACP 历史不清 native 归档标记」。
+    assert!(acp_history::archive_thread(&native_archived_id));
+
     // ---- 清空：dirty/cleared 世代号推进，ACP 历史为空、native 不受影响 ----
     let dirty_before = acp_history::history_dirty_generation();
     let cleared_before = acp_history::history_cleared_generation();
@@ -245,4 +284,21 @@ fn unified_history_auto_archive_rename_unarchive_and_clear() {
         "native threads.db 不受清空影响"
     );
     assert_eq!(acp_history::auto_archive_recent(RECENT_PER_AGENT), 0);
+    // 清空 ACP 历史只清 conversations.db 的 ACP 行，native 归档标记保留。
+    let archived_native = acp_store
+        .archived_native_threads()
+        .expect("native archived");
+    assert!(
+        archived_native.contains(&native_archived_id),
+        "清空 ACP 历史不得清掉 native 归档标记"
+    );
+    let merged_native = acp_history::merge_history_with_native_archived(
+        native_store.list_threads(50).expect("native"),
+        acp_store.list_all(200).expect("acp"),
+        &archived_native,
+    );
+    assert!(main_list(&merged_native, RECENT_PER_AGENT)
+        .iter()
+        .all(|entry| entry.thread_id != native_archived_id));
+    acp_history::unarchive_thread(&native_archived_id);
 }
