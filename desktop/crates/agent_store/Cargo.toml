@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+cgc-agent-conversation = { path = "../agent_conversation" }
 cgc-agent-core = { path = "../agent_core" }
 cgc-agent-provider = { path = "../agent_provider" }
 cgc-agent-checkpoint = { path = "../agent_checkpoint" }

@@ -8,10 +8,13 @@
 //! 能力位 ≈ Zed 的 `AcpThread` 能力判断；UI 渲染仍由 `message_flow` / `message_row` /
 //! `message_actions` 承担，本模块不依赖 gpui。
 
+use serde::{Deserialize, Serialize};
+
 use crate::message_flow::{RowKind, RowView};
 
 /// 线程状态（决定底部操作栏/输入框是否可发送、审批态提示等）。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ThreadStatus {
     #[default]
     Idle,
@@ -21,7 +24,7 @@ pub enum ThreadStatus {
 }
 
 /// 双轨能力位：模型字段照常存在，UI 按位决定是否显示入口（编辑/恢复/steer/queue）。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ThreadCapabilities {
     pub checkpoint_restore: bool,
     pub steer: bool,
@@ -93,7 +96,7 @@ impl ThreadCapabilities {
 }
 
 /// 上下文用量（ACP `usage_update` / native `UsageUpdated`）。
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Usage {
     pub used: u64,
     pub size: u64,
@@ -108,7 +111,7 @@ impl Usage {
 }
 
 /// 计划步骤（ACP `Plan` 每次全量替换；native 来自 plan/todo 工具）。
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanStep {
     pub content: String,
     pub priority: String,
@@ -119,7 +122,8 @@ pub struct PlanStep {
 ///
 /// 只影响 UI 样式与「允许/拒绝」语义判断；具体语义（一次/本会话/前缀）由
 /// `label` 与 `id` 表达，运行时按 `id` 回传。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PermissionOptionKind {
     AllowOnce,
     AllowAlways,
@@ -139,7 +143,7 @@ impl PermissionOptionKind {
 }
 
 /// 一个审批选项（ACP 形状：`option_id` + 展示名 + kind，顺序由请求方决定）。
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PermissionOption {
     pub id: String,
     pub label: String,
@@ -147,7 +151,7 @@ pub struct PermissionOption {
 }
 
 /// 待审批请求（ACP 形状：`{ id, tool, args, options }`；批准逻辑在运行时）。
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PermissionRequest {
     pub request_id: String,
     pub title: String,
@@ -160,12 +164,13 @@ pub struct PermissionRequest {
 }
 
 /// checkpoint 摘要（native 有，ACP 恒 `None`）。
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CheckpointInfo {
     pub id: String,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum NoticeLevel {
     Info,
     Warning,
@@ -173,7 +178,8 @@ pub enum NoticeLevel {
 }
 
 /// 模型行；UI 渲染的原子单位。
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Entry {
     User {
         text: String,
@@ -256,7 +262,11 @@ fn entry_assistant_text(entry: &Entry) -> Option<&str> {
 }
 
 /// 客户端会话模型；线程级状态 + 有序 entries + 能力位/用量/计划/审批。
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
+///
+/// Stage 3.3 起可直接 serde 序列化（ACP transcript 存本地 `conversations.db`）；
+/// `#[serde(default)]` 保证后续字段扩展时旧记录可读（缺字段回落默认）。
+#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ConversationThread {
     pub thread_id: String,
     pub title: Option<String>,
