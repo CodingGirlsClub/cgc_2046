@@ -482,8 +482,9 @@ Stage 3 桌面单端收口已按 `docs/plans/2026-10-26-1000-stage3-capability-c
 - **native 改为进程内 ACP server（Phase A）**：双轨共用 `HostEvent` ingestion / `ConversationThread` 与共享审批卡；本文原「NativeHost 实现同一 HostEvent 接口」的方案被 Zed 对齐的「native 直接作为 ACP server」取代；`HostState::apply` 已删除。
 - **会话/历史统一（3.3）**：ACP transcript 落 `conversations.db`（native 仍 threads.db）；统一历史侧栏、Rename/Archive、自动归档、Agent 品牌图标；Web 端 agent 与 `cgc-host` 已删除，桌面是唯一 agent 入口。
 - **审批规则（3.2b）**：`toolPermissions` 仅 native 生效（路线 A）；external ACP 审批由 agent 自身模式/options 决定，客户端只渲染与回传。
-- **MCP（3.4）暂缓**：native MCP client 未实现，本文 §3.5 的「启动会话构造 MCP client、tools/list、5 个学习工具」仍待产品确认白名单后开工；3.5b「默认 native」依赖 MCP，保持灰度。
-- **3.5a 已实现**：全局 Agent Panel + 课程页只传上下文（去除课程页专用 scope/会话指针，新增 `page_context` 附加 course/revision/unit），默认 agent 仍不切换（3.5b 依赖 MCP）。
+- **MCP（3.4a/b/c 已实现，3.4d 待真机）**：native MCP client（Streamable HTTP JSON-RPC）+ 5 个只读课程工具白名单（`mcp:cgc-2046-learning:*`）已注入 native ToolRegistry；白名单外不注册、无 lease fail-closed、只读审批 Allow。真机验收（真实平台 tools/list 与调用）尚未完成。
+- **3.5a 已实现**：全局 Agent Panel + 课程页只传上下文（去除课程页专用 scope/会话指针，新增 `page_context` 附加 course/revision/unit）。
+- **3.5b 已实现（2026-10-27）**：新会话默认 native（含课程页）；`CGC_NATIVE_AGENT=0` 或设置关闭时回退 External Agent，external agent 仍可选。
 
 ## 参考
 

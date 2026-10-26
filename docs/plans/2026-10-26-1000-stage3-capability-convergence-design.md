@@ -255,12 +255,14 @@ Phase B 的目标：native 与 external ACP 只向 `ConversationThread` + `Threa
 
 删除清单与净删预估：`native_agent_view.rs` 约 6095 行 + `native_thread_state.rs` 635 行；扣除需迁移的小类型/测试（约 200–500 行），预计净删 **6000–6400 行**（以 `git diff --stat` 实测为准）。风险：删除后 native 轨失去旧 UI，必须先在真机确认共享路径等价；flag off 回退路径消失需在 README/ADR 记录。
 
-### 13.5 剩余排期
+### 13.5 剩余排期（2026-10-27 更新）
 
-- **3.4a（MCP client，mock 测试）**：Streamable HTTP JSON-RPC（initialize/tools/list/tools/call）、Bearer、超时/取消/401/403 fail-closed、token 脱敏；mock server 单测。已按 3.4a 提交，3.4b/3.4c（工具注册与两轨注入）待产品白名单与真机验证。
-- **3.4b/c**：MCP 工具注册到 native ToolRegistry + 两轨注入（native/external ACP），需真机验证后推进。
-- **3.5b**：新会话默认 native（非课程页；课程页仍依赖 3.4 MCP），部分已实现（默认模式 + env/prefs 覆盖），课程页默认切换待 3.4。
-- **B4b → B5**：真机验收后删除旧视图，补 B5 文档（README/ADR-0028 收口）并移除临时 flag。
+- **3.4a（MCP client）**：✅ 完成（`a81ca587`）。Streamable HTTP JSON-RPC、Bearer、SSE/JSON、超时/401/403 fail-closed、token 脱敏；mock server 单测。
+- **3.4b（MCP 工具适配 + 白名单纯只读）**：✅ 完成（`cc2a2f9b`、`c698fe93`）。5 个只读课程工具注册入口，白名单外不注册，只读审批 Allow。
+- **3.4c（native ToolRegistry 注入）**：✅ 完成（`8cbe7430`）。复用 RootView lease、host `McpInjection`、两个 registry 构造点注入，无 lease fail-closed。
+- **3.4d（真机 MCP 验收）**：⏳ 待真机（需用户解锁）：真实平台 MCP server 的 tools/list 5 工具与工具调用结果。
+- **3.5b（默认 native 去灰度）**：✅ 完成（`c6cfdd87`）。两轨（含课程页）默认 native；`CGC_NATIVE_AGENT=0` / 设置关闭回退 External Agent。
+- **B4b**：⏳ 待两轨真机验收后执行（删除 `native_agent_view.rs`/`native_thread_state.rs`，报净删行数；计划见 §13.4/§13.6），随后移除 `CGC_NATIVE_SHARED_VIEW` flag。
 
 ### 13.6 夜间增量（2026-10-27 00:00–00:30，headless）
 

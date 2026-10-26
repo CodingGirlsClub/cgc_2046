@@ -166,9 +166,10 @@ bash scripts/verify-package.sh                          # Windows: pwsh scripts/
 - **ACP transcript 本地库**：`<data_root>/conversations.db`（0600、WAL，`thread_content` + `sidebar_threads`；另有 `native_archived` 表存 native 归档标记）。打开历史先显示本地记录，`session/load` 成功则回放替换，失败显示「外部 agent 无法恢复会话，以下为本地记录」。
 - **永久清空**：Settings → AI →「清空 ACP 对话历史」（二次确认，仅 ACP；native 不受影响）。Archive 只隐藏，不删除。
 - **审批规则**：`preferences.json` 的 `toolPermissions` **仅 native 生效**（详见上文「审批规则」）；external agent 的审批由 agent 自身模式决定。
-- **MCP**：3.4 native MCP client 暂缓，待产品确认白名单；当前 external ACP agent 的 MCP 注入保持现状。
+- **MCP（3.4a/b/c，2026-10-27）**：native MCP client 已落地 Streamable HTTP JSON-RPC（initialize/tools/list/tools/call，Bearer/SSE/超时/401/403 fail-closed，token 不进日志）。native-only 注入 5 个只读课程工具：`mcp:cgc-2046-learning:{get_course_content,get_course_revision,get_learning_state,get_role_playbook,get_enrollment_summary}`；白名单外不注册，无 lease/token 时 0 注册（fail-closed）。配置与 ACP 注入同源（`learning_host` lease + `mcp_endpoint(CGC_API_URL)`）；`CGC_MCP_ENDPOINT`/`CGC_MCP_TOKEN` 仅作 headless 测试 seam。**3.4d 真机待验**（真实平台 MCP server 的 tools/list 与工具调用）。
 - **侧栏状态**：历史侧栏开关会写入 `preferences.json`（`historySidebarOpen`），重启后恢复。
-- **全局 Agent Panel（3.5a）**：任意页面打开同一 Agent Panel / 同一线程；课程学习页自动把 course/revision/unit 作为上下文附加到每条 prompt（native/ACP 同一段文本，输入气泡不显示），上下文 chip 可移除。不再有课程页专用工作区/会话指针。默认 agent 切换（默认 native）待 3.5b/MCP。
+- **全局 Agent Panel（3.5a）**：任意页面打开同一 Agent Panel / 同一线程；课程学习页自动把 course/revision/unit 作为上下文附加到每条 prompt（native/ACP 同一段文本，输入气泡不显示），上下文 chip 可移除。不再有课程页专用工作区/会话指针。
+- **默认 agent（3.5b，2026-10-27）**：新会话（含课程页）默认 native；`CGC_NATIVE_AGENT=0` 或设置「启用 Native Agent 入口」关闭时回退 External Agent（external 仍可在 `＋` 菜单选择）。
 
 ## 共享视图（Stage 3.6 Phase B，2026-10-26）
 
@@ -176,4 +177,5 @@ bash scripts/verify-package.sh                          # Windows: pwsh scripts/
 - **shared composer（灰度）**：`CGC_NATIVE_SHARED_VIEW=1` 时 native 主 composer 使用共享渲染（textarea + 附件 chips + slash/mention/context/queue addon + 模型/thinking/审批 picker + queue/steer/send/stop）；缺省/`0` 走 legacy composer。flag 为临时灰度开关，B4b 删除旧视图后移除。
 - **B3 能力**：模型 / thinking / 审批模式 picker 为 native-only 且 capability gated（ACP 用自己的 config options picker）；checkpoint 变更列表/全部保留/全部回退/单文件 Keep-Restore 已抽为共享面板 helper（数据层复用 `agent_checkpoint`）；subagent 进度行迁到 `agent_ui::subagent_row`，native 与共享视图共用、行顺序由 `message_row_kinds` 决定。
 - **B4a 迁移**：native 面板非 UI 逻辑已抽到 `app/src/native_context.rs`（workspace prompt/slash/mention）、`attachment.rs`（图片编解码/预览）、`native_session.rs`（thread/checkpoint 持久化）、`native_panel_host.rs`（agent_state/ACP host/title/audit/model 选择）；controller 创建 native 面板时经 host 注入。
-- **已知限制**：`native_agent_view.rs`（约 6100 行）尚未删除（B4b 等两轨真机验收后进行）；`CGC_NATIVE_SHARED_VIEW` flag 仍在；native MCP client（3.4a 起）只完成 client 层，工具注册/两轨注入（3.4b/c）待产品白名单；默认 native 仅非课程页生效（课程页依赖 3.4）。
+- **已知限制**：`native_agent_view.rs`（约 5850 行）尚未删除（B4b 等两轨真机验收后进行）；`CGC_NATIVE_SHARED_VIEW` flag 仍在；默认 native 已覆盖课程页（3.5b），但 MCP 工具只在有 `learning_host` lease 时注入（3.4d 真机待验）。
+- **本地门禁口径（开发）**：本机 Rockxy/Clash 代理会污染 localhost mock，全量测试固定清代理并串行：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY -u http_proxy -u https_proxy -u all_proxy -u no_proxy cargo test --workspace --exclude cgc-agent-tools -- --test-threads=1`（本轮实测 596 passed / 0 failed）。

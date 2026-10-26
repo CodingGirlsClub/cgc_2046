@@ -154,3 +154,10 @@ Stage 3 已按设计文档 `docs/plans/2026-10-26-1000-stage3-capability-converg
 - **临时 flag**：`CGC_NATIVE_SHARED_VIEW=1` 让 native 主 composer 走共享渲染；缺省为 legacy。移除条件：旧视图 `native_agent_view.rs` 删除（B4b）且两轨真机验收通过；删除后回退路径不再存在，需在本 ADR/README 记录。
 - **B4b 计划**：先把 `native_thread_state` 中仍被共享层使用的类型迁到 `native_panel_host`/`attachment`，再把 controller 的 `Entity<NativeAgentView>` 改为 host/共享面板入口，最后删除 `native_agent_view.rs`（约 6100 行）与 `native_thread_state.rs`（635 行），预计净删 6000–6400 行（以 `git diff --stat` 实测为准）。
 - **剩余依赖**：3.4a MCP Streamable HTTP client 已提交（mock 测试）；3.4b/c（工具注册与两轨注入）待产品确认白名单与真机验证；3.5b 默认 native 仅非课程页生效（课程页默认切换依赖 3.4）。
+
+## MCP 与默认入口（2026-10-27）
+
+- **MCP 只读白名单（3.4a/b/c）**：native MCP client 走 Streamable HTTP JSON-RPC（initialize/tools/list/tools/call，Bearer、SSE/JSON、超时与 401/403 fail-closed、token 脱敏）。只注册 5 个只读课程工具（`mcp:cgc-2046-learning:*`：get_course_content / get_course_revision / get_learning_state / get_role_playbook / get_enrollment_summary）；白名单外一律不注册，只读工具审批分类为 `Allow`（不弹卡）。
+- **native-only 注入**：配置与 ACP `session/new` 注入同源（`learning_host` lease + `mcp_endpoint(CGC_API_URL)`），但当前只注入 native `ToolRegistry`；external ACP agent 的 MCP 注入保持原逻辑。无 lease/token → 0 工具（fail-closed），不 panic、不打印 token；`CGC_MCP_ENDPOINT/TOKEN` 仅作 headless 测试 seam。
+- **默认 native（3.5b）**：`preferences.nativeAgentEnabled` 默认 true，`resolve_native_agent_enabled` = `CGC_NATIVE_AGENT`（"0" 关闭）> `CGC_NATIVE_AGENT_DEMO` > 设置开关；课程页与非课程页同默认，关闭后回退 External Agent。3.4d（真实平台 MCP 工具调用）真机待验。
+- **B4b**：旧视图 `native_agent_view.rs`（约 5850 行）/`native_thread_state.rs`（635 行）尚未删除，等两轨真机验收；删除计划见设计文档 §13.4/§13.6。
