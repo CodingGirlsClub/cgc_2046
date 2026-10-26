@@ -117,6 +117,10 @@ impl RootView {
             .child(
                 div()
                     .flex_none()
+                    .size(px(14.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
                     .child(crate::root_view::agent_icons::agent_icon_element(
                         &agent_label,
                         14.0,
@@ -177,8 +181,8 @@ impl RootView {
                     .justify_center()
                     .rounded(px(RADIUS_SMALL))
                     .text_color(palette.ink_3)
-                    .invisible()
-                    .group_hover(group, |style| style.visible())
+                    .opacity(0.0)
+                    .group_hover(group, |style| style.opacity(1.0))
                     .hover(|style| style.bg(palette.card))
                     .child(Icon::default().path(AssetIcon::Pencil.path()).small())
                     .tooltip(move |window, cx| Tooltip::new("重命名").build(window, cx))
@@ -208,8 +212,8 @@ impl RootView {
                     .justify_center()
                     .rounded(px(RADIUS_SMALL))
                     .text_color(palette.ink_3)
-                    .invisible()
-                    .group_hover(group, |style| style.visible())
+                    .opacity(0.0)
+                    .group_hover(group, |style| style.opacity(1.0))
                     .hover(|style| style.bg(palette.card))
                     .child(Icon::default().path(AssetIcon::Archive.path()).small())
                     .tooltip(move |window, cx| Tooltip::new("归档").build(window, cx))
@@ -238,8 +242,8 @@ impl RootView {
                     .justify_center()
                     .rounded(px(RADIUS_SMALL))
                     .text_color(palette.ink_3)
-                    .invisible()
-                    .group_hover(group, |style| style.visible())
+                    .opacity(0.0)
+                    .group_hover(group, |style| style.opacity(1.0))
                     .hover(|style| style.bg(palette.card))
                     .child(
                         Icon::default()

@@ -773,6 +773,29 @@ mod tests {
     }
 
     #[test]
+    fn archive_and_unarchive_flip_list_membership() {
+        let mut entries = vec![
+            entry("acp-1", "2026-10-26T10:00:00+08:00", true),
+            entry("acp-2", "2026-10-26T11:00:00+08:00", false),
+        ];
+        // 归档后：主列表消失、归档视图出现。
+        assert!(main_list(&entries, 5)
+            .iter()
+            .all(|entry| entry.thread_id != "acp-1"));
+        assert!(archive_entries(&entries)
+            .iter()
+            .any(|entry| entry.thread_id == "acp-1"));
+        // 取消归档后（下一次 reload 的数据）：回到主列表、离开归档视图。
+        entries[0].archived = false;
+        assert!(main_list(&entries, 5)
+            .iter()
+            .any(|entry| entry.thread_id == "acp-1"));
+        assert!(archive_entries(&entries)
+            .iter()
+            .all(|entry| entry.thread_id != "acp-1"));
+    }
+
+    #[test]
     fn archive_buckets_split_today_yesterday_last7_earlier() {
         let now = now_local();
         let day = 86_400;
