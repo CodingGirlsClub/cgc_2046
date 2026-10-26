@@ -2699,6 +2699,55 @@ mod tests {
     }
 
     #[test]
+    fn threads_sidebar_shortcut_is_alt_cmd_or_alt_ctrl_j() {
+        let mac = gpui_kit::Keystroke {
+            modifiers: gpui_kit::Modifiers {
+                platform: true,
+                alt: true,
+                ..Default::default()
+            },
+            key: "j".to_string(),
+            key_char: None,
+        };
+        assert!(RootView::is_threads_sidebar_shortcut(&mac));
+
+        let windows = gpui_kit::Keystroke {
+            modifiers: gpui_kit::Modifiers {
+                control: true,
+                alt: true,
+                ..Default::default()
+            },
+            key: "j".to_string(),
+            key_char: None,
+        };
+        assert!(RootView::is_threads_sidebar_shortcut(&windows));
+
+        // 不带 alt 的 Cmd/Ctrl+J 仍是 Agent Panel 快捷键（Zed 把两者分开）。
+        let agent_panel = gpui_kit::Keystroke {
+            modifiers: gpui_kit::Modifiers {
+                platform: true,
+                ..Default::default()
+            },
+            key: "j".to_string(),
+            key_char: None,
+        };
+        assert!(!RootView::is_threads_sidebar_shortcut(&agent_panel));
+        assert!(RootView::is_agent_panel_shortcut(&agent_panel));
+
+        let shift = gpui_kit::Keystroke {
+            modifiers: gpui_kit::Modifiers {
+                platform: true,
+                alt: true,
+                shift: true,
+                ..Default::default()
+            },
+            key: "j".to_string(),
+            key_char: None,
+        };
+        assert!(!RootView::is_threads_sidebar_shortcut(&shift));
+    }
+
+    #[test]
     fn starts_on_workspace_route_signed_out() {
         let view = view();
         assert_eq!(

@@ -408,6 +408,8 @@ fn header(
                     let dismiss = cx.entity().downgrade();
                     let regen_root = regenerate_root.clone();
                     let regen_dismiss = dismiss.clone();
+                    let threads_root = settings_root.clone();
+                    let threads_dismiss = dismiss.clone();
                     let settings_root = settings_root.clone();
                     let settings_dismiss = dismiss;
                     div()
@@ -435,6 +437,35 @@ fn header(
                         }))
                         .child(
                             div()
+                                .id("agent-panel-toggle-threads-sidebar")
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .justify_between()
+                                .gap(space(1))
+                                .px(space(1))
+                                .py(px(3.0))
+                                .rounded(px(RADIUS_SMALL))
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_2)
+                                .hover(|style| style.bg(palette.soft))
+                                .child("Toggle Threads Sidebar")
+                                .child(
+                                    div()
+                                        .text_size(px(10.0))
+                                        .text_color(palette.ink_3)
+                                        .child(threads_sidebar_shortcut_label()),
+                                )
+                                .on_click(move |_, window, cx| {
+                                    let _ = threads_root.update(cx, |this, cx| {
+                                        this.toggle_history_sidebar(cx);
+                                    });
+                                    let _ = threads_dismiss
+                                        .update(cx, |state, cx| state.dismiss(window, cx));
+                                }),
+                        )
+                        .child(
+                            div()
                                 .id("agent-panel-settings")
                                 .px(space(1))
                                 .py(px(3.0))
@@ -455,4 +486,14 @@ fn header(
                 }),
         )
         .into_any_element()
+}
+
+/// 历史侧栏快捷键展示文本（与 `RootView::is_threads_sidebar_shortcut` 保持一致；
+/// Zed 用 ⌥⌘J，非 macOS 用 Ctrl+Alt+J）。
+fn threads_sidebar_shortcut_label() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "⌥⌘J"
+    } else {
+        "Ctrl+Alt+J"
+    }
 }

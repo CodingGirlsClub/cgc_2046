@@ -2648,6 +2648,14 @@ impl RootView {
             && (keystroke.modifiers.platform || keystroke.modifiers.control)
     }
 
+    /// Zed `ToggleWorkspaceSidebar`（⌥⌘J / Ctrl+Alt+J）：切换历史侧边栏。
+    pub(in crate::root_view) fn is_threads_sidebar_shortcut(keystroke: &Keystroke) -> bool {
+        keystroke.key.eq_ignore_ascii_case("j")
+            && !keystroke.modifiers.shift
+            && keystroke.modifiers.alt
+            && (keystroke.modifiers.platform || keystroke.modifiers.control)
+    }
+
     pub(in crate::root_view) fn is_agent_panel_shortcut(keystroke: &Keystroke) -> bool {
         keystroke.key.eq_ignore_ascii_case("j")
             && !keystroke.modifiers.shift
@@ -2666,6 +2674,10 @@ impl RootView {
         }
         if Self::is_new_chat_shortcut(&event.keystroke) {
             self.new_chat(cx);
+            return;
+        }
+        if Self::is_threads_sidebar_shortcut(&event.keystroke) {
+            self.toggle_history_sidebar(cx);
             return;
         }
         if Self::is_agent_panel_shortcut(&event.keystroke) {
