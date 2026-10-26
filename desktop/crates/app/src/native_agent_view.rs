@@ -1632,10 +1632,20 @@ impl NativeAgentView {
         if let Some(handle) = &self.acp_context_size {
             handle.store(context_size, std::sync::atomic::Ordering::Relaxed);
         }
+        let model_tools_supported = self
+            .providers
+            .iter()
+            .find(|provider| provider.id == self.model.provider_id.as_str())
+            .map(|provider| provider.model_config(self.model.id.as_str()).supports_tools)
+            .unwrap_or(true);
         self.runtime.put_config(NativeRuntimeConfig {
             provider: self.provider.clone(),
             model: self.model.clone(),
-            registry: self.registry.clone(),
+            registry: if model_tools_supported {
+                self.registry.clone()
+            } else {
+                Arc::new(ToolRegistry::new())
+            },
             context: self.context.clone(),
             context_size,
             auto_approve: self.approval_mode == ApprovalMode::Auto,
@@ -1793,9 +1803,8 @@ impl NativeAgentView {
             self.agent = Some(agent);
         }
         if self.agent.is_none() {
-            // turn 还在 server 侧收尾（Agent 尚未交回）：先记下收尾原因，
-            // 由 drain 轮询在 Agent 回到 slot 后再补做保存/checkpoint。
-            self.busy = false;
+            // turn 还在 server 侧收尾（Agent 尚未交回）：保持 busy（用户输入继续
+            // 进 queue，避免丢消息），由 drain 轮询在 Agent 回到 slot 后再收尾。
             self.awaiting_agent = true;
             self.pending_turn_end = Some(state);
             cx.notify();
