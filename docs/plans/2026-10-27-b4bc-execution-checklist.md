@@ -2,7 +2,13 @@
 
 ## 前置
 - 真机验收 §13.8 清单 1–3 全部 PASS
-- 工作区干净，HEAD = 52763ad0 之后
+- 工作区干净，HEAD = 748dba7b 之后
+
+## 已完成的前置清理（2026-10-27 01:21）
+- `SubagentCard` 已迁 `NativePanelHost`（`748dba7b`）；`native_thread_state` 现仅剩视图独占类型
+  （`NativeThreadState`/`PendingPermission`），`native_view_model` 不再依赖它。
+- 剩余引用面：controller 3、agent_panel 1、state 1、root_view 2、main.rs 2（demo 窗口）、
+  `native_agent_view` 自身。
 
 ## 步骤
 1. 类型迁移：`native_thread_state::SubagentCard` 等仍被 `native_view_model`/host 使用的类型
