@@ -10,6 +10,17 @@ use cgc_platform::acp::connection::AcpHost;
 use cgc_platform::mcp::credential::LearningHostLease;
 use cgc_platform::mcp::inject::mcp_endpoint;
 
+/// 子 agent 卡片状态（P2 实时进度；ACP v1 无对应 update，走 native 辅助通道）。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SubagentCard {
+    pub task: String,
+    pub text: String,
+    /// `None` 表示仍在运行。
+    pub finished: Option<bool>,
+    /// 触发该子 agent 的 task tool call id。
+    pub tool_call_id: Option<String>,
+}
+
 pub(crate) struct NativePanelHost {
     pub(crate) agent_state: SharedAgentState,
     pub(crate) acp_host: Option<AcpHost>,

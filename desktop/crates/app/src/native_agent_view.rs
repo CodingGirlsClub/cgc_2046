@@ -53,9 +53,10 @@ use crate::native_context::{
     mention_matches, now_secs, offline_echo_notice, retry_hint_for_error, slash_entries_for,
     trailing_mention, truncate_text, SlashEntry,
 };
+use crate::native_panel_host::SubagentCard;
 use crate::native_runtime::{NativeRuntimeConfig, NativeRuntimeHandle};
 use crate::native_session::NativeSessionStore;
-use crate::native_thread_state::{NativeThreadState, SubagentCard};
+use crate::native_thread_state::NativeThreadState;
 use crate::native_view_model::{
     build_message_row_kinds, checkpoint_for_ordinal, checkpoints_from_records,
     needs_checkpoint_confirm, subagent_cards_for_rows, thread_entry_ordinal,
@@ -5076,7 +5077,7 @@ mod workspace_prompt_tests {
 
     #[test]
     fn message_row_kinds_keep_inline_subagents_and_tail_rows_in_order() {
-        use crate::native_thread_state::SubagentCard;
+        use crate::native_panel_host::SubagentCard;
         use cgc_agent_ui::conversation::Entry as ConversationEntry;
 
         let subagent = |tool_call_id: Option<&str>, text: &str| SubagentCard {

@@ -18,21 +18,11 @@ use cgc_agent_provider::TokenUsage;
 use cgc_platform::acp::connection::HostEvent;
 
 use crate::agent_ingest;
+use crate::native_panel_host::SubagentCard;
 
 use cgc_agent_ui::conversation::{
     ConversationThread, NoticeLevel, ThreadCapabilities, ThreadEvent,
 };
-
-/// 子 agent 卡片状态（P2 实时进度；ACP v1 无对应 update，走 native 辅助通道）。
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SubagentCard {
-    pub task: String,
-    pub text: String,
-    /// `None` 表示仍在运行。
-    pub finished: Option<bool>,
-    /// 触发该子 agent 的 task tool call id。
-    pub tool_call_id: Option<String>,
-}
 
 /// 待审批请求（native UI 渲染工具名/入参 + 回传 option_id 用）。
 #[derive(Clone, Debug, PartialEq, Eq)]

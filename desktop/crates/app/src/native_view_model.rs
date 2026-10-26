@@ -7,7 +7,7 @@ use cgc_agent_checkpoint::Checkpoint;
 use cgc_agent_store::CheckpointRecord;
 use cgc_agent_ui::conversation::Entry as ConversationEntry;
 
-use crate::native_thread_state::SubagentCard;
+use crate::native_panel_host::SubagentCard;
 
 /// native 渲染行（app 内视图模型，不再依赖 agent_host 的 UI 类型）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
