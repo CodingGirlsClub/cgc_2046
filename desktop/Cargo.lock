@@ -974,6 +974,7 @@ name = "cgc-agent-tools"
 version = "0.0.1"
 dependencies = [
  "cgc-agent-provider",
+ "cgc-platform",
  "futures",
  "serde",
  "serde_json",
