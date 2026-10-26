@@ -125,6 +125,36 @@ pub fn discover_read_only_mcp_tools(
         .collect()
 }
 
+/// 把白名单内的 MCP 工具注册进 registry（返回注册数量）。
+pub fn register_read_only_mcp_tools(
+    registry: &mut crate::registry::ToolRegistry,
+    server_name: &str,
+    client: McpHttpClient,
+) -> usize {
+    let tools = discover_read_only_mcp_tools(server_name, client);
+    let count = tools.len();
+    for tool in tools {
+        registry.register(tool);
+    }
+    count
+}
+
+/// 同源配置入口：endpoint（`platform::mcp::inject::mcp_endpoint`）+ lease token。
+///
+/// fail-closed：无 token/空 token 时不建连、不注册；endpoint 非法时注册 0 个。
+pub fn register_read_only_mcp_tools_from_lease(
+    registry: &mut crate::registry::ToolRegistry,
+    server_name: &str,
+    endpoint: &str,
+    token: Option<&str>,
+) -> usize {
+    let Some(token) = token.filter(|token| !token.trim().is_empty()) else {
+        return 0;
+    };
+    let client = McpHttpClient::new(endpoint).with_bearer_token(token);
+    register_read_only_mcp_tools(registry, server_name, client)
+}
+
 /// MCP `inputSchema` 必须是 object；缺失/非法（Null/非 object）→ 跳过该工具。
 fn valid_tool_schema(schema: &Value) -> Option<Value> {
     schema.is_object().then(|| schema.clone())
@@ -330,6 +360,53 @@ mod tests {
         ]);
         let tools = discover_read_only_mcp_tools("cgc", McpHttpClient::new(endpoint));
         assert!(tools.is_empty(), "握手失败必须 fail-closed");
+    }
+
+    #[test]
+    fn registry_registration_exposes_only_whitelisted_tools_and_runs() {
+        use crate::registry::ToolRegistry;
+        let (endpoint, _requests) = spawn_mock(vec![
+            init_response(),
+            tools_response(),
+            r#"{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"registry 正文"}]}}"#,
+        ]);
+        let mut registry = ToolRegistry::new();
+        let client = McpHttpClient::new(endpoint).with_bearer_token("lease");
+        let registered = register_read_only_mcp_tools(&mut registry, "cgc", client);
+        assert_eq!(registered, 4, "白名单 5 个中 schema 缺失 1 个被跳过");
+        assert!(registry.get("mcp:cgc:get_course_content").is_some());
+        assert!(registry.get("mcp:cgc:delete_everything").is_none());
+
+        let result = block_on(registry.run(
+            "mcp:cgc:get_course_content",
+            serde_json::json!({"course_id": "crs-002"}),
+            ToolContext::new("/tmp"),
+        ))
+        .expect("registry run");
+        assert_eq!(result.content, "registry 正文");
+        assert!(!result.is_error);
+    }
+
+    #[test]
+    fn lease_registration_fails_closed_without_token() {
+        use crate::registry::ToolRegistry;
+        let mut registry = ToolRegistry::new();
+        // 无 token：不允许建连（endpoint 不可达也不该 panic/超时）。
+        let count = register_read_only_mcp_tools_from_lease(
+            &mut registry,
+            "cgc",
+            "http://127.0.0.1:1/mcp",
+            None,
+        );
+        assert_eq!(count, 0);
+        assert!(registry.schemas().is_empty());
+        let count = register_read_only_mcp_tools_from_lease(
+            &mut registry,
+            "cgc",
+            "http://127.0.0.1:1/mcp",
+            Some("  "),
+        );
+        assert_eq!(count, 0);
     }
 
     #[test]

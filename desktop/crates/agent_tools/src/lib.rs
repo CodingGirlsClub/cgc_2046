@@ -18,7 +18,10 @@ pub mod tool;
 pub use action::{ActionSink, AppAction};
 pub use approval::{Approval, ApprovalDecision};
 pub use error::ToolError;
-pub use mcp::{discover_read_only_mcp_tools, is_read_only_mcp_tool, READ_ONLY_MCP_TOOLS};
+pub use mcp::{
+    discover_read_only_mcp_tools, is_read_only_mcp_tool, register_read_only_mcp_tools,
+    register_read_only_mcp_tools_from_lease, READ_ONLY_MCP_TOOLS,
+};
 pub use policy::{CommandDecision, CommandPolicy};
 pub use registry::ToolRegistry;
 pub use sandbox::{CommandSandbox, SandboxKind, SandboxPolicy};
