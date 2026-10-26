@@ -115,3 +115,28 @@ XERJ `zed-agent` 语料（sha `07c8d71f`）显示 Zed 不是「两套审批模�
 
 未在本轮冒烟中重新点击验证：恢复检查点/编辑重发（Stage 2 已验证过，Phase A 只换事件来源，未改 checkpoint 逻辑）；
 Phase B 的共享视图/能力迁移仍按 §4 待做。
+
+## 9. Stage 3.2a 实现与真机验收（2026-10-26）
+
+| commit | 内容 |
+|---|---|
+| `2dd17575` | 共享模型：权限请求携带 ACP 形状 `options`（id/label/kind） |
+| `3f130641` | `agent_ui::permission_card` 两轨共享审批卡（纯 view + 渲染 + 单测） |
+| `d0ab200a` | native/ACP 接线共享卡 + `option_id` 回传、删除各自硬编码按钮 |
+
+门禁（Lead 独立复跑）：fmt ✅、clippy `-D warnings` ✅、workspace 测试 **477 passed / 0 failed**。
+
+真机验收（native + ACP 两轨，2026-10-26）：
+- **ACP（omp）**：审批卡由共享组件渲染，选项来自 agent（`Allow once / Always allow / Reject / Always reject`），
+  点 Allow once → 工具卡 `Execute completed`、输出 `hi`；历史行显示「已允许」卡片，状态正确；
+- **native（CGC Agent）**：审批卡同组件渲染，4 档选项「允许一次 / 本会话允许 / 本会话允许 echo 前缀 / 拒绝」，
+  顺序与样式正确，`option_id` 回传生效；
+- 两轨均显示「选项由请求方提供，选择会原样回传给 agent」footnote；pending 卡在第二轮复现正常（Phase A 修复保持）。
+
+未在本轮真机点击：native「允许 echo 前缀」具体按钮（带 `:` 的 option id）、Always reject、Ctrl+Shift+Y/N 快捷键、
+ACP agent 自定义非标准 options；已由纯函数/两轨对照测试覆盖，建议后续回归顺带点一次。
+
+已知小问题：旧 native 线程可能残留「Native agent：配置 Provider 后开始对话」的历史 Notice（创建线程时 provider 未配置所致），
+新回合不影响；3.3 历史统一时清理。
+
+3.2b（settings 级 always allow/deny/confirm 正则规则）待做。
