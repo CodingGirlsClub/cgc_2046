@@ -19,7 +19,7 @@
 ## 2. 决策（已与产品确认）
 
 1. **ACP transcript 落本地库**：与 native 同一套本地会话存储；默认永久保留；设置里提供「一键清空 ACP 历史」；实现对齐 Zed（本地 SQLite、文件权限 0600、明文，不做额外加密）。
-2. **审批模型统一**：采用 ACP 形状的 `PermissionRequest { id, tool, args, options }` + `option_id` 回传；选项由请求方提供，UI 通用渲染；native 侧生成 4 档选项（允许一次/本会话允许/允许前缀/拒绝），ACP 侧原样透传协议选项；settings 级 always allow/deny/confirm 正则规则为二期。
+2. **审批模型统一**：采用 ACP 形状的 `PermissionRequest { id, tool, args, options }` + `option_id` 回传；选项由请求方提供，UI 通用渲染；native 侧生成 4 档选项（允许一次/本会话允许/允许前缀/拒绝），ACP 侧原样透传协议选项。settings 级 `toolPermissions` 正则规则 **仅作用于 native**（路线 A，Zed 对齐）；external ACP agent 的审批由其自身模式/选项决定，客户端只渲染共享卡与回传选择。
 3. **native 改成进程内 ACP server**（Phase A/B，见 §3）。这是本阶段的地基：统一事件契约、权限、配置、MCP 注入与历史存储。
 4. **全局 Agent Panel + 课程页只传上下文**：不再有「课程页专用对话」；任意页面默认 native，External Agents 保留；课程页负责把 course/revision/unit 作为上下文附加到 thread，agent 通过 MCP 工具读取课程内容。
 5. **MCP 重新讨论放在 native-as-ACP Phase A 之后**：native MCP client 是「所有页面默认 native」的前置条件。
@@ -140,3 +140,23 @@ ACP agent 自定义非标准 options；已由纯函数/两轨对照测试覆盖�
 新回合不影响；3.3 历史统一时清理。
 
 3.2b（settings 级 always allow/deny/confirm 正则规则）待做。
+
+
+## 10. Stage 3.2b 最终行为与真机验收（2026-10-26，路线 A）
+
+| commit | 内容 |
+|---|---|
+| `18ad30d0` | settings 级审批规则（native 规则引擎，`toolPermissions`） |
+| `74abd289` | Revert 通配键/ACP 自动决定（放弃路线 B） |
+| `07f21256` | `toolPermissions` 改为 native-only + 文档（Zed 对齐） |
+
+门禁（Lead 独立复跑）：fmt ✅、clippy `-D warnings` ✅、workspace 测试 **502 passed / 0 failed**。
+
+最终行为：
+- **native**：`toolPermissions` 生效（精确工具名；`deny > allow > confirm > default(ask)`；非法正则容错）。命中 allow/deny →
+  不弹卡、自动回传 option + system Notice、不产生 Permission 行；ask/confirm → 共享审批卡；Auto 模式仍走 runtime `AutoApprover`，不叠加规则。
+- **external ACP**：规则**不生效**；收到 `request_permission` 一律渲染共享审批卡，按钮来自 agent 的 options，用户选择后 `option_id` 原样回传。
+  agent 自身处于 `auto` 模式并自行批准时，客户端收不到请求，规则/拦截不适用（ACP 协议事实）。
+- 真机验收：native `run_command.alwaysDeny:["echo"]` → 自动拒绝 Notice + 工具失败 + 回合正常结束；
+  同规则下 OMP（ask/default）仍出现共享审批卡，点 Reject → 历史行「已拒绝」、工具 `failed`、回合正常结束。
+- 无设置 GUI（手改 `preferences.json`，即时生效）；`desktop/README.md` 已写规则说明与 ACP 模式限制。
