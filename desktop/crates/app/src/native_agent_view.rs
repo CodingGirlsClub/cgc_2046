@@ -1129,6 +1129,8 @@ impl NativeAgentView {
         let clipboard_weak = weak.clone();
         let mention_weak = weak.clone();
         let skill_weak = weak.clone();
+        let queue_weak = weak.clone();
+        let steer_weak = weak.clone();
         ComposerSurface {
             input: Some(self.input.clone()),
             callbacks: ComposerCallbacks {
@@ -1160,6 +1162,12 @@ impl NativeAgentView {
                             this.insert_skill_mention(skill, window, ctx);
                         }
                     });
+                }),
+                queue: std::sync::Arc::new(move |window, cx| {
+                    let _ = queue_weak.update(cx, |this, ctx| this.send(window, ctx));
+                }),
+                steer: std::sync::Arc::new(move |window, cx| {
+                    let _ = steer_weak.update(cx, |this, ctx| this.steer(window, ctx));
                 }),
             },
             attachments: attachment_chips_from_images(

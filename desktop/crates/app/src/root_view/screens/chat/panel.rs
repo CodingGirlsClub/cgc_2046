@@ -209,6 +209,9 @@ pub(in crate::root_view) fn render_chat_panel(
                     add_clipboard_image: std::sync::Arc::new(|_, _| {}),
                     insert_mention: std::sync::Arc::new(|_, _, _| {}),
                     insert_skill_mention: std::sync::Arc::new(|_, _, _| {}),
+                    // B2c：ACP 无 queue/steer 能力位，不伪造行为。
+                    queue: std::sync::Arc::new(|_, _| {}),
+                    steer: std::sync::Arc::new(|_, _| {}),
                 },
                 attachments: Vec::new(),
             };
@@ -219,6 +222,8 @@ pub(in crate::root_view) fn render_chat_panel(
                 &composer.callbacks.add_clipboard_image,
                 &composer.callbacks.insert_mention,
                 &composer.callbacks.insert_skill_mention,
+                &composer.callbacks.queue,
+                &composer.callbacks.steer,
                 &composer.attachments,
             );
             let mut rows = Vec::with_capacity(thread.entries.len());

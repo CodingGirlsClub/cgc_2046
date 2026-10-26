@@ -138,6 +138,10 @@ pub(crate) struct ComposerCallbacks {
     pub insert_mention: Arc<dyn Fn(String, &mut Window, &mut App)>,
     /// 插入 skill mention（skill 标识）。
     pub insert_skill_mention: Arc<dyn Fn(String, &mut Window, &mut App)>,
+    /// 排队当前输入（native busy 时；ACP 无 queue 能力位）。
+    pub queue: ComposerCallback,
+    /// steer 当前输入（native busy 时；ACP 无 steer 能力位）。
+    pub steer: ComposerCallback,
 }
 
 /// native 附件 chip 映射：`(name, is_image)` → 共享 `AttachmentChip`（id 用序号）。
