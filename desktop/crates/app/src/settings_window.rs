@@ -659,7 +659,9 @@ impl SettingsWindowView {
                 },
             ),
         )
-        .description("灰度开关：账号菜单与课程页显示 Native Agent（Beta）");
+        .description(
+            "默认开启；关闭后账号菜单与课程页使用 External Agent 入口（Native 工具/MCP 不可用）",
+        );
         // Stage 3.3：清空 ACP 对话历史（二次确认；只清 conversations.db，
         // native threads.db 完全不碰）。
         let clear_armed = self.clear_acp_history_armed.clone();

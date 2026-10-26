@@ -22,7 +22,7 @@ impl Default for Preferences {
         Self {
             close_to_tray: true,
             tray_hint_shown: false,
-            native_agent_enabled: false,
+            native_agent_enabled: true,
             tool_permissions: ToolPermissionSettings::default(),
             history_sidebar_open: false,
         }
@@ -64,7 +64,7 @@ fn parse(value: &Value) -> Preferences {
         native_agent_enabled: value
             .get("nativeAgentEnabled")
             .and_then(Value::as_bool)
-            .unwrap_or(false),
+            .unwrap_or(true),
         tool_permissions,
         history_sidebar_open: value
             .get("historySidebarOpen")
@@ -112,7 +112,7 @@ mod tests {
         let defaults = Preferences::default();
         assert!(defaults.close_to_tray);
         assert!(!defaults.tray_hint_shown);
-        assert!(!defaults.native_agent_enabled);
+        assert!(defaults.native_agent_enabled, "3.5b：默认开启");
     }
 
     #[test]
