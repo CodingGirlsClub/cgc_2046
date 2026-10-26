@@ -26,3 +26,11 @@
 5. 门禁：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY -u http_proxy -u https_proxy -u all_proxy -u no_proxy`
    `cargo fmt --check && clippy -D warnings && cargo test --workspace --exclude cgc-agent-tools -- --test-threads=1`
 6. 报告 `git diff --stat` 净删行数；更新 §13.8/§13.4、README、ADR-0028。
+
+## 环境限制（2026-10-27 01:23 确认）
+
+- `gpui-kit 0.8.0` 未暴露 `TestAppContext`/`VisualTestContext` 等 headless 渲染测试设施，
+  因此**无法在无界面环境验证布局/视觉等价**；B4b-c 的 UI 等价性只能真机确认。
+- 屏幕锁定时（`CGSSessionScreenIsLocked`），macOS 阻止窗口级 `screencapture` 与 CUA AX 访问，
+  自动化真机验证不可用。
+- 结论：B4b-c（删除 native 唯一 UI）必须等屏幕解锁 + 真机冒烟通过后执行。
