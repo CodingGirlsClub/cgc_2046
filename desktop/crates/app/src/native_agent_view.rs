@@ -3630,9 +3630,6 @@ impl NativeAgentView {
     }
 
     /// Phase B2b-3b：native composer 的 legacy 渲染（render 内联链纯搬迁，行为不变）。
-    // B2b-3b：纯搬迁后 render 前置值在 method 内重新计算，旧 render 侧仅保留
-    // 消息区仍需的变量；未用变量在下一片（3b-2）回收。
-    #[allow(unused_variables)]
     fn render_native_composer_legacy(
         &mut self,
         draft: &ComposerDraft,
@@ -3650,7 +3647,7 @@ impl NativeAgentView {
         let add_menu_root = cx.entity().downgrade();
         let palette = theme::palette_from_theme(cx);
         let chip_workspace = self.context.workspace().to_path_buf();
-        let pending = self.state.thread.pending_permission.clone();
+        let _pending = self.state.thread.pending_permission.clone();
         let slash_open = input_value.trim_start().starts_with('/') && !self.slash_dismissed;
         let slash_matches = self.slash_entries(&input_value);
         let slash_selected = self.slash_index.min(slash_matches.len().saturating_sub(1));
@@ -3672,18 +3669,18 @@ impl NativeAgentView {
             .lock()
             .map(|state| state.clone())
             .unwrap_or_default();
-        let queued_messages = self.queued_messages.clone();
-        let show_plan_card = self.state.thread.capabilities.plan_available()
+        let _queued_messages = self.queued_messages.clone();
+        let _show_plan_card = self.state.thread.capabilities.plan_available()
             && (!plan_state.todos.is_empty()
                 || !plan_state.plan.is_empty()
                 || plan_state.goal.is_some());
-        let show_changes = self.show_checkpoint_panel && change_count > 0;
-        let changes = self.checkpoint_changes.clone();
+        let _show_changes = self.show_checkpoint_panel && change_count > 0;
+        let _changes = self.checkpoint_changes.clone();
         let row_kinds = self.message_row_kinds();
         self.sync_message_scroller(&row_kinds, cx);
-        let row_kinds = Arc::new(row_kinds);
-        let weak_view = cx.entity().downgrade();
-        let message_menu_root = cx.entity().downgrade();
+        let _row_kinds = Arc::new(row_kinds);
+        let _weak_view = cx.entity().downgrade();
+        let _message_menu_root = cx.entity().downgrade();
 
         let current_provider_id = self.model.provider_id.as_str().to_string();
         let current_model_id = self.model.id.as_str().to_string();
@@ -4491,35 +4488,34 @@ impl NativeAgentView {
 }
 
 impl Render for NativeAgentView {
-    #[allow(unused_variables)] // B2b-3b：composer 前置值已迁入 legacy 方法，剩余局部待 3b-2 回收。
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // 页面 scope 变化时先切换工作区/线程，再渲染。
         self.ensure_scope(cx);
-        let add_menu_root = cx.entity().downgrade();
+        let _add_menu_root = cx.entity().downgrade();
         let draft = self.composer_draft(cx);
         let palette = theme::palette_from_theme(cx);
-        let chip_workspace = self.context.workspace().to_path_buf();
+        let _chip_workspace = self.context.workspace().to_path_buf();
         let pending = self.state.thread.pending_permission.clone();
-        let model_supports_images = draft.model_supports_images;
+        let _model_supports_images = draft.model_supports_images;
         let busy = draft.busy;
-        let usage = draft.usage;
-        let input = draft.input.clone();
-        let input_focus = draft.input_focus.clone();
+        let _usage = draft.usage;
+        let _input = draft.input.clone();
+        let _input_focus = draft.input_focus.clone();
         let input_value = draft.input_value.clone();
-        let has_input = draft.has_input;
+        let _has_input = draft.has_input;
         let slash_open = input_value.trim_start().starts_with('/') && !self.slash_dismissed;
         let slash_matches = self.slash_entries(&input_value);
-        let slash_selected = self.slash_index.min(slash_matches.len().saturating_sub(1));
+        let _slash_selected = self.slash_index.min(slash_matches.len().saturating_sub(1));
         let mention = trailing_mention(&input_value);
         let mention_matches = mention
             .as_ref()
             .map(|(_, query)| self.mention_matches(query))
             .unwrap_or_default();
-        let mention_open = mention.is_some() && !slash_open && !mention_matches.is_empty();
-        let mention_selected = self
+        let _mention_open = mention.is_some() && !slash_open && !mention_matches.is_empty();
+        let _mention_selected = self
             .mention_index
             .min(mention_matches.len().saturating_sub(1));
-        let can_undo = self.state.thread.capabilities.checkpoint_available()
+        let _can_undo = self.state.thread.capabilities.checkpoint_available()
             && self.last_checkpoint.is_some()
             && !busy;
         let change_count = self.checkpoint_changes.len();
