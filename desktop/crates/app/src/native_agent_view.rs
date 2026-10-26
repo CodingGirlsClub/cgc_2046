@@ -1,20 +1,21 @@
 //! Native agent 的 GPUI 面板（P1a UI 接入）。
 //!
 //! 通过 `CGC_NATIVE_AGENT_DEMO=1` 打开独立窗口，不影响现有 ACP 对话路径。
-//! 事件经 futures channel → `HostState` 归约 → 面板实时刷新；审批用
-//! `UiApprover` 把请求变成 UI 上的三个按钮，用户答复通过 oneshot 回填。
+//!
+//! Stage 3.1 Phase A：native 运行时由进程内 ACP server 包装，面板经 `AcpHost`
+//! （与外部 ACP agent 完全相同的客户端路径）消费 `HostEvent` 并归约到共享
+//! `ConversationThread`；native 专属能力（附件 / queue / steer / checkpoint /
+//! 模型选择）仍留在本视图与 native 运行时，不经 ACP。
 
 use std::collections::HashMap;
 use std::sync::{mpsc as std_mpsc, Arc, Mutex};
 
 use base64::Engine as _;
 use cgc_agent_checkpoint::{Checkpoint, CheckpointManager, FileChange};
-use cgc_agent_core::{
-    run_subagent, Agent, AgentError, ApprovalRequest, Approver, AutoApprover, CancelToken,
-    ImageAttachment, SelectedModel, Thread,
-};
+use cgc_agent_core::{run_subagent, Agent, CancelToken, ImageAttachment, SelectedModel, Thread};
 use cgc_agent_host::{
-    parse_slash, AgentEvent, AsyncChannelObserver, HostState, SlashCommand, SubagentCard,
+    allow_pattern_option_id, parse_slash, AgentEvent, ContextSizeHandle, NativeAcpServer,
+    NativeAcpServerConfig, SlashCommand, OPTION_ALLOW_ONCE, OPTION_ALLOW_SESSION, OPTION_DENY,
     SLASH_COMMANDS,
 };
 use cgc_agent_provider::{
@@ -31,9 +32,10 @@ use cgc_agent_tools::{
     SharedAgentState, SubagentEvent, SubagentEventSink, SubagentRequest, SubagentRunner,
     ToolContext, ToolRegistry,
 };
+use cgc_platform::acp::connection::{AcpHost, AcpHostConfig, HostEvent};
 use cgc_platform::paths::AppPaths;
 use cgc_platform::session::KeychainStore;
-use futures::channel::{mpsc, oneshot};
+use futures::channel::mpsc;
 use futures::StreamExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::hover_card::HoverCard;
@@ -50,7 +52,10 @@ use gpui_kit::StatefulInteractiveElement as _;
 use gpui_kit::*;
 use image::GenericImageView as _;
 
+use crate::agent_ingest;
 use crate::mention::{self, Mention, SkillEntry};
+use crate::native_runtime::{NativeRuntimeConfig, NativeRuntimeHandle};
+use crate::native_thread_state::{NativeThreadState, SubagentCard};
 use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 use cgc_agent_ui::command_menu::{
     render_command_menu, CommandMenuItem, CommandMenuSpec, CommandMenuStyle,
@@ -83,30 +88,6 @@ impl ApprovalMode {
             Self::Ask => "Ask",
             Self::Auto => "Auto",
         }
-    }
-}
-
-/// 把审批请求送到 UI；用户点击后通过 oneshot 回填。
-struct UiApprover {
-    events: mpsc::UnboundedSender<AgentEvent>,
-    pending: Arc<Mutex<Option<oneshot::Sender<ApprovalDecision>>>>,
-}
-
-impl Approver for UiApprover {
-    fn decide(
-        &self,
-        request: ApprovalRequest,
-    ) -> futures::future::BoxFuture<'static, ApprovalDecision> {
-        let _ = self.events.unbounded_send(AgentEvent::PermissionRequested {
-            tool_call_id: request.tool_call_id,
-            tool_name: request.tool_name,
-            args: request.args,
-        });
-        let (sender, receiver) = oneshot::channel();
-        if let Ok(mut pending) = self.pending.lock() {
-            *pending = Some(sender);
-        }
-        Box::pin(async move { receiver.await.unwrap_or(ApprovalDecision::Deny) })
     }
 }
 
@@ -412,7 +393,7 @@ fn decode_sent_images(images: &[ImageAttachment]) -> Vec<SentImage> {
 
 /// 把 thread entries 映射成 UI 状态：图片预览 + 工具调用参数/输出（工具卡片）。
 fn apply_thread_entries(
-    state: &mut HostState,
+    state: &mut NativeThreadState,
     entries: &[cgc_agent_core::Entry],
 ) -> HashMap<usize, Vec<SentImage>> {
     let mut restored_images: HashMap<usize, Vec<SentImage>> = HashMap::new();
@@ -631,7 +612,21 @@ pub struct NativeAgentView {
     context: ToolContext,
     input: Entity<TextareaState>,
     cancel: CancelToken,
-    state: HostState,
+    state: NativeThreadState,
+    /// 进程内 ACP 连接：native 运行时被包装成 ACP agent，与外部 ACP 走同一客户端路径。
+    acp_host: Option<AcpHost>,
+    /// native ACP server 的上下文窗口句柄（usage_update.size 用）。
+    acp_context_size: Option<ContextSizeHandle>,
+    /// turn 期间 Agent 交给它的运行时句柄（turn 结束后取回）。
+    runtime: NativeRuntimeHandle,
+    /// ACP 事件轮询世代号；换连接时递增，旧轮询自动退出。
+    acp_poller_generation: u64,
+    acp_poller_running: bool,
+    /// 子 agent 辅助事件泵是否已启动。
+    subagent_pump_started: bool,
+    /// turn 结束后等 runtime 把 Agent 交回（cancel 宽限期内的竞态）。
+    awaiting_agent: bool,
+    pending_turn_end: Option<TurnEndState>,
     /// 当前工作区 scope（ADR-0028：课程页/助手页各一个工作区）。
     scope: crate::agent_scope::AgentScope,
     status: String,
@@ -673,7 +668,6 @@ pub struct NativeAgentView {
     /// 每行的高度签名；与下一帧比对，只 remeasure 变化的那一行。
     message_row_signatures: Vec<u64>,
     approval_mode: ApprovalMode,
-    approval_sender: Arc<Mutex<Option<oneshot::Sender<ApprovalDecision>>>>,
     pending_images: Vec<PendingImage>,
     /// 已发送用户消息 index → 图片预览（仅当前进程内显示，不持久化）。
     sent_images: HashMap<usize, Vec<SentImage>>,
@@ -682,6 +676,13 @@ pub struct NativeAgentView {
     steer_sender: std_mpsc::Sender<String>,
     _input_subscription: Option<Subscription>,
     _key_interceptor: Option<Subscription>,
+}
+
+/// turn 收尾原因（来自 ACP TurnEnd / Error / Exited 事件）。
+enum TurnEndState {
+    Completed,
+    Cancelled,
+    Failed(String),
 }
 
 impl NativeAgentView {
@@ -772,7 +773,7 @@ impl NativeAgentView {
             let thread = store.load_thread(&thread_id).ok().flatten()?;
             (thread.model == selected).then_some(thread)
         });
-        let mut state = HostState::new();
+        let mut state = NativeThreadState::new();
         let mut restored_images: HashMap<usize, Vec<SentImage>> = HashMap::new();
         let thread = match restored_thread {
             Some(thread) => {
@@ -1011,6 +1012,14 @@ impl NativeAgentView {
             message_scroller: cx.new(|cx| MessageScrollerState::new(0, cx)),
             message_row_signatures: Vec::new(),
             approval_mode: ApprovalMode::Ask,
+            runtime: NativeRuntimeHandle::new(),
+            acp_host: None,
+            acp_context_size: None,
+            acp_poller_generation: 0,
+            acp_poller_running: false,
+            subagent_pump_started: false,
+            awaiting_agent: false,
+            pending_turn_end: None,
             context: ToolContext::new(&workspace)
                 .with_sandbox(SandboxPolicy::new(&workspace))
                 .with_action_sink(action_sink),
@@ -1032,7 +1041,6 @@ impl NativeAgentView {
             show_checkpoint_panel: false,
             checkpoint_notice_reported: false,
             pending_restart_confirm: None,
-            approval_sender: Arc::new(Mutex::new(None)),
             queued_messages: Vec::new(),
             steer_sender,
             pending_images: Vec::new(),
@@ -1452,7 +1460,7 @@ impl NativeAgentView {
         let Ok(Some(thread)) = store.load_thread(thread_id) else {
             return;
         };
-        let mut state = HostState::new();
+        let mut state = NativeThreadState::new();
         let restored_images = apply_thread_entries(&mut state, &thread.entries);
         state.usage_total = thread.usage_total;
         state.thread.thread_id = thread.id.clone();
@@ -1546,6 +1554,9 @@ impl NativeAgentView {
     }
 
     /// 执行一个 turn；`retry` = 重放上一轮（不重复 push 用户消息、不重拍 checkpoint）。
+    ///
+    /// Phase A：Agent 与 per-turn 配置交给进程内 ACP server 的运行时出口，
+    /// 过程事件经 ACP 客户端回到 `drain_acp_events` 再归约进共享会话模型。
     fn run_turn(&mut self, text: String, display: String, retry: bool, cx: &mut Context<Self>) {
         if !retry {
             self.reload_latest_session();
@@ -1604,131 +1615,265 @@ impl NativeAgentView {
         agent.set_reasoning_effort(effort);
         // 记录 UI 展示文本（不含注入上下文），restore 时用户气泡不会显示上下文前缀。
         agent.set_pending_user_display(Some(display.clone()));
-        let approval_mode = self.approval_mode;
         if !retry {
-            self.state.thread.apply(ThreadEvent::TurnStarted {
-                user_text: display.clone(),
-            });
+            crate::agent_ingest::apply_user_turn(&mut self.state.thread, display.clone());
         }
         self.busy = true;
         self.status = "思考中…".to_string();
         self.cancel.reset();
-
-        let (event_sender, mut event_receiver) = mpsc::unbounded::<AgentEvent>();
-        if let Ok(mut slot) = self.subagent_tx.lock() {
-            *slot = Some(event_sender.clone());
+        self.ensure_subagent_pump(cx);
+        if !self.ensure_acp_host() {
+            self.busy = false;
+            self.agent = Some(agent);
+            cx.notify();
+            return;
         }
-        // UI 事件循环：把 agent 过程事件实时归约进 HostState。
-        cx.spawn(async move |this, cx| {
-            while let Some(event) = event_receiver.next().await {
-                let turn_finished = matches!(event, AgentEvent::TurnFinished { .. });
-                if this
-                    .update(cx, |this, cx| {
-                        let old_len = this.state.thread.entries.len();
-                        this.state.apply(event);
-                        for (index, entry) in this.state.thread.entries.iter().enumerate() {
-                            if index >= old_len
-                                && matches!(entry, ConversationEntry::Thinking { .. })
-                            {
-                                this.expanded_thinking.insert(index);
-                            }
-                        }
-                        if turn_finished {
-                            this.maybe_generate_thread_title(cx);
-                        }
-                        cx.notify();
-                    })
-                    .is_err()
-                {
-                    break;
-                }
+        let context_size = self.model_context_size();
+        if let Some(handle) = &self.acp_context_size {
+            handle.store(context_size, std::sync::atomic::Ordering::Relaxed);
+        }
+        self.runtime.put_config(NativeRuntimeConfig {
+            provider: self.provider.clone(),
+            model: self.model.clone(),
+            registry: self.registry.clone(),
+            context: self.context.clone(),
+            context_size,
+            auto_approve: self.approval_mode == ApprovalMode::Auto,
+        });
+        self.runtime.put_agent(agent);
+        self.ensure_acp_poller(cx);
+        let prompted = self
+            .acp_host
+            .as_ref()
+            .map(|host| host.prompt(text))
+            .unwrap_or(false);
+        if !prompted {
+            self.finish_turn(TurnEndState::Failed("agent channel closed".to_string()), cx);
+        }
+        cx.notify();
+    }
+
+    /// 建立 native 的进程内 ACP 连接（client 侧与外部 ACP agent 完全同一条路径）。
+    fn ensure_acp_host(&mut self) -> bool {
+        if self.acp_host.is_some() {
+            return true;
+        }
+        let server = NativeAcpServer::new(Box::new(self.runtime.clone())).with_config(
+            NativeAcpServerConfig {
+                agent_name: "cgc-native".to_string(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+            },
+        );
+        self.acp_context_size = Some(server.context_size_handle());
+        let cwd = self.context.workspace().to_path_buf();
+        match AcpHost::start_in_process(AcpHostConfig::new("", cwd).with_name("cgc-native"), server)
+        {
+            Ok(host) => {
+                self.acp_host = Some(host);
+                true
+            }
+            Err(error) => {
+                self.state.last_error = Some(error.to_string());
+                self.state
+                    .push_notice(format!("启动进程内 ACP 连接失败：{error}"));
+                self.status = format!("错误：{error}");
+                false
+            }
+        }
+    }
+
+    /// 启动 ACP 客户端事件轮询（50ms 批量 drain，与 ACP 面板同一消费方式）。
+    fn ensure_acp_poller(&mut self, cx: &mut Context<Self>) {
+        if self.acp_poller_running {
+            return;
+        }
+        self.acp_poller_running = true;
+        self.acp_poller_generation += 1;
+        let generation = self.acp_poller_generation;
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(50))
+                .await;
+            let keep = this
+                .update(cx, |this, cx| this.drain_acp_events(generation, cx))
+                .unwrap_or(false);
+            if !keep {
+                break;
             }
         })
         .detach();
+    }
 
-        let ui_approver = UiApprover {
-            events: event_sender.clone(),
-            pending: self.approval_sender.clone(),
+    /// 消费一批 ACP 客户端事件：会话行统一走 `agent_ingest`，native 辅助态更新
+    /// 审批卡 / 子 agent 配对；turn 收尾事件触发完成逻辑。
+    fn drain_acp_events(&mut self, generation: u64, cx: &mut Context<Self>) -> bool {
+        if generation != self.acp_poller_generation {
+            return false;
+        }
+        self.retrieve_awaiting_agent(cx);
+        let mut events = Vec::new();
+        if let Some(host) = &self.acp_host {
+            while let Some(event) = host.try_recv() {
+                events.push(event);
+            }
+        }
+        if events.is_empty() {
+            return self.acp_host.is_some() || self.awaiting_agent;
+        }
+        let old_len = self.state.thread.entries.len();
+        let mut finished = None;
+        for event in events {
+            self.state.apply_host_event(&event);
+            match &event {
+                HostEvent::PermissionRequested { .. } => {
+                    // Auto 模式在 runtime 内已放行，不应出现审批请求；防御性放行。
+                    if self.approval_mode == ApprovalMode::Auto {
+                        self.resolve_approval(ApprovalDecision::AllowOnce, cx);
+                    }
+                }
+                HostEvent::TurnEnd {
+                    cancelled,
+                    stop_reason,
+                } => {
+                    let cancelled = *cancelled || stop_reason.eq_ignore_ascii_case("cancelled");
+                    finished = Some(if cancelled {
+                        TurnEndState::Cancelled
+                    } else {
+                        TurnEndState::Completed
+                    });
+                }
+                HostEvent::Error { message } => {
+                    finished = Some(TurnEndState::Failed(message.clone()));
+                }
+                HostEvent::Exited => {
+                    self.acp_host = None;
+                    self.acp_poller_running = false;
+                    finished = Some(TurnEndState::Failed("agent connection exited".to_string()));
+                }
+                _ => {}
+            }
+        }
+        // 新出现的 thinking 行默认展开（对齐旧行为）。
+        for (index, entry) in self.state.thread.entries.iter().enumerate() {
+            if index >= old_len && matches!(entry, ConversationEntry::Thinking { .. }) {
+                self.expanded_thinking.insert(index);
+            }
+        }
+        self.state.pair_unlinked_subagents();
+        if self.busy {
+            if let Some(state) = finished {
+                self.finish_turn(state, cx);
+            }
+        }
+        cx.notify();
+        self.acp_host.is_some() || self.awaiting_agent
+    }
+
+    /// cancel 宽限期内 client 可能先收到合成 TurnEnd，而 server 稍后才把 Agent
+    /// 交回 runtime slot；这里轮询补取，再补做 turn 收尾（保存线程等）。
+    fn retrieve_awaiting_agent(&mut self, cx: &mut Context<Self>) {
+        if !self.awaiting_agent {
+            return;
+        }
+        let Some(agent) = self.runtime.take_agent() else {
+            return;
         };
-        let provider = self.provider.clone();
-        let model = self.model.clone();
-        let model_tools_supported = self
-            .providers
-            .iter()
-            .find(|provider| provider.id == self.model.provider_id.as_str())
-            .map(|provider| provider.model_config(self.model.id.as_str()).supports_tools)
-            .unwrap_or(true);
-        let registry = if model_tools_supported {
-            self.registry.clone()
-        } else {
-            Arc::new(ToolRegistry::new())
-        };
-        let context = self.context.clone();
-        let task_sender = event_sender.clone();
-        let task = cx.background_executor().spawn(async move {
-            let auto_approver = AutoApprover;
-            let approver: &dyn Approver = match approval_mode {
-                ApprovalMode::Ask => &ui_approver,
-                ApprovalMode::Auto => &auto_approver,
-            };
-            let mut observer = AsyncChannelObserver::new(task_sender.clone());
-            let result = agent
-                .prompt_with_tools_observed(
-                    provider.as_ref(),
-                    &model,
-                    text,
-                    registry.as_ref(),
-                    &context,
-                    approver,
-                    &mut observer,
-                )
-                .await;
-            drop(observer);
-            drop(task_sender);
-            (agent, result)
-        });
-        let approval_sender = self.approval_sender.clone();
-        let subagent_tx = self.subagent_tx.clone();
+        self.agent = Some(agent);
+        self.awaiting_agent = false;
+        let state = self
+            .pending_turn_end
+            .take()
+            .unwrap_or(TurnEndState::Completed);
+        self.apply_turn_end(state, cx);
+    }
+
+    /// turn 收尾：取回 Agent、保存线程、checkpoint / 子 agent / 队列收口。
+    fn finish_turn(&mut self, state: TurnEndState, cx: &mut Context<Self>) {
+        if let Some(agent) = self.runtime.take_agent() {
+            self.agent = Some(agent);
+        }
+        if self.agent.is_none() {
+            // turn 还在 server 侧收尾（Agent 尚未交回）：先记下收尾原因，
+            // 由 drain 轮询在 Agent 回到 slot 后再补做保存/checkpoint。
+            self.busy = false;
+            self.awaiting_agent = true;
+            self.pending_turn_end = Some(state);
+            cx.notify();
+            return;
+        }
+        self.apply_turn_end(state, cx);
+    }
+
+    /// Agent 已取回后的 turn 收尾（状态、持久化、checkpoint、队列）。
+    fn apply_turn_end(&mut self, state: TurnEndState, cx: &mut Context<Self>) {
+        self.busy = false;
+        match &state {
+            TurnEndState::Completed => {
+                let total = self
+                    .agent
+                    .as_ref()
+                    .map(|agent| agent.thread().usage_total.total())
+                    .unwrap_or(0);
+                if let Some(agent) = &self.agent {
+                    self.state.usage_total = agent.thread().usage_total;
+                }
+                self.status = format!("完成 · 本会话 {total} tokens");
+            }
+            TurnEndState::Cancelled => self.status = "已停止".to_string(),
+            TurnEndState::Failed(message) => {
+                self.state.last_error = Some(message.clone());
+                // HostEvent::Error 已由共用 ingestion 落过 Failed 行；这里只补
+                // 合成失败（channel closed / 连接退出）缺失的那一行，避免重复。
+                if !matches!(
+                    self.state.thread.status,
+                    cgc_agent_ui::conversation::ThreadStatus::Failed
+                ) {
+                    self.state
+                        .thread
+                        .apply(cgc_agent_ui::conversation::ThreadEvent::Failed(
+                            message.clone(),
+                        ));
+                }
+                self.status = format!("错误：{message}");
+            }
+        }
+        if let (Some(store), Some(agent)) = (&mut self.session_store, &self.agent) {
+            let _ = store.save_thread(agent.thread());
+        }
+        self.reload_thread_checkpoints();
+        self.drain_app_actions(cx);
+        self.refresh_checkpoint_changes();
+        if matches!(state, TurnEndState::Completed) {
+            self.maybe_generate_thread_title(cx);
+        }
+        if !self.queued_messages.is_empty() {
+            let next = self.queued_messages.remove(0);
+            self.send_prompt(next.prompt, next.display, cx);
+        }
+        cx.notify();
+    }
+
+    /// 子 agent 实时进度是 ACP v1 表达不了的 native 专属事件，走独立辅助通道。
+    fn ensure_subagent_pump(&mut self, cx: &mut Context<Self>) {
+        if self.subagent_pump_started {
+            return;
+        }
+        self.subagent_pump_started = true;
+        let (sender, mut receiver) = mpsc::unbounded::<AgentEvent>();
+        if let Ok(mut slot) = self.subagent_tx.lock() {
+            *slot = Some(sender);
+        }
         cx.spawn(async move |this, cx| {
-            let (agent, result) = task.await;
-            let _ = this.update(cx, |this, cx| {
-                this.agent = Some(agent);
-                this.busy = false;
-                match result {
-                    Ok(_) => {
-                        let total = this
-                            .agent
-                            .as_ref()
-                            .map(|agent| agent.thread().usage_total.total())
-                            .unwrap_or(0);
-                        this.status = format!("完成 · 本会话 {total} tokens");
-                    }
-                    Err(AgentError::Cancelled) => this.status = "已停止".to_string(),
-                    Err(error) => {
-                        this.state.apply(AgentEvent::Error {
-                            message: error.to_string(),
-                        });
-                        this.status = format!("错误：{error}");
-                    }
+            while let Some(event) = receiver.next().await {
+                let updated = this.update(cx, |this, cx| {
+                    this.state.apply_subagent_event(&event);
+                    this.state.pair_unlinked_subagents();
+                    cx.notify();
+                });
+                if updated.is_err() {
+                    break;
                 }
-                if let (Some(store), Some(agent)) = (&mut this.session_store, &this.agent) {
-                    let _ = store.save_thread(agent.thread());
-                }
-                this.reload_thread_checkpoints();
-                if let Ok(mut slot) = subagent_tx.lock() {
-                    *slot = None;
-                }
-                this.drain_app_actions(cx);
-                this.refresh_checkpoint_changes();
-                if let Ok(mut pending) = approval_sender.lock() {
-                    pending.take();
-                }
-                if !this.queued_messages.is_empty() {
-                    let next = this.queued_messages.remove(0);
-                    this.send_prompt(next.prompt, next.display, cx);
-                }
-                cx.notify();
-            });
+            }
         })
         .detach();
     }
@@ -1749,7 +1894,12 @@ impl NativeAgentView {
     }
 
     fn stop(&mut self, cx: &mut Context<Self>) {
+        // 双保险：ACP session/cancel 经 server 触发 runtime 的 cancel 回调；
+        // 直接 cancel 本地 token 保证即使连接未建立也能立即停。
         self.cancel.cancel();
+        if let Some(host) = &self.acp_host {
+            let _ = host.stop();
+        }
         self.status = "正在停止…".to_string();
         cx.notify();
     }
@@ -2372,7 +2522,7 @@ impl NativeAgentView {
         if let (Some(store), Some(agent)) = (&mut self.session_store, &self.agent) {
             let _ = store.save_thread(agent.thread());
         }
-        self.state = HostState::new();
+        self.state = NativeThreadState::new();
         self.state
             .push_notice("Native agent：新对话，配置 Provider 后开始。");
         self.last_checkpoint = None;
@@ -2463,7 +2613,7 @@ impl NativeAgentView {
             .and_then(|store| store.load_thread(&thread_id).ok().flatten())
             .filter(|thread| thread.model == selected)
             .unwrap_or_else(|| Thread::new(thread_id.clone(), selected));
-        let mut state = HostState::new();
+        let mut state = NativeThreadState::new();
         let restored_images = apply_thread_entries(&mut state, &thread.entries);
         state.usage_total = thread.usage_total;
         state.thread.thread_id = thread.id.clone();
@@ -2542,7 +2692,7 @@ impl NativeAgentView {
             return;
         };
         let thread = agent.thread();
-        let mut state = HostState::new();
+        let mut state = NativeThreadState::new();
         state.usage_total = thread.usage_total;
         let restored_images = apply_thread_entries(&mut state, &thread.entries);
         state.thread.thread_id = thread.id.clone();
@@ -2728,18 +2878,24 @@ impl NativeAgentView {
 
     fn resolve_approval(&mut self, decision: ApprovalDecision, cx: &mut Context<Self>) {
         let allowed = !matches!(decision, ApprovalDecision::Deny);
-        if let Ok(mut pending) = self.approval_sender.lock() {
-            if let Some(sender) = pending.take() {
-                let _ = sender.send(decision);
-            }
+        let Some(pending) = self.state.pending_permission.clone() else {
+            return;
+        };
+        let option_id = match decision {
+            ApprovalDecision::AllowOnce => OPTION_ALLOW_ONCE.to_string(),
+            ApprovalDecision::AllowForSession => OPTION_ALLOW_SESSION.to_string(),
+            ApprovalDecision::AllowPattern(prefix) => allow_pattern_option_id(&prefix),
+            ApprovalDecision::Deny => OPTION_DENY.to_string(),
+        };
+        if let Some(host) = &self.acp_host {
+            let _ = host.respond_permission_option(&pending.request_id, option_id);
         }
-        if let Some(prompt) = self.state.pending_permission.clone() {
-            self.state.resolve_permission(&prompt.tool_call_id);
-            self.state.thread.apply(ThreadEvent::PermissionResolved {
-                request_id: prompt.tool_call_id.clone(),
-                allowed,
-            });
-        }
+        self.state.resolve_permission(&pending.request_id);
+        agent_ingest::apply_permission_resolved(
+            &mut self.state.thread,
+            pending.request_id,
+            allowed,
+        );
         cx.notify();
     }
 }
@@ -5065,10 +5221,7 @@ fn render_tool_card(
         .into_any_element()
 }
 
-fn render_subagent_row(
-    card: &cgc_agent_host::SubagentCard,
-    palette: &theme::Palette,
-) -> AnyElement {
+fn render_subagent_row(card: &SubagentCard, palette: &theme::Palette) -> AnyElement {
     let status = match card.finished {
         None => "运行中…",
         Some(true) => "完成",
@@ -5481,8 +5634,8 @@ mod workspace_prompt_tests {
 
     #[test]
     fn apply_thread_entries_builds_tool_cards_with_args() {
+        use crate::native_thread_state::NativeThreadState;
         use cgc_agent_core::Entry;
-        use cgc_agent_host::HostState;
         use cgc_agent_provider::ToolUse;
         let entries = vec![
             Entry::User {
@@ -5514,7 +5667,7 @@ mod workspace_prompt_tests {
                 at: 0,
             },
         ];
-        let mut state = HostState::new();
+        let mut state = NativeThreadState::new();
         super::apply_thread_entries(&mut state, &entries);
         // Stage 2d：恢复的线程 entries 直接投影进共享模型。
         use cgc_agent_ui::conversation::Entry as ConversationEntry;
@@ -5631,7 +5784,7 @@ mod workspace_prompt_tests {
 
     #[test]
     fn message_row_kinds_keep_inline_subagents_and_tail_rows_in_order() {
-        use cgc_agent_host::SubagentCard;
+        use crate::native_thread_state::SubagentCard;
         use cgc_agent_ui::conversation::Entry as ConversationEntry;
 
         let subagent = |tool_call_id: Option<&str>, text: &str| SubagentCard {

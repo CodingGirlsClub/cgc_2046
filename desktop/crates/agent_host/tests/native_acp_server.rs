@@ -278,10 +278,6 @@ fn golden_event_sequence_maps_native_events_to_host_events() {
         AgentEvent::FollowUpStarted {
             text: "after".to_string(),
         },
-        AgentEvent::TurnFinished {
-            text: "hello".to_string(),
-            stop_reason: StopReason::EndTurn,
-        },
     ]);
     runtime.state().outcome = Some(turn_outcome("hello", StopReason::EndTurn));
     let host = start_native(runtime);
@@ -365,11 +361,7 @@ fn turn_usage(input: u64, output: u64) -> TokenUsage {
 
 #[test]
 fn turn_finished_falls_back_to_final_text_without_deltas() {
-    use cgc_agent_host::AgentEvent;
-    let runtime = FakeRuntime::with_script(vec![AgentEvent::TurnFinished {
-        text: "final only".to_string(),
-        stop_reason: StopReason::EndTurn,
-    }]);
+    let runtime = FakeRuntime::new();
     runtime.state().outcome = Some(turn_outcome("final only", StopReason::EndTurn));
     let host = start_native(runtime);
     let mut events = Vec::new();
@@ -386,9 +378,13 @@ fn turn_finished_falls_back_to_final_text_without_deltas() {
         |event| matches!(event, HostEvent::TurnEnd { .. }),
         Duration::from_secs(10)
     ));
-    assert!(
-        events.contains(&HostEvent::Delta("final only".to_string())),
-        "final text fallback: {events:?}"
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event, HostEvent::Delta(text) if text == "final only"))
+            .count(),
+        1,
+        "final text must be emitted exactly once: {events:?}"
     );
     host.shutdown();
 }
