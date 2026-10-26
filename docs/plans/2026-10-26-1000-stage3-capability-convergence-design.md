@@ -269,6 +269,26 @@ Phase B 的目标：native 与 external ACP 只向 `ConversationThread` + `Threa
   - **B4b-c**：真机验证通过后删除旧文件，实测 `git diff --stat` 净删。
 - **净删修正预估：约 3300–4500 行**（原 6000+ 估计偏乐观）；若要把 legacy composer/plan/queue/图片查看器也共享化，需再开 2–3 片。
 
+### 13.8 B4b 渲染收口进展（方案 A，2026-10-27 01:15）
+
+按「方案 A：先做渲染收口、runtime 留在视图」推进，已完成：
+
+| 片 | commit | 内容 |
+|---|---|---|
+| b'1 | `d28b9655` | composer 两条渲染路径合一（删除精简 shared 版，canonical = 功能超集） |
+| b'2 | `124b7d0d`、`07c66c13` | plan card / queue 面板 → `agent_ui`；图片查看器 → `app/src/image_viewer.rs` |
+| b'3 | `f5d294a2`、`64918af0`、`312a27c7` | mention chip 独立模块；user 行 / 编辑态行 → `agent_ui::message_row`（含动作显隐、无检查点二次确认纯函数） |
+
+结果：`native_agent_view.rs` **5850 → 5266 行**（−584）；渲染部分（不含 legacy composer）已降至 ~400–500 行。
+
+剩余（B4b-c 前置，必须真机验证）：
+1. composer 全功能（附件/mention/slash/queue/pickers/context usage/send-stop-steer）；
+2. 消息区（user 行编辑/恢复检查点、图片 chips/查看器、plan/queue/subagent/审批/action bar）；
+3. 平台集成（默认 native、回退开关、MCP 5 工具与 fail-closed）；
+4. 删除前清理：`CGC_NATIVE_SHARED_VIEW` 附件 chips 残留、`native_thread_state` 类型去向、`main.rs` demo 窗口引用。
+
+删除后净删预估（修正）：`5266 + 635 = 5901` 行，扣除需保留/迁移约 800–1200 行（编辑态/checkpoint 调用/测试），**净删约 4700–5100 行**。
+
 ### 13.5 剩余排期（2026-10-27 更新）
 
 - **3.4a（MCP client）**：✅ 完成（`a81ca587`）。Streamable HTTP JSON-RPC、Bearer、SSE/JSON、超时/401/403 fail-closed、token 脱敏；mock server 单测。
