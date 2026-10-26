@@ -31,7 +31,9 @@ pub(in crate::root_view) fn render_chat_panel(
 ) -> AnyElement {
     let phase = ctx.chat.phase.clone();
     let thread = ctx.chat.thread.clone();
-    let row_view = thread.row_view();
+    let surface = super::surface::ChatSurface::new(&thread);
+    let surface_flags = surface.flags;
+    let row_view = surface.thread.row_view();
     let input = ctx.chat.input.clone();
     let agent_label = if ctx.chat.agent.trim().is_empty() {
         ctx.chat
@@ -722,15 +724,14 @@ pub(in crate::root_view) fn render_chat_panel(
                                             );
                                         })),
                                 )
-                                .children(if ctx.chat.thread.capabilities.config_available() {
+                                .children(if surface_flags.config_options {
                                     config_pickers
                                 } else {
                                     Vec::new()
                                 })
                                 .children(
-                                    (ctx.chat.thread.capabilities.usage
-                                        && ctx.chat.thread.usage.size > 0)
-                                        .then(|| {
+                                    (surface_flags.usage && ctx.chat.thread.usage.size > 0).then(
+                                        || {
                                             div()
                                                 .text_size(px(10.0))
                                                 .text_color(palette.ink_3)
@@ -744,7 +745,8 @@ pub(in crate::root_view) fn render_chat_panel(
                                                     clipped_count(ctx.chat.thread.usage.used),
                                                     clipped_count(ctx.chat.thread.usage.size),
                                                 ))
-                                        }),
+                                        },
+                                    ),
                                 )
                                 .child(
                                     cgc_agent_ui::composer::render_send_button(
