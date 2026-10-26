@@ -3628,24 +3628,29 @@ impl NativeAgentView {
             MessageRowKind::TrailingActions => self.render_trailing_actions(palette, cx),
         }
     }
-}
 
-impl Render for NativeAgentView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // 页面 scope 变化时先切换工作区/线程，再渲染。
-        self.ensure_scope(cx);
-        let add_menu_root = cx.entity().downgrade();
-        let draft = self.composer_draft(cx);
-        let palette = theme::palette_from_theme(cx);
-        let chip_workspace = self.context.workspace().to_path_buf();
-        let pending = self.state.thread.pending_permission.clone();
-        let model_supports_images = draft.model_supports_images;
+    /// Phase B2b-3b：native composer 的 legacy 渲染（render 内联链纯搬迁，行为不变）。
+    // B2b-3b：纯搬迁后 render 前置值在 method 内重新计算，旧 render 侧仅保留
+    // 消息区仍需的变量；未用变量在下一片（3b-2）回收。
+    #[allow(unused_variables)]
+    fn render_native_composer_legacy(
+        &mut self,
+        draft: &ComposerDraft,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let busy = draft.busy;
+        let has_input = draft.has_input;
         let usage = draft.usage;
+        let model_supports_images = draft.model_supports_images;
         let input = draft.input.clone();
         let input_focus = draft.input_focus.clone();
         let input_value = draft.input_value.clone();
-        let has_input = draft.has_input;
+        // 页面 scope 变化时先切换工作区/线程，再渲染。
+        self.ensure_scope(cx);
+        let add_menu_root = cx.entity().downgrade();
+        let palette = theme::palette_from_theme(cx);
+        let chip_workspace = self.context.workspace().to_path_buf();
+        let pending = self.state.thread.pending_permission.clone();
         let slash_open = input_value.trim_start().starts_with('/') && !self.slash_dismissed;
         let slash_matches = self.slash_entries(&input_value);
         let slash_selected = self.slash_index.min(slash_matches.len().saturating_sub(1));
@@ -3680,603 +3685,264 @@ impl Render for NativeAgentView {
         let weak_view = cx.entity().downgrade();
         let message_menu_root = cx.entity().downgrade();
 
-        div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .bg(palette.canvas)
-            .text_color(palette.ink)
-            .font_family(theme::FONT_SANS)
-            .text_size(px(13.0))
-            .child(
-                div().flex_1().min_h(px(0.0)).child(
-                    MessageScroller::new(
-                        "native-agent-messages",
-                        self.message_scroller.clone(),
-                        move |index, _window, cx| {
-                            let Some(kind) = row_kinds.get(index).copied() else {
-                                return div().into_any_element();
-                            };
-                            let menu_root = message_menu_root.clone();
-                            let row = weak_view
-                                .update(cx, |view, cx| {
-                                    view.render_message_row(kind, &menu_root, cx)
-                                })
-                                .unwrap_or_else(|_| div().into_any_element());
-                            div().w_full().child(row).into_any_element()
-                        },
-                    )
-                    .scrollbar(true)
-                    .jump_button(true)
-                    .with_jump_button_label("回到最新")
-                    .with_list_style(StyleRefinement::default().p(space(2)))
-                    .with_row_style(StyleRefinement::default().pb(space(2))),
-                ),
-            )
-            .children(show_changes.then(|| {
-                div()
-                    .id("native-agent-checkpoint-panel")
-                    .flex()
-                    .flex_col()
-                    .gap(space(1))
-                    .px(space(3))
-                    .py(space(2))
-                    .border_t_1()
-                    .border_color(palette.line)
-                    .bg(palette.view)
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(space(1))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .text_size(px(12.0))
-                                    .child(format!("本轮文件变更（{change_count}）")),
-                            )
-                            .child(
-                                div()
-                                    .id("native-keep-all")
-                                    .role(Role::Button)
-                                    .aria_label("全部保留")
-                                    .px(space(1))
-                                    .py(px(2.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .text_size(px(10.0))
-                                    .text_color(palette.ink_2)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child("全部保留")
-                                    .on_click(cx.listener(|this, _, _window, cx| {
-                                        this.keep_all_changes(cx)
-                                    })),
-                            )
-                            .child(
-                                div()
-                                    .id("native-reject-all")
-                                    .role(Role::Button)
-                                    .aria_label("全部回退")
-                                    .px(space(1))
-                                    .py(px(2.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .text_size(px(10.0))
-                                    .text_color(palette.danger)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child("全部回退")
-                                    .on_click(cx.listener(|this, _, _window, cx| {
-                                        this.reject_all_changes(cx)
-                                    })),
-                            ),
-                    )
-                    .children(changes.into_iter().map(|change| {
-                        let path = change.path.clone();
-                        let restore_path = change.path.clone();
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(space(2))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .text_size(px(12.0))
-                                    .child(format!("{} {}", change.status, change.path)),
-                            )
-                            .child(
-                                div()
-                                    .id("checkpoint-keep")
-                                    .role(Role::Button)
-                                    .aria_label("保留")
-                                    .px(space(1))
-                                    .py(px(2.0))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .bg(palette.soft)
-                                    .child("保留")
-                                    .on_click(cx.listener(move |this, _, _window, cx| {
-                                        this.keep_checkpoint_file(path.clone(), cx)
-                                    })),
-                            )
-                            .child(
-                                div()
-                                    .id("checkpoint-restore")
-                                    .role(Role::Button)
-                                    .aria_label("回退")
-                                    .px(space(1))
-                                    .py(px(2.0))
-                                    .rounded(px(RADIUS_MEDIUM))
-                                    .bg(palette.accent)
-                                    .text_color(palette.canvas)
-                                    .child("回退")
-                                    .on_click(cx.listener(move |this, _, _window, cx| {
-                                        this.restore_checkpoint_file(restore_path.clone(), cx)
-                                    })),
-                            )
-                    }))
-            }))
-            .children(pending.map(|request| {
-                let view = cx.entity().downgrade();
-                let on_select: PermissionSelectCallback =
-                    Arc::new(move |option_id: &str, cx: &mut App| {
-                        let _ = view.update(cx, |this, cx| {
-                            this.resolve_permission_option(option_id, cx)
-                        });
-                    });
-                render_permission_card(PermissionCardSpec {
-                    id: SharedString::from("native-agent-permission"),
-                    model: PermissionCardModel::from_request(&request),
-                    hint: None,
-                    style: crate::permission_ui::card_style(&palette),
-                    on_select: Some(on_select),
-                })
-            }))
-            .children(
-                (!queued_messages.is_empty()
-                    && self.state.thread.capabilities.queue_available())
-                    .then(|| {
-                div()
-                    .id("native-agent-queue")
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.0))
-                    .mx(space(2))
-                    .mb(space(1))
-                    .p(space(2))
-                    .rounded(px(RADIUS_MEDIUM))
-                    .border_1()
-                    .border_color(palette.line)
-                    .bg(palette.view)
-                    .child(
-                        div()
-                            .text_size(px(10.0))
-                            .text_color(palette.ink_3)
-                            .child(format!(
-                                "排队中 {} 条 · 当前 turn 结束后自动发送",
-                                queued_messages.len()
-                            )),
-                    )
-                    .children(queued_messages.iter().enumerate().map(|(index, queued)| {
-                        let preview: String = queued.display.chars().take(160).collect();
-                        let remove_view = cx.entity().downgrade();
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(space(1))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_2)
-                                    .child(preview),
-                            )
-                            .child(
-                                div()
-                                    .id(SharedString::from(format!("native-queue-remove-{index}")))
-                                    .role(Role::Button)
-                                    .aria_label("取消排队消息")
-                                    .px(space(1))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_3)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child("×")
-                                    .on_click(move |_, _, cx| {
-                                        let _ = remove_view.update(cx, |this, cx| {
-                                            if index < this.queued_messages.len() {
-                                                this.queued_messages.remove(index);
-                                                cx.notify();
-                                            }
-                                        });
-                                    }),
-                            )
-                    }))
-            }))
-            .children(show_plan_card.then(|| {
-                let status = |status: ItemStatus| match status {
-                    ItemStatus::Completed => ("✓", palette.ink_3),
-                    ItemStatus::InProgress => ("◐", palette.accent),
-                    ItemStatus::Blocked => ("!", palette.danger),
-                    ItemStatus::Pending => ("○", palette.ink_3),
+        let current_provider_id = self.model.provider_id.as_str().to_string();
+        let current_model_id = self.model.id.as_str().to_string();
+        let current_model_config = self
+            .providers
+            .iter()
+            .find(|provider| provider.id == self.model.provider_id.as_str())
+            .map(|provider| provider.model_config(self.model.id.as_str()))
+            .unwrap_or_default();
+        let thinking_supported = current_model_config.supports_thinking;
+        let effort_levels = current_model_config.reasoning_efforts.clone();
+        let providers_for_menu = self.providers.clone();
+        let model_root = cx.entity().downgrade();
+        let thinking_root = cx.entity().downgrade();
+        let approval_root = cx.entity().downgrade();
+        let model_id_for_label = current_model_id.clone();
+        let model_groups: Vec<PickerGroup> = providers_for_menu
+            .iter()
+            .filter_map(|provider| {
+                let items: Vec<PickerItem> = provider
+                    .models
+                    .iter()
+                    .filter(|model| provider.model_config(model).enabled)
+                    .map(|model| {
+                        PickerItem::new(
+                            format!("native-model-{}-{}", provider.id, model),
+                            model.clone(),
+                        )
+                        .selected(provider.id == current_provider_id && *model == current_model_id)
+                    })
+                    .collect();
+                (!items.is_empty()).then(|| PickerGroup::titled(provider.name.clone(), items))
+            })
+            .collect();
+        let model_targets: Vec<(String, String)> = providers_for_menu
+            .iter()
+            .flat_map(|provider| {
+                provider
+                    .models
+                    .iter()
+                    .filter(|model| provider.model_config(model).enabled)
+                    .map(|model| (provider.id.clone(), model.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let model_picker = render_picker_popover(PickerPopoverSpec {
+            popover_id: SharedString::from("native-model-picker"),
+            trigger_id: SharedString::from("native-model-trigger"),
+            trigger_label: model_id_for_label,
+            trigger_tooltip: "选择模型".to_string(),
+            trigger_max_width: None,
+            anchor: Some(Anchor::BottomRight),
+            groups: model_groups,
+            style: native_picker_style(palette),
+            width: 240.0,
+            list_max_height: Some(280.0),
+            search: None,
+            on_select: Box::new(move |index, _window, cx| {
+                let Some((provider_id, model_id)) = model_targets.get(index).cloned() else {
+                    return;
                 };
-                let plan_done = plan_state
-                    .plan
-                    .iter()
-                    .filter(|step| step.status == ItemStatus::Completed)
-                    .count();
-                let todo_done = plan_state
-                    .todos
-                    .iter()
-                    .filter(|todo| todo.status == ItemStatus::Completed)
-                    .count();
+                let _ = model_root.update(cx, |this, cx| {
+                    this.select_model(provider_id, model_id, cx);
+                });
+            }),
+        });
+        let current_effort = self.effort_index.min(effort_levels.len().saturating_sub(1));
+        let thinking_enabled = self.thinking_enabled;
+        let thinking_label = if thinking_supported {
+            if thinking_enabled {
+                effort_levels
+                    .get(current_effort)
+                    .map(String::as_str)
+                    .unwrap_or("Thinking")
+            } else {
+                "Off"
+            }
+        } else {
+            "推理 —"
+        };
+        let effort_picker = (thinking_supported && !effort_levels.is_empty()).then(|| {
+            let levels_len = effort_levels.len();
+            let mut items: Vec<PickerItem> = effort_levels
+                .iter()
+                .enumerate()
+                .map(|(level_index, label)| {
+                    PickerItem::new(format!("native-thinking-{label}"), label.clone())
+                        .selected(thinking_enabled && level_index == current_effort)
+                })
+                .collect();
+            items.push(PickerItem::new("native-thinking-off", "Off").selected(!thinking_enabled));
+            let root = thinking_root.clone();
+            render_picker_popover(PickerPopoverSpec {
+                popover_id: SharedString::from("native-thinking-picker"),
+                trigger_id: SharedString::from("native-thinking-trigger"),
+                trigger_label: thinking_label.to_string(),
+                trigger_tooltip: "推理强度".to_string(),
+                trigger_max_width: None,
+                anchor: Some(Anchor::BottomRight),
+                groups: vec![PickerGroup::flat(items)],
+                style: native_picker_style(palette),
+                width: 160.0,
+                list_max_height: None,
+                search: None,
+                on_select: Box::new(move |index, _window, cx| {
+                    let _ = root.update(cx, |this, cx| {
+                        if index < levels_len {
+                            if !this.thinking_enabled {
+                                this.set_thinking_enabled(true, cx);
+                            }
+                            this.set_effort_index(index, cx);
+                        } else {
+                            this.set_thinking_enabled(false, cx);
+                        }
+                    });
+                }),
+            })
+        });
+        let current_approval = self.approval_mode;
+        let approval_picker = {
+            let modes = [ApprovalMode::Ask, ApprovalMode::Auto];
+            let items: Vec<PickerItem> = modes
+                .iter()
+                .map(|mode| {
+                    let label = match mode {
+                        ApprovalMode::Ask => "Ask（逐次审批）",
+                        ApprovalMode::Auto => "Auto（自动允许）",
+                    };
+                    PickerItem::new(format!("native-approval-{}", mode.label()), label)
+                        .selected(*mode == current_approval)
+                })
+                .collect();
+            let root = approval_root.clone();
+            render_picker_popover(PickerPopoverSpec {
+                popover_id: SharedString::from("native-approval-picker"),
+                trigger_id: SharedString::from("native-approval-trigger"),
+                trigger_label: current_approval.label().to_string(),
+                trigger_tooltip: "审批模式".to_string(),
+                trigger_max_width: None,
+                anchor: Some(Anchor::BottomRight),
+                groups: vec![PickerGroup::flat(items)],
+                style: native_picker_style(palette),
+                width: 200.0,
+                list_max_height: None,
+                search: None,
+                on_select: Box::new(move |index, _window, cx| {
+                    let Some(mode) = modes.get(index).copied() else {
+                        return;
+                    };
+                    let _ = root.update(cx, |this, cx| {
+                        this.set_approval_mode(mode, cx);
+                    });
+                }),
+            })
+        };
+        let send_aria = if busy {
+            if has_input {
+                "发送（排队）"
+            } else {
+                "停止"
+            }
+        } else {
+            "发送"
+        };
+        let send_label = if busy {
+            if has_input {
+                "⏳"
+            } else {
+                "■"
+            }
+        } else {
+            "↑"
+        };
+        let send_bg = if busy && !has_input {
+            palette.danger
+        } else if !busy && !has_input {
+            palette.soft
+        } else {
+            palette.accent
+        };
+        let send_fg = if !busy && !has_input {
+            palette.ink_3
+        } else {
+            palette.canvas
+        };
+        let send_tip = if busy {
+            if has_input {
+                "排队发送（⌘↩ 立即打断发送）"
+            } else {
+                "停止生成"
+            }
+        } else if has_input {
+            "发送（Enter）"
+        } else {
+            "输入内容后可发送"
+        };
+        let send_weak = cx.entity().downgrade();
+        let context_window = self.model.limits.context_window.max(1) as u64;
+        let used_percent = if context_window == 0 {
+            0
+        } else {
+            ((usage as f64 / context_window as f64) * 100.0).round() as u64
+        };
+        let context_summary = format!(
+            "{used_percent}% · {} / {}",
+            humanize_tokens(usage),
+            humanize_tokens(context_window)
+        );
+        let usage_total = self.state.usage_total;
+        let usage_breakdown = format!(
+            "输入 {} · 输出 {} · 缓存读 {}",
+            humanize_tokens(usage_total.input),
+            humanize_tokens(usage_total.output),
+            humanize_tokens(usage_total.cache_read)
+        );
+        let context_usage = HoverCard::new("native-context-usage")
+            .anchor(Anchor::BottomCenter)
+            .trigger(
                 div()
-                    .id("native-agent-plan-card")
-                    .flex()
-                    .flex_col()
-                    .gap(px(3.0))
-                    .mx(space(2))
-                    .mb(space(1))
-                    .p(space(2))
+                    .text_size(px(10.0))
+                    .text_color(palette.ink_3)
+                    .child(context_summary.clone()),
+            )
+            .content(move |_, _, _| {
+                div()
+                    .w(px(190.0))
+                    .p(space(1))
                     .rounded(px(RADIUS_MEDIUM))
                     .border_1()
                     .border_color(palette.line)
                     .bg(palette.card)
                     .child(
                         div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(space(2))
-                            .child(div().text_size(px(12.0)).child("计划"))
-                            .children((plan_state.goal.is_some()).then(|| {
-                                div()
-                                    .flex_1()
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_2)
-                                    .child(format!(
-                                        "目标：{}",
-                                        plan_state
-                                            .goal
-                                            .as_ref()
-                                            .map(|goal| goal.objective.clone())
-                                            .unwrap_or_default()
-                                    ))
-                            }))
-                            .child(div().text_size(px(10.0)).text_color(palette.ink_3).child(
-                                format!(
-                                    "计划 {plan_done}/{} · 待办 {todo_done}/{}",
-                                    plan_state.plan.len(),
-                                    plan_state.todos.len()
-                                ),
-                            )),
+                            .text_size(px(10.0))
+                            .text_color(palette.ink_3)
+                            .child("Context"),
                     )
-                    .children(plan_state.plan.iter().take(6).map(|step| {
-                        let (glyph, color) = status(step.status);
+                    .child(
                         div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(space(1))
-                            .child(
-                                div()
-                                    .w(px(12.0))
-                                    .text_size(px(11.0))
-                                    .text_color(color)
-                                    .child(glyph),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_2)
-                                    .child(step.title.clone()),
-                            )
-                    }))
-                    .children(plan_state.todos.iter().take(5).map(|todo| {
-                        let (glyph, color) = status(todo.status);
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(space(1))
-                            .child(
-                                div()
-                                    .w(px(12.0))
-                                    .text_size(px(11.0))
-                                    .text_color(color)
-                                    .child(glyph),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_2)
-                                    .child(todo.content.clone()),
-                            )
-                    }))
-                    .children(
-                        (!plan_state.todos.is_empty())
-                            .then(|| {
-                                div()
-                                    .text_size(px(10.0))
-                                    .text_color(palette.ink_3)
-                                    .child("待办")
-                            })
-                            .filter(|_| !plan_state.plan.is_empty()),
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_2)
+                            .child(context_summary.clone()),
                     )
-            }))
-            .child({
-                let current_provider_id = self.model.provider_id.as_str().to_string();
-                let current_model_id = self.model.id.as_str().to_string();
-                let current_model_config = self
-                    .providers
-                    .iter()
-                    .find(|provider| provider.id == self.model.provider_id.as_str())
-                    .map(|provider| provider.model_config(self.model.id.as_str()))
-                    .unwrap_or_default();
-                let thinking_supported = current_model_config.supports_thinking;
-                let effort_levels = current_model_config.reasoning_efforts.clone();
-                let providers_for_menu = self.providers.clone();
-                let model_root = cx.entity().downgrade();
-                let thinking_root = cx.entity().downgrade();
-                let approval_root = cx.entity().downgrade();
-                let model_id_for_label = current_model_id.clone();
-                let model_groups: Vec<PickerGroup> = providers_for_menu
-                    .iter()
-                    .filter_map(|provider| {
-                        let items: Vec<PickerItem> = provider
-                            .models
-                            .iter()
-                            .filter(|model| provider.model_config(model).enabled)
-                            .map(|model| {
-                                PickerItem::new(
-                                    format!("native-model-{}-{}", provider.id, model),
-                                    model.clone(),
-                                )
-                                .selected(
-                                    provider.id == current_provider_id
-                                        && *model == current_model_id,
-                                )
-                            })
-                            .collect();
-                        (!items.is_empty())
-                            .then(|| PickerGroup::titled(provider.name.clone(), items))
-                    })
-                    .collect();
-                let model_targets: Vec<(String, String)> = providers_for_menu
-                    .iter()
-                    .flat_map(|provider| {
-                        provider
-                            .models
-                            .iter()
-                            .filter(|model| provider.model_config(model).enabled)
-                            .map(|model| (provider.id.clone(), model.clone()))
-                            .collect::<Vec<_>>()
-                    })
-                    .collect();
-                let model_picker = render_picker_popover(PickerPopoverSpec {
-                    popover_id: SharedString::from("native-model-picker"),
-                    trigger_id: SharedString::from("native-model-trigger"),
-                    trigger_label: model_id_for_label,
-                    trigger_tooltip: "选择模型".to_string(),
-                    trigger_max_width: None,
-                    anchor: Some(Anchor::BottomRight),
-                    groups: model_groups,
-                    style: native_picker_style(palette),
-                    width: 240.0,
-                    list_max_height: Some(280.0),
-                    search: None,
-                    on_select: Box::new(move |index, _window, cx| {
-                        let Some((provider_id, model_id)) = model_targets.get(index).cloned() else {
-                            return;
-                        };
-                        let _ = model_root.update(cx, |this, cx| {
-                            this.select_model(provider_id, model_id, cx);
-                        });
-                    }),
-                });
-                let current_effort = self
-                    .effort_index
-                    .min(effort_levels.len().saturating_sub(1));
-                let thinking_enabled = self.thinking_enabled;
-                let thinking_label = if thinking_supported {
-                    if thinking_enabled {
-                        effort_levels
-                            .get(current_effort)
-                            .map(String::as_str)
-                            .unwrap_or("Thinking")
-                    } else {
-                        "Off"
-                    }
-                } else {
-                    "推理 —"
-                };
-                let effort_picker = (thinking_supported && !effort_levels.is_empty()).then(|| {
-                    let levels_len = effort_levels.len();
-                    let mut items: Vec<PickerItem> = effort_levels
-                        .iter()
-                        .enumerate()
-                        .map(|(level_index, label)| {
-                            PickerItem::new(
-                                format!("native-thinking-{label}"),
-                                label.clone(),
-                            )
-                            .selected(thinking_enabled && level_index == current_effort)
-                        })
-                        .collect();
-                    items.push(
-                        PickerItem::new("native-thinking-off", "Off")
-                            .selected(!thinking_enabled),
-                    );
-                    let root = thinking_root.clone();
-                    render_picker_popover(PickerPopoverSpec {
-                        popover_id: SharedString::from("native-thinking-picker"),
-                        trigger_id: SharedString::from("native-thinking-trigger"),
-                        trigger_label: thinking_label.to_string(),
-                        trigger_tooltip: "推理强度".to_string(),
-                        trigger_max_width: None,
-                        anchor: Some(Anchor::BottomRight),
-                        groups: vec![PickerGroup::flat(items)],
-                        style: native_picker_style(palette),
-                        width: 160.0,
-                        list_max_height: None,
-                        search: None,
-                        on_select: Box::new(move |index, _window, cx| {
-                            let _ = root.update(cx, |this, cx| {
-                                if index < levels_len {
-                                    if !this.thinking_enabled {
-                                        this.set_thinking_enabled(true, cx);
-                                    }
-                                    this.set_effort_index(index, cx);
-                                } else {
-                                    this.set_thinking_enabled(false, cx);
-                                }
-                            });
-                        }),
-                    })
-                });
-                let current_approval = self.approval_mode;
-                let approval_picker = {
-                    let modes = [ApprovalMode::Ask, ApprovalMode::Auto];
-                    let items: Vec<PickerItem> = modes
-                        .iter()
-                        .map(|mode| {
-                            let label = match mode {
-                                ApprovalMode::Ask => "Ask（逐次审批）",
-                                ApprovalMode::Auto => "Auto（自动允许）",
-                            };
-                            PickerItem::new(
-                                format!("native-approval-{}", mode.label()),
-                                label,
-                            )
-                            .selected(*mode == current_approval)
-                        })
-                        .collect();
-                    let root = approval_root.clone();
-                    render_picker_popover(PickerPopoverSpec {
-                        popover_id: SharedString::from("native-approval-picker"),
-                        trigger_id: SharedString::from("native-approval-trigger"),
-                        trigger_label: current_approval.label().to_string(),
-                        trigger_tooltip: "审批模式".to_string(),
-                        trigger_max_width: None,
-                        anchor: Some(Anchor::BottomRight),
-                        groups: vec![PickerGroup::flat(items)],
-                        style: native_picker_style(palette),
-                        width: 200.0,
-                        list_max_height: None,
-                        search: None,
-                        on_select: Box::new(move |index, _window, cx| {
-                            let Some(mode) = modes.get(index).copied() else {
-                                return;
-                            };
-                            let _ = root.update(cx, |this, cx| {
-                                this.set_approval_mode(mode, cx);
-                            });
-                        }),
-                    })
-                };
-                let send_aria = if busy {
-                    if has_input {
-                        "发送（排队）"
-                    } else {
-                        "停止"
-                    }
-                } else {
-                    "发送"
-                };
-                let send_label = if busy {
-                    if has_input {
-                        "⏳"
-                    } else {
-                        "■"
-                    }
-                } else {
-                    "↑"
-                };
-                let send_bg = if busy && !has_input {
-                    palette.danger
-                } else if !busy && !has_input {
-                    palette.soft
-                } else {
-                    palette.accent
-                };
-                let send_fg = if !busy && !has_input {
-                    palette.ink_3
-                } else {
-                    palette.canvas
-                };
-                let send_tip = if busy {
-                    if has_input {
-                        "排队发送（⌘↩ 立即打断发送）"
-                    } else {
-                        "停止生成"
-                    }
-                } else if has_input {
-                    "发送（Enter）"
-                } else {
-                    "输入内容后可发送"
-                };
-                let send_weak = cx.entity().downgrade();
-                let context_window = self.model.limits.context_window.max(1) as u64;
-                let used_percent = if context_window == 0 {
-                    0
-                } else {
-                    ((usage as f64 / context_window as f64) * 100.0).round() as u64
-                };
-                let context_summary = format!(
-                    "{used_percent}% · {} / {}",
-                    humanize_tokens(usage),
-                    humanize_tokens(context_window)
-                );
-                let usage_total = self.state.usage_total;
-                let usage_breakdown = format!(
-                    "输入 {} · 输出 {} · 缓存读 {}",
-                    humanize_tokens(usage_total.input),
-                    humanize_tokens(usage_total.output),
-                    humanize_tokens(usage_total.cache_read)
-                );
-                let context_usage = HoverCard::new("native-context-usage")
-                    .anchor(Anchor::BottomCenter)
-                    .trigger(
+                    .child(
                         div()
                             .text_size(px(10.0))
                             .text_color(palette.ink_3)
-                            .child(context_summary.clone()),
+                            .child("Tokens"),
                     )
-                    .content(move |_, _, _| {
+                    .child(
                         div()
-                            .w(px(190.0))
-                            .p(space(1))
-                            .rounded(px(RADIUS_MEDIUM))
-                            .border_1()
-                            .border_color(palette.line)
-                            .bg(palette.card)
-                            .child(
-                                div()
-                                    .text_size(px(10.0))
-                                    .text_color(palette.ink_3)
-                                    .child("Context"),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_2)
-                                    .child(context_summary.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(10.0))
-                                    .text_color(palette.ink_3)
-                                    .child("Tokens"),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_2)
-                                    .child(usage_breakdown.clone()),
-                            )
-                            .into_any_element()
-                    });
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_2)
+                            .child(usage_breakdown.clone()),
+                    )
+                    .into_any_element()
+            });
 
-                cgc_agent_ui::composer::composer_card(
+        cgc_agent_ui::composer::composer_card(
                     "native-agent-composer",
                     false,
                     native_composer_style(palette),
@@ -4820,7 +4486,383 @@ impl Render for NativeAgentView {
                                 },
                             )),
                     )
-            })
+            .into_any_element()
+    }
+}
+
+impl Render for NativeAgentView {
+    #[allow(unused_variables)] // B2b-3b：composer 前置值已迁入 legacy 方法，剩余局部待 3b-2 回收。
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 页面 scope 变化时先切换工作区/线程，再渲染。
+        self.ensure_scope(cx);
+        let add_menu_root = cx.entity().downgrade();
+        let draft = self.composer_draft(cx);
+        let palette = theme::palette_from_theme(cx);
+        let chip_workspace = self.context.workspace().to_path_buf();
+        let pending = self.state.thread.pending_permission.clone();
+        let model_supports_images = draft.model_supports_images;
+        let busy = draft.busy;
+        let usage = draft.usage;
+        let input = draft.input.clone();
+        let input_focus = draft.input_focus.clone();
+        let input_value = draft.input_value.clone();
+        let has_input = draft.has_input;
+        let slash_open = input_value.trim_start().starts_with('/') && !self.slash_dismissed;
+        let slash_matches = self.slash_entries(&input_value);
+        let slash_selected = self.slash_index.min(slash_matches.len().saturating_sub(1));
+        let mention = trailing_mention(&input_value);
+        let mention_matches = mention
+            .as_ref()
+            .map(|(_, query)| self.mention_matches(query))
+            .unwrap_or_default();
+        let mention_open = mention.is_some() && !slash_open && !mention_matches.is_empty();
+        let mention_selected = self
+            .mention_index
+            .min(mention_matches.len().saturating_sub(1));
+        let can_undo = self.state.thread.capabilities.checkpoint_available()
+            && self.last_checkpoint.is_some()
+            && !busy;
+        let change_count = self.checkpoint_changes.len();
+        let plan_state = self
+            .agent_state
+            .lock()
+            .map(|state| state.clone())
+            .unwrap_or_default();
+        let queued_messages = self.queued_messages.clone();
+        let show_plan_card = self.state.thread.capabilities.plan_available()
+            && (!plan_state.todos.is_empty()
+                || !plan_state.plan.is_empty()
+                || plan_state.goal.is_some());
+        let show_changes = self.show_checkpoint_panel && change_count > 0;
+        let changes = self.checkpoint_changes.clone();
+        let row_kinds = self.message_row_kinds();
+        self.sync_message_scroller(&row_kinds, cx);
+        let row_kinds = Arc::new(row_kinds);
+        let weak_view = cx.entity().downgrade();
+        let message_menu_root = cx.entity().downgrade();
+
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .bg(palette.canvas)
+            .text_color(palette.ink)
+            .font_family(theme::FONT_SANS)
+            .text_size(px(13.0))
+            .child(
+                div().flex_1().min_h(px(0.0)).child(
+                    MessageScroller::new(
+                        "native-agent-messages",
+                        self.message_scroller.clone(),
+                        move |index, _window, cx| {
+                            let Some(kind) = row_kinds.get(index).copied() else {
+                                return div().into_any_element();
+                            };
+                            let menu_root = message_menu_root.clone();
+                            let row = weak_view
+                                .update(cx, |view, cx| {
+                                    view.render_message_row(kind, &menu_root, cx)
+                                })
+                                .unwrap_or_else(|_| div().into_any_element());
+                            div().w_full().child(row).into_any_element()
+                        },
+                    )
+                    .scrollbar(true)
+                    .jump_button(true)
+                    .with_jump_button_label("回到最新")
+                    .with_list_style(StyleRefinement::default().p(space(2)))
+                    .with_row_style(StyleRefinement::default().pb(space(2))),
+                ),
+            )
+            .children(show_changes.then(|| {
+                div()
+                    .id("native-agent-checkpoint-panel")
+                    .flex()
+                    .flex_col()
+                    .gap(space(1))
+                    .px(space(3))
+                    .py(space(2))
+                    .border_t_1()
+                    .border_color(palette.line)
+                    .bg(palette.view)
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(1))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(px(12.0))
+                                    .child(format!("本轮文件变更（{change_count}）")),
+                            )
+                            .child(
+                                div()
+                                    .id("native-keep-all")
+                                    .role(Role::Button)
+                                    .aria_label("全部保留")
+                                    .px(space(1))
+                                    .py(px(2.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .text_size(px(10.0))
+                                    .text_color(palette.ink_2)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child("全部保留")
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.keep_all_changes(cx)
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .id("native-reject-all")
+                                    .role(Role::Button)
+                                    .aria_label("全部回退")
+                                    .px(space(1))
+                                    .py(px(2.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .text_size(px(10.0))
+                                    .text_color(palette.danger)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child("全部回退")
+                                    .on_click(cx.listener(|this, _, _window, cx| {
+                                        this.reject_all_changes(cx)
+                                    })),
+                            ),
+                    )
+                    .children(changes.into_iter().map(|change| {
+                        let path = change.path.clone();
+                        let restore_path = change.path.clone();
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(2))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(px(12.0))
+                                    .child(format!("{} {}", change.status, change.path)),
+                            )
+                            .child(
+                                div()
+                                    .id("checkpoint-keep")
+                                    .role(Role::Button)
+                                    .aria_label("保留")
+                                    .px(space(1))
+                                    .py(px(2.0))
+                                    .rounded(px(RADIUS_MEDIUM))
+                                    .bg(palette.soft)
+                                    .child("保留")
+                                    .on_click(cx.listener(move |this, _, _window, cx| {
+                                        this.keep_checkpoint_file(path.clone(), cx)
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .id("checkpoint-restore")
+                                    .role(Role::Button)
+                                    .aria_label("回退")
+                                    .px(space(1))
+                                    .py(px(2.0))
+                                    .rounded(px(RADIUS_MEDIUM))
+                                    .bg(palette.accent)
+                                    .text_color(palette.canvas)
+                                    .child("回退")
+                                    .on_click(cx.listener(move |this, _, _window, cx| {
+                                        this.restore_checkpoint_file(restore_path.clone(), cx)
+                                    })),
+                            )
+                    }))
+            }))
+            .children(pending.map(|request| {
+                let view = cx.entity().downgrade();
+                let on_select: PermissionSelectCallback =
+                    Arc::new(move |option_id: &str, cx: &mut App| {
+                        let _ = view
+                            .update(cx, |this, cx| this.resolve_permission_option(option_id, cx));
+                    });
+                render_permission_card(PermissionCardSpec {
+                    id: SharedString::from("native-agent-permission"),
+                    model: PermissionCardModel::from_request(&request),
+                    hint: None,
+                    style: crate::permission_ui::card_style(&palette),
+                    on_select: Some(on_select),
+                })
+            }))
+            .children(
+                (!queued_messages.is_empty() && self.state.thread.capabilities.queue_available())
+                    .then(|| {
+                        div()
+                            .id("native-agent-queue")
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.0))
+                            .mx(space(2))
+                            .mb(space(1))
+                            .p(space(2))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .border_1()
+                            .border_color(palette.line)
+                            .bg(palette.view)
+                            .child(div().text_size(px(10.0)).text_color(palette.ink_3).child(
+                                format!(
+                                    "排队中 {} 条 · 当前 turn 结束后自动发送",
+                                    queued_messages.len()
+                                ),
+                            ))
+                            .children(queued_messages.iter().enumerate().map(|(index, queued)| {
+                                let preview: String = queued.display.chars().take(160).collect();
+                                let remove_view = cx.entity().downgrade();
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap(space(1))
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .text_size(px(11.0))
+                                            .text_color(palette.ink_2)
+                                            .child(preview),
+                                    )
+                                    .child(
+                                        div()
+                                            .id(SharedString::from(format!(
+                                                "native-queue-remove-{index}"
+                                            )))
+                                            .role(Role::Button)
+                                            .aria_label("取消排队消息")
+                                            .px(space(1))
+                                            .rounded(px(RADIUS_SMALL))
+                                            .text_size(px(11.0))
+                                            .text_color(palette.ink_3)
+                                            .hover(|style| style.bg(palette.soft))
+                                            .child("×")
+                                            .on_click(move |_, _, cx| {
+                                                let _ = remove_view.update(cx, |this, cx| {
+                                                    if index < this.queued_messages.len() {
+                                                        this.queued_messages.remove(index);
+                                                        cx.notify();
+                                                    }
+                                                });
+                                            }),
+                                    )
+                            }))
+                    }),
+            )
+            .children(show_plan_card.then(|| {
+                let status = |status: ItemStatus| match status {
+                    ItemStatus::Completed => ("✓", palette.ink_3),
+                    ItemStatus::InProgress => ("◐", palette.accent),
+                    ItemStatus::Blocked => ("!", palette.danger),
+                    ItemStatus::Pending => ("○", palette.ink_3),
+                };
+                let plan_done = plan_state
+                    .plan
+                    .iter()
+                    .filter(|step| step.status == ItemStatus::Completed)
+                    .count();
+                let todo_done = plan_state
+                    .todos
+                    .iter()
+                    .filter(|todo| todo.status == ItemStatus::Completed)
+                    .count();
+                div()
+                    .id("native-agent-plan-card")
+                    .flex()
+                    .flex_col()
+                    .gap(px(3.0))
+                    .mx(space(2))
+                    .mb(space(1))
+                    .p(space(2))
+                    .rounded(px(RADIUS_MEDIUM))
+                    .border_1()
+                    .border_color(palette.line)
+                    .bg(palette.card)
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(2))
+                            .child(div().text_size(px(12.0)).child("计划"))
+                            .children((plan_state.goal.is_some()).then(|| {
+                                div()
+                                    .flex_1()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .child(format!(
+                                        "目标：{}",
+                                        plan_state
+                                            .goal
+                                            .as_ref()
+                                            .map(|goal| goal.objective.clone())
+                                            .unwrap_or_default()
+                                    ))
+                            }))
+                            .child(div().text_size(px(10.0)).text_color(palette.ink_3).child(
+                                format!(
+                                    "计划 {plan_done}/{} · 待办 {todo_done}/{}",
+                                    plan_state.plan.len(),
+                                    plan_state.todos.len()
+                                ),
+                            )),
+                    )
+                    .children(plan_state.plan.iter().take(6).map(|step| {
+                        let (glyph, color) = status(step.status);
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(1))
+                            .child(
+                                div()
+                                    .w(px(12.0))
+                                    .text_size(px(11.0))
+                                    .text_color(color)
+                                    .child(glyph),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .child(step.title.clone()),
+                            )
+                    }))
+                    .children(plan_state.todos.iter().take(5).map(|todo| {
+                        let (glyph, color) = status(todo.status);
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(1))
+                            .child(
+                                div()
+                                    .w(px(12.0))
+                                    .text_size(px(11.0))
+                                    .text_color(color)
+                                    .child(glyph),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .child(todo.content.clone()),
+                            )
+                    }))
+                    .children(
+                        (!plan_state.todos.is_empty())
+                            .then(|| {
+                                div()
+                                    .text_size(px(10.0))
+                                    .text_color(palette.ink_3)
+                                    .child("待办")
+                            })
+                            .filter(|_| !plan_state.plan.is_empty()),
+                    )
+            }))
+            .child(self.render_native_composer_legacy(&draft, cx))
     }
 }
 
