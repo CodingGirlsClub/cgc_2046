@@ -9,10 +9,14 @@ rust-version.workspace = true
 cgc-agent-conversation = { path = "../agent_conversation" }
 cgc-agent-core = { path = "../agent_core" }
 cgc-agent-provider = { path = "../agent_provider" }
+cgc-agent-tools = { path = "../agent_tools" }
+# ACP SDK：native 进程内 server（Agent 角色 + 内存 Channel transport）。
+agent-client-protocol = { version = "3.4" }
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [dev-dependencies]
-cgc-agent-tools = { path = "../agent_tools" }
+# 端到端测试：native server ↔ platform 现有 ACP 客户端 ingestion。
+cgc-platform = { path = "../platform" }
 futures = "0.3"

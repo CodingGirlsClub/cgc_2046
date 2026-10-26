@@ -17,22 +17,26 @@ use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
     AvailableCommand, CancelNotification, ContentBlock, InitializeRequest, ListSessionsRequest,
-    LoadSessionRequest, McpServer, NewSessionRequest, PromptRequest, RequestPermissionOutcome,
-    RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
-    SessionConfigId, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
-    SessionConfigOptionValue, SessionConfigSelectOptions, SessionConfigValueId, SessionId,
-    SessionNotification, SessionUpdate, SetSessionConfigOptionRequest, TextContent, ToolCall,
-    ToolCallContent, ToolCallLocation, ToolCallStatus,
+    LoadSessionRequest, McpServer, NewSessionRequest, PermissionOption, PermissionOptionKind,
+    PromptRequest, RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+    SelectedPermissionOutcome, SessionConfigId, SessionConfigKind, SessionConfigOption,
+    SessionConfigOptionCategory, SessionConfigOptionValue, SessionConfigSelectOptions,
+    SessionConfigValueId, SessionId, SessionNotification, SessionUpdate,
+    SetSessionConfigOptionRequest, StopReason, TextContent, ToolCall, ToolCallContent,
+    ToolCallLocation, ToolCallStatus,
 };
 use agent_client_protocol::schema::{MaybeUndefined, ProtocolVersion};
 use agent_client_protocol::{
-    on_receive_notification, on_receive_request, AcpAgent, Agent, Client, ConnectionTo,
+    on_receive_notification, on_receive_request, AcpAgent, Agent, Client, ConnectTo, ConnectionTo,
+    DynConnectTo,
 };
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::StreamExt;
 
 const INIT_TIMEOUT: Duration = Duration::from_secs(45);
 const TURN_TIMEOUT: Duration = Duration::from_secs(60);
+/// cancel 后等 agent 回 `stopReason: cancelled` 的宽限期；超时才合成 TurnEnd。
+const CANCEL_GRACE: Duration = Duration::from_secs(2);
 const EVENT_CAPACITY: usize = 256;
 static PERMISSION_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -144,6 +148,15 @@ pub struct PlanStepView {
     pub status: String,
 }
 
+/// 审批选项视图（ACP `request_permission` 的 options 原样透传）。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PermissionOptionView {
+    pub option_id: String,
+    pub name: String,
+    /// `allow_once` / `allow_always` / `reject_once` / `reject_always` / `other`。
+    pub kind: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HostEvent {
     Ready {
@@ -153,6 +166,9 @@ pub enum HostEvent {
     },
     Delta(String),
     ThoughtDelta(String),
+    /// 用户消息（native follow-up/steer 等 agent 侧产生的插话，经 ACP
+    /// `user_message_chunk` 回放）。与 `Delta` 同一 ingestion 落成 User 行。
+    UserMessage(String),
     AvailableCommands {
         commands: Vec<CommandView>,
     },
@@ -182,14 +198,20 @@ pub enum HostEvent {
     },
     CompactionUpdated {
         status: String,
-        error: Option<String>,
+        summary: Option<String>,
     },
     /// 审批请求：UI 必须显式允许/拒绝（5.7）。request_id 用于回传决定。
+    ///
+    /// `options` 是 agent 提供的选项（native 4 档 / external ACP 原样透传）；
+    /// 客户端用 [`AcpHost::respond_permission_option`] 按 option_id 精确回传，
+    /// 旧 UI 仍可用 [`AcpHost::respond_permission`] 折成允许/拒绝。
     PermissionRequested {
         request_id: String,
         title: String,
         tool_call_id: Option<String>,
+        tool_name: Option<String>,
         args: Option<String>,
+        options: Vec<PermissionOptionView>,
     },
     Sessions {
         sessions: Vec<SessionSummary>,
@@ -240,8 +262,19 @@ pub struct AcpHost {
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
+/// agent 端 transport：外部子进程，或进程内组件（native-as-ACP，Stage 3.1）。
+enum HostTransport {
+    Subprocess,
+    InProcess(DynConnectTo<Client>),
+}
+
+/// 用户在审批卡上选的 option id；`None` 表示取消（不选任何选项）。
+type PermissionChoice = Option<String>;
+
 pub(crate) struct PendingPermission {
-    pub(crate) sender: futures::channel::oneshot::Sender<bool>,
+    pub(crate) sender: futures::channel::oneshot::Sender<PermissionChoice>,
+    /// 旧 UI 的「允许」折叠成的选项（第一个 allow_* 选项）。
+    pub(crate) allow_option: Option<String>,
 }
 
 type PendingPermissions = Arc<Mutex<HashMap<String, PendingPermission>>>;
@@ -251,13 +284,32 @@ impl AcpHost {
         if config.command.trim().is_empty() {
             return Err(HostError::EmptyCommand);
         }
+        Self::start_with_transport(config, HostTransport::Subprocess)
+    }
+
+    /// 进程内 agent（native-as-ACP）：不拉起子进程、不走 stdio，直接与同进程
+    /// 的 ACP agent 组件（`agent_host::NativeAcpServer`）经内存 channel 通信。
+    ///
+    /// 除 transport 外与 [`Self::start`] 完全同一条客户端路径（initialize、
+    /// session/new、session/update → [`HostEvent`]、审批 request、cancel）。
+    pub fn start_in_process(
+        config: AcpHostConfig,
+        agent: impl ConnectTo<Client> + 'static,
+    ) -> Result<Self, HostError> {
+        Self::start_with_transport(config, HostTransport::InProcess(DynConnectTo::new(agent)))
+    }
+
+    fn start_with_transport(
+        config: AcpHostConfig,
+        transport: HostTransport,
+    ) -> Result<Self, HostError> {
         let (command_tx, command_rx) = unbounded();
         let (event_tx, events) = sync_channel(EVENT_CAPACITY);
         let pending_permissions: PendingPermissions = Arc::new(Mutex::new(HashMap::new()));
         let pending_for_thread = Arc::clone(&pending_permissions);
         let thread = std::thread::Builder::new()
             .name("cgc-acp-host".to_string())
-            .spawn(move || run_thread(config, command_rx, event_tx, pending_for_thread))
+            .spawn(move || run_thread(config, transport, command_rx, event_tx, pending_for_thread))
             .map_err(|error| HostError::Thread(error.to_string()))?;
         Ok(Self {
             command_tx,
@@ -293,6 +345,10 @@ impl AcpHost {
     }
 
     /// 显式回答审批请求；allow=false 等价取消。返回是否找到该请求。
+    ///
+    /// 旧 UI 只有允许/拒绝两态：允许时折成 agent 提供的第一个 allow_* 选项。
+    /// 需要精确选择（native 4 档、ACP 多选题）时用
+    /// [`Self::respond_permission_option`]。
     pub fn respond_permission(&self, request_id: &str, allow: bool) -> bool {
         let pending = self
             .pending_permissions
@@ -300,7 +356,29 @@ impl AcpHost {
             .expect("pending permissions")
             .remove(request_id);
         pending
-            .map(|pending| pending.sender.send(allow).is_ok())
+            .map(|pending| {
+                let choice = if allow { pending.allow_option } else { None };
+                pending.sender.send(choice).is_ok()
+            })
+            .unwrap_or(false)
+    }
+
+    /// 按 option_id 回传选择（ACP `selected` 形状）；未知请求返回 false。
+    ///
+    /// 重复回传同一 request 是 no-op（请求已被移出 pending 表），保证审批
+    /// 去重不会回退成第二次答复。
+    pub fn respond_permission_option(
+        &self,
+        request_id: &str,
+        option_id: impl Into<String>,
+    ) -> bool {
+        let pending = self
+            .pending_permissions
+            .lock()
+            .expect("pending permissions")
+            .remove(request_id);
+        pending
+            .map(|pending| pending.sender.send(Some(option_id.into())).is_ok())
             .unwrap_or(false)
     }
 
@@ -329,12 +407,14 @@ impl Drop for AcpHost {
 
 fn run_thread(
     config: AcpHostConfig,
+    transport: HostTransport,
     command_rx: UnboundedReceiver<HostCommand>,
     events: SyncSender<HostEvent>,
     pending_permissions: PendingPermissions,
 ) {
     let result = futures::executor::block_on(run_connection(
         config,
+        transport,
         command_rx,
         events.clone(),
         pending_permissions,
@@ -352,12 +432,18 @@ fn send_event(events: &SyncSender<HostEvent>, event: HostEvent) {
 
 async fn run_connection(
     config: AcpHostConfig,
+    transport: HostTransport,
     mut command_rx: UnboundedReceiver<HostCommand>,
     events: SyncSender<HostEvent>,
     pending_permissions: PendingPermissions,
 ) -> Result<(), String> {
-    let agent =
-        AcpAgent::from_str(&config.command).map_err(|error| format!("agent launch: {error}"))?;
+    let agent: DynConnectTo<Client> = match transport {
+        HostTransport::Subprocess => DynConnectTo::new(
+            AcpAgent::from_str(&config.command)
+                .map_err(|error| format!("agent launch: {error}"))?,
+        ),
+        HostTransport::InProcess(agent) => agent,
+    };
     let events_for_notifications = events.clone();
     let events_for_permissions = events.clone();
     let pending_for_permissions = Arc::clone(&pending_permissions);
@@ -391,8 +477,7 @@ async fn run_connection(
                     .find(|option| {
                         matches!(
                             option.kind,
-                            agent_client_protocol::schema::v1::PermissionOptionKind::AllowOnce
-                                | agent_client_protocol::schema::v1::PermissionOptionKind::AllowAlways
+                            PermissionOptionKind::AllowOnce | PermissionOptionKind::AllowAlways
                         )
                     })
                     .map(|option| option.option_id.0.to_string());
@@ -402,7 +487,10 @@ async fn run_connection(
                     .expect("pending permissions")
                     .insert(
                         request_id.clone(),
-                        PendingPermission { sender },
+                        PendingPermission {
+                            sender,
+                            allow_option: allow_option.clone(),
+                        },
                     );
                 send_event(
                     &events_for_permissions,
@@ -410,29 +498,22 @@ async fn run_connection(
                         request_id,
                         title,
                         tool_call_id: Some(request.tool_call.tool_call_id.0.to_string()),
-                        args: request
-                            .tool_call
-                            .fields
-                            .raw_input
-                            .as_ref()
-                            .map(json_text),
+                        tool_name: request.tool_call.fields.name.clone(),
+                        args: request.tool_call.fields.raw_input.as_ref().map(json_text),
+                        options: permission_option_views(&request.options),
                     },
                 );
                 let timeout = sleep(Duration::from_secs(300));
                 futures::pin_mut!(receiver, timeout);
-                let allowed = match futures::future::select(receiver, timeout).await {
-                    futures::future::Either::Left((decision, _)) => decision.unwrap_or(false),
-                    futures::future::Either::Right(_) => false,
+                let choice = match futures::future::select(receiver, timeout).await {
+                    futures::future::Either::Left((decision, _)) => decision.unwrap_or(None),
+                    futures::future::Either::Right(_) => None,
                 };
-                let outcome = if allowed {
-                    match allow_option {
-                        Some(option_id) => RequestPermissionOutcome::Selected(
-                            SelectedPermissionOutcome::new(option_id),
-                        ),
-                        None => RequestPermissionOutcome::Cancelled,
-                    }
-                } else {
-                    RequestPermissionOutcome::Cancelled
+                let outcome = match choice {
+                    Some(option_id) => RequestPermissionOutcome::Selected(
+                        SelectedPermissionOutcome::new(option_id),
+                    ),
+                    None => RequestPermissionOutcome::Cancelled,
                 };
                 let _ = responder.respond(RequestPermissionResponse::new(outcome));
                 Ok(())
@@ -545,9 +626,7 @@ async fn run_connection(
                                         options: config_option_views(&response.config_options),
                                     },
                                 ),
-                                Err(message) => {
-                                    send_event(&events, HostEvent::Error { message })
-                                }
+                                Err(message) => send_event(&events, HostEvent::Error { message }),
                             }
                         }
                         HostCommand::Shutdown => return Ok(()),
@@ -673,6 +752,10 @@ fn host_event_from_update(update: SessionUpdate) -> Option<HostEvent> {
             ContentBlock::Text(text) => Some(HostEvent::ThoughtDelta(text.text)),
             _ => None,
         },
+        SessionUpdate::UserMessageChunk(chunk) => match chunk.content {
+            ContentBlock::Text(text) => Some(HostEvent::UserMessage(text.text)),
+            _ => None,
+        },
         SessionUpdate::AvailableCommandsUpdate(update) => Some(HostEvent::AvailableCommands {
             commands: command_views(update.available_commands),
         }),
@@ -722,9 +805,22 @@ fn host_event_from_update(update: SessionUpdate) -> Option<HostEvent> {
         }),
         SessionUpdate::CompactionUpdate(update) => Some(HostEvent::CompactionUpdated {
             status: debug_label(update.status),
-            error: match update.error {
-                MaybeUndefined::Value(error) => Some(error),
-                _ => None,
+            summary: match update.summary {
+                MaybeUndefined::Value(blocks) => {
+                    let text = blocks
+                        .iter()
+                        .filter_map(|block| match block {
+                            ContentBlock::Text(text) => Some(text.text.clone()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    (!text.is_empty()).then_some(text)
+                }
+                _ => match update.error {
+                    MaybeUndefined::Value(error) => Some(error),
+                    _ => None,
+                },
             },
         }),
         _ => None,
@@ -738,6 +834,27 @@ fn command_views(commands: Vec<AvailableCommand>) -> Vec<CommandView> {
             name: command.name,
             description: command.description,
             requires_argument: command.input.is_some(),
+        })
+        .collect()
+}
+
+fn permission_option_kind_label(kind: PermissionOptionKind) -> &'static str {
+    match kind {
+        PermissionOptionKind::AllowOnce => "allow_once",
+        PermissionOptionKind::AllowAlways => "allow_always",
+        PermissionOptionKind::RejectOnce => "reject_once",
+        PermissionOptionKind::RejectAlways => "reject_always",
+        _ => "other",
+    }
+}
+
+fn permission_option_views(options: &[PermissionOption]) -> Vec<PermissionOptionView> {
+    options
+        .iter()
+        .map(|option| PermissionOptionView {
+            option_id: option.option_id.0.to_string(),
+            name: option.name.clone(),
+            kind: permission_option_kind_label(option.kind).to_string(),
         })
         .collect()
 }
@@ -816,21 +933,26 @@ async fn run_turn(
     loop {
         let command = command_rx.next();
         futures::pin_mut!(command);
-        let prompt_or_command = futures::future::select(prompt.as_mut(), command);
-        futures::pin_mut!(prompt_or_command);
-        match futures::future::select(prompt_or_command, deadline.as_mut()).await {
+        // 先轮询命令（Stop 优先于同时到达的 prompt 响应），否则用户点停止时
+        // 若 agent 恰好同刻收尾，TurnEnd 会被误报成 cancelled=false。
+        let command_or_prompt = futures::future::select(command, prompt.as_mut());
+        futures::pin_mut!(command_or_prompt);
+        match futures::future::select(command_or_prompt, deadline.as_mut()).await {
             futures::future::Either::Left((
-                futures::future::Either::Left((result, _command)),
+                futures::future::Either::Right((result, _command)),
                 _,
             )) => {
                 match result {
-                    Ok(response) => send_event(
-                        events,
-                        HostEvent::TurnEnd {
-                            cancelled: false,
-                            stop_reason: format!("{:?}", response.stop_reason),
-                        },
-                    ),
+                    Ok(response) => {
+                        let stop_reason = format!("{:?}", response.stop_reason);
+                        send_event(
+                            events,
+                            HostEvent::TurnEnd {
+                                cancelled: response.stop_reason == StopReason::Cancelled,
+                                stop_reason,
+                            },
+                        )
+                    }
                     Err(error) => send_event(
                         events,
                         HostEvent::Error {
@@ -841,19 +963,40 @@ async fn run_turn(
                 break;
             }
             futures::future::Either::Left((
-                futures::future::Either::Right((command, _prompt)),
+                futures::future::Either::Left((command, _prompt)),
                 _,
             )) => match command {
                 Some(HostCommand::Stop) => {
+                    // 先发 cancel，再等 prompt 响应一个宽限期：in-process native
+                    // server 会立刻回 `stopReason: cancelled`，等它回来再收尾
+                    // 才不会和 agent 交还状态竞争；外部 agent 不响应也不会卡住。
                     let _ =
                         connection.send_notification(CancelNotification::new(session_id.clone()));
-                    send_event(
-                        events,
-                        HostEvent::TurnEnd {
-                            cancelled: true,
-                            stop_reason: "cancelled".to_string(),
-                        },
-                    );
+                    let grace = sleep(CANCEL_GRACE);
+                    futures::pin_mut!(grace);
+                    match futures::future::select(prompt.as_mut(), grace).await {
+                        futures::future::Either::Left((Ok(response), _)) => send_event(
+                            events,
+                            HostEvent::TurnEnd {
+                                cancelled: true,
+                                stop_reason: format!("{:?}", response.stop_reason),
+                            },
+                        ),
+                        futures::future::Either::Left((Err(_), _)) => send_event(
+                            events,
+                            HostEvent::TurnEnd {
+                                cancelled: true,
+                                stop_reason: "cancelled".to_string(),
+                            },
+                        ),
+                        futures::future::Either::Right(_) => send_event(
+                            events,
+                            HostEvent::TurnEnd {
+                                cancelled: true,
+                                stop_reason: "cancelled".to_string(),
+                            },
+                        ),
+                    }
                     break;
                 }
                 Some(HostCommand::Shutdown) | None => {
@@ -1181,6 +1324,82 @@ mod tests {
             panic!("expected UsageUpdated");
         };
         assert_eq!((used, size, cost), (1200, 64_000, None));
+    }
+
+    #[test]
+    fn user_message_chunks_map_to_user_messages() {
+        use agent_client_protocol::schema::v1::{ContentBlock, ContentChunk, TextContent};
+        let event = super::host_event_from_update(SessionUpdate::UserMessageChunk(
+            ContentChunk::new(ContentBlock::Text(TextContent::new("after"))),
+        ))
+        .expect("user message event");
+        assert_eq!(event, HostEvent::UserMessage("after".to_string()));
+    }
+
+    #[test]
+    fn compaction_update_prefers_summary_text_and_falls_back_to_error() {
+        use agent_client_protocol::schema::v1::{
+            CompactionStatus, CompactionUpdate, ContentBlock, TextContent,
+        };
+        let with_summary =
+            CompactionUpdate::new("cmp-1", CompactionStatus::Completed).summary(vec![
+                ContentBlock::Text(TextContent::new("省略 3 条更早消息")),
+            ]);
+        let event = super::host_event_from_update(SessionUpdate::CompactionUpdate(with_summary))
+            .expect("compaction event");
+        assert_eq!(
+            event,
+            HostEvent::CompactionUpdated {
+                status: "completed".to_string(),
+                summary: Some("省略 3 条更早消息".to_string()),
+            }
+        );
+
+        let with_error =
+            CompactionUpdate::new("cmp-2", CompactionStatus::Failed).error("boom".to_string());
+        let event = super::host_event_from_update(SessionUpdate::CompactionUpdate(with_error))
+            .expect("compaction event");
+        assert_eq!(
+            event,
+            HostEvent::CompactionUpdated {
+                status: "failed".to_string(),
+                summary: Some("boom".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn permission_options_keep_ids_names_and_kind_labels() {
+        use agent_client_protocol::schema::v1::{PermissionOption, PermissionOptionKind};
+        let options = super::permission_option_views(&[
+            PermissionOption::new("allow_once", "Allow once", PermissionOptionKind::AllowOnce),
+            PermissionOption::new(
+                "allow_session",
+                "Allow session",
+                PermissionOptionKind::AllowAlways,
+            ),
+            PermissionOption::new("deny", "Deny", PermissionOptionKind::RejectOnce),
+        ]);
+        assert_eq!(
+            options,
+            vec![
+                super::PermissionOptionView {
+                    option_id: "allow_once".to_string(),
+                    name: "Allow once".to_string(),
+                    kind: "allow_once".to_string(),
+                },
+                super::PermissionOptionView {
+                    option_id: "allow_session".to_string(),
+                    name: "Allow session".to_string(),
+                    kind: "allow_always".to_string(),
+                },
+                super::PermissionOptionView {
+                    option_id: "deny".to_string(),
+                    name: "Deny".to_string(),
+                    kind: "reject_once".to_string(),
+                },
+            ]
+        );
     }
 
     #[test]

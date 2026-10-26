@@ -930,10 +930,12 @@ dependencies = [
 name = "cgc-agent-host"
 version = "0.0.1"
 dependencies = [
+ "agent-client-protocol",
  "cgc-agent-conversation",
  "cgc-agent-core",
  "cgc-agent-provider",
  "cgc-agent-tools",
+ "cgc-platform",
  "futures",
  "serde",
  "serde_json",
