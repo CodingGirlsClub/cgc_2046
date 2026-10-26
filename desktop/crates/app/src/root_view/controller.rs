@@ -2102,11 +2102,43 @@ impl RootView {
         cx.notify();
     }
 
-    /// native agent 是否对当前用户开放（P1b 灰度的最小形态：环境变量开关）。
+    /// native agent 是否对当前用户开放（3.5b：非课程页默认开启，课程页维持旧默认）。
+    ///
+    /// 覆盖顺序：
+    ///
+    /// 1. `CGC_NATIVE_AGENT`（显式 env，`0` = 关闭）
+    /// 2. `CGC_NATIVE_AGENT_DEMO`
+    /// 3. `preferences.nativeAgentEnabled`
+    /// 4. 页面默认：非课程页 true；课程页 false（依赖 3.4 MCP，暂不切换）
     pub fn native_agent_enabled() -> bool {
-        std::env::var_os("CGC_NATIVE_AGENT").is_some()
-            || std::env::var_os("CGC_NATIVE_AGENT_DEMO").is_some()
-            || crate::preferences::load().native_agent_enabled
+        let course_page = crate::page_context::current().is_some();
+        let env_native_agent = std::env::var("CGC_NATIVE_AGENT").ok();
+        let demo = std::env::var_os("CGC_NATIVE_AGENT_DEMO").is_some();
+        let pref = crate::preferences::load().native_agent_enabled;
+        Self::resolve_native_agent_enabled(course_page, env_native_agent.as_deref(), demo, pref)
+    }
+
+    /// 3.5b：默认 native 的纯决策函数（env/prefs 覆盖 + 页面默认）。
+    ///
+    /// 规则：
+    ///
+    /// 1. `CGC_NATIVE_AGENT` 显式设置时，`"0"` 关闭、其余值开启；
+    /// 2. `CGC_NATIVE_AGENT_DEMO` 存在或 `preferences.nativeAgentEnabled` 为 true
+    ///    时开启；
+    /// 3. 否则非课程页默认开启，课程页默认关闭（依赖 3.4 MCP）。
+    pub(crate) fn resolve_native_agent_enabled(
+        course_page: bool,
+        env_native_agent: Option<&str>,
+        demo: bool,
+        pref: bool,
+    ) -> bool {
+        if let Some(value) = env_native_agent {
+            return value != "0";
+        }
+        if demo || pref {
+            return true;
+        }
+        !course_page
     }
 
     /// 从主窗口打开 native agent 面板（独立窗口，复用 demo 视图）。
@@ -3918,5 +3950,42 @@ mod npx_cache_tests {
             Some(std::path::Path::new("/Users/x/.npm/_npx/1f87"))
         );
         assert!(npx_cache_dir_from_error("other error").is_none());
+    }
+}
+
+#[cfg(test)]
+mod native_default_tests {
+    use crate::root_view::RootView;
+
+    #[test]
+    fn default_is_native_on_non_course_pages_only() {
+        assert!(RootView::resolve_native_agent_enabled(
+            false, None, false, false
+        ));
+        assert!(!RootView::resolve_native_agent_enabled(
+            true, None, false, false
+        ));
+    }
+
+    #[test]
+    fn env_demo_and_prefs_override_default() {
+        assert!(RootView::resolve_native_agent_enabled(
+            true,
+            Some("1"),
+            false,
+            false
+        ));
+        assert!(!RootView::resolve_native_agent_enabled(
+            false,
+            Some("0"),
+            false,
+            false
+        ));
+        assert!(RootView::resolve_native_agent_enabled(
+            true, None, true, false
+        ));
+        assert!(RootView::resolve_native_agent_enabled(
+            true, None, false, true
+        ));
     }
 }
