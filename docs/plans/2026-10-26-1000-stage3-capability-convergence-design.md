@@ -342,6 +342,30 @@ env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY \
 
 **对 B4b-c 的意义**：删除旧视图的前提从「一次搬走 5000 行」变成「删 8 个职责单一的模块」，可以逐片迁移/删除、逐片门禁；`native_thread_state.rs`（625 行）仍是删除前的最后一块状态归属问题。
 
+### 13.11 Stage 3 收口状态（2026-10-27）
+
+| 项 | 状态 |
+|---|---|
+| 3.1 native-as-ACP | ✅ |
+| 3.2 审批统一（route A：规则仅 native） | ✅ |
+| 3.3 transcript/历史/侧栏/重命名/归档/品牌图标 | ✅（含真机验收） |
+| 3.4a MCP Streamable HTTP client（mock 单测） | ✅ |
+| 3.4b 5 个只读课程工具白名单 + 审批 Allow | ✅ |
+| 3.4c native `ToolRegistry` 注入（lease/env，fail-closed） | ✅（真机可见 4 个工具） |
+| 3.4d 真机联调：工具名命名、workspace_id 注入 | ✅ 已修；后端 workspace 归属仍待确认 |
+| 3.5a 全局 Agent Panel + 课程上下文 chip | ✅ |
+| 3.5b 默认 native（含课程页）+ env/设置回退 | ✅ |
+| 3.6 Phase B：B1–B4 共享渲染、B4b 结构拆分 | ✅ |
+| B4b-c 文件删除：`native_agent_view.rs` / `native_thread_state.rs` | ✅ 已删除（模块根迁 `mod.rs`） |
+| `CGC_NATIVE_SHARED_VIEW` flag | ✅ 已移除 |
+| 净删行数 | **−805 行**（6730 → 5925） |
+| B5 全量门禁 / 文档 | ✅（fmt/clippy 绿，602 passed；§13.x/README/ADR-0028 已更新） |
+
+**遗留（非 Stage 3 阻塞项）**：
+1. native 运行时胶水（`runtime_ops`/`turn`/`state`，约 2100 行）仍在视图模块内，迁 host 是后续独立切片；
+2. MCP 工具真机调用受后端 workspace 归属影响（`-32000 failed to load course`），需后端确认 token→workspace 绑定或从 token 推导；
+3. 白名单 5 个工具中 `get_course_content` 在当前 token 的 tools/list 里不存在，实际可注册 4 个。
+
 ### 13.5 剩余排期（2026-10-27 更新）
 
 - **3.4a（MCP client）**：✅ 完成（`a81ca587`）。Streamable HTTP JSON-RPC、Bearer、SSE/JSON、超时/401/403 fail-closed、token 脱敏；mock server 单测。
