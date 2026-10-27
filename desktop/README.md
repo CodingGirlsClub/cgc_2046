@@ -7,9 +7,10 @@
 
 ## native 面板结构（Stage 3 Phase B）
 
-- `crates/app/src/native_agent_view.rs` 是父模块，渲染/输入/会话/运行时按职责拆到
-  `native_agent_view/` 下 9 个子模块（`composer`、`rows`、`turn`、`panels`、`session`、
-  `input`、`runtime_ops`、`render`、`state`）；子模块可访问父模块私有字段，未放宽可见性。
+- `crates/app/src/native_agent_view/mod.rs` 是模块根（类型 + 结构体 + `mod` 声明，约 411 行）；
+  渲染/输入/会话/运行时拆到同目录 12 个子模块（`panel`、`composer`、`rows`、`turn`、`panels`、
+  `session`、`input`、`runtime_ops`、`render`、`widgets`、`state`、`tests`）。
+  子模块可访问父模块私有字段，未放宽可见性。
 - `CGC_NATIVE_SHARED_VIEW` 已移除；composer 只有一条渲染路径。
 - `native_thread_state.rs` 已删除，状态类型在 `native_agent_view::state`，对外重新导出为
   `native_agent_view::NativeThreadState`。

@@ -170,6 +170,8 @@ Stage 3 已按设计文档 `docs/plans/2026-10-26-1000-stage3-capability-converg
   `native_agent_view/state.rs` 子模块，外部路径为 `native_agent_view::NativeThreadState`。
 - **`native_agent_view.rs` 拆为父模块 + 9 个子模块**（`composer`/`rows`/`turn`/`panels`/
   `session`/`input`/`runtime_ops`/`render`/`state`）：纯搬迁、行为不变，父文件 5178 → 约 2000 行。
-- **仍未删除** `native_agent_view.rs`：剩余约 2000 行是 native 专属的结构体/构造器/纯函数/单测，
-  删除前需把它们迁入共享会话视图适配层；`native_thread_state.rs` 删除已完成，
-  `native_agent_view.rs` 的删除作为 B4b-c 的收尾项保留。
+- **`native_agent_view.rs` 已删除**：模块根迁到 `native_agent_view/mod.rs`（411 行，只留类型、
+  结构体与 `mod` 声明），其余代码拆入 `panel`/`composer`/`rows`/`turn`/`panels`/`session`/
+  `input`/`runtime_ops`/`render`/`widgets`/`state`/`tests` 12 个子模块。
+- **净删**：按 Phase B 起点（6730 行）计当前 5925 行，净删 805 行；剩余为 native 专属运行时胶水，
+  继续减少需要把这部分迁入共享会话视图适配层（后续独立切片）。
