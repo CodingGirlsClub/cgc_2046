@@ -144,32 +144,6 @@ pub(crate) struct ComposerCallbacks {
     pub steer: ComposerCallback,
 }
 
-/// native 附件 chip 映射：`(name, is_image)` → 共享 `AttachmentChip`（id 用序号）。
-/// 由 native view 注入数据，surface 不反向依赖 native view。
-pub(crate) fn attachment_chips_from_images(
-    images: impl IntoIterator<Item = (String, bool)>,
-) -> Vec<AttachmentChip> {
-    images
-        .into_iter()
-        .enumerate()
-        .map(|(index, (label, is_image))| AttachmentChip {
-            id: format!("attachment-{index}"),
-            label,
-            is_image,
-        })
-        .collect()
-}
-
-/// `CGC_NATIVE_SHARED_VIEW=1`：native 面板使用共享 composer（Phase B2b 灰度，
-/// 默认关闭；关闭时旧 native composer 行为完全不变）。
-pub(crate) fn native_shared_view_enabled() -> bool {
-    native_shared_view_enabled_from(std::env::var("CGC_NATIVE_SHARED_VIEW").ok().as_deref())
-}
-
-fn native_shared_view_enabled_from(value: Option<&str>) -> bool {
-    value == Some("1")
-}
-
 /// 共享附件 chip 渲染（路径/名称/图片标记；空列表不渲染）。
 pub(crate) fn render_attachment_chips(
     chips: &[AttachmentChip],
@@ -212,27 +186,6 @@ pub(crate) fn render_attachment_chips(
                 .into_any_element()
         })
         .collect()
-}
-
-/// native 主 composer 的渲染选择（B2b-3）：flag off 一律旧 composer。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ComposerKind {
-    Legacy,
-    Shared,
-}
-
-/// B4b-b'1：composer 两条渲染路径已合一（legacy 实现为功能超集，作为唯一
-/// canonical 实现）。flag 仍保留到 B4b-c 删除，但不再切换渲染路径。
-pub(crate) fn merged_composer_path() -> ComposerKind {
-    ComposerKind::Legacy
-}
-
-pub(crate) fn choose_composer(shared_view_enabled: bool) -> ComposerKind {
-    if shared_view_enabled {
-        ComposerKind::Shared
-    } else {
-        ComposerKind::Legacy
-    }
 }
 
 /// 附件入口是否可见（B2b：能力位关闭时不渲染入口）。
@@ -311,37 +264,6 @@ mod composer_tests {
         let acp_flags = super::ChatSurfaceFlags::from_capabilities(ThreadCapabilities::acp());
         assert!(!super::attachment_entry_visible(acp_flags));
         assert!(!super::image_entry_visible(acp_flags));
-    }
-
-    #[test]
-    fn attachment_chips_map_name_and_image_flag() {
-        let chips = super::attachment_chips_from_images(vec![
-            ("screenshot.png".to_string(), true),
-            ("notes.md".to_string(), false),
-        ]);
-        assert_eq!(chips.len(), 2);
-        assert_eq!(chips[0].id, "attachment-0");
-        assert_eq!(chips[0].label, "screenshot.png");
-        assert!(chips[0].is_image);
-        assert!(!chips[1].is_image);
-    }
-
-    #[test]
-    fn merged_composer_path_is_single_canonical_implementation() {
-        assert_eq!(super::merged_composer_path(), super::ComposerKind::Legacy);
-    }
-
-    #[test]
-    fn choose_composer_follows_flag() {
-        assert_eq!(super::choose_composer(false), super::ComposerKind::Legacy);
-        assert_eq!(super::choose_composer(true), super::ComposerKind::Shared);
-    }
-
-    #[test]
-    fn native_shared_view_flag_defaults_off_and_reads_env_value() {
-        assert!(!super::native_shared_view_enabled_from(None));
-        assert!(!super::native_shared_view_enabled_from(Some("0")));
-        assert!(super::native_shared_view_enabled_from(Some("1")));
     }
 
     #[test]

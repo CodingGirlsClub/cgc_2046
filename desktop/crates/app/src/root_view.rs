@@ -84,7 +84,6 @@ pub use history_actions::register_history_root;
 mod history_sidebar;
 mod screens;
 mod state;
-pub(crate) use screens::surface as shared_surface;
 
 use state::{AgentRegistryFilter, RightPanel, ShellState, SiteTreeSection};
 
