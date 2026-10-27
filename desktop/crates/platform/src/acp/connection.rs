@@ -445,6 +445,8 @@ async fn run_connection(
         HostTransport::InProcess(agent) => agent,
     };
     let events_for_notifications = events.clone();
+    let activity = Arc::new(AtomicU64::new(0));
+    let activity_for_notifications = Arc::clone(&activity);
     let events_for_permissions = events.clone();
     let pending_for_permissions = Arc::clone(&pending_permissions);
 
@@ -453,6 +455,7 @@ async fn run_connection(
         .name("cgc-desktop")
         .on_receive_notification(
             async move |notification: SessionNotification, _cx| {
+                let _ = activity_for_notifications.fetch_add(1, Ordering::Relaxed);
                 if let Some(event) = host_event_from_update(notification.update) {
                     send_event(&events_for_notifications, event);
                 }
@@ -598,6 +601,7 @@ async fn run_connection(
                                 &events,
                                 session_id.clone(),
                                 text,
+                                Arc::clone(&activity),
                             )
                             .await;
                         }
@@ -919,6 +923,7 @@ async fn run_turn(
     events: &SyncSender<HostEvent>,
     session_id: SessionId,
     text: String,
+    activity: Arc<AtomicU64>,
 ) {
     let prompt = connection
         .send_request(PromptRequest::new(
@@ -927,8 +932,10 @@ async fn run_turn(
         ))
         .block_task();
     futures::pin_mut!(prompt);
-    let deadline = sleep(TURN_TIMEOUT);
-    futures::pin_mut!(deadline);
+    // 超时按“活跃阶段”计算：只要 agent 仍在推进（任何 session/update），
+    // 就重新计满一轮预算；等待用户审批或长工具执行不会把整轮判成超时。
+    let mut seen_activity = activity.load(Ordering::Relaxed);
+    let mut last_activity_at = std::time::Instant::now();
 
     loop {
         let command = command_rx.next();
@@ -937,7 +944,9 @@ async fn run_turn(
         // 若 agent 恰好同刻收尾，TurnEnd 会被误报成 cancelled=false。
         let command_or_prompt = futures::future::select(command, prompt.as_mut());
         futures::pin_mut!(command_or_prompt);
-        match futures::future::select(command_or_prompt, deadline.as_mut()).await {
+        let idle = sleep(TURN_TIMEOUT.saturating_sub(last_activity_at.elapsed()));
+        futures::pin_mut!(idle);
+        match futures::future::select(command_or_prompt, idle).await {
             futures::future::Either::Left((
                 futures::future::Either::Right((result, _command)),
                 _,
@@ -1014,6 +1023,13 @@ async fn run_turn(
                 | Some(HostCommand::SetConfig { .. }) => {}
             },
             futures::future::Either::Right(_) => {
+                let current = activity.load(Ordering::Relaxed);
+                if !idle_expired(seen_activity, current) {
+                    // 期间有真实进展：重新计一轮空闲预算，而不是把整轮判死。
+                    seen_activity = current;
+                    last_activity_at = std::time::Instant::now();
+                    continue;
+                }
                 send_event(
                     events,
                     HostEvent::Error {
@@ -1040,6 +1056,13 @@ where
     }
 }
 
+/// 空闲预算是否真的耗尽：期间只要有过新活动，就应重新计时而不是判超时。
+///
+/// 审批等待与长工具执行都会产生更新事件；把它们算进“模型沉默”会把正常流程误杀。
+fn idle_expired(seen_activity: u64, current_activity: u64) -> bool {
+    current_activity == seen_activity
+}
+
 fn sleep(duration: Duration) -> impl std::future::Future<Output = ()> {
     let (sender, receiver) = futures::channel::oneshot::channel();
     std::thread::spawn(move || {
@@ -1053,6 +1076,15 @@ fn sleep(duration: Duration) -> impl std::future::Future<Output = ()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn turn_timeout_only_counts_silence_not_user_or_tool_waiting() {
+        // 期间没有新事件：空闲预算确实耗尽，应判超时。
+        assert!(super::idle_expired(7, 7));
+        // 期间有进度（审批回传、工具更新、增量）：重新计时，不判超时。
+        assert!(!super::idle_expired(7, 8));
+        assert!(!super::idle_expired(0, 1));
+    }
+
     #[test]
     fn available_commands_map_to_command_views() {
         let commands = super::command_views(vec![
