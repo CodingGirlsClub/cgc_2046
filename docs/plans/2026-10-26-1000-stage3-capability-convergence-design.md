@@ -289,6 +289,29 @@ Phase B 的目标：native 与 external ACP 只向 `ConversationThread` + `Threa
 
 删除后净删预估（修正）：`5266 + 635 = 5901` 行，扣除需保留/迁移约 800–1200 行（编辑态/checkpoint 调用/测试），**净删约 4700–5100 行**。
 
+### 13.9 真机验收（2026-10-27 11:15–12:10）
+
+**环境线索**：本机 Clash/Rockxy 注入 `HTTP(S)_PROXY` 与 `ALL_PROXY=socks5h://127.0.0.1:7890`；`ureq` 不支持 `socks5h`，导致 provider 请求 `Connection refused`、localhost mock 超时。App 启动与门禁都必须在**清空 8 个代理变量**的环境中运行：
+
+```bash
+env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY \
+    -u http_proxy -u https_proxy -u all_proxy -u no_proxy ...
+```
+
+**已验证 PASS**：
+1. 默认 native 入口、composer（附件区/mention/slash/queue 提示/pickers/send/stop）、消息行（user/assistant/thinking/tool/status/error/审批卡/action bar）、历史侧栏、checkpoint 入口均正常；
+2. MCP 注入：登录持有 lease 或 env 注入时，native 工具列表出现 4 个只读工具（`mcp_cgc-2046-learning_get_course_revision`/`get_enrollment_summary`/`get_learning_state`/`get_role_playbook`）；无 lease 时 0 个、不报错（fail-closed）；
+3. 无 `CGC_NATIVE_SHARED_VIEW` flag 后 composer 渲染正常。
+
+**真机发现并修复的缺陷**：
+- **工具名被 provider 拒绝**：原命名 `mcp:<server>:<tool>` 含冒号，OpenAI 兼容接口要求 `^[a-zA-Z0-9_-]+$`，整轮请求 400（`Invalid 'tools[N].function.name'`）。已改为 `mcp_<server>_<tool>` 并加回归测试（`05aff3df`）。
+- **默认入口未解析 MCP 注入**：仅 controller 注入路径有 lease，默认 `NativeAgentView::new` 构造的 host 无注入。已在默认分支解析 env/lease（`05aff3df`）。
+
+**真机发现、尚未修复（需产品决策）**：
+- **MCP 工具缺 `workspace_id`**：5 个白名单工具的后端 schema 需要 `workspace_id`，而 native 上下文只有 `course_id`/`revision`，模型无法自行获得，导致工具实际不可用（模型如实回报「请提供工作台 ID」）。可选方案：(a) 客户端在 MCP 工具参数中注入当前 workspace_id；(b) 后端把 workspace_id 标为可选并从连接 token 推导；(c) 增加只读工具 `list_my_workspaces`。
+
+**B4b 状态**：flag 已移除（`d3aecf24`，−173 行）；`native_agent_view.rs`（5178 行）与 `native_thread_state.rs`（625 行）的删除需要先完成薄视图重构，见 §13.7/§13.8。
+
 ### 13.5 剩余排期（2026-10-27 更新）
 
 - **3.4a（MCP client）**：✅ 完成（`a81ca587`）。Streamable HTTP JSON-RPC、Bearer、SSE/JSON、超时/401/403 fail-closed、token 脱敏；mock server 单测。
