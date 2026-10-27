@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use cgc_agent_provider::ToolSchema;
 use futures::future::BoxFuture;
@@ -35,7 +36,13 @@ pub struct ToolContext {
     max_read_bytes: u64,
     sandbox: Option<crate::sandbox::SandboxPolicy>,
     action_sink: Option<crate::action::ActionSink>,
+    cancel: Option<CancelProbe>,
 }
+
+/// 取消探针：工具在长操作中周期性查询，Stop 后立刻收尾而不是等到自身 timeout。
+/// 由宿主（agent_core/agent_host）把 turn 的取消令牌桥接进来；`agent_tools`
+/// 不依赖 core，因此用闭包而不是 `CancelToken` 类型。
+pub type CancelProbe = Arc<dyn Fn() -> bool + Send + Sync>;
 
 impl ToolContext {
     pub fn new(workspace: impl Into<PathBuf>) -> Self {
@@ -44,7 +51,24 @@ impl ToolContext {
             max_read_bytes: 256 * 1024,
             sandbox: None,
             action_sink: None,
+            cancel: None,
         }
+    }
+
+    /// 接入本轮 turn 的取消探针。
+    pub fn with_cancel(mut self, cancel: CancelProbe) -> Self {
+        self.cancel = Some(cancel);
+        self
+    }
+
+    /// 本轮是否已被取消；没有探针时恒为 false（headless 调用保持原行为）。
+    pub fn is_cancelled(&self) -> bool {
+        self.cancel.as_ref().is_some_and(|cancel| cancel())
+    }
+
+    /// 把探针交给需要在自己线程里轮询的工具（如长命令执行）。
+    pub fn cancel_probe(&self) -> Option<CancelProbe> {
+        self.cancel.clone()
     }
 
     pub fn with_action_sink(mut self, action_sink: crate::action::ActionSink) -> Self {

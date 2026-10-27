@@ -92,11 +92,12 @@ impl Tool for RunCommandTool {
         Box::pin(async move {
             let cwd = context.resolve(&cwd)?;
             let sandbox = context.sandbox().cloned();
+            let cancelled = context.cancel_probe();
             let (sender, receiver) = oneshot::channel();
             std::thread::Builder::new()
                 .name("cgc-agent-run-command".to_string())
                 .spawn(move || {
-                    let result = execute(command, cwd, timeout, sandbox);
+                    let result = execute(command, cwd, timeout, sandbox, cancelled);
                     let _ = sender.send(result);
                 })
                 .map_err(|error| ToolError::Io(format!("spawn command thread: {error}")))?;
@@ -112,6 +113,7 @@ fn execute(
     cwd: std::path::PathBuf,
     timeout: Duration,
     sandbox: Option<SandboxPolicy>,
+    cancelled: Option<crate::tool::CancelProbe>,
 ) -> Result<ToolResult, ToolError> {
     let mut process = match sandbox {
         Some(policy) => CommandSandbox::detect().wrap(&command, &cwd, &policy),
@@ -137,9 +139,16 @@ fn execute(
 
     let started = Instant::now();
     let mut timed_out = false;
+    let mut aborted = false;
     let status = loop {
         match child.try_wait()? {
             Some(status) => break Some(status),
+            // Stop 优先于 timeout：用户停止后不再等命令自己跑完。
+            None if cancelled.as_ref().is_some_and(|probe| probe()) => {
+                aborted = true;
+                terminate(&mut child, process_group);
+                break child.wait().ok();
+            }
             None if started.elapsed() >= timeout => {
                 timed_out = true;
                 terminate(&mut child, process_group);
@@ -156,6 +165,9 @@ fn execute(
     if timed_out {
         content.push_str(&format!("timed out after {}s\n", timeout.as_secs()));
     }
+    if aborted {
+        content.push_str("cancelled by user\n");
+    }
     content.push_str(&format!(
         "exit_code: {}\n--- stdout ---\n{}\n--- stderr ---\n{}",
         exit_code
@@ -166,7 +178,7 @@ fn execute(
     ));
     Ok(ToolResult {
         content,
-        is_error: timed_out || exit_code != Some(0),
+        is_error: timed_out || aborted || exit_code != Some(0),
     })
 }
 
@@ -374,6 +386,67 @@ mod tests {
         ))
         .unwrap_err();
         assert!(matches!(error, ToolError::PathEscape(_)));
+        let _ = std::fs::remove_dir_all(&workspace);
+    }
+}
+
+#[cfg(test)]
+mod cancel_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// Stop 必须在自身 timeout 之前终止命令，而不是让用户等到 30s。
+    #[cfg(unix)]
+    #[test]
+    fn cancel_probe_stops_long_command_without_waiting_for_timeout() {
+        let workspace = std::env::temp_dir().join(format!("cgc-run-cancel-{}", std::process::id()));
+        std::fs::create_dir_all(&workspace).unwrap();
+        let flag = Arc::new(AtomicBool::new(false));
+        let probe: crate::tool::CancelProbe = {
+            let flag = Arc::clone(&flag);
+            Arc::new(move || flag.load(Ordering::SeqCst))
+        };
+        // 10s 的 sleep，但 timeout 给 120s：只有取消能把它提前结束。
+        std::thread::spawn({
+            let flag = Arc::clone(&flag);
+            move || {
+                std::thread::sleep(Duration::from_millis(300));
+                flag.store(true, Ordering::SeqCst);
+            }
+        });
+        let started = Instant::now();
+        let result = futures::executor::block_on(RunCommandTool::new().run(
+            serde_json::json!({"command": "sleep 10", "timeout_secs": 120}),
+            ToolContext::new(&workspace).with_cancel(probe),
+        ))
+        .expect("run");
+        assert!(result.is_error, "取消必须标记为失败");
+        assert!(
+            result.content.contains("cancelled by user"),
+            "{}",
+            result.content
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "取消后应立即返回，实际 {:?}",
+            started.elapsed()
+        );
+        let _ = std::fs::remove_dir_all(&workspace);
+    }
+
+    /// 没有探针时保持原行为：命令正常跑完。
+    #[test]
+    fn without_probe_commands_complete_normally() {
+        let workspace =
+            std::env::temp_dir().join(format!("cgc-run-noprobe-{}", std::process::id()));
+        std::fs::create_dir_all(&workspace).unwrap();
+        let result = futures::executor::block_on(RunCommandTool::new().run(
+            serde_json::json!({"command": "echo done"}),
+            ToolContext::new(&workspace),
+        ))
+        .expect("run");
+        assert!(!result.is_error, "{}", result.content);
+        assert!(result.content.contains("done"));
         let _ = std::fs::remove_dir_all(&workspace);
     }
 }

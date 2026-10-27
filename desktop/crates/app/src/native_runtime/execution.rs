@@ -73,13 +73,19 @@ impl Owner {
         agent.set_reasoning_effort(effort);
         let cancel = agent.cancel_token();
         cancel.reset();
+        let tool_cancel = cancel.clone();
         let native_cancel = cancel.clone();
         turn.cancel.on_cancel(move || native_cancel.cancel());
         self.active = Some(ActiveTurn {
             cancel,
             steer: agent.steer_sender(),
         });
-        let config = self.config.clone();
+        let mut config = self.config.clone();
+        // 让工具（尤其是 run_command）能在 Stop 后立刻收尾，而不是等自身 timeout。
+        config.context = config
+            .context
+            .clone()
+            .with_cancel(std::sync::Arc::new(move || tool_cancel.is_cancelled()));
         let registry = if configured.is_some_and(|configured| !configured.supports_tools) {
             self.empty_registry.clone()
         } else {
