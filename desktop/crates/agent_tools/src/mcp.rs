@@ -31,6 +31,22 @@ pub fn is_read_only_mcp_tool(name: &str) -> bool {
     READ_ONLY_MCP_TOOLS.contains(&name)
 }
 
+/// 把客户端注入的固定参数补进模型给出的 args（仅补齐缺失的顶层字段）。
+///
+/// 只读课程工具的后端 schema 要求 `workspace_id`，而模型上下文里通常没有，
+/// 由客户端注入当前工作台，避免工具因缺参不可用。
+pub fn merge_injected_args(mut args: Value, injected: Option<&Value>) -> Value {
+    let (Some(injected), Some(object)) = (injected, args.as_object_mut()) else {
+        return args;
+    };
+    if let Some(defaults) = injected.as_object() {
+        for (key, value) in defaults {
+            object.entry(key.clone()).or_insert_with(|| value.clone());
+        }
+    }
+    args
+}
+
 /// 一个 MCP 工具的第一方包装。
 pub struct McpTool {
     name: &'static str,
@@ -38,6 +54,9 @@ pub struct McpTool {
     schema: Value,
     remote_name: String,
     client: Arc<Mutex<McpHttpClient>>,
+    /// 客户端已知的固定参数（如当前 `workspace_id`）：仅补齐 args 中缺失的
+    /// 顶层字符串字段，不覆盖模型显式给出的值。
+    injected: Option<Value>,
 }
 
 impl Tool for McpTool {
@@ -65,6 +84,7 @@ impl Tool for McpTool {
     ) -> BoxFuture<'static, Result<ToolResult, ToolError>> {
         let client = self.client.clone();
         let remote_name = self.remote_name.clone();
+        let args = merge_injected_args(args, self.injected.as_ref());
         async move {
             let (sender, receiver) = futures::channel::oneshot::channel();
             // MCP client 是同步（ureq）实现；放到独立线程避免阻塞工具执行器。
@@ -105,7 +125,16 @@ fn mcp_tool_name(server_name: &str, tool_name: &str) -> String {
 /// fail-closed：握手/列表失败 → 返回空列表；白名单外、schema 非法的工具跳过。
 pub fn discover_read_only_mcp_tools(
     server_name: &str,
+    client: McpHttpClient,
+) -> Vec<Arc<dyn Tool>> {
+    discover_read_only_mcp_tools_with(server_name, client, None)
+}
+
+/// 同 [`discover_read_only_mcp_tools`]，额外注入固定参数（如 `workspace_id`）。
+pub fn discover_read_only_mcp_tools_with(
+    server_name: &str,
     mut client: McpHttpClient,
+    injected: Option<Value>,
 ) -> Vec<Arc<dyn Tool>> {
     if client
         .initialize("cgc-desktop", env!("CARGO_PKG_VERSION"))
@@ -135,6 +164,7 @@ pub fn discover_read_only_mcp_tools(
                 schema,
                 remote_name: tool.name,
                 client: client.clone(),
+                injected: injected.clone(),
             }) as Arc<dyn Tool>)
         })
         .collect()
@@ -146,7 +176,17 @@ pub fn register_read_only_mcp_tools(
     server_name: &str,
     client: McpHttpClient,
 ) -> usize {
-    let tools = discover_read_only_mcp_tools(server_name, client);
+    register_read_only_mcp_tools_with(registry, server_name, client, None)
+}
+
+/// 同 [`register_read_only_mcp_tools`]，额外注入固定参数（如 `workspace_id`）。
+pub fn register_read_only_mcp_tools_with(
+    registry: &mut crate::registry::ToolRegistry,
+    server_name: &str,
+    client: McpHttpClient,
+    injected: Option<Value>,
+) -> usize {
+    let tools = discover_read_only_mcp_tools_with(server_name, client, injected);
     let count = tools.len();
     for tool in tools {
         registry.register(tool);
@@ -163,11 +203,22 @@ pub fn register_read_only_mcp_tools_from_lease(
     endpoint: &str,
     token: Option<&str>,
 ) -> usize {
+    register_read_only_mcp_tools_from_lease_with(registry, server_name, endpoint, token, None)
+}
+
+/// 同 [`register_read_only_mcp_tools_from_lease`]，额外注入固定参数。
+pub fn register_read_only_mcp_tools_from_lease_with(
+    registry: &mut crate::registry::ToolRegistry,
+    server_name: &str,
+    endpoint: &str,
+    token: Option<&str>,
+    injected: Option<Value>,
+) -> usize {
     let Some(token) = token.filter(|token| !token.trim().is_empty()) else {
         return 0;
     };
     let client = McpHttpClient::new(endpoint).with_bearer_token(token);
-    register_read_only_mcp_tools(registry, server_name, client)
+    register_read_only_mcp_tools_with(registry, server_name, client, injected)
 }
 
 /// MCP `inputSchema` 必须是 object；缺失/非法（Null/非 object）→ 跳过该工具。
@@ -179,6 +230,7 @@ fn valid_tool_schema(schema: &Value) -> Option<Value> {
 mod tests {
     use super::*;
     use futures::executor::block_on;
+    use serde_json::json;
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::sync::mpsc;
@@ -451,5 +503,24 @@ mod tests {
                 "工具名 {name} 不符合 provider 函数名约束 ^[a-zA-Z0-9_-]+$"
             );
         }
+    }
+    /// 客户端注入的固定参数只补缺失字段，不覆盖模型显式值（3.4d 真机：缺 workspace_id）。
+    #[test]
+    fn injected_args_fill_missing_workspace_only() {
+        let injected = json!({ "workspace_id": "ws-1" });
+        let mut args = json!({ "course_id": "c-1" });
+        let merged = merge_injected_args(std::mem::take(&mut args), Some(&injected));
+        assert_eq!(merged["workspace_id"], "ws-1");
+        assert_eq!(merged["course_id"], "c-1");
+
+        // 模型显式给了 workspace_id → 不被覆盖
+        let explicit = json!({ "workspace_id": "ws-2" });
+        let merged = merge_injected_args(explicit, Some(&injected));
+        assert_eq!(merged["workspace_id"], "ws-2");
+
+        // 无注入 / 非对象 args → 原样返回
+        let empty = json!({ "course_id": "c-1" });
+        assert_eq!(merge_injected_args(empty.clone(), None), empty);
+        assert_eq!(merge_injected_args(json!("x"), Some(&injected)), json!("x"));
     }
 }

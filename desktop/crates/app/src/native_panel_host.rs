@@ -5,7 +5,9 @@
 
 use cgc_agent_core::SelectedModel;
 use cgc_agent_store::AuditLog;
-use cgc_agent_tools::{register_read_only_mcp_tools_from_lease, SharedAgentState, ToolRegistry};
+use cgc_agent_tools::{
+    register_read_only_mcp_tools_from_lease_with, SharedAgentState, ToolRegistry,
+};
 use cgc_platform::acp::connection::AcpHost;
 use cgc_platform::mcp::credential::LearningHostLease;
 use cgc_platform::mcp::inject::mcp_endpoint;
@@ -39,6 +41,9 @@ pub(crate) struct NativePanelHost {
 pub(crate) struct McpInjection {
     pub(crate) endpoint: String,
     pub(crate) token: String,
+    /// 当前工作台 id：只读课程工具的后端 schema 必需，模型上下文通常没有，
+    /// 由客户端在注册时注入（见 `merge_injected_args`）。
+    pub(crate) workspace_id: Option<String>,
 }
 
 impl std::fmt::Debug for McpInjection {
@@ -47,6 +52,7 @@ impl std::fmt::Debug for McpInjection {
             .debug_struct("McpInjection")
             .field("endpoint", &self.endpoint)
             .field("token", &"<redacted>")
+            .field("workspace_id", &self.workspace_id)
             .finish()
     }
 }
@@ -63,7 +69,12 @@ pub(crate) fn resolve_mcp_injection(
     api_url: Option<&str>,
     env_endpoint: Option<&str>,
     env_token: Option<&str>,
+    workspace_id: Option<&str>,
 ) -> Option<McpInjection> {
+    let workspace = workspace_id
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string);
     if let Some(token) = env_token.filter(|token| !token.trim().is_empty()) {
         let endpoint = env_endpoint
             .map(str::to_string)
@@ -71,12 +82,14 @@ pub(crate) fn resolve_mcp_injection(
         return Some(McpInjection {
             endpoint,
             token: token.to_string(),
+            workspace_id: workspace,
         });
     }
     let lease = lease?;
     Some(McpInjection {
         endpoint: mcp_endpoint(api_url),
         token: lease.token.clone(),
+        workspace_id: workspace,
     })
 }
 
@@ -129,12 +142,14 @@ impl NativePanelHost {
         &mut self,
         lease: Option<LearningHostLease>,
         api_url: Option<&str>,
+        workspace_id: Option<&str>,
     ) {
         self.mcp = resolve_mcp_injection(
             lease.as_ref(),
             api_url,
             std::env::var("CGC_MCP_ENDPOINT").ok().as_deref(),
             std::env::var("CGC_MCP_TOKEN").ok().as_deref(),
+            workspace_id,
         );
     }
 
@@ -148,6 +163,7 @@ impl NativePanelHost {
         self.mcp = Some(McpInjection {
             endpoint: endpoint.into(),
             token: token.into(),
+            workspace_id: None,
         });
     }
 
@@ -178,11 +194,16 @@ pub(crate) fn register_mcp_tools_for_host(
     let Some(injection) = host.mcp_injection() else {
         return 0;
     };
-    register_read_only_mcp_tools_from_lease(
+    let injected = injection
+        .workspace_id
+        .as_ref()
+        .map(|id| serde_json::json!({ "workspace_id": id }));
+    register_read_only_mcp_tools_from_lease_with(
         registry,
         NATIVE_MCP_SERVER,
         &injection.endpoint,
         Some(&injection.token),
+        injected,
     )
 }
 
@@ -337,23 +358,31 @@ mod tests {
             Some("https://cgc.example.com/api/graphql"),
             None,
             None,
+            Some("ws-1"),
         )
         .expect("lease injection");
         assert_eq!(from_lease.endpoint, "https://cgc.example.com/mcp");
         assert_eq!(from_lease.token, "lease-token");
+        assert_eq!(from_lease.workspace_id.as_deref(), Some("ws-1"));
 
         let from_env = resolve_mcp_injection(
             None,
             None,
             Some("http://127.0.0.1:9/mcp"),
             Some("env-token"),
+            None,
         )
         .expect("env injection");
         assert_eq!(from_env.endpoint, "http://127.0.0.1:9/mcp");
         assert_eq!(from_env.token, "env-token");
+        assert!(from_env.workspace_id.is_none());
 
-        assert!(resolve_mcp_injection(None, None, None, None).is_none());
-        assert!(resolve_mcp_injection(None, None, Some("x"), Some("  ")).is_none());
+        assert!(resolve_mcp_injection(None, None, None, None, None).is_none());
+        assert!(resolve_mcp_injection(None, None, Some("x"), Some("  "), None).is_none());
+        // 空 workspace_id 视作未提供
+        let blank = resolve_mcp_injection(None, None, Some("http://h/mcp"), Some("t"), Some("  "))
+            .expect("env injection");
+        assert!(blank.workspace_id.is_none());
     }
 
     #[test]
@@ -390,7 +419,7 @@ mod tests {
     #[test]
     fn no_injection_registers_zero_tools() {
         let mut host = host();
-        host.set_mcp_lease(None, None);
+        host.set_mcp_lease(None, None, None);
         let mut registry = ToolRegistry::new();
         assert_eq!(register_mcp_tools_for_host(&mut registry, &host), 0);
         assert!(registry.schemas().is_empty());

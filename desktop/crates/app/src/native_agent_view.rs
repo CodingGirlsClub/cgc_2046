@@ -529,7 +529,11 @@ impl NativeAgentView {
                 let state: SharedAgentState = Arc::new(Mutex::new(AgentState::default()));
                 let mut host = crate::native_panel_host::NativePanelHost::new(state.clone());
                 // 3.4c：默认入口也解析 MCP 注入（env 优先；lease 由 controller 接线补）。
-                host.set_mcp_lease(None, std::env::var("CGC_API_URL").ok().as_deref());
+                host.set_mcp_lease(
+                    None,
+                    std::env::var("CGC_API_URL").ok().as_deref(),
+                    std::env::var("CGC_WORKSPACE_ID").ok().as_deref(),
+                );
                 (state, host)
             }
         };

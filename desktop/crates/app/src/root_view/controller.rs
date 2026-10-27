@@ -1362,6 +1362,7 @@ impl RootView {
             host.set_mcp_lease(
                 self.chat.lease.clone(),
                 std::env::var("CGC_API_URL").ok().as_deref(),
+                self.workspaces.current_id(),
             );
             let view = cx.new(|cx| {
                 crate::native_agent_view::NativeAgentView::new_with_host(window, cx, host)
