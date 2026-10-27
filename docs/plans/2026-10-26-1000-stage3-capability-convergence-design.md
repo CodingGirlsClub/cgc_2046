@@ -307,8 +307,11 @@ env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY \
 - **工具名被 provider 拒绝**：原命名 `mcp:<server>:<tool>` 含冒号，OpenAI 兼容接口要求 `^[a-zA-Z0-9_-]+$`，整轮请求 400（`Invalid 'tools[N].function.name'`）。已改为 `mcp_<server>_<tool>` 并加回归测试（`05aff3df`）。
 - **默认入口未解析 MCP 注入**：仅 controller 注入路径有 lease，默认 `NativeAgentView::new` 构造的 host 无注入。已在默认分支解析 env/lease（`05aff3df`）。
 
-**真机发现、尚未修复（需产品决策）**：
-- **MCP 工具缺 `workspace_id`**：5 个白名单工具的后端 schema 需要 `workspace_id`，而 native 上下文只有 `course_id`/`revision`，模型无法自行获得，导致工具实际不可用（模型如实回报「请提供工作台 ID」）。可选方案：(a) 客户端在 MCP 工具参数中注入当前 workspace_id；(b) 后端把 workspace_id 标为可选并从连接 token 推导；(c) 增加只读工具 `list_my_workspaces`。
+**MCP 工具 `workspace_id`（已修，范围待确认）**：
+- 现象：5 个白名单工具的后端 schema 要求 `workspace_id`，而 native 上下文只有 `course_id`/`revision`，模型无法获得 → 工具不可用；
+- 处理（`308ba7ec`）：客户端在注册时注入 `workspace_id`（`merge_injected_args` 只补缺失字段，不覆盖模型显式值），来源为 `workspaces.current_id()`，默认入口支持 `CGC_WORKSPACE_ID` seam；
+- 真机结果：错误从 `-32602 workspace_id required` 变为 `-32000 failed to load course`，说明**注入已生效**；剩余失败指向工作台数据范围（同一 token + 同一 `workspace_id` 直接用 curl 调用 `get_learning_state` 可成功返回 run/progress），需要确认 native 侧注入的 workspace 与课程所属工作台是否一致。
+- 若确认属于 token→workspace 绑定问题，仍需后端把 `workspace_id` 改为从连接 token 推导（方案 b）。
 
 **B4b 状态**：flag 已移除（`d3aecf24`，−173 行）；`native_agent_view.rs`（5178 行）与 `native_thread_state.rs`（625 行）的删除需要先完成薄视图重构，见 §13.7/§13.8。
 
