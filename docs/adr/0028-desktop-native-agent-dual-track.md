@@ -175,3 +175,25 @@ Stage 3 已按设计文档 `docs/plans/2026-10-26-1000-stage3-capability-converg
   `input`/`runtime_ops`/`render`/`widgets`/`state`/`tests` 12 个子模块。
 - **净删**：按 Phase B 起点（6730 行）计当前 5925 行，净删 805 行；剩余为 native 专属运行时胶水，
   继续减少需要把这部分迁入共享会话视图适配层（后续独立切片）。
+
+## 会话与运行时所有权收口（Plan 002，2026-10-27）
+
+- **`ConversationSession`（`app/src/conversation_session.rs`）成为两轨唯一的客户端会话 owner**：持有
+  `AcpHost`、连接阶段（`ConnectionPhase`）、session/thread id、连接 generation、`ConversationThread`、
+  提交队列与 `QueueMode`。视图不再保存 `Option<Agent>`、不缓存 cancel/steer 句柄、不维护第二份 `busy`。
+- **generation 前置校验**：`ingest`/`drain`/`mark_ready_for_next` 先比较连接 generation 再归约；被替换的
+  连接既不能改内容/标题，也不能释放队首或把 terminal 当成资源就绪。
+- **就绪证据分离**：`TurnEnd` 只清空在途提交；队列放行只认 owner 的 `RuntimePhase::Idle` 快照
+  （`mark_ready_for_next`）。`Stop` 只暂停队列，不清空用户输入。
+- **native owner 唯一持有 Agent**：`NativeRuntimeHandle` 可克隆的只有命令 sender；`NativeAgentView`
+  通过 `NativeRuntimeEvent` 订阅读写分离的 `NativeRuntimeSnapshot`。turn 的取用与归还都在 owner 的
+  执行任务内完成，视图不再有 `awaiting_agent` 补取轮询。
+- **Busy 语义**：活跃 turn 期间 `open_thread`/`new_thread`/`switch_scope` 返回 `Busy`，线程内容、世代与
+  选中状态保持不变（`tests/native_runtime_busy.rs` 以红→绿变异验证钉住）。
+- **组合根授权**：`RootView` 构造唯一 owner 并显式注入账户 epoch 与 `McpContext`；登录、工作台切换、
+  lease 更新/撤销、登出、游客/演示入口都走同一 `prepare_agent_authorization` /
+  `revoke_agent_authorization`，撤销先同步 `revoke()` 再异步吊销 token。
+- **scope 归属**：`agent_scope` 不再有进程全局 `current()`；scope 由 RootView 显式解析后经
+  `switch_scope` 命令切换，render 期不再隐式改所有权。
+- **page context 归属**：`PageContextState` 由 RootView 持有并克隆给面板；提交时 `freeze()` 同时冻结
+  结构化上下文与 prompt 前缀，独立 controller/演示窗口不互串。

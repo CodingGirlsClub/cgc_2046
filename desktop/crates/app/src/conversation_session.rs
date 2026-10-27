@@ -18,7 +18,6 @@ pub enum QueueMode {
     #[default]
     Auto,
     Paused,
-    AbsorbingCancel,
 }
 
 #[derive(Clone)]
@@ -47,6 +46,22 @@ pub struct ConversationSession {
     next_submission: u64,
     in_flight: Option<Submission>,
     ready_for_next: bool,
+    /// 本轮是否已到终态；迟到事件不得复活生成态。
+    turn_closed: bool,
+}
+
+/// 只属于「一轮进行中」的事件：终态之后到达时应丢弃，而不是重新拉起生成中。
+fn is_late_stream_event(event: &HostEvent) -> bool {
+    matches!(
+        event,
+        HostEvent::Delta(_)
+            | HostEvent::ThoughtDelta(_)
+            | HostEvent::ToolCall { .. }
+            | HostEvent::ToolCallUpdated { .. }
+            | HostEvent::PlanUpdated { .. }
+            | HostEvent::UsageUpdated { .. }
+            | HostEvent::CompactionUpdated { .. }
+    )
 }
 
 impl ConversationSession {
@@ -114,6 +129,7 @@ impl ConversationSession {
         }
         self.last_error = None;
         self.ready_for_next = false;
+        self.turn_closed = false;
         self.in_flight = Some(submission);
     }
     /// The caller keeps ownership when the connection refuses the prompt.
@@ -153,6 +169,10 @@ impl ConversationSession {
         if generation != self.generation {
             return false;
         }
+        // 终态只记录一次：本轮已经结束时，迟到的流式事件不得把界面重新拉回生成中。
+        if self.turn_closed && is_late_stream_event(event) {
+            return false;
+        }
         agent_ingest::apply_thread_event(&mut self.thread, event);
         match event {
             HostEvent::Ready { session_id, .. } => {
@@ -164,15 +184,18 @@ impl ConversationSession {
             HostEvent::AvailableCommands { commands } => self.commands = commands.clone(),
             HostEvent::TurnEnd { .. } => {
                 self.in_flight = None;
+                self.turn_closed = true;
             }
             HostEvent::Error { message } => {
                 self.last_error = Some(message.clone());
                 self.in_flight = None;
+                self.turn_closed = true;
             }
             HostEvent::Exited => {
                 self.host.take();
                 self.in_flight = None;
                 self.ready_for_next = false;
+                self.turn_closed = true;
                 if !matches!(self.phase, ConnectionPhase::Failed(_)) {
                     self.phase = ConnectionPhase::Failed("agent connection exited".into());
                 }

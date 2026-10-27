@@ -7,12 +7,13 @@
 
 use agent_client_protocol::schema::v1::{
     PermissionOption, PermissionOptionKind, RequestPermissionOutcome, RequestPermissionRequest,
-    SessionId, ToolCallUpdate, ToolCallUpdateFields,
+    RequestPermissionResponse, SessionId, ToolCallUpdate, ToolCallUpdateFields,
 };
 use agent_client_protocol::{Client, ConnectionTo};
 use cgc_agent_core::{ApprovalRequest, Approver};
 use cgc_agent_tools::ApprovalDecision;
 use futures::future::BoxFuture;
+use futures::FutureExt;
 
 use super::CancelSwitch;
 
@@ -84,6 +85,25 @@ pub(crate) fn decision_for_option(option_id: &str) -> ApprovalDecision {
     }
 }
 
+/// 取消后到达的许可不得生效：`Selected` 只有在 turn 仍有效时才转成具体决定。
+///
+/// 审批回传与取消可能在同一个事件循环周期内就绪，因此不能只看「谁先返回」，
+/// 还要在解析结果时再次确认 turn 没有被取消。
+pub(crate) fn resolve_response(
+    cancelled: bool,
+    response: Result<RequestPermissionResponse, ()>,
+) -> ApprovalDecision {
+    match response {
+        Ok(response) => match response.outcome {
+            RequestPermissionOutcome::Selected(selected) if !cancelled => {
+                decision_for_option(&selected.option_id.0)
+            }
+            _ => ApprovalDecision::Deny,
+        },
+        Err(()) => ApprovalDecision::Deny,
+    }
+}
+
 /// 一个 turn 的审批桥：把 native `Approver` 调用翻成 ACP request/response。
 ///
 /// 运行在 turn 任务里（不在 dispatch loop），因此可以 `block_task` 等响应；
@@ -113,19 +133,13 @@ impl Approver for PermissionBridge {
                     session_id, tool_call, options,
                 ))
                 .block_task();
-            futures::pin_mut!(permission);
-            let cancelled = cancel.cancelled();
-            futures::pin_mut!(cancelled);
-            // 先轮询请求（正常路径最快），cancel 到来时 drop 请求会自动 $/cancel_request。
-            match futures::future::select(permission, cancelled).await {
-                futures::future::Either::Left((Ok(response), _)) => match response.outcome {
-                    RequestPermissionOutcome::Selected(selected) => {
-                        decision_for_option(&selected.option_id.0)
-                    }
-                    _ => ApprovalDecision::Deny,
-                },
-                futures::future::Either::Left((Err(_), _)) => ApprovalDecision::Deny,
-                futures::future::Either::Right(_) => ApprovalDecision::Deny,
+            // 取消优先：两者同时就绪时必须放弃许可，而不是接受一个已经无主的批准。
+            let permission = permission.fuse();
+            let cancelled = cancel.cancelled().fuse();
+            futures::pin_mut!(cancelled, permission);
+            futures::select_biased! {
+                _ = cancelled => ApprovalDecision::Deny,
+                result = permission => resolve_response(cancel.is_cancelled(), result.map_err(|_| ())),
             }
         })
     }
@@ -219,6 +233,30 @@ mod tests {
         assert_eq!(
             decision_for_option("something-else"),
             ApprovalDecision::Deny
+        );
+    }
+
+    #[test]
+    fn a_late_allow_never_survives_cancellation() {
+        use agent_client_protocol::schema::v1::SelectedPermissionOutcome;
+        let allow = RequestPermissionResponse::new(RequestPermissionOutcome::Selected(
+            SelectedPermissionOutcome::new(OPTION_ALLOW_ONCE),
+        ));
+        // 未取消：许可照常生效。
+        assert_eq!(
+            resolve_response(false, Ok(allow.clone())),
+            ApprovalDecision::AllowOnce
+        );
+        // 已取消：同一份许可必须变成 Deny，不能执行工具。
+        assert_eq!(
+            resolve_response(true, Ok(allow)),
+            ApprovalDecision::Deny,
+            "取消后到达的许可不得生效"
+        );
+        assert_eq!(
+            resolve_response(false, Err(())),
+            ApprovalDecision::Deny,
+            "通道错误按拒绝处理"
         );
     }
 
