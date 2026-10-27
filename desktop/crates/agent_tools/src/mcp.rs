@@ -85,6 +85,21 @@ impl Tool for McpTool {
     }
 }
 
+/// provider 要求 function name 匹配 `^[a-zA-Z0-9_-]+$`（不接受 `:`/`.` 等），
+/// 因此工具名用 `mcp_<server>_<tool>` 并把非法字符替换为 `_`。
+fn mcp_tool_name(server_name: &str, tool_name: &str) -> String {
+    let raw = format!("mcp_{server_name}_{tool_name}");
+    raw.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 /// 连接 MCP server、握手、拉取 tools/list，并按白名单包装成工具。
 ///
 /// fail-closed：握手/列表失败 → 返回空列表；白名单外、schema 非法的工具跳过。
@@ -108,7 +123,7 @@ pub fn discover_read_only_mcp_tools(
         .filter_map(|tool| {
             let schema = valid_tool_schema(&tool.input_schema)?;
             let name: &'static str =
-                Box::leak(format!("mcp:{server_name}:{}", tool.name).into_boxed_str());
+                Box::leak(mcp_tool_name(server_name, &tool.name).into_boxed_str());
             let description: &'static str = Box::leak(
                 tool.description
                     .unwrap_or_else(|| format!("MCP 只读工具 {}", tool.name))
@@ -253,19 +268,19 @@ mod tests {
             "白名单 5 个中 schema 缺失 1 个应跳过：{names:?}"
         );
         for expected in [
-            "mcp:cgc:get_course_content",
-            "mcp:cgc:get_course_revision",
-            "mcp:cgc:get_learning_state",
-            "mcp:cgc:get_enrollment_summary",
+            "mcp_cgc_get_course_content",
+            "mcp_cgc_get_course_revision",
+            "mcp_cgc_get_learning_state",
+            "mcp_cgc_get_enrollment_summary",
         ] {
             assert!(names.contains(&expected), "缺少 {expected}");
         }
         assert!(
-            !names.contains(&"mcp:cgc:get_role_playbook"),
+            !names.contains(&"mcp_cgc_get_role_playbook"),
             "schema 缺失应跳过"
         );
         assert!(
-            !names.contains(&"mcp:cgc:delete_everything"),
+            !names.contains(&"mcp_cgc_delete_everything"),
             "白名单外必须过滤"
         );
 
@@ -283,13 +298,13 @@ mod tests {
         let tools = discover_read_only_mcp_tools("cgc", McpHttpClient::new(endpoint));
         let course = tools
             .iter()
-            .find(|tool| tool.name() == "mcp:cgc:get_course_content")
+            .find(|tool| tool.name() == "mcp_cgc_get_course_content")
             .expect("course tool");
         assert_eq!(course.schema()["type"], "object");
         assert_eq!(course.schema()["properties"]["course_id"]["type"], "string");
         assert!(tools
             .iter()
-            .all(|tool| tool.name() != "mcp:cgc:get_role_playbook"));
+            .all(|tool| tool.name() != "mcp_cgc_get_role_playbook"));
     }
 
     #[test]
@@ -302,7 +317,7 @@ mod tests {
         let tools = discover_read_only_mcp_tools("cgc", McpHttpClient::new(endpoint));
         let tool = tools
             .iter()
-            .find(|tool| tool.name() == "mcp:cgc:get_course_content")
+            .find(|tool| tool.name() == "mcp_cgc_get_course_content")
             .expect("course tool");
         let result = block_on(tool.run(
             serde_json::json!({"course_id": "crs-002"}),
@@ -331,7 +346,7 @@ mod tests {
         let tools = discover_read_only_mcp_tools("cgc", McpHttpClient::new(endpoint));
         let tool = tools
             .iter()
-            .find(|tool| tool.name() == "mcp:cgc:get_course_content")
+            .find(|tool| tool.name() == "mcp_cgc_get_course_content")
             .expect("course tool");
         let result = block_on(tool.run(serde_json::json!({}), ToolContext::new("/tmp")))
             .expect("tool result");
@@ -374,11 +389,11 @@ mod tests {
         let client = McpHttpClient::new(endpoint).with_bearer_token("lease");
         let registered = register_read_only_mcp_tools(&mut registry, "cgc", client);
         assert_eq!(registered, 4, "白名单 5 个中 schema 缺失 1 个被跳过");
-        assert!(registry.get("mcp:cgc:get_course_content").is_some());
-        assert!(registry.get("mcp:cgc:delete_everything").is_none());
+        assert!(registry.get("mcp_cgc_get_course_content").is_some());
+        assert!(registry.get("mcp_cgc_delete_everything").is_none());
 
         let result = block_on(registry.run(
-            "mcp:cgc:get_course_content",
+            "mcp_cgc_get_course_content",
             serde_json::json!({"course_id": "crs-002"}),
             ToolContext::new("/tmp"),
         ))
@@ -417,5 +432,24 @@ mod tests {
         ]);
         let tools = discover_read_only_mcp_tools("cgc", McpHttpClient::new(endpoint));
         assert!(tools.is_empty());
+    }
+    /// provider（OpenAI 兼容）要求 function name 匹配 `^[a-zA-Z0-9_-]+$`；
+    /// 工具名带 `:` 会被整体拒绝（真机 3.4d 回归）。
+    #[test]
+    fn tool_names_match_provider_function_name_pattern() {
+        let (endpoint, _requests) = spawn_mock(vec![init_response(), tools_response()]);
+        let client = McpHttpClient::new(endpoint);
+        let tools = discover_read_only_mcp_tools("cgc-2046-learning", client);
+        assert!(!tools.is_empty(), "白名单工具应被发现");
+        for tool in &tools {
+            let name = tool.name();
+            assert!(
+                !name.is_empty()
+                    && name
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'),
+                "工具名 {name} 不符合 provider 函数名约束 ^[a-zA-Z0-9_-]+$"
+            );
+        }
     }
 }

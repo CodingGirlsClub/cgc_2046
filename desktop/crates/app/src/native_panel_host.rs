@@ -371,14 +371,14 @@ mod tests {
         let count = register_mcp_tools_for_host(&mut registry, &host);
         assert_eq!(count, 5, "5 个白名单工具全部注册");
         assert!(registry
-            .get("mcp:cgc-2046-learning:get_course_content")
+            .get("mcp_cgc-2046-learning_get_course_content")
             .is_some());
         assert!(registry
-            .get("mcp:cgc-2046-learning:delete_everything")
+            .get("mcp_cgc-2046-learning_delete_everything")
             .is_none());
 
         let result = block_on(registry.run(
-            "mcp:cgc-2046-learning:get_course_content",
+            "mcp_cgc-2046-learning_get_course_content",
             serde_json::json!({"course_id": "crs-002"}),
             ToolContext::new("/tmp"),
         ))
