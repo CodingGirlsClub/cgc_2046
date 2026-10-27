@@ -315,6 +315,25 @@ env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY \
 
 **B4b 状态**：flag 已移除（`d3aecf24`，−173 行）；`native_agent_view.rs`（5178 行）与 `native_thread_state.rs`（625 行）的删除需要先完成薄视图重构，见 §13.7/§13.8。
 
+### 13.10 B4b 结构拆分（2026-10-27 下午，已提交）
+
+把 5178 行的 `native_agent_view.rs` 按职责拆为父模块 + 8 个子模块（子模块可访问父模块私有字段，**未放宽任何可见性**，纯搬迁、行为不变）：
+
+| 子模块 | 行数 | 内容 |
+|---|---|---|
+| `composer.rs` | 539 | native 主 composer（附件/queue/slash/mention/pickers/checkpoint） |
+| `rows.rs` | 507 | 消息行、错误行、操作栏/trailing、row kind 计算 |
+| `runtime_ops.rs` | 738 | 运行时装配、checkpoint 操作、模型选择、scope 切换、session reload |
+| `turn.rs` | 393 | turn 生命周期、ACP host/poller、事件消费、steer/stop |
+| `panels.rs` | 365 | slash/mention 菜单、pickers、checkpoint 面板 |
+| `input.rs` | 317 | mention/slash 插入、user 编辑/重发 |
+| `render.rs` | 221 | `impl Render` 主体 |
+| `session.rs` | 188 | 线程元信息、标题生成、open_thread |
+
+父文件 **5178 → 2011 行**（−3167，−61%），剩余为结构体/构造器（约 400 行）+ 纯函数（约 400 行）+ 单测（583 行）。
+
+**对 B4b-c 的意义**：删除旧视图的前提从「一次搬走 5000 行」变成「删 8 个职责单一的模块」，可以逐片迁移/删除、逐片门禁；`native_thread_state.rs`（625 行）仍是删除前的最后一块状态归属问题。
+
 ### 13.5 剩余排期（2026-10-27 更新）
 
 - **3.4a（MCP client）**：✅ 完成（`a81ca587`）。Streamable HTTP JSON-RPC、Bearer、SSE/JSON、超时/401/403 fail-closed、token 脱敏；mock server 单测。
