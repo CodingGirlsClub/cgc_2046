@@ -320,6 +320,7 @@ mod session;
 mod state;
 mod turn;
 mod turn_logic;
+mod view_ops;
 mod widgets;
 
 pub use state::{NativeThreadState, PendingPermission};
