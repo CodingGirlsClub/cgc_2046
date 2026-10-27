@@ -161,3 +161,15 @@ Stage 3 已按设计文档 `docs/plans/2026-10-26-1000-stage3-capability-converg
 - **native-only 注入**：配置与 ACP `session/new` 注入同源（`learning_host` lease + `mcp_endpoint(CGC_API_URL)`），但当前只注入 native `ToolRegistry`；external ACP agent 的 MCP 注入保持原逻辑。无 lease/token → 0 工具（fail-closed），不 panic、不打印 token；`CGC_MCP_ENDPOINT/TOKEN` 仅作 headless 测试 seam。
 - **默认 native（3.5b）**：`preferences.nativeAgentEnabled` 默认 true，`resolve_native_agent_enabled` = `CGC_NATIVE_AGENT`（"0" 关闭）> `CGC_NATIVE_AGENT_DEMO` > 设置开关；课程页与非课程页同默认，关闭后回退 External Agent。3.4d（真实平台 MCP 工具调用）真机待验。
 - **B4b**：旧视图 `native_agent_view.rs`（约 5850 行）/`native_thread_state.rs`（635 行）尚未删除，等两轨真机验收；删除计划见设计文档 §13.4/§13.6。
+
+## B4b 进展（2026-10-27）
+
+- **`CGC_NATIVE_SHARED_VIEW` 已移除**：composer 两条渲染路径合一后，flag 不再切换任何行为，
+  相关函数/枚举/死代码一并删除；附件 chips 只保留 legacy composer 内唯一实现。
+- **`native_thread_state.rs` 已删除**：`NativeThreadState`/`PendingPermission` 及状态机迁入
+  `native_agent_view/state.rs` 子模块，外部路径为 `native_agent_view::NativeThreadState`。
+- **`native_agent_view.rs` 拆为父模块 + 9 个子模块**（`composer`/`rows`/`turn`/`panels`/
+  `session`/`input`/`runtime_ops`/`render`/`state`）：纯搬迁、行为不变，父文件 5178 → 约 2000 行。
+- **仍未删除** `native_agent_view.rs`：剩余约 2000 行是 native 专属的结构体/构造器/纯函数/单测，
+  删除前需把它们迁入共享会话视图适配层；`native_thread_state.rs` 删除已完成，
+  `native_agent_view.rs` 的删除作为 B4b-c 的收尾项保留。

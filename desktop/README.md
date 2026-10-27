@@ -5,6 +5,15 @@
 `_bmad-output/initiative-desktop/architecture-desktop/architecture-desktop.md`（脊柱 AD-1 至 AD-24）
 与 `docs/adr/0024-0027`。
 
+## native 面板结构（Stage 3 Phase B）
+
+- `crates/app/src/native_agent_view.rs` 是父模块，渲染/输入/会话/运行时按职责拆到
+  `native_agent_view/` 下 9 个子模块（`composer`、`rows`、`turn`、`panels`、`session`、
+  `input`、`runtime_ops`、`render`、`state`）；子模块可访问父模块私有字段，未放宽可见性。
+- `CGC_NATIVE_SHARED_VIEW` 已移除；composer 只有一条渲染路径。
+- `native_thread_state.rs` 已删除，状态类型在 `native_agent_view::state`，对外重新导出为
+  `native_agent_view::NativeThreadState`。
+
 ## 本机前置
 
 - Rust **1.98+**（`rust-toolchain.toml` 锁 1.98.1；本机可用已安装的更新版本，如 `RUSTUP_TOOLCHAIN=stable`）
