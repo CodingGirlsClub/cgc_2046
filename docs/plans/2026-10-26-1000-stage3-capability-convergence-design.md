@@ -307,7 +307,19 @@ env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY \
 - **工具名被 provider 拒绝**：原命名 `mcp:<server>:<tool>` 含冒号，OpenAI 兼容接口要求 `^[a-zA-Z0-9_-]+$`，整轮请求 400（`Invalid 'tools[N].function.name'`）。已改为 `mcp_<server>_<tool>` 并加回归测试（`05aff3df`）。
 - **默认入口未解析 MCP 注入**：仅 controller 注入路径有 lease，默认 `NativeAgentView::new` 构造的 host 无注入。已在默认分支解析 env/lease（`05aff3df`）。
 
-**MCP 工具 `workspace_id`（已修，范围待确认）**：
+**MCP 工具 `workspace_id`（已解决，真机验证通过）**：
+- 根因：模型按 schema 先塞 `workspace_id: ""`，而注入逻辑只在**字段缺失**时补，
+  空串被原样发到后端 → `-32000 failed to load course`；curl 对照确认同一 token 下
+  `workspace_id:""` 报错、正确 workspace 返回内容。
+- 修复（`41c2f7b4`）：`merge_injected_args` 把 `null`/空串/空白串同样视为未提供并注入；
+  单测覆盖三种占位值，变异验证（改回 contains_key → 红 → 还原绿）。
+- 真机结果：`mcp_cgc-2046-learning_get_course_revision` 返回
+  `{"revision_number":1,"published_at":"2026-10-25T13:34:43Z","issues":[],"goals":[],"chapters":[]}`；
+  `get_learning_state` 返回 `{"run":{"status":"running",...},"progress":{"complete":false,...}}`。
+- **白名单 5 个工具里 `get_course_content` 是 staff-only**（后端自 M4 起把草稿读面收紧给
+  教师/管理员），学生账号的 `tools/list` 里本来就没有它——白名单按可用性过滤，属预期。
+
+**MCP 工具 `workspace_id`（历史记录）**：
 - 现象：5 个白名单工具的后端 schema 要求 `workspace_id`，而 native 上下文只有 `course_id`/`revision`，模型无法获得 → 工具不可用；
 - 处理（`308ba7ec`）：客户端在注册时注入 `workspace_id`（`merge_injected_args` 只补缺失字段，不覆盖模型显式值），来源为 `workspaces.current_id()`，默认入口支持 `CGC_WORKSPACE_ID` seam；
 - 真机结果：错误从 `-32602 workspace_id required` 变为 `-32000 failed to load course`，说明**注入已生效**；剩余失败指向工作台数据范围（同一 token + 同一 `workspace_id` 直接用 curl 调用 `get_learning_state` 可成功返回 run/progress），需要确认 native 侧注入的 workspace 与课程所属工作台是否一致。
@@ -352,7 +364,7 @@ env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY \
 | 3.4a MCP Streamable HTTP client（mock 单测） | ✅ |
 | 3.4b 5 个只读课程工具白名单 + 审批 Allow | ✅ |
 | 3.4c native `ToolRegistry` 注入（lease/env，fail-closed） | ✅（真机可见 4 个工具） |
-| 3.4d 真机联调：工具名命名、workspace_id 注入 | ✅ 已修；后端 workspace 归属仍待确认 |
+| 3.4d 真机联调：工具名命名、workspace_id 注入 | ✅ 已修；真机两个工具均返回真实数据 |
 | 3.5a 全局 Agent Panel + 课程上下文 chip | ✅ |
 | 3.5b 默认 native（含课程页）+ env/设置回退 | ✅ |
 | 3.6 Phase B：B1–B4 共享渲染、B4b 结构拆分 | ✅ |
@@ -363,8 +375,8 @@ env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY \
 
 **遗留（非 Stage 3 阻塞项）**：
 1. native 运行时胶水（`runtime_ops`/`turn`/`state`，约 2100 行）仍在视图模块内，迁 host 是后续独立切片；
-2. MCP 工具真机调用受后端 workspace 归属影响（`-32000 failed to load course`），需后端确认 token→workspace 绑定或从 token 推导；
-3. 白名单 5 个工具中 `get_course_content` 在当前 token 的 tools/list 里不存在，实际可注册 4 个。
+2. ~~MCP workspace 归属~~ 已解决（空串占位未被注入，`41c2f7b4`）；
+3. `get_course_content` 为 staff-only 工具，学生账号不可见（预期行为，非缺陷）。
 
 ### 13.5 剩余排期（2026-10-27 更新）
 
