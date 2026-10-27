@@ -383,9 +383,12 @@ env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY \
 - **3.4a（MCP client）**：✅ 完成（`a81ca587`）。Streamable HTTP JSON-RPC、Bearer、SSE/JSON、超时/401/403 fail-closed、token 脱敏；mock server 单测。
 - **3.4b（MCP 工具适配 + 白名单纯只读）**：✅ 完成（`cc2a2f9b`、`c698fe93`）。5 个只读课程工具注册入口，白名单外不注册，只读审批 Allow。
 - **3.4c（native ToolRegistry 注入）**：✅ 完成（`8cbe7430`）。复用 RootView lease、host `McpInjection`、两个 registry 构造点注入，无 lease fail-closed。
-- **3.4d（真机 MCP 验收）**：⏳ 待真机（需用户解锁）：真实平台 MCP server 的 tools/list 5 工具与工具调用结果。
+- **3.4d（真机 MCP 验收）**：✅ 完成（2026-10-27）。真机发现并修复两处缺陷（工具名冒号、空串占位未注入），
+  `get_course_revision` / `get_learning_state` 均返回真实平台数据；`get_course_content` 为 staff-only。
 - **3.5b（默认 native 去灰度）**：✅ 完成（`c6cfdd87`）。两轨（含课程页）默认 native；`CGC_NATIVE_AGENT=0` / 设置关闭回退 External Agent。
-- **B4b**：⏳ 待两轨真机验收后执行（删除 `native_agent_view.rs`/`native_thread_state.rs`，报净删行数；计划见 §13.4/§13.6），随后移除 `CGC_NATIVE_SHARED_VIEW` flag。
+- **B4b**：✅ 完成（2026-10-27）。`native_agent_view.rs` 与 `native_thread_state.rs` 已删除（模块根迁 `mod.rs`，
+  代码拆入 13 个子模块），`CGC_NATIVE_SHARED_VIEW` 已移除；净删 −805 行（6730 → 5925），详见 §13.10/§13.11。
+- **3.7（文档/架构同步）**：✅ ADR-0028、2026-10-22 plan、desktop README 均已补注「唯一入口=桌面」与新结构。
 
 ### 13.6 夜间增量（2026-10-27 00:00–00:30，headless）
 
