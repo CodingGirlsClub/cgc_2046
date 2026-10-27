@@ -16,8 +16,8 @@ use cgc_agent_provider::{
 };
 use cgc_agent_tools::{ToolContext, ToolRegistry};
 use cgc_desktop_app::agent_ingest::apply_permission_resolved;
+use cgc_desktop_app::native_agent_view::NativeThreadState;
 use cgc_desktop_app::native_runtime::{NativeRuntimeConfig, NativeRuntimeHandle};
-use cgc_desktop_app::native_thread_state::NativeThreadState;
 use cgc_platform::acp::connection::{AcpHost, AcpHostConfig, HostEvent};
 
 fn model() -> Model {

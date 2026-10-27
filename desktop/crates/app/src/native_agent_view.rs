@@ -56,7 +56,6 @@ use crate::native_context::{
 use crate::native_panel_host::SubagentCard;
 use crate::native_runtime::{NativeRuntimeConfig, NativeRuntimeHandle};
 use crate::native_session::NativeSessionStore;
-use crate::native_thread_state::NativeThreadState;
 use crate::native_view_model::{
     build_message_row_kinds, checkpoint_for_ordinal, checkpoints_from_records,
     needs_checkpoint_confirm, subagent_cards_for_rows, thread_entry_ordinal,
@@ -317,7 +316,10 @@ mod render;
 mod rows;
 mod runtime_ops;
 mod session;
+mod state;
 mod turn;
+
+pub use state::{NativeThreadState, PendingPermission};
 
 pub struct NativeAgentView {
     agent: Option<Agent>,
@@ -1429,6 +1431,7 @@ fn render_native_message_menu(
 /// composer 里的 mention chip：技能 / 文件各一个图标，hover 显示真实路径。
 #[cfg(test)]
 mod workspace_prompt_tests {
+    use super::state::NativeThreadState;
     use super::{
         build_workspace_system_prompt, composer_has_input, now_secs, offline_echo_notice,
         queued_panel_header_text, queued_status_text, NativeComposerGating,
@@ -1671,7 +1674,6 @@ mod workspace_prompt_tests {
 
     #[test]
     fn apply_thread_entries_builds_tool_cards_with_args() {
-        use crate::native_thread_state::NativeThreadState;
         use cgc_agent_core::Entry;
         use cgc_agent_provider::ToolUse;
         let entries = vec![

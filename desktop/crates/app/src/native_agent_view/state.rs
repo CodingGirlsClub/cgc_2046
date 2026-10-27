@@ -1,17 +1,4 @@
-//! native 轨道的客户端状态（共享 `ConversationThread` 之外的 native 专属辅助态）。
-//!
-//! Stage 3.1 Phase A：native 运行时已经是进程内 ACP server，客户端只消费
-//! `HostEvent`。会话行统一进 `ConversationThread`（见 `crate::agent_ingest`）；
-//! 这里只保留 ACP v1 表达不了的 native 辅助态：审批卡渲染所需的 tool name/args、
-//! 子 agent 卡（实时进度走 native 辅助通道，Phase B 再收口）。
-//!
-//! 审批卡的**事实源是共享 `ConversationThread`**（`thread.pending_permission`）：
-//! `sync_pending_permission` 用它兜底/清理辅助态，保证「运行时在等审批」时 UI 一定
-//! 能渲染出可点的审批卡（真机 bug 2 回归）。工具执行的 `tool_call_update` 不是审批
-//! 生命周期事件，不得清除 pending。
-//!
-//! 原来的 `cgc_agent_host::HostState`（`AgentEvent → ThreadEvent` reducer）已删除：
-//! 事件映射只在 ACP server 适配层做一次。
+//! native 线程状态（B4b：原 `native_thread_state.rs` 迁入子模块）。
 
 use cgc_agent_host::AgentEvent;
 use cgc_agent_provider::TokenUsage;

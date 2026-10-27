@@ -1,5 +1,6 @@
 //! CGC Desktop 的 app 层：入口、导航壳与路由聚合（脊柱 AD-1 的组合根）。
 
+#![recursion_limit = "512"]
 pub mod acp_history;
 pub mod agent_ingest;
 pub mod approval_rules;
@@ -25,7 +26,6 @@ pub mod native_context;
 pub mod native_panel_host;
 pub mod native_runtime;
 pub mod native_session;
-pub mod native_thread_state;
 pub mod native_view_model;
 pub mod notification_center;
 pub mod notifications;
