@@ -6,6 +6,8 @@ use std::{
 };
 
 use futures::{channel::oneshot, future::BoxFuture};
+#[cfg(unix)]
+use std::os::unix::process::CommandExt as _;
 
 use crate::{
     approval::Approval,
@@ -119,11 +121,16 @@ fn execute(
             process
         }
     };
+    // 独立进程组：超时/取消时能连同 shell 派生的子进程一起终止，避免 turn 结束后
+    // 仍有后台命令继续改文件。
+    #[cfg(unix)]
+    process.process_group(0);
     let mut child = process
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| ToolError::Io(format!("spawn command: {error}")))?;
+    let process_group = child.id();
 
     let stdout = child.stdout.take().map(read_async);
     let stderr = child.stderr.take().map(read_async);
@@ -135,7 +142,7 @@ fn execute(
             Some(status) => break Some(status),
             None if started.elapsed() >= timeout => {
                 timed_out = true;
-                let _ = child.kill();
+                terminate(&mut child, process_group);
                 break child.wait().ok();
             }
             None => std::thread::sleep(Duration::from_millis(25)),
@@ -161,6 +168,23 @@ fn execute(
         content,
         is_error: timed_out || exit_code != Some(0),
     })
+}
+
+/// 终止命令及其派生进程；Unix 上按进程组发送 SIGKILL，其他平台退化为只杀 shell。
+///
+/// 用系统 `kill` 而不是引入新的 FFI 依赖：负 pid 表示整个进程组。失败时仍退回
+/// 单进程 kill，保证至少有终止动作。
+fn terminate(child: &mut std::process::Child, process_group: u32) {
+    #[cfg(unix)]
+    {
+        let _ = std::process::Command::new("kill")
+            .arg("-KILL")
+            .arg(format!("-{process_group}"))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
 }
 
 fn shell_command(command: &str) -> Command {
@@ -244,6 +268,34 @@ mod tests {
         .expect("run");
         assert!(result.content.contains("hello"));
         assert!(!result.is_error);
+        let _ = std::fs::remove_dir_all(&workspace);
+    }
+
+    /// 超时必须回收整棵进程树：后台孙子进程不能在 turn 结束后继续写文件。
+    #[cfg(unix)]
+    #[test]
+    fn timeout_kills_descendant_processes() {
+        let workspace = temp_workspace("tree");
+        let marker = workspace.join("survivor.txt");
+        let context = ToolContext::new(&workspace);
+        let command = format!(
+            "sh -c 'sleep 2; echo survived > {}' & wait",
+            marker.display()
+        );
+        let result = futures::executor::block_on(RunCommandTool::new().run(
+            serde_json::json!({"command": command, "timeout_secs": 1}),
+            context,
+        ))
+        .expect("run");
+        assert!(result.is_error, "超时必须标记为失败");
+        assert!(result.content.contains("timed out"), "{}", result.content);
+        // 给被杀进程足够时间：若进程组未被终止，这里会看到 survivor.txt。
+        std::thread::sleep(std::time::Duration::from_millis(2500));
+        assert!(
+            !marker.exists(),
+            "派生进程必须随执行超时一起终止，文件: {}",
+            marker.display()
+        );
         let _ = std::fs::remove_dir_all(&workspace);
     }
 
