@@ -71,10 +71,17 @@ pub(crate) fn resolve_mcp_injection(
     env_token: Option<&str>,
     workspace_id: Option<&str>,
 ) -> Option<McpInjection> {
+    // 参数优先；未提供时回退到 `CGC_WORKSPACE_ID`（headless/验收 seam）。
     let workspace = workspace_id
         .map(str::trim)
         .filter(|id| !id.is_empty())
-        .map(str::to_string);
+        .map(str::to_string)
+        .or_else(|| {
+            std::env::var("CGC_WORKSPACE_ID")
+                .ok()
+                .map(|id| id.trim().to_string())
+                .filter(|id| !id.is_empty())
+        });
     if let Some(token) = env_token.filter(|token| !token.trim().is_empty()) {
         let endpoint = env_endpoint
             .map(str::to_string)
@@ -344,6 +351,24 @@ mod tests {
             {"name":"get_enrollment_summary","inputSchema":{"type":"object"}},
             {"name":"delete_everything","inputSchema":{"type":"object"}}
         ]}}"#
+    }
+
+    /// `CGC_WORKSPACE_ID` 作为 workspace 的兜底来源（无 controller 参数时）。
+    #[test]
+    fn workspace_id_falls_back_to_env_when_absent() {
+        std::env::set_var("CGC_WORKSPACE_ID", "ws-env");
+        let injection = resolve_mcp_injection(None, None, Some("http://h/mcp"), Some("t"), None)
+            .expect("env injection");
+        assert_eq!(injection.workspace_id.as_deref(), Some("ws-env"));
+        std::env::remove_var("CGC_WORKSPACE_ID");
+
+        // 显式参数优先于 env
+        std::env::set_var("CGC_WORKSPACE_ID", "ws-env");
+        let explicit =
+            resolve_mcp_injection(None, None, Some("http://h/mcp"), Some("t"), Some("ws-arg"))
+                .expect("env injection");
+        assert_eq!(explicit.workspace_id.as_deref(), Some("ws-arg"));
+        std::env::remove_var("CGC_WORKSPACE_ID");
     }
 
     #[test]
