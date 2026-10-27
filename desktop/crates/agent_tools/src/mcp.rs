@@ -41,7 +41,17 @@ pub fn merge_injected_args(mut args: Value, injected: Option<&Value>) -> Value {
     };
     if let Some(defaults) = injected.as_object() {
         for (key, value) in defaults {
-            object.entry(key.clone()).or_insert_with(|| value.clone());
+            // 空串/null 等同于未提供：模型常按 schema 先塞一个占位值
+            // （真机 3.4d：workspace_id="" 直接导致后端 `failed to load course`）。
+            let missing = match object.get(key) {
+                None => true,
+                Some(Value::Null) => true,
+                Some(Value::String(text)) => text.trim().is_empty(),
+                Some(_) => false,
+            };
+            if missing {
+                object.insert(key.clone(), value.clone());
+            }
         }
     }
     args
@@ -517,6 +527,13 @@ mod tests {
         let explicit = json!({ "workspace_id": "ws-2" });
         let merged = merge_injected_args(explicit, Some(&injected));
         assert_eq!(merged["workspace_id"], "ws-2");
+
+        // 空串 / null 等同未提供 → 被注入覆盖（真机 3.4d 回归）
+        for placeholder in [json!(""), json!("   "), json!(null)] {
+            let args = json!({ "workspace_id": placeholder, "course_id": "c-1" });
+            let merged = merge_injected_args(args, Some(&injected));
+            assert_eq!(merged["workspace_id"], "ws-1", "占位值应被注入覆盖");
+        }
 
         // 无注入 / 非对象 args → 原样返回
         let empty = json!({ "course_id": "c-1" });
