@@ -215,30 +215,15 @@ impl NativeAgentView {
                     // Auto 模式在 runtime 内已放行，不应出现审批请求；防御性按
                     // agent 提供的第一个 allow 选项回传。
                     if self.approval_mode == ApprovalMode::Auto {
-                        let option_id = self
-                            .state
-                            .thread
-                            .pending_permission
-                            .as_ref()
-                            .and_then(|request| {
-                                request.options.iter().find(|option| option.kind.is_allow())
-                            })
-                            .map(|option| option.id.clone());
-                        if let Some(option_id) = option_id {
+                        if let Some(option_id) =
+                            super::turn_logic::first_allow_option_id(&self.state.thread)
+                        {
                             self.resolve_permission_option(&option_id, cx);
                         }
                     }
                 }
-                HostEvent::TurnEnd {
-                    cancelled,
-                    stop_reason,
-                } => {
-                    let cancelled = *cancelled || stop_reason.eq_ignore_ascii_case("cancelled");
-                    finished = Some(if cancelled {
-                        TurnEndState::Cancelled
-                    } else {
-                        TurnEndState::Completed
-                    });
+                HostEvent::TurnEnd { .. } => {
+                    finished = super::turn_logic::turn_end_from_event(&event);
                 }
                 HostEvent::Error { message } => {
                     finished = Some(TurnEndState::Failed(message.clone()));
@@ -305,43 +290,19 @@ impl NativeAgentView {
     /// Agent 已取回后的 turn 收尾（状态、持久化、checkpoint、队列）。
     pub(super) fn apply_turn_end(&mut self, state: TurnEndState, cx: &mut Context<Self>) {
         self.busy = false;
-        match &state {
-            TurnEndState::Completed => {
-                let total = self
-                    .agent
-                    .as_ref()
-                    .map(|agent| agent.thread().usage_total.total())
-                    .unwrap_or(0);
-                if let Some(agent) = &self.agent {
-                    self.state.usage_total = agent.thread().usage_total;
-                }
-                self.status = format!("完成 · 本会话 {total} tokens");
-            }
-            TurnEndState::Cancelled => self.status = "已停止".to_string(),
-            TurnEndState::Failed(message) => {
-                self.state.last_error = Some(message.clone());
-                // HostEvent::Error 已由共用 ingestion 落过 Failed 行；这里只补
-                // 合成失败（channel closed / 连接退出）缺失的那一行，避免重复。
-                if !matches!(
-                    self.state.thread.status,
-                    cgc_agent_ui::conversation::ThreadStatus::Failed
-                ) {
-                    self.state
-                        .thread
-                        .apply(cgc_agent_ui::conversation::ThreadEvent::Failed(
-                            message.clone(),
-                        ));
-                }
-                self.status = format!("错误：{message}");
-            }
-        }
+        let usage_total = self
+            .agent
+            .as_ref()
+            .map(|agent| agent.thread().usage_total)
+            .unwrap_or_default();
+        self.status = super::turn_logic::apply_turn_end(&mut self.state, &state, usage_total);
         if let (Some(store), Some(agent)) = (self.session_store.session_mut(), &self.agent) {
             let _ = store.save_thread(agent.thread());
         }
         self.reload_thread_checkpoints();
         self.drain_app_actions(cx);
         self.refresh_checkpoint_changes();
-        if matches!(state, TurnEndState::Completed) {
+        if super::turn_logic::should_generate_title(&state) {
             self.maybe_generate_thread_title(cx);
         }
         if !self.queued_messages.is_empty() {

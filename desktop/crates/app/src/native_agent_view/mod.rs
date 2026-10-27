@@ -319,6 +319,7 @@ mod runtime_ops;
 mod session;
 mod state;
 mod turn;
+mod turn_logic;
 mod widgets;
 
 pub use state::{NativeThreadState, PendingPermission};
@@ -400,6 +401,7 @@ pub struct NativeAgentView {
 }
 
 /// turn 收尾原因（来自 ACP TurnEnd / Error / Exited 事件）。
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum TurnEndState {
     Completed,
     Cancelled,
