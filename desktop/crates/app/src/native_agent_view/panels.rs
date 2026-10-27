@@ -198,21 +198,23 @@ impl NativeAgentView {
         palette: theme::Palette,
         cx: &mut Context<Self>,
     ) -> NativeComposerPickers {
-        let gating = NativeComposerGating::from_capabilities(self.state.thread.capabilities);
+        let gating =
+            NativeComposerGating::from_capabilities(self.state.session.thread.capabilities);
         if !gating.pickers_available() {
             return NativeComposerPickers::default();
         }
-        let current_provider_id = self.model.provider_id.as_str().to_string();
-        let current_model_id = self.model.id.as_str().to_string();
+        let current_provider_id = self.metadata().model.provider_id.as_str().to_string();
+        let current_model_id = self.metadata().model.id.as_str().to_string();
         let current_model_config = self
+            .metadata()
             .providers
             .iter()
-            .find(|provider| provider.id == self.model.provider_id.as_str())
-            .map(|provider| provider.model_config(self.model.id.as_str()))
+            .find(|provider| provider.id == self.metadata().model.provider_id.as_str())
+            .map(|provider| provider.model_config(self.metadata().model.id.as_str()))
             .unwrap_or_default();
         let thinking_supported = current_model_config.supports_thinking;
         let effort_levels = current_model_config.reasoning_efforts.clone();
-        let providers_for_menu = self.providers.clone();
+        let providers_for_menu = self.metadata().providers.clone();
         let model_root = cx.entity().downgrade();
         let thinking_root = cx.entity().downgrade();
         let approval_root = cx.entity().downgrade();
@@ -267,8 +269,11 @@ impl NativeAgentView {
                 });
             }),
         });
-        let current_effort = self.effort_index.min(effort_levels.len().saturating_sub(1));
-        let thinking_enabled = self.thinking_enabled;
+        let current_effort = self
+            .metadata()
+            .effort_index
+            .min(effort_levels.len().saturating_sub(1));
+        let thinking_enabled = self.metadata().thinking_enabled;
         let thinking_label = if thinking_supported {
             if thinking_enabled {
                 effort_levels
@@ -308,7 +313,7 @@ impl NativeAgentView {
                 on_select: Box::new(move |index, _window, cx| {
                     let _ = root.update(cx, |this, cx| {
                         if index < levels_len {
-                            if !this.thinking_enabled {
+                            if !this.metadata().thinking_enabled {
                                 this.set_thinking_enabled(true, cx);
                             }
                             this.set_effort_index(index, cx);
@@ -319,7 +324,7 @@ impl NativeAgentView {
                 }),
             })
         });
-        let current_approval = self.approval_mode;
+        let current_approval = self.metadata().approval_mode;
         let approval_picker = {
             let modes = [ApprovalMode::Ask, ApprovalMode::Auto];
             let items: Vec<PickerItem> = modes

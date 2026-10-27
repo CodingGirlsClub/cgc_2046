@@ -113,9 +113,15 @@ impl RootView {
         let is_acp = rename.thread_id.starts_with(acp_history::ACP_THREAD_PREFIX);
         if is_acp {
             let _ = acp_history::rename_override(&rename.thread_id, title.as_deref());
-            if self.chat.session_id.as_deref().is_some_and(|session_id| {
-                acp_history::acp_thread_id(session_id) == rename.thread_id
-            }) {
+            if self
+                .chat
+                .session
+                .session_id
+                .as_deref()
+                .is_some_and(|session_id| {
+                    acp_history::acp_thread_id(session_id) == rename.thread_id
+                })
+            {
                 self.chat.title_override = title.clone();
             }
         } else {

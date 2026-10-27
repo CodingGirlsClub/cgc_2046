@@ -1,21 +1,17 @@
-//! app 侧 native runtime 接线的端到端测试（Stage 3.1 Phase A）。
-//!
-//! 链路：`NativeRuntimeHandle`（app 实现）← `NativeAcpServer`（进程内 ACP agent）
-//! ← 内存 Channel ← `AcpHost`（客户端）→ `HostEvent`。验证真实 `Agent` 交给
-//! runtime 后，turn 事件确实经 ACP 回到客户端、turn 结束 Agent 被交回视图
-//! （线程持久化/checkpoint 依赖它）。
-
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
-use cgc_agent_core::{Agent, SelectedModel, Thread};
+//! Real Agent → native ACP server → AcpHost; views never take or replace the Agent.
+use cgc_agent_core::{Entry, SelectedModel, Thread};
 use cgc_agent_host::{NativeAcpServer, NativeAcpServerConfig};
 use cgc_agent_provider::{
     CompletionEvent, FakeProvider, Model, ModelId, ModelLimits, ProviderId, StopReason,
 };
 use cgc_agent_tools::{ToolContext, ToolRegistry};
-use cgc_desktop_app::native_runtime::{NativeRuntimeConfig, NativeRuntimeHandle};
+use cgc_desktop_app::native_runtime::{NativeRuntimeConfig, NativeRuntimeHandle, RuntimePhase};
 use cgc_platform::acp::connection::{AcpHost, AcpHostConfig, HostEvent};
+use futures::executor::block_on;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 fn model(provider: &str) -> Model {
     Model::new(
@@ -26,29 +22,41 @@ fn model(provider: &str) -> Model {
         ModelLimits::new(8_000, 1_000),
     )
 }
-
-fn temp_workspace(tag: &str) -> std::path::PathBuf {
+fn workspace(tag: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("cgc-native-runtime-{}-{tag}", std::process::id()));
-    let _ = std::fs::create_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("workspace");
     dir
 }
-
-fn start_host(runtime: NativeRuntimeHandle) -> AcpHost {
-    let server = NativeAcpServer::new(Box::new(runtime)).with_config(NativeAcpServerConfig {
-        agent_name: "cgc-native".to_string(),
-        version: "0.0.1".to_string(),
-    });
-    AcpHost::start_in_process(AcpHostConfig::new("", temp_workspace("host")), server)
-        .expect("start in-process host")
+fn runtime(provider: Arc<FakeProvider>, selected: Model, id: &str) -> NativeRuntimeHandle {
+    NativeRuntimeHandle::spawn(
+        Thread::new(
+            id,
+            SelectedModel::new(ProviderId::new("fake"), ModelId::new("m1")),
+        ),
+        None,
+        NativeRuntimeConfig {
+            provider,
+            model: selected,
+            registry: Arc::new(ToolRegistry::new()),
+            context: ToolContext::new(workspace(id)),
+            context_size: 8_000,
+            auto_approve: true,
+        },
+        None,
+    )
 }
-
-fn wait_for(
-    host: &AcpHost,
-    predicate: impl Fn(&HostEvent) -> bool,
-    timeout: Duration,
-) -> Vec<HostEvent> {
+fn start_host(runtime: &NativeRuntimeHandle) -> AcpHost {
+    let binding = block_on(runtime.connect()).expect("bind owner");
+    let server = NativeAcpServer::new(Box::new(binding)).with_config(NativeAcpServerConfig {
+        agent_name: "cgc-native".into(),
+        version: "test".into(),
+    });
+    AcpHost::start_in_process(AcpHostConfig::new("", workspace("host")), server)
+        .expect("start host")
+}
+fn wait_for(host: &AcpHost, predicate: impl Fn(&HostEvent) -> bool) -> Vec<HostEvent> {
     let mut events = Vec::new();
-    let deadline = Instant::now() + timeout;
+    let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
         if let Some(event) = host.recv_timeout(Duration::from_millis(50)) {
             let matched = predicate(&event);
@@ -58,55 +66,31 @@ fn wait_for(
             }
         }
     }
-    panic!("event not received within {timeout:?}: {events:?}");
+    panic!("expected event not received: {events:?}");
 }
-
 fn wait_ready(host: &AcpHost) {
-    wait_for(
-        host,
-        |event| matches!(event, HostEvent::Ready { .. }),
-        Duration::from_secs(10),
-    );
+    wait_for(host, |event| matches!(event, HostEvent::Ready { .. }));
 }
 
 #[test]
-fn native_runtime_turn_flows_through_acp_and_hands_agent_back() {
-    let provider = FakeProvider::new(ProviderId::new("fake"), "Fake", vec![model("fake")]);
+fn native_runtime_turn_flows_through_acp_and_owner_keeps_execution_thread() {
+    let provider = Arc::new(FakeProvider::new(
+        ProviderId::new("fake"),
+        "Fake",
+        vec![model("fake")],
+    ));
     provider.push_script(vec![
-        Ok(CompletionEvent::Text("hi".to_string())),
+        Ok(CompletionEvent::Text("hi".into())),
         Ok(CompletionEvent::Stop(StopReason::EndTurn)),
     ]);
-    let runtime = NativeRuntimeHandle::new();
-    let agent = Agent::new(
-        Thread::new(
-            "t1",
-            SelectedModel::new(ProviderId::new("fake"), ModelId::new("m1")),
-        ),
-        None,
-    );
-    runtime.put_agent(agent);
-    runtime.put_config(NativeRuntimeConfig {
-        provider: Arc::new(provider),
-        model: model("fake"),
-        registry: Arc::new(ToolRegistry::new()),
-        context: ToolContext::new(temp_workspace("turn")),
-        context_size: 1_000,
-        auto_approve: true,
-    });
-    let host = start_host(runtime.clone());
+    let runtime = runtime(provider, model("fake"), "turn");
+    let host = start_host(&runtime);
     wait_ready(&host);
     assert!(host.prompt("hi"));
-    let events = wait_for(
-        &host,
-        |event| matches!(event, HostEvent::TurnEnd { .. }),
-        Duration::from_secs(10),
-    );
-    assert!(
-        events
-            .iter()
-            .any(|event| matches!(event, HostEvent::Delta(text) if text == "hi")),
-        "streamed text must arrive through ACP: {events:?}"
-    );
+    let events = wait_for(&host, |event| matches!(event, HostEvent::TurnEnd { .. }));
+    assert!(events
+        .iter()
+        .any(|event| matches!(event, HostEvent::Delta(text) if text == "hi")));
     assert!(events.iter().any(|event| matches!(
         event,
         HostEvent::TurnEnd {
@@ -114,52 +98,75 @@ fn native_runtime_turn_flows_through_acp_and_hands_agent_back() {
             ..
         }
     )));
-
-    // turn 结束 Agent 必须交回视图（保存线程 / checkpoint / 标题都依赖它）。
-    let agent = runtime.take_agent().expect("agent handed back after turn");
-    assert_eq!(agent.thread().entries.len(), 2, "user + assistant");
+    let snapshot = block_on(runtime.inspect()).expect("snapshot");
+    assert!(
+        matches!(&snapshot.thread.entries[..], [Entry::User { text: user, .. }, Entry::Assistant { text, .. }] if user == "hi" && text == "hi")
+    );
+    assert_eq!(snapshot.phase, RuntimePhase::Idle);
     host.shutdown();
 }
 
 #[test]
-fn native_runtime_error_surfaces_as_host_error_and_hands_agent_back() {
-    let provider = FakeProvider::new(ProviderId::new("fake"), "Fake", vec![model("fake")]);
-    let runtime = NativeRuntimeHandle::new();
-    let agent = Agent::new(
-        Thread::new(
-            "t1",
-            SelectedModel::new(ProviderId::new("fake"), ModelId::new("m1")),
-        ),
-        None,
-    );
-    runtime.put_agent(agent);
-    runtime.put_config(NativeRuntimeConfig {
-        provider: Arc::new(provider),
-        // provider id 与 model provider id 不一致 → Agent::validate 返回 ModelMismatch。
-        model: model("other"),
-        registry: Arc::new(ToolRegistry::new()),
-        context: ToolContext::new(temp_workspace("error")),
-        context_size: 1_000,
-        auto_approve: true,
-    });
-    let host = start_host(runtime.clone());
+fn failed_turn_preserves_owner_and_can_be_followed_by_another_connection() {
+    let provider = Arc::new(FakeProvider::new(
+        ProviderId::new("fake"),
+        "Fake",
+        vec![model("fake")],
+    ));
+    let runtime = runtime(provider, model("other"), "error");
+    let host = start_host(&runtime);
     wait_ready(&host);
     assert!(host.prompt("hi"));
-    let events = wait_for(
-        &host,
-        |event| matches!(event, HostEvent::Error { .. }),
-        Duration::from_secs(10),
-    );
-    assert!(
-        events.iter().any(|event| matches!(
-            event,
-            HostEvent::Error { message } if message.contains("model")
-        )),
-        "turn error must surface as HostEvent::Error: {events:?}"
-    );
-    assert!(
-        runtime.take_agent().is_some(),
-        "agent handed back even when turn fails"
+    let events = wait_for(&host, |event| matches!(event, HostEvent::Error { .. }));
+    assert!(events
+        .iter()
+        .any(|event| matches!(event, HostEvent::Error { message } if message.contains("model"))));
+    assert_eq!(
+        block_on(runtime.inspect()).unwrap().phase,
+        RuntimePhase::Idle
     );
     host.shutdown();
+    let next = start_host(&runtime);
+    wait_ready(&next);
+    next.shutdown();
+}
+
+#[test]
+fn superseded_server_cannot_consume_the_current_runtime() {
+    let provider = Arc::new(FakeProvider::new(
+        ProviderId::new("fake"),
+        "Fake",
+        vec![model("fake")],
+    ));
+    let runtime = runtime(provider.clone(), model("fake"), "generation-thread");
+    let old = start_host(&runtime);
+    wait_ready(&old);
+    let current = start_host(&runtime);
+    wait_ready(&current);
+    assert!(old.prompt("stale server input"));
+    wait_for(&old, |event| {
+        matches!(event, HostEvent::Error { .. } | HostEvent::TurnEnd { .. })
+    });
+    assert!(
+        provider.requests().is_empty(),
+        "stale server must be rejected before provider access"
+    );
+    assert!(current.prompt("current server input"));
+    let events = wait_for(&current, |event| matches!(event, HostEvent::TurnEnd { .. }));
+    assert!(events
+        .iter()
+        .any(|event| matches!(event, HostEvent::Delta(text) if text == "ok")));
+    let requests = provider.requests();
+    assert!(requests
+        .last()
+        .unwrap()
+        .messages
+        .iter()
+        .any(|message| message.text() == "current server input"));
+    assert!(!requests
+        .iter()
+        .flat_map(|request| &request.messages)
+        .any(|message| message.text() == "stale server input"));
+    old.shutdown();
+    current.shutdown();
 }

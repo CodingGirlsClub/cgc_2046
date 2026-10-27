@@ -29,8 +29,9 @@ pub(in crate::root_view) fn render_chat_panel(
     palette: &theme::Palette,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
-    let phase = ctx.chat.phase.clone();
-    let thread = ctx.chat.thread.clone();
+    let phase = ctx.chat.session.phase.clone();
+    let thread = ctx.chat.session.thread.clone();
+    let streaming = ctx.chat.session.is_busy();
     let surface = super::surface::ChatSurface::new(&thread);
     let surface_flags = surface.flags;
     let row_view = surface.thread.row_view();
@@ -43,7 +44,10 @@ pub(in crate::root_view) fn render_chat_panel(
     } else {
         ctx.chat.agent.clone()
     };
-    if !ctx.native_chat_mode && matches!(phase, ChatPhase::Idle) && !ctx.chat.auto_start_queued {
+    if !ctx.native_chat_mode
+        && matches!(phase, ConnectionPhase::Idle)
+        && !ctx.chat.auto_start_queued
+    {
         ctx.chat.auto_start_queued = true;
         let root = cx.entity().downgrade();
         cx.defer(move |cx| {
@@ -51,7 +55,7 @@ pub(in crate::root_view) fn render_chat_panel(
         });
     }
     let body: AnyElement = match &phase {
-        ChatPhase::Idle => div()
+        ConnectionPhase::Idle => div()
             .flex()
             .flex_row()
             .items_center()
@@ -63,12 +67,12 @@ pub(in crate::root_view) fn render_chat_panel(
                     .child(translate(language, Key::AgentChatChatStarting)),
             )
             .into_any_element(),
-        ChatPhase::Starting => div()
+        ConnectionPhase::Starting => div()
             .text_size(px(12.0))
             .text_color(palette.ink_3)
             .child(translate(language, Key::AgentChatChatStarting))
             .into_any_element(),
-        ChatPhase::Failed(message) => {
+        ConnectionPhase::Failed(message) => {
             let guidance = ctx.chat.guidance.clone().map(|guidance| {
                 let detected_rows = guidance
                     .detected
@@ -175,13 +179,13 @@ pub(in crate::root_view) fn render_chat_panel(
                         .text_color(palette.canvas)
                         .child(translate(language, Key::AgentChatChatRetry))
                         .on_click(cx.listener(|this, _, _, cx| {
-                            this.chat.phase = ChatPhase::Idle;
+                            this.chat.session.phase = ConnectionPhase::Idle;
                             this.start_chat(cx);
                         })),
                 )
                 .into_any_element()
         }
-        ChatPhase::Ready | ChatPhase::Streaming => {
+        ConnectionPhase::Ready => {
             let view_weak = cx.entity().downgrade();
             // Phase B2a：ACP composer 消费共享 ComposerSurface（行为与旧 composer 等价）。
             let composer_root = cx.entity().downgrade();
@@ -237,7 +241,7 @@ pub(in crate::root_view) fn render_chat_panel(
                 surface_flags,
                 true,
                 needs_confirmation,
-                phase == ChatPhase::Streaming,
+                streaming,
             );
             // B2a 仅落 seam：B2b/c 用这三个位接 queue/steer/发送按钮的显隐。
             let _ = (
@@ -288,11 +292,7 @@ pub(in crate::root_view) fn render_chat_panel(
                     ConversationEntry::Assistant { text } => {
                         // 对齐 Zed #61245 + #61362：只在回合末挂操作栏；历史消息的
                         // 操作栏在流式时仍可见，仅底部条在生成/等审批时隐藏。
-                        let plan = row_view.action_plan(
-                            index,
-                            phase == ChatPhase::Streaming,
-                            needs_confirmation,
-                        );
+                        let plan = row_view.action_plan(index, streaming, needs_confirmation);
                         let agent_response = row_view.turn_copy_text(index);
                         let actions = plan.map(|plan| {
                             render_chat_message_controls(
@@ -498,9 +498,7 @@ pub(in crate::root_view) fn render_chat_panel(
             }
             // 回合停在工具卡等非 assistant 行时，底部补一条兜底操作栏
             // （对齐 Zed 的 last-assistant fallback）。
-            if let Some(plan) =
-                row_view.trailing_plan(phase == ChatPhase::Streaming, needs_confirmation)
-            {
+            if let Some(plan) = row_view.trailing_plan(streaming, needs_confirmation) {
                 rows.push(render_chat_message_controls(
                     "chat-trailing-controls",
                     plan.assistant_index,
@@ -513,7 +511,6 @@ pub(in crate::root_view) fn render_chat_panel(
                     palette,
                 ));
             }
-            let streaming = phase == ChatPhase::Streaming;
             let status = if streaming {
                 translate(language, Key::AgentChatChatThinking).to_string()
             } else {
@@ -579,7 +576,7 @@ pub(in crate::root_view) fn render_chat_panel(
                             )
                             .into_any_element();
                     }
-                    let slash_candidates = slash_candidates(&ctx.chat.commands, &input);
+                    let slash_candidates = slash_candidates(&ctx.chat.session.commands, &input);
                     let selected_slash = ctx
                         .chat
                         .slash_selection
@@ -588,7 +585,7 @@ pub(in crate::root_view) fn render_chat_panel(
                         .iter()
                         .enumerate()
                         .map(|(index, candidate)| {
-                            let command = &ctx.chat.commands[candidate.command_index];
+                            let command = &ctx.chat.session.commands[candidate.command_index];
                             CommandMenuItem {
                                 id: SharedString::from(format!("chat-slash-{}", command.name)),
                                 label: format!("/{}", command.name),
@@ -599,7 +596,7 @@ pub(in crate::root_view) fn render_chat_panel(
                             }
                         })
                         .collect();
-                    let slash_commands = ctx.chat.commands.clone();
+                    let slash_commands = ctx.chat.session.commands.clone();
                     let slash_candidates_for_click = slash_candidates.clone();
                     let slash_click_root = cx.entity().downgrade();
                     let slash_rows = (slash_query(&input).is_some()
@@ -635,6 +632,7 @@ pub(in crate::root_view) fn render_chat_panel(
                     let config_scroll = ctx.chat.config_scroll.clone();
                     let config_pickers = ctx
                         .chat
+                        .session
                         .configs
                         .iter()
                         .enumerate()
@@ -792,23 +790,27 @@ pub(in crate::root_view) fn render_chat_panel(
                                     Vec::new()
                                 })
                                 .children(
-                                    (surface_flags.usage && ctx.chat.thread.usage.size > 0).then(
-                                        || {
+                                    (surface_flags.usage && ctx.chat.session.thread.usage.size > 0)
+                                        .then(|| {
                                             div()
                                                 .text_size(px(10.0))
                                                 .text_color(palette.ink_3)
                                                 .child(format!(
                                                     "{}% · {}/{}",
                                                     ctx.chat
+                                                        .session
                                                         .thread
                                                         .usage
                                                         .percent()
                                                         .unwrap_or_default(),
-                                                    clipped_count(ctx.chat.thread.usage.used),
-                                                    clipped_count(ctx.chat.thread.usage.size),
+                                                    clipped_count(
+                                                        ctx.chat.session.thread.usage.used
+                                                    ),
+                                                    clipped_count(
+                                                        ctx.chat.session.thread.usage.size
+                                                    ),
                                                 ))
-                                        },
-                                    ),
+                                        }),
                                 )
                                 .child(
                                     cgc_agent_ui::composer::render_send_button(
@@ -1059,39 +1061,37 @@ pub(in crate::root_view) fn render_chat_panel(
                     .children(rows)
             })
     };
-    let context_chip = crate::page_context::current()
-        .filter(|_| !crate::page_context::is_dismissed())
-        .map(|context| {
-            let label = match &context.unit {
-                Some(unit) => format!("上下文：{} · {}", context.course_title, unit.title),
-                None => format!("上下文：{}", context.course_title),
-            };
-            div()
-                .id("chat-context-chip")
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(space(1))
-                .px(space(1))
-                .py(px(2.0))
-                .rounded(px(RADIUS_SMALL))
-                .bg(palette.soft)
-                .text_size(px(11.0))
-                .text_color(palette.ink_3)
-                .child(label)
-                .child(
-                    div()
-                        .id("chat-context-dismiss")
-                        .px(px(4.0))
-                        .rounded(px(RADIUS_SMALL))
-                        .hover(|style| style.bg(palette.card))
-                        .child("×")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.dismiss_chat_context(cx);
-                        })),
-                )
-                .into_any_element()
-        });
+    let context_chip = ctx.page_context.visible().map(|context| {
+        let label = match &context.unit {
+            Some(unit) => format!("上下文：{} · {}", context.course_title, unit.title),
+            None => format!("上下文：{}", context.course_title),
+        };
+        div()
+            .id("chat-context-chip")
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(space(1))
+            .px(space(1))
+            .py(px(2.0))
+            .rounded(px(RADIUS_SMALL))
+            .bg(palette.soft)
+            .text_size(px(11.0))
+            .text_color(palette.ink_3)
+            .child(label)
+            .child(
+                div()
+                    .id("chat-context-dismiss")
+                    .px(px(4.0))
+                    .rounded(px(RADIUS_SMALL))
+                    .hover(|style| style.bg(palette.card))
+                    .child("×")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.dismiss_chat_context(cx);
+                    })),
+            )
+            .into_any_element()
+    });
     div()
         .flex()
         .flex_row()

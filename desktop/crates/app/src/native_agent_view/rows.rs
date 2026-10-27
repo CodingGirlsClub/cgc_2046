@@ -13,7 +13,7 @@ impl NativeAgentView {
         menu_root: &WeakEntity<Self>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let message = ViewRow::from_entry(&self.state.thread.entries[message_index]);
+        let message = ViewRow::from_entry(&self.state.session.thread.entries[message_index]);
         let message = &message;
         let color = match message.role {
             ViewRole::User => palette.accent,
@@ -25,7 +25,13 @@ impl NativeAgentView {
         };
         // Copy This Agent Response = 整回合文本（对齐 Zed）；其它角色没有该动作。
         let agent_response = (message.role == ViewRole::Assistant)
-            .then(|| self.state.thread.row_view().turn_copy_text(message_index))
+            .then(|| {
+                self.state
+                    .session
+                    .thread
+                    .row_view()
+                    .turn_copy_text(message_index)
+            })
             .flatten();
         let payloads = Arc::new(message_menu_payloads(
             message.role,
@@ -48,17 +54,22 @@ impl NativeAgentView {
                     // 操作栏在流式时仍可见，仅底部条在生成/等审批时隐藏。
                     let actions = self
                         .state
+                        .session
                         .thread
                         .row_view()
                         .action_plan(
                             message_index,
                             self.is_generating(),
-                            self.state.thread.pending_permission.is_some(),
+                            self.state.session.thread.pending_permission.is_some(),
                         )
                         .map(|plan| {
                             self.render_message_actions(
                                 &format!("native-message-actions-{message_index}"),
-                                self.state.thread.row_view().turn_copy_text(message_index),
+                                self.state
+                                    .session
+                                    .thread
+                                    .row_view()
+                                    .turn_copy_text(message_index),
                                 plan,
                                 palette,
                                 cx,
@@ -79,12 +90,17 @@ impl NativeAgentView {
                     if self.editing_user == Some(message_index) {
                         self.render_user_edit_row(message_index, &palette, cx)
                     } else {
-                        let restore_checkpoint =
-                            if self.state.thread.capabilities.checkpoint_available() {
-                                self.checkpoint_for_message(message_index)
-                            } else {
-                                None
-                            };
+                        let restore_checkpoint = if self
+                            .state
+                            .session
+                            .thread
+                            .capabilities
+                            .checkpoint_available()
+                        {
+                            self.checkpoint_for_message(message_index)
+                        } else {
+                            None
+                        };
                         {
                             let content = render_user_message_body(&message.text, &palette);
                             let edit_view = cx.entity().downgrade();
@@ -93,7 +109,7 @@ impl NativeAgentView {
                             let restore_index = message_index;
                             let (show_edit, show_restore) =
                                 cgc_agent_ui::message_row::user_row_action_visibility(
-                                    self.busy,
+                                    self.is_generating(),
                                     self.editing_user == Some(edit_index),
                                     restore_checkpoint.is_some(),
                                 );
@@ -266,7 +282,7 @@ impl NativeAgentView {
         palette: theme::Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let Some(error) = self.state.last_error.clone() else {
+        let Some(error) = self.state.session.last_error.clone() else {
             return div().into_any_element();
         };
         let hint = retry_hint_for_error(&error);
@@ -347,15 +363,16 @@ impl NativeAgentView {
         palette: theme::Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let Some(plan) = self.state.thread.row_view().trailing_plan(
+        let Some(plan) = self.state.session.thread.row_view().trailing_plan(
             self.is_generating(),
-            self.state.thread.pending_permission.is_some(),
+            self.state.session.thread.pending_permission.is_some(),
         ) else {
             return div().into_any_element();
         };
         self.render_message_actions(
             "native-trailing-actions",
             self.state
+                .session
                 .thread
                 .row_view()
                 .turn_copy_text(plan.assistant_index),
@@ -371,21 +388,22 @@ impl NativeAgentView {
     /// 消息区当前的行序列（历史消息 + 内联子 agent + 流式/错误行 + 兜底操作栏）。
     pub(super) fn message_row_kinds(&self) -> Vec<MessageRowKind> {
         let subagents = subagent_cards_for_rows(
-            self.state.thread.capabilities.subagent_available(),
+            self.state.session.thread.capabilities.subagent_available(),
             &self.state.subagents,
         );
         let mut kinds = build_message_row_kinds(
-            &self.state.thread.entries,
+            &self.state.session.thread.entries,
             subagents,
-            self.state.last_error.is_some(),
+            self.state.session.last_error.is_some(),
         );
         if self
             .state
+            .session
             .thread
             .row_view()
             .trailing_plan(
                 self.is_generating(),
-                self.state.thread.pending_permission.is_some(),
+                self.state.session.thread.pending_permission.is_some(),
             )
             .is_some()
         {
@@ -441,7 +459,7 @@ impl NativeAgentView {
         match kind {
             MessageRowKind::Message(index) => {
                 0u8.hash(&mut hasher);
-                if let Some(entry) = self.state.thread.entries.get(index) {
+                if let Some(entry) = self.state.session.thread.entries.get(index) {
                     let row = ViewRow::from_entry(entry);
                     format!("{:?}", row.role).hash(&mut hasher);
                     row.text.len().hash(&mut hasher);
@@ -469,6 +487,7 @@ impl NativeAgentView {
             MessageRowKind::Error => {
                 4u8.hash(&mut hasher);
                 self.state
+                    .session
                     .last_error
                     .as_ref()
                     .map(String::len)

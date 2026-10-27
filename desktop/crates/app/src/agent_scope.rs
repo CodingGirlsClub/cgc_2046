@@ -4,11 +4,9 @@
 //! 课程页不再拥有专用工作区/线程——课程上下文（course/revision/unit）改为在
 //! prompt 里附加（见 `page_context`），符合「全局 Agent Panel + 课程页只传上下文」。
 //!
-//! `CGC_AGENT_WORKSPACE` 优先（开发/E2E 显式指定工作区）；全局 current 由
-//! RootView 在渲染前刷新，NativeAgentView 渲染时比较并切换线程/工作区。
+//! `CGC_AGENT_WORKSPACE` takes precedence; RootView explicitly supplies each owner scope.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
 
 /// 一个页面 scope 对应的 agent 工作区。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -19,36 +17,10 @@ pub(crate) struct AgentScope {
     pub root: PathBuf,
 }
 
-static CURRENT: OnceLock<Mutex<Option<AgentScope>>> = OnceLock::new();
-
-fn current_slot() -> &'static Mutex<Option<AgentScope>> {
-    CURRENT.get_or_init(|| Mutex::new(None))
-}
-
-/// 设置全局当前 scope；返回是否发生变化。
-pub(crate) fn set_current(scope: AgentScope) -> bool {
-    let mut slot = current_slot()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if slot.as_ref() == Some(&scope) {
-        return false;
-    }
-    *slot = Some(scope);
-    true
-}
-
-pub(crate) fn current() -> Option<AgentScope> {
-    current_slot()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clone()
-}
-
 /// 解析当前 scope（Stage 3.5a 起与页面无关，始终是 assistant 工作区）。
 pub(crate) fn resolve(user_id: Option<&str>) -> AgentScope {
     if let Some(root) = std::env::var_os("CGC_AGENT_WORKSPACE") {
         let root = PathBuf::from(root);
-        let _ = std::fs::create_dir_all(&root);
         return AgentScope {
             key: format!("env-{}", short_key(&root)),
             root,
@@ -57,7 +29,6 @@ pub(crate) fn resolve(user_id: Option<&str>) -> AgentScope {
     let base = workspace_base();
     let user = sanitize(user_id.unwrap_or("local"));
     let root = base.join("assistant").join(&user);
-    let _ = std::fs::create_dir_all(&root);
     AgentScope {
         key: format!("assistant-{user}"),
         root,
@@ -137,21 +108,5 @@ mod tests {
         assert_eq!(env.root, Path::new("/tmp/custom-ws"));
 
         assert_eq!(sanitize("../../etc"), "------etc");
-    }
-
-    #[test]
-    fn set_current_reports_changes() {
-        let first = AgentScope {
-            key: "test-first".into(),
-            root: PathBuf::from("/tmp/first"),
-        };
-        let second = AgentScope {
-            key: "test-second".into(),
-            root: PathBuf::from("/tmp/second"),
-        };
-        assert!(set_current(first.clone()));
-        assert!(!set_current(first.clone()), "same scope should not notify");
-        assert!(set_current(second.clone()));
-        assert_eq!(current(), Some(second));
     }
 }

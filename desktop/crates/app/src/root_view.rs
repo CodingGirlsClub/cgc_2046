@@ -14,6 +14,7 @@ use crate::chat_state::{
     load_chat_pref, load_installed_agents, load_selected_agent, save_chat_pref,
     save_installed_agent, save_selected_agent,
 };
+use crate::conversation_session::{ConnectionPhase, ConversationSession};
 use crate::formula::render_markdown_with_math;
 use cgc_agent_ui::conversation::ConversationThread;
 use cgc_agent_ui::safe_markdown::sanitize_markdown;
@@ -37,7 +38,7 @@ use cgc_events::list::{
 };
 use cgc_events::orders::{is_terminal_status, parse_rfc3339_epoch, qr_code_url, OrdersApi};
 use cgc_platform::acp::connection::{
-    AcpHost, AcpHostConfig, CommandView, ConfigOptionView, HostEvent, SessionSummary,
+    AcpHost, AcpHostConfig, CommandView, HostEvent, SessionSummary,
 };
 use cgc_platform::agent::detect::{detect_all, AgentStatus, DetectedAgent, SystemProbe};
 use cgc_platform::agent::launch::{build_launch, LaunchPlan, NodeRuntime};
@@ -77,6 +78,7 @@ use crate::settings_window::SettingsWindowView;
 use crate::theme::{self, space, ThemePreference, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL};
 
 mod agent_icons;
+mod agent_session;
 mod controller;
 mod history_actions;
 pub(crate) use history_actions::notify_history_changed;
@@ -196,18 +198,9 @@ enum EnrollmentsListState {
     Failed(String),
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-enum ChatPhase {
-    #[default]
-    Idle,
-    Starting,
-    Ready,
-    Streaming,
-    Failed(String),
-}
-
 #[derive(Default)]
 struct ChatUi {
+    start_after_authorization: bool,
     title_override: Option<String>,
     auto_start_queued: bool,
     npx_cache_retry: bool,
@@ -219,20 +212,14 @@ struct ChatUi {
     resumed_without_history: bool,
     /// ACP transcript 防抖保存的世代号。
     acp_save_generation: u64,
-    phase: ChatPhase,
+    session: ConversationSession,
     agent: String,
     selected_agent: Option<String>,
     version: Option<String>,
-    thread: ConversationThread,
     chat_scroll: ScrollHandle,
     input: String,
     focused: bool,
-    host: Option<AcpHost>,
-    lease: Option<LearningHostLease>,
-    poll_generation: u64,
     auto_prompted: bool,
-    configs: Vec<ConfigOptionView>,
-    commands: Vec<CommandView>,
     config_search: String,
     config_search_input: Option<Entity<InputState>>,
     config_search_subscription: Option<Subscription>,
@@ -242,7 +229,6 @@ struct ChatUi {
     slash_dismissed: bool,
     sessions: Vec<SessionSummary>,
     opened_from_history: bool,
-    session_id: Option<String>,
     restore_id: Option<String>,
     configs_applied: bool,
     history_open: bool,
@@ -384,7 +370,6 @@ struct PreparedChat {
     agent_id: String,
     agent_name: String,
     plan: LaunchPlan,
-    lease: LearningHostLease,
     server: McpServerConfig,
 }
 
@@ -494,15 +479,19 @@ impl RootView {
         self.chat
             .title_override
             .clone()
-            .or_else(|| crate::acp_history::thread_display_title(&self.chat.thread))
+            .or_else(|| crate::acp_history::thread_display_title(&self.chat.session.thread))
             .or_else(|| {
-                self.chat.session_id.as_ref().and_then(|session_id| {
-                    self.chat
-                        .sessions
-                        .iter()
-                        .find(|session| &session.session_id == session_id)
-                        .and_then(|session| session.title.clone())
-                })
+                self.chat
+                    .session
+                    .session_id
+                    .as_ref()
+                    .and_then(|session_id| {
+                        self.chat
+                            .sessions
+                            .iter()
+                            .find(|session| &session.session_id == session_id)
+                            .and_then(|session| session.title.clone())
+                    })
             })
             .unwrap_or_else(|| self.new_thread_title())
     }
@@ -562,7 +551,7 @@ impl RootView {
             }
         } else {
             self.chat.title_override = title.clone();
-            if let Some(session_id) = self.chat.session_id.clone() {
+            if let Some(session_id) = self.chat.session.session_id.clone() {
                 // Stage 3.3：用户重命名写 conversations.db 的 title_override，
                 // 列表展示 override 优先，agent 生成标题更新不会覆盖它。
                 if let Ok(store) = crate::acp_history::open_conversation_store() {
@@ -592,7 +581,7 @@ impl RootView {
             }
         } else {
             self.chat.title_override = None;
-            if let Some(session_id) = self.chat.session_id.clone() {
+            if let Some(session_id) = self.chat.session.session_id.clone() {
                 if let Ok(store) = crate::acp_history::open_conversation_store() {
                     let thread_id = crate::acp_history::acp_thread_id(&session_id);
                     let _ = store.set_title_override(&thread_id, None);
@@ -610,7 +599,6 @@ impl RootView {
 
 impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.refresh_agent_scope();
         self.refresh_page_context();
         self.refresh_history_if_dirty(cx);
         let mode = theme::resolve(self.preference, window.appearance());
@@ -824,12 +812,9 @@ impl Render for RootView {
             if current_id == Some("courses.learning")
                 && matches!(self.course_detail.state(), CoursesListState::Ready)
                 && std::env::var("CGC_AUTO_CHAT").as_deref() == Ok("1")
-                && matches!(self.chat.phase, ChatPhase::Idle)
+                && matches!(self.chat.session.phase, ConnectionPhase::Idle)
             {
                 self.start_chat(cx);
-            }
-            if current_id != Some("courses.learning") && self.chat.host.is_some() {
-                self.reset_chat_local(cx);
             }
 
             if workspaces_ready

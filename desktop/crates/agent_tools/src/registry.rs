@@ -81,7 +81,7 @@ impl ToolRegistry {
     }
 
     /// 工具名 + 描述，用于 UI 展示。
-    pub fn list_descriptions(&self) -> Vec<(&'static str, &'static str)> {
+    pub fn list_descriptions(&self) -> Vec<(&str, &str)> {
         self.tools
             .iter()
             .map(|tool| (tool.name(), tool.description()))

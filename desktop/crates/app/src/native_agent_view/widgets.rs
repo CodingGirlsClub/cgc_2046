@@ -4,10 +4,6 @@
 
 use super::*;
 
-pub(crate) fn scope_thread_id(scope: &crate::agent_scope::AgentScope) -> String {
-    format!("native-{}", scope.key)
-}
-
 /// 滚动是否已经在底部（GPUI 的 offset.y 越往下越负，max_offset 为正）。
 /// 2px 容差避免亚像素/取整导致的“差一点点”抖动。
 /// 用户消息正文：普通文本 + mention chip（与 composer 的 chip 对齐）。
@@ -154,9 +150,6 @@ pub(crate) fn render_subagent_row(card: &SubagentCard, palette: &theme::Palette)
         },
     })
 }
-
-/// 空线程时的引导提示（重发重建状态时需要剔除，避免显示在编辑后的对话顶部）。
-pub(crate) const EMPTY_THREAD_NOTICE: &str = "Native agent：配置 Provider 后开始对话。";
 
 pub(crate) fn role_label(role: ViewRole) -> &'static str {
     match role {

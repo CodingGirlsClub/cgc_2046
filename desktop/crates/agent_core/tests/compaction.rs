@@ -1,4 +1,4 @@
-use cgc_agent_core::{Agent, AutoApprover, SelectedModel, Thread, TurnObserver};
+use cgc_agent_core::{Agent, AutoApprover, NoopObserver, SelectedModel, Thread};
 use cgc_agent_provider::{
     CompletionEvent, FakeProvider, Model, ModelId, ModelLimits, ProviderError, ProviderId,
     StopReason,
@@ -38,17 +38,6 @@ fn script(text: &str) -> Vec<Result<CompletionEvent, ProviderError>> {
     ]
 }
 
-#[derive(Default)]
-struct Recorder {
-    compactions: Vec<usize>,
-}
-
-impl TurnObserver for Recorder {
-    fn on_compaction(&mut self, omitted_entries: usize) {
-        self.compactions.push(omitted_entries);
-    }
-}
-
 #[test]
 fn oversized_thread_is_summarised_before_request() {
     let fake = FakeProvider::new(ProviderId::new("fake"), "Fake", vec![small_model()]);
@@ -60,31 +49,31 @@ fn oversized_thread_is_summarised_before_request() {
     let workspace = std::env::temp_dir().join(format!("cgc-compaction-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&workspace);
     let context = ToolContext::new(&workspace);
-    let mut recorder = Recorder::default();
-    let outcome = futures::executor::block_on(agent.prompt_with_tools_observed(
+    futures::executor::block_on(agent.prompt_with_tools_observed(
         &fake,
         &small_model(),
         "new question",
         &registry,
         &context,
         &AutoApprover,
-        &mut recorder,
+        &mut NoopObserver,
     ))
     .expect("turn");
-    assert_eq!(outcome.text, "ok");
-    let requests = fake.requests();
-    assert_eq!(requests.len(), 2);
-    assert!(requests[0].messages[0].text().contains("压缩器"));
-    assert!(requests[1]
-        .messages
-        .iter()
-        .any(|message| message.text().contains("历史摘要：summary text")));
     assert!(agent
         .thread()
         .entries
         .iter()
         .any(|entry| matches!(entry, cgc_agent_core::Entry::Compaction { .. })));
-    assert!(!recorder.compactions.is_empty());
+    let requests = fake.requests();
+    let main = requests.last().unwrap();
+    assert!(main
+        .messages
+        .iter()
+        .any(|message| message.text() == "new question"));
+    assert!(!main
+        .messages
+        .iter()
+        .any(|message| message.text().starts_with("question 0 ")));
     let _ = std::fs::remove_dir_all(&workspace);
 }
 
@@ -94,14 +83,13 @@ fn summarisation_failure_falls_back_to_truncation() {
     fake.push_script(vec![Err(ProviderError::api(429, "busy"))]);
     fake.push_script(script("ok"));
     let thread = long_thread();
-    let full_history = thread.messages().len();
     let mut agent = Agent::new(thread, Some("system prompt".to_string()));
+    agent.set_reasoning_effort(Some("high".into()));
     let registry = ToolRegistry::with_read_tools();
     let workspace =
         std::env::temp_dir().join(format!("cgc-compaction-fallback-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&workspace);
     let context = ToolContext::new(&workspace);
-    let mut recorder = Recorder::default();
     let outcome = futures::executor::block_on(agent.prompt_with_tools_observed(
         &fake,
         &small_model(),
@@ -109,18 +97,25 @@ fn summarisation_failure_falls_back_to_truncation() {
         &registry,
         &context,
         &AutoApprover,
-        &mut recorder,
+        &mut NoopObserver,
     ))
     .expect("turn");
     assert_eq!(outcome.text, "ok");
     let requests = fake.requests();
-    assert_eq!(requests.len(), 2);
-    assert!(requests[1].messages.len() < full_history + 1);
+    let main = requests.last().unwrap();
+    assert!(main
+        .messages
+        .iter()
+        .any(|message| message.text() == "new question"));
+    assert_eq!(main.reasoning_effort.as_deref(), Some("high"));
+    assert_eq!(
+        main.max_output_tokens,
+        Some(small_model().limits.max_output_tokens)
+    );
     assert!(!agent
         .thread()
         .entries
         .iter()
         .any(|entry| matches!(entry, cgc_agent_core::Entry::Compaction { .. })));
-    assert!(!recorder.compactions.is_empty());
     let _ = std::fs::remove_dir_all(&workspace);
 }

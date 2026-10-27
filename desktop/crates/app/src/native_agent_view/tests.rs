@@ -2,46 +2,15 @@
 
 use super::*;
 
+use crate::native_context::{build_workspace_system_prompt, now_secs, offline_echo_notice};
 use crate::native_panel_host::SubagentCard;
+use crate::native_view_model::checkpoints_from_records;
 
 mod workspace_prompt_tests {
     use super::state::NativeThreadState;
     use super::{
-        build_workspace_system_prompt, composer_has_input, now_secs, offline_echo_notice,
-        queued_panel_header_text, queued_status_text, NativeComposerGating,
+        build_workspace_system_prompt, now_secs, offline_echo_notice, NativeComposerGating,
     };
-
-    #[test]
-    fn queue_hint_texts_include_count() {
-        assert_eq!(
-            queued_status_text(2),
-            "已排队 2 条，当前 turn 结束后依次发送"
-        );
-        assert_eq!(
-            queued_panel_header_text(3),
-            "排队中 3 条 · 当前 turn 结束后自动发送"
-        );
-    }
-
-    #[test]
-    fn checkpoint_keep_and_restore_paths_from_fake_changes() {
-        use cgc_agent_checkpoint::FileChange;
-        let mut changes = vec![
-            FileChange {
-                path: "a.rs".into(),
-                status: "M".into(),
-            },
-            FileChange {
-                path: "b.rs".into(),
-                status: "A".into(),
-            },
-        ];
-        assert_eq!(super::checkpoint_change_label(&changes[0]), "M a.rs");
-        assert_eq!(super::paths_for_restore_all(&changes), vec!["a.rs", "b.rs"]);
-        super::keep_change_by_path(&mut changes, "a.rs");
-        assert_eq!(changes.len(), 1);
-        assert_eq!(changes[0].path, "b.rs");
-    }
 
     #[test]
     fn subagent_rows_hidden_without_capability() {
@@ -74,43 +43,6 @@ mod workspace_prompt_tests {
     }
 
     #[test]
-    fn action_bar_ids_follow_shared_prefix_convention() {
-        let (row, copy, user, top) = super::native_action_bar_ids("native-message-actions-7");
-        assert_eq!(row.as_ref(), "native-message-actions-7-row");
-        assert_eq!(copy.as_ref(), "native-message-actions-7-copy");
-        assert_eq!(user.as_ref(), "native-message-actions-7-user");
-        assert_eq!(top.as_ref(), "native-message-actions-7-top");
-        // trailing 兜底栏同样走同一组装函数
-        let (row, ..) = super::native_action_bar_ids("native-trailing-actions");
-        assert_eq!(row.as_ref(), "native-trailing-actions-row");
-    }
-
-    #[test]
-    fn tool_row_status_parts_map_glyph_and_label() {
-        assert_eq!(
-            super::tool_row_status_parts(super::ViewToolStatus::Running),
-            ("◐", "运行中…")
-        );
-        assert_eq!(
-            super::tool_row_status_parts(super::ViewToolStatus::Ok),
-            ("✓", "完成")
-        );
-        assert_eq!(
-            super::tool_row_status_parts(super::ViewToolStatus::Failed),
-            ("✗", "失败")
-        );
-    }
-
-    #[test]
-    fn scope_key_maps_to_native_thread_id() {
-        let scope = crate::agent_scope::AgentScope {
-            key: "assistant-local".into(),
-            root: std::path::PathBuf::from("/tmp/ws"),
-        };
-        assert_eq!(super::scope_thread_id(&scope), "native-assistant-local");
-    }
-
-    #[test]
     fn picker_gating_follows_capabilities() {
         use cgc_agent_ui::conversation::ThreadCapabilities;
         let native = NativeComposerGating::from_capabilities(ThreadCapabilities::native());
@@ -123,13 +55,6 @@ mod workspace_prompt_tests {
     }
 
     #[test]
-    fn composer_has_input_trims_whitespace() {
-        assert!(!composer_has_input("   \n\t "));
-        assert!(composer_has_input("hi"));
-        assert!(composer_has_input("  hi "));
-    }
-
-    #[test]
     fn slash_entries_are_grouped_and_filtered() {
         let registry = cgc_agent_tools::ToolRegistry::with_read_tools();
         let skills = vec![super::SkillEntry {
@@ -138,7 +63,7 @@ mod workspace_prompt_tests {
             scope: "global".to_string(),
             file_path: std::path::PathBuf::from("/tmp/demo-skill/SKILL.md"),
         }];
-        let all = super::slash_entries_for(&registry, &skills, "/");
+        let all = super::slash_entries_for(registry.list_descriptions(), &skills, "/");
         assert!(all.iter().any(|entry| entry.category == "命令"));
         assert!(all.iter().any(|entry| entry.category == "工具"));
         // 技能条目必须带技能文件路径，chip / 发送注入都依赖它。
@@ -150,7 +75,7 @@ mod workspace_prompt_tests {
                     .as_ref()
                     .is_some_and(|skill| skill.file_path.ends_with("demo-skill/SKILL.md"))
         }));
-        let filtered = super::slash_entries_for(&registry, &skills, "/read");
+        let filtered = super::slash_entries_for(registry.list_descriptions(), &skills, "/read");
         assert!(filtered.iter().all(|entry| entry.category == "工具"));
         assert!(!filtered.is_empty());
     }
@@ -171,7 +96,7 @@ mod workspace_prompt_tests {
             file_path: std::path::PathBuf::from("/tmp/answer-me-with-html/SKILL.md"),
         }];
 
-        let entries = super::slash_entries_for(&registry, &skills, "/answer");
+        let entries = super::slash_entries_for(registry.list_descriptions(), &skills, "/answer");
         assert_eq!(
             entries.first().map(|entry| entry.label.as_str()),
             Some("answer-me-with-html"),
@@ -186,7 +111,7 @@ mod workspace_prompt_tests {
             std::sync::Arc::new(|_, _| Box::pin(async { Ok(String::new()) })),
             std::sync::Arc::new(|_| {}),
         );
-        let entries = super::slash_entries_for(&registry, &[], "/che");
+        let entries = super::slash_entries_for(registry.list_descriptions(), &[], "/che");
         let labels = entries
             .iter()
             .map(|entry| entry.label.as_str())
@@ -221,29 +146,6 @@ mod workspace_prompt_tests {
         assert_eq!(user.plain, "看 @a 这个");
         assert_eq!(user.markdown, "看 [@a](file://a.md) 这个");
         assert!(user.agent_response.is_none(), "用户消息没有 agent response");
-    }
-
-    /// 回归（真机 bug 1）：Permission 行必须反映 resolved 状态，不能永远是
-    /// 「等待审批」；文案与 ACP 轨一致（已允许 / 已拒绝 / 等待审批）。
-    #[test]
-    fn permission_row_text_reflects_resolved_state() {
-        use cgc_agent_ui::conversation::Entry as ConversationEntry;
-
-        let row = |resolved: Option<bool>| {
-            super::ViewRow::from_entry(&ConversationEntry::Permission {
-                request_id: "perm-1".into(),
-                title: "允许运行 run_command？".into(),
-                tool: Some("run_command".into()),
-                tool_call_id: Some("call-1".into()),
-                args: None,
-                options: Vec::new(),
-                resolved,
-            })
-            .text
-        };
-        assert_eq!(row(None), "等待审批：允许运行 run_command？");
-        assert_eq!(row(Some(true)), "已允许：允许运行 run_command？");
-        assert_eq!(row(Some(false)), "已拒绝：允许运行 run_command？");
     }
 
     #[test]
@@ -281,12 +183,12 @@ mod workspace_prompt_tests {
             },
         ];
         let mut state = NativeThreadState::new();
-        super::apply_thread_entries(&mut state, &entries);
+        super::apply_thread_entries(&mut state.session.thread, &entries);
         // Stage 2d：恢复的线程 entries 直接投影进共享模型。
         use cgc_agent_ui::conversation::Entry as ConversationEntry;
-        assert_eq!(state.thread.entries.len(), 3);
+        assert_eq!(state.session.thread.entries.len(), 3);
         assert!(matches!(
-            &state.thread.entries[0],
+            &state.session.thread.entries[0],
             ConversationEntry::User { text } if text == "跑一下"
         ));
         let ConversationEntry::ToolCall {
@@ -296,7 +198,7 @@ mod workspace_prompt_tests {
             args,
             output,
             ..
-        } = &state.thread.entries[1]
+        } = &state.session.thread.entries[1]
         else {
             panic!("thread tool call");
         };
@@ -306,22 +208,9 @@ mod workspace_prompt_tests {
         assert!(args.as_deref().unwrap_or_default().contains("echo hi"));
         assert_eq!(output.as_deref(), Some("hi"));
         assert!(matches!(
-            &state.thread.entries[2],
+            &state.session.thread.entries[2],
             ConversationEntry::Thinking { text, .. } if text == "想一下"
         ));
-    }
-
-    #[test]
-    fn tool_status_label_covers_all_states() {
-        assert_eq!(
-            super::tool_status_label(super::ViewToolStatus::Running),
-            "运行中…"
-        );
-        assert_eq!(super::tool_status_label(super::ViewToolStatus::Ok), "完成");
-        assert_eq!(
-            super::tool_status_label(super::ViewToolStatus::Failed),
-            "失败"
-        );
     }
 
     #[test]
@@ -365,34 +254,6 @@ mod workspace_prompt_tests {
         );
         assert_eq!(checkpoints[0].1.seq, 2, "Checkpoint.seq 与 ordinal 对齐");
         assert_eq!(checkpoints[0].1.ref_name, "refs/cgc/checkpoints/2");
-    }
-
-    #[test]
-    fn checkpoint_for_ordinal_skips_invalid_and_matches_seq() {
-        use cgc_agent_store::CheckpointRecord;
-        let record = |seq: i64, state: &str| CheckpointRecord {
-            thread_id: "t".into(),
-            user_entry_seq: seq,
-            ref_name: format!("refs/cgc/{seq}"),
-            sha: "abc".into(),
-            base_head: None,
-            created_at: 0,
-            state: state.into(),
-        };
-        let records = vec![record(1, "valid"), record(2, "invalid"), record(3, "valid")];
-        assert_eq!(
-            super::checkpoint_for_ordinal(&records, 1).map(|r| r.user_entry_seq),
-            Some(1)
-        );
-        assert!(
-            super::checkpoint_for_ordinal(&records, 2).is_none(),
-            "失效 checkpoint 跳过"
-        );
-        assert_eq!(
-            super::checkpoint_for_ordinal(&records, 3).map(|r| r.user_entry_seq),
-            Some(3)
-        );
-        assert!(super::checkpoint_for_ordinal(&records, 4).is_none());
     }
 
     #[test]

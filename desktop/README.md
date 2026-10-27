@@ -15,6 +15,14 @@
 - `native_thread_state.rs` 已删除，状态类型在 `native_agent_view::state`，对外重新导出为
   `native_agent_view::NativeThreadState`。
 
+## native 请求与长会话（2026-10-27）
+
+- `agent_core::context` 先选择连续、完整的用户 turn，再物化 provider messages；tool-call batch 与结果不会被预算拆开，旧的残缺 batch 整组排除。
+- 普通请求、摘要与摘要失败后的裁剪共用装配出口，保留 `reasoning_effort` 并明确设置输出预留。
+- 预算包含 system、工具 schema、历史、输出和协议开销；中文采用 UTF-8 保守估计。实际 usage 只修正已有上下文，新注入内容单独计入；图片成本标记为未知，不承诺硬 token 上界。
+- 固定输入超限返回 `ContextTooLarge`，不发送已知超限请求，不截短最新输入或附件；原始 transcript 保留。
+- `Compaction.covered_until` 是原始 entry 的 exclusive prefix boundary。请求只使用最新有效摘要和未覆盖尾部；旧记录缺覆盖字段时不推测覆盖范围。摘要按完整 turn 有界分块。
+
 ## 本机前置
 
 - Rust **1.98+**（`rust-toolchain.toml` 锁 1.98.1；本机可用已安装的更新版本，如 `RUSTUP_TOOLCHAIN=stable`）

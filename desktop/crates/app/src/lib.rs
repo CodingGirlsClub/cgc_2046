@@ -15,6 +15,7 @@ pub(crate) fn agent_workspace_root() -> std::path::PathBuf {
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| std::env::temp_dir()))
 }
 pub(crate) mod agent_scope;
+pub mod conversation_session;
 pub mod deep_link;
 pub mod formula;
 pub mod i18n;
@@ -25,7 +26,6 @@ pub mod native_agent_view;
 pub mod native_context;
 pub mod native_panel_host;
 pub mod native_runtime;
-pub mod native_session;
 pub mod native_view_model;
 pub mod notification_center;
 pub mod notifications;

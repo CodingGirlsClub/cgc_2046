@@ -1,23 +1,13 @@
-//! 视图层状态开关（B4b-a：从 runtime_ops 分出的纯 UI 操作，行为不变）。
-//!
-//! 这些方法只改视图状态并 notify，不参与运行时编排。
+//! View-local drafts and command callbacks.
 
 use super::*;
 
 impl NativeAgentView {
     pub(super) fn keep_all_changes(&mut self, cx: &mut Context<Self>) {
-        self.checkpoint_changes.clear();
-        self.status = "已全部保留本轮改动".to_string();
-        cx.notify();
+        self.command(self.runtime.checkpoint(CheckpointAction::KeepAll), cx);
     }
     pub(super) fn reject_all_changes(&mut self, cx: &mut Context<Self>) {
-        let paths = paths_for_restore_all(&self.checkpoint_changes);
-        for path in &paths {
-            self.restore_checkpoint_file(path.clone(), cx);
-        }
-        self.status = format!("已回退 {} 个文件", paths.len());
-        self.checkpoint_changes.clear();
-        cx.notify();
+        self.command(self.runtime.checkpoint(CheckpointAction::RestoreAll), cx);
     }
     pub(super) fn toggle_checkpoint_panel(&mut self, cx: &mut Context<Self>) {
         self.show_checkpoint_panel = !self.show_checkpoint_panel;
@@ -38,7 +28,8 @@ impl NativeAgentView {
         cx.notify();
     }
     pub(super) fn set_thinking_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
-        self.thinking_enabled = enabled;
+        self.runtime
+            .set_thinking(enabled, self.metadata().effort_index);
         self.status = if enabled {
             "Thinking 开".to_string()
         } else {
@@ -61,12 +52,13 @@ impl NativeAgentView {
         cx.notify();
     }
     pub(super) fn set_effort_index(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.effort_index = index;
+        self.runtime
+            .set_thinking(self.metadata().thinking_enabled, index);
         self.status = format!("推理档位索引：{index}");
         cx.notify();
     }
     pub(super) fn set_approval_mode(&mut self, mode: ApprovalMode, cx: &mut Context<Self>) {
-        self.approval_mode = mode;
+        self.runtime.set_approval(mode);
         self.status = format!("审批模式：{}", mode.label());
         cx.notify();
     }

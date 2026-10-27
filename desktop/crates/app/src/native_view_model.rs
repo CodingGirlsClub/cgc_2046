@@ -177,17 +177,6 @@ pub(crate) fn needs_checkpoint_confirm(
     !has_valid_checkpoint && pending != Some(message_index)
 }
 
-pub(crate) fn checkpoint_for_ordinal(
-    records: &[cgc_agent_store::CheckpointRecord],
-    ordinal: usize,
-) -> Option<cgc_agent_store::CheckpointRecord> {
-    records
-        .iter()
-        .find(|record| record.user_entry_seq == ordinal as i64 && record.state != "invalid")
-        .cloned()
-}
-
-/// 第 `message_index` 条 UI 消息是第几条用户消息（1-based）。
 /// 第 `ordinal` 条用户消息（1-based）在 thread entries 里的下标。
 pub(crate) fn thread_user_entry_index(
     entries: &[cgc_agent_core::Entry],
@@ -387,18 +376,11 @@ mod tests {
         assert_eq!(
             checkpoints
                 .iter()
-                .map(|(ordinal, _)| *ordinal)
+                .map(|(ordinal, checkpoint)| (*ordinal, checkpoint.sha.clone()))
                 .collect::<Vec<_>>(),
-            vec![1, 2],
-            "invalid 与非法 seq 过滤并按 ordinal 排序"
+            vec![(1, "sha1".to_string()), (2, "sha2".to_string())],
+            "invalid 与非法 seq 过滤，保留有效记录并按 ordinal 排序"
         );
-        assert_eq!(
-            checkpoint_for_ordinal(&records, 2).map(|record| record.sha),
-            Some("sha2".to_string())
-        );
-        let active = checkpoint_for_ordinal(&records, 1).expect("active seq1");
-        assert_eq!(active.state, "active", "invalid 记录被跳过");
-        assert_eq!(active.sha, "sha1");
     }
 
     #[test]

@@ -4,7 +4,6 @@
 //! `observe_window_appearance` 转给 `RootView::on_appearance_changed`。
 
 use cgc_desktop_app::i18n::{default_language, translate, Key};
-use cgc_desktop_app::native_agent_view::NativeAgentView;
 use cgc_desktop_app::registration::{build_registry, validate};
 use cgc_desktop_app::root_view::{main_window_options, RootView};
 use cgc_desktop_app::theme;
@@ -106,6 +105,7 @@ fn main() {
                 this.install_main_window_lifecycle(window, cx);
                 this.set_chat_input(chat_input);
                 this.set_config_search_input(config_search_input);
+                this.initialize_agent_session(window, cx);
             });
             if let Some(instance) = instance.take() {
                 let os_urls = os_urls.clone();
@@ -158,7 +158,7 @@ fn main() {
                 size: size(px(1000.0), px(760.0)),
             }));
             let _ = gpui_kit::open_window(options, cx, |window, cx| {
-                cx.new(|cx| NativeAgentView::new(window, cx))
+                RootView::isolated_native_demo(window, cx)
             });
         }
     });

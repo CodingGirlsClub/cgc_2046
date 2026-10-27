@@ -28,6 +28,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 - [本机 Host / Web] 学习搭子**打开就能选模型与思考/推理强度**：没有会话指针时先在 `chat.attach` 建一条空会话（`session/new`，指针不落盘）再取设置，因此不用先发一句话也能选；改动只影响首次打开的空态。
 
 ### Fixed
+- [Desktop] native 长会话统一保留模型推理设置与输出预留；历史按完整用户回合连续裁剪，避免拆开工具调用与结果。摘要记录明确覆盖范围并有界分块，重开或短 follow-up 不再重复发送已覆盖原文；中文、system 与工具 schema 纳入估计预算，固定输入超限时明确报错并保留原输入。
 - [本机 Host] 看门狗强制收尾后的迟到更新不再写入会话缓冲（此前 agent 在本地 `turn.end` 之后继续推的消息会被 `chat.attach` 重放，出现「结束标记之后还有内容」；晚到的设置变更也不再改会话设置或推 `chat.settings`）；`chat.sessions` 的 `current` 与会话行一样按归属账号过滤，换账号后不再回上一个账号的 sessionId。Host 版本 `0.2.10`（`MIN_HOST_VERSION` 保持 `0.2.3`）。
 - [本机 Host] Codex 课程的「停止」不再把课程切回 OMP，并补齐回合收尾与隔离：`chat.stop` / `card.answer` / `chat.sessions` 的目标 agent 与当前会话对齐。
 - [本机 Host / Web] 历史对话显示 agent 给的标题（时间与条数移到悬停说明）；对话栏同时显示本会话的上下文用量与费用（`usage_update` 不进对话流）。

@@ -13,7 +13,7 @@ pub(in crate::root_view) fn render_agent_panel(
     ctx: &mut ScreenContext<'_>,
     language: Language,
     palette: &theme::Palette,
-    window: &mut Window,
+    _window: &mut Window,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
     let learning = ctx
@@ -22,12 +22,10 @@ pub(in crate::root_view) fn render_agent_panel(
         .is_some_and(|route_match| route_match.route.id == "courses.learning");
     let native_mode = ctx.native_chat_mode && RootView::native_agent_enabled();
     let content: AnyElement = if native_mode {
-        if ctx.native_agent_view.is_none() {
-            let view = cx.new(|cx| crate::native_agent_view::NativeAgentView::new(window, cx));
-            ctx.native_agent_view = Some(view);
-        }
-        let view = ctx.native_agent_view.clone().expect("native agent view");
-        view.into_any_element()
+        ctx.native_agent_view
+            .clone()
+            .map(IntoElement::into_any_element)
+            .unwrap_or_else(|| div().child("正在初始化 Agent…").into_any_element())
     } else if learning {
         super::panel::render_chat_panel(ctx, language, palette, cx)
     } else {
@@ -75,7 +73,7 @@ fn panel_title(ctx: &ScreenContext<'_>, cx: &mut Context<RootView>) -> String {
         .title_override
         .clone()
         .or_else(|| {
-            ctx.chat.session_id.as_ref().and_then(|session_id| {
+            ctx.chat.session.session_id.as_ref().and_then(|session_id| {
                 ctx.chat
                     .sessions
                     .iter()

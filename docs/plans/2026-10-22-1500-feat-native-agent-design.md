@@ -319,7 +319,8 @@ UI（输入）→ NativeHost.prompt
 - system prompt 由三部分拼装：固定模板（沟通风格、工具使用规则、安全边界）＋ agent 定义（mate 的职责/工具白名单/模型策略，由后端下发）＋ 课程上下文（课程 id、学习目标摘要；正文由工具按需读取，不整段塞进 prompt）。
 - 条目按时间顺序；工具结果默认截断（单条 16KB，保留头尾）并在截断处标注。
 - 不在 prompt 中放动态秒级内容以外的大块数据；课程上下文由 `course_context` 工具按需取，保证 prompt cache 稳定。
-- P2 引入 compaction：达到阈值时调 provider 生成摘要，替换中段条目。
+- compaction 已由 `agent_core::context::RequestPlan` 统一规划：保留连续的完整用户 turn，按有界分块生成摘要；`covered_until` 记录原始 entry 的 exclusive prefix boundary，原文不删除。请求仅发送最新有效摘要及未覆盖尾部，旧无覆盖字段的摘要只展示、不作为 checkpoint。
+- 请求统一设置 reasoning effort 与输出预留。估计包含 system/tool schema/历史/协议开销，实际 usage 只校正已有部分；图片成本保持未知。固定输入单独超限返回 `ContextTooLarge`，不静默丢输入或附件。
 
 ## 6. 错误与 UI 映射
 
@@ -365,7 +366,7 @@ UI（输入）→ NativeHost.prompt
 
 **P2 进度（2026-10-23）**：
 - **subagent（P2）**：`task` 工具 + `SubagentRunner`（宿主提供执行器）；`agent_core::run_subagent` 用独立 thread、只读工具、同一 provider/model 跑一次隔离 turn，返回最终文本；审批为 Ask。**进度事件已接**：`SubagentEvent::{Started, TextDelta, Finished}` 经 sink 回传，demo 打印到 stderr；HostState 新增 `SubagentCard`（任务、累计文本、运行/完成/失败），GPUI 面板渲染子 agent 卡片；**子 agent 事件直接写入当前 turn 的 AgentEvent channel，卡片实时刷新**（turn 结束后停止接收）。
-- **compaction（P2）**：**摘要式压缩已实现**——请求前按 `context_window - max_output_tokens - 512` 切出较早历史，调用同一 provider 生成中文摘要，写入 `Entry::Compaction`（持久化到 SQLite），请求中保留「历史摘要 + 最近消息」；摘要失败自动回退硬截断；`TurnObserver::on_compaction` → `AgentEvent::ContextCompacted` → HostState 显示 system 通知。
+- **compaction（2026-10-27 更新）**：普通、压缩与摘要失败路径共用请求装配。连续 turn 裁剪与完整 tool batch 投影先于摘要覆盖记录；摘要只消费上一个 checkpoint 和新增前缀，每个摘要请求自身受估计预算限制。SQLite 保留原文及可缺省覆盖字段；旧摘要不能凭 `replaced_entries` 猜覆盖点。离线 CLI 已验证长中文会话序列化恢复、两次 follow-up 和非默认 reasoning；真实 provider 验收单列，不以 FakeProvider 代替。
 - **slash 命令面板（P2）**：`agent_host::slash` 解析 6 个客户端命令（/help /clear /stop /tools /checkpoint /settings），GPUI 面板输入 `/` 时显示命令提示，命令不发给模型。4 项 host 测试。
 - **AppAction（P1a）**：`agent_tools::action`（`AppAction` + `ActionSink`）与 `open_page` / `highlight_range` 工具；路由仅允许 `/` 开头（拒绝外部 URL），高亮校验路径与行区间；CLI 直接打印动作；**GPUI 已接真实动作**：`open_page` 经主窗口 `RootView::apply_native_agent_action` 导航；`highlight_range` 读取工作区文件，在主窗口内容区渲染**带行号的代码预览卡片**（高亮行区间、可关闭），文件读取失败时显示错误；找不到主窗口时回退为 system 消息。**动作审计已落盘**：每次执行写 `<data_root>/agent/actions.jsonl`（时间、动作、摘要、是否送达主窗口），JSONL 追加、损坏行跳过。30 项 tools 单测 + 3 项 audit 测试。
 - **todo / plan / goal**：`agent_tools::state`（`AgentState` + `SharedAgentState`）与 `todo_write` / `plan_write` / `goal_write` 三个工具；CLI 每轮打印状态摘要，GPUI 面板在状态变化时追加 system 消息。26 项 tools 单测。

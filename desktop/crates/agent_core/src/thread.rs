@@ -1,4 +1,6 @@
-use cgc_agent_provider::{Content, Message, Model, ModelId, ProviderId, TokenUsage, ToolUse};
+#[cfg(test)]
+use cgc_agent_provider::Content;
+use cgc_agent_provider::{Message, Model, ModelId, ProviderId, TokenUsage, ToolUse};
 use serde::{Deserialize, Serialize};
 
 /// 当前会话选中的模型。
@@ -65,6 +67,9 @@ pub enum Entry {
     Compaction {
         summary: String,
         replaced_entries: usize,
+        /// Exclusive raw-entry prefix boundary; absent on legacy, display-only summaries.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        covered_until: Option<usize>,
         at: i64,
     },
 }
@@ -195,34 +200,20 @@ impl Thread {
         self.updated_at = now_secs();
     }
 
-    pub fn push_compaction(&mut self, summary: impl Into<String>, replaced_entries: usize) {
+    pub(crate) fn push_compaction(&mut self, summary: String, covered_until: usize) {
+        let previous = crate::context::valid_summary(self)
+            .and_then(|index| match &self.entries[index] {
+                Entry::Compaction { covered_until, .. } => *covered_until,
+                _ => None,
+            })
+            .unwrap_or(0);
         self.entries.push(Entry::Compaction {
-            summary: summary.into(),
-            replaced_entries,
+            summary,
+            replaced_entries: covered_until.saturating_sub(previous),
+            covered_until: Some(covered_until),
             at: now_secs(),
         });
         self.updated_at = now_secs();
-    }
-
-    /// 按预算把历史切成（较早、保留）两段；较早段用于摘要压缩。
-    pub fn partition_history(&self, budget_tokens: usize) -> (Vec<Entry>, usize) {
-        if budget_tokens == 0 {
-            return (Vec::new(), 0);
-        }
-        let mut older = Vec::new();
-        let mut used = 0usize;
-        let mut kept = 0usize;
-        for entry in self.entries.iter().rev() {
-            let estimate = estimate_entry_tokens(entry);
-            if kept > 0 && used + estimate > budget_tokens {
-                older.push(entry.clone());
-                continue;
-            }
-            used += estimate;
-            kept += 1;
-        }
-        older.reverse();
-        (older, kept)
     }
 
     pub fn push_tool_result(
@@ -242,119 +233,10 @@ impl Thread {
         self.updated_at = now_secs();
     }
 
-    /// 供 provider 使用的消息列表（含工具调用与工具结果）。
+    /// Model history uses the last valid summary plus its uncovered, legal tail.
     pub fn messages(&self) -> Vec<Message> {
-        let mut messages = Vec::new();
-        for entry in &self.entries {
-            match entry {
-                Entry::User { text, images, .. } => {
-                    let mut message = Message::user(text.clone());
-                    message
-                        .content
-                        .extend(images.iter().map(|image| Content::Image {
-                            mime_type: image.mime_type.clone(),
-                            data: image.data.clone(),
-                        }));
-                    messages.push(message);
-                }
-                Entry::Assistant {
-                    text, tool_calls, ..
-                } => {
-                    let mut content = Vec::new();
-                    if !text.is_empty() {
-                        content.push(Content::Text(text.clone()));
-                    }
-                    content.extend(
-                        tool_calls
-                            .iter()
-                            .map(|tool_use| Content::ToolUse(tool_use.clone())),
-                    );
-                    if !content.is_empty() {
-                        messages.push(Message::new(cgc_agent_provider::Role::Assistant, content));
-                    }
-                }
-                Entry::ToolResult {
-                    tool_use_id,
-                    content,
-                    is_error,
-                    ..
-                } => messages.push(Message::tool_result(
-                    tool_use_id.clone(),
-                    content.clone(),
-                    *is_error,
-                )),
-                Entry::Thinking { .. } => {}
-                Entry::Compaction { summary, .. } => {
-                    messages.push(Message::system(format!("历史摘要：{summary}")))
-                }
-            }
-        }
-        messages
+        crate::context::project_thread(self)
     }
-
-    /// 按 token 预算保留最近消息；发生截断时在最前面加一条压缩提示。
-    pub fn messages_with_budget(&self, budget_tokens: usize) -> (Vec<Message>, usize) {
-        let messages = self.messages();
-        if budget_tokens == 0 {
-            return (messages, 0);
-        }
-        let mut kept: Vec<Message> = Vec::new();
-        let mut used = 0usize;
-        let mut omitted = 0usize;
-        for message in messages.iter().rev() {
-            let estimate = estimate_message_tokens(message);
-            if !kept.is_empty() && used + estimate > budget_tokens {
-                omitted += 1;
-                continue;
-            }
-            used += estimate;
-            kept.push(message.clone());
-        }
-        kept.reverse();
-        if omitted > 0 {
-            kept.insert(
-                0,
-                Message::system(format!("上下文已压缩：省略了 {omitted} 条更早的消息")),
-            );
-        }
-        (kept, omitted)
-    }
-}
-
-fn estimate_entry_tokens(entry: &Entry) -> usize {
-    match entry {
-        Entry::User { text, .. } => text.chars().count() / 4 + 4,
-        Entry::Assistant {
-            text, tool_calls, ..
-        } => {
-            text.chars().count() / 4
-                + tool_calls
-                    .iter()
-                    .map(|tool_use| tool_use.args.to_string().chars().count() / 4 + 8)
-                    .sum::<usize>()
-                + 4
-        }
-        Entry::Thinking { text, .. } => text.chars().count() / 4 + 4,
-        Entry::ToolResult { content, .. } => content.chars().count() / 4 + 4,
-        Entry::Compaction { summary, .. } => summary.chars().count() / 4 + 4,
-    }
-}
-
-fn estimate_message_tokens(message: &Message) -> usize {
-    let chars: usize = message
-        .content
-        .iter()
-        .map(|content| match content {
-            Content::Text(text) => text.chars().count(),
-            // 图片 token 由 provider 计费口径决定，本地不估算。
-            Content::Image { .. } => 0,
-            Content::ToolUse(tool_use) => {
-                tool_use.args.to_string().chars().count() + tool_use.name.len()
-            }
-            Content::ToolResult { content, .. } => content.chars().count(),
-        })
-        .sum();
-    chars / 4 + 4
 }
 
 pub(crate) fn default_thread_agent() -> String {
@@ -516,50 +398,6 @@ mod tests {
             cgc_agent_provider::ModelLimits::new(8_000, 1_000),
         );
         assert!(!selected().matches(&other));
-    }
-}
-
-#[cfg(test)]
-mod budget_tests {
-    use super::*;
-    use cgc_agent_provider::ProviderId;
-
-    fn selected() -> SelectedModel {
-        SelectedModel::new(ProviderId::new("fake"), ModelId::new("m1"))
-    }
-
-    fn thread_with_turns(turns: usize) -> Thread {
-        let mut thread = Thread::new("t1", selected());
-        for index in 0..turns {
-            thread.push_user(format!("question {index} {}", "x".repeat(200)));
-            thread.push_assistant(
-                format!("answer {index} {}", "y".repeat(200)),
-                Vec::new(),
-                None,
-            );
-        }
-        thread
-    }
-
-    #[test]
-    fn small_budget_keeps_recent_messages_and_adds_notice() {
-        let thread = thread_with_turns(12);
-        let all = thread.messages();
-        let (kept, omitted) = thread.messages_with_budget(200);
-        assert!(omitted > 0);
-        assert!(kept.len() < all.len());
-        assert_eq!(kept[0].role, cgc_agent_provider::Role::System);
-        assert!(kept[0].text().contains("上下文已压缩"));
-        assert!(kept.last().unwrap().text().contains("answer 11"));
-    }
-
-    #[test]
-    fn large_budget_keeps_everything() {
-        let thread = thread_with_turns(3);
-        let all = thread.messages();
-        let (kept, omitted) = thread.messages_with_budget(100_000);
-        assert_eq!(omitted, 0);
-        assert_eq!(kept.len(), all.len());
     }
 }
 

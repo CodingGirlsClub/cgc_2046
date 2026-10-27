@@ -16,47 +16,18 @@ impl NativeAgentView {
         let model_supports_images = draft.model_supports_images;
         let input = draft.input.clone();
         let input_focus = draft.input_focus.clone();
-        let input_value = draft.input_value.clone();
-        // 页面 scope 变化时先切换工作区/线程，再渲染。
-        self.ensure_scope(cx);
         let add_menu_root = cx.entity().downgrade();
         let palette = theme::palette_from_theme(cx);
-        let chip_workspace = self.context.workspace().to_path_buf();
-        let _pending = self.state.thread.pending_permission.clone();
-        let slash_open = input_value.trim_start().starts_with('/') && !self.slash_dismissed;
-        let slash_matches = self.slash_entries(&input_value);
-        let _slash_selected = self.slash_index.min(slash_matches.len().saturating_sub(1));
-        let mention = trailing_mention(&input_value);
-        let mention_matches = mention
-            .as_ref()
-            .map(|(_, query)| self.mention_matches(query))
-            .unwrap_or_default();
-        let _mention_open = mention.is_some() && !slash_open && !mention_matches.is_empty();
-        let _mention_selected = self
-            .mention_index
-            .min(mention_matches.len().saturating_sub(1));
-        let can_undo = self.state.thread.capabilities.checkpoint_available()
-            && self.last_checkpoint.is_some()
+        let chip_workspace = self.metadata().workspace.as_ref().clone();
+        let can_undo = self
+            .state
+            .session
+            .thread
+            .capabilities
+            .checkpoint_available()
+            && !self.metadata().checkpoints.is_empty()
             && !busy;
-        let change_count = self.checkpoint_changes.len();
-        let plan_state = self
-            .host
-            .agent_state
-            .lock()
-            .map(|state| state.clone())
-            .unwrap_or_default();
-        let _queued_messages = self.queued_messages.clone();
-        let _show_plan_card = self.state.thread.capabilities.plan_available()
-            && (!plan_state.todos.is_empty()
-                || !plan_state.plan.is_empty()
-                || plan_state.goal.is_some());
-        let _show_changes = self.show_checkpoint_panel && change_count > 0;
-        let _changes = self.checkpoint_changes.clone();
-        let row_kinds = self.message_row_kinds();
-        self.sync_message_scroller(&row_kinds, cx);
-        let _row_kinds = Arc::new(row_kinds);
-        let _weak_view = cx.entity().downgrade();
-        let _message_menu_root = cx.entity().downgrade();
+        let change_count = self.metadata().changes.len();
 
         let pickers = self.native_composer_pickers(palette, cx);
         let send_aria = if busy {
@@ -101,7 +72,7 @@ impl NativeAgentView {
             "输入内容后可发送"
         };
         let send_weak = cx.entity().downgrade();
-        let context_window = self.model.limits.context_window.max(1) as u64;
+        let context_window = self.metadata().model.limits.context_window.max(1) as u64;
         let used_percent = if context_window == 0 {
             0
         } else {
@@ -498,8 +469,7 @@ impl NativeAgentView {
                             .children(pickers.model)
                             .children(pickers.thinking)
                             .children(
-                                self.state
-                                    .thread
+                                self.state.session.thread
                                     .capabilities
                                     .usage_available()
                                     .then_some(context_usage),

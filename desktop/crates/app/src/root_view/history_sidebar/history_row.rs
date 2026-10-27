@@ -46,7 +46,7 @@ impl RootView {
             HistorySource::Acp => entry
                 .session_id
                 .as_deref()
-                .is_some_and(|session| self.chat.session_id.as_deref() == Some(session)),
+                .is_some_and(|session| self.chat.session.session_id.as_deref() == Some(session)),
             HistorySource::Native => self.native_agent_view.as_ref().is_some_and(|view| {
                 view.read(cx).current_thread_id().as_deref() == Some(thread_id.as_str())
             }),

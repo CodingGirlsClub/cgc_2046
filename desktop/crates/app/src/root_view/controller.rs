@@ -37,19 +37,6 @@ impl RootView {
         self.account_menu_open = false;
     }
 
-    /// 根据登录用户刷新全局 agent 工作区 scope（Stage 3.5a 起与页面无关）。
-    /// 由 RootView 渲染前调用；NativeAgentView 渲染时比较并切换线程/工作区。
-    pub(in crate::root_view) fn refresh_agent_scope(&self) {
-        if self.session.signed_in().is_none() && std::env::var_os("CGC_AGENT_WORKSPACE").is_none() {
-            return;
-        }
-        let user_id = self
-            .session
-            .signed_in()
-            .map(|session| session.user_id.as_str());
-        crate::agent_scope::set_current(crate::agent_scope::resolve(user_id));
-    }
-
     /// Stage 3.5a：课程学习页把 course/revision/unit 写入全局页面上下文，
     /// 发 prompt 时由 native/ACP 两轨以同一段文本附加（不再有课程页专用会话）。
     pub(in crate::root_view) fn refresh_page_context(&self) {
@@ -72,6 +59,7 @@ impl RootView {
                     }
                 });
                 crate::page_context::PageContext {
+                    route: format!("/courses/{}/learn", detail.id),
                     course_id: detail.id.clone(),
                     course_title: detail.title.clone(),
                     revision: detail.revision_number,
@@ -79,7 +67,7 @@ impl RootView {
                 }
             })
         });
-        crate::page_context::set_current(context.flatten());
+        self.page_context.set_current(context.flatten());
     }
 
     pub fn is_signed_in(&self) -> bool {
@@ -705,11 +693,16 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn force_sign_out(&mut self, cx: &mut Context<Self>) {
+        self.revoke_agent_authorization(cx);
+        if let Some(runtime) = &self.native_runtime {
+            runtime.stop();
+        }
         self.session.sign_out_local();
         self.workspaces.reset();
         self.workspaces_started = false;
         self.session_checked = false;
         self.reset_workspace_data(cx);
+        self.prepare_agent_authorization(cx);
         self.navigate("/");
         cx.notify();
     }
@@ -745,6 +738,7 @@ impl RootView {
                 match result {
                     Ok(workspaces) => {
                         this.workspaces.adopt(workspaces);
+                        this.prepare_agent_authorization(cx);
                         this.restore_workspace_state(cx);
                     }
                     Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
@@ -770,6 +764,7 @@ impl RootView {
             self.navigate("/workspace");
             self.restore_workspace_state(cx);
             self.workspace_menu_open = false;
+            self.prepare_agent_authorization(cx);
             cx.notify();
         }
     }
@@ -911,41 +906,47 @@ impl RootView {
 
     pub(in crate::root_view) fn start_chat(&mut self, cx: &mut Context<Self>) {
         if matches!(
-            self.chat.phase,
-            ChatPhase::Starting | ChatPhase::Ready | ChatPhase::Streaming
+            self.chat.session.phase,
+            ConnectionPhase::Starting | ConnectionPhase::Ready
         ) {
             return;
         }
-        let Some(token) = self.session_token() else {
+        let Some(authority) = self
+            .agent_mcp
+            .clone()
+            .filter(|context| !context.is_revoked())
+        else {
+            self.chat.start_after_authorization = true;
+            self.prepare_agent_authorization(cx);
             return;
         };
-        if self.chat.host.is_none() {
-            self.revoke_chat_lease(cx);
-        }
+        let lease = authority.lease().clone();
         let epoch = self.workspaces.epoch();
-        let cwd = crate::agent_scope::current()
-            .map(|scope| scope.root)
+        let cwd = self
+            .native_scope
+            .as_ref()
+            .map(|scope| scope.root.clone())
             .unwrap_or_else(crate::agent_workspace_root);
+        self.chat.session.disconnect();
+        let client_generation = self.chat.session.generation;
         let requested_agent = self.chat.selected_agent.clone();
         // Stage 3.5a：不再有课程页专用会话指针；只按历史侧栏的 restore_id 恢复。
         let load_session = self.chat.restore_id.take();
         self.chat.load_retry_available = load_session.is_some();
-        self.chat.session_id = None;
-        self.chat.configs.clear();
-        self.chat.commands.clear();
+        self.chat.session.session_id = None;
+        self.chat.session.configs.clear();
+        self.chat.session.commands.clear();
         self.chat.configs_applied = false;
         self.chat.history_open = load_session.is_some();
-        self.chat.phase = ChatPhase::Starting;
+        self.chat.session.phase = ConnectionPhase::Starting;
         // Stage 3.3：从本地历史恢复时保留已加载的内容先渲染（离线可读），
         // 新会话/普通启动才清空线程。
         if self.chat.replay.is_none() {
-            self.chat.thread =
+            self.chat.session.thread =
                 ConversationThread::default().with_capabilities(ThreadCapabilities::acp());
         }
         self.chat.auto_prompted = false;
         let task = cx.background_executor().spawn(async move {
-            let api = build_learning_host_api();
-            let vault = build_learning_host_vault();
             let registry = Registry::builtin().map_err(|error| ChatStartError {
                 message: error.diagnostic(),
                 detected: Vec::new(),
@@ -1004,38 +1005,33 @@ impl RootView {
                         node_found: node_found.clone(),
                     })?,
             };
-            let lease = issue_lease(api.as_ref(), vault.as_ref(), &token, "cgc-desktop", epoch)
-                .map_err(|error| ChatStartError {
-                    message: error.diagnostic(),
-                    detected: guidance.clone(),
-                    node_found: node_found.clone(),
-                })?;
             let managed =
                 managed_node.or_else(|| std::env::var_os("CGC_MANAGED_NODE").map(NodeRuntime::new));
-            let plan = match build_launch(&chosen.entry, managed.as_ref(), &cwd) {
-                Ok(plan) => plan,
-                Err(error) => {
-                    let _ = api.revoke(&token, &lease.token_id);
-                    return Err(ChatStartError {
-                        message: error.to_string(),
-                        detected: guidance,
-                        node_found,
-                    });
+            let plan = build_launch(&chosen.entry, managed.as_ref(), &cwd).map_err(|error| {
+                ChatStartError {
+                    message: error.to_string(),
+                    detected: guidance,
+                    node_found,
                 }
-            };
+            })?;
             let endpoint = mcp_endpoint(std::env::var("CGC_API_URL").ok().as_deref());
             let server = build_mcp_server(&chosen.entry, &lease, &endpoint);
             Ok::<PreparedChat, ChatStartError>(PreparedChat {
                 agent_id: chosen.entry.id.clone(),
                 agent_name: chosen.entry.display_name.clone(),
                 plan,
-                lease,
                 server,
             })
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
+                if this.workspaces.epoch() != epoch
+                    || this.chat.session.generation != client_generation
+                    || authority.is_revoked()
+                {
+                    return;
+                }
                 match result {
                     Ok(prepared) => {
                         let command = prepared.plan.command_string();
@@ -1062,14 +1058,10 @@ impl RootView {
                         };
                         match started {
                             Ok(host) => {
-                                this.chat.host = Some(host);
-                                this.chat.lease = Some(prepared.lease);
+                                let generation = this.chat.session.attach(host);
                                 this.chat.selected_agent = Some(prepared.agent_id.clone());
                                 this.chat.agent = prepared.agent_name;
-                                this.chat.phase = ChatPhase::Ready;
                                 this.chat.npx_cache_retry = false;
-                                this.chat.poll_generation += 1;
-                                let generation = this.chat.poll_generation;
                                 this.spawn_chat_poller(cx, generation);
                             }
                             Err(error) => {
@@ -1080,12 +1072,11 @@ impl RootView {
                                         let _ = std::fs::remove_dir_all(&dir);
                                         true
                                     }) == Some(true);
-                                this.revoke_lease_token(prepared.lease, cx);
                                 if recovered {
-                                    this.chat.phase = ChatPhase::Idle;
+                                    this.chat.session.phase = ConnectionPhase::Idle;
                                     this.start_chat(cx);
                                 } else {
-                                    this.chat.phase = ChatPhase::Failed(message);
+                                    this.chat.session.phase = ConnectionPhase::Failed(message);
                                 }
                             }
                         }
@@ -1095,7 +1086,7 @@ impl RootView {
                             detected: error.detected,
                             node_found: error.node_found,
                         });
-                        this.chat.phase = ChatPhase::Failed(error.message);
+                        this.chat.session.phase = ConnectionPhase::Failed(error.message);
                     }
                 }
                 cx.notify();
@@ -1128,18 +1119,16 @@ impl RootView {
         generation: u64,
         cx: &mut Context<Self>,
     ) -> bool {
-        if generation != self.chat.poll_generation {
+        if generation != self.chat.session.generation {
             return false;
         }
-        let mut events = Vec::new();
-        if let Some(host) = &self.chat.host {
-            while let Some(event) = host.try_recv() {
-                events.push(event);
-            }
-        }
+        let events = self.chat.session.drain(generation);
         let had_events = !events.is_empty();
         let mut turn_ended = false;
         for event in events {
+            if generation != self.chat.session.generation {
+                return false;
+            }
             // Stage 3.2b 路线 A（Zed 对齐）：settings 级 toolPermissions 规则只作用于
             // native agent。external ACP agent 的审批完全由 agent 自身模式与 options
             // 决定——客户端只渲染共享审批卡、按用户选择的 option_id 回传，不做策略
@@ -1150,31 +1139,27 @@ impl RootView {
             //
             // Stage 3.3：从本地历史恢复 ACP 会话时，agent 经 session/load 回放的历史
             // 先收进 replay 线程；Ready 时按 resume_decision 决定替换本地内容或降级。
-            if let Some(replay) = self.chat.replay.as_mut() {
-                if agent_ingest::apply_thread_event(&mut replay.thread, &event) {
-                    replay.saw_events = true;
-                }
-            } else {
-                agent_ingest::apply_thread_event(&mut self.chat.thread, &event);
+            let replayed = self.chat.replay.as_mut().is_some_and(|replay| {
+                let applied = agent_ingest::apply_thread_event(&mut replay.thread, &event);
+                replay.saw_events |= applied;
+                applied
+            });
+            if !replayed {
+                self.chat.session.ingest(generation, &event);
             }
             match &event {
                 HostEvent::Ready {
                     agent_name,
                     version,
-                    session_id,
+                    session_id: _,
                 } => {
                     self.chat.agent = agent_name.clone();
                     self.chat.version = Some(version.clone());
-                    self.chat.session_id = Some(session_id.clone());
-                    self.chat.phase = ChatPhase::Ready;
                     // Stage 3.3：本地历史恢复结果（回放替换 / 降级保留本地记录）。
                     self.finish_history_restore(cx);
                 }
-                HostEvent::AvailableCommands { commands } => {
-                    self.chat.commands = commands.clone();
-                }
-                HostEvent::ConfigOptions { options } => {
-                    self.chat.configs = options.clone();
+                HostEvent::AvailableCommands { .. } => {}
+                HostEvent::ConfigOptions { .. } => {
                     if !self.chat.configs_applied {
                         self.chat.configs_applied = true;
                         let agent_id = self
@@ -1182,9 +1167,9 @@ impl RootView {
                             .selected_agent
                             .clone()
                             .unwrap_or_else(|| "omp".to_string());
-                        for config in self.chat.configs.clone() {
+                        for config in self.chat.session.configs.clone() {
                             if let Some(value) = load_chat_pref(&agent_id, &config.id) {
-                                if let Some(host) = &self.chat.host {
+                                if let Some(host) = &self.chat.session.host {
                                     let _ = host.set_config(config.id.clone(), value);
                                 }
                             }
@@ -1204,9 +1189,7 @@ impl RootView {
                         self.restore_chat_session(session_id, cx);
                     }
                 }
-                HostEvent::ThoughtDelta(_) | HostEvent::Delta(_) | HostEvent::ToolCall { .. } => {
-                    self.chat.phase = ChatPhase::Streaming;
-                }
+                HostEvent::ThoughtDelta(_) | HostEvent::Delta(_) | HostEvent::ToolCall { .. } => {}
                 HostEvent::TitleUpdated { .. } => {
                     // Stage 3.3：TitleUpdated 是 agent 生成的标题（ingestion 已写入
                     // thread.title）；title_override 只由用户重命名写入，二者互不覆盖。
@@ -1218,7 +1201,6 @@ impl RootView {
                     }
                 }
                 HostEvent::TurnEnd { .. } => {
-                    self.chat.phase = ChatPhase::Ready;
                     turn_ended = true;
                 }
                 HostEvent::Error { message } => {
@@ -1232,13 +1214,13 @@ impl RootView {
                             replay.saw_events,
                         ) == crate::acp_history::ResumeDecision::KeepLocalRecord
                         {
-                            self.chat.host.take();
+                            self.chat.session.host.take();
                             self.chat.load_retry_available = false;
                             self.chat.restore_id = None;
                             self.chat.resumed_without_history = true;
-                            self.chat.phase = ChatPhase::Ready;
+                            self.chat.session.phase = ConnectionPhase::Ready;
                             agent_ingest::apply_notice(
-                                &mut self.chat.thread,
+                                &mut self.chat.session.thread,
                                 crate::acp_history::RESUMED_WITHOUT_HISTORY,
                             );
                             // 降级提示只是 UI 层 Notice，不重复写回本地 transcript。
@@ -1250,23 +1232,17 @@ impl RootView {
                         // session/load 的错误是在 host 线程异步返回的，不是 AcpHost::start
                         // 的同步 Err；这里丢弃旧 host、清指针并重开 session/new。
                         self.chat.load_retry_available = false;
-                        self.chat.host.take();
+                        self.chat.session.host.take();
                         self.chat.restore_id = None;
-                        self.chat.phase = ChatPhase::Idle;
+                        self.chat.session.phase = ConnectionPhase::Idle;
                         self.start_chat(cx);
                         // 旧 host 可能紧接着发 Exited；不能让它在下一轮把新 host 清掉。
                         cx.notify();
                         return false;
                     }
-                    self.chat.phase = ChatPhase::Failed(message.clone());
+                    self.chat.session.phase = ConnectionPhase::Failed(message.clone());
                 }
-                HostEvent::Exited => {
-                    // 先到的 Error 更具体，不要用通用退出文案覆盖它。
-                    if !matches!(self.chat.phase, ChatPhase::Idle | ChatPhase::Failed(_)) {
-                        self.chat.phase = ChatPhase::Failed("agent process exited".to_string());
-                    }
-                    self.chat.host = None;
-                }
+                HostEvent::Exited => {}
                 HostEvent::ModeUpdated { .. }
                 | HostEvent::PlanUpdated { .. }
                 | HostEvent::UsageUpdated { .. }
@@ -1275,14 +1251,14 @@ impl RootView {
                 | HostEvent::ToolCallUpdated { .. } => {}
             }
         }
-        if matches!(self.chat.phase, ChatPhase::Ready)
+        if matches!(self.chat.session.phase, ConnectionPhase::Ready)
             && std::env::var("CGC_AUTO_HISTORY").as_deref() == Ok("1")
             && self.history_sidebar.is_none()
         {
             self.open_chat_history(cx);
         }
         // QA/截图：Ready 后自动发一条 prompt。
-        if matches!(self.chat.phase, ChatPhase::Ready)
+        if self.chat.session.can_submit()
             && !self.chat.auto_prompted
             && std::env::var("CGC_AUTO_CHAT").as_deref() == Ok("1")
         {
@@ -1297,12 +1273,12 @@ impl RootView {
             if turn_ended {
                 // 回合结束立刻落库（内容 + metadata），保证进程退出/重启前已持久化。
                 self.save_acp_transcript_now();
-            } else if !self.chat.thread.entries.is_empty() {
+            } else if !self.chat.session.thread.entries.is_empty() {
                 self.schedule_acp_transcript_save(cx);
             }
         }
         cx.notify();
-        self.chat.host.is_some()
+        self.chat.session.host.is_some()
     }
 
     /// 本地历史恢复收尾：回放可用则替换为 agent 回放内容；否则保留本地记录并提示
@@ -1317,13 +1293,13 @@ impl RootView {
             replay.saw_events,
         ) {
             crate::acp_history::ResumeDecision::UseReplay => {
-                self.chat.thread = replay.thread;
+                self.chat.session.thread = replay.thread;
                 self.chat.resumed_without_history = false;
             }
             crate::acp_history::ResumeDecision::KeepLocalRecord => {
                 self.chat.resumed_without_history = true;
                 agent_ingest::apply_notice(
-                    &mut self.chat.thread,
+                    &mut self.chat.session.thread,
                     crate::acp_history::RESUMED_WITHOUT_HISTORY,
                 );
                 // 降级提示只是 UI 层 Notice，不重复写回本地 transcript。
@@ -1335,7 +1311,7 @@ impl RootView {
                 self.chat.resumed_without_history = false;
             }
         }
-        if !self.chat.thread.entries.is_empty() {
+        if !self.chat.session.thread.entries.is_empty() {
             self.save_acp_transcript_now();
         }
         cx.notify();
@@ -1345,43 +1321,35 @@ impl RootView {
     pub(in crate::root_view) fn open_local_native_thread(
         &mut self,
         thread_id: String,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.set_native_chat_mode(true);
-        if self.native_agent_view.is_none() {
-            let state: cgc_agent_tools::SharedAgentState =
-                std::sync::Arc::new(std::sync::Mutex::new(cgc_agent_tools::AgentState::default()));
-            let mut host = crate::native_panel_host::NativePanelHost::new_with_audit(
-                state,
-                Some(cgc_agent_store::AuditLog::new(
-                    AppPaths::from_env().agent_audit_file(),
-                )),
-            );
-            // 3.4c：复用 RootView 已持有的 lease 注入 native MCP（不重复请求平台）。
-            host.set_mcp_lease(
-                self.chat.lease.clone(),
-                std::env::var("CGC_API_URL").ok().as_deref(),
-                self.workspaces.current_id(),
-            );
-            let view = cx.new(|cx| {
-                crate::native_agent_view::NativeAgentView::new_with_host(window, cx, host)
+        let Some(runtime) = self.native_runtime.clone() else {
+            return;
+        };
+        let operation = runtime.open_thread(thread_id);
+        cx.spawn(async move |this, cx| {
+            let result = operation.await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(_) => {
+                        this.set_native_chat_mode(true);
+                        this.agent_panel_open = true;
+                    }
+                    Err(error) => this.pane_notice = Some(error.to_string()),
+                }
+                cx.notify();
             });
-            self.native_agent_view = Some(view);
-        }
-        if let Some(view) = &self.native_agent_view {
-            view.update(cx, |view, cx| view.open_thread(&thread_id, cx));
-        }
-        self.agent_panel_open = true;
-        cx.notify();
+        })
+        .detach();
     }
 
     /// Stage 3.3：把当前 ACP 会话写入本地 conversations.db（内容 + metadata）。
     fn save_acp_transcript_now(&mut self) {
-        let Some(session_id) = self.chat.session_id.clone() else {
+        let Some(session_id) = self.chat.session.session_id.clone() else {
             return;
         };
-        if self.chat.thread.entries.is_empty() {
+        if self.chat.session.thread.entries.is_empty() {
             return;
         }
         let agent_id = self
@@ -1398,7 +1366,7 @@ impl RootView {
         let now = cgc_agent_store::now_utc_rfc3339();
         let _ = crate::acp_history::save_transcript(
             &mut store,
-            &self.chat.thread,
+            &self.chat.session.thread,
             &session_id,
             &agent_id,
             self.chat.title_override.as_deref(),
@@ -1504,7 +1472,7 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn toggle_chat_tool(&mut self, index: usize, cx: &mut Context<Self>) {
-        if let Some(entry) = self.chat.thread.entries.get_mut(index) {
+        if let Some(entry) = self.chat.session.thread.entries.get_mut(index) {
             entry.toggle_tool();
             cx.notify();
         }
@@ -1515,7 +1483,7 @@ impl RootView {
         index: usize,
         cx: &mut Context<Self>,
     ) {
-        if let Some(entry) = self.chat.thread.entries.get_mut(index) {
+        if let Some(entry) = self.chat.session.thread.entries.get_mut(index) {
             entry.toggle_thinking();
             cx.notify();
         }
@@ -1552,7 +1520,7 @@ impl RootView {
         if self.chat.slash_dismissed {
             return false;
         }
-        let candidates = slash_candidates(&self.chat.commands, &self.chat.input);
+        let candidates = slash_candidates(&self.chat.session.commands, &self.chat.input);
         if candidates.is_empty() {
             return false;
         }
@@ -1574,7 +1542,7 @@ impl RootView {
             "enter" | "tab" => {
                 let index = self.chat.slash_selection.min(candidates.len() - 1);
                 let command_index = candidates[index].command_index;
-                let Some(command) = self.chat.commands.get(command_index) else {
+                let Some(command) = self.chat.session.commands.get(command_index) else {
                     return false;
                 };
                 let text = format!("/{} ", command.name);
@@ -1601,27 +1569,23 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn send_chat_text(&mut self, text: String, cx: &mut Context<Self>) {
-        if !matches!(self.chat.phase, ChatPhase::Ready) {
+        if !self.chat.session.can_submit() {
             return;
         }
-        let Some(host) = &self.chat.host else {
-            return;
-        };
-        let prompt = crate::page_context::attach_to_prompt(&text);
-        if !host.prompt(prompt) {
-            self.chat.phase = ChatPhase::Failed("agent channel closed".to_string());
+        let (prompt, context) = self.page_context.freeze(text.clone());
+        let submission = self
+            .chat
+            .session
+            .submission(text, prompt, context, Vec::new(), false);
+        if !self.chat.session.send(&submission) {
             return;
         }
         self.chat.history_open = false;
-        crate::agent_ingest::apply_user_turn(&mut self.chat.thread, text);
-        self.chat.phase = ChatPhase::Streaming;
         cx.notify();
     }
 
     pub(in crate::root_view) fn stop_chat_turn(&mut self, cx: &mut Context<Self>) {
-        if let Some(host) = &self.chat.host {
-            host.stop();
-        }
+        self.chat.session.stop();
         cx.notify();
     }
 
@@ -1631,18 +1595,7 @@ impl RootView {
         option_id: &str,
         cx: &mut Context<Self>,
     ) {
-        let Some(pending) = self.chat.thread.pending_permission.clone() else {
-            return;
-        };
-        let allowed = crate::agent_ingest::permission_option_allowed(&pending.options, option_id);
-        if let Some(host) = &self.chat.host {
-            let _ = host.respond_permission_option(&pending.request_id, option_id);
-        }
-        crate::agent_ingest::apply_permission_resolved(
-            &mut self.chat.thread,
-            pending.request_id,
-            allowed,
-        );
+        self.chat.session.resolve_permission(option_id);
         cx.notify();
     }
 
@@ -1653,7 +1606,7 @@ impl RootView {
         allow: bool,
         cx: &mut Context<Self>,
     ) {
-        let Some(pending) = self.chat.thread.pending_permission.clone() else {
+        let Some(pending) = self.chat.session.thread.pending_permission.clone() else {
             return;
         };
         let option = crate::agent_ingest::first_permission_option(&pending.options, allow)
@@ -1662,11 +1615,11 @@ impl RootView {
             self.respond_chat_permission_option(&option_id, cx);
             return;
         }
-        if let Some(host) = &self.chat.host {
+        if let Some(host) = &self.chat.session.host {
             let _ = host.respond_permission(&pending.request_id, allow);
         }
         crate::agent_ingest::apply_permission_resolved(
-            &mut self.chat.thread,
+            &mut self.chat.session.thread,
             pending.request_id,
             allow,
         );
@@ -1679,10 +1632,10 @@ impl RootView {
         value: String,
         cx: &mut Context<Self>,
     ) {
-        let Some(config) = self.chat.configs.get(index).cloned() else {
+        let Some(config) = self.chat.session.configs.get(index).cloned() else {
             return;
         };
-        if let Some(host) = &self.chat.host {
+        if let Some(host) = &self.chat.session.host {
             let _ = host.set_config(config.id.clone(), value.clone());
         }
         let agent_id = self
@@ -1691,7 +1644,7 @@ impl RootView {
             .clone()
             .unwrap_or_else(|| "omp".to_string());
         save_chat_pref(&agent_id, &config.id, &value);
-        if let Some(entry) = self.chat.configs.get_mut(index) {
+        if let Some(entry) = self.chat.session.configs.get_mut(index) {
             entry.current = value;
         }
         cx.notify();
@@ -1709,7 +1662,7 @@ impl RootView {
 
     /// 打开统一历史侧边栏（native + ACP 本地 transcript；Zed Threads sidebar 形态）。
     pub(in crate::root_view) fn open_chat_history(&mut self, cx: &mut Context<Self>) {
-        if let Some(host) = &self.chat.host {
+        if let Some(host) = &self.chat.session.host {
             let _ = host.list_sessions();
         }
         self.history_dirty_seen = crate::acp_history::history_dirty_generation();
@@ -1738,16 +1691,21 @@ impl RootView {
         if cleared != self.history_cleared_seen {
             self.history_cleared_seen = cleared;
             // 清空后当前 ACP 会话的本地记录也被删：回到新会话/空态并提示。
-            let transcript_missing = self.chat.session_id.as_deref().is_some_and(|session_id| {
-                let thread_id = crate::acp_history::acp_thread_id(session_id);
-                !self
-                    .chat
-                    .history
-                    .iter()
-                    .any(|entry| entry.thread_id == thread_id)
-            });
+            let transcript_missing =
+                self.chat
+                    .session
+                    .session_id
+                    .as_deref()
+                    .is_some_and(|session_id| {
+                        let thread_id = crate::acp_history::acp_thread_id(session_id);
+                        !self
+                            .chat
+                            .history
+                            .iter()
+                            .any(|entry| entry.thread_id == thread_id)
+                    });
             if transcript_missing
-                && (self.chat.opened_from_history || !self.chat.thread.entries.is_empty())
+                && (self.chat.opened_from_history || !self.chat.session.thread.entries.is_empty())
             {
                 self.pane_notice = Some("ACP 对话历史已清空，已回到新会话".to_string());
                 self.new_chat(cx);
@@ -1798,7 +1756,7 @@ impl RootView {
             .as_ref()
             .is_some_and(|thread| !thread.entries.is_empty());
         if let Some(local) = local {
-            self.chat.thread = local;
+            self.chat.session.thread = local;
         }
         self.chat.replay = Some(ReplayState {
             thread: ConversationThread::default().with_capabilities(ThreadCapabilities::acp()),
@@ -1813,10 +1771,10 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn install_node_runtime(&mut self, cx: &mut Context<Self>) {
-        if matches!(self.chat.phase, ChatPhase::Starting) {
+        if matches!(self.chat.session.phase, ConnectionPhase::Starting) {
             return;
         }
-        self.chat.phase = ChatPhase::Starting;
+        self.chat.session.phase = ConnectionPhase::Starting;
         let task = cx
             .background_executor()
             .spawn(async { NodeRuntimeManager::default_manager().install(&HttpDownloader) });
@@ -1826,11 +1784,11 @@ impl RootView {
                 match result {
                     Ok(()) => {
                         this.chat.guidance = None;
-                        this.chat.phase = ChatPhase::Idle;
+                        this.chat.session.phase = ConnectionPhase::Idle;
                         this.start_chat(cx);
                     }
                     Err(error) => {
-                        this.chat.phase = ChatPhase::Failed(error.to_string());
+                        this.chat.session.phase = ConnectionPhase::Failed(error.to_string());
                     }
                 }
                 cx.notify();
@@ -1839,30 +1797,12 @@ impl RootView {
         .detach();
     }
 
-    fn revoke_chat_lease(&mut self, cx: &mut Context<Self>) {
-        if let Some(lease) = self.chat.lease.take() {
-            self.revoke_lease_token(lease, cx);
-        }
-    }
-
-    fn revoke_lease_token(&mut self, lease: LearningHostLease, cx: &mut Context<Self>) {
-        let Some(session_token) = self.session_token() else {
-            return;
-        };
-        let api = build_learning_host_api();
-        cx.background_executor()
-            .spawn(async move {
-                let _ = api.revoke(&session_token, &lease.token_id);
-            })
-            .detach();
-    }
-
     pub(in crate::root_view) fn revoke_stale_learning_tokens(&mut self, cx: &mut Context<Self>) {
         let Some(session_token) = self.session_token() else {
             return;
         };
         let api = build_learning_host_api();
-        self.chat.phase = ChatPhase::Starting;
+        self.chat.session.phase = ConnectionPhase::Starting;
         let task = cx.background_executor().spawn(async move {
             let tokens = api
                 .list(&session_token)
@@ -1883,10 +1823,12 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 match result {
                     Ok(_) => {
-                        this.chat.lease = None;
+                        this.revoke_agent_authorization(cx);
+                        this.chat.session.disconnect();
+                        this.prepare_agent_authorization(cx);
                         this.start_chat(cx);
                     }
-                    Err(error) => this.chat.phase = ChatPhase::Failed(error),
+                    Err(error) => this.chat.session.phase = ConnectionPhase::Failed(error),
                 }
                 cx.notify();
             });
@@ -1894,23 +1836,19 @@ impl RootView {
         .detach();
     }
 
-    pub(in crate::root_view) fn reset_chat_local(&mut self, cx: &mut Context<Self>) {
-        self.chat.host.take();
-        self.revoke_chat_lease(cx);
-        self.chat.lease.take();
-        self.chat.poll_generation = self.chat.poll_generation.saturating_add(1);
-        self.chat.phase = ChatPhase::Idle;
+    pub(in crate::root_view) fn reset_chat_local(&mut self, _cx: &mut Context<Self>) {
+        self.chat.session.disconnect();
         self.chat.agent.clear();
         self.chat.version = None;
-        self.chat.thread =
+        self.chat.session.thread =
             ConversationThread::default().with_capabilities(ThreadCapabilities::acp());
         self.chat.input.clear();
         self.chat.focused = false;
         self.chat.auto_prompted = false;
-        self.chat.configs.clear();
+        self.chat.session.configs.clear();
         self.chat.sessions.clear();
         self.chat.opened_from_history = false;
-        self.chat.session_id = None;
+        self.chat.session.session_id = None;
         self.chat.configs_applied = false;
         self.chat.history_open = false;
         self.chat.guidance = None;
@@ -1918,7 +1856,7 @@ impl RootView {
         self.chat.replay = None;
         self.chat.resumed_without_history = false;
         self.chat.acp_save_generation = self.chat.acp_save_generation.wrapping_add(1);
-        self.chat.commands.clear();
+        self.chat.session.commands.clear();
         self.chat.slash_selection = 0;
         self.chat.slash_dismissed = false;
         self.chat_input_pending_clear = true;
@@ -2170,9 +2108,10 @@ impl RootView {
             }),
             ..Default::default()
         };
-        let _ = gpui_kit::open_window(options, cx, |window, cx| {
-            cx.new(|cx| crate::native_agent_view::NativeAgentView::new(window, cx))
-        });
+        let Some(view) = self.native_agent_view.clone() else {
+            return;
+        };
+        let _ = gpui_kit::open_window(options, cx, |_, _| view);
     }
 
     pub fn open_settings_window(&mut self, cx: &mut Context<Self>) {
@@ -2400,7 +2339,7 @@ impl RootView {
         self.agent_panel_open = !self.agent_panel_open;
         if self.agent_panel_open
             && !self.native_chat_mode
-            && matches!(self.chat.phase, ChatPhase::Idle)
+            && matches!(self.chat.session.phase, ConnectionPhase::Idle)
         {
             self.start_chat(cx);
         }
@@ -2433,7 +2372,7 @@ impl RootView {
     fn open_tab(&mut self, tab: PaneTab, cx: &mut Context<Self>) {
         self.state.open_tab(tab.clone());
         self.site_tree_search_focused = false;
-        crate::page_context::reset_dismissed();
+        self.page_context.reset_dismissed();
         self.navigate(&tab.path);
         self.persist_current_workspace_state();
         cx.notify();
@@ -2445,7 +2384,7 @@ impl RootView {
         };
         self.active_tab = Some(tab.id.clone());
         self.site_tree_search_focused = false;
-        crate::page_context::reset_dismissed();
+        self.page_context.reset_dismissed();
         self.navigate(&tab.path);
         self.persist_current_workspace_state();
         cx.notify();
@@ -2710,7 +2649,7 @@ impl RootView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if event.keystroke.key == "escape" && self.chat.phase == ChatPhase::Streaming {
+        if event.keystroke.key == "escape" && self.chat.session.is_busy() {
             self.stop_chat_turn(cx);
             return;
         }
@@ -3396,18 +3335,18 @@ impl RootView {
         self.chat.selected_agent = Some(id.to_string());
         self.chat.agent = display_name.to_string();
         self.set_native_chat_mode(false);
-        self.chat.phase = ChatPhase::Idle;
-        self.chat.host.take();
-        self.chat.thread =
+        self.chat.session.phase = ConnectionPhase::Idle;
+        self.chat.session.host.take();
+        self.chat.session.thread =
             ConversationThread::default().with_capabilities(ThreadCapabilities::acp());
-        self.chat.session_id = None;
+        self.chat.session.session_id = None;
         self.chat.restore_id = None;
         self.chat.title_override = None;
         self.chat.npx_cache_retry = false;
         self.agent_panel_editing_title = false;
         self.agent_panel_title_hovered = false;
-        self.chat.configs.clear();
-        self.chat.commands.clear();
+        self.chat.session.configs.clear();
+        self.chat.session.commands.clear();
         self.chat.configs_applied = false;
         self.chat.auto_prompted = false;
     }
@@ -3419,12 +3358,11 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         self.reset_chat_for_external_agent(&id, &display_name);
-        self.revoke_chat_lease(cx);
         self.start_chat(cx);
     }
 
     pub(in crate::root_view) fn dismiss_chat_context(&mut self, cx: &mut Context<Self>) {
-        crate::page_context::dismiss();
+        self.page_context.dismiss();
         cx.notify();
     }
 
@@ -3472,6 +3410,7 @@ impl RootView {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
                 this.finish_login(result);
+                this.prepare_agent_authorization(cx);
                 cx.notify();
             });
         })
@@ -3504,6 +3443,10 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn sign_out(&mut self, cx: &mut Context<Self>) {
+        self.revoke_agent_authorization(cx);
+        if let Some(runtime) = &self.native_runtime {
+            runtime.stop();
+        }
         let token = self.session.sign_out_local();
         if let Some(token) = token {
             let api = self.session.api_handle();
@@ -3518,6 +3461,7 @@ impl RootView {
         self.workspaces.reset();
         self.workspaces_started = false;
         self.reset_workspace_data(cx);
+        self.prepare_agent_authorization(cx);
         self.login_email.clear();
         self.login_password.clear();
         self.login_error = None;
@@ -3804,6 +3748,7 @@ impl RootView {
                     return;
                 }
                 this.finish_login(result);
+                this.prepare_agent_authorization(cx);
                 cx.notify();
             });
         })

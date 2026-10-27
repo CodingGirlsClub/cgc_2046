@@ -4,6 +4,7 @@
 //! 用量累计、停止原因、取消、tool_call 收集），以及 provider 之上的
 //! 请求构建。工具执行、审批、持久化在后续切片加入。
 
+mod context;
 pub mod session;
 pub mod thread;
 

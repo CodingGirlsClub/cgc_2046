@@ -60,7 +60,14 @@ impl NativeAgentView {
     }
 
     pub(super) fn slash_entries(&self, value: &str) -> Vec<SlashEntry> {
-        slash_entries_for(self.registry.as_ref(), &self.skills, value)
+        slash_entries_for(
+            self.metadata()
+                .schemas
+                .iter()
+                .map(|schema| (schema.name.as_str(), schema.description.as_str())),
+            &self.skills,
+            value,
+        )
     }
 
     pub(super) fn run_slash_entry(
@@ -112,12 +119,13 @@ impl NativeAgentView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.busy {
+        if self.is_generating() {
             self.status = "生成中，稍后再编辑".to_string();
             cx.notify();
             return;
         }
-        let Some(ConversationEntry::User { text }) = self.state.thread.entries.get(message_index)
+        let Some(ConversationEntry::User { text }) =
+            self.state.session.thread.entries.get(message_index)
         else {
             return;
         };
@@ -147,111 +155,58 @@ impl NativeAgentView {
         cx.notify();
     }
 
-    /// 从某条用户消息重发（Zed 的 restart from this point）：回滚 checkpoint、
-    /// 截断线程到该消息之前，然后用编辑后的文本重跑这一轮。
-    pub(super) fn restart_from_user_message(
-        &mut self,
-        message_index: usize,
-        cx: &mut Context<Self>,
-    ) {
-        if self.busy {
-            self.status = "生成中，稍后再试".to_string();
+    /// Rewind succeeds in the owner before the edited message is submitted.
+    pub(super) fn restart_from_user_message(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.is_generating() {
+            self.status = "生成中，稍后再试".into();
             cx.notify();
             return;
         }
-        let Some(input) = self.user_edit_input.clone() else {
+        let Some(input) = &self.user_edit_input else {
             return;
         };
         let content = input.read(cx).content();
-        let edited_display = content.text().trim().to_string();
-        if edited_display.is_empty() {
-            self.status = "消息不能为空".to_string();
+        let display = content.text().trim().to_string();
+        if display.is_empty() {
+            self.status = "消息不能为空".into();
             cx.notify();
             return;
         }
-        let edited_prompt = mention::resolve_prompt(&content, self.context.workspace());
-        let Some(ordinal) = thread_entry_ordinal(&self.state.thread.entries, message_index) else {
+        let Some(ordinal) = thread_entry_ordinal(&self.state.session.thread.entries, index) else {
             return;
         };
-        let has_valid_checkpoint = self
-            .available_checkpoints
-            .iter()
-            .find(|(candidate, _)| *candidate == ordinal)
-            .map(|(_, checkpoint)| {
-                self.checkpoint_manager
-                    .as_ref()
-                    .and_then(|manager| manager.is_valid(checkpoint).ok())
-                    .unwrap_or(false)
-            })
-            .unwrap_or(false);
-        if needs_checkpoint_confirm(
-            has_valid_checkpoint,
-            self.pending_restart_confirm,
-            message_index,
-        ) {
-            self.pending_restart_confirm = Some(message_index);
+        let restore_files = self.checkpoint_for_message(index).is_some();
+        if needs_checkpoint_confirm(restore_files, self.pending_restart_confirm, index) {
+            self.pending_restart_confirm = Some(index);
             cx.notify();
             return;
         }
-        self.pending_restart_confirm = None;
-        let Some(agent) = self.agent.as_mut() else {
-            return;
-        };
-        let thread_id = agent.thread().id.clone();
-        let Some(entry_index) = thread_user_entry_index(&agent.thread().entries, ordinal) else {
-            self.status = "找不到对应的线程消息".to_string();
-            cx.notify();
-            return;
-        };
-        // checkpoint 回滚（尽力而为；失败只提示，不阻断重发）。
-        let mut note = String::new();
-        if let (Some(manager), Some(store)) =
-            (&self.checkpoint_manager, self.session_store.session())
-        {
-            if let Ok(records) = store.list_checkpoints(&thread_id) {
-                if let Some(record) = checkpoint_for_ordinal(&records, ordinal) {
-                    let checkpoint = Checkpoint {
-                        thread_id: record.thread_id,
-                        seq: record.user_entry_seq.max(0) as u64,
-                        ref_name: record.ref_name,
-                        sha: record.sha,
-                        base_head: record.base_head,
-                    };
-                    match manager.is_valid(&checkpoint) {
-                        Ok(true) => match manager.restore(&checkpoint) {
-                            Ok(()) => note = " · 已回滚到该消息的 checkpoint".to_string(),
-                            Err(error) => note = format!(" · checkpoint 回滚失败：{error}"),
-                        },
-                        Ok(false) => note = " · checkpoint 已失配，未回滚文件".to_string(),
-                        Err(error) => note = format!(" · checkpoint 校验失败：{error}"),
-                    }
+        let prompt = mention::resolve_prompt(&content, &self.metadata().workspace);
+        let (prompt, context) = self.page_context.freeze(prompt);
+        let rewind = self.runtime.rewind(ordinal, restore_files);
+        let generation = self.state.session.generation;
+        cx.spawn(async move |this, cx| {
+            let result = rewind.await;
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(snapshot) => {
+                    this.apply_snapshot(RuntimeChange::Rewound, snapshot, cx);
+                    let submission =
+                        this.state
+                            .session
+                            .submission(display, prompt, context, Vec::new(), false);
+                    this.state.session.queue.push(submission);
+                    this.state.session.queue_mode = QueueMode::Auto;
+                    this.dispatch_queued(cx);
                 }
-            }
-        }
-        agent.thread_mut().entries.truncate(entry_index);
-        self.editing_user = None;
-        self.user_edit_input = None;
-        self.rebuild_state_from_thread();
-        self.invalidate_checkpoints_from(ordinal + 1, &thread_id);
-        // 截断到空历史时 rebuild 会补一条引导提示；重发场景不需要它。
-        self.state.thread.entries.retain(|entry| {
-            !matches!(entry, ConversationEntry::Notice { text, .. } if text == EMPTY_THREAD_NOTICE)
-        });
-        self.state.thread.apply(ThreadEvent::TurnStarted {
-            user_text: edited_display.clone(),
-        });
-        self.state.last_error = None;
-        self.last_turn = Some((edited_prompt.clone(), edited_display.clone()));
-        let ordinal = self
-            .state
-            .thread
-            .entries
-            .iter()
-            .filter(|entry| matches!(entry, ConversationEntry::User { .. }))
-            .count();
-        self.capture_checkpoint(&thread_id, ordinal);
-        self.status = format!("从该消息重发{note}");
-        self.run_turn(edited_prompt, edited_display, true, cx);
+                Err(error) if this.state.session.generation == generation => {
+                    this.status = error.to_string();
+                    this.state.push_notice(error.to_string());
+                    cx.notify();
+                }
+                Err(_) => {}
+            });
+        })
+        .detach();
     }
 
     /// 编辑态行内编辑器。

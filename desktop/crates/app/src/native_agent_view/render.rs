@@ -6,13 +6,17 @@ use super::*;
 
 impl Render for NativeAgentView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // 页面 scope 变化时先切换工作区/线程，再渲染。
-        self.ensure_scope(cx);
+        if self.snapshot.is_none() {
+            return div()
+                .size_full()
+                .p(space(3))
+                .child(self.status.clone())
+                .into_any_element();
+        }
         let _add_menu_root = cx.entity().downgrade();
         let draft = self.composer_draft(cx);
         let palette = theme::palette_from_theme(cx);
-        let _chip_workspace = self.context.workspace().to_path_buf();
-        let pending = self.state.thread.pending_permission.clone();
+        let pending = self.state.session.thread.pending_permission.clone();
         let _model_supports_images = draft.model_supports_images;
         let busy = draft.busy;
         let _usage = draft.usage;
@@ -32,23 +36,33 @@ impl Render for NativeAgentView {
         let _mention_selected = self
             .mention_index
             .min(mention_matches.len().saturating_sub(1));
-        let _can_undo = self.state.thread.capabilities.checkpoint_available()
-            && self.last_checkpoint.is_some()
+        let _can_undo = self
+            .state
+            .session
+            .thread
+            .capabilities
+            .checkpoint_available()
+            && !self.metadata().checkpoints.is_empty()
             && !busy;
-        let change_count = self.checkpoint_changes.len();
-        let plan_state = self
-            .host
-            .agent_state
-            .lock()
-            .map(|state| state.clone())
-            .unwrap_or_default();
-        let queued_messages = self.queued_messages.clone();
-        let show_plan_card = self.state.thread.capabilities.plan_available()
+        let change_count = self.metadata().changes.len();
+        let plan_state = self.metadata().agent_state.clone();
+        let queued_messages: Vec<_> = self
+            .state
+            .session
+            .queue
+            .iter()
+            .map(|queued| (queued.id, queued.display.clone()))
+            .collect();
+        let show_plan_card = self.state.session.thread.capabilities.plan_available()
             && (!plan_state.todos.is_empty()
                 || !plan_state.plan.is_empty()
                 || plan_state.goal.is_some());
         let show_changes = checkpoint_panel_visible(
-            self.state.thread.capabilities.checkpoint_available(),
+            self.state
+                .session
+                .thread
+                .capabilities
+                .checkpoint_available(),
             self.show_checkpoint_panel,
             change_count,
         );
@@ -108,47 +122,50 @@ impl Render for NativeAgentView {
                 })
             }))
             .children(
-                (!queued_messages.is_empty() && self.state.thread.capabilities.queue_available())
-                    .then(|| {
-                        use cgc_agent_ui::queue_panel::{
-                            queue_preview, render_queue_panel, QueuePanelItem, QueuePanelSpec,
-                            QueuePanelStyle,
-                        };
-                        let items = queued_messages
-                            .iter()
-                            .enumerate()
-                            .map(|(index, queued)| {
-                                let remove_view = cx.entity().downgrade();
-                                QueuePanelItem {
-                                    preview: queue_preview(&queued.display, 160),
-                                    remove_id: SharedString::from(format!(
-                                        "native-queue-remove-{index}"
-                                    )),
-                                    on_remove: Box::new(move |cx: &mut App| {
-                                        let _ = remove_view.update(cx, |this, cx| {
-                                            if index < this.queued_messages.len() {
-                                                this.queued_messages.remove(index);
-                                                cx.notify();
-                                            }
-                                        });
-                                    }),
-                                }
-                            })
-                            .collect();
-                        render_queue_panel(QueuePanelSpec {
-                            row_id: SharedString::from("native-agent-queue"),
-                            header: queued_panel_header_text(queued_messages.len()),
-                            items,
-                            style: QueuePanelStyle {
-                                line: palette.line,
-                                view: palette.view,
-                                ink_2: palette.ink_2,
-                                ink_3: palette.ink_3,
-                                soft: palette.soft,
-                                radius: RADIUS_MEDIUM,
-                            },
+                (!queued_messages.is_empty()
+                    && self.state.session.thread.capabilities.queue_available())
+                .then(|| {
+                    use cgc_agent_ui::queue_panel::{
+                        queue_preview, render_queue_panel, QueuePanelItem, QueuePanelSpec,
+                        QueuePanelStyle,
+                    };
+                    let items = queued_messages
+                        .iter()
+                        .enumerate()
+                        .map(|(index, (submission_id, display))| {
+                            let submission_id = *submission_id;
+                            let remove_view = cx.entity().downgrade();
+                            QueuePanelItem {
+                                preview: queue_preview(display, 160),
+                                remove_id: SharedString::from(format!(
+                                    "native-queue-remove-{index}"
+                                )),
+                                on_remove: Box::new(move |cx: &mut App| {
+                                    let _ = remove_view.update(cx, |this, cx| {
+                                        this.state
+                                            .session
+                                            .queue
+                                            .retain(|submission| submission.id != submission_id);
+                                        cx.notify();
+                                    });
+                                }),
+                            }
                         })
-                    }),
+                        .collect();
+                    render_queue_panel(QueuePanelSpec {
+                        row_id: SharedString::from("native-agent-queue"),
+                        header: queued_panel_header_text(queued_messages.len()),
+                        items,
+                        style: QueuePanelStyle {
+                            line: palette.line,
+                            view: palette.view,
+                            ink_2: palette.ink_2,
+                            ink_3: palette.ink_3,
+                            soft: palette.soft,
+                            radius: RADIUS_MEDIUM,
+                        },
+                    })
+                }),
             )
             .children(show_plan_card.then(|| {
                 use cgc_agent_ui::plan_card::{
@@ -217,5 +234,6 @@ impl Render for NativeAgentView {
                 // （附件/queue/slash/mention/pickers/checkpoint/usage 均在）。
                 self.render_native_composer_legacy(&draft, cx)
             })
+            .into_any_element()
     }
 }

@@ -183,9 +183,9 @@ fn has_drive_prefix(path: &str) -> bool {
 
 /// 一个 Agent 工具。`run` 返回的 future 必须是 'static + Send，便于并发执行。
 pub trait Tool: Send + Sync {
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &str;
 
-    fn description(&self) -> &'static str;
+    fn description(&self) -> &str;
 
     fn schema(&self) -> serde_json::Value;
 

@@ -4,7 +4,6 @@
 //! slash 菜单匹配、mention 匹配。只依赖 agent 领域 crate，不依赖 GPUI。
 
 use cgc_agent_host::SLASH_COMMANDS;
-use cgc_agent_tools::ToolRegistry;
 
 use crate::mention::SkillEntry;
 
@@ -182,8 +181,8 @@ pub(crate) fn now_secs() -> i64 {
         .unwrap_or_default()
 }
 
-pub(crate) fn slash_entries_for(
-    registry: &ToolRegistry,
+pub(crate) fn slash_entries_for<'a>(
+    tools: impl IntoIterator<Item = (&'a str, &'a str)>,
     skills: &[SkillEntry],
     value: &str,
 ) -> Vec<SlashEntry> {
@@ -214,8 +213,7 @@ pub(crate) fn slash_entries_for(
             })
         })
         .collect();
-    let tools: Vec<(u8, usize, SlashEntry)> = registry
-        .list_descriptions()
+    let tools: Vec<(u8, usize, SlashEntry)> = tools
         .into_iter()
         .enumerate()
         .filter_map(|(index, (name, description))| {
