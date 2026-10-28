@@ -105,7 +105,10 @@ impl ToolContext {
         self
     }
 
-    /// 解析工作区内的相对路径：拒绝绝对路径与 `..` 逃逸。
+    /// 解析工作区内的相对路径：拒绝绝对路径与 `..` 逃逸，并校验最终目标本身。
+    ///
+    /// 只校验父目录不够：工作区内可以存在指向工作区外的符号链接（含悬空链接），
+    /// 直接拼上最后一段会让 read / list 顺着链接读到工作区外。
     pub fn resolve(&self, path: &str) -> Result<PathBuf, ToolError> {
         let resolved = self.normalize_relative(path)?;
         let root = self.workspace_root()?;
@@ -120,7 +123,21 @@ impl ToolContext {
         if !parent.starts_with(&root) {
             return Err(ToolError::PathEscape(path.to_string()));
         }
-        Ok(parent.join(joined.file_name().unwrap_or_default()))
+        let candidate = parent.join(joined.file_name().unwrap_or_default());
+        match std::fs::symlink_metadata(&candidate) {
+            // 最终目标本身是符号链接：必须解析到工作区内；悬空链接解析失败，
+            // 按逃逸处理（fail-closed）。
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                let target = candidate
+                    .canonicalize()
+                    .map_err(|_| ToolError::PathEscape(path.to_string()))?;
+                if !target.starts_with(&root) {
+                    return Err(ToolError::PathEscape(path.to_string()));
+                }
+                Ok(target)
+            }
+            _ => Ok(candidate),
+        }
     }
 
     /// 写入场景的路径解析：允许父目录尚不存在，但仍阻止越出工作区。
@@ -131,6 +148,18 @@ impl ToolContext {
             return Ok(root);
         }
         let candidate = root.join(&resolved);
+        // 已存在的最终目标若是符号链接，写入会落到链接指向的位置：先校验真实目标。
+        if let Ok(metadata) = std::fs::symlink_metadata(&candidate) {
+            if metadata.file_type().is_symlink() {
+                let target = candidate
+                    .canonicalize()
+                    .map_err(|_| ToolError::PathEscape(path.to_string()))?;
+                if !target.starts_with(&root) {
+                    return Err(ToolError::PathEscape(path.to_string()));
+                }
+                return Ok(target);
+            }
+        }
         let mut ancestor = candidate.parent();
         while let Some(dir) = ancestor {
             if dir.exists() {
@@ -226,5 +255,106 @@ pub trait Tool: Send + Sync {
 
     fn to_schema(&self) -> ToolSchema {
         ToolSchema::new(self.name(), self.description(), self.schema())
+    }
+}
+
+/// 工作区内符号链接的越界校验（Codex review P1）。
+///
+/// 只校验父目录时，`ws/link.txt -> /outside/secret` 会被 read_file 读出来、
+/// 被 write_file 覆盖到工作区外，所以最终目标本身也要校验。
+#[cfg(all(test, unix))]
+mod symlink_escape_tests {
+    use super::*;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let serial = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "cgc-agent-tools-symlink-{}-{tag}-{serial}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    #[test]
+    fn read_through_symlink_escaping_workspace_is_rejected() {
+        let root = temp_dir("read-escape");
+        let outside = temp_dir("read-outside");
+        std::fs::write(outside.join("secret.txt"), b"secret").expect("secret");
+        std::os::unix::fs::symlink(outside.join("secret.txt"), root.join("link.txt"))
+            .expect("symlink");
+
+        let context = ToolContext::new(root.clone());
+        assert_eq!(
+            context.resolve("link.txt"),
+            Err(ToolError::PathEscape("link.txt".to_string()))
+        );
+        // 读入口也必须被拦，而不是只在 resolve 上拦。
+        assert!(context.read_text("link.txt").is_err());
+
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn write_through_symlink_escaping_workspace_is_rejected() {
+        let root = temp_dir("write-escape");
+        let outside = temp_dir("write-outside");
+        let target = outside.join("victim.txt");
+        std::fs::write(&target, b"original").expect("victim");
+        std::os::unix::fs::symlink(&target, root.join("link.txt")).expect("symlink");
+
+        let context = ToolContext::new(root.clone());
+        assert_eq!(
+            context.resolve_for_write("link.txt"),
+            Err(ToolError::PathEscape("link.txt".to_string()))
+        );
+        assert_eq!(std::fs::read(&target).expect("read victim"), b"original");
+
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn dangling_symlink_pointing_outside_is_rejected() {
+        let root = temp_dir("dangling");
+        let outside = temp_dir("dangling-outside");
+        std::os::unix::fs::symlink(outside.join("missing.txt"), root.join("link.txt"))
+            .expect("symlink");
+
+        let context = ToolContext::new(root.clone());
+        assert!(matches!(
+            context.resolve("link.txt"),
+            Err(ToolError::PathEscape(_))
+        ));
+        assert!(matches!(
+            context.resolve_for_write("link.txt"),
+            Err(ToolError::PathEscape(_))
+        ));
+
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn symlink_inside_workspace_still_works() {
+        let root = temp_dir("inside");
+        std::fs::write(root.join("real.txt"), b"inside").expect("real");
+        std::os::unix::fs::symlink(root.join("real.txt"), root.join("link.txt")).expect("symlink");
+
+        let context = ToolContext::new(root.clone());
+        let resolved = context.resolve("link.txt").expect("resolve inside symlink");
+        assert_eq!(
+            resolved,
+            root.canonicalize()
+                .expect("canonical root")
+                .join("real.txt")
+        );
+        assert_eq!(context.read_text("link.txt").expect("read").1, "inside");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

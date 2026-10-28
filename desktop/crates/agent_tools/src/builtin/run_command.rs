@@ -216,9 +216,22 @@ fn shell_command(command: &str) -> Command {
     }
 }
 
-fn read_async(mut reader: impl Read + Send + 'static) -> Arc<Mutex<Vec<u8>>> {
+/// 输出读取线程：缓冲 + 「读完了」通知。
+///
+/// 子进程退出不等于管道已被读空（大输出时读线程还在跑），直接取缓冲会丢尾巴；
+/// 但后台子进程可能一直握着管道不放，所以等待必须有界。
+struct OutputReader {
+    buffer: Arc<Mutex<Vec<u8>>>,
+    done: std::sync::mpsc::Receiver<()>,
+}
+
+/// 取输出前等读线程收尾的上限。
+const OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(500);
+
+fn read_async(mut reader: impl Read + Send + 'static) -> OutputReader {
     let buffer = Arc::new(Mutex::new(Vec::new()));
     let target = Arc::clone(&buffer);
+    let (done, finished) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let mut chunk = [0u8; 8192];
         loop {
@@ -233,13 +246,22 @@ fn read_async(mut reader: impl Read + Send + 'static) -> Arc<Mutex<Vec<u8>>> {
                 Err(_) => break,
             }
         }
+        let _ = done.send(());
     });
-    buffer
+    OutputReader {
+        buffer,
+        done: finished,
+    }
 }
 
-fn join_output(buffer: Option<Arc<Mutex<Vec<u8>>>>) -> String {
-    match buffer {
-        Some(buffer) => String::from_utf8_lossy(&buffer.lock().expect("output buffer")).to_string(),
+fn join_output(reader: Option<OutputReader>) -> String {
+    match reader {
+        Some(reader) => {
+            // 等读线程把管道读空再快照；超时说明仍有子进程握着管道，
+            // 用已读到的内容收尾，不阻塞整轮对话。
+            let _ = reader.done.recv_timeout(OUTPUT_DRAIN_GRACE);
+            String::from_utf8_lossy(&reader.buffer.lock().expect("output buffer")).to_string()
+        }
         None => String::new(),
     }
 }
@@ -450,5 +472,43 @@ mod cancel_tests {
         assert!(!result.is_error, "{}", result.content);
         assert!(result.content.contains("done"));
         let _ = std::fs::remove_dir_all(&workspace);
+    }
+}
+
+/// 输出读线程与主线程的竞态（Codex review P2）：子进程已退出但读线程尚未读完时，
+/// 直接快照会丢掉尾部输出。
+#[cfg(test)]
+mod drain_tests {
+    use super::*;
+    use std::io::Read;
+
+    struct SlowReader {
+        chunk: Option<Vec<u8>>,
+        delay: Duration,
+    }
+
+    impl Read for SlowReader {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let Some(chunk) = self.chunk.take() else {
+                return Ok(0);
+            };
+            std::thread::sleep(self.delay);
+            buf[..chunk.len()].copy_from_slice(&chunk);
+            Ok(chunk.len())
+        }
+    }
+
+    #[test]
+    fn join_output_waits_for_reader_to_drain() {
+        let reader = read_async(SlowReader {
+            chunk: Some(b"tail-output".to_vec()),
+            delay: Duration::from_millis(80),
+        });
+        assert_eq!(join_output(Some(reader)), "tail-output");
+    }
+
+    #[test]
+    fn join_output_without_reader_is_empty() {
+        assert_eq!(join_output(None), String::new());
     }
 }
