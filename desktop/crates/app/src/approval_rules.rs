@@ -144,8 +144,8 @@ impl ApprovalRules {
             rules.tools.insert(tool.clone(), compiled);
         }
         for warning in &rules.warnings {
-            // 配置错误只记录、不 panic；不使用 tracing（app 无日志设施，MVP）。
-            eprintln!("[approval_rules] {warning}");
+            // 配置错误只记录、不 panic；日志走 `cgc_platform::logging` 的文件出口。
+            log::warn!(target: "approval_rules", "{warning}");
         }
         rules
     }

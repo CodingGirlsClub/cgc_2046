@@ -13,6 +13,17 @@ use std::path::Path;
 #[serde(default)]
 pub struct UserSettings {
     pub agent: AgentSettings,
+    pub api: ApiSettings,
+}
+
+/// 后端端点覆盖（`api.url`）。
+///
+/// 内测包把生产端点编进二进制（`CGC_DEFAULT_API_URL`）；这里给测试/排查留一个
+/// 不改包就能切后端（staging、本机）的出口，手改后重启生效。空白视为未设置。
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct ApiSettings {
+    pub url: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -78,7 +89,7 @@ pub fn load_default() -> UserSettings {
     match UserSettings::load(&path) {
         Ok(settings) => settings,
         Err(error) => {
-            eprintln!("[settings] {error}");
+            log::warn!(target: "settings", "{error}");
             UserSettings::default()
         }
     }
@@ -96,6 +107,27 @@ mod tests {
 
     fn settings(json: &str) -> UserSettings {
         serde_json::from_str(json).expect("parse settings")
+    }
+
+    #[test]
+    fn parses_api_url_override() {
+        let parsed = settings(
+            r#"{
+                "api": { "url": "https://settings.example/api/graphql" }
+            }"#,
+        );
+        assert_eq!(
+            parsed.api.url.as_deref(),
+            Some("https://settings.example/api/graphql")
+        );
+    }
+
+    #[test]
+    fn api_section_is_optional() {
+        let parsed = settings(r#"{"agent":{}}"#);
+        assert_eq!(parsed.api.url, None);
+        let parsed = settings(r#"{"api":{}}"#);
+        assert_eq!(parsed.api.url, None);
     }
 
     #[test]

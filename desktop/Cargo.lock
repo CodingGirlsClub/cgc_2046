@@ -896,28 +896,28 @@ checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
 name = "cgc-account"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "cgc-platform",
 ]
 
 [[package]]
 name = "cgc-agent-checkpoint"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "thiserror 1.0.69",
 ]
 
 [[package]]
 name = "cgc-agent-conversation"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "cgc-agent-core"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "cgc-agent-provider",
  "cgc-agent-tools",
@@ -929,7 +929,7 @@ dependencies = [
 
 [[package]]
 name = "cgc-agent-demo"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "cgc-agent-core",
  "cgc-agent-provider",
@@ -940,7 +940,7 @@ dependencies = [
 
 [[package]]
 name = "cgc-agent-host"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "agent-client-protocol",
  "cgc-agent-conversation",
@@ -955,7 +955,7 @@ dependencies = [
 
 [[package]]
 name = "cgc-agent-provider"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "futures",
  "serde",
@@ -966,7 +966,7 @@ dependencies = [
 
 [[package]]
 name = "cgc-agent-store"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "cgc-agent-checkpoint",
  "cgc-agent-conversation",
@@ -980,7 +980,7 @@ dependencies = [
 
 [[package]]
 name = "cgc-agent-tools"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "cgc-agent-provider",
  "cgc-platform",
@@ -992,7 +992,7 @@ dependencies = [
 
 [[package]]
 name = "cgc-agent-ui"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "cgc-agent-conversation",
  "cgc-platform",
@@ -1001,7 +1001,7 @@ dependencies = [
 
 [[package]]
 name = "cgc-courses"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "cgc-platform",
  "serde_json",
@@ -1009,7 +1009,7 @@ dependencies = [
 
 [[package]]
 name = "cgc-desktop-app"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "agent-client-protocol",
  "base64 0.22.1",
@@ -1028,6 +1028,7 @@ dependencies = [
  "futures",
  "gpui-kit",
  "image",
+ "log",
  "qrcode",
  "ratex-gpui",
  "regex",
@@ -1039,7 +1040,7 @@ dependencies = [
 
 [[package]]
 name = "cgc-events"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "cgc-platform",
  "serde_json",
@@ -1047,13 +1048,15 @@ dependencies = [
 
 [[package]]
 name = "cgc-platform"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "agent-client-protocol",
  "base64 0.22.1",
+ "chrono",
  "ed25519-dalek",
  "futures",
  "interprocess",
+ "log",
  "png 0.18.1",
  "security-framework",
  "serde_json",
@@ -1065,21 +1068,21 @@ dependencies = [
 
 [[package]]
 name = "cgc-platform-linux"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "cgc-platform",
 ]
 
 [[package]]
 name = "cgc-platform-macos"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "cgc-platform",
 ]
 
 [[package]]
 name = "cgc-platform-windows"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "cgc-platform",
 ]

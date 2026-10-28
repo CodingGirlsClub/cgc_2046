@@ -96,10 +96,11 @@ impl GraphqlClient {
         self.timeout
     }
 
+    /// 解析当前端点：`CGC_API_URL` > `settings.json` 的 `api.url` > 编译期默认值。
+    ///
+    /// 发布构建把默认端点编进二进制（`CGC_DEFAULT_API_URL`），用户双击启动也能连上后端。
     pub fn from_env() -> Self {
-        let endpoint = std::env::var("CGC_API_URL")
-            .unwrap_or_else(|_| "http://localhost:4000/api/graphql".to_string());
-        Self::new(endpoint)
+        Self::new(crate::runtime::api_endpoint())
     }
 
     pub fn endpoint(&self) -> &str {

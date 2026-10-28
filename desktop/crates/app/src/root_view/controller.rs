@@ -357,7 +357,7 @@ impl RootView {
             Ok(items) => items,
             Err(error) => {
                 if !matches!(error, cgc_platform::api::ApiError::Unauthorized) {
-                    eprintln!("notification feed failed: {error:?}");
+                    log::warn!(target: "notifications", "通知列表拉取失败：{error:?}");
                 }
                 return;
             }
@@ -549,7 +549,7 @@ impl RootView {
                 self.consume_pending_link();
             }
             Err(error) => {
-                eprintln!("desktop deep link rejected: {error:?}");
+                log::warn!(target: "deeplink", "深链被拒绝：{error:?}");
                 self.pending_link = None;
                 self.navigate("/workspace");
                 self.pane_notice =
@@ -1017,7 +1017,8 @@ impl RootView {
                     node_found,
                 }
             })?;
-            let endpoint = mcp_endpoint(std::env::var("CGC_API_URL").ok().as_deref());
+            // `None`：用当前生效端点（env > settings.json > 编译期默认值），与 GraphQL 同源。
+            let endpoint = mcp_endpoint(None);
             let server = build_mcp_server(&chosen.entry, &lease, &endpoint);
             Ok::<PreparedChat, ChatStartError>(PreparedChat {
                 agent_id: chosen.entry.id.clone(),
@@ -1865,7 +1866,7 @@ impl RootView {
             return;
         };
         if let Err(error) = writer.flush(std::time::Duration::from_millis(1500)) {
-            eprintln!("[store] 退出前落盘未确认：{error}");
+            log::warn!(target: "store", "退出前落盘未确认：{error}");
         }
     }
 

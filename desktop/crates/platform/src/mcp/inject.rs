@@ -14,8 +14,11 @@ use crate::registry::manifest::AgentEntry;
 pub type McpServerConfig = McpServer;
 
 /// 由 GraphQL 端点推导 MCP 端点：`…/api/graphql` → `…/mcp`，否则补 `/mcp`。
+///
+/// `None` 时用当前生效端点（`runtime::api_endpoint()`），与 GraphQL 客户端同源。
 pub fn mcp_endpoint(api_url: Option<&str>) -> String {
-    let base = api_url.unwrap_or("http://localhost:4000/api/graphql");
+    let resolved = crate::runtime::api_endpoint();
+    let base = api_url.unwrap_or(resolved.as_str());
     let base = base.trim_end_matches('/');
     if let Some(prefix) = base.strip_suffix("/api/graphql") {
         return format!("{prefix}/mcp");

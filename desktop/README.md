@@ -66,11 +66,13 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-默认连真实后端（`http://localhost:4000/api/graphql`，可用 `CGC_API_URL` 覆盖）；只有显式
+默认连真实后端（`http://localhost:4000/api/graphql`，可用 `CGC_API_URL` 或
+`~/.cgc2046/settings.json` 的 `api.url` 覆盖）；只有显式
 `CGC_AUTH=fake` 才使用本地假数据（无后端跑 UI 或单测）。界面不暴露演示账号，发布形态
 不依赖任何演示数据。
 
-`CGC_LANG=zh|en` 选择启动语言（默认 zh），`CGC_THEME=light|dark|system` 覆盖主题。
+`CGC_LANG=zh|en` 选择启动语言（默认 zh），`CGC_THEME=light|dark|system` 覆盖主题，
+`CGC_LOG=error|warn|info|debug|trace` 调日志级别（默认 info，文件见「内测分发」）。
 
 ## 单实例与深链
 
@@ -195,6 +197,31 @@ bash scripts/verify-package.sh                          # Windows: pwsh scripts/
 
 - 产物未签名：证书暂无（ADR-0027 决策 2/3），签名、公证与自动更新归 epic-6（`epic-distribution-integration`）。
 - macOS 产物为 runner 原生架构（arm64）；x86_64 与 universal 留给 epic-6/7。
+
+## 内测分发（无证书）
+
+内测包由用户双击 `.app` 启动，**拿不到 shell 环境变量**，所以后端端点与运行环境必须编进二进制：
+
+```bash
+cd desktop
+CGC_DEFAULT_API_URL=https://codinggirlsclub.com/api/graphql \
+CGC_DEFAULT_ENV=prod \
+  cargo packager -p cgc-desktop-app --release -f dmg
+```
+
+- `CGC_DEFAULT_API_URL` / `CGC_DEFAULT_ENV` 由 `crates/platform/build.rs` 登记，进
+  `runtime::api_endpoint()` 与 `paths::AppPaths::from_env()`；不注入时行为不变（本机端点 + dev 数据根）。
+- 解析顺序：`CGC_API_URL` 环境变量 > `~/.cgc2046/settings.json` 的 `api.url` > 编译期默认值。
+  给测试同学切后端只改这一行，不用重打包：
+
+  ```json
+  { "api": { "url": "https://codinggirlsclub.com/api/graphql" } }
+  ```
+- 日志：`<data_root>/logs/app.log`（prod 为 `~/Library/Application Support/cgc-desktop/logs/app.log`），
+  5 MB 轮转保留一份历史；级别用 `CGC_LOG=error|warn|info|debug|trace`（默认 `info`）。
+  写入前统一过 `telemetry::redact_sensitive`（token/手机号/邮箱不进日志），panic 也落到同一文件。
+- 未签名包的 Gatekeeper 绕过与下载方式见发布说明（建议 `curl -L -o` 下载后拖入 `/Applications`，
+  curl 不写 quarantine 属性；浏览器下载则需 `xattr -dr com.apple.quarantine`）。
 
 ## 设计与文案基座（stories 1.2–1.4）
 

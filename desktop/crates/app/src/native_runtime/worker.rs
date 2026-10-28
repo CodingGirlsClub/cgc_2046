@@ -238,8 +238,9 @@ impl Owner {
         };
         owner.rebuild_tools();
         owner.reload_checkpoints();
-        eprintln!(
-            "[native] init config={:?} store={:?} checkpoints={:?} total={:?}",
+        log::info!(
+            target: "native",
+            "init config={:?} store={:?} checkpoints={:?} total={:?}",
             after_config,
             after_store - after_config,
             after_checkpoints - after_store,

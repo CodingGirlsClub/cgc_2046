@@ -13,12 +13,30 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 fn main() {
+    let paths = cgc_platform::paths::AppPaths::from_env();
+    // 日志先于一切：用户双击 .app 启动时 stderr 不可见，出问题只能靠文件取证。
+    let log_path = cgc_platform::logging::init(&paths.data_root);
+    cgc_platform::logging::install_panic_hook();
     cgc_platform::telemetry::install_panic_hook_from_env();
+    // `~/.cgc2046/settings.json` 的 `api.url`：不改包就能切后端。
+    let user_settings = cgc_desktop_app::user_settings::load_default();
+    cgc_platform::runtime::set_settings_api_url(user_settings.api.url.clone());
+    log::info!(
+        target: "app",
+        "启动 env={:?} data_root={} endpoint={} log={}",
+        paths.environment,
+        paths.data_root.display(),
+        cgc_platform::runtime::api_endpoint(),
+        log_path
+            .as_deref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "<disabled>".to_string()),
+    );
+
     let registry = build_registry().expect("route registration must be valid");
     validate(&registry).expect("i18n registration must be valid");
     let startup_registry = registry.clone();
 
-    let paths = cgc_platform::paths::AppPaths::from_env();
     let environment = format!("{:?}", paths.environment).to_ascii_lowercase();
     let initial_urls = std::env::args()
         .skip(1)
@@ -29,7 +47,7 @@ fn main() {
             Ok(cgc_platform::instance::InstanceStart::Owner(instance)) => Some(instance),
             Ok(cgc_platform::instance::InstanceStart::HandedOff) => return,
             Err(error) => {
-                eprintln!("desktop instance coordination unavailable: {error}");
+                log::error!(target: "app", "单实例协调不可用：{error}");
                 None
             }
         };
@@ -135,7 +153,7 @@ fn main() {
             match cgc_platform::tray::create(include_bytes!("../icons/32x32.png"), labels) {
                 Ok(tray) => view.update(cx, |this, cx| this.install_tray(tray, cx)),
                 Err(error) => {
-                    eprintln!("desktop tray unavailable: {error}");
+                    log::warn!(target: "app", "托盘不可用：{error}");
                     view.update(cx, |this, _| this.set_close_to_tray(false));
                 }
             }

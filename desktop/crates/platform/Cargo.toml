@@ -16,6 +16,10 @@ ureq = { version = "3.4", features = ["json"] }
 interprocess = "2.4"
 tray-icon = { version = "0.26", default-features = false, features = ["ksni"] }
 png = "0.18"
+# 本地文件日志（内测取证）：log 是门面，实现见 `logging`。MIT OR Apache-2.0。
+log = "0.4"
+# 日志时间戳（本地时区，便于和用户反馈时间对照）。MIT OR Apache-2.0。
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "3.7"

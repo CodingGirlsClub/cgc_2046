@@ -2,7 +2,10 @@
 //!
 //! dev / staging / prod 使用不同的数据根、缓存根与 keychain service，避免误读写
 //! 生产凭证与数据；`CGC_ENV` 显式指定，`CGC_DATA_DIR`/`CGC_CACHE_DIR` 可覆盖。
-//! 默认（未指定）为 dev，生产构建必须显式 `CGC_ENV=prod`。
+//!
+//! 默认（未指定）为 dev；发布构建可用编译期 `CGC_DEFAULT_ENV=prod` 把默认值编进二进制
+//! （见 `runtime::build_default_environment`）——用户双击 `.app` 启动时拿不到 shell
+//! 环境变量，只能靠这条路径进生产数据根。
 
 use std::path::PathBuf;
 
@@ -66,17 +69,28 @@ pub struct AppPaths {
 }
 
 impl AppPaths {
+    /// 解析当前进程路径：`CGC_ENV` > 发布构建默认值 > dev。
     pub fn from_env() -> Self {
-        Self::resolve(std::env::var("CGC_ENV").ok().as_deref(), |key| {
-            std::env::var_os(key).map(PathBuf::from)
-        })
+        let explicit = std::env::var("CGC_ENV").ok();
+        let environment = crate::runtime::resolve_environment(
+            explicit.as_deref(),
+            crate::runtime::build_default_environment(),
+        );
+        Self::from_environment(environment, |key| std::env::var_os(key).map(PathBuf::from))
     }
 
-    /// 可注入 env 读取器（测试用），不直接改进程环境。
+    /// 可注入 env 读取器（测试用），不直接改进程环境；未指定环境按 dev。
     pub fn resolve(env_value: Option<&str>, env_path: impl Fn(&str) -> Option<PathBuf>) -> Self {
         let environment = env_value
             .and_then(AppEnvironment::parse)
             .unwrap_or(AppEnvironment::Dev);
+        Self::from_environment(environment, env_path)
+    }
+
+    fn from_environment(
+        environment: AppEnvironment,
+        env_path: impl Fn(&str) -> Option<PathBuf>,
+    ) -> Self {
         let suffix = environment.suffix();
         let home = env_path("HOME").unwrap_or_else(std::env::temp_dir);
         let data_base = if cfg!(target_os = "macos") {

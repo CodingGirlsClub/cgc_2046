@@ -186,11 +186,9 @@ impl HttpAuthApi {
         }
     }
 
-    /// 默认本地后端端点，可用 `CGC_API_URL` 覆盖（如 staging / 生产）。
+    /// 解析当前端点：`CGC_API_URL` > `settings.json` 的 `api.url` > 编译期默认值。
     pub fn from_env() -> Self {
-        let endpoint = std::env::var("CGC_API_URL")
-            .unwrap_or_else(|_| "http://localhost:4000/api/graphql".to_string());
-        Self::new(endpoint)
+        Self::new(crate::runtime::api_endpoint())
     }
 
     fn post(&self, token: Option<&str>, query: &str, variables: Value) -> Result<Value, AuthError> {

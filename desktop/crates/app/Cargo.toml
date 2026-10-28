@@ -33,6 +33,8 @@ cgc-agent-checkpoint = { path = "../agent_checkpoint" }
 cgc-courses.workspace = true
 cgc-events.workspace = true
 cgc-platform.workspace = true
+# 本地文件日志门面；文件出口在 cgc-platform::logging。MIT OR Apache-2.0。
+log = "0.4"
 
 # cargo-packager 配置（story 1.13）；格式由 CI 的 --formats 指定（dmg / wix / deb,appimage）。
 # 未签名产物：签名与公证归 epic-6（ADR-0027 决策 2/3）。

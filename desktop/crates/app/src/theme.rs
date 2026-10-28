@@ -52,7 +52,10 @@ pub fn preference_from_value(value: Option<&str>) -> ThemePreference {
         Some("dark") => ThemePreference::Dark,
         Some("system") | None => ThemePreference::System,
         Some(other) => {
-            eprintln!("CGC_THEME=`{other}` 无法识别，回退 system（可选 light|dark|system）");
+            log::warn!(
+                target: "theme",
+                "CGC_THEME=`{other}` 无法识别，回退 system（可选 light|dark|system）"
+            );
             ThemePreference::System
         }
     }
@@ -169,7 +172,7 @@ pub fn save_selected_theme(name: &str) {
         let _ = std::fs::create_dir_all(parent);
     }
     if let Err(error) = std::fs::write(&path, name) {
-        eprintln!("theme: save selection failed: {error}");
+        log::warn!(target: "theme", "保存主题选择失败：{error}");
     }
 }
 

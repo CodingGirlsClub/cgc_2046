@@ -21,7 +21,9 @@ members = [
 ]
 
 [workspace.package]
-version = "0.0.1"
+# 内测版起 0.1.0：每代构建靠 commit 区分（产物名 cgc2046_<version>_<commit>_<arch>）。
+# 不用 prerelease 后缀（0.1.0-test.1）：macOS 的 CFBundleShortVersionString 只接受数字点分。
+version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-only"
 rust-version = "1.98"
