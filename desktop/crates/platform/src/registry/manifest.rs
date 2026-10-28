@@ -292,9 +292,12 @@ mod tests {
     fn crlf_checked_out_manifest_still_verifies() {
         // Windows 检出会把清单变成 CRLF；归一化后必须还能验签，
         // 否则 Windows 构建出的客户端内置 registry 全废。
-        let crlf = BUILTIN_MANIFEST.replace('\n', "\r\n");
-        assert_ne!(crlf, BUILTIN_MANIFEST);
-        assert_eq!(normalize_line_endings(&crlf), BUILTIN_MANIFEST);
+        // 基线先归一化成 LF：Windows 上 `include_str!` 读到的本来就是 CRLF，
+        // 直接 replace 会造出 `\r\r\n` 这种非法输入。
+        let lf_manifest = normalize_line_endings(BUILTIN_MANIFEST);
+        let crlf = lf_manifest.replace('\n', "\r\n");
+        assert_ne!(crlf, lf_manifest);
+        assert_eq!(normalize_line_endings(&crlf), lf_manifest);
         // 未归一化的 CRLF 载荷验签必然失败——这一步不是可选的。
         assert_eq!(
             Registry::from_signed(

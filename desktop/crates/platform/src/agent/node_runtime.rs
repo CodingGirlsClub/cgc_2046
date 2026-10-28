@@ -59,7 +59,8 @@ pub fn current_artifact() -> Option<NodeArtifact> {
     })
 }
 
-/// runtime 根目录：`<data>/node24`，其下含 `bin/node`、`bin/npx`。
+/// runtime 根目录：`<data>/node24`。Unix 下含 `bin/node`、`bin/npx`；
+/// Windows 下是根目录的 `node.exe`、`npx.cmd`（官方 zip 解压布局）。
 pub fn default_root() -> PathBuf {
     crate::paths::AppPaths::from_env().node_runtime_root()
 }
@@ -146,9 +147,11 @@ impl NodeRuntimeManager {
     }
 
     pub fn status(&self) -> RuntimeStatus {
-        let node = self.root.join("bin/node");
-        let npx = self.root.join("bin/npx");
-        if node.is_file() && npx.is_file() {
+        // 布局必须和 `NodeRuntime` 同源：Unix 是 `bin/node` + `bin/npx`，
+        // Windows 是根目录下的 `node.exe` + `npx.cmd`（Node 官方 zip 解压即如此）。
+        // 这里硬写 `bin/node` 的话，Windows 上会永远判「未安装」，npx 类 agent 起不来。
+        let runtime = crate::agent::launch::NodeRuntime::new(&self.root);
+        if runtime.exists() {
             RuntimeStatus::Installed {
                 version: NODE_VERSION.to_string(),
             }
@@ -318,11 +321,21 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("cgc-node-ok-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("mkdir");
-        // 先构造一个最小 tar.xz：node-vX/bin/node、bin/npx。
+        // 先构造一个最小 tar.xz，布局按平台来：Unix 是 node-vX/bin/node，
+        // Windows 是 node-vX/node.exe（与官方 zip 解压后的形态一致），
+        // 否则 status() 在 Windows 上会判成 Missing。
+        let (node_rel, npx_rel) = if cfg!(windows) {
+            ("node.exe", "npx.cmd")
+        } else {
+            ("bin/node", "bin/npx")
+        };
         let source = dir.join("source");
-        std::fs::create_dir_all(source.join("node-v24.22.0-test/bin")).expect("src");
-        std::fs::write(source.join("node-v24.22.0-test/bin/node"), b"#!/bin/sh\n").expect("node");
-        std::fs::write(source.join("node-v24.22.0-test/bin/npx"), b"#!/bin/sh\n").expect("npx");
+        let archive_root = source.join("node-v24.22.0-test");
+        for rel in [node_rel, npx_rel] {
+            let path = archive_root.join(rel);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("src");
+            std::fs::write(path, b"#!/bin/sh\n").expect("runtime file");
+        }
         let tar_path = dir.join("fake.tar");
         let status = std::process::Command::new("tar")
             .args([

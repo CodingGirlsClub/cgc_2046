@@ -86,6 +86,9 @@ fn start_owner(listener: interprocess::local_socket::Listener) -> std::io::Resul
 fn is_address_in_use(error: &std::io::Error) -> bool {
     error.kind() == std::io::ErrorKind::AddrInUse
         || matches!(error.raw_os_error(), Some(48 | 98 | 231))
+        // Windows 命名管道已被占用时 CreateNamedPipeW 返回 ERROR_ACCESS_DENIED(5)，
+        // 不是 AddrInUse。不认这条，第二个实例不会把参数交给 owner，而是直接报错退出。
+        || (cfg!(windows) && error.raw_os_error() == Some(5))
         || error
             .to_string()
             .to_ascii_lowercase()

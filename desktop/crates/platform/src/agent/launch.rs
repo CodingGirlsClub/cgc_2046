@@ -234,12 +234,14 @@ mod tests {
     #[test]
     fn npx_plan_uses_pinned_package_and_managed_npx() {
         let dir = std::env::temp_dir().join(format!("cgc-node-{}", std::process::id()));
-        std::fs::create_dir_all(dir.join("bin")).expect("mkdir");
-        std::fs::write(dir.join("bin/node"), b"#!/bin/sh\n").expect("node");
-        std::fs::write(dir.join("bin/npx"), b"#!/bin/sh\n").expect("npx");
         let runtime = NodeRuntime::new(&dir);
+        // 夹具按平台布局落文件：Unix 是 bin/node + bin/npx，Windows 是
+        // node.exe + npx.cmd（否则 exists() 在 Windows 上永远为假）。
+        std::fs::create_dir_all(runtime.bin_dir()).expect("mkdir");
+        std::fs::write(runtime.node(), b"#!/bin/sh\n").expect("node");
+        std::fs::write(runtime.npx(), b"#!/bin/sh\n").expect("npx");
         let plan = build_launch(&entry("codex"), Some(&runtime), Path::new("/tmp")).expect("plan");
-        assert_eq!(plan.program, dir.join("bin/npx"));
+        assert_eq!(plan.program, runtime.npx());
         assert_eq!(
             plan.args,
             vec![

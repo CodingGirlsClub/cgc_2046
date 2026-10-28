@@ -197,10 +197,12 @@ mod tests {
 
     fn runtime() -> NodeRuntime {
         let root = std::env::temp_dir().join(format!("cgc-install-node-{}", std::process::id()));
-        std::fs::create_dir_all(root.join("bin")).expect("mkdir");
-        std::fs::write(root.join("bin/node"), b"#!/bin/sh\n").expect("node");
-        std::fs::write(root.join("bin/npx"), b"#!/bin/sh\n").expect("npx");
-        NodeRuntime::new(root)
+        let runtime = NodeRuntime::new(root);
+        // 与 NodeRuntime 的平台布局保持一致（Windows 是 node.exe + npx.cmd）。
+        std::fs::create_dir_all(runtime.bin_dir()).expect("mkdir");
+        std::fs::write(runtime.node(), b"#!/bin/sh\n").expect("node");
+        std::fs::write(runtime.npx(), b"#!/bin/sh\n").expect("npx");
+        runtime
     }
 
     #[test]

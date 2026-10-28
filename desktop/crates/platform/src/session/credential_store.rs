@@ -352,7 +352,12 @@ fn credential_error(action: &str, error: windows::core::Error) -> io::Error {
 
 #[cfg(target_os = "windows")]
 fn credential_not_found(error: &windows::core::Error) -> bool {
-    error.code().0 as u32 == windows::Win32::Foundation::ERROR_NOT_FOUND.0
+    // Win32 错误经 windows-rs 包成 HRESULT（ERROR_NOT_FOUND → 0x8007_0490），
+    // 直接和 1168(0x490) 比永远不等：删除不存在的凭据会被当成失败，
+    // `clear()` 因此不幂等（macOS/Linux 的实现都是幂等的）。
+    let code = error.code().0 as u32;
+    let raw = windows::Win32::Foundation::ERROR_NOT_FOUND.0;
+    code == raw || code & 0xFFFF == raw
 }
 
 #[cfg(target_os = "windows")]
