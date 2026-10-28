@@ -10,12 +10,21 @@ use cgc_agent_tools::{
 use cgc_platform::session::KeychainStore;
 use std::sync::Weak;
 
+/// 启动时**不读钥匙串**：先发布快照让界面可用，首次 turn 前再解析（见 `resolve_pending_key`）。
+/// 真机上钥匙串读取在无授权时会阻塞 8–11s，放在初始化路径会让窗口一直停在载入态。
+#[derive(Clone, Debug)]
+pub(super) struct PendingCredentials {
+    pub provider_id: String,
+    pub base_url: String,
+}
+
 pub(super) struct Production {
     pub host: NativePanelHost,
     pub providers: Arc<Vec<ProviderPrefs>>,
     pub data_root: PathBuf,
     pub keychain: KeychainStore,
     pub using_echo: bool,
+    pub pending: Option<PendingCredentials>,
 }
 
 pub(super) fn initialize(
@@ -71,13 +80,19 @@ pub(super) fn initialize(
         .ok()
         .filter(|value| !value.is_empty())
         .or_else(|| active.map(|provider| provider.base_url.clone()));
-    let api_key = std::env::var("CGC_AGENT_API_KEY")
+    // 只读环境变量：钥匙串留到首次 turn（Production::pending）。
+    let env_key = std::env::var("CGC_AGENT_API_KEY")
         .ok()
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
-            active.and_then(|provider| keychain.load_secret(&provider_key_account(&provider.id)))
-        });
-    let (provider, using_echo) = provider(&model, base_url, api_key);
+        .filter(|value| !value.is_empty());
+    let pending = match (&env_key, &base_url) {
+        (Some(_), _) => None,
+        (None, Some(url)) if !url.is_empty() => Some(PendingCredentials {
+            provider_id: model.provider_id.as_str().to_string(),
+            base_url: url.clone(),
+        }),
+        _ => None,
+    };
+    let (provider, using_echo) = provider(&model, base_url, env_key);
     let agent = Agent::new(
         Thread::new(
             format!("native-{}", scope.key),
@@ -104,6 +119,7 @@ pub(super) fn initialize(
             data_root,
             keychain,
             using_echo,
+            pending,
         },
     ))
 }
@@ -167,6 +183,30 @@ pub(super) fn select_model(
         .save(&prefs)
         .map_err(|error| NativeRuntimeError::Storage(error.to_string()))?;
     Ok((provider, model))
+}
+
+/// 首次 turn 前解析一次待定的钥匙串凭据（可能阻塞，但此时用户已主动发送）。
+pub(super) fn resolve_pending_key(
+    production: &mut Production,
+    config: &mut NativeRuntimeConfig,
+) -> bool {
+    let Some(pending) = production.pending.clone() else {
+        return false;
+    };
+    let key = production
+        .keychain
+        .load_secret(&provider_key_account(&pending.provider_id))
+        .filter(|key| !key.is_empty());
+    production.pending = None;
+    let Some(key) = key else {
+        // 失败保持 echo；下次 turn 不再重试，避免每次发送都阻塞。
+        production.using_echo = true;
+        return false;
+    };
+    let (provider, using_echo) = provider(&config.model, Some(pending.base_url), Some(key));
+    production.using_echo = using_echo;
+    config.provider = provider;
+    true
 }
 
 pub(super) fn base_tools(

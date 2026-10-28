@@ -81,6 +81,14 @@ impl Owner {
             steer: agent.steer_sender(),
         });
         let mut config = self.config.clone();
+        // 凭据在首次 turn 前解析；启动路径不再碰钥匙串（真机会阻塞）。
+        if let Some(production) = self.production.as_mut() {
+            if factory::resolve_pending_key(production, &mut self.config) {
+                config.provider = self.config.provider.clone();
+                self.notice("已读取本机保存的 Provider Key，使用真实模型".into());
+                self.publish(RuntimeChange::Configuration);
+            }
+        }
         // 让工具（尤其是 run_command）能在 Stop 后立刻收尾，而不是等自身 timeout。
         config.context = config
             .context
