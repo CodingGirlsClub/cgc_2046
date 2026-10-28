@@ -150,14 +150,19 @@ pub(crate) fn assemble(
     tools: Vec<ToolSchema>,
     model: &Model,
     reasoning_effort: Option<String>,
+    temperature: Option<f32>,
     output_limit: Option<usize>,
 ) -> Request {
-    Request::new(messages)
+    let request = Request::new(messages)
         .with_tools(tools)
         .with_reasoning_effort(reasoning_effort)
         .with_max_output_tokens(
             output_limit.map_or(model.limits.max_output_tokens, |limit| limit as u32),
-        )
+        );
+    match temperature {
+        Some(temperature) => request.with_temperature(temperature),
+        None => request,
+    }
 }
 
 pub(crate) fn input_capacity(model: &Model) -> usize {
@@ -198,7 +203,9 @@ fn coverage(entry: &Entry) -> usize {
     }
 }
 
-pub(crate) fn project_thread(thread: &Thread) -> Vec<Message> {
+/// 把整个 thread 投影成 provider 消息（含压缩摘要边界，保留工具调用/结果与图片）。
+/// 标题生成等「旁路请求」与 turn 共用同一份历史投影，避免两套裁剪语义。
+pub fn project_thread(thread: &Thread) -> Vec<Message> {
     let summary = valid_summary(thread);
     let start = summary.map_or(0, |index| coverage(&thread.entries[index]));
     let mut messages = Vec::new();

@@ -46,6 +46,7 @@ impl Agent {
             tools,
             model,
             self.reasoning_effort.clone(),
+            self.temperature,
             None,
         ))
     }
@@ -147,6 +148,7 @@ impl Agent {
             vec![],
             model,
             reasoning_effort.map(str::to_string),
+            None,
             Some(output_limit),
         );
         let mut stream = provider.stream(model, request).await.ok()?;

@@ -39,4 +39,5 @@ pub mod routing;
 pub(crate) mod settings_provider;
 pub mod settings_window;
 pub mod theme;
+pub mod user_settings;
 pub mod workspace_state;

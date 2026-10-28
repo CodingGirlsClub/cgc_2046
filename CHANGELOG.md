@@ -21,7 +21,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ### Added
 - [Desktop] 登录页新增**微信扫码登录**：客户端向小程序授权页出示二维码，学员用微信扫码并在小程序内确认后，客户端经响应体换取第一方 Bearer token（不写 cookie、不跳浏览器）。后端新增 `wechatMiniWebLoginStartForDesktop` / `wechatMiniWebLoginStatusForDesktop` / `wechatMiniWebLoginConsumeForDesktop` / `wechatMiniWebLoginCancelForDesktop` 四个第一方变体，复用既有小程序授权请求、10 分钟有效期与限流；一次性 proof 只在 start 响应里交付、只存客户端内存。扫码授权与 web 登录共用同一条 approval，桌面 token 带 `platform=desktop` claim。
 - [Web] 工作台缴费管理升级为订单台账：报名人改为显示**掩码手机号**（小程序用户不再是一行「—」）与**会员号**，有邮箱的用户以邮箱兜底；新增「活动/课程」列（标题 + 类型）与「下单时间」；每行可展开查看商户单号、渠道交易号、时间线与押金同意留痕；退款失败的行可直接「重试退款」；订单列表改为分页加载，不再静默截断在 50 条。活动/课程详情页的收款面板同步使用同一套列与操作资格（免缴按报名状态判定，与后端一致）。
-- [Desktop] native Agent 的 **Thread Title** 恢复自动生成并升级为后台任务（对齐 Zed）：turn 完成后标题为空即生成，不再阻塞下一轮对话；可在「设置 › AI › 通用」为标题摘要单独选模型（未配置/不可用时回退当前对话模型）。标题生成中 header 显示呼吸态，失败时保留诊断并给出点击重试入口。
+- [Desktop] native Agent 的 **Thread Title** 恢复自动生成并升级为后台任务（对齐 Zed）：turn 完成后标题为空即生成，不再阻塞下一轮对话；标题摘要模型（`agent.thread_summary_model`）与采样温度（`agent.model_parameters`）改为用户设置文件（macOS `~/.cgc2046/settings.json`、Linux `~/.config/cgc2046/settings.json`、Windows `%APPDATA%\cgc2046\settings.json`）配置，对齐 Zed 且不再提供 GUI，未配置/不可用时回退当前对话模型。标题生成中 header 显示呼吸态，失败时保留诊断并给出点击重试入口。生成请求按 Zed 对齐：全量历史 + summarize prompt，temperature 普通 turn 与标题请求都生效。
 - [本机 Host] 按 ACP initialize 的能力协商会话恢复与 MCP 下发：从握手读取协议版本、`loadSession`、`session/list` 与 HTTP MCP 能力（字段缺失按支持处理，兼容旧适配器）；协议版本不一致的适配器不再被当成可用，明确不支持 HTTP MCP 或无法核实会话归属时给出可诊断的降级（清指针、从新对话开始，`chat.sessions` 回空列表）。
 
 ### Changed

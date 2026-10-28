@@ -5,6 +5,33 @@
 `_bmad-output/initiative-desktop/architecture-desktop/architecture-desktop.md`（脊柱 AD-1 至 AD-24）
 与 `docs/adr/0024-0027`。
 
+## 用户设置文件（`settings.json`）
+
+对齐 Zed 的 `settings.json`：GUI 不管理的参数放这里，手改后下一次请求即时生效，无需重启。
+
+```json
+{
+  "agent": {
+    "thread_summary_model": { "provider": "deepseek", "model": "deepseek-flash" },
+    "model_parameters": [
+      { "provider": "deepseek", "model": "deepseek-flash", "temperature": 0.2 }
+    ]
+  }
+}
+```
+
+- 位置（与 Zed 的 per-OS 配置目录一致）：
+  - macOS：`~/.cgc2046/settings.json`
+  - Linux：`$XDG_CONFIG_HOME/cgc2046/settings.json`（默认 `~/.config/cgc2046/settings.json`）
+  - Windows：`%APPDATA%\cgc2046\settings.json`
+  - 测试/QA 可用 `CGC_SETTINGS_FILE` 覆盖整个路径。
+- `thread_summary_model`：Thread Title 使用的独立模型（`provider` + `model`）；未配置、模型禁用、
+  provider 没存 key 时回退当前对话模型。设置页不再提供该配置。
+- `model_parameters`：`provider` / `model` 均可省略；**从后往前**第一条匹配生效，命中条目即使
+  `temperature` 为 `null` 也不再继续向前找（与 Zed `AgentSettings::temperature_for_model` 一致）。
+  温度作用于 native agent 的普通 turn 与 thread title 请求；未配置时不下发，保持模型默认采样。
+- 文件缺失 = 默认设置；JSON 非法会打印诊断并回退默认，不阻塞启动。当前只支持标准 JSON（不支持注释）。
+
 ## native 面板结构（Stage 3 Phase B）
 
 - `crates/app/src/native_agent_view/mod.rs` 是模块根（类型 + 结构体 + `mod` 声明，约 411 行）；

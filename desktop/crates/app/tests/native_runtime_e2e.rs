@@ -127,7 +127,7 @@ impl Provider for BackgroundTitleProvider {
         let is_title = request
             .messages
             .iter()
-            .any(|message| message.text().contains("12 个汉字"));
+            .any(|message| message.text().contains("简洁的标题"));
         if is_title {
             let (sender, receiver) = futures::channel::mpsc::unbounded();
             let delay = self.title_delay;
@@ -217,15 +217,26 @@ fn completed_turn_generates_thread_title_once() {
         title_request
             .messages
             .iter()
-            .any(|message| message.text().contains("12 个汉字")),
-        "第二次请求应是标题生成提示: {title_request:?}"
+            .any(|message| message.text().contains("简洁的标题")),
+        "标题请求应使用 Zed 的 summarize_thread 提示: {title_request:?}"
     );
     assert!(
         title_request
             .messages
             .iter()
-            .any(|message| message.text().contains("用户：hi")),
-        "标题请求应携带首条用户消息: {title_request:?}"
+            .any(|message| message.text() == "hi"),
+        "标题请求应携带全量历史（含会话原文）: {title_request:?}"
+    );
+    assert!(
+        title_request.messages.len() >= 3,
+        "标题请求 = 历史消息 + 末尾提示: {title_request:?}"
+    );
+    assert!(
+        title_request
+            .messages
+            .last()
+            .is_some_and(|message| message.text().contains("简洁的标题")),
+        "摘要提示应在消息末尾: {title_request:?}"
     );
 
     // 标题已存在后，后续成功 turn 不得重复生成标题。

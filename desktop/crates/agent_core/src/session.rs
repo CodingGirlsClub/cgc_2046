@@ -142,6 +142,8 @@ pub struct Agent {
     steer_tx: mpsc::Sender<String>,
     steer_rx: mpsc::Receiver<String>,
     reasoning_effort: Option<String>,
+    /// 采样温度；`None` = 不下发（provider 默认）。由 app 从用户设置文件解析。
+    temperature: Option<f32>,
     /// 下一轮用户消息要携带的图片附件（MIME, base64）；发送一次后清空。
     pending_images: Vec<(String, String, String)>,
     /// 下一条用户消息的 UI 展示文本（不含注入上下文）；发送一次后清空。
@@ -164,9 +166,15 @@ impl Agent {
             steer_tx,
             steer_rx,
             reasoning_effort: None,
+            temperature: None,
             pending_images: Vec::new(),
             pending_user_display: None,
         }
+    }
+
+    /// 设置本轮请求的采样温度；`None` 表示不下发 temperature。
+    pub fn set_temperature(&mut self, temperature: Option<f32>) {
+        self.temperature = temperature;
     }
 
     /// 设置下一轮要随用户消息发送的图片（MIME, base64）；只生效一次。

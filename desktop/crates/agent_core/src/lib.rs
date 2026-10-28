@@ -8,6 +8,7 @@ mod context;
 pub mod session;
 pub mod thread;
 
+pub use context::project_thread;
 pub use session::{
     run_subagent, Agent, AgentError, ApprovalRequest, Approver, AutoApprover, CancelToken,
     DenyApprover, NoopObserver, ToolResultSummary, ToolTurnOutcome, TurnObserver, TurnOutcome,

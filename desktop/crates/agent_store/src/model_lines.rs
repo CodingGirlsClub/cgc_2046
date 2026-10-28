@@ -24,7 +24,7 @@ pub fn format_model_lines(provider: &ProviderPrefs) -> String {
         .join("\n")
 }
 
-/// 解析模型行：`模型名 | context | max_output | thinking | enabled | tools`。
+/// 解析模型行：`模型名 | context | max_output | thinking | enabled | tools | images`。
 pub fn parse_model_lines(value: &str) -> (Vec<String>, Vec<ModelPrefs>) {
     let mut ids = Vec::new();
     let mut params = Vec::new();

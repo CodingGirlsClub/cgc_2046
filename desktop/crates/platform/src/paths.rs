@@ -40,6 +40,24 @@ impl AppEnvironment {
     }
 }
 
+/// 用户配置文件所在平台（与 Zed 的 per-OS settings 路径对齐）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConfigPlatform {
+    MacOs,
+    Linux,
+    Windows,
+}
+
+pub fn current_config_platform() -> ConfigPlatform {
+    if cfg!(target_os = "macos") {
+        ConfigPlatform::MacOs
+    } else if cfg!(target_os = "windows") {
+        ConfigPlatform::Windows
+    } else {
+        ConfigPlatform::Linux
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AppPaths {
     pub environment: AppEnvironment,
@@ -120,6 +138,41 @@ impl AppPaths {
         self.data_root.join("agent_prefs.json")
     }
 
+    /// 用户可编辑的桌面端设置文件（对齐 Zed settings.json 的定位）。
+    ///
+    /// 按平台放在用户配置目录，`CGC_SETTINGS_FILE` 可整体覆盖（测试/QA）：
+    /// - macOS：`~/.cgc2046/settings.json`
+    /// - Linux：`$XDG_CONFIG_HOME/cgc2046/settings.json`（默认 `~/.config/cgc2046/settings.json`）
+    /// - Windows：`%APPDATA%\\cgc2046\\settings.json`
+    pub fn user_settings_file() -> PathBuf {
+        Self::resolve_user_settings_file(current_config_platform(), |key| {
+            std::env::var_os(key).map(PathBuf::from)
+        })
+    }
+
+    /// 可注入平台与 env 读取器（测试用），不直接改进程环境。
+    pub fn resolve_user_settings_file(
+        platform: ConfigPlatform,
+        env: impl Fn(&str) -> Option<PathBuf>,
+    ) -> PathBuf {
+        if let Some(path) = env("CGC_SETTINGS_FILE") {
+            return path;
+        }
+        let home = env("HOME")
+            .or_else(|| env("USERPROFILE"))
+            .unwrap_or_else(std::env::temp_dir);
+        let config_dir = match platform {
+            ConfigPlatform::MacOs => home.join(".cgc2046"),
+            ConfigPlatform::Linux => env("XDG_CONFIG_HOME")
+                .unwrap_or_else(|| home.join(".config"))
+                .join("cgc2046"),
+            ConfigPlatform::Windows => env("APPDATA")
+                .unwrap_or_else(|| home.join("AppData").join("Roaming"))
+                .join("cgc2046"),
+        };
+        config_dir.join("settings.json")
+    }
+
     pub fn notification_state_file(&self) -> PathBuf {
         self.data_root.join("notifications.json")
     }
@@ -165,6 +218,61 @@ mod tests {
             AppPaths::resolve(None, |_| None).environment,
             AppEnvironment::Dev
         );
+    }
+
+    #[test]
+    fn user_settings_file_uses_zed_style_per_os_config_dir() {
+        let mut values = HashMap::new();
+        values.insert("HOME".to_string(), PathBuf::from("/home/student"));
+        let env = |key: &str| values.get(key).cloned();
+        assert_eq!(
+            AppPaths::resolve_user_settings_file(ConfigPlatform::MacOs, env),
+            PathBuf::from("/home/student/.cgc2046/settings.json")
+        );
+        assert_eq!(
+            AppPaths::resolve_user_settings_file(ConfigPlatform::Linux, env),
+            PathBuf::from("/home/student/.config/cgc2046/settings.json")
+        );
+
+        let mut values = HashMap::new();
+        values.insert("HOME".to_string(), PathBuf::from("/home/student"));
+        values.insert(
+            "XDG_CONFIG_HOME".to_string(),
+            PathBuf::from("/home/student/.config-custom"),
+        );
+        let env = |key: &str| values.get(key).cloned();
+        assert_eq!(
+            AppPaths::resolve_user_settings_file(ConfigPlatform::Linux, env),
+            PathBuf::from("/home/student/.config-custom/cgc2046/settings.json")
+        );
+
+        let mut values = HashMap::new();
+        values.insert(
+            "APPDATA".to_string(),
+            PathBuf::from(r"C:\Users\student\AppData\Roaming"),
+        );
+        let env = |key: &str| values.get(key).cloned();
+        assert_eq!(
+            AppPaths::resolve_user_settings_file(ConfigPlatform::Windows, env),
+            PathBuf::from(r"C:\Users\student\AppData\Roaming").join("cgc2046/settings.json")
+        );
+
+        let mut values = HashMap::new();
+        values.insert(
+            "CGC_SETTINGS_FILE".to_string(),
+            PathBuf::from("/tmp/custom/settings.json"),
+        );
+        let env = |key: &str| values.get(key).cloned();
+        for platform in [
+            ConfigPlatform::MacOs,
+            ConfigPlatform::Linux,
+            ConfigPlatform::Windows,
+        ] {
+            assert_eq!(
+                AppPaths::resolve_user_settings_file(platform, env),
+                PathBuf::from("/tmp/custom/settings.json")
+            );
+        }
     }
 
     #[test]

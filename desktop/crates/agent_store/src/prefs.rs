@@ -119,10 +119,6 @@ pub struct AgentPrefs {
     pub schema_version: u32,
     pub selected_model: Option<SelectedModel>,
     pub selected_provider: Option<String>,
-    /// 会话标题（thread title）生成用的独立模型；`None` = 跟随当前对话模型。
-    /// 对齐 Zed 的 thread summary model：较便宜的模型即可胜任标题摘要。
-    #[serde(default)]
-    pub summary_model: Option<SelectedModel>,
     pub providers: Vec<ProviderPrefs>,
 }
 
@@ -132,7 +128,6 @@ impl Default for AgentPrefs {
             schema_version: 2,
             selected_model: None,
             selected_provider: None,
-            summary_model: None,
             providers: Vec::new(),
         }
     }
@@ -420,28 +415,10 @@ mod tests {
             schema_version: 2,
             selected_model: Some(selected()),
             selected_provider: Some("deepseek".to_string()),
-            summary_model: Some(SelectedModel::new(
-                ProviderId::new("deepseek"),
-                ModelId::new("deepseek-flash"),
-            )),
             providers: vec![provider("deepseek", "https://api.deepseek.com/v1")],
         };
         store.save(&prefs).expect("save");
         assert_eq!(store.load(), prefs);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn legacy_prefs_without_summary_model_keeps_following_conversation_model() {
-        let dir = temp_dir("legacy-summary");
-        let path = dir.join("agent_prefs.json");
-        std::fs::write(
-            &path,
-            r#"{"schema_version":2,"selected_model":null,"selected_provider":null,"providers":[]}"#,
-        )
-        .expect("write");
-        let loaded = PrefsStore::new(&path).load();
-        assert_eq!(loaded.summary_model, None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -505,7 +482,6 @@ mod tests {
             schema_version: 0,
             selected_model: None,
             selected_provider: Some("deepseek".to_string()),
-            summary_model: None,
             providers: vec![ProviderPrefs {
                 id: "deepseek".to_string(),
                 name: "DeepSeek".to_string(),

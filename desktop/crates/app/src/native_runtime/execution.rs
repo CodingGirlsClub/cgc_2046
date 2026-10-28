@@ -71,6 +71,17 @@ impl Owner {
             })
             .map(str::to_string);
         agent.set_reasoning_effort(effort);
+        // 用户设置文件里的 agent.model_parameters（显式 runtime 不读，保持测试隔离）。
+        let settings = self
+            .production
+            .as_ref()
+            .map(|_| crate::user_settings::load_default());
+        agent.set_temperature(settings.as_ref().and_then(|settings| {
+            settings.temperature_for_model(
+                self.config.model.provider_id.as_str(),
+                self.config.model.id.as_str(),
+            )
+        }));
         let cancel = agent.cancel_token();
         cancel.reset();
         let tool_cancel = cancel.clone();

@@ -194,14 +194,17 @@ pub(super) fn select_model(
     Ok((provider, model))
 }
 
-/// 会话标题生成模型：优先 `agent_prefs.json` 里的独立 summary model（对齐 Zed 的
+/// 会话标题生成模型：读用户设置文件的 `agent.thread_summary_model`（对齐 Zed 的
 /// thread summary model），未配置或不可用时由调用方回退当前对话模型。
-pub(super) fn summary_title_model(production: &Production) -> Option<(Arc<dyn Provider>, Model)> {
+pub(super) fn summary_title_model(
+    production: &Production,
+    settings: &crate::user_settings::UserSettings,
+) -> Option<(Arc<dyn Provider>, Model)> {
+    let selection = settings.agent.thread_summary_model.as_ref()?;
     let store = PrefsStore::new(production.data_root.join("agent_prefs.json"));
     let prefs = store.load();
-    let selected = prefs.summary_model.as_ref()?;
-    let configured = prefs.provider(selected.provider_id.as_str())?;
-    let model = summary_model_for(configured, selected.model_id.as_str())?;
+    let configured = prefs.provider(selection.provider.as_str())?;
+    let model = summary_model_for(configured, selection.model.as_str())?;
     if !configured.has_key {
         return None;
     }
@@ -388,12 +391,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-    fn prefs_with_summary(
-        production: &Production,
-        summary: Option<SelectedModel>,
-        has_key: bool,
-        model_enabled: bool,
-    ) {
+    fn prefs_with_provider(production: &Production, has_key: bool, model_enabled: bool) {
         let prefs = cgc_agent_store::AgentPrefs {
             providers: vec![ProviderPrefs {
                 id: "deepseek".to_string(),
@@ -410,7 +408,6 @@ mod tests {
                 ],
                 builtin: false,
             }],
-            summary_model: summary,
             ..Default::default()
         };
         PrefsStore::new(production.data_root.join("agent_prefs.json"))
@@ -431,20 +428,20 @@ mod tests {
         }
     }
 
+    fn settings_with_summary(provider: &str, model: &str) -> crate::user_settings::UserSettings {
+        serde_json::from_str(&format!(
+            r#"{{"agent":{{"thread_summary_model":{{"provider":"{provider}","model":"{model}"}}}}}}"#
+        ))
+        .expect("settings")
+    }
+
     #[test]
     fn summary_title_model_uses_the_configured_model() {
         let root = temp_root("summary-model");
         let production = summary_production(&root);
-        prefs_with_summary(
-            &production,
-            Some(SelectedModel::new(
-                ProviderId::new("deepseek"),
-                cgc_agent_provider::ModelId::new("flash"),
-            )),
-            true,
-            true,
-        );
-        let (_, model) = summary_title_model(&production).expect("summary model");
+        prefs_with_provider(&production, true, true);
+        let settings = settings_with_summary("deepseek", "flash");
+        let (_, model) = summary_title_model(&production, &settings).expect("summary model");
         assert_eq!(model.provider_id.as_str(), "deepseek");
         assert_eq!(model.id.as_str(), "flash");
         let _ = std::fs::remove_dir_all(root);
@@ -454,37 +451,27 @@ mod tests {
     fn summary_title_model_falls_back_when_unconfigured_unusable_or_key_missing() {
         let root = temp_root("summary-fallback");
         let production = summary_production(&root);
-        assert!(summary_title_model(&production).is_none(), "未配置时回退");
-
-        prefs_with_summary(
-            &production,
-            Some(SelectedModel::new(
-                ProviderId::new("deepseek"),
-                cgc_agent_provider::ModelId::new("missing"),
-            )),
-            true,
-            true,
+        prefs_with_provider(&production, true, true);
+        assert!(
+            summary_title_model(&production, &crate::user_settings::UserSettings::default())
+                .is_none(),
+            "设置文件未配置时回退"
         );
         assert!(
-            summary_title_model(&production).is_none(),
+            summary_title_model(&production, &settings_with_summary("deepseek", "missing"))
+                .is_none(),
             "模型不在 provider 列表时回退"
         );
 
-        let selected = || {
-            Some(SelectedModel::new(
-                ProviderId::new("deepseek"),
-                cgc_agent_provider::ModelId::new("flash"),
-            ))
-        };
-        prefs_with_summary(&production, selected(), false, true);
+        prefs_with_provider(&production, false, true);
         assert!(
-            summary_title_model(&production).is_none(),
+            summary_title_model(&production, &settings_with_summary("deepseek", "flash")).is_none(),
             "没保存 key 时回退"
         );
 
-        prefs_with_summary(&production, selected(), true, false);
+        prefs_with_provider(&production, true, false);
         assert!(
-            summary_title_model(&production).is_none(),
+            summary_title_model(&production, &settings_with_summary("deepseek", "flash")).is_none(),
             "模型被禁用时回退"
         );
         let _ = std::fs::remove_dir_all(root);
