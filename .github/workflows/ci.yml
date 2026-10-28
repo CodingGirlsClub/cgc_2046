@@ -429,14 +429,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # macOS 出 universal 包（arm64 + x86_64）：Intel Mac 用户也要能装，
+          # 且用户不该自己挑架构。artifact_arch 决定产物命名的架构段。
           - os: macos-15
             formats: dmg
+            artifact_arch: universal
           - os: windows-2022
             formats: wix
+            artifact_arch: ""
           - os: ubuntu-24.04
             formats: deb,appimage
+            artifact_arch: ""
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    env:
+      # universal 时产物命名带 _universal、verify 断言 lipo 双架构；
+      # 其它平台留空 → name-artifacts.sh 回落到 uname -m。
+      CGC_ARTIFACT_ARCH: ${{ matrix.artifact_arch }}
     defaults:
       run:
         working-directory: desktop
@@ -482,7 +491,8 @@ jobs:
       - name: 安装 cargo-packager
         if: steps.packager-cache.outputs.cache-hit != 'true'
         run: cargo install cargo-packager --locked --version =0.11.8
-      - name: 打包
+      - name: 打包（Windows / Linux）
+        if: runner.os != 'macOS'
         env:
           # AppImage 插件在无 FUSE 的运行器上用 extract-and-run 兜底
           APPIMAGE_EXTRACT_AND_RUN: "1"
@@ -492,6 +502,23 @@ jobs:
           CGC_DEFAULT_API_URL: https://api.codingirlsclub.com/api/graphql
           CGC_DEFAULT_ENV: prod
         run: cargo packager -p cgc-desktop-app --release -f ${{ matrix.formats }}
+      # cargo-packager 不做 lipo：两个架构各编一次，合并成 universal 再打包，
+      # 产物路径正好是 packager 对 universal-apple-darwin 期望的 binaries_dir。
+      - name: 打包（macOS universal）
+        if: runner.os == 'macOS'
+        env:
+          CGC_DEFAULT_API_URL: https://api.codingirlsclub.com/api/graphql
+          CGC_DEFAULT_ENV: prod
+        run: |
+          rustup target add x86_64-apple-darwin
+          cargo build --release -p cgc-desktop-app --target aarch64-apple-darwin
+          cargo build --release -p cgc-desktop-app --target x86_64-apple-darwin
+          mkdir -p target/universal-apple-darwin/release
+          lipo -create -output target/universal-apple-darwin/release/cgc-desktop-app \
+            target/aarch64-apple-darwin/release/cgc-desktop-app \
+            target/x86_64-apple-darwin/release/cgc-desktop-app
+          lipo -archs target/universal-apple-darwin/release/cgc-desktop-app
+          cargo packager -p cgc-desktop-app --release --target universal-apple-darwin -f dmg
       - name: 重命名产物（版本+commit，Unix）
         if: runner.os != 'Windows'
         run: bash scripts/name-artifacts.sh

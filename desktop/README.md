@@ -187,7 +187,8 @@ CI 在 1.13 建立后由依赖边界检查兜底。
 ```bash
 cd desktop
 cargo install cargo-packager --locked --version =0.11.8
-cargo packager -p cgc-desktop-app --release -f dmg     # macOS；Windows 用 -f wix，Linux 用 -f deb,appimage
+cargo packager -p cgc-desktop-app --release -f dmg     # macOS（单架构）；Windows 用 -f wix，Linux 用 -f deb,appimage
+# macOS universal（发版用）见下节「内测分发（无证书）」
 bash scripts/name-artifacts.sh                          # 重命名为 cgc2046_<version>_<commit>_<arch>.*
 bash scripts/verify-package.sh                          # hdiutil / dpkg-deb / AppImage 结构校验
 bash scripts/smoke-package-runtime.sh                   # macOS：从 dmg 启动 release 二进制并确认存活
@@ -196,18 +197,36 @@ bash scripts/verify-package.sh                          # Windows: pwsh scripts/
 ```
 
 - 产物未签名：证书暂无（ADR-0027 决策 2/3），签名、公证与自动更新归 epic-6（`epic-distribution-integration`）。
-- macOS 产物为 runner 原生架构（arm64）；x86_64 与 universal 留给 epic-6/7。
+- macOS 产物为 **universal（arm64 + x86_64）**：CI 交叉编译两个架构再 `lipo -create`，Intel 机器不用另选包；本地单架构仍可直接 `cargo packager`。
 
 ## 内测分发（无证书）
 
-内测包由用户双击 `.app` 启动，**拿不到 shell 环境变量**，所以后端端点与运行环境必须编进二进制：
+内测包由用户双击 `.app` 启动，**拿不到 shell 环境变量**，所以后端端点与运行环境必须编进二进制。
+macOS 产物是 **universal**（arm64 + x86_64），Intel 机器不用另选包：
 
 ```bash
 cd desktop
+rustup target add x86_64-apple-darwin
 CGC_DEFAULT_API_URL=https://api.codingirlsclub.com/api/graphql \
 CGC_DEFAULT_ENV=prod \
-  cargo packager -p cgc-desktop-app --release -f dmg
+  cargo build --release -p cgc-desktop-app --target aarch64-apple-darwin
+CGC_DEFAULT_API_URL=https://api.codingirlsclub.com/api/graphql \
+CGC_DEFAULT_ENV=prod \
+  cargo build --release -p cgc-desktop-app --target x86_64-apple-darwin
+mkdir -p target/universal-apple-darwin/release
+lipo -create -output target/universal-apple-darwin/release/cgc-desktop-app \
+  target/aarch64-apple-darwin/release/cgc-desktop-app \
+  target/x86_64-apple-darwin/release/cgc-desktop-app
+CGC_ARTIFACT_ARCH=universal \
+  cargo packager -p cgc-desktop-app --release --target universal-apple-darwin -f dmg
 ```
+
+- `cargo-packager` 不做 lipo，所以先合并再打包：`--target universal-apple-darwin` 的
+  binaries 目录正好是 `target/universal-apple-darwin/release/`。
+- `CGC_ARTIFACT_ARCH=universal` 让 `scripts/name-artifacts.sh` 产出 `_universal` 后缀，
+  并让 `scripts/verify-package.sh` 用 `lipo -archs` 断言两个 slice 都在（fail-closed）。
+- 发布走 tag：打 `desktop-v<version>` 触发 `.github/workflows/desktop-release.yml`，
+  三平台产物 + `SHA256SUMS` 挂到 GitHub Release（`--prerelease`，未签名不对外）。
 
 - `CGC_DEFAULT_API_URL` / `CGC_DEFAULT_ENV` 由 `crates/platform/build.rs` 登记，进
   `runtime::api_endpoint()` 与 `paths::AppPaths::from_env()`；不注入时行为不变（本机端点 + dev 数据根）。

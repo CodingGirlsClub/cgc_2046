@@ -305,6 +305,9 @@ fn flush_reports_failure_instead_of_claiming_success() {
             1,
         )),
     }));
+    // 先让 writer 单独处理这次失败写入，再 flush —— 强制两者落在不同批次。
+    // 只在同一批次里碰巧合并时，flush 才会「没写任何东西」而误报成功。
+    std::thread::sleep(Duration::from_millis(100));
     let result = writer.flush(Duration::from_secs(5));
     assert!(result.is_err(), "写入失败时 flush 不得返回成功：{result:?}");
     let _ = std::fs::remove_dir_all(root);

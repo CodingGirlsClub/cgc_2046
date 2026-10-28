@@ -102,6 +102,10 @@ fn run(conversations_db: PathBuf, threads_db: PathBuf, receiver: Receiver<Envelo
     let mut sessions: Option<SessionStore> = None;
     // 每个 thread 最近一次 Clear 的提交序号：序号更小的快照一律丢弃。
     let mut cleared: HashMap<(StoreTarget, String), u64> = HashMap::new();
+    // 写入失败必须跨批次保留：调用方可能先 submit 写入、稍后才 flush，两者会落进
+    // 不同的批次。若只在批次内记 failure，下一次 flush 会对着「本批没写」回 Ok，
+    // 明明数据没落盘却报告成功（CI 上 timing 慢时必现）。
+    let mut failure: Option<String> = None;
     while let Ok(envelope) = receiver.recv() {
         let mut pending: HashMap<(StoreTarget, String), WriterCommand> = HashMap::new();
         let mut clears: Vec<(u64, StoreTarget, String)> = Vec::new();
@@ -162,7 +166,6 @@ fn run(conversations_db: PathBuf, threads_db: PathBuf, receiver: Receiver<Envelo
             }
         }
 
-        let mut failure: Option<String> = None;
         for (seq, target, thread_id) in clears {
             // 清空先于同批快照生效：被清掉的 thread 的待写快照直接丢弃。
             pending.remove(&(target, thread_id.clone()));
@@ -227,8 +230,9 @@ fn run(conversations_db: PathBuf, threads_db: PathBuf, receiver: Receiver<Envelo
             }
         }
         if let Some(reply) = flush {
-            let _ = reply.send(match &failure {
-                Some(error) => Err(error.clone()),
+            // 取走失败：同一次失败只报告给最近的一次 flush，后续 flush 不受污染。
+            let _ = reply.send(match failure.take() {
+                Some(error) => Err(error),
                 None => Ok(()),
             });
         }
