@@ -65,6 +65,83 @@ impl SavedConversation {
         }
     }
 
+    /// 旧 native 记录的一次性投影：只有执行内容可用，必须显式注明缺失审批历史。
+    ///
+    /// 不伪造审批、计划或标题覆盖；能力位按 native 轨道填，避免恢复后功能莫名消失。
+    pub fn from_execution_thread(thread: &cgc_agent_core::Thread, revision: u64) -> Self {
+        use cgc_agent_core::Entry as CoreEntry;
+        use std::collections::HashMap;
+
+        let mut tool_args: HashMap<String, (String, serde_json::Value)> = HashMap::new();
+        for entry in &thread.entries {
+            if let CoreEntry::Assistant { tool_calls, .. } = entry {
+                for call in tool_calls {
+                    tool_args.insert(call.id.clone(), (call.name.clone(), call.args.clone()));
+                }
+            }
+        }
+        let mut entries = vec![Entry::Notice {
+            level: NoticeLevel::Warning,
+            text: "旧记录不含完整审批历史（本会话由执行记录生成）".to_string(),
+        }];
+        for entry in &thread.entries {
+            match entry {
+                CoreEntry::User { text, display, .. } => entries.push(Entry::User {
+                    text: display.clone().unwrap_or_else(|| text.clone()),
+                }),
+                CoreEntry::Assistant { text, .. } if !text.is_empty() => {
+                    entries.push(Entry::Assistant { text: text.clone() })
+                }
+                CoreEntry::Thinking { text, .. } => entries.push(Entry::Thinking {
+                    text: text.clone(),
+                    expanded: false,
+                }),
+                CoreEntry::ToolResult {
+                    tool_use_id,
+                    tool_name,
+                    content,
+                    is_error,
+                    ..
+                } => {
+                    let (name, args) = tool_args
+                        .get(tool_use_id)
+                        .cloned()
+                        .unwrap_or_else(|| (tool_name.clone(), serde_json::Value::Null));
+                    entries.push(Entry::ToolCall {
+                        tool_call_id: tool_use_id.clone(),
+                        title: tool_name.clone(),
+                        name: Some(name),
+                        kind: "tool".to_string(),
+                        status: if *is_error { "failed" } else { "completed" }.to_string(),
+                        args: (!args.is_null()).then(|| args.to_string()),
+                        output: Some(content.clone()),
+                        locations: Vec::new(),
+                        expanded: false,
+                    })
+                }
+                CoreEntry::Compaction { summary, .. } => entries.push(Entry::Compaction {
+                    status: "completed".to_string(),
+                    summary: Some(summary.clone()),
+                }),
+                _ => {}
+            }
+        }
+        Self {
+            thread_id: thread.id.clone(),
+            revision,
+            source: SnapshotSource::Native,
+            title: thread.title.clone(),
+            entries,
+            plan: Vec::new(),
+            usage: Usage {
+                used: thread.usage_total.total(),
+                size: 0,
+                cost: None,
+            },
+            capabilities: ThreadCapabilities::native(),
+        }
+    }
+
     /// 恢复为展示模型：状态从默认（idle）开始，pending 审批为空。
     pub fn into_thread(&self) -> ConversationThread {
         ConversationThread {

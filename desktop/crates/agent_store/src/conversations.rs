@@ -30,7 +30,10 @@ pub const CONVERSATIONS_DB: &str = "conversations.db";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RestoredFrom {
     Snapshot,
+    /// ACP 旧记录：只有 thread_content。
     LegacyContent,
+    /// native 旧记录：只有执行内容，需要一次性投影。
+    Execution,
 }
 /// 当前 schema 版本；迁移只增不改（v3：可恢复会话投影表）。
 pub const SCHEMA_VERSION: i64 = 3;

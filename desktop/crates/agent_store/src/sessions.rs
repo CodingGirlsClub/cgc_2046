@@ -177,6 +177,21 @@ impl SessionStore {
         Ok(data.and_then(|data| serde_json::from_str(&data).ok()))
     }
 
+    /// 统一恢复入口（native）：执行内容必读，投影可选；来源用于提示旧记录。
+    pub fn load_restored(
+        &self,
+        id: &str,
+    ) -> Result<Option<(Thread, Option<SavedConversation>, crate::RestoredFrom)>, SessionError>
+    {
+        let Some(thread) = self.load_thread(id)? else {
+            return Ok(None);
+        };
+        Ok(Some(match self.load_snapshot(id)? {
+            Some(snapshot) => (thread, Some(snapshot), crate::RestoredFrom::Snapshot),
+            None => (thread, None, crate::RestoredFrom::Execution),
+        }))
+    }
+
     pub fn save_thread(&mut self, thread: &Thread) -> Result<(), SessionError> {
         let transaction = self.conn.transaction()?;
         Self::write_thread(&transaction, thread)?;
