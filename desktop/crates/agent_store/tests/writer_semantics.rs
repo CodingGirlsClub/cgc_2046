@@ -253,3 +253,38 @@ fn deleting_a_thread_removes_its_snapshot_too() {
     assert!(store.load_snapshot("d1").unwrap().is_none());
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn a_snapshot_written_after_deletion_cannot_resurrect_history() {
+    let root = temp_root("late");
+    let path = root.join("conversations.db");
+    let mut store = ConversationStore::open(&path).unwrap();
+    let sidebar = cgc_agent_store::SidebarThread {
+        thread_id: "late1".into(),
+        agent_id: None,
+        session_id: None,
+        title: None,
+        title_override: None,
+        created_at: String::new(),
+        updated_at: String::new(),
+        archived: false,
+    };
+    store
+        .save_thread(&conversation("late1", "已删除正文"), &sidebar)
+        .unwrap();
+    assert!(store.delete_thread("late1").unwrap());
+
+    // 删除之后才到达的投影写入（延迟保存/竞态）：不得让历史复活。
+    store
+        .save_snapshot(&SavedConversation::from_thread(
+            &conversation("late1", "迟到的投影"),
+            SnapshotSource::Acp,
+            9,
+        ))
+        .unwrap();
+    assert!(
+        store.load_restored("late1").unwrap().is_none(),
+        "没有正文与侧栏的孤儿投影不得被读成历史"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}

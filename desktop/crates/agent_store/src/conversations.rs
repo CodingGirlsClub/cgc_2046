@@ -348,8 +348,22 @@ impl ConversationStore {
         &self,
         thread_id: &str,
     ) -> Result<Option<(ConversationThread, RestoredFrom)>, ConversationStoreError> {
+        // 孤儿投影不得当成历史：删除后迟到写入的快照没有正文/侧栏可对应。
+        // 这条读侧守卫使「先删后写」的竞态无法复活历史，与写侧清理互为保险。
+        let has_row: bool = self.conn.query_row(
+            "SELECT EXISTS(
+                 SELECT 1 FROM thread_content WHERE thread_id = ?1
+                 UNION ALL
+                 SELECT 1 FROM sidebar_threads WHERE thread_id = ?1
+             )",
+            params![thread_id],
+            |row| row.get(0),
+        )?;
         if let Some(snapshot) = self.load_snapshot(thread_id)? {
-            return Ok(Some((snapshot.into_thread(), RestoredFrom::Snapshot)));
+            if has_row {
+                return Ok(Some((snapshot.into_thread(), RestoredFrom::Snapshot)));
+            }
+            eprintln!("[conversations] 忽略孤儿投影 {thread_id}：没有对应的正文或侧栏");
         }
         Ok(self
             .load_content(thread_id)?
