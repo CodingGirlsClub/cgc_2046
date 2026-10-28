@@ -191,6 +191,9 @@ mod tests {
         dir
     }
 
+    // Seatbelt 是 macOS 的沙箱机制；Windows/Linux 走 bubblewrap，profile 里也不会
+    // 出现原样的工作区路径（Windows 反斜杠会被转义），用例只对 macOS 有意义。
+    #[cfg(target_os = "macos")]
     #[test]
     fn seatbelt_profile_allows_workspace_and_denies_network_by_default() {
         let workspace = temp_workspace("profile");
@@ -203,6 +206,7 @@ mod tests {
         assert!(!allowed.contains("(deny network*)"));
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn seatbelt_path_escapes_quotes() {
         let policy = SandboxPolicy::new("/tmp/weird \"dir\"");

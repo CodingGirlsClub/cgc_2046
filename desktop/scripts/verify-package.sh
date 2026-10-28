@@ -63,12 +63,18 @@ for f in dist/*.deb; do
   if command -v dpkg-deb >/dev/null 2>&1; then
     dpkg-deb -c "$f" >/dev/null
     echo "   dpkg-deb -c ok"
-    depends=$(dpkg-deb -f "$f" Depends 2>/dev/null || true)
+    if ! depends=$(dpkg-deb -f "$f" Depends 2>/tmp/cgc-deb-field.err); then
+      # control 本身不合法（如 package 名非 ASCII）时 dpkg-deb -f 会直接报错，
+      # 这里把原始错误打出来，避免只剩一句「Depends: <empty>」。
+      echo "FAIL: deb control 无法被 dpkg 解析：" >&2
+      cat /tmp/cgc-deb-field.err >&2 || true
+      dpkg-deb -I "$f" >&2 2>/dev/null || true
+      exit 1
+    fi
     case "$depends" in
       *libsecret-tools*) echo "   dependency ok: libsecret-tools" ;;
       *)
         echo "FAIL: deb 缺少 libsecret-tools 运行时依赖（实际 Depends: ${depends:-<empty>}）" >&2
-        # 排障用：把完整 control 打出来，能区分「打包器没写 Depends」和「字段名/格式不符」。
         dpkg-deb -I "$f" >&2 2>/dev/null || true
         exit 1
         ;;

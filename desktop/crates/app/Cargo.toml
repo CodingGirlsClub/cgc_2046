@@ -56,6 +56,10 @@ icons = [
 
 # Linux deb 运行时依赖：登录凭证通过 secret-tool（libsecret）持久化。
 [package.metadata.packager.deb]
+# Debian 包名必须 ASCII 且以字母数字起头。不设这个字段时 packager 用 productName
+# （「程序媛汇」）当包名，control 里就成了 `Package: 程序媛汇` —— dpkg 直接报
+# "invalid package name"，`dpkg-deb -f` 也读不出任何字段，包实际上装不上。
+packageName = "cgc2046"
 depends = ["libsecret-tools"]
 
 # cgc:// 深链：由安装器写入 macOS URL scheme、Windows MSI 注册表与 Linux desktop MIME。
