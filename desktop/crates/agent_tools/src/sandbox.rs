@@ -178,6 +178,9 @@ fn command_exists(name: &str) -> bool {
 mod tests {
     use super::*;
 
+    // 只有 seatbelt 用例用它；那两个用例已限定 macOS，别处引用会在
+    // Windows/Linux 触发 `-D dead-code`。
+    #[cfg(target_os = "macos")]
     fn temp_workspace(tag: &str) -> PathBuf {
         use std::sync::atomic::{AtomicU64, Ordering};
         static COUNTER: AtomicU64 = AtomicU64::new(0);
