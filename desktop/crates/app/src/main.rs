@@ -76,11 +76,11 @@ fn main() {
         let demo_mode = std::env::var_os("CGC_NATIVE_AGENT_DEMO").is_some();
         if demo_mode {
             cx.set_app_identity(
-                "com.codinggirlsclub.cgc2046.desktop.demo",
+                "com.codingirlsclub.cgc2046.desktop.demo",
                 "程序媛汇（demo）",
             );
         } else {
-            cx.set_app_identity("com.codinggirlsclub.cgc2046.desktop", "程序媛汇");
+            cx.set_app_identity("com.codingirlsclub.cgc2046.desktop", "程序媛汇");
         }
         cx.set_quit_mode(gpui_kit::QuitMode::Explicit);
         {

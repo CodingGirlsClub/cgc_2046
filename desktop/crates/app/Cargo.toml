@@ -40,7 +40,7 @@ log = "0.4"
 # 未签名产物：签名与公证归 epic-6（ADR-0027 决策 2/3）。
 [package.metadata.packager]
 productName = "程序媛汇"
-identifier = "com.codinggirlsclub.cgc2046.desktop"
+identifier = "com.codingirlsclub.cgc2046.desktop"
 description = "程序媛汇学员端桌面客户端"
 longDescription = "程序媛汇学员端桌面客户端：工作台、场次报名与支付、课程学习，以及与你自己本机 agent 的学习搭子对话。"
 category = "Education"

@@ -388,7 +388,7 @@ describe("/hackerstart-1024 宣传页（U6）", () => {
 		).toHaveAttribute("href", VOLUNTEER_PATH);
 		expect(
 			screen.getByRole("link", { name: /聊赞助合作/ }),
-		).toHaveAttribute("href", "mailto:partners@codinggirlsclub.com");
+		).toHaveAttribute("href", "mailto:partners@codingirlsclub.com");
 		// footer 志愿者回链走页内锚点（F2 先读职位与流程）
 		expect(
 			screen.getByRole("link", { name: /来成为志愿者/ }),
@@ -508,16 +508,16 @@ describe("/hackerstart-1024 宣传页（U6）", () => {
 	});
 
 	it("R1/R6：metadata 输出 canonical/hreflang 与分享 meta（分享卡图待补，故意不输出 images）", async () => {
-		vi.stubEnv("NEXT_PUBLIC_WEB_BASE_URL", "https://codinggirlsclub.com");
+		vi.stubEnv("NEXT_PUBLIC_WEB_BASE_URL", "https://codingirlsclub.com");
 
 		const zhMeta = await generateMetadata({
 			params: Promise.resolve({ locale: "zh-CN" }),
 		});
 		expect(zhMeta.alternates).toEqual({
-			canonical: "https://codinggirlsclub.com/hackerstart-1024",
+			canonical: "https://codingirlsclub.com/hackerstart-1024",
 			languages: {
-				"zh-CN": "https://codinggirlsclub.com/hackerstart-1024",
-				en: "https://codinggirlsclub.com/en/hackerstart-1024",
+				"zh-CN": "https://codingirlsclub.com/hackerstart-1024",
+				en: "https://codingirlsclub.com/en/hackerstart-1024",
 			},
 		});
 		expect(zhMeta.title).toBe(ZH.meta.title);
@@ -525,7 +525,7 @@ describe("/hackerstart-1024 宣传页（U6）", () => {
 		expect(zhMeta.openGraph?.title).toBe(ZH.meta.title);
 		expect(zhMeta.openGraph?.description).toBe(ZH.meta.description);
 		expect(zhMeta.openGraph?.url).toBe(
-			"https://codinggirlsclub.com/hackerstart-1024",
+			"https://codingirlsclub.com/hackerstart-1024",
 		);
 		// 分享卡图素材未就绪：images 缺席（补齐后此断言改成图片 URL）
 		expect(zhMeta.openGraph?.images).toBeUndefined();
@@ -534,7 +534,7 @@ describe("/hackerstart-1024 宣传页（U6）", () => {
 			params: Promise.resolve({ locale: "en" }),
 		});
 		expect(enMeta.alternates?.canonical).toBe(
-			"https://codinggirlsclub.com/en/hackerstart-1024",
+			"https://codingirlsclub.com/en/hackerstart-1024",
 		);
 		expect(enMeta.title).toBe(EN.meta.title);
 		expect(enMeta.description).toBe(EN.meta.description);

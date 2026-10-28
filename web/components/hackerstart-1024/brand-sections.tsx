@@ -16,7 +16,7 @@ import { rawArray } from "./raw-array";
  * 数组索引路径（principles[0].d 会渲染成 key 字面量），数组一律走 t.raw 纯文本。
  */
 
-const BRAND_EMAIL = "partners@codinggirlsclub.com";
+const BRAND_EMAIL = "partners@codingirlsclub.com";
 
 const BENEFIT_KEYS = ["reach", "data", "network", "esg", "exposure"] as const;
 
