@@ -121,8 +121,12 @@ impl Tool for McpTool {
     fn run(
         &self,
         args: Value,
-        _context: ToolContext,
+        context: ToolContext,
     ) -> BoxFuture<'static, Result<ToolResult, ToolError>> {
+        // Stop 之后不再发起新的平台调用：既是资源约束，也避免用户已放弃的回合继续产生副作用。
+        if context.is_cancelled() {
+            return async { Ok(ToolResult::error("本轮已停止，未执行平台工具")) }.boxed();
+        }
         if self
             .lease_guard
             .as_ref()

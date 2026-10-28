@@ -1,4 +1,3 @@
-
 use super::*;
 use futures::executor::block_on;
 use serde_json::json;
@@ -406,4 +405,36 @@ fn revocation_discards_an_in_flight_mcp_response() {
         "late results from the previous authorization epoch must be rejected"
     );
     assert!(!result.content.contains("old private state"));
+}
+
+#[test]
+fn cancelled_turn_blocks_platform_tool_before_http() {
+    let (endpoint, requests) = spawn_mock(
+        vec![
+            init_response(),
+            tools_response(),
+            r#"{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"never used"}]}}"#,
+        ],
+        None,
+    );
+    let tools = discover_read_only_mcp_tools_with("cgc", McpHttpClient::new(&endpoint), None, None)
+        .expect("MCP discovery");
+    let tool = tools
+        .iter()
+        .find(|tool| tool.name() == "mcp_cgc_get_learning_state")
+        .unwrap();
+    // 消费 discovery 期间产生的两条请求，确保后面判断的是「本轮调用」。
+    for _ in 0..2 {
+        requests.recv().unwrap();
+    }
+
+    let cancelled: crate::tool::CancelProbe = std::sync::Arc::new(|| true);
+    let result =
+        block_on(tool.run(json!({}), ToolContext::new("/tmp").with_cancel(cancelled))).unwrap();
+    assert!(result.is_error, "Stop 之后不得执行平台工具");
+    assert!(result.content.contains("本轮已停止"), "{}", result.content);
+    assert!(
+        matches!(requests.try_recv(), Err(mpsc::TryRecvError::Empty)),
+        "已取消的回合不得再发出 HTTP 请求"
+    );
 }
