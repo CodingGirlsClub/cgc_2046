@@ -246,7 +246,7 @@ impl CheckpointManager {
         Ok(changes)
     }
 
-    /// 恢复单个文件到 checkpoint（Reject）。
+    /// 仅恢复单个文件的工作区内容到 checkpoint（Reject），保留用户 index。
     pub fn restore_file(&self, checkpoint: &Checkpoint, path: &str) -> Result<(), CheckpointError> {
         if path.is_empty()
             || Path::new(path).is_absolute()
@@ -259,7 +259,7 @@ impl CheckpointManager {
             "--source",
             checkpoint.sha.as_str(),
             "--worktree",
-            "--staged",
+            "--overlay",
             "--",
             path,
         ])?;
@@ -269,14 +269,14 @@ impl CheckpointManager {
         Ok(())
     }
 
-    /// 恢复 tracked 文件到 checkpoint（untracked 文件不删除，避免误删用户文件）。
+    /// 覆盖 checkpoint 中的文件；保留用户 index 和快照外的文件（含主动排除项）。
     pub fn restore(&self, checkpoint: &Checkpoint) -> Result<(), CheckpointError> {
         let output = self.git([
             "restore",
             "--source",
             checkpoint.sha.as_str(),
             "--worktree",
-            "--staged",
+            "--overlay",
             "--",
             ".",
         ])?;

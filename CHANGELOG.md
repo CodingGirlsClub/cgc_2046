@@ -36,6 +36,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 - [本机 Host / Web] 学习搭子**打开就能选模型与思考/推理强度**：没有会话指针时先在 `chat.attach` 建一条空会话（`session/new`，指针不落盘）再取设置，因此不用先发一句话也能选；改动只影响首次打开的空态。
 
 ### Fixed
+- [Desktop] native Agent 恢复检查点时保留快照排除的图片、压缩包和大文件，全量与单文件恢复均保留用户原有的暂存状态（#1176）。
 - [Desktop] native Agent 超长用户消息不再横向溢出面板：消息卡片内自动折行（含长 URL 等不可断词内容）。
 - [Desktop] native Agent **编辑重发**不再因失效检查点中断：文件回滚失败时退回「仅回滚对话」继续重发，恢复重构前“检查点尽力回滚、不阻断重发”的语义；rewind 后自动重连再提交。
 - [Desktop] native 长会话统一保留模型推理设置与输出预留；历史按完整用户回合连续裁剪，避免拆开工具调用与结果。摘要记录明确覆盖范围并有界分块，重开或短 follow-up 不再重复发送已覆盖原文；中文、system 与工具 schema 纳入估计预算，固定输入超限时明确报错并保留原输入。
@@ -48,6 +49,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 - [Web] 登录来源判定接受本站 www 别名：站点别名解析改成对称（裸域配置接受 www 变体、反之亦然），小程序二维码登录也接受本站 www 域名来源——此前生产 web 同时由裸域与 www 提供，www 来源被拒。
 
 ### Security
+- [Desktop] native Agent 的命令前缀授权仅复用于简单命令的完整参数边界，复合命令、shell 展开、重定向和引号重新请求审批，防止借已批准的前缀执行额外命令（#1176）。
 - [Backend] 依赖安全升级：`bandit` 1.13.1 → 1.14.0（HTTP/2 WINDOW_UPDATE 超时绕过）、`ash_postgres` 2.13.1 → 2.15.2（跨租户读泄漏与「跳过 upsert 返回他人记录」两处 multitenancy 缺陷）、`plug_crypto` 2.2.0 → 2.2.1（密钥进 stack trace）、`jose` 1.11.12 → 1.11.13（8 条 advisory，含 HIGH 的弱 PBKDF2 与 GCM tag 伪造）。`mix hex.audit` 从 11 条 advisory 清零；ash 3.36→3.37 的 `ash_functions_version` 6→7 随迁移重定义 `ash_required/2`（`CREATE OR REPLACE`，幂等）。
 - [本机 Host / Web] `status` 最小化（去掉页面从未消费的字段、`tokenId` 只给已 hello 的连接）；配对请求的冷却从受理开始计数，无效 token 与平台不可达的早退同样受限；Host 日志统一脱敏（凭证与 Bearer 头只留前缀，覆盖 ACP 错误与兜底 catch）。
 

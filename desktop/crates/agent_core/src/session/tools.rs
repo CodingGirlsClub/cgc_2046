@@ -13,7 +13,7 @@ impl Agent {
                 return false;
             }
             if let Some(command) = command {
-                return prefix_match(command.trim(), pattern);
+                return command_prefix_match(command.trim(), pattern.trim());
             }
             if let Some(path) = path {
                 return prefix_match(path.trim(), pattern);
@@ -131,6 +131,27 @@ impl Agent {
         }
     }
 }
+
+fn command_prefix_match(command: &str, pattern: &str) -> bool {
+    // 仅未引用的简单 argv 可以复用授权；shell 结构、展开、重定向和引号都重新确认。
+    // 同时排除 cmd.exe 的 % / ! 展开与 ^ 转义，不能只检查 Unix shell 操作符。
+    if pattern.is_empty()
+        || !(command == pattern
+            || command
+                .strip_prefix(pattern)
+                .is_some_and(|rest| rest.starts_with([' ', '\t'])))
+    {
+        return false;
+    }
+    command.chars().all(|character| {
+        character.is_alphanumeric()
+            || matches!(
+                character,
+                ' ' | '\t' | '/' | '.' | '_' | '-' | ':' | '=' | '+' | ',' | '@'
+            )
+    })
+}
+
 fn prefix_match(value: &str, pattern: &str) -> bool {
     if value == pattern {
         return true;

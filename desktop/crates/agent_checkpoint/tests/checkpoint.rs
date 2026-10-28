@@ -180,3 +180,130 @@ fn restore_file_rejects_path_escape() {
         cgc_agent_checkpoint::CheckpointError::InvalidPath(_)
     ));
 }
+
+#[test]
+fn restore_preserves_files_excluded_from_checkpoint() {
+    let workspace = temp_workspace("restore-excluded");
+    let manager = CheckpointManager::initialize(&workspace).expect("init");
+    std::fs::write(workspace.join("a.txt"), "before").unwrap();
+    std::fs::write(workspace.join("deleted.txt"), "restore me").unwrap();
+    std::fs::write(workspace.join("logo.png"), b"image").unwrap();
+    std::fs::write(workspace.join("archive.zip"), b"archive").unwrap();
+    std::fs::write(workspace.join("large.txt"), vec![b'x'; 2 * 1024 * 1024 + 1]).unwrap();
+    assert!(run_git(&workspace, &["add", "--all"]).status.success());
+    assert!(run_git(&workspace, &["commit", "-m", "initial"])
+        .status
+        .success());
+    let checkpoint = manager.snapshot("restore-excluded", 1).unwrap();
+    assert_eq!(
+        tree_files(&workspace, &checkpoint.sha),
+        vec!["a.txt", "deleted.txt"]
+    );
+    std::fs::write(workspace.join("a.txt"), "after").unwrap();
+    std::fs::remove_file(workspace.join("deleted.txt")).unwrap();
+    // 即使大文件后来缩小，也不能把快照中的缺席误判成应当删除。
+    std::fs::write(workspace.join("large.txt"), "now small").unwrap();
+    std::fs::write(workspace.join("new.txt"), "keep new file").unwrap();
+
+    manager.restore(&checkpoint).expect("restore");
+
+    assert_eq!(std::fs::read(workspace.join("logo.png")).unwrap(), b"image");
+    assert_eq!(
+        std::fs::read(workspace.join("archive.zip")).unwrap(),
+        b"archive"
+    );
+    assert_eq!(
+        std::fs::read_to_string(workspace.join("large.txt")).unwrap(),
+        "now small"
+    );
+    assert_eq!(
+        std::fs::read_to_string(workspace.join("new.txt")).unwrap(),
+        "keep new file"
+    );
+    assert_eq!(
+        std::fs::read_to_string(workspace.join("a.txt")).unwrap(),
+        "before"
+    );
+    assert_eq!(
+        std::fs::read_to_string(workspace.join("deleted.txt")).unwrap(),
+        "restore me"
+    );
+    std::fs::remove_dir_all(workspace).unwrap();
+}
+
+#[test]
+fn restore_preserves_partially_staged_and_unrelated_index_entries() {
+    for single_file in [false, true] {
+        let workspace = temp_workspace("restore-index");
+        let manager = CheckpointManager::initialize(&workspace).expect("init");
+        for path in ["a.txt", "b.txt"] {
+            std::fs::write(workspace.join(path), "committed").unwrap();
+        }
+        assert!(run_git(&workspace, &["add", "--all"]).status.success());
+        assert!(run_git(&workspace, &["commit", "-m", "initial"])
+            .status
+            .success());
+        for path in ["a.txt", "b.txt"] {
+            std::fs::write(workspace.join(path), "staged").unwrap();
+        }
+        assert!(run_git(&workspace, &["add", "--all"]).status.success());
+        std::fs::write(workspace.join("a.txt"), "checkpoint").unwrap();
+        let checkpoint = manager.snapshot("restore-index", 1).unwrap();
+        std::fs::write(workspace.join("a.txt"), "after turn").unwrap();
+        std::fs::write(workspace.join("b.txt"), "unrelated edit").unwrap();
+        let index_before = run_git(&workspace, &["ls-files", "--stage", "-z"]);
+        assert!(index_before.status.success());
+
+        if single_file {
+            manager.restore_file(&checkpoint, "a.txt").unwrap();
+        } else {
+            manager.restore(&checkpoint).unwrap();
+        }
+
+        let index_after = run_git(&workspace, &["ls-files", "--stage", "-z"]);
+        assert!(index_after.status.success());
+        assert_eq!(
+            index_after.stdout, index_before.stdout,
+            "single_file={single_file}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("a.txt")).unwrap(),
+            "checkpoint"
+        );
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("b.txt")).unwrap(),
+            if single_file {
+                "unrelated edit"
+            } else {
+                "staged"
+            }
+        );
+        std::fs::remove_dir_all(workspace).unwrap();
+    }
+}
+
+#[test]
+fn restore_does_not_stage_previously_untracked_files() {
+    for single_file in [false, true] {
+        let workspace = temp_workspace("restore-untracked");
+        let manager = CheckpointManager::initialize(&workspace).expect("init");
+        std::fs::write(workspace.join("a.txt"), "before").unwrap();
+        let checkpoint = manager.snapshot("restore-untracked", 1).unwrap();
+        std::fs::write(workspace.join("a.txt"), "after").unwrap();
+
+        if single_file {
+            manager.restore_file(&checkpoint, "a.txt").unwrap();
+        } else {
+            manager.restore(&checkpoint).unwrap();
+        }
+
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("a.txt")).unwrap(),
+            "before"
+        );
+        let index = run_git(&workspace, &["ls-files", "--stage", "-z"]);
+        assert!(index.status.success());
+        assert_eq!(index.stdout, b"", "restore must not stage the file");
+        std::fs::remove_dir_all(workspace).unwrap();
+    }
+}
