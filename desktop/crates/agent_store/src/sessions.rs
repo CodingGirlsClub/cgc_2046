@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use crate::snapshot::{SavedConversation, SnapshotSource};
 use cgc_agent_core::{Entry, SelectedModel, Thread};
 use cgc_agent_provider::{ModelId, ProviderId, TokenUsage};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -97,6 +98,13 @@ impl SessionStore {
                 created_at INTEGER NOT NULL,
                 PRIMARY KEY (thread_id, seq)
             );
+            CREATE TABLE IF NOT EXISTS thread_snapshots (
+                thread_id TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE,
+                revision INTEGER NOT NULL,
+                source TEXT NOT NULL,
+                data TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS checkpoints (
                 thread_id TEXT NOT NULL,
                 user_entry_seq INTEGER NOT NULL,
@@ -124,9 +132,64 @@ impl SessionStore {
         Ok(())
     }
 
-    pub fn save_thread(&mut self, thread: &Thread) -> Result<(), SessionError> {
-        let usage_json = serde_json::to_string(&thread.usage_total)?;
+    /// 执行内容与展示投影在同一事务里提交：二者不能只写一半。
+    pub fn save_thread_with_snapshot(
+        &mut self,
+        thread: &Thread,
+        snapshot: &SavedConversation,
+    ) -> Result<(), SessionError> {
         let transaction = self.conn.transaction()?;
+        Self::write_thread(&transaction, thread)?;
+        transaction.execute(
+            "INSERT INTO thread_snapshots (thread_id, revision, source, data, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(thread_id) DO UPDATE SET
+                 revision = excluded.revision,
+                 source = excluded.source,
+                 data = excluded.data,
+                 updated_at = excluded.updated_at
+             WHERE excluded.revision >= thread_snapshots.revision",
+            params![
+                snapshot.thread_id,
+                snapshot.revision as i64,
+                snapshot_source_label(snapshot.source),
+                serde_json::to_string(snapshot)?,
+                now_epoch()
+            ],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    /// 读取展示投影；旧 thread 没有快照时返回 `None`，调用方从 entries 生成一次投影。
+    pub fn load_snapshot(
+        &self,
+        thread_id: &str,
+    ) -> Result<Option<SavedConversation>, SessionError> {
+        let data: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT data FROM thread_snapshots WHERE thread_id = ?1",
+                params![thread_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(data.and_then(|data| serde_json::from_str(&data).ok()))
+    }
+
+    pub fn save_thread(&mut self, thread: &Thread) -> Result<(), SessionError> {
+        let transaction = self.conn.transaction()?;
+        Self::write_thread(&transaction, thread)?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    /// 执行内容的实际写入；调用方负责事务与提交，便于与投影原子配对。
+    fn write_thread(
+        transaction: &rusqlite::Transaction<'_>,
+        thread: &Thread,
+    ) -> Result<(), SessionError> {
+        let usage_json = serde_json::to_string(&thread.usage_total)?;
         transaction.execute(
             "INSERT INTO threads (id, title, title_override, agent, session_id, model_provider, model_id, usage_json, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
@@ -165,7 +228,6 @@ impl SessionStore {
                 params![thread.id, seq as i64, kind, payload_json, entry_at(entry)],
             )?;
         }
-        transaction.commit()?;
         Ok(())
     }
 
@@ -376,3 +438,17 @@ fn entry_at(entry: &Entry) -> i64 {
 mod tests;
 #[cfg(test)]
 mod title_override_tests;
+
+fn snapshot_source_label(source: SnapshotSource) -> &'static str {
+    match source {
+        SnapshotSource::Acp => "acp",
+        SnapshotSource::Native => "native",
+    }
+}
+
+fn now_epoch() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or_default()
+}

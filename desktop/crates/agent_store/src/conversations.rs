@@ -12,12 +12,21 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use cgc_agent_conversation::conversation::ConversationThread;
+
+use crate::snapshot::{SavedConversation, SnapshotSource};
+
+fn source_label(source: SnapshotSource) -> &'static str {
+    match source {
+        SnapshotSource::Acp => "acp",
+        SnapshotSource::Native => "native",
+    }
+}
 use rusqlite::{params, Connection, OptionalExtension};
 
 /// 数据库文件名（`<data_root>/conversations.db`）。
 pub const CONVERSATIONS_DB: &str = "conversations.db";
-/// 当前 schema 版本；迁移只增不改（v2：native 归档标记表）。
-pub const SCHEMA_VERSION: i64 = 2;
+/// 当前 schema 版本；迁移只增不改（v3：可恢复会话投影表）。
+pub const SCHEMA_VERSION: i64 = 3;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConversationStoreError {
@@ -173,6 +182,22 @@ impl ConversationStore {
                 params![2_i64, now_utc_rfc3339()],
             )?;
         }
+        if applied < 3 {
+            // v3（add-only）：保存「重开时该看到什么」的投影。旧表与旧 reader 完全不受影响。
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS thread_snapshots (
+                    thread_id TEXT PRIMARY KEY,
+                    revision INTEGER NOT NULL,
+                    source TEXT NOT NULL,
+                    data TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );",
+            )?;
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+                params![3_i64, now_utc_rfc3339()],
+            )?;
+        }
         Ok(())
     }
 
@@ -251,6 +276,55 @@ impl ConversationStore {
             Ok(thread) => Ok(Some(thread)),
             Err(error) => {
                 eprintln!("[conversations] 忽略损坏的 thread_content {thread_id}: {error}");
+                Ok(None)
+            }
+        }
+    }
+
+    /// 写入可恢复投影；`thread_content` 不动（add-only）。
+    pub fn save_snapshot(
+        &mut self,
+        snapshot: &SavedConversation,
+    ) -> Result<(), ConversationStoreError> {
+        let data = serde_json::to_string(snapshot)?;
+        self.conn.execute(
+            "INSERT INTO thread_snapshots (thread_id, revision, source, data, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(thread_id) DO UPDATE SET
+                 revision = excluded.revision,
+                 source = excluded.source,
+                 data = excluded.data,
+                 updated_at = excluded.updated_at
+             WHERE excluded.revision >= thread_snapshots.revision",
+            params![
+                snapshot.thread_id,
+                snapshot.revision as i64,
+                source_label(snapshot.source),
+                data,
+                now_utc_rfc3339()
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// 读取投影；旧记录没有快照时返回 `None`，调用方退回 `thread_content`。
+    pub fn load_snapshot(
+        &self,
+        thread_id: &str,
+    ) -> Result<Option<SavedConversation>, ConversationStoreError> {
+        let data: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT data FROM thread_snapshots WHERE thread_id = ?1",
+                params![thread_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(data) = data else { return Ok(None) };
+        match serde_json::from_str::<SavedConversation>(&data) {
+            Ok(snapshot) => Ok(Some(snapshot)),
+            Err(error) => {
+                eprintln!("[conversations] 忽略损坏的 thread_snapshots {thread_id}: {error}");
                 Ok(None)
             }
         }

@@ -7,6 +7,8 @@ pub mod conversations;
 pub mod model_lines;
 pub mod prefs;
 pub mod sessions;
+pub mod snapshot;
+pub mod writer;
 
 pub use audit::{ActionAuditEntry, AuditLog};
 pub use conversations::{
@@ -19,3 +21,5 @@ pub use prefs::{
     ProviderPrefs,
 };
 pub use sessions::{CheckpointRecord, SessionError, SessionStore, ThreadSummary};
+pub use snapshot::{SavedConversation, SnapshotSource};
+pub use writer::{StoreTarget, StoreWriter, WriterCommand};
