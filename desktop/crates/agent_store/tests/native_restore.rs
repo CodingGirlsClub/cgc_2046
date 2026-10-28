@@ -125,3 +125,46 @@ fn deleting_a_native_thread_removes_execution_and_snapshot() {
     assert!(store.load_restored("legacy-native").unwrap().is_none());
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// 归档不是删除：归档只写 `native_archived`，执行内容与投影都必须保留。
+/// 产品有意不提供逐条永久删除（见 `history_row.rs:6`），因此 R3 的断言应测这条契约。
+#[test]
+fn archiving_keeps_execution_content_and_snapshot() {
+    let root = temp_dir("archive");
+    let path = root.join("threads.db");
+    let mut store = SessionStore::open(&path).unwrap();
+    let mut execution = thread();
+    execution.push_user("归档后仍应存在");
+    let snapshot = SavedConversation::from_thread(
+        &cgc_agent_conversation::conversation::ConversationThread {
+            thread_id: "legacy-native".into(),
+            entries: vec![cgc_agent_conversation::conversation::Entry::User {
+                text: "归档后仍应存在".into(),
+            }],
+            ..Default::default()
+        },
+        SnapshotSource::Native,
+        4,
+    );
+    store
+        .save_thread_with_snapshot(&execution, &snapshot)
+        .unwrap();
+
+    // 归档标记在 conversations.db 的 native_archived 表，与 threads.db 无关。
+    let conversations_path = root.join("conversations.db");
+    let conversations = cgc_agent_store::ConversationStore::open(&conversations_path).unwrap();
+    conversations
+        .set_native_archived("legacy-native", true)
+        .unwrap();
+
+    assert!(store.load_thread("legacy-native").unwrap().is_some());
+    assert!(
+        store.load_snapshot("legacy-native").unwrap().is_some(),
+        "归档不是删除，投影必须保留"
+    );
+    assert!(conversations
+        .archived_native_threads()
+        .unwrap()
+        .contains(&"legacy-native".to_string()));
+    let _ = std::fs::remove_dir_all(root);
+}
