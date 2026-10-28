@@ -288,3 +288,42 @@ fn a_snapshot_written_after_deletion_cannot_resurrect_history() {
     );
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// flush 必须如实报告失败：把库路径占成一个目录，让 SQLite 打不开。
+#[test]
+fn flush_reports_failure_instead_of_claiming_success() {
+    let root = temp_root("flush-fail");
+    let broken = root.join("conversations.db");
+    std::fs::create_dir_all(&broken).unwrap();
+    let writer = StoreWriter::spawn(broken, root.join("agent/threads.db"));
+    assert!(writer.submit(WriterCommand::Snapshot {
+        target: StoreTarget::Acp,
+        thread: None,
+        snapshot: Box::new(SavedConversation::from_thread(
+            &conversation("f1", "写不进去"),
+            SnapshotSource::Acp,
+            1,
+        )),
+    }));
+    let result = writer.flush(Duration::from_secs(5));
+    assert!(result.is_err(), "写入失败时 flush 不得返回成功：{result:?}");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// 成功的写入仍然要 flush 成功，避免上面那条把错误当成常态。
+#[test]
+fn flush_reports_success_on_a_healthy_writer() {
+    let root = temp_root("flush-ok");
+    let writer = StoreWriter::spawn(root.join("conversations.db"), root.join("agent/threads.db"));
+    assert!(writer.submit(WriterCommand::Snapshot {
+        target: StoreTarget::Acp,
+        thread: None,
+        snapshot: Box::new(SavedConversation::from_thread(
+            &conversation("ok1", "正常写入"),
+            SnapshotSource::Acp,
+            1,
+        )),
+    }));
+    writer.flush(Duration::from_secs(5)).expect("健康库应成功");
+    let _ = std::fs::remove_dir_all(root);
+}

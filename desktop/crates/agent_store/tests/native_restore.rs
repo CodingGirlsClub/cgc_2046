@@ -165,6 +165,6 @@ fn archiving_keeps_execution_content_and_snapshot() {
     assert!(conversations
         .archived_native_threads()
         .unwrap()
-        .contains(&"legacy-native".to_string()));
+        .contains("legacy-native"));
     let _ = std::fs::remove_dir_all(root);
 }
