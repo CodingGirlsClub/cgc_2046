@@ -80,8 +80,19 @@ impl RegistryError {
 impl Registry {
     /// 校验内置清单签名并解析；任何失败都 fail-closed（不降级到未签名数据）。
     pub fn builtin() -> Result<Self, RegistryError> {
+        Self::builtin_from(BUILTIN_MANIFEST)
+    }
+
+    /// 内置清单的验签入口（清单文本可注入，便于覆盖 Windows CRLF 检出）。
+    ///
+    /// 签名是对 LF 版本的清单算的，但 `include_str!` 取的是**工作树里的字节**：
+    /// Windows 检出（core.autocrlf=true，GitHub runner 默认）会把 registry.json
+    /// 转成 CRLF，直接校验必然 BadSignature —— 整个内置 registry 失效，构建出来的
+    /// 包一个 agent 都装不了。所以先归一化再验签。
+    fn builtin_from(manifest: &str) -> Result<Self, RegistryError> {
+        let payload = normalize_line_endings(manifest);
         Self::from_signed(
-            BUILTIN_MANIFEST.as_bytes(),
+            payload.as_bytes(),
             BUILTIN_SIGNATURE.trim(),
             BUILTIN_PUBLIC_KEY,
         )
@@ -217,6 +228,15 @@ fn required_str(value: &Value, key: &str, id: &str) -> Result<String, RegistryEr
         .ok_or_else(|| RegistryError::InvalidEntry(format!("{id}.{key}")))
 }
 
+/// 把 CRLF 归一化成 LF（签名是对 LF 字节算的）。
+fn normalize_line_endings(text: &str) -> String {
+    if text.contains('\r') {
+        text.replace("\r\n", "\n")
+    } else {
+        text.to_string()
+    }
+}
+
 fn verify_signature(
     payload: &[u8],
     signature_b64: &str,
@@ -266,6 +286,28 @@ mod tests {
             }
             other => panic!("unexpected codex distribution: {other:?}"),
         }
+    }
+
+    #[test]
+    fn crlf_checked_out_manifest_still_verifies() {
+        // Windows 检出会把清单变成 CRLF；归一化后必须还能验签，
+        // 否则 Windows 构建出的客户端内置 registry 全废。
+        let crlf = BUILTIN_MANIFEST.replace('\n', "\r\n");
+        assert_ne!(crlf, BUILTIN_MANIFEST);
+        assert_eq!(normalize_line_endings(&crlf), BUILTIN_MANIFEST);
+        // 未归一化的 CRLF 载荷验签必然失败——这一步不是可选的。
+        assert_eq!(
+            Registry::from_signed(
+                crlf.as_bytes(),
+                BUILTIN_SIGNATURE.trim(),
+                BUILTIN_PUBLIC_KEY
+            )
+            .unwrap_err(),
+            RegistryError::BadSignature
+        );
+        // 走 builtin() 同一条路径（builtin_from）应通过——归一化被删掉这里就红。
+        let registry = Registry::builtin_from(&crlf).expect("CRLF manifest verifies");
+        assert_eq!(registry.agents.len(), 3);
     }
 
     #[test]
