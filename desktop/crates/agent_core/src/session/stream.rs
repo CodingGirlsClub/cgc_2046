@@ -30,7 +30,14 @@ pub(super) async fn run_stream(
     let mut usage = TokenUsage::default();
     let mut stop_reason = None;
     let mut tool_calls: Vec<ToolUse> = Vec::new();
-    while let Some(event) = stream.next().await {
+    // 与取消竞争：模型沉默期间也能立刻收尾，而不是等下一个事件。
+    let mut cancelled = std::pin::pin!(cancel.cancelled());
+    loop {
+        let event = match futures::future::select(stream.next(), cancelled.as_mut()).await {
+            futures::future::Either::Left((event, _)) => event,
+            futures::future::Either::Right(_) => return Err(AgentError::Cancelled),
+        };
+        let Some(event) = event else { break };
         if cancel.is_cancelled() {
             return Err(AgentError::Cancelled);
         }

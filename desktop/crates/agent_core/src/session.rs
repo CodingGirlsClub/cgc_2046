@@ -2,7 +2,7 @@ use std::{
     collections::{HashSet, VecDeque},
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc, Arc,
+        mpsc, Arc, Mutex,
     },
 };
 
@@ -39,10 +39,23 @@ pub const MAX_FOLLOW_UP_TURNS: usize = 4;
 /// 一次 prompt 内最多被 steer 打断的次数。
 pub const MAX_STEERS: usize = 4;
 
-/// 取消句柄：UI 点击停止时调用 `cancel()`；Agent 在每个事件边界检查。
-#[derive(Clone, Debug, Default)]
+/// 取消句柄：UI 点击停止时调用 `cancel()`。
+///
+/// 既能轮询（`is_cancelled`）也能等待（`cancelled()`）：模型长时间不吐 delta 时，
+/// 流消费要能立刻被唤醒，而不是等下一个事件才发现已取消。
+#[derive(Clone, Debug)]
 pub struct CancelToken {
     flag: Arc<AtomicBool>,
+    waiters: Arc<Mutex<Vec<std::task::Waker>>>,
+}
+
+impl Default for CancelToken {
+    fn default() -> Self {
+        Self {
+            flag: Arc::new(AtomicBool::new(false)),
+            waiters: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
 }
 
 impl CancelToken {
@@ -52,6 +65,15 @@ impl CancelToken {
 
     pub fn cancel(&self) {
         self.flag.store(true, Ordering::SeqCst);
+        let waiters: Vec<_> = self
+            .waiters
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .drain(..)
+            .collect();
+        for waiter in waiters {
+            waiter.wake();
+        }
     }
 
     pub fn reset(&self) {
@@ -60,6 +82,26 @@ impl CancelToken {
 
     pub fn is_cancelled(&self) -> bool {
         self.flag.load(Ordering::SeqCst)
+    }
+
+    /// 等待取消；已取消时立即就绪。与轮询共用同一个标志，注册无竞态。
+    pub async fn cancelled(&self) {
+        futures::future::poll_fn(|cx| {
+            if self.is_cancelled() {
+                return std::task::Poll::Ready(());
+            }
+            let mut waiters = self
+                .waiters
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            // 持锁后再检查一次：cancel 可能刚好发生在检查与入队之间。
+            if self.is_cancelled() {
+                return std::task::Poll::Ready(());
+            }
+            waiters.push(cx.waker().clone());
+            std::task::Poll::Pending
+        })
+        .await
     }
 }
 
