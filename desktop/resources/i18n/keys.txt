@@ -186,7 +186,7 @@ app.auth.reset.new_password
 app.auth.reset.submit
 app.auth.forgot
 app.auth.back
-app.auth.error.phone
+app.auth.error.email
 app.auth.error.rate_limited
 app.auth.error.reset
 app.tray.open

@@ -124,6 +124,8 @@ enum BreadcrumbMenu {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LoginError {
     Invalid,
+    /// 登录标识不是邮箱：客户端只提供邮箱登录（手机号登录已下线）。
+    EmailRequired,
     Network,
     Keychain,
     KeychainLinux,
@@ -163,6 +165,7 @@ impl LoginError {
     fn key(self) -> Key {
         match self {
             LoginError::Invalid => Key::AppAuthErrorInvalid,
+            LoginError::EmailRequired => Key::AppAuthErrorEmail,
             LoginError::Network => Key::AppAuthErrorNetwork,
             LoginError::Keychain => Key::AppAuthErrorKeychain,
             LoginError::KeychainLinux => Key::AppAuthErrorKeychainLinux,

@@ -7,6 +7,20 @@ use cgc_platform::registry::install::{install_entry, SystemRunner};
 use gpui_kit::component::breadcrumb::{Breadcrumb, BreadcrumbItem};
 use state::{PaneTab, SiteTreeSection};
 
+/// 登录标识是否是邮箱。客户端只支持邮箱登录，这里做最小形状校验：
+/// 本地部分非空、域部分含点且不以点开头/结尾（真正的校验在服务端）。
+fn looks_like_email(value: &str) -> bool {
+    let Some((local, domain)) = value.split_once('@') else {
+        return false;
+    };
+    !local.is_empty()
+        && !domain.is_empty()
+        && domain.contains('.')
+        && !domain.starts_with('.')
+        && !domain.ends_with('.')
+        && !value.contains(char::is_whitespace)
+}
+
 impl RootView {
     pub fn current(&self) -> Option<Route> {
         self.current.as_ref().map(|route_match| route_match.route)
@@ -3429,6 +3443,13 @@ impl RootView {
             cx.notify();
             return;
         }
+        // 客户端只保留「邮箱 + 密码」这一条密码登录（扫码注册走小程序）：
+        // 手机号登录已下线，别把手机号交给后端的手机号分支。
+        if !looks_like_email(&login) {
+            self.login_error = Some(LoginError::EmailRequired);
+            cx.notify();
+            return;
+        }
 
         self.signing_in = true;
         self.login_error = None;
@@ -3978,5 +3999,30 @@ mod native_default_tests {
             true
         ));
         assert!(RootView::resolve_native_agent_enabled(None, true, false));
+    }
+}
+
+#[cfg(test)]
+mod login_email_tests {
+    use super::looks_like_email;
+
+    #[test]
+    fn accepts_email_shapes() {
+        assert!(looks_like_email("student@example.com"));
+        assert!(looks_like_email("a.b+tag@sub.example.org"));
+    }
+
+    #[test]
+    fn rejects_phone_and_malformed_identifiers() {
+        // 客户端只保留邮箱登录：手机号登录已下线。
+        assert!(!looks_like_email("{{PHONE_mwhpa2nr}}"));
+        assert!(!looks_like_email("13800138000"));
+        assert!(!looks_like_email("no-at-sign"));
+        assert!(!looks_like_email("@example.com"));
+        assert!(!looks_like_email("user@"));
+        assert!(!looks_like_email("user@localhost"));
+        assert!(!looks_like_email("user@.com"));
+        assert!(!looks_like_email("user@example."));
+        assert!(!looks_like_email("user name@example.com"));
     }
 }
