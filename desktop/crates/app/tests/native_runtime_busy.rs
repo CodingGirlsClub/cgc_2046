@@ -48,6 +48,7 @@ impl Provider for SlowProvider {
     ) -> futures::future::BoxFuture<'static, Result<CompletionStream, ProviderError>> {
         use futures::StreamExt;
         let (sender, receiver) = futures::channel::mpsc::unbounded();
+        eprintln!("[busy] provider.stream called");
         std::thread::spawn(move || {
             for index in 0..20 {
                 std::thread::sleep(Duration::from_millis(150));
@@ -83,6 +84,7 @@ fn opening_or_replacing_a_thread_during_a_turn_returns_busy_and_keeps_content() 
 }
 
 fn scenario() {
+    eprintln!("[busy] 1 start");
     let workspace = std::env::temp_dir().join(format!("cgc-native-busy-{}", std::process::id()));
     std::fs::create_dir_all(&workspace).unwrap();
     let provider: Arc<dyn Provider> = Arc::new(SlowProvider {
@@ -90,6 +92,7 @@ fn scenario() {
         model: model(),
     });
 
+    eprintln!("[busy] 2 spawning runtime");
     let runtime = NativeRuntimeHandle::spawn(
         Thread::new(
             "busy-thread",
@@ -106,42 +109,53 @@ fn scenario() {
         },
         None,
     );
+    eprintln!("[busy] 3 connecting");
     let binding = block_on(runtime.connect()).expect("bind owner");
+    eprintln!("[busy] 3 connected");
     let host = AcpHost::start_in_process(
         AcpHostConfig::new("", workspace.clone()),
         NativeAcpServer::new(Box::new(binding)),
     )
     .expect("start host");
+    eprintln!("[busy] 4 host started, waiting ready");
     loop {
         let event = host
             .recv_timeout(Duration::from_secs(10))
             .expect("ready event");
         let ready = matches!(event, HostEvent::Ready { .. });
         if ready {
+            eprintln!("[busy] 4 ready");
             break;
         }
+        eprintln!("[busy] 4 non-ready event");
     }
 
     assert!(host.prompt("慢一点回答"));
+    eprintln!("[busy] 5 prompted");
     // Turn 开始时 owner 立即取消 ready 并置 active；首个 delta 之前就能观察 Running
     // 之外的证据：此时发起的线程替换必须被 Busy 拒绝，且不改变内容/世代。
     std::thread::sleep(Duration::from_millis(300));
+    eprintln!("[busy] 6 inspecting");
     let before = block_on(runtime.inspect()).unwrap();
+    eprintln!("[busy] 6 inspected");
     assert_eq!(before.thread.id, "busy-thread");
 
     // 生成中打开另一个线程 / 新建会话：必须 Busy。
+    eprintln!("[busy] 7 open_thread");
     let opened = block_on(runtime.open_thread("another-thread".to_string()));
     assert_eq!(
         opened.err(),
         Some(NativeRuntimeError::Busy),
         "生成中不得切换线程"
     );
+    eprintln!("[busy] 7 new_thread");
     let new_thread = block_on(runtime.new_thread());
     assert_eq!(
         new_thread.err(),
         Some(NativeRuntimeError::Busy),
         "生成中不得新建会话"
     );
+    eprintln!("[busy] 8 inspect after");
     let after = block_on(runtime.inspect()).unwrap();
     assert_eq!(after.thread.id, before.thread.id, "线程不得被替换");
     assert_eq!(
@@ -151,6 +165,7 @@ fn scenario() {
 
     // 本轮正常完成后，内容保留且可以再开新线程。
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    eprintln!("[busy] 9 waiting idle");
     while block_on(runtime.inspect()).unwrap().phase != RuntimePhase::Idle {
         assert!(std::time::Instant::now() < deadline, "turn never finished");
         std::thread::sleep(Duration::from_millis(20));
