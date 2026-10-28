@@ -492,6 +492,9 @@ mod tests {
     fn init_repo(root: &Path) {
         std::fs::create_dir_all(root).expect("create repo dir");
         git_ok(root, &["init", "--quiet"]);
+        // 钉死行尾转换：Windows runner（以及开了 core.autocrlf 的开发机）会在
+        // checkout/restore 时把 LF 换成 CRLF，内容断言就变成 "one\r\n" vs "one\n"。
+        git_ok(root, &["config", "core.autocrlf", "false"]);
         std::fs::write(root.join("a.txt"), "one\n").expect("write a.txt");
         git_ok(root, &["add", "--all"]);
         git_ok(

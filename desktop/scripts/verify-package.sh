@@ -68,6 +68,8 @@ for f in dist/*.deb; do
       *libsecret-tools*) echo "   dependency ok: libsecret-tools" ;;
       *)
         echo "FAIL: deb 缺少 libsecret-tools 运行时依赖（实际 Depends: ${depends:-<empty>}）" >&2
+        # 排障用：把完整 control 打出来，能区分「打包器没写 Depends」和「字段名/格式不符」。
+        dpkg-deb -I "$f" >&2 2>/dev/null || true
         exit 1
         ;;
     esac
