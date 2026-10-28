@@ -102,3 +102,35 @@ fn a_stalled_consumer_backpressures_the_provider_worker() {
     }
     assert_eq!(text.len(), CHUNKS * CHUNK_BYTES, "背压不得丢任何 delta");
 }
+
+/// 消费者放弃（stream 被 drop）后 worker 必须尽快退出，不能留在后台继续读 socket。
+/// 这是 drain 信号真正要保证的性质；有了有界通道 + 发送失败即退出，不需要额外信号。
+#[test]
+fn dropping_the_stream_stops_the_provider_worker() {
+    let (base_url, written) = spawn_sse(CHUNKS);
+    let provider = OpenAiCompatibleProvider::new(OpenAiCompatibleConfig::new(
+        base_url,
+        "test-key",
+        vec![model()],
+    ));
+    let mut stream = futures::executor::block_on(provider.stream(&model(), Request::new(vec![])))
+        .expect("stream");
+    assert!(matches!(
+        futures::executor::block_on(stream.next()),
+        Some(Ok(CompletionEvent::Text(_)))
+    ));
+    drop(stream);
+    std::thread::sleep(Duration::from_millis(800));
+
+    let after_drop = written.load(Ordering::Relaxed);
+    std::thread::sleep(Duration::from_millis(400));
+    assert_eq!(
+        written.load(Ordering::Relaxed),
+        after_drop,
+        "drop 之后 worker 仍在读 socket：说明没有及时退出"
+    );
+    assert!(
+        after_drop < CHUNKS * (CHUNK_BYTES + 64),
+        "worker 不应把整段响应读进内存"
+    );
+}
