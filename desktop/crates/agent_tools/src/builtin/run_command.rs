@@ -184,19 +184,16 @@ fn execute(
 
 /// 终止命令及其派生进程；Unix 上按进程组发送 SIGKILL，其他平台退化为只杀 shell。
 ///
-/// 用系统 `kill` 而不是引入新的 FFI 依赖：负 pid 表示整个进程组。失败时仍退回
-/// 单进程 kill，保证至少有终止动作。
-// Windows 下没有进程组概念，`process_group` 只用于上面的 `kill -KILL -<pgid>`。
+/// 直接走 `kill(2)` 而不是 PATH 上的 `kill(1)`：procps 的 `kill` 把 `-KILL -1234`
+/// 里的负数当成选项（invalid option），进程组杀不掉，后台孙子进程会活过 turn。
+/// 失败（ESRCH/EPERM）只体现在返回值里，随后仍退回单进程 kill。
+// Windows 下没有进程组概念，`process_group` 只用于 Unix 的进程组 kill。
 #[cfg_attr(not(unix), allow(unused_variables))]
 fn terminate(child: &mut std::process::Child, process_group: u32) {
     #[cfg(unix)]
     {
-        let _ = std::process::Command::new("kill")
-            .arg("-KILL")
-            .arg(format!("-{process_group}"))
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+        // SAFETY: kill(2) 不读写内存，只把负 pid 解释为进程组；失败返回 -1。
+        let _ = unsafe { libc::kill(-(process_group as libc::pid_t), libc::SIGKILL) };
     }
     let _ = child.kill();
 }
@@ -417,6 +414,7 @@ mod tests {
 #[cfg(test)]
 mod cancel_tests {
     use super::*;
+    #[cfg(unix)]
     use std::sync::atomic::{AtomicBool, Ordering};
 
     /// Stop 必须在自身 timeout 之前终止命令，而不是让用户等到 30s。

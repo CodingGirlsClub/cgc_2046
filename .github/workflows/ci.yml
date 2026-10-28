@@ -413,6 +413,10 @@ jobs:
   # 签名/公证与自动更新归 epic-6（ADR-0027 决策 2/3）。job 名 desktop 同时进入
   # gate 的 merge 去重列表；设为 required check 是仓库设置，由人执行。
   desktop-build:
+    # CodeQL actions/missing-workflow-permissions：显式收窄 GITHUB_TOKEN，
+    # 打包只需要读仓库 + 上传产物。
+    permissions:
+      contents: read
     needs: [gate, changes]
     if: >
       !cancelled() &&
@@ -517,6 +521,8 @@ jobs:
   # gate 与 branch protection 需要稳定的 check 名 `desktop`；matrix 子任务的 check 名会带
   # 组合值（如 `desktop-build (macos-15, dmg)`），因此用一个汇总 job 作为唯一 required check。
   desktop:
+    # 只做结果汇总，不需要任何 token 权限。
+    permissions: {}
     needs: [gate, changes, desktop-build]
     if: >
       !cancelled() &&

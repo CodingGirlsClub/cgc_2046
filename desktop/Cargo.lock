@@ -985,6 +985,7 @@ dependencies = [
  "cgc-agent-provider",
  "cgc-platform",
  "futures",
+ "libc",
  "serde",
  "serde_json",
  "thiserror 1.0.69",

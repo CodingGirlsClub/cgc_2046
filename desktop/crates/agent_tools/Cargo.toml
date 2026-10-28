@@ -12,3 +12,7 @@ futures = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"
+
+# Unix 上按进程组终止命令树：直接调 kill(2)，不依赖 PATH 上的 kill(1)。
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

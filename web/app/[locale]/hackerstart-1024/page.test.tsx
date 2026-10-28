@@ -85,9 +85,16 @@ function readSource(relativePath: string): string {
  * 顺带成为「消息与渲染一致」的断言基准。
  */
 function plain(message: string): string {
-	return message
-		.replace(/<pow>(\d+)<\/pow>/g, "2$1")
-		.replace(/<\/?[a-z]+>/g, "");
+	const restored = message.replace(/<pow>(\d+)<\/pow>/g, "2$1");
+	// 反复剥离直到稳定：单趟替换会漏掉嵌套构造（`<scr<script>ipt>` 剥完只剩
+	// `<script>`），CodeQL js/incomplete-multi-character-sanitization 也是这个口径。
+	let stripped = restored;
+	let previous: string;
+	do {
+		previous = stripped;
+		stripped = stripped.replace(/<\/?[a-z]+>/g, "");
+	} while (stripped !== previous);
+	return stripped;
 }
 
 /** 按选择器取节点文本（含行内标记的段落 getByText 只匹配直接文本子节点） */
