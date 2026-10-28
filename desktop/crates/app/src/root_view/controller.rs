@@ -3509,6 +3509,27 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // 登录页是自绘输入框，没有 InputState 的剪贴板处理；显式支持
+        // Cmd/Ctrl+V，否则从密码管理器复制的邮箱/密码只能手工重敲。
+        if (event.keystroke.modifiers.platform || event.keystroke.modifiers.control)
+            && event.keystroke.key.eq_ignore_ascii_case("v")
+        {
+            let pasted = cx.read_from_clipboard().and_then(|item| {
+                item.entries.into_iter().find_map(|entry| match entry {
+                    gpui_kit::ClipboardEntry::String(text) => {
+                        super::screens::sanitize_login_paste(&text.text)
+                    }
+                    _ => None,
+                })
+            });
+            if let Some(text) = pasted {
+                self.field_mut().push_str(&text);
+            }
+            let focus = self.ensure_key_focus(cx);
+            window.focus(&focus, cx);
+            cx.notify();
+            return;
+        }
         match event.keystroke.key.as_str() {
             "tab" => self.cycle_login_field(),
             "enter" => match self.login_mode {

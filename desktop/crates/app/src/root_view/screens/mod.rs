@@ -13,6 +13,8 @@ pub(in crate::root_view) use settings::render_settings;
 pub(in crate::root_view) use workspace_overview::render_workspace_overview;
 
 mod auth;
+
+pub(in crate::root_view) use auth::sanitize_login_paste;
 mod chat;
 mod context;
 mod courses;

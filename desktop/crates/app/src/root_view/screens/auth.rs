@@ -583,3 +583,27 @@ pub(in crate::root_view) fn login_feedback(
     }
     elements
 }
+
+/// 登录输入框是自绘的单行字段：粘贴时只接受可打印文本，去掉换行/控制字符。
+pub(in crate::root_view) fn sanitize_login_paste(raw: &str) -> Option<String> {
+    let text: String = raw.chars().filter(|ch| !ch.is_control()).collect();
+    (!text.is_empty()).then_some(text)
+}
+
+#[cfg(test)]
+mod login_paste_tests {
+    use super::sanitize_login_paste;
+
+    #[test]
+    fn login_paste_strips_controls_and_rejects_empty() {
+        assert_eq!(
+            sanitize_login_paste("user@example.com\n"),
+            Some("user@example.com".into())
+        );
+        assert_eq!(
+            sanitize_login_paste("p@ss word\r\n"),
+            Some("p@ss word".into())
+        );
+        assert_eq!(sanitize_login_paste("\n\r\t"), None);
+    }
+}
