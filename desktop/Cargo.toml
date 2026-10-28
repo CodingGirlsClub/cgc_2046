@@ -1,0 +1,51 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/app",
+  "crates/account",
+  "crates/events",
+  "crates/courses",
+  "crates/agent_ui",
+  "crates/agent_conversation",
+  "crates/agent_provider",
+  "crates/agent_core",
+  "crates/agent_tools",
+  "crates/agent_demo",
+  "crates/agent_store",
+  "crates/agent_host",
+  "crates/agent_checkpoint",
+  "crates/platform",
+  "crates/platform-macos",
+  "crates/platform-windows",
+  "crates/platform-linux",
+]
+
+[workspace.package]
+# 内测版起 0.1.0：每代构建靠 commit 区分（产物名 cgc2046_<version>_<commit>_<arch>）。
+# 不用 prerelease 后缀（0.1.0-test.1）：macOS 的 CFBundleShortVersionString 只接受数字点分。
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+rust-version = "1.98"
+
+[workspace.dependencies]
+# 精确钉死：gpui-kit 补丁版会连带升级 gpui-pre 快照（0.8.0 → 0.8.1 带入
+# wgpu 29 → 30、taffy 0.13 → 0.15），每次升版都要三平台真机回归，不允许 cargo update 静默跳版。
+# syntect：代码块语法高亮，懒加载（首次高亮才解析语法集）；two-face 语法数据约 3.6 MB。
+# 新增依赖 syntect 5.3（MIT）、two-face 0.4（MIT OR Apache-2.0），均与 AGPL-3.0 兼容。
+gpui-kit = { version = "=0.8.1", features = ["syntect"] }
+cgc-account = { path = "crates/account" }
+cgc-agent-conversation = { path = "crates/agent_conversation" }
+cgc-events = { path = "crates/events" }
+cgc-courses = { path = "crates/courses" }
+cgc-agent-ui = { path = "crates/agent_ui" }
+cgc-agent-provider = { path = "crates/agent_provider" }
+cgc-agent-core = { path = "crates/agent_core" }
+cgc-agent-tools = { path = "crates/agent_tools" }
+cgc-agent-store = { path = "crates/agent_store" }
+cgc-agent-host = { path = "crates/agent_host" }
+cgc-agent-checkpoint = { path = "crates/agent_checkpoint" }
+cgc-platform = { path = "crates/platform" }
+cgc-platform-macos = { path = "crates/platform-macos" }
+cgc-platform-windows = { path = "crates/platform-windows" }
+cgc-platform-linux = { path = "crates/platform-linux" }

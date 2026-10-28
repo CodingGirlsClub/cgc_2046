@@ -1,0 +1,10 @@
+[package]
+name = "cgc-agent-conversation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# Stage 3.3：ACP transcript 本地存储直接序列化 ConversationThread（JSON）。
+serde = { version = "1", features = ["derive"] }

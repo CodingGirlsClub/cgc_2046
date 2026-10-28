@@ -97,3 +97,10 @@ config :cgc_2046,
 # 缺 secret_key_base 会在详情页 500（生产从 runtime.exs 的 SECRET_KEY_BASE 注入）。
 config :cgc_2046, Cgc2046Web.Endpoint,
   secret_key_base: "dv1ZLRPVvn2Yr4WmGRNSLzFB4qbtDhyaQPJXBUDDdtUcJ5dCcAGKfh4ACqmPhLXK"
+
+# story 3.12：dev 环境用本地 DevFake 渠道，让 `mix cgc2046.dev_pay` 能把
+# pending 订单推到 paid（test.exs 仍注入 Providers.Fake；生产不注入）。
+config :cgc_2046, :payments_providers, %{
+  wechat: Cgc2046.Payments.Providers.DevFake,
+  alipay: Cgc2046.Payments.Providers.DevFake
+}

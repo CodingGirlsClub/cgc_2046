@@ -3,7 +3,6 @@ import createMiddleware from "next-intl/middleware";
 import { hasLocale } from "next-intl";
 import { LOCALE_COOKIE, routing } from "./i18n/routing";
 import { USER_LOCALE_PARAM } from "./i18n/user-locale";
-import { HOST_HTTP_ORIGIN, HOST_WS_URL } from "./lib/host-connection";
 
 /**
  * proxy（Next 16 更名自 middleware）＝ CSP/security headers + next-intl 路由（同文件组合）。
@@ -64,9 +63,7 @@ export function resolveProxyPlan(request: NextRequest): ProxyPlan {
 		"img-src 'self' data:",
 		`frame-src https://www.openclacky.com https://open.weixin.qq.com https://player.bilibili.com`,
 		"font-src 'self' data:",
-		// KTD10：站点级放行本机 Host，恰好两条、端口精确——Chrome 的本机访问授权按来源长期有效，
-		// CSP 是把页面限制在 Host 这一个端口上的唯一手段；按路由下发到不了软导航进入的课程页
-		`connect-src 'self' ${HOST_HTTP_ORIGIN} ${HOST_WS_URL}`,
+		"connect-src 'self'",
 		"frame-ancestors 'none'",
 		"base-uri 'self'",
 		"form-action 'self'",

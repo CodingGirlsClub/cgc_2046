@@ -32,7 +32,10 @@ defmodule Cgc2046.Notifications.InboxSnapshotTest do
       assert %{payload: %{"title" => title, "body" => body} = payload, deep_link: _} =
                InboxSnapshot.build(type, data, %{})
 
-      assert Enum.sort(Map.keys(payload)) == ["body", "title"]
+      assert Map.keys(payload)
+             |> Enum.sort()
+             |> Enum.all?(&(&1 in ["body", "targetId", "targetType", "title"]))
+
       refute String.contains?(Jason.encode!(payload), "SENSITIVE_SENTINEL")
       refute String.contains?(body, "987654")
       assert String.length(title) <= 80
@@ -64,5 +67,44 @@ defmodule Cgc2046.Notifications.InboxSnapshotTest do
              )
 
     assert body == "活动：活动时间或地点已更新。：2026-10-04 17:00：杭州西湖"
+  end
+
+  test "targetType and targetId are safe UUID-backed targets" do
+    id = "1ac8d8d6-4c3c-4f61-9364-6a4eb80ee23a"
+
+    assert %{payload: %{"targetType" => "event", "targetId" => ^id}} =
+             InboxSnapshot.build(
+               "event_reminder",
+               %{"title" => "活动", "starts_at" => "2026-10-04T09:00:00Z"},
+               %{"event_id" => id}
+             )
+
+    assert %{payload: %{"targetType" => "course", "targetId" => ^id}} =
+             InboxSnapshot.build(
+               "learning_stagnation",
+               %{"enrollment_id" => id, "course_id" => id, "title" => "课程"},
+               %{}
+             )
+
+    assert %{payload: %{"targetType" => "enrollment", "targetId" => ^id}} =
+             InboxSnapshot.build(
+               "enrollment_completed",
+               %{"enrollment_id" => id, "title" => "活动"},
+               %{}
+             )
+
+    assert %{payload: payload} =
+             InboxSnapshot.build(
+               "event_schedule_changed",
+               %{
+                 "title" => "活动",
+                 "starts_at" => "2026-10-04T09:00:00Z",
+                 "event_id" => "https://evil"
+               },
+               %{}
+             )
+
+    refute Map.has_key?(payload, "targetType")
+    refute Map.has_key?(payload, "targetId")
   end
 end

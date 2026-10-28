@@ -33,45 +33,19 @@ defmodule Cgc2046Web.GraphqlSchema.Auth do
       )
 
       resolve(fn _, %{login: login, password: password}, _ ->
-        # 分流：含 @ → email；否则按手机号归一化（同号不同写法命中同一 User 与同一限流 key）
-        query =
-          if String.contains?(login, "@") do
-            Cgc2046.Accounts.User
-            |> Ash.Query.for_read(:sign_in_with_password, %{email: login, password: password})
-          else
-            case Cgc2046.Accounts.PhoneNumber.normalize(login) do
-              {:ok, phone} ->
-                Cgc2046.Accounts.User
-                |> Ash.Query.for_read(:sign_in_with_password_phone, %{
-                  phone: phone,
-                  password: password
-                })
+        case sign_in_with_password_or_phone(login, password) do
+          {:ok, user} ->
+            {:ok,
+             %{
+               id: user.id,
+               email: user.email,
+               is_platform_admin: user.is_platform_admin,
+               # token 仅用于 middleware 传递到 before_send 写 httpOnly cookie，不暴露在响应中
+               __token__: user.__metadata__[:token]
+             }}
 
-              {:error, :invalid} ->
-                # 非法手机号格式：直接走 email 分支让其产出既有的统一认证失败错误
-                # （防枚举语义不变，不新增格式错误出口）
-                Cgc2046.Accounts.User
-                |> Ash.Query.for_read(:sign_in_with_password, %{email: login, password: password})
-            end
-          end
-
-        try do
-          case Ash.read(query) do
-            {:ok, [user]} ->
-              {:ok,
-               %{
-                 id: user.id,
-                 email: user.email,
-                 is_platform_admin: user.is_platform_admin,
-                 # token 仅用于 middleware 传递到 before_send，不暴露在响应中
-                 __token__: user.__metadata__[:token]
-               }}
-
-            {:error, _error} ->
-              {:error, message: "Invalid email or password", code: "authentication_failed"}
-          end
-        rescue
-          _ -> {:error, message: "Invalid email or password", code: "authentication_failed"}
+          {:error, :authentication_failed} ->
+            {:error, message: "Invalid email or password", code: "authentication_failed"}
         end
       end)
 
@@ -82,6 +56,96 @@ defmodule Cgc2046Web.GraphqlSchema.Auth do
 
           _ ->
             res
+        end
+      end)
+    end
+
+    @desc """
+    第一方客户端登录：直接返回 Bearer JWT（响应体交付，不写 httpOnly cookie）。
+    与 web 的 `signIn` 共用同一 AshAuthentication token；撤销用 `revokeToken`。
+    """
+    field :sign_in_for_desktop, :desktop_sign_in_result do
+      arg(:login, non_null(:string))
+      arg(:password, non_null(:string))
+
+      middleware(Cgc2046Web.Plugs.RateLimit,
+        ip_bucket: "sign-in",
+        ip_context_key: :mini_web_ip,
+        limit: :sign_in_ip,
+        window_seconds: 900
+      )
+
+      middleware(Cgc2046Web.Plugs.RateLimit,
+        key_path: [:login],
+        ip_context_key: :mini_web_ip,
+        normalize: &Cgc2046.Accounts.WebAuthFlow.normalize_login/1
+      )
+
+      resolve(fn _, %{login: login, password: password}, _ ->
+        case sign_in_with_password_or_phone(login, password) do
+          {:ok, user} ->
+            case issue_desktop_token(user) do
+              {:ok, token} ->
+                {:ok,
+                 %{
+                   token: token,
+                   user_id: user.id,
+                   email: user.email,
+                   is_platform_admin: user.is_platform_admin
+                 }}
+
+              {:error, reason} ->
+                Logger.error("signInForDesktop token generation failed: #{inspect(reason)}")
+                {:error, message: "Sign in failed", code: "authentication_failed"}
+            end
+
+          {:error, :authentication_failed} ->
+            {:error, message: "Invalid email or password", code: "authentication_failed"}
+        end
+      end)
+    end
+
+    @desc "桌面端手机验证码登录/注册：JWT 直接经响应体交付（第一方客户端，不写 cookie）"
+    field :sign_in_with_phone_code_for_desktop, :desktop_sign_in_result do
+      arg(:phone, non_null(:string))
+      arg(:code, non_null(:string))
+
+      resolve(fn _, %{phone: raw_phone, code: code}, %{context: context} ->
+        with {:ok, phone} <- Cgc2046.Accounts.PhoneNumber.normalize(raw_phone),
+             :ok <- Cgc2046.Accounts.WebAuthFlow.check_phone_code_verify_limits(context, phone) do
+          case Cgc2046.Accounts.PhoneCodeSignIn.sign_in_with_phone_code(phone, code, context) do
+            {:ok, user} ->
+              case issue_desktop_token(user) do
+                {:ok, token} ->
+                  {:ok,
+                   %{
+                     token: token,
+                     user_id: user.id,
+                     email: user.email,
+                     is_platform_admin: user.is_platform_admin
+                   }}
+
+                {:error, reason} ->
+                  Logger.error(
+                    "signInWithPhoneCodeForDesktop token generation failed: #{inspect(reason)}"
+                  )
+
+                  {:error, message: "Sign in failed", code: "authentication_failed"}
+              end
+
+            {:error, :invalid_or_expired_code} ->
+              {:error, message: "Invalid or expired code", code: "invalid_or_expired_code"}
+
+            {:error, reason} ->
+              Logger.warning("[signInWithPhoneCodeForDesktop] failed: #{inspect(reason)}")
+              {:error, message: "Sign in failed", code: "phone_code_sign_in_failed"}
+          end
+        else
+          {:error, :invalid} ->
+            {:error, message: "Invalid phone number", code: "invalid_phone"}
+
+          {:error, :rate_limited} ->
+            {:error, message: "Too many requests. Try again later.", code: "rate_limited"}
         end
       end)
     end
@@ -489,6 +553,31 @@ defmodule Cgc2046Web.GraphqlSchema.Auth do
       middleware(fn res, _ ->
         revoke_bearer_token(res.context)
         %{res | context: Map.put(res.context, :cgc_clear_token, true)}
+      end)
+    end
+
+    @desc "撤销当前请求携带的 Bearer token（第一方客户端登出用；只撤销已通过校验的调用者 token）"
+    field :revoke_token, :boolean do
+      middleware(Cgc2046Web.Plugs.RateLimit,
+        ip_bucket: "revoke-token",
+        ip_context_key: :mini_web_ip,
+        limit: :sign_in_ip,
+        window_seconds: 900
+      )
+
+      resolve(fn _, _, %{context: context} ->
+        # actor 非 nil 才说明 load_actor 已验签 header token；只凭 header 里的
+        # 任意字符串写库会让公开端点变成匿名写入口（review finding）。
+        case revoke_current_bearer(context) do
+          :ok ->
+            {:ok, true}
+
+          :unauthenticated ->
+            {:error, message: "Not authenticated", code: "unauthorized"}
+
+          {:error, _reason} ->
+            {:error, message: "Revoke failed", code: "token_revoke_failed"}
+        end
       end)
     end
   end

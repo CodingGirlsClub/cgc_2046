@@ -8,7 +8,7 @@
 
 ## 子目录规则
 
-改 `backend/`、`web/`、`miniprogram/`、`omp-plugin/`、`openclacky-ext/`、`cgc-host/` 下的文件前，先读该目录的 `AGENTS.md`——Codex 只自动加载仓库根到当前工作目录路径上的 AGENTS.md，不会读更深的子目录。
+改 `backend/`、`web/`、`miniprogram/`、`omp-plugin/`、`openclacky-ext/` 下的文件前，先读该目录的 `AGENTS.md`——Codex 只自动加载仓库根到当前工作目录路径上的 AGENTS.md，不会读更深的子目录。
 
 ## LoopX 工作流（Codex CLI）
 
@@ -40,7 +40,6 @@
 - `.github/**`：CI 与部署流程
 - `backend/priv/repo/migrations/**`：数据库迁移
 - `backend/mix.lock`、`web/pnpm-lock.yaml`、`miniprogram/pnpm-lock.yaml`：依赖变更
-- `cgc-host/**`：学员电脑上常驻、能驱动 agent 的本机 Host，连同它的依赖锁文件——安全攸关
 
 ## 安全红线（Security red lines）
 

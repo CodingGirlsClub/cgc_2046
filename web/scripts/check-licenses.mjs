@@ -10,7 +10,7 @@
  * print a report and exit non-zero.
  *
  * Usage: node check-licenses.mjs [package-root]
- * package-root defaults to web/; other pnpm packages (e.g. cgc-host) pass their own root.
+ * package-root defaults to web/; pass another pnpm package root to scan it.
  */
 
 import { readdirSync, readFileSync, existsSync } from "node:fs";

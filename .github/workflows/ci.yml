@@ -23,7 +23,7 @@ jobs:
   # 门禁前置:push 事件的 merge commit 去重。
   # 判据:merge commit(2 parents) 且 tree == 第二父 tree(零漂移合并——
   #       base 未动、无冲突解决) 且第二父 SHA 上 6 个检查(backend/web/miniprogram/
-  #       secrets/ext/host)齐全、最新结论全 ∈ {success,skipped} 且 secrets 必为 success;
+  #       secrets/ext/desktop)齐全、最新结论全 ∈ {success,skipped} 且 secrets 必为 success;
   #       出现 skipped 时,还须 changes job 成功,且本 job 对第二父的改动
   #       (first...second)独立重算 docs_only=true——skipped 只在「确为纯文档」
   #       时才算已绿,workflow 写错/前置 job 被取消导致的 skipped 不放行
@@ -55,15 +55,15 @@ jobs:
           second_tree=$(gh api "repos/$REPO/commits/$second" --jq '.commit.tree.sha') || exit 0
           [ "$tree" = "$second_tree" ] || exit 0
 
-          # 第二父(被合入分支 head)上各 CI job 最新结论:6 个检查必须齐全,
+          # 第二父(被合入分支 head)上各 CI job 最新结论:7 个检查必须齐全,
           # 全部 ∈ {success,skipped},且 secrets 必须是 success——secrets 恒跑,
           # 它的 success 才证明那一轮 CI 真跑过。无记录/进行中(null)→ 跑(fail-closed)
           concls=$(gh api "repos/$REPO/commits/$second/check-runs?per_page=100" \
-            --jq '[.check_runs[] | select(.name == "backend" or .name == "web" or .name == "miniprogram" or .name == "secrets" or .name == "ext" or .name == "host" or .name == "changes")]
+            --jq '[.check_runs[] | select(.name == "backend" or .name == "web" or .name == "miniprogram" or .name == "secrets" or .name == "ext" or .name == "desktop" or .name == "changes")]
                   | group_by(.name) | map(sort_by(.started_at) | last | "\(.name) \(.conclusion)") | .[]') || exit 0
           grep -qx 'secrets success' <<<"$concls" || exit 0
           ! grep -qvE ' (success|skipped)$' <<<"$concls" || exit 0
-          for n in backend web miniprogram ext host; do
+          for n in backend web miniprogram ext desktop; do
             grep -qE "^$n (success|skipped)$" <<<"$concls" || exit 0
           done
 
@@ -85,7 +85,7 @@ jobs:
           echo "run=false" >> "$GITHUB_OUTPUT"
 
   # 纯文档判定(#1051):改动文件全部落在 docs/** 或仓库根 *.md 时 docs_only=true,
-  # backend/web/miniprogram/ext/host 据此 job 级跳过(secrets、agent-docs 照跑)。
+  # backend/web/miniprogram/ext 据此 job 级跳过(secrets、agent-docs 照跑)。
   # 必须 job 级 if 而非 workflow 级 paths:——前者跳过的 job 结论 skipped,按通过
   # 计入 required checks;后者整个 workflow 不触发,required checks 永远不出现,
   # PR 卡死。判定逻辑在 scripts/ci/docs-only.sh,本 job 每次先跑它的断言:
@@ -283,12 +283,6 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm check:licenses
-      # 一键安装的锁门禁（期 2）：许可按规则 §2 白名单 + registry integrity 一致。
-      # host job 里也跑一次，但 host 暂非必过项；放在必过的 web job 里才真正拦合并
-      # （changes 只区分 docs-only，cgc-host 变更同样会跑 web job）。
-      - name: Check agent install lock
-        working-directory: cgc-host
-        run: node scripts/check-agent-lock.mjs
       - run: pnpm audit --prod --audit-level high
         if: steps.web_dep_changed.outputs.changed == 'true'
       - run: pnpm test
@@ -415,13 +409,121 @@ jobs:
       - run: for f in test/*.rb; do ruby "$f"; done
       - run: bin/pack
 
-  # 本机 Host 质量门：cgc-host 常驻学员电脑、能驱动学员的 agent，测试与依赖许可
-  # 扫描从第一个 PR 起就把关。依赖由 pnpm 管理、复用 web 的全树许可扫描脚本；
-  # 测试由 Bun 跑。暂非必过检查（设为必过是仓库设置，由人执行），在那之前
-  # cgc-host/** 一律人工合并（见根 AGENTS.md）。
-  host:
+  # 桌面客户端质量门与三平台安装包（story 1.13）。未签名产物：证书暂无，
+  # 签名/公证与自动更新归 epic-6（ADR-0027 决策 2/3）。job 名 desktop 同时进入
+  # gate 的 merge 去重列表；设为 required check 是仓库设置，由人执行。
+  desktop-build:
+    # CodeQL actions/missing-workflow-permissions：显式收窄 GITHUB_TOKEN，
+    # 打包只需要读仓库 + 上传产物。
+    permissions:
+      contents: read
     needs: [gate, changes]
-    # 去重条件同 backend(gate + PR 侧 develop→main 跳过)
+    if: >
+      !cancelled() &&
+      needs.gate.outputs.run == 'true' &&
+      needs.changes.outputs.docs_only != 'true' &&
+      (github.event_name == 'push' ||
+       github.head_ref != 'develop' ||
+       github.event.pull_request.head.repo.full_name != github.repository)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            formats: dmg
+          - os: windows-2022
+            formats: wix
+          - os: ubuntu-24.04
+            formats: deb,appimage
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8  # master @ 2026-10-16
+        with:
+          toolchain: "1.98.1"
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "desktop -> target"
+      - name: Linux 系统依赖
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc g++ clang libfontconfig-dev libwayland-dev \
+            libwebkit2gtk-4.1-dev libxkbcommon-x11-dev libx11-xcb-dev \
+            libssl-dev libzstd-dev libasound2-dev vulkan-validationlayers libvulkan1 \
+            fuse libfuse2t64
+      - name: 格式与 lint
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets -- -D warnings
+      # 依赖许可门禁（AGENTS.md 硬规则）：backend 走 mix cgc2046.check_licenses、
+      # web 走 pnpm check:licenses，desktop 侧就是这把脚本。--self-test 先证明门禁
+      # 本身会红，再扫真实依赖；缺 license 字段 fail-closed。
+      # 许可结论与平台无关（同一份 Cargo.lock），只在 macOS 腿跑一次：
+      # windows runner 没有 `python3` 这个名字（只有 `python`）。
+      - name: 依赖许可门禁
+        if: runner.os == 'macOS'
+        run: |
+          python3 scripts/check_licenses.py --self-test
+          python3 scripts/check_licenses.py
+      - name: 测试
+        run: cargo test --workspace
+      - name: 缓存 cargo-packager
+        id: packager-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/cargo-packager*
+          key: cargo-packager-0.11.8-${{ runner.os }}-${{ runner.arch }}
+      - name: 安装 cargo-packager
+        if: steps.packager-cache.outputs.cache-hit != 'true'
+        run: cargo install cargo-packager --locked --version =0.11.8
+      - name: 打包
+        env:
+          # AppImage 插件在无 FUSE 的运行器上用 extract-and-run 兜底
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          # 安装包默认连生产后端 + 生产数据根（ADR-0027 内测通道）：用户双击
+          # .app 启动拿不到 shell 环境变量，只能靠编译期默认值（platform/build.rs
+          # 的 rerun-if-env-changed 保证改这里会重编）。本地 cargo run 不受影响。
+          CGC_DEFAULT_API_URL: https://api.codingirlsclub.com/api/graphql
+          CGC_DEFAULT_ENV: prod
+        run: cargo packager -p cgc-desktop-app --release -f ${{ matrix.formats }}
+      - name: 重命名产物（版本+commit，Unix）
+        if: runner.os != 'Windows'
+        run: bash scripts/name-artifacts.sh
+      - name: 重命名产物（版本+commit，Windows）
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/name-artifacts.ps1
+      - name: 校验产物（Unix）
+        if: runner.os != 'Windows'
+        run: bash scripts/verify-package.sh
+      - name: 校验产物（Windows）
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/verify-package.ps1
+      - name: 计算 short commit
+        id: meta
+        shell: bash
+        run: echo "short=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cgc-desktop-${{ matrix.os }}-${{ steps.meta.outputs.short }}
+          path: desktop/dist/*
+          if-no-files-found: error
+          # 内测分发要比 CI 排障留得久：14 天不够测试同学慢慢装，90 天是上限。
+          retention-days: 90
+
+  # gate 与 branch protection 需要稳定的 check 名 `desktop`；matrix 子任务的 check 名会带
+  # 组合值（如 `desktop-build (macos-15, dmg)`），因此用一个汇总 job 作为唯一 required check。
+  desktop:
+    # 只做结果汇总，不需要任何 token 权限。
+    permissions: {}
+    needs: [gate, changes, desktop-build]
     if: >
       !cancelled() &&
       needs.gate.outputs.run == 'true' &&
@@ -430,30 +532,12 @@ jobs:
        github.head_ref != 'develop' ||
        github.event.pull_request.head.repo.full_name != github.repository)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: cgc-host
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 10.28.2  # 与 cgc-host/package.json 的 packageManager 对齐
-      - uses: actions/setup-node@v7
-        with:
-          # pnpm 与许可扫描脚本由 node 运行（与 web 同版本）
-          node-version: "24"
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.3  # 对齐本地开发版本，避免版本漂移
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: bun test
-      # 锁门禁（期 2）：钉住的适配器版本仍可从 registry 获取，且 integrity 与随包发布的 bun.lock 一致
-      - run: bun scripts/check-agent-lock.mjs
-      # 安装、卸载与版本门禁：临时 HOME + launchctl/uname 垫片，Linux runner 上同样能跑
-      - run: bash test/install.test.sh
-      - run: pnpm check:licenses
+      - name: 汇总三平台结果
+        run: |
+          echo "desktop-build: ${{ needs.desktop-build.result }}"
+          test "${{ needs.desktop-build.result }}" = "success"
 
   # deps 基础镜像前移：develop push 时 TCR 缺当前 deps 层输入（mix.lock +
   # Dockerfile.deps + config 编译期配置，见下方 DEPS_HASH）对应的 amd64
