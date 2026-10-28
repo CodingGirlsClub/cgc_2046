@@ -10,16 +10,21 @@ impl NativeAgentView {
         page_context: crate::page_context::PageContextState,
         writer: Option<cgc_agent_store::StoreWriter>,
     ) -> Self {
+        let runtime_for_events = runtime.clone();
         let mut events = runtime.subscribe();
-        cx.spawn(async move |this, cx| {
+        cx.spawn(async move |this, cx| loop {
             while let Some(event) = events.next().await {
-                if this
-                    .update(cx, |this, cx| this.apply_runtime_event(&event, cx))
-                    .is_err()
-                {
+                let applied = this.update(cx, |this, cx| this.apply_runtime_event(&event, cx));
+                if applied.is_err() {
+                    // 实体在构造期尚未挂到窗口，首帧前 update 会失败；此时重新订阅，
+                    // 不要把订阅永久丢掉（真机：卡在「正在载入会话…」）。
                     break;
                 }
             }
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(50))
+                .await;
+            events = runtime_for_events.subscribe();
         })
         .detach();
         let input = cx.new(|cx| TextareaState::new(window, cx).auto_grow(4, 20));
@@ -151,10 +156,12 @@ impl NativeAgentView {
                 }
             },
         ));
+        let seeded_snapshot = runtime.latest_snapshot();
         Self {
             runtime,
-            snapshot: None,
+            snapshot: seeded_snapshot,
             writer,
+            initial_snapshot_requested: false,
             page_context,
             slash_index: 0,
             slash_dismissed: false,

@@ -159,6 +159,8 @@ type Reply<T> = oneshot::Sender<Result<T, NativeRuntimeError>>;
 #[derive(Clone)]
 pub struct NativeRuntimeHandle {
     commands: Arc<mpsc::UnboundedSender<Command>>,
+    /// 最近一次发布的快照镜像：视图首帧可以同步读到，不依赖异步事件是否已送达。
+    latest: Arc<std::sync::Mutex<Option<Arc<NativeRuntimeSnapshot>>>>,
 }
 
 /// One server binding, not another runtime owner.
@@ -252,12 +254,26 @@ impl NativeRuntimeHandle {
     fn start(initialization: worker::Initialization) -> Self {
         let (sender, receiver) = mpsc::unbounded();
         let commands = Arc::new(sender);
+        let latest = Arc::new(std::sync::Mutex::new(None));
         let weak = Arc::downgrade(&commands);
+        let latest_for_owner = Arc::clone(&latest);
         std::thread::Builder::new()
             .name("native-agent-owner".into())
-            .spawn(move || futures::executor::block_on(worker::run(initialization, weak, receiver)))
+            .spawn(move || {
+                futures::executor::block_on(worker::run(
+                    initialization,
+                    weak,
+                    receiver,
+                    latest_for_owner,
+                ))
+            })
             .expect("start native runtime owner");
-        Self { commands }
+        Self { commands, latest }
+    }
+
+    /// 同步读取最近快照；`None` 表示 owner 还没完成初始化。
+    pub fn latest_snapshot(&self) -> Option<Arc<NativeRuntimeSnapshot>> {
+        self.latest.lock().ok().and_then(|slot| slot.clone())
     }
 
     fn request<T: Send + 'static>(

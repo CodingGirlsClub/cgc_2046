@@ -273,6 +273,8 @@ pub struct NativeAgentView {
     snapshot: Option<Arc<NativeRuntimeSnapshot>>,
     /// 后台持久化句柄；None 表示该实例不落盘（隔离 demo）。
     writer: Option<cgc_agent_store::StoreWriter>,
+    /// 首帧兜底是否已经主动拉过快照。
+    initial_snapshot_requested: bool,
     page_context: crate::page_context::PageContextState,
     input: Entity<TextareaState>,
     state: NativeThreadState,

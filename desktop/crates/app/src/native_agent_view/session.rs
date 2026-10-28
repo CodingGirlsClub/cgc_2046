@@ -32,6 +32,29 @@ impl NativeAgentView {
     pub fn regenerate_title(&mut self, _cx: &mut Context<Self>) {
         self.runtime.generate_title(true);
     }
+    /// 首帧兜底：订阅可能早于实体挂载而丢掉初始快照，这里主动拉一次。
+    pub(super) fn ensure_initial_snapshot(&mut self, cx: &mut Context<Self>) {
+        if self.initial_snapshot_requested {
+            return;
+        }
+        self.initial_snapshot_requested = true;
+        // 同步镜像优先：不依赖异步事件是否已送达。
+        if let Some(snapshot) = self.runtime.latest_snapshot() {
+            self.apply_snapshot(RuntimeChange::Initialized, snapshot, cx);
+            return;
+        }
+        let inspect = self.runtime.inspect();
+        cx.spawn(async move |this, cx| {
+            let result = inspect.await;
+            if let Ok(snapshot) = result {
+                let _ = this.update(cx, |this, cx| {
+                    this.apply_snapshot(RuntimeChange::Initialized, snapshot, cx)
+                });
+            }
+        })
+        .detach();
+    }
+
     pub(super) fn command(
         &mut self,
         operation: impl Future<Output = Result<Arc<NativeRuntimeSnapshot>, NativeRuntimeError>>

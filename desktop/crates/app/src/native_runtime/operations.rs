@@ -8,6 +8,10 @@ impl Owner {
     pub(super) fn command(&mut self, command: Command) {
         match command {
             Command::Subscribe(sender) => {
+                let snapshot = self.snapshot();
+                if let Ok(mut slot) = self.latest.lock() {
+                    *slot = Some(Arc::clone(&snapshot));
+                }
                 let _ = sender.unbounded_send(Arc::new(NativeRuntimeEvent::Snapshot {
                     change: RuntimeChange::Initialized,
                     snapshot: self.snapshot(),
@@ -30,7 +34,10 @@ impl Owner {
                     self.prepared = None;
                     self.rebuild_tools();
                     Ok(NativeRuntimeConnection {
-                        handle: NativeRuntimeHandle { commands },
+                        handle: NativeRuntimeHandle {
+                            commands,
+                            latest: Arc::clone(&self.latest),
+                        },
                         generation: self.generation,
                         thread_id: self.frozen.id.clone(),
                     })

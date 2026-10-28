@@ -84,12 +84,15 @@ pub(super) struct Owner {
     pub mcp_probe_context: Option<McpContext>,
     pub state_meta: Arc<AgentState>,
     pub display_title: Option<Arc<str>>,
+    /// 最近快照镜像，供视图首帧同步读取。
+    pub latest: Arc<std::sync::Mutex<Option<Arc<NativeRuntimeSnapshot>>>>,
 }
 
 impl Owner {
     fn initialize(
         initialization: Initialization,
         commands: Weak<mpsc::UnboundedSender<Command>>,
+        latest: Arc<std::sync::Mutex<Option<Arc<NativeRuntimeSnapshot>>>>,
     ) -> Result<Self, NativeRuntimeError> {
         // 真机 D3（卡在「正在载入会话…」约 1 分钟）没有复现时，这段计时是唯一线索：
         // 每次启动都会在 cgc-run.log 留一行各阶段耗时，用于判断卡在 prefs/keychain、
@@ -181,6 +184,7 @@ impl Owner {
             .or(frozen.title.as_deref())
             .map(Arc::from);
         let mut owner = Self {
+            latest,
             agent: Some(agent),
             config,
             production,
@@ -339,8 +343,9 @@ pub(super) async fn run(
     initialization: Initialization,
     commands: Weak<mpsc::UnboundedSender<Command>>,
     mut receiver: mpsc::UnboundedReceiver<Command>,
+    latest: Arc<std::sync::Mutex<Option<Arc<NativeRuntimeSnapshot>>>>,
 ) {
-    let mut owner = match Owner::initialize(initialization, commands) {
+    let mut owner = match Owner::initialize(initialization, commands, latest) {
         Ok(owner) => owner,
         Err(error) => {
             while let Some(command) = receiver.next().await {
