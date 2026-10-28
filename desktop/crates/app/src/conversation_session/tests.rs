@@ -141,3 +141,32 @@ fn late_deltas_after_terminal_do_not_revive_streaming() {
     assert!(session.ingest(0, &HostEvent::Delta("新一轮".into())));
     assert!(session.is_busy());
 }
+
+/// 重复终态不得把队列发两次：Zed 用 AbsorbingCancel 做同样的事，我们用
+/// 「终态只认一次 + 队列放行只认 owner 就绪」达到同一效果。
+#[test]
+fn duplicate_terminal_events_never_release_the_queue_twice() {
+    let mut session = ready();
+    let first = session.submission("q1".into(), "q1".into(), None, Vec::new(), false);
+    session.accepted(first);
+    let queued = session.submission("q2".into(), "q2".into(), None, Vec::new(), false);
+    session.queue.push(queued);
+    session.queue_mode = QueueMode::Auto;
+
+    // 取消产生的终态可能重复到达（客户端合成 + agent 回传）。
+    let cancelled = HostEvent::TurnEnd {
+        cancelled: true,
+        stop_reason: "cancelled".into(),
+    };
+    session.ingest(0, &cancelled);
+    assert!(session.next_queued().is_none(), "终态本身不放行队列");
+    session.ingest(0, &cancelled);
+    assert!(session.next_queued().is_none(), "重复终态同样不放行");
+    assert_eq!(session.queue.len(), 1, "队列不得被消费两次");
+
+    // 只有 owner 的 Idle 证据才放行，且只放行一次。
+    session.mark_ready_for_next(0);
+    assert_eq!(session.next_queued().map(|q| q.display), Some("q2".into()));
+    assert!(session.next_queued().is_none());
+    assert!(session.queue.is_empty());
+}
