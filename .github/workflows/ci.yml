@@ -457,6 +457,13 @@ jobs:
         run: |
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets -- -D warnings
+      # 依赖许可门禁（AGENTS.md 硬规则）：backend 走 mix cgc2046.check_licenses、
+      # web 走 pnpm check:licenses，desktop 侧就是这把脚本。--self-test 先证明门禁
+      # 本身会红，再扫真实依赖；缺 license 字段 fail-closed。
+      - name: 依赖许可门禁
+        run: |
+          python3 scripts/check_licenses.py --self-test
+          python3 scripts/check_licenses.py
       - name: 测试
         run: cargo test --workspace
       - name: 缓存 cargo-packager
@@ -472,6 +479,11 @@ jobs:
         env:
           # AppImage 插件在无 FUSE 的运行器上用 extract-and-run 兜底
           APPIMAGE_EXTRACT_AND_RUN: "1"
+          # 安装包默认连生产后端 + 生产数据根（ADR-0027 内测通道）：用户双击
+          # .app 启动拿不到 shell 环境变量，只能靠编译期默认值（platform/build.rs
+          # 的 rerun-if-env-changed 保证改这里会重编）。本地 cargo run 不受影响。
+          CGC_DEFAULT_API_URL: https://codinggirlsclub.com/api/graphql
+          CGC_DEFAULT_ENV: prod
         run: cargo packager -p cgc-desktop-app --release -f ${{ matrix.formats }}
       - name: 重命名产物（版本+commit，Unix）
         if: runner.os != 'Windows'
@@ -496,7 +508,8 @@ jobs:
           name: cgc-desktop-${{ matrix.os }}-${{ steps.meta.outputs.short }}
           path: desktop/dist/*
           if-no-files-found: error
-          retention-days: 14
+          # 内测分发要比 CI 排障留得久：14 天不够测试同学慢慢装，90 天是上限。
+          retention-days: 90
 
   # gate 与 branch protection 需要稳定的 check 名 `desktop`；matrix 子任务的 check 名会带
   # 组合值（如 `desktop-build (macos-15, dmg)`），因此用一个汇总 job 作为唯一 required check。
