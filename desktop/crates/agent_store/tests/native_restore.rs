@@ -92,3 +92,36 @@ fn snapshot_wins_over_legacy_projection_when_both_exist() {
     ));
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn deleting_a_native_thread_removes_execution_and_snapshot() {
+    let root = temp_dir("native-delete");
+    let path = root.join("threads.db");
+    let mut store = SessionStore::open(&path).unwrap();
+    let mut execution = thread();
+    execution.push_user("要删除的内容");
+    let snapshot = SavedConversation::from_thread(
+        &cgc_agent_conversation::conversation::ConversationThread {
+            thread_id: "legacy-native".into(),
+            entries: vec![cgc_agent_conversation::conversation::Entry::User {
+                text: "要删除的内容".into(),
+            }],
+            ..Default::default()
+        },
+        SnapshotSource::Native,
+        3,
+    );
+    store
+        .save_thread_with_snapshot(&execution, &snapshot)
+        .unwrap();
+    assert!(store.load_snapshot("legacy-native").unwrap().is_some());
+
+    assert!(store.delete_thread("legacy-native").unwrap());
+    assert!(store.load_thread("legacy-native").unwrap().is_none());
+    assert!(
+        store.load_snapshot("legacy-native").unwrap().is_none(),
+        "删除执行内容时投影必须随外键级联清除"
+    );
+    assert!(store.load_restored("legacy-native").unwrap().is_none());
+    let _ = std::fs::remove_dir_all(root);
+}
