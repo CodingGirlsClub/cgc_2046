@@ -60,6 +60,13 @@ impl NativeAgentView {
         true
     }
     pub fn start_new_thread(&mut self, cx: &mut Context<Self>) {
+        // 生成中替换线程会清空当前内容（真机 R5）：这里先拒绝，并给出可见提示。
+        if self.is_generating() {
+            self.status = crate::native_runtime::NativeRuntimeError::Busy.to_string();
+            self.state.push_notice("当前回合仍在进行，已取消新建会话");
+            cx.notify();
+            return;
+        }
         self.command(self.runtime.new_thread(), cx);
     }
     fn persist_native(&self, snapshot: &NativeRuntimeSnapshot) {
@@ -67,13 +74,18 @@ impl NativeAgentView {
         if snapshot.thread.entries.is_empty() {
             return;
         }
+        // revision 必须跨重启单调：重启后 owner 从 0 开始，重建同名会话时
+        // 低于库里的旧 revision 会被写入守卫挡住，造成 entries 与投影不一致（真机 D4）。
+        let revision = snapshot
+            .revision
+            .max(crate::native_context::now_secs() as u64);
         let _ = writer.submit(cgc_agent_store::WriterCommand::Snapshot {
             target: cgc_agent_store::StoreTarget::Native,
             thread: Some(Box::new(snapshot.thread.as_ref().clone())),
             snapshot: Box::new(cgc_agent_store::SavedConversation::from_thread(
                 &self.state.session.thread,
                 cgc_agent_store::SnapshotSource::Native,
-                snapshot.revision,
+                revision,
             )),
         });
     }
@@ -139,8 +151,15 @@ impl NativeAgentView {
         {
             self.persist_native(&snapshot);
         }
+        // 授权变化会让 owner 提升 generation（旧连接全部失效）；此时必须重连，
+        // 否则之后每个 turn 都会被判成 StaleConnection（真机 D1）。
+        let reauthorized = change == RuntimeChange::Tools
+            && self
+                .snapshot
+                .as_ref()
+                .is_none_or(|current| current.generation != snapshot.generation);
         self.snapshot = Some(snapshot);
-        if reset {
+        if reset || reauthorized {
             self.connect_native(cx);
         }
         if idle {
