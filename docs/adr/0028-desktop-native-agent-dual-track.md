@@ -197,3 +197,23 @@ Stage 3 已按设计文档 `docs/plans/2026-10-26-1000-stage3-capability-converg
   `switch_scope` 命令切换，render 期不再隐式改所有权。
 - **page context 归属**：`PageContextState` 由 RootView 持有并克隆给面板；提交时 `freeze()` 同时冻结
   结构化上下文与 prompt 前缀，独立 controller/演示窗口不互串。
+
+## 取消/超时/队列与持久化收口（Plan 003 + 004，2026-10-28）
+
+- **取消可唤醒**：`CancelToken` 增加 waker 注册与 `cancelled()`；`run_stream` 与压缩流都用
+  `select(stream.next(), cancelled())`，模型沉默时 Stop 也能立即收尾。
+- **插话按 turn 边界生效**：对齐 Zed 的 `end_turn_at_next_boundary`——steer 不进流循环，只在
+  「一轮完成且没有待执行工具」的边界消费，已产生的文本保留。流内竞争与 futures 通道迁移均已回退。
+- **执行侧撤销**：`ToolContext` 增加 `CancelProbe`，owner 每轮桥接取消令牌；`run_command` 命中取消
+  即按进程组 SIGKILL 并 `wait` 回收（超时路径同样按进程组），MCP 工具在入口拒绝已取消的回合。
+- **超时按活跃阶段**：ACP client 的 turn 预算改为空闲预算，只有连续无 `session/update` 才判超时；
+  审批等待与长工具执行不再吞掉生成预算。
+- **审批取消优先**：`PermissionBridge` 用 `select_biased!` 优先取消，并在解析 `Selected` 后再次确认
+  turn 未被取消，迟到许可一律按 Deny。
+- **持久化（add-only）**：`thread_snapshots` 投影表（ACP 与 native 各一），未答审批降级为失效
+  Warning Notice、已答保留决定、`status` 不参与恢复；单后台 writer 负责合并/序号作废/flush；
+  native turn 收尾把执行内容与投影放在同一事务。删除与清空会一并清投影，读侧另有孤儿守卫。
+- **启动不碰钥匙串**：`factory::initialize` 只读 `CGC_AGENT_API_KEY`，有 provider 但无 env key 时
+  记 `Production::pending`，首次 turn 前才解析；真机启动从 8–11s 降到 19.6ms。
+- **有界传输**：provider delta 通道改为容量 32 的有界通道，慢消费者产生背压，drop stream 后
+  worker 立即退出（不再需要额外的 drain 信号）。
