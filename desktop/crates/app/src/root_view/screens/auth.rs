@@ -265,6 +265,18 @@ pub(in crate::root_view) fn render_wechat_login_panel(
     panel.into_any_element()
 }
 
+/// 登录页品牌横向 logo（mark + CODING GIRLS CLUB）。
+fn login_brand_logo() -> std::sync::Arc<Image> {
+    static LOGO: std::sync::OnceLock<std::sync::Arc<Image>> = std::sync::OnceLock::new();
+    LOGO.get_or_init(|| {
+        std::sync::Arc::new(Image::from_bytes(
+            ImageFormat::Png,
+            include_bytes!("../../../icons/brand/cgc-logo-horizontal.png").to_vec(),
+        ))
+    })
+    .clone()
+}
+
 /// 登录页两栏：左扫码（常驻），右密码表单。
 pub(in crate::root_view) fn render_login_split(
     ctx: &mut ScreenContext<'_>,
@@ -450,12 +462,7 @@ pub(in crate::root_view) fn render_login_split(
         .border_1()
         .border_color(palette.line)
         .bg(palette.card)
-        .child(
-            div()
-                .text_size(px(22.0))
-                .text_color(palette.ink)
-                .child(translate(language, Key::AppName)),
-        )
+        .child(img(login_brand_logo()).w(px(260.0)).h(px(75.0)).flex_none())
         .child(
             div()
                 .flex()

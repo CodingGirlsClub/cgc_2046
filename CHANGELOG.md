@@ -26,6 +26,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 - [本机 Host] 按 ACP initialize 的能力协商会话恢复与 MCP 下发：从握手读取协议版本、`loadSession`、`session/list` 与 HTTP MCP 能力（字段缺失按支持处理，兼容旧适配器）；协议版本不一致的适配器不再被当成可用，明确不支持 HTTP MCP 或无法核实会话归属时给出可诊断的降级（清指针、从新对话开始，`chat.sessions` 回空列表）。
 
 ### Changed
+- [Desktop] App 图标与登录页品牌 logo 对齐 Web 原标：Dock/Finder 使用橙底圆角竖版 logo（mark + `CODING GIRLS CLUB`），登录页使用横向 A.svg lockup（更紧凑）；标题栏/托盘/agent 小头像保留 mark-only，避免 18–32px 下文字不可读。新增 `desktop/scripts/make-icons.py` 统一生成图标资产。
 - [Desktop] 登录页的邮箱/密码输入框支持 Cmd/Ctrl+V 粘贴（清理换行与控制字符），修复自绘输入框只能逐字敲的问题。
 - [Desktop] native Agent 的 composer 上下文用量对齐 Zed：由文字「百分比 · 已用 / 上限」改为 ↑/↓ 两个圆环；悬停展示 Input / Output token 用量与项目规则数量（圆环 ≥85% 变警示色）。
 - [Web] 缴费台账的筛选口径统一：统计卡跟随活动/课程筛选（选中即换口径并标注统计范围，不再出现「切了筛选数字不动」）；活动下拉按活动/课程分组；工作区页与活动/课程详情面板默认只显示「非终态 + 已退款 + 已没收」，并新增「全部状态」显式查看已取消/已过期订单。
