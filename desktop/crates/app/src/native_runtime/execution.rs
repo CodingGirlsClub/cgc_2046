@@ -159,11 +159,20 @@ impl Owner {
                 } else {
                     Err(AgentError::StaleConnection)
                 };
+                let completed = result.is_ok();
                 let _ = reply.send(result);
-                self.publish(RuntimeChange::Activity);
+                // 标题 job 和 turn 共用 owner。先决定是否补标题再发布 Activity，
+                // 避免视图先在 Idle 窗口里派发队列消息、随后被标题 job 的
+                // Draining 打断（对齐 Zed：turn 收尾时 title 为空才生成）。
                 if let Some(force) = self.pending_title.take() {
                     self.start_title(force);
+                } else if completed {
+                    // `start_title(false)` 自带「已有标题则跳过」。
+                    // B4 单 actor 改造前该触发在 native_agent_view::apply_turn_end，
+                    // 迁移时漏接，标题因此退化成只能手动 Regenerate。
+                    self.start_title(false);
                 }
+                self.publish(RuntimeChange::Activity);
             }
             Job::Title {
                 generation,

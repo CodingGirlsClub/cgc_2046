@@ -13,6 +13,14 @@ use cgc_platform::acp::connection::{AcpHost, AcpHostConfig, HostEvent};
 use futures::executor::block_on;
 use std::{sync::Arc, time::Duration};
 
+fn wait_idle(runtime: &NativeRuntimeHandle) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while block_on(runtime.inspect()).unwrap().phase != RuntimePhase::Idle {
+        assert!(std::time::Instant::now() < deadline, "runtime never idle");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 #[test]
 fn two_consecutive_turns_each_request_approval_and_end_without_timeout() {
     let workspace =
@@ -30,20 +38,28 @@ fn two_consecutive_turns_each_request_approval_and_end_without_timeout() {
         "Fake",
         vec![model.clone()],
     ));
-    for answer in ["first finished", "second finished"] {
-        provider.push_script(vec![
+    let tool_round = || {
+        vec![
             Ok(CompletionEvent::ToolUse(ToolUse {
                 id: "reused-id".into(),
                 name: "run_command".into(),
                 args: serde_json::json!({"command":"echo hi"}),
             })),
             Ok(CompletionEvent::Stop(StopReason::ToolUse)),
-        ]);
-        provider.push_script(vec![
-            Ok(CompletionEvent::Text(answer.into())),
+        ]
+    };
+    let answer_round = |text: &str| {
+        vec![
+            Ok(CompletionEvent::Text(text.into())),
             Ok(CompletionEvent::Stop(StopReason::EndTurn)),
-        ]);
-    }
+        ]
+    };
+    provider.push_script(tool_round());
+    provider.push_script(answer_round("first finished"));
+    // 首次成功 turn 收尾会多一次标题生成 stream（标题已存在后不再触发）。
+    provider.push_script(answer_round("首轮标题"));
+    provider.push_script(tool_round());
+    provider.push_script(answer_round("second finished"));
     let runtime = NativeRuntimeHandle::spawn(
         Thread::new(
             "approval",
@@ -145,10 +161,8 @@ fn two_consecutive_turns_each_request_approval_and_end_without_timeout() {
         assert_eq!(approvals, 1);
         assert_eq!(answer, format!("{prompt} finished"));
         assert!(state.session.thread.pending_permission.is_none());
-        assert_eq!(
-            block_on(runtime.inspect()).unwrap().phase,
-            RuntimePhase::Idle
-        );
+        // 首轮 turn 收尾的自动标题 job 与 turn 共享 owner，必须等它结束再发下一轮。
+        wait_idle(&runtime);
         state.session.mark_ready_for_next(generation);
     }
     let decisions: Vec<_> = state

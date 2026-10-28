@@ -71,6 +71,32 @@ fn wait_for(host: &AcpHost, predicate: impl Fn(&HostEvent) -> bool) -> Vec<HostE
 fn wait_ready(host: &AcpHost) {
     wait_for(host, |event| matches!(event, HostEvent::Ready { .. }));
 }
+fn wait_idle(runtime: &NativeRuntimeHandle) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let phase = block_on(runtime.inspect()).expect("snapshot").phase;
+        if phase == RuntimePhase::Idle {
+            return;
+        }
+        assert!(Instant::now() < deadline, "runtime never idle: {phase:?}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+fn wait_title(runtime: &NativeRuntimeHandle, expected: &str) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let snapshot = block_on(runtime.inspect()).expect("snapshot");
+        if snapshot.display_title.as_deref() == Some(expected) {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "title never generated: {:?}",
+            snapshot.display_title
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
 
 #[test]
 fn native_runtime_turn_flows_through_acp_and_owner_keeps_execution_thread() {
@@ -102,7 +128,77 @@ fn native_runtime_turn_flows_through_acp_and_owner_keeps_execution_thread() {
     assert!(
         matches!(&snapshot.thread.entries[..], [Entry::User { text: user, .. }, Entry::Assistant { text, .. }] if user == "hi" && text == "hi")
     );
-    assert_eq!(snapshot.phase, RuntimePhase::Idle);
+    // turn 收尾期间 title job 仍在跑（phase=Draining），空闲要等它结束。
+    wait_idle(&runtime);
+    assert_eq!(
+        block_on(runtime.inspect()).expect("snapshot").phase,
+        RuntimePhase::Idle
+    );
+    host.shutdown();
+}
+
+#[test]
+fn completed_turn_generates_thread_title_once() {
+    let provider = Arc::new(FakeProvider::new(
+        ProviderId::new("fake"),
+        "Fake",
+        vec![model("fake")],
+    ));
+    provider.push_script(vec![
+        Ok(CompletionEvent::Text("hi".into())),
+        Ok(CompletionEvent::Stop(StopReason::EndTurn)),
+    ]);
+    // 第二次 stream 是 turn 结束后 owner 自动发起的标题生成。
+    provider.push_script(vec![
+        Ok(CompletionEvent::Text("自动生成的标题".into())),
+        Ok(CompletionEvent::Stop(StopReason::EndTurn)),
+    ]);
+    let runtime = runtime(provider.clone(), model("fake"), "auto-title");
+    let host = start_host(&runtime);
+    wait_ready(&host);
+    assert!(host.prompt("hi"));
+    wait_for(&host, |event| matches!(event, HostEvent::TurnEnd { .. }));
+    wait_title(&runtime, "自动生成的标题");
+
+    let requests = provider.requests();
+    assert_eq!(
+        requests.len(),
+        2,
+        "成功 turn 后应只补一次标题生成: {requests:?}"
+    );
+    let title_request = &requests[1];
+    assert!(
+        title_request
+            .messages
+            .iter()
+            .any(|message| message.text().contains("12 个汉字")),
+        "第二次请求应是标题生成提示: {title_request:?}"
+    );
+    assert!(
+        title_request
+            .messages
+            .iter()
+            .any(|message| message.text().contains("用户：hi")),
+        "标题请求应携带首条用户消息: {title_request:?}"
+    );
+
+    // 标题已存在后，后续成功 turn 不得重复生成标题。
+    provider.push_script(vec![
+        Ok(CompletionEvent::Text("again".into())),
+        Ok(CompletionEvent::Stop(StopReason::EndTurn)),
+    ]);
+    assert!(host.prompt("follow up"));
+    wait_for(&host, |event| matches!(event, HostEvent::TurnEnd { .. }));
+    wait_idle(&runtime);
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(provider.requests().len(), 3, "标题已存在时不应再次生成标题");
+    assert_eq!(
+        block_on(runtime.inspect())
+            .expect("snapshot")
+            .display_title
+            .as_deref(),
+        Some("自动生成的标题")
+    );
     host.shutdown();
 }
 
@@ -157,12 +253,12 @@ fn superseded_server_cannot_consume_the_current_runtime() {
         .iter()
         .any(|event| matches!(event, HostEvent::Delta(text) if text == "ok")));
     let requests = provider.requests();
-    assert!(requests
-        .last()
-        .unwrap()
+    // turn 成功后 owner 会补一次标题生成，最后一个请求不再是用户消息；只要当前输入
+    // 确实到达过 provider 即可。
+    assert!(requests.iter().any(|request| request
         .messages
         .iter()
-        .any(|message| message.text() == "current server input"));
+        .any(|message| message.text() == "current server input")));
     assert!(!requests
         .iter()
         .flat_map(|request| &request.messages)
