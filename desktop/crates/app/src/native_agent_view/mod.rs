@@ -306,6 +306,14 @@ pub struct NativeAgentView {
     editing_user: Option<usize>,
     /// 编辑态输入框；仅在 editing_user 有值时存在。
     user_edit_input: Option<Entity<TextareaState>>,
+    /// 编辑态版本号：失焦延迟取消时防止误杀新一次编辑。
+    edit_serial: u64,
+    /// 进入编辑时的原文，用于对齐 Zed：只有未修改时点外部才退出编辑。
+    edit_original: Option<String>,
+    /// 编辑态输入框的失焦订阅（点击消息外部时退出编辑，对齐 Zed）。
+    user_edit_subscription: Option<Subscription>,
+    /// 编辑态输入框的 Enter 订阅（Enter 重发，Shift+Enter 换行）。
+    user_edit_key_subscription: Option<Subscription>,
     /// 虚拟消息列表状态：只渲染可见行，并负责 tail 跟随/滚动条/回到最新按钮。
     message_scroller: Entity<MessageScrollerState>,
     /// 每行的高度签名；与下一帧比对，只 remeasure 变化的那一行。

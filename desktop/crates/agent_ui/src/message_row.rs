@@ -6,7 +6,10 @@
 //!
 //! 两栈只提供数据、样式与回调，渲染/间距/id 规则在这里统一。
 
+use std::rc::Rc;
+
 use gpui_kit::component::input::{Textarea, TextareaState};
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{Icon, Sizable};
 use gpui_kit::InteractiveElement as _;
 use gpui_kit::StatefulInteractiveElement as _;
@@ -385,9 +388,7 @@ pub fn user_row_action_visibility(busy: bool, editing: bool, has_checkpoint: boo
 pub struct UserRowSpec {
     pub row_id: gpui_kit::SharedString,
     pub card_id: gpui_kit::SharedString,
-    pub edit_id: gpui_kit::SharedString,
     pub restore_id: gpui_kit::SharedString,
-    pub hover_group: gpui_kit::SharedString,
     pub content: AnyElement,
     pub show_edit: bool,
     pub show_restore: bool,
@@ -400,9 +401,7 @@ pub fn render_user_row(spec: UserRowSpec) -> AnyElement {
     let UserRowSpec {
         row_id,
         card_id,
-        edit_id,
         restore_id,
-        hover_group,
         content,
         show_edit,
         show_restore,
@@ -410,6 +409,17 @@ pub fn render_user_row(spec: UserRowSpec) -> AnyElement {
         on_edit,
         on_restore,
     } = spec;
+    let on_edit = Rc::new(on_edit);
+    let content_edit = on_edit.clone();
+    let mut content_wrapper = div()
+        .id(SharedString::from(format!("{card_id}-content")))
+        .w_full()
+        .pr(px(28.0))
+        .child(content);
+    if show_edit {
+        // 对齐 Zed：点消息气泡本身即可进入行内编辑，不要求先点右上角按钮。
+        content_wrapper = content_wrapper.on_click(move |_, window, cx| content_edit(window, cx));
+    }
     div()
         .id(row_id)
         .flex()
@@ -418,7 +428,6 @@ pub fn render_user_row(spec: UserRowSpec) -> AnyElement {
         .child(
             div()
                 .id(card_id)
-                .group(hover_group.clone())
                 .relative()
                 .w_full()
                 .px(px(8.0))
@@ -428,27 +437,7 @@ pub fn render_user_row(spec: UserRowSpec) -> AnyElement {
                 .border_color(style.line)
                 .bg(style.view)
                 .hover(move |hovered| hovered.border_color(style.line_strong))
-                .child(div().pr(px(28.0)).child(content))
-                .children(show_edit.then(|| {
-                    div()
-                        .id(edit_id)
-                        .role(Role::Button)
-                        .aria_label("编辑消息")
-                        .absolute()
-                        .top(px(4.0))
-                        .right(px(4.0))
-                        .px(px(4.0))
-                        .py(px(1.0))
-                        .rounded(px(style.radius_small))
-                        .bg(style.card)
-                        .text_size(px(10.0))
-                        .text_color(style.ink_3)
-                        .invisible()
-                        .group_hover(hover_group.clone(), |hidden| hidden.visible())
-                        .hover(|hovered| hovered.bg(style.soft))
-                        .child("编辑")
-                        .on_click(move |_, window, cx| on_edit(window, cx))
-                })),
+                .child(content_wrapper),
         )
         .children(show_restore.then(|| {
             div()
@@ -506,59 +495,93 @@ pub fn render_user_edit_row(spec: UserEditRowSpec) -> AnyElement {
         on_confirm_cancel,
         on_confirm_resend,
     } = spec;
+    let on_cancel = Rc::new(on_cancel);
+    let on_resend = Rc::new(on_resend);
+    let cancel = on_cancel.clone();
+    let cancel_key = on_cancel.clone();
+    let resend = on_resend.clone();
     div()
         .flex()
         .flex_col()
         .gap(px(4.0))
         .child(
             div()
+                .relative()
+                .w_full()
                 .rounded(px(style.radius))
                 .border_1()
                 .border_color(style.line_strong)
                 .bg(style.view)
                 .px(px(8.0))
-                .py(px(4.0))
+                .py(px(6.0))
+                .on_key_down(move |event: &KeyDownEvent, _, cx| {
+                    if event.keystroke.key == "escape" {
+                        cancel_key(cx);
+                        cx.stop_propagation();
+                    }
+                })
                 .child(
-                    Textarea::new(&input)
-                        .appearance(false)
-                        .bordered(false)
-                        .w_full(),
-                ),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .justify_end()
-                .gap(px(4.0))
-                .child(
-                    div()
-                        .id(cancel_id)
-                        .role(Role::Button)
-                        .aria_label("取消编辑")
-                        .px(px(4.0))
-                        .py(px(2.0))
-                        .rounded(px(style.radius_small))
-                        .text_size(px(11.0))
-                        .text_color(style.ink_2)
-                        .hover(|hovered| hovered.bg(style.soft))
-                        .child("取消")
-                        .on_click(move |_, _, cx| on_cancel(cx)),
+                    div().pr(px(40.0)).child(
+                        Textarea::new(&input)
+                            .appearance(false)
+                            .bordered(false)
+                            .w_full(),
+                    ),
                 )
                 .child(
+                    // 对齐 Zed：编辑态右上角悬浮 X（取消）/ ↵（重发）。
                     div()
-                        .id(resend_id)
-                        .role(Role::Button)
-                        .aria_label("从这里重发")
-                        .px(px(8.0))
-                        .py(px(2.0))
-                        .rounded(px(style.radius_small))
-                        .bg(style.accent)
-                        .text_color(style.canvas)
-                        .text_size(px(11.0))
-                        .child("重发")
-                        .on_click(move |_, _, cx| on_resend(cx)),
+                        .absolute()
+                        .top(px(2.0))
+                        .right(px(4.0))
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(2.0))
+                        .px(px(2.0))
+                        .py(px(1.0))
+                        .rounded(px(6.0))
+                        .border_1()
+                        .border_color(style.line)
+                        .bg(style.card)
+                        .child(
+                            div()
+                                .id(cancel_id)
+                                .role(Role::Button)
+                                .aria_label("取消编辑")
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .size(px(16.0))
+                                .rounded(px(4.0))
+                                .text_color(style.danger)
+                                .hover(|hovered| hovered.bg(style.soft))
+                                .tooltip(|window, cx| {
+                                    Tooltip::new("取消编辑（Esc）").build(window, cx)
+                                })
+                                .child(Icon::new(gpui_kit::assets::IconName::X).xsmall())
+                                .on_click(move |_, _, cx| cancel(cx)),
+                        )
+                        .child(
+                            div()
+                                .id(resend_id)
+                                .role(Role::Button)
+                                .aria_label("从这里重发")
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .size(px(16.0))
+                                .rounded(px(4.0))
+                                .text_color(style.accent)
+                                .hover(|hovered| hovered.bg(style.soft))
+                                .tooltip(|window, cx| {
+                                    Tooltip::new("从这里重发（Enter）").build(window, cx)
+                                })
+                                .child(
+                                    Icon::new(gpui_kit::assets::IconName::CornerDownLeft).xsmall(),
+                                )
+                                .on_click(move |_, _, cx| resend(cx)),
+                        ),
                 ),
         )
         .children(pending_confirm.then(|| {

@@ -118,13 +118,9 @@ impl NativeAgentView {
                                 card_id: SharedString::from(format!(
                                     "native-user-card-{edit_index}"
                                 )),
-                                edit_id: SharedString::from(format!(
-                                    "native-edit-user-{edit_index}"
-                                )),
                                 restore_id: SharedString::from(format!(
                                     "native-restore-checkpoint-{restore_index}"
                                 )),
-                                hover_group: SharedString::from("native-user-msg"),
                                 content,
                                 show_edit,
                                 show_restore,

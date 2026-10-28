@@ -22,6 +22,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 - [Desktop] 登录页新增**微信扫码登录**：客户端向小程序授权页出示二维码，学员用微信扫码并在小程序内确认后，客户端经响应体换取第一方 Bearer token（不写 cookie、不跳浏览器）。后端新增 `wechatMiniWebLoginStartForDesktop` / `wechatMiniWebLoginStatusForDesktop` / `wechatMiniWebLoginConsumeForDesktop` / `wechatMiniWebLoginCancelForDesktop` 四个第一方变体，复用既有小程序授权请求、10 分钟有效期与限流；一次性 proof 只在 start 响应里交付、只存客户端内存。扫码授权与 web 登录共用同一条 approval，桌面 token 带 `platform=desktop` claim。
 - [Web] 工作台缴费管理升级为订单台账：报名人改为显示**掩码手机号**（小程序用户不再是一行「—」）与**会员号**，有邮箱的用户以邮箱兜底；新增「活动/课程」列（标题 + 类型）与「下单时间」；每行可展开查看商户单号、渠道交易号、时间线与押金同意留痕；退款失败的行可直接「重试退款」；订单列表改为分页加载，不再静默截断在 50 条。活动/课程详情页的收款面板同步使用同一套列与操作资格（免缴按报名状态判定，与后端一致）。
 - [Desktop] native Agent 的 **Thread Title** 恢复自动生成并升级为后台任务（对齐 Zed）：turn 完成后标题为空即生成，不再阻塞下一轮对话；标题摘要模型（`agent.thread_summary_model`）与采样温度（`agent.model_parameters`）改为用户设置文件（macOS `~/.cgc2046/settings.json`、Linux `~/.config/cgc2046/settings.json`、Windows `%APPDATA%\cgc2046\settings.json`）配置，对齐 Zed 且不再提供 GUI，未配置/不可用时回退当前对话模型。标题生成中 header 显示呼吸态，失败时保留诊断并给出点击重试入口。生成请求按 Zed 对齐：全量历史 + summarize prompt，temperature 普通 turn 与标题请求都生效。
+- [Desktop] native Agent 用户消息支持**点击气泡直接进入行内编辑**（对齐 Zed）：进入编辑后自动聚焦输入框，编辑态右上角悬浮 X（取消）/ ↵（从该消息 rewind 并重发），并支持 Enter 重发、Shift+Enter 换行、Esc 取消；点击消息外部会像 Zed 一样在未修改时退出编辑，已修改时保留草稿避免丢字。
 - [本机 Host] 按 ACP initialize 的能力协商会话恢复与 MCP 下发：从握手读取协议版本、`loadSession`、`session/list` 与 HTTP MCP 能力（字段缺失按支持处理，兼容旧适配器）；协议版本不一致的适配器不再被当成可用，明确不支持 HTTP MCP 或无法核实会话归属时给出可诊断的降级（清指针、从新对话开始，`chat.sessions` 回空列表）。
 
 ### Changed
@@ -29,6 +30,8 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 - [本机 Host / Web] 学习搭子**打开就能选模型与思考/推理强度**：没有会话指针时先在 `chat.attach` 建一条空会话（`session/new`，指针不落盘）再取设置，因此不用先发一句话也能选；改动只影响首次打开的空态。
 
 ### Fixed
+- [Desktop] native Agent 超长用户消息不再横向溢出面板：消息卡片内自动折行（含长 URL 等不可断词内容）。
+- [Desktop] native Agent **编辑重发**不再因失效检查点中断：文件回滚失败时退回「仅回滚对话」继续重发，恢复重构前“检查点尽力回滚、不阻断重发”的语义；rewind 后自动重连再提交。
 - [Desktop] native 长会话统一保留模型推理设置与输出预留；历史按完整用户回合连续裁剪，避免拆开工具调用与结果。摘要记录明确覆盖范围并有界分块，重开或短 follow-up 不再重复发送已覆盖原文；中文、system 与工具 schema 纳入估计预算，固定输入超限时明确报错并保留原输入。
 - [本机 Host] 看门狗强制收尾后的迟到更新不再写入会话缓冲（此前 agent 在本地 `turn.end` 之后继续推的消息会被 `chat.attach` 重放，出现「结束标记之后还有内容」；晚到的设置变更也不再改会话设置或推 `chat.settings`）；`chat.sessions` 的 `current` 与会话行一样按归属账号过滤，换账号后不再回上一个账号的 sessionId。Host 版本 `0.2.10`（`MIN_HOST_VERSION` 保持 `0.2.3`）。
 - [本机 Host] Codex 课程的「停止」不再把课程切回 OMP，并补齐回合收尾与隔离：`chat.stop` / `card.answer` / `chat.sessions` 的目标 agent 与当前会话对齐。

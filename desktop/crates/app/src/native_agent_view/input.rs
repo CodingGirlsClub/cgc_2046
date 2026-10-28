@@ -142,15 +142,70 @@ impl NativeAgentView {
             state.set_value(content, window, cx);
             state
         });
+        let original = input.read(cx).content().text().to_string();
         self.pending_restart_confirm = None;
+        // 点击消息气泡后直接进入可输入状态（对齐 Zed 的行内编辑，不用再点一次）。
+        let focus = input.read(cx).focus_handle(cx);
+        // Zed 语义：点击消息之外的地方（编辑器失焦）退出编辑。这里延迟一拍，
+        // 避免点 X/✓ 时先因失焦清掉编辑态，导致按钮回调读不到输入。
+        let serial = self.edit_serial.wrapping_add(1);
+        self.edit_serial = serial;
+        self.user_edit_subscription = Some(cx.on_blur(&focus, window, move |this, _window, cx| {
+            this.schedule_edit_cancel(serial, cx);
+        }));
+        let enter_index = message_index;
+        self.user_edit_key_subscription = Some(cx.subscribe(
+            &input,
+            move |this, _state, event: &InputEvent, cx| {
+                if let InputEvent::PressEnter { shift, .. } = event {
+                    if !shift {
+                        this.restart_from_user_message(enter_index, cx);
+                    }
+                }
+            },
+        ));
+        window.focus(&focus, cx);
         self.user_edit_input = Some(input);
+        self.edit_original = Some(original);
         self.editing_user = Some(message_index);
         cx.notify();
+    }
+
+    /// 失焦后延迟取消编辑；串行号变化（新编辑/已取消）时放弃，避免误杀。
+    fn schedule_edit_cancel(&mut self, serial: u64, cx: &mut Context<Self>) {
+        cx.spawn(async move |view, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(80))
+                .await;
+            let _ = view.update(cx, |this, cx| {
+                // 无 checkpoint 的确认面板需要保持编辑态，等用户确认。
+                let unchanged = this
+                    .user_edit_input
+                    .as_ref()
+                    .zip(this.edit_original.as_ref())
+                    .is_some_and(|(input, original)| {
+                        input.read(cx).content().text().as_str() == original.as_str()
+                    });
+                if should_cancel_edit_on_blur(
+                    this.edit_serial,
+                    serial,
+                    this.pending_restart_confirm.is_some(),
+                    unchanged,
+                ) {
+                    this.cancel_edit_user(cx);
+                }
+            });
+        })
+        .detach();
     }
 
     pub(super) fn cancel_edit_user(&mut self, cx: &mut Context<Self>) {
         self.editing_user = None;
         self.user_edit_input = None;
+        self.edit_serial = self.edit_serial.wrapping_add(1);
+        self.edit_original = None;
+        self.user_edit_subscription = None;
+        self.user_edit_key_subscription = None;
         self.pending_restart_confirm = None;
         cx.notify();
     }
@@ -183,13 +238,33 @@ impl NativeAgentView {
         }
         let prompt = mention::resolve_prompt(&content, &self.metadata().workspace);
         let (prompt, context) = self.page_context.freeze(prompt);
+        let runtime = self.runtime.clone();
         let rewind = self.runtime.rewind(ordinal, restore_files);
         let generation = self.state.session.generation;
         cx.spawn(async move |this, cx| {
-            let result = rewind.await;
+            // 旧实现是「检查点尽力回滚，失败不阻断重发」；单 actor 重构后
+            // runtime.rewind 遇到失效 checkpoint 会直接报错，编辑重发就整条
+            // 停住。这里保留旧语义：文件回滚失败时退回只回滚对话再重发。
+            let mut fallback_note = None;
+            let result = match rewind.await {
+                Ok(snapshot) => Ok(snapshot),
+                Err(first_error) if restore_files => match runtime.rewind(ordinal, false).await {
+                    Ok(snapshot) => {
+                        fallback_note =
+                            Some(format!("检查点无法回滚，已仅回滚对话：{first_error}"));
+                        Ok(snapshot)
+                    }
+                    Err(_) => Err(first_error),
+                },
+                Err(error) => Err(error),
+            };
             let _ = this.update(cx, |this, cx| match result {
                 Ok(snapshot) => {
                     this.apply_snapshot(RuntimeChange::Rewound, snapshot, cx);
+                    if let Some(note) = fallback_note {
+                        this.status = note.clone();
+                        this.state.push_notice(note);
+                    }
                     let submission =
                         this.state
                             .session
@@ -268,5 +343,39 @@ impl NativeAgentView {
             self.expanded_tools.insert(tool_call_id);
         }
         cx.notify();
+    }
+}
+
+/// 失焦延迟任务是否应取消编辑（对齐 Zed `LostFocus`）：
+/// 编辑版本未变、没有等待确认的重发面板，且内容未被修改。
+fn should_cancel_edit_on_blur(
+    current_serial: u64,
+    edit_serial: u64,
+    pending_confirm: bool,
+    content_unchanged: bool,
+) -> bool {
+    current_serial == edit_serial && !pending_confirm && content_unchanged
+}
+
+#[cfg(test)]
+mod tests {
+    // 显式导入，避免 glob 链在 rustc 展开测试宏时触发 SIGBUS。
+    use super::should_cancel_edit_on_blur;
+
+    #[test]
+    fn blur_cancel_requires_same_edit_no_confirm_and_unchanged_content() {
+        assert!(should_cancel_edit_on_blur(7, 7, false, true));
+        assert!(
+            !should_cancel_edit_on_blur(8, 7, false, true),
+            "重新进入编辑后，旧失焦任务不得取消新编辑"
+        );
+        assert!(
+            !should_cancel_edit_on_blur(7, 7, true, true),
+            "无 checkpoint 确认面板期间保持编辑态"
+        );
+        assert!(
+            !should_cancel_edit_on_blur(7, 7, false, false),
+            "已修改内容时点外部保留草稿，避免丢字"
+        );
     }
 }

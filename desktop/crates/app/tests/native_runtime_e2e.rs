@@ -402,3 +402,60 @@ fn superseded_server_cannot_consume_the_current_runtime() {
     old.shutdown();
     current.shutdown();
 }
+
+#[test]
+fn rewind_restore_failure_can_fall_back_to_conversation_only() {
+    let provider = Arc::new(FakeProvider::new(
+        ProviderId::new("fake"),
+        "Fake",
+        vec![model("fake")],
+    ));
+    provider.push_script(vec![
+        Ok(CompletionEvent::Text("hi".into())),
+        Ok(CompletionEvent::Stop(StopReason::EndTurn)),
+    ]);
+    let runtime = runtime(provider.clone(), model("fake"), "rewind-fallback");
+    let host = start_host(&runtime);
+    wait_ready(&host);
+    assert!(host.prompt("hi"));
+    wait_for(&host, |event| matches!(event, HostEvent::TurnEnd { .. }));
+    assert_eq!(
+        block_on(runtime.inspect()).unwrap().thread.entries.len(),
+        2,
+        "一轮对话应有 user + assistant"
+    );
+
+    let restore_error = match block_on(runtime.rewind(1, true)) {
+        Ok(_) => panic!("没有 checkpoint 时回滚文件应失败"),
+        Err(error) => error,
+    };
+    assert!(
+        restore_error.to_string().contains("检查点"),
+        "应报告 checkpoint 错误: {restore_error}"
+    );
+
+    // 编辑重发的兜底路径：文件回滚失败后，仍应能只回滚对话并继续重发。
+    let snapshot = block_on(runtime.rewind(1, false)).expect("只回滚对话");
+    assert!(snapshot.thread.entries.is_empty());
+    assert_eq!(snapshot.phase, RuntimePhase::Idle);
+
+    // 兜底后仍能继续把编辑后的消息发出去；rewind 会让旧连接失去 thread 所有权，
+    // 重连后（视图在 apply_snapshot(Rewound) 里会重连）再发送。
+    provider.push_script(vec![
+        Ok(CompletionEvent::Text("Hello".into())),
+        Ok(CompletionEvent::Stop(StopReason::EndTurn)),
+    ]);
+    let new_host = start_host(&runtime);
+    wait_ready(&new_host);
+    assert!(new_host.prompt("Hello"));
+    wait_for(&new_host, |event| {
+        matches!(event, HostEvent::TurnEnd { .. })
+    });
+    let snapshot = block_on(runtime.inspect()).expect("snapshot");
+    assert!(matches!(
+        &snapshot.thread.entries[..],
+        [Entry::User { text: user, .. }, Entry::Assistant { text, .. }]
+            if user == "Hello" && text == "Hello"
+    ));
+    host.shutdown();
+}

@@ -16,9 +16,12 @@ pub(crate) fn render_user_message_body(text: &str, palette: &theme::Palette) -> 
         .flex_wrap()
         .items_center()
         .gap(px(2.0))
+        .w_full()
         .children(segments.into_iter().enumerate().map(|(index, segment)| {
             match segment {
                 mention::DisplaySegment::Text(text) => div()
+                    .flex_shrink_1()
+                    .min_w_0()
                     .text_size(px(13.0))
                     .text_color(palette.ink)
                     .child(text)
@@ -35,6 +38,7 @@ pub(crate) fn render_user_message_body(text: &str, palette: &theme::Palette) -> 
                     let chip = div()
                         .flex()
                         .flex_row()
+                        .flex_shrink_0()
                         .items_center()
                         .gap(px(2.0))
                         .px(px(4.0))

@@ -165,6 +165,10 @@ impl NativeAgentView {
             self.expanded_thinking.clear();
             self.editing_user = None;
             self.user_edit_input = None;
+            self.edit_serial = self.edit_serial.wrapping_add(1);
+            self.edit_original = None;
+            self.user_edit_subscription = None;
+            self.user_edit_key_subscription = None;
             self.pending_restart_confirm = None;
             self.show_checkpoint_panel = false;
             self.pending_images.clear();
