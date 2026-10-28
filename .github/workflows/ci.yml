@@ -460,7 +460,10 @@ jobs:
       # 依赖许可门禁（AGENTS.md 硬规则）：backend 走 mix cgc2046.check_licenses、
       # web 走 pnpm check:licenses，desktop 侧就是这把脚本。--self-test 先证明门禁
       # 本身会红，再扫真实依赖；缺 license 字段 fail-closed。
+      # 许可结论与平台无关（同一份 Cargo.lock），只在 macOS 腿跑一次：
+      # windows runner 没有 `python3` 这个名字（只有 `python`）。
       - name: 依赖许可门禁
+        if: runner.os == 'macOS'
         run: |
           python3 scripts/check_licenses.py --self-test
           python3 scripts/check_licenses.py

@@ -186,6 +186,8 @@ fn execute(
 ///
 /// 用系统 `kill` 而不是引入新的 FFI 依赖：负 pid 表示整个进程组。失败时仍退回
 /// 单进程 kill，保证至少有终止动作。
+// Windows 下没有进程组概念，`process_group` 只用于上面的 `kill -KILL -<pgid>`。
+#[cfg_attr(not(unix), allow(unused_variables))]
 fn terminate(child: &mut std::process::Child, process_group: u32) {
     #[cfg(unix)]
     {
