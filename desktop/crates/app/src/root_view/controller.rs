@@ -3946,10 +3946,10 @@ mod npx_cache_tests {
 
     #[test]
     fn extracts_corrupt_npx_cache_dir() {
-        let message = "acp connection: Internal error: Process exited with exit status: 254: npm error enoent Could not read package.json: Error: ENOENT: no such file or directory, open '/Users/x/.npm/_npx/1f87/package.json'";
+        let message = "acp connection: Internal error: Process exited with exit status: 254: npm error enoent Could not read package.json: Error: ENOENT: no such file or directory, open '/Users/example/.npm/_npx/1f87/package.json'";
         assert_eq!(
             npx_cache_dir_from_error(message).as_deref(),
-            Some(std::path::Path::new("/Users/x/.npm/_npx/1f87"))
+            Some(std::path::Path::new("/Users/example/.npm/_npx/1f87"))
         );
         assert!(npx_cache_dir_from_error("other error").is_none());
     }

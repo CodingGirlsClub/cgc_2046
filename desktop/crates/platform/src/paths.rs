@@ -203,9 +203,9 @@ mod tests {
 
     fn paths(env: &str) -> AppPaths {
         let mut values = HashMap::new();
-        values.insert("HOME".to_string(), PathBuf::from("/home/student"));
+        values.insert("HOME".to_string(), PathBuf::from("/home/example"));
         if cfg!(target_os = "macos") {
-            values.insert("HOME".to_string(), PathBuf::from("/Users/student"));
+            values.insert("HOME".to_string(), PathBuf::from("/Users/example"));
         }
         AppPaths::resolve(Some(env), move |key| values.get(key).cloned())
     }
@@ -237,27 +237,27 @@ mod tests {
     #[test]
     fn user_settings_file_uses_zed_style_per_os_config_dir() {
         let mut values = HashMap::new();
-        values.insert("HOME".to_string(), PathBuf::from("/home/student"));
+        values.insert("HOME".to_string(), PathBuf::from("/home/example"));
         let env = |key: &str| values.get(key).cloned();
         assert_eq!(
             AppPaths::resolve_user_settings_file(ConfigPlatform::MacOs, env),
-            PathBuf::from("/home/student/.cgc2046/settings.json")
+            PathBuf::from("/home/example/.cgc2046/settings.json")
         );
         assert_eq!(
             AppPaths::resolve_user_settings_file(ConfigPlatform::Linux, env),
-            PathBuf::from("/home/student/.config/cgc2046/settings.json")
+            PathBuf::from("/home/example/.config/cgc2046/settings.json")
         );
 
         let mut values = HashMap::new();
-        values.insert("HOME".to_string(), PathBuf::from("/home/student"));
+        values.insert("HOME".to_string(), PathBuf::from("/home/example"));
         values.insert(
             "XDG_CONFIG_HOME".to_string(),
-            PathBuf::from("/home/student/.config-custom"),
+            PathBuf::from("/home/example/.config-custom"),
         );
         let env = |key: &str| values.get(key).cloned();
         assert_eq!(
             AppPaths::resolve_user_settings_file(ConfigPlatform::Linux, env),
-            PathBuf::from("/home/student/.config-custom/cgc2046/settings.json")
+            PathBuf::from("/home/example/.config-custom/cgc2046/settings.json")
         );
 
         let mut values = HashMap::new();

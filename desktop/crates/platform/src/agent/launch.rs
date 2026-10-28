@@ -212,7 +212,7 @@ mod tests {
     fn env_allowlist_excludes_secrets() {
         let plan = build_launch_with_env(&entry("omp"), None, Path::new("/tmp"), |key| match key {
             "PATH" => Some("/usr/bin".to_string()),
-            "HOME" => Some("/Users/student".to_string()),
+            "HOME" => Some("/Users/example".to_string()),
             "CGC_SESSION_TOKEN" => Some("jwt.secret".to_string()),
             "OPENAI_API_KEY" => Some("sk-secret".to_string()),
             _ => None,

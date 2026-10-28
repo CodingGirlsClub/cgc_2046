@@ -589,11 +589,11 @@ mod tests {
     #[test]
     fn skill_mention_tooltip_is_skill_file_path() {
         let mention = demo_skill(PathBuf::from(
-            "/Users/x/.agents/skills/answer-me-with-html/SKILL.md",
+            "/Users/example/.agents/skills/answer-me-with-html/SKILL.md",
         ));
         assert_eq!(
             mention.tooltip(Path::new("/workspace")),
-            "/Users/x/.agents/skills/answer-me-with-html/SKILL.md"
+            "/Users/example/.agents/skills/answer-me-with-html/SKILL.md"
         );
     }
 
