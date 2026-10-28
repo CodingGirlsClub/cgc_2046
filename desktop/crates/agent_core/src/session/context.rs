@@ -151,7 +151,14 @@ impl Agent {
         );
         let mut stream = provider.stream(model, request).await.ok()?;
         let mut summary = String::new();
-        while let Some(event) = stream.next().await {
+        // 与主流程同一条取消原语：压缩期间沉默也能立刻放弃，不必等下一个事件。
+        let mut cancelled = std::pin::pin!(cancel.cancelled());
+        loop {
+            let event = match futures::future::select(stream.next(), cancelled.as_mut()).await {
+                futures::future::Either::Left((event, _)) => event,
+                futures::future::Either::Right(_) => return None,
+            };
+            let Some(event) = event else { break };
             if cancel.is_cancelled() {
                 return None;
             }
