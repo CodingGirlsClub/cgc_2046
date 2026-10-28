@@ -25,6 +25,13 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 /// 数据库文件名（`<data_root>/conversations.db`）。
 pub const CONVERSATIONS_DB: &str = "conversations.db";
+
+/// 恢复来源：用于提示「旧记录不含完整审批历史」。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RestoredFrom {
+    Snapshot,
+    LegacyContent,
+}
 /// 当前 schema 版本；迁移只增不改（v3：可恢复会话投影表）。
 pub const SCHEMA_VERSION: i64 = 3;
 
@@ -328,6 +335,22 @@ impl ConversationStore {
                 Ok(None)
             }
         }
+    }
+
+    /// 统一恢复入口：优先用可恢复投影，缺失时退回旧 `thread_content`。
+    ///
+    /// 旧记录没有快照时只做一次性投影（`LegacyContent`），不伪造审批或计划；
+    /// 两条路径都保证恢复出的会话从 idle 开始、没有活跃审批。
+    pub fn load_restored(
+        &self,
+        thread_id: &str,
+    ) -> Result<Option<(ConversationThread, RestoredFrom)>, ConversationStoreError> {
+        if let Some(snapshot) = self.load_snapshot(thread_id)? {
+            return Ok(Some((snapshot.into_thread(), RestoredFrom::Snapshot)));
+        }
+        Ok(self
+            .load_content(thread_id)?
+            .map(|thread| (thread, RestoredFrom::LegacyContent)))
     }
 
     pub fn load_sidebar(

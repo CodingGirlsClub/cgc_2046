@@ -240,6 +240,8 @@ pub struct ShellState {
     pub(in crate::root_view) agent_mcp: Option<crate::native_panel_host::McpContext>,
     pub(in crate::root_view) agent_lease_pending: Option<u64>,
     pub(in crate::root_view) agent_authorization_serial: u64,
+    /// 单后台 writer：SQLite 写不在 UI 线程执行。
+    pub(in crate::root_view) store_writer: Option<cgc_agent_store::StoreWriter>,
     pub(in crate::root_view) review_event_keys: std::collections::HashSet<String>,
     pub(in crate::root_view) selected_event: Option<String>,
 }
@@ -382,6 +384,7 @@ impl ShellState {
             agent_mcp: None,
             agent_lease_pending: None,
             agent_authorization_serial: 0,
+            store_writer: None,
             review_event_keys: std::collections::HashSet::new(),
             workspaces: build_workspace_service(),
             workspaces_started: false,

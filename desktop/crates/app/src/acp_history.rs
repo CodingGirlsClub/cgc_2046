@@ -178,9 +178,16 @@ pub fn save_transcript(
 }
 
 /// 读取本地 transcript（离线可读）；无/损坏返回 `None`。
+///
+/// 优先用可恢复投影：未答审批在投影里已降级为失效记录，重开后不会出现
+/// 可点击但已无主的 Allow。旧记录没有投影时退回 `thread_content`。
 pub fn load_local_transcript(thread_id: &str) -> Option<ConversationThread> {
     let store = open_conversation_store().ok()?;
-    store.load_content(thread_id).ok().flatten()
+    store
+        .load_restored(thread_id)
+        .ok()
+        .flatten()
+        .map(|(thread, _source)| thread)
 }
 
 pub fn load_local_sidebar(thread_id: &str) -> Option<SidebarThread> {

@@ -155,3 +155,47 @@ fn acp_snapshot_is_additive_and_old_content_still_reads() {
     assert_eq!(snapshot.revision, 1);
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn restore_prefers_snapshot_and_falls_back_to_legacy_content() {
+    let root = temp_root("restore");
+    let path = root.join("conversations.db");
+    let mut store = ConversationStore::open(&path).unwrap();
+    let sidebar = |id: &str| cgc_agent_store::SidebarThread {
+        thread_id: id.into(),
+        agent_id: None,
+        session_id: None,
+        title: None,
+        title_override: None,
+        created_at: String::new(),
+        updated_at: String::new(),
+        archived: false,
+    };
+
+    // 只有旧内容的记录：退回 LegacyContent，内容可读。
+    store
+        .save_thread(&conversation("legacy", "旧记录正文"), &sidebar("legacy"))
+        .unwrap();
+    let (restored, source) = store.load_restored("legacy").unwrap().expect("legacy");
+    assert_eq!(source, cgc_agent_store::RestoredFrom::LegacyContent);
+    assert!(matches!(&restored.entries[..], [Entry::User { text }] if text == "旧记录正文"));
+
+    // 有快照的记录：优先快照，且恢复后没有活跃审批。
+    store
+        .save_thread(&conversation("both", "旧正文"), &sidebar("both"))
+        .unwrap();
+    store
+        .save_snapshot(&SavedConversation::from_thread(
+            &conversation("both", "快照正文"),
+            SnapshotSource::Acp,
+            1,
+        ))
+        .unwrap();
+    let (restored, source) = store.load_restored("both").unwrap().expect("both");
+    assert_eq!(source, cgc_agent_store::RestoredFrom::Snapshot);
+    assert!(matches!(&restored.entries[..], [Entry::User { text }] if text == "快照正文"));
+    assert!(restored.pending_permission.is_none());
+
+    assert!(store.load_restored("missing").unwrap().is_none());
+    let _ = std::fs::remove_dir_all(root);
+}

@@ -1372,6 +1372,26 @@ impl RootView {
             self.chat.title_override.as_deref(),
             &now,
         );
+        // 同一份会话再写一份可恢复投影（add-only 新表）：未答审批不会被当成活跃授权。
+        let paths = AppPaths::from_env();
+        if self.store_writer.is_none() {
+            self.store_writer = Some(cgc_agent_store::StoreWriter::spawn(
+                paths.data_root.join(cgc_agent_store::CONVERSATIONS_DB),
+                paths.data_root.join("agent").join("threads.db"),
+            ));
+        }
+        let snapshot = cgc_agent_store::SavedConversation::from_thread(
+            &self.chat.session.thread,
+            cgc_agent_store::SnapshotSource::Acp,
+            self.chat.acp_save_generation,
+        );
+        if let Some(writer) = &self.store_writer {
+            let _ = writer.submit(cgc_agent_store::WriterCommand::Snapshot {
+                target: cgc_agent_store::StoreTarget::Acp,
+                thread: None,
+                snapshot: Box::new(snapshot),
+            });
+        }
         // 本地历史排序依赖 conversations.db 的 updated_at：保存后刷新统一列表。
         self.chat.history = self.load_unified_history();
     }

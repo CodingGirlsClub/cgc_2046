@@ -12,7 +12,7 @@ pub mod writer;
 
 pub use audit::{ActionAuditEntry, AuditLog};
 pub use conversations::{
-    format_epoch_rfc3339, now_utc_rfc3339, ConversationStore, ConversationStoreError,
+    format_epoch_rfc3339, now_utc_rfc3339, ConversationStore, ConversationStoreError, RestoredFrom,
     SidebarThread, CONVERSATIONS_DB, SCHEMA_VERSION,
 };
 pub use model_lines::{format_model_lines, normalized_provider_name, parse_model_lines};
