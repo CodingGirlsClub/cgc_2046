@@ -213,7 +213,8 @@ mod tests {
         assert_eq!(result.version.as_deref(), Some("2.2.2"));
         let calls = runner.calls.lock().expect("calls");
         assert_eq!(calls.len(), 1);
-        assert!(calls[0].0.ends_with("npx"));
+        // Windows 上托管 npx 是 `npx.cmd`，别用后缀 "npx" 断言平台文件。
+        assert_eq!(calls[0].0, node.npx().display().to_string());
         assert_eq!(
             calls[0].1,
             vec![
