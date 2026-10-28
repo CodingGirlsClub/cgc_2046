@@ -19,7 +19,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ## [Unreleased]
 
 ### Added
-- [Desktop] 内测包支持**把后端端点与运行环境编进二进制**（`CGC_DEFAULT_API_URL` / `CGC_DEFAULT_ENV=prod`）：用户双击 `.app` 启动拿不到 shell 环境变量，此前只能连 `localhost:4000` 且落 dev 数据根；现在解析顺序为 `CGC_API_URL` 环境变量 > `~/.cgc2046/settings.json` 的 `api.url` > 编译期默认值，手改设置即可切后端、无需重打包。源码默认值不变（本机端点 + dev），`cargo run` 行为不受影响。
+- [Desktop] 内测包支持**把后端端点与运行环境编进二进制**（`CGC_DEFAULT_API_URL` / `CGC_DEFAULT_ENV=prod`）：用户双击 `.app` 启动拿不到 shell 环境变量，此前只能连 `localhost:4000` 且落 dev 数据根；现在解析顺序为 `CGC_API_URL` 环境变量 > `~/.cgc2046/settings.json` 的 `api.url` > 编译期默认值，手改设置即可切后端、无需重打包。源码默认值不变（本机端点 + dev），`cargo run` 行为不受影响。默认端点是**官方域** `https://api.codingirlsclub.com/api/graphql`，并新增端点白名单（`https://` 只认 `codingirlsclub.com` 及其子域、`http://` 只认本机回环），不在名单的覆盖值被忽略——Bearer token、登录密码、下单请求与 MCP lease token 都走这条通道；打包校验脚本对产物做 fail-closed 断言（必须含官方端点、不得含错拼域 `codinggirlsclub.com`）。
 - [Desktop] 新增**本地文件日志** `<data_root>/logs/app.log`（5 MB 轮转保留一份历史，`CGC_LOG` 调级别）：用户双击启动时 stderr 无处可看，内测反馈只剩「打不开」；日志只写本地文件与 stderr、不联网，写入前统一过 `telemetry::redact_sensitive`（token/手机号/邮箱不进日志），panic 同落盘。原先散落的 `eprintln!` 诊断全部改走 `log` 门面。
 - [Desktop] workspace 版本 `0.0.1` → `0.1.0`，作为首个内测版；每代构建靠 commit 区分（产物名 `cgc2046_<version>_<commit>_<arch>`）。
 - [Desktop] 登录页新增**微信扫码登录**：客户端向小程序授权页出示二维码，学员用微信扫码并在小程序内确认后，客户端经响应体换取第一方 Bearer token（不写 cookie、不跳浏览器）。后端新增 `wechatMiniWebLoginStartForDesktop` / `wechatMiniWebLoginStatusForDesktop` / `wechatMiniWebLoginConsumeForDesktop` / `wechatMiniWebLoginCancelForDesktop` 四个第一方变体，复用既有小程序授权请求、10 分钟有效期与限流；一次性 proof 只在 start 响应里交付、只存客户端内存。扫码授权与 web 登录共用同一条 approval，桌面 token 带 `platform=desktop` claim。

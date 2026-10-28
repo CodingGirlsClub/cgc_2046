@@ -20,6 +20,17 @@ try {
   $exe = Get-ChildItem -Path $tmp -Recurse -Filter "cgc-desktop-app.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $exe) { throw "administrative install 后找不到 cgc-desktop-app.exe" }
 
+  # 端点断言（fail-closed）：Bearer token / 登录密码 / MCP lease token 都走这条通道，
+  # 端点必须指向官方域。官方域是 codingirlsclub.com（曾拼错成 codinggirlsclub.com）。
+  $text = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($exe.FullName))
+  if (-not $text.Contains("https://api.codingirlsclub.com/api/graphql")) {
+    throw "FAIL: 可执行文件缺官方端点（期望打包时注入 CGC_DEFAULT_API_URL=https://api.codingirlsclub.com/api/graphql）"
+  }
+  if ($text.Contains("codinggirlsclub.com/api")) {
+    throw "FAIL: 可执行文件含错拼域 codinggirlsclub.com（官方域是 codingirlsclub.com）"
+  }
+  Write-Host "endpoint assertion ok"
+
   $sig = Get-AuthenticodeSignature $msi.FullName
   Write-Host "msi ok; signature status: $($sig.Status)（unsigned 预期，epic-6 接管签名）"
 }

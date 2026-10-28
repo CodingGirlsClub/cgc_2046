@@ -7,6 +7,22 @@ cd "$(dirname "$0")/.."
 found=0
 shopt -s nullglob
 
+# 端点断言（fail-closed）：安装包必须指向官方域。Bearer token、登录密码、下单请求
+# 与 MCP lease token 都走这条通道，端点错了轻则内测包不可用，重则把凭据发给站外主机。
+# 官方域是 codingirlsclub.com；codinggirlsclub.com 不是我们的服务域（曾拼错一次）。
+BIN="target/release/cgc-desktop-app"
+if [ -f "$BIN" ]; then
+  grep -aq "https://api.codingirlsclub.com/api/graphql" "$BIN" || {
+    echo "FAIL: 二进制缺官方端点（期望打包时注入 CGC_DEFAULT_API_URL=https://api.codingirlsclub.com/api/graphql）" >&2
+    exit 1
+  }
+  if grep -aq "codinggirlsclub.com/api" "$BIN"; then
+    echo "FAIL: 二进制含错拼域 codinggirlsclub.com（官方域是 codingirlsclub.com）" >&2
+    exit 1
+  fi
+  echo "endpoint assertion ok: $BIN"
+fi
+
 for f in dist/*.dmg; do
   echo "== dmg: $f"
   base=$(basename "$f")

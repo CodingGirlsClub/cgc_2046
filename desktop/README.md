@@ -204,19 +204,27 @@ bash scripts/verify-package.sh                          # Windows: pwsh scripts/
 
 ```bash
 cd desktop
-CGC_DEFAULT_API_URL=https://codinggirlsclub.com/api/graphql \
+CGC_DEFAULT_API_URL=https://api.codingirlsclub.com/api/graphql \
 CGC_DEFAULT_ENV=prod \
   cargo packager -p cgc-desktop-app --release -f dmg
 ```
 
 - `CGC_DEFAULT_API_URL` / `CGC_DEFAULT_ENV` 由 `crates/platform/build.rs` 登记，进
   `runtime::api_endpoint()` 与 `paths::AppPaths::from_env()`；不注入时行为不变（本机端点 + dev 数据根）。
+- 官方域是 **`codingirlsclub.com`**（`api.codingirlsclub.com` 是后端；`codinggirlsclub.com`
+  不是我们的服务域，历史上拼错过一次导致内测包登录全挂）。`scripts/verify-package.sh` /
+  `verify-package.ps1` 对产物做 fail-closed 断言：二进制必须含官方端点、不得含错拼域。
 - 解析顺序：`CGC_API_URL` 环境变量 > `~/.cgc2046/settings.json` 的 `api.url` > 编译期默认值。
   给测试同学切后端只改这一行，不用重打包：
 
   ```json
-  { "api": { "url": "https://codinggirlsclub.com/api/graphql" } }
+  { "api": { "url": "https://api.codingirlsclub.com/api/graphql" } }
   ```
+
+- **端点白名单**（`runtime::is_allowed_endpoint`）：`https://` 只接受 `codingirlsclub.com`
+  及其子域，`http://` 只接受 `localhost` / `127.0.0.1` / `[::1]`；不在名单里的候选被忽略并
+  回落下一个来源，最后退到本机开发端点。Bearer token、登录密码、下单请求与 MCP lease token
+  都走这条通道，所以是 fail-closed。
 - 日志：`<data_root>/logs/app.log`（prod 为 `~/Library/Application Support/cgc-desktop/logs/app.log`），
   5 MB 轮转保留一份历史；级别用 `CGC_LOG=error|warn|info|debug|trace`（默认 `info`）。
   写入前统一过 `telemetry::redact_sensitive`（token/手机号/邮箱不进日志），panic 也落到同一文件。

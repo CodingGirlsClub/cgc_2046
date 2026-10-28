@@ -1289,7 +1289,7 @@ fn render_provider_list(
                         .text_size(px(11.0))
                         .child("开始使用")
                         .on_click(move |_, _, cx| {
-                            cx.open_url("https://codinggirlsclub.com/");
+                            cx.open_url("https://codingirlsclub.com/");
                         }),
                 ),
         )
