@@ -48,6 +48,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 - [Web] 登录来源判定接受本站 www 别名：站点别名解析改成对称（裸域配置接受 www 变体、反之亦然），小程序二维码登录也接受本站 www 域名来源——此前生产 web 同时由裸域与 www 提供，www 来源被拒。
 
 ### Security
+- [Backend] 依赖安全升级：`bandit` 1.13.1 → 1.14.0（HTTP/2 WINDOW_UPDATE 超时绕过）、`ash_postgres` 2.13.1 → 2.15.2（跨租户读泄漏与「跳过 upsert 返回他人记录」两处 multitenancy 缺陷）、`plug_crypto` 2.2.0 → 2.2.1（密钥进 stack trace）、`jose` 1.11.12 → 1.11.13（8 条 advisory，含 HIGH 的弱 PBKDF2 与 GCM tag 伪造）。`mix hex.audit` 从 11 条 advisory 清零；ash 3.36→3.37 的 `ash_functions_version` 6→7 随迁移重定义 `ash_required/2`（`CREATE OR REPLACE`，幂等）。
 - [本机 Host / Web] `status` 最小化（去掉页面从未消费的字段、`tokenId` 只给已 hello 的连接）；配对请求的冷却从受理开始计数，无效 token 与平台不可达的早退同样受限；Host 日志统一脱敏（凭证与 Bearer 头只留前缀，覆盖 ACP 错误与兜底 catch）。
 
 ## [2026-10-18]

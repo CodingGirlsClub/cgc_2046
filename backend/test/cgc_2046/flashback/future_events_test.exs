@@ -7,6 +7,10 @@ defmodule Cgc2046.Flashback.FutureEventsTest do
 
   alias Cgc2046.Flashback.AlumniProjection
 
+  # 场次时间必须相对「现在」算：写死日期会随墙上时钟过期，把「未来场次」
+  # 变成过去场次，测试就在某个日子之后永久变红。
+  defp in_days(days), do: DateTime.utc_now() |> DateTime.add(days, :day)
+
   defp seed_future_event(title, slug, starts_at, city, initiative \\ nil) do
     # initiatives/events 是多租户表——走 SQL 直插（无租户面，public 投影同款字段）
     {initiative_slug, initiative_name} = initiative || {"hackerstart1024", "Hacker Start 1024"}
@@ -68,9 +72,9 @@ defmodule Cgc2046.Flashback.FutureEventsTest do
   end
 
   test "未来公开 open 场次按 initiative 分组、帧按最早场次排序" do
-    seed_future_event("Agent 入门 A", "hs-a", ~U[2026-11-24 06:00:00Z], "北京")
-    seed_future_event("Agent 入门 B", "hs-b", ~U[2026-10-24 06:00:00Z], "北京")
-    seed_future_event("月度格场", "monthly-1", ~U[2026-12-01 08:00:00Z], "成都", {"monthly", "月度格"})
+    seed_future_event("Agent 入门 A", "hs-a", in_days(28), "北京")
+    seed_future_event("Agent 入门 B", "hs-b", in_days(2), "北京")
+    seed_future_event("月度格场", "monthly-1", in_days(40), "成都", {"monthly", "月度格"})
 
     frames = AlumniProjection.list_future_events()
     assert length(frames) == 2
@@ -80,8 +84,8 @@ defmodule Cgc2046.Flashback.FutureEventsTest do
   end
 
   test "已开始/非 open/非公开场次不出现（R2/R4）" do
-    seed_future_event("未来场", "fut-1", ~U[2026-12-24 06:00:00Z], "北京")
-    seed_future_event("已开始", "past-1", ~U[2026-09-19 00:00:00Z], "北京")
+    seed_future_event("未来场", "fut-1", in_days(60), "北京")
+    seed_future_event("已开始", "past-1", in_days(-40), "北京")
 
     Cgc2046.Repo.query!("UPDATE events SET status = 'closed' WHERE slug = 'fut-1'")
 
@@ -90,8 +94,8 @@ defmodule Cgc2046.Flashback.FutureEventsTest do
   end
 
   test "城市筛选按 venue->>'city'（R15）" do
-    seed_future_event("北京场", "bj-1", ~U[2026-12-24 06:00:00Z], "北京")
-    seed_future_event("上海场", "sh-1", ~U[2026-12-25 06:00:00Z], "上海")
+    seed_future_event("北京场", "bj-1", in_days(60), "北京")
+    seed_future_event("上海场", "sh-1", in_days(61), "上海")
 
     frames = AlumniProjection.list_future_events("上海")
     assert [%{events: [%{slug: "sh-1"}]}] = frames
