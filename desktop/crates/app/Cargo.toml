@@ -62,6 +62,11 @@ icons = [
 packageName = "cgc2046"
 depends = ["libsecret-tools"]
 
+# MSI 的语言/代码页：productName 与文案是中文，en-US 对应的代码页 1252 装不下，
+# WiX 的 light.exe 会直接失败（LGHT0311）。zh-CN 的代码页是 936，中文才落得进 MSI。
+[package.metadata.packager.wix]
+languages = ["zh-CN"]
+
 # cgc:// 深链：由安装器写入 macOS URL scheme、Windows MSI 注册表与 Linux desktop MIME。
 [[package.metadata.packager.deepLinkProtocols]]
 schemes = ["cgc"]
