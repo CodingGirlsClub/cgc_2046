@@ -68,6 +68,21 @@ impl Provider for SlowProvider {
 
 #[test]
 fn opening_or_replacing_a_thread_during_a_turn_returns_busy_and_keeps_content() {
+    // 这个用例曾在 CI 上挂死：runtime worker 一旦卡住，`block_on(inspect())` 永不返回，
+    // 整个 job 只能等 60 分钟超时（2026-10-28 macOS 腿实际发生）。用看门狗把「挂死」
+    // 收敛成 45s 内的明确失败，别让 CI 再被拖一小时。
+    let handle = std::thread::spawn(scenario);
+    let deadline = std::time::Instant::now() + Duration::from_secs(45);
+    while !handle.is_finished() {
+        if std::time::Instant::now() > deadline {
+            panic!("native_runtime_busy 用例 45s 未完成（疑似 runtime worker 死锁）");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    handle.join().expect("scenario panicked");
+}
+
+fn scenario() {
     let workspace = std::env::temp_dir().join(format!("cgc-native-busy-{}", std::process::id()));
     std::fs::create_dir_all(&workspace).unwrap();
     let provider: Arc<dyn Provider> = Arc::new(SlowProvider {
