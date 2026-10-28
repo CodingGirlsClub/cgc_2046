@@ -40,7 +40,17 @@ pub enum WriterCommand {
 
 pub struct StoreWriter {
     sender: SyncSender<Envelope>,
-    next_seq: std::sync::atomic::AtomicU64,
+    // 克隆句柄共享同一序号序列：跨线程提交时仍保持「提交顺序 = 作废顺序」。
+    next_seq: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl Clone for StoreWriter {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
+            next_seq: std::sync::Arc::clone(&self.next_seq),
+        }
+    }
 }
 
 /// 提交序号：`Clear` 按它作废「提交更早、但更晚才被 worker 处理」的快照。
@@ -59,7 +69,7 @@ impl StoreWriter {
             .expect("start store writer");
         Self {
             sender,
-            next_seq: std::sync::atomic::AtomicU64::new(1),
+            next_seq: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(1)),
         }
     }
 

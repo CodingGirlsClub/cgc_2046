@@ -23,13 +23,26 @@ impl RootView {
         host.set_mcp_context(self.agent_mcp.clone());
         let runtime = NativeRuntimeHandle::for_scope(
             scope.clone(),
-            paths.data_root,
+            paths.data_root.clone(),
             host,
             self.workspaces.epoch(),
         );
         let context = self.page_context.clone();
+        if self.store_writer.is_none() {
+            self.store_writer = Some(cgc_agent_store::StoreWriter::spawn(
+                paths.data_root.join(cgc_agent_store::CONVERSATIONS_DB),
+                paths.data_root.join("agent").join("threads.db"),
+            ));
+        }
+        let writer = self.store_writer.clone();
         self.native_agent_view = Some(cx.new(|cx| {
-            crate::native_agent_view::NativeAgentView::new(window, cx, runtime.clone(), context)
+            crate::native_agent_view::NativeAgentView::new(
+                window,
+                cx,
+                runtime.clone(),
+                context,
+                writer,
+            )
         }));
         self.native_scope = Some(scope);
         self.native_runtime = Some(runtime);
@@ -56,7 +69,13 @@ impl RootView {
         );
         let runtime = NativeRuntimeHandle::for_scope(scope, data_root, host, 0);
         cx.new(|cx| {
-            crate::native_agent_view::NativeAgentView::new(window, cx, runtime, Default::default())
+            crate::native_agent_view::NativeAgentView::new(
+                window,
+                cx,
+                runtime,
+                Default::default(),
+                None,
+            )
         })
     }
 

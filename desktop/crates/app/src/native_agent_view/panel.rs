@@ -8,6 +8,7 @@ impl NativeAgentView {
         cx: &mut Context<Self>,
         runtime: NativeRuntimeHandle,
         page_context: crate::page_context::PageContextState,
+        writer: Option<cgc_agent_store::StoreWriter>,
     ) -> Self {
         let mut events = runtime.subscribe();
         cx.spawn(async move |this, cx| {
@@ -153,6 +154,7 @@ impl NativeAgentView {
         Self {
             runtime,
             snapshot: None,
+            writer,
             page_context,
             slash_index: 0,
             slash_dismissed: false,

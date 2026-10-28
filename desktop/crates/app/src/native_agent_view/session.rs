@@ -62,6 +62,22 @@ impl NativeAgentView {
     pub fn start_new_thread(&mut self, cx: &mut Context<Self>) {
         self.command(self.runtime.new_thread(), cx);
     }
+    fn persist_native(&self, snapshot: &NativeRuntimeSnapshot) {
+        let Some(writer) = &self.writer else { return };
+        if snapshot.thread.entries.is_empty() {
+            return;
+        }
+        let _ = writer.submit(cgc_agent_store::WriterCommand::Snapshot {
+            target: cgc_agent_store::StoreTarget::Native,
+            thread: Some(Box::new(snapshot.thread.as_ref().clone())),
+            snapshot: Box::new(cgc_agent_store::SavedConversation::from_thread(
+                &self.state.session.thread,
+                cgc_agent_store::SnapshotSource::Native,
+                snapshot.revision,
+            )),
+        });
+    }
+
     pub(super) fn apply_snapshot(
         &mut self,
         change: RuntimeChange,
@@ -114,6 +130,15 @@ impl NativeAgentView {
             RuntimePhase::Idle => "就绪",
         }
         .into();
+        // turn 收尾：执行内容与展示投影同事务落盘，未答审批不会被恢复成活跃授权。
+        if idle
+            && self
+                .snapshot
+                .as_ref()
+                .is_none_or(|current| current.revision != snapshot.revision)
+        {
+            self.persist_native(&snapshot);
+        }
         self.snapshot = Some(snapshot);
         if reset {
             self.connect_native(cx);
