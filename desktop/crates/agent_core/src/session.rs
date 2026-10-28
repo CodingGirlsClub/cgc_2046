@@ -274,15 +274,7 @@ impl Agent {
             let request = self
                 .build_request_with_compaction(provider, model, Vec::new(), &mut observer)
                 .await?;
-            let outcome = run_stream(
-                provider,
-                model,
-                request,
-                &self.cancel,
-                &mut observer,
-                &mut self.steer_rx,
-            )
-            .await?;
+            let outcome = run_stream(provider, model, request, &self.cancel, &mut observer).await?;
             match outcome {
                 StreamOutcome::Finished {
                     text,
@@ -293,26 +285,22 @@ impl Agent {
                 } => {
                     self.record_thinking(thinking);
                     self.record_turn(text.clone(), tool_calls.clone(), usage);
+                    // 插话只在 turn 边界生效（对齐 Zed 的 end_turn_at_next_boundary）：
+                    // 已产生的文本保留，本轮结果不返回，直接进入下一轮。
+                    if let Ok(steer_text) = self.steer_rx.try_recv() {
+                        self.thread.push_user(steer_text);
+                        steers += 1;
+                        if steers >= MAX_STEERS {
+                            return Err(AgentError::StepLimitExceeded);
+                        }
+                        continue;
+                    }
                     return Ok(TurnOutcome {
                         text,
                         usage,
                         stop_reason,
                         tool_calls,
                     });
-                }
-                StreamOutcome::Steered {
-                    text,
-                    thinking,
-                    usage,
-                    steer_text,
-                } => {
-                    self.record_thinking(thinking);
-                    self.record_turn(text, Vec::new(), usage);
-                    self.thread.push_user(steer_text);
-                    steers += 1;
-                    if steers >= MAX_STEERS {
-                        return Err(AgentError::StepLimitExceeded);
-                    }
                 }
             }
         }
@@ -374,15 +362,8 @@ impl Agent {
                 let request = self
                     .build_request_with_compaction(provider, model, tools.schemas(), observer)
                     .await?;
-                let stream_outcome = run_stream(
-                    provider,
-                    model,
-                    request,
-                    &self.cancel,
-                    observer,
-                    &mut self.steer_rx,
-                )
-                .await?;
+                let stream_outcome =
+                    run_stream(provider, model, request, &self.cancel, observer).await?;
                 let (text, thinking, usage, stop_reason, tool_calls) = match stream_outcome {
                     StreamOutcome::Finished {
                         text,
@@ -391,25 +372,6 @@ impl Agent {
                         stop_reason,
                         tool_calls,
                     } => (text, thinking, usage, stop_reason, tool_calls),
-                    StreamOutcome::Steered {
-                        text,
-                        thinking,
-                        usage,
-                        steer_text,
-                    } => {
-                        self.record_thinking(thinking);
-                        self.record_turn(text.clone(), Vec::new(), usage);
-                        observer.on_usage(usage, self.thread.usage_total);
-                        all_text.push_str(&text);
-                        total_usage.add(usage);
-                        observer.on_steer_started(&steer_text);
-                        self.thread.push_user(steer_text);
-                        steers += 1;
-                        if steers >= MAX_STEERS {
-                            return Err(AgentError::StepLimitExceeded);
-                        }
-                        continue 'turns;
-                    }
                 };
                 self.record_thinking(thinking);
                 self.record_turn(text.clone(), tool_calls.clone(), usage);
@@ -418,6 +380,16 @@ impl Agent {
                 total_usage.add(usage);
                 all_tool_calls.extend(tool_calls.clone());
                 if stop_reason != StopReason::ToolUse || tool_calls.is_empty() {
+                    // turn 边界：此刻没有待执行工具，插话可以安全地成为下一条用户消息。
+                    if let Ok(steer_text) = self.steer_rx.try_recv() {
+                        observer.on_steer_started(&steer_text);
+                        self.thread.push_user(steer_text);
+                        steers += 1;
+                        if steers >= MAX_STEERS {
+                            return Err(AgentError::StepLimitExceeded);
+                        }
+                        continue 'turns;
+                    }
                     self.drain_follow_ups();
                     if follow_up_turns < MAX_FOLLOW_UP_TURNS {
                         if let Some(next) = self.follow_ups.pop_front() {

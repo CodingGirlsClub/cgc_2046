@@ -8,12 +8,6 @@ pub(super) enum StreamOutcome {
         stop_reason: StopReason,
         tool_calls: Vec<ToolUse>,
     },
-    Steered {
-        text: String,
-        thinking: String,
-        usage: TokenUsage,
-        steer_text: String,
-    },
 }
 
 pub(super) async fn run_stream(
@@ -22,7 +16,6 @@ pub(super) async fn run_stream(
     request: Request,
     cancel: &CancelToken,
     observer: &mut dyn TurnObserver,
-    steers: &mut mpsc::Receiver<String>,
 ) -> Result<StreamOutcome, AgentError> {
     let mut stream = provider.stream(model, request).await?;
     let mut text = String::new();
@@ -57,14 +50,6 @@ pub(super) async fn run_stream(
                 stop_reason = Some(reason);
                 break;
             }
-        }
-        if let Ok(steer_text) = steers.try_recv() {
-            return Ok(StreamOutcome::Steered {
-                text,
-                thinking,
-                usage,
-                steer_text,
-            });
         }
     }
     Ok(StreamOutcome::Finished {
