@@ -91,6 +91,10 @@ impl Owner {
         initialization: Initialization,
         commands: Weak<mpsc::UnboundedSender<Command>>,
     ) -> Result<Self, NativeRuntimeError> {
+        // 真机 D3（卡在「正在载入会话…」约 1 分钟）没有复现时，这段计时是唯一线索：
+        // 每次启动都会在 cgc-run.log 留一行各阶段耗时，用于判断卡在 prefs/keychain、
+        // 会话库还是 git 检查点。
+        let init_started = std::time::Instant::now();
         let (mut agent, config, production, scope, supplied_store, authorization_epoch) =
             match initialization {
                 Initialization::Explicit {
@@ -123,6 +127,7 @@ impl Owner {
                     )
                 }
             };
+        let after_config = init_started.elapsed();
         let mut notices = Vec::new();
         let store = match production.as_ref() {
             Some(production) => {
@@ -151,6 +156,7 @@ impl Owner {
                 notices.push(notice.to_string());
             }
         }
+        let after_store = init_started.elapsed();
         let checkpoint_manager = if production.is_some() {
             CheckpointManager::open(config.context.workspace())
                 .or_else(|_| CheckpointManager::initialize(config.context.workspace()))
@@ -158,6 +164,7 @@ impl Owner {
         } else {
             None
         };
+        let after_checkpoints = init_started.elapsed();
         let frozen = Arc::new(agent.thread().clone());
         let schemas = Arc::new(config.registry.schemas());
         let providers = production
@@ -215,6 +222,13 @@ impl Owner {
         };
         owner.rebuild_tools();
         owner.reload_checkpoints();
+        eprintln!(
+            "[native] init config={:?} store={:?} checkpoints={:?} total={:?}",
+            after_config,
+            after_store - after_config,
+            after_checkpoints - after_store,
+            init_started.elapsed(),
+        );
         Ok(owner)
     }
 
