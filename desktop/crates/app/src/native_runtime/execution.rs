@@ -1,4 +1,4 @@
-use super::worker::{ActiveTurn, Job, Owner};
+use super::worker::{ActiveTurn, Job, Owner, TitleOutcome};
 use super::*;
 use cgc_agent_core::{ApprovalRequest, Approver, AutoApprover, ToolResultSummary, TurnObserver};
 use cgc_agent_provider::{TokenUsage, ToolUse};
@@ -147,6 +147,16 @@ impl Owner {
                     agent.set_thread_title_override(title);
                 }
                 self.agent = Some(*agent);
+                // 标题 job 可能在 turn 期间完成（后台任务）：agent 归还后再落到
+                // thread 上，保证 persist/freeze 看到的是最终标题。
+                if let Some((serial, title)) = self.pending_generated_title.take() {
+                    if serial == self.title_serial {
+                        if let Some(agent) = &mut self.agent {
+                            agent.set_thread_title(Some(title));
+                        }
+                        self.title_generation_error = None;
+                    }
+                }
                 self.refresh_state();
                 self.active = None;
                 self.persist();
@@ -161,36 +171,50 @@ impl Owner {
                 };
                 let completed = result.is_ok();
                 let _ = reply.send(result);
-                // 标题 job 和 turn 共用 owner。先决定是否补标题再发布 Activity，
-                // 避免视图先在 Idle 窗口里派发队列消息、随后被标题 job 的
-                // Draining 打断（对齐 Zed：turn 收尾时 title 为空才生成）。
+                self.publish(RuntimeChange::Activity);
                 if let Some(force) = self.pending_title.take() {
                     self.start_title(force);
                 } else if completed {
-                    // `start_title(false)` 自带「已有标题则跳过」。
+                    // 对齐 Zed：turn 完成后 title 仍为空才生成。
                     // B4 单 actor 改造前该触发在 native_agent_view::apply_turn_end，
                     // 迁移时漏接，标题因此退化成只能手动 Regenerate。
                     self.start_title(false);
                 }
-                self.publish(RuntimeChange::Activity);
             }
             Job::Title {
                 generation,
                 thread_id,
                 serial,
-                title,
+                outcome,
             } => {
+                // serial 不匹配说明这个 job 已被后续操作（切线程/重命名/重新生成）
+                // 接管，不能动 title_running，否则会把新一轮的状态清掉。
+                if serial != self.title_serial {
+                    return;
+                }
                 self.title_running = false;
-                if generation == self.generation
-                    && thread_id == self.frozen.id
-                    && serial == self.title_serial
-                {
-                    if let Some(agent) = &mut self.agent {
-                        agent.set_thread_title(Some(title));
+                let same_thread = generation == self.generation && thread_id == self.frozen.id;
+                match outcome {
+                    TitleOutcome::Cancelled => {}
+                    TitleOutcome::Generated(title) if same_thread => {
+                        self.title_generation_error = None;
+                        if let Some(agent) = &mut self.agent {
+                            agent.set_thread_title(Some(title));
+                            self.persist();
+                            self.freeze();
+                        } else {
+                            // turn 正在跑：先乐观更新显示，等 agent 归还再落盘。
+                            self.display_title = Some(Arc::from(title.clone()));
+                            self.pending_generated_title = Some((serial, title));
+                        }
+                        self.publish(RuntimeChange::Title);
                     }
-                    self.persist();
-                    self.freeze();
-                    self.publish(RuntimeChange::Title);
+                    TitleOutcome::Generated(_) => {}
+                    TitleOutcome::Failed(error) if same_thread => {
+                        self.title_generation_error = Some(Arc::from(error));
+                        self.publish(RuntimeChange::Title);
+                    }
+                    TitleOutcome::Failed(_) => {}
                 }
                 self.publish(RuntimeChange::Activity);
             }

@@ -41,7 +41,6 @@ pub enum RuntimePhase {
     Loading,
     Idle,
     Running,
-    Draining,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,6 +69,10 @@ pub struct NativeRuntimeSnapshot {
     pub authorization_epoch: u64,
     pub mcp_unavailable_reason: Option<Arc<str>>,
     pub display_title: Option<Arc<str>>,
+    /// 标题后台生成中（不阻塞 turn；对齐 Zed 的 is_generating_title）。
+    pub title_generating: bool,
+    /// 上次标题生成失败的诊断；成功/重新生成/重命名后清空。
+    pub title_generation_error: Option<Arc<str>>,
     pub schemas: Arc<Vec<ToolSchema>>,
     pub providers: Arc<Vec<ProviderPrefs>>,
     pub using_echo: bool,

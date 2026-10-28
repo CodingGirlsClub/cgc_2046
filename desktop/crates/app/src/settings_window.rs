@@ -8,8 +8,13 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use cgc_agent_core::SelectedModel;
+use cgc_agent_provider::{ModelId, ProviderId};
 use cgc_agent_store::{
     builtin_providers, normalized_provider_name, provider_key_account, PrefsStore, ProviderPrefs,
+};
+use cgc_agent_ui::picker::{
+    render_picker_popover, PickerGroup, PickerItem, PickerPopoverSpec, PickerStyle,
 };
 use cgc_platform::paths::AppPaths;
 use cgc_platform::session::KeychainStore;
@@ -41,6 +46,75 @@ enum AiRoute {
     EditProvider(String),
 }
 
+/// 构建「Thread Title 模型」选择器条目；返回值第二项与扁平条目下标一一对应，
+/// 避免 UI 回调把条目映射到错误模型（单测覆盖顺序）。
+fn summary_model_choices(
+    drafts: &[ProviderDraft],
+    current: Option<&SelectedModel>,
+) -> (Vec<PickerGroup>, Vec<Option<SelectedModel>>) {
+    let mut targets: Vec<Option<SelectedModel>> = vec![None];
+    let mut groups = vec![PickerGroup::flat(vec![PickerItem::new(
+        "summary-model-follow-conversation",
+        "跟随对话模型",
+    )
+    .selected(current.is_none())])];
+    for draft in drafts {
+        // 没存 key 的 provider 选了也会回退，不列出以避免名不副实。
+        if !draft.has_key {
+            continue;
+        }
+        let (models, params) = parse_model_lines(&draft.models);
+        let enabled: Vec<String> = models
+            .into_iter()
+            .filter(|model_id| {
+                params
+                    .iter()
+                    .find(|param| &param.id == model_id)
+                    .is_none_or(|param| param.enabled)
+            })
+            .collect();
+        if enabled.is_empty() {
+            continue;
+        }
+        let items = enabled
+            .iter()
+            .map(|model_id| {
+                let selected = current.is_some_and(|summary| {
+                    summary.provider_id.as_str() == draft.id
+                        && summary.model_id.as_str() == model_id
+                });
+                PickerItem::new(
+                    format!("summary-model-{}::{model_id}", draft.id),
+                    model_id.clone(),
+                )
+                .selected(selected)
+            })
+            .collect();
+        targets.extend(enabled.into_iter().map(|model_id| {
+            Some(SelectedModel::new(
+                ProviderId::new(draft.id.clone()),
+                ModelId::new(model_id),
+            ))
+        }));
+        groups.push(PickerGroup::titled(draft.name.clone(), items));
+    }
+    (groups, targets)
+}
+
+fn summary_model_label(drafts: &[ProviderDraft], current: Option<&SelectedModel>) -> String {
+    match current {
+        Some(selected) => {
+            let provider = drafts
+                .iter()
+                .find(|draft| draft.id == selected.provider_id.as_str())
+                .map(|draft| draft.name.clone())
+                .unwrap_or_else(|| selected.provider_id.as_str().to_string());
+            format!("{provider} / {}", selected.model_id.as_str())
+        }
+        None => "跟随对话模型".to_string(),
+    }
+}
+
 pub struct SettingsWindowView {
     language: Language,
     email: Option<String>,
@@ -55,6 +129,8 @@ pub struct SettingsWindowView {
     error: Option<String>,
     notice: Option<String>,
     provider_drafts: Vec<ProviderDraft>,
+    /// 独立 Thread Title 生成模型；None = 跟随当前对话模型。
+    summary_model: Option<SelectedModel>,
     ai_view: AiRoute,
     prefs_store: PrefsStore,
     keychain: KeychainStore,
@@ -77,6 +153,7 @@ impl SettingsWindowView {
     ) -> Self {
         let prefs_store = PrefsStore::new(AppPaths::from_env().agent_prefs_file());
         let prefs = prefs_store.load();
+        let summary_model = prefs.summary_model.clone();
         let mut drafts: Vec<ProviderDraft> = builtin_providers()
             .iter()
             .map(ProviderDraft::from_prefs)
@@ -101,6 +178,7 @@ impl SettingsWindowView {
             error: None,
             notice: None,
             provider_drafts: drafts,
+            summary_model,
             ai_view: AiRoute::General,
             prefs_store,
             keychain: KeychainStore::from_env(),
@@ -117,6 +195,27 @@ impl SettingsWindowView {
 
     pub fn focus_handle(&self) -> FocusHandle {
         self.focus.clone()
+    }
+
+    /// 独立 Thread Title 模型的持久化；native runtime 在下次生成标题时读取。
+    fn set_summary_model(&mut self, selected: Option<SelectedModel>, cx: &mut Context<Self>) {
+        if self.summary_model == selected {
+            return;
+        }
+        self.summary_model = selected.clone();
+        let mut prefs = self.prefs_store.load();
+        prefs.summary_model = selected;
+        match self.prefs_store.save(&prefs) {
+            Ok(()) => {
+                self.error = None;
+                self.notice = Some("会话标题模型已更新".to_string());
+            }
+            Err(error) => {
+                self.notice = None;
+                self.error = Some(format!("保存失败：{error}"));
+            }
+        }
+        cx.notify();
     }
 
     fn revoke(&mut self, cx: &mut Context<Self>) {
@@ -1049,6 +1148,45 @@ impl SettingsWindowView {
                 )
                 .into_any_element()
         });
+        let summary_model = self.summary_model.clone();
+        let summary_drafts = self.provider_drafts.clone();
+        let summary_label = summary_model_label(&summary_drafts, summary_model.as_ref());
+        let summary_weak = weak.clone();
+        let summary_model_item = SettingItem::render(move |_options, _window, cx| {
+            let palette = theme::palette_from_theme(cx);
+            let (groups, targets) =
+                summary_model_choices(&summary_drafts, summary_model.as_ref());
+            let targets = std::rc::Rc::new(targets);
+            let style = PickerStyle {
+                accent: palette.accent,
+                ink_2: palette.ink_2,
+                ink_3: palette.ink_3,
+                soft: palette.soft,
+                card: palette.card,
+                radius: RADIUS_SMALL,
+            };
+            let weak = summary_weak.clone();
+            render_picker_popover(PickerPopoverSpec {
+                popover_id: "settings-summary-model".into(),
+                trigger_id: "settings-summary-model-trigger".into(),
+                trigger_label: summary_label.clone(),
+                trigger_tooltip: "选择生成 Thread Title 的模型".into(),
+                trigger_max_width: Some(260.0),
+                anchor: None,
+                groups,
+                style,
+                width: 280.0,
+                list_max_height: Some(300.0),
+                search: None,
+                on_select: Box::new(move |index, _window, cx| {
+                    let target = targets.get(index).cloned().flatten();
+                    if let Some(weak) = weak.upgrade() {
+                        weak.update(cx, |this, cx| this.set_summary_model(target, cx));
+                    }
+                }),
+            })
+        })
+        .description("Thread Title 用独立模型生成；未配置或模型不可用时回退当前对话模型（对齐 Zed 的 thread summary model）");
         let hidden_header = gpui_kit::StyleRefinement {
             display: Some(gpui_kit::Display::None),
             ..Default::default()
@@ -1063,6 +1201,7 @@ impl SettingsWindowView {
                     SettingGroup::new().title("通用").items(vec![
                         llm_link,
                         native_agent,
+                        summary_model_item,
                         clear_acp_history,
                     ]),
                 ]),
@@ -1986,5 +2125,62 @@ impl Render for SettingsWindowView {
                     .min_h(px(0.0))
                     .child(self.build_settings(window, cx)),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // 显式导入：`use super::*` 与本 crate 的 glob 链叠加会让 rustc 展开 #[test] 时 SIGBUS。
+    use super::{summary_model_choices, summary_model_label};
+    use crate::settings_provider::ProviderDraft;
+    use cgc_agent_core::SelectedModel;
+    use cgc_agent_provider::{ModelId, ProviderId};
+    use cgc_agent_store::ProviderPrefs;
+
+    fn draft(id: &str, name: &str, models: &[&str], has_key: bool) -> ProviderDraft {
+        ProviderDraft::from_prefs(&ProviderPrefs {
+            id: id.to_string(),
+            name: name.to_string(),
+            base_url: "https://example.invalid".to_string(),
+            models: models.iter().map(|model| model.to_string()).collect(),
+            has_key,
+            model_params: Vec::new(),
+            builtin: false,
+        })
+    }
+
+    #[test]
+    fn summary_model_choices_align_flat_index_with_model() {
+        let drafts = vec![
+            draft("a", "Provider A", &["a1", "a2"], true),
+            draft("b", "Provider B", &["b1"], false),
+        ];
+        let current = SelectedModel::new(ProviderId::new("a"), ModelId::new("a2"));
+        let (groups, targets) = summary_model_choices(&drafts, Some(&current));
+
+        // 跟随对话模型 + Provider A 两个模型；没 key 的 B 不出现。
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].items.len(), 1);
+        assert_eq!(groups[1].title.as_deref(), Some("Provider A"));
+        assert_eq!(groups[1].items.len(), 2);
+        assert!(groups[1].items[1].selected);
+
+        assert_eq!(targets.len(), 3);
+        assert_eq!(targets[0], None);
+        assert_eq!(
+            targets[1],
+            Some(SelectedModel::new(ProviderId::new("a"), ModelId::new("a1")))
+        );
+        assert_eq!(targets[2], Some(current));
+    }
+
+    #[test]
+    fn summary_model_choices_selects_follow_conversation_by_default() {
+        let drafts = vec![draft("a", "Provider A", &["a1"], true)];
+        let (groups, targets) = summary_model_choices(&drafts, None);
+        assert!(groups[0].items[0].selected);
+        assert_eq!(targets.len(), 2);
+        assert_eq!(targets[0], None);
+        assert_eq!(summary_model_label(&drafts, None), "跟随对话模型");
     }
 }

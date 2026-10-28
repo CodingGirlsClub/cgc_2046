@@ -26,6 +26,17 @@ impl NativeAgentView {
             .unwrap_or("新对话")
             .to_string()
     }
+    pub fn title_generating(&self) -> bool {
+        self.snapshot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.title_generating)
+    }
+    pub fn title_generation_error(&self) -> Option<String> {
+        self.snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.title_generation_error.as_deref())
+            .map(str::to_string)
+    }
     pub fn set_title_override(&mut self, title: Option<String>, _cx: &mut Context<Self>) {
         self.runtime.rename(title);
     }
@@ -135,6 +146,13 @@ impl NativeAgentView {
         {
             return;
         }
+        let previous_title = self.snapshot.as_ref().map(|current| {
+            (
+                current.display_title.clone(),
+                current.title_generating,
+                current.title_generation_error.clone(),
+            )
+        });
         if reset {
             self.state.session.disconnect();
             self.state.session.thread =
@@ -161,7 +179,6 @@ impl NativeAgentView {
         self.status = match snapshot.phase {
             RuntimePhase::Loading => "正在载入会话…",
             RuntimePhase::Running => "思考中…",
-            RuntimePhase::Draining => "正在释放模型连接…",
             RuntimePhase::Idle => "就绪",
         }
         .into();
@@ -181,7 +198,16 @@ impl NativeAgentView {
                 .snapshot
                 .as_ref()
                 .is_none_or(|current| current.generation != snapshot.generation);
+        let title_changed = previous_title.as_ref()
+            != Some(&(
+                snapshot.display_title.clone(),
+                snapshot.title_generating,
+                snapshot.title_generation_error.clone(),
+            ));
         self.snapshot = Some(snapshot);
+        if title_changed {
+            cx.emit(NativeAgentViewEvent::TitleChanged);
+        }
         if reset || reauthorized {
             self.connect_native(cx);
         }

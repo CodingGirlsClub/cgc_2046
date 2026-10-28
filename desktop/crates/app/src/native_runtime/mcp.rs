@@ -46,9 +46,8 @@ impl Owner {
             if let Some(active) = &self.active {
                 active.cancel.cancel();
             }
-            self.title_cancel.cancel();
             self.generation = self.generation.wrapping_add(1);
-            self.title_serial = self.title_serial.wrapping_add(1);
+            self.cancel_title();
             self.prepared = None;
         }
         self.rebuild_tools();

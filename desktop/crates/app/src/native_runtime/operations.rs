@@ -31,6 +31,8 @@ impl Owner {
                 let result = self.idle().and_then(|()| {
                     let commands = self.commands.upgrade().ok_or(NativeRuntimeError::Closed)?;
                     self.generation = self.generation.wrapping_add(1);
+                    // 新连接会作废旧连接的 turn/标题结果，后台 job 一并取消。
+                    self.cancel_title();
                     self.prepared = None;
                     self.rebuild_tools();
                     Ok(NativeRuntimeConnection {
@@ -54,7 +56,7 @@ impl Owner {
                     if let Some(active) = &self.active {
                         active.cancel.cancel();
                     }
-                    self.title_cancel.cancel();
+                    self.cancel_title();
                     self.publish(RuntimeChange::Activity);
                 }
             }
@@ -78,12 +80,10 @@ impl Owner {
                 let _ = reply.send(result);
             }
             Command::Stop => {
+                // 标题是后台 job，Stop 只终止当前 turn，不取消标题生成。
                 if let Some(active) = &self.active {
                     active.cancel.cancel();
                 }
-                self.title_cancel.cancel();
-                self.title_serial = self.title_serial.wrapping_add(1);
-                self.pending_title = None;
             }
             Command::Steer(text, reply) => {
                 let result = self
@@ -143,7 +143,7 @@ impl Owner {
                 self.publish(RuntimeChange::Configuration);
             }
             Command::Rename(title) => {
-                self.title_serial = self.title_serial.wrapping_add(1);
+                self.cancel_title();
                 if let Some(agent) = &mut self.agent {
                     agent.set_thread_title_override(title);
                     self.persist();
@@ -202,8 +202,7 @@ impl Owner {
 
     fn replace(&mut self, thread: Thread, change: RuntimeChange) {
         self.generation = self.generation.wrapping_add(1);
-        self.title_serial = self.title_serial.wrapping_add(1);
-        self.pending_title = None;
+        self.cancel_title();
         self.pending_override = None;
         self.prepared = None;
         self.agent = Some(Agent::new(

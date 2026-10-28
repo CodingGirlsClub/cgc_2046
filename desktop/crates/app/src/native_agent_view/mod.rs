@@ -268,6 +268,15 @@ mod widgets;
 pub use state::NativeThreadState;
 pub(crate) use widgets::*;
 
+/// 面板向外（RootView header）暴露的粗粒度事件；目前只有标题状态。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NativeAgentViewEvent {
+    /// 标题文本、生成中或失败状态发生变化。
+    TitleChanged,
+}
+
+impl EventEmitter<NativeAgentViewEvent> for NativeAgentView {}
+
 pub struct NativeAgentView {
     runtime: NativeRuntimeHandle,
     snapshot: Option<Arc<NativeRuntimeSnapshot>>,

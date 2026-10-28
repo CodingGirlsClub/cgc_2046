@@ -20,6 +20,13 @@ pub(super) enum Initialization {
     },
 }
 
+/// 后台标题生成的结果；`Cancelled` 不产生任何可观察变化。
+pub(super) enum TitleOutcome {
+    Generated(String),
+    Failed(String),
+    Cancelled,
+}
+
 pub(super) struct ActiveTurn {
     pub cancel: CancelToken,
     pub steer: std::sync::mpsc::Sender<String>,
@@ -36,7 +43,7 @@ pub(super) enum Job {
         generation: u64,
         thread_id: String,
         serial: u64,
-        title: String,
+        outcome: TitleOutcome,
     },
     Mcp {
         context: McpContext,
@@ -67,6 +74,9 @@ pub(super) struct Owner {
     pub title_cancel: CancelToken,
     pub checkpoint_notice_reported: bool,
     pub pending_title: Option<bool>,
+    /// 标题在 turn 期间生成完成；等 agent 归还后落到 thread 上再 persist/freeze。
+    pub pending_generated_title: Option<(u64, String)>,
+    pub title_generation_error: Option<Arc<str>>,
     pub pending_override: Option<Option<String>>,
     pub commands: Weak<mpsc::UnboundedSender<Command>>,
     pub subscribers: Vec<mpsc::UnboundedSender<Arc<NativeRuntimeEvent>>>,
@@ -206,6 +216,8 @@ impl Owner {
             title_cancel: CancelToken::new(),
             checkpoint_notice_reported: false,
             pending_title: None,
+            pending_generated_title: None,
+            title_generation_error: None,
             pending_override: None,
             commands,
             subscribers: Vec::new(),
@@ -243,8 +255,6 @@ impl Owner {
             workspace: self.workspace_meta.clone(),
             phase: if self.active.is_some() {
                 RuntimePhase::Running
-            } else if self.title_running {
-                RuntimePhase::Draining
             } else {
                 RuntimePhase::Idle
             },
@@ -254,6 +264,8 @@ impl Owner {
             authorization_epoch: self.authorization_epoch,
             mcp_unavailable_reason: self.mcp_unavailable_reason.clone(),
             display_title: self.display_title.clone(),
+            title_generating: self.title_running,
+            title_generation_error: self.title_generation_error.clone(),
             providers: self.providers.clone(),
             using_echo: self
                 .production
@@ -307,8 +319,21 @@ impl Owner {
         }
     }
 
+    /// 让当前/排队的标题生成失效：取消在跑 job、清空错误与待落盘结果。
+    /// 线程切换、重命名、rewind、授权（generation）变化都必须走这里，否则
+    /// 后台 job 完成后会把 `title_running` 留成 true。
+    pub(super) fn cancel_title(&mut self) {
+        self.title_cancel.cancel();
+        self.title_serial = self.title_serial.wrapping_add(1);
+        self.title_running = false;
+        self.title_generation_error = None;
+        self.pending_title = None;
+        self.pending_generated_title = None;
+    }
+
+    /// 标题生成是后台 job，不参与 turn 的占用判定（对齐 Zed：不阻塞下一轮）。
     pub fn idle(&self) -> Result<(), NativeRuntimeError> {
-        if self.active.is_some() || self.title_running {
+        if self.active.is_some() {
             Err(NativeRuntimeError::Busy)
         } else {
             Ok(())

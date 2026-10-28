@@ -194,6 +194,45 @@ pub(super) fn select_model(
     Ok((provider, model))
 }
 
+/// 会话标题生成模型：优先 `agent_prefs.json` 里的独立 summary model（对齐 Zed 的
+/// thread summary model），未配置或不可用时由调用方回退当前对话模型。
+pub(super) fn summary_title_model(production: &Production) -> Option<(Arc<dyn Provider>, Model)> {
+    let store = PrefsStore::new(production.data_root.join("agent_prefs.json"));
+    let prefs = store.load();
+    let selected = prefs.summary_model.as_ref()?;
+    let configured = prefs.provider(selected.provider_id.as_str())?;
+    let model = summary_model_for(configured, selected.model_id.as_str())?;
+    if !configured.has_key {
+        return None;
+    }
+    let key = production
+        .keychain
+        .load_secret(&provider_key_account(&configured.id))?;
+    if key.is_empty() {
+        return None;
+    }
+    let (provider, using_echo) = provider(&model, Some(configured.base_url.clone()), Some(key));
+    (!using_echo).then_some((provider, model))
+}
+
+/// 只做「配置是否可用」的判定，便于单测（不读钥匙串、不建 provider）。
+fn summary_model_for(configured: &ProviderPrefs, model_id: &str) -> Option<Model> {
+    if !configured.models.iter().any(|id| id == model_id) {
+        return None;
+    }
+    let limits = configured.model_config(model_id);
+    if !limits.enabled {
+        return None;
+    }
+    Some(Model::new(
+        ProviderId::new(configured.id.clone()),
+        configured.name.clone(),
+        model_id,
+        model_id,
+        ModelLimits::new(limits.context_window, limits.max_output_tokens),
+    ))
+}
+
 /// 首次 turn 前解析一次待定的钥匙串凭据（可能阻塞，但此时用户已主动发送）。
 pub(super) fn resolve_pending_key(
     production: &mut Production,
@@ -349,6 +388,108 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    fn prefs_with_summary(
+        production: &Production,
+        summary: Option<SelectedModel>,
+        has_key: bool,
+        model_enabled: bool,
+    ) {
+        let prefs = cgc_agent_store::AgentPrefs {
+            providers: vec![ProviderPrefs {
+                id: "deepseek".to_string(),
+                name: "DeepSeek".to_string(),
+                base_url: "https://example.invalid".to_string(),
+                models: vec!["chat".to_string(), "flash".to_string()],
+                has_key,
+                model_params: vec![
+                    cgc_agent_store::ModelPrefs::new("chat"),
+                    cgc_agent_store::ModelPrefs {
+                        enabled: model_enabled,
+                        ..cgc_agent_store::ModelPrefs::new("flash")
+                    },
+                ],
+                builtin: false,
+            }],
+            summary_model: summary,
+            ..Default::default()
+        };
+        PrefsStore::new(production.data_root.join("agent_prefs.json"))
+            .save(&prefs)
+            .expect("save prefs");
+    }
+
+    fn summary_production(root: &std::path::Path) -> Production {
+        Production {
+            host: host(),
+            providers: Arc::new(Vec::new()),
+            data_root: root.to_path_buf(),
+            keychain: KeychainStore::new(Arc::new(RecordingBackend {
+                gets: Arc::new(AtomicUsize::new(0)),
+            })),
+            using_echo: false,
+            pending: None,
+        }
+    }
+
+    #[test]
+    fn summary_title_model_uses_the_configured_model() {
+        let root = temp_root("summary-model");
+        let production = summary_production(&root);
+        prefs_with_summary(
+            &production,
+            Some(SelectedModel::new(
+                ProviderId::new("deepseek"),
+                cgc_agent_provider::ModelId::new("flash"),
+            )),
+            true,
+            true,
+        );
+        let (_, model) = summary_title_model(&production).expect("summary model");
+        assert_eq!(model.provider_id.as_str(), "deepseek");
+        assert_eq!(model.id.as_str(), "flash");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn summary_title_model_falls_back_when_unconfigured_unusable_or_key_missing() {
+        let root = temp_root("summary-fallback");
+        let production = summary_production(&root);
+        assert!(summary_title_model(&production).is_none(), "未配置时回退");
+
+        prefs_with_summary(
+            &production,
+            Some(SelectedModel::new(
+                ProviderId::new("deepseek"),
+                cgc_agent_provider::ModelId::new("missing"),
+            )),
+            true,
+            true,
+        );
+        assert!(
+            summary_title_model(&production).is_none(),
+            "模型不在 provider 列表时回退"
+        );
+
+        let selected = || {
+            Some(SelectedModel::new(
+                ProviderId::new("deepseek"),
+                cgc_agent_provider::ModelId::new("flash"),
+            ))
+        };
+        prefs_with_summary(&production, selected(), false, true);
+        assert!(
+            summary_title_model(&production).is_none(),
+            "没保存 key 时回退"
+        );
+
+        prefs_with_summary(&production, selected(), true, false);
+        assert!(
+            summary_title_model(&production).is_none(),
+            "模型被禁用时回退"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     /// 待定凭据只解析一次；解析后清空，避免每次发送都阻塞。
     #[test]
     fn pending_credentials_resolve_once() {
@@ -360,7 +501,7 @@ mod tests {
         let mut production = Production {
             host: host(),
             providers: Arc::new(Vec::new()),
-            data_root: root.clone(),
+            data_root: root.to_path_buf(),
             keychain,
             using_echo: true,
             pending: Some(PendingCredentials {

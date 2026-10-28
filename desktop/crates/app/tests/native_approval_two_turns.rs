@@ -7,16 +7,24 @@ use cgc_agent_provider::{
 use cgc_agent_tools::{SandboxPolicy, ToolContext, ToolRegistry};
 use cgc_desktop_app::{
     native_agent_view::NativeThreadState,
-    native_runtime::{NativeRuntimeConfig, NativeRuntimeHandle, RuntimePhase},
+    native_runtime::{NativeRuntimeConfig, NativeRuntimeHandle},
 };
 use cgc_platform::acp::connection::{AcpHost, AcpHostConfig, HostEvent};
 use futures::executor::block_on;
 use std::{sync::Arc, time::Duration};
 
-fn wait_idle(runtime: &NativeRuntimeHandle) {
+fn wait_title(runtime: &NativeRuntimeHandle, expected: &str) {
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while block_on(runtime.inspect()).unwrap().phase != RuntimePhase::Idle {
-        assert!(std::time::Instant::now() < deadline, "runtime never idle");
+    loop {
+        let snapshot = block_on(runtime.inspect()).unwrap();
+        if snapshot.display_title.as_deref() == Some(expected) {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "title never generated: {:?}",
+            snapshot.display_title
+        );
         std::thread::sleep(Duration::from_millis(20));
     }
 }
@@ -161,8 +169,8 @@ fn two_consecutive_turns_each_request_approval_and_end_without_timeout() {
         assert_eq!(approvals, 1);
         assert_eq!(answer, format!("{prompt} finished"));
         assert!(state.session.thread.pending_permission.is_none());
-        // 首轮 turn 收尾的自动标题 job 与 turn 共享 owner，必须等它结束再发下一轮。
-        wait_idle(&runtime);
+        // 首轮会触发标题生成（独立 stream）；等它落盘再发下一轮，保证脚本顺序确定。
+        wait_title(&runtime, "首轮标题");
         state.session.mark_ready_for_next(generation);
     }
     let decisions: Vec<_> = state

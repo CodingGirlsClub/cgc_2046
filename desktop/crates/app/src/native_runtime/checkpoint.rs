@@ -125,7 +125,7 @@ impl Owner {
         self.invalidate_checkpoints(ordinal)?;
         self.prepared = None;
         self.generation = self.generation.wrapping_add(1);
-        self.title_serial = self.title_serial.wrapping_add(1);
+        self.cancel_title();
         self.persist();
         self.freeze();
         self.refresh_changes();

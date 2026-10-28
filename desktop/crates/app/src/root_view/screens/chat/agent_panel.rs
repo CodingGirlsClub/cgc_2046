@@ -101,6 +101,24 @@ fn header(
     let editing = ctx.agent_panel_editing_title;
     let hovered = ctx.agent_panel_title_hovered;
     let title_input = ctx.agent_panel_title_input.clone();
+    // 对齐 Zed：生成中标题做呼吸态、失败时给重试入口；两者都只对 native 轨生效。
+    let (title_generating, title_error) = if native_mode {
+        ctx.native_agent_view
+            .as_ref()
+            .map(|view| {
+                let view = view.read(cx);
+                (view.title_generating(), view.title_generation_error())
+            })
+            .unwrap_or((false, None))
+    } else {
+        (false, None)
+    };
+    let can_regenerate_title = native_mode
+        && !title_generating
+        && ctx
+            .native_agent_view
+            .as_ref()
+            .is_some_and(|view| !view.read(cx).is_empty_thread());
 
     let title_area: AnyElement = if editing {
         match title_input {
@@ -110,11 +128,34 @@ fn header(
                 .into_any_element(),
             None => div().flex_1().child(title.clone()).into_any_element(),
         }
+    } else if title_generating {
+        div()
+            .id("agent-panel-title-generating")
+            .flex_1()
+            .flex()
+            .flex_row()
+            .items_center()
+            .px(space(1))
+            .child(
+                div()
+                    .text_size(px(13.0))
+                    .text_color(palette.ink_3)
+                    .child(title.clone())
+                    .with_animation(
+                        "agent-panel-generating-title",
+                        Animation::new(std::time::Duration::from_secs(2))
+                            .repeat()
+                            .with_easing(pulsating_between(0.4, 0.8)),
+                        |label, delta| label.opacity(delta),
+                    ),
+            )
+            .tooltip(|window, cx| Tooltip::new("正在生成标题…").build(window, cx))
+            .into_any_element()
     } else {
         let hover_root = root.clone();
         let click_root = root.clone();
         let edit_root = root.clone();
-        div()
+        let editable = div()
             .id("agent-panel-title")
             .flex_1()
             .flex()
@@ -153,8 +194,39 @@ fn header(
                 let _ = click_root.update(cx, |this, cx| {
                     this.start_edit_agent_panel_title(window, cx);
                 });
-            })
-            .into_any_element()
+            });
+        if let Some(error) = title_error {
+            let retry_root = root.clone();
+            div()
+                .flex_1()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(2.0))
+                .child(editable)
+                .child(
+                    div()
+                        .id("agent-panel-title-retry")
+                        .role(Role::Button)
+                        .aria_label("重新生成标题")
+                        .px(px(2.0))
+                        .text_size(px(11.0))
+                        .text_color(palette.danger)
+                        .child("⚠")
+                        .tooltip(move |window, cx| {
+                            Tooltip::new(format!("标题生成失败，点击重试：{error}"))
+                                .build(window, cx)
+                        })
+                        .on_click(move |_, _, cx| {
+                            let _ = retry_root.update(cx, |this, cx| {
+                                this.regenerate_agent_panel_title(cx);
+                            });
+                        }),
+                )
+                .into_any_element()
+        } else {
+            editable.into_any_element()
+        }
     };
 
     // 对齐 Zed：只列本机已注册/已检测到 Ready 的 external agents；
@@ -412,7 +484,7 @@ fn header(
                         .flex()
                         .flex_col()
                         .gap(px(1.0))
-                        .children(native_mode.then(|| {
+                        .children(can_regenerate_title.then(|| {
                             div()
                                 .id("agent-panel-regenerate-title")
                                 .px(space(1))

@@ -196,6 +196,8 @@ pub struct ShellState {
     pub(in crate::root_view) events_bus: Arc<MemoryEventBus>,
     pub(in crate::root_view) agent_panel_title_input: Option<Entity<InputState>>,
     pub(in crate::root_view) agent_panel_title_subscription: Option<Subscription>,
+    /// native 面板事件订阅：标题生成中/失败/完成时重绘 header。
+    pub(in crate::root_view) native_agent_view_subscription: Option<Subscription>,
     pub(in crate::root_view) agent_panel_editing_title: bool,
     pub(in crate::root_view) agent_panel_title_hovered: bool,
     pub(in crate::root_view) history_sidebar:
@@ -348,6 +350,7 @@ impl ShellState {
             },
             agent_panel_title_input: None,
             agent_panel_title_subscription: None,
+            native_agent_view_subscription: None,
             agent_panel_editing_title: false,
             agent_panel_title_hovered: false,
             history_sidebar: None,

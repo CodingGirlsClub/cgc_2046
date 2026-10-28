@@ -44,6 +44,20 @@ impl RootView {
                 writer,
             )
         }));
+        if let Some(view) = self.native_agent_view.clone() {
+            self.native_agent_view_subscription = Some(cx.subscribe_in(
+                &view,
+                window,
+                |_this,
+                 _view,
+                 _event: &crate::native_agent_view::NativeAgentViewEvent,
+                 _window,
+                 cx| {
+                    // header 的标题/生成态读的是 view 快照；子实体重绘不会带父级。
+                    cx.notify();
+                },
+            ));
+        }
         self.native_scope = Some(scope);
         self.native_runtime = Some(runtime);
         self.prepare_agent_authorization(cx);
