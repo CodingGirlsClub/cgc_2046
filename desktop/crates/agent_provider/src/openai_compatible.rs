@@ -20,6 +20,9 @@ use crate::{
 
 /// OpenAI Chat Completions 兼容 Provider 的配置。
 ///
+/// 事件通道容量：足够吸收正常突发，又能在 UI 卡顿时限住内存。
+const DELTA_CAPACITY: usize = 32;
+
 /// `base_url` 是 API 根（例如 `https://api.deepseek.com/v1`），末尾斜杠可有可无。
 #[derive(Clone, Debug)]
 pub struct OpenAiCompatibleConfig {
@@ -94,12 +97,16 @@ impl Provider for OpenAiCompatibleProvider {
     ) -> future::BoxFuture<'static, Result<CompletionStream, ProviderError>> {
         let config = Arc::clone(&self.config);
         let body = build_body(model, &request);
-        let (sender, receiver) = mpsc::unbounded::<Result<CompletionEvent, ProviderError>>();
+        // 有界传送：慢消费者（卡顿的 UI）不能让整段模型输出堆在内存里。
+        // worker 是独立 std 线程，阻塞式发送即可产生背压，不会卡住 async runtime。
+        let (sender, receiver) =
+            mpsc::channel::<Result<CompletionEvent, ProviderError>>(DELTA_CAPACITY);
         let spawn = std::thread::Builder::new()
             .name("cgc-agent-provider".to_string())
             .spawn(move || {
-                if let Err(error) = run_request(&config, &body, &sender) {
-                    let _ = sender.unbounded_send(Err(error));
+                let mut sender = sender;
+                if let Err(error) = run_request(&config, &body, &mut sender) {
+                    let _ = send_blocking(&mut sender, Err(error));
                 }
             });
         match spawn {
@@ -221,7 +228,7 @@ fn message_to_json(message: &Message) -> Value {
 fn run_request(
     config: &OpenAiCompatibleConfig,
     body: &Value,
-    sender: &mpsc::UnboundedSender<Result<CompletionEvent, ProviderError>>,
+    sender: &mut mpsc::Sender<Result<CompletionEvent, ProviderError>>,
 ) -> Result<(), ProviderError> {
     let agent_config = ureq::Agent::config_builder()
         .http_status_as_error(false)
@@ -264,7 +271,9 @@ fn run_request(
         let _ = process_sse_event(&mut state, event, sender)?;
     }
     for event in state.finish()? {
-        let _ = sender.unbounded_send(Ok(event));
+        if !send_blocking(sender, Ok(event)) {
+            return Ok(());
+        }
     }
     Ok(())
 }
@@ -273,22 +282,33 @@ fn run_request(
 fn process_sse_event(
     state: &mut StreamState,
     event: SseEvent,
-    sender: &mpsc::UnboundedSender<Result<CompletionEvent, ProviderError>>,
+    sender: &mut mpsc::Sender<Result<CompletionEvent, ProviderError>>,
 ) -> Result<bool, ProviderError> {
     if event.data.trim() == "[DONE]" {
         for event in state.finish()? {
-            let _ = sender.unbounded_send(Ok(event));
+            if !send_blocking(sender, Ok(event)) {
+                return Ok(true);
+            }
         }
         return Ok(true);
     }
     let chunk: OpenAiChatChunk = serde_json::from_str(&event.data)
         .map_err(|error| ProviderError::invalid_response(format!("chunk: {error}")))?;
     for event in state.on_chunk(chunk)? {
-        if sender.unbounded_send(Ok(event)).is_err() {
+        if !send_blocking(sender, Ok(event)) {
             return Ok(true);
         }
     }
     Ok(false)
+}
+
+/// 阻塞式送入；返回 `false` 表示消费者已放弃，worker 应尽快退出。
+fn send_blocking(
+    sender: &mut mpsc::Sender<Result<CompletionEvent, ProviderError>>,
+    event: Result<CompletionEvent, ProviderError>,
+) -> bool {
+    use futures::SinkExt as _;
+    futures::executor::block_on(sender.send(event)).is_ok()
 }
 
 fn map_ureq_error(error: ureq::Error) -> ProviderError {
