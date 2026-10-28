@@ -32,11 +32,20 @@ pub(super) fn initialize(
     data_root: PathBuf,
     host: NativePanelHost,
 ) -> Result<(Agent, NativeRuntimeConfig, Production), NativeRuntimeError> {
+    initialize_with_keychain(scope, data_root, host, KeychainStore::from_env())
+}
+
+/// 可注入钥匙串的构造入口：测试用它断言「初始化不读钥匙串」。
+pub(super) fn initialize_with_keychain(
+    scope: &AgentScope,
+    data_root: PathBuf,
+    host: NativePanelHost,
+    keychain: KeychainStore,
+) -> Result<(Agent, NativeRuntimeConfig, Production), NativeRuntimeError> {
     std::fs::create_dir_all(&scope.root)
         .map_err(|error| NativeRuntimeError::Storage(error.to_string()))?;
     let prefs = PrefsStore::new(data_root.join("agent_prefs.json")).load();
     let active = prefs.active_provider();
-    let keychain = KeychainStore::from_env();
     let provider_id = active
         .map(|provider| provider.id.clone())
         .filter(|id| !id.is_empty())
@@ -282,4 +291,110 @@ pub(super) fn state(production: Option<&Production>) -> AgentState {
                 .clone()
         })
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// 记录调用次数；`get` 若被调用就说明初始化路径仍在读钥匙串。
+    struct RecordingBackend {
+        gets: Arc<AtomicUsize>,
+    }
+
+    impl cgc_platform::session::SecretBackend for RecordingBackend {
+        fn set(&self, _account: &str, _secret: &str) -> io::Result<()> {
+            Ok(())
+        }
+        fn get(&self, _account: &str) -> io::Result<Option<String>> {
+            self.gets.fetch_add(1, Ordering::SeqCst);
+            Ok(Some("sk-test".to_string()))
+        }
+        fn delete(&self, _account: &str) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn temp_root(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("cgc-factory-{}-{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn host() -> NativePanelHost {
+        NativePanelHost::new(
+            Arc::new(std::sync::Mutex::new(cgc_agent_tools::AgentState::default())),
+            None,
+        )
+    }
+
+    /// 关键回归：初始化不得读取钥匙串（真机上未授权时会阻塞 8–11s）。
+    #[test]
+    fn initialize_never_touches_the_keychain() {
+        let root = temp_root("init");
+        let gets = Arc::new(AtomicUsize::new(0));
+        let keychain = KeychainStore::new(Arc::new(RecordingBackend {
+            gets: Arc::clone(&gets),
+        }));
+        let scope = AgentScope {
+            key: "test".into(),
+            root: root.join("workspace"),
+        };
+        let (_agent, _config, _production) =
+            initialize_with_keychain(&scope, root.clone(), host(), keychain).expect("init");
+        assert_eq!(gets.load(Ordering::SeqCst), 0, "启动路径不得读钥匙串");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// 待定凭据只解析一次；解析后清空，避免每次发送都阻塞。
+    #[test]
+    fn pending_credentials_resolve_once() {
+        let root = temp_root("pending");
+        let gets = Arc::new(AtomicUsize::new(0));
+        let keychain = KeychainStore::new(Arc::new(RecordingBackend {
+            gets: Arc::clone(&gets),
+        }));
+        let mut production = Production {
+            host: host(),
+            providers: Arc::new(Vec::new()),
+            data_root: root.clone(),
+            keychain,
+            using_echo: true,
+            pending: Some(PendingCredentials {
+                provider_id: "deepseek".into(),
+                base_url: "https://example.invalid".into(),
+            }),
+        };
+        let model = Model::new(
+            ProviderId::new("deepseek"),
+            "DeepSeek",
+            "m1",
+            "m1",
+            ModelLimits::new(8_000, 1_000),
+        );
+        let mut config = NativeRuntimeConfig {
+            provider: Arc::new(EchoProvider::new(model.clone())),
+            model,
+            registry: Arc::new(ToolRegistry::new()),
+            context: ToolContext::new(&root),
+            context_size: 8_000,
+            auto_approve: false,
+        };
+
+        assert!(
+            resolve_pending_key(&mut production, &mut config),
+            "首次应解析成功"
+        );
+        assert_eq!(gets.load(Ordering::SeqCst), 1);
+        assert!(production.pending.is_none());
+        assert!(
+            !resolve_pending_key(&mut production, &mut config),
+            "再次调用不再解析"
+        );
+        assert_eq!(gets.load(Ordering::SeqCst), 1);
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

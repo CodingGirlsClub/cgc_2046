@@ -13,7 +13,7 @@ pub use auth_api::{
     AuthApi, AuthError, FakeAuthApi, HttpAuthApi, SignedInSession, WechatLoginPoll,
     WechatLoginStart, WechatLoginStatus,
 };
-pub use credential_store::{CredentialStore, FileStore, KeychainStore, MemoryStore};
+pub use credential_store::{CredentialStore, FileStore, KeychainStore, MemoryStore, SecretBackend};
 
 /// UI 可观察的会话状态。
 #[derive(Clone, Debug, PartialEq, Eq)]
