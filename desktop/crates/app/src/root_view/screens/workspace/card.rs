@@ -149,8 +149,11 @@ fn material_element(
             return None;
         }
         return Some(
-            TextView::markdown(format!("issue-material-{index}"), sanitize_markdown(body))
-                .into_any_element(),
+            cgc_agent_ui::markdown_view::markdown_text_view_plain(
+                format!("issue-material-{index}"),
+                body,
+            )
+            .into_any_element(),
         );
     }
     let url = material.url.clone()?;

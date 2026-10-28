@@ -4,14 +4,11 @@
 //! 选择依据见 story 4.3 计划：ratex-gpui 与 `gpui-pre` 0.3 兼容、MIT、渲染是纯 CPU，
 //! 无需 WebView/KaTeX/网络字体；SVG 预渲染方案保留为备用（见决策记录）。
 
-use gpui_kit::component::text::TextView;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use gpui_kit::{div, img, px, AnyElement, Hsla, IntoElement, ParentElement, RenderImage, Styled};
-
-use cgc_agent_ui::safe_markdown::sanitize_markdown;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MathSegment {
@@ -222,9 +219,9 @@ pub fn render_markdown_with_math(
                 }
                 text_index += 1;
                 inline_row.push(
-                    TextView::markdown(
+                    cgc_agent_ui::markdown_view::markdown_text_view_plain(
                         format!("{id_prefix}-md-{text_index}"),
-                        sanitize_markdown(&text),
+                        &text,
                     )
                     .into_any_element(),
                 );

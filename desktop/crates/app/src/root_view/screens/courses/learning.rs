@@ -322,9 +322,9 @@ pub(in crate::root_view) fn render_course_materials(
                     }
                     let view_handle = cx.entity().downgrade();
                     materials.push(
-                        TextView::markdown(
+                        cgc_agent_ui::markdown_view::markdown_text_view(
                             format!("course-material-{}", materials.len()),
-                            sanitize_markdown(body),
+                            body,
                         )
                         .on_link_click(move |url, _, _, cx| {
                             if cgc_agent_ui::safe_markdown::is_safe_link(url) {

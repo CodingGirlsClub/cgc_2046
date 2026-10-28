@@ -17,7 +17,6 @@ use crate::chat_state::{
 use crate::conversation_session::{ConnectionPhase, ConversationSession};
 use crate::formula::render_markdown_with_math;
 use cgc_agent_ui::conversation::ConversationThread;
-use cgc_agent_ui::safe_markdown::sanitize_markdown;
 use cgc_courses::catalog::{
     learning_context, CourseCatalogService, CourseDetailService, CourseSummary, CoursesApi,
     CoursesListState, FakeCoursesApi, HttpCoursesApi,
@@ -26,7 +25,6 @@ use cgc_courses::content::{CourseContentService, CourseContentState, MaterialKin
 use cgc_courses::projection::{LearningProjectionService, ProjectionState};
 use cgc_events::detail::{EventDetail, EventDetailService, PriceMode};
 use cgc_platform::paths::AppPaths;
-use gpui_kit::component::text::TextView;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use cgc_events::enroll::{enrollment_error_key, EnrollmentRequest};

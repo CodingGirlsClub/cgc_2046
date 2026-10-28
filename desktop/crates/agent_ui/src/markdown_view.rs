@@ -15,21 +15,33 @@ use crate::safe_markdown::sanitize_markdown;
 /// `id` 决定 element state：流式渲染时复用同一个 id，gpui-base 会对追加的文本
 /// 走 `push_str` 增量解析，而不是每帧重新 parse 全文。
 pub fn markdown_text_view(id: impl Into<ElementId>, text: &str) -> TextView {
+    markdown_base(id, text).code_block_actions(|code_block, _window, _cx| {
+        let code = code_block.code().to_string();
+        let id = code_block_copy_id(&code, code_block.lang().as_deref());
+        Button::new(SharedString::from(id))
+            .label("Copy")
+            .xsmall()
+            .ghost()
+            .tooltip("Copy Code")
+            .on_click(move |_, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(code.clone()));
+            })
+    })
+}
+
+/// 不带代码块 Copy 按钮的 Markdown TextView。
+///
+/// 用于工作区卡片、公式文本段这类短内容：保留可选中与统一的复制语义，
+/// 但不给每一小段都挂一个 Copy 按钮。
+pub fn markdown_text_view_plain(id: impl Into<ElementId>, text: &str) -> TextView {
+    markdown_base(id, text)
+}
+
+fn markdown_base(id: impl Into<ElementId>, text: &str) -> TextView {
     TextView::markdown(id, sanitize_markdown(text))
         .selectable(true)
-        .selection_format(SelectionFormat::Source)
-        .code_block_actions(|code_block, _window, _cx| {
-            let code = code_block.code().to_string();
-            let id = code_block_copy_id(&code, code_block.lang().as_deref());
-            Button::new(SharedString::from(id))
-                .label("Copy")
-                .xsmall()
-                .ghost()
-                .tooltip("Copy Code")
-                .on_click(move |_, _, cx| {
-                    cx.write_to_clipboard(ClipboardItem::new_string(code.clone()));
-                })
-        })
+        // 单一样式块内复制纯文本，跨样式/跨块才回退 Markdown 源码；全选仍原样返回源码。
+        .selection_format(SelectionFormat::SourceAcrossStyles)
 }
 
 /// 代码块 Copy 按钮的稳定 id（同内容同 id，不同内容不同 id，避免元素状态串台）。

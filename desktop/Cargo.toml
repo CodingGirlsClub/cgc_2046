@@ -29,7 +29,9 @@ rust-version = "1.98"
 [workspace.dependencies]
 # 精确钉死：gpui-kit 补丁版会连带升级 gpui-pre 快照（0.8.0 → 0.8.1 带入
 # wgpu 29 → 30、taffy 0.13 → 0.15），每次升版都要三平台真机回归，不允许 cargo update 静默跳版。
-gpui-kit = "=0.8.1"
+# syntect：代码块语法高亮，懒加载（首次高亮才解析语法集）；two-face 语法数据约 3.6 MB。
+# 新增依赖 syntect 5.3（MIT）、two-face 0.4（MIT OR Apache-2.0），均与 AGPL-3.0 兼容。
+gpui-kit = { version = "=0.8.1", features = ["syntect"] }
 cgc-account = { path = "crates/account" }
 cgc-agent-conversation = { path = "crates/agent_conversation" }
 cgc-events = { path = "crates/events" }
