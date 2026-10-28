@@ -47,6 +47,20 @@ for f in dist/*.dmg; do
   echo "   app bundle ok: $(basename "$app")"
   test -e "$mnt/Applications" || { hdiutil detach "$mnt" -force >/dev/null 2>&1 || true; echo "FAIL: dmg 内缺 Applications 链接" >&2; exit 1; }
   echo "   Applications link ok"
+  # universal 包必须真的同时含 arm64 与 x86_64——lipo 静默产出单架构时，
+  # 表面上「包能打出来」，实际 Intel 用户装不上。
+  if [ "${CGC_ARTIFACT_ARCH:-}" = "universal" ]; then
+    bin=$(ls "$app/Contents/MacOS"/* 2>/dev/null | head -1)
+    archs=$(lipo -archs "$bin" 2>/dev/null || true)
+    case "$archs" in
+      *arm64*x86_64*|*x86_64*arm64*) echo "   universal ok: $archs" ;;
+      *)
+        hdiutil detach "$mnt" -force >/dev/null 2>&1 || true
+        echo "FAIL: dmg 内二进制不是 universal（lipo -archs: ${archs:-<unknown>}）" >&2
+        exit 1
+        ;;
+    esac
+  fi
   if ! plutil -p "$app/Contents/Info.plist" | grep -q '"cgc"'; then
     hdiutil detach "$mnt" -force >/dev/null || true
     echo "FAIL: app Info.plist 缺少 cgc URL scheme" >&2
