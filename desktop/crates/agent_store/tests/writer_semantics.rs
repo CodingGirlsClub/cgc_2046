@@ -199,3 +199,57 @@ fn restore_prefers_snapshot_and_falls_back_to_legacy_content() {
     assert!(store.load_restored("missing").unwrap().is_none());
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn out_of_order_revisions_never_overwrite_a_newer_snapshot() {
+    let root = temp_root("revision");
+    let path = root.join("conversations.db");
+    let mut store = ConversationStore::open(&path).unwrap();
+    let snapshot = |revision: u64, text: &str| {
+        SavedConversation::from_thread(&conversation("r1", text), SnapshotSource::Acp, revision)
+    };
+    store.save_snapshot(&snapshot(5, "新版本")).unwrap();
+    // 迟到的旧回调：不得覆盖更新的内容。
+    store.save_snapshot(&snapshot(4, "迟到的旧版本")).unwrap();
+    let loaded = store.load_snapshot("r1").unwrap().expect("snapshot");
+    assert_eq!(loaded.revision, 5);
+    assert!(matches!(&loaded.entries[..], [Entry::User { text }] if text == "新版本"));
+    // 更新的 revision 仍然可以推进。
+    store.save_snapshot(&snapshot(6, "再新一版")).unwrap();
+    let loaded = store.load_snapshot("r1").unwrap().expect("snapshot");
+    assert_eq!(loaded.revision, 6);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn deleting_a_thread_removes_its_snapshot_too() {
+    let root = temp_root("delete");
+    let path = root.join("conversations.db");
+    let mut store = ConversationStore::open(&path).unwrap();
+    let sidebar = cgc_agent_store::SidebarThread {
+        thread_id: "d1".into(),
+        agent_id: None,
+        session_id: None,
+        title: None,
+        title_override: None,
+        created_at: String::new(),
+        updated_at: String::new(),
+        archived: false,
+    };
+    store
+        .save_thread(&conversation("d1", "正文"), &sidebar)
+        .unwrap();
+    store
+        .save_snapshot(&SavedConversation::from_thread(
+            &conversation("d1", "正文"),
+            SnapshotSource::Acp,
+            1,
+        ))
+        .unwrap();
+    assert!(store.delete_thread("d1").unwrap());
+
+    // 删除后不得从投影复活：否则删掉的历史会被快照重新读出来。
+    assert!(store.load_restored("d1").unwrap().is_none());
+    assert!(store.load_snapshot("d1").unwrap().is_none());
+    let _ = std::fs::remove_dir_all(root);
+}

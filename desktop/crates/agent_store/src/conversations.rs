@@ -520,7 +520,12 @@ impl ConversationStore {
             "DELETE FROM sidebar_threads WHERE thread_id = ?1",
             params![thread_id],
         )?;
-        Ok(content + sidebar > 0)
+        // 投影一并删除：否则被删掉的历史会从快照里复活。
+        let snapshot = self.conn.execute(
+            "DELETE FROM thread_snapshots WHERE thread_id = ?1",
+            params![thread_id],
+        )?;
+        Ok(content + sidebar + snapshot > 0)
     }
 
     /// 清空全部 ACP 历史（只清 conversations.db，不碰 native threads.db）；
@@ -531,6 +536,8 @@ impl ConversationStore {
                 .query_row("SELECT COUNT(*) FROM sidebar_threads", [], |row| row.get(0))?;
         self.conn.execute("DELETE FROM thread_content", [])?;
         self.conn.execute("DELETE FROM sidebar_threads", [])?;
+        // 清空 ACP 历史同样清掉投影；native 的 thread_snapshots 在另一个库，不受影响。
+        self.conn.execute("DELETE FROM thread_snapshots", [])?;
         Ok(count.max(0) as usize)
     }
 
