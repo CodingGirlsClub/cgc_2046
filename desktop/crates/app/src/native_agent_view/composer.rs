@@ -4,6 +4,8 @@
 
 use super::*;
 
+use gpui_kit::component::progress::ProgressCircle;
+
 impl NativeAgentView {
     pub(super) fn render_native_composer_legacy(
         &mut self,
@@ -73,34 +75,67 @@ impl NativeAgentView {
         };
         let send_weak = cx.entity().downgrade();
         let context_window = self.metadata().model.limits.context_window.max(1) as u64;
-        let used_percent = if context_window == 0 {
-            0
-        } else {
-            ((usage as f64 / context_window as f64) * 100.0).round() as u64
+        let output_window = self.metadata().model.limits.max_output_tokens.max(1) as u64;
+        let usage_total = self.state.usage_total;
+        let input_percent = (usage as f64 / context_window as f64 * 100.0).clamp(0.0, 100.0);
+        let output_percent =
+            (usage_total.output as f64 / output_window as f64 * 100.0).clamp(0.0, 100.0);
+        let progress_color = |percent: f64| {
+            if percent >= 85.0 {
+                palette.danger
+            } else {
+                palette.ink_3
+            }
         };
-        let context_summary = format!(
-            "{used_percent}% · {} / {}",
+        let input_color = progress_color(input_percent);
+        let output_color = progress_color(output_percent);
+        let input_label = format!(
+            "{} / {}",
             humanize_tokens(usage),
             humanize_tokens(context_window)
         );
-        let usage_total = self.state.usage_total;
-        let usage_breakdown = format!(
-            "输入 {} · 输出 {} · 缓存读 {}",
-            humanize_tokens(usage_total.input),
+        let output_label = format!(
+            "{} / {}",
             humanize_tokens(usage_total.output),
-            humanize_tokens(usage_total.cache_read)
+            humanize_tokens(output_window)
         );
+        let rules = project_rule_files(self.metadata().workspace.as_ref());
+        let rules_count = rules.len();
         let context_usage = HoverCard::new("native-context-usage")
             .anchor(Anchor::BottomCenter)
             .trigger(
                 div()
-                    .text_size(px(10.0))
-                    .text_color(palette.ink_3)
-                    .child(context_summary.clone()),
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(2.0))
+                    .flex_shrink_0()
+                    .child(
+                        Icon::new(gpui_kit::assets::IconName::ArrowUp)
+                            .xsmall()
+                            .text_color(palette.ink_3),
+                    )
+                    .child(
+                        ProgressCircle::new("native-input-context")
+                            .xsmall()
+                            .value(input_percent as f32)
+                            .color(input_color),
+                    )
+                    .child(
+                        Icon::new(gpui_kit::assets::IconName::ArrowDown)
+                            .xsmall()
+                            .text_color(palette.ink_3),
+                    )
+                    .child(
+                        ProgressCircle::new("native-output-context")
+                            .xsmall()
+                            .value(output_percent as f32)
+                            .color(output_color),
+                    ),
             )
             .content(move |_, _, _| {
-                div()
-                    .w(px(190.0))
+                let mut card = div()
+                    .w(px(200.0))
                     .p(space(1))
                     .rounded(px(RADIUS_MEDIUM))
                     .border_1()
@@ -114,23 +149,60 @@ impl NativeAgentView {
                     )
                     .child(
                         div()
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_2)
-                            .child(context_summary.clone()),
+                            .flex()
+                            .flex_row()
+                            .gap(px(3.0))
+                            .child(
+                                div()
+                                    .text_size(px(10.0))
+                                    .text_color(palette.ink_3)
+                                    .child("Input:"),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .child(input_label.clone()),
+                            ),
                     )
                     .child(
                         div()
-                            .text_size(px(10.0))
-                            .text_color(palette.ink_3)
-                            .child("Tokens"),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(11.0))
-                            .text_color(palette.ink_2)
-                            .child(usage_breakdown.clone()),
-                    )
-                    .into_any_element()
+                            .flex()
+                            .flex_row()
+                            .gap(px(3.0))
+                            .child(
+                                div()
+                                    .text_size(px(10.0))
+                                    .text_color(palette.ink_3)
+                                    .child("Output:"),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .child(output_label.clone()),
+                            ),
+                    );
+                if rules_count > 0 {
+                    card = card
+                        .child(
+                            div()
+                                .mt(px(4.0))
+                                .pt(px(4.0))
+                                .border_t_1()
+                                .border_color(palette.line)
+                                .text_size(px(10.0))
+                                .text_color(palette.ink_3)
+                                .child("Rules"),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_2)
+                                .child(format!("{rules_count} 个项目规则")),
+                        );
+                }
+                card.into_any_element()
             });
 
         cgc_agent_ui::composer::composer_card(

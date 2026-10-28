@@ -155,6 +155,16 @@ pub(crate) fn offline_echo_notice(using_echo: bool) -> Option<&'static str> {
 }
 
 /// 启动时注入的工作区上下文：工作区根 + 规则文件（AGENTS/CLAUDE）。
+/// 当前工作区实际会被注入 system prompt 的项目规则文件（与
+/// `build_workspace_system_prompt` 的加载列表保持一致），用于 composer 的
+/// Context 悬浮提示。
+pub(crate) fn project_rule_files(workspace: &std::path::Path) -> Vec<&'static str> {
+    ["AGENTS.md", "CLAUDE.md", "desktop/AGENTS.md"]
+        .into_iter()
+        .filter(|relative| workspace.join(relative).is_file())
+        .collect()
+}
+
 pub(crate) fn build_workspace_system_prompt(workspace: &std::path::Path) -> String {
     let mut prompt = format!(
         "你运行在用户的本地工作区：{}\n可以读写工作区文件、执行命令；修改前先读相关文件。\n",
@@ -274,7 +284,7 @@ pub(crate) fn slash_entries_for<'a>(
 mod tests {
     use super::{
         build_workspace_system_prompt, collect_workspace_files, mention_matches, now_secs,
-        offline_echo_notice, truncate_text,
+        offline_echo_notice, project_rule_files, truncate_text,
     };
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
@@ -339,5 +349,18 @@ mod tests {
     fn truncate_text_adds_ellipsis_only_when_over_limit() {
         assert_eq!(truncate_text("abc", 3), "abc");
         assert_eq!(truncate_text("abcd", 3), "abc…");
+    }
+    #[test]
+    fn project_rule_files_match_loaded_sources() {
+        let dir = temp_dir("rules");
+        assert!(project_rule_files(&dir).is_empty());
+        std::fs::write(dir.join("AGENTS.md"), "root").unwrap();
+        std::fs::create_dir_all(dir.join("desktop")).unwrap();
+        std::fs::write(dir.join("desktop/AGENTS.md"), "desktop").unwrap();
+        assert_eq!(
+            project_rule_files(&dir),
+            vec!["AGENTS.md", "desktop/AGENTS.md"]
+        );
+        std::fs::remove_dir_all(dir).ok();
     }
 }

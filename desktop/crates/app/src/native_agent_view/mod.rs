@@ -31,8 +31,8 @@ use crate::attachment::{decode_sent_images, is_image_path, prepare_clipboard_ima
 use crate::conversation_session::{ConnectionPhase, QueueMode};
 use crate::mention::{self, Mention, SkillEntry};
 use crate::native_context::{
-    collect_workspace_files, humanize_tokens, mention_matches, retry_hint_for_error,
-    slash_entries_for, trailing_mention, SlashEntry,
+    collect_workspace_files, humanize_tokens, mention_matches, project_rule_files,
+    retry_hint_for_error, slash_entries_for, trailing_mention, SlashEntry,
 };
 use crate::native_panel_host::SubagentCard;
 use crate::native_runtime::{
