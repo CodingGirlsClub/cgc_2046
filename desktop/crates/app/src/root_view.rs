@@ -2427,7 +2427,7 @@ fn render_loading_state(language: Language, key: Key, palette: &theme::Palette) 
         .into_any_element()
 }
 
-fn shortcut_kbd(stroke: &str) -> Kbd {
+fn shortcut_kbd(stroke: &'static str) -> Kbd {
     Kbd::new(gpui_kit::Keystroke::parse(stroke).expect("valid shortcut"))
 }
 

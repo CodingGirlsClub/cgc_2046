@@ -95,7 +95,7 @@ pub(in crate::root_view) fn render_right_dock(
                 .min_h(px(0.0))
                 .overflow_y_scroll()
                 .track_scroll(&ctx.site_tree_scroll)
-                .on_scroll_wheel(cx.listener(|_this, _, _, cx| {
+                .on_scroll(cx.listener(|_this, _, _, cx| {
                     cx.spawn(async move |this, cx| {
                         cx.background_executor()
                             .timer(std::time::Duration::from_millis(200))

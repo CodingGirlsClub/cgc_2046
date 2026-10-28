@@ -105,7 +105,7 @@ impl Render for ImageViewer {
                     .flex_1()
                     .relative()
                     .overflow_hidden()
-                    .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _, cx| {
+                    .on_scroll(cx.listener(|this, event: &ScrollEvent, _, cx| {
                         let delta = match event.delta {
                             ScrollDelta::Pixels(delta) => {
                                 let dy: f32 = delta.y.into();
