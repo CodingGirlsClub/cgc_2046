@@ -107,11 +107,14 @@ impl RootView {
         self.window_opening = false;
         let close_to_tray = self.close_to_tray.clone();
         let tray_hint_shown = self.tray_hint_shown.clone();
+        let flush_root = cx.entity().downgrade();
         let language = self.language;
         let app_name = translate(language, Key::AppName).to_string();
         let hint_body = translate(language, Key::AppTrayFirstClose).to_string();
         window.on_window_should_close(cx, move |_window, cx| {
             if !close_to_tray.load(std::sync::atomic::Ordering::Relaxed) {
+                // 退出前把已接受的写入落盘：后台 writer 不确认就等于可能丢最后一批。
+                let _ = flush_root.update(cx, |this, _| this.flush_store_writer());
                 cx.quit();
                 return true;
             }
@@ -1854,6 +1857,16 @@ impl RootView {
             });
         })
         .detach();
+    }
+
+    /// 等待此前已接受的持久化写入 commit；失败只在日志里留痕，不阻塞退出。
+    pub(in crate::root_view) fn flush_store_writer(&mut self) {
+        let Some(writer) = &self.store_writer else {
+            return;
+        };
+        if let Err(error) = writer.flush(std::time::Duration::from_millis(1500)) {
+            eprintln!("[store] 退出前落盘未确认：{error}");
+        }
     }
 
     pub(in crate::root_view) fn reset_chat_local(&mut self, _cx: &mut Context<Self>) {
