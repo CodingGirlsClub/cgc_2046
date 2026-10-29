@@ -23,8 +23,9 @@ defmodule Cgc2046Web.GraphqlWechatMiniWebLoginTest do
           |> send_resp(200, <<137, 80, 78, 71, 13, 10, 26, 10>>)
 
         "/wxa/generate_urllink" ->
-          # query 必须放进 path（微信短链不会转发 URL query 到小程序页面）。
-          assert String.starts_with?(body["path"], "pages/web-login/index?cq=wl_")
+          # path 不带 query；动态参数走单独的 query 字段（微信 URL Link 契约）。
+          assert body["path"] == "pages/web-login/index"
+          assert String.starts_with?(body["query"], "cq=wl_")
           assert body["expire_type"] == 1
           assert body["expire_interval"] == 1
 

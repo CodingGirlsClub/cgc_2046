@@ -20,10 +20,11 @@ defmodule Cgc2046.Integrations.Wechat.WebLoginLaunch do
            %{page: @page, scene: "wl_" <> code, check_path: true, env_version: "release"}}
 
         :link ->
-          # query 必须放进 path：拼在短链 URL 上时，微信打开小程序不会把
-          # URL query 传给页面，小程序端会拿不到 requestId（「登录链接无效」）。
+          # 微信 generate_urllink：`path` 必须是不带 query 的已发布页面路径，
+          # 动态参数走单独的 `query` 字段——拼在短链 URL 上不会被传给小程序
+          # （小程序端拿不到 requestId，报「登录链接无效」）。
           {"generate_urllink",
-           %{path: @page <> "?cq=wl_" <> code, expire_type: 1, expire_interval: 1}}
+           %{path: @page, query: "cq=wl_" <> code, expire_type: 1, expire_interval: 1}}
       end
 
     opts = [
