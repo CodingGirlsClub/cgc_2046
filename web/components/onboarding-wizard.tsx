@@ -4,22 +4,11 @@
  * 首公里接入向导（plan 2026-08-22 first-mile-onboarding U4，R4–R7）。
  *
  * 结构：开场（欢迎 + 为什么接入）+ 纵向 stepper 三步，无硬门、进度不落库：
- * ① 选宿主：OpenClacky（默认推荐）/ opencode / DSH 单选
- *    （DSH 自 plan 2026-09-08 DSH parity U10 / R17 起正式开放，手动流：
- *    装插件家族 → ③ 签发 token → 面板粘贴，无自动连接等价物）；
- * ② 安装与配置：内容按宿主映射共享内容卡（@/components/agent-connect-sections，
- *    与原子页同一内容源，per R4）；opencode / DSH 两宿主在宿主卡前
- *    追加环境准备卡组（@/components/runtime-setup-sections：终端 + Herdr，
- *    PREP_HOSTS 一处可改——OpenClacky 桌面应用自带环境，不渲染）；
- * ③ 生成连接 token：内嵌 McpTokenIssuePanel（与 mcp 页同一签出面），
- *    「我已保存」确认即完成判定（两段式第一段，per Key Decision），进完成态
- *    （种子话术卡 + 出口：去概览 / 看活动）。完成态仅当次会话（组件 state）。
- *    OpenClacky 路径附「回 CGC 助手完成接入」指引段（OpenclackyAssistantHint）——
- *    缺它 token 只躺在剪贴板，无人触发扩展 /connect 写入 mcp.json，首联必失败。
+ * ① 安装 OpenClacky / ② 安装 CGC-2046 连接器扩展 / ③ 连接 CGC-2046
+ *    （一键连接为主，手动 token 备用；卡片与原子页同一内容源，
+ *    见 @/components/agent-connect-sections）。
  *
- * ②③ 对所有宿主始终渲染且可见（不卸载、不 hidden）：③ 签发面的一次性明文
- * 与在途签发请求是组件内 state，卸载/隐藏语义曾让服务端已签发 token 的明文
- * 面临丢失风险（P2）；DSH 启用后所有宿主统一此行为。
+ * 三步对所有状态始终渲染且可见（不卸载、不 hidden）。
  *
  * readOnly（管理态「重新查看引导」回看）：stepper 内容在，但无签发面——
  * ③ 只给 MCP 页链接（签发归 mcp tab）。
@@ -28,30 +17,18 @@
  * hasTokenHistory 由调用方从 useOnboardingState().tokens 派生传入（同一数据源，
  * 本组件不再二次 fetch）。
  *
- * stepper 当前步（aria-current + 左侧品牌色条）：①②无完成信号可追踪
- * （宿主默认已选、安装为自助阅读），唯一可判定「待办」的动作步是 ③ 签发，
- * 四种宿主一致。
+ * stepper 当前步（aria-current + 左侧品牌色条）：①② 为自助阅读，唯一可判定
+ * 「待办」的动作步是 ③ 连接。
  */
 
-import { useState } from "react";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import {
 	OpenclackyInstallCard,
 	OpenclackyExtensionCard,
+	OpenclackyConnectCard,
 	OpenclackyAssistantHint,
-	WriteConfigStepCard,
-	ConfigureTokenStepCard,
-	ConfigNotesStepCard,
-	DshInstallCard,
 } from "@/components/agent-connect-sections";
-import { RuntimeSetupCards } from "@/components/runtime-setup-sections";
-import McpTokenIssuePanel from "@/components/mcp-token-issue-panel";
-
-type WizardHost = "openclacky" | "opencode" | "dsh";
-
-/** 需要环境准备（终端 + Herdr）的宿主；OpenClacky 桌面应用自带环境，不在此列 */
-const PREP_HOSTS: readonly WizardHost[] = ["opencode", "dsh"];
 
 export default function OnboardingWizard({
 	slug,
@@ -67,76 +44,12 @@ export default function OnboardingWizard({
 }) {
 	const t = useTranslations("onboarding");
 	const tConnect = useTranslations("agentConnect");
-	const [host, setHost] = useState<WizardHost>("openclacky");
-	const [completed, setCompleted] = useState(false);
 
-	// stepper 当前步：③ 是唯一带完成信号的动作步（签发 + 「我已保存」），
-	// ①② 为自助阅读，四种宿主一致停在 ③。
-	// 高亮 = 左侧品牌色条；card 步（①）自带内边距，只描边不补 padding
+	// ③ 是唯一带动作信号的步骤（连接 / 签发），①② 为自助阅读。
+	// 高亮 = 左侧品牌色条；三步都是卡片，不再补 padding
 	const currentStep: number = 3;
-	const stepStyle = (n: number, card = false) =>
-		currentStep === n
-			? {
-					borderLeft: "3px solid var(--brand)",
-					...(card ? {} : { paddingLeft: 13 }),
-				}
-			: {};
-
-	if (completed) {
-		return (
-			<div>
-				<header className="ws-page-heading">
-					<div>
-						<h1>{t("doneTitle")}</h1>
-						<p>{t("doneDesc")}</p>
-					</div>
-				</header>
-				<div className="connect-step-card" style={{ marginTop: 16 }}>
-					<h2>{t("seedPhraseTitle")}</h2>
-					<p className="connect-step-card__desc">{t("seedPhraseDesc")}</p>
-					<p>
-						<code>{t("seedPhraseText")}</code>
-					</p>
-					<div className="connect-step-card__actions">
-						<Link
-							href={`/w/${slug}`}
-							className="join-button join-button--primary"
-						>
-							{t("doneGoOverview")}
-						</Link>
-						<Link
-							href={`/w/${slug}/events`}
-							className="join-button join-button--outline"
-						>
-							{t("doneGoEvents")}
-						</Link>
-					</div>
-				</div>
-			</div>
-		);
-	}
-
-	const HOST_CARDS: {
-		key: WizardHost;
-		name: string;
-		badge?: string;
-		desc: string;
-	}[] = [
-		{
-			key: "openclacky",
-			name: tConnect("titleOpenclacky"),
-			badge: t("hostRecommended"),
-			desc: t("hostOpenclackyDesc"),
-		},
-		{ key: "opencode", name: tConnect("titleOpencode"), desc: t("hostOpencodeDesc") },
-		{
-			key: "dsh",
-			name: t("hostDsh"),
-			desc: t("hostDshDesc"),
-		},
-	];
-	// ③ 签发面备注命名建议随已选宿主
-	const hostName = HOST_CARDS.find((h) => h.key === host)?.name;
+	const stepStyle = (n: number) =>
+		currentStep === n ? { borderLeft: "3px solid var(--brand)" } : {};
 
 	return (
 		<div>
@@ -160,59 +73,11 @@ export default function OnboardingWizard({
 				}}
 			>
 				<li
-					className="connect-step-card"
 					data-testid="onboarding-step-1"
 					aria-current={currentStep === 1 ? "step" : undefined}
-					style={stepStyle(1, true)}
+					style={stepStyle(1)}
 				>
-					<h2>{t("stepChooseHost")}</h2>
-					<div
-						role="radiogroup"
-						aria-label={t("stepChooseHost")}
-						style={{ display: "grid", gap: 8 }}
-					>
-						{HOST_CARDS.map((h) => (
-							<label
-								key={h.key}
-								style={{
-									display: "flex",
-									gap: 8,
-									alignItems: "flex-start",
-									padding: "10px 12px",
-									borderRadius: "var(--radius-small)",
-									border: `1px solid ${host === h.key ? "var(--brand)" : "var(--line)"}`,
-									cursor: "pointer",
-								}}
-							>
-								<input
-									type="radio"
-									name="onboarding-host"
-									checked={host === h.key}
-									onChange={() => setHost(h.key)}
-									style={{ marginTop: 4 }}
-								/>
-								<span style={{ display: "grid", gap: 4 }}>
-									<span>
-										<strong>{h.name}</strong>
-										{h.badge && (
-											<span
-												className="l-badge l-badge-volunteer"
-												style={{ marginLeft: 8 }}
-											>
-												{h.badge}
-											</span>
-										)}
-									</span>
-									<span
-										className="connect-step-card__desc"
-										style={{ margin: 0 }}
-									>
-										{h.desc}
-									</span>
-								</span>
-							</label>
-						))}
-					</div>
+					<OpenclackyInstallCard />
 				</li>
 
 				<li
@@ -220,24 +85,7 @@ export default function OnboardingWizard({
 					aria-current={currentStep === 2 ? "step" : undefined}
 					style={stepStyle(2)}
 				>
-					<h2>{t("stepInstall")}</h2>
-					<div style={{ display: "grid", gap: 16, marginTop: 8 }}>
-						{PREP_HOSTS.includes(host) && <RuntimeSetupCards />}
-						{host === "openclacky" && (
-							<>
-								<OpenclackyInstallCard />
-								<OpenclackyExtensionCard />
-							</>
-						)}
-						{host === "opencode" && (
-							<>
-								<WriteConfigStepCard />
-								<ConfigureTokenStepCard />
-								<ConfigNotesStepCard />
-							</>
-						)}
-						{host === "dsh" && <DshInstallCard />}
-					</div>
+					<OpenclackyExtensionCard />
 				</li>
 
 				<li
@@ -245,47 +93,30 @@ export default function OnboardingWizard({
 					aria-current={currentStep === 3 ? "step" : undefined}
 					style={stepStyle(3)}
 				>
-					<h2>{t("stepIssue")}</h2>
-					<div style={{ marginTop: 8 }}>
-						{readOnly ? (
-							<div className="connect-step-card">
-								<p className="connect-step-card__desc">
-									{t.rich("reviewIssueHint", {
-										link: (chunks) => (
-											<Link
-												href={`/w/${slug}/settings/integrations/agents/mcp`}
-												className="connect-step-card__link"
-											>
-												{chunks}
-											</Link>
-										),
-									})}
-								</p>
-							</div>
-						) : host === "openclacky" ? (
-							<div className="connect-step-card">
-								<p className="connect-step-card__desc">{tConnect("oneClickConnectDesc")}</p>
-								<div className="connect-step-card__actions">
-									<a
-										href="http://127.0.0.1:7070"
-										target="_blank"
-										rel="noreferrer"
-										className="join-button join-button--primary"
-									>
-										{tConnect("openCgcOpenclacky")}
-									</a>
-								</div>
-							</div>
-						) : (
-							<McpTokenIssuePanel
-								onSaved={() => setCompleted(true)}
-								hostName={hostName}
-							/>
-						)}
-						{/* OpenClacky 路径：签发只到剪贴板，须回 CGC 助手会话
-						    触发扩展 /connect 才真正写入 mcp.json（P1 补回） */}
-						{host === "openclacky" && <OpenclackyAssistantHint />}
-					</div>
+					{readOnly ? (
+						<div className="connect-step-card">
+							<h2>{tConnect("step3Openclacky")}</h2>
+							<p className="connect-step-card__desc">
+								{t.rich("reviewIssueHint", {
+									link: (chunks) => (
+										<Link
+											href={`/w/${slug}/settings/integrations/agents/mcp`}
+											className="connect-step-card__link"
+										>
+											{chunks}
+										</Link>
+									),
+								})}
+							</p>
+						</div>
+					) : (
+						<>
+							<OpenclackyConnectCard slug={slug} />
+							{/* 签发只到剪贴板，须回 CGC 助手会话触发扩展 /connect
+							    才真正写入 mcp.json（P1 补回） */}
+							<OpenclackyAssistantHint />
+						</>
+					)}
 				</li>
 			</ol>
 

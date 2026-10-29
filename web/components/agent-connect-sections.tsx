@@ -3,16 +3,13 @@
 /**
  * 集成 - Agents 区接入引导内容段（单一内容源，plan 2026-08-22 first-mile-onboarding U4 / R4）。
  *
- * 原子页（openclacky / opencode 三步引导页）与首公里向导
+ * 原子页（openclacky 三步引导页）与首公里向导
  * （onboarding-wizard.tsx）共用同一批内容卡；改文案/配置只改这里，
  * 原子页与向导不得各自复制出第二处内容源。
  *
  * 每个导出 = 一张 connect-step-card：
  * - OpenClacky：安装（iframe）/ 装扩展（一条命令）/ 连接卡（一键连接为主，
- *   手动 token 备用；仅原子页用）/ 助手接入指引段（仅向导用，手动 token 备用）
- * - opencode 手动配置：获取 token 跳转卡（仅原子页用）/ 写配置 / 配 token / 注意事项
- * - DSH：插件家族安装指引卡（仅向导用；手动流，无自动连接等价物，
- *   plan 2026-09-08 DSH parity U10 / R17）
+ *   手动 token 备用）/ 助手接入指引段（仅向导用）
  *
  * 步骤编号不在文案里：卡标题均为裸文案，编号由容器经 stepNo 供给——
  * 原子页传各自的「① / 2.」前缀（保持原有序列外观），首公里向导不传
@@ -162,150 +159,5 @@ export function OpenclackyAssistantHint() {
 		<p className="connect-step-card__desc">
 			{t("assistantConnectHint")}
 		</p>
-	);
-}
-
-/* ---------------- opencode（手动配置） ---------------- */
-
-const OPCODE_CONFIG = `{
-  "mcp": {
-    "cgc-2046": {
-      "type": "remote",
-      "url": "https://api.codingirlsclub.com/mcp",
-      "oauth": false,
-      "headers": { "Authorization": "Bearer {env:CGC_TOKEN}" }
-    }
-  }
-}`;
-
-/** 获取 token（跳转 MCP 页签发；仅原子页用，向导内嵌签发面板替代） */
-export function TokenLinkStepCard({
-	slug,
-	stepNo,
-}: {
-	slug: string;
-	stepNo?: string;
-}) {
-	const t = useTranslations("agentConnect");
-	return (
-		<div className="connect-step-card">
-			<h2>{stepNo ? `${stepNo} ` : ""}{t("step1Title")}</h2>
-			<p className="connect-step-card__desc">
-				{t.rich("step1Desc", {
-					link: (chunks) => (
-						<Link
-							href={`/w/${slug}/settings/integrations/agents/mcp`}
-							className="connect-step-card__link"
-						>
-							{chunks}
-						</Link>
-					),
-				})}
-			</p>
-		</div>
-	);
-}
-
-/** 写入配置文件（opencode.json） */
-export function WriteConfigStepCard({ stepNo }: { stepNo?: string }) {
-	const t = useTranslations("agentConnect");
-	return (
-		<div className="connect-step-card">
-			<h2>{stepNo ? `${stepNo} ` : ""}{t("step2Title", { file: "opencode.json" })}</h2>
-			<p className="connect-step-card__desc">
-				{t.rich("step2DescPlain", {
-					code: (chunks) => <code>{chunks}</code>,
-				})}
-			</p>
-			<pre
-				style={{
-					overflowX: "auto",
-					padding: "12px 14px",
-					borderRadius: "var(--radius-small)",
-					background: "var(--soft)",
-					margin: 0,
-					fontSize: 12.5,
-					lineHeight: "18px",
-				}}
-			>
-				<code>{OPCODE_CONFIG}</code>
-			</pre>
-			<p className="connect-step-card__desc">
-				{t.rich("urlNote", {
-					code: (chunks) => <code>{chunks}</code>,
-					code3: (chunks) => <code>{chunks}</code>,
-					code4: (chunks) => <code>{chunks}</code>,
-				})}
-			</p>
-		</div>
-	);
-}
-
-/** 配置 token（环境变量插值说明） */
-export function ConfigureTokenStepCard({ stepNo }: { stepNo?: string }) {
-	const t = useTranslations("agentConnect");
-	return (
-		<div className="connect-step-card">
-			<h2>{stepNo ? `${stepNo} ` : ""}{t("step3Title")}</h2>
-			<p className="connect-step-card__desc">
-				opencode{" "}
-				{t.rich("step3DescEnv", {
-					code: (chunks) => <code>{chunks}</code>,
-					placeholder: "{env:CGC_TOKEN}",
-				})}
-			</p>
-		</div>
-	);
-}
-
-/** 注意事项（合并条目、token 绑用户不绑工作区） */
-export function ConfigNotesStepCard() {
-	const t = useTranslations("agentConnect");
-	return (
-		<div className="connect-step-card">
-			<h2>{t("notesTitle")}</h2>
-			<p className="connect-step-card__desc">
-				{t.rich("notesDesc", {
-					code: (chunks) => <code>{chunks}</code>,
-				})}
-			</p>
-		</div>
-	);
-}
-
-/* ---------------- DSH（插件家族手动接入：装插件 → 面板粘贴 token） ---------------- */
-
-/** 安装 DSH 插件家族指引（plan 2026-09-08 DSH parity U10 / R17）。
-    DSH 无自动连接等价物（无 connector 扩展可配 MCP），唯一流程 =
-    `dsh plugin --profile web add dsh-cgc-all` 装插件 → 向导 ③ 签发 token →
-    在 DSH 面板表单粘贴。文案含包名完整性提示（RSK1：防 npm 抢注仿冒）与
-    粘贴后清空剪贴板建议（RSK7：token 生命周期暴露面低成本加固） */
-export function DshInstallCard({ stepNo }: { stepNo?: string }) {
-	const t = useTranslations("agentConnect");
-	return (
-		<div className="connect-step-card">
-			<h2>{stepNo ? `${stepNo} ` : ""}{t("step1Dsh")}</h2>
-			<p className="connect-step-card__desc">
-				{t.rich("dshInstallDesc", {
-					code: (chunks) => <code>{chunks}</code>,
-				})}
-			</p>
-			<pre
-				style={{
-					overflowX: "auto",
-					padding: "12px 14px",
-					borderRadius: "var(--radius-small)",
-					background: "var(--soft)",
-					margin: 0,
-					fontSize: 12.5,
-					lineHeight: "18px",
-				}}
-			>
-				<code>dsh plugin --profile web add dsh-cgc-all</code>
-			</pre>
-			<p className="connect-step-card__desc">{t("dshManualFlowDesc")}</p>
-			<p className="connect-step-card__desc">{t("dshIntegrityHint")}</p>
-			<p className="connect-step-card__desc">{t("dshClipboardHint")}</p>
-		</div>
 	);
 }
