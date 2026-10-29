@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 安装包重命名：cgc2046_<version>_<commit>_<arch>.<ext>（story 1.7/1.13 同源命名）。
+# 安装包重命名：cgc2046_<version>_<commit>_<platform>-<arch>.<ext>（story 1.7/1.13 同源命名）。
 # 版本取 Cargo 包版本（与 build.rs 的 CGC_BUILD_VERSION 同源），commit 取 git short SHA
 # （CI 可用 CGC_BUILD_COMMIT 覆盖，保持与关于页一致）。
 set -euo pipefail
@@ -27,7 +27,13 @@ for f in dist/*; do
     *) continue ;;
   esac
   ext="${base##*.}"
-  target="dist/cgc2046_${version}_${commit}_${arch}.${ext}"
+  # 平台段让用户只看文件名就知道该下哪个包（.msi/.deb/.dmg 不是所有人都认识）。
+  case "$ext" in
+    dmg) platform=macos ;;
+    msi|exe) platform=windows ;;
+    deb|AppImage) platform=linux ;;
+  esac
+  target="dist/cgc2046_${version}_${commit}_${platform}-${arch}.${ext}"
   if [ "$f" != "$target" ]; then
     mv -f "$f" "$target"
     echo "renamed: $base -> $(basename "$target")"
@@ -38,5 +44,5 @@ done
 if [ "$renamed" -eq 0 ]; then
   echo "no artifact to rename (dist empty or already named)"
 else
-  echo "artifact name: cgc2046_${version}_${commit}_${arch}.<ext>"
+  echo "artifact name: cgc2046_${version}_${commit}_<platform>-${arch}.<ext>"
 fi

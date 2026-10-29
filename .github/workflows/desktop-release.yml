@@ -196,20 +196,46 @@ jobs:
           ls -lh dist
           cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
       - name: 生成发布说明
-        env:
-          TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
-          cat > "$RUNNER_TEMP/notes.md" <<'MD'
+          notes="$RUNNER_TEMP/notes.md"
+          {
+            cat <<'MD'
           ## 程序媛汇 · 桌面客户端（内测）
 
           未签名、未公证的构建，仅供内部测试（签名与公证归 epic-6）。
+
+          ### 下载哪个包
+
+          | 平台 | 下载文件 | 说明 |
+          |---|---|---|
+          MD
+            for f in dist/*.dmg; do
+              [ -e "$f" ] || continue
+              printf '| macOS（Apple Silicon / Intel 通用） | `%s` | 拖进「应用程序」 |\n' "$(basename "$f")"
+            done
+            for f in dist/*.msi; do
+              [ -e "$f" ] || continue
+              printf '| **Windows x64** | **`%s`** | **双击安装** |\n' "$(basename "$f")"
+            done
+            for f in dist/*.deb; do
+              [ -e "$f" ] || continue
+              printf '| Linux（Debian / Ubuntu） | `%s` | 依赖 `libsecret-tools` |\n' "$(basename "$f")"
+            done
+            for f in dist/*.AppImage; do
+              [ -e "$f" ] || continue
+              printf '| Linux（通用） | `%s` | 无 FUSE 环境用 `--appimage-extract-and-run` |\n' "$(basename "$f")"
+            done
+            printf '| 校验 | `SHA256SUMS` | 下载后 `sha256sum -c SHA256SUMS` |\n'
+            cat <<'MD'
+
+          > 列表末尾的 `Source code (zip)` / `Source code (tar.gz)` 是 GitHub 自动附带的源码归档，不是安装包，不用下载。
 
           ### 安装
           - **macOS（universal，Apple Silicon 与 Intel 通用）**：拖进「应用程序」。
             用浏览器直接下载会被 Gatekeeper 拦（「已损坏，无法打开」），先执行
             `xattr -dr com.apple.quarantine "/Applications/程序媛汇.app"`；
             或用 `curl -LO` 下载（不会带 quarantine）。
-          - **Windows**：SmartScreen 提示时选「更多信息 → 仍要运行」。
+          - **Windows x64**：双击 `.msi` 安装；SmartScreen 提示时选「更多信息 → 仍要运行」。
           - **Linux**：deb 依赖 `libsecret-tools`（登录凭证走 secret-tool）；
             AppImage 在无 FUSE 环境用 `--appimage-extract-and-run` 启动。
 
@@ -218,9 +244,10 @@ jobs:
 
           ### 说明
           内测包把生产端点烘进了二进制（`https://api.codingirlsclub.com/api/graphql`）。
-          安装包命名 `cgc2046_<version>_<commit>_<arch>.<ext>`。
+          安装包命名 `cgc2046_<version>_<commit>_<platform>-<arch>.<ext>`。
           MD
-          cat "$RUNNER_TEMP/notes.md"
+          } > "$notes"
+          cat "$notes"
       - name: 发布
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

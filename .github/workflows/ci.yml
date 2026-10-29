@@ -472,7 +472,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
-      # universal 时产物命名带 _universal、verify 断言 lipo 双架构；
+      # universal 时产物命名带 _macos-universal、verify 断言 lipo 双架构；
       # 其它平台留空 → name-artifacts.sh 回落到 uname -m。
       CGC_ARTIFACT_ARCH: ${{ matrix.artifact_arch }}
     defaults:
