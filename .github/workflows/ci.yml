@@ -99,6 +99,8 @@ jobs:
       pull-requests: read
     outputs:
       docs_only: ${{ steps.detect.outputs.docs_only }}
+      # 本次改动是否可能影响桌面端：决定跑不跑 desktop-build（三平台打包是 CI 大头）。
+      desktop_changed: ${{ steps.detect.outputs.desktop_changed }}
     steps:
       - uses: actions/checkout@v7
       - run: bash scripts/ci/docs-only.test.sh
@@ -112,6 +114,9 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          # 桌面端默认「有改动」：拿不到完整文件列表（API 失败/无基线/被截断）时
+          # 宁可多跑一次三平台构建，也不能漏掉真正的桌面改动。
+          echo "desktop_changed=true" >> "$GITHUB_OUTPUT"
           # rename 场景 filename 只有新路径,previous_filename 补旧路径
           case "$EVENT" in
             pull_request)
@@ -127,6 +132,10 @@ jobs:
             *) exit 0 ;;
           esac
           [ "$(wc -l <<<"$files")" -lt "$limit" ] || exit 0
+          # 桌面端只关心自己的路径 + 影响它的 CI 配置；其余 PR 跳过 desktop-build。
+          if ! printf '%s\n' "$files" | grep -qE '^(desktop/|scripts/ci/|\.github/workflows/(ci|desktop-release)\.yml$)'; then
+            echo "desktop_changed=false" >> "$GITHUB_OUTPUT"
+          fi
           result=$(printf '%s\n' "$files" | bash scripts/ci/docs-only.sh) || exit 0
           echo "$result" >> "$GITHUB_OUTPUT"
           echo "纯文档判定:$result" >> "$GITHUB_STEP_SUMMARY"
@@ -422,6 +431,7 @@ jobs:
       !cancelled() &&
       needs.gate.outputs.run == 'true' &&
       needs.changes.outputs.docs_only != 'true' &&
+      needs.changes.outputs.desktop_changed == 'true' &&
       (github.event_name == 'push' ||
        github.head_ref != 'develop' ||
        github.event.pull_request.head.repo.full_name != github.repository)
@@ -484,15 +494,18 @@ jobs:
         run: cargo test --workspace
       - name: 缓存 cargo-packager
         id: packager-cache
+        # 打包只在合并后（push）跑：PR 阶段只做 lint + 测试，把 23 分钟的
+        # universal 打包从每个 PR 里去掉，打包回归由 develop push / tag 覆盖。
+        if: github.event_name == 'push'
         uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/cargo-packager*
           key: cargo-packager-0.11.8-${{ runner.os }}-${{ runner.arch }}
       - name: 安装 cargo-packager
-        if: steps.packager-cache.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && steps.packager-cache.outputs.cache-hit != 'true'
         run: cargo install cargo-packager --locked --version =0.11.8
       - name: 打包（Windows / Linux）
-        if: runner.os != 'macOS'
+        if: github.event_name == 'push' && runner.os != 'macOS'
         env:
           # AppImage 插件在无 FUSE 的运行器上用 extract-and-run 兜底
           APPIMAGE_EXTRACT_AND_RUN: "1"
@@ -505,7 +518,7 @@ jobs:
       # cargo-packager 不做 lipo：两个架构各编一次，合并成 universal 再打包，
       # 产物路径正好是 packager 对 universal-apple-darwin 期望的 binaries_dir。
       - name: 打包（macOS universal）
-        if: runner.os == 'macOS'
+        if: github.event_name == 'push' && runner.os == 'macOS'
         env:
           CGC_DEFAULT_API_URL: https://api.codingirlsclub.com/api/graphql
           CGC_DEFAULT_ENV: prod
@@ -520,24 +533,26 @@ jobs:
           lipo -archs target/universal-apple-darwin/release/cgc-desktop-app
           cargo packager -p cgc-desktop-app --release --target universal-apple-darwin -f dmg
       - name: 重命名产物（版本+commit，Unix）
-        if: runner.os != 'Windows'
+        if: github.event_name == 'push' && runner.os != 'Windows'
         run: bash scripts/name-artifacts.sh
       - name: 重命名产物（版本+commit，Windows）
-        if: runner.os == 'Windows'
+        if: github.event_name == 'push' && runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/name-artifacts.ps1
       - name: 校验产物（Unix）
-        if: runner.os != 'Windows'
+        if: github.event_name == 'push' && runner.os != 'Windows'
         run: bash scripts/verify-package.sh
       - name: 校验产物（Windows）
-        if: runner.os == 'Windows'
+        if: github.event_name == 'push' && runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/verify-package.ps1
       - name: 计算 short commit
         id: meta
+        if: github.event_name == 'push'
         shell: bash
         run: echo "short=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push'
         with:
           name: cgc-desktop-${{ matrix.os }}-${{ steps.meta.outputs.short }}
           path: desktop/dist/*
@@ -564,7 +579,12 @@ jobs:
       - name: 汇总三平台结果
         run: |
           echo "desktop-build: ${{ needs.desktop-build.result }}"
-          test "${{ needs.desktop-build.result }}" = "success"
+          # 改动不涉及桌面端时 desktop-build 整体 skipped：这是预期，算通过。
+          # 其余情况（success 以外）一律红。
+          case "${{ needs.desktop-build.result }}" in
+            success|skipped) echo "desktop ok" ;;
+            *) echo "FAIL: desktop-build ${{ needs.desktop-build.result }}" >&2; exit 1 ;;
+          esac
 
   # deps 基础镜像前移：develop push 时 TCR 缺当前 deps 层输入（mix.lock +
   # Dockerfile.deps + config 编译期配置，见下方 DEPS_HASH）对应的 amd64
