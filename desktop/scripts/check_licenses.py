@@ -11,6 +11,7 @@ SPDX OR/AND 语义：OR 任一允许分支即放行，AND 需全部允许。缺�
 """
 
 import json
+import pathlib
 import re
 import subprocess
 import sys
@@ -217,6 +218,9 @@ def main():
         output = args[args.index("--sbom") + 1]
     version = body["packages"][0].get("version", "0.0.0")
     bom = sbom(packages, version)
+    # 门禁可能在任何 cargo 构建之前跑（例如发布流水线只做打包），此时 target/ 还不存在：
+    # 不建目录会 FileNotFoundError 把门禁本身判红，掩盖真正的许可结论。
+    pathlib.Path(output).parent.mkdir(parents=True, exist_ok=True)
     with open(output, "w", encoding="utf-8") as handle:
         json.dump(bom, handle, indent=2, sort_keys=True)
         handle.write("\n")
