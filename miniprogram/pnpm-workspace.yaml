@@ -96,6 +96,18 @@ overrides:
   "adm-zip@<0.6.1": 0.6.1
   "serialize-javascript@<7.0.3": 7.0.3
   "vite@<8.2.4": 8.2.4
+  # 2026-10-29：pnpm audit 全量剩余 high 收敛（不在 Dependabot 清单内，
+  # 均为开发/构建期工具链）：
+  # - jpeg-js <0.4.4（miniprogram-automator>jimp 链）
+  # - http-cache-semantics <4.1.1（@tarojs/cli>download-git-repo>download>got 链；
+  #   收敛到 4.3.0，不走 4.1.1 降级）
+  # - brace-expansion 2.x/4.x（glob/minimatch 链；1.x 已有既有 override）
+  # - joi <17.13.7（@tarojs/cli>@tarojs/service）
+  "jpeg-js@<0.4.4": 0.4.4
+  "http-cache-semantics@<4.1.1": 4.3.0
+  "brace-expansion@>=2.0.0 <2.1.6": 2.1.7
+  "brace-expansion@>=4.0.0 <5.0.11": 5.0.12
+  "joi@<17.13.7": 17.13.7
 # pnpm 设置真源。pnpm 11 起不再读 package.json 的 "pnpm" 字段（本地 11 实证
 # 连 onlyBuiltDependencies 都被静默忽略）；pnpm 10（CI）与 11 都读本文件，
 # 本地/CI 行为一致。
@@ -113,6 +125,11 @@ auditConfig:
     # @tarojs/cli>download-git-repo>git-clone，仅 `taro create` 下载模板使用，
     # 构建/CI/运行不经过；上游无新版，Dependabot 侧 dismiss 并跟踪替换。
     - GHSA-8jmw-wjr8-2x66
+    # 2026-10-29：html-minifier 4.0.0 的 high（GHSA-pfq8-rq6v-vf5m，
+    # <=4.0.0 全版本受影响、上游无修复版）。路径
+    # @tarojs/webpack5-runner>html-minifier，仅构建期 HTML 压缩使用，
+    # 输入为本项目自身模板、无用户可控内容；豁免并跟踪上游。
+    - GHSA-pfq8-rq6v-vf5m
     # 2026-10-17：两条**无修复版**的构建期传递依赖公告（上游尚无补丁，
     # overrides 无处收敛，只能显式豁免并写明可利用面）。
     # - GHSA-86w9-cpqp-85rv（node-forge RSA PKCS#1 v1.5 签名校验接受多余
