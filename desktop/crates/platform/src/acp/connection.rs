@@ -257,7 +257,8 @@ impl std::error::Error for HostError {}
 
 pub struct AcpHost {
     command_tx: UnboundedSender<HostCommand>,
-    events: Receiver<HostEvent>,
+    /// `Option` 只为 `shutdown` 能在 join 前主动丢弃接收端（见 `shutdown`）。
+    events: Option<Receiver<HostEvent>>,
     pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -313,7 +314,7 @@ impl AcpHost {
             .map_err(|error| HostError::Thread(error.to_string()))?;
         Ok(Self {
             command_tx,
-            events,
+            events: Some(events),
             pending_permissions,
             thread: Some(thread),
         })
@@ -383,15 +384,19 @@ impl AcpHost {
     }
 
     pub fn try_recv(&self) -> Option<HostEvent> {
-        self.events.try_recv().ok()
+        self.events.as_ref()?.try_recv().ok()
     }
 
     pub fn recv_timeout(&self, timeout: Duration) -> Option<HostEvent> {
-        self.events.recv_timeout(timeout).ok()
+        self.events.as_ref()?.recv_timeout(timeout).ok()
     }
 
     pub fn shutdown(mut self) {
         let _ = self.command_tx.unbounded_send(HostCommand::Shutdown);
+        // 先丢弃事件接收端：消费方若已停止读事件（窗口关闭、测试收尾），host 线程
+        // 会阻塞在 `events.send` 上，`join()` 就永远等不到它退出。丢掉接收端后
+        // 那次 send 立刻返回错误，线程走完收尾自然结束。
+        self.events.take();
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }

@@ -250,6 +250,38 @@ CGC_ARTIFACT_ARCH=universal \
 - 未签名包的 Gatekeeper 绕过与下载方式见发布说明（建议 `curl -L -o` 下载后拖入 `/Applications`，
   curl 不写 quarantine 属性；浏览器下载则需 `xattr -dr com.apple.quarantine`）。
 
+## 发布节奏（内测）
+
+桌面客户端的内测版是 **tag 驱动**的，不走 `develop → main` 的 Web/后端发布流程：
+
+1. 确认 develop 的 CI 全绿（`desktop` required check 覆盖三平台构建与测试）。
+2. 打 tag 并推送。发布 job 会断言 **tag 与包版本一致**、**tag 提交已在 develop/main 上**：
+
+   ```bash
+   git fetch origin develop
+   git tag -a desktop-v0.1.0 origin/develop -m "程序媛汇 桌面客户端 0.1.0 内测（未签名）"
+   git push origin desktop-v0.1.0
+   ```
+
+3. `Desktop Release` 自动执行：三平台构建 → 产物校验（universal 包用 `lipo -archs` 断言双架构）
+   → 生成 `SHA256SUMS` → 建 **prerelease**（未签名，只作内测通道）。
+4. 抽查产物（下载后挂载校验，别只看日志）：
+
+   ```bash
+   curl -LO <release>/cgc2046_<ver>_<commit>_universal.dmg
+   shasum -a 256 -c SHA256SUMS
+   hdiutil attach -nobrowse -readonly cgc2046_<ver>_<commit>_universal.dmg
+   lipo -archs /Volumes/程序媛汇/程序媛汇.app/Contents/MacOS/*
+   ```
+
+5. 内测同学从 Release 页下载；macOS 浏览器下载需 `xattr -dr com.apple.quarantine`（`curl` 下载不带 quarantine）。
+
+修发布问题时：先合入 develop，再 `git tag -f` + `git push -f origin <tag>` 重跑——
+tag 指向旧提交会带着旧 bug 构建。撤销一次发布：`gh release delete <tag> --yes --cleanup-tag`。
+
+CI 分工：PR 阶段 desktop 只跑 lint + 测试（快）；**打包在合并后（push）和 tag 时**跑，
+所以「打包配置坏了」最晚会在 develop push 或下一次 tag 时暴露。
+
 ## 设计与文案基座（stories 1.2–1.4）
 
 - **主题 token**：`crates/app/src/theme.rs` 把 `web/app/globals.css` 的色板 / 圆角 / 字体映射成常量（Dark 来自 `:root`，Light 来自 `.light`），并把这些值写进 gpui-kit `Theme`（组件库也用同一套色板）；间距用 web 实际使用的 Tailwind 默认 4px 刻度（`globals.css` 没有导出 spacing token）。偏好 `Light | Dark | System`，系统外观变化由 `observe_window_appearance` 触发重刷；启动可用 `CGC_THEME=light|dark|system` 指定（QA/调试，默认 `system`）。

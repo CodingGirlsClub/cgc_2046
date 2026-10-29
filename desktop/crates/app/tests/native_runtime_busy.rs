@@ -170,14 +170,21 @@ fn scenario() {
         assert!(std::time::Instant::now() < deadline, "turn never finished");
         std::thread::sleep(Duration::from_millis(20));
     }
+    eprintln!("[busy] 10 idle reached");
     let finished = block_on(runtime.inspect()).unwrap();
+    eprintln!("[busy] 11 inspected finished");
     assert!(
         matches!(&finished.thread.entries[..], [Entry::User { text, .. }, Entry::Assistant { .. }] if text == "慢一点回答"),
         "完成后的线程应保留本轮 user + assistant：{:?}",
         finished.thread.entries.len()
     );
     assert!(block_on(runtime.new_thread()).is_ok(), "空闲后允许新建会话");
+    eprintln!("[busy] 12 new thread ok");
 
+    // 测试从 Ready 之后就不再消费 host 事件；shutdown 内部会先丢弃事件接收端，
+    // 避免 host 线程阻塞在 send 上导致 join 挂死（2026-10-29 的 CI flake）。
+    eprintln!("[busy] 13 shutdown");
     host.shutdown();
+    eprintln!("[busy] 14 shutdown done");
     std::fs::remove_dir_all(workspace).ok();
 }
