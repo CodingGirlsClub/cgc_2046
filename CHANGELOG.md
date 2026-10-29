@@ -23,6 +23,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 - [本机 Host] 按 ACP initialize 的能力协商会话恢复与 MCP 下发：从握手读取协议版本、`loadSession`、`session/list` 与 HTTP MCP 能力（字段缺失按支持处理，兼容旧适配器）；协议版本不一致的适配器不再被当成可用，明确不支持 HTTP MCP 或无法核实会话归属时给出可诊断的降级（清指针、从新对话开始，`chat.sessions` 回空列表）。
 
 ### Changed
+- [OMP 接入 / Web] 下线 OMP 插件接入线：删除 `omp-plugin/`（`cgc-2046` 接入包与 `cgc-play` 游戏）、`.omp-plugin/marketplace.json` 与同步分发仓的 workflow；Web 工作台设置去掉 OMP 接入页，首公里向导不再把 OMP 列为可选宿主。终端 OMP 不再作为接入形态维护，本机 agent 统一走桌面客户端（native / external）。外部分发仓 `CodingGirlsClub/cgc-omp-plugins` 归档。包内质检方法 `cgc-quality-eval` 未丢弃，已迁入 OpenClacky 扩展（`ext.yml` v0.1.8，挂载到 `cgc-tutor`），措辞改为宿主无关。
 - [Web] 缴费台账的筛选口径统一：统计卡跟随活动/课程筛选（选中即换口径并标注统计范围，不再出现「切了筛选数字不动」）；活动下拉按活动/课程分组；工作区页与活动/课程详情面板默认只显示「非终态 + 已退款 + 已没收」，并新增「全部状态」显式查看已取消/已过期订单。
 - [本机 Host / Web] 学习搭子**打开就能选模型与思考/推理强度**：没有会话指针时先在 `chat.attach` 建一条空会话（`session/new`，指针不落盘）再取设置，因此不用先发一句话也能选；改动只影响首次打开的空态。
 

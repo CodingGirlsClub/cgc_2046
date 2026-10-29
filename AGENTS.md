@@ -8,7 +8,7 @@
 
 ## 子目录规则
 
-改 `backend/`、`web/`、`miniprogram/`、`omp-plugin/`、`openclacky-ext/` 下的文件前，先读该目录的 `AGENTS.md`——Codex 只自动加载仓库根到当前工作目录路径上的 AGENTS.md，不会读更深的子目录。
+改 `backend/`、`web/`、`miniprogram/`、`openclacky-ext/` 下的文件前，先读该目录的 `AGENTS.md`——Codex 只自动加载仓库根到当前工作目录路径上的 AGENTS.md，不会读更深的子目录。
 
 ## LoopX 工作流（Codex CLI）
 

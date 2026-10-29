@@ -2,6 +2,12 @@
 
 本扩展面向用户的更新记录。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本号见 `ext.yml`。
 
+## [0.1.8] - 2026-10-29
+
+### 新增
+
+- **cgc-quality-eval skill**：教研质检报告的判据化评审，随 `cgc-tutor` 挂载。三层判据（L1 确定性 grep 终判 / L2 两段式 triage 只产嫌疑清单 / L3 教材原文配对终判），score 与 summary 是 findings 计数的确定性聚合，禁止模型自由发挥。`submit_prep_quality_report` 前置，`cgc-tutor` 的系统提示新增该约束。原为 OMP 插件包内的 skill，随 OMP 接入线下线迁入本扩展；宿主 API 措辞已改为宿主无关（无批量判据工具时由 agent 模型逐条判定，并标注置信降级）。
+
 ## [0.1.7] - 2026-10-14
 
 ### 变更

@@ -4,11 +4,11 @@
  * 首公里接入向导（plan 2026-08-22 first-mile-onboarding U4，R4–R7）。
  *
  * 结构：开场（欢迎 + 为什么接入）+ 纵向 stepper 三步，无硬门、进度不落库：
- * ① 选宿主：OpenClacky（默认推荐）/ OMP / opencode / DSH 单选
+ * ① 选宿主：OpenClacky（默认推荐）/ opencode / DSH 单选
  *    （DSH 自 plan 2026-09-08 DSH parity U10 / R17 起正式开放，手动流：
  *    装插件家族 → ③ 签发 token → 面板粘贴，无自动连接等价物）；
  * ② 安装与配置：内容按宿主映射共享内容卡（@/components/agent-connect-sections，
- *    与原子页同一内容源，per R4）；OMP / opencode / DSH 三宿主在宿主卡前
+ *    与原子页同一内容源，per R4）；opencode / DSH 两宿主在宿主卡前
  *    追加环境准备卡组（@/components/runtime-setup-sections：终端 + Herdr，
  *    PREP_HOSTS 一处可改——OpenClacky 桌面应用自带环境，不渲染）；
  * ③ 生成连接 token：内嵌 McpTokenIssuePanel（与 mcp 页同一签出面），
@@ -19,7 +19,7 @@
  *
  * ②③ 对所有宿主始终渲染且可见（不卸载、不 hidden）：③ 签发面的一次性明文
  * 与在途签发请求是组件内 state，卸载/隐藏语义曾让服务端已签发 token 的明文
- * 面临丢失风险（P2）；DSH 启用后四宿主统一此行为。
+ * 面临丢失风险（P2）；DSH 启用后所有宿主统一此行为。
  *
  * readOnly（管理态「重新查看引导」回看）：stepper 内容在，但无签发面——
  * ③ 只给 MCP 页链接（签发归 mcp tab）。
@@ -48,10 +48,10 @@ import {
 import { RuntimeSetupCards } from "@/components/runtime-setup-sections";
 import McpTokenIssuePanel from "@/components/mcp-token-issue-panel";
 
-type WizardHost = "openclacky" | "omp" | "opencode" | "dsh";
+type WizardHost = "openclacky" | "opencode" | "dsh";
 
 /** 需要环境准备（终端 + Herdr）的宿主；OpenClacky 桌面应用自带环境，不在此列 */
-const PREP_HOSTS: readonly WizardHost[] = ["omp", "opencode", "dsh"];
+const PREP_HOSTS: readonly WizardHost[] = ["opencode", "dsh"];
 
 export default function OnboardingWizard({
 	slug,
@@ -128,12 +128,7 @@ export default function OnboardingWizard({
 			badge: t("hostRecommended"),
 			desc: t("hostOpenclackyDesc"),
 		},
-		{ key: "omp", name: tConnect("titleOmp"), desc: t("hostOmpDesc") },
-		{
-			key: "opencode",
-			name: tConnect("titleOpencode"),
-			desc: t("hostOpencodeDesc"),
-		},
+		{ key: "opencode", name: tConnect("titleOpencode"), desc: t("hostOpencodeDesc") },
 		{
 			key: "dsh",
 			name: t("hostDsh"),
@@ -234,17 +229,10 @@ export default function OnboardingWizard({
 								<OpenclackyExtensionCard />
 							</>
 						)}
-						{host === "omp" && (
-							<>
-								<WriteConfigStepCard variant="omp" />
-								<ConfigureTokenStepCard variant="omp" />
-								<ConfigNotesStepCard />
-							</>
-						)}
 						{host === "opencode" && (
 							<>
-								<WriteConfigStepCard variant="opencode" />
-								<ConfigureTokenStepCard variant="opencode" />
+								<WriteConfigStepCard />
+								<ConfigureTokenStepCard />
 								<ConfigNotesStepCard />
 							</>
 						)}

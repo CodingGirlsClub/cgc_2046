@@ -3,14 +3,14 @@
 /**
  * 集成 - Agents 区接入引导内容段（单一内容源，plan 2026-08-22 first-mile-onboarding U4 / R4）。
  *
- * 原子页（openclacky / omp / opencode 三步引导页）与首公里向导
+ * 原子页（openclacky / opencode 三步引导页）与首公里向导
  * （onboarding-wizard.tsx）共用同一批内容卡；改文案/配置只改这里，
  * 原子页与向导不得各自复制出第二处内容源。
  *
  * 每个导出 = 一张 connect-step-card：
  * - OpenClacky：安装（iframe）/ 装扩展（一条命令）/ 连接卡（一键连接为主，
  *   手动 token 备用；仅原子页用）/ 助手接入指引段（仅向导用，手动 token 备用）
- * - OMP / opencode 手动配置：获取 token 跳转卡（仅原子页用）/ 写配置 / 配 token / 注意事项
+ * - opencode 手动配置：获取 token 跳转卡（仅原子页用）/ 写配置 / 配 token / 注意事项
  * - DSH：插件家族安装指引卡（仅向导用；手动流，无自动连接等价物，
  *   plan 2026-09-08 DSH parity U10 / R17）
  *
@@ -165,17 +165,7 @@ export function OpenclackyAssistantHint() {
 	);
 }
 
-/* ---------------- OMP / opencode（手动配置） ---------------- */
-
-const OMP_CONFIG = `{
-  "mcpServers": {
-    "cgc-2046": {
-      "type": "http",
-      "url": "https://api.codingirlsclub.com/mcp",
-      "headers": { "Authorization": "Bearer \${CGC_TOKEN}" }
-    }
-  }
-}`;
+/* ---------------- opencode（手动配置） ---------------- */
 
 const OPCODE_CONFIG = `{
   "mcp": {
@@ -187,9 +177,6 @@ const OPCODE_CONFIG = `{
     }
   }
 }`;
-
-/** 手动配置宿主（OMP / opencode）变体标识 */
-export type ManualConfigVariant = "omp" | "opencode";
 
 /** 获取 token（跳转 MCP 页签发；仅原子页用，向导内嵌签发面板替代） */
 export function TokenLinkStepCard({
@@ -219,28 +206,16 @@ export function TokenLinkStepCard({
 	);
 }
 
-/** 写入配置文件（omp → .mcp.json，opencode → opencode.json） */
-export function WriteConfigStepCard({
-	variant,
-	stepNo,
-}: {
-	variant: ManualConfigVariant;
-	stepNo?: string;
-}) {
+/** 写入配置文件（opencode.json） */
+export function WriteConfigStepCard({ stepNo }: { stepNo?: string }) {
 	const t = useTranslations("agentConnect");
-	const isOmp = variant === "omp";
 	return (
 		<div className="connect-step-card">
-			<h2>{stepNo ? `${stepNo} ` : ""}{t("step2Title", { file: isOmp ? ".mcp.json" : "opencode.json" })}</h2>
+			<h2>{stepNo ? `${stepNo} ` : ""}{t("step2Title", { file: "opencode.json" })}</h2>
 			<p className="connect-step-card__desc">
-				{isOmp
-					? t.rich("step2DescRoot", {
-							code: (chunks) => <code>{chunks}</code>,
-							code2: (chunks) => <code>{chunks}</code>,
-						})
-					: t.rich("step2DescPlain", {
-							code: (chunks) => <code>{chunks}</code>,
-						})}
+				{t.rich("step2DescPlain", {
+					code: (chunks) => <code>{chunks}</code>,
+				})}
 			</p>
 			<pre
 				style={{
@@ -253,7 +228,7 @@ export function WriteConfigStepCard({
 					lineHeight: "18px",
 				}}
 			>
-				<code>{isOmp ? OMP_CONFIG : OPCODE_CONFIG}</code>
+				<code>{OPCODE_CONFIG}</code>
 			</pre>
 			<p className="connect-step-card__desc">
 				{t.rich("urlNote", {
@@ -266,24 +241,17 @@ export function WriteConfigStepCard({
 	);
 }
 
-/** 配置 token（环境变量插值说明，两宿主占位符不同） */
-export function ConfigureTokenStepCard({
-	variant,
-	stepNo,
-}: {
-	variant: ManualConfigVariant;
-	stepNo?: string;
-}) {
+/** 配置 token（环境变量插值说明） */
+export function ConfigureTokenStepCard({ stepNo }: { stepNo?: string }) {
 	const t = useTranslations("agentConnect");
-	const isOmp = variant === "omp";
 	return (
 		<div className="connect-step-card">
 			<h2>{stepNo ? `${stepNo} ` : ""}{t("step3Title")}</h2>
 			<p className="connect-step-card__desc">
-				{isOmp ? "omp " : "opencode "}
+				opencode{" "}
 				{t.rich("step3DescEnv", {
 					code: (chunks) => <code>{chunks}</code>,
-					placeholder: isOmp ? "${CGC_TOKEN}" : "{env:CGC_TOKEN}",
+					placeholder: "{env:CGC_TOKEN}",
 				})}
 			</p>
 		</div>

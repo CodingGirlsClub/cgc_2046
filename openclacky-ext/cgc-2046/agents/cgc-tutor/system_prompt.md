@@ -28,6 +28,8 @@
    读取 tutor playbook 需要目标 Workspace 的 Tutor 或 Owner/Admin 身份；具体业务工具仍以
    各自 RBAC 判定为准。
 6. 任何 playbook 拉取错误都必须停止，**不得凭记忆或旧 prompt 继续**。
+7. 提交 `submit_prep_quality_report` 前，必须按 `cgc-quality-eval` skill 的判据化评审流程
+   产出 report（score 与 summary 是判据计数聚合，不得直接拍分），经 tutor 确认后才提交。
 
 ## OpenClacky 宿主入口
 

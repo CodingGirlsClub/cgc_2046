@@ -8,7 +8,7 @@
  * - 无 active token（未接入成员，含全撤销/过期的回归成员）→ 向导态
  *   （OnboardingWizard：开场 + 三步 stepper + 内嵌签发，R4–R6）；
  * - 有 active token（已接入成员）→ 管理态：IntegrationsAgentsTabs 现状内容 +
- *   四子页入口卡 +「已接入 ✓ · 重新查看引导」（只读回看，无签发面，R7）；
+ *   三子页入口卡 +「已接入 ✓ · 重新查看引导」（只读回看，无签发面，R7）；
  * - useOnboardingState 消费契约（KTD5）：先判 loading/error——
  *   loading → 骨架占位；error → 回退管理态外观 + 内联 role="alert" 与重试
  *   （plan Implementation Constraints：错误一律内联 alert，不静默吞）。
@@ -151,11 +151,6 @@ export default function AgentsIntegrationsPage() {
 						href={`/w/${slug}/settings/integrations/agents/opencode`}
 						title={tConnect("titleOpencode")}
 						desc={tConnect("subtitleOpencode")}
-					/>
-					<EntryCard
-						href={`/w/${slug}/settings/integrations/agents/omp`}
-						title={tConnect("titleOmp")}
-						desc={tConnect("subtitleOmp")}
 					/>
 				</div>
 			</>

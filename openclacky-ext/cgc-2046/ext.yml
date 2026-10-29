@@ -2,7 +2,7 @@
 # id 必须与目录名一致（openclacky ext pack 强制校验）
 id: cgc-2046
 name: CGC-2046
-version: 0.1.7
+version: 0.1.8
 origin: self
 # 与 repo 根 LICENSE 一致（GNU Affero General Public License v3）
 license: AGPL-3.0-only
@@ -96,6 +96,7 @@ contributes:
     - id: cgc-tutor
       title: "CGC 教研助手"
       prompt: agents/cgc-tutor/system_prompt.md
+      skills: [cgc-quality-eval]
     - id: cgc-assistant
       prompt: agents/cgc-assistant/system_prompt.md
       title: "CGC-2046 助手"
@@ -107,6 +108,8 @@ contributes:
     # 公开市场分发仍保持明文（默认随 origin=marketplace 加密），连接引导须对用户可见
     - id: cgc2046-onboarding
       protected: false
+    # 教研方法资产，不需对终端用户可见 → 走默认加密
+    - id: cgc-quality-eval
   hooks:
     - event: on_tool_error
       file: hooks/on_tool_error.rb

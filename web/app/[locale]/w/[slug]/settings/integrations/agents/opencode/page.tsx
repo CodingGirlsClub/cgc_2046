@@ -59,8 +59,8 @@ export default function AgentsOpencodePage() {
 				<div style={{ display: "grid", gap: 16, marginTop: 16 }}>
 					<RuntimeSetupCards stepNos={["1.", "2.", "3."]} />
 					<TokenLinkStepCard slug={slug} stepNo="4." />
-					<WriteConfigStepCard variant="opencode" stepNo="5." />
-					<ConfigureTokenStepCard variant="opencode" stepNo="6." />
+					<WriteConfigStepCard stepNo="5." />
+					<ConfigureTokenStepCard stepNo="6." />
 					<ConfigNotesStepCard />
 				</div>
 			</div>
