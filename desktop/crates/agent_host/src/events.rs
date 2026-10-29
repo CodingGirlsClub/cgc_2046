@@ -1,0 +1,63 @@
+use serde::{Deserialize, Serialize};
+
+use cgc_agent_provider::{StopReason, TokenUsage};
+
+/// agent → 客户端的事件。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum AgentEvent {
+    TurnStarted {
+        thread_id: String,
+    },
+    FollowUpStarted {
+        text: String,
+    },
+    SteerStarted {
+        text: String,
+    },
+    ContextCompacted {
+        omitted_entries: usize,
+    },
+    SubagentStarted {
+        task: String,
+    },
+    SubagentProgress {
+        text: String,
+    },
+    SubagentFinished {
+        ok: bool,
+    },
+    TextDelta {
+        text: String,
+    },
+    /// 流式思考内容（reasoning），只用于 UI 展示，不进入 provider messages。
+    ThinkingDelta {
+        text: String,
+    },
+    ToolCallStarted {
+        tool_call_id: String,
+        tool_name: String,
+        args: serde_json::Value,
+    },
+    PermissionRequested {
+        tool_call_id: String,
+        tool_name: String,
+        args: serde_json::Value,
+    },
+    ToolCallFinished {
+        tool_call_id: String,
+        tool_name: String,
+        ok: bool,
+        content: String,
+    },
+    UsageUpdated {
+        usage: TokenUsage,
+        total: TokenUsage,
+    },
+    TurnFinished {
+        text: String,
+        stop_reason: StopReason,
+    },
+    Error {
+        message: String,
+    },
+}

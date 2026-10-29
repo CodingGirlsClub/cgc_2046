@@ -3583,6 +3583,8 @@ type Notification {
   insertedAt: DateTime!
   title: String!
   body: String!
+  targetType: String
+  targetId: String
 }
 
 "The result of the :cancel_order mutation"
@@ -4970,6 +4972,9 @@ type Sponsorship {
 type RootQueryType {
   wechatMiniWebLoginStatus(requestId: String!): MiniWebLoginResult
 
+  "桌面端查询扫码状态：proof 由 start 响应交付，不读 cookie"
+  wechatMiniWebLoginStatusForDesktop(requestId: String!, proof: String!): MiniWebLoginDesktopResult
+
   wechatMiniWebLoginPreview(requestId: String!): MiniWebLoginResult
 
   "闪念间圆梦线 CTA 两态（U4\/R9）：本城最近一场可报名公开场次；未命中时前端落 Initiative 公开页。匿名可读，仅指路字段"
@@ -5931,6 +5936,15 @@ type RootMutationType {
   "账号密码登录（plan 002 U2：login 含 @ 走邮箱，否则手机号归一化；token 经 httpOnly cookie 交付）"
   signIn(login: String!, password: String!): SignInResult
 
+  """
+  第一方客户端登录：直接返回 Bearer JWT（响应体交付，不写 httpOnly cookie）。
+  与 web 的 `signIn` 共用同一 AshAuthentication token；撤销用 `revokeToken`。
+  """
+  signInForDesktop(login: String!, password: String!): DesktopSignInResult
+
+  "桌面端手机验证码登录\/注册：JWT 直接经响应体交付（第一方客户端，不写 cookie）"
+  signInWithPhoneCodeForDesktop(phone: String!, code: String!): DesktopSignInResult
+
   "请求发送手机验证码（plan 002 U3；限流 phone 1\/60s + 5\/1h + 20\/1d、IP 30\/1d）"
   requestPhoneCode(phone: String!, purpose: PhoneCodePurpose!): RequestPhoneCodeResult
 
@@ -5967,6 +5981,9 @@ type RootMutationType {
   "登出：服务端撤销当前 token 并清除 httpOnly cookie（token 被偷也无法重放）"
   signOut: String
 
+  "撤销当前请求携带的 Bearer token（第一方客户端登出用；只撤销已通过校验的调用者 token）"
+  revokeToken: Boolean
+
   wechatMiniWebLoginStart(mode: MiniWebLoginMode!): MiniWebLoginResult
 
   wechatMiniWebLoginConfirm(requestId: String!): MiniWebLoginResult
@@ -5974,6 +5991,15 @@ type RootMutationType {
   wechatMiniWebLoginConsume(requestId: String!): MiniWebLoginResult
 
   wechatMiniWebLoginCancel(requestId: String!): MiniWebLoginResult
+
+  "桌面端发起小程序扫码登录：proof 经响应体交付，不写 cookie"
+  wechatMiniWebLoginStartForDesktop(mode: MiniWebLoginMode!): MiniWebLoginDesktopResult
+
+  "桌面端消费扫码授权：签发 desktop Bearer JWT，不写 cookie"
+  wechatMiniWebLoginConsumeForDesktop(requestId: String!, proof: String!): DesktopSignInResult
+
+  "桌面端撤销尚未消费的扫码请求"
+  wechatMiniWebLoginCancelForDesktop(requestId: String!, proof: String!): MiniWebLoginDesktopResult
 
   "管理员单笔退款（R15）：第一段——建 pending 并返回后端生成的确认摘要（不落业务库）；confirmOperation 确认后真正执行"
   refundOrder(id: ID!): PendingOperationConfirmation
@@ -7816,6 +7842,16 @@ type MiniWebLoginResult {
   sessionEstablished: Boolean
 }
 
+type MiniWebLoginDesktopResult {
+  requestId: String!
+  proof: String
+  status: MiniWebLoginStatus!
+  expiresAt: DateTime
+  pollIntervalSeconds: Int!
+  qrDataUrl: String
+  launchUrl: String
+}
+
 type SignInResult {
   id: ID!
   email: String!
@@ -7828,6 +7864,14 @@ type RequestPasswordResetResult {
 
 type ResetPasswordResult {
   ok: Boolean!
+}
+
+"第一方客户端登录结果：JWT 直接经响应体交付（不写 cookie）"
+type DesktopSignInResult {
+  token: String!
+  userId: ID!
+  email: String
+  isPlatformAdmin: Boolean!
 }
 
 type SignInWithPlatformResult {

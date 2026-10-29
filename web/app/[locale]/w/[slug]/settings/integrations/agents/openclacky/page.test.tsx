@@ -122,7 +122,7 @@ describe("/w/[slug]/settings/integrations/agents/openclacky 集成 OpenClacky �
 		const tabs = await screen.findByRole("navigation", {
 			name: "工作区设置页签",
 		});
-		for (const label of ["MCP", "OpenClacky", "opencode", "OMP"]) {
+		for (const label of ["MCP", "OpenClacky"]) {
 			expect(within(tabs).getByRole("link", { name: label }))
 				.toBeInTheDocument();
 		}

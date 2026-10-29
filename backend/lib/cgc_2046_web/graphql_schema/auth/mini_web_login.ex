@@ -27,10 +27,30 @@ defmodule Cgc2046Web.GraphqlSchema.Auth.MiniWebLogin do
     field(:session_established, :boolean)
   end
 
+  object :mini_web_login_desktop_result do
+    field(:request_id, non_null(:string))
+    field(:proof, :string)
+    field(:status, non_null(:mini_web_login_status))
+    field(:expires_at, :datetime)
+    field(:poll_interval_seconds, non_null(:integer))
+    field(:qr_data_url, :string)
+    field(:launch_url, :string)
+  end
+
   object :mini_web_login_queries do
     field :wechat_mini_web_login_status, :mini_web_login_result do
       arg(:request_id, non_null(:string))
       resolve(fn _, %{request_id: id}, %{context: ctx} -> result(Login.status(id, ctx)) end)
+    end
+
+    @desc "桌面端查询扫码状态：proof 由 start 响应交付，不读 cookie"
+    field :wechat_mini_web_login_status_for_desktop, :mini_web_login_desktop_result do
+      arg(:request_id, non_null(:string))
+      arg(:proof, non_null(:string))
+
+      resolve(fn _, %{request_id: id, proof: proof}, %{context: ctx} ->
+        result(Login.status_for_desktop(id, proof, ctx))
+      end)
     end
 
     field :wechat_mini_web_login_preview, :mini_web_login_result do
@@ -60,6 +80,35 @@ defmodule Cgc2046Web.GraphqlSchema.Auth.MiniWebLogin do
     field :wechat_mini_web_login_cancel, :mini_web_login_result do
       arg(:request_id, non_null(:string))
       resolve(fn _, %{request_id: id}, %{context: ctx} -> result(Login.cancel(id, ctx)) end)
+    end
+
+    @desc "桌面端发起小程序扫码登录：proof 经响应体交付，不写 cookie"
+    field :wechat_mini_web_login_start_for_desktop, :mini_web_login_desktop_result do
+      arg(:mode, non_null(:mini_web_login_mode))
+
+      resolve(fn _, %{mode: mode}, %{context: ctx} ->
+        result(Login.start_for_desktop(mode, ctx))
+      end)
+    end
+
+    @desc "桌面端消费扫码授权：签发 desktop Bearer JWT，不写 cookie"
+    field :wechat_mini_web_login_consume_for_desktop, :desktop_sign_in_result do
+      arg(:request_id, non_null(:string))
+      arg(:proof, non_null(:string))
+
+      resolve(fn _, %{request_id: id, proof: proof}, %{context: ctx} ->
+        result(Login.consume_for_desktop(id, proof, ctx))
+      end)
+    end
+
+    @desc "桌面端撤销尚未消费的扫码请求"
+    field :wechat_mini_web_login_cancel_for_desktop, :mini_web_login_desktop_result do
+      arg(:request_id, non_null(:string))
+      arg(:proof, non_null(:string))
+
+      resolve(fn _, %{request_id: id, proof: proof}, %{context: ctx} ->
+        result(Login.cancel_for_desktop(id, proof, ctx))
+      end)
     end
   end
 

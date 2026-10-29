@@ -92,7 +92,7 @@ describe("/w/[slug]/settings/integrations/agents 区入口页（向导/管理两
 		).not.toBeInTheDocument();
 	});
 
-	it("error → 回退管理态（tabs + 四子页入口卡），无「重新查看引导」；内联 role=alert + 重试（错误不静默吞）", async () => {
+	it("error → 回退管理态（tabs + 两子页入口卡），无「重新查看引导」；内联 role=alert + 重试（错误不静默吞）", async () => {
 		const reload = vi.fn();
 		useOnboardingState.mockReturnValue({
 			...ONBOARDING_BASE,
@@ -104,7 +104,7 @@ describe("/w/[slug]/settings/integrations/agents 区入口页（向导/管理两
 		const tabs = await screen.findByRole("navigation", {
 			name: "工作区设置页签",
 		});
-		for (const label of ["MCP", "OpenClacky", "opencode", "OMP"]) {
+		for (const label of ["MCP", "OpenClacky"]) {
 			expect(within(tabs).getByRole("link", { name: label }))
 				.toBeInTheDocument();
 		}
@@ -126,9 +126,7 @@ describe("/w/[slug]/settings/integrations/agents 区入口页（向导/管理两
 		expect(
 			await screen.findByRole("heading", { name: "接入你的 Agent" }),
 		).toBeInTheDocument();
-		expect(
-			screen.getByRole("radio", { name: /OpenClacky/ }),
-		).toBeChecked();
+		expect(screen.getByTitle("下载 OpenClacky")).toBeInTheDocument();
 		// 向导态不渲染管理 tabs（两态互斥，R7）
 		expect(
 			screen.queryByRole("navigation", { name: "工作区设置页签" }),
@@ -151,14 +149,12 @@ describe("/w/[slug]/settings/integrations/agents 区入口页（向导/管理两
 			screen.getByRole("button", { name: "重新查看引导" }),
 		).toBeInTheDocument();
 
-		// 四子页入口卡
+		// 两子页入口卡
 		const cards = screen.getByTestId("agent-entry-cards");
 		const links = within(cards).getAllByRole("link");
 		expect(links.map((l) => l.getAttribute("href"))).toEqual([
 			"/w/cgc-academy/settings/integrations/agents/mcp",
 			"/w/cgc-academy/settings/integrations/agents/openclacky",
-			"/w/cgc-academy/settings/integrations/agents/opencode",
-			"/w/cgc-academy/settings/integrations/agents/omp",
 		]);
 	});
 
@@ -175,7 +171,7 @@ describe("/w/[slug]/settings/integrations/agents 区入口页（向导/管理两
 
 		// 只读向导：有 stepper，无签发面
 		expect(
-			await screen.findByRole("radio", { name: /OpenClacky/ }),
+			await screen.findByTitle("下载 OpenClacky"),
 		).toBeInTheDocument();
 		expect(
 			screen.queryByRole("button", { name: /签发新 token/ }),

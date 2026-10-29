@@ -1,0 +1,16 @@
+[package]
+name = "cgc-agent-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+cgc-agent-conversation = { path = "../agent_conversation" }
+cgc-agent-core = { path = "../agent_core" }
+cgc-agent-provider = { path = "../agent_provider" }
+cgc-agent-checkpoint = { path = "../agent_checkpoint" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+rusqlite = { version = "0.37", features = ["bundled"] }

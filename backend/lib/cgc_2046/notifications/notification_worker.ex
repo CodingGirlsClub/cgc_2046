@@ -126,7 +126,7 @@ defmodule Cgc2046.Notifications.NotificationWorker do
     %{
       template_key: "learning_stagnation",
       id_key: "run_id",
-      data_keys: ["enrollment_id", "run_id", "title"],
+      data_keys: ["enrollment_id", "run_id", "title", "course_id"],
       job_meta_keys: ["run_id"],
       unique: :reminder_7d,
       stale: {WorkflowRun, :running, :running}

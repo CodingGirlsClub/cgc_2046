@@ -18,7 +18,7 @@
 ### BYO（自带模型，Bring Your Own Model）
 
 - **定义**：用户自带本地 OpenClacky 作为其 Agent 执行环境，平台不承担任何 LLM 推理成本与执行环境；平台只提供领域数据与业务能力。
-- **架构位置**：连接范式。决定产品形态——模型调用与对话始终发生在用户自己的电脑上，平台零 AI 成本（D3）；课程学习页的对话栏经 CGC 本机 Host 驱动学员电脑上的 agent，网站本身不执行 agent（D4 已被 ADR-0022 修订）。
+- **架构位置**：连接范式。决定产品形态——模型调用与对话始终发生在用户自己的电脑上，平台零 AI 成本（D3）；网站本身不执行 agent（D4 曾被 ADR-0022 修订为「课程学习页对话栏经 CGC 本机 Host 驱动 agent」，该路径已于 2026-10-26 移除）。
 
 ### MCP server（模型上下文协议服务端）
 
@@ -49,8 +49,10 @@
 
 ### CGC 本机 Host（Local Host）
 
+> **已移除（2026-10-26）：Web 端学习搭子与 `cgc-host/` 已整体删除，本条仅作历史记录；桌面客户端内化 Host 见 ADR-0025 / ADR-0028。**
+
 - **定义**：学员电脑上常驻的本机程序（仓库 `cgc-host/`，由学员本机的 Bun 运行，经 LaunchAgent 随登录自启）。它只监听 `127.0.0.1`，只接受 CGC 站点与已配对浏览器的连接，替课程学习页启动并驱动学员的 OMP（ACP），并在会话里把学习凭证交给 OMP。
-- **架构位置**：ADR-0022。课程学习页对话栏与学员 agent 之间的唯一通道；不保存对话记录，会话历史由 OMP 自己保存。
+- **架构位置**：ADR-0022（已 Superseded）。课程学习页对话栏与学员 agent 之间的唯一通道；不保存对话记录，会话历史由 OMP 自己保存。**2026-10-26 起该通道已随 `cgc-host/` 删除。**
 
 ---
 
@@ -116,16 +118,20 @@
 
 - **定义**：每用户一个的 MCP 认证凭证。**绑用户、不绑工作区**；可访问用户加入的多个 Workspace，具体租户由每次调用的目标资源（workspace_id）判定（D6/D13）。在网站「MCP」页生成。
 - **架构位置**：MCP server 的 `Authorization: Bearer <token>` 头；终端接入时由 `mcp.json` 配置。**区别于网站登录 Token**：登录 Token 是 httpOnly cookie，只用于网站 UI。
-- **类型（ADR-0022）**：`kind` = `terminal`（用户自建，权限随其角色）或 `learning_host`（配对签发给 CGC 本机 Host，见「学习凭证」）。
+- **类型（ADR-0022）**：`kind` = `terminal`（用户自建，权限随其角色）或 `learning_host`（配对签发给 CGC 本机 Host，见「学习凭证」；配对签发路径已于 2026-10-26 随 CGC 本机 Host 移除）。
 - **生命周期**：**滚动过期（#211 裁决，2026-08-18）**——连续 **90 天未使用即失效**（`last_used_at`/`inserted_at` 距今 ≥ 90d 时 `validate_token` 拒绝）；正常使用不断、无需重签。仅手动撤销 + 每用户 active 上限 10 枚；**无固定 TTL**（与 D-A7 零配置接入冲突：静默到期会让 agent 断连且引导链路长，泄漏窗口收敛与滚动过期相当）。参考实现 `Cgc2046.Mcp.Token`。
 - ⚠️ 注意：本术语**取代**更早调研中"token 绑 workspace_id"的旧设计（调研文档已归档）——D13 定稿为绑用户不绑工作区。
 
 ### 学习凭证（learning_host）
 
+> **已停止签发（2026-10-26）：签发它的 Web 端学习搭子与 `cgc-host/` 已移除，本条仅作历史记录（平台侧凭证类型保留）。**
+
 - **定义**：配对时由已登录的课程学习页签发、交给 CGC 本机 Host 的连接 token（`kind = learning_host`）。平台侧只放行学习循环所需的 5 个工具（精确名单钉死在 `test/support/mcp_tool_tiers.ex`），由 `Wrapper.run/4` 强制；使用独立前缀与域分隔哈希，旧版代码校验不了它。
-- **架构位置**：ADR-0022。与终端用的 `terminal` 凭证同表管理，遵守同一套撤销、10 枚上限与 90 天闲置过期规则；审计按 `token_kind` 区分两类凭证的调用。
+- **架构位置**：ADR-0022（已 Superseded）。与终端用的 `terminal` 凭证同表管理，遵守同一套撤销、10 枚上限与 90 天闲置过期规则；审计按 `token_kind` 区分两类凭证的调用。
 
 ### 已配对的电脑（Paired Computer）
+
+> **已停止维护（2026-10-26）：配对前端与 `cgc-host/` 已移除，本条仅作历史记录。**
 
 - **定义**：持有一枚有效学习凭证的 CGC 本机 Host。学员在课程学习页对话栏的「已配对的电脑」里查看并撤销；一台 Host 同一时间只为一个账号、一个浏览器工作，换账号或换浏览器需要重新配对。
 - **架构位置**：平台侧即 `myMcpTokens` 里 `kind = learning_host` 的有效凭证；本机侧是 Host 状态文件里的配对记录。
@@ -240,7 +246,7 @@
 
 - **定义**：按"一次干活"聚合操作序列的概念（D9：操作摘要、关联对象、操作者，网站自动生成、不做用户侧上报）。**实体不落地（#211 裁决 2/3，2026-08-18）**：原设计的聚合锚先后被架构演进移除——Agent 实体不建模（形态 X / BYO，R2 已删 `Step.agent_id`）、主链路不再经过 Step（学习/教研锚 user × course，切片 H），"按 Step 聚合"的实体形态已失效。
 - **架构位置**：审计义务由 **ToolCallLog 事件账本**承担（D9 的自动记录/防抵赖已兑现）；AgentRun 语义 = ToolCallLog 之上的**投影**，可从流水回填重建，不建写模型。结果账本按 context 就位：LearningRecord（学习）/ ResearchOutput（教研）/ WorkflowRun.facts（Step 链路产物）。
-- **重启条件**：Agent 资源落地（roadmap：plan 020，`get_agent_instruction` 切库）或多宿主（OpenClacky / OMP / OpenCode / DSH）会话归因需求成真 → 从 ToolCallLog 投影重建；**前置 = 流水补 `client_name` / `session_id` 归因维度**（模型可重算、流水维度不记则历史不可回填，#228）。
+- **重启条件**：Agent 资源落地（roadmap：plan 020，`get_agent_instruction` 切库）或多宿主（OpenClacky 及桌面 external agent；omp / opencode / dsh 的终端接入已于 2026-10-29 全部下线）会话归因需求成真 → 从 ToolCallLog 投影重建；**前置 = 流水补 `client_name` / `session_id` 归因维度**（模型可重算、流水维度不记则历史不可回填，#228）。
 
 ---
 
@@ -248,9 +254,9 @@
 
 ### 本机 agent（Local agent）
 
-- **定义**：跑在学员自己电脑上、由该学员自己的账号与额度驱动的那一类 agent（BYO，ADR-0001；ADR-0023）。当前两种：**OMP**（`omp acp`）与 **Codex**（`@agentclientprotocol/codex-acp`），都由 CGC 本机 Host 经 ACP 启动与驱动（ADR-0022）。
+- **定义**：跑在学员自己电脑上、由该学员自己的账号与额度驱动的那一类 agent（BYO，ADR-0001；ADR-0023）。历史实现为 **OMP**（`omp acp`）与 **Codex**（`@agentclientprotocol/codex-acp`），由 CGC 本机 Host 经 ACP 启动与驱动（ADR-0022，已 Superseded）；**2026-10-26 起 Web 端该路径已移除，本机 agent 现由桌面客户端经 ACP 驱动（ADR-0025 / ADR-0028）。**
 - **架构位置**：**类别名，不是某个具体 agent 的名字**——个体的名字出现在课程页对话栏的选择器里（「由 OMP 驱动」/「由 Codex 驱动」），「本机 agent 对话」指对话栏这个面。平台不运行模型、不代管学员的 agent 登录；学习凭证经 ACP 的 `mcpServers` 下发，平台只按 token 类型收窄权限。
-- **扩展方式**：在 Host 的注册表（`cgc-host/src/agents/`）加一条记录、页面按 `status.agents` 自适应——第三个 agent（如 Claude Code）不改路由与页面结构。
+- **扩展方式（历史）**：在 Host 的注册表（原 `cgc-host/src/agents/`，已随 `cgc-host/` 删除）加一条记录、页面按 `status.agents` 自适应——第三个 agent（如 Claude Code）不改路由与页面结构。
 
 ### Agent（授权/配置登记，租户资源）
 
@@ -344,7 +350,7 @@
 
 - **定义**：OpenClacky 的 MCP 配置文件；**由连接器扩展自动写入** cgc-2046 条目（URL + token），用户不再手动粘贴配置片段（D-A7，取代 D13 步骤 2 的手动粘贴）。
 - **架构位置**：用户侧连接配置唯一事实源。扩展自动检查并安装 MCP，网站只负责生成 token。
-- **ADR-0022 起**：经 CGC 本机 Host 的网页对话不读 mcp.json——Host 在 ACP 会话里下发 MCP 服务器与学习凭证；mcp.json 仍是终端接入的配置点。
+- **ADR-0022 起（已 Superseded，2026-10-26）**：经 CGC 本机 Host 的网页对话不读 mcp.json——Host 在 ACP 会话里下发 MCP 服务器与学习凭证；该通道已随 `cgc-host/` 移除，mcp.json 仍是终端接入的配置点。
 
 ### 用户离线（User Offline）
 

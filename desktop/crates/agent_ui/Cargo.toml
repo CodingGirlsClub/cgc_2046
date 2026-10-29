@@ -1,0 +1,11 @@
+[package]
+name = "cgc-agent-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+cgc-agent-conversation.workspace = true
+cgc-platform.workspace = true
+gpui-kit.workspace = true

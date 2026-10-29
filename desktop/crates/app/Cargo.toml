@@ -1,0 +1,80 @@
+[package]
+name = "cgc-desktop-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Stage 3.2b settings 级审批规则（alwaysAllow/alwaysDeny/alwaysConfirm 正则）。
+# 已在 Cargo.lock（platform/agent 生态的传递依赖），MIT OR Apache-2.0，AGPL-3.0 兼容。
+regex = "1"
+base64 = "0.22"
+image = "0.25"
+chrono = "0.4"
+ratex-gpui = { version = "0.4", default-features = false }
+gpui-kit.workspace = true
+# story 3.13：二维码矩阵生成。qrcode 0.14.1，license = MIT OR Apache-2.0（AGPL-3.0 兼容）。
+# 关闭默认 features（image/svg/pic）：只需要矩阵，不引入 image 等额外依赖。
+qrcode = { version = "0.14.1", default-features = false }
+url = "2.5"
+uuid = "1"
+futures = "0.3"
+cgc-account.workspace = true
+cgc-agent-ui.workspace = true
+cgc-agent-provider = { path = "../agent_provider" }
+cgc-agent-core = { path = "../agent_core" }
+cgc-agent-tools = { path = "../agent_tools" }
+cgc-agent-store = { path = "../agent_store" }
+cgc-agent-host = { path = "../agent_host" }
+cgc-agent-checkpoint = { path = "../agent_checkpoint" }
+cgc-courses.workspace = true
+cgc-events.workspace = true
+cgc-platform.workspace = true
+# 本地文件日志门面；文件出口在 cgc-platform::logging。MIT OR Apache-2.0。
+log = "0.4"
+
+# cargo-packager 配置（story 1.13）；格式由 CI 的 --formats 指定（dmg / wix / deb,appimage）。
+# 未签名产物：签名与公证归 epic-6（ADR-0027 决策 2/3）。
+[package.metadata.packager]
+productName = "程序媛汇"
+identifier = "com.codingirlsclub.cgc2046.desktop"
+description = "程序媛汇学员端桌面客户端"
+longDescription = "程序媛汇学员端桌面客户端：工作台、场次报名与支付、课程学习，以及与你自己本机 agent 的学习搭子对话。"
+category = "Education"
+outDir = "../../dist"  # 相对本 Cargo.toml（crates/app）→ desktop/dist
+beforePackagingCommand = "cargo build --release -p cgc-desktop-app"
+icons = [
+  "icons/32x32.png",
+  "icons/128x128.png",
+  "icons/128x128@2x.png",
+  "icons/icon.icns",
+  "icons/icon.ico",
+]
+
+# Linux deb 运行时依赖：登录凭证通过 secret-tool（libsecret）持久化。
+[package.metadata.packager.deb]
+# Debian 包名必须 ASCII 且以字母数字起头。不设这个字段时 packager 用 productName
+# （「程序媛汇」）当包名，control 里就成了 `Package: 程序媛汇` —— dpkg 直接报
+# "invalid package name"，`dpkg-deb -f` 也读不出任何字段，包实际上装不上。
+packageName = "cgc2046"
+depends = ["libsecret-tools"]
+
+# MSI 的语言/代码页：productName 与文案是中文，en-US 对应的代码页 1252 装不下，
+# WiX 的 light.exe 会直接失败（LGHT0311）。zh-CN 的代码页是 936，中文才落得进 MSI。
+[package.metadata.packager.wix]
+languages = ["zh-CN"]
+
+# cgc:// 深链：由安装器写入 macOS URL scheme、Windows MSI 注册表与 Linux desktop MIME。
+[[package.metadata.packager.deepLinkProtocols]]
+schemes = ["cgc"]
+name = "cgc2046"
+role = "viewer"
+
+[dev-dependencies]
+# 两轨对照测试（Phase A）：在 app 组合根里同时驱动 native in-process ACP server
+# 与一个 stub ACP agent，验证同一语义输入产出同一 HostEvent 序列/会话模型。
+# 该 crate 已由 cgc-platform / cgc-agent-host 依赖，版本一致，不新增外部依赖。
+agent-client-protocol = { version = "3.4" }

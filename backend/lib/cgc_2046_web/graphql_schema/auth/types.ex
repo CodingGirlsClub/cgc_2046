@@ -24,6 +24,14 @@ defmodule Cgc2046Web.GraphqlSchema.Auth.Types do
     field(:ok, non_null(:boolean))
   end
 
+  @desc "第一方客户端登录结果：JWT 直接经响应体交付（不写 cookie）"
+  object :desktop_sign_in_result do
+    field(:token, non_null(:string))
+    field(:user_id, non_null(:id))
+    field(:email, :string)
+    field(:is_platform_admin, non_null(:boolean))
+  end
+
   # 小程序手机号用户无邮箱 → email 可空（与 users.email 放宽一致）
   object :sign_in_with_platform_result do
     field(:id, non_null(:id))

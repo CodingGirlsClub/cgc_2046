@@ -10,6 +10,8 @@ execution: code
 
 # 课程页本机 Agent 选择（先接 Codex）- Plan
 
+> **已废弃（2026-10-26）：Web 端学习搭子与 cgc-host 已移除，本计划保留原文，仅作历史记录。**
+
 ## Goal Capsule
 
 - **Objective：** 已经在自己电脑上装了别的 coding agent（先支持 Codex）的学员，也能在课程学习页用它学完一个学习目标——自己选 agent、自己选历史对话，学习进度与课程作业目录两边共用。

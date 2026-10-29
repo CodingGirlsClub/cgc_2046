@@ -13,11 +13,16 @@ defmodule Cgc2046Web.GraphqlNotificationInboxTest do
     theirs = notification(other, "b")
 
     assert %{"data" => %{"notificationFeed" => %{"results" => [row]}}} =
-             graphql("{ notificationFeed { results { id title body readAt } } }", owner)
+             graphql(
+               "{ notificationFeed { results { id title body readAt targetType targetId } } }",
+               owner
+             )
 
     assert row["id"] == mine.id
     assert row["title"] == "报名成功"
     assert row["readAt"] == nil
+    assert row["targetType"] == nil
+    assert row["targetId"] == nil
 
     assert %{"data" => %{"notificationFeed" => %{"results" => [admin_row]}}} =
              graphql("{ notificationFeed { results { id } } }", other)
@@ -30,6 +35,34 @@ defmodule Cgc2046Web.GraphqlNotificationInboxTest do
       |> Ash.read!(actor: owner, page: false)
 
     assert Enum.map(rows, & &1.id) == [mine.id]
+  end
+
+  test "feed exposes targetType and targetId" do
+    user = Fixtures.register_user("inbox-target")
+    target_id = Ecto.UUID.generate()
+
+    Notification
+    |> Ash.Changeset.for_create(:record, %{}, authorize?: false)
+    |> Ash.Changeset.force_change_attributes(%{
+      id: "target-row",
+      user_id: user.id,
+      type: "event_reminder",
+      payload: %{
+        "title" => "活动提醒",
+        "body" => "即将开始",
+        "targetType" => "event",
+        "targetId" => target_id
+      }
+    })
+    |> Ash.create!()
+
+    assert %{"data" => %{"notificationFeed" => %{"results" => [row]}}} =
+             graphql(
+               "{ notificationFeed { results { id targetType targetId } } }",
+               user
+             )
+
+    assert row == %{"id" => "target-row", "targetType" => "event", "targetId" => target_id}
   end
 
   test "anonymous feed is forbidden" do

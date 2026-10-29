@@ -9,11 +9,73 @@ defmodule Cgc2046.Notifications.InboxSnapshot do
         nil
 
       {title, body, target} ->
+        payload = %{"title" => String.slice(title, 0, 80), "body" => String.slice(body, 0, 280)}
+
         %{
-          payload: %{"title" => String.slice(title, 0, 80), "body" => String.slice(body, 0, 280)},
+          payload: put_target(payload, target, type, data, meta),
           deep_link: link(target, data, meta)
         }
     end
+  end
+
+  # 站内通知的可跳转目标：新客户端优先按 targetType/targetId 路由，
+  # deep_link 保留给旧客户端与未知目标兜底。没有可靠 id 时不写 target 字段。
+  defp put_target(payload, _target, type, data, meta) do
+    case target(type, data, meta) do
+      {target_type, target_id} when is_binary(target_id) and target_id != "" ->
+        Map.merge(payload, %{"targetType" => target_type, "targetId" => target_id})
+
+      _ ->
+        payload
+    end
+  end
+
+  defp target(type, data, meta) do
+    event_id = uuid_value(value(data, meta, "event_id"))
+    course_id = uuid_value(value(data, meta, "course_id"))
+    enrollment_id = uuid_value(value(data, meta, "enrollment_id"))
+    workspace_id = uuid_value(value(data, meta, "workspace_id"))
+
+    case type do
+      "event_reminder" -> {"event", event_id}
+      "event_schedule_changed" -> {"event", event_id}
+      "event_qualification_confirmed" -> {"event", event_id}
+      "event_qualification_underfilled" -> {"event", event_id}
+      "event_qualification_manager" -> {"event", event_id}
+      "event_moderator_assigned" -> {"event", event_id}
+      "event_moderator_removed" -> {"event", event_id}
+      "learning_stagnation" -> {"course", course_id} |> fallback_enrollment(enrollment_id)
+      "enrollment_submitted" -> {"workspace", workspace_id}
+      "approval_reminder" -> {"workspace", workspace_id}
+      "approval_result" -> {"enrollment", enrollment_id}
+      "enrollment_completed" -> {"enrollment", enrollment_id}
+      "enrollment_check_in_code" -> {"enrollment", enrollment_id}
+      "payment_succeeded" -> {"enrollment", enrollment_id}
+      "refund_succeeded" -> {"enrollment", enrollment_id}
+      "refund_failed" -> {"enrollment", enrollment_id}
+      "payment_expired" -> {"enrollment", enrollment_id}
+      "payment_received" -> {"workspace", workspace_id}
+      "speaker_accepted" -> {"workspace", workspace_id}
+      "speaker_completed" -> {"workspace", workspace_id}
+      "flashback_wish_echo" -> {"wish", uuid_value(value(data, meta, "wish_id"))}
+      _ -> nil
+    end
+  end
+
+  defp uuid_value(value) when is_binary(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, id} -> id
+      :error -> nil
+    end
+  end
+
+  defp uuid_value(_), do: nil
+
+  defp fallback_enrollment({_type, nil}, enrollment_id), do: {"enrollment", enrollment_id}
+  defp fallback_enrollment(target, _), do: target
+
+  defp value(data, meta, key) do
+    Map.get(data, key) || Map.get(meta, key)
   end
 
   defp content("approval_result", d) do

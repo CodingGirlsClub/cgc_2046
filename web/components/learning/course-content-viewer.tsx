@@ -28,9 +28,6 @@ function groupCourseIssues(content: CourseContentDocument, chapterFallback: stri
   return { chapters, issues, chapterTitle, grouped };
 }
 
-/** 本机 Host 接受的单元 id（cgc-host/src/acp/session.ts 的 UNIT_ID，两边须一致） */
-const UNIT_ID = /^[A-Za-z0-9_.-]{1,64}$/;
-
 /** 单元卡片 key：与内容区锚点 #course-issue-* 的取值保持一致 */
 function issueKeyOf(issue: CourseContentIssue, issueIndex: number) {
   return String(issue.id || issueIndex);
@@ -166,17 +163,7 @@ export function CourseContentSections({
   );
 }
 
-export default function CourseContentViewer({
-  courseId,
-  onUnitChange,
-  compact = false,
-}: {
-  courseId: string;
-  /** 当前单元变化时回调（KTD11）：单元 id，总览为 null。学员页据此给对话附上下文（KTD8） */
-  onUnitChange?: (unitId: string | null) => void;
-  /** 带对话栏的紧凑布局（KTD11）：大纲改为浮层，进度保持可见。默认 false 时布局与行为不变 */
-  compact?: boolean;
-}) {
+export default function CourseContentViewer({ courseId }: { courseId: string }) {
   const t = useTranslations("courseReader");
   const { data, loading, error } = useQuery(COURSE_CONTENT, { variables: { courseId } });
   const { data: learningData } = useQuery(COURSE_LEARNING_DETAIL, { variables: { courseId } });
@@ -192,12 +179,6 @@ export default function CourseContentViewer({
     }
     window.scrollTo({ top: 0 });
   }, [active]);
-  // issueKey 即单元 id。平台只要求它非空；本机 Host 只认短的 ASCII 标识（cgc-host/AGENTS.md 的 context.unitId），
-  // 不符合就整条消息被拒——这类单元按课程总览（null）附上下文，学员照样能对话
-  const unitId = active && UNIT_ID.test(active.issueKey) ? active.issueKey : null;
-  useEffect(() => {
-    onUnitChange?.(unitId);
-  }, [unitId, onUnitChange]);
   if (loading) return <p data-testid="course-content-loading">{t("loading")}</p>;
   if (error) return <p role="alert">{t("loadFailed")}</p>;
   const detail = data?.courseContent;
@@ -276,7 +257,7 @@ export default function CourseContentViewer({
   );
 
   return (
-    <article className={`learning-reader${active ? " learning-reader--unit" : " learning-reader--overview"}${compact ? " learning-reader--compact" : ""}`} data-testid="course-content-viewer">
+    <article className={`learning-reader${active ? " learning-reader--unit" : " learning-reader--overview"}`} data-testid="course-content-viewer">
       <header className="learning-reader__hero">
         <div className="learning-reader__hero-row">
           <div>

@@ -16,9 +16,7 @@ const DOCS = [
 	"backend/AGENTS.md",
 	"web/AGENTS.md",
 	"miniprogram/AGENTS.md",
-	"omp-plugin/AGENTS.md",
 	"openclacky-ext/AGENTS.md",
-	"cgc-host/AGENTS.md",
 	...["domain", "issue-tracker", "loopx-workflow", "triage-labels"].map((n) => `docs/agents/${n}.md`),
 ].map((f) => ({ rel: f, abs: join(ROOT, f), dir: dirname(join(ROOT, f)) }));
 
