@@ -66,6 +66,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 - [Desktop] composer 的**上下文用量改为圆环**：↑/↓ 两个圆环替代百分比文字，悬停展示 Input / Output token 用量与项目规则数量；用量 ≥85% 转警示色。
 - [Desktop] 审批规则（`toolPermissions`）收敛为 **native-only**（路线 A / Zed 对齐）：settings 级规则只作用于 native agent；external ACP agent 的审批完全由 agent 自身 options 决定，客户端只渲染共享审批卡并原样回传 `option_id`，不做策略拦截。
 - [Desktop] 会话**可恢复投影与后台 writer**（`conversations.db` v3）：新增 `thread_snapshots` 表，未答审批降级为 Warning Notice、已答保留决定；单后台 writer 有界队列、按 thread 合并最高 revision、clear 按提交序号作废旧快照、flush 栅栏；真实临时库测试覆盖原子提交、清空压制与 ACP add-only 兼容。
+- [Desktop] `Desktop Release` 新增**生产 schema 兼容门禁**：出包前用 `desktop/scripts/check_release_schema.py` 提取客户端实际使用的 GraphQL 字段并逐个探测生产端点，缺任一字段即 fail-closed 拒绝构建（`--self-test` 覆盖提取与判定）；修复 #1183 暴露的「客户端先发、后端未发」顺序问题。
 
 ## [2026-10-18]
 
