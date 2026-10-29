@@ -21,6 +21,15 @@ fn source_label(source: SnapshotSource) -> &'static str {
         SnapshotSource::Native => "native",
     }
 }
+
+/// 日志脱敏：不打印原始 `thread_id`（CodeQL rust/cleartext-logging、AD-13），
+/// 用不可逆短摘要保留跨日志行的可关联性。
+fn thread_digest(thread_id: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    thread_id.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
 use rusqlite::{params, Connection, OptionalExtension};
 
 /// 数据库文件名（`<data_root>/conversations.db`）。
@@ -285,7 +294,10 @@ impl ConversationStore {
         match serde_json::from_str::<ConversationThread>(&data) {
             Ok(thread) => Ok(Some(thread)),
             Err(error) => {
-                eprintln!("[conversations] 忽略损坏的 thread_content {thread_id}: {error}");
+                eprintln!(
+                    "[conversations] 忽略损坏的 thread_content [{}]: {error}",
+                    thread_digest(thread_id)
+                );
                 Ok(None)
             }
         }
@@ -334,7 +346,10 @@ impl ConversationStore {
         match serde_json::from_str::<SavedConversation>(&data) {
             Ok(snapshot) => Ok(Some(snapshot)),
             Err(error) => {
-                eprintln!("[conversations] 忽略损坏的 thread_snapshots {thread_id}: {error}");
+                eprintln!(
+                    "[conversations] 忽略损坏的 thread_snapshots [{}]: {error}",
+                    thread_digest(thread_id)
+                );
                 Ok(None)
             }
         }
@@ -363,7 +378,10 @@ impl ConversationStore {
             if has_row {
                 return Ok(Some((snapshot.into_thread(), RestoredFrom::Snapshot)));
             }
-            eprintln!("[conversations] 忽略孤儿投影 {thread_id}：没有对应的正文或侧栏");
+            eprintln!(
+                "[conversations] 忽略孤儿投影 [{}]：没有对应的正文或侧栏",
+                thread_digest(thread_id)
+            );
         }
         Ok(self
             .load_content(thread_id)?
@@ -696,6 +714,18 @@ mod tests {
     use cgc_agent_conversation::conversation::{
         ConversationThread, Entry, ThreadCapabilities, ThreadStatus, Usage,
     };
+
+    #[test]
+    fn thread_digest_does_not_leak_raw_thread_id() {
+        let thread_id = "thread-123e4567-e89b-12d3-a456-426614174000";
+        let digest = thread_digest(thread_id);
+        assert_eq!(digest.len(), 16);
+        assert!(!digest.contains("thread"));
+        assert!(!digest.contains("123e4567"));
+        // 同一 ID 稳定（跨日志行可关联），不同 ID 不同。
+        assert_eq!(digest, thread_digest(thread_id));
+        assert_ne!(digest, thread_digest("other-thread"));
+    }
 
     fn temp_dir(tag: &str) -> std::path::PathBuf {
         use std::sync::atomic::{AtomicU64, Ordering};
