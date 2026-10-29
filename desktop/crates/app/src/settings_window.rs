@@ -8,6 +8,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use cgc_agent_provider::{validate_credentials, ProviderError, ProviderErrorCategory};
 use cgc_agent_store::{
     builtin_providers, normalized_provider_name, provider_key_account, PrefsStore, ProviderPrefs,
 };
@@ -56,6 +57,7 @@ pub struct SettingsWindowView {
     notice: Option<String>,
     provider_drafts: Vec<ProviderDraft>,
     ai_view: AiRoute,
+    validating_provider: Option<String>,
     prefs_store: PrefsStore,
     keychain: KeychainStore,
     /// Stage 3.3：清空 ACP 对话历史的二次确认状态与结果提示。
@@ -102,6 +104,7 @@ impl SettingsWindowView {
             notice: None,
             provider_drafts: drafts,
             ai_view: AiRoute::General,
+            validating_provider: None,
             prefs_store,
             keychain: KeychainStore::from_env(),
             clear_acp_history_armed: Arc::new(AtomicBool::new(false)),
@@ -373,27 +376,95 @@ impl SettingsWindowView {
             cx.notify();
             return;
         }
-        match self
-            .keychain
-            .save_secret(&provider_key_account(&draft.id), &key)
-        {
+        self.begin_key_validation(draft.to_prefs(), key, true, cx);
+    }
+
+    fn begin_key_validation(
+        &mut self,
+        provider: ProviderPrefs,
+        key: String,
+        return_to_providers: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.validating_provider.is_some() {
+            self.error = Some("正在验证上一个 API Key，请稍候".to_string());
+            cx.notify();
+            return;
+        }
+        self.validating_provider = Some(provider.id.clone());
+        self.error = None;
+        self.notice = Some(format!("正在验证 {} API Key…", provider.name));
+        cx.notify();
+        let task_provider = provider.clone();
+        let task_key = key.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move { validate_credentials(&task_provider.base_url, &task_key) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.finish_key_validation(provider, key, return_to_providers, result, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn finish_key_validation(
+        &mut self,
+        mut provider: ProviderPrefs,
+        key: String,
+        return_to_providers: bool,
+        result: Result<(), ProviderError>,
+        cx: &mut Context<Self>,
+    ) {
+        self.validating_provider = None;
+        match result {
             Ok(()) => {
-                input.update(cx, |state, cx| state.set_value("", window, cx));
-                if let Some(draft) = self.provider_drafts.get_mut(index) {
-                    draft.has_key = true;
-                    draft.key_editing = false;
-                    let provider = draft.to_prefs();
-                    let mut prefs = self.prefs_store.load();
-                    prefs.upsert_provider(provider);
-                    if prefs.selected_provider.as_deref().is_none() {
-                        prefs.selected_provider = Some(self.provider_drafts[index].id.clone());
-                    }
-                    let _ = self.prefs_store.save(&prefs);
+                if let Err(error) = self
+                    .keychain
+                    .save_secret(&provider_key_account(&provider.id), &key)
+                {
+                    self.error = Some(format!("API Key 保存失败：{error}"));
+                    cx.notify();
+                    return;
                 }
-                self.notice = Some("API Key 已保存；重新打开 Agent 面板后生效".to_string());
+                provider.has_key = true;
+                let mut prefs = self.prefs_store.load();
+                prefs.upsert_provider(provider.clone());
+                if prefs.selected_provider.as_deref().is_none() {
+                    prefs.selected_provider = Some(provider.id.clone());
+                }
+                if let Err(error) = self.prefs_store.save(&prefs) {
+                    self.error = Some(format!("Provider 保存失败：{error}"));
+                    cx.notify();
+                    return;
+                }
+                if let Some(draft) = self
+                    .provider_drafts
+                    .iter_mut()
+                    .find(|draft| draft.id == provider.id)
+                {
+                    draft.base_url = provider.base_url.clone();
+                    draft.name = provider.name.clone();
+                    draft.models = format_model_lines(&provider);
+                    draft.model_params = provider.model_params.clone();
+                    draft.has_key = true;
+                    draft.builtin = provider.builtin;
+                    draft.key_editing = false;
+                }
                 self.error = None;
+                self.notice = Some(format!("{} API Key 已验证并保存", provider.name));
+                if return_to_providers {
+                    self.ai_view = AiRoute::Providers;
+                }
             }
-            Err(error) => self.error = Some(format!("API Key 保存失败：{error}")),
+            Err(error) => {
+                self.notice = None;
+                self.error = Some(format!(
+                    "API Key 验证失败：{}",
+                    provider_validation_message(&error)
+                ));
+            }
         }
         cx.notify();
     }
@@ -479,22 +550,8 @@ impl SettingsWindowView {
                 provider.has_key = true;
             }
             if !api_key.is_empty() {
-                match self
-                    .keychain
-                    .save_secret(&provider_key_account(&provider.id), &api_key)
-                {
-                    Ok(()) => {
-                        provider.has_key = true;
-                        api_key_input.update(cx, |state, cx| {
-                            state.set_value("", window, cx);
-                        });
-                    }
-                    Err(error) => {
-                        self.error = Some(format!("API Key 保存失败：{error}"));
-                        cx.notify();
-                        return;
-                    }
-                }
+                self.begin_key_validation(provider, api_key, true, cx);
+                return;
             }
         }
         let mut prefs = self.prefs_store.load();
@@ -732,6 +789,7 @@ impl SettingsWindowView {
         });
         let providers_weak = weak.clone();
         let providers_drafts = drafts.clone();
+        let providers_validating = self.validating_provider.clone();
         let providers_item = SettingItem::render(move |_options, _window, cx| {
             let palette = theme::palette_from_theme(cx);
             render_provider_list(
@@ -741,6 +799,7 @@ impl SettingsWindowView {
                 &palette,
                 notice.clone(),
                 error.clone(),
+                providers_validating.as_deref(),
             )
         });
         let providers_header = {
@@ -1134,6 +1193,21 @@ impl SettingsWindowView {
     }
 }
 
+fn provider_validation_message(error: &ProviderError) -> &'static str {
+    match error.category() {
+        ProviderErrorCategory::Authentication => "API Key 无效或已过期",
+        ProviderErrorCategory::Permission => "API Key 没有访问权限",
+        ProviderErrorCategory::PaymentRequired => "账户余额不足",
+        ProviderErrorCategory::RateLimit => "请求过于频繁，请稍后重试",
+        ProviderErrorCategory::Overloaded => "Provider 服务暂时不可用，请稍后重试",
+        ProviderErrorCategory::Transport => "网络连接失败，请检查网络后重试",
+        ProviderErrorCategory::InvalidRequest => "Provider 不接受该 API Key 或模型配置",
+        ProviderErrorCategory::ContextTooLong => "验证请求超出模型上下文",
+        ProviderErrorCategory::Cancelled => "验证已取消",
+        ProviderErrorCategory::Other => "无法验证 API Key，请稍后重试",
+    }
+}
+
 fn render_provider_list(
     _cx: &mut App,
     weak: &WeakEntity<SettingsWindowView>,
@@ -1141,6 +1215,7 @@ fn render_provider_list(
     palette: &theme::Palette,
     notice: Option<String>,
     error: Option<String>,
+    validating_provider: Option<&str>,
 ) -> AnyElement {
     let mut rows: Vec<AnyElement> = Vec::new();
     for (index, draft) in drafts.iter().enumerate() {
@@ -1150,7 +1225,10 @@ fn render_provider_list(
             .iter()
             .filter(|model| model.enabled)
             .count();
-        let status = if draft.has_key {
+        let validating = validating_provider == Some(draft.id.as_str());
+        let status = if validating {
+            "正在验证 API Key…"
+        } else if draft.has_key {
             "✓ API Key 已配置"
         } else {
             "未配置 API Key"
@@ -1198,11 +1276,26 @@ fn render_provider_list(
                                 .px(space(2))
                                 .py(px(3.0))
                                 .rounded(px(RADIUS_SMALL))
-                                .bg(palette.accent)
-                                .text_color(palette.canvas)
+                                .bg(if validating {
+                                    palette.soft
+                                } else {
+                                    palette.accent
+                                })
+                                .text_color(if validating {
+                                    palette.ink_3
+                                } else {
+                                    palette.canvas
+                                })
                                 .text_size(px(10.0))
-                                .child("保存 Key")
+                                .child(if validating {
+                                    "验证中…"
+                                } else {
+                                    "保存 Key"
+                                })
                                 .on_click(move |_, window, cx| {
+                                    if validating {
+                                        return;
+                                    }
                                     let _ = save_weak.update(cx, |this, cx| {
                                         this.save_provider_key(index, window, cx);
                                     });
@@ -1992,5 +2085,31 @@ impl Render for SettingsWindowView {
                     .min_h(px(0.0))
                     .child(self.build_settings(window, cx)),
             )
+    }
+}
+
+#[cfg(test)]
+mod settings_provider_validation_tests {
+    use super::provider_validation_message;
+    use cgc_agent_provider::{ProviderError, ProviderErrorCategory};
+
+    #[test]
+    fn validation_errors_are_user_readable() {
+        assert_eq!(
+            provider_validation_message(&ProviderError::api(401, "invalid key")),
+            "API Key 无效或已过期"
+        );
+        assert_eq!(
+            provider_validation_message(&ProviderError::transport("offline")),
+            "网络连接失败，请检查网络后重试"
+        );
+        assert_eq!(
+            provider_validation_message(&ProviderError::api_with_category(
+                ProviderErrorCategory::PaymentRequired,
+                Some(402),
+                "balance",
+            )),
+            "账户余额不足"
+        );
     }
 }

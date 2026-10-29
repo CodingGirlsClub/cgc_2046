@@ -18,6 +18,7 @@ pub mod registry;
 pub mod request;
 pub mod sse;
 pub mod unconfigured;
+pub mod validate;
 
 pub use echo::EchoProvider;
 pub use error::{ProviderError, ProviderErrorCategory};
@@ -29,3 +30,4 @@ pub use provider::{CompletionStream, Provider};
 pub use registry::ProviderRegistry;
 pub use request::{Content, Message, Request, Role, ToolSchema};
 pub use unconfigured::UnconfiguredProvider;
+pub use validate::validate_credentials;
