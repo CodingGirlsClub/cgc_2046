@@ -28,7 +28,7 @@ use crate::build_info;
 use crate::i18n::{translate, Key, Language};
 use crate::preferences;
 use crate::settings_provider::{
-    format_model_lines, parse_model_lines, ModelFieldInputs, ProviderDraft,
+    format_model_lines, parse_model_lines, validation_is_current, ModelFieldInputs, ProviderDraft,
 };
 use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 use cgc_platform::session::AuthApi;
@@ -58,6 +58,7 @@ pub struct SettingsWindowView {
     provider_drafts: Vec<ProviderDraft>,
     ai_view: AiRoute,
     validating_provider: Option<String>,
+    validation_serial: u64,
     prefs_store: PrefsStore,
     keychain: KeychainStore,
     /// Stage 3.3：清空 ACP 对话历史的二次确认状态与结果提示。
@@ -105,6 +106,7 @@ impl SettingsWindowView {
             provider_drafts: drafts,
             ai_view: AiRoute::General,
             validating_provider: None,
+            validation_serial: 0,
             prefs_store,
             keychain: KeychainStore::from_env(),
             clear_acp_history_armed: Arc::new(AtomicBool::new(false)),
@@ -338,6 +340,7 @@ impl SettingsWindowView {
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
         };
+        self.cancel_validation_for(&draft.id);
         let Some(default) = builtin_providers()
             .into_iter()
             .find(|provider| provider.id == draft.id)
@@ -362,6 +365,33 @@ impl SettingsWindowView {
         cx.notify();
     }
 
+    fn provider_from_draft_inputs(&self, draft: &ProviderDraft, cx: &App) -> ProviderPrefs {
+        let base_url = draft
+            .base_url_input
+            .as_ref()
+            .map(|input| input.read(cx).value().trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| draft.base_url.clone());
+        let name = draft
+            .name_input
+            .as_ref()
+            .map(|input| input.read(cx).value().trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| draft.name.clone());
+        draft.to_prefs_with(&base_url, &name)
+    }
+
+    fn cancel_key_validation(&mut self) {
+        self.validation_serial = self.validation_serial.wrapping_add(1);
+        self.validating_provider = None;
+    }
+
+    fn cancel_validation_for(&mut self, provider_id: &str) {
+        if self.validating_provider.as_deref() == Some(provider_id) {
+            self.cancel_key_validation();
+        }
+    }
+
     fn save_provider_key(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         self.sync_model_fields(index, window, cx);
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
@@ -376,7 +406,8 @@ impl SettingsWindowView {
             cx.notify();
             return;
         }
-        self.begin_key_validation(draft.to_prefs(), key, true, cx);
+        let provider = self.provider_from_draft_inputs(&draft, cx);
+        self.begin_key_validation(provider, key, true, cx);
     }
 
     fn begin_key_validation(
@@ -391,6 +422,8 @@ impl SettingsWindowView {
             cx.notify();
             return;
         }
+        self.validation_serial = self.validation_serial.wrapping_add(1);
+        let serial = self.validation_serial;
         self.validating_provider = Some(provider.id.clone());
         self.error = None;
         self.notice = Some(format!("正在验证 {} API Key…", provider.name));
@@ -403,7 +436,7 @@ impl SettingsWindowView {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                this.finish_key_validation(provider, key, return_to_providers, result, cx);
+                this.finish_key_validation(provider, key, return_to_providers, serial, result, cx);
             });
         })
         .detach();
@@ -414,9 +447,18 @@ impl SettingsWindowView {
         mut provider: ProviderPrefs,
         key: String,
         return_to_providers: bool,
+        serial: u64,
         result: Result<(), ProviderError>,
         cx: &mut Context<Self>,
     ) {
+        if !validation_is_current(
+            self.validating_provider.as_deref(),
+            self.validation_serial,
+            &provider.id,
+            serial,
+        ) {
+            return;
+        }
         self.validating_provider = None;
         match result {
             Ok(()) => {
@@ -451,6 +493,7 @@ impl SettingsWindowView {
                     draft.has_key = true;
                     draft.builtin = provider.builtin;
                     draft.key_editing = false;
+                    draft.api_key_input = None;
                 }
                 self.error = None;
                 self.notice = Some(format!(
@@ -500,6 +543,7 @@ impl SettingsWindowView {
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
         };
+        self.cancel_validation_for(&draft.id);
         let Some(base_url_input) = draft.base_url_input.clone() else {
             return;
         };
@@ -599,6 +643,7 @@ impl SettingsWindowView {
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
         };
+        self.cancel_validation_for(&draft.id);
         match self.keychain.clear_secret(&provider_key_account(&draft.id)) {
             Ok(()) => {
                 let mut provider = draft.to_prefs();
@@ -610,6 +655,7 @@ impl SettingsWindowView {
                     draft.has_key = false;
                     draft.key_editing = false;
                     draft.confirm_clear = false;
+                    draft.api_key_input = None;
                 }
                 self.notice = Some("API Key 已清除；重新打开 Agent 面板后生效".to_string());
                 self.error = None;
@@ -632,6 +678,7 @@ impl SettingsWindowView {
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
         };
+        self.cancel_validation_for(&draft.id);
         self.provider_drafts.remove(index);
         let mut prefs = self.prefs_store.load();
         prefs.remove_provider(&draft.id);
