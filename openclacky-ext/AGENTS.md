@@ -1,6 +1,6 @@
 # openclacky-ext（OpenClacky 扩展）
 
-CGC-2046 的 OpenClacky 连接器扩展，包实体在 `cgc-2046/`（Ruby API handler + 面板 + 三助手 agent + onboarding skill + hooks），要求宿主 openclacky ≥ 1.3.7。架构、目录结构、安全约定、安装后验收的全文见 `cgc-2046/DEVELOPMENT.md`（不进分发包）；用户文档见 `cgc-2046/README.md`。分发协议 AGPL-3.0-only（与根 LICENSE 一致）。
+CGC-2046 的 OpenClacky 连接器扩展，包实体在 `cgc-2046/`（Ruby API handler + 面板 + 三助手 agent + onboarding / 质检 skill + hooks），要求宿主 openclacky ≥ 1.3.7。架构、目录结构、安全约定、安装后验收的全文见 `cgc-2046/DEVELOPMENT.md`（不进分发包）；用户文档见 `cgc-2046/README.md`。分发协议 AGPL-3.0-only（与根 LICENSE 一致）。
 
 ## 版本纪律（发版红线）
 

@@ -71,7 +71,7 @@ defmodule Cgc2046.Mcp.ToolCallLog do
       allow_nil?: true,
       public?: true,
       description:
-        "宿主客户端名（initialize clientInfo.name，如 openclacky/omp/opencode/dsh）#228 归因维度；取不到或历史行为 nil"
+        "宿主客户端名（initialize clientInfo.name，如 openclacky/opencode/dsh；omp 为历史值，终端接入 2026-10-29 下线，旧流水仍含）#228 归因维度；取不到或历史行为 nil"
     )
 
     attribute(:session_id, :string,

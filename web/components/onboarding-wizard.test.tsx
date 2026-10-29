@@ -59,7 +59,7 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 			screen.getByRole("button", { name: "复制命令" }),
 		).toBeInTheDocument();
 
-		// ③ OpenClacky 默认路径由宿主内置助手发起；OMP/opencode 仍覆盖 token fallback。
+		// ③ OpenClacky 默认路径由宿主内置助手发起；opencode 仍覆盖 token fallback。
 	});
 
 	it("DSH 卡已启用：无「即将推出」badge；选中后 ②③ 可见，② 渲染安装指引，③ 渲染签发面板（U10/R17）", async () => {
@@ -94,13 +94,13 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 
 	it("回归（P2）：签发后切 DSH 再切回，一次性明文不丢（②③ 不再隐藏/卸载）", async () => {
 		render(<OnboardingWizard slug="cgc-academy" />);
-		fireEvent.click(await screen.findByRole("radio", { name: /OMP/ }));
+		fireEvent.click(await screen.findByRole("radio", { name: /opencode/ }));
 
 		fireEvent.click(
 			await screen.findByRole("button", { name: /签发新 token/ }),
 		);
 		fireEvent.change(
-			screen.getByPlaceholderText("如：我的 MacBook · OMP"),
+			screen.getByPlaceholderText("如：我的 MacBook · opencode"),
 			{ target: { value: "新设备" } },
 		);
 		fireEvent.click(screen.getByRole("button", { name: "签发" }));
@@ -114,23 +114,9 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 		expect(screen.getByTestId("onboarding-step-2")).toBeVisible();
 		expect(screen.getByTestId("onboarding-step-3")).toBeVisible();
 
-		// 切回 OMP：组件未被卸载，明文仍可见
-		fireEvent.click(screen.getByRole("radio", { name: /OMP/ }));
+		// 切回 opencode：组件未被卸载，明文仍可见
+		fireEvent.click(screen.getByRole("radio", { name: /opencode/ }));
 		expect(screen.getByText("cgc_wizard_plain_token")).toBeVisible();
-	});
-
-	it("宿主映射：选中 OMP 后 ② 渲染 .mcp.json 配置（AE3）", async () => {
-		render(<OnboardingWizard slug="cgc-academy" />);
-
-		fireEvent.click(await screen.findByRole("radio", { name: /OMP/ }));
-
-		const pre = screen.getByText(
-			(_, el) =>
-				el?.tagName === "CODE" && el.textContent?.includes('"mcpServers"'),
-		);
-		expect(pre).toHaveTextContent('"type": "http"');
-		expect(pre).toHaveTextContent("${CGC_TOKEN}");
-		expect(screen.queryByTitle("下载 OpenClacky")).not.toBeInTheDocument();
 	});
 
 	it("宿主映射：选中 opencode 后 ② 渲染 opencode.json 配置（AE3）", async () => {
@@ -146,7 +132,7 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 		expect(pre).toHaveTextContent("{env:CGC_TOKEN}");
 	});
 
-	it("OpenClacky 路径提供一键连接入口；切 OMP 后进入手工配置", async () => {
+	it("OpenClacky 路径提供一键连接入口；切 opencode 后进入手工配置", async () => {
 		render(<OnboardingWizard slug="cgc-academy" />);
 
 		expect(await screen.findByRole("link", { name: /打开 CGC OpenClacky/ })).toHaveAttribute(
@@ -154,19 +140,19 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 			"http://127.0.0.1:7070",
 		);
 
-		fireEvent.click(screen.getByRole("radio", { name: /OMP/ }));
+		fireEvent.click(screen.getByRole("radio", { name: /opencode/ }));
 		expect(screen.getByRole("button", { name: /签发新 token/ })).toBeInTheDocument();
 	});
 
 	it("签发成功 → 明文一次性展示 → 「我已保存」→ 完成态（种子话术卡 + 两出口）（AE4 前半）", async () => {
 		render(<OnboardingWizard slug="cgc-academy" />);
 
-		fireEvent.click(await screen.findByRole("radio", { name: /OMP/ }));
+		fireEvent.click(await screen.findByRole("radio", { name: /opencode/ }));
 		fireEvent.click(
 			screen.getByRole("button", { name: /签发新 token/ }),
 		);
 		fireEvent.change(
-			screen.getByPlaceholderText("如：我的 MacBook · OMP"),
+			screen.getByPlaceholderText("如：我的 MacBook · opencode"),
 			{
 				target: { value: "新设备" },
 			},
@@ -200,10 +186,10 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 		issueMcpToken.mockRejectedValue(new Error("errors.issueMcpTokenFailed"));
 		render(<OnboardingWizard slug="cgc-academy" />);
 
-		// 先切到 OMP，验证失败后选择不丢（placeholder 命名建议跟随宿主）
-		fireEvent.click(await screen.findByRole("radio", { name: /OMP/ }));
+		// 先切到 opencode，验证失败后选择不丢（placeholder 命名建议跟随宿主）
+		fireEvent.click(await screen.findByRole("radio", { name: /opencode/ }));
 		fireEvent.click(screen.getByRole("button", { name: /签发新 token/ }));
-		fireEvent.change(screen.getByPlaceholderText("如：我的 MacBook · OMP"), {
+		fireEvent.change(screen.getByPlaceholderText("如：我的 MacBook · opencode"), {
 			target: { value: "x" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "签发" }));
@@ -211,8 +197,8 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 		expect(await screen.findByRole("alert")).toHaveTextContent("签发失败");
 		// 不进完成态
 		expect(screen.queryByText("我在 2046 能做什么？")).not.toBeInTheDocument();
-		// 进度保留：仍是向导态且 OMP 选择仍在
-		expect(screen.getByRole("radio", { name: /OMP/ })).toBeChecked();
+		// 进度保留：仍是向导态且 opencode 选择仍在
+		expect(screen.getByRole("radio", { name: /opencode/ })).toBeChecked();
 	});
 
 	it("有 token 记录（含全撤销）的用户在向导态保留管理态入口（链 mcp tab）", async () => {
@@ -260,7 +246,7 @@ describe("OnboardingWizard（首公里接入向导，plan first-mile U4）", () 
 		).not.toBeInTheDocument();
 	});
 
-	it("stepper 当前步（C：选中态样式与 aria-current）：四宿主一致停在 ③ 签发", async () => {
+	it("stepper 当前步（C：选中态样式与 aria-current）：三宿主一致停在 ③ 签发", async () => {
 		render(<OnboardingWizard slug="cgc-academy" />);
 
 		await screen.findByRole("radio", { name: /OpenClacky/ });

@@ -92,7 +92,7 @@ describe("/w/[slug]/settings/integrations/agents 区入口页（向导/管理两
 		).not.toBeInTheDocument();
 	});
 
-	it("error → 回退管理态（tabs + 四子页入口卡），无「重新查看引导」；内联 role=alert + 重试（错误不静默吞）", async () => {
+	it("error → 回退管理态（tabs + 三子页入口卡），无「重新查看引导」；内联 role=alert + 重试（错误不静默吞）", async () => {
 		const reload = vi.fn();
 		useOnboardingState.mockReturnValue({
 			...ONBOARDING_BASE,
@@ -104,7 +104,7 @@ describe("/w/[slug]/settings/integrations/agents 区入口页（向导/管理两
 		const tabs = await screen.findByRole("navigation", {
 			name: "工作区设置页签",
 		});
-		for (const label of ["MCP", "OpenClacky", "opencode", "OMP"]) {
+		for (const label of ["MCP", "OpenClacky", "opencode"]) {
 			expect(within(tabs).getByRole("link", { name: label }))
 				.toBeInTheDocument();
 		}
@@ -151,14 +151,13 @@ describe("/w/[slug]/settings/integrations/agents 区入口页（向导/管理两
 			screen.getByRole("button", { name: "重新查看引导" }),
 		).toBeInTheDocument();
 
-		// 四子页入口卡
+		// 三子页入口卡
 		const cards = screen.getByTestId("agent-entry-cards");
 		const links = within(cards).getAllByRole("link");
 		expect(links.map((l) => l.getAttribute("href"))).toEqual([
 			"/w/cgc-academy/settings/integrations/agents/mcp",
 			"/w/cgc-academy/settings/integrations/agents/openclacky",
 			"/w/cgc-academy/settings/integrations/agents/opencode",
-			"/w/cgc-academy/settings/integrations/agents/omp",
 		]);
 	});
 

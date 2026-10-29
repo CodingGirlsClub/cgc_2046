@@ -3,8 +3,8 @@
 /**
  * 集成 - Agents 域 Tab 实例（Settings 子域之一，plan 016 模式）。
  *
- * 四个路由 tab：MCP（Token 管理）/ OpenClacky（接入引导）/
- * opencode / OMP（手动配置）。未来 IM 集成按同一模式新建
+ * 三个路由 tab：MCP（Token 管理）/ OpenClacky（接入引导）/
+ * opencode（手动配置）。未来 IM 集成按同一模式新建
  * IntegrationsImTabs 实例（复用 SettingsTabs 渲染层）。
  *
  * 目的地单源：本组件定义 tabs 数组；侧栏「集成」分组与品牌下拉菜单
@@ -27,11 +27,6 @@ const AGENTS_TABS: SettingsTabDef[] = [
 		key: "agents-opencode",
 		labelKey: "opencode",
 		href: (slug) => `/w/${slug}/settings/integrations/agents/opencode`,
-	},
-	{
-		key: "agents-omp",
-		labelKey: "omp",
-		href: (slug) => `/w/${slug}/settings/integrations/agents/omp`,
 	},
 ];
 

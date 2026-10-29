@@ -37,7 +37,7 @@ CGC 平台最初的技术方案是**网站自研 AI Agent**：后端用 `ash_ai`
 | D10 | 公共 Agent 分发 = **任务指令模式**：Agent 定义存网站，MCP 提供 `get_agent_instruction(workspace_id, agent_id)`；不做运行时下发文件，不做纯静态打包 |
 | D11 | 工作区 Skill 同步到本地：Skill 定义存网站，经连接器扩展同步到 `~/.clacky/skills/`（`SkillLoader#create_skill / delete_skill` 运行时写文件 + 立即注册）；角色过滤在网站侧 |
 | D12 | 多工作区 Scope = **无状态 workspace_id**：所有 MCP 工具必填 `workspace_id`（每调用鉴权 + 审计）；"当前工作区"= 对话上下文由 CGC 助手维护；Skill 本地同步加前缀 `cgc2046-<ws>-<skill>`；不做"每工作区一个 MCP server" |
-| D13 | Onboarding = 一次性三步（装 OpenClacky → 粘贴 mcp.json 片段 + 生成连接 token → `openclacky ext install`）；**单一配置点 = mcp.json**（扩展自动读 cgc 条目）；不做"一条命令全自动"。**已被 ADR-0022 修订：CGC 本机 Host 一条命令安装；网页对话的 CGC 能力经 ACP 会话下发，不读 mcp.json；终端接入仍以 mcp.json 为配置点。** |
+| D13 | Onboarding = 一次性三步（装 OpenClacky → 粘贴 mcp.json 片段 + 生成连接 token → `openclacky ext install`）；**单一配置点 = mcp.json**（扩展自动读 cgc 条目）；不做"一条命令全自动"。**已被 ADR-0022 修订：CGC 本机 Host 一条命令安装；网页对话的 CGC 能力经 ACP 会话下发，不读 mcp.json；终端接入仍以 mcp.json 为配置点。** **2026-10-29 勘误：OMP 插件形态下线，终端侧官方载体只剩 OpenClacky 扩展；mcp.json 现仅服务用户自配的 MCP 客户端（Claude Code / Cursor 等）。** |
 | D14 | 连接器扩展命名 = `cgc-2046`（扩展 id / MCP server 条目名 / 本地技能前缀统一） |
 
 **技术要点**：
