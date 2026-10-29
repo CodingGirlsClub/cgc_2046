@@ -80,6 +80,41 @@ defmodule Cgc2046Web.RouterTest do
     end
   end
 
+  # AshAdmin 列表页数据经已连接 socket 异步加载（初始 GET 静态帧不含行数据，
+  # 连 email 也不在场——本文件前面探索性断言实证），不可经静态 HTML 断言；
+  # 列表列配置由 Cgc2046.Accounts.UserAdminTest 钉住，细节页渲染在此走真实 GET。
+  test "platform_admin 在 admin user 详情页看到手机号明文，hashed_password 不落页面" do
+    admin = Fixtures.platform_admin("admin-users-phone")
+    user = Fixtures.register_user("admin-users-phone-target")
+    phone = "13812345678"
+
+    {:ok, user} =
+      user
+      |> Ash.Changeset.for_update(:update_phone, %{phone: phone}, actor: user)
+      |> Ash.update()
+
+    token = sign_in_token(admin.email)
+
+    params = %{
+      "domain" => AshAdmin.Domain.name(Cgc2046.Accounts),
+      "resource" => AshAdmin.Resource.name(Cgc2046.Accounts.User)
+    }
+
+    detail_html =
+      build_conn()
+      |> put_req_header("authorization", "Bearer " <> token)
+      |> get(
+        "/ops/admin?" <>
+          URI.encode_query(
+            Map.put(params, "primary_key", AshAdmin.Helpers.encode_primary_key(user))
+          )
+      )
+      |> html_response(200)
+
+    assert String.contains?(detail_html, phone)
+    refute String.contains?(detail_html, user.hashed_password)
+  end
+
   test "generated admin menu excludes private inbox while legacy notification resources still render" do
     admin = Fixtures.platform_admin("inbox-admin-menu")
     victim = Fixtures.register_user("inbox-admin-victim")

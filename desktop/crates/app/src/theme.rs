@@ -76,7 +76,7 @@ pub fn resolve(preference: ThemePreference, appearance: WindowAppearance) -> The
     }
 }
 
-pub const DEFAULT_THEME_NAME: &str = "Ayu Dark";
+pub const DEFAULT_THEME_NAME: &str = "Ayu Light";
 
 /// 官方 themes 目录下的主题包（每个文件可含多套明暗主题）。
 pub fn load_builtin_themes(cx: &mut App) {
