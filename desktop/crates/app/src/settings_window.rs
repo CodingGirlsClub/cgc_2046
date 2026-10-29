@@ -115,6 +115,12 @@ impl SettingsWindowView {
         cx.notify();
     }
 
+    /// 从其他窗口直接定位到 LLM Providers 配置页。
+    pub fn open_llm_providers(&mut self, cx: &mut Context<Self>) {
+        self.ai_view = AiRoute::Providers;
+        cx.notify();
+    }
+
     pub fn focus_handle(&self) -> FocusHandle {
         self.focus.clone()
     }

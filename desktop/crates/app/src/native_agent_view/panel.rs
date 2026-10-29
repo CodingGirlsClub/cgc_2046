@@ -249,6 +249,9 @@ impl NativeAgentView {
         if text.is_empty() {
             return;
         }
+        if !self.ensure_model_configured(cx) {
+            return;
+        }
         self.input
             .update(cx, |state, cx| state.set_value("", window, cx));
         if let Some(command) = parse_slash(&text) {
@@ -287,6 +290,35 @@ impl NativeAgentView {
                         .supports_images
                 })
         })
+    }
+
+    pub(super) fn ensure_model_configured(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.metadata().model_setup.allows_send() {
+            return true;
+        }
+        self.state.push_notice(
+            "还没有连接模型。请先在 Settings → AI → LLM Providers 配置 Provider；DeepSeek API Key 可在 platform.deepseek.com 获取。"
+                .to_string(),
+        );
+        cx.notify();
+        false
+    }
+
+    pub(super) fn open_model_settings(&mut self, cx: &mut Context<Self>) {
+        let mut opened = false;
+        for window in cx.windows() {
+            if let Some(root) = window.downcast::<crate::root_view::RootView>() {
+                let _ = root.update(cx, |root, _window, cx| {
+                    root.open_settings_ai_window(cx);
+                });
+                opened = true;
+                break;
+            }
+        }
+        if !opened {
+            self.state.push_notice("请在账号菜单里打开设置");
+            cx.notify();
+        }
     }
 
     pub(super) fn add_clipboard_image(&mut self, cx: &mut Context<Self>) {
@@ -426,6 +458,9 @@ impl NativeAgentView {
 
     /// 重试上一轮失败的请求：不新增用户气泡，直接用同一 prompt 重跑。
     pub(super) fn retry_last_turn(&mut self, cx: &mut Context<Self>) {
+        if !self.ensure_model_configured(cx) {
+            return;
+        }
         if !self.state.session.begin_retry() {
             return;
         }

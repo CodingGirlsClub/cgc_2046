@@ -147,6 +147,9 @@ impl NativeAgentView {
         self.state.session.host.is_some()
     }
     pub(super) fn dispatch_queued(&mut self, cx: &mut Context<Self>) {
+        if !self.ensure_model_configured(cx) {
+            return;
+        }
         if self
             .snapshot
             .as_ref()

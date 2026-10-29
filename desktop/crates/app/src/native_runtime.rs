@@ -466,3 +466,16 @@ impl Drop for NativeRuntimeConnection {
             .unbounded_send(Command::Disconnect(self.generation));
     }
 }
+
+#[cfg(test)]
+mod model_setup_tests {
+    use super::ModelSetup;
+
+    #[test]
+    fn only_unconfigured_blocks_send() {
+        assert!(!ModelSetup::Unconfigured.allows_send());
+        assert!(ModelSetup::Configured.allows_send());
+        assert!(ModelSetup::PendingCredentials.allows_send());
+        assert!(ModelSetup::DemoEcho.allows_send());
+    }
+}

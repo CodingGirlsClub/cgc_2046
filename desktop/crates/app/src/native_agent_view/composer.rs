@@ -6,7 +6,99 @@ use super::*;
 
 use gpui_kit::component::progress::ProgressCircle;
 
+fn composer_placeholder(setup: ModelSetup) -> &'static str {
+    match setup {
+        ModelSetup::Unconfigured => {
+            "还没有连接模型。先在 Settings → AI → LLM Providers 配置 Provider；DeepSeek API Key 可在 platform.deepseek.com 获取。"
+        }
+        ModelSetup::DemoEcho => "演示模式（Echo）：输入内容只在本机回显，不会调用真实模型。",
+        ModelSetup::Configured | ModelSetup::PendingCredentials => {
+            "给 CGC Agent 发消息… @ 引用上下文，/ 查看命令（Enter 发送，Shift+Enter 换行）"
+        }
+    }
+}
+
 impl NativeAgentView {
+    pub(super) fn render_model_setup_notice(
+        &self,
+        setup: ModelSetup,
+        palette: theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if !matches!(setup, ModelSetup::Unconfigured | ModelSetup::DemoEcho) {
+            return div().into_any_element();
+        }
+        let card = div()
+            .mx(space(2))
+            .mb(space(1))
+            .p(space(1))
+            .rounded(px(RADIUS_MEDIUM))
+            .border_1()
+            .border_color(palette.line)
+            .bg(palette.soft)
+            .flex()
+            .flex_col()
+            .gap(px(2.0));
+        if setup == ModelSetup::DemoEcho {
+            return card
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(palette.ink_2)
+                        .child("演示模式（Echo）"),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_3)
+                        .child("当前只会离线回显输入内容，不会调用真实模型。"),
+                )
+                .into_any_element();
+        }
+        let open_root = cx.entity().downgrade();
+        card.child(
+            div()
+                .text_size(px(12.0))
+                .text_color(palette.ink_2)
+                .child("还没有连接模型"),
+        )
+        .child(
+            div()
+                .text_size(px(11.0))
+                .text_color(palette.ink_3)
+                .child("先在 Settings → AI → LLM Providers 配置 Provider；推荐 DeepSeek，API Key 可在 platform.deepseek.com 获取。"),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(space(1))
+                .child(
+                    Button::new("native-model-setup-open-settings")
+                        .label("去配置模型")
+                        .xsmall()
+                        .on_click(move |_, _, cx| {
+                            let _ = open_root.update(cx, |this, cx| {
+                                this.open_model_settings(cx);
+                            });
+                        }),
+                )
+                .child(
+                    Button::new("native-model-setup-deepseek")
+                        .label("获取 DeepSeek API Key")
+                        .xsmall()
+                        .ghost()
+                        .on_click(|_, _, cx| {
+                            cx.open_url("https://platform.deepseek.com/api_keys");
+                        }),
+                ),
+        )
+        .into_any_element()
+    }
+
+    // 旧的 composer 链式布局保持原排版，避免 rustfmt 重排整段 UI builder。
+    #[rustfmt::skip]
     pub(super) fn render_native_composer_legacy(
         &mut self,
         draft: &ComposerDraft,
@@ -32,7 +124,11 @@ impl NativeAgentView {
         let change_count = self.metadata().changes.len();
 
         let pickers = self.native_composer_pickers(palette, cx);
-        let send_aria = if busy {
+        let model_setup = self.metadata().model_setup;
+        let model_ready = model_setup.allows_send();
+        let send_aria = if !model_ready {
+            "发送（需先配置模型）"
+        } else if busy {
             if has_input {
                 "发送（排队）"
             } else {
@@ -50,19 +146,23 @@ impl NativeAgentView {
         } else {
             "↑"
         };
-        let send_bg = if busy && !has_input {
+        let send_bg = if !model_ready {
+            palette.soft
+        } else if busy && !has_input {
             palette.danger
         } else if !busy && !has_input {
             palette.soft
         } else {
             palette.accent
         };
-        let send_fg = if !busy && !has_input {
+        let send_fg = if !model_ready || (!busy && !has_input) {
             palette.ink_3
         } else {
             palette.canvas
         };
-        let send_tip = if busy {
+        let send_tip = if !model_ready {
+            "先在 Settings → AI → LLM Providers 配置模型"
+        } else if busy {
             if has_input {
                 "排队发送（⌘↩ 立即打断发送）"
             } else {
@@ -416,9 +516,7 @@ impl NativeAgentView {
                                     .text_size(rems(0.875))
                                     .line_height(rems(1.25))
                                     .text_color(palette.ink_3)
-                                    .child(
-                                        "给 CGC Agent 发消息… @ 引用上下文，/ 查看命令（Enter 发送，Shift+Enter 换行）",
-                                    )
+                                    .child(composer_placeholder(model_setup))
                                     .on_click(move |_, window, cx| {
                                         window.focus(&focus, cx);
                                     })
@@ -565,6 +663,9 @@ impl NativeAgentView {
                                     text_size: 12.0,
                                     ml_auto: false,
                                     on_click: Box::new(move |window, cx| {
+                                        if !model_ready {
+                                            return;
+                                        }
                                         let _ = send_weak.update(cx, |this, cx| {
                                             if busy && !has_input {
                                                 this.stop(cx);
@@ -577,5 +678,26 @@ impl NativeAgentView {
                             )),
                     )
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::composer_placeholder;
+    use crate::native_runtime::ModelSetup;
+
+    #[test]
+    fn placeholder_explains_model_setup_instead_of_echo() {
+        let unconfigured = composer_placeholder(ModelSetup::Unconfigured);
+        assert!(unconfigured.contains("Settings → AI → LLM Providers"));
+        assert!(unconfigured.contains("DeepSeek"));
+        assert!(!unconfigured.contains("Echo"));
+
+        let demo = composer_placeholder(ModelSetup::DemoEcho);
+        assert!(demo.contains("演示模式"));
+        assert!(demo.contains("Echo"));
+
+        let configured = composer_placeholder(ModelSetup::Configured);
+        assert!(configured.contains("给 CGC Agent 发消息"));
     }
 }
