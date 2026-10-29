@@ -10,6 +10,7 @@ defmodule Cgc2046.Integrations.Wechat.WebLoginLaunchTest do
 
       assert Jason.decode!(body) == %{
                "path" => "pages/web-login/index",
+               "query" => "cq=wl_" <> @code,
                "expire_type" => 1,
                "expire_interval" => 1
              }
@@ -17,7 +18,7 @@ defmodule Cgc2046.Integrations.Wechat.WebLoginLaunchTest do
       Req.Test.json(conn, %{url_link: "https://wxaurl.cn/test"})
     end)
 
-    assert {:ok, %{launch_url: "https://wxaurl.cn/test?cq=wl_" <> @code}} =
+    assert {:ok, %{launch_url: "https://wxaurl.cn/test"}} =
              WebLoginLaunch.generate(:link, @code)
   end
 

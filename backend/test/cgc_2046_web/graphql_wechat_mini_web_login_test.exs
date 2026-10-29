@@ -23,7 +23,9 @@ defmodule Cgc2046Web.GraphqlWechatMiniWebLoginTest do
           |> send_resp(200, <<137, 80, 78, 71, 13, 10, 26, 10>>)
 
         "/wxa/generate_urllink" ->
+          # path 不带 query；动态参数走单独的 query 字段（微信 URL Link 契约）。
           assert body["path"] == "pages/web-login/index"
+          assert String.starts_with?(body["query"], "cq=wl_")
           assert body["expire_type"] == 1
           assert body["expire_interval"] == 1
 
@@ -500,7 +502,7 @@ defmodule Cgc2046Web.GraphqlWechatMiniWebLoginTest do
     {id, proof, launch_url} = desktop_start()
 
     assert String.length(proof) == 43
-    assert String.starts_with?(launch_url, "https://wxaurl.cn/DesktopLogin?cq=wl_")
+    assert launch_url == "https://wxaurl.cn/DesktopLogin"
 
     pending = http_desktop(desktop_status(id, proof)) |> json_response(200)
 
