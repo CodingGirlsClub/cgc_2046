@@ -2,6 +2,8 @@ use super::worker::Owner;
 use super::*;
 use cgc_agent_checkpoint::CheckpointManager;
 use cgc_agent_core::{Agent, SelectedModel};
+use cgc_agent_provider::{EchoProvider, UnconfiguredProvider};
+use cgc_agent_store::PrefsStore;
 use cgc_agent_tools::SandboxPolicy;
 
 impl Owner {
@@ -129,6 +131,9 @@ impl Owner {
             } => {
                 let result = self.select_model(&provider, &model);
                 let _ = reply.send(result);
+            }
+            Command::RefreshProviders => {
+                let _ = self.refresh_providers();
             }
             Command::Thinking {
                 enabled,
@@ -340,6 +345,73 @@ impl Owner {
             ),
             RuntimeChange::Opened,
         );
+        self.persist();
+        Ok(self.snapshot())
+    }
+
+    /// Settings 保存并验证 Provider 后重新读取 `agent_prefs.json`，同步当前会话的
+    /// provider/model，避免用户重启客户端。
+    fn refresh_providers(&mut self) -> Result<Arc<NativeRuntimeSnapshot>, NativeRuntimeError> {
+        self.idle()?;
+        let production = self
+            .production
+            .as_mut()
+            .ok_or_else(|| NativeRuntimeError::Configuration("runtime 未配置模型目录".into()))?;
+        let prefs = PrefsStore::new(production.data_root.join("agent_prefs.json")).load();
+        production.providers = Arc::new(prefs.providers.clone());
+        self.providers = Arc::new(prefs.providers.clone());
+        let Some(active) = prefs.active_provider().cloned() else {
+            production.pending = None;
+            production.model_setup = if production.allow_echo {
+                ModelSetup::DemoEcho
+            } else {
+                ModelSetup::Unconfigured
+            };
+            self.config.provider = if production.allow_echo {
+                Arc::new(EchoProvider::new(self.config.model.clone()))
+            } else {
+                Arc::new(UnconfiguredProvider::new(self.config.model.clone()))
+            };
+            self.model_meta = Arc::new(self.config.model.clone());
+            self.publish(RuntimeChange::Configuration);
+            return Ok(self.snapshot());
+        };
+        let model_id = prefs
+            .selected_model
+            .as_ref()
+            .filter(|selection| selection.provider_id.as_str() == active.id)
+            .map(|selection| selection.model_id.as_str().to_string())
+            .or_else(|| active.primary_model().map(str::to_string))
+            .unwrap_or_else(|| self.config.model.id.as_str().to_string());
+        let model_id = if active.model_config(&model_id).enabled {
+            model_id
+        } else {
+            active
+                .models
+                .iter()
+                .find(|id| active.model_config(id).enabled)
+                .cloned()
+                .unwrap_or(model_id)
+        };
+        let (provider, model) = factory::select_model(production, &active.id, &model_id)?;
+        self.config.provider = provider;
+        self.config.context_size = model.limits.context_window as u64;
+        self.config.model = model.clone();
+        self.model_meta = Arc::new(model.clone());
+        let selected = SelectedModel::new(model.provider_id.clone(), model.id.clone());
+        if self.frozen.model != selected {
+            self.persist();
+            let serial = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            self.replace(
+                Thread::new(format!("native-demo-{serial}"), selected),
+                RuntimeChange::Configuration,
+            );
+        } else {
+            self.publish(RuntimeChange::Configuration);
+        }
         self.persist();
         Ok(self.snapshot())
     }

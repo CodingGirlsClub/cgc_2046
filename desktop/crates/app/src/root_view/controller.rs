@@ -2171,6 +2171,14 @@ impl RootView {
         self.open_settings_window_inner(true, cx);
     }
 
+    /// Settings 保存并验证 Provider 后，让 native runtime 重新读取 provider/model。
+    pub(crate) fn refresh_native_providers(&mut self, cx: &mut Context<Self>) {
+        if let Some(runtime) = &self.native_runtime {
+            runtime.refresh_providers();
+        }
+        cx.notify();
+    }
+
     fn open_settings_window_inner(&mut self, open_llm_providers: bool, cx: &mut Context<Self>) {
         if let Some(existing) = cx
             .windows()

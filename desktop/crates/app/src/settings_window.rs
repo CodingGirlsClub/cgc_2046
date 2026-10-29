@@ -453,10 +453,14 @@ impl SettingsWindowView {
                     draft.key_editing = false;
                 }
                 self.error = None;
-                self.notice = Some(format!("{} API Key 已验证并保存", provider.name));
+                self.notice = Some(format!(
+                    "{} API Key 已验证并保存，返回 Agent 面板即可使用",
+                    provider.name
+                ));
                 if return_to_providers {
                     self.ai_view = AiRoute::Providers;
                 }
+                Self::refresh_root_native_providers(cx);
             }
             Err(error) => {
                 self.notice = None;
@@ -467,6 +471,17 @@ impl SettingsWindowView {
             }
         }
         cx.notify();
+    }
+
+    fn refresh_root_native_providers(cx: &mut Context<Self>) {
+        for window in cx.windows() {
+            if let Some(root) = window.downcast::<crate::root_view::RootView>() {
+                let _ = root.update(cx, |root, _window, cx| {
+                    root.refresh_native_providers(cx);
+                });
+                break;
+            }
+        }
     }
 
     fn sync_all_draft_names(&mut self, cx: &mut Context<Self>) {
