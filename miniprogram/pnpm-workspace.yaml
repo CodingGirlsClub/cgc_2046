@@ -53,6 +53,20 @@ overrides:
   "shell-quote@>=1.8.4 <1.11.0": 1.11.0
   "source-map-js@>=1.0.0 <1.2.2": 1.2.2
   "compression@<1.8.2": 1.8.2
+  # 2026-10-29：@tarojs/taro > webpack-dev-server 构建期传递链的 4 条新 high
+  # 公告收敛（audit 数据库当日更新触发，develop push 的 miniprogram required
+  # check 因此变红）。全部同 major 补丁位，仅构建期工具链、无运行时面；
+  # 上游解析自然收敛到补丁版后可逐条移除。
+  # - GHSA-q3jh-wrc6-jgq8 / GHSA-8r9p-f939-6h3c（follow-redirects array-form
+  #   headers bypass、sensitiveHeaders 正则转义）：http-proxy 传递依赖，
+  #   1.16.0 → 1.16.1。
+  # - GHSA-587h-7wmj-h5pm（launch-editor fs.existsSync 存在性检查可绕过）：
+  #   2.14.1 → 2.14.2。
+  # - GHSA-27r3-jxmh-p828（body-parser 压缩请求尾字节 DoS）：express 传递依赖，
+  #   1.20.6 → 1.20.9。
+  "follow-redirects@>=1.16.0 <1.16.1": 1.16.1
+  "launch-editor@<=2.14.1": 2.14.2
+  "body-parser@<1.20.9": 1.20.9
 # pnpm 设置真源。pnpm 11 起不再读 package.json 的 "pnpm" 字段（本地 11 实证
 # 连 onlyBuiltDependencies 都被静默忽略）；pnpm 10（CI）与 11 都读本文件，
 # 本地/CI 行为一致。
