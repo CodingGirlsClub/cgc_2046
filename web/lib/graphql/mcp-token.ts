@@ -5,8 +5,8 @@ import type { MutationError } from "./shared";
 /**
  * 切片 D（#44）MCP 连接 token GraphQL 契约（对齐 backend graphql_schema.ex 手写三入口）。
  *
- * 与登录 token 是两种凭证：本契约管理的是 MCP 客户端（OpenClacky/omp/opencode）
- * 调 /mcp 端点用的 Bearer token，绑用户不绑工作区（D13）。
+ * 与登录 token 是两种凭证：本契约管理的是 MCP 客户端（OpenClacky 及用户自配的
+ * MCP 客户端）调 /mcp 端点用的 Bearer token，绑用户不绑工作区（D13）。
  *
  * 安全约束（D-D4/D-D10）：
  * - 明文仅 createMcpToken 响应的 plainToken 一次性返回；McpToken 类型不含明文/hash

@@ -246,7 +246,7 @@
 
 - **定义**：按"一次干活"聚合操作序列的概念（D9：操作摘要、关联对象、操作者，网站自动生成、不做用户侧上报）。**实体不落地（#211 裁决 2/3，2026-08-18）**：原设计的聚合锚先后被架构演进移除——Agent 实体不建模（形态 X / BYO，R2 已删 `Step.agent_id`）、主链路不再经过 Step（学习/教研锚 user × course，切片 H），"按 Step 聚合"的实体形态已失效。
 - **架构位置**：审计义务由 **ToolCallLog 事件账本**承担（D9 的自动记录/防抵赖已兑现）；AgentRun 语义 = ToolCallLog 之上的**投影**，可从流水回填重建，不建写模型。结果账本按 context 就位：LearningRecord（学习）/ ResearchOutput（教研）/ WorkflowRun.facts（Step 链路产物）。
-- **重启条件**：Agent 资源落地（roadmap：plan 020，`get_agent_instruction` 切库）或多宿主（OpenClacky / OpenCode / DSH；OMP 终端接入已于 2026-10-29 下线）会话归因需求成真 → 从 ToolCallLog 投影重建；**前置 = 流水补 `client_name` / `session_id` 归因维度**（模型可重算、流水维度不记则历史不可回填，#228）。
+- **重启条件**：Agent 资源落地（roadmap：plan 020，`get_agent_instruction` 切库）或多宿主（OpenClacky 及桌面 external agent；omp / opencode / dsh 的终端接入已于 2026-10-29 全部下线）会话归因需求成真 → 从 ToolCallLog 投影重建；**前置 = 流水补 `client_name` / `session_id` 归因维度**（模型可重算、流水维度不记则历史不可回填，#228）。
 
 ---
 

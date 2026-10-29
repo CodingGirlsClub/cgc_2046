@@ -3,7 +3,7 @@ defmodule Cgc2046.Mcp.Token do
   连接 token 资源（MCP Bearer token，D13 / D-D4）。
 
   与网站登录 token（`Cgc2046.Accounts.Token`，httpOnly cookie JWT）是两种不同凭证：
-  - 本资源：用户 OpenClacky/opencode/omp 等 MCP 客户端调 `/mcp` 端点用的 Bearer token
+  - 本资源：用户 OpenClacky 及自配 MCP 客户端调 `/mcp` 端点用的 Bearer token
   - 绑用户、不绑工作区；可访问用户加入的多个 Workspace，租户由每次调用的
     `workspace_id` 参数判定（D6/D12）
 
