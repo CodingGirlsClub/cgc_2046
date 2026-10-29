@@ -15,6 +15,8 @@ impl RootView {
                 .map(|session| session.user_id.as_str()),
         );
         let paths = AppPaths::from_env();
+        let allow_echo = paths.environment == cgc_platform::paths::AppEnvironment::Dev
+            || std::env::var_os("CGC_NATIVE_AGENT_DEMO").is_some();
         let state = Arc::new(std::sync::Mutex::new(cgc_agent_tools::AgentState::default()));
         let mut host = NativePanelHost::new(
             state,
@@ -26,6 +28,7 @@ impl RootView {
             paths.data_root.clone(),
             host,
             self.workspaces.epoch(),
+            allow_echo,
         );
         let context = self.page_context.clone();
         if self.store_writer.is_none() {
@@ -81,7 +84,7 @@ impl RootView {
             Arc::new(std::sync::Mutex::new(cgc_agent_tools::AgentState::default())),
             None,
         );
-        let runtime = NativeRuntimeHandle::for_scope(scope, data_root, host, 0);
+        let runtime = NativeRuntimeHandle::for_scope(scope, data_root, host, 0, true);
         cx.new(|cx| {
             crate::native_agent_view::NativeAgentView::new(
                 window,

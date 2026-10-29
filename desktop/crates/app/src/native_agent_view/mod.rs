@@ -36,8 +36,8 @@ use crate::native_context::{
 };
 use crate::native_panel_host::SubagentCard;
 use crate::native_runtime::{
-    ApprovalMode, CheckpointAction, NativeRuntimeEvent, NativeRuntimeHandle, NativeRuntimeSnapshot,
-    PreparedNativeTurn, RuntimeChange, RuntimePhase,
+    ApprovalMode, CheckpointAction, ModelSetup, NativeRuntimeEvent, NativeRuntimeHandle,
+    NativeRuntimeSnapshot, PreparedNativeTurn, RuntimeChange, RuntimePhase,
 };
 use crate::native_view_model::{
     build_message_row_kinds, needs_checkpoint_confirm, subagent_cards_for_rows,

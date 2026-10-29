@@ -2,6 +2,7 @@ use super::*;
 use cgc_agent_core::{run_subagent, Agent, SelectedModel};
 use cgc_agent_provider::{
     EchoProvider, ModelLimits, OpenAiCompatibleConfig, OpenAiCompatibleProvider, ProviderId,
+    UnconfiguredProvider,
 };
 use cgc_agent_store::{provider_key_account, PrefsStore};
 use cgc_agent_tools::{
@@ -23,7 +24,8 @@ pub(super) struct Production {
     pub providers: Arc<Vec<ProviderPrefs>>,
     pub data_root: PathBuf,
     pub keychain: KeychainStore,
-    pub using_echo: bool,
+    pub allow_echo: bool,
+    pub model_setup: ModelSetup,
     pub pending: Option<PendingCredentials>,
 }
 
@@ -31,8 +33,15 @@ pub(super) fn initialize(
     scope: &AgentScope,
     data_root: PathBuf,
     host: NativePanelHost,
+    allow_echo: bool,
 ) -> Result<(Agent, NativeRuntimeConfig, Production), NativeRuntimeError> {
-    initialize_with_keychain(scope, data_root, host, KeychainStore::from_env())
+    initialize_with_keychain(
+        scope,
+        data_root,
+        host,
+        KeychainStore::from_env(),
+        allow_echo,
+    )
 }
 
 /// 可注入钥匙串的构造入口：测试用它断言「初始化不读钥匙串」。
@@ -41,6 +50,7 @@ pub(super) fn initialize_with_keychain(
     data_root: PathBuf,
     host: NativePanelHost,
     keychain: KeychainStore,
+    allow_echo: bool,
 ) -> Result<(Agent, NativeRuntimeConfig, Production), NativeRuntimeError> {
     std::fs::create_dir_all(&scope.root)
         .map_err(|error| NativeRuntimeError::Storage(error.to_string()))?;
@@ -101,7 +111,10 @@ pub(super) fn initialize_with_keychain(
         }),
         _ => None,
     };
-    let (provider, using_echo) = provider(&model, base_url, env_key);
+    let (provider, mut model_setup) = provider(&model, base_url, env_key, allow_echo);
+    if pending.is_some() {
+        model_setup = ModelSetup::PendingCredentials;
+    }
     let agent = Agent::new(
         Thread::new(
             format!("native-{}", scope.key),
@@ -127,7 +140,8 @@ pub(super) fn initialize_with_keychain(
             providers: Arc::new(prefs.providers),
             data_root,
             keychain,
-            using_echo,
+            allow_echo,
+            model_setup,
             pending,
         },
     ))
@@ -137,7 +151,8 @@ fn provider(
     model: &Model,
     base_url: Option<String>,
     api_key: Option<String>,
-) -> (Arc<dyn Provider>, bool) {
+    allow_echo: bool,
+) -> (Arc<dyn Provider>, ModelSetup) {
     match (base_url, api_key) {
         (Some(url), Some(key)) if !url.is_empty() && !key.is_empty() => (
             Arc::new(OpenAiCompatibleProvider::new(OpenAiCompatibleConfig::new(
@@ -145,9 +160,16 @@ fn provider(
                 key,
                 vec![model.clone()],
             ))),
-            false,
+            ModelSetup::Configured,
         ),
-        _ => (Arc::new(EchoProvider::new(model.clone())), true),
+        _ if allow_echo => (
+            Arc::new(EchoProvider::new(model.clone())),
+            ModelSetup::DemoEcho,
+        ),
+        _ => (
+            Arc::new(UnconfiguredProvider::new(model.clone())),
+            ModelSetup::Unconfigured,
+        ),
     }
 }
 
@@ -179,8 +201,14 @@ pub(super) fn select_model(
     let key = production
         .keychain
         .load_secret(&provider_key_account(&configured.id));
-    let (provider, using_echo) = provider(&model, Some(configured.base_url.clone()), key);
-    production.using_echo = using_echo;
+    let (provider, model_setup) = provider(
+        &model,
+        Some(configured.base_url.clone()),
+        key,
+        production.allow_echo,
+    );
+    production.model_setup = model_setup;
+    production.pending = None;
     let store = PrefsStore::new(production.data_root.join("agent_prefs.json"));
     let mut prefs = store.load();
     prefs.selected_provider = Some(configured.id.clone());
@@ -214,8 +242,13 @@ pub(super) fn summary_title_model(
     if key.is_empty() {
         return None;
     }
-    let (provider, using_echo) = provider(&model, Some(configured.base_url.clone()), Some(key));
-    (!using_echo).then_some((provider, model))
+    let (provider, model_setup) = provider(
+        &model,
+        Some(configured.base_url.clone()),
+        Some(key),
+        production.allow_echo,
+    );
+    (model_setup == ModelSetup::Configured).then_some((provider, model))
 }
 
 /// 只做「配置是否可用」的判定，便于单测（不读钥匙串、不建 provider）。
@@ -250,12 +283,26 @@ pub(super) fn resolve_pending_key(
         .filter(|key| !key.is_empty());
     production.pending = None;
     let Some(key) = key else {
-        // 失败保持 echo；下次 turn 不再重试，避免每次发送都阻塞。
-        production.using_echo = true;
+        // 失败不重试，避免每次发送都阻塞；生产环境不再回退到 Echo。
+        production.model_setup = if production.allow_echo {
+            ModelSetup::DemoEcho
+        } else {
+            ModelSetup::Unconfigured
+        };
+        config.provider = if production.allow_echo {
+            Arc::new(EchoProvider::new(config.model.clone()))
+        } else {
+            Arc::new(UnconfiguredProvider::new(config.model.clone()))
+        };
         return false;
     };
-    let (provider, using_echo) = provider(&config.model, Some(pending.base_url), Some(key));
-    production.using_echo = using_echo;
+    let (provider, model_setup) = provider(
+        &config.model,
+        Some(pending.base_url),
+        Some(key),
+        production.allow_echo,
+    );
+    production.model_setup = model_setup;
     config.provider = provider;
     true
 }
@@ -386,8 +433,61 @@ mod tests {
             root: root.join("workspace"),
         };
         let (_agent, _config, _production) =
-            initialize_with_keychain(&scope, root.clone(), host(), keychain).expect("init");
+            initialize_with_keychain(&scope, root.clone(), host(), keychain, false).expect("init");
         assert_eq!(gets.load(Ordering::SeqCst), 0, "启动路径不得读钥匙串");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// 生产环境没有 Provider 时必须进入未配置状态，且不能回显假回复。
+    #[test]
+    fn production_without_provider_is_unconfigured() {
+        let root = temp_root("prod-unconfigured");
+        let keychain = KeychainStore::new(Arc::new(RecordingBackend {
+            gets: Arc::new(AtomicUsize::new(0)),
+        }));
+        let scope = AgentScope {
+            key: "test".into(),
+            root: root.join("workspace"),
+        };
+        let (_agent, config, production) =
+            initialize_with_keychain(&scope, root.clone(), host(), keychain, false).expect("init");
+        assert_eq!(production.model_setup, ModelSetup::Unconfigured);
+        let result = futures::executor::block_on(
+            config
+                .provider
+                .stream(&config.model, cgc_agent_provider::Request::default()),
+        );
+        let error = match result {
+            Ok(_) => panic!("生产环境未配置 Provider 时不得产生 Echo 流"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("未配置模型"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// demo/dev 环境没有 Provider 时仍保留 Echo，供离线 UI 回归。
+    #[test]
+    fn demo_without_provider_keeps_echo() {
+        let root = temp_root("demo-echo");
+        let keychain = KeychainStore::new(Arc::new(RecordingBackend {
+            gets: Arc::new(AtomicUsize::new(0)),
+        }));
+        let scope = AgentScope {
+            key: "test".into(),
+            root: root.join("workspace"),
+        };
+        let (_agent, config, production) =
+            initialize_with_keychain(&scope, root.clone(), host(), keychain, true).expect("init");
+        assert_eq!(production.model_setup, ModelSetup::DemoEcho);
+        assert!(
+            futures::executor::block_on(
+                config
+                    .provider
+                    .stream(&config.model, cgc_agent_provider::Request::default()),
+            )
+            .is_ok(),
+            "demo/dev 应保留 Echo 流"
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -423,7 +523,8 @@ mod tests {
             keychain: KeychainStore::new(Arc::new(RecordingBackend {
                 gets: Arc::new(AtomicUsize::new(0)),
             })),
-            using_echo: false,
+            allow_echo: false,
+            model_setup: ModelSetup::Configured,
             pending: None,
         }
     }
@@ -490,7 +591,8 @@ mod tests {
             providers: Arc::new(Vec::new()),
             data_root: root.to_path_buf(),
             keychain,
-            using_echo: true,
+            allow_echo: false,
+            model_setup: ModelSetup::PendingCredentials,
             pending: Some(PendingCredentials {
                 provider_id: "deepseek".into(),
                 base_url: "https://example.invalid".into(),
