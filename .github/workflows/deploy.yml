@@ -101,6 +101,8 @@ jobs:
           echo "变更检测：backend=$backend web=$web" >> "$GITHUB_STEP_SUMMARY"
 
   backend:
+    permissions:
+      contents: read
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
@@ -379,6 +381,8 @@ jobs:
   # ── web：build（NEXT_PUBLIC_* 经 Kamal build_args 内联，#254）→ 部署 ──
   # 各 job 独立 runner：registry login / SSH 不共享，必须各自执行
   web:
+    permissions:
+      contents: read
     # 串行于 backend：双组件变更时若新 web 依赖新 backend API，并行拓扑下
     # web（实测 3-7min）必先于 backend（5-15min，deps 重建 45min+）上线，
     # 窗口内新 web 打旧 backend。backend skipped 放行（backend-only 变更
@@ -450,6 +454,7 @@ jobs:
           BACKEND_URL: ${{ vars.BACKEND_URL }}
 
   smoke:
+    permissions: {}
     needs: [changes, backend, web]
     # 生产健康检查与本次部署范围无关：deploy 无 failure/cancelled 即恒跑，
     # 包括双 skip（docs-only merge）——顺带兜底「上次部署遗留的坏状态」
@@ -478,6 +483,7 @@ jobs:
   # 定义机器人安全设置的自定义关键词，不含关键词的消息会被拒收。
   # cancelled（queue 替换/手动取消）不通知。
   notify:
+    permissions: {}
     needs: [changes, backend, web, smoke]
     if: ${{ failure() }}
     runs-on: ubuntu-latest
