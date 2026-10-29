@@ -31,6 +31,9 @@ jobs:
   # 直接 push(parents==1)、基线漂移(tree 不等)、squash merge、判断异常
   #   → run=true。fail-closed 于质量门:宁可多跑,不漏跑。
   gate:
+    permissions:
+      contents: read
+      checks: read
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -141,6 +144,8 @@ jobs:
           echo "纯文档判定:$result" >> "$GITHUB_STEP_SUMMARY"
 
   backend:
+    permissions:
+      contents: read
     needs: [gate, changes]
     # 双重去重:gate 挡「等价于已绿 PR 的 merge push」;PR 侧仅跳过
     # 「head 为本仓库 develop」的 PR(复用 develop push 的同 SHA 结论);
@@ -236,6 +241,8 @@ jobs:
       - run: mix test --only migration_probe
         timeout-minutes: 10
   web:
+    permissions:
+      contents: read
     needs: [gate, changes]
     # 去重条件同 backend(gate + PR 侧 develop→main 跳过)
     if: >
@@ -304,6 +311,8 @@ jobs:
           BACKEND_URL: http://localhost:4000
 
   miniprogram:
+    permissions:
+      contents: read
     needs: [gate, changes]
     # 去重条件同 backend(gate + PR 侧 develop→main 跳过)
     if: >
@@ -354,6 +363,8 @@ jobs:
   # 强制 GITLEAKS_LICENSE 商业许可；CLI 自取二进制，行为等价（检出即非零退出）。
   # 放行项仅 dev/test 静态 secret_key_base，见根目录 .gitleaks.toml。
   secrets:
+    permissions:
+      contents: read
     needs: gate
     # 去重条件同 backend(gate + PR 侧 develop→main 跳过)
     if: >
@@ -389,6 +400,8 @@ jobs:
   # Ruby 套件，内部 Open3 调 node）+ bin/pack 冒烟（manifest 与「git 跟踪
   # 集 − 容器 .gitignore」全等校验 + ext verify）。本地同命令秒级。
   ext:
+    permissions:
+      contents: read
     needs: [gate, changes]
     # 去重条件同 backend(gate + PR 侧 develop→main 跳过)
     if: >
@@ -621,6 +634,8 @@ jobs:
   # secrets）。不挂 gate：镜像存在性与 CI 去重无关。仅 push 事件跑：PR
   # 事件不碰凭证（fork PR 本就无 secrets）。
   deps-image:
+    permissions:
+      contents: read
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     # 冷构建（mix.lock 变更后首次）在 2 核 runner 上需 45min+（AGENTS.md 已记录），
@@ -656,6 +671,8 @@ jobs:
           fi
 
   agent-docs:
+    permissions:
+      contents: read
     name: agent-docs
     runs-on: ubuntu-latest
     timeout-minutes: 5

@@ -25,7 +25,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # 发布前 schema 兼容门（#1183）：客户端先于后端发布时，登录等 API 在生产不存在，
+  # GraphQL 返回 Cannot query field，客户端只会显示「网络异常」。fail-closed：
+  # 生产 schema 缺任一字段就拒绝出包，避免再发一个登录不可用的内测包。
+  schema-gate:
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - name: 校验生产后端 schema 兼容
+        working-directory: desktop
+        run: |
+          python3 scripts/check_release_schema.py --self-test
+          python3 scripts/check_release_schema.py
+
   build:
+    needs: schema-gate
     permissions:
       contents: read
     strategy:
