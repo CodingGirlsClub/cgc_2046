@@ -427,14 +427,20 @@ jobs:
     permissions:
       contents: read
     needs: [gate, changes]
+    # 两个细节（Codex review 指出）：
+    # 1) 只有「明确判定无桌面改动」才跳过——changes job 失败时该输出为空，必须照跑
+    #    （fail-closed），否则桌面检查被静默跳过还当成功。
+    # 2) 合并 push 的 gate 去重不覆盖打包：PR 阶段打包已跳过，若合并后也被跳过，
+    #    打包就再没人验证（只剩 tag 发布才发现坏），所以涉及桌面端的 merge push 照跑。
     if: >
       !cancelled() &&
-      needs.gate.outputs.run == 'true' &&
       needs.changes.outputs.docs_only != 'true' &&
-      needs.changes.outputs.desktop_changed == 'true' &&
+      needs.changes.outputs.desktop_changed != 'false' &&
       (github.event_name == 'push' ||
        github.head_ref != 'develop' ||
-       github.event.pull_request.head.repo.full_name != github.repository)
+       github.event.pull_request.head.repo.full_name != github.repository) &&
+      (needs.gate.outputs.run == 'true' ||
+       (github.event_name == 'push' && needs.changes.outputs.desktop_changed == 'true'))
     strategy:
       fail-fast: false
       matrix:
@@ -566,24 +572,41 @@ jobs:
     # 只做结果汇总，不需要任何 token 权限。
     permissions: {}
     needs: [gate, changes, desktop-build]
+    # 注意这里不判断 desktop_changed：PR 上即使跳过 desktop-build 也要跑本 job，
+    # 才能把 required check 报成 success（skipped 分支已校验「明确无桌面改动」）。
     if: >
       !cancelled() &&
-      needs.gate.outputs.run == 'true' &&
       needs.changes.outputs.docs_only != 'true' &&
       (github.event_name == 'push' ||
        github.head_ref != 'develop' ||
-       github.event.pull_request.head.repo.full_name != github.repository)
+       github.event.pull_request.head.repo.full_name != github.repository) &&
+      (needs.gate.outputs.run == 'true' ||
+       (github.event_name == 'push' && needs.changes.outputs.desktop_changed == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: 汇总三平台结果
+        env:
+          RESULT: ${{ needs.desktop-build.result }}
+          CHANGED: ${{ needs.changes.outputs.desktop_changed }}
         run: |
-          echo "desktop-build: ${{ needs.desktop-build.result }}"
-          # 改动不涉及桌面端时 desktop-build 整体 skipped：这是预期，算通过。
-          # 其余情况（success 以外）一律红。
-          case "${{ needs.desktop-build.result }}" in
-            success|skipped) echo "desktop ok" ;;
-            *) echo "FAIL: desktop-build ${{ needs.desktop-build.result }}" >&2; exit 1 ;;
+          echo "desktop-build: $RESULT (desktop_changed=$CHANGED)"
+          case "$RESULT" in
+            success) echo "desktop ok" ;;
+            skipped)
+              # 只有「明确判定无桌面改动」时 skipped 才是预期；changes job 失败导致
+              # 输出为空时 skipped 说明桌面检查根本没跑，必须红（fail-closed）。
+              if [ "$CHANGED" = "false" ]; then
+                echo "desktop ok（本次改动不涉及桌面端）"
+              else
+                echo "FAIL: desktop-build 被跳过，但 desktop_changed='$CHANGED'" >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo "FAIL: desktop-build $RESULT" >&2
+              exit 1
+              ;;
           esac
 
   # deps 基础镜像前移：develop push 时 TCR 缺当前 deps 层输入（mix.lock +
