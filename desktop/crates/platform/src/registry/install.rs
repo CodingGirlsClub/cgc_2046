@@ -136,18 +136,20 @@ pub fn install_entry(
             if !node.exists() {
                 return Err(InstallError::NodeRuntimeIncomplete);
             }
-            let npx = node.npx();
+            // 与 launch 同源：用托管 node 执行 npx-cli.js。npx 脚本的 shebang 是
+            // `#!/usr/bin/env node`，直接跑会去 PATH 找 node，无系统 Node 的机器必挂。
+            let node_bin = node.node();
+            let npx_cli = node.npx_cli_js().to_string_lossy().to_string();
             let spec = format!("{package}@{version}");
             let check_args = if entry.version_args.is_empty() {
                 vec!["--version".to_string()]
             } else {
                 entry.version_args.clone()
             };
-            let mut args = vec!["--yes".to_string(), spec.clone()];
-            args.extend(check_args);
-            let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+            let mut args = vec![npx_cli.as_str(), "--yes", spec.as_str()];
+            args.extend(check_args.iter().map(String::as_str));
             runner
-                .run(&npx, &arg_refs)
+                .run(&node_bin, &args)
                 .map_err(|message| InstallError::CommandFailed {
                     program: "npx".to_string(),
                     message,
@@ -198,26 +200,28 @@ mod tests {
     fn runtime() -> NodeRuntime {
         let root = std::env::temp_dir().join(format!("cgc-install-node-{}", std::process::id()));
         let runtime = NodeRuntime::new(root);
-        // 与 NodeRuntime 的平台布局保持一致（Windows 是 node.exe + npx.cmd）。
+        // 与 NodeRuntime 的平台布局保持一致（Windows 是 node.exe + node_modules/npm）。
         std::fs::create_dir_all(runtime.bin_dir()).expect("mkdir");
         std::fs::write(runtime.node(), b"#!/bin/sh\n").expect("node");
-        std::fs::write(runtime.npx(), b"#!/bin/sh\n").expect("npx");
+        std::fs::create_dir_all(runtime.npx_cli_js().parent().expect("parent")).expect("mkdir npx");
+        std::fs::write(runtime.npx_cli_js(), b"#!/usr/bin/env node\n").expect("npx-cli");
         runtime
     }
 
     #[test]
-    fn npx_install_pins_package_and_uses_managed_npx() {
+    fn npx_install_pins_package_and_uses_managed_node() {
         let runner = FakeRunner::default();
         let node = runtime();
         let result = install_entry(&entry("codex"), Some(&node), &runner).expect("installed");
         assert_eq!(result.version.as_deref(), Some("2.2.2"));
         let calls = runner.calls.lock().expect("calls");
         assert_eq!(calls.len(), 1);
-        // Windows 上托管 npx 是 `npx.cmd`，别用后缀 "npx" 断言平台文件。
-        assert_eq!(calls[0].0, node.npx().display().to_string());
+        // 安装也必须由托管 node 执行 npx-cli.js，而不是 spawn npx 脚本。
+        assert_eq!(calls[0].0, node.node().display().to_string());
         assert_eq!(
             calls[0].1,
             vec![
+                node.npx_cli_js().to_string_lossy().to_string(),
                 "--yes".to_string(),
                 "@agentclientprotocol/codex-acp@2.2.2".to_string(),
                 "--version".to_string()

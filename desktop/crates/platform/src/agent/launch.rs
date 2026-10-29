@@ -1,8 +1,9 @@
 //! agent 启动计划（story 5.4）：按内置清单把条目翻译成可执行命令与环境白名单。
 //!
 //! - OMP：直接使用本机 `omp acp`（BYO 安装）。
-//! - Codex / Claude Code：使用客户端管理的 Node.js 24 runtime 中的 `npx`，
-//!   固定版本执行 `--yes <pkg>@<version>`；不依赖用户 PATH 里的 node/npm。
+//! - Codex / Claude Code：使用客户端管理的 Node.js 24 runtime，由托管 node 直接执行
+//!   npm 的 `npx-cli.js`（固定版本 `--yes <pkg>@<version>`）；不依赖用户 PATH 里的
+//!   node/npm——npx 是 `#!/usr/bin/env node` 脚本，只选绝对路径仍会回落到 PATH。
 //! - 环境变量白名单：清空后只注入 PATH/HOME/临时目录/语言与 npm 缓存，不携带凭证。
 
 use std::collections::BTreeMap;
@@ -39,19 +40,23 @@ pub struct LaunchPlan {
 }
 
 impl LaunchPlan {
-    /// 供 `AcpAgent::from_str` 使用的命令串（路径含空格时加引号）。
+    /// 供 `AcpAgent::from_str` 使用的命令串（含空格的路径/参数加引号，`shell_words` 可解析）。
     pub fn command_string(&self) -> String {
-        let program = self.program.to_string_lossy();
-        let mut command = if program.contains(' ') {
-            format!("\"{program}\"")
-        } else {
-            program.to_string()
-        };
+        let mut command = quote_part(&self.program.to_string_lossy());
         for arg in &self.args {
             command.push(' ');
-            command.push_str(arg);
+            command.push_str(&quote_part(arg));
         }
         command
+    }
+}
+
+/// `shell_words` 兼容的引号：含空格/引号/反斜杠时用双引号包裹并转义。
+fn quote_part(part: &str) -> String {
+    if part.contains([' ', '"', '\'', '\\']) {
+        format!("\"{}\"", part.replace('\\', "\\\\").replace('"', "\\\""))
+    } else {
+        part.to_string()
     }
 }
 
@@ -111,16 +116,18 @@ impl NodeRuntime {
         }
     }
 
-    pub fn npx(&self) -> PathBuf {
+    /// npm 的 npx 入口（JS）。npx 脚本本身是 `#!/usr/bin/env node`，必须由托管
+    /// node 执行，否则会去 PATH 找 node——没有系统 Node 的机器上直接失败。
+    pub fn npx_cli_js(&self) -> PathBuf {
         if cfg!(windows) {
-            self.root.join("npx.cmd")
+            self.root.join("node_modules/npm/bin/npx-cli.js")
         } else {
-            self.bin_dir().join("npx")
+            self.root.join("lib/node_modules/npm/bin/npx-cli.js")
         }
     }
 
     pub fn exists(&self) -> bool {
-        self.node().is_file() && self.npx().is_file()
+        self.node().is_file() && self.npx_cli_js().is_file()
     }
 }
 
@@ -171,14 +178,22 @@ pub fn build_launch_with_env(
                     expected: runtime.root.clone(),
                 });
             }
-            let npx = runtime.npx();
-            if !npx.is_file() {
-                return Err(LaunchError::NpxMissing { expected: npx });
+            let npx_cli = runtime.npx_cli_js();
+            if !npx_cli.is_file() {
+                return Err(LaunchError::NpxMissing {
+                    expected: npx_cli.clone(),
+                });
             }
-            let mut args = vec!["--yes".to_string(), format!("{package}@{version}")];
+            // 用托管 node 执行 npx-cli.js：npx 的 shebang 是 `#!/usr/bin/env node`，
+            // 直接 spawn 绝对路径仍会去 PATH 找 node，无系统 Node 的机器上必挂。
+            let mut args = vec![
+                npx_cli.to_string_lossy().to_string(),
+                "--yes".to_string(),
+                format!("{package}@{version}"),
+            ];
             args.extend(entry.launch_args.clone());
             Ok(LaunchPlan {
-                program: npx,
+                program: runtime.node(),
                 args,
                 env,
                 cwd: cwd.to_path_buf(),
@@ -232,19 +247,22 @@ mod tests {
     }
 
     #[test]
-    fn npx_plan_uses_pinned_package_and_managed_npx() {
+    fn npx_plan_uses_managed_node_and_pinned_package() {
         let dir = std::env::temp_dir().join(format!("cgc-node-{}", std::process::id()));
         let runtime = NodeRuntime::new(&dir);
-        // 夹具按平台布局落文件：Unix 是 bin/node + bin/npx，Windows 是
-        // node.exe + npx.cmd（否则 exists() 在 Windows 上永远为假）。
+        // 夹具按平台布局落文件：Unix 是 bin/node + lib/node_modules/npm/bin/npx-cli.js，
+        // Windows 是 node.exe + node_modules/npm/bin/npx-cli.js。
         std::fs::create_dir_all(runtime.bin_dir()).expect("mkdir");
         std::fs::write(runtime.node(), b"#!/bin/sh\n").expect("node");
-        std::fs::write(runtime.npx(), b"#!/bin/sh\n").expect("npx");
+        std::fs::create_dir_all(runtime.npx_cli_js().parent().expect("parent")).expect("mkdir npx");
+        std::fs::write(runtime.npx_cli_js(), b"#!/usr/bin/env node\n").expect("npx-cli");
         let plan = build_launch(&entry("codex"), Some(&runtime), Path::new("/tmp")).expect("plan");
-        assert_eq!(plan.program, runtime.npx());
+        // 必须由托管 node 执行 npx-cli.js；直接 spawn npx 脚本会退回 PATH 找 node。
+        assert_eq!(plan.program, runtime.node());
         assert_eq!(
             plan.args,
             vec![
+                runtime.npx_cli_js().to_string_lossy().to_string(),
                 "--yes".to_string(),
                 "@agentclientprotocol/codex-acp@2.2.2".to_string()
             ]
@@ -256,6 +274,27 @@ mod tests {
             Some("false")
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn command_string_quotes_paths_with_spaces() {
+        // macOS 的托管 runtime 落在 `~/Library/Application Support/...`，路径含空格；
+        // AcpHost 用 shell_words 解析命令串，参数不加引号会被拆坏。
+        let plan = LaunchPlan {
+            program: PathBuf::from("/Applications/CGC App/node"),
+            args: vec![
+                "/Users/a/Library/Application Support/cgc-desktop/node24/lib/node_modules/npm/bin/npx-cli.js"
+                    .to_string(),
+                "--yes".to_string(),
+                "pkg@1.0.0".to_string(),
+            ],
+            env: BTreeMap::new(),
+            cwd: PathBuf::from("/tmp"),
+        };
+        assert_eq!(
+            plan.command_string(),
+            "\"/Applications/CGC App/node\" \"/Users/a/Library/Application Support/cgc-desktop/node24/lib/node_modules/npm/bin/npx-cli.js\" --yes pkg@1.0.0"
+        );
     }
 
     #[test]
