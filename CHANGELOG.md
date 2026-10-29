@@ -20,26 +20,23 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ### Added
 - [Web] 工作台缴费管理升级为订单台账：报名人改为显示**掩码手机号**（小程序用户不再是一行「—」）与**会员号**，有邮箱的用户以邮箱兜底；新增「活动/课程」列（标题 + 类型）与「下单时间」；每行可展开查看商户单号、渠道交易号、时间线与押金同意留痕；退款失败的行可直接「重试退款」；订单列表改为分页加载，不再静默截断在 50 条。活动/课程详情页的收款面板同步使用同一套列与操作资格（免缴按报名状态判定，与后端一致）。
-- [本机 Host] 按 ACP initialize 的能力协商会话恢复与 MCP 下发：从握手读取协议版本、`loadSession`、`session/list` 与 HTTP MCP 能力（字段缺失按支持处理，兼容旧适配器）；协议版本不一致的适配器不再被当成可用，明确不支持 HTTP MCP 或无法核实会话归属时给出可诊断的降级（清指针、从新对话开始，`chat.sessions` 回空列表）。
+- [Backend] 通知携带 `targetType` / `targetId` 并细化跳转：`InboxSnapshot` 写入 UUID 校验后的类型与目标 ID，经 GraphQL `Notification` 暴露；活动类通知指向活动详情、学习停滞指向课程、报名/支付指向报名页；桌面通知优先按这两字段路由，旧通知回退 `deepLink`；学习停滞通知补 `course_id`，通知时间转本地时区；小程序 codegen 产物同步。
 
 ### Changed
 - [Web] 接入引导收敛为**单一 OpenClacky 路径**：删除 opencode 接入页与 DSH 插件家族卡，首公里向导去掉宿主选择器（三步直连 OpenClacky：安装 → 装扩展 → 连接），删除 `/setup` 环境准备落地页与「终端 + Herdr」内容源（`runtime-setup-sections`）。MCP 页仍对任意 MCP 客户端开放，`terminal` token 与手动配置能力不变。opencode / DSH 的终端接入不再维护，DSH 插件家族仓 `CodingGirlsClub/dsh-cgc` 归档。
 - [OMP 接入 / Web] 下线 OMP 插件接入线：删除 `omp-plugin/`（`cgc-2046` 接入包与 `cgc-play` 游戏）、`.omp-plugin/marketplace.json` 与同步分发仓的 workflow；Web 工作台设置去掉 OMP 接入页，首公里向导不再把 OMP 列为可选宿主。终端 OMP 不再作为接入形态维护，本机 agent 统一走桌面客户端（native / external）。外部分发仓 `CodingGirlsClub/cgc-omp-plugins` 归档。包内质检方法 `cgc-quality-eval` 未丢弃，已迁入 OpenClacky 扩展（`ext.yml` v0.1.8，挂载到 `cgc-tutor`），措辞改为宿主无关。
 - [Web] 缴费台账的筛选口径统一：统计卡跟随活动/课程筛选（选中即换口径并标注统计范围，不再出现「切了筛选数字不动」）；活动下拉按活动/课程分组；工作区页与活动/课程详情面板默认只显示「非终态 + 已退款 + 已没收」，并新增「全部状态」显式查看已取消/已过期订单。
-- [本机 Host / Web] 学习搭子**打开就能选模型与思考/推理强度**：没有会话指针时先在 `chat.attach` 建一条空会话（`session/new`，指针不落盘）再取设置，因此不用先发一句话也能选；改动只影响首次打开的空态。
+- [Web] 域名单一真源收敛到 `codingirlsclub.com`：品牌邮箱、hackerstart 页面文案与 canonical 测试桩里错拼的 `codinggirlsclub.com` 统一改为 `codingirlsclub.com`；桌面 bundle identifier 同步 `com.codinggirlsclub.*` → `com.codingirlsclub.*`（上线前改成本最低，上线后会丢通知身份与 LaunchServices 注册）。
+- [Web / 本机 Host] 移除学习搭子与本机 Host 前端：删除课程页「学习搭子 / Learning Mate」抽屉、Host 连接 / 配对 / 对话前端与配套测试（28 个文件，-7312 行）；`proxy.ts` 去掉 `HOST_HTTP_ORIGIN` / `HOST_WS_URL` 与 CSP `connect-src` 的 loopback 放行，`globals.css` 清理 learning-mate / learning-chat 抽屉样式。
+- [本机 Host] 删除 `cgc-host` 运行时及 CI / 分发链路：整个 `cgc-host/`（75 个文件）与部署产物构建、`host` 质量门 job 一并删除（-9907 行），职责已由桌面客户端内化（ADR-0025 / 0028），Web 端不再有消费方。
 
 ### Fixed
-- [本机 Host] 看门狗强制收尾后的迟到更新不再写入会话缓冲（此前 agent 在本地 `turn.end` 之后继续推的消息会被 `chat.attach` 重放，出现「结束标记之后还有内容」；晚到的设置变更也不再改会话设置或推 `chat.settings`）；`chat.sessions` 的 `current` 与会话行一样按归属账号过滤，换账号后不再回上一个账号的 sessionId。Host 版本 `0.2.10`（`MIN_HOST_VERSION` 保持 `0.2.3`）。
-- [本机 Host] Codex 课程的「停止」不再把课程切回 OMP，并补齐回合收尾与隔离：`chat.stop` / `card.answer` / `chat.sessions` 的目标 agent 与当前会话对齐。
-- [本机 Host / Web] 历史对话显示 agent 给的标题（时间与条数移到悬停说明）；对话栏同时显示本会话的上下文用量与费用（`usage_update` 不进对话流）。
-- [Web] 刷新后静默重连改用会话级证据并保留首次手势门：成功连上（含旧版 Host 的 `staleHost` 应答）即把「本页曾连上」写入 `sessionStorage`（不含凭证与 Host 信息），刷新后凭证据允许一次静默探测——权限查询恒报 `prompt` 的浏览器不再反复要授权；首次访问在无证据时仍等用户手势，隐私模式存储抛错则退回内存标记，避免把「Host 需要更新」误换成授权卡。
-- [本机 Host] 会话切换与回合收尾加固：`chat.open` 改为事务式切换，失败不破坏当前会话；回合加看门狗，agent 无应答时本地收尾而不是无限等待；会话目录做二次校验并把卡片绑定到当前回合；复用安装的运行期探针改用登录 shell 环境，与真实启动保持一致。
-- [本机 Host / Web] 学习搭子的登录体验收尾：登录首屏文案补齐，登录卡增加内边距，不再顶到面板边框。
 - [Web] 登录来源判定接受本站 www 别名：站点别名解析改成对称（裸域配置接受 www 变体、反之亦然），小程序二维码登录也接受本站 www 域名来源——此前生产 web 同时由裸域与 www 提供，www 来源被拒。
 
 ### Security
-- [Backend] 依赖安全升级：`bandit` 1.13.1 → 1.14.0（HTTP/2 WINDOW_UPDATE 超时绕过）、`ash_postgres` 2.13.1 → 2.15.2（跨租户读泄漏与「跳过 upsert 返回他人记录」两处 multitenancy 缺陷）、`plug_crypto` 2.2.0 → 2.2.1（密钥进 stack trace）、`jose` 1.11.12 → 1.11.13（8 条 advisory，含 HIGH 的弱 PBKDF2 与 GCM tag 伪造）。`mix hex.audit` 从 11 条 advisory 清零；ash 3.36→3.37 的 `ash_functions_version` 6→7 随迁移重定义 `ash_required/2`（`CREATE OR REPLACE`，幂等）。
-- [本机 Host / Web] `status` 最小化（去掉页面从未消费的字段、`tokenId` 只给已 hello 的连接）；配对请求的冷却从受理开始计数，无效 token 与平台不可达的早退同样受限；Host 日志统一脱敏（凭证与 Bearer 头只留前缀，覆盖 ACP 错误与兜底 catch）。
+- [Web] next 16.3.8 → 16.4.2：修两个未认证 RCE（GHSA-2464-fhr4-w9xw Image Optimization、GHSA-673q-mjm6-r5xr `use cache` 返回 typed array，均 critical）与 App Router Server Actions DoS（GHSA-p3m5-59mp-jv5r，high）；`eslint-config-next` 同步到 16.4.2 保持规则一致。
+- [Web] 基镜像钉 `node:24.22.1-slim`：浮动 `node:24-slim` 只在构建时前进，上次部署早于 24.22.1 发布、线上镜像停在 24.22.0；三处 `FROM` 与 `engines.node` 同步钉到含 2026-10 安全发布的版本。
+- [Backend] 依赖安全升级：`bandit` 1.13.1 → 1.14.1（1.14.0 的 HTTP/2 `WINDOW_UPDATE` 超时绕过 + 1.14.1 的 GHSA-pxjf-g536-7r93）、`ash_postgres` 2.13.1 → 2.15.2（跨租户读泄漏与「跳过 upsert 返回他人记录」两处 multitenancy 缺陷）、`plug_crypto` 2.2.0 → 2.2.1（密钥进 stack trace）、`jose` 1.11.12 → 1.11.13（8 条 advisory，含 HIGH 的弱 PBKDF2 与 GCM tag 伪造）。`mix hex.audit` 从 11 条 advisory 清零；ash 3.36→3.37 的 `ash_functions_version` 6→7 随迁移重定义 `ash_required/2`（`CREATE OR REPLACE`，幂等）。
 
 ## [Desktop v0.1.0]
 
@@ -65,6 +62,11 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 - [Desktop] native Agent **编辑重发**不再因失效检查点中断：文件回滚失败时退回「仅回滚对话」继续重发，恢复重构前“检查点尽力回滚、不阻断重发”的语义；rewind 后自动重连再提交。
 - [Desktop] native 长会话统一保留模型推理设置与输出预留；历史按完整用户回合连续裁剪，避免拆开工具调用与结果。摘要记录明确覆盖范围并有界分块，重开或短 follow-up 不再重复发送已覆盖原文；中文、system 与工具 schema 纳入估计预算，固定输入超限时明确报错并保留原输入。
 - [Desktop] native Agent 的命令前缀授权仅复用于简单命令的完整参数边界，复合命令、shell 展开、重定向和引号重新请求审批，防止借已批准的前缀执行额外命令（#1176）。
+- [Desktop] 启用 **Markdown 代码高亮**并统一视图入口：开启 gpui-kit 的 syntect feature（配色走既有 HighlightTheme、懒加载），新增 `syntect` 5.3 / `two-face` 0.4（MIT）；复制语义改为单一样式块内复制纯文本、跨样式才回退源码；`markdown_view` 拆出带代码块 Copy 与可选中两种入口，三处直连 `TextView::markdown` 的渲染点收敛。
+- [Desktop] composer 的**上下文用量改为圆环**：↑/↓ 两个圆环替代百分比文字，悬停展示 Input / Output token 用量与项目规则数量；用量 ≥85% 转警示色。
+- [Desktop] 审批规则（`toolPermissions`）收敛为 **native-only**（路线 A / Zed 对齐）：settings 级规则只作用于 native agent；external ACP agent 的审批完全由 agent 自身 options 决定，客户端只渲染共享审批卡并原样回传 `option_id`，不做策略拦截。
+- [Desktop] 会话**可恢复投影与后台 writer**（`conversations.db` v3）：新增 `thread_snapshots` 表，未答审批降级为 Warning Notice、已答保留决定；单后台 writer 有界队列、按 thread 合并最高 revision、clear 按提交序号作废旧快照、flush 栅栏；真实临时库测试覆盖原子提交、清空压制与 ACP add-only 兼容。
+
 ## [2026-10-18]
 
 ### Added
