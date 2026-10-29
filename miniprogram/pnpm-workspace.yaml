@@ -76,6 +76,26 @@ overrides:
   #   产物不打包 npm swiper（映射平台原生组件），仅 H5 使用，需三端构建验证。
   "vm2@<3.12.2": 3.12.2
   "swiper@<12.1.2": 12.1.2
+  # 2026-10-29：Dependabot high 收敛。全部为开发/构建工具链（GraphQL codegen、
+  # Taro CLI、webpack runner），无小程序运行面；同 major 补丁位优先，
+  # @graphql-tools/utils 与 serialize-javascript 为跨 major 但 API 兼容，
+  # 由 codegen/三端构建/单测验证。
+  # - @fastify/busboy 3.2.0 → 3.2.1：GHSA-xjh9-v7x6-24jw（multipart boundary DoS）
+  # - @graphql-tools/executor-legacy-ws 1.1.32 → 1.1.36：
+  #   GHSA-6fw5-9hq8-w87g（TLS 校验关闭）、GHSA-434m-5hcj-pxf3（WebSocket 参数串用户）
+  # - @graphql-tools/utils 11.2.2 → 12.0.2：
+  #   GHSA-7mx3-vvmw-hjmv（mergeDeep 原型污染）、GHSA-c4qx-w738-7hr3
+  # - axios 1.19.0 → 1.20.0：GHSA-3pq3-5fj3-cg6v 等 4 条（HTTP/2 代理绕过、SSRF 等）
+  # - adm-zip 0.5.18 → 0.6.1：GHSA-xcpc-8h2w-3j85 等 3 条（解压内存/SUID）
+  # - serialize-javascript 6.0.2 → 7.0.3：GHSA-5c6j-r48x-rmvq（RegExp/Date RCE）
+  # - vite 8.2.1 → 8.2.4：GHSA-587h-7wmj-h5pm（launch-editor Windows 路径检查）
+  "@fastify/busboy@<3.2.1": 3.2.1
+  "@graphql-tools/executor-legacy-ws@<1.1.36": 1.1.36
+  "@graphql-tools/utils@<12.0.2": 12.0.2
+  "axios@<1.20.0": 1.20.0
+  "adm-zip@<0.6.1": 0.6.1
+  "serialize-javascript@<7.0.3": 7.0.3
+  "vite@<8.2.4": 8.2.4
 # pnpm 设置真源。pnpm 11 起不再读 package.json 的 "pnpm" 字段（本地 11 实证
 # 连 onlyBuiltDependencies 都被静默忽略）；pnpm 10（CI）与 11 都读本文件，
 # 本地/CI 行为一致。
@@ -89,6 +109,10 @@ auditConfig:
     # 直接替换 CJS 调用方）。保留 Dependabot 侧 dismiss 记录并跟踪上游。
     - GHSA-hrh2-vp3x-79xf
     - GHSA-mp2f-45pm-3cg9
+    # 2026-10-29：git-clone 0.1.0 命令注入（GHSA-8jmw-wjr8-2x66，无修复版）：
+    # @tarojs/cli>download-git-repo>git-clone，仅 `taro create` 下载模板使用，
+    # 构建/CI/运行不经过；上游无新版，Dependabot 侧 dismiss 并跟踪替换。
+    - GHSA-8jmw-wjr8-2x66
     # 2026-10-17：两条**无修复版**的构建期传递依赖公告（上游尚无补丁，
     # overrides 无处收敛，只能显式豁免并写明可利用面）。
     # - GHSA-86w9-cpqp-85rv（node-forge RSA PKCS#1 v1.5 签名校验接受多余
