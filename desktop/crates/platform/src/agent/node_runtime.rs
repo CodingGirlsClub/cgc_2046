@@ -59,8 +59,9 @@ pub fn current_artifact() -> Option<NodeArtifact> {
     })
 }
 
-/// runtime 根目录：`<data>/node24`。Unix 下含 `bin/node`、`bin/npx`；
-/// Windows 下是根目录的 `node.exe`、`npx.cmd`（官方 zip 解压布局）。
+/// runtime 根目录：`<data>/node24`。Unix 下含 `bin/node` 与
+/// `lib/node_modules/npm/bin/npx-cli.js`；Windows 下是根目录的 `node.exe` 与
+/// `node_modules/npm/bin/npx-cli.js`（官方 zip 解压布局）。
 pub fn default_root() -> PathBuf {
     crate::paths::AppPaths::from_env().node_runtime_root()
 }
@@ -321,13 +322,14 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("cgc-node-ok-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("mkdir");
-        // 先构造一个最小 tar.xz，布局按平台来：Unix 是 node-vX/bin/node，
-        // Windows 是 node-vX/node.exe（与官方 zip 解压后的形态一致），
+        // 先构造一个最小 tar.xz，布局按平台来：Unix 是 node-vX/bin/node +
+        // node-vX/lib/node_modules/npm/bin/npx-cli.js，Windows 是 node-vX/node.exe +
+        // node-vX/node_modules/npm/bin/npx-cli.js（与官方 zip 解压后的形态一致），
         // 否则 status() 在 Windows 上会判成 Missing。
         let (node_rel, npx_rel) = if cfg!(windows) {
-            ("node.exe", "npx.cmd")
+            ("node.exe", "node_modules/npm/bin/npx-cli.js")
         } else {
-            ("bin/node", "bin/npx")
+            ("bin/node", "lib/node_modules/npm/bin/npx-cli.js")
         };
         let source = dir.join("source");
         let archive_root = source.join("node-v24.22.0-test");
