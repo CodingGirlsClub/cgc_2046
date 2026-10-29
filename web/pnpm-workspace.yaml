@@ -9,6 +9,11 @@ overrides:
   # 均为构建期/可选面，无运行时面。
   "source-map-js@<1.2.2": 1.2.2
   "sharp@<0.35.5": 0.35.5
+  # 2026-10-29：Dependabot high 收敛，均为开发/测试工具链：
+  # - undici 8.9.0 → 8.12.2（jsdom 传递依赖；5 条 TLS 校验/DoS/缓存公告）
+  # - vite 8.2.0 → 8.2.4（vitest/@vitejs/plugin-react peer；GHSA-587h-7wmj-h5pm）
+  "undici@<8.12.2": 8.12.2
+  "vite@<8.2.4": 8.2.4
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
