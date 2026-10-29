@@ -19,6 +19,15 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 ## [Unreleased]
 
 ### Added
+- [Backend] AshAdmin 的 users 页面展示用户手机号：`table_columns` 增加 `:phone` 并加入 `show_sensitive_fields` 豁免（运营联系学员需要）；admin 面由 `PlatformAdminPlug` + `PlatformAdminLiveAuth` 双层门控、仅 platform_admin 可达，`hashed_password` 保持遮罩，编辑面不变（管理员不能经 AshAdmin 改他人手机号）。
+
+### Fixed
+- [Backend] 修复小程序「登录链接无效」：微信 URL Link 短链此前把 `cq=wl_<code>` 拼在短链 URL 的 query 上，而微信进小程序不转发 URL query，web-login 页拿不到 `requestId`；改为 `generate_urllink` 的 `path` 携带 `cq` 参数、动态参数走独立 `query` 字段，短链本身不再拼 query。
+
+
+## [2026-10-29]
+
+### Added
 - [Web] 工作台缴费管理升级为订单台账：报名人改为显示**掩码手机号**（小程序用户不再是一行「—」）与**会员号**，有邮箱的用户以邮箱兜底；新增「活动/课程」列（标题 + 类型）与「下单时间」；每行可展开查看商户单号、渠道交易号、时间线与押金同意留痕；退款失败的行可直接「重试退款」；订单列表改为分页加载，不再静默截断在 50 条。活动/课程详情页的收款面板同步使用同一套列与操作资格（免缴按报名状态判定，与后端一致）。
 - [Backend] 通知携带 `targetType` / `targetId` 并细化跳转：`InboxSnapshot` 写入 UUID 校验后的类型与目标 ID，经 GraphQL `Notification` 暴露；活动类通知指向活动详情、学习停滞指向课程、报名/支付指向报名页；桌面通知优先按这两字段路由，旧通知回退 `deepLink`；学习停滞通知补 `course_id`，通知时间转本地时区；小程序 codegen 产物同步。
 
@@ -67,6 +76,7 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 - [Desktop] 审批规则（`toolPermissions`）收敛为 **native-only**（路线 A / Zed 对齐）：settings 级规则只作用于 native agent；external ACP agent 的审批完全由 agent 自身 options 决定，客户端只渲染共享审批卡并原样回传 `option_id`，不做策略拦截。
 - [Desktop] 会话**可恢复投影与后台 writer**（`conversations.db` v3）：新增 `thread_snapshots` 表，未答审批降级为 Warning Notice、已答保留决定；单后台 writer 有界队列、按 thread 合并最高 revision、clear 按提交序号作废旧快照、flush 栅栏；真实临时库测试覆盖原子提交、清空压制与 ACP add-only 兼容。
 - [Desktop] `Desktop Release` 新增**生产 schema 兼容门禁**：出包前用 `desktop/scripts/check_release_schema.py` 提取客户端实际使用的 GraphQL 字段并逐个探测生产端点，缺任一字段即 fail-closed 拒绝构建（`--self-test` 覆盖提取与判定）；修复 #1183 暴露的「客户端先发、后端未发」顺序问题。
+- [Desktop] schema 门禁的探测改为 fail-closed：HTTP 非 2xx 且无 GraphQL `errors`、或缺 `data`/`errors` 的 envelope 一律判为不可用（此前会被当成 exists，不可用后端可让所有探测通过）。
 
 ## [2026-10-18]
 
