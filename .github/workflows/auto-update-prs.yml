@@ -39,7 +39,9 @@ jobs:
                 echo "PR #$num updated"
               else
                 # 失败评论去重：同一 PR 已发过 bot 失败评论就不再刷。
-                existing=$(gh pr comments "$num" --json author,body --jq '[.[] | select(.author.login=="github-actions[bot]" and (.body | contains("自动更新分支失败")))] | length' || echo 0)
+                # `gh pr comments` 不是合法子命令（去重永远拿到 0 → 每次都重复评论）；
+              # 正确取法是 `gh pr view --json comments`，jq 走 `.comments`。
+              existing=$(gh pr view "$num" --json comments --jq '[.comments[] | select(.author.login=="github-actions[bot]" and (.body | contains("自动更新分支失败")))] | length' || echo 0)
                 if [ "$existing" = "0" ]; then
                   gh pr comment "$num" --body "develop 合并后自动更新分支失败（可能有冲突或保护限制），请人工处理。" || true
                 fi
