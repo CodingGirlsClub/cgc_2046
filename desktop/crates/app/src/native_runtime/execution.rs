@@ -91,15 +91,32 @@ impl Owner {
             cancel,
             steer: agent.steer_sender(),
         });
-        let mut config = self.config.clone();
-        // 凭据在首次 turn 前解析；启动路径不再碰钥匙串（真机会阻塞）。
-        if let Some(production) = self.production.as_mut() {
-            if factory::resolve_pending_key(production, &mut self.config) {
-                config.provider = self.config.provider.clone();
+        let had_pending = self
+            .production
+            .as_ref()
+            .is_some_and(|production| production.pending.is_some());
+        let resolved = if had_pending {
+            let Some(production) = self.production.as_mut() else {
+                return;
+            };
+            factory::resolve_pending_key(production, &mut self.config)
+        } else {
+            false
+        };
+        if had_pending {
+            // Provider 解析后必须重建工具 registry：SubagentRunner 在构造时
+            // 会捕获当时的 provider/model，不能继续使用旧的 UnconfiguredProvider。
+            self.rebuild_tools();
+            if resolved {
                 self.notice("已读取本机保存的 Provider Key，使用真实模型".into());
-                self.publish(RuntimeChange::Configuration);
+            } else {
+                self.notice(
+                    "未读取到 Provider API Key，请先在 Settings → AI → LLM Providers 配置".into(),
+                );
             }
+            self.publish(RuntimeChange::Configuration);
         }
+        let mut config = self.config.clone();
         // 让工具（尤其是 run_command）能在 Stop 后立刻收尾，而不是等自身 timeout。
         config.context = config
             .context

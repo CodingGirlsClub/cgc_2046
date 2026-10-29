@@ -103,9 +103,10 @@ pub(super) fn initialize_with_keychain(
     let env_key = std::env::var("CGC_AGENT_API_KEY")
         .ok()
         .filter(|value| !value.is_empty());
+    let active_has_key = active.is_some_and(|provider| provider.has_key);
     let pending = match (&env_key, &base_url) {
         (Some(_), _) => None,
-        (None, Some(url)) if !url.is_empty() => Some(PendingCredentials {
+        (None, Some(url)) if !url.is_empty() && active_has_key => Some(PendingCredentials {
             provider_id: model.provider_id.as_str().to_string(),
             base_url: url.clone(),
         }),
@@ -488,6 +489,26 @@ mod tests {
             .is_ok(),
             "demo/dev 应保留 Echo 流"
         );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// 有 Provider 记录但没有 Key 时，启动必须进入未配置状态，而不是 Pending。
+    #[test]
+    fn provider_without_key_is_unconfigured_at_startup() {
+        let root = temp_root("provider-no-key");
+        let seed = summary_production(&root);
+        prefs_with_provider(&seed, false, true);
+        let scope = AgentScope {
+            key: "test".into(),
+            root: root.join("workspace"),
+        };
+        let keychain = KeychainStore::new(Arc::new(RecordingBackend {
+            gets: Arc::new(AtomicUsize::new(0)),
+        }));
+        let (_agent, _config, production) =
+            initialize_with_keychain(&scope, root.clone(), host(), keychain, false).expect("init");
+        assert_eq!(production.model_setup, ModelSetup::Unconfigured);
+        assert!(production.pending.is_none());
         let _ = std::fs::remove_dir_all(root);
     }
 

@@ -401,18 +401,40 @@ impl Owner {
         let selected = SelectedModel::new(model.provider_id.clone(), model.id.clone());
         if self.frozen.model != selected {
             self.persist();
-            let serial = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos();
-            self.replace(
-                Thread::new(format!("native-demo-{serial}"), selected),
-                RuntimeChange::Configuration,
-            );
+            let thread_id = refresh_thread_id(self.scope.as_deref(), &self.frozen.id);
+            self.replace(Thread::new(thread_id, selected), RuntimeChange::Opened);
         } else {
+            // 同一个 model 但 provider/key 变了：SubagentRunner 仍持有旧 provider，
+            // 必须重建 tools registry 后再发布配置快照。
+            self.rebuild_tools();
             self.publish(RuntimeChange::Configuration);
         }
         self.persist();
         Ok(self.snapshot())
+    }
+}
+
+fn refresh_thread_id(scope: Option<&AgentScope>, fallback: &str) -> String {
+    scope
+        .map(|scope| format!("native-{}", scope.key))
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::refresh_thread_id;
+    use crate::agent_scope::AgentScope;
+
+    #[test]
+    fn refresh_reuses_scope_thread_id_instead_of_demo_id() {
+        let scope = AgentScope {
+            key: "assistant-local".into(),
+            root: std::env::temp_dir(),
+        };
+        assert_eq!(
+            refresh_thread_id(Some(&scope), "fallback"),
+            "native-assistant-local"
+        );
+        assert_eq!(refresh_thread_id(None, "fallback"), "fallback");
     }
 }
