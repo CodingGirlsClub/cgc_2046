@@ -193,10 +193,13 @@ def probe(endpoint, operation, field, timeout):
         headers={"content-type": "application/json"},
         method="POST",
     )
+    status_code = None
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
+            status_code = response.status
             body = response.read(MAX_RESPONSE_BYTES)
     except urllib.error.HTTPError as error:
+        status_code = error.code
         try:
             body = error.read(MAX_RESPONSE_BYTES)
         except OSError:
@@ -209,15 +212,31 @@ def probe(endpoint, operation, field, timeout):
     except json.JSONDecodeError:
         return "error", f"响应不是 JSON（前 120 字节：{body[:120]!r}）"
 
+    if not isinstance(payload, dict):
+        return "error", "响应不是 GraphQL envelope（顶层不是对象）"
+
     errors = payload.get("errors") or []
     for item in errors:
         message = item.get("message", "") if isinstance(item, dict) else str(item)
-        if "Cannot query field" in message or "Unknown field" in message:
+        if "Cannot query field" in message:
+            # `Cannot query field "__typename" on type "Boolean"` 是标量字段的正常
+            # 报错：字段本身存在，只是不能选子字段（如 revokeToken: Boolean）。
+            if message.startswith('Cannot query field "__typename"'):
+                return "exists", message
+            return "missing", message
+        if "Unknown field" in message:
             return "missing", message
     if errors:
         first = errors[0]
         message = first.get("message", "") if isinstance(first, dict) else str(first)
         return "exists", message
+
+    # 非 2xx 且没有 GraphQL errors：可能是 503 {"error": ...} 之类的代理/服务错误，
+    # 不能当作「字段存在」（fail-closed）。
+    if status_code is not None and status_code >= 400:
+        return "error", f"HTTP {status_code} 响应不是 GraphQL 错误包（fail-closed）"
+    if "data" not in payload:
+        return "error", "响应缺少 data / errors（不是 GraphQL envelope，fail-closed）"
     return "exists", ""
 
 
@@ -307,18 +326,57 @@ def self_test():
     expect("test module stripped", "query { ok }" in strip_test_modules(test_module), False)
     expect("non-test document kept", "query { me }" in strip_test_modules(test_module), True)
 
-    judge_cases = [
-        ("Cannot query field \"x\" on type \"RootQueryType\".", "missing"),
-        ("Unknown field \"y\"", "missing"),
-        ("Field \"x\" argument \"id\" of type \"ID!\" is required", "exists"),
-        ("Not authorized", "exists"),
-    ]
-    for message, expected in judge_cases:
-        if "Cannot query field" in message or "Unknown field" in message:
-            actual = "missing"
-        else:
-            actual = "exists"
-        expect(f"judge: {message}", actual, expected)
+    # P1（Codex review）：分类必须调用真实 `probe()`，而不是复制条件——
+    # 否则把 probe 改成恒返回 exists，self-test 仍会绿。
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    class ProbeHandler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            length = int(self.headers.get("content-length", 0))
+            body = json.loads(self.rfile.read(length))
+            query = body.get("query", "")
+            if "missing_field" in query:
+                self._reply(200, {"errors": [{"message": 'Cannot query field "missing_field" on type "RootQueryType".'}]})
+            elif "scalar_field" in query:
+                self._reply(200, {"errors": [{"message": 'Cannot query field "__typename" on type "Boolean".'}]})
+            elif "server_error" in query:
+                self._reply(503, {"error": "service_unavailable"})
+            elif "bad_envelope" in query:
+                self._reply(200, {"ok": True})
+            else:
+                self._reply(200, {"data": {"__typename": "X"}})
+
+        def _reply(self, code, payload):
+            data = json.dumps(payload).encode()
+            self.send_response(code)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), ProbeHandler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        endpoint = f"http://127.0.0.1:{port}/api/graphql"
+        probe_cases = [
+            ("exists", "ok_field", "exists"),
+            ("missing", "missing_field", "missing"),
+            ("scalar", "scalar_field", "exists"),
+            ("http 503", "server_error", "error"),
+            ("bad envelope", "bad_envelope", "error"),
+        ]
+        for name, field, expected in probe_cases:
+            status, _ = probe(endpoint, "query", field, 5)
+            expect(f"probe: {name}", status, expected)
+    finally:
+        server.shutdown()
+        server.server_close()
 
     allowed_cases = [
         (PROD_ENDPOINT, True),
