@@ -66,7 +66,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .send_request(NewSessionRequest::new(cwd))
                     .block_task()
                     .await?;
-                eprintln!("[probe] session: {}", session.session_id);
+                // 不打印 session_id（CodeQL cleartext-logging）：probe 只需要知道会话已建立。
+                eprintln!("[probe] session created");
 
                 let response = connection
                     .send_request(PromptRequest::new(
