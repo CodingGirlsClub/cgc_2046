@@ -20,7 +20,10 @@ defmodule Cgc2046.Integrations.Wechat.WebLoginLaunch do
            %{page: @page, scene: "wl_" <> code, check_path: true, env_version: "release"}}
 
         :link ->
-          {"generate_urllink", %{path: @page, expire_type: 1, expire_interval: 1}}
+          # query 必须放进 path：拼在短链 URL 上时，微信打开小程序不会把
+          # URL query 传给页面，小程序端会拿不到 requestId（「登录链接无效」）。
+          {"generate_urllink",
+           %{path: @page <> "?cq=wl_" <> code, expire_type: 1, expire_interval: 1}}
       end
 
     opts = [
@@ -58,12 +61,12 @@ defmodule Cgc2046.Integrations.Wechat.WebLoginLaunch do
        when byte_size(jpeg) <= 1_048_576,
        do: {:ok, %{qr_data_url: "data:image/jpeg;base64," <> Base.encode64(jpeg)}}
 
-  defp parse(:link, code, %Req.Response{status: 200, body: %{"url_link" => link}})
+  defp parse(:link, _code, %Req.Response{status: 200, body: %{"url_link" => link}})
        when is_binary(link) do
     case URI.parse(link) do
       %URI{scheme: "https", host: host, query: nil, fragment: nil, userinfo: nil}
       when host in ["wxaurl.cn", "wxmpurl.cn"] ->
-        {:ok, %{launch_url: link <> "?cq=wl_" <> code}}
+        {:ok, %{launch_url: link}}
 
       _ ->
         {:error, :mini_web_login_unavailable}
