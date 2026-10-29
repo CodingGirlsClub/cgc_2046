@@ -263,7 +263,9 @@ CGC_ARTIFACT_ARCH=universal \
    git push origin desktop-v0.1.0
    ```
 
-3. `Desktop Release` 自动执行：三平台构建 → 产物校验（universal 包用 `lipo -archs` 断言双架构）
+3. `Desktop Release` 自动执行：**生产 schema 兼容门禁**（`desktop/scripts/check_release_schema.py`：
+   提取客户端实际使用的 GraphQL 字段并逐个探测生产端点，缺任一字段即 fail-closed 拒绝构建）
+   → 三平台构建 → 产物校验（universal 包用 `lipo -archs` 断言双架构）
    → 生成 `SHA256SUMS` → 建 **prerelease**（未签名，只作内测通道）。
 4. 抽查产物（下载后挂载校验，别只看日志）：
 
