@@ -189,7 +189,7 @@ cd desktop
 cargo install cargo-packager --locked --version =0.11.8
 cargo packager -p cgc-desktop-app --release -f dmg     # macOS（单架构）；Windows 用 -f wix，Linux 用 -f deb,appimage
 # macOS universal（发版用）见下节「内测分发（无证书）」
-bash scripts/name-artifacts.sh                          # 重命名为 cgc2046_<version>_<commit>_<arch>.*
+bash scripts/name-artifacts.sh                          # 重命名为 cgc2046_<version>_<commit>_<platform>-<arch>.*
 bash scripts/verify-package.sh                          # hdiutil / dpkg-deb / AppImage 结构校验
 bash scripts/smoke-package-runtime.sh                   # macOS：从 dmg 启动 release 二进制并确认存活
 CGC_DESKTOP_TOKEN=<jwt> bash scripts/verify-m0-backend.sh  # 真实后端 M0 冒烟（工作台/场次/课程/投影）
@@ -223,7 +223,7 @@ CGC_ARTIFACT_ARCH=universal \
 
 - `cargo-packager` 不做 lipo，所以先合并再打包：`--target universal-apple-darwin` 的
   binaries 目录正好是 `target/universal-apple-darwin/release/`。
-- `CGC_ARTIFACT_ARCH=universal` 让 `scripts/name-artifacts.sh` 产出 `_universal` 后缀，
+- `CGC_ARTIFACT_ARCH=universal` 让 `scripts/name-artifacts.sh` 产出 `_macos-universal` 后缀，
   并让 `scripts/verify-package.sh` 用 `lipo -archs` 断言两个 slice 都在（fail-closed）。
 - 发布走 tag：打 `desktop-v<version>` 触发 `.github/workflows/desktop-release.yml`，
   三平台产物 + `SHA256SUMS` 挂到 GitHub Release（`--prerelease`，未签名不对外）。
@@ -270,9 +270,9 @@ CGC_ARTIFACT_ARCH=universal \
 4. 抽查产物（下载后挂载校验，别只看日志）：
 
    ```bash
-   curl -LO <release>/cgc2046_<ver>_<commit>_universal.dmg
+   curl -LO <release>/cgc2046_<ver>_<commit>_macos-universal.dmg
    shasum -a 256 -c SHA256SUMS
-   hdiutil attach -nobrowse -readonly cgc2046_<ver>_<commit>_universal.dmg
+   hdiutil attach -nobrowse -readonly cgc2046_<ver>_<commit>_macos-universal.dmg
    lipo -archs /Volumes/程序媛汇/程序媛汇.app/Contents/MacOS/*
    ```
 

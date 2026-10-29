@@ -9,7 +9,14 @@ $commit = if ($env:CGC_BUILD_COMMIT) { $env:CGC_BUILD_COMMIT } else { (git rev-p
 $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "aarch64" } else { "x64" }
 
 Get-ChildItem dist -File | Where-Object { $_.Extension -in ".dmg", ".msi", ".deb", ".AppImage", ".exe" } | ForEach-Object {
-  $target = Join-Path "dist" "cgc2046_${version}_${commit}_${arch}$($_.Extension)"
+  $platform = switch ($_.Extension) {
+    ".dmg" { "macos" }
+    ".msi" { "windows" }
+    ".exe" { "windows" }
+    ".deb" { "linux" }
+    ".AppImage" { "linux" }
+  }
+  $target = Join-Path "dist" "cgc2046_${version}_${commit}_${platform}-${arch}$($_.Extension)"
   if ($_.FullName -ne (Resolve-Path $target -ErrorAction SilentlyContinue)) {
     Move-Item -Force $_.FullName $target
     Write-Host "renamed: $($_.Name) -> $(Split-Path -Leaf $target)"
