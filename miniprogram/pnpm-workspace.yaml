@@ -11,9 +11,9 @@ patchedDependencies:
 # 3.1.8 是已修复的补丁版；沿用既有 override，避免锁文件继续解析到 3.1.6。
 # 上游解析自然收敛到修复版且审计通过后可移除此 override。
 overrides:
-  "fast-uri@>=3.0.0 <3.1.8": 3.1.8
+  "fast-uri@>=3.0.0 <3.1.9": 3.1.9
   # GHSA-qhr7-859c-m2p7 / GHSA-6j4f-fj2g-mc7p：1.x 递归 DoS 补丁。
-  "brace-expansion@>=1.0.0 <1.1.20": 1.1.20
+  "brace-expansion@>=1.0.0 <1.1.21": 1.1.21
   # GHSA-g84c-rxfj-3j2c：5.x 无修复版，使用上游 7.4.6 路径边界修复。
   # Node >=18.12（CI 用 24）；tests/dev-middleware-security.test.mjs 经 Taro 的
   # webpack-dev-server 验证打包/HTTP/关闭及越界拒绝。上游解析不再命中旧版本后可移除。
@@ -89,12 +89,12 @@ overrides:
   # - adm-zip 0.5.18 → 0.6.1：GHSA-xcpc-8h2w-3j85 等 3 条（解压内存/SUID）
   # - serialize-javascript 6.0.2 → 7.0.3：GHSA-5c6j-r48x-rmvq（RegExp/Date RCE）
   # - vite 8.2.1 → 8.2.4：GHSA-587h-7wmj-h5pm（launch-editor Windows 路径检查）
-  "@fastify/busboy@<3.2.1": 3.2.1
+  "@fastify/busboy@<3.2.2": 3.2.2
   "@graphql-tools/executor-legacy-ws@<1.1.36": 1.1.36
   "@graphql-tools/utils@<12.0.2": 12.0.2
   "axios@<1.20.0": 1.20.0
   "adm-zip@<0.6.1": 0.6.1
-  "serialize-javascript@<7.0.3": 7.0.3
+  "serialize-javascript@<7.1.3": 7.1.3
   "vite@<8.2.4": 8.2.4
   # 2026-10-29：pnpm audit 全量剩余 high 收敛（不在 Dependabot 清单内，
   # 均为开发/构建期工具链）：
@@ -107,7 +107,20 @@ overrides:
   "http-cache-semantics@<4.1.1": 4.3.0
   "brace-expansion@>=2.0.0 <2.1.6": 2.1.7
   "brace-expansion@>=4.0.0 <5.0.11": 5.0.12
-  "joi@<17.13.7": 17.13.7
+  "joi@<17.13.8": 17.13.8
+  # 2026-10-29：Dependabot moderate/low 收敛（patch/minor 级别，均开发/
+  # 构建/测试工具链）：
+  # - qs 6.15.3 → 6.16.2（express 传递；GHSA-6pq8-jhm2-2vcw 等 3 条）
+  # - postcss-selector-parser 6.1.4 → 6.1.5
+  # - fast-uri 3.1.8 → 3.1.9（既有 override 同步）
+  # - @fastify/busboy 3.2.1 → 3.2.2
+  # - brace-expansion 1.1.20 → 1.1.21（既有 override 同步）
+  # - serialize-javascript 7.0.3 → 7.1.3
+  # - joi 17.13.7 → 17.13.8
+  # - vitest 4.1.10 → 4.1.12（@vitest/mocker 同步）
+  "postcss-selector-parser@<6.1.5": 6.1.5
+  "postcss-selector-parser@>=7.0.0 <7.1.6": 7.1.7
+  "qs@<6.16.2": 6.16.2
 # pnpm 设置真源。pnpm 11 起不再读 package.json 的 "pnpm" 字段（本地 11 实证
 # 连 onlyBuiltDependencies 都被静默忽略）；pnpm 10（CI）与 11 都读本文件，
 # 本地/CI 行为一致。
