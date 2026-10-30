@@ -614,6 +614,11 @@ impl Render for RootView {
         let _ = mode;
         let palette = theme::palette_from_theme(cx);
         let language = self.language;
+        let pane_header_visible = !self.state.tabs.is_empty() || self.state.pane_notice.is_some();
+        let right_header_visible = matches!(
+            self.state.right_panel,
+            RightPanel::Outline | RightPanel::Notifications
+        );
         let account_menu = self.account_menu_open;
         let is_signed_in = self.is_signed_in();
         if is_signed_in && self.pending_link.as_deref() == Some("/settings") {
@@ -1019,7 +1024,12 @@ impl Render for RootView {
                                 )
                             }))
                             .children(self.agent_panel_open.then(|| {
-                                render_panel_resize_handle(ResizeSide::Left, &palette, cx)
+                                render_panel_resize_handle(
+                                    ResizeSide::Left,
+                                    &palette,
+                                    pane_header_visible,
+                                    cx,
+                                )
                             }))
                             .child(
                                 div()
@@ -1191,7 +1201,12 @@ impl Render for RootView {
                                     ),
                             )
                             .children(self.right_panel_open.then(|| {
-                                render_panel_resize_handle(ResizeSide::Right, &palette, cx)
+                                render_panel_resize_handle(
+                                    ResizeSide::Right,
+                                    &palette,
+                                    pane_header_visible && right_header_visible,
+                                    cx,
+                                )
                             }))
                             .children(self.right_panel_open.then(|| {
                                 screens::render_right_dock(
@@ -2007,7 +2022,8 @@ impl RootView {
                             ),
                     )
                     .bg(palette.frame)
-                    .border_t_0()
+                    .border_t_1()
+                    .border_color(palette.line)
                     .w_full(),
             )
             .into_any_element()
@@ -2325,6 +2341,7 @@ fn nav_icon(icon: NavIcon) -> AssetIcon {
 fn render_panel_resize_handle(
     side: ResizeSide,
     palette: &theme::Palette,
+    header_bridge: bool,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
     let root = cx.entity().downgrade();
@@ -2341,15 +2358,28 @@ fn render_panel_resize_handle(
         .cursor_col_resize()
         .group(id)
         // Keep the 5 px drag target while painting only a 1 px separator.
+        // 上下各溢出 1px，压住 titlebar / footer 的边线，避免 T 字口留白。
         .child(
             div()
                 .absolute()
+                .top(px(-1.0))
+                .bottom(px(-1.0))
                 .left(px(2.0))
                 .w(px(1.0))
-                .h_full()
                 .bg(palette.line)
                 .group_hover(id, |style| style.bg(palette.accent)),
         )
+        // 横线只画在两侧都有 header 的交接处，补上 resize gutter 吃掉的那 5px。
+        .children(header_bridge.then(|| {
+            div()
+                .absolute()
+                .top(px(COLUMN_HEADER_HEIGHT - 1.0))
+                .left_0()
+                .w_full()
+                .h(px(1.0))
+                .bg(palette.line)
+                .group_hover(id, |style| style.bg(palette.accent))
+        }))
         .on_drag(side, move |_, position, _, cx| {
             let _ = root.update(cx, |this, cx| {
                 let width = match side {
