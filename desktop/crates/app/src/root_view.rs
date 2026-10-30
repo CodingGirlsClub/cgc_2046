@@ -8,7 +8,7 @@
 use gpui_kit::InteractiveElement;
 use gpui_kit::*;
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use crate::chat_state::{
     load_chat_pref, load_installed_agents, load_selected_agent, save_chat_pref,
@@ -70,6 +70,7 @@ use gpui_kit::component::{
 };
 
 use crate::i18n::{default_language, translate, translate_registered, Key, Language};
+use crate::icons::{brand_badge, BRAND_BADGE_SIZE};
 use crate::qr::{encode as encode_qr, render_qr, QrError};
 use crate::routing::{Route, RouteMatch, RouteRegistry};
 use crate::settings_window::SettingsWindowView;
@@ -251,20 +252,12 @@ struct ChatGuidance {
     node_found: Option<String>,
 }
 
-/// 顶部条统一高度：全局标题栏与三栏（Agent 面板 / Pane TabBar / 右 Dock）的
-/// header 共用同一值，避免三栏的水平分隔线各停在不同高度。
-const TOP_BAR_HEIGHT: f32 = 44.0;
+/// 全局标题栏高度：32px 品牌 badge + 上下留白，与三栏 header 解耦。
+const TITLEBAR_HEIGHT: f32 = 44.0;
 
-/// 顶栏品牌 badge 尺寸。32px 是竖版 lockup（火苗 + CODING GIRLS CLUB）
-/// 仍可辨认的最小尺寸；Agent 面板 / 历史行 / 选择器用 mark，见下。
-const BRAND_BADGE_SIZE: f32 = 32.0;
-
-/// Agent 面板 header 的 agent 图标尺寸，对齐 Zed `IconSize::Medium`（16px，
-/// agent 设置 / registry 同一档）；native 与 ACP 共用，切换时不跳动。
-const AGENT_HEADER_ICON_SIZE: f32 = 16.0;
-
-/// 历史行 / agent 选择器的图标尺寸（Zed `IconSize::Small`，14px）。
-const AGENT_ROW_ICON_SIZE: f32 = 14.0;
+/// 三栏（Agent 面板 / Pane TabBar / 右 Dock）header 统一高度。
+/// 中间 TabBar 内容 32px，加上上下各 2px；三栏共用保证水平分隔线对齐。
+const COLUMN_HEADER_HEIGHT: f32 = 36.0;
 
 const SLASH_CORE_COMMANDS: &[&str] = &[
     "plan",
@@ -936,7 +929,7 @@ impl Render for RootView {
                             .flex()
                             .flex_row()
                             .items_center()
-                            .h(px(TOP_BAR_HEIGHT))
+                            .h(px(TITLEBAR_HEIGHT))
                             .pl(if cfg!(target_os = "macos") {
                                 px(84.0)
                             } else {
@@ -2298,29 +2291,6 @@ fn enroll_error_label(language: Language, suffix: &str) -> &'static str {
             _ => Key::EventsEnrollErrorGeneric,
         },
     )
-}
-
-fn app_icon() -> Arc<Image> {
-    static ICON: OnceLock<Arc<Image>> = OnceLock::new();
-    ICON.get_or_init(|| {
-        Arc::new(Image::from_bytes(
-            ImageFormat::Png,
-            include_bytes!("../icons/128x128.png").to_vec(),
-        ))
-    })
-    .clone()
-}
-
-/// 顶栏 / Agent 面板 header 的竖版品牌 badge（32px 显示；圆角已烘进 PNG）。
-fn brand_badge() -> Arc<Image> {
-    static ICON: OnceLock<Arc<Image>> = OnceLock::new();
-    ICON.get_or_init(|| {
-        Arc::new(Image::from_bytes(
-            ImageFormat::Png,
-            include_bytes!("../icons/brand/cgc-badge-128.png").to_vec(),
-        ))
-    })
-    .clone()
 }
 
 pub fn main_window_options() -> WindowOptions {
