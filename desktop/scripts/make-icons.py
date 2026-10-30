@@ -5,7 +5,7 @@
 CODING GIRLS CLUB 竖版 lockup）。
 输出：
 - crates/app/icons/brand/cgc-logo-vertical.png  登录页完整 logo
-- crates/app/icons/brand/cgc-badge-128.png      顶栏/Agent 面板 header 的 32px badge
+- crates/app/icons/brand/cgc-badge-128.png      顶栏 32px 品牌 badge
 - crates/app/icons/app/icon.png                  1024 圆角母版
 - crates/app/icons/app/{16,32,64,128,256,512}.png
 - crates/app/icons/app/icon.icns                 macOS
@@ -14,7 +14,7 @@ CODING GIRLS CLUB 竖版 lockup）。
 
 小尺寸的 mark-only（系统托盘 / 历史行 / agent 选择器）继续使用
 crates/app/icons/{32x32,128x128}.png：14–18px 下完整 wordmark 不可读。
-顶栏与 Agent 面板 header 有 32px 空间，使用 brand/cgc-badge-128.png。
+顶栏有 32px 空间，使用 brand/cgc-badge-128.png；Agent 面板 16px 用 mark-only。
 """
 
 from pathlib import Path
@@ -75,7 +75,7 @@ def main() -> int:
         except FileNotFoundError:
             print("warning: rsvg-convert not found; keep existing horizontal logo")
 
-    # 顶栏 / Agent 面板 header 的 32px badge：竖版 lockup + App 图标同比例圆角。
+    # 顶栏 32px badge：竖版 lockup + App 图标同比例圆角。
     if BADGE_SRC.is_file():
         try:
             with tempfile.TemporaryDirectory() as tmp:

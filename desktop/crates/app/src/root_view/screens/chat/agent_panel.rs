@@ -257,9 +257,9 @@ fn header(
         .h(px(TOP_BAR_HEIGHT))
         .border_b_1()
         .border_color(palette.line)
-        .child(crate::root_view::agent_icons::agent_header_icon_element(
+        .child(crate::root_view::agent_icons::agent_icon_element(
             &agent_icon_id,
-            BRAND_BADGE_SIZE,
+            AGENT_HEADER_ICON_SIZE,
             palette.ink_3,
         ))
         .child(title_area)
@@ -342,7 +342,7 @@ fn header(
                                 .hover(|style| style.bg(palette.soft))
                                 .child(crate::root_view::agent_icons::agent_icon_element(
                                     "native",
-                                    14.0,
+                                    AGENT_ROW_ICON_SIZE,
                                     palette.ink_3,
                                 ))
                                 .child(div().flex_1().child("CGC Agent"))
@@ -409,7 +409,7 @@ fn header(
                                     .hover(|style| style.bg(palette.soft))
                                     .child(crate::root_view::agent_icons::agent_icon_element(
                                         &id,
-                                        14.0,
+                                        AGENT_ROW_ICON_SIZE,
                                         palette.ink_3,
                                     ))
                                     .child(div().flex_1().child(name.clone()))
