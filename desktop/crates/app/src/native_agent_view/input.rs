@@ -237,7 +237,7 @@ impl NativeAgentView {
             return;
         }
         let prompt = mention::resolve_prompt(&content, &self.metadata().workspace);
-        let (prompt, context) = self.page_context.freeze(prompt);
+        let (prompt, context) = self.page_context.freeze(self.conversation_scope(), prompt);
         let runtime = self.runtime.clone();
         let rewind = self.runtime.rewind(ordinal, restore_files);
         let generation = self.state.session.generation;

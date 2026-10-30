@@ -51,37 +51,146 @@ impl RootView {
         self.account_menu_open = false;
     }
 
-    /// Stage 3.5a：课程学习页把 course/revision/unit 写入全局页面上下文，
-    /// 发 prompt 时由 native/ACP 两轨以同一段文本附加（不再有课程页专用会话）。
+    /// 把当前 active tab 的页面身份、正文与版本写入全局上下文。
+    /// active tab 与当前路由不一致时不猜上下文，避免把旧 tab 正文送给 Agent。
     pub(in crate::root_view) fn refresh_page_context(&self) {
-        let on_learning = self
-            .current
-            .as_ref()
-            .is_some_and(|route_match| route_match.route.id == "courses.learning");
-        let context = on_learning.then(|| {
-            self.course_detail.detail().map(|detail| {
-                let unit = self.active_issue_tab().map(|(_, issue_id)| {
-                    let title = self
-                        .active_tab
-                        .as_deref()
-                        .and_then(|active| self.tabs.iter().find(|tab| tab.id == active))
-                        .map(|tab| tab.title.clone())
-                        .unwrap_or_else(|| issue_id.to_string());
-                    crate::page_context::PageUnit {
-                        id: issue_id.to_string(),
-                        title,
-                    }
-                });
-                crate::page_context::PageContext {
-                    route: format!("/courses/{}/learn", detail.id),
-                    course_id: detail.id.clone(),
-                    course_title: detail.title.clone(),
-                    revision: detail.revision_number,
-                    unit,
-                }
+        let Some(route_match) = self.current.as_ref() else {
+            self.page_context.set_current(None);
+            return;
+        };
+        let route_id = route_match.route.id;
+        let Some(active_id) = self.active_tab.as_deref() else {
+            self.page_context.set_current(None);
+            return;
+        };
+        let Some(tab) = self.tabs.iter().find(|tab| tab.id == active_id).cloned() else {
+            self.page_context.set_current(None);
+            return;
+        };
+        if self.current_path().as_deref() != Some(tab.path.as_str()) {
+            self.page_context.set_current(None);
+            return;
+        }
+        let context = if route_id == "courses.learning" {
+            self.course_page_context(&tab)
+        } else {
+            Some(self.generic_page_context(&tab, route_id))
+        };
+        self.page_context.set_current(context);
+    }
+
+    fn current_path(&self) -> Option<String> {
+        let route_match = self.current.as_ref()?;
+        let mut path = route_match.route.path.to_string();
+        for (name, value) in &route_match.params {
+            path = path.replace(&format!(":{name}"), value);
+        }
+        Some(path)
+    }
+
+    fn course_page_context(&self, tab: &PaneTab) -> Option<crate::page_context::PageContext> {
+        let detail = self.course_detail.detail()?;
+        let unit = self
+            .active_issue_tab()
+            .map(|(_, issue_id)| crate::page_context::PageUnit {
+                id: issue_id.to_string(),
+                title: tab.title.clone(),
+            });
+        let (body, version) = self
+            .active_issue_tab()
+            .and_then(|(course_id, issue_id)| {
+                self.content
+                    .content()
+                    .filter(|content| content.course_id == course_id)
+                    .and_then(|content| {
+                        content
+                            .document
+                            .issues
+                            .iter()
+                            .find(|issue| issue.id.as_deref() == Some(issue_id))
+                            .map(|issue| {
+                                crate::page_context::project_issue(
+                                    issue,
+                                    content.revision_number,
+                                    &tab.id,
+                                )
+                            })
+                    })
             })
-        });
-        self.page_context.set_current(context.flatten());
+            .unwrap_or_else(|| {
+                (
+                    crate::page_context::PageBody::Loading,
+                    detail
+                        .revision_number
+                        .map(|revision| revision.to_string())
+                        .unwrap_or_else(|| "unversioned".into()),
+                )
+            });
+        Some(crate::page_context::PageContext {
+            tab_id: tab.id.clone(),
+            route: tab.path.clone(),
+            title: tab.title.clone(),
+            version,
+            body,
+            course: Some(crate::page_context::CourseContext {
+                id: detail.id.clone(),
+                title: detail.title.clone(),
+                revision: detail.revision_number,
+                unit,
+            }),
+        })
+    }
+
+    fn generic_page_context(
+        &self,
+        tab: &PaneTab,
+        route_id: &str,
+    ) -> crate::page_context::PageContext {
+        let (body, version) = match route_id {
+            "events.detail" => self
+                .detail
+                .detail()
+                .map(|detail| crate::page_context::project_event_detail(detail, &tab.id))
+                .unwrap_or_else(|| {
+                    (
+                        crate::page_context::PageBody::Loading,
+                        format!("loading:{}", tab.id),
+                    )
+                }),
+            "events.list" => crate::page_context::project_event_list(
+                self.events.items(),
+                &format!("{:?}", self.events.filter()),
+                &tab.id,
+            ),
+            "courses.detail" => self
+                .course_detail
+                .detail()
+                .map(|detail| crate::page_context::project_course_detail(detail, &tab.id))
+                .unwrap_or_else(|| {
+                    (
+                        crate::page_context::PageBody::Loading,
+                        format!("loading:{}", tab.id),
+                    )
+                }),
+            "courses.catalog" => {
+                crate::page_context::project_course_list(self.courses.items(), &tab.id)
+            }
+            "courses.learning_home" | "events.mine" | "events.participations" => {
+                crate::page_context::project_enrollments(&self.enrollments_rows, &tab.id)
+            }
+            _ => (
+                crate::page_context::PageBody::Empty,
+                format!("empty-v1:{}:{}", tab.id, tab.path),
+            ),
+        };
+        crate::page_context::PageContext {
+            tab_id: tab.id.clone(),
+            route: tab.path.clone(),
+            title: tab.title.clone(),
+            version,
+            body,
+            course: None,
+        }
     }
 
     pub fn is_signed_in(&self) -> bool {
@@ -1165,6 +1274,9 @@ impl RootView {
             if !replayed {
                 self.chat.session.ingest(generation, &event);
             }
+            if matches!(event, HostEvent::CompactionUpdated { .. }) {
+                self.page_context.invalidate_loaded();
+            }
             match &event {
                 HostEvent::Ready {
                     agent_name,
@@ -1305,6 +1417,8 @@ impl RootView {
         let Some(replay) = self.chat.replay.take() else {
             return;
         };
+        // 回放成功也不证明某个 tab 的完整正文仍在模型历史里；下一次提交保守重载。
+        self.page_context.invalidate_loaded();
         match crate::acp_history::resume_decision(
             false,
             replay.has_local_content,
@@ -1610,7 +1724,18 @@ impl RootView {
         if !self.chat.session.can_submit() {
             return;
         }
-        let (prompt, context) = self.page_context.freeze(text.clone());
+        let scope = crate::page_context::ConversationScope::new(
+            self.chat
+                .session
+                .session_id
+                .clone()
+                .unwrap_or_else(|| "acp-pending".into()),
+            self.chat
+                .selected_agent
+                .clone()
+                .unwrap_or_else(|| "acp".into()),
+        );
+        let (prompt, context) = self.page_context.freeze(scope.clone(), text.clone());
         let submission = self
             .chat
             .session
@@ -1618,6 +1743,7 @@ impl RootView {
         if !self.chat.session.send(&submission) {
             return;
         }
+        self.page_context.mark_sent(&scope, &submission.context);
         self.chat.history_open = false;
         cx.notify();
     }

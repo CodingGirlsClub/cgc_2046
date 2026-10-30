@@ -115,6 +115,9 @@ impl NativeAgentView {
         let old_len = self.state.session.thread.entries.len();
         for event in events {
             self.state.ingest(generation, &event);
+            if matches!(event, HostEvent::CompactionUpdated { .. }) {
+                self.page_context.invalidate_loaded();
+            }
             if let HostEvent::Error { message } = &event {
                 self.status = format!("错误：{message}");
             }
@@ -182,6 +185,8 @@ impl NativeAgentView {
                         this.last_turn =
                             Some((submission.prompt.clone(), submission.display.clone()));
                         if this.state.session.send(&submission) {
+                            let scope = this.conversation_scope();
+                            this.page_context.mark_sent(&scope, &submission.context);
                             this.scroll_messages_to_bottom(cx);
                         } else {
                             this.state.session.queue.insert(0, submission);
@@ -205,16 +210,21 @@ impl NativeAgentView {
             return;
         }
         let prompt = mention::resolve_prompt(&content, &self.metadata().workspace);
-        let (prompt, _) = self.page_context.freeze(prompt);
+        let scope = self.conversation_scope();
+        let (prompt, context) = self.page_context.freeze(scope.clone(), prompt);
         let operation = self.runtime.steer(prompt);
         self.input
             .update(cx, |state, cx| state.set_value("", window, cx));
         cx.spawn(async move |this, cx| {
             let result = operation.await;
             let _ = this.update(cx, |this, cx| {
-                this.status = result
-                    .map(|()| "已提交插话".to_string())
-                    .unwrap_or_else(|error| error.to_string());
+                this.status = match result {
+                    Ok(()) => {
+                        this.page_context.mark_sent(&scope, &context);
+                        "已提交插话".to_string()
+                    }
+                    Err(error) => error.to_string(),
+                };
                 cx.notify();
             });
         })

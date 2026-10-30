@@ -260,7 +260,7 @@ impl NativeAgentView {
         self.input
             .update(cx, |state, cx| state.set_value("", window, cx));
         let prompt = mention::resolve_prompt(&content, &self.metadata().workspace);
-        let (prompt, context) = self.page_context.freeze(prompt);
+        let (prompt, context) = self.page_context.freeze(self.conversation_scope(), prompt);
         let images = self
             .pending_images
             .drain(..)

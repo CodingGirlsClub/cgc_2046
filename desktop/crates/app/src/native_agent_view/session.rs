@@ -9,6 +9,9 @@ impl NativeAgentView {
             .as_deref()
             .expect("render and commands require initialized runtime")
     }
+    pub(super) fn conversation_scope(&self) -> crate::page_context::ConversationScope {
+        crate::page_context::ConversationScope::new(self.metadata().thread.id.clone(), "native")
+    }
     pub fn is_empty_thread(&self) -> bool {
         self.snapshot
             .as_ref()
@@ -154,6 +157,7 @@ impl NativeAgentView {
             )
         });
         if reset {
+            self.page_context.invalidate_loaded();
             self.state.session.disconnect();
             self.state.session.thread =
                 cgc_agent_ui::conversation::ConversationThread::new(snapshot.thread.id.clone())

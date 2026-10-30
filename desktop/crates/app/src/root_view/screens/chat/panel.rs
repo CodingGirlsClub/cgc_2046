@@ -1061,36 +1061,43 @@ pub(in crate::root_view) fn render_chat_panel(
                     .children(rows)
             })
     };
+    let context_scope = crate::page_context::ConversationScope::new(
+        ctx.chat
+            .session
+            .session_id
+            .clone()
+            .unwrap_or_else(|| "acp-pending".into()),
+        ctx.chat
+            .selected_agent
+            .clone()
+            .unwrap_or_else(|| "acp".into()),
+    );
     let context_chip = ctx.page_context.visible().map(|context| {
-        let label = match &context.unit {
-            Some(unit) => format!("上下文：{} · {}", context.course_title, unit.title),
-            None => format!("上下文：{}", context.course_title),
-        };
-        div()
-            .id("chat-context-chip")
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(space(1))
-            .px(space(1))
-            .py(px(2.0))
-            .rounded(px(RADIUS_SMALL))
-            .bg(palette.soft)
-            .text_size(px(11.0))
-            .text_color(palette.ink_3)
-            .child(label)
-            .child(
-                div()
-                    .id("chat-context-dismiss")
-                    .px(px(4.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .hover(|style| style.bg(palette.card))
-                    .child("×")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.dismiss_chat_context(cx);
-                    })),
-            )
-            .into_any_element()
+        let page_label = context.chip_title();
+        let state_label =
+            crate::page_context::page_load_state_label(ctx.page_context.chip_state(&context_scope));
+        let dismiss_root = cx.entity().downgrade();
+        cgc_agent_ui::context_chip::render_context_chip(
+            cgc_agent_ui::context_chip::ContextChipSpec {
+                id: "chat-context-chip".into(),
+                dismiss_id: "chat-context-dismiss".into(),
+                title: page_label,
+                state_label: state_label.into(),
+                style: cgc_agent_ui::context_chip::ContextChipStyle {
+                    background: palette.soft,
+                    foreground: palette.ink_3,
+                    hover: palette.card,
+                    radius: RADIUS_SMALL,
+                    text_size: 11.0,
+                    gap: 4.0,
+                    padding_x: 4.0,
+                    padding_y: 2.0,
+                },
+                on_dismiss: Box::new(move |_, cx| {
+                    let _ = dismiss_root.update(cx, |this, cx| this.dismiss_chat_context(cx));
+                }),
+            },
+        )
     });
     div()
         .flex()
