@@ -117,13 +117,13 @@ impl RootView {
             .child(
                 div()
                     .flex_none()
-                    .size(px(14.0))
+                    .size(px(AGENT_ROW_ICON_SIZE))
                     .flex()
                     .items_center()
                     .justify_center()
                     .child(crate::root_view::agent_icons::agent_icon_element(
                         &agent_label,
-                        14.0,
+                        AGENT_ROW_ICON_SIZE,
                         palette.ink_3,
                     )),
             )
