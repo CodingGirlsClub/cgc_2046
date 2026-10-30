@@ -251,6 +251,10 @@ struct ChatGuidance {
     node_found: Option<String>,
 }
 
+/// 顶部条统一高度：全局标题栏与三栏（Agent 面板 / Pane TabBar / 右 Dock）的
+/// header 共用同一值，避免三栏的水平分隔线各停在不同高度。
+const TOP_BAR_HEIGHT: f32 = 44.0;
+
 const SLASH_CORE_COMMANDS: &[&str] = &[
     "plan",
     "mcp",
@@ -921,7 +925,7 @@ impl Render for RootView {
                             .flex()
                             .flex_row()
                             .items_center()
-                            .h(px(44.0))
+                            .h(px(TOP_BAR_HEIGHT))
                             .pl(if cfg!(target_os = "macos") {
                                 px(84.0)
                             } else {
