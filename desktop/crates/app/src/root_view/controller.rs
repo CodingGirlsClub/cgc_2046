@@ -2129,39 +2129,6 @@ impl RootView {
         pref
     }
 
-    /// 从主窗口打开 native agent 面板（独立窗口，复用 demo 视图）。
-    pub fn open_native_agent_window(&mut self, cx: &mut Context<Self>) {
-        if let Some(existing) = cx
-            .windows()
-            .into_iter()
-            .find_map(|window| window.downcast::<crate::native_agent_view::NativeAgentView>())
-        {
-            let _ = existing.update(cx, |_, window, _| window.activate_window());
-            return;
-        }
-        let options = WindowOptions {
-            titlebar: Some(TitlebarOptions {
-                title: Some("Native Agent".into()),
-                appears_transparent: true,
-                traffic_light_position: Some(point(px(12.0), px(12.0))),
-            }),
-            focus: true,
-            show: true,
-            is_movable: true,
-            app_owns_titlebar_drag: cfg!(target_os = "macos"),
-            window_decorations: Some(WindowDecorations::Client),
-            window_min_size: Some(Size {
-                width: px(720.0),
-                height: px(520.0),
-            }),
-            ..Default::default()
-        };
-        let Some(view) = self.native_agent_view.clone() else {
-            return;
-        };
-        let _ = gpui_kit::open_window(options, cx, |_, _| view);
-    }
-
     pub fn open_settings_window(&mut self, cx: &mut Context<Self>) {
         self.open_settings_window_inner(false, cx);
     }

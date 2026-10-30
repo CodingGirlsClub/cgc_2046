@@ -302,7 +302,7 @@ CI 分工：PR 阶段 desktop 只跑 lint + 测试（快）；**打包在合并�
 - **MCP（3.4a/b/c，2026-10-27）**：native MCP client 已落地 Streamable HTTP JSON-RPC（initialize/tools/list/tools/call，Bearer/SSE/超时/401/403 fail-closed，token 不进日志）。native-only 注入 5 个只读课程工具：`mcp:cgc-2046-learning:{get_course_content,get_course_revision,get_learning_state,get_role_playbook,get_enrollment_summary}`；白名单外不注册，无 lease/token 时 0 注册（fail-closed）。配置与 ACP 注入同源（`learning_host` lease + `mcp_endpoint(CGC_API_URL)`）；`CGC_MCP_ENDPOINT`/`CGC_MCP_TOKEN` 仅作 headless 测试 seam。**3.4d 真机待验**（真实平台 MCP server 的 tools/list 与工具调用）。
 - **侧栏状态**：历史侧栏开关会写入 `preferences.json`（`historySidebarOpen`），重启后恢复。
 - **全局 Agent Panel（3.5a）**：任意页面打开同一 Agent Panel / 同一线程；课程学习页自动把 course/revision/unit 作为上下文附加到每条 prompt（native/ACP 同一段文本，输入气泡不显示），上下文 chip 可移除。不再有课程页专用工作区/会话指针。
-- **默认 agent（3.5b，2026-10-27）**：新会话（含课程页）默认 native；`CGC_NATIVE_AGENT=0` 或设置「启用 Native Agent 入口」关闭时回退 External Agent（external 仍可在 `＋` 菜单选择）。
+- **默认 agent（3.5b，2026-10-27）**：新会话（含课程页）默认 native；`CGC_NATIVE_AGENT=0` 或设置「使用 Native Agent 运行时」关闭时回退 External Agent（external 仍可在 `＋` 菜单选择）。
 
 ## 共享视图（Stage 3.6 Phase B，2026-10-26）
 
