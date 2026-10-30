@@ -15,8 +15,7 @@ impl RootView {
                 .map(|session| session.user_id.as_str()),
         );
         let paths = AppPaths::from_env();
-        let allow_echo = paths.environment == cgc_platform::paths::AppEnvironment::Dev
-            || std::env::var_os("CGC_NATIVE_AGENT_DEMO").is_some();
+        let allow_echo = paths.environment == cgc_platform::paths::AppEnvironment::Dev;
         let state = Arc::new(std::sync::Mutex::new(cgc_agent_tools::AgentState::default()));
         let mut host = NativePanelHost::new(
             state,
@@ -64,36 +63,6 @@ impl RootView {
         self.native_scope = Some(scope);
         self.native_runtime = Some(runtime);
         self.prepare_agent_authorization(cx);
-    }
-
-    pub fn isolated_native_demo(
-        window: &mut Window,
-        cx: &mut App,
-    ) -> Entity<crate::native_agent_view::NativeAgentView> {
-        let serial = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let data_root =
-            std::env::temp_dir().join(format!("cgc-native-demo-{}-{serial}", std::process::id()));
-        let scope = crate::agent_scope::AgentScope {
-            key: "demo".into(),
-            root: data_root.join("workspace"),
-        };
-        let host = NativePanelHost::new(
-            Arc::new(std::sync::Mutex::new(cgc_agent_tools::AgentState::default())),
-            None,
-        );
-        let runtime = NativeRuntimeHandle::for_scope(scope, data_root, host, 0, true);
-        cx.new(|cx| {
-            crate::native_agent_view::NativeAgentView::new(
-                window,
-                cx,
-                runtime,
-                Default::default(),
-                None,
-            )
-        })
     }
 
     pub(in crate::root_view) fn prepare_agent_authorization(&mut self, cx: &mut Context<Self>) {

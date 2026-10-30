@@ -2099,13 +2099,11 @@ impl RootView {
     /// 覆盖顺序：
     ///
     /// 1. `CGC_NATIVE_AGENT`（显式 env，`0` = 关闭）
-    /// 2. `CGC_NATIVE_AGENT_DEMO`
-    /// 3. `preferences.nativeAgentEnabled`（设置开关，默认开；关闭后用 External Agent）
+    /// 2. `preferences.nativeAgentEnabled`（设置开关，默认开；关闭后用 External Agent）
     pub fn native_agent_enabled() -> bool {
         let env_native_agent = std::env::var("CGC_NATIVE_AGENT").ok();
-        let demo = std::env::var_os("CGC_NATIVE_AGENT_DEMO").is_some();
         let pref = crate::preferences::load().native_agent_enabled;
-        Self::resolve_native_agent_enabled(env_native_agent.as_deref(), demo, pref)
+        Self::resolve_native_agent_enabled(env_native_agent.as_deref(), pref)
     }
 
     /// 3.5b：默认 native 的纯决策函数（env/prefs 覆盖 + 页面默认）。
@@ -2113,53 +2111,12 @@ impl RootView {
     /// 规则：
     ///
     /// 1. `CGC_NATIVE_AGENT` 显式设置时，`"0"` 关闭、其余值开启；
-    /// 2. `CGC_NATIVE_AGENT_DEMO` 存在时开启；
-    /// 3. 否则 `preferences.nativeAgentEnabled`（默认开；关闭 = 用 External Agent）。
-    pub(crate) fn resolve_native_agent_enabled(
-        env_native_agent: Option<&str>,
-        demo: bool,
-        pref: bool,
-    ) -> bool {
-        if let Some(value) = env_native_agent {
-            return value != "0";
+    /// 2. 否则 `preferences.nativeAgentEnabled`（默认开；关闭 = 用 External Agent）。
+    pub(crate) fn resolve_native_agent_enabled(env_native_agent: Option<&str>, pref: bool) -> bool {
+        match env_native_agent {
+            Some(value) => value != "0",
+            None => pref,
         }
-        if demo {
-            return true;
-        }
-        pref
-    }
-
-    /// 从主窗口打开 native agent 面板（独立窗口，复用 demo 视图）。
-    pub fn open_native_agent_window(&mut self, cx: &mut Context<Self>) {
-        if let Some(existing) = cx
-            .windows()
-            .into_iter()
-            .find_map(|window| window.downcast::<crate::native_agent_view::NativeAgentView>())
-        {
-            let _ = existing.update(cx, |_, window, _| window.activate_window());
-            return;
-        }
-        let options = WindowOptions {
-            titlebar: Some(TitlebarOptions {
-                title: Some("Native Agent".into()),
-                appears_transparent: true,
-                traffic_light_position: Some(point(px(12.0), px(12.0))),
-            }),
-            focus: true,
-            show: true,
-            is_movable: true,
-            app_owns_titlebar_drag: cfg!(target_os = "macos"),
-            window_decorations: Some(WindowDecorations::Client),
-            window_min_size: Some(Size {
-                width: px(720.0),
-                height: px(520.0),
-            }),
-            ..Default::default()
-        };
-        let Some(view) = self.native_agent_view.clone() else {
-            return;
-        };
-        let _ = gpui_kit::open_window(options, cx, |_, _| view);
     }
 
     pub fn open_settings_window(&mut self, cx: &mut Context<Self>) {
@@ -4001,23 +3958,14 @@ mod native_default_tests {
 
     #[test]
     fn native_is_enabled_by_default_for_both_tracks() {
-        assert!(RootView::resolve_native_agent_enabled(None, false, true));
-        assert!(!RootView::resolve_native_agent_enabled(None, false, false));
+        assert!(RootView::resolve_native_agent_enabled(None, true));
+        assert!(!RootView::resolve_native_agent_enabled(None, false));
     }
 
     #[test]
-    fn env_demo_and_prefs_override_default() {
-        assert!(RootView::resolve_native_agent_enabled(
-            Some("1"),
-            false,
-            false
-        ));
-        assert!(!RootView::resolve_native_agent_enabled(
-            Some("0"),
-            true,
-            true
-        ));
-        assert!(RootView::resolve_native_agent_enabled(None, true, false));
+    fn env_overrides_prefs() {
+        assert!(RootView::resolve_native_agent_enabled(Some("1"), false));
+        assert!(!RootView::resolve_native_agent_enabled(Some("0"), true));
     }
 }
 

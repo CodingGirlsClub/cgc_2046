@@ -783,7 +783,7 @@ impl SettingsWindowView {
         )
         .description(translate(language, Key::AppSettingsCloseToTrayHint));
         let native_agent = SettingItem::new(
-            "启用 Native Agent 入口",
+            "使用 Native Agent 运行时",
             SettingField::switch(
                 |_cx: &App| preferences::load().native_agent_enabled,
                 |value: bool, _cx: &mut App| {
@@ -794,7 +794,7 @@ impl SettingsWindowView {
             ),
         )
         .description(
-            "默认开启；关闭后账号菜单与课程页使用 External Agent 入口（Native 工具/MCP 不可用）",
+            "默认开启；关闭后 Agent Panel 使用 External Agent 运行时（Native 工具/MCP 不可用）",
         );
         // Stage 3.3：清空 ACP 对话历史（二次确认；只清 conversations.db，
         // native threads.db 完全不碰）。

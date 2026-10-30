@@ -1,7 +1,5 @@
 //! Native agent 的 GPUI 面板（P1a UI 接入）。
 //!
-//! 通过 `CGC_NATIVE_AGENT_DEMO=1` 打开独立窗口，不影响现有 ACP 对话路径。
-//!
 //! Stage 3.1 Phase A：native 运行时由进程内 ACP server 包装，面板经 `AcpHost`
 //! （与外部 ACP agent 完全相同的客户端路径）消费 `HostEvent` 并归约到共享
 //! `ConversationThread`；native 专属能力（附件 / queue / steer / checkpoint /
