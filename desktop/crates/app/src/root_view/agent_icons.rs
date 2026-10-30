@@ -14,6 +14,7 @@
 //! 未知 agent 回退 Bot 图标（Lucide）。品牌 mark 只用于标识对应 agent。
 
 use super::*;
+use crate::icons::app_icon;
 
 /// Agent 图标种类（纯函数可单测；渲染时映射成 SVG/图片）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -114,16 +115,6 @@ mod agent_icon_tests {
             }
             assert!(text.contains("currentColor"), "{name}.svg 需 currentColor");
         }
-    }
-
-    /// header badge 资产守卫：必须是 128px PNG（32px 显示时 4x，覆盖 2x/3x）。
-    #[test]
-    fn brand_badge_asset_is_128px_png() {
-        let bytes = include_bytes!("../../icons/brand/cgc-badge-128.png");
-        assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n", "badge 必须是 PNG");
-        let width = u32::from_be_bytes(bytes[16..20].try_into().expect("png width"));
-        let height = u32::from_be_bytes(bytes[20..24].try_into().expect("png height"));
-        assert_eq!((width, height), (128, 128), "badge master 必须是 128×128");
     }
 
     #[test]

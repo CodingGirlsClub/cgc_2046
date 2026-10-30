@@ -4,6 +4,7 @@
 //! `observe_window_appearance` 转给 `RootView::on_appearance_changed`。
 
 use cgc_desktop_app::i18n::{default_language, translate, Key};
+use cgc_desktop_app::icons::TRAY_ICON_PNG;
 use cgc_desktop_app::registration::{build_registry, validate};
 use cgc_desktop_app::root_view::{main_window_options, RootView};
 use cgc_desktop_app::theme;
@@ -150,7 +151,7 @@ fn main() {
                     tooltip: translate(language, Key::AppTrayTooltip).to_string(),
                 }
             };
-            match cgc_platform::tray::create(include_bytes!("../icons/32x32.png"), labels) {
+            match cgc_platform::tray::create(TRAY_ICON_PNG, labels) {
                 Ok(tray) => view.update(cx, |this, cx| this.install_tray(tray, cx)),
                 Err(error) => {
                     log::warn!(target: "app", "托盘不可用：{error}");

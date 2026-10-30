@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::acp_history::{HistoryEntry, HistorySource};
+use crate::icons::AGENT_ROW_ICON_SIZE;
 
 /// 行操作（hover 时出现的图标按钮；没有逐条永久删除）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

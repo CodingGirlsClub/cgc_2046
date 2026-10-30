@@ -4,6 +4,7 @@
 
 use super::super::super::*;
 use super::super::ScreenContext;
+use crate::icons::{AGENT_HEADER_ICON_SIZE, AGENT_ROW_ICON_SIZE};
 use cgc_platform::agent::detect::AgentStatus;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::Input;
@@ -254,7 +255,7 @@ fn header(
         .items_center()
         .gap(space(1))
         .px(space(2))
-        .h(px(TOP_BAR_HEIGHT))
+        .h(px(COLUMN_HEADER_HEIGHT))
         .border_b_1()
         .border_color(palette.line)
         .child(crate::root_view::agent_icons::agent_icon_element(
