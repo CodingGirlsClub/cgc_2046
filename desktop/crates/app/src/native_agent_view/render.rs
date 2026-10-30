@@ -26,6 +26,7 @@ impl Render for NativeAgentView {
         let _input_focus = draft.input_focus.clone();
         let input_value = draft.input_value.clone();
         let _has_input = draft.has_input;
+        let model_setup = self.metadata().model_setup;
         let slash_open = input_value.trim_start().starts_with('/') && !self.slash_dismissed;
         let slash_matches = self.slash_entries(&input_value);
         let _slash_selected = self.slash_index.min(slash_matches.len().saturating_sub(1));
@@ -231,6 +232,10 @@ impl Render for NativeAgentView {
                     },
                 })
             }))
+            .children(
+                matches!(model_setup, ModelSetup::Unconfigured | ModelSetup::DemoEcho)
+                    .then(|| self.render_model_setup_notice(model_setup, palette, cx)),
+            )
             .child({
                 // B4b-b'1：两条 composer 渲染路径已合一，这是唯一实现
                 // （附件/queue/slash/mention/pickers/checkpoint/usage 均在）。

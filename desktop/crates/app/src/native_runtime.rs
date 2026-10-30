@@ -49,6 +49,29 @@ pub enum ApprovalMode {
     Auto,
 }
 
+/// 当前 native 会话的模型可用状态；UI 用它决定模型选择器/发送入口如何呈现。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModelSetup {
+    /// 已有可用 Provider 与凭据。
+    Configured,
+    /// Provider 已配置，但钥匙串凭据留到首次 turn 前解析。
+    PendingCredentials,
+    /// 没有可用 Provider/Key，生产环境禁止发送并引导配置。
+    Unconfigured,
+    /// demo/dev 的离线回显模式。
+    DemoEcho,
+}
+
+impl ModelSetup {
+    pub fn allows_send(self) -> bool {
+        !matches!(self, Self::Unconfigured)
+    }
+
+    pub fn is_demo(self) -> bool {
+        matches!(self, Self::DemoEcho)
+    }
+}
+
 impl ApprovalMode {
     pub fn label(self) -> &'static str {
         match self {
@@ -75,7 +98,7 @@ pub struct NativeRuntimeSnapshot {
     pub title_generation_error: Option<Arc<str>>,
     pub schemas: Arc<Vec<ToolSchema>>,
     pub providers: Arc<Vec<ProviderPrefs>>,
-    pub using_echo: bool,
+    pub model_setup: ModelSetup,
     pub thinking_enabled: bool,
     pub effort_index: usize,
     pub approval_mode: ApprovalMode,
@@ -201,6 +224,7 @@ enum Command {
         model: String,
         reply: Reply<Arc<NativeRuntimeSnapshot>>,
     },
+    RefreshProviders(Reply<Arc<NativeRuntimeSnapshot>>),
     Thinking {
         enabled: bool,
         effort_index: usize,
@@ -245,12 +269,14 @@ impl NativeRuntimeHandle {
         data_root: PathBuf,
         host: NativePanelHost,
         authorization_epoch: u64,
+        allow_echo: bool,
     ) -> Self {
         Self::start(worker::Initialization::Workspace {
             scope,
             data_root,
             host,
             authorization_epoch,
+            allow_echo,
         })
     }
 
@@ -383,6 +409,13 @@ impl NativeRuntimeHandle {
             effort_index,
         });
     }
+    /// Settings 保存并验证 Provider 后，让当前会话重新读取 provider/model，无需重启客户端。
+    pub(crate) fn refresh_providers(
+        &self,
+    ) -> impl Future<Output = Result<Arc<NativeRuntimeSnapshot>, NativeRuntimeError>> + Send + 'static
+    {
+        self.request(Command::RefreshProviders)
+    }
     pub fn set_approval(&self, mode: ApprovalMode) {
         let _ = self.commands.unbounded_send(Command::Approval(mode));
     }
@@ -439,5 +472,18 @@ impl Drop for NativeRuntimeConnection {
             .handle
             .commands
             .unbounded_send(Command::Disconnect(self.generation));
+    }
+}
+
+#[cfg(test)]
+mod model_setup_tests {
+    use super::ModelSetup;
+
+    #[test]
+    fn only_unconfigured_blocks_send() {
+        assert!(!ModelSetup::Unconfigured.allows_send());
+        assert!(ModelSetup::Configured.allows_send());
+        assert!(ModelSetup::PendingCredentials.allows_send());
+        assert!(ModelSetup::DemoEcho.allows_send());
     }
 }

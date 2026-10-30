@@ -147,11 +147,15 @@ impl NativeAgentView {
         self.state.session.host.is_some()
     }
     pub(super) fn dispatch_queued(&mut self, cx: &mut Context<Self>) {
-        if self
+        let idle = self
             .snapshot
             .as_ref()
-            .is_none_or(|snapshot| snapshot.phase != RuntimePhase::Idle)
-        {
+            .is_some_and(|snapshot| snapshot.phase == RuntimePhase::Idle);
+        if !should_dispatch(
+            self.state.session.queue.is_empty(),
+            idle,
+            self.metadata().model_setup.allows_send(),
+        ) {
             return;
         }
         let Some(mut submission) = self.state.session.next_queued() else {
@@ -215,5 +219,22 @@ impl NativeAgentView {
             });
         })
         .detach();
+    }
+}
+
+fn should_dispatch(queue_empty: bool, idle: bool, model_ready: bool) -> bool {
+    !queue_empty && idle && model_ready
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_dispatch;
+
+    #[test]
+    fn dispatch_requires_queued_work_idle_runtime_and_model() {
+        assert!(should_dispatch(false, true, true));
+        assert!(!should_dispatch(true, true, true));
+        assert!(!should_dispatch(false, false, true));
+        assert!(!should_dispatch(false, true, false));
     }
 }

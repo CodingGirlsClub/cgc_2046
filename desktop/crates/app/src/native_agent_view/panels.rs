@@ -4,6 +4,14 @@
 
 use super::*;
 
+fn model_picker_label(model_id: &str, setup: ModelSetup) -> String {
+    match setup {
+        ModelSetup::Unconfigured => "未配置模型".to_string(),
+        ModelSetup::DemoEcho => format!("{model_id}（演示）"),
+        ModelSetup::Configured | ModelSetup::PendingCredentials => model_id.to_string(),
+    }
+}
+
 impl NativeAgentView {
     /// Phase B2b-3b：native composer 的 legacy 渲染（render 内联链纯搬迁，行为不变）。
     /// Phase B2b-3d-2a：slash 菜单（legacy 与 shared composer 共用）。
@@ -205,6 +213,8 @@ impl NativeAgentView {
         }
         let current_provider_id = self.metadata().model.provider_id.as_str().to_string();
         let current_model_id = self.metadata().model.id.as_str().to_string();
+        let current_model_label =
+            model_picker_label(&current_model_id, self.metadata().model_setup);
         let current_model_config = self
             .metadata()
             .providers
@@ -218,7 +228,6 @@ impl NativeAgentView {
         let model_root = cx.entity().downgrade();
         let thinking_root = cx.entity().downgrade();
         let approval_root = cx.entity().downgrade();
-        let model_id_for_label = current_model_id.clone();
         let model_groups: Vec<PickerGroup> = providers_for_menu
             .iter()
             .filter_map(|provider| {
@@ -251,7 +260,7 @@ impl NativeAgentView {
         let model_picker = render_picker_popover(PickerPopoverSpec {
             popover_id: SharedString::from("native-model-picker"),
             trigger_id: SharedString::from("native-model-trigger"),
-            trigger_label: model_id_for_label,
+            trigger_label: current_model_label,
             trigger_tooltip: "选择模型".to_string(),
             trigger_max_width: None,
             anchor: Some(Anchor::BottomRight),
@@ -366,5 +375,31 @@ impl NativeAgentView {
             thinking: effort_picker,
             approval: Some(approval_picker),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::model_picker_label;
+    use crate::native_runtime::ModelSetup;
+
+    #[test]
+    fn model_picker_label_hides_echo_in_production() {
+        assert_eq!(
+            model_picker_label("echo", ModelSetup::Unconfigured),
+            "未配置模型"
+        );
+        assert_eq!(
+            model_picker_label("echo", ModelSetup::DemoEcho),
+            "echo（演示）"
+        );
+        assert_eq!(
+            model_picker_label("deepseek-flash", ModelSetup::Configured),
+            "deepseek-flash"
+        );
+        assert_eq!(
+            model_picker_label("deepseek-flash", ModelSetup::PendingCredentials),
+            "deepseek-flash"
+        );
     }
 }

@@ -80,16 +80,50 @@ impl ProviderDraft {
         }
     }
 
-    pub(crate) fn to_prefs(&self) -> ProviderPrefs {
+    /// 用调用方当前表单里的 Base URL / Name 构造 ProviderPrefs。
+    /// `save_provider_key` 必须先同步输入框，不能拿草稿里的旧值发起验证。
+    pub(crate) fn to_prefs_with(&self, base_url: &str, name: &str) -> ProviderPrefs {
         let (models, model_params) = parse_model_lines(&self.models);
         ProviderPrefs {
             id: self.id.clone(),
-            name: self.name.clone(),
-            base_url: self.base_url.trim().to_string(),
+            name: name.trim().to_string(),
+            base_url: base_url.trim().to_string(),
             models,
             has_key: self.has_key,
             model_params,
             builtin: false,
         }
+    }
+}
+
+/// Key 验证回调的陈旧判定：Provider 必须仍是当前验证目标，且 serial 未前进。
+pub(crate) fn validation_is_current(
+    validating_provider: Option<&str>,
+    current_serial: u64,
+    provider_id: &str,
+    serial: u64,
+) -> bool {
+    validating_provider == Some(provider_id) && current_serial == serial
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{validation_is_current, ProviderDraft};
+
+    #[test]
+    fn to_prefs_with_uses_current_form_values() {
+        let draft = ProviderDraft::new_custom();
+        let prefs = draft.to_prefs_with("https://new.example/v1/", "New Provider");
+        assert_eq!(prefs.base_url, "https://new.example/v1/");
+        assert_eq!(prefs.name, "New Provider");
+        assert!(!prefs.models.is_empty());
+    }
+
+    #[test]
+    fn validation_serial_rejects_stale_and_cancelled_callbacks() {
+        assert!(validation_is_current(Some("deepseek"), 7, "deepseek", 7));
+        assert!(!validation_is_current(Some("deepseek"), 8, "deepseek", 7));
+        assert!(!validation_is_current(None, 7, "deepseek", 7));
+        assert!(!validation_is_current(Some("moonshot"), 7, "deepseek", 7));
     }
 }

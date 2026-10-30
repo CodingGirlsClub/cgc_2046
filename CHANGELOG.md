@@ -51,6 +51,9 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 > 桌面客户端内测版由 tag `desktop-v*` 触发发布（`desktop/README.md`「发布节奏（内测）」），不走 develop→main 的 Web/后端发布流程；本节点在首次打 tag 前登记，条目不会随本批 Web 发布上线。
 
+- [Desktop] 保存或删除 Provider 时同步清除已失效的模型选择，避免生成中切换 Provider、热刷新返回 Busy 后，重启仍使用旧 Provider 的模型。
+- [Desktop] 禁用最后一个模型或清空模型列表后，当前会话立即进入未配置状态并禁用发送，清除 Key 和重启也不会继续沿用旧模型与凭据，重新启用模型后可恢复。
+- [Desktop] 修复生成中关闭 ACP 连接时的卡死：退出命令同时终止当前 turn 和连接循环，解决 macOS CI 的 `native_runtime_busy` 超时。
 - [Desktop] macOS 产物改 **universal**（arm64 + x86_64）：`cargo-packager` 不做 lipo，CI 先分别交叉编译两个架构再 `lipo -create` 合并，然后按 `--target universal-apple-darwin` 打包；`verify-package.sh` 用 `lipo -archs` 断言两个 slice 都在（缺一个就红）。Intel Mac 用户不再需要另选包。
 - [Desktop] 新增 tag 触发的发布流水线 `.github/workflows/desktop-release.yml`：`desktop-v<version>` 打 tag → 三平台构建（macOS universal dmg / Windows msi / Linux deb+AppImage）+ `SHA256SUMS` → GitHub Release（`prerelease`，未签名只作内测通道）。发布前断言 tag 与包版本一致、且 tag 指向的提交已在 develop/main 上。
 - [Desktop] 内测包支持**把后端端点与运行环境编进二进制**（`CGC_DEFAULT_API_URL` / `CGC_DEFAULT_ENV=prod`）：用户双击 `.app` 启动拿不到 shell 环境变量，此前只能连 `localhost:4000` 且落 dev 数据根；现在解析顺序为 `CGC_API_URL` 环境变量 > `~/.cgc2046/settings.json` 的 `api.url` > 编译期默认值，手改设置即可切后端、无需重打包。源码默认值不变（本机端点 + dev），`cargo run` 行为不受影响。默认端点是**官方域** `https://api.codingirlsclub.com/api/graphql`，并新增端点白名单（`https://` 只认 `codingirlsclub.com` 及其子域、`http://` 只认本机回环），不在名单的覆盖值被忽略——Bearer token、登录密码、下单请求与 MCP lease token 都走这条通道；打包校验脚本对产物做 fail-closed 断言（必须含官方端点、不得含错拼域 `codinggirlsclub.com`）。

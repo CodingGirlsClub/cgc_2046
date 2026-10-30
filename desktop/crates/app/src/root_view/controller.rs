@@ -2163,12 +2163,26 @@ impl RootView {
     }
 
     pub fn open_settings_window(&mut self, cx: &mut Context<Self>) {
+        self.open_settings_window_inner(false, cx);
+    }
+
+    /// 从 Agent Panel 的未配置空态直接打开 Settings → AI → LLM Providers。
+    pub(crate) fn open_settings_ai_window(&mut self, cx: &mut Context<Self>) {
+        self.open_settings_window_inner(true, cx);
+    }
+
+    fn open_settings_window_inner(&mut self, open_llm_providers: bool, cx: &mut Context<Self>) {
         if let Some(existing) = cx
             .windows()
             .into_iter()
             .find_map(|window| window.downcast::<SettingsWindowView>())
         {
-            let _ = existing.update(cx, |_, window, _| window.activate_window());
+            let _ = existing.update(cx, |view, window, cx| {
+                if open_llm_providers {
+                    view.open_llm_providers(cx);
+                }
+                window.activate_window();
+            });
             return;
         }
         let Some(signed_in) = self.session.signed_in().cloned() else {
@@ -2209,6 +2223,7 @@ impl RootView {
             window_bounds: Some(bounds),
             ..Default::default()
         };
+        let native_runtime = self.native_runtime.clone();
         cx.open_window(options, move |window, cx| {
             let view = cx.new(|cx| {
                 SettingsWindowView::new(
@@ -2219,9 +2234,13 @@ impl RootView {
                     token,
                     api,
                     self.close_to_tray.clone(),
+                    native_runtime,
                     cx,
                 )
             });
+            if open_llm_providers {
+                view.update(cx, |view, cx| view.open_llm_providers(cx));
+            }
             let focus = view.read(cx).focus_handle();
             window.focus(&focus, cx);
             view

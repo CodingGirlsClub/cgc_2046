@@ -67,7 +67,7 @@ impl NativeAgentView {
         let input_subscription = Some(cx.subscribe_in(
             &input,
             window,
-            |this, state, event: &InputEvent, window, cx| {
+            |this, _state, event: &InputEvent, window, cx| {
                 if let InputEvent::Change = event {
                     let value = this.input.read(cx).value().to_string();
                     if value != this.last_input_value {
@@ -151,7 +151,6 @@ impl NativeAgentView {
                     } else {
                         this.send(window, cx);
                     }
-                    state.update(cx, |state, cx| state.set_value("", window, cx));
                     cx.notify();
                 }
             },
@@ -249,12 +248,17 @@ impl NativeAgentView {
         if text.is_empty() {
             return;
         }
-        self.input
-            .update(cx, |state, cx| state.set_value("", window, cx));
         if let Some(command) = parse_slash(&text) {
+            self.input
+                .update(cx, |state, cx| state.set_value("", window, cx));
             self.handle_slash(command, cx);
             return;
         }
+        if !self.ensure_model_configured(true, cx) {
+            return;
+        }
+        self.input
+            .update(cx, |state, cx| state.set_value("", window, cx));
         let prompt = mention::resolve_prompt(&content, &self.metadata().workspace);
         let (prompt, context) = self.page_context.freeze(prompt);
         let images = self
@@ -287,6 +291,33 @@ impl NativeAgentView {
                         .supports_images
                 })
         })
+    }
+
+    pub(super) fn ensure_model_configured(&mut self, notify: bool, cx: &mut Context<Self>) -> bool {
+        if self.metadata().model_setup.allows_send() {
+            return true;
+        }
+        if notify {
+            self.state.push_notice(
+                "还没有连接模型。请先在 Settings → AI → LLM Providers 配置 Provider；DeepSeek API Key 可在 platform.deepseek.com 获取。"
+                    .to_string(),
+            );
+            cx.notify();
+        }
+        false
+    }
+
+    pub(super) fn open_model_settings(&mut self, cx: &mut Context<Self>) {
+        let opened = crate::root_view::root_weak()
+            .and_then(|root| {
+                root.update(cx, |root, cx| root.open_settings_ai_window(cx))
+                    .ok()
+            })
+            .is_some();
+        if !opened {
+            self.state.push_notice("请在账号菜单里打开设置");
+            cx.notify();
+        }
     }
 
     pub(super) fn add_clipboard_image(&mut self, cx: &mut Context<Self>) {
@@ -426,6 +457,9 @@ impl NativeAgentView {
 
     /// 重试上一轮失败的请求：不新增用户气泡，直接用同一 prompt 重跑。
     pub(super) fn retry_last_turn(&mut self, cx: &mut Context<Self>) {
+        if !self.ensure_model_configured(true, cx) {
+            return;
+        }
         if !self.state.session.begin_retry() {
             return;
         }
