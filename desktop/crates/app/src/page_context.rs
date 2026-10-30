@@ -7,8 +7,8 @@ use std::sync::{Arc, Mutex};
 
 mod projection;
 pub(crate) use projection::{
-    project_course_detail, project_course_list, project_enrollments, project_event_detail,
-    project_event_list, project_issue,
+    project_course_detail, project_course_learning, project_course_list, project_enrollments,
+    project_event_detail, project_event_list, project_issue, project_workspace_overview,
 };
 
 /// 一次 Agent 会话的稳定身份。页面正文按线程与 Agent 分别记录加载状态。
@@ -176,8 +176,8 @@ impl PageContextState {
     /// 历史恢复或压缩后，旧加载记录不再可信；下一次提交必须重新携带正文。
     pub(crate) fn invalidate_loaded(&self) {
         let mut slot = self.lock();
+        slot.invalidated = !slot.loaded.is_empty();
         slot.loaded.clear();
-        slot.invalidated = true;
     }
 
     pub(crate) fn chip_state(&self, scope: &ConversationScope) -> Option<PageLoadState> {
@@ -443,6 +443,23 @@ mod tests {
         context.body = PageBody::Ready("version two".into());
         state.set_current(Some(context));
         assert_eq!(state.chip_state(&scope), Some(PageLoadState::NeedsReload));
+    }
+
+    #[test]
+    fn invalidating_before_any_load_keeps_the_chip_ready() {
+        let state = PageContextState::default();
+        state.set_current(Some(PageContext {
+            tab_id: "tab-event-1".into(),
+            route: "/events/event-1".into(),
+            title: "Reading Rust".into(),
+            version: "v1".into(),
+            body: PageBody::Ready("event body".into()),
+            course: None,
+        }));
+        let scope = ConversationScope::new("thread-1", "native");
+
+        state.invalidate_loaded();
+        assert_eq!(state.chip_state(&scope), Some(PageLoadState::Ready));
     }
 
     #[test]

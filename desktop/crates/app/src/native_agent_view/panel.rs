@@ -463,7 +463,7 @@ impl NativeAgentView {
         if !self.state.session.begin_retry() {
             return;
         }
-        let Some((prompt, display)) = self.last_turn.clone() else {
+        let Some((prompt, display, context)) = self.last_turn.clone() else {
             self.state.push_notice("没有可重试的请求");
             cx.notify();
             return;
@@ -477,7 +477,7 @@ impl NativeAgentView {
         let submission = self
             .state
             .session
-            .submission(display, prompt, None, Vec::new(), true);
+            .submission(display, prompt, context, Vec::new(), true);
         self.state.session.queue_mode = QueueMode::Auto;
         self.state.session.queue.insert(0, submission);
         self.dispatch_queued(cx);

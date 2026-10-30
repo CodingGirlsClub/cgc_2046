@@ -169,6 +169,20 @@ pub(crate) fn project_course_list(
     project_body(tab_id, "course-list-v1", sections)
 }
 
+fn enrollment_line(row: &cgc_events::enrollments::MyEnrollmentRow) -> String {
+    let mut facts = vec![
+        row.target_title.clone().unwrap_or_else(|| row.id.clone()),
+        row.status.clone(),
+    ];
+    if let Some(starts_at) = row.starts_at.as_deref() {
+        facts.push(starts_at.to_string());
+    }
+    if let Some(payment_mode) = row.payment_mode.as_deref() {
+        facts.push(payment_mode.to_string());
+    }
+    facts.join(" · ")
+}
+
 /// 我的学习/参与/报名列表的可见行；核销码等敏感字段不进入上下文。
 pub(crate) fn project_enrollments(
     rows: &[cgc_events::enrollments::MyEnrollmentRow],
@@ -177,62 +191,93 @@ pub(crate) fn project_enrollments(
     if rows.is_empty() {
         return project_body(tab_id, "enrollments-v1", Vec::new());
     }
-    let sections = rows
+    project_body(
+        tab_id,
+        "enrollments-v1",
+        rows.iter().map(enrollment_line).collect(),
+    )
+}
+
+/// 工作台概览的可见子集：工作区身份、课程/参与/近期活动摘要。
+pub(crate) fn project_workspace_overview(
+    workspace: &cgc_platform::workspace::WorkspaceSummary,
+    enrollments: &[cgc_events::enrollments::MyEnrollmentRow],
+    events: &[cgc_events::list::EventSummary],
+    tab_id: &str,
+) -> (PageBody, String) {
+    let mut sections = vec![workspace.name.clone()];
+    if !workspace.my_role_names.is_empty() {
+        sections.push(format!("我的角色：{}", workspace.my_role_names.join("、")));
+    }
+    if let Some(member_count) = workspace.member_count {
+        sections.push(format!("成员数：{member_count}"));
+    }
+    let courses = enrollments
         .iter()
-        .map(|row| {
-            let mut facts = vec![
-                row.target_title.clone().unwrap_or_else(|| row.id.clone()),
-                row.status.clone(),
-            ];
-            if let Some(starts_at) = row.starts_at.as_deref() {
+        .filter(|row| row.course_id.is_some())
+        .take(4)
+        .map(enrollment_line)
+        .collect::<Vec<_>>();
+    if !courses.is_empty() {
+        sections.push(format!("我的课程\n{}", courses.join("\n")));
+    }
+    let participations = enrollments
+        .iter()
+        .take(3)
+        .map(enrollment_line)
+        .collect::<Vec<_>>();
+    if !participations.is_empty() {
+        sections.push(format!("我的参与\n{}", participations.join("\n")));
+    }
+    let upcoming = events
+        .iter()
+        .take(3)
+        .map(|event| {
+            let mut facts = vec![event.title.clone(), event.status.clone()];
+            if let Some(starts_at) = event.starts_at.as_deref() {
                 facts.push(starts_at.to_string());
-            }
-            if let Some(payment_mode) = row.payment_mode.as_deref() {
-                facts.push(payment_mode.to_string());
             }
             facts.join(" · ")
         })
         .collect::<Vec<_>>();
-    project_body(tab_id, "enrollments-v1", sections)
+    if !upcoming.is_empty() {
+        sections.push(format!("近期活动\n{}", upcoming.join("\n")));
+    }
+    project_body(tab_id, "workspace-overview-v1", sections)
 }
 
-/// 把当前 issue 的可见主内容投影为提交正文；Outline 与其他 issue 不参与。
-pub(crate) fn project_issue(
-    issue: &cgc_courses::content::CourseIssue,
-    revision: Option<i64>,
-    tab_id: &str,
-) -> (PageBody, String) {
-    fn push_material(sections: &mut Vec<String>, material: &cgc_courses::content::TypedMaterial) {
-        use cgc_courses::content::MaterialKind;
+fn push_material(sections: &mut Vec<String>, material: &cgc_courses::content::TypedMaterial) {
+    use cgc_courses::content::MaterialKind;
 
-        let mut lines = Vec::new();
-        if let Some(title) = material
-            .title
-            .as_deref()
-            .filter(|title| !title.trim().is_empty())
-        {
-            lines.push(title.to_string());
-        }
-        if matches!(material.kind, MaterialKind::Text | MaterialKind::Markdown) {
-            if let Some(body) = material.body.as_deref() {
-                let text = cgc_agent_ui::markdown_text::markdown_to_plain(body);
-                if !text.trim().is_empty() {
-                    lines.push(text);
-                }
-            }
-        } else {
-            if let Some(url) = material.url.as_deref() {
-                lines.push(url.to_string());
-            }
-            if let Some(alt) = material.alt_text.as_deref() {
-                lines.push(alt.to_string());
+    let mut lines = Vec::new();
+    if let Some(title) = material
+        .title
+        .as_deref()
+        .filter(|title| !title.trim().is_empty())
+    {
+        lines.push(title.to_string());
+    }
+    if matches!(material.kind, MaterialKind::Text | MaterialKind::Markdown) {
+        if let Some(body) = material.body.as_deref() {
+            let text = cgc_agent_ui::markdown_text::markdown_to_plain(body);
+            if !text.trim().is_empty() {
+                lines.push(text);
             }
         }
-        if !lines.is_empty() {
-            sections.push(lines.join("\n"));
+    } else {
+        if let Some(url) = material.url.as_deref() {
+            lines.push(url.to_string());
+        }
+        if let Some(alt) = material.alt_text.as_deref() {
+            lines.push(alt.to_string());
         }
     }
+    if !lines.is_empty() {
+        sections.push(lines.join("\n"));
+    }
+}
 
+fn issue_sections(issue: &cgc_courses::content::CourseIssue) -> Vec<String> {
     let mut sections = Vec::new();
     if let Some(goal) = issue.goal.as_deref().filter(|goal| !goal.trim().is_empty()) {
         sections.push(goal.to_string());
@@ -258,15 +303,166 @@ pub(crate) fn project_issue(
             push_material(&mut sections, material);
         }
     }
+    sections
+}
+
+/// 把当前 issue 的可见主内容投影为提交正文；Outline 与其他 issue 不参与。
+pub(crate) fn project_issue(
+    issue: &cgc_courses::content::CourseIssue,
+    revision: Option<i64>,
+    tab_id: &str,
+) -> (PageBody, String) {
     let revision = revision
         .map(|value| value.to_string())
         .unwrap_or_else(|| "unversioned".into());
-    project_body(tab_id, &format!("issue-context-v1\0{revision}"), sections)
+    project_body(
+        tab_id,
+        &format!("issue-context-v1\0{revision}"),
+        issue_sections(issue),
+    )
+}
+
+/// 课程学习整页（未聚焦单张 issue 卡时）的主内容。
+pub(crate) fn project_course_learning(
+    content: &cgc_courses::content::CourseContent,
+    tab_id: &str,
+) -> (PageBody, String) {
+    let mut sections = vec![content.title.clone()];
+    if let Some(description) = content
+        .description
+        .as_deref()
+        .filter(|description| !description.trim().is_empty())
+    {
+        sections.push(description.to_string());
+    }
+    if !content.document.goals.is_empty() {
+        sections.push(content.document.goals.join("\n"));
+    }
+    let chapters = content
+        .document
+        .chapters
+        .iter()
+        .filter_map(|chapter| chapter.title.clone())
+        .collect::<Vec<_>>();
+    if !chapters.is_empty() {
+        sections.push(chapters.join("\n"));
+    }
+    for issue in &content.document.issues {
+        if let Some(title) = issue.title.as_deref() {
+            sections.push(title.to_string());
+        }
+        sections.extend(issue_sections(issue));
+    }
+    let revision = content
+        .revision_number
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "unversioned".into());
+    project_body(tab_id, &format!("course-learning-v1\0{revision}"), sections)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn workspace_overview_projection_uses_visible_subset_without_secrets() {
+        use cgc_events::enrollments::MyEnrollmentRow;
+        use cgc_events::list::EventSummary;
+        use cgc_platform::workspace::WorkspaceSummary;
+
+        let workspace = WorkspaceSummary {
+            id: "ws-1".into(),
+            slug: "beijing".into(),
+            name: "Beijing Chapter".into(),
+            my_role_names: vec!["learner".into()],
+            member_count: Some(42),
+            can_access: true,
+        };
+        let course = MyEnrollmentRow {
+            id: "enroll-course".into(),
+            status: "confirmed".into(),
+            target_title: Some("Rust Basics".into()),
+            starts_at: None,
+            event_id: None,
+            course_id: Some("course-1".into()),
+            payment_mode: None,
+            check_in_code: Some("SECRET".into()),
+        };
+        let event = EventSummary {
+            id: "event-1".into(),
+            title: "Rust Night".into(),
+            status: "open".into(),
+            visibility: "public".into(),
+            enrollment_policy: "open".into(),
+            capacity: None,
+            confirmed_count: None,
+            enrollment_badge: None,
+            registration_deadline: None,
+            starts_at: Some("2026-11-02".into()),
+            venue: None,
+            pricing_enabled: false,
+        };
+
+        let (body, _) =
+            project_workspace_overview(&workspace, &[course], &[event], "page:/workspace");
+        let PageBody::Ready(body) = body else {
+            panic!("workspace overview must have a ready body");
+        };
+        assert!(body.contains("Beijing Chapter"));
+        assert!(body.contains("learner"));
+        assert!(body.contains("42"));
+        assert!(body.contains("Rust Basics"));
+        assert!(body.contains("Rust Night"));
+        assert!(!body.contains("SECRET"));
+    }
+
+    #[test]
+    fn course_learning_projection_contains_goals_chapters_and_issue_materials() {
+        use cgc_courses::content::{
+            CourseChapter, CourseContent, CourseContentDocument, CourseIssue, MaterialKind,
+            TypedMaterial,
+        };
+
+        let material = TypedMaterial {
+            kind: MaterialKind::Markdown,
+            title: None,
+            body: Some("Ownership rules".into()),
+            url: None,
+            alt_text: None,
+            provider: None,
+            external_id: None,
+        };
+        let content = CourseContent {
+            course_id: "course-1".into(),
+            title: "Rust Basics".into(),
+            description: Some("Learn Rust".into()),
+            revision_number: Some(7),
+            published_at: None,
+            document: CourseContentDocument {
+                goals: vec!["Write safe code".into()],
+                chapters: vec![CourseChapter {
+                    id: Some("chapter-1".into()),
+                    title: Some("Foundations".into()),
+                }],
+                issues: vec![CourseIssue {
+                    id: Some("issue-1".into()),
+                    title: Some("Ownership".into()),
+                    story_materials: vec![material],
+                    ..Default::default()
+                }],
+            },
+        };
+
+        let (body, _) = project_course_learning(&content, "page:/courses/course-1/learn");
+        let PageBody::Ready(body) = body else {
+            panic!("course learning page must have a ready body");
+        };
+        assert!(body.contains("Rust Basics"));
+        assert!(body.contains("Write safe code"));
+        assert!(body.contains("Foundations"));
+        assert!(body.contains("Ownership"));
+        assert!(body.contains("Ownership rules"));
+    }
 
     #[test]
     fn enrollment_projection_excludes_check_in_code() {

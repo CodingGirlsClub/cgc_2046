@@ -294,8 +294,8 @@ pub struct NativeAgentView {
     mention_index: usize,
     workspace_files: Vec<String>,
     skills: Vec<SkillEntry>,
-    /// 最近一轮的 prompt / 展示文本，供失败后重试重放。
-    last_turn: Option<(String, String)>,
+    /// 最近一轮的 prompt / 展示文本 / 上下文快照，供失败后重试重放。
+    last_turn: Option<(String, String, Option<crate::page_context::PageContext>)>,
     /// 已展开的工具调用卡片 id。
     expanded_tools: std::collections::HashSet<String>,
     /// 已展开的思考折叠块（UI message index）。

@@ -117,6 +117,15 @@ impl RootView {
                             })
                     })
             })
+            .or_else(|| {
+                if self.active_issue_tab().is_some() {
+                    return None;
+                }
+                self.content
+                    .content()
+                    .filter(|content| content.course_id == detail.id)
+                    .map(|content| crate::page_context::project_course_learning(content, &tab.id))
+            })
             .unwrap_or_else(|| {
                 (
                     crate::page_context::PageBody::Loading,
@@ -178,6 +187,23 @@ impl RootView {
             "courses.learning_home" | "events.mine" | "events.participations" => {
                 crate::page_context::project_enrollments(&self.enrollments_rows, &tab.id)
             }
+            "account.workspace" => self
+                .workspaces
+                .current()
+                .map(|workspace| {
+                    crate::page_context::project_workspace_overview(
+                        workspace,
+                        &self.enrollments_rows,
+                        self.events.items(),
+                        &tab.id,
+                    )
+                })
+                .unwrap_or_else(|| {
+                    (
+                        crate::page_context::PageBody::Loading,
+                        format!("loading:{}", tab.id),
+                    )
+                }),
             _ => (
                 crate::page_context::PageBody::Empty,
                 format!("empty-v1:{}:{}", tab.id, tab.path),
@@ -747,6 +773,11 @@ impl RootView {
         if let crate::routing::RouteSelection::Match(route_match) = self.registry.select(path) {
             let is_learning = route_match.route.id == "courses.learning";
             self.current = Some(route_match);
+            self.active_tab = crate::root_view::state::active_tab_for_path(
+                &self.tabs,
+                self.active_tab.as_deref(),
+                path,
+            );
             self.events_started = false;
             self.detail_started = false;
             if is_learning && self.right_panel_open {

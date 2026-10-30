@@ -69,6 +69,22 @@ pub(in crate::root_view) fn open_or_focus_tab(
     *active = Some(tab.id);
 }
 
+/// 路由切换后 active tab 的归属：同路径保留当前 tab，否则取第一个同路径 tab。
+pub(in crate::root_view) fn active_tab_for_path(
+    tabs: &[PaneTab],
+    current: Option<&str>,
+    path: &str,
+) -> Option<String> {
+    if let Some(current) = current {
+        if tabs.iter().any(|tab| tab.id == current && tab.path == path) {
+            return Some(current.to_string());
+        }
+    }
+    tabs.iter()
+        .find(|tab| tab.path == path)
+        .map(|tab| tab.id.clone())
+}
+
 /// 关闭 Tab 后选择相邻项：优先右侧，其次左侧；没有则 None。
 pub(in crate::root_view) fn close_tab(
     tabs: &mut Vec<PaneTab>,
@@ -401,7 +417,9 @@ impl ShellState {
 
 #[cfg(test)]
 mod tests {
-    use super::{close_tab, open_or_focus_tab, toggled_right_panel, PaneTab, RightPanel};
+    use super::{
+        active_tab_for_path, close_tab, open_or_focus_tab, toggled_right_panel, PaneTab, RightPanel,
+    };
 
     #[test]
     fn right_panel_toggle_closes_same_and_switches_other() {
@@ -451,5 +469,29 @@ mod tests {
         assert_eq!(tab.id, "issue:course-1:issue-1");
         assert_eq!(tab.path, "/courses/course-1/learn");
         assert_eq!(tab.issue_id.as_deref(), Some("issue-1"));
+    }
+
+    #[test]
+    fn navigating_keeps_a_matching_active_tab_and_clears_a_stale_one() {
+        let issue_a = PaneTab::issue("course-1", "issue-1", "Card A");
+        let issue_b = PaneTab::issue("course-1", "issue-2", "Card B");
+        let event = PaneTab::page("/events/event-1", "Event");
+        let tabs = vec![issue_a.clone(), issue_b.clone(), event.clone()];
+
+        assert_eq!(
+            active_tab_for_path(&tabs, Some(issue_b.id.as_str()), &issue_b.path),
+            Some(issue_b.id.clone()),
+            "same-path issue tab keeps the user's current card"
+        );
+        assert_eq!(
+            active_tab_for_path(&tabs, Some(event.id.as_str()), &issue_a.path),
+            Some(issue_a.id.clone()),
+            "a different active tab moves to the first tab for the new path"
+        );
+        assert_eq!(
+            active_tab_for_path(&tabs, Some(issue_a.id.as_str()), "/settings"),
+            None,
+            "no matching tab must clear stale context"
+        );
     }
 }

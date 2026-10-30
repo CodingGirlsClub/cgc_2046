@@ -303,6 +303,7 @@ CI 分工：PR 阶段 desktop 只跑 lint + 测试（快）；**打包在合并�
 - **侧栏状态**：历史侧栏开关会写入 `preferences.json`（`historySidebarOpen`），重启后恢复。
 - **全局 Agent Panel（3.5a）**：任意页面打开同一 Agent Panel / 同一线程；课程学习页自动把 course/revision/unit 作为上下文附加到每条 prompt（native/ACP 同一段文本，输入气泡不显示），上下文 chip 可移除。不再有课程页专用工作区/会话指针。
 - **默认 agent（3.5b，2026-10-27）**：新会话（含课程页）默认 native；`CGC_NATIVE_AGENT=0` 或设置「使用 Native Agent 运行时」关闭时回退 External Agent（external 仍可在 `＋` 菜单选择）。
+- **全局 active tab 上下文（2026-10-30）**：所有中心内容 tab（课程 issue/整页、场次详情/列表、课程详情/目录、学习/参与列表、工作台概览）向 native/ACP 自动投影当前页正文；按线程 + Agent + tab 内容版本只加载一次，普通追问不重复发送全文。Native/ACP 共用 Composer 上方上下文 chip，区分待加载、已加载、部分加载与需要重新加载；历史恢复或会话压缩后下一次提交保守重载。ACP 不再受课程学习页路由限制。
 
 ## 共享视图（Stage 3.6 Phase B，2026-10-26）
 

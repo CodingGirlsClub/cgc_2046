@@ -182,8 +182,11 @@ impl NativeAgentView {
                 match result {
                     Ok(()) => {
                         this.state.session.mark_ready_for_next(generation);
-                        this.last_turn =
-                            Some((submission.prompt.clone(), submission.display.clone()));
+                        this.last_turn = Some((
+                            submission.prompt.clone(),
+                            submission.display.clone(),
+                            submission.context.clone(),
+                        ));
                         if this.state.session.send(&submission) {
                             let scope = this.conversation_scope();
                             this.page_context.mark_sent(&scope, &submission.context);
