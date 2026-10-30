@@ -1,5 +1,9 @@
 //! Agent 品牌图标（历史侧栏行 / Agent Panel 头部 / Agent 选择列表共用）。
 //!
+//! Agent Panel 头部用 [`agent_header_icon_element`]：native 用 32px 竖版品牌
+//! badge，外部 agent 用同尺寸品牌 mark，保证切换 agent 时图标槽位一致；历史行 /
+//! 选择器仍用 [`agent_icon_element`] 的 mark-only（14px，完整 wordmark 不可读）。
+//!
 //! native（CGC Agent）用应用自身图标；已知外部 agent 用其品牌 mark（SVG 直接
 //! `include_bytes!`，经 `Icon::data` 内联渲染，离线可用）：
 //! - codex.svg  ← https://cdn.agentclientprotocol.com/registry/v1/latest/codex-acp.svg
@@ -70,6 +74,23 @@ pub(in crate::root_view) fn agent_icon_element(
     }
 }
 
+/// Agent Panel 头部图标：native 用竖版品牌 badge，外部 agent 用同尺寸品牌 mark。
+/// 尺寸由调用方统一传入，避免 native / ACP 切换时图标大小跳动。
+pub(in crate::root_view) fn agent_header_icon_element(
+    agent_id: &str,
+    size: f32,
+    color: gpui::Hsla,
+) -> AnyElement {
+    match agent_icon_kind(agent_id) {
+        AgentIconKind::Native => img(brand_badge())
+            .w(px(size))
+            .h(px(size))
+            .flex_none()
+            .into_any_element(),
+        _ => agent_icon_element(agent_id, size, color),
+    }
+}
+
 fn svg_icon(data: &'static [u8], size: f32, color: gpui::Hsla) -> AnyElement {
     // 直接用 gpui 的 Svg 元素 + 显式尺寸，避免 Icon::data 在部分图标上尺寸/
     // tint 异常导致空白。
@@ -110,6 +131,16 @@ mod agent_icon_tests {
             }
             assert!(text.contains("currentColor"), "{name}.svg 需 currentColor");
         }
+    }
+
+    /// header badge 资产守卫：必须是 128px PNG（32px 显示时 4x，覆盖 2x/3x）。
+    #[test]
+    fn brand_badge_asset_is_128px_png() {
+        let bytes = include_bytes!("../../icons/brand/cgc-badge-128.png");
+        assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n", "badge 必须是 PNG");
+        let width = u32::from_be_bytes(bytes[16..20].try_into().expect("png width"));
+        let height = u32::from_be_bytes(bytes[20..24].try_into().expect("png height"));
+        assert_eq!((width, height), (128, 128), "badge master 必须是 128×128");
     }
 
     #[test]
