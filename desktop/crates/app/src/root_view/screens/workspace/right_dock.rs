@@ -56,7 +56,7 @@ pub(in crate::root_view) fn render_right_dock(
             .items_center()
             .gap(px(6.0))
             .px(space(2))
-            .py(space(1))
+            .h(px(TOP_BAR_HEIGHT))
             .border_b_1()
             .border_color(palette.line)
             .child(
@@ -142,7 +142,7 @@ fn render_notifications_dock(
         .justify_between()
         .gap(px(6.0))
         .px(space(2))
-        .py(space(1))
+        .h(px(TOP_BAR_HEIGHT))
         .border_b_1()
         .border_color(palette.line)
         .child(

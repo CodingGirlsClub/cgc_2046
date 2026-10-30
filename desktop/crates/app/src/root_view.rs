@@ -252,6 +252,14 @@ struct ChatGuidance {
     node_found: Option<String>,
 }
 
+/// 顶部条统一高度：全局标题栏与三栏（Agent 面板 / Pane TabBar / 右 Dock）的
+/// header 共用同一值，避免三栏的水平分隔线各停在不同高度。
+const TOP_BAR_HEIGHT: f32 = 44.0;
+
+/// 顶栏与 Agent 面板 header 共用的品牌 badge 尺寸。32px 是竖版 lockup
+/// （火苗 + CODING GIRLS CLUB）仍可辨认的最小尺寸；历史行 / 选择器仍用 mark。
+const BRAND_BADGE_SIZE: f32 = 32.0;
+
 const SLASH_CORE_COMMANDS: &[&str] = &[
     "plan",
     "mcp",
@@ -922,7 +930,7 @@ impl Render for RootView {
                             .flex()
                             .flex_row()
                             .items_center()
-                            .h(px(44.0))
+                            .h(px(TOP_BAR_HEIGHT))
                             .pl(if cfg!(target_os = "macos") {
                                 px(84.0)
                             } else {
@@ -950,7 +958,10 @@ impl Render for RootView {
                                             .items_center()
                                             .gap(px(6.0))
                                             .child(
-                                                img(app_icon()).w(px(18.0)).h(px(18.0)).flex_none(),
+                                                img(brand_badge())
+                                                    .w(px(BRAND_BADGE_SIZE))
+                                                    .h(px(BRAND_BADGE_SIZE))
+                                                    .flex_none(),
                                             )
                                             .child(
                                                 div()
@@ -2289,6 +2300,18 @@ fn app_icon() -> Arc<Image> {
         Arc::new(Image::from_bytes(
             ImageFormat::Png,
             include_bytes!("../icons/128x128.png").to_vec(),
+        ))
+    })
+    .clone()
+}
+
+/// 顶栏 / Agent 面板 header 的竖版品牌 badge（32px 显示；圆角已烘进 PNG）。
+fn brand_badge() -> Arc<Image> {
+    static ICON: OnceLock<Arc<Image>> = OnceLock::new();
+    ICON.get_or_init(|| {
+        Arc::new(Image::from_bytes(
+            ImageFormat::Png,
+            include_bytes!("../icons/brand/cgc-badge-128.png").to_vec(),
         ))
     })
     .clone()

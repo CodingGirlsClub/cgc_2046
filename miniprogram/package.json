@@ -64,7 +64,7 @@
     "spdx-expression-parse": "5.0.0",
     "typescript": "^5.8.3",
     "vite": "8.2.4",
-    "vitest": "4.1.10",
+    "vitest": "4.1.12",
     "webpack": "^5.91.0"
   }
 }

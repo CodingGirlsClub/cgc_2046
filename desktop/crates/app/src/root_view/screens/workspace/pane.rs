@@ -48,12 +48,13 @@ pub(in crate::root_view) fn render_pane_tabs(
                 }),
         );
     }
+    // TabBar 默认 variant 自带 bottom border；再叠一条会让中间栏的线比左右栏粗，
+    // 且两条线错开 1px。只保留 TabBar 自己的一条，高度与三栏 header 共用。
     let mut bar = TabBar::new("pane-tab-bar")
         .max_width(px(220.0))
         .children(tab_elements)
         .bg(palette.frame)
-        .border_b_1()
-        .border_color(palette.line)
+        .h(px(TOP_BAR_HEIGHT))
         .text_size(px(12.0))
         .w_full();
     if let Some(selected) = selected {
