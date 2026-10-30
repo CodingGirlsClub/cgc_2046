@@ -126,14 +126,15 @@ impl RootView {
                     .filter(|content| content.course_id == detail.id)
                     .map(|content| crate::page_context::project_course_learning(content, &tab.id))
             })
-            .unwrap_or_else(|| {
-                (
-                    crate::page_context::PageBody::Loading,
-                    detail
-                        .revision_number
-                        .map(|revision| revision.to_string())
-                        .unwrap_or_else(|| "unversioned".into()),
-                )
+            .unwrap_or_else(|| match self.content.state() {
+                cgc_courses::content::CourseContentState::Failed(message) => {
+                    Self::failed_context(&tab.id, message)
+                }
+                cgc_courses::content::CourseContentState::Empty => (
+                    crate::page_context::PageBody::Empty,
+                    format!("empty:{}", tab.id),
+                ),
+                _ => Self::loading_context(&tab.id),
             });
         Some(crate::page_context::PageContext {
             tab_id: tab.id.clone(),
@@ -150,6 +151,20 @@ impl RootView {
         })
     }
 
+    fn loading_context(tab_id: &str) -> (crate::page_context::PageBody, String) {
+        (
+            crate::page_context::PageBody::Loading,
+            format!("loading:{tab_id}"),
+        )
+    }
+
+    fn failed_context(tab_id: &str, message: &str) -> (crate::page_context::PageBody, String) {
+        (
+            crate::page_context::PageBody::Unavailable(message.to_string()),
+            format!("failed:{tab_id}:{message}"),
+        )
+    }
+
     fn generic_page_context(
         &self,
         tab: &PaneTab,
@@ -160,29 +175,65 @@ impl RootView {
                 .detail
                 .detail()
                 .map(|detail| crate::page_context::project_event_detail(detail, &tab.id))
-                .unwrap_or_else(|| {
-                    (
-                        crate::page_context::PageBody::Loading,
-                        format!("loading:{}", tab.id),
-                    )
+                .unwrap_or_else(|| match self.detail.state() {
+                    cgc_events::list::ListState::Failed(message) => {
+                        Self::failed_context(&tab.id, message)
+                    }
+                    cgc_events::list::ListState::Empty => (
+                        crate::page_context::PageBody::Empty,
+                        format!("empty:{}", tab.id),
+                    ),
+                    _ => Self::loading_context(&tab.id),
                 }),
-            "events.list" => crate::page_context::project_event_list(
-                self.events.items(),
-                &format!("{:?}", self.events.filter()),
-                &tab.id,
-            ),
+            "events.list" => {
+                if self.events.items().is_empty() {
+                    match self.events.state() {
+                        cgc_events::list::ListState::Failed(message) => {
+                            Self::failed_context(&tab.id, message)
+                        }
+                        cgc_events::list::ListState::Empty => (
+                            crate::page_context::PageBody::Empty,
+                            format!("empty:{}", tab.id),
+                        ),
+                        _ => Self::loading_context(&tab.id),
+                    }
+                } else {
+                    crate::page_context::project_event_list(
+                        self.events.items(),
+                        &format!("{:?}", self.events.filter()),
+                        &tab.id,
+                    )
+                }
+            }
             "courses.detail" => self
                 .course_detail
                 .detail()
                 .map(|detail| crate::page_context::project_course_detail(detail, &tab.id))
-                .unwrap_or_else(|| {
-                    (
-                        crate::page_context::PageBody::Loading,
-                        format!("loading:{}", tab.id),
-                    )
+                .unwrap_or_else(|| match self.course_detail.state() {
+                    cgc_courses::catalog::CoursesListState::Failed(message) => {
+                        Self::failed_context(&tab.id, message)
+                    }
+                    cgc_courses::catalog::CoursesListState::Empty => (
+                        crate::page_context::PageBody::Empty,
+                        format!("empty:{}", tab.id),
+                    ),
+                    _ => Self::loading_context(&tab.id),
                 }),
             "courses.catalog" => {
-                crate::page_context::project_course_list(self.courses.items(), &tab.id)
+                if self.courses.items().is_empty() {
+                    match self.courses.state() {
+                        cgc_courses::catalog::CoursesListState::Failed(message) => {
+                            Self::failed_context(&tab.id, message)
+                        }
+                        cgc_courses::catalog::CoursesListState::Empty => (
+                            crate::page_context::PageBody::Empty,
+                            format!("empty:{}", tab.id),
+                        ),
+                        _ => Self::loading_context(&tab.id),
+                    }
+                } else {
+                    crate::page_context::project_course_list(self.courses.items(), &tab.id)
+                }
             }
             "courses.learning_home" | "events.mine" | "events.participations" => {
                 crate::page_context::project_enrollments(&self.enrollments_rows, &tab.id)
@@ -198,11 +249,15 @@ impl RootView {
                         &tab.id,
                     )
                 })
-                .unwrap_or_else(|| {
-                    (
-                        crate::page_context::PageBody::Loading,
-                        format!("loading:{}", tab.id),
-                    )
+                .unwrap_or_else(|| match self.workspaces.state() {
+                    cgc_platform::workspace::WorkspaceListState::Failed(message) => {
+                        Self::failed_context(&tab.id, message)
+                    }
+                    cgc_platform::workspace::WorkspaceListState::Empty => (
+                        crate::page_context::PageBody::Empty,
+                        format!("empty:{}", tab.id),
+                    ),
+                    _ => Self::loading_context(&tab.id),
                 }),
             _ => (
                 crate::page_context::PageBody::Empty,

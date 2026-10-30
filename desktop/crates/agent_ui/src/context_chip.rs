@@ -58,6 +58,12 @@ pub fn render_context_chip(spec: ContextChipSpec) -> AnyElement {
                 .px(px(4.0))
                 .rounded(px(style.radius))
                 .hover(|hover_style| hover_style.bg(style.hover))
+                .tooltip(|window, cx| {
+                    gpui_kit::component::tooltip::Tooltip::new(
+                        "停止后续自动附加，不会清除已发送内容",
+                    )
+                    .build(window, cx)
+                })
                 .child("×")
                 .on_click(move |_, window, cx| on_dismiss(window, cx)),
         )
