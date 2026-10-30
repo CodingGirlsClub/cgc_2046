@@ -54,7 +54,7 @@ pub(in crate::root_view) fn render_pane_tabs(
         .max_width(px(220.0))
         .children(tab_elements)
         .bg(palette.frame)
-        .h(px(TOP_BAR_HEIGHT))
+        .h(px(COLUMN_HEADER_HEIGHT))
         .text_size(px(12.0))
         .w_full();
     if let Some(selected) = selected {
