@@ -8,6 +8,7 @@
 //! - 日志不打印凭证/对话内容。
 
 use std::collections::HashMap;
+use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -600,7 +601,7 @@ async fn run_connection(
                 while let Some(command) = command_rx.next().await {
                     match command {
                         HostCommand::Prompt(text) => {
-                            run_turn(
+                            if run_turn(
                                 &connection,
                                 &mut command_rx,
                                 &events,
@@ -608,7 +609,11 @@ async fn run_connection(
                                 text,
                                 Arc::clone(&activity),
                             )
-                            .await;
+                            .await
+                            .is_break()
+                            {
+                                return Ok(());
+                            }
                         }
                         HostCommand::Stop => {}
                         HostCommand::ListSessions => {
@@ -929,7 +934,7 @@ async fn run_turn(
     session_id: SessionId,
     text: String,
     activity: Arc<AtomicU64>,
-) {
+) -> ControlFlow<()> {
     let prompt = connection
         .send_request(PromptRequest::new(
             session_id.clone(),
@@ -1021,7 +1026,8 @@ async fn run_turn(
                             stop_reason: "shutdown".to_string(),
                         },
                     );
-                    break;
+                    // Shutdown 已被 turn 消费，必须同时退出外层连接循环。
+                    return ControlFlow::Break(());
                 }
                 Some(HostCommand::Prompt(_))
                 | Some(HostCommand::ListSessions)
@@ -1045,6 +1051,7 @@ async fn run_turn(
             }
         }
     }
+    ControlFlow::Continue(())
 }
 
 async fn with_timeout<F, T>(future: F, timeout: Duration, phase: &str) -> Result<T, String>

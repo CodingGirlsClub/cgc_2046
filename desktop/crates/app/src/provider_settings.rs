@@ -69,7 +69,7 @@ impl ProviderSettings {
                 if should_select {
                     prefs.selected_provider = Some(provider.id);
                 }
-                self.save(&prefs)
+                self.save(&mut prefs)
             }
             ProviderPrefsChange::SaveKey { mut provider, key } => {
                 let account = provider_key_account(&provider.id);
@@ -81,7 +81,7 @@ impl ProviderSettings {
                 let mut prefs = self.prefs.load();
                 prefs.upsert_provider(provider.clone());
                 prefs.selected_provider = Some(provider.id.clone());
-                if let Err(error) = self.save(&prefs) {
+                if let Err(error) = self.save(&mut prefs) {
                     let _ = self.restore_key(&provider.id, previous);
                     return Err(error);
                 }
@@ -101,7 +101,7 @@ impl ProviderSettings {
                 {
                     provider.has_key = false;
                 }
-                if let Err(error) = self.save(&prefs) {
+                if let Err(error) = self.save(&mut prefs) {
                     let _ = self.restore_key(&provider_id, previous);
                     return Err(error);
                 }
@@ -110,7 +110,7 @@ impl ProviderSettings {
             ProviderPrefsChange::RemoveProvider { provider_id } => {
                 let mut prefs = self.prefs.load();
                 prefs.remove_provider(&provider_id);
-                self.save(&prefs)?;
+                self.save(&mut prefs)?;
                 // prefs 已删除后不再回滚；清 Key 失败只遗留旧 secret，不丢 Provider。
                 let _ = self
                     .keychain
@@ -138,7 +138,24 @@ impl ProviderSettings {
         }
     }
 
-    fn save(&self, prefs: &AgentPrefs) -> Result<(), ProviderSettingsError> {
+    fn save(&self, prefs: &mut AgentPrefs) -> Result<(), ProviderSettingsError> {
+        // 切换 Provider 或移除模型后，热刷新可能返回 Busy；持久化选择不能依赖刷新修正。
+        if prefs.selected_model.as_ref().is_some_and(|selection| {
+            !prefs.active_provider().is_some_and(|provider| {
+                selection.provider_id.as_str() == provider.id
+                    && provider
+                        .models
+                        .iter()
+                        .any(|id| id == selection.model_id.as_str())
+                    && provider
+                        .model_params
+                        .iter()
+                        .find(|model| model.id == selection.model_id.as_str())
+                        .is_none_or(|model| model.enabled)
+            })
+        }) {
+            prefs.selected_model = None;
+        }
         self.prefs
             .save(prefs)
             .map_err(|error| ProviderSettingsError::Prefs(error.to_string()))
@@ -282,17 +299,68 @@ mod tests {
         settings
             .apply(ProviderPrefsChange::SaveProvider(first.clone()))
             .expect("save first");
+        let selected = cgc_agent_core::SelectedModel::new(
+            cgc_agent_provider::ProviderId::new("first"),
+            cgc_agent_provider::ModelId::new("test-model"),
+        );
+        let mut prefs = settings.load();
+        prefs.selected_model = Some(selected.clone());
+        settings.prefs.save(&prefs).expect("select first model");
         settings
             .apply(ProviderPrefsChange::SaveProvider(second.clone()))
             .expect("save second");
         assert_eq!(settings.load().selected_provider.as_deref(), Some("first"));
+        assert_eq!(settings.load().selected_model, Some(selected));
         settings
             .apply(ProviderPrefsChange::RemoveProvider {
                 provider_id: "first".into(),
             })
             .expect("remove first");
         assert_eq!(settings.load().selected_provider.as_deref(), Some("second"));
+        assert_eq!(settings.load().selected_model, None);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn saving_another_providers_key_clears_the_previous_model_selection() {
+        let root =
+            std::env::temp_dir().join(format!("cgc-provider-key-selection-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let settings = settings(&root);
+        let first = provider();
+        settings
+            .apply(ProviderPrefsChange::SaveProvider(first.clone()))
+            .expect("save first provider");
+        let mut prefs = settings.load();
+        prefs.selected_model = Some(cgc_agent_core::SelectedModel::new(
+            cgc_agent_provider::ProviderId::new(first.id.clone()),
+            cgc_agent_provider::ModelId::new("test-model"),
+        ));
+        settings.prefs.save(&prefs).expect("select first model");
+        let second = ProviderPrefs {
+            id: "second-provider".into(),
+            models: vec!["second-model".into()],
+            ..provider()
+        };
+
+        // 热刷新可能返回 Busy；保存本身必须留下可供重启使用的一致配置。
+        settings
+            .apply(ProviderPrefsChange::SaveKey {
+                provider: second,
+                key: "second-secret".into(),
+            })
+            .expect("save second key");
+
+        let saved = settings.load();
+        assert_eq!(saved.selected_provider.as_deref(), Some("second-provider"));
+        assert_eq!(saved.selected_model, None);
+        assert_eq!(
+            saved
+                .active_provider()
+                .and_then(ProviderPrefs::primary_model),
+            Some("second-model")
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
