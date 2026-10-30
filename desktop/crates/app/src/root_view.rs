@@ -255,9 +255,16 @@ struct ChatGuidance {
 /// header 共用同一值，避免三栏的水平分隔线各停在不同高度。
 const TOP_BAR_HEIGHT: f32 = 44.0;
 
-/// 顶栏与 Agent 面板 header 共用的品牌 badge 尺寸。32px 是竖版 lockup
-/// （火苗 + CODING GIRLS CLUB）仍可辨认的最小尺寸；历史行 / 选择器仍用 mark。
+/// 顶栏品牌 badge 尺寸。32px 是竖版 lockup（火苗 + CODING GIRLS CLUB）
+/// 仍可辨认的最小尺寸；Agent 面板 / 历史行 / 选择器用 mark，见下。
 const BRAND_BADGE_SIZE: f32 = 32.0;
+
+/// Agent 面板 header 的 agent 图标尺寸，对齐 Zed `IconSize::Medium`（16px，
+/// agent 设置 / registry 同一档）；native 与 ACP 共用，切换时不跳动。
+const AGENT_HEADER_ICON_SIZE: f32 = 16.0;
+
+/// 历史行 / agent 选择器的图标尺寸（Zed `IconSize::Small`，14px）。
+const AGENT_ROW_ICON_SIZE: f32 = 14.0;
 
 const SLASH_CORE_COMMANDS: &[&str] = &[
     "plan",

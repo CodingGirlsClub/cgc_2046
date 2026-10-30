@@ -13,11 +13,11 @@ python3 scripts/make-icons.py
 - `16.png` … `1024.png`：按尺寸拆分的 PNG；
 - 同步更新 `dist/程序媛汇.app/Contents/Resources/icon.icns`（gitignored）。
 
-顶栏与 Agent 面板 header 有 32px 空间，使用 `crates/app/icons/brand/cgc-badge-128.png`
-（竖版 lockup + App 图标同比例圆角），由 `make-icons.py` 从
-`icons/brand/cgc-badge.svg` 生成；`BRAND_BADGE_SIZE` 是唯一尺寸来源。
-
-系统托盘 / 历史行 / agent 小头像继续使用 `crates/app/icons/32x32.png`
-与 `128x128.png` 的 mark-only 版本：14–18px 下完整 wordmark 不可读。
+顶栏使用 32px 品牌 badge（`BRAND_BADGE_SIZE`，`crates/app/icons/brand/cgc-badge-128.png`，
+竖版 lockup + App 图标同比例圆角，由 `make-icons.py` 从 `icons/brand/cgc-badge.svg`
+生成）。Agent 面板 header 的 native / ACP 图标统一 16px mark-only
+（`AGENT_HEADER_ICON_SIZE`，对齐 Zed `IconSize::Medium`）；历史行 / agent 选择器
+14px（`AGENT_ROW_ICON_SIZE`，Zed `IconSize::Small`），系统托盘继续用 32×32 mark-only。
+14–18px 下完整 wordmark 不可读，所以 Agent 面板不放 badge。
 登录页使用 `crates/app/icons/brand/cgc-logo-horizontal.png`（A.svg 横向
 lockup），不要用竖版方图撑高标题区。
