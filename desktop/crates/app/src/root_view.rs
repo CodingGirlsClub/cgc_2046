@@ -8,7 +8,7 @@
 use gpui_kit::InteractiveElement;
 use gpui_kit::*;
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use crate::chat_state::{
     load_chat_pref, load_installed_agents, load_selected_agent, save_chat_pref,
@@ -70,6 +70,7 @@ use gpui_kit::component::{
 };
 
 use crate::i18n::{default_language, translate, translate_registered, Key, Language};
+use crate::icons::{brand_badge, BRAND_BADGE_SIZE};
 use crate::qr::{encode as encode_qr, render_qr, QrError};
 use crate::routing::{Route, RouteMatch, RouteRegistry};
 use crate::settings_window::SettingsWindowView;
@@ -251,20 +252,12 @@ struct ChatGuidance {
     node_found: Option<String>,
 }
 
-/// 顶部条统一高度：全局标题栏与三栏（Agent 面板 / Pane TabBar / 右 Dock）的
-/// header 共用同一值，避免三栏的水平分隔线各停在不同高度。
-const TOP_BAR_HEIGHT: f32 = 44.0;
+/// 全局标题栏高度：32px 品牌 badge + 上下留白，与三栏 header 解耦。
+const TITLEBAR_HEIGHT: f32 = 44.0;
 
-/// 顶栏品牌 badge 尺寸。32px 是竖版 lockup（火苗 + CODING GIRLS CLUB）
-/// 仍可辨认的最小尺寸；Agent 面板 / 历史行 / 选择器用 mark，见下。
-const BRAND_BADGE_SIZE: f32 = 32.0;
-
-/// Agent 面板 header 的 agent 图标尺寸，对齐 Zed `IconSize::Medium`（16px，
-/// agent 设置 / registry 同一档）；native 与 ACP 共用，切换时不跳动。
-const AGENT_HEADER_ICON_SIZE: f32 = 16.0;
-
-/// 历史行 / agent 选择器的图标尺寸（Zed `IconSize::Small`，14px）。
-const AGENT_ROW_ICON_SIZE: f32 = 14.0;
+/// 三栏（Agent 面板 / Pane TabBar / 右 Dock）header 统一高度。
+/// 中间 TabBar 内容 32px，加上上下各 2px；三栏共用保证水平分隔线对齐。
+const COLUMN_HEADER_HEIGHT: f32 = 36.0;
 
 const SLASH_CORE_COMMANDS: &[&str] = &[
     "plan",
@@ -621,6 +614,11 @@ impl Render for RootView {
         let _ = mode;
         let palette = theme::palette_from_theme(cx);
         let language = self.language;
+        let pane_header_visible = !self.state.tabs.is_empty() || self.state.pane_notice.is_some();
+        let right_header_visible = matches!(
+            self.state.right_panel,
+            RightPanel::Outline | RightPanel::Notifications
+        );
         let account_menu = self.account_menu_open;
         let is_signed_in = self.is_signed_in();
         if is_signed_in && self.pending_link.as_deref() == Some("/settings") {
@@ -936,7 +934,7 @@ impl Render for RootView {
                             .flex()
                             .flex_row()
                             .items_center()
-                            .h(px(TOP_BAR_HEIGHT))
+                            .h(px(TITLEBAR_HEIGHT))
                             .pl(if cfg!(target_os = "macos") {
                                 px(84.0)
                             } else {
@@ -1026,7 +1024,12 @@ impl Render for RootView {
                                 )
                             }))
                             .children(self.agent_panel_open.then(|| {
-                                render_panel_resize_handle(ResizeSide::Left, &palette, cx)
+                                render_panel_resize_handle(
+                                    ResizeSide::Left,
+                                    &palette,
+                                    pane_header_visible,
+                                    cx,
+                                )
                             }))
                             .child(
                                 div()
@@ -1198,7 +1201,12 @@ impl Render for RootView {
                                     ),
                             )
                             .children(self.right_panel_open.then(|| {
-                                render_panel_resize_handle(ResizeSide::Right, &palette, cx)
+                                render_panel_resize_handle(
+                                    ResizeSide::Right,
+                                    &palette,
+                                    pane_header_visible && right_header_visible,
+                                    cx,
+                                )
                             }))
                             .children(self.right_panel_open.then(|| {
                                 screens::render_right_dock(
@@ -2014,7 +2022,8 @@ impl RootView {
                             ),
                     )
                     .bg(palette.frame)
-                    .border_t_0()
+                    .border_t_1()
+                    .border_color(palette.line)
                     .w_full(),
             )
             .into_any_element()
@@ -2300,29 +2309,6 @@ fn enroll_error_label(language: Language, suffix: &str) -> &'static str {
     )
 }
 
-fn app_icon() -> Arc<Image> {
-    static ICON: OnceLock<Arc<Image>> = OnceLock::new();
-    ICON.get_or_init(|| {
-        Arc::new(Image::from_bytes(
-            ImageFormat::Png,
-            include_bytes!("../icons/128x128.png").to_vec(),
-        ))
-    })
-    .clone()
-}
-
-/// 顶栏 / Agent 面板 header 的竖版品牌 badge（32px 显示；圆角已烘进 PNG）。
-fn brand_badge() -> Arc<Image> {
-    static ICON: OnceLock<Arc<Image>> = OnceLock::new();
-    ICON.get_or_init(|| {
-        Arc::new(Image::from_bytes(
-            ImageFormat::Png,
-            include_bytes!("../icons/brand/cgc-badge-128.png").to_vec(),
-        ))
-    })
-    .clone()
-}
-
 pub fn main_window_options() -> WindowOptions {
     WindowOptions {
         // 参考 Zed build_window_options：透明 titlebar + 自绘 header，
@@ -2355,6 +2341,7 @@ fn nav_icon(icon: NavIcon) -> AssetIcon {
 fn render_panel_resize_handle(
     side: ResizeSide,
     palette: &theme::Palette,
+    header_bridge: bool,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
     let root = cx.entity().downgrade();
@@ -2371,15 +2358,28 @@ fn render_panel_resize_handle(
         .cursor_col_resize()
         .group(id)
         // Keep the 5 px drag target while painting only a 1 px separator.
+        // 上下各溢出 1px，压住 titlebar / footer 的边线，避免 T 字口留白。
         .child(
             div()
                 .absolute()
+                .top(px(-1.0))
+                .bottom(px(-1.0))
                 .left(px(2.0))
                 .w(px(1.0))
-                .h_full()
                 .bg(palette.line)
                 .group_hover(id, |style| style.bg(palette.accent)),
         )
+        // 横线只画在两侧都有 header 的交接处，补上 resize gutter 吃掉的那 5px。
+        .children(header_bridge.then(|| {
+            div()
+                .absolute()
+                .top(px(COLUMN_HEADER_HEIGHT - 1.0))
+                .left_0()
+                .w_full()
+                .h(px(1.0))
+                .bg(palette.line)
+                .group_hover(id, |style| style.bg(palette.accent))
+        }))
         .on_drag(side, move |_, position, _, cx| {
             let _ = root.update(cx, |this, cx| {
                 let width = match side {
