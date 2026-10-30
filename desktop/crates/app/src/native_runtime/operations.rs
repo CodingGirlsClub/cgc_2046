@@ -384,7 +384,7 @@ impl Owner {
             .map(|selection| selection.model_id.as_str().to_string())
             .or_else(|| active.primary_model().map(str::to_string))
             .unwrap_or_else(|| self.config.model.id.as_str().to_string());
-        let model_id = if active.model_config(&model_id).enabled {
+        let model_id = if model_is_available(&active, &model_id) {
             model_id
         } else {
             active
@@ -402,8 +402,11 @@ impl Owner {
         let selected = SelectedModel::new(model.provider_id.clone(), model.id.clone());
         if self.frozen.model != selected {
             self.persist();
-            let thread_id = refresh_thread_id(self.scope.as_deref(), &self.frozen.id);
-            self.replace(Thread::new(thread_id, selected), RuntimeChange::Opened);
+            // 保留当前会话的 entries，只切换模型；否则同 ID 的空 thread 会把原对话覆盖掉。
+            self.replace(
+                thread_for_model_switch(&self.frozen, selected),
+                RuntimeChange::Opened,
+            );
         } else {
             // 同一个 model 但 provider/key 变了：SubagentRunner 仍持有旧 provider，
             // 必须重建 tools registry 后再发布配置快照。
@@ -415,27 +418,60 @@ impl Owner {
     }
 }
 
-fn refresh_thread_id(scope: Option<&AgentScope>, fallback: &str) -> String {
-    scope
-        .map(|scope| format!("native-{}", scope.key))
-        .unwrap_or_else(|| fallback.to_string())
+fn model_is_available(active: &cgc_agent_store::ProviderPrefs, model_id: &str) -> bool {
+    active.models.iter().any(|id| id == model_id) && active.model_config(model_id).enabled
+}
+
+fn thread_for_model_switch(current: &Thread, selected: SelectedModel) -> Thread {
+    let mut thread = current.clone();
+    thread.model = selected;
+    thread
 }
 
 #[cfg(test)]
 mod tests {
-    use super::refresh_thread_id;
-    use crate::agent_scope::AgentScope;
+    use super::{model_is_available, thread_for_model_switch};
+    use cgc_agent_core::{SelectedModel, Thread};
+    use cgc_agent_provider::{ModelId, ProviderId};
+    use cgc_agent_store::{ModelPrefs, ProviderPrefs};
+
+    fn provider(models: &[(&str, bool)]) -> ProviderPrefs {
+        ProviderPrefs {
+            id: "test".into(),
+            name: "Test".into(),
+            base_url: "https://example.test/v1".into(),
+            models: models.iter().map(|(id, _)| id.to_string()).collect(),
+            has_key: true,
+            model_params: models
+                .iter()
+                .map(|(id, enabled)| ModelPrefs {
+                    enabled: *enabled,
+                    ..ModelPrefs::new(*id)
+                })
+                .collect(),
+            builtin: false,
+        }
+    }
 
     #[test]
-    fn refresh_reuses_scope_thread_id_instead_of_demo_id() {
-        let scope = AgentScope {
-            key: "assistant-local".into(),
-            root: std::env::temp_dir(),
-        };
-        assert_eq!(
-            refresh_thread_id(Some(&scope), "fallback"),
-            "native-assistant-local"
-        );
-        assert_eq!(refresh_thread_id(None, "fallback"), "fallback");
+    fn refresh_requires_membership_before_retaining_selected_model() {
+        let active = provider(&[("removed", false), ("available", true)]);
+        assert!(!model_is_available(&active, "removed"));
+        assert!(!model_is_available(&active, "missing"));
+        assert!(model_is_available(&active, "available"));
+    }
+
+    #[test]
+    fn switching_model_keeps_thread_entries() {
+        let old_model = SelectedModel::new(ProviderId::new("p"), ModelId::new("old"));
+        let mut current = Thread::new("native-scope", old_model);
+        current.push_user("keep this conversation");
+        let next_model = SelectedModel::new(ProviderId::new("p"), ModelId::new("new"));
+
+        let switched = thread_for_model_switch(&current, next_model.clone());
+
+        assert_eq!(switched.id, "native-scope");
+        assert_eq!(switched.entries, current.entries);
+        assert_eq!(switched.model, next_model);
     }
 }
