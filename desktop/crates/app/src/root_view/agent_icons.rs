@@ -1,8 +1,9 @@
 //! Agent 品牌图标（历史侧栏行 / Agent Panel 头部 / Agent 选择列表共用）。
 //!
-//! Agent Panel 头部用 [`agent_header_icon_element`]：native 用 32px 竖版品牌
-//! badge，外部 agent 用同尺寸品牌 mark，保证切换 agent 时图标槽位一致；历史行 /
-//! 选择器仍用 [`agent_icon_element`] 的 mark-only（14px，完整 wordmark 不可读）。
+//! Agent Panel 头部用 [`agent_header_icon_element`]：native 用 28px 竖版品牌
+//! badge（32px 槽位内做光学尺寸修正），外部 agent 用 32px 品牌 mark；两者占同一
+//! 32px 槽位，切换 agent 时布局不跳动。历史行 / 选择器仍用
+//! [`agent_icon_element`] 的 mark-only（14px，完整 wordmark 不可读）。
 //!
 //! native（CGC Agent）用应用自身图标；已知外部 agent 用其品牌 mark（SVG 直接
 //! `include_bytes!`，经 `Icon::data` 内联渲染，离线可用）：
@@ -74,18 +75,27 @@ pub(in crate::root_view) fn agent_icon_element(
     }
 }
 
-/// Agent Panel 头部图标：native 用竖版品牌 badge，外部 agent 用同尺寸品牌 mark。
-/// 尺寸由调用方统一传入，避免 native / ACP 切换时图标大小跳动。
+/// Agent Panel 头部图标：native 用竖版品牌 badge，外部 agent 用同槽位品牌 mark。
+/// 槽位由调用方统一传入；native badge 做 28px 光学尺寸修正（见 NATIVE_AGENT_BADGE_SIZE）。
 pub(in crate::root_view) fn agent_header_icon_element(
     agent_id: &str,
     size: f32,
     color: gpui::Hsla,
 ) -> AnyElement {
     match agent_icon_kind(agent_id) {
-        AgentIconKind::Native => img(brand_badge())
-            .w(px(size))
-            .h(px(size))
+        // 槽位固定 32px，badge 只占 28px：保证 native / ACP 切换时标题不横跳。
+        AgentIconKind::Native => div()
             .flex_none()
+            .size(px(size))
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                img(brand_badge())
+                    .w(px(NATIVE_AGENT_BADGE_SIZE))
+                    .h(px(NATIVE_AGENT_BADGE_SIZE))
+                    .flex_none(),
+            )
             .into_any_element(),
         _ => agent_icon_element(agent_id, size, color),
     }

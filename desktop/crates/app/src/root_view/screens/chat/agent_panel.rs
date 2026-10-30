@@ -259,7 +259,7 @@ fn header(
         .border_color(palette.line)
         .child(crate::root_view::agent_icons::agent_header_icon_element(
             &agent_icon_id,
-            BRAND_BADGE_SIZE,
+            AGENT_HEADER_ICON_SIZE,
             palette.ink_3,
         ))
         .child(title_area)
