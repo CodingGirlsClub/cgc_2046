@@ -5,6 +5,9 @@ use cgc_agent_store::SessionStore;
 use futures::{stream::FuturesUnordered, FutureExt, StreamExt};
 use std::sync::Weak;
 
+#[cfg(test)]
+mod tests;
+
 pub(super) enum Initialization {
     Explicit {
         thread: Box<Thread>,

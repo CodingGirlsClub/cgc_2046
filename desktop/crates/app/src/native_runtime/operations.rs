@@ -361,40 +361,42 @@ impl Owner {
         let prefs = PrefsStore::new(production.data_root.join("agent_prefs.json")).load();
         production.providers = Arc::new(prefs.providers.clone());
         self.providers = Arc::new(prefs.providers.clone());
-        let Some(active) = prefs.active_provider().cloned() else {
+        let active = prefs.active_provider();
+        let model_id = active.and_then(|active| {
+            prefs
+                .selected_model
+                .as_ref()
+                .filter(|selection| selection.provider_id.as_str() == active.id)
+                .map(|selection| selection.model_id.as_str())
+                .filter(|id| model_is_available(active, id))
+                .or_else(|| {
+                    active
+                        .models
+                        .iter()
+                        .find(|id| active.model_config(id).enabled)
+                        .map(String::as_str)
+                })
+        });
+        let Some((active, model_id)) = active.zip(model_id) else {
+            let allow_echo = production.allow_echo && active.is_none();
             production.pending = None;
-            production.model_setup = if production.allow_echo {
+            production.model_setup = if allow_echo {
                 ModelSetup::DemoEcho
             } else {
                 ModelSetup::Unconfigured
             };
-            self.config.provider = if production.allow_echo {
+            self.config.provider = if allow_echo {
                 Arc::new(EchoProvider::new(self.config.model.clone()))
             } else {
                 Arc::new(UnconfiguredProvider::new(self.config.model.clone()))
             };
             self.model_meta = Arc::new(self.config.model.clone());
+            self.cancel_title();
+            self.rebuild_tools();
             self.publish(RuntimeChange::Configuration);
             return Ok(self.snapshot());
         };
-        let model_id = prefs
-            .selected_model
-            .as_ref()
-            .filter(|selection| selection.provider_id.as_str() == active.id)
-            .map(|selection| selection.model_id.as_str().to_string())
-            .or_else(|| active.primary_model().map(str::to_string))
-            .unwrap_or_else(|| self.config.model.id.as_str().to_string());
-        let model_id = if model_is_available(&active, &model_id) {
-            model_id
-        } else {
-            active
-                .models
-                .iter()
-                .find(|id| active.model_config(id).enabled)
-                .cloned()
-                .unwrap_or(model_id)
-        };
-        let (provider, model) = factory::select_model(production, &active.id, &model_id)?;
+        let (provider, model) = factory::select_model(production, &active.id, model_id)?;
         self.config.provider = provider;
         self.config.context_size = model.limits.context_window as u64;
         self.config.model = model.clone();
