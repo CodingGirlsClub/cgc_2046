@@ -72,18 +72,26 @@ impl ProviderSettings {
                 self.save(&prefs)
             }
             ProviderPrefsChange::SaveKey { mut provider, key } => {
+                let account = provider_key_account(&provider.id);
+                let previous = self.keychain.load_secret(&account);
                 self.keychain
-                    .save_secret(&provider_key_account(&provider.id), &key)
+                    .save_secret(&account, &key)
                     .map_err(|error| ProviderSettingsError::Keychain(error.to_string()))?;
                 provider.has_key = true;
                 let mut prefs = self.prefs.load();
                 prefs.upsert_provider(provider.clone());
-                prefs.selected_provider = Some(provider.id);
-                self.save(&prefs)
+                prefs.selected_provider = Some(provider.id.clone());
+                if let Err(error) = self.save(&prefs) {
+                    let _ = self.restore_key(&provider.id, previous);
+                    return Err(error);
+                }
+                Ok(())
             }
             ProviderPrefsChange::ClearKey { provider_id } => {
+                let account = provider_key_account(&provider_id);
+                let previous = self.keychain.load_secret(&account);
                 self.keychain
-                    .clear_secret(&provider_key_account(&provider_id))
+                    .clear_secret(&account)
                     .map_err(|error| ProviderSettingsError::Keychain(error.to_string()))?;
                 let mut prefs = self.prefs.load();
                 if let Some(provider) = prefs
@@ -93,16 +101,40 @@ impl ProviderSettings {
                 {
                     provider.has_key = false;
                 }
-                self.save(&prefs)
+                if let Err(error) = self.save(&prefs) {
+                    let _ = self.restore_key(&provider_id, previous);
+                    return Err(error);
+                }
+                Ok(())
             }
             ProviderPrefsChange::RemoveProvider { provider_id } => {
-                self.keychain
-                    .clear_secret(&provider_key_account(&provider_id))
-                    .map_err(|error| ProviderSettingsError::Keychain(error.to_string()))?;
                 let mut prefs = self.prefs.load();
                 prefs.remove_provider(&provider_id);
-                self.save(&prefs)
+                self.save(&prefs)?;
+                // prefs 已删除后不再回滚；清 Key 失败只遗留旧 secret，不丢 Provider。
+                let _ = self
+                    .keychain
+                    .clear_secret(&provider_key_account(&provider_id));
+                Ok(())
             }
+        }
+    }
+
+    fn restore_key(
+        &self,
+        provider_id: &str,
+        previous: Option<String>,
+    ) -> Result<(), ProviderSettingsError> {
+        let account = provider_key_account(provider_id);
+        match previous {
+            Some(key) => self
+                .keychain
+                .save_secret(&account, &key)
+                .map_err(|error| ProviderSettingsError::Keychain(error.to_string())),
+            None => self
+                .keychain
+                .clear_secret(&account)
+                .map_err(|error| ProviderSettingsError::Keychain(error.to_string())),
         }
     }
 
@@ -117,7 +149,7 @@ impl ProviderSettings {
 mod tests {
     use std::sync::Arc;
 
-    use cgc_agent_store::{PrefsStore, ProviderPrefs};
+    use cgc_agent_store::{provider_key_account, PrefsStore, ProviderPrefs};
     use cgc_platform::session::{KeychainStore, SecretBackend};
 
     use super::{ProviderPrefsChange, ProviderSettings};
@@ -168,6 +200,12 @@ mod tests {
             prefs: PrefsStore::new(root.join("agent_prefs.json")),
             keychain: KeychainStore::new(Arc::new(MemoryBackend::default())),
         }
+    }
+
+    fn settings_with_failing_prefs(root: &std::path::Path) -> ProviderSettings {
+        // agent_prefs.json 是目录时 save() 的 rename 必然失败，用来模拟磁盘/权限错误。
+        std::fs::create_dir_all(root.join("agent_prefs.json")).expect("failing prefs dir");
+        settings(root)
     }
 
     #[test]
@@ -254,6 +292,74 @@ mod tests {
             })
             .expect("remove first");
         assert_eq!(settings.load().selected_provider.as_deref(), Some("second"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn save_key_rolls_back_when_prefs_fail() {
+        let root =
+            std::env::temp_dir().join(format!("cgc-save-key-rollback-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let settings = settings_with_failing_prefs(&root);
+        let provider = provider();
+        let account = provider_key_account(&provider.id);
+        settings
+            .keychain
+            .save_secret(&account, "old-secret")
+            .unwrap();
+        let result = settings.apply(ProviderPrefsChange::SaveKey {
+            provider: provider.clone(),
+            key: "new-secret".into(),
+        });
+        assert!(result.is_err());
+        assert_eq!(
+            settings.keychain.load_secret(&account).as_deref(),
+            Some("old-secret")
+        );
+        assert!(settings.load().provider(&provider.id).is_none());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn clear_key_rolls_back_when_prefs_fail() {
+        let root =
+            std::env::temp_dir().join(format!("cgc-clear-key-rollback-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let settings = settings_with_failing_prefs(&root);
+        let provider = provider();
+        let account = provider_key_account(&provider.id);
+        settings.keychain.save_secret(&account, "existing").unwrap();
+        let result = settings.apply(ProviderPrefsChange::ClearKey {
+            provider_id: provider.id.clone(),
+        });
+        assert!(result.is_err());
+        assert_eq!(
+            settings.keychain.load_secret(&account).as_deref(),
+            Some("existing")
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn remove_provider_leaves_key_if_prefs_fail() {
+        let root =
+            std::env::temp_dir().join(format!("cgc-remove-prefs-fail-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let settings = settings_with_failing_prefs(&root);
+        let provider = provider();
+        let account = provider_key_account(&provider.id);
+        settings
+            .keychain
+            .save_secret(&account, "to-be-kept")
+            .unwrap();
+        let result = settings.apply(ProviderPrefsChange::RemoveProvider {
+            provider_id: provider.id.clone(),
+        });
+        assert!(result.is_err());
+        assert_eq!(
+            settings.keychain.load_secret(&account).as_deref(),
+            Some("to-be-kept")
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 }

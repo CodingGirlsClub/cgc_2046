@@ -40,6 +40,10 @@ enum AiRoute {
     EditProvider(String),
 }
 
+// 页面顺序：账号 / 通用 / AI / 关于。
+const SETTINGS_PAGE_ACCOUNT: usize = 0;
+const SETTINGS_PAGE_AI: usize = 2;
+
 pub struct SettingsWindowView {
     language: Language,
     email: Option<String>,
@@ -106,7 +110,7 @@ impl SettingsWindowView {
             notice: None,
             provider_drafts: drafts,
             ai_view: AiRoute::General,
-            settings_page: 0,
+            settings_page: SETTINGS_PAGE_ACCOUNT,
             settings_nonce: 0,
             validating_provider: None,
             validation_serial: 0,
@@ -120,7 +124,7 @@ impl SettingsWindowView {
     /// 从其他窗口打开 Settings 时直接定位到 AI 页。
     pub fn open_ai(&mut self, cx: &mut Context<Self>) {
         self.ai_view = AiRoute::General;
-        self.settings_page = 2;
+        self.settings_page = SETTINGS_PAGE_AI;
         self.settings_nonce = self.settings_nonce.wrapping_add(1);
         cx.notify();
     }
@@ -128,7 +132,7 @@ impl SettingsWindowView {
     /// 从其他窗口直接定位到 LLM Providers 配置页。
     pub fn open_llm_providers(&mut self, cx: &mut Context<Self>) {
         self.ai_view = AiRoute::Providers;
-        self.settings_page = 2;
+        self.settings_page = SETTINGS_PAGE_AI;
         self.settings_nonce = self.settings_nonce.wrapping_add(1);
         cx.notify();
     }
@@ -523,25 +527,11 @@ impl SettingsWindowView {
         cx.notify();
         let operation = runtime.refresh_providers();
         cx.spawn(async move |this, cx| {
-            let result = operation.await;
+            let result = operation.await.map(|_| ());
             let _ = this.update(cx, |this, cx| {
-                match result {
-                    Ok(_) => {
-                        this.error = None;
-                        this.notice = Some(success);
-                    }
-                    Err(NativeRuntimeError::Busy) => {
-                        this.notice = None;
-                        this.error = Some(
-                            "配置已保存，但当前会话正在运行；请结束当前对话后重试或重启客户端"
-                                .to_string(),
-                        );
-                    }
-                    Err(error) => {
-                        this.notice = None;
-                        this.error = Some(format!("配置已保存，但应用失败：{error}"));
-                    }
-                }
+                let (notice, error) = refresh_outcome(&success, result);
+                this.notice = notice;
+                this.error = error;
                 cx.notify();
             });
         })
@@ -1278,6 +1268,20 @@ impl SettingsWindowView {
                 ]),
         );
         div().size_full().child(settings).into_any_element()
+    }
+}
+
+fn refresh_outcome(
+    success: &str,
+    result: Result<(), NativeRuntimeError>,
+) -> (Option<String>, Option<String>) {
+    match result {
+        Ok(()) => (Some(success.to_string()), None),
+        Err(NativeRuntimeError::Busy) => (
+            None,
+            Some("配置已保存，但当前会话正在运行；请结束当前对话后重试或重启客户端".to_string()),
+        ),
+        Err(error) => (None, Some(format!("配置已保存，但应用失败：{error}"))),
     }
 }
 
@@ -2179,7 +2183,8 @@ impl Render for SettingsWindowView {
 
 #[cfg(test)]
 mod settings_provider_validation_tests {
-    use super::provider_validation_message;
+    use super::{provider_validation_message, refresh_outcome};
+    use crate::native_runtime::NativeRuntimeError;
     use cgc_agent_provider::{ProviderError, ProviderErrorCategory};
 
     #[test]
@@ -2200,5 +2205,27 @@ mod settings_provider_validation_tests {
             )),
             "账户余额不足"
         );
+    }
+
+    #[test]
+    fn refresh_outcomes_distinguish_success_busy_and_failure() {
+        let (notice, error) = refresh_outcome("Provider 已保存", Ok(()));
+        assert_eq!(notice.as_deref(), Some("Provider 已保存"));
+        assert!(error.is_none());
+
+        let (notice, error) = refresh_outcome("Provider 已保存", Err(NativeRuntimeError::Busy));
+        assert!(notice.is_none());
+        assert!(error
+            .as_deref()
+            .is_some_and(|message| message.contains("当前会话正在运行")));
+
+        let (notice, error) = refresh_outcome(
+            "Provider 已保存",
+            Err(NativeRuntimeError::Configuration("bad model".into())),
+        );
+        assert!(notice.is_none());
+        assert!(error
+            .as_deref()
+            .is_some_and(|message| message.contains("bad model")));
     }
 }
