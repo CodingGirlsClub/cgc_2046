@@ -32,6 +32,7 @@ pub mod notifications;
 pub mod page_context;
 pub mod permission_ui;
 pub mod preferences;
+pub(crate) mod provider_settings;
 pub mod qr;
 pub mod registration;
 pub mod root_view;

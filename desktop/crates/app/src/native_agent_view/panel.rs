@@ -308,16 +308,12 @@ impl NativeAgentView {
     }
 
     pub(super) fn open_model_settings(&mut self, cx: &mut Context<Self>) {
-        let mut opened = false;
-        for window in cx.windows() {
-            if let Some(root) = window.downcast::<crate::root_view::RootView>() {
-                let _ = root.update(cx, |root, _window, cx| {
-                    root.open_settings_ai_window(cx);
-                });
-                opened = true;
-                break;
-            }
-        }
+        let opened = crate::root_view::root_weak()
+            .and_then(|root| {
+                root.update(cx, |root, cx| root.open_settings_ai_window(cx))
+                    .ok()
+            })
+            .is_some();
         if !opened {
             self.state.push_notice("请在账号菜单里打开设置");
             cx.notify();

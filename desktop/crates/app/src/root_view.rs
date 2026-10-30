@@ -81,6 +81,7 @@ mod controller;
 mod history_actions;
 pub(crate) use history_actions::notify_history_changed;
 pub use history_actions::register_history_root;
+pub(crate) use history_actions::root_weak;
 mod history_sidebar;
 mod screens;
 mod state;

@@ -80,10 +80,6 @@ impl ProviderDraft {
         }
     }
 
-    pub(crate) fn to_prefs(&self) -> ProviderPrefs {
-        self.to_prefs_with(&self.base_url, &self.name)
-    }
-
     /// 用调用方当前表单里的 Base URL / Name 构造 ProviderPrefs。
     /// `save_provider_key` 必须先同步输入框，不能拿草稿里的旧值发起验证。
     pub(crate) fn to_prefs_with(&self, base_url: &str, name: &str) -> ProviderPrefs {

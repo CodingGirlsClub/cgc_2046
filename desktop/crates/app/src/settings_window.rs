@@ -9,16 +9,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cgc_agent_provider::{validate_credentials, ProviderError, ProviderErrorCategory};
-use cgc_agent_store::{
-    builtin_providers, normalized_provider_name, provider_key_account, PrefsStore, ProviderPrefs,
-};
-use cgc_platform::paths::AppPaths;
-use cgc_platform::session::KeychainStore;
+use cgc_agent_store::{builtin_providers, normalized_provider_name, ProviderPrefs};
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::group_box::GroupBoxVariant;
 use gpui_kit::component::input::{Input, InputState, TextareaState};
 use gpui_kit::component::setting::{
-    SettingField, SettingGroup, SettingItem, SettingPage, Settings,
+    SelectIndex, SettingField, SettingGroup, SettingItem, SettingPage, Settings,
 };
 use gpui_kit::component::Sizable;
 use gpui_kit::InteractiveElement;
@@ -26,7 +22,9 @@ use gpui_kit::*;
 
 use crate::build_info;
 use crate::i18n::{translate, Key, Language};
+use crate::native_runtime::{NativeRuntimeError, NativeRuntimeHandle};
 use crate::preferences;
+use crate::provider_settings::{ProviderPrefsChange, ProviderSettings};
 use crate::settings_provider::{
     format_model_lines, parse_model_lines, validation_is_current, ModelFieldInputs, ProviderDraft,
 };
@@ -57,10 +55,12 @@ pub struct SettingsWindowView {
     notice: Option<String>,
     provider_drafts: Vec<ProviderDraft>,
     ai_view: AiRoute,
+    settings_page: usize,
+    settings_nonce: u64,
     validating_provider: Option<String>,
     validation_serial: u64,
-    prefs_store: PrefsStore,
-    keychain: KeychainStore,
+    provider_settings: ProviderSettings,
+    runtime: Option<NativeRuntimeHandle>,
     /// Stage 3.3：清空 ACP 对话历史的二次确认状态与结果提示。
     clear_acp_history_armed: Arc<AtomicBool>,
     clear_acp_history_notice: Arc<Mutex<Option<String>>>,
@@ -76,10 +76,11 @@ impl SettingsWindowView {
         token: String,
         api: Arc<dyn AuthApi + Send + Sync>,
         close_to_tray: Arc<AtomicBool>,
+        runtime: Option<NativeRuntimeHandle>,
         cx: &mut Context<Self>,
     ) -> Self {
-        let prefs_store = PrefsStore::new(AppPaths::from_env().agent_prefs_file());
-        let prefs = prefs_store.load();
+        let provider_settings = ProviderSettings::new();
+        let prefs = provider_settings.load();
         let mut drafts: Vec<ProviderDraft> = builtin_providers()
             .iter()
             .map(ProviderDraft::from_prefs)
@@ -105,10 +106,12 @@ impl SettingsWindowView {
             notice: None,
             provider_drafts: drafts,
             ai_view: AiRoute::General,
+            settings_page: 0,
+            settings_nonce: 0,
             validating_provider: None,
             validation_serial: 0,
-            prefs_store,
-            keychain: KeychainStore::from_env(),
+            provider_settings,
+            runtime,
             clear_acp_history_armed: Arc::new(AtomicBool::new(false)),
             clear_acp_history_notice: Arc::new(Mutex::new(None)),
         }
@@ -117,12 +120,16 @@ impl SettingsWindowView {
     /// 从其他窗口打开 Settings 时直接定位到 AI 页。
     pub fn open_ai(&mut self, cx: &mut Context<Self>) {
         self.ai_view = AiRoute::General;
+        self.settings_page = 2;
+        self.settings_nonce = self.settings_nonce.wrapping_add(1);
         cx.notify();
     }
 
     /// 从其他窗口直接定位到 LLM Providers 配置页。
     pub fn open_llm_providers(&mut self, cx: &mut Context<Self>) {
         self.ai_view = AiRoute::Providers;
+        self.settings_page = 2;
+        self.settings_nonce = self.settings_nonce.wrapping_add(1);
         cx.notify();
     }
 
@@ -462,25 +469,15 @@ impl SettingsWindowView {
         self.validating_provider = None;
         match result {
             Ok(()) => {
-                if let Err(error) = self
-                    .keychain
-                    .save_secret(&provider_key_account(&provider.id), &key)
-                {
-                    self.error = Some(format!("API Key 保存失败：{error}"));
+                if let Err(error) = self.provider_settings.apply(ProviderPrefsChange::SaveKey {
+                    provider: provider.clone(),
+                    key,
+                }) {
+                    self.error = Some(error.to_string());
                     cx.notify();
                     return;
                 }
                 provider.has_key = true;
-                let mut prefs = self.prefs_store.load();
-                prefs.upsert_provider(provider.clone());
-                if prefs.selected_provider.as_deref().is_none() {
-                    prefs.selected_provider = Some(provider.id.clone());
-                }
-                if let Err(error) = self.prefs_store.save(&prefs) {
-                    self.error = Some(format!("Provider 保存失败：{error}"));
-                    cx.notify();
-                    return;
-                }
                 if let Some(draft) = self
                     .provider_drafts
                     .iter_mut()
@@ -496,14 +493,14 @@ impl SettingsWindowView {
                     draft.api_key_input = None;
                 }
                 self.error = None;
-                self.notice = Some(format!(
-                    "{} API Key 已验证并保存，返回 Agent 面板即可使用",
-                    provider.name
-                ));
                 if return_to_providers {
                     self.ai_view = AiRoute::Providers;
                 }
-                Self::refresh_root_native_providers(cx);
+                self.refresh_provider_runtime(
+                    format!("{} API Key 已验证并保存", provider.name),
+                    cx,
+                );
+                return;
             }
             Err(error) => {
                 self.notice = None;
@@ -516,15 +513,39 @@ impl SettingsWindowView {
         cx.notify();
     }
 
-    fn refresh_root_native_providers(cx: &mut Context<Self>) {
-        for window in cx.windows() {
-            if let Some(root) = window.downcast::<crate::root_view::RootView>() {
-                let _ = root.update(cx, |root, _window, cx| {
-                    root.refresh_native_providers(cx);
-                });
-                break;
-            }
-        }
+    fn refresh_provider_runtime(&mut self, success: String, cx: &mut Context<Self>) {
+        let Some(runtime) = self.runtime.clone() else {
+            self.notice = Some(format!("{success}；重新打开客户端后生效"));
+            cx.notify();
+            return;
+        };
+        self.notice = Some(format!("{success}，正在应用…"));
+        cx.notify();
+        let operation = runtime.refresh_providers();
+        cx.spawn(async move |this, cx| {
+            let result = operation.await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(_) => {
+                        this.error = None;
+                        this.notice = Some(success);
+                    }
+                    Err(NativeRuntimeError::Busy) => {
+                        this.notice = None;
+                        this.error = Some(
+                            "配置已保存，但当前会话正在运行；请结束当前对话后重试或重启客户端"
+                                .to_string(),
+                        );
+                    }
+                    Err(error) => {
+                        this.notice = None;
+                        this.error = Some(format!("配置已保存，但应用失败：{error}"));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn sync_all_draft_names(&mut self, cx: &mut Context<Self>) {
@@ -600,12 +621,7 @@ impl SettingsWindowView {
         };
         if let Some(api_key_input) = draft.api_key_input.clone() {
             let api_key = api_key_input.read(cx).value().trim().to_string();
-            if api_key.is_empty()
-                && self
-                    .keychain
-                    .load_secret(&provider_key_account(&provider.id))
-                    .is_some_and(|key| !key.is_empty())
-            {
+            if api_key.is_empty() && self.provider_settings.has_key(&provider.id) {
                 provider.has_key = true;
             }
             if !api_key.is_empty() {
@@ -613,17 +629,12 @@ impl SettingsWindowView {
                 return;
             }
         }
-        let mut prefs = self.prefs_store.load();
-        prefs.upsert_provider(provider.clone());
-        if prefs.selected_provider.as_deref().is_none()
-            || prefs.provider(&provider.id).map(|item| item.id.clone()) == Some(provider.id.clone())
+        match self
+            .provider_settings
+            .apply(ProviderPrefsChange::SaveProvider(provider.clone()))
         {
-            prefs.selected_provider = Some(provider.id.clone());
-        }
-        match self.prefs_store.save(&prefs) {
             Ok(()) => {
                 self.error = None;
-                self.notice = Some("Provider 已保存".to_string());
                 self.ai_view = AiRoute::Providers;
                 if let Some(draft) = self.provider_drafts.get_mut(index) {
                     draft.base_url = provider.base_url.clone();
@@ -633,8 +644,10 @@ impl SettingsWindowView {
                     draft.has_key = provider.has_key;
                     draft.builtin = false;
                 }
+                self.refresh_provider_runtime("Provider 已保存".to_string(), cx);
+                return;
             }
-            Err(error) => self.error = Some(format!("保存失败：{error}")),
+            Err(error) => self.error = Some(error.to_string()),
         }
         cx.notify();
     }
@@ -644,23 +657,21 @@ impl SettingsWindowView {
             return;
         };
         self.cancel_validation_for(&draft.id);
-        match self.keychain.clear_secret(&provider_key_account(&draft.id)) {
+        match self.provider_settings.apply(ProviderPrefsChange::ClearKey {
+            provider_id: draft.id.clone(),
+        }) {
             Ok(()) => {
-                let mut provider = draft.to_prefs();
-                provider.has_key = false;
-                let mut prefs = self.prefs_store.load();
-                prefs.upsert_provider(provider);
-                let _ = self.prefs_store.save(&prefs);
                 if let Some(draft) = self.provider_drafts.get_mut(index) {
                     draft.has_key = false;
                     draft.key_editing = false;
                     draft.confirm_clear = false;
                     draft.api_key_input = None;
                 }
-                self.notice = Some("API Key 已清除；重新打开 Agent 面板后生效".to_string());
                 self.error = None;
+                self.refresh_provider_runtime("API Key 已清除".to_string(), cx);
+                return;
             }
-            Err(error) => self.error = Some(format!("清除 API Key 失败：{error}")),
+            Err(error) => self.error = Some(error.to_string()),
         }
         cx.notify();
     }
@@ -680,10 +691,18 @@ impl SettingsWindowView {
         };
         self.cancel_validation_for(&draft.id);
         self.provider_drafts.remove(index);
-        let mut prefs = self.prefs_store.load();
-        prefs.remove_provider(&draft.id);
-        let _ = self.prefs_store.save(&prefs);
-        self.notice = Some("Provider 已删除".to_string());
+        match self
+            .provider_settings
+            .apply(ProviderPrefsChange::RemoveProvider {
+                provider_id: draft.id,
+            }) {
+            Ok(()) => {
+                self.error = None;
+                self.refresh_provider_runtime("Provider 已删除".to_string(), cx);
+                return;
+            }
+            Err(error) => self.error = Some(error.to_string()),
+        }
         cx.notify();
     }
 
@@ -1215,42 +1234,49 @@ impl SettingsWindowView {
                 ]),
         };
 
-        let settings = Settings::new("cgc-settings")
-            .page(
-                SettingPage::new(translate(language, Key::AppSettingsAccount))
-                    .header_style(&hidden_header)
-                    .groups(vec![
-                        SettingGroup::new()
-                            .variant(GroupBoxVariant::Normal)
-                            .item(Self::breadcrumb_item("设置 / 账号".to_string())),
-                        SettingGroup::new()
-                            .title(translate(language, Key::AppSettingsAccount))
-                            .item(account_item),
-                    ]),
-            )
-            .page(
-                SettingPage::new("通用")
-                    .header_style(&hidden_header)
-                    .groups(vec![
-                        SettingGroup::new()
-                            .variant(GroupBoxVariant::Normal)
-                            .item(Self::breadcrumb_item("设置 / 通用".to_string())),
-                        SettingGroup::new().title("通用").item(close_to_tray),
-                    ]),
-            )
-            .page(ai_page)
-            .page(
-                SettingPage::new("关于")
-                    .header_style(&hidden_header)
-                    .groups(vec![
-                        SettingGroup::new()
-                            .variant(GroupBoxVariant::Normal)
-                            .item(Self::breadcrumb_item("设置 / 关于".to_string())),
-                        SettingGroup::new()
-                            .title("关于")
-                            .items(vec![about_item, revoke_item]),
-                    ]),
-            );
+        let settings = Settings::new(SharedString::from(format!(
+            "cgc-settings-{}",
+            self.settings_nonce
+        )))
+        .default_selected_index(SelectIndex {
+            page_ix: self.settings_page,
+            group_ix: None,
+        })
+        .page(
+            SettingPage::new(translate(language, Key::AppSettingsAccount))
+                .header_style(&hidden_header)
+                .groups(vec![
+                    SettingGroup::new()
+                        .variant(GroupBoxVariant::Normal)
+                        .item(Self::breadcrumb_item("设置 / 账号".to_string())),
+                    SettingGroup::new()
+                        .title(translate(language, Key::AppSettingsAccount))
+                        .item(account_item),
+                ]),
+        )
+        .page(
+            SettingPage::new("通用")
+                .header_style(&hidden_header)
+                .groups(vec![
+                    SettingGroup::new()
+                        .variant(GroupBoxVariant::Normal)
+                        .item(Self::breadcrumb_item("设置 / 通用".to_string())),
+                    SettingGroup::new().title("通用").item(close_to_tray),
+                ]),
+        )
+        .page(ai_page)
+        .page(
+            SettingPage::new("关于")
+                .header_style(&hidden_header)
+                .groups(vec![
+                    SettingGroup::new()
+                        .variant(GroupBoxVariant::Normal)
+                        .item(Self::breadcrumb_item("设置 / 关于".to_string())),
+                    SettingGroup::new()
+                        .title("关于")
+                        .items(vec![about_item, revoke_item]),
+                ]),
+        );
         div().size_full().child(settings).into_any_element()
     }
 }
@@ -1302,6 +1328,7 @@ fn render_provider_list(
             div()
                 .flex()
                 .flex_row()
+                .flex_wrap()
                 .items_center()
                 .gap(space(2))
                 .p(space(1))

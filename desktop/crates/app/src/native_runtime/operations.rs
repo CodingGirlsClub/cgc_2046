@@ -132,8 +132,9 @@ impl Owner {
                 let result = self.select_model(&provider, &model);
                 let _ = reply.send(result);
             }
-            Command::RefreshProviders => {
-                let _ = self.refresh_providers();
+            Command::RefreshProviders(reply) => {
+                let result = self.refresh_providers();
+                let _ = reply.send(result);
             }
             Command::Thinking {
                 enabled,

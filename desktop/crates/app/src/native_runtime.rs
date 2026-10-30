@@ -224,7 +224,7 @@ enum Command {
         model: String,
         reply: Reply<Arc<NativeRuntimeSnapshot>>,
     },
-    RefreshProviders,
+    RefreshProviders(Reply<Arc<NativeRuntimeSnapshot>>),
     Thinking {
         enabled: bool,
         effort_index: usize,
@@ -410,8 +410,11 @@ impl NativeRuntimeHandle {
         });
     }
     /// Settings 保存并验证 Provider 后，让当前会话重新读取 provider/model，无需重启客户端。
-    pub(crate) fn refresh_providers(&self) {
-        let _ = self.commands.unbounded_send(Command::RefreshProviders);
+    pub(crate) fn refresh_providers(
+        &self,
+    ) -> impl Future<Output = Result<Arc<NativeRuntimeSnapshot>, NativeRuntimeError>> + Send + 'static
+    {
+        self.request(Command::RefreshProviders)
     }
     pub fn set_approval(&self, mode: ApprovalMode) {
         let _ = self.commands.unbounded_send(Command::Approval(mode));
