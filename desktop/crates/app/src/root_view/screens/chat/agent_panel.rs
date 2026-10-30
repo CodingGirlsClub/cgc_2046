@@ -257,9 +257,9 @@ fn header(
         .h(px(TOP_BAR_HEIGHT))
         .border_b_1()
         .border_color(palette.line)
-        .child(crate::root_view::agent_icons::agent_icon_element(
+        .child(crate::root_view::agent_icons::agent_header_icon_element(
             &agent_icon_id,
-            16.0,
+            BRAND_BADGE_SIZE,
             palette.ink_3,
         ))
         .child(title_area)
