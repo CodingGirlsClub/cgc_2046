@@ -475,6 +475,7 @@ impl NativeAgentView {
                             .pt(px(2.0))
                             .children(rows)
                     }))
+                    .children(self.page_context_chip(palette, cx))
                     .child(
                         div()
                             .relative()

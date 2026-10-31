@@ -758,6 +758,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                 palette,
                                 |_, _, _| {},
                             ))
+                            .children(chat_context_chip(ctx, palette, cx))
                             .child(
                                 cgc_agent_ui::composer::composer_footer(chat_composer_style(
                                     palette,
@@ -1061,44 +1062,6 @@ pub(in crate::root_view) fn render_chat_panel(
                     .children(rows)
             })
     };
-    let context_scope = crate::page_context::ConversationScope::new(
-        ctx.chat
-            .session
-            .session_id
-            .clone()
-            .unwrap_or_else(|| "acp-pending".into()),
-        ctx.chat
-            .selected_agent
-            .clone()
-            .unwrap_or_else(|| "acp".into()),
-    );
-    let context_chip = ctx.page_context.visible().map(|context| {
-        let page_label = context.chip_title();
-        let state_label =
-            crate::page_context::page_load_state_label(ctx.page_context.chip_state(&context_scope));
-        let dismiss_root = cx.entity().downgrade();
-        cgc_agent_ui::context_chip::render_context_chip(
-            cgc_agent_ui::context_chip::ContextChipSpec {
-                id: "chat-context-chip".into(),
-                dismiss_id: "chat-context-dismiss".into(),
-                title: page_label,
-                state_label: state_label.into(),
-                style: cgc_agent_ui::context_chip::ContextChipStyle {
-                    background: palette.soft,
-                    foreground: palette.ink_3,
-                    hover: palette.card,
-                    radius: RADIUS_SMALL,
-                    text_size: 11.0,
-                    gap: 4.0,
-                    padding_x: 4.0,
-                    padding_y: 2.0,
-                },
-                on_dismiss: Box::new(move |_, cx| {
-                    let _ = dismiss_root.update(cx, |this, cx| this.dismiss_chat_context(cx));
-                }),
-            },
-        )
-    });
     div()
         .flex()
         .flex_row()
@@ -1114,10 +1077,59 @@ pub(in crate::root_view) fn render_chat_panel(
                 .min_w(px(0.0))
                 .flex_col()
                 .gap(space(1))
-                .children(context_chip)
                 .child(body),
         )
         .into_any_element()
+}
+
+fn chat_context_chip(
+    ctx: &mut ScreenContext<'_>,
+    palette: &theme::Palette,
+    cx: &mut Context<RootView>,
+) -> Option<AnyElement> {
+    let context = ctx.page_context.visible()?;
+    let scope = crate::page_context::ConversationScope::new(
+        ctx.chat
+            .session
+            .session_id
+            .clone()
+            .unwrap_or_else(|| "acp-pending".into()),
+        ctx.chat
+            .selected_agent
+            .clone()
+            .unwrap_or_else(|| "acp".into()),
+    );
+    let state_label =
+        crate::page_context::page_load_state_label(ctx.page_context.chip_state(&scope));
+    let dismiss_root = cx.entity().downgrade();
+    Some(
+        div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .child(cgc_agent_ui::context_chip::render_context_chip(
+                cgc_agent_ui::context_chip::ContextChipSpec {
+                    id: "chat-context-chip".into(),
+                    dismiss_id: "chat-context-dismiss".into(),
+                    title: context.chip_title(),
+                    state_label: state_label.into(),
+                    style: cgc_agent_ui::context_chip::ContextChipStyle {
+                        background: palette.soft,
+                        foreground: palette.ink_3,
+                        hover: palette.card,
+                        radius: RADIUS_SMALL,
+                        text_size: 11.0,
+                        gap: 4.0,
+                        padding_x: 4.0,
+                        padding_y: 2.0,
+                    },
+                    on_dismiss: Box::new(move |_, cx| {
+                        let _ = dismiss_root.update(cx, |this, cx| this.dismiss_chat_context(cx));
+                    }),
+                },
+            ))
+            .into_any_element(),
+    )
 }
 
 /// 消息操作栏（Copy / Scroll to User Message / Scroll to Top）。

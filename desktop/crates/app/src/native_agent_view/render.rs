@@ -236,7 +236,6 @@ impl Render for NativeAgentView {
                 matches!(model_setup, ModelSetup::Unconfigured | ModelSetup::DemoEcho)
                     .then(|| self.render_model_setup_notice(model_setup, palette, cx)),
             )
-            .children(self.page_context_chip(palette, cx))
             .child({
                 // B4b-b'1：两条 composer 渲染路径已合一，这是唯一实现
                 // （附件/queue/slash/mention/pickers/checkpoint/usage 均在）。
@@ -247,7 +246,7 @@ impl Render for NativeAgentView {
 }
 
 impl NativeAgentView {
-    fn page_context_chip(
+    pub(super) fn page_context_chip(
         &self,
         palette: theme::Palette,
         cx: &mut Context<Self>,
@@ -257,7 +256,9 @@ impl NativeAgentView {
         let dismiss = cx.entity().downgrade();
         Some(
             div()
-                .mx(space(2))
+                .flex()
+                .flex_row()
+                .items_center()
                 .child(cgc_agent_ui::context_chip::render_context_chip(
                     cgc_agent_ui::context_chip::ContextChipSpec {
                         id: "native-context-chip".into(),
