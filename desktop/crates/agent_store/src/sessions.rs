@@ -131,6 +131,9 @@ impl SessionStore {
         let _ = self
             .conn
             .execute("ALTER TABLE threads ADD COLUMN session_id TEXT", []);
+        let _ = self
+            .conn
+            .execute("ALTER TABLE threads ADD COLUMN user_drafts_json TEXT", []);
         // 旧表迁移：ACP 标题覆盖收敛到 threads.title_override，然后删除旧表。
         self.migrate_legacy_acp_titles()?;
         Ok(())
@@ -267,6 +270,10 @@ impl SessionStore {
             ],
         )?;
         transaction.execute(
+            "UPDATE threads SET user_drafts_json = ?2 WHERE id = ?1",
+            params![thread.id, serde_json::to_string(&thread.user_drafts)?],
+        )?;
+        transaction.execute(
             "DELETE FROM entries WHERE thread_id = ?1",
             params![thread.id],
         )?;
@@ -330,6 +337,16 @@ impl SessionStore {
             .query_map(params![id], |row| row.get::<_, String>(0))?
             .map(|payload| -> Result<Entry, SessionError> { Ok(serde_json::from_str(&payload?)?) })
             .collect::<Result<Vec<_>, _>>()?;
+        let drafts: Option<String> = self.conn.query_row(
+            "SELECT user_drafts_json FROM threads WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )?;
+        let user_drafts = drafts
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()?
+            .unwrap_or_default();
         Ok(Some(Thread {
             id: id.to_string(),
             title,
@@ -338,6 +355,7 @@ impl SessionStore {
             session_id,
             model: SelectedModel::new(ProviderId::new(provider_id), ModelId::new(model_id)),
             entries,
+            user_drafts,
             usage_total,
             created_at,
             updated_at,

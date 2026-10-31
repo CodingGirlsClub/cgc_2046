@@ -221,6 +221,7 @@ struct ChatUi {
     version: Option<String>,
     chat_scroll: ScrollHandle,
     input: String,
+    composer_context: crate::composer_context::ComposerContext,
     focused: bool,
     auto_prompted: bool,
     config_search: String,
@@ -618,8 +619,26 @@ impl RootView {
 
 impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let previous_page = self.page_context.visible();
         self.refresh_page_context();
+        if previous_page != self.page_context.visible() {
+            if let Some(view) = self.native_agent_view.clone() {
+                view.update(cx, |_, cx| cx.notify());
+            }
+        }
         self.refresh_history_if_dirty(cx);
+        if self.chat_input_pending_clear {
+            self.chat_input_pending_clear = false;
+            if let Some(input) = self.chat_input.clone() {
+                input.update(cx, |input, cx| input.set_value("", window, cx));
+            }
+        }
+        if let Some(input) = self.chat_input.clone() {
+            let current = self.page_context.visible();
+            self.chat
+                .composer_context
+                .ensure_auto(&input, current.as_ref(), window, cx);
+        }
         let mode = theme::resolve(self.preference, window.appearance());
         let _ = mode;
         let palette = theme::palette_from_theme(cx);
@@ -651,12 +670,6 @@ impl Render for RootView {
             });
             self.key_interceptor = Some(subscription);
         }
-        if self.chat_input_pending_clear {
-            self.chat_input_pending_clear = false;
-            if let Some(input) = self.chat_input.clone() {
-                input.update(cx, |input, cx| input.set_value("", window, cx));
-            }
-        }
         if let Some(input) = self.chat_input.clone() {
             if self.chat_input_subscription.is_none() {
                 let subscription = cx.subscribe_in(
@@ -665,16 +678,19 @@ impl Render for RootView {
                     |this, state, event: &InputEvent, window, cx| match event {
                         InputEvent::Change => {
                             this.chat.focused = true;
-                            this.chat.input = state.read(cx).value().to_string();
+                            this.chat.input =
+                                crate::composer_context::command_text(&state.read(cx).content());
                             this.chat.slash_selection = 0;
                             this.chat.slash_dismissed = false;
                             this.chat_input_pending_clear = false;
                             cx.notify();
                         }
                         InputEvent::PressEnter { shift, .. } if !shift => {
-                            this.chat.input = state.read(cx).value().to_string();
-                            this.send_chat(cx);
-                            state.update(cx, |state, cx| state.set_value("", window, cx));
+                            this.chat.input =
+                                crate::composer_context::user_text(&state.read(cx).content());
+                            if this.send_chat(cx) {
+                                state.update(cx, |state, cx| state.set_value("", window, cx));
+                            }
                             cx.notify();
                         }
                         InputEvent::Focus => {
@@ -939,6 +955,12 @@ impl Render for RootView {
                     .text_size(px(14.0))
                     .track_focus(&key_focus)
                     .on_key_down(cx.listener(Self::handle_shell_key))
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| {
+                            this.schedule_page_selection(window, cx);
+                        }),
+                    )
                     .child(
                         div()
                             .flex()
@@ -1056,6 +1078,16 @@ impl Render for RootView {
                                     .child(
                                         div()
                                             .id("content-scroll")
+                                            .on_mouse_down(
+                                                MouseButton::Left,
+                                                cx.listener(|this, _, _, _| {
+                                                    this.page_context.begin_selection();
+                                                }),
+                                            )
+                                            .on_key_up(cx.listener(|this, _, window, cx| {
+                                                this.page_context.begin_selection();
+                                                this.schedule_page_selection(window, cx);
+                                            }))
                                             .flex_1()
                                             .min_w(px(0.0))
                                             .p(space(6))
@@ -1262,6 +1294,20 @@ impl Render for RootView {
 }
 
 impl RootView {
+    fn schedule_page_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let root = cx.entity().downgrade();
+        window.on_next_frame(move |window, cx| {
+            let text = gpui_kit::base::TextSelection::selected_text(window, cx);
+            let _ = root.update(cx, |this, cx| {
+                this.page_context.capture_selection(text);
+                if let Some(view) = this.native_agent_view.clone() {
+                    view.update(cx, |_, cx| cx.notify());
+                }
+                cx.notify();
+            });
+        });
+    }
+
     /// 窗口变窄或恢复旧宽度时，保证两侧 panel 不会把中心压到 320px 以下。
     fn clamp_open_panel_widths(&mut self, viewport: f32) {
         if !self.agent_panel_open || !self.right_panel_open {

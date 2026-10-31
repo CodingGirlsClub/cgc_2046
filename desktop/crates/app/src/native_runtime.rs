@@ -204,6 +204,7 @@ pub struct PreparedNativeTurn {
     pub thread_id: String,
     pub generation: u64,
     pub display: String,
+    pub draft: Option<serde_json::Value>,
     pub images: Vec<ImageAttachment>,
     pub retry: bool,
 }
@@ -243,7 +244,7 @@ enum Command {
     },
     Prepare(PreparedNativeTurn, Reply<()>),
     Stop,
-    Steer(String, Reply<()>),
+    Steer(cgc_agent_core::session::SteerMessage, Reply<()>),
     Open(String, Reply<Arc<NativeRuntimeSnapshot>>),
     New(Reply<Arc<NativeRuntimeSnapshot>>),
     SwitchScope(AgentScope, Reply<Arc<NativeRuntimeSnapshot>>),
@@ -385,8 +386,26 @@ impl NativeRuntimeHandle {
         &self,
         text: String,
     ) -> impl Future<Output = Result<(), NativeRuntimeError>> + Send + 'static {
-        self.request(|reply| Command::Steer(text, reply))
+        self.steer_with_context(text.clone(), text, None)
     }
+    pub(crate) fn steer_with_context(
+        &self,
+        prompt: String,
+        display: String,
+        draft: Option<serde_json::Value>,
+    ) -> impl Future<Output = Result<(), NativeRuntimeError>> + Send + 'static {
+        self.request(|reply| {
+            Command::Steer(
+                cgc_agent_core::session::SteerMessage {
+                    prompt,
+                    display,
+                    draft,
+                },
+                reply,
+            )
+        })
+    }
+
     pub fn open_thread(
         &self,
         id: String,

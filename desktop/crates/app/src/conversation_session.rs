@@ -29,6 +29,7 @@ pub struct Submission {
     pub display: String,
     pub prompt: String,
     pub context: Option<FrozenPageContext>,
+    pub draft: Option<cgc_agent_ui::conversation::MessageDraft>,
     pub images: Vec<ImageAttachment>,
     pub retry: bool,
 }
@@ -97,6 +98,7 @@ impl ConversationSession {
             display,
             prompt,
             context,
+            draft: None,
             images,
             retry,
         }
@@ -129,6 +131,16 @@ impl ConversationSession {
             agent_ingest::apply_user_turn(&mut self.thread, submission.display.clone());
         } else {
             self.thread.status = ThreadStatus::Generating;
+        }
+        let users = self
+            .thread
+            .entries
+            .iter()
+            .filter(|entry| matches!(entry, cgc_agent_ui::conversation::Entry::User { .. }))
+            .count();
+        self.thread.user_drafts.resize(users, None);
+        if let Some(slot) = self.thread.user_drafts.last_mut() {
+            *slot = submission.draft.clone();
         }
         self.last_error = None;
         self.ready_for_next = false;
@@ -269,11 +281,102 @@ impl ConversationSession {
         thread.pending_permission = None;
         self.thread = thread;
         self.in_flight = None;
+        self.last_error = None;
         self.turn_closed = true;
     }
 
     pub fn begin_retry(&mut self) -> bool {
         self.last_error.take().is_some()
+    }
+
+    pub(crate) fn sync_native_drafts(
+        &mut self,
+        source: &cgc_agent_core::Thread,
+        hidden_users: usize,
+    ) -> bool {
+        let source_users = source
+            .entries
+            .iter()
+            .filter_map(|entry| match entry {
+                cgc_agent_core::Entry::User { text, display, .. } => {
+                    Some(display.as_deref().unwrap_or(text))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let visible_users = self.thread.entries.iter().filter_map(|entry| match entry {
+            cgc_agent_ui::conversation::Entry::User { text } => Some(text.as_str()),
+            _ => None,
+        });
+        if self.is_busy()
+            || source_users
+                .get(hidden_users..)
+                .is_none_or(|users| !visible_users.eq(users.iter().copied()))
+        {
+            return false;
+        }
+        self.thread.user_drafts = (hidden_users..source_users.len())
+            .map(|ordinal| {
+                source
+                    .user_drafts
+                    .get(ordinal)
+                    .and_then(|draft| draft.as_ref())
+                    .and_then(|value| serde::Deserialize::deserialize(value).ok())
+            })
+            .collect();
+        true
+    }
+
+    pub(crate) fn native_retry(
+        &mut self,
+        source: &cgc_agent_core::Thread,
+        workspace: &std::path::Path,
+        page_context: &PageContextState,
+        scope: ConversationScope,
+    ) -> Option<Submission> {
+        let cgc_agent_core::Entry::User {
+            text,
+            display,
+            images,
+            ..
+        } = source
+            .entries
+            .iter()
+            .rev()
+            .find(|entry| matches!(entry, cgc_agent_core::Entry::User { .. }))?
+        else {
+            return None;
+        };
+        let ordinal = source
+            .entries
+            .iter()
+            .filter(|entry| matches!(entry, cgc_agent_core::Entry::User { .. }))
+            .count()
+            - 1;
+        let saved_draft = source
+            .user_drafts
+            .get(ordinal)
+            .and_then(|draft| draft.as_ref())
+            .and_then(|draft| serde::Deserialize::deserialize(draft).ok());
+        page_context.invalidate_loaded(&scope);
+        let (draft, prompt, context) = if let Some(draft) = saved_draft {
+            let mut composer = crate::composer_context::ComposerContext::default();
+            let content = composer.restore(&draft);
+            let (draft, prompt, context) =
+                composer.freeze(&content, None, workspace, page_context, scope);
+            (Some(draft), prompt, context)
+        } else {
+            (None, text.clone(), None)
+        };
+        let mut submission = self.submission(
+            display.as_ref().unwrap_or(text).clone(),
+            prompt,
+            context,
+            images.clone(),
+            true,
+        );
+        submission.draft = draft;
+        Some(submission)
     }
 }
 

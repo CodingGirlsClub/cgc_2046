@@ -29,6 +29,8 @@ pub struct SavedConversation {
     pub source: SnapshotSource,
     pub title: Option<String>,
     pub entries: Vec<Entry>,
+    #[serde(default)]
+    pub user_drafts: Vec<Option<cgc_agent_conversation::conversation::MessageDraft>>,
     pub plan: Vec<PlanStep>,
     pub usage: Usage,
     pub capabilities: ThreadCapabilities,
@@ -59,6 +61,7 @@ impl SavedConversation {
             source,
             title: thread.title.clone(),
             entries,
+            user_drafts: thread.user_drafts.clone(),
             plan: thread.plan.clone(),
             usage: thread.usage.clone(),
             capabilities: thread.capabilities,
@@ -132,6 +135,15 @@ impl SavedConversation {
             source: SnapshotSource::Native,
             title: thread.title.clone(),
             entries,
+            user_drafts: thread
+                .user_drafts
+                .iter()
+                .map(|draft| {
+                    draft
+                        .as_ref()
+                        .and_then(|draft| serde::Deserialize::deserialize(draft).ok())
+                })
+                .collect(),
             plan: Vec::new(),
             usage: Usage {
                 used: thread.usage_total.total(),
@@ -148,6 +160,7 @@ impl SavedConversation {
             thread_id: self.thread_id.clone(),
             title: self.title.clone(),
             entries: self.entries.clone(),
+            user_drafts: self.user_drafts.clone(),
             capabilities: self.capabilities,
             usage: self.usage.clone(),
             plan: self.plan.clone(),

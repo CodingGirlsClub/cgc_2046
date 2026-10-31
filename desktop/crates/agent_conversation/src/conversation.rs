@@ -186,6 +186,41 @@ pub enum NoticeLevel {
     Error,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextAttachmentKind {
+    Page,
+    Selection,
+    File,
+    Skill,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextAttachment {
+    pub id: String,
+    pub label: String,
+    pub kind: ContextAttachmentKind,
+    pub source: String,
+    pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_snapshot: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DraftToken {
+    pub range: std::ops::Range<usize>,
+    pub id: String,
+    pub text: String,
+    pub label: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageDraft {
+    pub text: String,
+    pub tokens: Vec<DraftToken>,
+    pub attachments: Vec<ContextAttachment>,
+}
+
 /// 模型行；UI 渲染的原子单位。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -280,6 +315,7 @@ pub struct ConversationThread {
     pub thread_id: String,
     pub title: Option<String>,
     pub entries: Vec<Entry>,
+    pub user_drafts: Vec<Option<MessageDraft>>,
     pub status: ThreadStatus,
     pub capabilities: ThreadCapabilities,
     pub usage: Usage,
@@ -322,6 +358,7 @@ impl ConversationThread {
                 usage,
             } => {
                 self.entries = entries;
+                self.user_drafts.clear();
                 self.capabilities = capabilities;
                 self.usage = usage;
                 self.status = ThreadStatus::Idle;

@@ -113,8 +113,21 @@ fn external_acp_sends_page_identity_each_turn_and_reloads_after_compaction() {
         course: None,
     }));
     let mut send = |text: &str| {
-        let (prompt, context) = state.freeze(scope.clone(), text.into());
-        let mut submission = session.submission(text.into(), prompt, context, Vec::new(), false);
+        let token = crate::composer_context::auto_page_token();
+        let input =
+            gpui_kit::component::input::InputContent::new(format!("{}{text}", token.text()))
+                .with_token(0..token.text().len(), token)
+                .unwrap();
+        let (draft, prompt, context) = crate::composer_context::ComposerContext::default().freeze(
+            &input,
+            state.visible(),
+            std::path::Path::new("."),
+            &state,
+            scope.clone(),
+        );
+        let mut submission =
+            session.submission(draft.text.clone(), prompt, context, Vec::new(), false);
+        submission.draft = Some(draft);
         assert!(session.send_with_context(&mut submission, &state, &scope));
         drain_until_ready(&mut session);
     };
@@ -123,6 +136,13 @@ fn external_acp_sends_page_identity_each_turn_and_reloads_after_compaction() {
     send("follow up");
     assert_eq!(state.chip_state(&scope), Some(PageLoadState::NeedsReload));
     send("after compaction");
+    let saved = session.thread.user_drafts[0].as_ref().unwrap().clone();
+    let store = cgc_agent_store::ConversationStore::open_in_memory().unwrap();
+    store
+        .save_content("external-session", &session.thread, "2026-10-31T00:00:00Z")
+        .unwrap();
+    let local = store.load_content("external-session").unwrap().unwrap();
+    assert_eq!(local.user_drafts[0].as_ref(), Some(&saved));
     let mut replay = cgc_agent_ui::conversation::ConversationThread::default();
     replay.apply(ThreadEvent::TurnStarted {
         user_text: "restored question".into(),
@@ -130,9 +150,20 @@ fn external_acp_sends_page_identity_each_turn_and_reloads_after_compaction() {
     replay.apply(ThreadEvent::TextDelta("restored answer".into()));
     session.restore_thread(replay);
     state.invalidate_loaded(&scope);
-    let (prompt, context) = state.freeze(scope.clone(), "after restore".into());
-    let mut submission =
-        session.submission("after restore".into(), prompt, context, Vec::new(), false);
+    let mut editor = crate::composer_context::ComposerContext::default();
+    let input = editor.restore(&saved);
+    let mut other = state.visible().unwrap();
+    other.title = "Another course".into();
+    other.body = PageBody::Ready("another course body".into());
+    let (draft, prompt, context) = editor.freeze(
+        &input,
+        Some(other),
+        std::path::Path::new("."),
+        &state,
+        scope.clone(),
+    );
+    let mut submission = session.submission(draft.text.clone(), prompt, context, Vec::new(), false);
+    submission.draft = Some(draft);
     assert!(session.send_with_context(&mut submission, &state, &scope));
     drain_until_ready(&mut session);
     let prompts = received.lock().unwrap();
@@ -145,6 +176,7 @@ fn external_acp_sends_page_identity_each_turn_and_reloads_after_compaction() {
     assert!(!prompts[1].contains("<active_tab_body>"));
     assert!(prompts[2].contains("complete course task body"));
     assert!(prompts[3].contains("complete course task body"));
+    assert!(!prompts[3].contains("another course body"));
     assert_eq!(state.chip_state(&scope), Some(PageLoadState::Loaded));
     session.host.take().unwrap().shutdown();
 }
@@ -241,16 +273,35 @@ fn native_rewind_resubmits_course_body_to_provider_and_keeps_one_user_entry() {
         }
     };
     let send = |session: &mut ConversationSession, text: &str| {
-        let (prompt, context) = state.freeze(scope.clone(), text.into());
-        let mut submission = session.submission(text.into(), prompt, context, Vec::new(), false);
+        let token = crate::composer_context::auto_page_token();
+        let input =
+            gpui_kit::component::input::InputContent::new(format!("{}{text}", token.text()))
+                .with_token(0..token.text().len(), token)
+                .unwrap();
+        let (draft, prompt, context) = crate::composer_context::ComposerContext::default().freeze(
+            &input,
+            state.visible(),
+            std::path::Path::new("."),
+            &state,
+            scope.clone(),
+        );
+        let mut submission =
+            session.submission(draft.text.clone(), prompt, context, Vec::new(), false);
+        submission.draft = Some(draft);
         let snapshot = block_on(runtime.inspect()).unwrap();
-        block_on(runtime.prepare(PreparedNativeTurn {
-            thread_id: snapshot.thread.id.clone(),
-            generation: snapshot.generation,
-            display: text.into(),
-            images: Vec::new(),
-            retry: false,
-        }))
+        block_on(
+            runtime.prepare(PreparedNativeTurn {
+                thread_id: snapshot.thread.id.clone(),
+                generation: snapshot.generation,
+                display: submission.display.clone(),
+                draft: submission
+                    .draft
+                    .as_ref()
+                    .map(|draft| serde_json::to_value(draft).unwrap()),
+                images: Vec::new(),
+                retry: false,
+            }),
+        )
         .unwrap();
         assert!(session.send_with_context(&mut submission, &state, &scope));
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -287,6 +338,16 @@ fn native_rewind_resubmits_course_body_to_provider_and_keeps_one_user_entry() {
                 && message.text().contains("complete course task body")));
     }
     let snapshot = block_on(runtime.inspect()).unwrap();
+    let restored_draft: cgc_agent_ui::conversation::MessageDraft =
+        serde_json::from_value(snapshot.thread.user_drafts[0].clone().unwrap()).unwrap();
+    assert_eq!(
+        restored_draft.attachments[0].source,
+        "/courses/course-1/learn"
+    );
+    assert!(restored_draft.attachments[0]
+        .content
+        .contains("complete course task body"));
+    assert!(!restored_draft.tokens.is_empty());
     assert_eq!(
         snapshot
             .thread
@@ -300,6 +361,72 @@ fn native_rewind_resubmits_course_body_to_provider_and_keeps_one_user_entry() {
         matches!(&snapshot.thread.entries[0], NativeEntry::User { text, .. } if text.contains("complete course task body"))
     );
     session.host.take().unwrap().shutdown();
+}
+
+#[test]
+fn restoring_another_thread_discards_the_previous_failure_and_retry_target() {
+    let mut session = ready();
+    session.ingest(
+        session.generation,
+        &HostEvent::Error {
+            message: "thread A failed".into(),
+        },
+    );
+    let mut history = ConversationThread::new("thread-B");
+    history.entries.push(Entry::User {
+        text: "successful question B".into(),
+    });
+    history.entries.push(Entry::Assistant {
+        text: "successful answer B".into(),
+    });
+    session.restore_thread(history.clone());
+    session.ingest(
+        session.generation,
+        &HostEvent::Ready {
+            agent_name: "native".into(),
+            version: "test".into(),
+            session_id: "B".into(),
+        },
+    );
+    assert!(session.last_error.is_none());
+    assert!(!session.begin_retry());
+    assert_eq!(session.thread, history);
+}
+
+#[test]
+fn native_drafts_sync_only_after_matching_user_messages_reach_the_display() {
+    use cgc_agent_core::{SelectedModel, Thread};
+    use cgc_agent_provider::{ModelId, ProviderId};
+    use cgc_agent_ui::conversation::MessageDraft;
+    let mut source = Thread::new(
+        "native-test",
+        SelectedModel::new(ProviderId::new("fake"), ModelId::new("m1")),
+    );
+    source.push_user("hidden message");
+    source.push_user_with_display("page body\n\nquestion", Some("question".into()));
+    let draft = MessageDraft {
+        text: "question".into(),
+        ..MessageDraft::default()
+    };
+    source.user_drafts = vec![None, Some(serde_json::to_value(&draft).unwrap())];
+    let mut session = ConversationSession::native();
+    session.thread.entries.push(Entry::User {
+        text: "wrong message".into(),
+    });
+    assert!(!session.sync_native_drafts(&source, 1));
+    assert!(session.thread.user_drafts.is_empty());
+    session.thread.entries[0] = Entry::User {
+        text: "question".into(),
+    };
+    assert!(session.sync_native_drafts(&source, 1));
+    assert_eq!(session.thread.user_drafts, vec![Some(draft)]);
+    session.thread.status = ThreadStatus::Generating;
+    assert!(!session.sync_native_drafts(&source, 1));
+    session.thread.status = ThreadStatus::Idle;
+    assert!(!session.sync_native_drafts(&source, 3));
+    source.user_drafts.clear();
+    assert!(session.sync_native_drafts(&source, 1));
+    assert_eq!(session.thread.user_drafts, vec![None]);
 }
 
 #[test]

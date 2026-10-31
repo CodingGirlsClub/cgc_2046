@@ -25,6 +25,27 @@ fn course(id: &str) -> PageContext {
 }
 
 #[test]
+fn selection_is_captured_only_from_the_page_where_selection_started() {
+    let state = PageContextState::default();
+    let original = course("course-A");
+    state.set_current(Some(original.clone()));
+    state.capture_selection("chat text".into());
+    assert!(state.selection().is_none());
+    state.begin_selection();
+    state.capture_selection("selected task".into());
+    assert_eq!(state.selection(), Some((original, "selected task".into())));
+    state.capture_selection("chat text".into());
+    assert_eq!(state.selection().unwrap().1, "selected task");
+    state.begin_selection();
+    state.set_current(Some(course("course-B")));
+    state.capture_selection("stale selection".into());
+    assert!(state.selection().is_none());
+    state.begin_selection();
+    state.capture_selection("  ".into());
+    assert!(state.selection().is_none());
+}
+
+#[test]
 fn queued_prompt_keeps_the_context_at_submission() {
     let state = PageContextState::default();
     state.set_current(Some(course("course-A")));

@@ -42,7 +42,8 @@ impl NativeAgentView {
                     return;
                 }
                 let value = this.input.read(cx).value().to_string();
-                if value.trim_start().starts_with('/') && !this.slash_dismissed {
+                let user_value = crate::composer_context::user_text(&this.input.read(cx).content());
+                if user_value.starts_with('/') && !this.slash_dismissed {
                     match key {
                         "up" => this.slash_index = this.slash_index.saturating_sub(1),
                         "down" => this.slash_index += 1,
@@ -69,11 +70,11 @@ impl NativeAgentView {
             window,
             |this, _state, event: &InputEvent, window, cx| {
                 if let InputEvent::Change = event {
-                    let value = this.input.read(cx).value().to_string();
-                    if value != this.last_input_value {
-                        let previous = this.last_input_value.clone();
-                        this.last_input_value = value.clone();
-                        if let Some(inserted) = inserted_segment(&previous, &value) {
+                    let content = this.input.read(cx).content();
+                    let value = content.text().to_string();
+                    let previous = std::mem::replace(&mut this.last_input_content, content);
+                    if value != previous.text().as_str() {
+                        if let Some(inserted) = inserted_segment(previous.text(), &value) {
                             let image_paths: Vec<std::path::PathBuf> = cx
                                 .read_from_clipboard()
                                 .map(|item| {
@@ -102,7 +103,7 @@ impl NativeAgentView {
                                 this.input.update(cx, |state, cx| {
                                     state.set_value(previous.clone(), window, cx)
                                 });
-                                this.last_input_value = previous;
+                                this.last_input_content = previous;
                                 cx.notify();
                                 return;
                             }
@@ -125,19 +126,21 @@ impl NativeAgentView {
                         if !matches.is_empty() {
                             let index = this.mention_index.min(matches.len() - 1);
                             let path = matches[index].clone();
-                            let next = format!("{}@{} ", &value[..token_start], path);
-                            this.input
-                                .update(cx, |state, cx| state.set_value(next, window, cx));
+                            this.insert_mention_chip(
+                                Mention::File { path },
+                                &value[..token_start],
+                                window,
+                                cx,
+                            );
                             this.mention_index = 0;
                             cx.notify();
                             return;
                         }
                     }
-                    let entries = this.slash_entries(&value);
-                    if value.trim_start().starts_with('/')
-                        && !this.slash_dismissed
-                        && !entries.is_empty()
-                    {
+                    let user_value =
+                        crate::composer_context::user_text(&this.input.read(cx).content());
+                    let entries = this.slash_entries(&user_value);
+                    if user_value.starts_with('/') && !this.slash_dismissed && !entries.is_empty() {
                         let index = this.slash_index.min(entries.len() - 1);
                         this.run_slash_entry(entries, index, window, cx);
                         return;
@@ -162,12 +165,14 @@ impl NativeAgentView {
             writer,
             initial_snapshot_requested: false,
             page_context,
+            composer_context: Default::default(),
+            edit_context: Default::default(),
             slash_index: 0,
             slash_dismissed: false,
             mention_index: 0,
             workspace_files: Vec::new(),
             skills: Vec::new(),
-            last_turn: None,
+
             expanded_tools: Default::default(),
             expanded_thinking: Default::default(),
             editing_user: None,
@@ -180,12 +185,13 @@ impl NativeAgentView {
             message_row_signatures: Vec::new(),
             input,
             state: NativeThreadState::new(),
+            hidden_user_count: 0,
             status: "正在载入会话…".into(),
             show_checkpoint_panel: false,
             pending_restart_confirm: None,
             pending_images: Vec::new(),
             sent_images: HashMap::new(),
-            last_input_value: String::new(),
+            last_input_content: InputContent::new(""),
             _input_subscription: input_subscription,
             _key_interceptor: Some(key_interceptor),
         }
@@ -197,7 +203,21 @@ impl NativeAgentView {
                 .state
                 .push_notice("命令：/help /clear /stop /tools /checkpoint /settings"),
             SlashCommand::Clear => {
+                if self.is_generating() {
+                    self.state
+                        .push_notice("Wait for the current turn before clearing the display");
+                    cx.notify();
+                    return;
+                }
+                self.hidden_user_count = self
+                    .metadata()
+                    .thread
+                    .entries
+                    .iter()
+                    .filter(|entry| matches!(entry, cgc_agent_core::Entry::User { .. }))
+                    .count();
                 self.state.session.thread.entries.clear();
+                self.state.session.thread.user_drafts.clear();
                 self.state.session.thread.status = cgc_agent_ui::conversation::ThreadStatus::Idle;
                 self.state.session.thread.pending_permission = None;
                 self.sent_images.clear();
@@ -244,13 +264,14 @@ impl NativeAgentView {
 
     pub(super) fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let content = self.input.read(cx).content();
-        let text = content.text().trim().to_string();
+        let text = crate::composer_context::user_text(&content);
         if text.is_empty() {
             return;
         }
         if let Some(command) = parse_slash(&text) {
             self.input
                 .update(cx, |state, cx| state.set_value("", window, cx));
+            self.composer_context.reset();
             self.handle_slash(command, cx);
             return;
         }
@@ -259,8 +280,14 @@ impl NativeAgentView {
         }
         self.input
             .update(cx, |state, cx| state.set_value("", window, cx));
-        let prompt = mention::resolve_prompt(&content, &self.metadata().workspace);
-        let (prompt, context) = self.page_context.freeze(self.conversation_scope(), prompt);
+        let (draft, prompt, context) = self.composer_context.freeze(
+            &content,
+            self.page_context.visible(),
+            &self.metadata().workspace,
+            &self.page_context,
+            self.conversation_scope(),
+        );
+        self.composer_context.reset();
         let images = self
             .pending_images
             .drain(..)
@@ -270,10 +297,11 @@ impl NativeAgentView {
                 data: image.data,
             })
             .collect();
-        let submission = self
-            .state
-            .session
-            .submission(text, prompt, context, images, false);
+        let mut submission =
+            self.state
+                .session
+                .submission(draft.text.clone(), prompt, context, images, false);
+        submission.draft = Some(draft);
         self.state.session.queue_mode = QueueMode::Auto;
         self.state.session.queue.push(submission);
         self.dispatch_queued(cx);
@@ -460,26 +488,28 @@ impl NativeAgentView {
         if !self.ensure_model_configured(true, cx) {
             return;
         }
-        if !self.state.session.begin_retry() {
+        if self.is_generating() || self.state.session.last_error.is_none() {
             return;
         }
-        let Some((prompt, display, context)) = self.last_turn.clone() else {
-            self.state.push_notice("没有可重试的请求");
+        let snapshot = self.snapshot.as_ref().expect("initialized runtime").clone();
+        let Some(submission) = self.state.session.native_retry(
+            &snapshot.thread,
+            &snapshot.workspace,
+            &self.page_context,
+            crate::page_context::ConversationScope::new(snapshot.thread.id.clone(), "native"),
+        ) else {
+            self.state.push_notice("No failed user message to retry");
             cx.notify();
             return;
         };
-        self.page_context
-            .invalidate_loaded(&self.conversation_scope());
+        self.state.session.begin_retry();
         // 重试 = 重放上一轮：线程侧丢掉失败那轮的 user 条目（prompt 会重新 push，
         // 否则重启恢复后会出现重复用户气泡）；UI 侧丢掉失败 turn 的残留行。
         if let Some(index) = trim_entries_to_last_user(&mut self.state.session.thread.entries) {
             self.sent_images
                 .retain(|entry_index, _| *entry_index <= index);
         }
-        let submission = self
-            .state
-            .session
-            .submission(display, prompt, context, Vec::new(), true);
+
         self.state.session.queue_mode = QueueMode::Auto;
         self.state.session.queue.insert(0, submission);
         self.dispatch_queued(cx);

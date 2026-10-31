@@ -113,6 +113,9 @@ impl NativeAgentView {
         }
         let events = self.state.session.drain(generation);
         let old_len = self.state.session.thread.entries.len();
+        let terminal = events
+            .iter()
+            .any(|event| matches!(event, HostEvent::TurnEnd { .. } | HostEvent::Error { .. }));
         for event in events {
             if !self.state.ingest(generation, &event) {
                 continue;
@@ -146,6 +149,15 @@ impl NativeAgentView {
             }
         }
         self.state.pair_unlinked_subagents();
+        if terminal {
+            let snapshot = self.snapshot.clone();
+            if let Some(snapshot) = snapshot.filter(|snapshot| snapshot.phase == RuntimePhase::Idle)
+            {
+                if self.sync_saved_drafts(&snapshot) {
+                    self.persist_native(&snapshot);
+                }
+            }
+        }
         self.dispatch_queued(cx);
         cx.notify();
         self.state.session.host.is_some()
@@ -171,7 +183,11 @@ impl NativeAgentView {
             thread_id: self.metadata().thread.id.clone(),
             generation: self.metadata().generation,
             display: submission.display.clone(),
-            images: std::mem::take(&mut submission.images),
+            draft: submission
+                .draft
+                .as_ref()
+                .and_then(|draft| serde_json::to_value(draft).ok()),
+            images: submission.images.clone(),
             retry: submission.retry,
         });
         cx.spawn(async move |this, cx| {
@@ -189,11 +205,6 @@ impl NativeAgentView {
                             &this.page_context,
                             &scope,
                         ) {
-                            this.last_turn = Some((
-                                submission.prompt.clone(),
-                                submission.display.clone(),
-                                submission.context.clone(),
-                            ));
                             this.scroll_messages_to_bottom(cx);
                         } else {
                             this.state.session.queue.insert(0, submission);
@@ -212,14 +223,23 @@ impl NativeAgentView {
     }
     pub(super) fn steer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let content = self.input.read(cx).content();
-        let text = content.text().trim().to_string();
+        let text = crate::composer_context::user_text(&content);
         if text.is_empty() {
             return;
         }
-        let prompt = mention::resolve_prompt(&content, &self.metadata().workspace);
-        let scope = self.conversation_scope();
-        let (prompt, _) = self.page_context.freeze(scope, prompt);
-        let operation = self.runtime.steer(prompt);
+        let (draft, prompt, _) = self.composer_context.freeze(
+            &content,
+            self.page_context.visible(),
+            &self.metadata().workspace,
+            &self.page_context,
+            self.conversation_scope(),
+        );
+        self.composer_context.reset();
+        let operation = self.runtime.steer_with_context(
+            prompt,
+            draft.text.clone(),
+            serde_json::to_value(&draft).ok(),
+        );
         self.input
             .update(cx, |state, cx| state.set_value("", window, cx));
         cx.spawn(async move |this, cx| {

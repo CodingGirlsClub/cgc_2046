@@ -8,10 +8,11 @@ use gpui_kit::*;
 use crate::mention::Mention;
 use crate::theme::RADIUS_SMALL;
 
-pub(crate) fn render_mention_chip(
+pub(crate) fn render_resolved_chip(
     context: &InlineTokenContext,
     palette: crate::theme::Palette,
     workspace: &std::path::Path,
+    resolved: Option<(String, String)>,
 ) -> AnyElement {
     let mention = Mention::parse_token_id(context.token().id());
     let (icon, label, tooltip) = match mention {
@@ -25,6 +26,10 @@ pub(crate) fn render_mention_chip(
             context.token().label().to_string(),
             context.token().text().to_string(),
         ),
+    };
+    let (icon, label, tooltip) = match resolved {
+        Some((label, tooltip)) => (gpui_kit::assets::IconName::FileText.path(), label, tooltip),
+        None => (icon, label, tooltip),
     };
     let selected = context.is_selected();
     div()

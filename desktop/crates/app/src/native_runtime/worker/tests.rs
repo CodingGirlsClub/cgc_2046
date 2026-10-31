@@ -76,6 +76,186 @@ fn refresh(owner: &mut Owner) -> Arc<NativeRuntimeSnapshot> {
 }
 
 #[test]
+fn retry_after_consumed_steer_uses_its_saved_selection_and_preserves_images() {
+    use crate::{
+        composer_context::ComposerContext,
+        conversation_session::ConversationSession,
+        page_context::{ConversationScope, PageBody, PageContext, PageContextState},
+    };
+    use cgc_agent_core::{AutoApprover, NoopObserver};
+    use cgc_agent_host::acp_server::CancelSwitch;
+    use cgc_agent_provider::{CompletionEvent, FakeProvider, ProviderError, StopReason};
+    use gpui_kit::component::input::InputContent;
+
+    let root = std::env::temp_dir();
+    let mut owner = configured_owner(&root);
+    owner.production = None;
+    owner
+        .agent
+        .as_mut()
+        .unwrap()
+        .set_thread_title(Some("Existing title".into()));
+    let provider = Arc::new(FakeProvider::new(
+        ProviderId::new("test"),
+        "Test",
+        vec![owner.config.model.clone()],
+    ));
+    provider.push_script(vec![
+        Ok(CompletionEvent::Text("partial answer".into())),
+        Ok(CompletionEvent::Stop(StopReason::EndTurn)),
+    ]);
+    provider.push_script(vec![Err(ProviderError::InvalidResponse(
+        "failed after steer".into(),
+    ))]);
+    owner.config.provider = provider.clone();
+    let state = PageContextState::default();
+    let scope = ConversationScope::new(owner.frozen.id.clone(), "native");
+    let page = PageContext {
+        workspace_id: None,
+        tab_id: "tab-B".into(),
+        route: "/courses/B/learn".into(),
+        title: "Course B".into(),
+        version: "v1".into(),
+        body: PageBody::Ready("full body B".into()),
+        course: None,
+    };
+    let mut composer = ComposerContext::default();
+    let token = composer.add_selection(page, "selected task B".into());
+    let input = InputContent::new(format!("{}explain B", token.text()))
+        .with_token(0..token.text().len(), token)
+        .unwrap();
+    let (draft, prompt, _) = composer.freeze(&input, None, &root, &state, scope.clone());
+    let mut session = ConversationSession::native();
+    let first = session.submission(
+        "question A".into(),
+        "question A".into(),
+        None,
+        Vec::new(),
+        false,
+    );
+    session.accepted(first);
+    owner.prepared = Some(PreparedNativeTurn {
+        thread_id: owner.frozen.id.clone(),
+        generation: owner.generation,
+        display: "question A".into(),
+        draft: None,
+        images: Vec::new(),
+        retry: false,
+    });
+    let (reply, result) = oneshot::channel();
+    owner.start_turn(
+        owner.generation,
+        owner.frozen.id.clone(),
+        NativeTurn {
+            session_id: "session".into(),
+            prompt: "question A".into(),
+            observer: Box::new(NoopObserver),
+            approver: Arc::new(AutoApprover),
+            cancel: CancelSwitch::new(),
+        },
+        reply,
+    );
+    let (reply, steered) = oneshot::channel();
+    owner.command(Command::Steer(
+        cgc_agent_core::session::SteerMessage {
+            prompt,
+            display: draft.text.clone(),
+            draft: Some(serde_json::to_value(&draft).unwrap()),
+        },
+        reply,
+    ));
+    block_on(steered).unwrap().unwrap();
+    let job = block_on(owner.jobs.next()).unwrap();
+    owner.completed(job);
+    assert!(block_on(result).unwrap().is_err());
+    session.ingest(
+        session.generation,
+        &cgc_platform::acp::connection::HostEvent::UserMessage(draft.text.clone()),
+    );
+    session.ingest(
+        session.generation,
+        &cgc_platform::acp::connection::HostEvent::Error {
+            message: "failed after steer".into(),
+        },
+    );
+    assert!(session.sync_native_drafts(&owner.frozen, 1));
+    assert_eq!(session.thread.user_drafts, vec![None, Some(draft.clone())]);
+    let retry = session
+        .native_retry(&owner.frozen, &root, &state, scope.clone())
+        .unwrap();
+    assert_eq!(retry.display, draft.text);
+    assert_eq!(retry.draft, Some(draft.clone()));
+    assert!(retry.prompt.contains("selected task B"));
+    assert!(!retry.prompt.contains("question A"));
+    assert!(!retry.prompt.contains("full body B"));
+    session.accepted(retry.clone());
+    owner.prepared = Some(PreparedNativeTurn {
+        thread_id: owner.frozen.id.clone(),
+        generation: owner.generation,
+        display: retry.display,
+        draft: retry
+            .draft
+            .map(|draft| serde_json::to_value(draft).unwrap()),
+        images: retry.images,
+        retry: true,
+    });
+    let (reply, result) = oneshot::channel();
+    owner.start_turn(
+        owner.generation,
+        owner.frozen.id.clone(),
+        NativeTurn {
+            session_id: "session".into(),
+            prompt: retry.prompt,
+            observer: Box::new(NoopObserver),
+            approver: Arc::new(AutoApprover),
+            cancel: CancelSwitch::new(),
+        },
+        reply,
+    );
+    let job = block_on(owner.jobs.next()).unwrap();
+    owner.completed(job);
+    block_on(result).unwrap().unwrap();
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 3);
+    assert!(requests[2]
+        .messages
+        .last()
+        .unwrap()
+        .text()
+        .contains("selected task B"));
+    assert_eq!(
+        owner
+            .frozen
+            .entries
+            .iter()
+            .filter(|entry| matches!(entry, cgc_agent_core::Entry::User { .. }))
+            .count(),
+        3
+    );
+    assert_eq!(
+        owner.frozen.user_drafts[2],
+        Some(serde_json::to_value(draft).unwrap())
+    );
+
+    let image = ImageAttachment {
+        name: "diagram.png".into(),
+        mime_type: "image/png".into(),
+        data: "aW1hZ2U=".into(),
+    };
+    owner
+        .agent
+        .as_mut()
+        .unwrap()
+        .thread_mut()
+        .attach_images_to_last_user(vec![image.clone()]);
+    owner.freeze();
+    let retry = session
+        .native_retry(&owner.frozen, &root, &state, scope)
+        .unwrap();
+    assert_eq!(retry.images, vec![image]);
+}
+
+#[test]
 fn new_conversations_preserve_history_and_checkpoints() {
     for scoped in [false, true] {
         let root =

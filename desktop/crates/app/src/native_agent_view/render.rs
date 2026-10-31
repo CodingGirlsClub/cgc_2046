@@ -5,7 +5,13 @@
 use super::*;
 
 impl Render for NativeAgentView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.composer_context.ensure_auto(
+            &self.input,
+            self.page_context.visible().as_ref(),
+            window,
+            cx,
+        );
         if self.snapshot.is_none() {
             // 兜底：即使订阅错过了首个快照，首帧也要主动取一次，避免永久停在载入态。
             self.ensure_initial_snapshot(cx);
@@ -242,51 +248,5 @@ impl Render for NativeAgentView {
                 self.render_native_composer_legacy(&draft, cx)
             })
             .into_any_element()
-    }
-}
-
-impl NativeAgentView {
-    pub(super) fn page_context_chip(
-        &self,
-        palette: theme::Palette,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
-        let context = self.page_context.visible()?;
-        let scope = self.conversation_scope();
-        let dismiss = cx.entity().downgrade();
-        Some(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .child(cgc_agent_ui::context_chip::render_context_chip(
-                    cgc_agent_ui::context_chip::ContextChipSpec {
-                        id: "native-context-chip".into(),
-                        dismiss_id: "native-context-dismiss".into(),
-                        title: context.chip_title(),
-                        state_label: crate::page_context::page_load_state_label(
-                            self.page_context.chip_state(&scope),
-                        )
-                        .into(),
-                        style: cgc_agent_ui::context_chip::ContextChipStyle {
-                            background: palette.soft,
-                            foreground: palette.ink_3,
-                            hover: palette.card,
-                            radius: RADIUS_SMALL,
-                            text_size: 11.0,
-                            gap: 4.0,
-                            padding_x: 4.0,
-                            padding_y: 2.0,
-                        },
-                        on_dismiss: Box::new(move |_, cx| {
-                            let _ = dismiss.update(cx, |this, cx| {
-                                this.page_context.dismiss();
-                                cx.notify();
-                            });
-                        }),
-                    },
-                ))
-                .into_any_element(),
-        )
     }
 }

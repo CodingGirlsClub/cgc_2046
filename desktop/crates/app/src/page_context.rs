@@ -38,9 +38,9 @@ impl ConversationScope {
 }
 
 /// 当前 tab 的可提交正文及其读取状态。
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum PageBody {
-    Ready(Arc<str>),
+    Ready(#[serde(with = "arc_text")] Arc<str>),
     Loading,
     Empty,
     Unavailable(String),
@@ -71,7 +71,7 @@ pub(crate) fn page_load_state_label(state: Option<PageLoadState>) -> &'static st
 }
 
 /// 课程学习页的补充标识；通用页面上下文不依赖课程。
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CourseContext {
     pub id: String,
     pub title: String,
@@ -80,14 +80,14 @@ pub struct CourseContext {
 }
 
 /// 当前单元（issue 卡）引用。
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PageUnit {
     pub id: String,
     pub title: String,
 }
 
 /// 当前 active tab 的页面上下文。
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PageContext {
     pub workspace_id: Option<String>,
     pub tab_id: String,
@@ -137,6 +137,8 @@ struct ConversationContext {
 struct Slot {
     context: Option<PageContext>,
     dismissed: bool,
+    selection: Option<(PageContext, String)>,
+    selection_start: Option<PageContext>,
     conversations: HashMap<(String, String), ConversationContext>,
 }
 
@@ -167,6 +169,8 @@ impl PageContextState {
         if slot.context == context {
             return false;
         }
+        slot.selection = None;
+        slot.selection_start = None;
         slot.context = context;
         slot.dismissed = false;
         true
@@ -181,6 +185,35 @@ impl PageContextState {
         }
     }
 
+    pub(crate) fn begin_selection(&self) {
+        let mut slot = self.lock();
+        slot.selection_start = slot.context.clone();
+        slot.selection = None;
+    }
+
+    pub(crate) fn capture_selection(&self, text: String) {
+        let mut slot = self.lock();
+        if let Some(page) = slot.selection_start.take() {
+            if slot.context.as_ref() == Some(&page) {
+                slot.selection = (!text.trim().is_empty()).then_some((page, text));
+            }
+        }
+    }
+
+    pub(crate) fn selection(&self) -> Option<(PageContext, String)> {
+        self.lock().selection.clone()
+    }
+
+    pub(crate) fn has_selection(&self) -> bool {
+        self.lock().selection.is_some()
+    }
+
+    pub(crate) fn has_selection_activity(&self) -> bool {
+        let slot = self.lock();
+        slot.selection_start.is_some() || slot.selection.is_some()
+    }
+
+    #[cfg(test)]
     pub(crate) fn dismiss(&self) {
         self.lock().dismissed = true;
     }
@@ -256,6 +289,7 @@ impl PageContextState {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn freeze(
         &self,
         scope: ConversationScope,
@@ -407,6 +441,17 @@ pub(crate) fn context_note(context: &PageContext, body_budget: usize) -> String 
         note.push_str("\n</active_tab_body>");
     }
     note
+}
+
+mod arc_text {
+    use serde::{Deserialize, Deserializer, Serializer};
+    use std::sync::Arc;
+    pub fn serialize<S: Serializer>(text: &Arc<str>, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(text)
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Arc<str>, D::Error> {
+        String::deserialize(deserializer).map(Arc::from)
+    }
 }
 
 #[cfg(test)]

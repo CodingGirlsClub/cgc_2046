@@ -33,7 +33,7 @@ pub(super) enum TitleOutcome {
 
 pub(super) struct ActiveTurn {
     pub cancel: CancelToken,
-    pub steer: std::sync::mpsc::Sender<String>,
+    pub steer: std::sync::mpsc::Sender<cgc_agent_core::session::SteerMessage>,
 }
 
 pub(super) enum Job {

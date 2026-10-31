@@ -38,16 +38,10 @@ impl NativeAgentView {
         cx.notify();
     }
     pub(super) fn insert_context_marker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let current = self.input.read(cx).value().to_string();
-        let next = if current.trim().is_empty() {
-            "@".to_string()
-        } else if current.ends_with(char::is_whitespace) {
-            format!("{current}@")
-        } else {
-            format!("{current} @")
-        };
-        self.input
-            .update(cx, |state, cx| state.set_value(next, window, cx));
+        self.input.update(cx, |state, cx| {
+            state.replace(" @", window, cx);
+            state.focus(window, cx);
+        });
         self.status = "输入 @ 引用工作区文件".to_string();
         cx.notify();
     }

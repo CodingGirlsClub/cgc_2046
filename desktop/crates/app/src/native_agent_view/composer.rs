@@ -4,6 +4,7 @@
 
 use super::*;
 
+use gpui_kit::base::Disableable;
 use gpui_kit::component::progress::ProgressCircle;
 
 fn composer_placeholder(setup: ModelSetup) -> &'static str {
@@ -346,7 +347,8 @@ impl NativeAgentView {
                             }
                             return;
                         }
-                        if !value.trim_start().starts_with('/') || this.slash_dismissed {
+                        let user_value = crate::composer_context::user_text(&this.input.read(cx).content());
+                        if !user_value.starts_with('/') || this.slash_dismissed {
                             return;
                         }
                         match event.keystroke.key.as_str() {
@@ -475,7 +477,7 @@ impl NativeAgentView {
                             .pt(px(2.0))
                             .children(rows)
                     }))
-                    .children(self.page_context_chip(palette, cx))
+
                     .child(
                         div()
                             .relative()
@@ -486,15 +488,21 @@ impl NativeAgentView {
                                     .appearance(false)
                                     .bordered(false)
                                     .w_full()
-                                    .token(move |context, _window, _cx| {
-                                        crate::mention_chip::render_mention_chip(
-                                            context,
-                                            palette,
-                                            &chip_workspace,
-                                        )
+                                    .token({
+                                        let attachments = self.composer_context.labels();
+                                        let page_context = self.page_context.clone();
+                                        let scope = self.conversation_scope();
+                                        move |context, _window, _cx| {
+                                            let resolved = attachments.label(context.token().id(), page_context.visible().as_ref())
+                                                .map(|(label, tooltip)| (label, format!("{tooltip}\n{}", crate::page_context::page_load_state_label(page_context.chip_state(&scope)))));
+                                            crate::mention_chip::render_resolved_chip(context, palette, &chip_workspace, resolved)
+                                        }
+                                    })
+                                    .on_token_click(|event, window, cx| {
+                                        crate::composer_context::open_token_source(event.token().id(), window, cx);
                                     }),
                             )
-                            .children((!has_input).then(|| {
+                            .children((!has_input && self.input.read(cx).tokens().is_empty()).then(|| {
                                 // 自定义可换行 placeholder：gpui-base 的 Textarea
                                 // placeholder 只按 \n 分行、不做宽度软换行
                                 // （shape_line 未传宽度约束），窄面板会直接裁切；
@@ -545,6 +553,11 @@ impl NativeAgentView {
                                         let files_dismiss = dismiss.clone();
                                         let image_root = root.clone();
                                         let image_dismiss = dismiss;
+                                        let page_root = root.clone();
+                                        let selection_root = root.clone();
+                                        let page_dismiss = files_dismiss.clone();
+                                        let selection_dismiss = files_dismiss.clone();
+                                        let has_selection = root.read_with(cx, |this, _| this.page_context.has_selection()).unwrap_or(false);
                                         div()
                                             .w(px(240.0))
                                             .flex()
@@ -573,6 +586,20 @@ impl NativeAgentView {
                                                         let _ = files_dismiss
                                                             .update(cx, |state, cx| state.dismiss(window, cx));
                                                     }),
+                                            )
+                                            .child(
+                                                Button::new("native-add-current-page").label("Current page").ghost().small()
+                                                    .on_click(move |_, window, cx| {
+                                                        let _ = page_root.update(cx, |this, cx| this.add_page_context(false, window, cx));
+                                                        let _ = page_dismiss.update(cx, |state, cx| state.dismiss(window, cx));
+                                                    })
+                                            )
+                                            .child(
+                                                Button::new("native-add-selection").label("Selection").ghost().small().disabled(!has_selection)
+                                                    .on_click(move |_, window, cx| {
+                                                        let _ = selection_root.update(cx, |this, cx| this.add_page_context(true, window, cx));
+                                                        let _ = selection_dismiss.update(cx, |state, cx| state.dismiss(window, cx));
+                                                    })
                                             )
                                             .children(model_supports_images.then(|| {
                                                 div()

@@ -15,6 +15,7 @@ pub(crate) fn agent_workspace_root() -> std::path::PathBuf {
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| std::env::temp_dir()))
 }
 pub(crate) mod agent_scope;
+pub(crate) mod composer_context;
 pub mod conversation_session;
 pub mod deep_link;
 pub mod formula;

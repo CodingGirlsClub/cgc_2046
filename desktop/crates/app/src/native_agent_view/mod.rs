@@ -16,7 +16,7 @@ use cgc_platform::acp::connection::{AcpHost, AcpHostConfig, HostEvent};
 use futures::StreamExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::hover_card::HoverCard;
-use gpui_kit::component::input::{InputEvent, Position, Textarea, TextareaState};
+use gpui_kit::component::input::{InputContent, InputEvent, Textarea, TextareaState};
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu};
 use gpui_kit::component::message_scroller::{MessageScroller, MessageScrollerState};
 use gpui_kit::component::popover::Popover;
@@ -141,7 +141,7 @@ fn queued_panel_header_text(count: usize) -> String {
 
 impl NativeAgentView {
     fn composer_draft(&self, cx: &mut Context<Self>) -> ComposerDraft {
-        let input_value = self.input.read(cx).value().to_string();
+        let input_value = crate::composer_context::user_text(&self.input.read(cx).content());
         ComposerDraft {
             busy: self.is_generating(),
             has_input: composer_has_input(&input_value),
@@ -283,8 +283,11 @@ pub struct NativeAgentView {
     /// 首帧兜底是否已经主动拉过快照。
     initial_snapshot_requested: bool,
     page_context: crate::page_context::PageContextState,
+    composer_context: crate::composer_context::ComposerContext,
+    edit_context: crate::composer_context::ComposerContext,
     input: Entity<TextareaState>,
     state: NativeThreadState,
+    hidden_user_count: usize,
     status: String,
     show_checkpoint_panel: bool,
     /// 无可用 checkpoint 时，编辑重发需要二次确认的消息 index。
@@ -294,12 +297,7 @@ pub struct NativeAgentView {
     mention_index: usize,
     workspace_files: Vec<String>,
     skills: Vec<SkillEntry>,
-    /// 最近一轮的 prompt / 展示文本 / 上下文快照，供失败后重试重放。
-    last_turn: Option<(
-        String,
-        String,
-        Option<crate::page_context::FrozenPageContext>,
-    )>,
+
     /// 已展开的工具调用卡片 id。
     expanded_tools: std::collections::HashSet<String>,
     /// 已展开的思考折叠块（UI message index）。
@@ -323,7 +321,7 @@ pub struct NativeAgentView {
     pending_images: Vec<PendingImage>,
     /// 已发送用户消息 index → 图片预览（仅当前进程内显示，不持久化）。
     sent_images: HashMap<usize, Vec<SentImage>>,
-    last_input_value: String,
+    last_input_content: InputContent,
     _input_subscription: Option<Subscription>,
     _key_interceptor: Option<Subscription>,
 }

@@ -1569,7 +1569,30 @@ impl RootView {
             replay.saw_events,
         ) {
             crate::acp_history::ResumeDecision::UseReplay => {
-                self.chat.session.restore_thread(replay.thread);
+                let mut restored = replay.thread;
+                let users = |thread: &ConversationThread| {
+                    thread
+                        .entries
+                        .iter()
+                        .filter_map(|entry| match entry {
+                            cgc_agent_ui::conversation::Entry::User { text } => Some(text.clone()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                };
+                if users(&restored) == users(&self.chat.session.thread) {
+                    restored.user_drafts = self.chat.session.thread.user_drafts.clone();
+                } else if self
+                    .chat
+                    .session
+                    .thread
+                    .user_drafts
+                    .iter()
+                    .any(Option::is_some)
+                {
+                    restored = self.chat.session.thread.clone();
+                }
+                self.chat.session.restore_thread(restored);
                 self.chat.resumed_without_history = false;
             }
             crate::acp_history::ResumeDecision::KeepLocalRecord => {
@@ -1734,23 +1757,24 @@ impl RootView {
         cx.notify();
     }
 
-    pub(in crate::root_view) fn set_chat_input_text(
+    pub(in crate::root_view) fn complete_chat_command(
         &mut self,
         text: String,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.chat.input = text.clone();
         self.chat.focused = true;
         if let Some(input) = self.chat_input.clone() {
             input.update(cx, |input, cx| {
-                // set_value resets a multi-line Textarea selection to 0..0;
-                // insert then leaves the caret at the end of the command.
-                input.set_value("", window, cx);
-                input.insert(text, window, cx);
+                if let Some(range) = crate::composer_context::slash_query_range(&input.content()) {
+                    input.set_selected_range(range, cx);
+                    input.replace(text, window, cx);
+                }
                 input.focus(window, cx);
             });
+            self.chat.input = crate::composer_context::command_text(&input.read(cx).content());
         }
+        self.chat.slash_dismissed = true;
         cx.notify();
     }
 
@@ -1813,7 +1837,12 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if self.chat.slash_dismissed {
+        if self.chat.slash_dismissed
+            || self
+                .chat_input
+                .as_ref()
+                .is_none_or(|input| !input.read(cx).focus_handle(cx).is_focused(window))
+        {
             return false;
         }
         let candidates = slash_candidates(&self.chat.session.commands, &self.chat.input);
@@ -1842,7 +1871,7 @@ impl RootView {
                     return false;
                 };
                 let text = format!("/{} ", command.name);
-                self.set_chat_input_text(text, window, cx);
+                self.complete_chat_command(text, window, cx);
                 self.chat.slash_selection = 0;
                 true
             }
@@ -1855,39 +1884,182 @@ impl RootView {
         }
     }
 
-    pub(in crate::root_view) fn send_chat(&mut self, cx: &mut Context<Self>) {
-        let text = self.chat.input.trim().to_string();
-        if text.is_empty() {
-            return;
+    pub(crate) fn open_context_source(&mut self, id: &str, cx: &mut Context<Self>) {
+        let normalized;
+        let id = if let Some(value) = id.strip_prefix("cgc-context://") {
+            normalized = format!("context:snapshot:{value}");
+            normalized.as_str()
+        } else {
+            id
+        };
+        let page = if id == crate::composer_context::AUTO_PAGE_TOKEN {
+            self.page_context.visible()
+        } else {
+            self.chat
+                .composer_context
+                .source(id)
+                .or_else(|| {
+                    crate::composer_context::source_from_history(&self.chat.session.thread, id)
+                })
+                .or_else(|| {
+                    self.native_agent_view
+                        .as_ref()
+                        .and_then(|view| view.read(cx).context_source(id))
+                })
+        };
+        if let Some(page) = page {
+            self.open_context_page(page, cx);
         }
-        self.chat.input.clear();
-        self.send_chat_text(text, cx);
     }
 
-    pub(in crate::root_view) fn send_chat_text(&mut self, text: String, cx: &mut Context<Self>) {
-        self.refresh_page_context();
-        if !self.chat.session.can_submit() {
-            return;
+    pub(in crate::root_view) fn open_context_page(
+        &mut self,
+        page: crate::page_context::PageContext,
+        cx: &mut Context<Self>,
+    ) {
+        if self.tabs.iter().any(|tab| tab.id == page.tab_id) {
+            self.activate_tab(&page.tab_id, cx);
+        } else if let Some((course, unit)) = page
+            .course
+            .as_ref()
+            .and_then(|course| course.unit.as_ref().map(|unit| (course, unit)))
+        {
+            self.open_issue_tab(&course.id, &unit.id, unit.title.clone(), cx);
+        } else if matches!(
+            self.registry.select(&page.route),
+            crate::routing::RouteSelection::Match(_)
+        ) {
+            self.open_page_tab(&page.route, page.title, cx);
         }
-        if self.chat.session.session_id.is_none() {
-            return;
+    }
+
+    pub(in crate::root_view) fn add_chat_context(
+        &mut self,
+        selection: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let token = if selection {
+            self.page_context
+                .selection()
+                .map(|(page, text)| self.chat.composer_context.add_selection(page, text))
+        } else {
+            self.page_context
+                .visible()
+                .map(|page| self.chat.composer_context.add_page(page))
+        };
+        if let (Some(token), Some(input)) = (token, self.chat_input.clone()) {
+            input.update(cx, |input, cx| {
+                let _ = input.replace_with_token(token, window, cx);
+                input.focus(window, cx);
+            });
+            self.chat.input = crate::composer_context::user_text(&input.read(cx).content());
         }
-        let scope = self.chat.conversation_scope();
-        let (prompt, context) = self.page_context.freeze(scope.clone(), text.clone());
-        let mut submission = self
+        cx.notify();
+    }
+
+    pub(in crate::root_view) fn edit_chat_message_copy(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let saved =
+            crate::composer_context::draft_for_entry(&self.chat.session.thread, index).cloned();
+        let text = self
             .chat
             .session
-            .submission(text, prompt, context, Vec::new(), false);
+            .thread
+            .entries
+            .get(index)
+            .and_then(|entry| match entry {
+                cgc_agent_ui::conversation::Entry::User { text } => Some(text.clone()),
+                _ => None,
+            });
+        let Some(text) = text else { return };
+        let content = match saved {
+            Some(draft) => self.chat.composer_context.restore(&draft),
+            None => {
+                self.chat.composer_context.reset();
+                self.chat.composer_context.disable_auto();
+                gpui_kit::component::input::InputContent::new(text)
+            }
+        };
+        self.chat.input = crate::composer_context::user_text(&content);
+        if let Some(input) = self.chat_input.clone() {
+            input.update(cx, |input, cx| {
+                input.set_value(content, window, cx);
+                input.focus(window, cx);
+            });
+        }
+        cx.notify();
+    }
+
+    pub(in crate::root_view) fn send_chat(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.chat.session.can_submit() {
+            return false;
+        }
+        let text = self
+            .chat_input
+            .as_ref()
+            .map(|input| crate::composer_context::user_text(&input.read(cx).content()))
+            .unwrap_or_else(|| self.chat.input.trim().to_string());
+        if text.is_empty() {
+            return false;
+        }
+        let sent = self.send_chat_text(text, cx);
+        if sent {
+            self.chat.input.clear();
+            self.chat_input_pending_clear = true;
+        }
+        sent
+    }
+
+    pub(in crate::root_view) fn send_chat_text(
+        &mut self,
+        text: String,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.refresh_page_context();
+        if !self.chat.session.can_submit() || self.chat.session.session_id.is_none() {
+            return false;
+        }
+        let scope = self.chat.conversation_scope();
+        let content = self
+            .chat_input
+            .as_ref()
+            .map(|input| input.read(cx).content())
+            .filter(|content| crate::composer_context::user_text(content) == text)
+            .unwrap_or_else(|| gpui_kit::component::input::InputContent::new(text.clone()));
+        let workspace = self
+            .native_scope
+            .as_ref()
+            .map(|scope| scope.root.clone())
+            .unwrap_or_else(crate::agent_workspace_root);
+        let (draft, prompt, context) = self.chat.composer_context.freeze(
+            &content,
+            self.page_context.visible(),
+            &workspace,
+            &self.page_context,
+            scope.clone(),
+        );
+        let mut submission =
+            self.chat
+                .session
+                .submission(draft.text.clone(), prompt, context, Vec::new(), false);
+        submission.draft = Some(draft);
         let page_context = self.page_context.clone();
         if !self
             .chat
             .session
             .send_with_context(&mut submission, &page_context, &scope)
         {
-            return;
+            return false;
         }
+        self.chat.composer_context.reset();
         self.chat.history_open = false;
         cx.notify();
+        true
     }
 
     pub(in crate::root_view) fn stop_chat_turn(&mut self, cx: &mut Context<Self>) {
@@ -2156,6 +2328,7 @@ impl RootView {
         self.page_context
             .invalidate_loaded(&self.chat.conversation_scope());
         self.chat.session.disconnect();
+        self.chat.composer_context.reset();
         self.chat.agent.clear();
         self.chat.version = None;
         self.chat.session.thread =
@@ -3670,11 +3843,6 @@ impl RootView {
     ) {
         self.reset_chat_for_external_agent(&id, &display_name);
         self.start_chat(cx);
-    }
-
-    pub(in crate::root_view) fn dismiss_chat_context(&mut self, cx: &mut Context<Self>) {
-        self.page_context.dismiss();
-        cx.notify();
     }
 
     /// 发消息时给 agent 的当前卡上下文（用户移除芯片后不再注入）。

@@ -42,6 +42,7 @@ impl Owner {
         }
         if let Some(prepared) = prepared {
             agent.set_pending_user_display(Some(prepared.display));
+            agent.set_pending_user_draft(prepared.draft);
             agent.set_pending_images(
                 prepared
                     .images
@@ -89,7 +90,7 @@ impl Owner {
         turn.cancel.on_cancel(move || native_cancel.cancel());
         self.active = Some(ActiveTurn {
             cancel,
-            steer: agent.steer_sender(),
+            steer: agent.context_steer_sender(),
         });
         let had_pending = self
             .production
