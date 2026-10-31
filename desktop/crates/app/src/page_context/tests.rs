@@ -197,3 +197,8 @@ fn over_budget_body_is_truncated_and_marked_partial() {
     let (follow_up, _) = state.freeze(scope, "follow up".into());
     assert_eq!(follow_up, "follow up");
 }
+
+#[test]
+fn ready_state_label_describes_loaded_into_composer_without_ambiguity() {
+    assert_eq!(page_load_state_label(Some(PageLoadState::Ready)), "已就绪");
+}

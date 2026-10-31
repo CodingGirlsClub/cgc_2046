@@ -255,32 +255,37 @@ impl NativeAgentView {
         let context = self.page_context.visible()?;
         let scope = self.conversation_scope();
         let dismiss = cx.entity().downgrade();
-        Some(cgc_agent_ui::context_chip::render_context_chip(
-            cgc_agent_ui::context_chip::ContextChipSpec {
-                id: "native-context-chip".into(),
-                dismiss_id: "native-context-dismiss".into(),
-                title: context.chip_title(),
-                state_label: crate::page_context::page_load_state_label(
-                    self.page_context.chip_state(&scope),
-                )
-                .into(),
-                style: cgc_agent_ui::context_chip::ContextChipStyle {
-                    background: palette.soft,
-                    foreground: palette.ink_3,
-                    hover: palette.card,
-                    radius: RADIUS_SMALL,
-                    text_size: 11.0,
-                    gap: 4.0,
-                    padding_x: 4.0,
-                    padding_y: 2.0,
-                },
-                on_dismiss: Box::new(move |_, cx| {
-                    let _ = dismiss.update(cx, |this, cx| {
-                        this.page_context.dismiss();
-                        cx.notify();
-                    });
-                }),
-            },
-        ))
+        Some(
+            div()
+                .mx(space(2))
+                .child(cgc_agent_ui::context_chip::render_context_chip(
+                    cgc_agent_ui::context_chip::ContextChipSpec {
+                        id: "native-context-chip".into(),
+                        dismiss_id: "native-context-dismiss".into(),
+                        title: context.chip_title(),
+                        state_label: crate::page_context::page_load_state_label(
+                            self.page_context.chip_state(&scope),
+                        )
+                        .into(),
+                        style: cgc_agent_ui::context_chip::ContextChipStyle {
+                            background: palette.soft,
+                            foreground: palette.ink_3,
+                            hover: palette.card,
+                            radius: RADIUS_SMALL,
+                            text_size: 11.0,
+                            gap: 4.0,
+                            padding_x: 4.0,
+                            padding_y: 2.0,
+                        },
+                        on_dismiss: Box::new(move |_, cx| {
+                            let _ = dismiss.update(cx, |this, cx| {
+                                this.page_context.dismiss();
+                                cx.notify();
+                            });
+                        }),
+                    },
+                ))
+                .into_any_element(),
+        )
     }
 }

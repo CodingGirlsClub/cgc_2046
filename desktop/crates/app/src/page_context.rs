@@ -59,7 +59,7 @@ pub(crate) enum PageLoadState {
 
 pub(crate) fn page_load_state_label(state: Option<PageLoadState>) -> &'static str {
     match state {
-        Some(PageLoadState::Ready) => "待加载",
+        Some(PageLoadState::Ready) => "已就绪",
         Some(PageLoadState::Loading) => "加载中",
         Some(PageLoadState::Empty) => "无正文",
         Some(PageLoadState::Unavailable) => "加载失败",
