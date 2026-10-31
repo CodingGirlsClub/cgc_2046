@@ -468,6 +468,8 @@ impl NativeAgentView {
             cx.notify();
             return;
         };
+        self.page_context
+            .invalidate_loaded(&self.conversation_scope());
         // 重试 = 重放上一轮：线程侧丢掉失败那轮的 user 条目（prompt 会重新 push，
         // 否则重启恢复后会出现重复用户气泡）；UI 侧丢掉失败 turn 的残留行。
         if let Some(index) = trim_entries_to_last_user(&mut self.state.session.thread.entries) {

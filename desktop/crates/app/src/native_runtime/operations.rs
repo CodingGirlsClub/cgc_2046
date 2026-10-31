@@ -113,11 +113,16 @@ impl Owner {
                 let _ = reply.send(result);
             }
             Command::Rewind {
+                thread_id,
                 ordinal,
                 restore_files,
                 reply,
             } => {
-                let result = self.rewind(ordinal, restore_files);
+                let result = if thread_id.as_ref().is_some_and(|id| id != &self.frozen.id) {
+                    Err(NativeRuntimeError::StaleConnection)
+                } else {
+                    self.rewind(ordinal, restore_files)
+                };
                 let _ = reply.send(result);
             }
             Command::Checkpoint(action, reply) => {
@@ -237,43 +242,61 @@ impl Owner {
             self.config.model.provider_id.clone(),
             self.config.model.id.clone(),
         );
-        if thread.model != selected {
-            let production = self.production.as_mut().ok_or_else(|| {
+        let prepared_model = if thread.model != selected {
+            let production = self.production.as_ref().ok_or_else(|| {
                 NativeRuntimeError::Configuration("历史模型不在当前 runtime 中".into())
             })?;
-            let (provider, model) = factory::select_model(
+            Some(factory::prepare_model(
                 production,
                 thread.model.provider_id.as_str(),
                 thread.model.model_id.as_str(),
-            )?;
+            )?)
+        } else {
+            None
+        };
+        self.persist();
+        self.activate_thread(&thread)?;
+        if let Some((provider, model, setup)) = prepared_model {
+            if let Some(production) = &self.production {
+                if let Err(error) = factory::save_model_selection(production, &model) {
+                    self.notice(format!("Unable to save the selected model: {error}"));
+                }
+            }
             self.config.provider = provider;
             self.config.context_size = model.limits.context_window as u64;
             self.config.model = model;
+            if let Some(production) = &mut self.production {
+                production.model_setup = setup;
+                production.pending = None;
+            }
         }
-        self.persist();
         self.replace(thread, RuntimeChange::Opened);
         Ok(self.snapshot())
     }
 
+    fn activate_thread(&mut self, thread: &Thread) -> Result<(), NativeRuntimeError> {
+        let Some(store) = &mut self.store else {
+            return Ok(());
+        };
+        let result = match self.scope.as_deref() {
+            Some(scope) => store.activate_scope_thread(&scope_storage_key(scope), thread),
+            None => store.save_thread(thread),
+        };
+        result.map_err(|error| NativeRuntimeError::Storage(error.to_string()))
+    }
+
     fn new_thread(&mut self) -> Result<Arc<NativeRuntimeSnapshot>, NativeRuntimeError> {
         self.idle()?;
-        let id = self
-            .scope
-            .as_ref()
-            .map(|scope| format!("native-{}", scope.key))
-            .unwrap_or_else(|| self.frozen.id.clone());
-        self.invalidate_checkpoints(1)?;
-        self.replace(
-            Thread::new(
-                id,
-                SelectedModel::new(
-                    self.config.model.provider_id.clone(),
-                    self.config.model.id.clone(),
-                ),
-            ),
-            RuntimeChange::Opened,
-        );
         self.persist();
+        let thread = Thread::new(
+            fresh_thread_id(),
+            SelectedModel::new(
+                self.config.model.provider_id.clone(),
+                self.config.model.id.clone(),
+            ),
+        );
+        self.activate_thread(&thread)?;
+        self.replace(thread, RuntimeChange::Opened);
         Ok(self.snapshot())
     }
 
@@ -289,15 +312,7 @@ impl Owner {
             self.config.model.provider_id.clone(),
             self.config.model.id.clone(),
         );
-        let id = format!("native-{}", scope.key);
-        let thread = match &self.store {
-            Some(store) => store
-                .load_thread(&id)
-                .map_err(|error| NativeRuntimeError::Storage(error.to_string()))?
-                .filter(|thread| thread.model == selected)
-                .unwrap_or_else(|| Thread::new(id, selected)),
-            None => Thread::new(id, selected),
-        };
+        let thread = restore_scope_thread(self.store.as_mut(), &scope, selected)?;
         self.config.context =
             ToolContext::new(&scope.root).with_sandbox(SandboxPolicy::new(&scope.root));
         self.checkpoint_manager = CheckpointManager::open(&scope.root)
@@ -332,13 +347,9 @@ impl Owner {
         self.config.provider = provider;
         self.config.context_size = model.limits.context_window as u64;
         self.config.model = model;
-        let serial = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
         self.replace(
-            Thread::new(
-                format!("native-demo-{serial}"),
+            thread_for_model_switch(
+                &self.frozen,
                 SelectedModel::new(
                     self.config.model.provider_id.clone(),
                     self.config.model.id.clone(),

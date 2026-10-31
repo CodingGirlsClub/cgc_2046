@@ -157,7 +157,10 @@ impl NativeAgentView {
             )
         });
         if reset {
-            self.page_context.invalidate_loaded();
+            let scope =
+                crate::page_context::ConversationScope::new(snapshot.thread.id.clone(), "native");
+            self.page_context.invalidate_loaded(&scope);
+            self.last_turn = None;
             self.state.session.disconnect();
             self.state.session.thread =
                 cgc_agent_ui::conversation::ConversationThread::new(snapshot.thread.id.clone())

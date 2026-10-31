@@ -26,6 +26,40 @@ use crate::{
     native_panel_host::{McpContext, NativePanelHost},
 };
 
+fn fresh_thread_id() -> String {
+    format!("native-{}", uuid::Uuid::new_v4().simple())
+}
+
+fn scope_storage_key(scope: &AgentScope) -> String {
+    serde_json::to_string(&(&scope.key, scope.root.as_os_str().as_encoded_bytes()))
+        .expect("scope identity consists of a string and bytes")
+}
+
+fn restore_scope_thread(
+    store: Option<&mut SessionStore>,
+    scope: &AgentScope,
+    selected: cgc_agent_core::SelectedModel,
+) -> Result<Thread, NativeRuntimeError> {
+    let Some(store) = store else {
+        return Ok(Thread::new(fresh_thread_id(), selected));
+    };
+    let key = scope_storage_key(scope);
+    let mut thread = store
+        .load_scope_thread(&key)
+        .and_then(|current| match current {
+            Some(thread) => Ok(Some(thread)),
+            None => store.load_thread(&format!("native-{}", scope.key)),
+        })
+        .map_err(|error| NativeRuntimeError::Storage(error.to_string()))?
+        .unwrap_or_else(|| Thread::new(fresh_thread_id(), selected.clone()));
+
+    thread.model = selected;
+    store
+        .activate_scope_thread(&key, &thread)
+        .map_err(|error| NativeRuntimeError::Storage(error.to_string()))?;
+    Ok(thread)
+}
+
 #[derive(Clone)]
 pub struct NativeRuntimeConfig {
     pub provider: Arc<dyn Provider>,
@@ -214,6 +248,7 @@ enum Command {
     New(Reply<Arc<NativeRuntimeSnapshot>>),
     SwitchScope(AgentScope, Reply<Arc<NativeRuntimeSnapshot>>),
     Rewind {
+        thread_id: Option<String>,
         ordinal: usize,
         restore_files: bool,
         reply: Reply<Arc<NativeRuntimeSnapshot>>,
@@ -379,11 +414,27 @@ impl NativeRuntimeHandle {
     ) -> impl Future<Output = Result<Arc<NativeRuntimeSnapshot>, NativeRuntimeError>> + Send + 'static
     {
         self.request(move |reply| Command::Rewind {
+            thread_id: None,
             ordinal,
             restore_files,
             reply,
         })
     }
+    pub(crate) fn rewind_thread(
+        &self,
+        thread_id: String,
+        ordinal: usize,
+        restore_files: bool,
+    ) -> impl Future<Output = Result<Arc<NativeRuntimeSnapshot>, NativeRuntimeError>> + Send + 'static
+    {
+        self.request(move |reply| Command::Rewind {
+            thread_id: Some(thread_id),
+            ordinal,
+            restore_files,
+            reply,
+        })
+    }
+
     pub fn checkpoint(
         &self,
         action: CheckpointAction,

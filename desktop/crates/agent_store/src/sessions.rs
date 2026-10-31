@@ -90,6 +90,10 @@ impl SessionStore {
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS native_scope_threads (
+                scope TEXT PRIMARY KEY,
+                thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE
+            );
             CREATE TABLE IF NOT EXISTS entries (
                 thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
                 seq INTEGER NOT NULL,
@@ -197,6 +201,38 @@ impl SessionStore {
         Self::write_thread(&transaction, thread)?;
         transaction.commit()?;
         Ok(())
+    }
+
+    /// 当前线程指针只由显式切换更新；迟到的普通快照不得抢走当前选择。
+    pub fn activate_scope_thread(
+        &mut self,
+        scope: &str,
+        thread: &Thread,
+    ) -> Result<(), SessionError> {
+        let transaction = self.conn.transaction()?;
+        Self::write_thread(&transaction, thread)?;
+        transaction.execute(
+            "INSERT INTO native_scope_threads (scope, thread_id) VALUES (?1, ?2)
+             ON CONFLICT(scope) DO UPDATE SET thread_id = excluded.thread_id",
+            params![scope, thread.id],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn load_scope_thread(&self, scope: &str) -> Result<Option<Thread>, SessionError> {
+        let id: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT thread_id FROM native_scope_threads WHERE scope = ?1",
+                params![scope],
+                |row| row.get(0),
+            )
+            .optional()?;
+        match id {
+            Some(id) => self.load_thread(&id),
+            None => Ok(None),
+        }
     }
 
     /// 执行内容的实际写入；调用方负责事务与提交，便于与投影原子配对。

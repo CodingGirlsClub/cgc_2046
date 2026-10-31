@@ -50,6 +50,12 @@
 - 固定输入超限返回 `ContextTooLarge`，不发送已知超限请求，不截短最新输入或附件；原始 transcript 保留。
 - `Compaction.covered_until` 是原始 entry 的 exclusive prefix boundary。请求只使用最新有效摘要和未覆盖尾部；旧记录缺覆盖字段时不推测覆盖范围。摘要按完整 turn 有界分块。
 
+## 页面上下文与会话恢复
+
+Native 与 external ACP 共用页面上下文提交逻辑：每轮携带 active tab 的页面、工作台和课程标识；正文按会话、agent、工作台和内容版本去重。排队与重试保留提交时的页面快照，实际发送前重新核对历史；回滚、恢复、压缩或发送失败只失效对应会话。chip 的“已在上下文中”来自本次确实附带正文的发送记录，旧历史世代的记录不能反写。
+
+Native 每次新建对话分配独立 ID，保留旧历史与 checkpoint。scope 的当前线程指针单独存于 `threads.db`，重启后恢复当前选择（包括尚未发送消息的空对话）；旧 `native-<scope>` ID 保持原值兼容恢复。切换模型保留当前对话。ACP 的稳定身份继续使用实际 session ID 和 agent ID，模型、工具、授权与审批仍由对应运行时负责。
+
 ## 本机前置
 
 - Rust **1.98+**（`rust-toolchain.toml` 锁 1.98.1；本机可用已安装的更新版本，如 `RUSTUP_TOOLCHAIN=stable`）

@@ -1,5 +1,8 @@
 //! Client-side ownership shared by native and external ACP. No execution dependencies.
-use crate::{agent_ingest, page_context::PageContext};
+use crate::{
+    agent_ingest,
+    page_context::{ConversationScope, FrozenPageContext, PageContextState},
+};
 use cgc_agent_core::ImageAttachment;
 use cgc_agent_ui::conversation::{ConversationThread, ThreadCapabilities, ThreadStatus};
 use cgc_platform::acp::connection::{AcpHost, CommandView, ConfigOptionView, HostEvent};
@@ -25,7 +28,7 @@ pub struct Submission {
     pub id: u64,
     pub display: String,
     pub prompt: String,
-    pub context: Option<PageContext>,
+    pub context: Option<FrozenPageContext>,
     pub images: Vec<ImageAttachment>,
     pub retry: bool,
 }
@@ -84,7 +87,7 @@ impl ConversationSession {
         &mut self,
         display: String,
         prompt: String,
-        context: Option<PageContext>,
+        context: Option<FrozenPageContext>,
         images: Vec<ImageAttachment>,
         retry: bool,
     ) -> Submission {
@@ -148,6 +151,24 @@ impl ConversationSession {
         self.accepted(submission.clone());
         true
     }
+    pub(crate) fn send_with_context(
+        &mut self,
+        submission: &mut Submission,
+        page_context: &PageContextState,
+        scope: &ConversationScope,
+    ) -> bool {
+        (submission.prompt, submission.context) = page_context.refresh(
+            scope.clone(),
+            std::mem::take(&mut submission.prompt),
+            submission.context.take(),
+        );
+        if !self.send(submission) {
+            return false;
+        }
+        page_context.mark_sent(scope, &submission.context);
+        true
+    }
+
     pub fn stop(&mut self) {
         self.queue_mode = QueueMode::Paused;
         if let Some(host) = &self.host {
@@ -204,6 +225,17 @@ impl ConversationSession {
         }
         true
     }
+
+    pub(crate) fn ingest_external(&mut self, generation: u64, event: &HostEvent) -> bool {
+        if !self.ingest(generation, event) {
+            return false;
+        }
+        if matches!(event, HostEvent::TurnEnd { .. }) {
+            self.mark_ready_for_next(generation);
+        }
+        true
+    }
+
     pub fn drain(&self, generation: u64) -> Vec<HostEvent> {
         if generation != self.generation {
             return Vec::new();
@@ -232,6 +264,14 @@ impl ConversationSession {
         agent_ingest::apply_permission_resolved(&mut self.thread, request_id, allowed);
         true
     }
+    pub(crate) fn restore_thread(&mut self, mut thread: ConversationThread) {
+        thread.status = ThreadStatus::Idle;
+        thread.pending_permission = None;
+        self.thread = thread;
+        self.in_flight = None;
+        self.turn_closed = true;
+    }
+
     pub fn begin_retry(&mut self) -> bool {
         self.last_error.take().is_some()
     }

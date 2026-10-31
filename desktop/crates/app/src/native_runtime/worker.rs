@@ -151,13 +151,18 @@ impl Owner {
         let store = match production.as_ref() {
             Some(production) => {
                 match SessionStore::open(production.data_root.join("agent/threads.db")) {
-                    Ok(store) => {
-                        match store.load_thread(&agent.thread().id) {
-                            Ok(Some(thread)) if thread.model == agent.thread().model => {
-                                agent.replace_thread(thread)
+                    Ok(mut store) => {
+                        if let Some(scope) = scope.as_deref() {
+                            match restore_scope_thread(
+                                Some(&mut store),
+                                scope,
+                                agent.thread().model.clone(),
+                            ) {
+                                Ok(thread) => agent.replace_thread(thread),
+                                Err(error) => notices.push(format!(
+                                    "Unable to restore the previous conversation: {error}"
+                                )),
                             }
-                            Ok(_) => {}
-                            Err(error) => notices.push(format!("读取会话失败：{error}")),
                         }
                         Some(store)
                     }

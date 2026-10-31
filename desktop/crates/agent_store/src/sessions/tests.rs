@@ -38,6 +38,31 @@ fn save_then_load_roundtrip() {
 }
 
 #[test]
+fn scope_selection_survives_late_saves_and_keeps_empty_current_thread() {
+    let mut store = SessionStore::open_in_memory().unwrap();
+    let original = sample_thread();
+    let empty = Thread::new("new-empty-thread", model());
+    store.activate_scope_thread("scope-a", &original).unwrap();
+    store.activate_scope_thread("scope-a", &empty).unwrap();
+    store.save_thread(&original).unwrap();
+    assert_eq!(store.load_scope_thread("scope-a").unwrap().unwrap(), empty);
+    store
+        .activate_scope_thread("scope-b", &Thread::new("other", model()))
+        .unwrap();
+    assert_eq!(
+        store.load_scope_thread("scope-a").unwrap().unwrap().id,
+        empty.id
+    );
+    store.activate_scope_thread("scope-a", &original).unwrap();
+    assert_eq!(
+        store.load_scope_thread("scope-a").unwrap().unwrap(),
+        original
+    );
+    store.delete_thread(&original.id).unwrap();
+    assert!(store.load_scope_thread("scope-a").unwrap().is_none());
+}
+
+#[test]
 fn save_is_idempotent_and_updates_entries() {
     let mut store = SessionStore::open_in_memory().expect("store");
     let mut thread = sample_thread();

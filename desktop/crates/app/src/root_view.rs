@@ -239,6 +239,15 @@ struct ChatUi {
     load_retry_available: bool,
 }
 
+impl ChatUi {
+    fn conversation_scope(&self) -> crate::page_context::ConversationScope {
+        crate::page_context::ConversationScope::new(
+            self.session.session_id.as_deref().unwrap_or("acp-pending"),
+            self.selected_agent.as_deref().unwrap_or("acp"),
+        )
+    }
+}
+
 /// 从本地历史打开 ACP 会话时的回放状态：agent 通过 `session/load` 回放的历史
 /// 先收在独立 thread 里，Ready 后按 `resume_decision` 决定替换本地内容或降级提示。
 struct ReplayState {
@@ -2480,6 +2489,102 @@ mod tests {
             ThemePreference::System,
             session,
         )
+    }
+
+    #[test]
+    fn course_context_keeps_route_identity_before_detail_loads() {
+        let mut view = view();
+        view.state.tabs.push(super::state::PaneTab::issue(
+            "course-a",
+            "unit-a",
+            "First task",
+        ));
+        view.state.active_tab = Some("issue:course-a:unit-a".into());
+        view.navigate("/courses/course-a/learn");
+        view.refresh_page_context();
+        let page = view.page_context.visible().unwrap();
+        let course = page.course.unwrap();
+        assert_eq!(course.id, "course-a");
+        assert_eq!(course.unit.unwrap().id, "unit-a");
+        assert_eq!(page.body, crate::page_context::PageBody::Loading);
+        view.state.course_detail_started = true;
+        view.state.tabs.push(super::state::PaneTab::page(
+            "/courses/course-b/learn",
+            "Second course",
+        ));
+        view.state.active_tab = Some("page:/courses/course-b/learn".into());
+        view.navigate("/courses/course-b/learn");
+        assert!(!view.state.course_detail_started);
+        view.refresh_page_context();
+        assert_eq!(
+            view.page_context.visible().unwrap().course.unwrap().id,
+            "course-b"
+        );
+    }
+
+    #[test]
+    fn course_context_uses_the_courses_workspace_instead_of_the_selector() {
+        let mut view = view();
+        view.state
+            .workspaces
+            .adopt(vec![cgc_platform::workspace::WorkspaceSummary {
+                id: "selector-workspace".into(),
+                slug: "selected".into(),
+                name: "Selected workspace".into(),
+                my_role_names: Vec::new(),
+                member_count: None,
+                can_access: true,
+            }]);
+        assert_eq!(
+            view.state.workspaces.current_id(),
+            Some("selector-workspace")
+        );
+        view.state.tabs.push(super::state::PaneTab::page(
+            "/courses/course-a/learn",
+            "Course",
+        ));
+        view.state.active_tab = Some("page:/courses/course-a/learn".into());
+        view.navigate("/courses/course-a/learn");
+        view.state
+            .course_detail
+            .adopt(cgc_courses::catalog::CourseDetail {
+                id: "course-a".into(),
+                title: "Course A".into(),
+                description: None,
+                status: "published".into(),
+                visibility: "public".into(),
+                workspace_id: Some("course-workspace".into()),
+                pricing_enabled: false,
+                enrollment_status: None,
+                revision_number: Some(3),
+            });
+        view.refresh_page_context();
+        assert_eq!(
+            view.page_context.visible().unwrap().workspace_id.as_deref(),
+            Some("course-workspace")
+        );
+    }
+
+    #[test]
+    fn failed_course_detail_reports_unavailable_page_context_with_course_identity() {
+        let mut view = view();
+        view.state
+            .tabs
+            .push(super::state::PaneTab::page("/courses/course-a", "Course A"));
+        view.state.active_tab = Some("page:/courses/course-a".into());
+        view.navigate("/courses/course-a");
+        view.state
+            .course_detail
+            .fail(&cgc_courses::catalog::CoursesError::Transport(
+                "request failed".into(),
+            ));
+        view.refresh_page_context();
+        let context = view.page_context.visible().unwrap();
+        assert!(matches!(
+            context.body,
+            crate::page_context::PageBody::Unavailable(_)
+        ));
+        assert_eq!(context.course.unwrap().id, "course-a");
     }
 
     #[test]

@@ -1088,17 +1088,7 @@ fn chat_context_chip(
     cx: &mut Context<RootView>,
 ) -> Option<AnyElement> {
     let context = ctx.page_context.visible()?;
-    let scope = crate::page_context::ConversationScope::new(
-        ctx.chat
-            .session
-            .session_id
-            .clone()
-            .unwrap_or_else(|| "acp-pending".into()),
-        ctx.chat
-            .selected_agent
-            .clone()
-            .unwrap_or_else(|| "acp".into()),
-    );
+    let scope = ctx.chat.conversation_scope();
     let state_label =
         crate::page_context::page_load_state_label(ctx.page_context.chip_state(&scope));
     let dismiss_root = cx.entity().downgrade();

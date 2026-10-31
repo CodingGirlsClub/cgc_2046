@@ -114,10 +114,11 @@ impl NativeAgentView {
         let events = self.state.session.drain(generation);
         let old_len = self.state.session.thread.entries.len();
         for event in events {
-            self.state.ingest(generation, &event);
-            if matches!(event, HostEvent::CompactionUpdated { .. }) {
-                self.page_context.invalidate_loaded();
+            if !self.state.ingest(generation, &event) {
+                continue;
             }
+            self.page_context
+                .observe_event(&self.conversation_scope(), &event);
             if let HostEvent::Error { message } = &event {
                 self.status = format!("错误：{message}");
             }
@@ -182,14 +183,17 @@ impl NativeAgentView {
                 match result {
                     Ok(()) => {
                         this.state.session.mark_ready_for_next(generation);
-                        this.last_turn = Some((
-                            submission.prompt.clone(),
-                            submission.display.clone(),
-                            submission.context.clone(),
-                        ));
-                        if this.state.session.send(&submission) {
-                            let scope = this.conversation_scope();
-                            this.page_context.mark_sent(&scope, &submission.context);
+                        let scope = this.conversation_scope();
+                        if this.state.session.send_with_context(
+                            &mut submission,
+                            &this.page_context,
+                            &scope,
+                        ) {
+                            this.last_turn = Some((
+                                submission.prompt.clone(),
+                                submission.display.clone(),
+                                submission.context.clone(),
+                            ));
                             this.scroll_messages_to_bottom(cx);
                         } else {
                             this.state.session.queue.insert(0, submission);
@@ -214,7 +218,7 @@ impl NativeAgentView {
         }
         let prompt = mention::resolve_prompt(&content, &self.metadata().workspace);
         let scope = self.conversation_scope();
-        let (prompt, context) = self.page_context.freeze(scope.clone(), prompt);
+        let (prompt, _) = self.page_context.freeze(scope, prompt);
         let operation = self.runtime.steer(prompt);
         self.input
             .update(cx, |state, cx| state.set_value("", window, cx));
@@ -222,10 +226,8 @@ impl NativeAgentView {
             let result = operation.await;
             let _ = this.update(cx, |this, cx| {
                 this.status = match result {
-                    Ok(()) => {
-                        this.page_context.mark_sent(&scope, &context);
-                        "已提交插话".to_string()
-                    }
+                    // 入队不证明插话已进入模型历史，不据此标记正文已加载。
+                    Ok(()) => "已提交插话".to_string(),
                     Err(error) => error.to_string(),
                 };
                 cx.notify();

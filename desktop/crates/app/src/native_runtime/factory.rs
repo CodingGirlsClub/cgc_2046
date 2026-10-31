@@ -134,7 +134,7 @@ pub(super) fn initialize_with_keychain(
     }
     let agent = Agent::new(
         Thread::new(
-            format!("native-{}", scope.key),
+            fresh_thread_id(),
             SelectedModel::new(model.provider_id.clone(), model.id.clone()),
         ),
         Some(crate::native_context::build_workspace_system_prompt(
@@ -190,11 +190,11 @@ fn provider(
     }
 }
 
-pub(super) fn select_model(
-    production: &mut Production,
+pub(super) fn prepare_model(
+    production: &Production,
     provider_id: &str,
     model_id: &str,
-) -> Result<(Arc<dyn Provider>, Model), NativeRuntimeError> {
+) -> Result<(Arc<dyn Provider>, Model, ModelSetup), NativeRuntimeError> {
     let configured = production
         .providers
         .iter()
@@ -224,19 +224,35 @@ pub(super) fn select_model(
         key,
         production.allow_echo,
     );
+    Ok((provider, model, model_setup))
+}
+
+pub(super) fn select_model(
+    production: &mut Production,
+    provider_id: &str,
+    model_id: &str,
+) -> Result<(Arc<dyn Provider>, Model), NativeRuntimeError> {
+    let (provider, model, model_setup) = prepare_model(production, provider_id, model_id)?;
+    save_model_selection(production, &model)?;
     production.model_setup = model_setup;
     production.pending = None;
+    Ok((provider, model))
+}
+
+pub(super) fn save_model_selection(
+    production: &Production,
+    model: &Model,
+) -> Result<(), NativeRuntimeError> {
     let store = PrefsStore::new(production.data_root.join("agent_prefs.json"));
     let mut prefs = store.load();
-    prefs.selected_provider = Some(configured.id.clone());
+    prefs.selected_provider = Some(model.provider_id.as_str().to_string());
     prefs.selected_model = Some(SelectedModel::new(
         model.provider_id.clone(),
         model.id.clone(),
     ));
     store
         .save(&prefs)
-        .map_err(|error| NativeRuntimeError::Storage(error.to_string()))?;
-    Ok((provider, model))
+        .map_err(|error| NativeRuntimeError::Storage(error.to_string()))
 }
 
 /// 会话标题生成模型：读用户设置文件的 `agent.thread_summary_model`（对齐 Zed 的

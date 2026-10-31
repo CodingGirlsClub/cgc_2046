@@ -237,9 +237,12 @@ impl NativeAgentView {
             return;
         }
         let prompt = mention::resolve_prompt(&content, &self.metadata().workspace);
-        let (prompt, context) = self.page_context.freeze(self.conversation_scope(), prompt);
+        let context = self.page_context.visible();
         let runtime = self.runtime.clone();
-        let rewind = self.runtime.rewind(ordinal, restore_files);
+        let thread_id = self.metadata().thread.id.clone();
+        let rewind = self
+            .runtime
+            .rewind_thread(thread_id.clone(), ordinal, restore_files);
         let generation = self.state.session.generation;
         cx.spawn(async move |this, cx| {
             // 旧实现是「检查点尽力回滚，失败不阻断重发」；单 actor 重构后
@@ -248,7 +251,10 @@ impl NativeAgentView {
             let mut fallback_note = None;
             let result = match rewind.await {
                 Ok(snapshot) => Ok(snapshot),
-                Err(first_error) if restore_files => match runtime.rewind(ordinal, false).await {
+                Err(first_error) if restore_files => match runtime
+                    .rewind_thread(thread_id.clone(), ordinal, false)
+                    .await
+                {
                     Ok(snapshot) => {
                         fallback_note =
                             Some(format!("检查点无法回滚，已仅回滚对话：{first_error}"));
@@ -260,11 +266,19 @@ impl NativeAgentView {
             };
             let _ = this.update(cx, |this, cx| match result {
                 Ok(snapshot) => {
+                    if this.metadata().thread.id != thread_id
+                        || this.metadata().revision > snapshot.revision
+                    {
+                        return;
+                    }
                     this.apply_snapshot(RuntimeChange::Rewound, snapshot, cx);
                     if let Some(note) = fallback_note {
                         this.status = note.clone();
                         this.state.push_notice(note);
                     }
+                    let (prompt, context) =
+                        this.page_context
+                            .freeze_page(this.conversation_scope(), prompt, context);
                     let submission =
                         this.state
                             .session

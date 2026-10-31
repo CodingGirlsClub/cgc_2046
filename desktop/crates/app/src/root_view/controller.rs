@@ -71,11 +71,16 @@ impl RootView {
             self.page_context.set_current(None);
             return;
         }
-        let context = if route_id == "courses.learning" {
+        let mut context = if matches!(route_id, "courses.learning" | "courses.detail") {
             self.course_page_context(&tab)
         } else {
             Some(self.generic_page_context(&tab, route_id))
         };
+        if let Some(context) = &mut context {
+            if context.course.is_none() {
+                context.workspace_id = self.workspaces.current_id().map(str::to_string);
+            }
+        }
         self.page_context.set_current(context);
     }
 
@@ -89,7 +94,15 @@ impl RootView {
     }
 
     fn course_page_context(&self, tab: &PaneTab) -> Option<crate::page_context::PageContext> {
-        let detail = self.course_detail.detail()?;
+        let course_id = self.current.as_ref()?.params.get("id")?;
+        let detail = self
+            .course_detail
+            .detail()
+            .filter(|detail| &detail.id == course_id);
+        let content = self
+            .content
+            .content()
+            .filter(|content| &content.course_id == course_id);
         let unit = self
             .active_issue_tab()
             .map(|(_, issue_id)| crate::page_context::PageUnit {
@@ -121,31 +134,66 @@ impl RootView {
                 if self.active_issue_tab().is_some() {
                     return None;
                 }
-                self.content
-                    .content()
-                    .filter(|content| content.course_id == detail.id)
-                    .map(|content| crate::page_context::project_course_learning(content, &tab.id))
-            })
-            .unwrap_or_else(|| match self.content.state() {
-                cgc_courses::content::CourseContentState::Failed(message) => {
-                    Self::failed_context(&tab.id, message)
+                if self.current.as_ref()?.route.id == "courses.detail" {
+                    detail.map(|detail| crate::page_context::project_course_detail(detail, &tab.id))
+                } else {
+                    content.map(|content| {
+                        crate::page_context::project_course_learning(content, &tab.id)
+                    })
                 }
-                cgc_courses::content::CourseContentState::Empty => (
-                    crate::page_context::PageBody::Empty,
-                    format!("empty:{}", tab.id),
-                ),
-                _ => Self::loading_context(&tab.id),
+            })
+            .unwrap_or_else(|| {
+                if self
+                    .current
+                    .as_ref()
+                    .is_some_and(|route| route.route.id == "courses.detail")
+                {
+                    return match self.course_detail.state() {
+                        cgc_courses::catalog::CoursesListState::Failed(message) => {
+                            Self::failed_context(&tab.id, message)
+                        }
+                        cgc_courses::catalog::CoursesListState::Empty => (
+                            crate::page_context::PageBody::Empty,
+                            format!("empty:{}", tab.id),
+                        ),
+                        _ => Self::loading_context(&tab.id),
+                    };
+                }
+                match self.content.state() {
+                    cgc_courses::content::CourseContentState::Failed(message) => {
+                        Self::failed_context(&tab.id, message)
+                    }
+                    cgc_courses::content::CourseContentState::Empty => (
+                        crate::page_context::PageBody::Empty,
+                        format!("empty:{}", tab.id),
+                    ),
+                    _ => Self::loading_context(&tab.id),
+                }
             });
         Some(crate::page_context::PageContext {
+            workspace_id: detail
+                .and_then(|detail| detail.workspace_id.clone())
+                .or_else(|| {
+                    self.courses
+                        .items()
+                        .iter()
+                        .find(|course| &course.id == course_id)
+                        .and_then(|course| course.workspace_id.clone())
+                }),
             tab_id: tab.id.clone(),
             route: tab.path.clone(),
             title: tab.title.clone(),
             version,
             body,
             course: Some(crate::page_context::CourseContext {
-                id: detail.id.clone(),
-                title: detail.title.clone(),
-                revision: detail.revision_number,
+                id: course_id.clone(),
+                title: detail
+                    .map(|detail| detail.title.clone())
+                    .or_else(|| content.map(|content| content.title.clone()))
+                    .unwrap_or_else(|| tab.title.clone()),
+                revision: content
+                    .and_then(|content| content.revision_number)
+                    .or_else(|| detail.and_then(|detail| detail.revision_number)),
                 unit,
             }),
         })
@@ -205,20 +253,7 @@ impl RootView {
                     )
                 }
             }
-            "courses.detail" => self
-                .course_detail
-                .detail()
-                .map(|detail| crate::page_context::project_course_detail(detail, &tab.id))
-                .unwrap_or_else(|| match self.course_detail.state() {
-                    cgc_courses::catalog::CoursesListState::Failed(message) => {
-                        Self::failed_context(&tab.id, message)
-                    }
-                    cgc_courses::catalog::CoursesListState::Empty => (
-                        crate::page_context::PageBody::Empty,
-                        format!("empty:{}", tab.id),
-                    ),
-                    _ => Self::loading_context(&tab.id),
-                }),
+
             "courses.catalog" => {
                 if self.courses.items().is_empty() {
                     match self.courses.state() {
@@ -265,6 +300,7 @@ impl RootView {
             ),
         };
         crate::page_context::PageContext {
+            workspace_id: None,
             tab_id: tab.id.clone(),
             route: tab.path.clone(),
             title: tab.title.clone(),
@@ -827,6 +863,26 @@ impl RootView {
         self.site_tree_search_focused = false;
         if let crate::routing::RouteSelection::Match(route_match) = self.registry.select(path) {
             let is_learning = route_match.route.id == "courses.learning";
+            let next_course = matches!(route_match.route.id, "courses.detail" | "courses.learning")
+                .then(|| route_match.params.get("id"))
+                .flatten();
+            let previous_course = self
+                .current
+                .as_ref()
+                .filter(|current| matches!(current.route.id, "courses.detail" | "courses.learning"))
+                .and_then(|current| current.params.get("id"));
+            if next_course.is_some() && next_course != previous_course {
+                self.course_detail_started = false;
+                self.course_detail.reset();
+                self.projection.reset();
+                if self
+                    .content
+                    .content()
+                    .is_none_or(|content| Some(&content.course_id) != next_course)
+                {
+                    self.content.reset();
+                }
+            }
             self.current = Some(route_match);
             self.active_tab = crate::root_view::state::active_tab_for_path(
                 &self.tabs,
@@ -1357,18 +1413,19 @@ impl RootView {
                 replay.saw_events |= applied;
                 applied
             });
-            if !replayed {
-                self.chat.session.ingest(generation, &event);
+            if !replayed && !self.chat.session.ingest_external(generation, &event) {
+                continue;
             }
-            if matches!(event, HostEvent::CompactionUpdated { .. }) {
-                self.page_context.invalidate_loaded();
-            }
+            self.page_context
+                .observe_event(&self.chat.conversation_scope(), &event);
             match &event {
                 HostEvent::Ready {
                     agent_name,
                     version,
                     session_id: _,
                 } => {
+                    self.page_context
+                        .invalidate_loaded(&self.chat.conversation_scope());
                     self.chat.agent = agent_name.clone();
                     self.chat.version = Some(version.clone());
                     // Stage 3.3：本地历史恢复结果（回放替换 / 降级保留本地记录）。
@@ -1504,14 +1561,15 @@ impl RootView {
             return;
         };
         // 回放成功也不证明某个 tab 的完整正文仍在模型历史里；下一次提交保守重载。
-        self.page_context.invalidate_loaded();
+        self.page_context
+            .invalidate_loaded(&self.chat.conversation_scope());
         match crate::acp_history::resume_decision(
             false,
             replay.has_local_content,
             replay.saw_events,
         ) {
             crate::acp_history::ResumeDecision::UseReplay => {
-                self.chat.session.thread = replay.thread;
+                self.chat.session.restore_thread(replay.thread);
                 self.chat.resumed_without_history = false;
             }
             crate::acp_history::ResumeDecision::KeepLocalRecord => {
@@ -1807,29 +1865,27 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn send_chat_text(&mut self, text: String, cx: &mut Context<Self>) {
+        self.refresh_page_context();
         if !self.chat.session.can_submit() {
             return;
         }
-        let scope = crate::page_context::ConversationScope::new(
-            self.chat
-                .session
-                .session_id
-                .clone()
-                .unwrap_or_else(|| "acp-pending".into()),
-            self.chat
-                .selected_agent
-                .clone()
-                .unwrap_or_else(|| "acp".into()),
-        );
+        if self.chat.session.session_id.is_none() {
+            return;
+        }
+        let scope = self.chat.conversation_scope();
         let (prompt, context) = self.page_context.freeze(scope.clone(), text.clone());
-        let submission = self
+        let mut submission = self
             .chat
             .session
             .submission(text, prompt, context, Vec::new(), false);
-        if !self.chat.session.send(&submission) {
+        let page_context = self.page_context.clone();
+        if !self
+            .chat
+            .session
+            .send_with_context(&mut submission, &page_context, &scope)
+        {
             return;
         }
-        self.page_context.mark_sent(&scope, &submission.context);
         self.chat.history_open = false;
         cx.notify();
     }
@@ -2097,6 +2153,8 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn reset_chat_local(&mut self, _cx: &mut Context<Self>) {
+        self.page_context
+            .invalidate_loaded(&self.chat.conversation_scope());
         self.chat.session.disconnect();
         self.chat.agent.clear();
         self.chat.version = None;
@@ -2169,9 +2227,17 @@ impl RootView {
     ) {
         self.course_detail.begin_load();
         self.course_detail_started = true;
-        self.content.reset();
+        if self
+            .content
+            .content()
+            .is_none_or(|content| content.course_id != course_id)
+        {
+            self.content.reset();
+        }
         self.projection.reset();
         self.pending_link = None;
+        let epoch = self.workspaces.epoch();
+        let requested_course = course_id.clone();
         let api = self.course_detail.api_handle();
         let token = self.session_token();
         let task = cx
@@ -2180,6 +2246,15 @@ impl RootView {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
+                if !this.workspaces.is_current_epoch(epoch)
+                    || this
+                        .current
+                        .as_ref()
+                        .and_then(|current| current.params.get("id"))
+                        != Some(&requested_course)
+                {
+                    return;
+                }
                 match result {
                     Ok(detail) => this.course_detail.adopt(detail),
                     Err(error) if error.is_unauthorized() => this.force_sign_out(cx),

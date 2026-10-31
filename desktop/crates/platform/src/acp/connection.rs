@@ -1008,13 +1008,12 @@ async fn run_turn(
                                 stop_reason: "cancelled".to_string(),
                             },
                         ),
-                        futures::future::Either::Right(_) => send_event(
-                            events,
-                            HostEvent::TurnEnd {
-                                cancelled: true,
-                                stop_reason: "cancelled".to_string(),
-                            },
-                        ),
+                        futures::future::Either::Right(_) => {
+                            send_event(events, HostEvent::Error {
+                                message: "Agent did not confirm cancellation; reconnect before sending another message".into(),
+                            });
+                            return ControlFlow::Break(());
+                        }
                     }
                     break;
                 }

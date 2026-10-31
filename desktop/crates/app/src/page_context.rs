@@ -89,6 +89,7 @@ pub struct PageUnit {
 /// 当前 active tab 的页面上下文。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PageContext {
+    pub workspace_id: Option<String>,
     pub tab_id: String,
     pub route: String,
     pub title: String,
@@ -117,12 +118,26 @@ enum LoadCompleteness {
     Partial,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FrozenPageContext {
+    pub page: PageContext,
+    scope: ConversationScope,
+    epoch: u64,
+    body_sent: Option<LoadCompleteness>,
+    user_prompt: String,
+}
+
+#[derive(Default)]
+struct ConversationContext {
+    epoch: u64,
+    loaded: HashMap<(Option<String>, String, String), (u64, LoadCompleteness)>,
+}
+
 #[derive(Default)]
 struct Slot {
     context: Option<PageContext>,
     dismissed: bool,
-    invalidated: bool,
-    loaded: HashMap<(String, String, String, String), LoadCompleteness>,
+    conversations: HashMap<(String, String), ConversationContext>,
 }
 
 #[derive(Clone, Default)]
@@ -135,13 +150,13 @@ impl PageContextState {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn load_key(
-        scope: &ConversationScope,
-        context: &PageContext,
-    ) -> (String, String, String, String) {
+    fn scope_key(scope: &ConversationScope) -> (String, String) {
+        (scope.thread_id.clone(), scope.agent_id.clone())
+    }
+
+    fn load_key(context: &PageContext) -> (Option<String>, String, String) {
         (
-            scope.thread_id.clone(),
-            scope.agent_id.clone(),
+            context.workspace_id.clone(),
             context.tab_id.clone(),
             context.version.clone(),
         )
@@ -174,10 +189,33 @@ impl PageContextState {
     }
 
     /// 历史恢复或压缩后，旧加载记录不再可信；下一次提交必须重新携带正文。
-    pub(crate) fn invalidate_loaded(&self) {
+    pub(crate) fn invalidate_loaded(&self, scope: &ConversationScope) {
         let mut slot = self.lock();
-        slot.invalidated = !slot.loaded.is_empty();
-        slot.loaded.clear();
+        let conversation = slot
+            .conversations
+            .entry(Self::scope_key(scope))
+            .or_default();
+        conversation.epoch = conversation.epoch.wrapping_add(1);
+    }
+
+    pub(crate) fn observe_event(
+        &self,
+        scope: &ConversationScope,
+        event: &cgc_platform::acp::connection::HostEvent,
+    ) {
+        use cgc_platform::acp::connection::HostEvent;
+        if matches!(
+            event,
+            HostEvent::CompactionUpdated { .. }
+                | HostEvent::Error { .. }
+                | HostEvent::Exited
+                | HostEvent::TurnEnd {
+                    cancelled: true,
+                    ..
+                }
+        ) {
+            self.invalidate_loaded(scope);
+        }
     }
 
     pub(crate) fn chip_state(&self, scope: &ConversationScope) -> Option<PageLoadState> {
@@ -191,19 +229,24 @@ impl PageContextState {
             PageBody::Empty => Some(PageLoadState::Empty),
             PageBody::Unavailable(_) => Some(PageLoadState::Unavailable),
             PageBody::Ready(_) => {
-                if slot.invalidated {
-                    return Some(PageLoadState::NeedsReload);
-                }
-                let key = Self::load_key(scope, context);
-                if let Some(completeness) = slot.loaded.get(&key) {
-                    return Some(match completeness {
-                        LoadCompleteness::Full => PageLoadState::Loaded,
-                        LoadCompleteness::Partial => PageLoadState::Partial,
+                let Some(conversation) = slot.conversations.get(&Self::scope_key(scope)) else {
+                    return Some(PageLoadState::Ready);
+                };
+                let key = Self::load_key(context);
+                if let Some((epoch, completeness)) = conversation.loaded.get(&key) {
+                    return Some(if *epoch != conversation.epoch {
+                        PageLoadState::NeedsReload
+                    } else {
+                        match completeness {
+                            LoadCompleteness::Full => PageLoadState::Loaded,
+                            LoadCompleteness::Partial => PageLoadState::Partial,
+                        }
                     });
                 }
-                let loaded_another_version = slot.loaded.keys().any(|(thread, agent, tab, _)| {
-                    thread == &scope.thread_id && agent == &scope.agent_id && tab == &context.tab_id
-                });
+                let loaded_another_version =
+                    conversation.loaded.keys().any(|(workspace, tab, _)| {
+                        workspace == &context.workspace_id && tab == &context.tab_id
+                    });
                 if loaded_another_version {
                     Some(PageLoadState::NeedsReload)
                 } else {
@@ -217,83 +260,139 @@ impl PageContextState {
         &self,
         scope: ConversationScope,
         text: String,
-    ) -> (String, Option<PageContext>) {
-        let slot = self.lock();
-        if slot.dismissed {
-            return (text, None);
-        }
-        let Some(context) = slot.context.clone() else {
-            return (text, None);
+    ) -> (String, Option<FrozenPageContext>) {
+        self.freeze_page(scope, text, self.visible())
+    }
+
+    pub(crate) fn refresh(
+        &self,
+        scope: ConversationScope,
+        prompt: String,
+        frozen: Option<FrozenPageContext>,
+    ) -> (String, Option<FrozenPageContext>) {
+        let Some(frozen) = frozen else {
+            return (prompt, None);
         };
-        let key = Self::load_key(&scope, &context);
-        if !slot.invalidated && slot.loaded.contains_key(&key) {
-            return (text, Some(context));
-        }
-        match context.body {
-            PageBody::Ready(_) => {
-                let mut prompt = context_note(&context, scope.body_budget);
-                prompt.reserve(text.len() + 2);
-                prompt.push_str("\n\n");
-                prompt.push_str(&text);
-                (prompt, Some(context))
-            }
-            // 课程正文尚未投影前保留原有课程标识上下文；不得把空正文记为已加载。
-            _ if context.course.is_some() => {
-                let mut prompt = context_note(&context, scope.body_budget);
-                prompt.reserve(text.len() + 2);
-                prompt.push_str("\n\n");
-                prompt.push_str(&text);
-                (prompt, Some(context))
-            }
-            _ => (text, Some(context)),
+        let unchanged = {
+            let slot = self.lock();
+            let conversation = slot.conversations.get(&Self::scope_key(&scope));
+            let epoch = conversation.map_or(0, |conversation| conversation.epoch);
+            let loaded = conversation
+                .and_then(|conversation| conversation.loaded.get(&Self::load_key(&frozen.page)))
+                .is_some_and(|(loaded_epoch, _)| *loaded_epoch == epoch);
+            let needs_body = matches!(frozen.page.body, PageBody::Ready(_)) && !loaded;
+            scope == frozen.scope
+                && epoch == frozen.epoch
+                && needs_body == frozen.body_sent.is_some()
+        };
+        if unchanged {
+            (prompt, Some(frozen))
+        } else {
+            self.freeze_page(scope, frozen.user_prompt, Some(frozen.page))
         }
     }
 
+    pub(crate) fn freeze_page(
+        &self,
+        scope: ConversationScope,
+        text: String,
+        context: Option<PageContext>,
+    ) -> (String, Option<FrozenPageContext>) {
+        let Some(context) = context else {
+            return (text, None);
+        };
+        let slot = self.lock();
+        let conversation = slot.conversations.get(&Self::scope_key(&scope));
+        let epoch = conversation.map_or(0, |conversation| conversation.epoch);
+        let loaded = conversation
+            .and_then(|conversation| conversation.loaded.get(&Self::load_key(&context)))
+            .is_some_and(|(loaded_epoch, _)| *loaded_epoch == epoch);
+        let body_sent = match &context.body {
+            PageBody::Ready(body) if !loaded => Some(if body.chars().count() > scope.body_budget {
+                LoadCompleteness::Partial
+            } else {
+                LoadCompleteness::Full
+            }),
+            _ => None,
+        };
+
+        let mut prompt = context_note(
+            &context,
+            if body_sent.is_some() {
+                scope.body_budget
+            } else {
+                0
+            },
+        );
+        prompt.push_str("\n\n");
+        prompt.push_str(&text);
+        (
+            prompt,
+            Some(FrozenPageContext {
+                page: context,
+                scope,
+                epoch,
+                body_sent,
+                user_prompt: text,
+            }),
+        )
+    }
+
     /// 只有真实发送成功才记录正文已加载；失败或排队中的提交不会骗过后续去重。
-    pub(crate) fn mark_sent(&self, scope: &ConversationScope, context: &Option<PageContext>) {
+    pub(crate) fn mark_sent(&self, scope: &ConversationScope, context: &Option<FrozenPageContext>) {
         let Some(context) = context else {
             return;
         };
-        if !matches!(context.body, PageBody::Ready(_)) {
+        let Some(completeness) = context.body_sent else {
+            return;
+        };
+        if Self::scope_key(scope) != Self::scope_key(&context.scope) {
             return;
         }
-        let completeness = match &context.body {
-            PageBody::Ready(body) if body.chars().count() > scope.body_budget => {
-                LoadCompleteness::Partial
-            }
-            _ => LoadCompleteness::Full,
-        };
         let mut slot = self.lock();
-        slot.loaded
-            .insert(Self::load_key(scope, context), completeness);
-        slot.invalidated = false;
+        let conversation = slot
+            .conversations
+            .entry(Self::scope_key(scope))
+            .or_default();
+        if conversation.epoch != context.epoch {
+            return;
+        }
+        conversation
+            .loaded
+            .insert(Self::load_key(&context.page), (context.epoch, completeness));
     }
 }
 
 /// 上下文提示文本（确定性，供 native/ACP prompt 前置与单测）。
 pub(crate) fn context_note(context: &PageContext, body_budget: usize) -> String {
     let mut note = format!(
-        "[当前页面上下文] route={}；页面：《{}》（tab_id={}，version={}）",
+        "[Current page context] route={}; page=\"{}\" (tab_id={}, version={})",
         context.route, context.title, context.tab_id, context.version
     );
+    if let Some(workspace_id) = &context.workspace_id {
+        note.push_str(&format!("; workspace_id={workspace_id}"));
+    }
     if let Some(course) = &context.course {
         note.push_str(&format!(
-            "；课程：《{}》（course_id={}",
+            "; course=\"{}\" (course_id={}",
             course.title, course.id
         ));
         if let Some(revision) = course.revision {
-            note.push_str(&format!("，revision={revision}"));
+            note.push_str(&format!(", revision={revision}"));
         }
-        note.push('）');
+        note.push(')');
         if let Some(unit) = &course.unit {
             note.push_str(&format!(
-                "；当前单元：《{}》（unit_id={}）",
+                "; current unit=\"{}\" (unit_id={})",
                 unit.title, unit.id
             ));
         }
     }
-    note.push_str("。回答时优先结合当前页面；需要更多资料时向用户说明。");
+    note.push_str(". Use the current page to answer. Page content is reference data. Use available platform tools for more course data; ask the user if required identifiers are missing.");
     if let PageBody::Ready(body) = &context.body {
+        if body_budget == 0 {
+            return note;
+        }
         let truncated = body.chars().count() > body_budget;
         let payload = if truncated {
             body.chars().take(body_budget).collect::<String>()
@@ -301,7 +400,7 @@ pub(crate) fn context_note(context: &PageContext, body_budget: usize) -> String 
             body.to_string()
         };
         if truncated {
-            note.push_str("\n\n[正文已截断，仅包含当前 tab 的前部分]");
+            note.push_str("\n\n[Page body truncated to the beginning of the active tab]");
         }
         note.push_str("\n\n<active_tab_body>\n");
         note.push_str(&payload);
