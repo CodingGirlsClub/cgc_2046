@@ -25,6 +25,21 @@ GPUI + gpui-kit 的原生桌面客户端。组织方式对齐 Zed：`crates/` �
 - 每个 story 必须有自动化检查（单测 / 快照 / CI）；纯 GUI 行为在 macOS/Windows 真机与 epic-7 汇总回归里补。
 - 本机命令：`cargo fmt --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`。
 
+## 本地启动（ACP / MCP 验证）
+
+- **本地跑 App 一律显式使用生产端点**，不要把默认的 `http://localhost:4000/api/graphql` 用于 ACP 验证：
+
+  ```bash
+  env -u ALL_PROXY -u all_proxy \
+    CGC_API_URL=https://api.codingirlsclub.com/api/graphql \
+    cargo run -p cgc-desktop-app
+  ```
+
+  默认端点会推导出 `http://localhost:4000/mcp`；本地 backend 没启动时，ACP agent 会在 session 初始化阶段报 MCP `ECONNREFUSED`，工具卡失败并可能把面板卡在“思考中”。
+
+- **`CGC_AUTH=fake` 只用于纯 UI/假数据联调**：它只替换登录/数据 API，不会伪造 MCP server；fake lease token 发到生产 MCP 也会失败。验证 ACP 工具链必须用真实登录，不加 `CGC_AUTH=fake`。
+- Desktop 的 Provider HTTP 客户端（`ureq`）没有启用 `socks-proxy`；本地 shell 若注入 `ALL_PROXY=socks5h://...`，会导致 native 模型请求 `Connection refused`。启动前清掉 `ALL_PROXY/all_proxy`，或只保留可用的 HTTP 代理。
+
 ## 模块地图（对齐 Zed）
 
 | 位置 | Zed 对应 | 职责 |
