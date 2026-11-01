@@ -2716,6 +2716,103 @@ mod tests {
     }
 
     #[test]
+    fn course_context_includes_visible_objective_instructions_and_versions_changes() {
+        use cgc_courses::content::{
+            CourseContent, CourseContentDocument, CourseIssue, CourseObjective,
+        };
+
+        let mut view = view();
+        let mut content = CourseContent {
+            course_id: "course-a".into(),
+            title: "Course A".into(),
+            description: None,
+            revision_number: Some(1),
+            published_at: None,
+            document: CourseContentDocument {
+                goals: vec!["Learn ownership".into()],
+                issues: vec![CourseIssue {
+                    id: Some("issue-a".into()),
+                    title: Some("Ownership".into()),
+                    objectives: vec![
+                        CourseObjective {
+                            id: Some("objective-required".into()),
+                            title: Some("Practice borrowing".into()),
+                            required: true,
+                            prereq_ids: Vec::new(),
+                            activity: Some("Borrow a value without moving it".into()),
+                            assessment: None,
+                            rubric: Vec::new(),
+                            materials: Vec::new(),
+                        },
+                        CourseObjective {
+                            id: Some("objective-optional".into()),
+                            title: None,
+                            required: false,
+                            prereq_ids: Vec::new(),
+                            activity: None,
+                            assessment: None,
+                            rubric: Vec::new(),
+                            materials: Vec::new(),
+                        },
+                    ],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        };
+        for focused_issue in [false, true] {
+            activate_context_tab(&mut view, "/courses/course-a/learn", "Course A");
+            if focused_issue {
+                let tab = super::state::PaneTab::issue("course-a", "issue-a", "Ownership");
+                view.state.active_tab = Some(tab.id.clone());
+                view.state.tabs.push(tab);
+            }
+            view.state.content.begin_load("course-a");
+            view.state.content.adopt(content.clone());
+            view.refresh_page_context();
+            let original_version = view.page_context.visible().unwrap().version;
+            for agent in ["native", "codex"] {
+                let prompt = context_prompt(&view, agent);
+                assert!(prompt
+                    .contains("Practice borrowing · required · Borrow a value without moving it"));
+                assert!(prompt.contains("Objective · optional"));
+            }
+
+            content.document.issues[0].objectives[0].activity =
+                Some("Explain when the borrow ends".into());
+            view.state.content.adopt(content.clone());
+            view.refresh_page_context();
+            let activity_version = view.page_context.visible().unwrap().version;
+            assert_ne!(activity_version, original_version);
+            for agent in ["native", "codex"] {
+                let prompt = context_prompt(&view, agent);
+                assert!(
+                    prompt.contains("Practice borrowing · required · Explain when the borrow ends")
+                );
+                assert!(!prompt.contains("Borrow a value without moving it"));
+            }
+
+            content.document.issues[0].objectives[0].required = false;
+            view.state.content.adopt(content.clone());
+            view.refresh_page_context();
+            assert_ne!(
+                view.page_context.visible().unwrap().version,
+                activity_version
+            );
+            for agent in ["native", "codex"] {
+                let prompt = context_prompt(&view, agent);
+                assert!(
+                    prompt.contains("Practice borrowing · optional · Explain when the borrow ends")
+                );
+                assert!(!prompt.contains("Practice borrowing · required"));
+            }
+            content.document.issues[0].objectives[0].required = true;
+            content.document.issues[0].objectives[0].activity =
+                Some("Borrow a value without moving it".into());
+        }
+    }
+
+    #[test]
     fn retained_course_content_refreshes_when_learning_revision_changes() {
         use crate::page_context::PageBody;
         use cgc_courses::catalog::CourseDetail;

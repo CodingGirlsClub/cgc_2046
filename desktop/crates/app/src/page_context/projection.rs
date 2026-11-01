@@ -296,9 +296,19 @@ fn issue_sections(issue: &cgc_courses::content::CourseIssue) -> Vec<String> {
         push_material(&mut sections, material);
     }
     for objective in &issue.objectives {
-        if let Some(title) = objective.title.as_deref() {
-            sections.push(title.to_string());
+        let mut instructions = format!(
+            "{} · {}",
+            objective.title.as_deref().unwrap_or("Objective"),
+            if objective.required {
+                "required"
+            } else {
+                "optional"
+            }
+        );
+        if let Some(activity) = &objective.activity {
+            instructions.push_str(&format!(" · {activity}"));
         }
+        sections.push(instructions);
         for material in &objective.materials {
             push_material(&mut sections, material);
         }
@@ -317,7 +327,7 @@ pub(crate) fn project_issue(
         .unwrap_or_else(|| "unversioned".into());
     project_body(
         tab_id,
-        &format!("issue-context-v1\0{revision}"),
+        &format!("issue-context-v2\0{revision}"),
         issue_sections(issue),
     )
 }
@@ -357,7 +367,7 @@ pub(crate) fn project_course_learning(
         .revision_number
         .map(|value| value.to_string())
         .unwrap_or_else(|| "unversioned".into());
-    project_body(tab_id, &format!("course-learning-v1\0{revision}"), sections)
+    project_body(tab_id, &format!("course-learning-v2\0{revision}"), sections)
 }
 
 #[cfg(test)]

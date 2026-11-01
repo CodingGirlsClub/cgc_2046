@@ -12,6 +12,10 @@ defmodule Cgc2046.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
+      # CVE 仅影响 Assent Apple 回调；本项目未启用 OAuth/OIDC，稳定版
+      # ash_authentication 仍约束 assent < 0.3。authentication_advisory_test.exs
+      # 守住认证策略范围；兼容修复版的升级与豁免移除追踪见 #1215。
+      hex: [ignore_advisories: ["EEF-CVE-2026-117656"]],
       listeners: [Phoenix.CodeReloader]
     ]
   end
