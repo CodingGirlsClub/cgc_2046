@@ -7,7 +7,7 @@ pub(in crate::root_view) use courses::{
 pub(in crate::root_view) use events::{
     detail::render_detail, enrollments::render_enrollments_list, list::render_events_list,
 };
-pub(in crate::root_view) use learning_home::render_learning_home;
+pub(in crate::root_view) use learning_home::{course_enrollments, render_learning_home};
 pub(in crate::root_view) use participations::render_participations;
 pub(in crate::root_view) use settings::render_settings;
 pub(in crate::root_view) use workspace_overview::render_workspace_overview;

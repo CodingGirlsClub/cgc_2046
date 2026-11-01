@@ -219,20 +219,34 @@ impl RootView {
         route_id: &str,
     ) -> crate::page_context::PageContext {
         let (body, version) = match route_id {
-            "events.detail" => self
-                .detail
-                .detail()
-                .map(|detail| crate::page_context::project_event_detail(detail, &tab.id))
-                .unwrap_or_else(|| match self.detail.state() {
-                    cgc_events::list::ListState::Failed(message) => {
+            "events.detail" => {
+                let event_id = self
+                    .current
+                    .as_ref()
+                    .and_then(|route| route.params.get("id"));
+                match self.detail.state() {
+                    cgc_events::list::ListState::Ready => self
+                        .detail
+                        .detail()
+                        .filter(|detail| Some(&detail.id) == event_id)
+                        .map(|detail| crate::page_context::project_event_detail(detail, &tab.id))
+                        .unwrap_or_else(|| Self::loading_context(&tab.id)),
+                    cgc_events::list::ListState::Failed(message)
+                        if self.detail.event_id() == event_id.map(String::as_str) =>
+                    {
                         Self::failed_context(&tab.id, message)
                     }
-                    cgc_events::list::ListState::Empty => (
-                        crate::page_context::PageBody::Empty,
-                        format!("empty:{}", tab.id),
-                    ),
+                    cgc_events::list::ListState::Empty
+                        if self.detail.event_id() == event_id.map(String::as_str) =>
+                    {
+                        (
+                            crate::page_context::PageBody::Empty,
+                            format!("empty:{}", tab.id),
+                        )
+                    }
                     _ => Self::loading_context(&tab.id),
-                }),
+                }
+            }
             "events.list" => {
                 if self.events.items().is_empty() {
                     match self.events.state() {
@@ -270,7 +284,13 @@ impl RootView {
                     crate::page_context::project_course_list(self.courses.items(), &tab.id)
                 }
             }
-            "courses.learning_home" | "events.mine" | "events.participations" => {
+            "courses.learning_home" => {
+                let courses = screens::course_enrollments(&self.enrollments_rows)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                crate::page_context::project_enrollments(&courses, &tab.id)
+            }
+            "events.mine" | "events.participations" => {
                 crate::page_context::project_enrollments(&self.enrollments_rows, &tab.id)
             }
             "account.workspace" => self

@@ -1,6 +1,12 @@
 use super::super::*;
 use super::ScreenContext;
 
+pub(in crate::root_view) fn course_enrollments(
+    rows: &[MyEnrollmentRow],
+) -> impl Iterator<Item = &MyEnrollmentRow> {
+    rows.iter().filter(|row| row.course_id.is_some())
+}
+
 pub(in crate::root_view) fn render_learning_home(
     ctx: &mut ScreenContext<'_>,
     language: Language,
@@ -9,11 +15,7 @@ pub(in crate::root_view) fn render_learning_home(
 ) -> AnyElement {
     let state = ctx.enrollments_state.clone();
     let rows = ctx.enrollments_rows.clone();
-    let course_rows = rows
-        .iter()
-        .filter(|row| row.course_id.is_some())
-        .cloned()
-        .collect::<Vec<_>>();
+    let course_rows = course_enrollments(&rows).cloned().collect::<Vec<_>>();
     let body: AnyElement = match state {
         EnrollmentsListState::Idle | EnrollmentsListState::Loading => {
             render_loading_state(language, Key::AccountWorkspaceLoading, palette).into_any_element()

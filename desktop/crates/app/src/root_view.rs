@@ -2548,6 +2548,173 @@ mod tests {
         )
     }
 
+    fn activate_context_tab(view: &mut RootView, path: &str, title: &str) {
+        let tab = super::state::PaneTab::page(path, title);
+        view.state.active_tab = Some(tab.id.clone());
+        view.state.tabs.push(tab);
+        view.navigate(path);
+    }
+
+    fn context_prompt(view: &RootView, agent: &str) -> String {
+        let token = crate::composer_context::auto_page_token();
+        let input = gpui_kit::component::input::InputContent::new(format!(
+            "{}what is on this page?",
+            token.text()
+        ))
+        .with_token(0..token.text().len(), token)
+        .unwrap();
+        crate::composer_context::ComposerContext::default()
+            .freeze(
+                &input,
+                view.page_context.visible(),
+                std::path::Path::new("."),
+                &view.page_context,
+                crate::page_context::ConversationScope::new("projection-review-test", agent),
+            )
+            .1
+    }
+
+    fn context_event(id: &str, title: &str) -> cgc_events::detail::EventDetail {
+        let mut detail =
+            cgc_events::detail::EventDetail::from_summary(&cgc_events::list::EventSummary {
+                id: id.into(),
+                title: title.into(),
+                status: "open".into(),
+                visibility: "public".into(),
+                enrollment_policy: "open".into(),
+                capacity: None,
+                confirmed_count: None,
+                enrollment_badge: None,
+                registration_deadline: None,
+                starts_at: None,
+                venue: None,
+                pricing_enabled: false,
+            });
+        detail.description = Some(format!("Description for {title}"));
+        detail
+    }
+
+    #[test]
+    fn event_context_never_attributes_cached_or_unready_details_to_the_active_event() {
+        use crate::page_context::PageBody;
+        let mut view = view();
+        activate_context_tab(&mut view, "/events/event-a", "Event A");
+        view.state.detail.begin_load("event-a");
+        view.state.detail.adopt(context_event("event-a", "Event A"));
+        view.refresh_page_context();
+        for agent in ["native", "codex"] {
+            assert!(context_prompt(&view, agent).contains("Description for Event A"));
+        }
+        activate_context_tab(&mut view, "/events/event-b", "Event B");
+        view.refresh_page_context();
+        assert_eq!(view.page_context.visible().unwrap().body, PageBody::Loading);
+        for agent in ["native", "codex"] {
+            let prompt = context_prompt(&view, agent);
+            assert!(prompt.contains("route=/events/event-b"));
+            assert!(!prompt.contains("Description for Event A"));
+        }
+        view.state.detail.begin_load("event-b");
+        assert_eq!(view.state.detail.detail().unwrap().id, "event-a");
+        view.refresh_page_context();
+        assert_eq!(view.page_context.visible().unwrap().body, PageBody::Loading);
+        view.state
+            .detail
+            .fail(&cgc_events::list::EventsError::Transport(
+                "Event B request failed".into(),
+            ));
+        view.refresh_page_context();
+        assert!(
+            matches!(view.page_context.visible().unwrap().body, PageBody::Unavailable(ref reason) if reason.contains("Event B request failed"))
+        );
+        for agent in ["native", "codex"] {
+            assert!(!context_prompt(&view, agent).contains("Description for Event A"));
+        }
+        view.state.detail.adopt(context_event("event-a", "Event A"));
+        view.refresh_page_context();
+        assert_eq!(view.page_context.visible().unwrap().body, PageBody::Loading);
+        view.state.detail.adopt(context_event("event-b", "Event B"));
+        view.refresh_page_context();
+        for agent in ["native", "codex"] {
+            let prompt = context_prompt(&view, agent);
+            assert!(prompt.contains("Description for Event B"));
+            assert!(!prompt.contains("Description for Event A"));
+        }
+        view.state.detail.begin_load("event-b");
+        view.refresh_page_context();
+        assert_eq!(view.page_context.visible().unwrap().body, PageBody::Loading);
+        for agent in ["native", "codex"] {
+            assert!(!context_prompt(&view, agent).contains("Description for Event B"));
+        }
+        view.state
+            .detail
+            .fail(&cgc_events::list::EventsError::Transport(
+                "Previous event request failed".into(),
+            ));
+        activate_context_tab(&mut view, "/events/event-c", "Event C");
+        view.refresh_page_context();
+        assert_eq!(view.page_context.visible().unwrap().body, PageBody::Loading);
+        for agent in ["native", "codex"] {
+            let prompt = context_prompt(&view, agent);
+            assert!(prompt.contains("route=/events/event-c"));
+            assert!(!prompt.contains("Previous event request failed"));
+        }
+    }
+
+    #[test]
+    fn learning_context_filters_event_enrollments_while_participation_pages_keep_them() {
+        use crate::page_context::PageBody;
+        let mut view = view();
+        let event = cgc_events::enrollments::MyEnrollmentRow {
+            id: "event-enrollment".into(),
+            status: "confirmed".into(),
+            target_title: Some("Event registration outside the learning list".into()),
+            starts_at: None,
+            event_id: Some("event-a".into()),
+            course_id: None,
+            payment_mode: None,
+            check_in_code: None,
+        };
+        let course = cgc_events::enrollments::MyEnrollmentRow {
+            id: "course-enrollment".into(),
+            target_title: Some("Visible learning course".into()),
+            event_id: None,
+            course_id: Some("course-a".into()),
+            ..event.clone()
+        };
+        view.state.enrollments_rows = vec![event.clone(), course];
+        view.state.enrollments_state = super::EnrollmentsListState::Ready;
+        activate_context_tab(&mut view, "/learning", "My learning");
+        view.refresh_page_context();
+        for agent in ["native", "codex"] {
+            let prompt = context_prompt(&view, agent);
+            assert!(prompt.contains("Visible learning course"));
+            assert!(!prompt.contains("Event registration outside the learning list"));
+        }
+        let course_only_version = view.page_context.visible().unwrap().version;
+        view.state.enrollments_rows[0].target_title =
+            Some("Updated hidden event registration".into());
+        view.refresh_page_context();
+        assert_eq!(
+            view.page_context.visible().unwrap().version,
+            course_only_version
+        );
+        view.state.enrollments_rows = vec![event];
+        view.refresh_page_context();
+        assert_eq!(view.page_context.visible().unwrap().body, PageBody::Empty);
+        for agent in ["native", "codex"] {
+            assert!(!context_prompt(&view, agent)
+                .contains("Event registration outside the learning list"));
+        }
+        for path in ["/events/mine", "/participations"] {
+            activate_context_tab(&mut view, path, "Participations");
+            view.refresh_page_context();
+            for agent in ["native", "codex"] {
+                assert!(context_prompt(&view, agent)
+                    .contains("Event registration outside the learning list"));
+            }
+        }
+    }
+
     #[test]
     fn course_context_keeps_route_identity_before_detail_loads() {
         let mut view = view();
