@@ -17,6 +17,11 @@ use std::path::Path;
 const LOCALES: [(&str, &str); 2] = [("zh", "zh.lang"), ("en", "en.lang")];
 
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(cgc_ui_tests)");
+    println!("cargo:rerun-if-env-changed=CGC_UI_TESTS");
+    if env::var("CGC_UI_TESTS").as_deref() == Ok("1") {
+        println!("cargo:rustc-cfg=cgc_ui_tests");
+    }
     inject_build_info();
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
     let i18n_dir = Path::new(&manifest_dir).join("../../resources/i18n");

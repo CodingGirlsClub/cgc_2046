@@ -2275,45 +2275,6 @@ impl RootView {
         .detach();
     }
 
-    pub(in crate::root_view) fn revoke_stale_learning_tokens(&mut self, cx: &mut Context<Self>) {
-        let Some(session_token) = self.session_token() else {
-            return;
-        };
-        let api = build_learning_host_api();
-        self.chat.session.phase = ConnectionPhase::Starting;
-        let task = cx.background_executor().spawn(async move {
-            let tokens = api
-                .list(&session_token)
-                .map_err(|error| error.diagnostic())?;
-            let mut revoked = 0usize;
-            for token in tokens
-                .into_iter()
-                .filter(|token| token.kind == "LEARNING_HOST")
-            {
-                if api.revoke(&session_token, &token.id).is_ok() {
-                    revoked += 1;
-                }
-            }
-            Ok::<usize, String>(revoked)
-        });
-        cx.spawn(async move |this, cx| {
-            let result = task.await;
-            let _ = this.update(cx, |this, cx| {
-                match result {
-                    Ok(_) => {
-                        this.revoke_agent_authorization(cx);
-                        this.chat.session.disconnect();
-                        this.prepare_agent_authorization(cx);
-                        this.start_chat(cx);
-                    }
-                    Err(error) => this.chat.session.phase = ConnectionPhase::Failed(error),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
     /// 等待此前已接受的持久化写入 commit；失败只在日志里留痕，不阻塞退出。
     pub(in crate::root_view) fn flush_store_writer(&mut self) {
         let Some(writer) = &self.store_writer else {
@@ -3936,9 +3897,13 @@ impl RootView {
         let token = self.session.sign_out_local();
         if let Some(token) = token {
             let api = self.session.api_handle();
+            let authorization = self.agent_authorization_tail.clone();
             cx.background_executor()
                 .spawn(async move {
-                    let _ = api.revoke(&token);
+                    super::agent_session::after_authorization(authorization, || {
+                        let _ = api.revoke(&token);
+                    })
+                    .await;
                 })
                 .detach();
         }

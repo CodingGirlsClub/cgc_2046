@@ -306,6 +306,8 @@ CI 分工：PR 阶段 desktop 只跑 lint + 测试（快）；**打包在合并�
 - **永久清空**：Settings → AI →「清空 ACP 对话历史」（二次确认，仅 ACP；native 不受影响）。Archive 只隐藏，不删除。
 - **审批规则**：`preferences.json` 的 `toolPermissions` **仅 native 生效**（详见上文「审批规则」）；external agent 的审批由 agent 自身模式决定。
 - **MCP（3.4a/b/c，2026-10-27）**：native MCP client 已落地 Streamable HTTP JSON-RPC（initialize/tools/list/tools/call，Bearer/SSE/超时/401/403 fail-closed，token 不进日志）。native-only 注入 5 个只读课程工具：`mcp:cgc-2046-learning:{get_course_content,get_course_revision,get_learning_state,get_role_playbook,get_enrollment_summary}`；白名单外不注册，无 lease/token 时 0 注册（fail-closed）。配置与 ACP 注入同源（`learning_host` lease + `mcp_endpoint(CGC_API_URL)`）；`CGC_MCP_ENDPOINT`/`CGC_MCP_TOKEN` 仅作 headless 测试 seam。**3.4d 真机待验**（真实平台 MCP server 的 tools/list 与工具调用）。
+- **平台工具凭证恢复**：Native 与 ACP 共用按账号和 API 服务端隔离的钥匙串凭证。冷启动通过 `GET /mcp/token` 核实归属、类型和 token ID 后复用；旧版 `learning_host` 明文项核实后迁移，额度已满也可恢复。401 才按失效处理；网络错误／429／5xx 保留凭证且不增发。新凭证保存失败会撤销本次签发，登出只撤销本机记录，不批量撤销其他客户端。授权失败在 Tab 栏下方独立提示，`Retry` 重新尝试恢复，长诊断不再挤掉标签。
+- **授权回归验证**：凭证测试在 `crates/platform/src/mcp/credential/tests.rs`；真实 TabBar 测试在 `crates/app/src/root_view/screens/workspace/pane/tests.rs`。后者使用 `CGC_UI_TESTS=1` 和 Kit 的 `test-support`（`cargo test -p cgc-desktop-app --features gpui-kit/test-support --lib authorization_failure_and_long_notices`）。当前 Kit 0.8.1 的可选 Fast 依赖版本解析存在缺失，本次在临时 workspace 中仅为未启用的 Fast 包提供解析占位后运行；项目依赖和锁文件保持原样。
 - **侧栏状态**：历史侧栏开关会写入 `preferences.json`（`historySidebarOpen`），重启后恢复。
 - **全局 Agent Panel（3.5a）**：任意页面打开同一 Agent Panel / 同一线程；课程学习页自动把 course/revision/unit 作为上下文附加到每条 prompt（native/ACP 同一段文本，输入气泡不显示），上下文 chip 可移除。不再有课程页专用工作区/会话指针。
 - **默认 agent（3.5b，2026-10-27）**：新会话（含课程页）默认 native；`CGC_NATIVE_AGENT=0` 或设置「使用 Native Agent 运行时」关闭时回退 External Agent（external 仍可在 `＋` 菜单选择）。

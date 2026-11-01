@@ -43,8 +43,8 @@ use cgc_platform::agent::launch::{build_launch, LaunchPlan, NodeRuntime};
 use cgc_platform::agent::node_runtime::{HttpDownloader, NodeRuntimeManager};
 use cgc_platform::events::{AppEvent, EventPublisher, MemoryEventBus};
 use cgc_platform::mcp::credential::{
-    issue_lease, FakeLearningHostApi, HttpLearningHostApi, KeychainVault, LearningHostApi,
-    LearningHostLease, MemoryVault, SecretVault,
+    issue_lease, revoke_saved_lease, FakeLearningHostApi, HttpLearningHostApi, KeychainVault,
+    LearningHostApi, LeaseScope, McpError, MemoryVault, SecretVault,
 };
 use cgc_platform::mcp::inject::{build_mcp_server, mcp_endpoint, McpServerConfig};
 use cgc_platform::registry::manifest::Registry;
@@ -1075,6 +1075,11 @@ impl Render for RootView {
                                         &palette,
                                         cx,
                                     )))
+                                    .child(screens::render_pane_notices(
+                                        &mut screens::ScreenContext::new(&mut self.state),
+                                        &palette,
+                                        cx,
+                                    ))
                                     .child(
                                         div()
                                             .id("content-scroll")
@@ -2188,19 +2193,21 @@ fn remaining_seconds(expires_at: Option<&str>) -> i64 {
         .unwrap_or(600)
 }
 
-fn build_learning_host_api() -> Arc<dyn LearningHostApi> {
+fn build_learning_host_api(scope: &LeaseScope) -> Arc<dyn LearningHostApi> {
     let use_http = !cgc_platform::runtime::use_fake_backend();
     if use_http {
-        Arc::new(HttpLearningHostApi::from_env())
+        Arc::new(HttpLearningHostApi::new(
+            cgc_platform::api::GraphqlClient::new(&scope.endpoint),
+        ))
     } else {
         Arc::new(FakeLearningHostApi::default())
     }
 }
 
-fn build_learning_host_vault() -> Arc<dyn SecretVault> {
+fn build_learning_host_vault(scope: &LeaseScope) -> Arc<dyn SecretVault> {
     let use_http = !cgc_platform::runtime::use_fake_backend();
     if use_http {
-        Arc::new(KeychainVault::from_env())
+        Arc::new(KeychainVault::for_scope(scope))
     } else {
         Arc::new(MemoryVault::default())
     }

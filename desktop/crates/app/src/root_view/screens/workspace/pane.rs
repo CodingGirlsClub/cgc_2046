@@ -4,14 +4,16 @@ use super::super::super::*;
 use super::super::ScreenContext;
 use gpui_kit::component::tab::{Tab, TabBar};
 
+#[cfg(all(test, cgc_ui_tests))]
+mod tests;
+
 pub(in crate::root_view) fn render_pane_tabs(
     ctx: &mut ScreenContext<'_>,
     palette: &theme::Palette,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
     let tabs = ctx.tabs.clone();
-    let notice = ctx.pane_notice.clone();
-    if tabs.is_empty() && notice.is_none() {
+    if tabs.is_empty() {
         return div().into_any_element();
     }
     let active = ctx.active_tab.clone();
@@ -60,32 +62,91 @@ pub(in crate::root_view) fn render_pane_tabs(
     if let Some(selected) = selected {
         bar = bar.selected_index(selected);
     }
-    if let Some(notice) = notice {
+    bar.into_any_element()
+}
+
+pub(in crate::root_view) fn render_pane_notices(
+    ctx: &mut ScreenContext<'_>,
+    palette: &theme::Palette,
+    cx: &mut Context<RootView>,
+) -> AnyElement {
+    use gpui_kit::component::button::{Button, ButtonVariants};
+    let mut notices = div().w_full().min_w_0().flex().flex_col().flex_none();
+    if let Some(error) = ctx.agent_authorization_error.clone() {
+        let detail = error.diagnostic();
+        let message = match error {
+            McpError::Domain { ref code, .. } if code == "mcp_token_limit_reached" =>
+                "Platform credential limit reached. Retry to recover this device's saved credential. If it is unavailable, revoke one unused credential in platform settings.",
+            _ => "Platform tools are unavailable. Your tabs and course content are still accessible.",
+        };
         let root = cx.entity().downgrade();
-        bar = bar.suffix(
+        notices = notices.child(
             div()
-                .id("pane-notice")
+                .id("platform-authorization-notice")
                 .flex()
-                .flex_row()
-                .items_center()
-                .gap(px(4.0))
-                .px(space(1))
-                .py(px(2.0))
-                .text_size(px(10.0))
-                .text_color(palette.ink_3)
-                .child(notice)
+                .items_start()
+                .gap(space(1))
+                .w_full()
+                .min_w_0()
+                .px(space(2))
+                .py(space(1))
+                .border_b_1()
+                .border_color(palette.line)
+                .bg(palette.soft)
                 .child(
                     div()
-                        .id("pane-notice-dismiss")
-                        .px(px(3.0))
-                        .rounded(px(RADIUS_SMALL))
-                        .hover(|style| style.bg(palette.soft))
-                        .child("×")
+                        .id("platform-authorization-message")
+                        .flex_1()
+                        .min_w_0()
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_2)
+                        .child(message)
+                        .tooltip(move |window, cx| Tooltip::new(detail.clone()).build(window, cx)),
+                )
+                .child(
+                    Button::new("platform-authorization-retry")
+                        .label("Retry")
+                        .ghost()
+                        .xsmall()
                         .on_click(move |_, _, cx| {
-                            let _ = root.update(cx, |this, cx| this.clear_pane_notice(cx));
+                            let _ = root.update(cx, |root, cx| root.retry_agent_authorization(cx));
                         }),
                 ),
         );
     }
-    bar.into_any_element()
+    if let Some(notice) = ctx.pane_notice.clone() {
+        let root = cx.entity().downgrade();
+        notices = notices.child(
+            div()
+                .id("pane-notice")
+                .flex()
+                .items_start()
+                .gap(space(1))
+                .w_full()
+                .min_w_0()
+                .px(space(2))
+                .py(space(1))
+                .border_b_1()
+                .border_color(palette.line)
+                .bg(palette.soft)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_3)
+                        .child(notice),
+                )
+                .child(
+                    Button::new("pane-notice-dismiss")
+                        .label("×")
+                        .ghost()
+                        .xsmall()
+                        .on_click(move |_, _, cx| {
+                            let _ = root.update(cx, |root, cx| root.clear_pane_notice(cx));
+                        }),
+                ),
+        );
+    }
+    notices.into_any_element()
 }

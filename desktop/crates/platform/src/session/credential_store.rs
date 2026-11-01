@@ -214,12 +214,10 @@ impl SecretBackend for MacKeychain {
     }
 
     fn get(&self, account: &str) -> io::Result<Option<String>> {
-        match security_framework::passwords::get_generic_password(&self.service, account) {
-            Ok(bytes) => String::from_utf8(bytes)
-                .map(Some)
-                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string())),
-            Err(_) => Ok(None),
-        }
+        decode_keychain_secret(security_framework::passwords::get_generic_password(
+            &self.service,
+            account,
+        ))
     }
 
     fn delete(&self, account: &str) -> io::Result<()> {
@@ -227,6 +225,25 @@ impl SecretBackend for MacKeychain {
             Ok(()) => Ok(()),
             Err(_) => Ok(()),
         }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn decode_keychain_secret(
+    result: Result<Vec<u8>, security_framework::base::Error>,
+) -> io::Result<Option<String>> {
+    match result {
+        Ok(bytes) => String::from_utf8(bytes).map(Some).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Invalid keychain credential encoding",
+            )
+        }),
+        Err(error) if error.code() == -25300 => Ok(None), // errSecItemNotFound
+        Err(_) => Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Cannot read the system keychain",
+        )),
     }
 }
 
@@ -537,7 +554,11 @@ impl KeychainStore {
     }
 
     pub fn load_secret(&self, account: &str) -> Option<String> {
-        self.backend.get(account).ok().flatten()
+        self.try_load_secret(account).ok().flatten()
+    }
+
+    pub fn try_load_secret(&self, account: &str) -> io::Result<Option<String>> {
+        self.backend.get(account)
     }
 
     pub fn clear_secret(&self, account: &str) -> io::Result<()> {
@@ -607,6 +628,21 @@ mod keychain_tests {
             user_id: "user-keychain".to_string(),
             email: Some("demo@example.com".to_string()),
             is_platform_admin: false,
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn keychain_access_failures_are_not_treated_as_missing_credentials() {
+        assert_eq!(decode_keychain_secret(Err((-25300).into())).unwrap(), None);
+        assert_eq!(
+            decode_keychain_secret(Ok(b"synthetic-secret".to_vec()))
+                .unwrap()
+                .as_deref(),
+            Some("synthetic-secret")
+        );
+        for code in [-25293, -25308, -128] {
+            assert!(decode_keychain_secret(Err(code.into())).is_err());
         }
     }
 

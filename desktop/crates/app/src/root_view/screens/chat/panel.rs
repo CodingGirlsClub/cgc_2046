@@ -152,16 +152,17 @@ pub(in crate::root_view) fn render_chat_panel(
                 .children(guidance)
                 .children(message.contains("mcp_token_limit_reached").then(|| {
                     div()
-                        .id("chat-revoke-old-tokens")
+                        .id("chat-retry-authorization")
                         .px(space(2))
                         .py(px(4.0))
                         .rounded(px(RADIUS_MEDIUM))
                         .bg(palette.accent)
                         .text_color(palette.canvas)
                         .text_size(px(11.0))
-                        .child("撤销旧学习凭证并重试")
+                        .child("Retry platform authorization")
                         .on_click(cx.listener(|this, _, _, cx| {
-                            this.revoke_stale_learning_tokens(cx);
+                            this.chat.start_after_authorization = true;
+                            this.retry_agent_authorization(cx);
                         }))
                 }))
                 .child(
