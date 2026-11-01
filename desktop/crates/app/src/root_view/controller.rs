@@ -2374,6 +2374,18 @@ impl RootView {
         .detach();
     }
 
+    pub(in crate::root_view) fn adopt_course_detail(
+        &mut self,
+        detail: cgc_courses::catalog::CourseDetail,
+    ) {
+        if self.content.content().is_some_and(|content| {
+            content.course_id != detail.id || content.revision_number != detail.revision_number
+        }) {
+            self.content.reset();
+        }
+        self.course_detail.adopt(detail);
+    }
+
     pub(in crate::root_view) fn start_course_detail_load(
         &mut self,
         cx: &mut Context<Self>,
@@ -2410,7 +2422,7 @@ impl RootView {
                     return;
                 }
                 match result {
-                    Ok(detail) => this.course_detail.adopt(detail),
+                    Ok(detail) => this.adopt_course_detail(detail),
                     Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
                     Err(error) => this.course_detail.fail(&error),
                 }

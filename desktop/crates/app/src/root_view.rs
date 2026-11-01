@@ -2716,6 +2716,102 @@ mod tests {
     }
 
     #[test]
+    fn retained_course_content_refreshes_when_learning_revision_changes() {
+        use crate::page_context::PageBody;
+        use cgc_courses::catalog::CourseDetail;
+        use cgc_courses::content::{CourseContent, CourseContentDocument, CourseContentState};
+
+        for (previous_revision, refreshed_revision) in
+            [(Some(1), Some(2)), (Some(1), None), (None, Some(2))]
+        {
+            let mut view = view();
+            let detail = CourseDetail {
+                id: "course-a".into(),
+                title: "Course A".into(),
+                description: None,
+                status: "published".into(),
+                visibility: "public".into(),
+                workspace_id: Some("course-workspace".into()),
+                pricing_enabled: false,
+                enrollment_status: Some("confirmed".into()),
+                revision_number: previous_revision,
+            };
+            let content = CourseContent {
+                course_id: "course-a".into(),
+                title: "Course A".into(),
+                description: None,
+                revision_number: previous_revision,
+                published_at: None,
+                document: CourseContentDocument {
+                    goals: vec!["Original revision material".into()],
+                    ..CourseContentDocument::default()
+                },
+            };
+            activate_context_tab(&mut view, "/courses/course-a/learn", "Course A");
+            view.adopt_course_detail(detail.clone());
+            view.state.content.begin_load("course-a");
+            view.state.content.adopt(content.clone());
+            view.refresh_page_context();
+            let original_version = view.page_context.visible().unwrap().version;
+            for agent in ["native", "codex"] {
+                assert!(context_prompt(&view, agent).contains("Original revision material"));
+            }
+
+            for revision in [previous_revision, refreshed_revision] {
+                activate_context_tab(&mut view, "/workspace", "Workspace");
+                activate_context_tab(&mut view, "/courses/course-a/learn", "Course A");
+                assert!(view.state.course_detail.detail().is_none());
+                assert_eq!(view.state.content.content(), Some(&content));
+                view.adopt_course_detail(CourseDetail {
+                    revision_number: revision,
+                    ..detail.clone()
+                });
+                view.refresh_page_context();
+                if revision == previous_revision {
+                    assert_eq!(view.state.content.state(), &CourseContentState::Ready);
+                    assert_eq!(view.state.content.content(), Some(&content));
+                    assert_eq!(
+                        view.page_context.visible().unwrap().version,
+                        original_version
+                    );
+                    for agent in ["native", "codex"] {
+                        assert!(context_prompt(&view, agent).contains("Original revision material"));
+                    }
+                }
+            }
+
+            assert_eq!(view.state.content.state(), &CourseContentState::Idle);
+            assert!(view.state.content.content().is_none());
+            let loading = view.page_context.visible().unwrap();
+            assert_eq!(loading.body, PageBody::Loading);
+            assert_eq!(loading.course.unwrap().revision, refreshed_revision);
+            for agent in ["native", "codex"] {
+                assert!(!context_prompt(&view, agent).contains("Original revision material"));
+            }
+
+            view.state.content.begin_load("course-a");
+            view.state.content.adopt(CourseContent {
+                revision_number: refreshed_revision,
+                document: CourseContentDocument {
+                    goals: vec!["Updated revision material".into()],
+                    ..CourseContentDocument::default()
+                },
+                ..content
+            });
+            view.refresh_page_context();
+            assert_eq!(view.state.content.state(), &CourseContentState::Ready);
+            let refreshed = view.page_context.visible().unwrap();
+            assert_eq!(refreshed.course.unwrap().revision, refreshed_revision);
+            assert_ne!(refreshed.version, original_version);
+            for agent in ["native", "codex"] {
+                let prompt = context_prompt(&view, agent);
+                assert!(prompt.contains("Updated revision material"));
+                assert!(!prompt.contains("Original revision material"));
+            }
+        }
+    }
+
+    #[test]
     fn course_context_keeps_route_identity_before_detail_loads() {
         let mut view = view();
         view.state.tabs.push(super::state::PaneTab::issue(
