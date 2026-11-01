@@ -122,6 +122,12 @@ impl Owner {
             .thread_mut()
             .entries
             .truncate(index);
+        if let Some(agent) = &mut self.agent {
+            agent
+                .thread_mut()
+                .user_drafts
+                .truncate(ordinal.saturating_sub(1));
+        }
         self.invalidate_checkpoints(ordinal)?;
         self.prepared = None;
         self.generation = self.generation.wrapping_add(1);

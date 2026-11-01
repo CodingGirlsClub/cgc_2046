@@ -16,7 +16,7 @@ impl NativeAgentView {
     /// Phase B2b-3b：native composer 的 legacy 渲染（render 内联链纯搬迁，行为不变）。
     /// Phase B2b-3d-2a：slash 菜单（legacy 与 shared composer 共用）。
     pub(super) fn render_slash_menu(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let input_value = self.input.read(cx).value().to_string();
+        let input_value = crate::composer_context::user_text(&self.input.read(cx).content());
         let slash_open = input_value.trim_start().starts_with('/') && !self.slash_dismissed;
         let slash_matches = self.slash_entries(&input_value);
         let slash_selected = self.slash_index.min(slash_matches.len().saturating_sub(1));

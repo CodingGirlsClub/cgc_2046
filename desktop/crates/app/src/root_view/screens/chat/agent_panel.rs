@@ -10,6 +10,24 @@ use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::popover::Popover;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::root_view) enum AgentPanelContent {
+    Native,
+    External,
+}
+
+/// Native/ACP 都是全局 Agent Panel；路由只决定中心内容，不再决定 ACP 是否可用。
+pub(in crate::root_view) fn content_kind(
+    native_mode: bool,
+    _route_id: Option<&str>,
+) -> AgentPanelContent {
+    if native_mode {
+        AgentPanelContent::Native
+    } else {
+        AgentPanelContent::External
+    }
+}
+
 pub(in crate::root_view) fn render_agent_panel(
     ctx: &mut ScreenContext<'_>,
     language: Language,
@@ -17,28 +35,15 @@ pub(in crate::root_view) fn render_agent_panel(
     _window: &mut Window,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
-    let learning = ctx
-        .current
-        .as_ref()
-        .is_some_and(|route_match| route_match.route.id == "courses.learning");
+    let route_id = ctx.current.as_ref().map(|route_match| route_match.route.id);
     let native_mode = ctx.native_chat_mode && RootView::native_agent_enabled();
-    let content: AnyElement = if native_mode {
-        ctx.native_agent_view
+    let content: AnyElement = match content_kind(native_mode, route_id) {
+        AgentPanelContent::Native => ctx
+            .native_agent_view
             .clone()
             .map(IntoElement::into_any_element)
-            .unwrap_or_else(|| div().child("正在初始化 Agent…").into_any_element())
-    } else if learning {
-        super::panel::render_chat_panel(ctx, language, palette, cx)
-    } else {
-        div()
-            .flex()
-            .flex_col()
-            .gap(space(2))
-            .text_size(px(12.0))
-            .text_color(palette.ink_3)
-            .child(translate(language, Key::AgentChatPanelTitle))
-            .child(translate(language, Key::CoursesLearningContextRequired))
-            .into_any_element()
+            .unwrap_or_else(|| div().child("正在初始化 Agent…").into_any_element()),
+        AgentPanelContent::External => super::panel::render_chat_panel(ctx, language, palette, cx),
     };
     div()
         .id("agent-panel-dock")

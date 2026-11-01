@@ -33,9 +33,16 @@ pub(crate) fn render_user_message_body(text: &str, palette: &theme::Palette) -> 
                 } => {
                     let icon = match kind {
                         mention::MentionKind::Skill => gpui_kit::assets::IconName::Sparkle,
-                        mention::MentionKind::File => gpui_kit::assets::IconName::FileText,
+                        mention::MentionKind::File | mention::MentionKind::Context => {
+                            gpui_kit::assets::IconName::FileText
+                        }
                     };
+                    let source = target.clone();
                     let chip = div()
+                        .id(SharedString::from(format!("message-context-{index}")))
+                        .on_click(move |_, window, cx| {
+                            crate::composer_context::open_token_source(&source, window, cx)
+                        })
                         .flex()
                         .flex_row()
                         .flex_shrink_0()

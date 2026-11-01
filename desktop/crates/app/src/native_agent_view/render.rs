@@ -5,7 +5,13 @@
 use super::*;
 
 impl Render for NativeAgentView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.composer_context.ensure_auto(
+            &self.input,
+            self.page_context.visible().as_ref(),
+            window,
+            cx,
+        );
         if self.snapshot.is_none() {
             // 兜底：即使订阅错过了首个快照，首帧也要主动取一次，避免永久停在载入态。
             self.ensure_initial_snapshot(cx);

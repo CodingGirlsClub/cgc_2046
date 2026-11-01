@@ -282,7 +282,14 @@ impl NativeAgentView {
             return div().into_any_element();
         };
         let hint = retry_hint_for_error(&error);
-        let can_retry = self.state.retry_available() && self.last_turn.is_some();
+        let can_retry = self.state.retry_available()
+            && !self.is_generating()
+            && self
+                .metadata()
+                .thread
+                .entries
+                .iter()
+                .any(|entry| matches!(entry, cgc_agent_core::Entry::User { .. }));
         let retry_view = cx.entity().downgrade();
         shared_render_error_row(ErrorRowSpec {
             row_id: SharedString::from("native-agent-error"),

@@ -43,8 +43,8 @@ use cgc_platform::agent::launch::{build_launch, LaunchPlan, NodeRuntime};
 use cgc_platform::agent::node_runtime::{HttpDownloader, NodeRuntimeManager};
 use cgc_platform::events::{AppEvent, EventPublisher, MemoryEventBus};
 use cgc_platform::mcp::credential::{
-    issue_lease, FakeLearningHostApi, HttpLearningHostApi, KeychainVault, LearningHostApi,
-    LearningHostLease, MemoryVault, SecretVault,
+    issue_lease, revoke_saved_lease, FakeLearningHostApi, HttpLearningHostApi, KeychainVault,
+    LearningHostApi, LeaseScope, McpError, MemoryVault, SecretVault,
 };
 use cgc_platform::mcp::inject::{build_mcp_server, mcp_endpoint, McpServerConfig};
 use cgc_platform::registry::manifest::Registry;
@@ -221,6 +221,7 @@ struct ChatUi {
     version: Option<String>,
     chat_scroll: ScrollHandle,
     input: String,
+    composer_context: crate::composer_context::ComposerContext,
     focused: bool,
     auto_prompted: bool,
     config_search: String,
@@ -237,6 +238,15 @@ struct ChatUi {
     history_open: bool,
     guidance: Option<ChatGuidance>,
     load_retry_available: bool,
+}
+
+impl ChatUi {
+    fn conversation_scope(&self) -> crate::page_context::ConversationScope {
+        crate::page_context::ConversationScope::new(
+            self.session.session_id.as_deref().unwrap_or("acp-pending"),
+            self.selected_agent.as_deref().unwrap_or("acp"),
+        )
+    }
 }
 
 /// 从本地历史打开 ACP 会话时的回放状态：agent 通过 `session/load` 回放的历史
@@ -609,8 +619,30 @@ impl RootView {
 
 impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let previous_page = self.page_context.visible();
         self.refresh_page_context();
+        let page_changed = previous_page != self.page_context.visible();
+        if let Some(view) = self.native_agent_view.clone() {
+            view.update(cx, |view, cx| {
+                view.set_language(self.language, cx);
+                if page_changed {
+                    cx.notify();
+                }
+            });
+        }
         self.refresh_history_if_dirty(cx);
+        if self.chat_input_pending_clear {
+            self.chat_input_pending_clear = false;
+            if let Some(input) = self.chat_input.clone() {
+                input.update(cx, |input, cx| input.set_value("", window, cx));
+            }
+        }
+        if let Some(input) = self.chat_input.clone() {
+            let current = self.page_context.visible();
+            self.chat
+                .composer_context
+                .ensure_auto(&input, current.as_ref(), window, cx);
+        }
         let mode = theme::resolve(self.preference, window.appearance());
         let _ = mode;
         let palette = theme::palette_from_theme(cx);
@@ -642,12 +674,6 @@ impl Render for RootView {
             });
             self.key_interceptor = Some(subscription);
         }
-        if self.chat_input_pending_clear {
-            self.chat_input_pending_clear = false;
-            if let Some(input) = self.chat_input.clone() {
-                input.update(cx, |input, cx| input.set_value("", window, cx));
-            }
-        }
         if let Some(input) = self.chat_input.clone() {
             if self.chat_input_subscription.is_none() {
                 let subscription = cx.subscribe_in(
@@ -656,16 +682,19 @@ impl Render for RootView {
                     |this, state, event: &InputEvent, window, cx| match event {
                         InputEvent::Change => {
                             this.chat.focused = true;
-                            this.chat.input = state.read(cx).value().to_string();
+                            this.chat.input =
+                                crate::composer_context::command_text(&state.read(cx).content());
                             this.chat.slash_selection = 0;
                             this.chat.slash_dismissed = false;
                             this.chat_input_pending_clear = false;
                             cx.notify();
                         }
                         InputEvent::PressEnter { shift, .. } if !shift => {
-                            this.chat.input = state.read(cx).value().to_string();
-                            this.send_chat(cx);
-                            state.update(cx, |state, cx| state.set_value("", window, cx));
+                            this.chat.input =
+                                crate::composer_context::user_text(&state.read(cx).content());
+                            if this.send_chat(cx) {
+                                state.update(cx, |state, cx| state.set_value("", window, cx));
+                            }
                             cx.notify();
                         }
                         InputEvent::Focus => {
@@ -930,6 +959,12 @@ impl Render for RootView {
                     .text_size(px(14.0))
                     .track_focus(&key_focus)
                     .on_key_down(cx.listener(Self::handle_shell_key))
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|this, _, window, cx| {
+                            this.schedule_page_selection(window, cx);
+                        }),
+                    )
                     .child(
                         div()
                             .flex()
@@ -1044,9 +1079,24 @@ impl Render for RootView {
                                         &palette,
                                         cx,
                                     )))
+                                    .child(screens::render_pane_notices(
+                                        &mut screens::ScreenContext::new(&mut self.state),
+                                        &palette,
+                                        cx,
+                                    ))
                                     .child(
                                         div()
                                             .id("content-scroll")
+                                            .on_mouse_down(
+                                                MouseButton::Left,
+                                                cx.listener(|this, _, _, _| {
+                                                    this.page_context.begin_selection();
+                                                }),
+                                            )
+                                            .on_key_up(cx.listener(|this, _, window, cx| {
+                                                this.page_context.begin_selection();
+                                                this.schedule_page_selection(window, cx);
+                                            }))
                                             .flex_1()
                                             .min_w(px(0.0))
                                             .p(space(6))
@@ -1253,6 +1303,20 @@ impl Render for RootView {
 }
 
 impl RootView {
+    fn schedule_page_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let root = cx.entity().downgrade();
+        window.on_next_frame(move |window, cx| {
+            let text = gpui_kit::base::TextSelection::selected_text(window, cx);
+            let _ = root.update(cx, |this, cx| {
+                this.page_context.capture_selection(text);
+                if let Some(view) = this.native_agent_view.clone() {
+                    view.update(cx, |_, cx| cx.notify());
+                }
+                cx.notify();
+            });
+        });
+    }
+
     /// 窗口变窄或恢复旧宽度时，保证两侧 panel 不会把中心压到 320px 以下。
     fn clamp_open_panel_widths(&mut self, viewport: f32) {
         if !self.agent_panel_open || !self.right_panel_open {
@@ -2133,19 +2197,21 @@ fn remaining_seconds(expires_at: Option<&str>) -> i64 {
         .unwrap_or(600)
 }
 
-fn build_learning_host_api() -> Arc<dyn LearningHostApi> {
+fn build_learning_host_api(scope: &LeaseScope) -> Arc<dyn LearningHostApi> {
     let use_http = !cgc_platform::runtime::use_fake_backend();
     if use_http {
-        Arc::new(HttpLearningHostApi::from_env())
+        Arc::new(HttpLearningHostApi::new(
+            cgc_platform::api::GraphqlClient::new(&scope.endpoint),
+        ))
     } else {
         Arc::new(FakeLearningHostApi::default())
     }
 }
 
-fn build_learning_host_vault() -> Arc<dyn SecretVault> {
+fn build_learning_host_vault(scope: &LeaseScope) -> Arc<dyn SecretVault> {
     let use_http = !cgc_platform::runtime::use_fake_backend();
     if use_http {
-        Arc::new(KeychainVault::from_env())
+        Arc::new(KeychainVault::for_scope(scope))
     } else {
         Arc::new(MemoryVault::default())
     }
@@ -2480,6 +2546,462 @@ mod tests {
             ThemePreference::System,
             session,
         )
+    }
+
+    fn activate_context_tab(view: &mut RootView, path: &str, title: &str) {
+        let tab = super::state::PaneTab::page(path, title);
+        view.state.active_tab = Some(tab.id.clone());
+        view.state.tabs.push(tab);
+        view.navigate(path);
+    }
+
+    fn context_prompt(view: &RootView, agent: &str) -> String {
+        let token = crate::composer_context::auto_page_token();
+        let input = gpui_kit::component::input::InputContent::new(format!(
+            "{}what is on this page?",
+            token.text()
+        ))
+        .with_token(0..token.text().len(), token)
+        .unwrap();
+        crate::composer_context::ComposerContext::default()
+            .freeze(
+                &input,
+                view.page_context.visible(),
+                std::path::Path::new("."),
+                &view.page_context,
+                crate::page_context::ConversationScope::new("projection-review-test", agent),
+            )
+            .1
+    }
+
+    fn context_event(id: &str, title: &str) -> cgc_events::detail::EventDetail {
+        let mut detail =
+            cgc_events::detail::EventDetail::from_summary(&cgc_events::list::EventSummary {
+                id: id.into(),
+                title: title.into(),
+                status: "open".into(),
+                visibility: "public".into(),
+                enrollment_policy: "open".into(),
+                capacity: None,
+                confirmed_count: None,
+                enrollment_badge: None,
+                registration_deadline: None,
+                starts_at: None,
+                venue: None,
+                pricing_enabled: false,
+            });
+        detail.description = Some(format!("Description for {title}"));
+        detail
+    }
+
+    #[test]
+    fn event_context_never_attributes_cached_or_unready_details_to_the_active_event() {
+        use crate::page_context::PageBody;
+        let mut view = view();
+        activate_context_tab(&mut view, "/events/event-a", "Event A");
+        view.state.detail.begin_load("event-a");
+        view.state.detail.adopt(context_event("event-a", "Event A"));
+        view.refresh_page_context();
+        for agent in ["native", "codex"] {
+            assert!(context_prompt(&view, agent).contains("Description for Event A"));
+        }
+        activate_context_tab(&mut view, "/events/event-b", "Event B");
+        view.refresh_page_context();
+        assert_eq!(view.page_context.visible().unwrap().body, PageBody::Loading);
+        for agent in ["native", "codex"] {
+            let prompt = context_prompt(&view, agent);
+            assert!(prompt.contains("route=/events/event-b"));
+            assert!(!prompt.contains("Description for Event A"));
+        }
+        view.state.detail.begin_load("event-b");
+        assert_eq!(view.state.detail.detail().unwrap().id, "event-a");
+        view.refresh_page_context();
+        assert_eq!(view.page_context.visible().unwrap().body, PageBody::Loading);
+        view.state
+            .detail
+            .fail(&cgc_events::list::EventsError::Transport(
+                "Event B request failed".into(),
+            ));
+        view.refresh_page_context();
+        assert!(
+            matches!(view.page_context.visible().unwrap().body, PageBody::Unavailable(ref reason) if reason.contains("Event B request failed"))
+        );
+        for agent in ["native", "codex"] {
+            assert!(!context_prompt(&view, agent).contains("Description for Event A"));
+        }
+        view.state.detail.adopt(context_event("event-a", "Event A"));
+        view.refresh_page_context();
+        assert_eq!(view.page_context.visible().unwrap().body, PageBody::Loading);
+        view.state.detail.adopt(context_event("event-b", "Event B"));
+        view.refresh_page_context();
+        for agent in ["native", "codex"] {
+            let prompt = context_prompt(&view, agent);
+            assert!(prompt.contains("Description for Event B"));
+            assert!(!prompt.contains("Description for Event A"));
+        }
+        view.state.detail.begin_load("event-b");
+        view.refresh_page_context();
+        assert_eq!(view.page_context.visible().unwrap().body, PageBody::Loading);
+        for agent in ["native", "codex"] {
+            assert!(!context_prompt(&view, agent).contains("Description for Event B"));
+        }
+        view.state
+            .detail
+            .fail(&cgc_events::list::EventsError::Transport(
+                "Previous event request failed".into(),
+            ));
+        activate_context_tab(&mut view, "/events/event-c", "Event C");
+        view.refresh_page_context();
+        assert_eq!(view.page_context.visible().unwrap().body, PageBody::Loading);
+        for agent in ["native", "codex"] {
+            let prompt = context_prompt(&view, agent);
+            assert!(prompt.contains("route=/events/event-c"));
+            assert!(!prompt.contains("Previous event request failed"));
+        }
+    }
+
+    #[test]
+    fn learning_context_filters_event_enrollments_while_participation_pages_keep_them() {
+        use crate::page_context::PageBody;
+        let mut view = view();
+        let event = cgc_events::enrollments::MyEnrollmentRow {
+            id: "event-enrollment".into(),
+            status: "confirmed".into(),
+            target_title: Some("Event registration outside the learning list".into()),
+            starts_at: None,
+            event_id: Some("event-a".into()),
+            course_id: None,
+            payment_mode: None,
+            check_in_code: None,
+        };
+        let course = cgc_events::enrollments::MyEnrollmentRow {
+            id: "course-enrollment".into(),
+            target_title: Some("Visible learning course".into()),
+            event_id: None,
+            course_id: Some("course-a".into()),
+            ..event.clone()
+        };
+        view.state.enrollments_rows = vec![event.clone(), course];
+        view.state.enrollments_state = super::EnrollmentsListState::Ready;
+        activate_context_tab(&mut view, "/learning", "My learning");
+        view.refresh_page_context();
+        for agent in ["native", "codex"] {
+            let prompt = context_prompt(&view, agent);
+            assert!(prompt.contains("Visible learning course"));
+            assert!(!prompt.contains("Event registration outside the learning list"));
+        }
+        let course_only_version = view.page_context.visible().unwrap().version;
+        view.state.enrollments_rows[0].target_title =
+            Some("Updated hidden event registration".into());
+        view.refresh_page_context();
+        assert_eq!(
+            view.page_context.visible().unwrap().version,
+            course_only_version
+        );
+        view.state.enrollments_rows = vec![event];
+        view.refresh_page_context();
+        assert_eq!(view.page_context.visible().unwrap().body, PageBody::Empty);
+        for agent in ["native", "codex"] {
+            assert!(!context_prompt(&view, agent)
+                .contains("Event registration outside the learning list"));
+        }
+        for path in ["/events/mine", "/participations"] {
+            activate_context_tab(&mut view, path, "Participations");
+            view.refresh_page_context();
+            for agent in ["native", "codex"] {
+                assert!(context_prompt(&view, agent)
+                    .contains("Event registration outside the learning list"));
+            }
+        }
+    }
+
+    #[test]
+    fn course_context_includes_visible_objective_instructions_and_versions_changes() {
+        use cgc_courses::content::{
+            CourseContent, CourseContentDocument, CourseIssue, CourseObjective,
+        };
+
+        let mut view = view();
+        let mut content = CourseContent {
+            course_id: "course-a".into(),
+            title: "Course A".into(),
+            description: None,
+            revision_number: Some(1),
+            published_at: None,
+            document: CourseContentDocument {
+                goals: vec!["Learn ownership".into()],
+                issues: vec![CourseIssue {
+                    id: Some("issue-a".into()),
+                    title: Some("Ownership".into()),
+                    objectives: vec![
+                        CourseObjective {
+                            id: Some("objective-required".into()),
+                            title: Some("Practice borrowing".into()),
+                            required: true,
+                            prereq_ids: Vec::new(),
+                            activity: Some("Borrow a value without moving it".into()),
+                            assessment: None,
+                            rubric: Vec::new(),
+                            materials: Vec::new(),
+                        },
+                        CourseObjective {
+                            id: Some("objective-optional".into()),
+                            title: None,
+                            required: false,
+                            prereq_ids: Vec::new(),
+                            activity: None,
+                            assessment: None,
+                            rubric: Vec::new(),
+                            materials: Vec::new(),
+                        },
+                    ],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        };
+        for focused_issue in [false, true] {
+            activate_context_tab(&mut view, "/courses/course-a/learn", "Course A");
+            if focused_issue {
+                let tab = super::state::PaneTab::issue("course-a", "issue-a", "Ownership");
+                view.state.active_tab = Some(tab.id.clone());
+                view.state.tabs.push(tab);
+            }
+            view.state.content.begin_load("course-a");
+            view.state.content.adopt(content.clone());
+            view.refresh_page_context();
+            let original_version = view.page_context.visible().unwrap().version;
+            for agent in ["native", "codex"] {
+                let prompt = context_prompt(&view, agent);
+                assert!(prompt
+                    .contains("Practice borrowing · required · Borrow a value without moving it"));
+                assert!(prompt.contains("Objective · optional"));
+            }
+
+            content.document.issues[0].objectives[0].activity =
+                Some("Explain when the borrow ends".into());
+            view.state.content.adopt(content.clone());
+            view.refresh_page_context();
+            let activity_version = view.page_context.visible().unwrap().version;
+            assert_ne!(activity_version, original_version);
+            for agent in ["native", "codex"] {
+                let prompt = context_prompt(&view, agent);
+                assert!(
+                    prompt.contains("Practice borrowing · required · Explain when the borrow ends")
+                );
+                assert!(!prompt.contains("Borrow a value without moving it"));
+            }
+
+            content.document.issues[0].objectives[0].required = false;
+            view.state.content.adopt(content.clone());
+            view.refresh_page_context();
+            assert_ne!(
+                view.page_context.visible().unwrap().version,
+                activity_version
+            );
+            for agent in ["native", "codex"] {
+                let prompt = context_prompt(&view, agent);
+                assert!(
+                    prompt.contains("Practice borrowing · optional · Explain when the borrow ends")
+                );
+                assert!(!prompt.contains("Practice borrowing · required"));
+            }
+            content.document.issues[0].objectives[0].required = true;
+            content.document.issues[0].objectives[0].activity =
+                Some("Borrow a value without moving it".into());
+        }
+    }
+
+    #[test]
+    fn retained_course_content_refreshes_when_learning_revision_changes() {
+        use crate::page_context::PageBody;
+        use cgc_courses::catalog::CourseDetail;
+        use cgc_courses::content::{CourseContent, CourseContentDocument, CourseContentState};
+
+        for (previous_revision, refreshed_revision) in
+            [(Some(1), Some(2)), (Some(1), None), (None, Some(2))]
+        {
+            let mut view = view();
+            let detail = CourseDetail {
+                id: "course-a".into(),
+                title: "Course A".into(),
+                description: None,
+                status: "published".into(),
+                visibility: "public".into(),
+                workspace_id: Some("course-workspace".into()),
+                pricing_enabled: false,
+                enrollment_status: Some("confirmed".into()),
+                revision_number: previous_revision,
+            };
+            let content = CourseContent {
+                course_id: "course-a".into(),
+                title: "Course A".into(),
+                description: None,
+                revision_number: previous_revision,
+                published_at: None,
+                document: CourseContentDocument {
+                    goals: vec!["Original revision material".into()],
+                    ..CourseContentDocument::default()
+                },
+            };
+            activate_context_tab(&mut view, "/courses/course-a/learn", "Course A");
+            view.adopt_course_detail(detail.clone());
+            view.state.content.begin_load("course-a");
+            view.state.content.adopt(content.clone());
+            view.refresh_page_context();
+            let original_version = view.page_context.visible().unwrap().version;
+            for agent in ["native", "codex"] {
+                assert!(context_prompt(&view, agent).contains("Original revision material"));
+            }
+
+            for revision in [previous_revision, refreshed_revision] {
+                activate_context_tab(&mut view, "/workspace", "Workspace");
+                activate_context_tab(&mut view, "/courses/course-a/learn", "Course A");
+                assert!(view.state.course_detail.detail().is_none());
+                assert_eq!(view.state.content.content(), Some(&content));
+                view.adopt_course_detail(CourseDetail {
+                    revision_number: revision,
+                    ..detail.clone()
+                });
+                view.refresh_page_context();
+                if revision == previous_revision {
+                    assert_eq!(view.state.content.state(), &CourseContentState::Ready);
+                    assert_eq!(view.state.content.content(), Some(&content));
+                    assert_eq!(
+                        view.page_context.visible().unwrap().version,
+                        original_version
+                    );
+                    for agent in ["native", "codex"] {
+                        assert!(context_prompt(&view, agent).contains("Original revision material"));
+                    }
+                }
+            }
+
+            assert_eq!(view.state.content.state(), &CourseContentState::Idle);
+            assert!(view.state.content.content().is_none());
+            let loading = view.page_context.visible().unwrap();
+            assert_eq!(loading.body, PageBody::Loading);
+            assert_eq!(loading.course.unwrap().revision, refreshed_revision);
+            for agent in ["native", "codex"] {
+                assert!(!context_prompt(&view, agent).contains("Original revision material"));
+            }
+
+            view.state.content.begin_load("course-a");
+            view.state.content.adopt(CourseContent {
+                revision_number: refreshed_revision,
+                document: CourseContentDocument {
+                    goals: vec!["Updated revision material".into()],
+                    ..CourseContentDocument::default()
+                },
+                ..content
+            });
+            view.refresh_page_context();
+            assert_eq!(view.state.content.state(), &CourseContentState::Ready);
+            let refreshed = view.page_context.visible().unwrap();
+            assert_eq!(refreshed.course.unwrap().revision, refreshed_revision);
+            assert_ne!(refreshed.version, original_version);
+            for agent in ["native", "codex"] {
+                let prompt = context_prompt(&view, agent);
+                assert!(prompt.contains("Updated revision material"));
+                assert!(!prompt.contains("Original revision material"));
+            }
+        }
+    }
+
+    #[test]
+    fn course_context_keeps_route_identity_before_detail_loads() {
+        let mut view = view();
+        view.state.tabs.push(super::state::PaneTab::issue(
+            "course-a",
+            "unit-a",
+            "First task",
+        ));
+        view.state.active_tab = Some("issue:course-a:unit-a".into());
+        view.navigate("/courses/course-a/learn");
+        view.refresh_page_context();
+        let page = view.page_context.visible().unwrap();
+        let course = page.course.unwrap();
+        assert_eq!(course.id, "course-a");
+        assert_eq!(course.unit.unwrap().id, "unit-a");
+        assert_eq!(page.body, crate::page_context::PageBody::Loading);
+        view.state.course_detail_started = true;
+        view.state.tabs.push(super::state::PaneTab::page(
+            "/courses/course-b/learn",
+            "Second course",
+        ));
+        view.state.active_tab = Some("page:/courses/course-b/learn".into());
+        view.navigate("/courses/course-b/learn");
+        assert!(!view.state.course_detail_started);
+        view.refresh_page_context();
+        assert_eq!(
+            view.page_context.visible().unwrap().course.unwrap().id,
+            "course-b"
+        );
+    }
+
+    #[test]
+    fn course_context_uses_the_courses_workspace_instead_of_the_selector() {
+        let mut view = view();
+        view.state
+            .workspaces
+            .adopt(vec![cgc_platform::workspace::WorkspaceSummary {
+                id: "selector-workspace".into(),
+                slug: "selected".into(),
+                name: "Selected workspace".into(),
+                my_role_names: Vec::new(),
+                member_count: None,
+                can_access: true,
+            }]);
+        assert_eq!(
+            view.state.workspaces.current_id(),
+            Some("selector-workspace")
+        );
+        view.state.tabs.push(super::state::PaneTab::page(
+            "/courses/course-a/learn",
+            "Course",
+        ));
+        view.state.active_tab = Some("page:/courses/course-a/learn".into());
+        view.navigate("/courses/course-a/learn");
+        view.state
+            .course_detail
+            .adopt(cgc_courses::catalog::CourseDetail {
+                id: "course-a".into(),
+                title: "Course A".into(),
+                description: None,
+                status: "published".into(),
+                visibility: "public".into(),
+                workspace_id: Some("course-workspace".into()),
+                pricing_enabled: false,
+                enrollment_status: None,
+                revision_number: Some(3),
+            });
+        view.refresh_page_context();
+        assert_eq!(
+            view.page_context.visible().unwrap().workspace_id.as_deref(),
+            Some("course-workspace")
+        );
+    }
+
+    #[test]
+    fn failed_course_detail_reports_unavailable_page_context_with_course_identity() {
+        let mut view = view();
+        view.state
+            .tabs
+            .push(super::state::PaneTab::page("/courses/course-a", "Course A"));
+        view.state.active_tab = Some("page:/courses/course-a".into());
+        view.navigate("/courses/course-a");
+        view.state
+            .course_detail
+            .fail(&cgc_courses::catalog::CoursesError::Transport(
+                "request failed".into(),
+            ));
+        view.refresh_page_context();
+        let context = view.page_context.visible().unwrap();
+        assert!(matches!(
+            context.body,
+            crate::page_context::PageBody::Unavailable(_)
+        ));
+        assert_eq!(context.course.unwrap().id, "course-a");
     }
 
     #[test]

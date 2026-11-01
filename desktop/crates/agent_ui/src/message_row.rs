@@ -458,9 +458,18 @@ pub fn render_user_row(spec: UserRowSpec) -> AnyElement {
         .into_any_element()
 }
 
+pub type TokenRenderer = Rc<
+    dyn Fn(&gpui_kit::component::input::InlineTokenContext, &mut Window, &mut App) -> AnyElement,
+>;
+
+pub type TokenClickCallback = Rc<dyn Fn(&str, &mut Window, &mut App)>;
+
 /// 编辑态行（user 消息编辑/重发）。
 pub struct UserEditRowSpec {
     pub input: Entity<TextareaState>,
+    pub token_renderer: Option<TokenRenderer>,
+    pub token_click: Option<TokenClickCallback>,
+    pub context_actions: Option<AnyElement>,
     pub cancel_id: SharedString,
     pub resend_id: SharedString,
     pub confirm_cancel_id: SharedString,
@@ -484,6 +493,9 @@ pub fn user_edit_confirm_visible(
 pub fn render_user_edit_row(spec: UserEditRowSpec) -> AnyElement {
     let UserEditRowSpec {
         input,
+        token_renderer,
+        token_click,
+        context_actions,
         cancel_id,
         resend_id,
         confirm_cancel_id,
@@ -523,11 +535,23 @@ pub fn render_user_edit_row(spec: UserEditRowSpec) -> AnyElement {
                 .child(
                     div().pr(px(40.0)).child(
                         Textarea::new(&input)
+                            .token(move |context, window, cx| match &token_renderer {
+                                Some(render) => render(context, window, cx),
+                                None => div()
+                                    .child(context.token().label().clone())
+                                    .into_any_element(),
+                            })
+                            .on_token_click(move |event, window, cx| {
+                                if let Some(callback) = &token_click {
+                                    callback(event.token().id(), window, cx);
+                                }
+                            })
                             .appearance(false)
                             .bordered(false)
                             .w_full(),
                     ),
                 )
+                .children(context_actions)
                 .child(
                     // 对齐 Zed：编辑态右上角悬浮 X（取消）/ ↵（重发）。
                     div()

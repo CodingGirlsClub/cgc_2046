@@ -18,6 +18,7 @@ use cgc_agent_ui::picker::{
     render_picker_popover, PickerGroup, PickerItem, PickerPopoverSpec, PickerSearch, PickerStyle,
 };
 use cgc_platform::acp::connection::ConfigOptionCategory;
+use gpui_kit::base::Disableable;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::Textarea;
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu};
@@ -151,16 +152,17 @@ pub(in crate::root_view) fn render_chat_panel(
                 .children(guidance)
                 .children(message.contains("mcp_token_limit_reached").then(|| {
                     div()
-                        .id("chat-revoke-old-tokens")
+                        .id("chat-retry-authorization")
                         .px(space(2))
                         .py(px(4.0))
                         .rounded(px(RADIUS_MEDIUM))
                         .bg(palette.accent)
                         .text_color(palette.canvas)
                         .text_size(px(11.0))
-                        .child("撤销旧学习凭证并重试")
+                        .child("Retry platform authorization")
                         .on_click(cx.listener(|this, _, _, cx| {
-                            this.revoke_stale_learning_tokens(cx);
+                            this.chat.start_after_authorization = true;
+                            this.retry_agent_authorization(cx);
                         }))
                 }))
                 .child(
@@ -196,14 +198,19 @@ pub(in crate::root_view) fn render_chat_panel(
                 callbacks: super::surface::ComposerCallbacks {
                     send: std::sync::Arc::new(move |window, cx| {
                         let _ = composer_send_root.update(cx, |this, ctx| {
-                            this.send_chat(ctx);
-                            this.clear_chat_input(window, ctx);
+                            if this.send_chat(ctx) {
+                                this.clear_chat_input(window, ctx);
+                            }
                         });
                     }),
                     attach: std::sync::Arc::new(move |window, cx| {
                         let _ = composer_attach_root.update(cx, |this, ctx| {
-                            let current = this.chat.input.clone();
-                            this.set_chat_input_text(format!("{current}@"), window, ctx);
+                            if let Some(input) = this.chat_input.clone() {
+                                input.update(ctx, |input, cx| {
+                                    input.insert("@", window, cx);
+                                    input.focus(window, cx);
+                                });
+                            }
                         });
                     }),
                     // B2b：ACP 无附件/图片能力位，这些回调不启用；native adapter
@@ -221,6 +228,7 @@ pub(in crate::root_view) fn render_chat_panel(
             };
             // B2b seam 占位：这些入口由能力位 gating，native adapter 接入后消费。
             let _ = (
+                &composer.callbacks.attach,
                 &composer.callbacks.attach_pick,
                 &composer.callbacks.add_images_from_paths,
                 &composer.callbacks.add_clipboard_image,
@@ -267,12 +275,22 @@ pub(in crate::root_view) fn render_chat_panel(
                                 .text_color(palette.ink_3)
                                 .child("你"),
                         )
-                        .child(
-                            div()
-                                .text_size(px(13.0))
-                                .text_color(palette.ink)
-                                .child(text.clone()),
-                        )
+                        .child(div().text_size(px(13.0)).text_color(palette.ink).child(
+                            crate::native_agent_view::render_user_message_body(text, palette),
+                        ))
+                        .child({
+                            let root = view_weak.clone();
+                            Button::new(SharedString::from(format!("chat-edit-copy-{index}")))
+                                .label("Edit copy")
+                                .ghost()
+                                .xsmall()
+                                .disabled(streaming)
+                                .on_click(move |_, window, cx| {
+                                    let _ = root.update(cx, |root, cx| {
+                                        root.edit_chat_message_copy(index, window, cx)
+                                    });
+                                })
+                        })
                         .context_menu({
                             let view = view_weak.clone();
                             let text = text.clone();
@@ -622,7 +640,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                 };
                                 let insert = format!("/{} ", command.name);
                                 let _ = slash_click_root.update(cx, |this, cx| {
-                                    this.set_chat_input_text(insert.clone(), window, cx);
+                                    this.complete_chat_command(insert.clone(), window, cx);
                                 });
                             }),
                         })
@@ -730,8 +748,38 @@ pub(in crate::root_view) fn render_chat_panel(
                                     .appearance(false)
                                     .bordered(false)
                                     .aria_label(translate(language, Key::AgentChatChatInputHint))
-                                    .h(px(38.0))
+                                    .min_h(px(38.0))
                                     .w_full()
+                                    .token({
+                                        let attachments = ctx.chat.composer_context.labels();
+                                        let page_context = ctx.page_context.clone();
+                                        let scope = ctx.chat.conversation_scope();
+                                        let palette = *palette;
+                                        let workspace = ctx
+                                            .native_scope
+                                            .as_ref()
+                                            .map(|scope| scope.root.clone())
+                                            .unwrap_or_else(crate::agent_workspace_root);
+                                        move |context, _, _| {
+                                            crate::mention_chip::render_resolved_chip(
+                                                context,
+                                                palette,
+                                                &workspace,
+                                                attachments.label(
+                                                    context.token().id(),
+                                                    page_context.chip_context(&scope).as_ref(),
+                                                    language,
+                                                ),
+                                            )
+                                        }
+                                    })
+                                    .on_token_click(|event, window, cx| {
+                                        crate::composer_context::open_token_source(
+                                            event.token().id(),
+                                            window,
+                                            cx,
+                                        )
+                                    })
                                     .into_any_element(),
                                 None => div()
                                     .id("chat-input")
@@ -763,24 +811,77 @@ pub(in crate::root_view) fn render_chat_panel(
                                     palette,
                                 ))
                                 .child(
-                                    div()
-                                        .id("chat-add-context")
-                                        .size(px(24.0))
-                                        .rounded(px(RADIUS_SMALL))
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .text_color(palette.ink_3)
-                                        .hover(|style| style.bg(palette.soft))
-                                        .child(
-                                            Icon::default()
-                                                .path(AssetIcon::Paperclip.path())
-                                                .small(),
+                                    Popover::new("chat-add-context-menu")
+                                        .anchor(Anchor::BottomLeft)
+                                        .trigger(
+                                            Button::new("chat-add-context")
+                                                .label("＋")
+                                                .xsmall()
+                                                .ghost()
+                                                .tooltip("Add context"),
                                         )
-                                        .on_click({
-                                            let attach = composer.callbacks.attach.clone();
-                                            move |_, window, cx| {
-                                                (attach)(window, cx);
+                                        .content({
+                                            let root = cx.entity().downgrade();
+                                            move |_, _, cx| {
+                                                let dismiss = cx.entity().downgrade();
+                                                let page_root = root.clone();
+                                                let selection_root = root.clone();
+                                                let selection_dismiss = dismiss.clone();
+                                                let has_selection = root
+                                                    .read_with(cx, |root, _| {
+                                                        root.page_context.has_selection()
+                                                    })
+                                                    .unwrap_or(false);
+                                                div()
+                                                    .flex()
+                                                    .flex_col()
+                                                    .w(px(200.0))
+                                                    .child(
+                                                        Button::new("chat-add-current-page")
+                                                            .label("Current page")
+                                                            .ghost()
+                                                            .small()
+                                                            .on_click(move |_, window, cx| {
+                                                                let _ = page_root.update(
+                                                                    cx,
+                                                                    |root, cx| {
+                                                                        root.add_chat_context(
+                                                                            false, window, cx,
+                                                                        )
+                                                                    },
+                                                                );
+                                                                let _ = dismiss.update(
+                                                                    cx,
+                                                                    |state, cx| {
+                                                                        state.dismiss(window, cx)
+                                                                    },
+                                                                );
+                                                            }),
+                                                    )
+                                                    .child(
+                                                        Button::new("chat-add-selection")
+                                                            .label("Selection")
+                                                            .ghost()
+                                                            .small()
+                                                            .disabled(!has_selection)
+                                                            .on_click(move |_, window, cx| {
+                                                                let _ = selection_root.update(
+                                                                    cx,
+                                                                    |root, cx| {
+                                                                        root.add_chat_context(
+                                                                            true, window, cx,
+                                                                        )
+                                                                    },
+                                                                );
+                                                                let _ = selection_dismiss.update(
+                                                                    cx,
+                                                                    |state, cx| {
+                                                                        state.dismiss(window, cx)
+                                                                    },
+                                                                );
+                                                            }),
+                                                    )
+                                                    .into_any_element()
                                             }
                                         }),
                                 )
@@ -1061,37 +1162,6 @@ pub(in crate::root_view) fn render_chat_panel(
                     .children(rows)
             })
     };
-    let context_chip = ctx.page_context.visible().map(|context| {
-        let label = match &context.unit {
-            Some(unit) => format!("上下文：{} · {}", context.course_title, unit.title),
-            None => format!("上下文：{}", context.course_title),
-        };
-        div()
-            .id("chat-context-chip")
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(space(1))
-            .px(space(1))
-            .py(px(2.0))
-            .rounded(px(RADIUS_SMALL))
-            .bg(palette.soft)
-            .text_size(px(11.0))
-            .text_color(palette.ink_3)
-            .child(label)
-            .child(
-                div()
-                    .id("chat-context-dismiss")
-                    .px(px(4.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .hover(|style| style.bg(palette.card))
-                    .child("×")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.dismiss_chat_context(cx);
-                    })),
-            )
-            .into_any_element()
-    });
     div()
         .flex()
         .flex_row()
@@ -1107,7 +1177,6 @@ pub(in crate::root_view) fn render_chat_panel(
                 .min_w(px(0.0))
                 .flex_col()
                 .gap(space(1))
-                .children(context_chip)
                 .child(body),
         )
         .into_any_element()

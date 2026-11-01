@@ -12,7 +12,8 @@ impl NativeAgentView {
         self.command(self.runtime.select_model(provider, model), cx);
     }
     pub(super) fn checkpoint_for_message(&self, index: usize) -> Option<Checkpoint> {
-        let ordinal = thread_entry_ordinal(&self.state.session.thread.entries, index)?;
+        let ordinal = thread_entry_ordinal(&self.state.session.thread.entries, index)?
+            + self.hidden_user_count;
         self.metadata()
             .checkpoints
             .iter()
@@ -23,7 +24,12 @@ impl NativeAgentView {
         let Some(ordinal) = thread_entry_ordinal(&self.state.session.thread.entries, index) else {
             return;
         };
-        self.command(self.runtime.rewind(ordinal, true), cx);
+        let ordinal = ordinal + self.hidden_user_count;
+        self.command(
+            self.runtime
+                .rewind_thread(self.metadata().thread.id.clone(), ordinal, true),
+            cx,
+        );
     }
     pub(super) fn keep_checkpoint_file(&mut self, path: String, cx: &mut Context<Self>) {
         self.command(

@@ -113,8 +113,15 @@ impl NativeAgentView {
         }
         let events = self.state.session.drain(generation);
         let old_len = self.state.session.thread.entries.len();
+        let terminal = events
+            .iter()
+            .any(|event| matches!(event, HostEvent::TurnEnd { .. } | HostEvent::Error { .. }));
         for event in events {
-            self.state.ingest(generation, &event);
+            if !self.state.ingest(generation, &event) {
+                continue;
+            }
+            self.page_context
+                .observe_event(&self.conversation_scope(), &event);
             if let HostEvent::Error { message } = &event {
                 self.status = format!("错误：{message}");
             }
@@ -142,6 +149,15 @@ impl NativeAgentView {
             }
         }
         self.state.pair_unlinked_subagents();
+        if terminal {
+            let snapshot = self.snapshot.clone();
+            if let Some(snapshot) = snapshot.filter(|snapshot| snapshot.phase == RuntimePhase::Idle)
+            {
+                if self.sync_saved_drafts(&snapshot) {
+                    self.persist_native(&snapshot);
+                }
+            }
+        }
         self.dispatch_queued(cx);
         cx.notify();
         self.state.session.host.is_some()
@@ -167,7 +183,11 @@ impl NativeAgentView {
             thread_id: self.metadata().thread.id.clone(),
             generation: self.metadata().generation,
             display: submission.display.clone(),
-            images: std::mem::take(&mut submission.images),
+            draft: submission
+                .draft
+                .as_ref()
+                .and_then(|draft| serde_json::to_value(draft).ok()),
+            images: submission.images.clone(),
             retry: submission.retry,
         });
         cx.spawn(async move |this, cx| {
@@ -179,9 +199,12 @@ impl NativeAgentView {
                 match result {
                     Ok(()) => {
                         this.state.session.mark_ready_for_next(generation);
-                        this.last_turn =
-                            Some((submission.prompt.clone(), submission.display.clone()));
-                        if this.state.session.send(&submission) {
+                        let scope = this.conversation_scope();
+                        if this.state.session.send_with_context(
+                            &mut submission,
+                            &this.page_context,
+                            &scope,
+                        ) {
                             this.scroll_messages_to_bottom(cx);
                         } else {
                             this.state.session.queue.insert(0, submission);
@@ -200,21 +223,39 @@ impl NativeAgentView {
     }
     pub(super) fn steer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let content = self.input.read(cx).content();
-        let text = content.text().trim().to_string();
+        let text = crate::composer_context::user_text(&content);
         if text.is_empty() {
             return;
         }
-        let prompt = mention::resolve_prompt(&content, &self.metadata().workspace);
-        let (prompt, _) = self.page_context.freeze(prompt);
-        let operation = self.runtime.steer(prompt);
+        let (draft, prompt, context) = self.composer_context.freeze(
+            &content,
+            self.page_context.visible(),
+            &self.metadata().workspace,
+            &self.page_context,
+            self.conversation_scope(),
+        );
+        self.composer_context.reset();
+        let scope = self.conversation_scope();
+        let display = draft.text.clone();
+        self.page_context.stage_steer(display.clone(), context);
+        let operation = self.runtime.steer_with_context(
+            prompt,
+            draft.text.clone(),
+            serde_json::to_value(&draft).ok(),
+        );
         self.input
             .update(cx, |state, cx| state.set_value("", window, cx));
         cx.spawn(async move |this, cx| {
             let result = operation.await;
             let _ = this.update(cx, |this, cx| {
-                this.status = result
-                    .map(|()| "已提交插话".to_string())
-                    .unwrap_or_else(|error| error.to_string());
+                this.status = match result {
+                    // 入队不证明插话已进入模型历史，不据此标记正文已加载。
+                    Ok(()) => "已提交插话".to_string(),
+                    Err(error) => {
+                        this.page_context.discard_steer(&scope, &display);
+                        error.to_string()
+                    }
+                };
                 cx.notify();
             });
         })

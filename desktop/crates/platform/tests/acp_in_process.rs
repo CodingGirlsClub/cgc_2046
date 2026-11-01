@@ -400,6 +400,66 @@ fn legacy_allow_flag_folds_to_first_allow_option() {
 }
 
 #[test]
+fn unconfirmed_cancellation_closes_connection_before_next_turn() {
+    use cgc_platform::acp::connection::HostEvent;
+    let agent = base_agent()
+        .on_receive_notification(
+            async |_: CancelNotification, _| Ok(()),
+            on_receive_notification!(),
+        )
+        .on_receive_request(
+            async |_: PromptRequest, responder, cx| {
+                let connection = cx.clone();
+                cx.spawn(async move {
+                    connection.send_notification(SessionNotification::new(
+                        SessionId::new("stub-session"),
+                        SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::Text(
+                            TextContent::new("working"),
+                        ))),
+                    ))?;
+                    futures::future::pending::<()>().await;
+                    responder.respond(PromptResponse::new(StopReason::EndTurn))
+                })?;
+                Ok(())
+            },
+            on_receive_request!(),
+        );
+    let host = AcpHost::start_in_process(config("cancel-unconfirmed"), agent).unwrap();
+    let mut events = Vec::new();
+    assert!(wait_for(
+        &host,
+        &mut events,
+        |event| matches!(event, HostEvent::Ready { .. }),
+        Duration::from_secs(5)
+    ));
+    assert!(host.prompt("long running"));
+    assert!(wait_for(
+        &host,
+        &mut events,
+        |event| matches!(event, HostEvent::Delta(_)),
+        Duration::from_secs(5)
+    ));
+    assert!(host.stop());
+    assert!(wait_for(
+        &host,
+        &mut events,
+        |event| matches!(event, HostEvent::Error { .. }),
+        Duration::from_secs(5)
+    ));
+    assert!(wait_for(
+        &host,
+        &mut events,
+        |event| matches!(event, HostEvent::Exited),
+        Duration::from_secs(5)
+    ));
+    assert!(!events
+        .iter()
+        .any(|event| matches!(event, HostEvent::TurnEnd { .. })));
+    assert!(!host.prompt("must reconnect"));
+    host.shutdown();
+}
+
+#[test]
 fn in_process_stop_cancels_turn() {
     let cancelled = Arc::new(AtomicBool::new(false));
     let cancelled_for_handler = cancelled.clone();

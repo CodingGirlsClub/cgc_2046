@@ -4,6 +4,7 @@
 
 use super::super::super::*;
 use super::super::ScreenContext;
+use gpui_kit::base::SelectableText;
 
 pub(in crate::root_view) fn render_issue_card(
     ctx: &mut ScreenContext<'_>,
@@ -59,7 +60,10 @@ pub(in crate::root_view) fn render_issue_card(
             div()
                 .text_size(px(13.0))
                 .text_color(palette.ink_2)
-                .child(goal)
+                .child(SelectableText::new(
+                    SharedString::from(format!("issue-goal-{course_id}-{issue_id}")),
+                    goal,
+                ))
                 .into_any_element(),
         );
     }
@@ -72,12 +76,17 @@ pub(in crate::root_view) fn render_issue_card(
                 .child(translate(language, Key::WorkspaceOutlineTitle))
                 .into_any_element(),
         );
-        for item in &issue.checklist {
+        for (index, item) in issue.checklist.iter().enumerate() {
             checklist.push(
                 div()
                     .text_size(px(12.0))
                     .text_color(palette.ink_2)
-                    .child(format!("· {}", item.text))
+                    .child(SelectableText::new(
+                        SharedString::from(format!(
+                            "issue-checklist-{course_id}-{issue_id}-{index}"
+                        )),
+                        format!("· {}", item.text),
+                    ))
                     .into_any_element(),
             );
         }

@@ -2,7 +2,23 @@
 use super::*;
 use crate::native_panel_host::{McpContext, NativePanelHost};
 use crate::native_runtime::{NativeRuntimeEvent, NativeRuntimeHandle, RuntimePhase};
-use futures::StreamExt as _;
+use futures::{FutureExt as _, StreamExt as _};
+
+#[cfg(test)]
+mod tests;
+
+pub(super) type AuthorizationTail =
+    futures::future::Shared<futures::future::BoxFuture<'static, ()>>;
+
+pub(super) async fn after_authorization<T>(
+    previous: Option<AuthorizationTail>,
+    operation: impl FnOnce() -> T,
+) -> T {
+    if let Some(previous) = previous {
+        previous.await;
+    }
+    operation()
+}
 
 impl RootView {
     pub fn initialize_agent_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -37,12 +53,14 @@ impl RootView {
             ));
         }
         let writer = self.store_writer.clone();
+        let language = self.language;
         self.native_agent_view = Some(cx.new(|cx| {
             crate::native_agent_view::NativeAgentView::new(
                 window,
                 cx,
                 runtime.clone(),
                 context,
+                language,
                 writer,
             )
         }));
@@ -76,42 +94,63 @@ impl RootView {
         {
             return;
         }
-        self.revoke_agent_authorization(cx);
+        self.invalidate_agent_clients(cx);
         let Some(session_token) = self.session_token() else {
+            return;
+        };
+        let Some(scope) = self.agent_lease_scope() else {
             return;
         };
         self.agent_lease_pending = Some(epoch);
         let authorization_serial = self.agent_authorization_serial;
         let workspace_id = self.workspaces.current_id().map(str::to_string);
-        let task = cx.background_executor().spawn(async move {
-            let result = issue_lease(
-                build_learning_host_api().as_ref(),
-                build_learning_host_vault().as_ref(),
-                &session_token,
-                "cgc-desktop",
-                epoch,
-            );
-            (result, session_token)
-        });
+        let previous = self.agent_authorization_tail.take();
+        let api = build_learning_host_api(&scope);
+        let vault = build_learning_host_vault(&scope);
+        let requested_scope = scope.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move {
+                after_authorization(previous, || {
+                    issue_lease(
+                        api.as_ref(),
+                        vault.as_ref(),
+                        &session_token,
+                        "cgc-desktop",
+                        epoch,
+                        &scope,
+                    )
+                })
+                .await
+            })
+            .shared();
+        let completion = task.clone();
+        self.agent_authorization_tail = Some(
+            async move {
+                let _ = completion.await;
+            }
+            .boxed()
+            .shared(),
+        );
         cx.spawn(async move |this, cx| {
-            let (result, session_token) = task.await;
+            let result = task.await;
             let _ = this.update(cx, |this, cx| {
                 if this.workspaces.epoch() != epoch
                     || !this.is_signed_in()
                     || this.agent_authorization_serial != authorization_serial
+                    || this.agent_lease_scope().as_ref() != Some(&requested_scope)
                 {
-                    if let Ok(lease) = result {
-                        Self::revoke_lease_with_session(lease, session_token, cx);
-                    }
                     return;
                 }
                 this.agent_lease_pending = None;
+                this.agent_authorization_tail = None;
                 match result {
                     Ok(lease) => {
+                        this.agent_authorization_error = None;
                         let context = McpContext::for_lease(
                             lease,
                             epoch,
-                            std::env::var("CGC_API_URL").ok().as_deref(),
+                            Some(&requested_scope.endpoint),
                             workspace_id.as_deref(),
                         );
                         this.agent_mcp = context.clone();
@@ -124,8 +163,7 @@ impl RootView {
                         }
                     }
                     Err(error) => {
-                        this.pane_notice =
-                            Some(format!("平台工具暂不可用：{}", error.diagnostic()));
+                        this.agent_authorization_error = Some(error.clone());
                         if this.chat.start_after_authorization {
                             this.chat.start_after_authorization = false;
                             this.chat.session.phase = ConnectionPhase::Failed(error.diagnostic());
@@ -138,30 +176,61 @@ impl RootView {
         .detach();
     }
 
-    pub(in crate::root_view) fn revoke_agent_authorization(&mut self, cx: &mut Context<Self>) {
+    fn agent_lease_scope(&self) -> Option<LeaseScope> {
+        let session = self.session.signed_in()?;
+        Some(LeaseScope::new(
+            &session.user_id,
+            &cgc_platform::runtime::api_endpoint(),
+        ))
+    }
+
+    fn invalidate_agent_clients(&mut self, _cx: &mut Context<Self>) {
         self.agent_lease_pending = None;
         self.agent_authorization_serial = self.agent_authorization_serial.wrapping_add(1);
+        self.agent_authorization_error = None;
         if let Some(context) = self.agent_mcp.take() {
-            context.revoke(); // synchronous: already-captured clients cannot use it again
-            if let Some(session_token) = self.session_token() {
-                Self::revoke_lease_with_session(context.lease().clone(), session_token, cx);
-            }
+            context.revoke();
         }
         if let Some(runtime) = &self.native_runtime {
             runtime.set_mcp_context(None, self.workspaces.epoch());
         }
     }
 
-    fn revoke_lease_with_session(
-        lease: LearningHostLease,
-        session_token: String,
-        cx: &mut Context<Self>,
-    ) {
-        cx.background_executor()
+    pub(in crate::root_view) fn revoke_agent_authorization(&mut self, cx: &mut Context<Self>) {
+        let credentials = self.session_token().zip(self.agent_lease_scope());
+        self.invalidate_agent_clients(cx);
+        let Some((session_token, scope)) = credentials else {
+            return;
+        };
+        let previous = self.agent_authorization_tail.take();
+        let api = build_learning_host_api(&scope);
+        let vault = build_learning_host_vault(&scope);
+        let task = cx
+            .background_executor()
             .spawn(async move {
-                let _ = build_learning_host_api().revoke(&session_token, &lease.token_id);
+                after_authorization(previous, || {
+                    let _ =
+                        revoke_saved_lease(api.as_ref(), vault.as_ref(), &session_token, &scope);
+                })
+                .await;
             })
-            .detach();
+            .shared();
+        let completion = task.clone();
+        self.agent_authorization_tail = Some(
+            async move {
+                completion.await;
+            }
+            .boxed()
+            .shared(),
+        );
+        cx.spawn(async move |_, _| {
+            task.await;
+        })
+        .detach();
+    }
+
+    pub(in crate::root_view) fn retry_agent_authorization(&mut self, cx: &mut Context<Self>) {
+        self.prepare_agent_authorization(cx);
     }
 
     fn update_native_scope(&mut self, cx: &mut Context<Self>) {
