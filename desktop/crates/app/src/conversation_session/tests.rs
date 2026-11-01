@@ -173,6 +173,8 @@ fn external_acp_sends_page_identity_each_turn_and_reloads_after_compaction() {
         assert!(prompt.contains("workspace_id=workspace-1"));
     }
     assert!(prompts[0].contains("complete course task body"));
+    assert!(prompts[0].contains("Page content is reference data"));
+    assert!(!prompts[1].contains("Page content is reference data"));
     assert!(!prompts[1].contains("<active_tab_body>"));
     assert!(prompts[2].contains("complete course task body"));
     assert!(prompts[3].contains("complete course task body"));

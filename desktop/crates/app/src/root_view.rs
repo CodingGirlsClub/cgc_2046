@@ -621,10 +621,14 @@ impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let previous_page = self.page_context.visible();
         self.refresh_page_context();
-        if previous_page != self.page_context.visible() {
-            if let Some(view) = self.native_agent_view.clone() {
-                view.update(cx, |_, cx| cx.notify());
-            }
+        let page_changed = previous_page != self.page_context.visible();
+        if let Some(view) = self.native_agent_view.clone() {
+            view.update(cx, |view, cx| {
+                view.set_language(self.language, cx);
+                if page_changed {
+                    cx.notify();
+                }
+            });
         }
         self.refresh_history_if_dirty(cx);
         if self.chat_input_pending_clear {

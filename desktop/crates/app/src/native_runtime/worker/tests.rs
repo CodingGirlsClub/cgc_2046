@@ -76,6 +76,72 @@ fn refresh(owner: &mut Owner) -> Arc<NativeRuntimeSnapshot> {
 }
 
 #[test]
+fn cancelled_turn_does_not_replay_unconsumed_context_steers_in_the_next_turn() {
+    use cgc_agent_core::{AutoApprover, NoopObserver};
+    use cgc_agent_host::acp_server::CancelSwitch;
+    let mut owner = configured_owner(&std::env::temp_dir());
+    owner.production = None;
+    owner
+        .agent
+        .as_mut()
+        .unwrap()
+        .set_thread_title(Some("Existing title".into()));
+    let turn = |prompt: &str| NativeTurn {
+        session_id: "session".into(),
+        prompt: prompt.into(),
+        observer: Box::new(NoopObserver),
+        approver: Arc::new(AutoApprover),
+        cancel: CancelSwitch::new(),
+    };
+    let (reply, result) = oneshot::channel();
+    owner.start_turn(
+        owner.generation,
+        owner.frozen.id.clone(),
+        turn("first question"),
+        reply,
+    );
+    owner
+        .active
+        .as_ref()
+        .unwrap()
+        .steer
+        .send(cgc_agent_core::session::SteerMessage {
+            prompt: "stale page content".into(),
+            display: "stale question".into(),
+            draft: None,
+        })
+        .unwrap();
+    owner.active.as_ref().unwrap().cancel.cancel();
+    let job = block_on(owner.jobs.next()).unwrap();
+    owner.completed(job);
+    assert!(matches!(
+        block_on(result).unwrap(),
+        Err(AgentError::Cancelled)
+    ));
+    let (reply, result) = oneshot::channel();
+    owner.start_turn(
+        owner.generation,
+        owner.frozen.id.clone(),
+        turn("next question"),
+        reply,
+    );
+    let job = block_on(owner.jobs.next()).unwrap();
+    owner.completed(job);
+    block_on(result).unwrap().unwrap();
+    let users = owner
+        .frozen
+        .entries
+        .iter()
+        .filter_map(|entry| match entry {
+            cgc_agent_core::Entry::User { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(users.contains(&"next question"));
+    assert!(!users.contains(&"stale page content"));
+}
+
+#[test]
 fn retry_after_consumed_steer_uses_its_saved_selection_and_preserves_images() {
     use crate::{
         composer_context::ComposerContext,

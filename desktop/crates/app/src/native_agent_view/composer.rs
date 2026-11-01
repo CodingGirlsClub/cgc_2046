@@ -492,9 +492,9 @@ impl NativeAgentView {
                                         let attachments = self.composer_context.labels();
                                         let page_context = self.page_context.clone();
                                         let scope = self.conversation_scope();
+                                        let language = self.language;
                                         move |context, _window, _cx| {
-                                            let resolved = attachments.label(context.token().id(), page_context.visible().as_ref())
-                                                .map(|(label, tooltip)| (label, format!("{tooltip}\n{}", crate::page_context::page_load_state_label(page_context.chip_state(&scope)))));
+                                            let resolved = attachments.label(context.token().id(), page_context.chip_context(&scope).as_ref(), language);
                                             crate::mention_chip::render_resolved_chip(context, palette, &chip_workspace, resolved)
                                         }
                                     })

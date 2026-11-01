@@ -283,6 +283,7 @@ pub struct NativeAgentView {
     /// 首帧兜底是否已经主动拉过快照。
     initial_snapshot_requested: bool,
     page_context: crate::page_context::PageContextState,
+    language: crate::i18n::Language,
     composer_context: crate::composer_context::ComposerContext,
     edit_context: crate::composer_context::ComposerContext,
     input: Entity<TextareaState>,

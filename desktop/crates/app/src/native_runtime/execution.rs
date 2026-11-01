@@ -172,6 +172,7 @@ impl Owner {
                 reply,
                 generation,
             } => {
+                agent.discard_pending_steers();
                 if let Some(title) = self.pending_override.take() {
                     agent.set_thread_title_override(title);
                 }

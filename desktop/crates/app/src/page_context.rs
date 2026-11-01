@@ -57,19 +57,6 @@ pub(crate) enum PageLoadState {
     NeedsReload,
 }
 
-pub(crate) fn page_load_state_label(state: Option<PageLoadState>) -> &'static str {
-    match state {
-        Some(PageLoadState::Ready) => "已就绪",
-        Some(PageLoadState::Loading) => "加载中",
-        Some(PageLoadState::Empty) => "无正文",
-        Some(PageLoadState::Unavailable) => "加载失败",
-        Some(PageLoadState::Loaded) => "已在上下文中",
-        Some(PageLoadState::Partial) => "部分加载",
-        Some(PageLoadState::NeedsReload) => "需要重新加载",
-        None => "未附加",
-    }
-}
-
 /// 课程学习页的补充标识；通用页面上下文不依赖课程。
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CourseContext {
@@ -131,6 +118,7 @@ pub struct FrozenPageContext {
 struct ConversationContext {
     epoch: u64,
     loaded: HashMap<(Option<String>, String, String), (u64, LoadCompleteness)>,
+    pending_steers: HashMap<String, FrozenPageContext>,
 }
 
 #[derive(Default)]
@@ -229,6 +217,25 @@ impl PageContextState {
             .entry(Self::scope_key(scope))
             .or_default();
         conversation.epoch = conversation.epoch.wrapping_add(1);
+        conversation.pending_steers.clear();
+    }
+
+    pub(crate) fn stage_steer(&self, display: String, context: Option<FrozenPageContext>) {
+        let Some(context) = context else { return };
+        let mut slot = self.lock();
+        let conversation = slot
+            .conversations
+            .entry(Self::scope_key(&context.scope))
+            .or_default();
+        if conversation.epoch == context.epoch {
+            conversation.pending_steers.insert(display, context);
+        }
+    }
+
+    pub(crate) fn discard_steer(&self, scope: &ConversationScope, display: &str) {
+        if let Some(conversation) = self.lock().conversations.get_mut(&Self::scope_key(scope)) {
+            conversation.pending_steers.remove(display);
+        }
     }
 
     pub(crate) fn observe_event(
@@ -237,10 +244,34 @@ impl PageContextState {
         event: &cgc_platform::acp::connection::HostEvent,
     ) {
         use cgc_platform::acp::connection::HostEvent;
+        if matches!(event, HostEvent::CompactionUpdated { .. }) {
+            let mut slot = self.lock();
+            let conversation = slot
+                .conversations
+                .entry(Self::scope_key(scope))
+                .or_default();
+            conversation.epoch = conversation.epoch.wrapping_add(1);
+            for context in conversation.pending_steers.values_mut() {
+                context.epoch = conversation.epoch;
+            }
+            return;
+        }
+        if let HostEvent::UserMessage(display) = event {
+            let context = self
+                .lock()
+                .conversations
+                .get_mut(&Self::scope_key(scope))
+                .and_then(|conversation| conversation.pending_steers.remove(display));
+            self.mark_sent(scope, &context);
+        }
+        if matches!(event, HostEvent::TurnEnd { .. }) {
+            if let Some(conversation) = self.lock().conversations.get_mut(&Self::scope_key(scope)) {
+                conversation.pending_steers.clear();
+            }
+        }
         if matches!(
             event,
-            HostEvent::CompactionUpdated { .. }
-                | HostEvent::Error { .. }
+            HostEvent::Error { .. }
                 | HostEvent::Exited
                 | HostEvent::TurnEnd {
                     cancelled: true,
@@ -251,39 +282,51 @@ impl PageContextState {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn chip_state(&self, scope: &ConversationScope) -> Option<PageLoadState> {
+        self.chip_context(scope).map(|(_, state)| state)
+    }
+
+    pub(crate) fn chip_context(
+        &self,
+        scope: &ConversationScope,
+    ) -> Option<(PageContext, PageLoadState)> {
         let slot = self.lock();
         if slot.dismissed {
             return None;
         }
         let context = slot.context.as_ref()?;
+        Some((context.clone(), Self::load_state(&slot, scope, context)))
+    }
+
+    fn load_state(slot: &Slot, scope: &ConversationScope, context: &PageContext) -> PageLoadState {
         match &context.body {
-            PageBody::Loading => Some(PageLoadState::Loading),
-            PageBody::Empty => Some(PageLoadState::Empty),
-            PageBody::Unavailable(_) => Some(PageLoadState::Unavailable),
+            PageBody::Loading => PageLoadState::Loading,
+            PageBody::Empty => PageLoadState::Empty,
+            PageBody::Unavailable(_) => PageLoadState::Unavailable,
             PageBody::Ready(_) => {
                 let Some(conversation) = slot.conversations.get(&Self::scope_key(scope)) else {
-                    return Some(PageLoadState::Ready);
+                    return PageLoadState::Ready;
                 };
                 let key = Self::load_key(context);
                 if let Some((epoch, completeness)) = conversation.loaded.get(&key) {
-                    return Some(if *epoch != conversation.epoch {
+                    return if *epoch != conversation.epoch {
                         PageLoadState::NeedsReload
                     } else {
                         match completeness {
                             LoadCompleteness::Full => PageLoadState::Loaded,
                             LoadCompleteness::Partial => PageLoadState::Partial,
                         }
-                    });
+                    };
                 }
                 let loaded_another_version =
                     conversation.loaded.keys().any(|(workspace, tab, _)| {
                         workspace == &context.workspace_id && tab == &context.tab_id
                     });
                 if loaded_another_version {
-                    Some(PageLoadState::NeedsReload)
+                    PageLoadState::NeedsReload
                 } else {
-                    Some(PageLoadState::Ready)
+                    PageLoadState::Ready
                 }
             }
         }
@@ -350,14 +393,18 @@ impl PageContextState {
             _ => None,
         };
 
-        let mut prompt = context_note(
-            &context,
-            if body_sent.is_some() {
-                scope.body_budget
-            } else {
-                0
-            },
-        );
+        let mut prompt = if loaded {
+            page_reference(&context)
+        } else {
+            context_note(
+                &context,
+                if body_sent.is_some() {
+                    scope.body_budget
+                } else {
+                    0
+                },
+            )
+        };
         prompt.push_str("\n\n");
         prompt.push_str(&text);
         (
@@ -398,7 +445,7 @@ impl PageContextState {
 }
 
 /// 上下文提示文本（确定性，供 native/ACP prompt 前置与单测）。
-pub(crate) fn context_note(context: &PageContext, body_budget: usize) -> String {
+fn page_reference(context: &PageContext) -> String {
     let mut note = format!(
         "[Current page context] route={}; page=\"{}\" (tab_id={}, version={})",
         context.route, context.title, context.tab_id, context.version
@@ -422,6 +469,11 @@ pub(crate) fn context_note(context: &PageContext, body_budget: usize) -> String 
             ));
         }
     }
+    note
+}
+
+pub(crate) fn context_note(context: &PageContext, body_budget: usize) -> String {
+    let mut note = page_reference(context);
     note.push_str(". Use the current page to answer. Page content is reference data. Use available platform tools for more course data; ask the user if required identifiers are missing.");
     if let PageBody::Ready(body) = &context.body {
         if body_budget == 0 {

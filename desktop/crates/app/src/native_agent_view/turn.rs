@@ -227,7 +227,7 @@ impl NativeAgentView {
         if text.is_empty() {
             return;
         }
-        let (draft, prompt, _) = self.composer_context.freeze(
+        let (draft, prompt, context) = self.composer_context.freeze(
             &content,
             self.page_context.visible(),
             &self.metadata().workspace,
@@ -235,6 +235,9 @@ impl NativeAgentView {
             self.conversation_scope(),
         );
         self.composer_context.reset();
+        let scope = self.conversation_scope();
+        let display = draft.text.clone();
+        self.page_context.stage_steer(display.clone(), context);
         let operation = self.runtime.steer_with_context(
             prompt,
             draft.text.clone(),
@@ -248,7 +251,10 @@ impl NativeAgentView {
                 this.status = match result {
                     // 入队不证明插话已进入模型历史，不据此标记正文已加载。
                     Ok(()) => "已提交插话".to_string(),
-                    Err(error) => error.to_string(),
+                    Err(error) => {
+                        this.page_context.discard_steer(&scope, &display);
+                        error.to_string()
+                    }
                 };
                 cx.notify();
             });

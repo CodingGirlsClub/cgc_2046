@@ -3,11 +3,19 @@
 use super::*;
 
 impl NativeAgentView {
+    pub(crate) fn set_language(&mut self, language: crate::i18n::Language, cx: &mut Context<Self>) {
+        if self.language != language {
+            self.language = language;
+            cx.notify();
+        }
+    }
+
     pub(crate) fn new(
         window: &mut Window,
         cx: &mut Context<Self>,
         runtime: NativeRuntimeHandle,
         page_context: crate::page_context::PageContextState,
+        language: crate::i18n::Language,
         writer: Option<cgc_agent_store::StoreWriter>,
     ) -> Self {
         let runtime_for_events = runtime.clone();
@@ -165,6 +173,7 @@ impl NativeAgentView {
             writer,
             initial_snapshot_requested: false,
             page_context,
+            language,
             composer_context: Default::default(),
             edit_context: Default::default(),
             slash_index: 0,

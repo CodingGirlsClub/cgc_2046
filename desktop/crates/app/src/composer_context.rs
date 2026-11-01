@@ -7,8 +7,11 @@ use gpui_kit::component::input::{InlineToken, InputContent, TextareaState};
 use gpui_kit::{App, Entity, Window};
 
 use crate::{
+    i18n::{translate, Key, Language},
     mention::Mention,
-    page_context::{ConversationScope, FrozenPageContext, PageContext, PageContextState},
+    page_context::{
+        ConversationScope, FrozenPageContext, PageContext, PageContextState, PageLoadState,
+    },
 };
 
 pub(crate) const AUTO_PAGE_TOKEN: &str = "context:auto-page";
@@ -132,15 +135,7 @@ impl ComposerContext {
         ContextLabels(
             self.snapshots
                 .iter()
-                .map(|(id, item)| {
-                    (
-                        id.clone(),
-                        (
-                            item.label.clone(),
-                            format!("{}\nSaved context snapshot", item.source),
-                        ),
-                    )
-                })
+                .map(|(id, item)| (id.clone(), (item.label.clone(), item.source.clone())))
                 .collect(),
         )
     }
@@ -280,21 +275,76 @@ impl ComposerContext {
 
 pub(crate) struct ContextLabels(HashMap<String, (String, String)>);
 
+pub(crate) struct ContextChipLabel {
+    pub title: String,
+    pub status: Option<&'static str>,
+    pub tooltip: String,
+}
+
 impl ContextLabels {
-    pub(crate) fn label(&self, id: &str, page: Option<&PageContext>) -> Option<(String, String)> {
+    pub(crate) fn label(
+        &self,
+        id: &str,
+        page: Option<&(PageContext, PageLoadState)>,
+        language: Language,
+    ) -> Option<ContextChipLabel> {
         if id == AUTO_PAGE_TOKEN {
             return Some(match page {
-                Some(page) => (
-                    format!("{} · Following", page.chip_title()),
-                    format!("{}\nFollows the active tab until sent", page.route),
-                ),
-                None => (
-                    "Current page unavailable".into(),
-                    "Switch to a page to attach its context".into(),
-                ),
+                Some((page, state)) => {
+                    let (label, hint) = match state {
+                        PageLoadState::Ready => (
+                            Key::AgentChatContextPending,
+                            Key::AgentChatContextPendingHint,
+                        ),
+                        PageLoadState::Loaded => (
+                            Key::AgentChatContextReferenced,
+                            Key::AgentChatContextReferencedHint,
+                        ),
+                        PageLoadState::NeedsReload => {
+                            (Key::AgentChatContextUpdate, Key::AgentChatContextUpdateHint)
+                        }
+                        PageLoadState::Partial => (
+                            Key::AgentChatContextPartial,
+                            Key::AgentChatContextPartialHint,
+                        ),
+                        PageLoadState::Loading => (
+                            Key::AgentChatContextLoading,
+                            Key::AgentChatContextLoadingHint,
+                        ),
+                        PageLoadState::Empty => {
+                            (Key::AgentChatContextEmpty, Key::AgentChatContextEmptyHint)
+                        }
+                        PageLoadState::Unavailable => (
+                            Key::AgentChatContextUnavailable,
+                            Key::AgentChatContextUnavailableHint,
+                        ),
+                    };
+                    ContextChipLabel {
+                        title: page.chip_title(),
+                        status: Some(translate(language, label)),
+                        tooltip: format!(
+                            "{}\n{}\n{}",
+                            page.route,
+                            translate(language, hint),
+                            translate(language, Key::AgentChatContextFollowHint)
+                        ),
+                    }
+                }
+                None => ContextChipLabel {
+                    title: translate(language, Key::AgentChatContextNoPage).into(),
+                    status: None,
+                    tooltip: translate(language, Key::AgentChatContextNoPageHint).into(),
+                },
             });
         }
-        self.0.get(id).cloned()
+        self.0.get(id).map(|(title, source)| ContextChipLabel {
+            title: title.clone(),
+            status: None,
+            tooltip: format!(
+                "{source}\n{}",
+                translate(language, Key::AgentChatContextSavedHint)
+            ),
+        })
     }
 }
 
@@ -396,6 +446,9 @@ pub(crate) fn draft_for_entry(
     thread.user_drafts.get(ordinal.checked_sub(1)?)?.as_ref()
 }
 
+#[cfg(all(test, cgc_ui_tests))]
+mod ui_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -421,6 +474,163 @@ mod tests {
         InputContent::new(text)
             .with_token(before.len()..end, token)
             .unwrap()
+    }
+
+    #[test]
+    fn reference_status_tracks_actual_submission_for_native_and_external_agents() {
+        for agent in ["native", "codex", "claude"] {
+            let scope = ConversationScope::new("thread-1", agent);
+            let state = PageContextState::default();
+            let composer = ComposerContext::default();
+            let labels = composer.labels();
+            let input = content(auto_page_token(), "", "what is the task?");
+            let mut current = page("A");
+            state.set_current(Some(current.clone()));
+            let label = || {
+                labels
+                    .label(
+                        AUTO_PAGE_TOKEN,
+                        state.chip_context(&scope).as_ref(),
+                        Language::Zh,
+                    )
+                    .unwrap()
+            };
+            assert_eq!(label().status, Some("待引用"));
+            assert!(label().tooltip.contains("发送下一条消息时"));
+            assert!(label().tooltip.contains("随当前页面切换"));
+            let (_, first, frozen) = composer.freeze(
+                &input,
+                state.visible(),
+                Path::new("."),
+                &state,
+                scope.clone(),
+            );
+            assert!(first.contains("Original task for A"));
+            assert_eq!(
+                label().status,
+                Some("待引用"),
+                "Preparing a message does not prove it was sent"
+            );
+            state.mark_sent(&scope, &frozen);
+            assert_eq!(label().status, Some("已引用"));
+            assert!(label().tooltip.contains("不会重复添加正文"));
+            let (_, follow_up, _) = composer.freeze(
+                &input,
+                state.visible(),
+                Path::new("."),
+                &state,
+                scope.clone(),
+            );
+            assert!(!follow_up.contains("Original task for A"));
+            assert!(follow_up.contains("route=/courses/A/learn"));
+            state.set_current(Some(page("B")));
+            assert_eq!(label().title, "Course B");
+            assert_eq!(label().status, Some("待引用"));
+            state.set_current(Some(current.clone()));
+            assert_eq!(label().status, Some("已引用"));
+            current.version = "v2".into();
+            current.body = PageBody::Ready("updated task for A".into());
+            state.set_current(Some(current));
+            assert_eq!(label().status, Some("待更新"));
+            let (_, updated, frozen) = composer.freeze(
+                &input,
+                state.visible(),
+                Path::new("."),
+                &state,
+                scope.clone(),
+            );
+            assert!(updated.contains("updated task for A"));
+            state.mark_sent(&scope, &frozen);
+            assert_eq!(label().status, Some("已引用"));
+            state.invalidate_loaded(&scope);
+            assert_eq!(label().status, Some("待更新"));
+            let new_scope = ConversationScope::new("new-thread", agent);
+            assert_eq!(
+                labels
+                    .label(
+                        AUTO_PAGE_TOKEN,
+                        state.chip_context(&new_scope).as_ref(),
+                        Language::Zh
+                    )
+                    .unwrap()
+                    .status,
+                Some("待引用")
+            );
+            assert_eq!(user_text(&input), "what is the task?");
+        }
+    }
+
+    #[test]
+    fn reference_labels_distinguish_unavailable_partial_and_saved_context() {
+        let state = PageContextState::default();
+        let mut composer = ComposerContext::default();
+        let labels = composer.labels();
+        for (body, status) in [
+            (PageBody::Loading, "加载中"),
+            (PageBody::Empty, "无正文"),
+            (PageBody::Unavailable("Cannot load page".into()), "加载失败"),
+        ] {
+            let mut current = page("A");
+            current.body = body;
+            state.set_current(Some(current));
+            let label = labels
+                .label(
+                    AUTO_PAGE_TOKEN,
+                    state.chip_context(&scope()).as_ref(),
+                    Language::Zh,
+                )
+                .unwrap();
+            assert_eq!(label.status, Some(status));
+            assert!(label.tooltip.contains("只提供页面标识"));
+        }
+        state.set_current(Some(page("A")));
+        let limited = ConversationScope::with_body_budget("thread-1", "native", 8);
+        let (_, frozen) = state.freeze(limited.clone(), "question".into());
+        state.mark_sent(&limited, &frozen);
+        assert_eq!(
+            labels
+                .label(
+                    AUTO_PAGE_TOKEN,
+                    state.chip_context(&limited).as_ref(),
+                    Language::Zh
+                )
+                .unwrap()
+                .status,
+            Some("部分引用")
+        );
+        assert_eq!(
+            labels
+                .label(
+                    AUTO_PAGE_TOKEN,
+                    state.chip_context(&limited).as_ref(),
+                    Language::En
+                )
+                .unwrap()
+                .status,
+            Some("Partly referenced")
+        );
+        let token = composer.add_page(page("A"));
+        let saved = composer
+            .labels()
+            .label(
+                token.id(),
+                state.chip_context(&limited).as_ref(),
+                Language::Zh,
+            )
+            .unwrap();
+        assert_eq!(saved.title, "Course A");
+        assert!(saved.status.is_none());
+        assert!(saved.tooltip.contains("不随当前页面切换"));
+        state.set_current(None);
+        let missing = labels
+            .label(
+                AUTO_PAGE_TOKEN,
+                state.chip_context(&scope()).as_ref(),
+                Language::Zh,
+            )
+            .unwrap();
+        assert_eq!(missing.title, "当前页面不可用");
+        assert!(missing.status.is_none());
     }
 
     #[test]

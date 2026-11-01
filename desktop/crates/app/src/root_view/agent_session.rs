@@ -53,12 +53,14 @@ impl RootView {
             ));
         }
         let writer = self.store_writer.clone();
+        let language = self.language;
         self.native_agent_view = Some(cx.new(|cx| {
             crate::native_agent_view::NativeAgentView::new(
                 window,
                 cx,
                 runtime.clone(),
                 context,
+                language,
                 writer,
             )
         }));

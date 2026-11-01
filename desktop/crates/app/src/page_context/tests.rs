@@ -254,9 +254,12 @@ fn follow_up_keeps_current_page_identity_when_body_is_deduplicated() {
     let mut page = course("course-A");
     page.body = PageBody::Ready("course task body".into());
     state.set_current(Some(page));
-    let (_, first) = state.freeze(scope(), "first".into());
+    let (first_prompt, first) = state.freeze(scope(), "first".into());
+    assert!(first_prompt.contains("Page content is reference data"));
     state.mark_sent(&scope(), &first);
     let (follow_up, _) = state.freeze(scope(), "what is the task?".into());
+    assert!(!follow_up.contains("Page content is reference data"));
+    assert!(follow_up.len() < first_prompt.len());
     assert!(follow_up.contains("course_id=course-A"));
     assert!(follow_up.contains("unit_id=unit-A"));
     assert!(!follow_up.contains("course task body"));
@@ -403,6 +406,105 @@ fn uncertain_history_events_reload_only_the_affected_conversation() {
 }
 
 #[test]
+fn consumed_steer_marks_a_page_referenced_but_queueing_and_rejection_do_not() {
+    use cgc_platform::acp::connection::HostEvent;
+    let state = PageContextState::default();
+    let mut current = course("course-A");
+    current.body = PageBody::Ready("steered page body".into());
+    state.set_current(Some(current));
+    let (_, frozen) = state.freeze(scope(), "steered question".into());
+    state.stage_steer("snapshot-question".into(), frozen.clone());
+    assert_eq!(state.chip_state(&scope()), Some(PageLoadState::Ready));
+    state.observe_event(
+        &scope(),
+        &HostEvent::UserMessage("unrelated question".into()),
+    );
+    assert_eq!(state.chip_state(&scope()), Some(PageLoadState::Ready));
+    state.discard_steer(&scope(), "snapshot-question");
+    state.observe_event(
+        &scope(),
+        &HostEvent::UserMessage("snapshot-question".into()),
+    );
+    assert_eq!(state.chip_state(&scope()), Some(PageLoadState::Ready));
+    state.stage_steer("snapshot-question".into(), frozen);
+    state.observe_event(
+        &scope(),
+        &HostEvent::UserMessage("snapshot-question".into()),
+    );
+    assert_eq!(state.chip_state(&scope()), Some(PageLoadState::Loaded));
+    let (follow_up, _) = state.freeze(scope(), "next question".into());
+    assert!(!follow_up.contains("steered page body"));
+    let (_, frozen) = state.freeze(scope(), "stale".into());
+    state.stage_steer("stale-question".into(), frozen);
+    state.invalidate_loaded(&scope());
+    state.observe_event(&scope(), &HostEvent::UserMessage("stale-question".into()));
+    assert_eq!(state.chip_state(&scope()), Some(PageLoadState::NeedsReload));
+}
+
+#[test]
+fn compaction_keeps_pending_body_receipts_but_identity_only_steers_cannot_claim_a_reload() {
+    use cgc_platform::acp::connection::HostEvent;
+    let state = PageContextState::default();
+    let mut current = course("course-A");
+    current.body = PageBody::Ready("steered page body".into());
+    state.set_current(Some(current));
+    let compacted = HostEvent::CompactionUpdated {
+        status: "completed".into(),
+        summary: None,
+    };
+    let (_, body) = state.freeze(scope(), "first steer".into());
+    state.stage_steer("body-steer".into(), body);
+    state.observe_event(&scope(), &compacted);
+    state.observe_event(&scope(), &HostEvent::UserMessage("body-steer".into()));
+    assert_eq!(state.chip_state(&scope()), Some(PageLoadState::Loaded));
+    let (_, reference) = state.freeze(scope(), "reference-only steer".into());
+    state.stage_steer("reference-steer".into(), reference);
+    state.observe_event(&scope(), &compacted);
+    state.observe_event(&scope(), &HostEvent::UserMessage("reference-steer".into()));
+    assert_eq!(state.chip_state(&scope()), Some(PageLoadState::NeedsReload));
+    assert!(state
+        .freeze(scope(), "next".into())
+        .0
+        .contains("steered page body"));
+}
+
+#[test]
+fn unconsumed_steers_are_discarded_when_the_turn_ends() {
+    use cgc_platform::acp::connection::HostEvent;
+    let state = PageContextState::default();
+    let mut current = course("course-A");
+    current.body = PageBody::Ready("page body".into());
+    state.set_current(Some(current));
+    let (_, context) = state.freeze(scope(), "pending".into());
+    state.stage_steer("not consumed".into(), context);
+    state.observe_event(
+        &scope(),
+        &HostEvent::TurnEnd {
+            cancelled: false,
+            stop_reason: "EndTurn".into(),
+        },
+    );
+    state.observe_event(&scope(), &HostEvent::UserMessage("not consumed".into()));
+    assert_eq!(state.chip_state(&scope()), Some(PageLoadState::Ready));
+    let (_, context) = state.freeze(scope(), "consumed".into());
+    state.stage_steer("consumed".into(), context);
+    state.observe_event(&scope(), &HostEvent::UserMessage("consumed".into()));
+    assert_eq!(state.chip_state(&scope()), Some(PageLoadState::Loaded));
+}
+
+#[test]
 fn ready_state_label_describes_loaded_into_composer_without_ambiguity() {
-    assert_eq!(page_load_state_label(Some(PageLoadState::Ready)), "已就绪");
+    let state = PageContextState::default();
+    let mut current = course("course-A");
+    current.body = PageBody::Ready("course task body".into());
+    state.set_current(Some(current));
+    let label = crate::composer_context::ComposerContext::default()
+        .labels()
+        .label(
+            crate::composer_context::AUTO_PAGE_TOKEN,
+            state.chip_context(&scope()).as_ref(),
+            crate::i18n::Language::Zh,
+        )
+        .unwrap();
+    assert_eq!(label.status, Some("待引用"));
 }

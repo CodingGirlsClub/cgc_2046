@@ -311,7 +311,7 @@ CI 分工：PR 阶段 desktop 只跑 lint + 测试（快）；**打包在合并�
 - **侧栏状态**：历史侧栏开关会写入 `preferences.json`（`historySidebarOpen`），重启后恢复。
 - **全局 Agent Panel（3.5a）**：任意页面打开同一 Agent Panel / 同一线程；课程学习页自动把 course/revision/unit 作为上下文附加到每条 prompt（native/ACP 同一段文本，输入气泡不显示），上下文 chip 可移除。不再有课程页专用工作区/会话指针。
 - **默认 agent（3.5b，2026-10-27）**：新会话（含课程页）默认 native；`CGC_NATIVE_AGENT=0` 或设置「使用 Native Agent 运行时」关闭时回退 External Agent（external 仍可在 `＋` 菜单选择）。
-- **全局 active tab 上下文**：所有中心内容 tab（课程 issue/整页、场次详情/列表、课程详情/目录、学习/参与列表、工作台概览）在 native/ACP 输入文字流中显示当前页附件 chip。草稿中的自动 chip 跟随当前 Tab，保留问题文字和手动附件；删除 chip 后本条消息不再附加当前页。发送时固定来源和正文快照，排队／重试不随之后的 Tab 改变。正文按线程 + Agent + tab 内容版本去重，历史恢复或压缩后保守重载；加载状态显示在 tooltip。
+- **全局 active tab 上下文**：所有中心内容 tab（课程 issue/整页、场次详情/列表、课程详情/目录、学习/参与列表、工作台概览）在 native/ACP 输入文字流中显示当前页附件 chip。草稿中的自动 chip 跟随当前 Tab，保留问题文字和手动附件；删除 chip 后本条消息不再附加当前页。发送时固定来源和正文快照，排队／重试不随之后的 Tab 改变。正文按线程 + Agent + tab 内容版本去重；chip 显示「待引用／已引用／待更新」，保留加载中、无正文、失败及部分引用状态，自动跟随与发送规则放在 tooltip。已引用页面的追问只带页面身份，不重复正文或通用提示；历史恢复或压缩后保守重载。Native 插话在收到实际消费回执后才标记已引用。
 - **Selection 与历史编辑**：`＋ → Selection` 将中心页面选中文字及其来源保存为独立附件；课程卡目标、清单及 Markdown 正文支持选择。Native 编辑历史消息时恢复原 chip 位置和快照，可替换为当前页再回滚重发；external ACP 的 `Edit copy` 将原消息及附件恢复到 Composer，作为新一轮发送。页面／Selection／File／Skill 快照随会话保存，重新打开历史后仍可恢复。
 
 ## 共享视图（Stage 3.6 Phase B，2026-10-26）

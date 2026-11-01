@@ -767,8 +767,9 @@ pub(in crate::root_view) fn render_chat_panel(
                                                 &workspace,
                                                 attachments.label(
                                                     context.token().id(),
-                                                    page_context.visible().as_ref(),
-                                                ).map(|(label, tooltip)| (label, format!("{tooltip}\n{}", crate::page_context::page_load_state_label(page_context.chip_state(&scope))))),
+                                                    page_context.chip_context(&scope).as_ref(),
+                                                    language,
+                                                ),
                                             )
                                         }
                                     })

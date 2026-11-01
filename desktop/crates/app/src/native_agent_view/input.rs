@@ -430,6 +430,7 @@ impl NativeAgentView {
         let selection_view = view;
         let has_selection = self.page_context.has_selection();
         let attachments = self.edit_context.labels();
+        let language = self.language;
         let workspace = self.metadata().workspace.clone();
         let palette = *palette;
         shared_render_user_edit_row(UserEditRowSpec {
@@ -439,7 +440,7 @@ impl NativeAgentView {
                     context,
                     palette,
                     &workspace,
-                    attachments.label(context.token().id(), None),
+                    attachments.label(context.token().id(), None, language),
                 )
             })),
             token_click: Some(std::rc::Rc::new(crate::composer_context::open_token_source)),

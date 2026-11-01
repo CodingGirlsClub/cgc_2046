@@ -279,6 +279,11 @@ impl Agent {
         self.steer_tx.clone()
     }
 
+    pub fn discard_pending_steers(&mut self) {
+        while self.steer_rx.try_recv().is_ok() {}
+        while self.context_steer_rx.try_recv().is_ok() {}
+    }
+
     pub fn context_steer_sender(&self) -> mpsc::Sender<SteerMessage> {
         self.context_steer_tx.clone()
     }
