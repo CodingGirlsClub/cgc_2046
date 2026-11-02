@@ -17,6 +17,10 @@ struct NativeComposerProbe {
 
 impl NativeComposerProbe {
     fn new(window: &mut Window, cx: &mut App) -> Self {
+        Self::with_history(window, cx, false)
+    }
+
+    fn with_history(window: &mut Window, cx: &mut App, with_history: bool) -> Self {
         let model = Model::new(
             ProviderId::new("fake"),
             "Test provider",
@@ -24,11 +28,15 @@ impl NativeComposerProbe {
             "Test model",
             ModelLimits::new(8_000, 1_000),
         );
+        let mut thread = Thread::new(
+            "editor-test",
+            SelectedModel::new(ProviderId::new("fake"), ModelId::new("test-model")),
+        );
+        if with_history {
+            thread.push_user("a chat-only question");
+        }
         let runtime = NativeRuntimeHandle::spawn(
-            Thread::new(
-                "editor-test",
-                SelectedModel::new(ProviderId::new("fake"), ModelId::new("test-model")),
-            ),
+            thread,
             None,
             crate::native_runtime::NativeRuntimeConfig {
                 provider: Arc::new(FakeProvider::new(
@@ -44,7 +52,7 @@ impl NativeComposerProbe {
             },
             None,
         );
-        futures::executor::block_on(runtime.inspect()).unwrap();
+        let snapshot = futures::executor::block_on(runtime.inspect()).unwrap();
         let view = cx.new(|cx| {
             NativeAgentView::new(
                 window,
@@ -55,6 +63,15 @@ impl NativeComposerProbe {
                 None,
             )
         });
+        if with_history {
+            view.update(cx, |view, cx| {
+                super::apply_thread_entries(
+                    &mut view.state.session.thread,
+                    &snapshot.thread.entries,
+                );
+                cx.notify();
+            });
+        }
         Self { view }
     }
 
@@ -78,6 +95,96 @@ impl Render for NativeComposerProbe {
             .justify_end()
             .child(composer)
     }
+}
+
+#[gpui_kit::test]
+fn checkpoint_operation_errors_stay_local_and_can_be_dismissed(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (handle, view) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Default::default(),
+                    size: size(px(360.0), px(500.0)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| NativeComposerProbe::with_history(window, cx, true).view,
+        )
+        .unwrap()
+    });
+    for attempt in 1..=2 {
+        view.update(cx, |view, cx| {
+            view.command(
+                std::future::ready(Err(crate::native_runtime::NativeRuntimeError::Checkpoint(
+                    format!("test failure {attempt}"),
+                ))),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(window.find_all_by_label("Operation failed").len(), 1);
+            assert!(window.find_by_label("Operation failed").visible());
+            let view = view.read(cx);
+            assert!(view
+                .operation_error
+                .as_ref()
+                .is_some_and(|error| error.contains(&format!("test failure {attempt}"))));
+            assert_eq!(view.state.session.thread.entries.len(), 1);
+            assert!(matches!(
+                &view.state.session.thread.entries[0],
+                cgc_agent_ui::conversation::Entry::User { .. }
+            ));
+            assert!(view.metadata().checkpoints.is_empty());
+            assert!(window
+                .find_by_label("Rewind to before this message")
+                .visible());
+        })
+        .unwrap();
+    }
+    for width in [260.0, 360.0] {
+        cx.simulate_window_resize(handle, size(px(width), px(340.0)));
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            let error = window.find_by_label("Operation failed");
+            assert!(error.visible());
+            assert!(error.bounds().right() <= px(width));
+            assert!(window.find_by_label("Dismiss error").visible());
+        })
+        .unwrap();
+    }
+    cx.update_window(handle, |_, window, cx| {
+        window.click("native-dismiss-operation-error", cx);
+        window.render_frame(cx);
+        assert!(window.try_find_by_label("Operation failed").is_none());
+        assert!(view.read(cx).operation_error.is_none());
+        assert_eq!(view.read(cx).state.session.thread.entries.len(), 1);
+    })
+    .unwrap();
+    let (sender, receiver) = futures::channel::oneshot::channel();
+    view.update(cx, |view, cx| {
+        view.command(async move { receiver.await.unwrap() }, cx);
+        let snapshot = view.snapshot.as_ref().unwrap().clone();
+        view.command(std::future::ready(Ok(snapshot)), cx);
+    });
+    sender
+        .send(Err(crate::native_runtime::NativeRuntimeError::Checkpoint(
+            "outdated failure".into(),
+        )))
+        .unwrap_or_else(|_| panic!("Operation receiver closed"));
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window.try_find_by_label("Operation failed").is_none(),
+            "An older failure must not replace a newer successful operation"
+        );
+        assert!(view.read(cx).operation_error.is_none());
+    })
+    .unwrap();
 }
 
 #[gpui_kit::test]

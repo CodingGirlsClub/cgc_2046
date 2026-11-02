@@ -26,7 +26,7 @@ impl Render for NativeAgentView {
         let palette = theme::palette_from_theme(cx);
         let pending = self.state.session.thread.pending_permission.clone();
         let _model_supports_images = draft.model_supports_images;
-        let busy = draft.busy;
+
         let _usage = draft.usage;
         let _input = draft.input.clone();
 
@@ -45,14 +45,7 @@ impl Render for NativeAgentView {
         let _mention_selected = self
             .mention_index
             .min(mention_matches.len().saturating_sub(1));
-        let _can_undo = self
-            .state
-            .session
-            .thread
-            .capabilities
-            .checkpoint_available()
-            && !self.metadata().checkpoints.is_empty()
-            && !busy;
+
         let change_count = self.metadata().changes.len();
         let plan_state = self.metadata().agent_state.clone();
         let queued_messages: Vec<_> = self
@@ -242,6 +235,7 @@ impl Render for NativeAgentView {
                 matches!(model_setup, ModelSetup::Unconfigured | ModelSetup::DemoEcho)
                     .then(|| self.render_model_setup_notice(model_setup, palette, cx)),
             )
+            .children(self.render_operation_error(cx))
             .child(self.render_composer(&draft, window, cx))
             .into_any_element()
     }

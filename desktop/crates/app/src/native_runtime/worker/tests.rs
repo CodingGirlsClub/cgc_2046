@@ -414,6 +414,117 @@ fn scope_restore_keeps_legacy_history_and_new_current_selection_across_model_cha
 }
 
 #[test]
+fn conversation_rewind_succeeds_with_an_empty_checkpoint_or_without_git() {
+    for with_checkpoint in [false, true] {
+        let root = std::env::temp_dir().join(format!(
+            "cgc-empty-rewind-{}-{with_checkpoint}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut owner = configured_owner(&root);
+        owner.store = Some(SessionStore::open_in_memory().unwrap());
+        owner
+            .agent
+            .as_mut()
+            .unwrap()
+            .thread_mut()
+            .user_drafts
+            .push(Some(serde_json::json!({"text": "saved draft"})));
+        owner.freeze();
+        if with_checkpoint {
+            owner.checkpoint_manager = Some(CheckpointManager::initialize(&root).unwrap());
+            let thread_id = owner.frozen.id.clone();
+            owner.capture_checkpoint(&thread_id, 1);
+            assert_eq!(owner.checkpoints.len(), 1);
+        }
+        let generation = owner.generation;
+        let snapshot = owner
+            .rewind(1, with_checkpoint)
+            .expect("rewind a chat-only conversation");
+        assert!(snapshot.thread.entries.is_empty());
+        assert!(snapshot.thread.user_drafts.is_empty());
+        assert!(owner.checkpoints.is_empty());
+        assert_eq!(snapshot.generation, generation + 1);
+        if with_checkpoint {
+            assert_eq!(
+                owner
+                    .store
+                    .as_ref()
+                    .unwrap()
+                    .list_checkpoints(&snapshot.thread.id)
+                    .unwrap()[0]
+                    .state,
+                "invalid"
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn failed_file_restore_preserves_conversation_and_workspace() {
+    for invalid_head in [false, true] {
+        let root = std::env::temp_dir().join(format!(
+            "cgc-failed-rewind-{}-{invalid_head}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("note.txt"), "before").unwrap();
+        let mut owner = configured_owner(&root);
+        owner.store = Some(SessionStore::open_in_memory().unwrap());
+        owner
+            .agent
+            .as_mut()
+            .unwrap()
+            .thread_mut()
+            .user_drafts
+            .push(Some(serde_json::json!({
+                "text": "a question with an attachment",
+                "attachments": [{"label": "saved-selection", "text": "preserve this source"}]
+            })));
+        owner.freeze();
+        owner.checkpoint_manager = Some(CheckpointManager::initialize(&root).unwrap());
+        let thread_id = owner.frozen.id.clone();
+        owner.capture_checkpoint(&thread_id, 1);
+        assert_eq!(owner.checkpoints.len(), 1);
+        if invalid_head {
+            let output = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&root)
+                .args(["update-ref", "HEAD", &owner.checkpoints[0].1.sha])
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+        } else {
+            Arc::make_mut(&mut owner.checkpoints)[0].1.sha = "0".repeat(40);
+        }
+        std::fs::write(root.join("note.txt"), "after").unwrap();
+        let before = owner.frozen.clone();
+        let generation = owner.generation;
+        assert!(matches!(
+            owner.rewind(1, true),
+            Err(NativeRuntimeError::Checkpoint(_))
+        ));
+        assert_eq!(owner.frozen.entries, before.entries);
+        assert_eq!(owner.frozen.user_drafts, before.user_drafts);
+        assert_eq!(
+            owner.agent.as_ref().unwrap().thread().entries,
+            before.entries
+        );
+        assert_eq!(
+            owner.agent.as_ref().unwrap().thread().user_drafts,
+            before.user_drafts
+        );
+        assert_eq!(owner.generation, generation);
+        assert_eq!(
+            std::fs::read_to_string(root.join("note.txt")).unwrap(),
+            "after"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
 fn stale_rewind_cannot_truncate_a_new_conversation() {
     let root = std::env::temp_dir().join(format!("cgc-stale-rewind-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();

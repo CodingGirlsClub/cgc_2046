@@ -3,6 +3,7 @@
 //! 子模块可直接访问父模块私有字段。
 
 use super::*;
+use crate::i18n::{translate, Key};
 
 impl NativeAgentView {
     /// 构建单条历史消息的行元素。
@@ -90,17 +91,6 @@ impl NativeAgentView {
                     if self.editing_user == Some(message_index) {
                         self.render_user_edit_row(message_index, &palette, cx)
                     } else {
-                        let restore_checkpoint = if self
-                            .state
-                            .session
-                            .thread
-                            .capabilities
-                            .checkpoint_available()
-                        {
-                            self.checkpoint_for_message(message_index)
-                        } else {
-                            None
-                        };
                         {
                             let content = render_user_message_body(&message.text, &palette);
                             let edit_view = cx.entity().downgrade();
@@ -111,7 +101,11 @@ impl NativeAgentView {
                                 cgc_agent_ui::message_row::user_row_action_visibility(
                                     self.is_generating(),
                                     self.editing_user == Some(edit_index),
-                                    restore_checkpoint.is_some(),
+                                    self.state
+                                        .session
+                                        .thread
+                                        .capabilities
+                                        .checkpoint_available(),
                                 );
                             render_user_row(UserRowSpec {
                                 row_id: SharedString::from(format!("native-user-{edit_index}")),
@@ -121,6 +115,13 @@ impl NativeAgentView {
                                 restore_id: SharedString::from(format!(
                                     "native-restore-checkpoint-{restore_index}"
                                 )),
+                                restore_label: translate(self.language, Key::AgentChatChatRewind)
+                                    .into(),
+                                restore_tooltip: translate(
+                                    self.language,
+                                    Key::AgentChatChatRewindHint,
+                                )
+                                .into(),
                                 content,
                                 show_edit,
                                 show_restore,
@@ -132,7 +133,7 @@ impl NativeAgentView {
                                 }),
                                 on_restore: Box::new(move |_window, cx| {
                                     let _ = restore_view.update(cx, |this, cx| {
-                                        this.restore_to_checkpoint(restore_index, cx);
+                                        this.rewind_to_message(restore_index, cx);
                                     });
                                 }),
                             })

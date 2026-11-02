@@ -3,6 +3,7 @@
 //! 作为 `native_agent_view` 的子模块，可直接访问父模块的私有字段与方法。
 
 use super::*;
+use crate::i18n::{translate, Key};
 
 use gpui_kit::base::Disableable;
 use gpui_kit::component::progress::ProgressCircle;
@@ -113,7 +114,7 @@ impl NativeAgentView {
         let add_menu_root = cx.entity().downgrade();
         let palette = theme::palette_from_theme(cx);
         let chip_workspace = self.metadata().workspace.as_ref().clone();
-        let can_undo = self
+        let can_review_changes = self
             .state
             .session
             .thread
@@ -593,40 +594,24 @@ impl NativeAgentView {
                                     }),
                             )
                             .child(div().flex_1())
-                            .children((can_undo && change_count > 0).then(|| {
+                            .children((can_review_changes && change_count > 0).then(|| {
                                 div()
                                     .id("native-agent-changes")
+                                    .test_support()
                                     .role(Role::Button)
-                                    .aria_label("查看变更")
+                                    .aria_label(translate(self.language, Key::AgentChatChatFileChanges).replace("{count}", &change_count.to_string()))
                                     .px(space(1))
                                     .py(px(2.0))
                                     .rounded(px(RADIUS_SMALL))
                                     .text_size(px(11.0))
                                     .text_color(palette.ink_2)
                                     .hover(|style| style.bg(palette.soft))
-                                    .child(format!("变更 {change_count}"))
+                                    .child(translate(self.language, Key::AgentChatChatFileChanges).replace("{count}", &change_count.to_string()))
                                     .on_click(cx.listener(|this, _, _window, cx| {
                                         this.toggle_checkpoint_panel(cx)
                                     }))
                             }))
-                            .children(can_undo.then(|| {
-                                div()
-                                    .id("native-agent-undo")
-                                    .role(Role::Button)
-                                    .aria_label("撤销文件改动")
-                                    .px(space(1))
-                                    .py(px(2.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_3)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child("撤销")
-                                    .on_click(
-                                        cx.listener(|this, _, _window, cx| {
-                                            this.undo_checkpoint(cx)
-                                        }),
-                                    )
-                            }))
+
                             .children(pickers.approval)
                             .children(pickers.model)
                             .children(pickers.thinking)

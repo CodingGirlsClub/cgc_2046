@@ -200,6 +200,8 @@ impl NativeAgentView {
             state: NativeThreadState::new(),
             hidden_user_count: 0,
             status: "正在载入会话…".into(),
+            operation_error: None,
+            operation_serial: 0,
             show_checkpoint_panel: false,
             pending_restart_confirm: None,
             pending_images: Vec::new(),

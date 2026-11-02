@@ -172,6 +172,13 @@ agent_chat.chat.failed
 agent_chat.chat.new
 agent_chat.chat.history
 agent_chat.chat.restore
+agent_chat.chat.rewind
+agent_chat.chat.rewind_hint
+agent_chat.chat.file_changes
+agent_chat.chat.revert_files
+agent_chat.chat.keep_files
+agent_chat.chat.operation_failed
+agent_chat.chat.dismiss_error
 agent_chat.chat.no_history
 agent_chat.chat.config
 agent_chat.chat.install_node

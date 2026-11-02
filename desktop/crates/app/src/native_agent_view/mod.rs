@@ -288,6 +288,8 @@ pub struct NativeAgentView {
     state: NativeThreadState,
     hidden_user_count: usize,
     status: String,
+    operation_error: Option<String>,
+    operation_serial: u64,
     show_checkpoint_panel: bool,
     /// 无可用 checkpoint 时，编辑重发需要二次确认的消息 index。
     pending_restart_confirm: Option<usize>,

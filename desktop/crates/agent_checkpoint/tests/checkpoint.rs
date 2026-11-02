@@ -283,6 +283,51 @@ fn restore_preserves_partially_staged_and_unrelated_index_entries() {
 }
 
 #[test]
+fn empty_checkpoint_restore_is_a_noop_and_preserves_files_and_index() {
+    let workspace = temp_workspace("restore-empty");
+    let manager = CheckpointManager::initialize(&workspace).expect("init");
+    let checkpoint = manager.snapshot("empty-thread", 1).expect("snapshot");
+    assert!(tree_files(&workspace, &checkpoint.sha).is_empty());
+    manager
+        .restore(&checkpoint)
+        .expect("restore an empty snapshot");
+
+    std::fs::write(workspace.join("new.txt"), "keep this new file").unwrap();
+    std::fs::write(workspace.join("logo.png"), b"keep this image").unwrap();
+    assert!(run_git(&workspace, &["add", "new.txt"]).status.success());
+    let before = run_git(&workspace, &["ls-files", "--stage", "-z"]);
+    assert!(before.status.success());
+    manager
+        .restore(&checkpoint)
+        .expect("restore without deleting new files");
+    let after = run_git(&workspace, &["ls-files", "--stage", "-z"]);
+    assert!(after.status.success());
+    assert_eq!(after.stdout, before.stdout);
+    assert_eq!(
+        std::fs::read_to_string(workspace.join("new.txt")).unwrap(),
+        "keep this new file"
+    );
+    assert_eq!(
+        std::fs::read(workspace.join("logo.png")).unwrap(),
+        b"keep this image"
+    );
+    std::fs::remove_dir_all(workspace).unwrap();
+}
+
+#[test]
+fn empty_workspace_restore_still_rejects_a_missing_checkpoint_object() {
+    let workspace = temp_workspace("restore-missing-object");
+    let manager = CheckpointManager::initialize(&workspace).expect("init");
+    let mut checkpoint = manager.snapshot("empty-thread", 1).expect("snapshot");
+    checkpoint.sha = "0".repeat(40);
+    assert!(matches!(
+        manager.restore(&checkpoint),
+        Err(cgc_agent_checkpoint::CheckpointError::Git(_))
+    ));
+    std::fs::remove_dir_all(workspace).unwrap();
+}
+
+#[test]
 fn restore_does_not_stage_previously_untracked_files() {
     for single_file in [false, true] {
         let workspace = temp_workspace("restore-untracked");
