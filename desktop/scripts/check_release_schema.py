@@ -6,12 +6,13 @@
 GraphQL 返回 `Cannot query field`；客户端把无 code 的 GraphQL 错误映射成
 `LoginError::Network`，界面只显示「网络异常」，整个包登录不可用。
 
-做法：从 `crates/**/*.rs` 的 GraphQL 文档里提取顶层字段，对每个顶层字段提交**完整
+做法：从 `crates/**/*.rs` 的 GraphQL 文档里提取每份 document，逐个向端点提交**完整
 文档**（保留嵌套选择集、变量定义与 fragment 定义），并在根选择集字段上加
 `@skip(if: true)`：服务端仍执行完整的 schema 校验，但不会调用 resolver，所以探测
-本身没有副作用（不会登录、下单、撤销 token）。只有 `Cannot query field` /
-`Unknown field` 判定为缺失——嵌套字段缺失同样会被这类校验错误暴露；变量校验失败、
-鉴权失败等错误只说明字段存在。网络失败、响应不可解析一律 fail-closed。
+本身没有副作用（不会登录、下单、撤销 token）。同一 root field 的多套选择集各自探测，
+不做字段级去重。只有 `Cannot query field` / `Unknown field` 判定为缺失——嵌套字段
+缺失同样会被这类校验错误暴露；变量校验失败、鉴权失败等错误只说明字段存在。
+网络失败、响应不可解析一律 fail-closed。
 
 用法：
   python3 scripts/check_release_schema.py              # 检查生产端点
@@ -215,16 +216,22 @@ def build_probe(document):
     return query, variable_placeholders(document)
 
 
-def collect_fields():
-    """返回 {(operation, field): (首个出现的源码路径, 完整 document)}。"""
+def collect_documents():
+    """返回 {document: (源码路径, operation, [顶层字段...])}，同一份文档只探测一次。
+
+    不能按 (operation, field) 去重：同一 root field 在不同文档里可能选不同的嵌套字段
+    （catalog.rs 的 CourseLearning 与 CourseLearningDetail、courses/events 两处
+    MyEnrollment），只留第一份会漏掉客户端真正提交的那套选择集（#1202 Codex P2）。
+    """
     found = {}
     for path, document in iter_documents():
         match = OPERATION_RE.match(document)
         if not match:
             continue
-        operation = match.group(1)
-        for field in top_level_fields(document):
-            found.setdefault((operation, field), (path, document))
+        fields = top_level_fields(document)
+        if not fields:
+            continue
+        found.setdefault(document, (path, match.group(1), fields))
     return found
 
 
@@ -308,37 +315,38 @@ def run_check(endpoint, timeout):
             "http 只允许本机回环）"
         )
 
-    fields = collect_fields()
-    if not fields:
-        return fail("没有从 crates/**/*.rs 提取到任何 GraphQL 字段——提取器失效，需人工复核")
+    documents = collect_documents()
+    if not documents:
+        return fail("没有从 crates/**/*.rs 提取到任何 GraphQL 文档——提取器失效，需人工复核")
 
-    ordered = sorted(fields)
-    print(f"检查 {len(ordered)} 个 GraphQL 字段：{endpoint}")
+    ordered = sorted(documents.items(), key=lambda item: (item[1][0], item[0]))
+    field_pairs = {(operation, field) for _, operation, fields in documents.values() for field in fields}
+    print(f"检查 {len(ordered)} 个 GraphQL 文档（{len(field_pairs)} 个顶层字段）：{endpoint}")
 
     missing = []
     errors = []
-    for operation, field in ordered:
-        path, document = fields[(operation, field)]
+    for document, (path, operation, fields) in ordered:
         status, detail = probe(endpoint, document, timeout)
+        label = f"{operation} {' '.join(fields)}"
         if status == "missing":
-            missing.append((operation, field, path, detail))
+            missing.append((label, path, detail))
         elif status == "error":
-            errors.append((operation, field, path, detail))
+            errors.append((label, path, detail))
 
-    for operation, field, path, detail in missing:
-        print(f"✗ {operation}.{field}（{path}）\n    {detail}", file=sys.stderr)
-    for operation, field, path, detail in errors:
-        print(f"✗ {operation}.{field}（{path}）探测失败：{detail}", file=sys.stderr)
+    for label, path, detail in missing:
+        print(f"✗ {label}（{path}）\n    {detail}", file=sys.stderr)
+    for label, path, detail in errors:
+        print(f"✗ {label}（{path}）探测失败：{detail}", file=sys.stderr)
 
     if missing:
         return fail(
-            f"{len(missing)}/{len(ordered)} 个字段在生产后端不存在——禁止出包。"
+            f"{len(missing)}/{len(ordered)} 份文档在生产后端不兼容——禁止出包。"
             "先部署后端到 main，或回退客户端改动（见 #1183）"
         )
     if errors:
-        return fail(f"{len(errors)}/{len(ordered)} 个字段无法确认（fail-closed）——禁止出包")
+        return fail(f"{len(errors)}/{len(ordered)} 份文档无法确认（fail-closed）——禁止出包")
 
-    print(f"✓ {len(ordered)} 个字段全部存在于 {endpoint}")
+    print(f"✓ {len(ordered)} 份文档（{len(field_pairs)} 个顶层字段）全部存在于 {endpoint}")
     return 0
 
 
@@ -455,6 +463,11 @@ def self_test():
                     200,
                     {"errors": [{"message": 'Cannot query field "targetType" on type "Notification".'}]},
                 )
+            elif "checkInCode" in query:
+                self._reply(
+                    200,
+                    {"errors": [{"message": 'Cannot query field "checkInCode" on type "Enrollment".'}]},
+                )
             elif "missing_root" in query:
                 self._reply(
                     200,
@@ -513,12 +526,28 @@ query NotificationFeed($first: Int!, $after: String) {
 "#;
 '''
         compatible_source = notification_source.replace(" targetType targetId", "")
+        # 同一个 root field 的两套选择集：短的那份在前也不能让长的被跳过（Codex P2）。
+        short_enrollment = '''
+const SHORT_ENROLLMENT: &str = r#"
+query MyEnrollment($kind: String!, $offeringId: ID!) {
+  myEnrollment(kind: $kind, offeringId: $offeringId) { id status }
+}
+"#;
+'''
+        long_enrollment = '''
+const LONG_ENROLLMENT: &str = r#"
+query MyEnrollment($kind: String!, $offeringId: ID!) {
+  myEnrollment(kind: $kind, offeringId: $offeringId) { id status checkInCode }
+}
+"#;
+'''
 
-        def run_gate(source_text):
+        def run_gate(sources):
             with tempfile.TemporaryDirectory() as tmp:
-                path = pathlib.Path(tmp, "crates", "platform", "src", "notifications.rs")
-                path.parent.mkdir(parents=True)
-                path.write_text(source_text, encoding="utf-8")
+                for name, source_text in sources.items():
+                    path = pathlib.Path(tmp, "crates", "platform", "src", name)
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(source_text, encoding="utf-8")
                 original_root = globals()["ROOT"]
                 globals()["ROOT"] = pathlib.Path(tmp)
                 out, err = io.StringIO(), io.StringIO()
@@ -529,14 +558,19 @@ query NotificationFeed($first: Int!, $after: String) {
                     globals()["ROOT"] = original_root
                 return status, out.getvalue(), err.getvalue()
 
-        status, _, err = run_gate(notification_source)
+        status, _, err = run_gate({"notifications.rs": notification_source})
         expect("gate: nested field missing is not compatible", status, 1)
         expect("gate: error names the nested field", "targetType" in err, True)
         expect("gate: blocks the release", "禁止出包" in err, True)
 
-        status, out, _ = run_gate(compatible_source)
+        status, out, _ = run_gate({"notifications.rs": compatible_source})
         expect("gate: compatible document passes", status, 0)
-        expect("gate: reports field exists", "✓ 1 个字段全部存在于" in out, True)
+        expect("gate: reports document coverage", "✓ 1 份文档（1 个顶层字段）全部存在于" in out, True)
+
+        status, out, err = run_gate({"a_short_enrollment.rs": short_enrollment, "b_long_enrollment.rs": long_enrollment})
+        expect("gate: probes every document of a root field", "检查 2 个 GraphQL 文档（1 个顶层字段）" in out, True)
+        expect("gate: second selection set is checked", status, 1)
+        expect("gate: names the alternate selection field", "checkInCode" in err, True)
     finally:
         server.shutdown()
         server.server_close()
