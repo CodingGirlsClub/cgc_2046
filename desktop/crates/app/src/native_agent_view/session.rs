@@ -69,6 +69,13 @@ impl NativeAgentView {
         .detach();
     }
 
+    pub(super) fn begin_operation(&mut self, cx: &mut Context<Self>) -> u64 {
+        self.operation_serial = self.operation_serial.wrapping_add(1);
+        self.operation_error = None;
+        cx.notify();
+        self.operation_serial
+    }
+
     pub(super) fn command(
         &mut self,
         operation: impl Future<Output = Result<Arc<NativeRuntimeSnapshot>, NativeRuntimeError>>
@@ -76,11 +83,14 @@ impl NativeAgentView {
             + 'static,
         cx: &mut Context<Self>,
     ) {
+        let serial = self.begin_operation(cx);
         cx.spawn(async move |this, cx| {
             if let Err(error) = operation.await {
                 let _ = this.update(cx, |this, cx| {
-                    this.status = error.to_string();
-                    this.state.push_notice(error.to_string());
+                    if this.operation_serial != serial {
+                        return;
+                    }
+                    this.operation_error = Some(error.to_string());
                     cx.notify();
                 });
             }
@@ -163,6 +173,7 @@ impl NativeAgentView {
             )
         });
         if reset {
+            self.begin_operation(cx);
             let scope =
                 crate::page_context::ConversationScope::new(snapshot.thread.id.clone(), "native");
             self.page_context.invalidate_loaded(&scope);

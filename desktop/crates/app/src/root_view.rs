@@ -60,7 +60,7 @@ use gpui_kit::component::{
     avatar::Avatar,
     badge::Badge,
     empty::{Empty, EmptyDescription, EmptyHeader, EmptyTitle},
-    input::{InputEvent, InputState, TextareaState},
+    input::{InputEvent, InputState},
     kbd::Kbd,
     spinner::Spinner,
     status_bar::StatusBar,
@@ -451,8 +451,9 @@ impl RootView {
         }
     }
 
-    pub fn set_chat_input(&mut self, input: Entity<TextareaState>) {
-        self.state.chat_input = Some(input);
+    pub fn initialize_chat_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.state.chat_input =
+            Some(cx.new(|cx| cgc_agent_ui::message_editor::MessageEditor::new_state(window, cx)));
     }
 
     /// ACP 当前 agent 的展示名（未连接时用已选 agent id）。

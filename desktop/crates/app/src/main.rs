@@ -95,10 +95,6 @@ fn main() {
             }
 
             let view_registry = startup_registry.clone();
-            let chat_input = cx.new(|cx| {
-                gpui_kit::component::input::TextareaState::new(window, cx)
-                    .placeholder("给 agent 发消息… @ 引用上下文，/ 查看命令")
-            });
             let config_search_input = cx.new(|cx| {
                 gpui_kit::component::input::InputState::new(window, cx).placeholder(translate(
                     default_language(),
@@ -111,7 +107,7 @@ fn main() {
                 this.set_history_sidebar_persisted(history_sidebar_open);
                 this.set_tray_preferences(close_to_tray.clone(), tray_hint_shown.clone());
                 this.install_main_window_lifecycle(window, cx);
-                this.set_chat_input(chat_input);
+                this.initialize_chat_input(window, cx);
                 this.set_config_search_input(config_search_input);
                 this.initialize_agent_session(window, cx);
             });

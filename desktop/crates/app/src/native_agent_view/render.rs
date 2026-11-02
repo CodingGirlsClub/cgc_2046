@@ -26,10 +26,10 @@ impl Render for NativeAgentView {
         let palette = theme::palette_from_theme(cx);
         let pending = self.state.session.thread.pending_permission.clone();
         let _model_supports_images = draft.model_supports_images;
-        let busy = draft.busy;
+
         let _usage = draft.usage;
         let _input = draft.input.clone();
-        let _input_focus = draft.input_focus.clone();
+
         let input_value = draft.input_value.clone();
         let _has_input = draft.has_input;
         let model_setup = self.metadata().model_setup;
@@ -45,14 +45,7 @@ impl Render for NativeAgentView {
         let _mention_selected = self
             .mention_index
             .min(mention_matches.len().saturating_sub(1));
-        let _can_undo = self
-            .state
-            .session
-            .thread
-            .capabilities
-            .checkpoint_available()
-            && !self.metadata().checkpoints.is_empty()
-            && !busy;
+
         let change_count = self.metadata().changes.len();
         let plan_state = self.metadata().agent_state.clone();
         let queued_messages: Vec<_> = self
@@ -242,11 +235,8 @@ impl Render for NativeAgentView {
                 matches!(model_setup, ModelSetup::Unconfigured | ModelSetup::DemoEcho)
                     .then(|| self.render_model_setup_notice(model_setup, palette, cx)),
             )
-            .child({
-                // B4b-b'1：两条 composer 渲染路径已合一，这是唯一实现
-                // （附件/queue/slash/mention/pickers/checkpoint/usage 均在）。
-                self.render_native_composer_legacy(&draft, cx)
-            })
+            .children(self.render_operation_error(cx))
+            .child(self.render_composer(&draft, window, cx))
             .into_any_element()
     }
 }

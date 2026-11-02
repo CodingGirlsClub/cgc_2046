@@ -3,6 +3,9 @@ pub(super) mod dock;
 pub(super) mod panel;
 pub(crate) mod surface;
 
+#[cfg(all(test, cgc_ui_tests))]
+mod editor_tests;
+
 #[cfg(test)]
 mod tests {
     use super::agent_panel::{content_kind, AgentPanelContent};

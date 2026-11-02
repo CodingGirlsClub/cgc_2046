@@ -38,7 +38,7 @@
   渲染/输入/会话/运行时拆到同目录 12 个子模块（`panel`、`composer`、`rows`、`turn`、`panels`、
   `session`、`input`、`runtime_ops`、`render`、`widgets`、`state`、`tests`）。
   子模块可访问父模块私有字段，未放宽可见性。
-- `CGC_NATIVE_SHARED_VIEW` 已移除；composer 只有一条渲染路径。
+- Native 与 external ACP 的输入区共用 `agent_ui::message_editor::MessageEditor`，统一状态创建、4～8 行自动增高、可换行 placeholder 和 inline token 回调；卡片留白与发送按钮尺寸由共享 composer 管理。每个会话保留独立草稿和发送/审批/queue/steer 处理。`CGC_NATIVE_SHARED_VIEW` 已移除。
 - `native_thread_state.rs` 已删除，状态类型在 `native_agent_view::state`，对外重新导出为
   `native_agent_view::NativeThreadState`。
 
@@ -55,6 +55,8 @@
 Native 与 external ACP 共用页面上下文提交逻辑：每轮携带 active tab 的页面、工作台和课程标识；正文按会话、agent、工作台和内容版本去重。排队与重试保留提交时的页面快照，实际发送前重新核对历史；回滚、恢复、压缩或发送失败只失效对应会话。chip 的“已在上下文中”来自本次确实附带正文的发送记录，旧历史世代的记录不能反写。
 
 Native 每次新建对话分配独立 ID，保留旧历史与 checkpoint。scope 的当前线程指针单独存于 `threads.db`，重启后恢复当前选择（包括尚未发送消息的空对话）；旧 `native-<scope>` ID 保持原值兼容恢复。切换模型保留当前对话。ACP 的稳定身份继续使用实际 session ID 和 agent ID，模型、工具、授权与审批仍由对应运行时负责。
+
+Native 的文件操作集中在“变更 N”打开的面板中：N 是相对本轮快照的变更文件数；没有变更时不显示入口。消息上的“回退到此消息之前”回退会话，并恢复可用的文件快照，不自动重新生成回答。纯聊天与空文件快照可正常回退；真实文件恢复失败时保留会话、历史草稿及编辑内容。操作失败只显示一条可关闭的本地提示，新操作会替换旧提示，不向聊天记录反复追加 system 消息。
 
 ## 本机前置
 

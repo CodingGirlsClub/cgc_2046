@@ -3,6 +3,7 @@
 //! 作为 `native_agent_view` 的子模块，可直接访问父模块的私有字段与方法。
 
 use super::*;
+use crate::i18n::{translate, Key};
 
 use gpui_kit::base::Disableable;
 use gpui_kit::component::progress::ProgressCircle;
@@ -98,11 +99,11 @@ impl NativeAgentView {
         .into_any_element()
     }
 
-    // 旧的 composer 链式布局保持原排版，避免 rustfmt 重排整段 UI builder。
     #[rustfmt::skip]
-    pub(super) fn render_native_composer_legacy(
+    pub(super) fn render_composer(
         &mut self,
         draft: &ComposerDraft,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let busy = draft.busy;
@@ -110,11 +111,10 @@ impl NativeAgentView {
         let usage = draft.usage;
         let model_supports_images = draft.model_supports_images;
         let input = draft.input.clone();
-        let input_focus = draft.input_focus.clone();
         let add_menu_root = cx.entity().downgrade();
         let palette = theme::palette_from_theme(cx);
         let chip_workspace = self.metadata().workspace.as_ref().clone();
-        let can_undo = self
+        let can_review_changes = self
             .state
             .session
             .thread
@@ -308,8 +308,8 @@ impl NativeAgentView {
 
         cgc_agent_ui::composer::composer_card(
                     "native-agent-composer",
-                    false,
-                    native_composer_style(palette),
+                    input.read(cx).focus_handle(cx).is_focused(window),
+                    palette.composer_style(),
                 )
                 .relative()
                 .mx(space(2))
@@ -479,15 +479,11 @@ impl NativeAgentView {
                     }))
 
                     .child(
-                        div()
-                            .relative()
-                            .px(space(1))
-                            .py(px(4.0))
-                            .child(
-                                Textarea::new(&input)
-                                    .appearance(false)
-                                    .bordered(false)
-                                    .w_full()
+                        cgc_agent_ui::message_editor::MessageEditor::new(
+                            &input,
+                            composer_placeholder(model_setup),
+                            palette.ink_3,
+                        )
                                     .token({
                                         let attachments = self.composer_context.labels();
                                         let page_context = self.page_context.clone();
@@ -501,40 +497,9 @@ impl NativeAgentView {
                                     .on_token_click(|event, window, cx| {
                                         crate::composer_context::open_token_source(event.token().id(), window, cx);
                                     }),
-                            )
-                            .children((!has_input && self.input.read(cx).tokens().is_empty()).then(|| {
-                                // 自定义可换行 placeholder：gpui-base 的 Textarea
-                                // placeholder 只按 \n 分行、不做宽度软换行
-                                // （shape_line 未传宽度约束），窄面板会直接裁切；
-                                // 上游修好前用 absolute overlay 折行并承担点击聚焦。
-                                //
-                                // 对齐 Textarea 的文字起点，否则光标与 placeholder 错行：
-                                // overlay 从 wrapper 的 border box 顶/左起算，
-                                //   top  = wrapper padding（py 4）
-                                //        + gpui-component Input 多行编辑区 padding（top 8）
-                                //   left = wrapper padding（space(1)）
-                                //        + Input 编辑区 padding（left 10）
-                                // 字号/行高与 Input 一致：text_sm 0.875rem、line_height 1.25rem。
-                                let focus = input_focus.clone();
-                                div()
-                                    .id("native-agent-placeholder")
-                                    .absolute()
-                                    .top(px(4.0 + 8.0))
-                                    .left(space(1) + px(10.0))
-                                    .right(space(1) + px(10.0))
-                                    .text_size(rems(0.875))
-                                    .line_height(rems(1.25))
-                                    .text_color(palette.ink_3)
-                                    .child(composer_placeholder(model_setup))
-                                    .on_click(move |_, window, cx| {
-                                        window.focus(&focus, cx);
-                                    })
-                            })),
                     )
                     .child(
-                        cgc_agent_ui::composer::composer_footer(
-                            native_composer_style(palette),
-                        )
+                        cgc_agent_ui::composer::composer_footer()
                         .id("native-agent-composer-footer")
                             .child(
                                 Popover::new("native-agent-add-menu")
@@ -629,40 +594,24 @@ impl NativeAgentView {
                                     }),
                             )
                             .child(div().flex_1())
-                            .children((can_undo && change_count > 0).then(|| {
+                            .children((can_review_changes && change_count > 0).then(|| {
                                 div()
                                     .id("native-agent-changes")
+                                    .test_support()
                                     .role(Role::Button)
-                                    .aria_label("查看变更")
+                                    .aria_label(translate(self.language, Key::AgentChatChatFileChanges).replace("{count}", &change_count.to_string()))
                                     .px(space(1))
                                     .py(px(2.0))
                                     .rounded(px(RADIUS_SMALL))
                                     .text_size(px(11.0))
                                     .text_color(palette.ink_2)
                                     .hover(|style| style.bg(palette.soft))
-                                    .child(format!("变更 {change_count}"))
+                                    .child(translate(self.language, Key::AgentChatChatFileChanges).replace("{count}", &change_count.to_string()))
                                     .on_click(cx.listener(|this, _, _window, cx| {
                                         this.toggle_checkpoint_panel(cx)
                                     }))
                             }))
-                            .children(can_undo.then(|| {
-                                div()
-                                    .id("native-agent-undo")
-                                    .role(Role::Button)
-                                    .aria_label("撤销文件改动")
-                                    .px(space(1))
-                                    .py(px(2.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .text_size(px(11.0))
-                                    .text_color(palette.ink_3)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child("撤销")
-                                    .on_click(
-                                        cx.listener(|this, _, _window, cx| {
-                                            this.undo_checkpoint(cx)
-                                        }),
-                                    )
-                            }))
+
                             .children(pickers.approval)
                             .children(pickers.model)
                             .children(pickers.thinking)
@@ -686,9 +635,6 @@ impl NativeAgentView {
                                     bg: send_bg,
                                     fg: send_fg,
                                     radius: RADIUS_SMALL,
-                                    padding_x: 8.0,
-                                    padding_y: 3.0,
-                                    text_size: 12.0,
                                     ml_auto: false,
                                     on_click: Box::new(move |window, cx| {
                                         if !model_ready {

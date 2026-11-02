@@ -347,32 +347,14 @@ impl NativeAgentView {
             &self.page_context,
             self.conversation_scope(),
         );
-        let runtime = self.runtime.clone();
         let thread_id = self.metadata().thread.id.clone();
+        let operation_serial = self.begin_operation(cx);
         let rewind = self
             .runtime
             .rewind_thread(thread_id.clone(), ordinal, restore_files);
         let generation = self.state.session.generation;
         cx.spawn(async move |this, cx| {
-            // 旧实现是「检查点尽力回滚，失败不阻断重发」；单 actor 重构后
-            // runtime.rewind 遇到失效 checkpoint 会直接报错，编辑重发就整条
-            // 停住。这里保留旧语义：文件回滚失败时退回只回滚对话再重发。
-            let mut fallback_note = None;
-            let result = match rewind.await {
-                Ok(snapshot) => Ok(snapshot),
-                Err(first_error) if restore_files => match runtime
-                    .rewind_thread(thread_id.clone(), ordinal, false)
-                    .await
-                {
-                    Ok(snapshot) => {
-                        fallback_note =
-                            Some(format!("检查点无法回滚，已仅回滚对话：{first_error}"));
-                        Ok(snapshot)
-                    }
-                    Err(_) => Err(first_error),
-                },
-                Err(error) => Err(error),
-            };
+            let result = rewind.await;
             let _ = this.update(cx, |this, cx| match result {
                 Ok(snapshot) => {
                     if this.metadata().thread.id != thread_id
@@ -381,10 +363,7 @@ impl NativeAgentView {
                         return;
                     }
                     this.apply_snapshot(RuntimeChange::Rewound, snapshot, cx);
-                    if let Some(note) = fallback_note {
-                        this.status = note.clone();
-                        this.state.push_notice(note);
-                    }
+
                     let (prompt, context) =
                         this.page_context
                             .refresh(this.conversation_scope(), prompt, context);
@@ -400,9 +379,11 @@ impl NativeAgentView {
                     this.state.session.queue_mode = QueueMode::Auto;
                     this.dispatch_queued(cx);
                 }
-                Err(error) if this.state.session.generation == generation => {
-                    this.status = error.to_string();
-                    this.state.push_notice(error.to_string());
+                Err(error)
+                    if this.state.session.generation == generation
+                        && this.operation_serial == operation_serial =>
+                {
+                    this.operation_error = Some(error.to_string());
                     cx.notify();
                 }
                 Err(_) => {}

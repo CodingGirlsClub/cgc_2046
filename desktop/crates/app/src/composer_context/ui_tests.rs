@@ -1,7 +1,8 @@
 use super::{ComposerContext, AUTO_PAGE_TOKEN};
 use crate::i18n::Language;
 use crate::page_context::{ConversationScope, PageBody, PageContext, PageContextState};
-use gpui_kit::component::input::{Textarea, TextareaState};
+use cgc_agent_ui::message_editor::MessageEditor;
+use gpui_kit::component::input::TextareaState;
 use gpui_kit::test::{TestQueryExt, TestSupportExt, TestWindowExt};
 use gpui_kit::{
     div, px, size, AppContext, Bounds, Context, Entity, InteractiveElement, IntoElement,
@@ -32,10 +33,8 @@ impl Render for ComposerProbe {
             .w(px(self.width))
             .h(px(150.))
             .child(
-                Textarea::new(&self.input)
-                    .w_full()
-                    .h(px(140.))
-                    .token(move |context, _, _| {
+                MessageEditor::new(&self.input, "Message the agent", palette.ink_3).token(
+                    move |context, _, _| {
                         crate::mention_chip::render_resolved_chip(
                             context,
                             palette,
@@ -46,9 +45,84 @@ impl Render for ComposerProbe {
                                 language,
                             ),
                         )
-                    }),
+                    },
+                ),
             )
     }
+}
+
+pub(crate) fn assert_shared_editor_growth(
+    input: &Entity<TextareaState>,
+    window: &mut Window,
+    cx: &mut gpui_kit::App,
+) {
+    let height = |window: &Window| {
+        let editors = window.find_all_by_role(gpui_kit::Role::MultilineTextInput);
+        assert_eq!(
+            editors.len(),
+            1,
+            "The actual composer must contain one editor"
+        );
+        let editor = &editors[0];
+        assert!(editor.visible());
+        editor.bounds().size.height
+    };
+    window.render_frame(cx);
+    let empty = height(window);
+    let line_height = input.read(cx).line_height().unwrap();
+    assert_eq!(
+        empty,
+        line_height * 4.0 + px(16.0),
+        "Four lines plus editor padding"
+    );
+    input.update(cx, |state, cx| state.focus(window, cx));
+    let paragraph = "A long paragraph without newline characters. ".repeat(20);
+    window.input(&paragraph, cx);
+    window.render_frame(cx);
+    let wrapped = height(window);
+    assert!(wrapped > empty, "Soft wrapping must grow the editor");
+    assert_eq!(
+        wrapped,
+        line_height * 8.0 + px(16.0),
+        "Eight lines plus editor padding"
+    );
+    assert_eq!(input.read(cx).value().as_str(), paragraph);
+    let additional = "Additional text. ".repeat(50);
+    window.input(&additional, cx);
+    window.render_frame(cx);
+    assert_eq!(
+        height(window),
+        wrapped,
+        "Long content must scroll internally"
+    );
+    assert_eq!(
+        input.read(cx).value().as_str(),
+        format!("{paragraph}{additional}")
+    );
+    assert!(
+        input.read(cx).scroll_offset().y < px(0.0),
+        "The viewport follows the caret"
+    );
+    let geometry = input.read(cx).prepaint_caret_geometry().unwrap();
+    let caret_top = geometry.cursor_bounds().top() + geometry.scroll_offset().y;
+    assert!(caret_top >= geometry.input_bounds().top());
+    assert!(caret_top + geometry.cursor_bounds().size.height <= geometry.input_bounds().bottom());
+    let content = input.read(cx).content();
+    input.update(cx, |state, cx| {
+        state.set_selected_range(0..content.text().len(), cx)
+    });
+    window.press("backspace", cx);
+    window.render_frame(cx);
+    assert_eq!(
+        height(window),
+        empty,
+        "Deleting restores the compact height"
+    );
+    assert!(input.read(cx).value().is_empty());
+    println!(
+        "Actual composer editor: empty={empty:?}, wrapped={wrapped:?}, restored={:?}",
+        height(window)
+    );
 }
 
 fn page(id: &str) -> PageContext {
@@ -79,7 +153,7 @@ fn real_textarea_reference_status_redraws_without_changing_the_draft(cx: &mut Te
                 },
                 cx,
                 |window, cx| {
-                    let input = cx.new(|cx| TextareaState::new(window, cx).auto_grow(3, 8));
+                    let input = cx.new(|cx| MessageEditor::new_state(window, cx));
                     let state = PageContextState::default();
                     state.set_current(Some(page("A")));
                     cx.new(|_| ComposerProbe {

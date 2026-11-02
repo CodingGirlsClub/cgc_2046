@@ -271,6 +271,20 @@ impl CheckpointManager {
 
     /// 覆盖 checkpoint 中的文件；保留用户 index 和快照外的文件（含主动排除项）。
     pub fn restore(&self, checkpoint: &Checkpoint) -> Result<(), CheckpointError> {
+        let files = self.git([
+            "ls-tree",
+            "--name-only",
+            "-z",
+            checkpoint.sha.as_str(),
+            "--",
+            ".",
+        ])?;
+        if !files.status.success() {
+            return Err(CheckpointError::Git(stderr(&files)));
+        }
+        if files.stdout.is_empty() {
+            return Ok(());
+        }
         let output = self.git([
             "restore",
             "--source",

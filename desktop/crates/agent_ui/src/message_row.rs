@@ -126,7 +126,7 @@ mod tests {
     use gpui_kit::Hsla;
 
     #[test]
-    fn user_row_action_visibility_gates_on_busy_editing_and_checkpoint() {
+    fn user_row_action_visibility_gates_on_busy_editing_and_rewind_support() {
         assert_eq!(user_row_action_visibility(false, false, true), (true, true));
         assert_eq!(
             user_row_action_visibility(false, false, false),
@@ -378,10 +378,10 @@ pub fn render_error_row(spec: ErrorRowSpec) -> AnyElement {
 /// 带 window 的行内动作回调（编辑消息需要 window 聚焦输入框）。
 pub type WindowActionCallback = Box<dyn Fn(&mut Window, &mut App) + 'static>;
 
-/// user 行 hover 动作显隐（纯函数，可单测）：(编辑, 恢复检查点)。
-pub fn user_row_action_visibility(busy: bool, editing: bool, has_checkpoint: bool) -> (bool, bool) {
+/// user 行动作显隐：(编辑, 回退对话)。
+pub fn user_row_action_visibility(busy: bool, editing: bool, can_rewind: bool) -> (bool, bool) {
     let idle = !busy && !editing;
-    (idle, idle && has_checkpoint)
+    (idle, idle && can_rewind)
 }
 
 /// user 行：卡片 + mention 正文 slot + hover「编辑」/「恢复检查点」。
@@ -389,6 +389,8 @@ pub struct UserRowSpec {
     pub row_id: gpui_kit::SharedString,
     pub card_id: gpui_kit::SharedString,
     pub restore_id: gpui_kit::SharedString,
+    pub restore_label: SharedString,
+    pub restore_tooltip: SharedString,
     pub content: AnyElement,
     pub show_edit: bool,
     pub show_restore: bool,
@@ -402,6 +404,8 @@ pub fn render_user_row(spec: UserRowSpec) -> AnyElement {
         row_id,
         card_id,
         restore_id,
+        restore_label,
+        restore_tooltip,
         content,
         show_edit,
         show_restore,
@@ -442,8 +446,9 @@ pub fn render_user_row(spec: UserRowSpec) -> AnyElement {
         .children(show_restore.then(|| {
             div()
                 .id(restore_id)
+                .test_support()
                 .role(Role::Button)
-                .aria_label("恢复检查点")
+                .aria_label(restore_label.clone())
                 .flex()
                 .flex_row()
                 .items_center()
@@ -452,7 +457,11 @@ pub fn render_user_row(spec: UserRowSpec) -> AnyElement {
                 .text_size(px(10.0))
                 .text_color(style.ink_3)
                 .hover(|hovered| hovered.text_color(style.ink_2))
-                .child("⟲ 恢复检查点")
+                .child(format!("⟲ {restore_label}"))
+                .tooltip(move |window, cx| {
+                    gpui_kit::component::tooltip::Tooltip::new(restore_tooltip.clone())
+                        .build(window, cx)
+                })
                 .on_click(move |_, window, cx| on_restore(window, cx))
         }))
         .into_any_element()
