@@ -25,6 +25,12 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 - [Backend] 修复小程序「登录链接无效」：微信 URL Link 短链此前把 `cq=wl_<code>` 拼在短链 URL 的 query 上，而微信进小程序不转发 URL query，web-login 页拿不到 `requestId`；改为 `generate_urllink` 的 `path` 携带 `cq` 参数、动态参数走独立 `query` 字段，短链本身不再拼 query。
 
 
+## [扩展 v0.1.8] - 2026-10-29（补记）
+
+随 2026-10-29 的 develop→main 发布上线，明细见 [`openclacky-ext/cgc-2046/CHANGELOG.md`](openclacky-ext/cgc-2046/CHANGELOG.md)：
+
+- 新增 `cgc-quality-eval` skill（教研质检的判据化评审），随 `cgc-tutor` 挂载；原为 OMP 插件包内 skill，随 OMP 接入线下线迁入，宿主 API 措辞改为宿主无关。
+
 ## [2026-10-29]
 
 ### Added
