@@ -6,10 +6,12 @@
 GraphQL 返回 `Cannot query field`；客户端把无 code 的 GraphQL 错误映射成
 `LoginError::Network`，界面只显示「网络异常」，整个包登录不可用。
 
-做法：从 `crates/**/*.rs` 的 GraphQL 文档里提取顶层字段，逐个向端点发最小探测
-请求（`{ field { __typename } }`）。只有 `Cannot query field` / `Unknown field`
-判定为缺失；参数缺失、鉴权失败等错误说明字段存在。网络失败、响应不可解析
-一律 fail-closed。
+做法：从 `crates/**/*.rs` 的 GraphQL 文档里提取顶层字段，对每个顶层字段提交**完整
+文档**（保留嵌套选择集、变量定义与 fragment 定义），并在根选择集字段上加
+`@skip(if: true)`：服务端仍执行完整的 schema 校验，但不会调用 resolver，所以探测
+本身没有副作用（不会登录、下单、撤销 token）。只有 `Cannot query field` /
+`Unknown field` 判定为缺失——嵌套字段缺失同样会被这类校验错误暴露；变量校验失败、
+鉴权失败等错误只说明字段存在。网络失败、响应不可解析一律 fail-closed。
 
 用法：
   python3 scripts/check_release_schema.py              # 检查生产端点
@@ -36,6 +38,11 @@ RAW_STRING_RE = re.compile(r'r#"(.*?)"#', re.S)
 PLAIN_STRING_RE = re.compile(r'"((?:query|mutation)\s(?:[^"\\]|\\.)*)"', re.S)
 OPERATION_RE = re.compile(r"^\s*(query|mutation)\b")
 TEST_MODULE_RE = re.compile(r"#\[cfg\(test\)\]\s*mod\s+\w+\s*\{")
+VARIABLE_RE = re.compile(r"\$([A-Za-z_]\w*)\s*:\s*([\[\]!\w]+)")
+
+# 探测时给变量占位：标量给类型合法的值，其余（输入对象、枚举、列表）给 null。
+# null 触发的是变量校验错误，按既有语义仍判「字段存在」，不影响缺失判定。
+SCALAR_PLACEHOLDERS = {"Int": 0, "Float": 0.0, "String": "", "Boolean": True, "ID": "0"}
 
 
 def strip_test_modules(text):
@@ -69,10 +76,11 @@ def iter_documents():
             yield path, match.group(1)
 
 
-def find_selection_start(text):
-    """找 operation 选择集的第一个 `{`（跳过变量定义里的括号）。"""
+def find_selection_start(text, start=0):
+    """从 `start` 起找选择集的第一个 `{`（跳过变量定义里的括号与默认值）。"""
     parens = 0
-    for index, char in enumerate(text):
+    for index in range(start, len(text)):
+        char = text[index]
         if char == "(":
             parens += 1
         elif char == ")":
@@ -160,8 +168,107 @@ def top_level_fields(document):
     return ordered
 
 
+def operation_selection_start(document):
+    """返回操作选择集第一个 `{` 的位置（从操作关键字起找，避免跑到 fragment 定义里）。"""
+    match = OPERATION_RE.match(document)
+    return find_selection_start(document, match.start() if match else 0)
+
+
+def iter_root_fields(document):
+    """遍历操作选择集第一层的 (字段名, 插入指令的位置)：位置在字段参数之后、选择集之前。"""
+    index = operation_selection_start(document)
+    if index < 0:
+        return
+    depth = 0
+    while index < len(document):
+        char = document[index]
+        if char == "#":
+            while index < len(document) and document[index] != "\n":
+                index += 1
+            continue
+        if document.startswith("...", index):
+            # fragment spread / inline fragment：跳过 `... [on Type]`，其选择集交给 `{` 处理
+            index += 3
+            while index < len(document) and (document[index].isalnum() or document[index] == "_"):
+                index += 1
+            while index < len(document) and document[index] in " \t\r\n":
+                index += 1
+            if document.startswith("on", index) and index + 2 < len(document) and not (
+                document[index + 2].isalnum() or document[index + 2] == "_"
+            ):
+                index += 2
+                while index < len(document) and (document[index].isalnum() or document[index] == "_"):
+                    index += 1
+            continue
+        if char == "{":
+            depth += 1
+            index += 1
+            continue
+        if char == "}":
+            depth -= 1
+            index += 1
+            if depth == 0:
+                return
+            continue
+        if char == "(":
+            index = skip_parens(document, index)
+            continue
+        if depth == 1 and (char.isalpha() or char == "_"):
+            end = index
+            while end < len(document) and (document[end].isalnum() or document[end] == "_"):
+                end += 1
+            name = document[index:end]
+            insert = end
+            cursor = _skip_space(document, end)
+            if cursor < len(document) and document[cursor] == ":":
+                # alias: field —— 指令要加在真实字段的参数之后
+                cursor = _skip_space(document, cursor + 1)
+                field_end = cursor
+                while field_end < len(document) and (document[field_end].isalnum() or document[field_end] == "_"):
+                    field_end += 1
+                name = document[cursor:field_end]
+                insert = field_end
+                cursor = _skip_space(document, field_end)
+            if cursor < len(document) and document[cursor] == "(":
+                insert = cursor = skip_parens(document, cursor)
+            yield name, insert
+            index = cursor
+            continue
+        index += 1
+
+
+def _skip_space(text, index):
+    while index < len(text) and text[index] in " \t\r\n":
+        index += 1
+    return index
+
+
+def variable_placeholders(document):
+    """按操作变量定义生成占位变量：标量给类型合法的值，其余给 null。"""
+    match = OPERATION_RE.match(document)
+    start = operation_selection_start(document)
+    if not match or start < 0:
+        return {}
+    variables = {}
+    for name, type_text in VARIABLE_RE.findall(document[match.start():start]):
+        base = type_text.replace("[", "").replace("]", "").replace("!", "")
+        variables[name] = SCALAR_PLACEHOLDERS.get(base)
+    return variables
+
+
+def build_probe(document):
+    """返回 (探测用文档, 变量)：保留完整选择集与 fragment，根字段加 `@skip(if: true)`。"""
+    insertions = list(iter_root_fields(document))
+    if not insertions:
+        return None, {}
+    query = document
+    for _, position in sorted(insertions, key=lambda item: item[1], reverse=True):
+        query = query[:position] + " @skip(if: true)" + query[position:]
+    return query, variable_placeholders(document)
+
+
 def collect_fields():
-    """返回 {(operation, field): 首个出现的源码路径}。"""
+    """返回 {(operation, field): (首个出现的源码路径, 完整 document)}。"""
     found = {}
     for path, document in iter_documents():
         match = OPERATION_RE.match(document)
@@ -169,7 +276,7 @@ def collect_fields():
             continue
         operation = match.group(1)
         for field in top_level_fields(document):
-            found.setdefault((operation, field), path)
+            found.setdefault((operation, field), (path, document))
     return found
 
 
@@ -184,12 +291,18 @@ def endpoint_allowed(endpoint):
     return False
 
 
-def probe(endpoint, operation, field, timeout):
-    """返回 (状态, 说明)。状态：exists / missing / error。"""
-    query = f"{operation} {{ {field} {{ __typename }} }}"
+def probe(endpoint, document, timeout):
+    """返回 (状态, 说明)。状态：exists / missing / error。
+
+    提交完整文档（嵌套选择集、变量、fragment 都在），根字段用 `@skip(if: true)` 包住：
+    服务端照样做整份 schema 校验，但不会执行 resolver，因此嵌套字段缺失同样会被拦下。
+    """
+    query, variables = build_probe(document)
+    if query is None:
+        return "error", "无法定位操作选择集第一层字段，不能安全地加 @skip(if: true)（fail-closed）"
     request = urllib.request.Request(
         endpoint,
-        data=json.dumps({"query": query}).encode("utf-8"),
+        data=json.dumps({"query": query, "variables": variables}).encode("utf-8"),
         headers={"content-type": "application/json"},
         method="POST",
     )
@@ -218,13 +331,8 @@ def probe(endpoint, operation, field, timeout):
     errors = payload.get("errors") or []
     for item in errors:
         message = item.get("message", "") if isinstance(item, dict) else str(item)
-        if "Cannot query field" in message:
-            # `Cannot query field "__typename" on type "Boolean"` 是标量字段的正常
-            # 报错：字段本身存在，只是不能选子字段（如 revokeToken: Boolean）。
-            if message.startswith('Cannot query field "__typename"'):
-                return "exists", message
-            return "missing", message
-        if "Unknown field" in message:
+        # 字段校验错误（含嵌套字段）说明 schema 与本包不兼容；变量/鉴权/参数错误不算。
+        if "Cannot query field" in message or "Unknown field" in message:
             return "missing", message
     if errors:
         first = errors[0]
@@ -262,8 +370,8 @@ def run_check(endpoint, timeout):
     missing = []
     errors = []
     for operation, field in ordered:
-        path = fields[(operation, field)]
-        status, detail = probe(endpoint, operation, field, timeout)
+        path, document = fields[(operation, field)]
+        status, detail = probe(endpoint, document, timeout)
         if status == "missing":
             missing.append((operation, field, path, detail))
         elif status == "error":
@@ -328,24 +436,88 @@ def self_test():
 
     # P1（Codex review）：分类必须调用真实 `probe()`，而不是复制条件——
     # 否则把 probe 改成恒返回 exists，self-test 仍会绿。
+    # #1202：探测提交完整文档 + `@skip(if: true)`，嵌套字段缺失必须判 missing。
+    import contextlib
+    import io
+    import tempfile
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+    def squash(text):
+        return " ".join(text.split())
+
+    notification_document = (
+        "query NotificationFeed($first: Int!, $after: String) {\n"
+        "  notificationFeed(first: $first, after: $after) {\n"
+        "    count\n"
+        "    results { id type readAt title body targetType targetId }\n"
+        "  }\n"
+        "}"
+    )
+    probe_query, probe_variables = build_probe(notification_document)
+    expect(
+        "probe: full document + root @skip",
+        squash(probe_query),
+        squash(
+            "query NotificationFeed($first: Int!, $after: String) {\n"
+            "  notificationFeed(first: $first, after: $after) @skip(if: true) {\n"
+            "    count\n"
+            "    results { id type readAt title body targetType targetId }\n"
+            "  }\n"
+            "}"
+        ),
+    )
+    expect("probe: scalar placeholder variables", probe_variables, {"first": 0, "after": ""})
+    expect("probe: no synthetic __typename", "__typename" in probe_query, False)
+
+    scalar_document = "mutation RevokeToken {\n  revokeToken\n}"
+    expect(
+        "probe: scalar root field",
+        squash(build_probe(scalar_document)[0]),
+        squash("mutation RevokeToken { revokeToken @skip(if: true) }"),
+    )
+
+    fragment_document = (
+        "query GetCourse($id: ID!) {\n"
+        "  getCourse(id: $id) {\n"
+        "    ...CourseFields\n"
+        "  }\n"
+        "}\n\n"
+        "fragment CourseFields on Course { id title }"
+    )
+    expect(
+        "probe: keeps fragment definitions",
+        squash(build_probe(fragment_document)[0]),
+        squash(
+            "query GetCourse($id: ID!) { getCourse(id: $id) @skip(if: true) { ...CourseFields } }\n\n"
+            "fragment CourseFields on Course { id title }"
+        ),
+    )
+
     class ProbeHandler(BaseHTTPRequestHandler):
+        requests = []
+
         def do_POST(self):
             length = int(self.headers.get("content-length", 0))
             body = json.loads(self.rfile.read(length))
+            type(self).requests.append(body)
             query = body.get("query", "")
-            if "missing_field" in query:
-                self._reply(200, {"errors": [{"message": 'Cannot query field "missing_field" on type "RootQueryType".'}]})
-            elif "scalar_field" in query:
-                self._reply(200, {"errors": [{"message": 'Cannot query field "__typename" on type "Boolean".'}]})
+            if "targetType" in query:
+                self._reply(
+                    200,
+                    {"errors": [{"message": 'Cannot query field "targetType" on type "Notification".'}]},
+                )
+            elif "missing_root" in query:
+                self._reply(
+                    200,
+                    {"errors": [{"message": 'Cannot query field "missing_root" on type "RootQueryType".'}]},
+                )
             elif "server_error" in query:
                 self._reply(503, {"error": "service_unavailable"})
             elif "bad_envelope" in query:
                 self._reply(200, {"ok": True})
             else:
-                self._reply(200, {"data": {"__typename": "X"}})
+                self._reply(200, {"data": {"ok_field": None}})
 
         def _reply(self, code, payload):
             data = json.dumps(payload).encode()
@@ -365,15 +537,58 @@ def self_test():
     try:
         endpoint = f"http://127.0.0.1:{port}/api/graphql"
         probe_cases = [
-            ("exists", "ok_field", "exists"),
-            ("missing", "missing_field", "missing"),
-            ("scalar", "scalar_field", "exists"),
-            ("http 503", "server_error", "error"),
-            ("bad envelope", "bad_envelope", "error"),
+            ("exists", "query Ok($first: Int!) { ok_field(first: $first) { id } }", "exists"),
+            ("missing root field", "query MissingRoot { missing_root { id } }", "missing"),
+            ("nested field missing", notification_document, "missing"),
+            ("http 503", "query ServerError { server_error { id } }", "error"),
+            ("bad envelope", "query BadEnvelope { bad_envelope { id } }", "error"),
         ]
-        for name, field, expected in probe_cases:
-            status, _ = probe(endpoint, "query", field, 5)
+        for name, document, expected in probe_cases:
+            status, _ = probe(endpoint, document, 5)
             expect(f"probe: {name}", status, expected)
+
+        # 传输层断言：真实发出的请求带的是完整文档 + skip + 变量。
+        first_request = ProbeHandler.requests[0]
+        expect("probe: sends variables", first_request.get("variables"), {"first": 0})
+        expect("probe: request carries @skip", "@skip(if: true)" in first_request.get("query", ""), True)
+        expect("probe: request keeps nested selection", "ok_field(first: $first)" in first_request.get("query", ""), True)
+
+        # #1202 门禁级回归：root field 存在、嵌套字段缺失 → not compatible，非零退出。
+        notification_source = '''
+const NOTIFICATION_FEED_QUERY: &str = r#"
+query NotificationFeed($first: Int!, $after: String) {
+  notificationFeed(first: $first, after: $after) {
+    count
+    results { id type targetType targetId }
+  }
+}
+"#;
+'''
+        compatible_source = notification_source.replace(" targetType targetId", "")
+
+        def run_gate(source_text):
+            with tempfile.TemporaryDirectory() as tmp:
+                path = pathlib.Path(tmp, "crates", "platform", "src", "notifications.rs")
+                path.parent.mkdir(parents=True)
+                path.write_text(source_text, encoding="utf-8")
+                original_root = globals()["ROOT"]
+                globals()["ROOT"] = pathlib.Path(tmp)
+                out, err = io.StringIO(), io.StringIO()
+                try:
+                    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                        status = run_check(endpoint, 5)
+                finally:
+                    globals()["ROOT"] = original_root
+                return status, out.getvalue(), err.getvalue()
+
+        status, _, err = run_gate(notification_source)
+        expect("gate: nested field missing is not compatible", status, 1)
+        expect("gate: error names the nested field", "targetType" in err, True)
+        expect("gate: blocks the release", "禁止出包" in err, True)
+
+        status, out, _ = run_gate(compatible_source)
+        expect("gate: compatible document passes", status, 0)
+        expect("gate: reports field exists", "✓ 1 个字段全部存在于" in out, True)
     finally:
         server.shutdown()
         server.server_close()
