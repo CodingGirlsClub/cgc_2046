@@ -6,7 +6,7 @@
  * 管理 MCP 连接 token（客户端调 /mcp 的 Bearer 凭证，绑用户不绑工作区，D13）：
  * - token 列表（名称/签发时间/最近使用/状态）+ 签发 + 两步确认撤销
  * - 签发行（表单 + 一次性明文，D-D4：库中只存 hash，离开此页不可找回）
- *   为共享组件 McpTokenIssuePanel（首公里向导复用同一签出面）
+ *   为共享组件 McpTokenIssuePanel
  * - 空状态提示引导到 OpenClacky 页（接入引导）
  */
 

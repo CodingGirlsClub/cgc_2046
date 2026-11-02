@@ -4,9 +4,7 @@
  * MCP 连接 token 签发行（单一内容源，plan 2026-08-22 first-mile-onboarding U4）。
  *
  * 从 agents/mcp 页抽取：「签发新 token」按钮 + 签发表单 + 一次性明文横幅。
- * 消费方：
- * - agents/mcp 页：onIssued 把新 token 插入列表；「我已保存」仅关横幅；
- * - 首公里向导（onboarding-wizard.tsx）：onSaved 作两段式完成判定的第一段。
+ * 消费方：agents/mcp 页——onIssued 把新 token 插入列表；「我已保存」仅关横幅。
  *
  * 错误一律内联 role="alert"（members-error 模式），不引全局 toast。
  */
@@ -19,15 +17,9 @@ import { Icon } from "@/components/icons";
 
 export default function McpTokenIssuePanel({
 	onIssued,
-	onSaved,
-	hostName,
 }: {
 	/** 签发成功回调（列表侧插入新 token 用；明文横幅由本组件自闭环） */
 	onIssued?: (token: McpTokenItem) => void;
-	/** 「我已保存」确认回调（向导完成判定用；横幅总会关闭） */
-	onSaved?: () => void;
-	/** 已选宿主显示名（向导传入）：备注 placeholder 给出「设备 · 宿主」命名建议 */
-	hostName?: string;
 }) {
 	const t = useTranslations("workspaceMcp");
 	const labelsT = useTranslations();
@@ -118,7 +110,6 @@ export default function McpTokenIssuePanel({
 							className="join-button join-button--ghost"
 							onClick={() => {
 								setFreshToken(null);
-								onSaved?.();
 							}}
 						>
 							{t("savedConfirm")}
@@ -142,11 +133,7 @@ export default function McpTokenIssuePanel({
 							<input
 								type="text"
 								className="join-input"
-								placeholder={
-									hostName
-										? t("namePlaceholderWithHost", { host: hostName })
-										: t("namePlaceholder")
-								}
+								placeholder={t("namePlaceholder")}
 								value={formName}
 								onChange={(e) => setFormName(e.target.value)}
 								disabled={formSubmitting}

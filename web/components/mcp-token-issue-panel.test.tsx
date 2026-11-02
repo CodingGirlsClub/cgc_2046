@@ -172,15 +172,7 @@ describe("McpTokenIssuePanel 明文复制", () => {
 });
 
 describe("McpTokenIssuePanel 备注命名建议", () => {
-	it("传入 hostName（向导）：placeholder 带出已选宿主名", () => {
-		render(<McpTokenIssuePanel hostName="OpenClacky" />);
-		fireEvent.click(screen.getByRole("button", { name: "签发新 token" }));
-		expect(
-			screen.getByPlaceholderText("如：我的 MacBook · OpenClacky"),
-		).toBeInTheDocument();
-	});
-
-	it("不传 hostName（mcp 管理页）：placeholder 保持通用文案", () => {
+	it("placeholder 保持通用文案", () => {
 		render(<McpTokenIssuePanel />);
 		fireEvent.click(screen.getByRole("button", { name: "签发新 token" }));
 		expect(screen.getByPlaceholderText("如：我的 Mac")).toBeInTheDocument();
