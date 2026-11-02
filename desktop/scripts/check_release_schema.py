@@ -106,65 +106,13 @@ def skip_parens(text, index):
 
 def top_level_fields(document):
     """返回选择集第一层的字段名（不取嵌套字段、参数名和 `__typename`）。"""
-    text = re.sub(r"#[^\n]*", "", document)
-    start = find_selection_start(text)
-    if start < 0:
-        return []
-    fields = []
-    index = start
-    depth = 0
-    while index < len(text):
-        char = text[index]
-        if text.startswith("...", index):
-            # fragment spread / inline fragment：跳过 `... [on Type]`，其选择集交给 `{` 处理
-            index += 3
-            while index < len(text) and (text[index].isalnum() or text[index] in "_ \t\r\n"):
-                index += 1
-            continue
-        if char == "{":
-            depth += 1
-            index += 1
-            continue
-        if char == "}":
-            depth -= 1
-            index += 1
-            if depth == 0:
-                break
-            continue
-        if char == "(" and depth >= 1:
-            index = skip_parens(text, index)
-            continue
-        if depth == 1 and (char.isalpha() or char == "_"):
-            end = index
-            while end < len(text) and (text[end].isalnum() or text[end] == "_"):
-                end += 1
-            word = text[index:end]
-            lookahead = end
-            while lookahead < len(text) and text[lookahead].isspace():
-                lookahead += 1
-            if lookahead < len(text) and text[lookahead] == ":":
-                # alias: field
-                lookahead += 1
-                while lookahead < len(text) and text[lookahead].isspace():
-                    lookahead += 1
-                field_end = lookahead
-                while field_end < len(text) and (text[field_end].isalnum() or text[field_end] == "_"):
-                    field_end += 1
-                fields.append(text[lookahead:field_end])
-                index = field_end
-                continue
-            if word not in {"on", "true", "false", "null"} and not word.startswith("__"):
-                fields.append(word)
-            index = end
-            continue
-        index += 1
-
     seen = set()
     ordered = []
-    for field in fields:
-        if field and field not in seen:
-            seen.add(field)
-            ordered.append(field)
+    for field, _ in iter_root_fields(document):
+        if not field or field in seen or field.startswith("__") or field in {"on", "true", "false", "null"}:
+            continue
+        seen.add(field)
+        ordered.append(field)
     return ordered
 
 
