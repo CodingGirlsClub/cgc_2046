@@ -447,7 +447,7 @@ pub(crate) fn draft_for_entry(
 }
 
 #[cfg(all(test, cgc_ui_tests))]
-mod ui_tests;
+pub(crate) mod ui_tests;
 
 #[cfg(test)]
 mod tests {

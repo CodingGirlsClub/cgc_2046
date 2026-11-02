@@ -191,22 +191,6 @@ pub(crate) fn message_menu_payloads(
     }
 }
 
-/// native 主题 → 共享消息行样式。
-pub(crate) fn native_composer_style(
-    palette: theme::Palette,
-) -> cgc_agent_ui::composer::ComposerStyle {
-    cgc_agent_ui::composer::ComposerStyle {
-        view: palette.view,
-        line: palette.line,
-        accent: palette.accent,
-        danger: palette.danger,
-        canvas: palette.canvas,
-        radius: RADIUS_MEDIUM,
-        padding: 4.0,
-        gap: 1.0,
-    }
-}
-
 /// P8：native 主题 → 共享 message_row 的行调色板（共享层不依赖 app theme）。
 pub(crate) fn native_row_palette(palette: &theme::Palette) -> RowPalette {
     RowPalette {

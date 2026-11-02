@@ -1,10 +1,3 @@
-//! 双栈共用的 composer 骨架（Stage 2e）。
-//!
-//! 只共享与视图模型无关的部分：输入卡容器（圆角/边框/focus 高亮/背景）、
-//! footer 行（左侧控件 slot + 右侧发送/停止按钮）。两栈把 textarea/fallback、
-//! footer 控件（picker/附件/usage）与发送/停止回调作为 slot 注入；原生差异
-//! （queue/steer、审批模式、图片）留在各自 adapter。
-
 use gpui_kit::InteractiveElement as _;
 use gpui_kit::*;
 
@@ -17,8 +10,6 @@ pub struct ComposerStyle {
     pub danger: Hsla,
     pub canvas: Hsla,
     pub radius: f32,
-    pub padding: f32,
-    pub gap: f32,
 }
 
 /// 发送/停止回调（需要 window 聚焦输入框等）。
@@ -54,8 +45,8 @@ pub fn composer_card(
         .id(id.into())
         .flex()
         .flex_col()
-        .gap(px(style.gap))
-        .p(px(style.padding))
+        .gap(px(4.0))
+        .p(px(4.0))
         .rounded(px(style.radius))
         .border_1()
         .border_color(if focused { style.accent } else { style.line })
@@ -63,13 +54,13 @@ pub fn composer_card(
 }
 
 /// composer footer 行容器（左控件 + 右侧发送/停止，允许换行）。
-pub fn composer_footer(style: ComposerStyle) -> gpui_kit::Div {
+pub fn composer_footer() -> gpui_kit::Div {
     div()
         .flex()
         .flex_row()
         .flex_wrap()
         .items_center()
-        .gap(px(style.gap))
+        .gap(px(4.0))
         .w_full()
         .min_w(px(0.0))
 }
@@ -95,53 +86,35 @@ pub fn render_composer(spec: ComposerSpec) -> AnyElement {
     } else {
         style.accent
     };
-    div()
-        .id(card_id)
-        .flex()
-        .flex_col()
-        .gap(px(style.gap))
-        .p(px(style.padding))
-        .rounded(px(style.radius))
-        .border_1()
-        .border_color(if focused { style.accent } else { style.line })
-        .bg(style.view)
+    composer_card(card_id, focused, style)
         .child(input)
         .child(
-            div()
-                .flex()
-                .flex_row()
-                .flex_wrap()
-                .items_center()
-                .gap(px(style.gap))
-                .w_full()
-                .min_w(px(0.0))
-                .children(footer)
-                .child(
-                    div()
-                        .id("composer-send")
-                        .role(Role::Button)
-                        .aria_label(if streaming {
-                            stop_aria.clone()
+            composer_footer().children(footer).child(
+                div()
+                    .id("composer-send")
+                    .role(Role::Button)
+                    .aria_label(if streaming {
+                        stop_aria.clone()
+                    } else {
+                        send_aria.clone()
+                    })
+                    .size(px(24.0))
+                    .rounded(px(style.radius))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .ml_auto()
+                    .bg(button_bg)
+                    .text_color(style.canvas)
+                    .child(if streaming { stop_glyph } else { send_glyph })
+                    .on_click(move |_, window, cx| {
+                        if streaming {
+                            on_stop(window, cx);
                         } else {
-                            send_aria.clone()
-                        })
-                        .size(px(24.0))
-                        .rounded(px(style.radius))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .ml_auto()
-                        .bg(button_bg)
-                        .text_color(style.canvas)
-                        .child(if streaming { stop_glyph } else { send_glyph })
-                        .on_click(move |_, window, cx| {
-                            if streaming {
-                                on_stop(window, cx);
-                            } else {
-                                on_send(window, cx);
-                            }
-                        }),
-                ),
+                            on_send(window, cx);
+                        }
+                    }),
+            ),
         )
         .into_any_element()
 }
@@ -155,9 +128,6 @@ pub struct SendButtonSpec {
     pub bg: Hsla,
     pub fg: Hsla,
     pub radius: f32,
-    pub padding_x: f32,
-    pub padding_y: f32,
-    pub text_size: f32,
     pub ml_auto: bool,
     pub on_click: ComposerAction,
 }
@@ -171,22 +141,20 @@ pub fn render_send_button(spec: SendButtonSpec) -> AnyElement {
         bg,
         fg,
         radius,
-        padding_x,
-        padding_y,
-        text_size,
         ml_auto,
         on_click,
     } = spec;
     let mut button = div()
         .id(id)
+        .test_support()
         .role(Role::Button)
         .aria_label(aria)
-        .px(px(padding_x))
-        .py(px(padding_y))
+        .size(px(24.0))
+        .flex_shrink_0()
         .rounded(px(radius))
         .bg(bg)
         .text_color(fg)
-        .text_size(px(text_size))
+        .text_size(px(12.0))
         .flex()
         .items_center()
         .justify_center();
@@ -216,11 +184,8 @@ mod tests {
             danger: Hsla::default(),
             canvas: Hsla::default(),
             radius: 6.0,
-            padding: 4.0,
-            gap: 4.0,
         };
         let copied = style;
         assert_eq!(copied.radius, 6.0);
-        assert_eq!(copied.padding, 4.0);
     }
 }

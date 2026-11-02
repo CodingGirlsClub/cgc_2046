@@ -109,10 +109,12 @@ impl NativeAgentView {
                 )
         });
         let element = div()
+            .id("native-slash-popup")
+            .test_support()
             .absolute()
             .left(space(1))
             .right(space(1))
-            .bottom(px(132.0))
+            .bottom(relative(1.0))
             .flex()
             .flex_row()
             .items_start()

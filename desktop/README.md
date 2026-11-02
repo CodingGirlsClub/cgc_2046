@@ -38,7 +38,7 @@
   渲染/输入/会话/运行时拆到同目录 12 个子模块（`panel`、`composer`、`rows`、`turn`、`panels`、
   `session`、`input`、`runtime_ops`、`render`、`widgets`、`state`、`tests`）。
   子模块可访问父模块私有字段，未放宽可见性。
-- `CGC_NATIVE_SHARED_VIEW` 已移除；composer 只有一条渲染路径。
+- Native 与 external ACP 的输入区共用 `agent_ui::message_editor::MessageEditor`，统一状态创建、4～8 行自动增高、可换行 placeholder 和 inline token 回调；卡片留白与发送按钮尺寸由共享 composer 管理。每个会话保留独立草稿和发送/审批/queue/steer 处理。`CGC_NATIVE_SHARED_VIEW` 已移除。
 - `native_thread_state.rs` 已删除，状态类型在 `native_agent_view::state`，对外重新导出为
   `native_agent_view::NativeThreadState`。
 

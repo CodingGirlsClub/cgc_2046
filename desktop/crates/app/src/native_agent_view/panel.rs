@@ -35,7 +35,7 @@ impl NativeAgentView {
             events = runtime_for_events.subscribe();
         })
         .detach();
-        let input = cx.new(|cx| TextareaState::new(window, cx).auto_grow(4, 20));
+        let input = cx.new(|cx| cgc_agent_ui::message_editor::MessageEditor::new_state(window, cx));
         // Textarea 把 up/down 绑定成 MoveUp/MoveDown，在 action 阶段消费；
         // 用 keystroke interceptor 在 action dispatch 之前接管菜单导航。
         let interceptor_weak = cx.entity().downgrade();
@@ -77,6 +77,10 @@ impl NativeAgentView {
             &input,
             window,
             |this, _state, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::Focus | InputEvent::Blur) {
+                    cx.notify();
+                    return;
+                }
                 if let InputEvent::Change = event {
                     let content = this.input.read(cx).content();
                     let value = content.text().to_string();

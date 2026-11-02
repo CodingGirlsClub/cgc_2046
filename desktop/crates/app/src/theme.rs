@@ -195,6 +195,19 @@ pub struct Palette {
     pub danger: Hsla,
 }
 
+impl Palette {
+    pub(crate) fn composer_style(self) -> cgc_agent_ui::composer::ComposerStyle {
+        cgc_agent_ui::composer::ComposerStyle {
+            view: self.view,
+            line: self.line,
+            accent: self.accent,
+            danger: self.danger,
+            canvas: self.canvas,
+            radius: RADIUS_MEDIUM,
+        }
+    }
+}
+
 /// 间距刻度：web 的 `globals.css` 没有 spacing token，实际用的是 Tailwind 默认
 /// 4px 基准（`p-1`=4、`p-2`=8、`p-3`=12、`p-4`=16、`p-6`=24、`p-8`=32）。
 pub const SPACING: [f32; 7] = [4.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0];

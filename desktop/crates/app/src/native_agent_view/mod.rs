@@ -16,7 +16,7 @@ use cgc_platform::acp::connection::{AcpHost, AcpHostConfig, HostEvent};
 use futures::StreamExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::hover_card::HoverCard;
-use gpui_kit::component::input::{InputContent, InputEvent, Textarea, TextareaState};
+use gpui_kit::component::input::{InputContent, InputEvent, TextareaState};
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu};
 use gpui_kit::component::message_scroller::{MessageScroller, MessageScrollerState};
 use gpui_kit::component::popover::Popover;
@@ -126,7 +126,6 @@ struct ComposerDraft {
     usage: u64,
     model_supports_images: bool,
     input: Entity<TextareaState>,
-    input_focus: gpui_kit::FocusHandle,
     input_value: String,
 }
 
@@ -148,7 +147,6 @@ impl NativeAgentView {
             usage: self.state.usage_total.total(),
             model_supports_images: self.model_supports_images(),
             input: self.input.clone(),
-            input_focus: self.input.read(cx).focus_handle(cx).clone(),
             input_value,
         }
     }
@@ -329,3 +327,6 @@ pub struct NativeAgentView {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, cgc_ui_tests))]
+mod editor_tests;
