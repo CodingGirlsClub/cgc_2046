@@ -94,7 +94,7 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
       assert payload["is_platform_admin"] == false
     end
 
-    test "description 透出：无值为 nil，超 160 字截断并给原文长度（#1226）" do
+    test "description 透出：无值为 nil，超 160 字截断（总长 ≤160，含 …）并给原文长度（#1226）" do
       admin = Fixtures.platform_admin("rw-desc-admin")
       plain = Fixtures.create_workspace(admin, %{name: "Plain WS"})
 
@@ -112,7 +112,9 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
       assert plain_row["description"] == nil
       assert plain_row["description_length"] == nil
 
-      assert verbose_row["description"] == String.duplicate("乙", 160) <> "…"
+      # AC10：截断后总长 ≤160（含省略号）→ 前 159 字 + "…"
+      assert verbose_row["description"] == String.duplicate("乙", 159) <> "…"
+      assert String.length(verbose_row["description"]) == 160
       assert verbose_row["description_length"] == 200
     end
   end
