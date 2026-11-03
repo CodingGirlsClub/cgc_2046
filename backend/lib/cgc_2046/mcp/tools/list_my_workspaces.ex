@@ -32,8 +32,10 @@ defmodule Cgc2046.Mcp.Tools.ListMyWorkspaces do
     列出当前用户加入的全部工作台，以及在每个工作台的角色。无参数。开始工作前先调用本工具，让用户
     按名称选择工作台；后续工具需要的 workspace_id 一律取自这里的返回，不要向用户索要。
 
-    返回 workspaces（按名称排序；每项 workspace_id / name / slug / roles，roles 是该工作台内的
-    角色名列表）+ is_platform_admin（为 true 时用户可以进入平台管理模式）。
+    返回 workspaces（按名称排序；每项 workspace_id / name / slug / description / description_length /
+    roles，roles 是该工作台内的角色名列表；description 超过 160 字会被截断并以 … 结尾，
+    description_length 是原文长度，便于判断是否需要另取全文）+ is_platform_admin（为 true 时用户
+    可以进入平台管理模式）。
     """
   end
 
@@ -86,8 +88,27 @@ defmodule Cgc2046.Mcp.Tools.ListMyWorkspaces do
           workspace_id: workspace.id,
           name: workspace.name,
           slug: workspace.slug,
+          description: truncate_description(workspace.description),
+          description_length: description_length(workspace.description),
           roles: Enum.map(membership.roles, &to_string(&1.name))
         }
     end
   end
+
+  # 多台 × 长简介会放大 agent 首轮上下文：列表面只给截断预览，全文走
+  # get_workspace_context（#1226）。
+  @description_preview_chars 160
+
+  defp truncate_description(nil), do: nil
+
+  defp truncate_description(text) when is_binary(text) do
+    if String.length(text) > @description_preview_chars do
+      String.slice(text, 0, @description_preview_chars) <> "…"
+    else
+      text
+    end
+  end
+
+  defp description_length(nil), do: nil
+  defp description_length(text) when is_binary(text), do: String.length(text)
 end

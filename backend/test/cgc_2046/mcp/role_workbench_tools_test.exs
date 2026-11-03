@@ -93,6 +93,28 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
       assert payload["workspaces"] == []
       assert payload["is_platform_admin"] == false
     end
+
+    test "description 透出：无值为 nil，超 160 字截断并给原文长度（#1226）" do
+      admin = Fixtures.platform_admin("rw-desc-admin")
+      plain = Fixtures.create_workspace(admin, %{name: "Plain WS"})
+
+      long = String.duplicate("乙", 200)
+
+      verbose =
+        Fixtures.create_workspace(admin, %{name: "Verbose WS", description: long})
+
+      assert {:reply, _, _} = reply = ListMyWorkspaces.execute(%{}, frame_for(admin))
+      payload = decode_reply(reply)
+
+      plain_row = Enum.find(payload["workspaces"], &(&1["workspace_id"] == plain.id))
+      verbose_row = Enum.find(payload["workspaces"], &(&1["workspace_id"] == verbose.id))
+
+      assert plain_row["description"] == nil
+      assert plain_row["description_length"] == nil
+
+      assert verbose_row["description"] == String.duplicate("乙", 160) <> "…"
+      assert verbose_row["description_length"] == 200
+    end
   end
 
   describe "get_role_playbook" do
@@ -358,8 +380,11 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
       assert payload["content"] =~ "order_kind"
       assert payload["content"] =~ "摘要写明押金单/报名单"
 
-      # #511 bump:batch_create_events 条目 + 确认流纪律句更新
-      assert payload["version"] == "2026-10-03.1"
+      # #1226：工作台简介工具入 playbook 工作面清单
+      assert payload["content"] =~ "update_workspace_description"
+
+      # #511 bump:batch_create_events 条目 + 确认流纪律句更新；#1226 bump:工作台简介工具
+      assert payload["version"] == "2026-11-03.1"
     end
 
     test "platform_admin：非管理员拒绝；平台管理员可取（无需 workspace_id）" do

@@ -274,6 +274,7 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
       assert row["applicant"]["id"] == applicant.id
       assert row["applicant"]["email"] == to_string(applicant.email)
       assert Map.has_key?(row, "approval_deadline")
+      assert Map.has_key?(row, "description")
 
       {:reply, _, _} =
         rejected_reply =
@@ -693,6 +694,39 @@ defmodule Cgc2046.Mcp.PlatformAdminToolsTest do
 
       [action_log] = admin_action_logs(:workspace_create, workspace.id)
       assert action_log.actor_id == admin.id
+    end
+
+    test "description 入参：pending 存归一后的值，confirm 落库并回执（#1226）" do
+      admin = Fixtures.platform_admin("pa-cwd-admin")
+      owner = Fixtures.register_user("pa-cwd-owner")
+
+      {:reply, _, _} =
+        reply =
+        AdminCreateWorkspace.execute(
+          %{
+            "name" => "带简介工作台",
+            "slug" => "pa-cw-desc",
+            "owner_user_id" => owner.id,
+            "description" => "  面向本地学习者  "
+          },
+          frame_for(admin)
+        )
+
+      payload = decode_reply(reply)
+      assert payload["status"] == "needs_confirmation"
+      # 摘要只报长度，不复制正文
+      assert payload["summary"] =~ "简介 7 字"
+
+      [pending] = pendings_of(admin.id)
+      assert pending.params["description"] == "面向本地学习者"
+
+      {:reply, _, _} =
+        confirm_reply =
+        ConfirmOperation.execute(%{"pending_id" => payload["pending_id"]}, frame_for(admin))
+
+      confirmed = decode_reply(confirm_reply)
+      assert confirmed["result"]["description"] == "面向本地学习者"
+      assert workspace_by_slug("pa-cw-desc").description == "面向本地学习者"
     end
 
     test "owner_email 路径：confirm 建 pending-owner workspace + token 一次性返回" do
