@@ -168,7 +168,18 @@ jobs:
           if ($proc.ExitCode -ne 0) { throw "msiexec /a 失败，exit=$($proc.ExitCode)" }
           $exe = Get-ChildItem -Path $stage -Recurse -Filter "cgc-desktop-app.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $exe) { throw "administrative install 后找不到 cgc-desktop-app.exe（MSI 布局与预期不符）" }
-          Write-Host "staged exe: $($exe.FullName)"
+          # administrative install 会按 MSI 的 Program Files 布局还原，exe 落在
+          # PFiles/<程序名>/ 下；这里把它提到包根，用户解压后第一眼就能看到。
+          # 同目录若有 DLL/资源，一并搬走以保持相对关系。
+          $appDir = Split-Path -Parent $exe.FullName
+          Get-ChildItem -Path $appDir -Force | Move-Item -Destination $stage -Force
+          Get-ChildItem -Path $stage -Directory -Filter "PFiles" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+          # administrative install 会把 msi 自身复制进目标目录，去掉它（便携包不需要安装器）。
+          Get-ChildItem -Path $stage -Filter *.msi -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force
+          if (-not (Test-Path (Join-Path $stage "cgc-desktop-app.exe"))) {
+            throw "FAIL: exe 未落到包根（用户解压后会看不到）"
+          }
+          Write-Host "staged exe: $(Join-Path $stage 'cgc-desktop-app.exe')"
           Copy-Item scripts/register-protocol.ps1 -Destination (Join-Path $stage "register-protocol.ps1") -Force
           Compress-Archive -Path (Join-Path $stage "*") -DestinationPath "dist/cgc2046-windows-portable.zip" -Force
           Remove-Item $msi.FullName -Force

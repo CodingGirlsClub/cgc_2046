@@ -27,8 +27,16 @@ New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
   Expand-Archive -Path $zip.FullName -DestinationPath $tmp -Force
 
-  $exe = Get-ChildItem -Path $tmp -Recurse -Filter "cgc-desktop-app.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-  if (-not $exe) { throw "解压后找不到 cgc-desktop-app.exe" }
+  # 必须在包根：用户按发布说明「解压后双击 cgc-desktop-app.exe」，递归找会掩盖
+  # 「exe 埋在 PFiles/<程序名>/ 里」这种解压后看不到的问题。
+  $exePath = Join-Path $tmp "cgc-desktop-app.exe"
+  if (-not (Test-Path $exePath)) {
+    throw "FAIL: cgc-desktop-app.exe 不在包根（解压后应直接看到它，实际顶层：$((Get-ChildItem $tmp | Select-Object -First 5 | ForEach-Object Name) -join ', ')）"
+  }
+  $exe = Get-Item $exePath
+  # 便携包里不该出现 msi：administrative install 会把它复制进目标目录，混进来会让用户困惑。
+  $strayMsi = Get-ChildItem -Path $tmp -Filter *.msi -Recurse -ErrorAction SilentlyContinue
+  if ($strayMsi) { throw "FAIL: 便携包里混入 msi（$($strayMsi[0].Name)）" }
 
   # 端点断言（fail-closed）：Bearer token / 登录密码 / MCP lease token 都走这条通道，
   # 端点必须指向官方域。官方域是 codingirlsclub.com（曾拼错成 codinggirlsclub.com）。
