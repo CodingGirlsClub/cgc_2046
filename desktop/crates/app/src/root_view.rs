@@ -1063,7 +1063,11 @@ impl Render for RootView {
                                 .flex_row()
                                 .min_h(px(0.0))
                                 .children(self.history_sidebar.is_some().then(|| {
-                                    self.render_history_sidebar(window, cx)
+                                    self.render_history_sidebar(
+                                        crate::preferences::PanelSide::Left,
+                                        window,
+                                        cx,
+                                    )
                                 }))
                                 .children(self.agent_panel_open.then(|| {
                                     screens::render_agent_panel(
@@ -1159,7 +1163,11 @@ impl Render for RootView {
                                     )
                                 }))
                                 .children(self.history_sidebar.is_some().then(|| {
-                                    self.render_history_sidebar(window, cx)
+                                    self.render_history_sidebar(
+                                        crate::preferences::PanelSide::Right,
+                                        window,
+                                        cx,
+                                    )
                                 }))
                                 .into_any_element()
                         });
@@ -1412,15 +1420,17 @@ impl RootView {
             return;
         }
         let available = (viewport - 320.0).max(500.0);
+        let agent_min = *crate::preferences::AGENT_PANEL_WIDTH_RANGE.start() as f32;
+        let dock_min = *crate::preferences::DOCK_WIDTH_RANGE.start() as f32;
         let mut excess = self.agent_panel_width + self.right_panel_width - available;
         if excess <= 0.0 {
             return;
         }
-        let right_shrink = (self.right_panel_width - 240.0).max(0.0).min(excess);
+        let right_shrink = (self.right_panel_width - dock_min).max(0.0).min(excess);
         self.right_panel_width -= right_shrink;
         excess -= right_shrink;
         if excess > 0.0 {
-            let agent_shrink = (self.agent_panel_width - 260.0).max(0.0).min(excess);
+            let agent_shrink = (self.agent_panel_width - agent_min).max(0.0).min(excess);
             self.agent_panel_width -= agent_shrink;
         }
     }
@@ -2116,42 +2126,50 @@ impl RootView {
         );
         let mut left_items: Vec<AnyElement> = Vec::new();
         let mut right_items: Vec<AnyElement> = Vec::new();
+        let mut left_agent_items: Vec<AnyElement> = Vec::new();
+        let mut right_agent_items: Vec<AnyElement> = Vec::new();
         if self.agent_panel_side == crate::preferences::PanelSide::Left {
             if let Some(item) = history_toggle
                 .filter(|_| self.display_preferences.status_bar_history_button)
             {
-                left_items.push(item);
+                left_agent_items.push(item);
             }
             if let Some(item) = agent_toggle.filter(|_| self.display_preferences.agent_panel_button)
             {
-                left_items.push(item);
+                left_agent_items.push(item);
             }
         } else {
             if let Some(item) = agent_toggle.filter(|_| self.display_preferences.agent_panel_button)
             {
-                right_items.push(item);
+                right_agent_items.push(item);
             }
             if let Some(item) = history_toggle
                 .filter(|_| self.display_preferences.status_bar_history_button)
             {
-                right_items.push(item);
+                right_agent_items.push(item);
             }
         }
+        let mut left_dock_items: Vec<AnyElement> = Vec::new();
+        let mut right_dock_items: Vec<AnyElement> = Vec::new();
         if self.dock_side == crate::preferences::PanelSide::Left {
             if self.display_preferences.dock_navigation_button {
-                left_items.push(site_tree_toggle);
+                left_dock_items.push(site_tree_toggle);
             }
             if self.display_preferences.dock_outline_button {
-                left_items.push(outline_toggle);
+                left_dock_items.push(outline_toggle);
             }
         } else {
             if self.display_preferences.dock_navigation_button {
-                right_items.push(site_tree_toggle);
+                right_dock_items.push(site_tree_toggle);
             }
             if self.display_preferences.dock_outline_button {
-                right_items.push(outline_toggle);
+                right_dock_items.push(outline_toggle);
             }
         }
+        left_items.extend(left_agent_items);
+        left_items.extend(left_dock_items);
+        right_items.extend(right_dock_items);
+        right_items.extend(right_agent_items);
         div()
             .id("status-bar")
             .role(Role::Toolbar)
@@ -2699,12 +2717,14 @@ fn render_panel_resize_handle(
                     ResizeSide::Right => this.agent_panel_width,
                 };
                 let max = (viewport - other - 320.0).max(260.0);
+                let agent_min = *crate::preferences::AGENT_PANEL_WIDTH_RANGE.start() as f32;
+                let dock_min = *crate::preferences::DOCK_WIDTH_RANGE.start() as f32;
                 match side {
                     ResizeSide::Left => {
-                        this.agent_panel_width = (start_width + delta).clamp(260.0, max)
+                        this.agent_panel_width = (start_width + delta).clamp(agent_min, max)
                     }
                     ResizeSide::Right => {
-                        this.right_panel_width = (start_width + delta).clamp(240.0, max)
+                        this.right_panel_width = (start_width + delta).clamp(dock_min, max)
                     }
                 }
                 cx.spawn(async move |this, cx| {

@@ -876,7 +876,7 @@ impl SettingsWindowView {
                     step: 20.0,
                 },
                 |_cx: &App| preferences::load().agent_panel_width,
-                save_display_preference(root.clone(), |prefs, value: f64| {
+                save_display_width(root.clone(), |prefs, value: f64| {
                     prefs.agent_panel_width = value.clamp(240.0, 560.0);
                 }),
             ),
@@ -921,7 +921,7 @@ impl SettingsWindowView {
                     step: 16.0,
                 },
                 |_cx: &App| preferences::load().dock_width,
-                save_display_preference(root.clone(), |prefs, value: f64| {
+                save_display_width(root.clone(), |prefs, value: f64| {
                     prefs.dock_width = value.clamp(200.0, 480.0);
                 }),
             ),
@@ -1515,7 +1515,7 @@ impl SettingsWindowView {
     }
 }
 
-/// 保存显示偏好后刷新主窗口快照，使开关与宽度立即生效。
+/// 保存显示偏好后刷新主窗口快照；不改当前窗口宽度。
 fn save_display_preference<T, U>(
     root: WeakEntity<crate::root_view::RootView>,
     update: U,
@@ -1528,7 +1528,20 @@ where
         let mut prefs = preferences::load();
         update(&mut prefs, value);
         preferences::save(prefs);
-        let _ = root.update(cx, |view, cx| view.apply_display_preferences(cx));
+        let _ = root.update(cx, |view, cx| view.apply_display_snapshot(cx));
+    }
+}
+
+/// 保存默认宽度后刷新快照并应用宽度。
+fn save_display_width(
+    root: WeakEntity<crate::root_view::RootView>,
+    update: impl Fn(&mut preferences::Preferences, f64) + 'static,
+) -> impl Fn(f64, &mut App) + 'static {
+    move |value: f64, cx: &mut App| {
+        let mut prefs = preferences::load();
+        update(&mut prefs, value);
+        preferences::save(prefs);
+        let _ = root.update(cx, |view, cx| view.apply_panel_widths(cx));
     }
 }
 

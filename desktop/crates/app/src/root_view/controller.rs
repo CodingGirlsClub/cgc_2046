@@ -3127,8 +3127,17 @@ impl RootView {
         cx.notify();
     }
 
-    /// 设置窗口保存后调用：刷新偏好快照，并让宽度立即应用。
-    pub(crate) fn apply_display_preferences(&mut self, cx: &mut Context<Self>) {
+    /// 刷新显示偏好快照与停靠侧；不动当前窗口宽度。
+    pub(crate) fn apply_display_snapshot(&mut self, cx: &mut Context<Self>) {
+        let preferences = crate::preferences::load();
+        self.agent_panel_side = preferences.agent_panel_side;
+        self.dock_side = preferences.dock_side;
+        self.display_preferences = preferences;
+        cx.notify();
+    }
+
+    /// 只应用默认宽度；由宽度设置项调用，开关不触发。
+    pub(crate) fn apply_panel_widths(&mut self, cx: &mut Context<Self>) {
         let preferences = crate::preferences::load();
         self.agent_panel_width = preferences.agent_panel_width as f32;
         self.right_panel_width = preferences.dock_width as f32;
