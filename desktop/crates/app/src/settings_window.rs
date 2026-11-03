@@ -780,9 +780,7 @@ impl SettingsWindowView {
                 |_cx: &App| preferences::load().close_to_tray,
                 move |value: bool, _cx: &mut App| {
                     close_to_tray_flag.store(value, Ordering::Relaxed);
-                    let mut prefs = preferences::load();
-                    prefs.close_to_tray = value;
-                    preferences::save(prefs);
+                    preferences::update(|preferences| preferences.close_to_tray = value);
                 },
             ),
         )
@@ -806,11 +804,11 @@ impl SettingsWindowView {
                 |_cx: &App| SharedString::from(preferences::load().cursor_blink.as_str()),
                 |value: SharedString, cx: &mut App| {
                     let preference = CursorBlinkPreference::from_value(Some(value.as_ref()));
-                    let mut prefs = preferences::load();
-                    if prefs.cursor_blink != preference {
-                        prefs.cursor_blink = preference;
-                        preferences::save(prefs);
-                    }
+                    preferences::update(|preferences| {
+                        if preferences.cursor_blink != preference {
+                            preferences.cursor_blink = preference;
+                        }
+                    });
                     theme::apply_cursor_blink(preference, cx);
                 },
             ),
@@ -982,9 +980,7 @@ impl SettingsWindowView {
             SettingField::switch(
                 |_cx: &App| preferences::load().native_agent_enabled,
                 |value: bool, _cx: &mut App| {
-                    let mut prefs = preferences::load();
-                    prefs.native_agent_enabled = value;
-                    preferences::save(prefs);
+                    preferences::update(|preferences| preferences.native_agent_enabled = value);
                 },
             ),
         )
@@ -1521,13 +1517,11 @@ fn save_display_preference<T, U>(
     update: U,
 ) -> impl Fn(T, &mut App) + 'static
 where
-    T: 'static,
+    T: Clone + 'static,
     U: Fn(&mut preferences::Preferences, T) + 'static,
 {
     move |value: T, cx: &mut App| {
-        let mut prefs = preferences::load();
-        update(&mut prefs, value);
-        preferences::save(prefs);
+        preferences::update(|prefs| update(prefs, value.clone()));
         let _ = root.update(cx, |view, cx| view.apply_display_snapshot(cx));
     }
 }
@@ -1538,9 +1532,7 @@ fn save_display_width(
     update: impl Fn(&mut preferences::Preferences, f64) + 'static,
 ) -> impl Fn(f64, &mut App) + 'static {
     move |value: f64, cx: &mut App| {
-        let mut prefs = preferences::load();
-        update(&mut prefs, value);
-        preferences::save(prefs);
+        preferences::update(|prefs| update(prefs, value));
         let _ = root.update(cx, |view, cx| view.apply_panel_widths(cx));
     }
 }

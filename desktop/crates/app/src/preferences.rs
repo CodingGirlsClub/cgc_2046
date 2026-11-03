@@ -216,14 +216,18 @@ fn parse(value: &Value) -> Preferences {
     }
 }
 
+/// 读改写入口：进程内串行，避免设置窗口与右键菜单互相覆盖。
+pub fn update(mut apply: impl FnMut(&mut Preferences)) {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let mut preferences = load();
+    apply(&mut preferences);
+    save(preferences);
+}
+
 /// 只改历史侧栏开关并落盘（其它字段保持当前值）。
 pub fn save_history_sidebar_open(open: bool) {
-    let mut preferences = load();
-    if preferences.history_sidebar_open == open {
-        return;
-    }
-    preferences.history_sidebar_open = open;
-    save(preferences);
+    update(|preferences| preferences.history_sidebar_open = open);
 }
 
 pub fn save(preferences: Preferences) {

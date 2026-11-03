@@ -385,9 +385,7 @@ impl RootView {
                     body: hint_body.clone().into(),
                     actions: Vec::new(),
                 });
-                let mut preferences = crate::preferences::load();
-                preferences.tray_hint_shown = true;
-                crate::preferences::save(preferences);
+                crate::preferences::update(|preferences| preferences.tray_hint_shown = true);
             }
             true
         });
@@ -3158,9 +3156,7 @@ impl RootView {
         }
         self.agent_panel_side = side;
         self.display_preferences.agent_panel_side = side;
-        let mut preferences = crate::preferences::load();
-        preferences.agent_panel_side = side;
-        crate::preferences::save(preferences);
+        crate::preferences::update(|preferences| preferences.agent_panel_side = side);
         cx.notify();
     }
 
@@ -3174,9 +3170,7 @@ impl RootView {
         }
         self.dock_side = side;
         self.display_preferences.dock_side = side;
-        let mut preferences = crate::preferences::load();
-        preferences.dock_side = side;
-        crate::preferences::save(preferences);
+        crate::preferences::update(|preferences| preferences.dock_side = side);
         cx.notify();
     }
 
@@ -3186,26 +3180,26 @@ impl RootView {
         button: state::StatusBarButton,
         cx: &mut Context<Self>,
     ) {
-        let mut preferences = crate::preferences::load();
         match button {
             state::StatusBarButton::History => {
                 self.display_preferences.status_bar_history_button = false;
-                preferences.status_bar_history_button = false;
             }
             state::StatusBarButton::Agent => {
                 self.display_preferences.agent_panel_button = false;
-                preferences.agent_panel_button = false;
             }
             state::StatusBarButton::Navigation => {
                 self.display_preferences.dock_navigation_button = false;
-                preferences.dock_navigation_button = false;
             }
             state::StatusBarButton::Outline => {
                 self.display_preferences.dock_outline_button = false;
-                preferences.dock_outline_button = false;
             }
         }
-        crate::preferences::save(preferences);
+        crate::preferences::update(|preferences| match button {
+            state::StatusBarButton::History => preferences.status_bar_history_button = false,
+            state::StatusBarButton::Agent => preferences.agent_panel_button = false,
+            state::StatusBarButton::Navigation => preferences.dock_navigation_button = false,
+            state::StatusBarButton::Outline => preferences.dock_outline_button = false,
+        });
         cx.notify();
     }
 
