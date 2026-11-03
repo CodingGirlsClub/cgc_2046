@@ -5,11 +5,16 @@
 //! 每个主题一个 `Palette`，渲染时按「偏好 + 系统外观」解析后用。
 //! 系统外观来自 `Window::appearance()`；偏好为 Light/Dark/System，runtime 可切换。
 
+use gpui_kit::base::input::CursorBlink;
 use gpui_kit::component::{ActiveTheme as _, Theme, ThemeMode, ThemeRegistry};
 use gpui_kit::*;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use crate::i18n::Key;
+use crate::preferences::CursorBlinkPreference;
+
+mod builtin;
 
 /// 主题偏好：跟随系统或固定浅/深。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,33 +83,12 @@ pub fn resolve(preference: ThemePreference, appearance: WindowAppearance) -> The
 
 pub const DEFAULT_THEME_NAME: &str = "Ayu Light";
 
-/// 官方 themes 目录下的主题包（每个文件可含多套明暗主题）。
 pub fn load_builtin_themes(cx: &mut App) {
     let registry = ThemeRegistry::global_mut(cx);
-    for raw in [
-        include_str!("../../../resources/themes/adventure.json"),
-        include_str!("../../../resources/themes/alduin.json"),
-        include_str!("../../../resources/themes/asciinema.json"),
-        include_str!("../../../resources/themes/aurora.json"),
-        include_str!("../../../resources/themes/ayu.json"),
-        include_str!("../../../resources/themes/catppuccin.json"),
-        include_str!("../../../resources/themes/everforest.json"),
-        include_str!("../../../resources/themes/fahrenheit.json"),
-        include_str!("../../../resources/themes/flexoki.json"),
-        include_str!("../../../resources/themes/gruvbox.json"),
-        include_str!("../../../resources/themes/harper.json"),
-        include_str!("../../../resources/themes/hybrid.json"),
-        include_str!("../../../resources/themes/jellybeans.json"),
-        include_str!("../../../resources/themes/kibble.json"),
-        include_str!("../../../resources/themes/macos-classic.json"),
-        include_str!("../../../resources/themes/mellifluous.json"),
-        include_str!("../../../resources/themes/molokai.json"),
-        include_str!("../../../resources/themes/solarized.json"),
-        include_str!("../../../resources/themes/spaceduck.json"),
-        include_str!("../../../resources/themes/tokyonight.json"),
-        include_str!("../../../resources/themes/twilight.json"),
-    ] {
-        let _ = registry.load_themes_from_str(raw);
+    for (name, raw) in builtin::BUILTIN_THEME_FILES {
+        if let Err(error) = registry.load_themes_from_str(raw) {
+            log::warn!(target: "theme", "内置主题 `{name}` 加载失败：{error:#}");
+        }
     }
 }
 
@@ -124,6 +108,7 @@ pub fn apply_named(name: &str, cx: &mut App) -> bool {
     let Some(config) = ThemeRegistry::global(cx).themes().get(name).cloned() else {
         return false;
     };
+    let cursor_blink = cursor_blink_policy(crate::preferences::load().cursor_blink);
     Theme::update(cx, |theme| {
         theme.mode = config.mode;
         theme.apply_config(&config);
@@ -131,8 +116,24 @@ pub fn apply_named(name: &str, cx: &mut App) -> bool {
         theme.mono_font_family = FONT_MONO.into();
         theme.radius = px(RADIUS_MEDIUM);
         theme.radius_lg = px(RADIUS_LARGE);
+        theme.cursor_blink = cursor_blink;
     });
     true
+}
+
+/// 光标闪烁偏好 → Kit [`CursorBlink`]；闪烁沿用 Kit 的 500ms，常亮不启动计时器。
+pub fn cursor_blink_policy(preference: CursorBlinkPreference) -> CursorBlink {
+    match preference {
+        CursorBlinkPreference::Blinking => CursorBlink::blinking(Duration::from_millis(500)),
+        CursorBlinkPreference::Steady => CursorBlink::steady(),
+    }
+}
+
+/// 设置项变更时立即应用；Kit 保证 `cursor_blink` 跨主题与明暗切换保留。
+pub fn apply_cursor_blink(preference: CursorBlinkPreference, cx: &mut App) {
+    Theme::update(cx, |theme| {
+        theme.cursor_blink = cursor_blink_policy(preference);
+    });
 }
 
 pub fn palette_from_theme(cx: &App) -> Palette {
@@ -288,6 +289,7 @@ pub fn palette(mode: ThemeMode) -> Palette {
 pub fn apply(mode: ThemeMode, cx: &mut App) {
     Theme::change(mode, None, cx);
     let palette = palette(mode);
+    let cursor_blink = cursor_blink_policy(crate::preferences::load().cursor_blink);
     Theme::update(cx, |theme| {
         theme.font_family = FONT_SANS.into();
         theme.mono_font_family = FONT_MONO.into();
@@ -301,6 +303,7 @@ pub fn apply(mode: ThemeMode, cx: &mut App) {
         theme.colors.primary = palette.accent;
         theme.colors.secondary = palette.card;
         theme.colors.muted = palette.ink_3;
+        theme.cursor_blink = cursor_blink;
     });
 }
 
@@ -308,11 +311,27 @@ pub fn apply(mode: ThemeMode, cx: &mut App) {
 mod tests {
     // 注意：不要改成 `use super::*`——父模块的 `use gpui_kit::*` 会引入 gpui 的
     // `test` 宏并遮蔽 std 的 `#[test]`；本模块只做显式导入。
-    use super::{alpha, col, palette, resolve, space, ThemePreference, RADIUS_LARGE, RADIUS_SMALL};
+    use super::{
+        alpha, col, cursor_blink_policy, palette, resolve, space, ThemePreference, RADIUS_LARGE,
+        RADIUS_SMALL,
+    };
     use crate::i18n::Key;
+    use crate::preferences::CursorBlinkPreference;
     use gpui_kit::component::ThemeMode;
     use gpui_kit::px;
     use gpui_kit::WindowAppearance;
+    use std::time::Duration;
+
+    #[test]
+    fn cursor_blink_policy_matches_preference() {
+        let blinking = cursor_blink_policy(CursorBlinkPreference::Blinking);
+        assert_eq!(blinking.interval(), Some(Duration::from_millis(500)));
+        assert!(!blinking.is_steady());
+
+        let steady = cursor_blink_policy(CursorBlinkPreference::Steady);
+        assert!(steady.is_steady());
+        assert_eq!(steady.interval(), None);
+    }
 
     #[test]
     fn light_and_dark_palettes_differ_on_canvas_and_ink() {
@@ -431,5 +450,18 @@ mod tests {
         assert_eq!(space(4), px(24.0));
         assert_eq!(RADIUS_SMALL, 4.0);
         assert_eq!(RADIUS_LARGE, 8.0);
+    }
+
+    /// 内置主题必须有解析守卫：`load_builtin_themes` 只把错误降为日志，
+    /// Kit 升版改了 `ThemeConfig` schema 时，主题会静默从设置里消失。
+    #[test]
+    fn builtin_theme_files_parse_with_current_kit() {
+        for (file, raw) in super::builtin::BUILTIN_THEME_FILES {
+            let set: gpui_kit::component::ThemeSet =
+                serde_json::from_str(raw).unwrap_or_else(|error| {
+                    panic!("内置主题 {file}.json 无法被当前 Kit 解析：{error}")
+                });
+            assert!(!set.themes.is_empty(), "内置主题 {file}.json 没有主题条目");
+        }
     }
 }

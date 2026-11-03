@@ -23,7 +23,7 @@ use gpui_kit::*;
 use crate::build_info;
 use crate::i18n::{translate, Key, Language};
 use crate::native_runtime::{NativeRuntimeError, NativeRuntimeHandle};
-use crate::preferences;
+use crate::preferences::{self, CursorBlinkPreference};
 use crate::provider_settings::{ProviderPrefsChange, ProviderSettings};
 use crate::settings_provider::{
     format_model_lines, parse_model_lines, validation_is_current, ModelFieldInputs, ProviderDraft,
@@ -782,6 +782,35 @@ impl SettingsWindowView {
             ),
         )
         .description(translate(language, Key::AppSettingsCloseToTrayHint));
+        let cursor_blink = SettingItem::new(
+            translate(language, Key::AppSettingsCursorBlink),
+            SettingField::dropdown(
+                vec![
+                    (
+                        SharedString::from(CursorBlinkPreference::Blinking.as_str()),
+                        SharedString::from(translate(
+                            language,
+                            Key::AppSettingsCursorBlinkBlinking,
+                        )),
+                    ),
+                    (
+                        SharedString::from(CursorBlinkPreference::Steady.as_str()),
+                        SharedString::from(translate(language, Key::AppSettingsCursorBlinkSteady)),
+                    ),
+                ],
+                |_cx: &App| SharedString::from(preferences::load().cursor_blink.as_str()),
+                |value: SharedString, cx: &mut App| {
+                    let preference = CursorBlinkPreference::from_value(Some(value.as_ref()));
+                    let mut prefs = preferences::load();
+                    if prefs.cursor_blink != preference {
+                        prefs.cursor_blink = preference;
+                        preferences::save(prefs);
+                    }
+                    theme::apply_cursor_blink(preference, cx);
+                },
+            ),
+        )
+        .description(translate(language, Key::AppSettingsCursorBlinkHint));
         let native_agent = SettingItem::new(
             "使用 Native Agent 运行时",
             SettingField::switch(
@@ -1251,7 +1280,9 @@ impl SettingsWindowView {
                     SettingGroup::new()
                         .variant(GroupBoxVariant::Normal)
                         .item(Self::breadcrumb_item("设置 / 通用".to_string())),
-                    SettingGroup::new().title("通用").item(close_to_tray),
+                    SettingGroup::new()
+                        .title("通用")
+                        .items(vec![close_to_tray, cursor_blink]),
                 ]),
         )
         .page(ai_page)

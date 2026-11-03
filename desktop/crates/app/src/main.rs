@@ -60,7 +60,11 @@ fn main() {
         Vec::<gpui_kit::SystemNotificationResponse>::new(),
     ));
 
-    let application = gpui_kit::application().with_assets(gpui_kit::assets::AllAssets);
+    // 内部/调试能力：`CGC_ICON_OVERLAY_DIR` 指向同名 SVG 覆盖目录；未设置时走内置图标。
+    let assets = cgc_desktop_app::icon_theme::AppAssets::new(
+        cgc_desktop_app::icon_theme::overlay_dir_from_env(),
+    );
+    let application = gpui_kit::application().with_assets(assets.clone());
     {
         let os_urls = os_urls.clone();
         application.on_open_urls(move |urls| {
@@ -71,6 +75,7 @@ fn main() {
     }
     application.run(move |cx| {
         gpui_kit::init(cx);
+        assets.install_resolver(cx);
         cx.set_app_identity("com.codingirlsclub.cgc2046.desktop", "程序媛汇");
         cx.set_quit_mode(gpui_kit::QuitMode::Explicit);
         {
