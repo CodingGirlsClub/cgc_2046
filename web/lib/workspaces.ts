@@ -42,7 +42,8 @@ export interface WorkspaceListItem {
 	myMembershipId?: string | null;
 	/** 非成员 PlatformAdmin 通过 slug fallback 进入的只读审计工作台 */
 	readOnlyVisitor?: boolean;
-	description?: string;
+	/** 工作台简介（公开展示文案，可空；#1226） */
+	description?: string | null;
 	memberCount?: number;
 	unreadCount?: number;
 	roles?: string[];

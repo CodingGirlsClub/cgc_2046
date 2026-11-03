@@ -44,6 +44,8 @@ defmodule Cgc2046.Mcp.Tools.AdminCreateWorkspace do
 
     field(:slug, :string, description: "全局唯一 slug（小写字母/数字/连字符；缺省由名称派生，非 ASCII 名称回退随机 ws- 前缀）")
 
+    field(:description, :string, description: "工作台简介（公开展示文案，可选；空字符串等同不填）")
+
     field(:owner_user_id, :string, description: "指定已有用户为 Owner（用户 ID；与 owner_email 二选一）")
 
     field(:owner_email, :string,
@@ -62,7 +64,9 @@ defmodule Cgc2046.Mcp.Tools.AdminCreateWorkspace do
 
         with :ok <- validate_owner_designation(owner_user_id, owner_email),
              {:ok, owner_summary} <- owner_summary(actor, owner_user_id, owner_email) do
-          summary = "创建工作台「#{name}」（slug #{slug}）并指定 Owner：#{owner_summary}"
+          summary =
+            "创建工作台「#{name}」（slug #{slug}）并指定 Owner：#{owner_summary}" <>
+              description_summary(params["description"])
 
           Confirmation.request(
             frame.assigns[:current_user],
@@ -86,6 +90,7 @@ defmodule Cgc2046.Mcp.Tools.AdminCreateWorkspace do
       %{
         name: params["name"],
         slug: params["slug"],
+        description: params["description"],
         owner_user_id: params["owner_user_id"],
         owner_email: params["owner_email"]
       }
@@ -101,6 +106,7 @@ defmodule Cgc2046.Mcp.Tools.AdminCreateWorkspace do
            workspace_id: workspace.id,
            name: workspace.name,
            slug: workspace.slug,
+           description: workspace.description,
            join_policy: to_string(workspace.join_policy),
            owner_user_id: params["owner_user_id"],
            owner_email: params["owner_email"],
@@ -159,10 +165,29 @@ defmodule Cgc2046.Mcp.Tools.AdminCreateWorkspace do
 
   defp random_slug, do: "ws-#{Ecto.UUID.generate() |> String.slice(0, 8)}"
 
-  # 派生 slug 写回 pending params：confirm 段以 params["slug"] 为准，两段同一值
+  # 派生 slug 写回 pending params：confirm 段以 params["slug"] 为准，两段同一值。
+  # description 同款归一（空白 → nil）：pending 存的必须与摘要展示的是同一份文本。
   defp params_with_slug(params, slug) do
     params
     |> Map.delete(:slug)
     |> Map.put("slug", slug)
+    |> Map.put("description", normalize_description(params["description"]))
+  end
+
+  defp normalize_description(description) when is_binary(description) do
+    case String.trim(description) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_description(_description), do: nil
+
+  # 摘要只报长度，不复制正文（简介全文在工具回执与工作台页面上，确认卡片无需重复）
+  defp description_summary(description) do
+    case normalize_description(description) do
+      nil -> ""
+      text -> "，简介 #{String.length(text)} 字"
+    end
   end
 end

@@ -135,6 +135,48 @@ defmodule Cgc2046.Accounts.WorkspaceApplicationTest do
       assert Enum.any?(loaded.roles, &(&1.name == :owner))
     end
 
+    test "approve 透传 application.description 到 workspace.description；purpose 不落（#1226 C2）" do
+      admin = Fixtures.platform_admin("wapp-desc-admin")
+      applicant = Fixtures.register_user("wapp-desc-applicant")
+
+      application =
+        create_application(applicant, %{
+          purpose: "审批理由是隐私文案",
+          description: "面向本地学习者的公开门面"
+        })
+
+      assert {:ok, _approved} =
+               application
+               |> Ash.Changeset.for_update(:approve, %{})
+               |> Ash.update(actor: admin)
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Query.for_read(:get_by_slug, %{slug: application.slug})
+               |> Ash.read_one(authorize?: false)
+
+      assert workspace.description == "面向本地学习者的公开门面"
+      refute workspace.description == application.purpose
+    end
+
+    test "application 无 description → workspace.description 为 nil" do
+      admin = Fixtures.platform_admin("wapp-nodesc-admin")
+      applicant = Fixtures.register_user("wapp-nodesc-applicant")
+      application = create_application(applicant)
+
+      assert {:ok, _approved} =
+               application
+               |> Ash.Changeset.for_update(:approve, %{})
+               |> Ash.update(actor: admin)
+
+      assert {:ok, workspace} =
+               Workspace
+               |> Ash.Query.for_read(:get_by_slug, %{slug: application.slug})
+               |> Ash.read_one(authorize?: false)
+
+      assert workspace.description == nil
+    end
+
     test "non-platform-admin cannot approve" do
       applicant = Fixtures.register_user("wapp-applicant")
       application = create_application(applicant)
