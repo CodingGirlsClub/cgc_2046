@@ -6,7 +6,7 @@ defmodule Cgc2046.Mcp.RecruitmentCohortToolsTest do
   - 授权：plain member / tutor / 非成员对四写件一律 forbidden（非成员撞 Wrapper
     member 门；成员撞工具层 Owner/Admin 判定；workspace admin 与 platform_admin
     放行——批次写面与 GraphQL 同边界，ADR-0001 D6/D7）；
-    list_recruitment_cohorts 为 member-only 发现面（成员可读全部状态含 draft）
+    list_recruitment_cohorts 按领域权限读取（普通成员仅 open，管理者全部状态）
   - create_recruitment_cohort 直接写生成 draft（不经 pending）；带偏移 ISO8601
     解析为 UTC 落库
   - update/open/close 确认流两段式；非 open/已 open 快速失败不建 pending；
@@ -413,7 +413,7 @@ defmodule Cgc2046.Mcp.RecruitmentCohortToolsTest do
   end
 
   describe "list_recruitment_cohorts（member-only 发现面）" do
-    test "member 可读全部状态（含 draft），status 过滤；倒序" do
+    test "owner sees all cohorts in order and member sees only open cohorts" do
       {owner, workspace} = fixture("s3-co-list-owner")
       member = Fixtures.register_user("s3-co-list-member")
       Fixtures.add_member(workspace, member)
@@ -434,13 +434,22 @@ defmodule Cgc2046.Mcp.RecruitmentCohortToolsTest do
                reply =
                ListRecruitmentCohorts.execute(
                  %{"workspace_id" => workspace.id},
-                 frame_for(member)
+                 frame_for(owner)
                )
 
       payload = decode_reply(reply)
       assert payload["count"] == 3
       # 建批顺序 closed 批 → open 批 → draft 批；inserted_at 倒序 = 最新在前
       assert Enum.map(payload["cohorts"], & &1["name"]) == ["draft 批", "open 批", "closed 批"]
+
+      assert {:reply, _, _} =
+               member_reply =
+               ListRecruitmentCohorts.execute(
+                 %{"workspace_id" => workspace.id},
+                 frame_for(member)
+               )
+
+      assert [%{"name" => "open 批"}] = decode_reply(member_reply)["cohorts"]
 
       assert {:reply, _, _} =
                reply =

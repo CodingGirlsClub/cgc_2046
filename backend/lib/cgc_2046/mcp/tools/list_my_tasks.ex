@@ -123,13 +123,8 @@ defmodule Cgc2046.Mcp.Tools.ListMyTasks do
     end
   end
 
-  # 审核行的推送面窄于授权面（授权 = R28「任何成员可审」，不变）——只推给有
-  # 行动利益的人：owner/admin（恒见）、策略指定 reviewer 本人、默认策略下的
-  # 被指派 tutor（自审路径行动人）。其余成员（含非指派 tutor）不推。
-  defp review_stakeholder?(run, actor, manage) do
-    manage or Prep.designated_reviewer?(run, actor) or
-      (is_nil(Prep.policy(run)["reviewer_user_id"]) and Prep.assignee(run) == actor.id)
-  end
+  # 审核待办与审核授权共用同一判定：管理者、指定 reviewer 或默认策略的 assignee。
+  defp review_stakeholder?(run, actor, manage), do: manage or Prep.reviewer?(run, actor)
 
   defp prep_row(run, kind, workspace) do
     %{

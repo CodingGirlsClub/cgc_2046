@@ -2,7 +2,7 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
   @moduledoc """
   读取课程教研流程状态（role-agent-journeys-v2 S5，R22-R28，读面）。
 
-  任何工作台成员可读（默认 fail-closed member 门）。返回 prep_state /
+  工作台成员按课程领域可见性读取（draft 限 tutor/管理者）。返回 prep_state /
   生效策略（override-first 合并后）/ 被指派的 tutor 摘要 / 最新质量报告 /
   实时计算的结构门禁违规清单（`gate_violations`）与软提示清单
   （`gate_warnings`，不阻断发布）/ run version（乐观锁版本，供并发对话）。
@@ -24,11 +24,10 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
   @impl true
   def description do
     """
-    工作台成员可读：读取课程教研流程的状态：prep_state（draft → authoring → quality_check → review →
-    published）、生效的教研策略、被指派的 tutor、最新质量报告、当前阻断发布的问题清单 gate_violations、
-    不阻断发布的提示 gate_warnings、当前周期 run_id，以及流程版本号（乐观锁，用于并发修改时比对；跨周期
-    不可比）。课程发布后再次读取本工具或提交结构检查时，会自动开启新一轮教研流程（新一轮从 draft 开始），
-    指派的 tutor 沿用。
+    Read preparation status for a course visible to the caller: prep_state, effective policy,
+    assigned tutor, latest quality report, gate_violations, gate_warnings, run_id and version.
+    Draft courses require tutor or workspace management access. Reading a published course starts
+    a new preparation cycle when needed, retaining the previous tutor assignment.
     """
   end
 
@@ -43,7 +42,7 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
       Wrapper.run(frame, params, "get_prep_status", fn actor, workspace_id, params ->
         course_id = params["course_id"]
 
-        with {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
+        with {:ok, course} <- Course.fetch_scoped(workspace_id, course_id, actor: actor),
              {:ok, run} <- fetch_run(course, actor) do
           gate = Prep.gate(course)
           assignee_id = Prep.assignee(run)

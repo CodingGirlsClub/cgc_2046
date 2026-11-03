@@ -20,11 +20,11 @@ defmodule Cgc2046.Mcp.Tools.OverridePrepGate do
   @impl true
   def description do
     """
-    覆盖一份低于质量阈值的质检报告，让课程继续推进。审核人（教研策略指定的 reviewer，未指定时任何工作台
-    成员）或 Owner/Admin 可用；只有存在待覆盖的低分报告时可用。reason 必填，与覆盖决定一起记入审计。
-    教研策略要求审核时进入 review，否则直接发布（生成新版本并发布，规则同 approve_prep）。
-    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
-    用户确认后调 confirm_operation(pending_id) 才执行。
+    Override a below-threshold quality report with an audited reason. Available to workspace
+    owners/admins or the designated reviewer; when none is designated, only the assigned tutor may
+    review. A pending below-threshold report is required. If review is required, the course enters
+    review; otherwise it is published. The first call returns needs_confirmation, pending_id and
+    summary. Call confirm_operation only after the user confirms.
     """
   end
 
@@ -88,10 +88,7 @@ defmodule Cgc2046.Mcp.Tools.OverridePrepGate do
     end
   end
 
-  # reviewer-per-policy（快照指定 reviewer 则仅本人，否则任何成员）或 Owner/Admin。
-  # §B#7：本函数自包含成员资格判定（Prep.reviewer?/2 在未指定 reviewer 时恒
-  # true——成员门槛第一段由 Wrapper member 门保证，但确认段不走 Wrapper），
-  # 两段共用：确认窗口内被移出工作台的角色在 confirm 段兜底拒绝。
+  # 两段共用成员资格与当前 reviewer 判定，确认窗口内撤权或改派立即生效。
   defp authorize(actor, workspace_id, run) do
     if Cgc2046.Accounts.MembershipContext.membership_of(actor, workspace_id) &&
          (Prep.reviewer?(run, actor) or Prep.manage?(actor, workspace_id)) do

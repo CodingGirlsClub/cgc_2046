@@ -4,7 +4,7 @@ defmodule Cgc2046.Mcp.Tools.ApprovePrep do
   或 Owner/Admin，确认流 two-tool 写，D-D3）。
 
   前置 prep_state == review。审核人 = 策略快照指定的 reviewer_user_id（未指定时
-  任何工作台成员可审，允许 tutor 自审）或 Owner/Admin。通过 → 发布：生成不可变的新
+  被指派的 tutor 可审，允许自审）或 Owner/Admin。通过 → 发布：生成不可变的新
   CourseRevision（draft 课程随之 launch 开放报名；已 open 的课程换绑新版本），
   prep_state → published，run 转 succeeded。
 
@@ -25,13 +25,12 @@ defmodule Cgc2046.Mcp.Tools.ApprovePrep do
   @impl true
   def description do
     """
-    审核通过并发布课程，只在课程的教研流程处于 review 时可用。审核人是教研策略指定的 reviewer（未指定
-    时任何工作台成员都可审，允许 tutor 自审），或 Owner/Admin。通过后生成一个不可变的新课程版本并发布：
-    课程还是 draft 时变为 open（visibility=public 才会出现在公开面开放报名，仅 workspace 可见的只对成员
-    开放），已 open 的课程切换到新版本；教研流程进入 published。确认与当前草稿版本
-    绑定：确认前草稿被改动，本次确认失效，需要对新草稿重新审核。
-    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
-    用户确认后调 confirm_operation(pending_id) 才执行。
+    Approve and publish a course whose preparation is in review. Available to workspace owners/admins
+    or the designated reviewer; when no reviewer is designated, only the assigned tutor may review.
+    Self-review is allowed. Publishing creates an immutable course revision and opens a draft course,
+    or updates the revision of an open course. Approval is bound to the current draft version; changes
+    before confirmation require a new approval. The first call returns needs_confirmation, pending_id
+    and summary. Call confirm_operation only after the user confirms.
     """
   end
 
@@ -93,10 +92,7 @@ defmodule Cgc2046.Mcp.Tools.ApprovePrep do
     end
   end
 
-  # reviewer-per-policy（快照指定 reviewer 则仅本人，否则任何成员，允许自审）
-  # 或 Owner/Admin（R28）。§B#7：本函数自包含成员资格判定（Prep.reviewer?/2 在
-  # 未指定 reviewer 时恒 true——成员门槛第一段由 Wrapper member 门保证，但确认
-  # 段不走 Wrapper），两段共用：确认窗口内被移出工作台的角色在 confirm 段兜底拒绝。
+  # 两段共用成员资格与当前 reviewer 判定，确认窗口内撤权或改派立即生效。
   defp authorize(actor, workspace_id, run) do
     if Cgc2046.Accounts.MembershipContext.membership_of(actor, workspace_id) &&
          (Prep.reviewer?(run, actor) or Prep.manage?(actor, workspace_id)) do

@@ -11,9 +11,7 @@ defmodule Cgc2046.Mcp.Tools.ListRecruitmentCohorts do
   `status` 可选过滤（draft|open|closed，非法值报错带清单）。按创建时间倒序
   （与 GraphQL listRecruitmentCohorts 同款），封顶 100。
 
-  授权 = Wrapper 默认 fail-closed member 门（list_workspace_events 同款）：
-  workspace member 可读全部状态——本面读门禁在 Wrapper 层已真实发生，批次
-  直读走 `authorize?: false`。
+  授权 = Wrapper 成员门 + 领域 actor 读：普通成员仅 open，管理者按领域权限读取。
   """
 
   use Anubis.Server.Component, type: :tool
@@ -30,9 +28,10 @@ defmodule Cgc2046.Mcp.Tools.ListRecruitmentCohorts do
   @impl true
   def description do
     """
-    工作台成员可读：列出工作台的全部招募批次（含 draft 与 closed），status 可选过滤（draft | open |
-    closed，非法值会报错并列出合法值）。每条 cohort_id / name / status / apply_deadline_at / starts_at /
-    ends_at，按创建时间倒序，最多 100 条。批次没有 slug，后续修改、开放、关闭都用这里的 cohort_id。
+    List recruitment cohorts visible to the caller in a workspace. Members can read open cohorts;
+    owners/admins can also read draft/closed cohorts. Optional status filter: draft | open | closed.
+    Returns cohort_id, name, status, apply_deadline_at, starts_at and ends_at, newest first, up to
+    100 rows. Subsequent update/open/close operations use cohort_id.
     """
   end
 
@@ -44,9 +43,9 @@ defmodule Cgc2046.Mcp.Tools.ListRecruitmentCohorts do
   @impl true
   def execute(params, frame) do
     result =
-      Wrapper.run(frame, params, "list_recruitment_cohorts", fn _actor, workspace_id, params ->
+      Wrapper.run(frame, params, "list_recruitment_cohorts", fn actor, workspace_id, params ->
         with {:ok, status} <- parse_status(params["status"]),
-             {:ok, rows} <- read_cohorts(workspace_id, status) do
+             {:ok, rows} <- read_cohorts(actor, workspace_id, status) do
           {:ok, %{count: length(rows), cohorts: rows}}
         end
       end)
@@ -73,14 +72,13 @@ defmodule Cgc2046.Mcp.Tools.ListRecruitmentCohorts do
 
   defp parse_status(_), do: {:error, "status must be a string"}
 
-  # member 门已在 Wrapper 层真实发生（非成员 forbidden 落审计）；tenant 锁
-  # 工作台归属，authorize?: false 直读全部状态（含 draft）
-  defp read_cohorts(workspace_id, status) do
+  # 成员门之后继续走领域 actor 读，状态过滤不能扩大 actor 的可见集合。
+  defp read_cohorts(actor, workspace_id, status) do
     RecruitmentCohort
     |> scope_status(status)
     |> Ash.Query.sort(inserted_at: :desc, id: :desc)
     |> Ash.Query.limit(@limit)
-    |> Ash.read(authorize?: false, tenant: workspace_id)
+    |> Ash.read(actor: actor, tenant: workspace_id)
     |> case do
       {:ok, cohorts} -> {:ok, Enum.map(cohorts, &H.row/1)}
       {:error, _} = err -> err

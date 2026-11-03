@@ -44,9 +44,9 @@ defmodule Cgc2046.McpToolTiers do
     list_acquisition_stats list_flashback_stats unforfeit_order
   )
 
-  # 全员可见：其余全部。含 5 个「实际授权比描述宽」的工具（授权不变，收窄另案跟踪）：
+  # 全员可见：其余全部。以下工具可能授权给没有管理或 tutor 角色的用户：
   # create_invitation（volunteer 可发邀请）、list_event_moderators（活动主理人可读）、
-  # approve_prep / override_prep_gate / request_changes_prep（未指定 reviewer 时任何成员）；
+  # approve_prep / override_prep_gate / request_changes_prep（显式 reviewer 可以是无角色成员）；
   # 另含两个 prep 提交工具（授权 = 被指派 tutor ∨ Owner/Admin，被指派者可能失去 tutor
   # 角色——评审 T3：只推「被指派 tutor」会让他们 list_my_tasks 看到任务但调不动工具）。
   @all_visible ~w(
