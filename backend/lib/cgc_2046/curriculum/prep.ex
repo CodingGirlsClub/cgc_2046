@@ -797,13 +797,18 @@ defmodule Cgc2046.Curriculum.Prep do
     # 上一周期（已终态）的 run id 供归因；竞态取不到时为 nil（不影响开周期）。
     previous = latest_run(course.id, course.workspace_id)
 
+    # 归因（#1128 评审修正）：本分支也覆盖「草稿课程的首 run 尚未被
+    # course.created 处理」的恢复场景——此时 previous 为 nil，必须标
+    # first_cycle_recovery，不能谎报成发布后的次周期。
+    created_reason = if previous, do: :next_cycle, else: :first_cycle_recovery
+
     with {:ok, definition} <- fetch_prep_definition(course.workspace_id),
          {:ok, run} <-
            PrepInstantiator.launch(
              course.workspace_id,
              definition.id,
              %{"course_id" => course.id, "title" => course.title},
-             created_reason: :next_cycle,
+             created_reason: created_reason,
              previous_run_id: previous && previous.id,
              actor: opts[:actor]
            ),

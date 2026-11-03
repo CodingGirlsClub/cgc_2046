@@ -205,7 +205,7 @@
 
 ### WorkflowRun（工作流执行实例）
 
-- **定义**：一个运行中的 DAG 实例。状态机 `pending → running → waiting(人等信号) → succeeded/failed/cancelled`；持输入快照、产物（facts）、signal 日志；**归属 partition**（D-A1/D-A5）。**创建归因（#1128 D2）**：`created_reason`（`course_created` 首周期 / `next_cycle` 发布后次周期懒开）、`created_by_actor_id`（次周期触发人；首周期事件载荷无 actor，为 nil）、`previous_run_id`（上一周期；首周期 nil；审计链接，刻意不建 FK）。
+- **定义**：一个运行中的 DAG 实例。状态机 `pending → running → waiting(人等信号) → succeeded/failed/cancelled`；持输入快照、产物（facts）、signal 日志；**归属 partition**（D-A1/D-A5）。**创建归因（#1128 D2）**：`created_reason`（`course_created` 首周期信号 / `first_cycle_recovery` 首周期信号未处理时读取补建 / `next_cycle` 发布后次周期懒开）、`created_by_actor_id`（次周期/补建触发人；信号路径无 actor，为 nil）、`previous_run_id`（上一周期；首周期 nil；审计链接，刻意不建 FK）。
 - **架构位置**：执行实例；人工步骤到达时 `waiting` 挂起（hibernate 落 checkpoint，信号到达 thaw 恢复），不拆多段（human-in-the-loop 为主）。
 
 ### Step（步骤，四分类）

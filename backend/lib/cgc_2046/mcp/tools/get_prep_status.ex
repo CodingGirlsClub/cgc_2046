@@ -10,8 +10,9 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
   S6 起 run 读取经 `Prep.ensure_active_run/2` 懒开新 run（读取即写：触发面 =
   本工具与 submit_prep_for_check）——发布后首读即开新一轮周期，自动有活动
   run 驱动下一版本（次周期 assignee 沿用）。#1128 起返回周期归因：`created_at` /
-  `created_reason`（`course_created` | `next_cycle`）/ `created_by`（触发人摘要，
-  首周期 null）/ `previous_run_id`（上一周期，首周期 null）。
+  `created_reason`（`course_created` | `first_cycle_recovery` | `next_cycle`）/
+  `created_by`（触发人摘要，首周期信号路径为 null）/ `previous_run_id`（上一周期，
+  首周期为 null）。
   """
   use Anubis.Server.Component, type: :tool
 
@@ -30,8 +31,10 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
     Read preparation status for a course visible to the caller: prep_state, effective policy,
     assigned tutor, latest quality report, gate_violations, gate_warnings, run_id and version.
     Cycle attribution is included: created_at, created_reason (course_created = first cycle from
-    the course.created signal / next_cycle = lazily opened after publication), created_by
-    (triggering user; null for the first cycle) and previous_run_id (null for the first cycle).
+    the course.created signal / first_cycle_recovery = first cycle created by a read when that
+    signal had not been handled yet / next_cycle = lazily opened after publication), created_by
+    (triggering user; null when the course.created signal created the run) and previous_run_id
+    (null for the first cycle).
     Draft courses require tutor/management access or review authorization for the course's active
     preparation run (designated reviewer, or current assignee when none is designated). Review
     authorization grants only this preparation-status projection. Reading a published course starts
@@ -68,7 +71,7 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
              gate_warnings: gate.warnings,
              version: run.version,
              # #1128 归因：周期从哪来、谁触发、接的是哪一周期。
-             # 首周期（course_created）的 created_by 为 nil（事件载荷无 actor）。
+             # 首周期信号路径（course_created）无 actor → created_by 为 nil。
              created_at: run.inserted_at,
              created_reason: run.created_reason && to_string(run.created_reason),
              created_by: user_summary(run.created_by_actor_id),

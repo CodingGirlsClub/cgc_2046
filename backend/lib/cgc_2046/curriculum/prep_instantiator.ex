@@ -55,8 +55,9 @@ defmodule Cgc2046.Curriculum.PrepInstantiator do
   - `definition_id`：已 published 的 course_preparation WorkflowDefinition ID
   - `input`：run 输入（含 `course_id`/`title`；`prep_policy` 缺省补默认值——
     快照于 input_snapshot 固化，R22）
-  - `opts`（#1128）：`created_reason`（`:course_created` / `:next_cycle`）、
-    `previous_run_id`、`actor`（创建人；也作为 `created_by_actor_id` 缺省值）
+  - `opts`（#1128）：`created_reason`（`:course_created` / `:first_cycle_recovery` /
+    `:next_cycle`）、`previous_run_id`、`actor`（创建人；也作为
+    `created_by_actor_id` 缺省值）
 
   幂等：同一课程已有非终态 prep run → 返回已有 run（不重复创建）。
   """

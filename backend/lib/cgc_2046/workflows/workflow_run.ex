@@ -113,8 +113,9 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       allow_nil?: true,
       public?: true,
       writable?: false,
-      constraints: [one_of: [:course_created, :next_cycle]],
-      description: "run 创建原因：course_created 首周期（course.created 信号）/ next_cycle 发布后次周期懒开"
+      constraints: [one_of: [:course_created, :first_cycle_recovery, :next_cycle]],
+      description:
+        "run 创建原因：course_created 首周期（course.created 信号）/ first_cycle_recovery 首周期信号未处理时由读取补建 / next_cycle 发布后次周期懒开"
     )
 
     attribute(:created_by_actor_id, :uuid,

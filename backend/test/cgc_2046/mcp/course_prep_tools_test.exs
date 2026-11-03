@@ -399,6 +399,39 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
       assert Ash.get!(Course, course.id, authorize?: false).workflow_run_id == run.id
     end
 
+    test "首周期恢复：信号未处理时读取即建 run → first_cycle_recovery（#1128 评审修正）" do
+      owner = Fixtures.platform_admin("s5-inst-recover")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s5-inst-recover-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+      create_prep_definition(workspace, owner)
+      course = draft_course(workspace, owner, %{title: "首周期恢复"})
+
+      # 不投递 course.created（模拟信号尚未处理/丢失）→ 无 run
+      assert prep_runs(workspace) == []
+
+      # 读面补建：这是首周期，不是发布后的次周期
+      assert {:reply, _, _} =
+               status_reply =
+               GetPrepStatus.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      status = decode(status_reply)
+      run = prep_run!(course, workspace)
+      assert status["run_id"] == run.id
+      assert status["created_reason"] == "first_cycle_recovery"
+      assert run.created_reason == :first_cycle_recovery
+      assert run.created_by_actor_id == tutor.id
+      assert run.previous_run_id == nil
+
+      # 信号后到：命中已有 run（幂等），归因不被改写成 course_created
+      deliver_created(course)
+      assert [_only] = prep_runs(workspace)
+      assert reload_run(run, workspace).created_reason == :first_cycle_recovery
+    end
+
     test "非 draft 课程守卫：信号重投不实例化（首投失败、课程已发布后重投的防护）" do
       owner = Fixtures.platform_admin("s5-inst-guard")
       workspace = Fixtures.create_workspace(owner)

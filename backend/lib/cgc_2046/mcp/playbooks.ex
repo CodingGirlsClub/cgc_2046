@@ -198,8 +198,9 @@ defmodule Cgc2046.Mcp.Playbooks do
 
   周期读法(S6 次周期 + #1128):先比 get_prep_status 返回的 run_id 判断是否已换周期,
   同一 run 内再比 version——version 是单个 run 的乐观锁,换周期后从低值重开,不能跨
-  周期比较大小。run 的来源可查:created_reason(course_created=课程创建自动开的首周期 /
-  next_cycle=发布后首次读取懒开的次周期)、created_by(触发人;首周期为 null)、
+  周期比较大小。run 的来源可查:created_reason(course_created=课程创建信号开的首周期 /
+  first_cycle_recovery=首周期信号尚未处理时由读取补建 / next_cycle=发布后首次读取懒开的
+  次周期)、created_by(触发人;course_created 路径为 null)、
   previous_run_id(上一周期;首周期为 null)。
 
   纪律:质量评分必须诚实反映内容质量,不为冲过阈值虚报高分;被退回是正常迭代,逐条
