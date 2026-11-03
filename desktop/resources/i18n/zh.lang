@@ -317,3 +317,4 @@ app.settings.status_bar_history_button_hint = 关闭后仍可用快捷键 ⌥⌘
 app.settings.dock_left = 停靠到左侧
 app.settings.dock_right = 停靠到右侧
 app.settings.hide_button = 隐藏按钮
+app.settings.dock_position = 停靠位置

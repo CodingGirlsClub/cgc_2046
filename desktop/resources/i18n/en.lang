@@ -317,3 +317,4 @@ app.settings.status_bar_history_button_hint = The ⌥⌘J shortcut still toggles
 app.settings.dock_left = Dock Left
 app.settings.dock_right = Dock Right
 app.settings.hide_button = Hide Button
+app.settings.dock_position = Dock Position

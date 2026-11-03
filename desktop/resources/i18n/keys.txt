@@ -318,3 +318,4 @@ app.settings.status_bar_history_button_hint
 app.settings.dock_left
 app.settings.dock_right
 app.settings.hide_button
+app.settings.dock_position

@@ -882,6 +882,26 @@ impl SettingsWindowView {
             ),
         )
         .description(translate(language, Key::AppSettingsAgentPanelWidthHint));
+        let agent_panel_side = SettingItem::new(
+            translate(language, Key::AppSettingsDockPosition),
+            SettingField::dropdown(
+                vec![
+                    (
+                        SharedString::from("left"),
+                        SharedString::from(translate(language, Key::AppSettingsDockLeft)),
+                    ),
+                    (
+                        SharedString::from("right"),
+                        SharedString::from(translate(language, Key::AppSettingsDockRight)),
+                    ),
+                ],
+                |_cx: &App| SharedString::from(preferences::load().agent_panel_side.as_str()),
+                save_display_preference(root.clone(), |prefs, value: SharedString| {
+                    prefs.agent_panel_side =
+                        crate::preferences::PanelSide::from_value(Some(value.as_ref()));
+                }),
+            ),
+        );
         let dock_starts_open = SettingItem::new(
             translate(language, Key::AppSettingsDockStartsOpen),
             SettingField::switch(
@@ -907,6 +927,26 @@ impl SettingsWindowView {
             ),
         )
         .description(translate(language, Key::AppSettingsDockWidthHint));
+        let dock_side = SettingItem::new(
+            translate(language, Key::AppSettingsDockPosition),
+            SettingField::dropdown(
+                vec![
+                    (
+                        SharedString::from("left"),
+                        SharedString::from(translate(language, Key::AppSettingsDockLeft)),
+                    ),
+                    (
+                        SharedString::from("right"),
+                        SharedString::from(translate(language, Key::AppSettingsDockRight)),
+                    ),
+                ],
+                |_cx: &App| SharedString::from(preferences::load().dock_side.as_str()),
+                save_display_preference(root.clone(), |prefs, value: SharedString| {
+                    prefs.dock_side =
+                        crate::preferences::PanelSide::from_value(Some(value.as_ref()));
+                }),
+            ),
+        );
         let dock_navigation_button = SettingItem::new(
             translate(language, Key::AppSettingsDockNavigationButton),
             SettingField::switch(
@@ -1447,10 +1487,15 @@ impl SettingsWindowView {
                         .item(Self::breadcrumb_item("设置 / 面板".to_string())),
                     SettingGroup::new()
                         .title(translate(language, Key::AppSettingsAgentPanel))
-                        .items(vec![agent_panel_width]),
+                        .items(vec![agent_panel_side, agent_panel_width]),
                     SettingGroup::new()
                         .title(translate(language, Key::AppSettingsDock))
-                        .items(vec![dock_starts_open, dock_width, dock_show_unenrolled]),
+                        .items(vec![
+                            dock_side,
+                            dock_starts_open,
+                            dock_width,
+                            dock_show_unenrolled,
+                        ]),
                 ]),
         )
         .page(ai_page)
