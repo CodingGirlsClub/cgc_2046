@@ -50,7 +50,7 @@ defmodule Cgc2046.Courses.CourseVisibilityTest do
                reload(draft.id, member, workspace.id)
     end
 
-    test "成员角色单角色与两两组合读 draft 均 NotFound" do
+    test "only tutor role combinations can read draft courses" do
       %{owner: owner, workspace: workspace} = Fixtures.workspace_with_member()
       draft = create_draft(workspace, owner, "Course Role Matrix")
 
@@ -58,8 +58,12 @@ defmodule Cgc2046.Courses.CourseVisibilityTest do
         actor = Fixtures.register_user("course-role-#{Enum.join(roles, "-")}")
         Fixtures.add_member(workspace, actor, roles)
 
-        assert {:error, %{errors: [%Ash.Error.Query.NotFound{}]}} =
-                 reload(draft.id, actor, workspace.id)
+        if :tutor in roles do
+          assert {:ok, _} = reload(draft.id, actor, workspace.id)
+        else
+          assert {:error, %{errors: [%Ash.Error.Query.NotFound{}]}} =
+                   reload(draft.id, actor, workspace.id)
+        end
       end
     end
 

@@ -10,6 +10,7 @@ defmodule Cgc2046.Mcp.Tools.AdminSoftDeleteWish do
     scopes: ["platform_admin"],
     meta: %{workspace_id: :optional, membership: :platform_admin}
 
+  alias Cgc2046.Accounts.Policies.PlatformAdmin
   alias Cgc2046.Flashback.{AlumniProjection, Wish, Wishes}
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
   require Ash.Query
@@ -56,22 +57,26 @@ defmodule Cgc2046.Mcp.Tools.AdminSoftDeleteWish do
   确认后真正执行（Confirmation.execute 分派）。
   """
   @spec execute_confirmed(term(), map()) :: {:ok, map()} | {:error, String.t()}
-  def execute_confirmed(_actor, params) do
-    case Wishes.soft_delete_wish(params["wish_id"], nil, admin?: true) do
-      {:ok, wish} ->
-        {:ok,
-         %{
-           wish_id: wish.id,
-           deleted_at: wish.deleted_at,
-           visibility: wish.visibility
-         }}
+  def execute_confirmed(actor, params) do
+    if PlatformAdmin.platform_admin?(actor) do
+      case Wishes.soft_delete_wish(params["wish_id"], nil, admin?: true) do
+        {:ok, wish} ->
+          {:ok,
+           %{
+             wish_id: wish.id,
+             deleted_at: wish.deleted_at,
+             visibility: wish.visibility
+           }}
 
-      {:error, %{code: "flashback_wish_not_found"}} ->
-        {:error, "wish not found"}
+        {:error, %{code: "flashback_wish_not_found"}} ->
+          {:error, "wish not found"}
 
-      # 并发下已删 → 幂等成功
-      _ ->
-        {:ok, %{wish_id: params["wish_id"], already_deleted: true}}
+        # 并发下已删 → 幂等成功
+        _ ->
+          {:ok, %{wish_id: params["wish_id"], already_deleted: true}}
+      end
+    else
+      {:error, "forbidden: platform admin required"}
     end
   end
 

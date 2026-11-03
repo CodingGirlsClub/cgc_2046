@@ -2,7 +2,7 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
   @moduledoc """
   读取课程教研流程状态（role-agent-journeys-v2 S5，R22-R28，读面）。
 
-  任何工作台成员可读（默认 fail-closed member 门）。返回 prep_state /
+  工作台成员按课程领域可见性或当前教研 run 的审核授权读取。返回 prep_state /
   生效策略（override-first 合并后）/ 被指派的 tutor 摘要 / 最新质量报告 /
   实时计算的结构门禁违规清单（`gate_violations`）与软提示清单
   （`gate_warnings`，不阻断发布）/ run version（乐观锁版本，供并发对话）。
@@ -17,6 +17,7 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
   alias Cgc2046.Courses.Course
   alias Cgc2046.Curriculum.Prep
   alias Cgc2046.Mcp.Wrapper
+  alias Cgc2046.Workflows.WorkflowRun
 
   require Ash.Query
 
@@ -24,11 +25,12 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
   @impl true
   def description do
     """
-    工作台成员可读：读取课程教研流程的状态：prep_state（draft → authoring → quality_check → review →
-    published）、生效的教研策略、被指派的 tutor、最新质量报告、当前阻断发布的问题清单 gate_violations、
-    不阻断发布的提示 gate_warnings、当前周期 run_id，以及流程版本号（乐观锁，用于并发修改时比对；跨周期
-    不可比）。课程发布后再次读取本工具或提交结构检查时，会自动开启新一轮教研流程（新一轮从 draft 开始），
-    指派的 tutor 沿用。
+    Read preparation status for a course visible to the caller: prep_state, effective policy,
+    assigned tutor, latest quality report, gate_violations, gate_warnings, run_id and version.
+    Draft courses require tutor/management access or review authorization for the course's active
+    preparation run (designated reviewer, or current assignee when none is designated). Review
+    authorization grants only this preparation-status projection. Reading a published course starts
+    a new preparation cycle when needed, retaining the previous tutor assignment.
     """
   end
 
@@ -43,8 +45,7 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
       Wrapper.run(frame, params, "get_prep_status", fn actor, workspace_id, params ->
         course_id = params["course_id"]
 
-        with {:ok, course} <- Course.fetch_scoped(workspace_id, course_id),
-             {:ok, run} <- fetch_run(course, actor) do
+        with {:ok, course, run} <- fetch_preparation(workspace_id, course_id, actor) do
           gate = Prep.gate(course)
           assignee_id = Prep.assignee(run)
 
@@ -68,10 +69,26 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
     Cgc2046.Mcp.Tools.Response.to_response(result, frame)
   end
 
-  # S6：惰性 ensure_active_run——run 已终态（发布后次周期）时懒开新 run
-  # （默认策略快照 + assignee 沿用，系统效应 authorize?: false）。
-  defp fetch_run(course, actor) do
-    Prep.ensure_active_run(course, actor: actor)
+  # 审核例外只投影已校验的本台 active run，不二次查找或懒开新周期；
+  # 否则授权检查后 run 恰好结束时，会读到未经授权的新 run 并产生创建 run 的副作用。
+  defp fetch_preparation(workspace_id, course_id, actor) do
+    case Course.fetch_scoped(workspace_id, course_id, actor: actor) do
+      {:ok, course} ->
+        # S6：具备课程领域读权的调用者保留发布后惰性开启下一周期的语义。
+        with {:ok, run} <- Prep.ensure_active_run(course, actor: actor) do
+          {:ok, course, run}
+        end
+
+      {:error, _message} = error ->
+        with %WorkflowRun{} = run <- Prep.fetch_run(course_id, workspace_id),
+             true <- Prep.reviewer?(run, actor),
+             {:ok, %Course{status: :draft} = course} <-
+               Course.fetch_scoped(workspace_id, course_id) do
+          {:ok, course, run}
+        else
+          _ -> error
+        end
+    end
   end
 
   # tutor 摘要（内部读 authorize?: false——行可见性已由 member 门保证，

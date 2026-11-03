@@ -25,8 +25,8 @@ defmodule Cgc2046.Mcp.Scopes do
 
   **分类原则：可见面不比授权更严**——只要某类用户有可能被授权调用，就不对他隐藏。因此
   `create_invitation`（volunteer 可发邀请）、`list_event_moderators`（活动主理人可读）、
-  `approve_prep` 等审核三件套（未指定 reviewer 时任何成员）仍全员可见；授权口径本身是否收窄
-  另案跟踪。
+  `approve_prep` 等审核三件套（显式 reviewer 可以是无角色成员）仍全员可见，
+  具体授权由工具层按当前指派与策略判断（#1084）。
 
   **scope 是粗检查，不替代授权**：Wrapper 的 membership 门、工具层角色判定、数据层 policy
   全部保留。scope 只回答「这个人在任何工作台有没有可能用到这类工具」，具体到哪个工作台仍由

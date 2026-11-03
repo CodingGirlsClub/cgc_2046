@@ -1621,7 +1621,7 @@ defmodule Cgc2046.Mcp.EventToolsTest do
   end
 
   describe "list_workspace_events（member-only 活动发现面）" do
-    test "member 见本台全部状态活动（含 draft）与报名徽章；status 过滤；非 member forbidden" do
+    test "member sees visible events and badges while owner can filter drafts" do
       owner = Fixtures.platform_admin("s3-ev-lwe-owner")
       workspace = Fixtures.create_workspace(owner)
       member = Fixtures.register_user("s3-ev-lwe-member")
@@ -1635,10 +1635,10 @@ defmodule Cgc2046.Mcp.EventToolsTest do
                ListWorkspaceEvents.execute(%{"workspace_id" => workspace.id}, frame_for(member))
 
       payload = decode_reply(reply)
-      assert payload["count"] == 2
+      assert payload["count"] == 1
 
       by_id = Map.new(payload["events"], &{&1["event_id"], &1})
-      assert by_id[draft.id]["status"] == "draft"
+      refute Map.has_key?(by_id, draft.id)
       assert by_id[open.id]["status"] == "open"
 
       assert by_id[open.id]["enrollment_badge"] in [
@@ -1653,7 +1653,7 @@ defmodule Cgc2046.Mcp.EventToolsTest do
                filtered =
                ListWorkspaceEvents.execute(
                  %{"workspace_id" => workspace.id, "status" => "draft"},
-                 frame_for(member)
+                 frame_for(owner)
                )
 
       assert [row] = decode_reply(filtered)["events"]

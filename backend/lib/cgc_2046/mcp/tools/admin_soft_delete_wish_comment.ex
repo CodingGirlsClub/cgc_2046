@@ -9,6 +9,7 @@ defmodule Cgc2046.Mcp.Tools.AdminSoftDeleteWishComment do
     scopes: ["platform_admin"],
     meta: %{workspace_id: :optional, membership: :platform_admin}
 
+  alias Cgc2046.Accounts.Policies.PlatformAdmin
   alias Cgc2046.Flashback.{Wish, WishComment, Wishes}
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
   require Ash.Query
@@ -52,27 +53,31 @@ defmodule Cgc2046.Mcp.Tools.AdminSoftDeleteWishComment do
   end
 
   @spec execute_confirmed(term(), map()) :: {:ok, map()} | {:error, String.t()}
-  def execute_confirmed(_actor, params) do
-    case Wishes.soft_delete_comment(params["comment_id"], nil, admin?: true) do
-      {:ok, comment} ->
-        remaining =
-          comment
-          |> then(&%{id: &1.wish_id})
-          |> then(&Wishes.list_comments(&1.id))
+  def execute_confirmed(actor, params) do
+    if PlatformAdmin.platform_admin?(actor) do
+      case Wishes.soft_delete_comment(params["comment_id"], nil, admin?: true) do
+        {:ok, comment} ->
+          remaining =
+            comment
+            |> then(&%{id: &1.wish_id})
+            |> then(&Wishes.list_comments(&1.id))
 
-        {:ok,
-         %{
-           comment_id: comment.id,
-           wish_id: comment.wish_id,
-           deleted_at: comment.deleted_at,
-           remaining_comment_count: length(remaining)
-         }}
+          {:ok,
+           %{
+             comment_id: comment.id,
+             wish_id: comment.wish_id,
+             deleted_at: comment.deleted_at,
+             remaining_comment_count: length(remaining)
+           }}
 
-      {:error, %{code: "flashback_wish_comment_not_found"}} ->
-        {:error, "comment not found"}
+        {:error, %{code: "flashback_wish_comment_not_found"}} ->
+          {:error, "comment not found"}
 
-      _ ->
-        {:ok, %{comment_id: params["comment_id"], already_deleted: true}}
+        _ ->
+          {:ok, %{comment_id: params["comment_id"], already_deleted: true}}
+      end
+    else
+      {:error, "forbidden: platform admin required"}
     end
   end
 
