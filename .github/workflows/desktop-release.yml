@@ -108,6 +108,9 @@ jobs:
       - name: 安装 cargo-packager
         if: steps.packager-cache.outputs.cache-hit != 'true'
         run: cargo install cargo-packager --locked --version =0.11.8
+      - name: 解析源码 commit（tag 的提交，不是 dispatch ref）
+        id: src
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: 打包（Windows / Linux）
         if: runner.os != 'macOS'
         env:
@@ -151,8 +154,15 @@ jobs:
           if (-not $msi) { throw "FAIL: dist 下没有 msi" }
           $stage = Join-Path $env:RUNNER_TEMP "cgc-portable"
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
-          7z x $msi.FullName "-o$stage" -y | Out-Null
-          Get-ChildItem $stage -Filter "*.msi" -Recurse | Remove-Item -Force -ErrorAction SilentlyContinue
+          # 必须用 msiexec /a（administrative install）：MSI 的 cabinet 里存的是 File 表的键，
+          # WiX 模板把主可执行文件的 id 设为 `Path`，直接 7z 解出来会得到 `Path` 这类键名、
+          # 且没有安装后的目录布局。administrative install 会按 MSI 表还原真实路径。
+          $args = @("/a", "`"$($msi.FullName)`"", "/qn", "TARGETDIR=`"$stage`"")
+          $proc = Start-Process msiexec.exe -ArgumentList $args -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "msiexec /a 失败，exit=$($proc.ExitCode)" }
+          $exe = Get-ChildItem -Path $stage -Recurse -Filter "cgc-desktop-app.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) { throw "administrative install 后找不到 cgc-desktop-app.exe（MSI 布局与预期不符）" }
+          Write-Host "staged exe: $($exe.FullName)"
           Compress-Archive -Path (Join-Path $stage "*") -DestinationPath "dist/cgc2046-windows-portable.zip" -Force
           Remove-Item $msi.FullName -Force
           Get-ChildItem dist
@@ -160,7 +170,7 @@ jobs:
         if: runner.os != 'Windows'
         env:
           VERSION: ${{ inputs.tag || github.ref_name }}
-          CGC_BUILD_COMMIT: ${{ github.sha }}
+          CGC_BUILD_COMMIT: ${{ steps.src.outputs.sha }}
           CGC_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           export VERSION="${VERSION#desktop-v}"
@@ -170,7 +180,7 @@ jobs:
         shell: pwsh
         env:
           VERSION: ${{ inputs.tag || github.ref_name }}
-          CGC_BUILD_COMMIT: ${{ github.sha }}
+          CGC_BUILD_COMMIT: ${{ steps.src.outputs.sha }}
           CGC_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           $env:VERSION = $env:VERSION -replace '^desktop-v', ''
@@ -179,7 +189,7 @@ jobs:
         if: runner.os != 'Windows'
         env:
           VERSION: ${{ inputs.tag || github.ref_name }}
-          CGC_BUILD_COMMIT: ${{ github.sha }}
+          CGC_BUILD_COMMIT: ${{ steps.src.outputs.sha }}
         run: |
           export VERSION="${VERSION#desktop-v}"
           bash scripts/verify-package.sh
@@ -188,7 +198,7 @@ jobs:
         shell: pwsh
         env:
           VERSION: ${{ inputs.tag || github.ref_name }}
-          CGC_BUILD_COMMIT: ${{ github.sha }}
+          CGC_BUILD_COMMIT: ${{ steps.src.outputs.sha }}
         run: |
           $env:VERSION = $env:VERSION -replace '^desktop-v', ''
           ./scripts/verify-package.ps1
