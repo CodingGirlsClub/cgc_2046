@@ -5,6 +5,7 @@
 //! 整个窗口显示登录页（guard），登录成功后进入壳；登出在头像下拉里（同 Zed 的
 //! sign out）。网络调用放后台线程，结果回主线程刷新。
 
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
 use gpui_kit::InteractiveElement;
 use gpui_kit::*;
 
@@ -1051,35 +1052,125 @@ impl Render for RootView {
                                     ),
                             ),
                     )
-                    .child(
+                    .child({
+                        let agent_on_left =
+                            self.agent_panel_side == crate::preferences::PanelSide::Left;
+                        let dock_on_left =
+                            self.dock_side == crate::preferences::PanelSide::Left;
+                        let left_agent_group: Option<AnyElement> = agent_on_left.then(|| {
+                            div()
+                                .flex()
+                                .flex_row()
+                                .min_h(px(0.0))
+                                .children(self.history_sidebar.is_some().then(|| {
+                                    self.render_history_sidebar(window, cx)
+                                }))
+                                .children(self.agent_panel_open.then(|| {
+                                    screens::render_agent_panel(
+                                        &mut screens::ScreenContext::new(&mut self.state),
+                                        language,
+                                        &palette,
+                                        window,
+                                        cx,
+                                    )
+                                }))
+                                .children(self.agent_panel_open.then(|| {
+                                    render_panel_resize_handle(
+                                        ResizeSide::Left,
+                                        crate::preferences::PanelSide::Left,
+                                        &palette,
+                                        pane_header_visible,
+                                        cx,
+                                    )
+                                }))
+                                .into_any_element()
+                        });
+                        let left_dock_group: Option<AnyElement> = dock_on_left.then(|| {
+                            div()
+                                .flex()
+                                .flex_row()
+                                .min_h(px(0.0))
+                                .children(self.right_panel_open.then(|| {
+                                    screens::render_right_dock(
+                                        &mut screens::ScreenContext::new(&mut self.state),
+                                        language,
+                                        &palette,
+                                        window,
+                                        cx,
+                                    )
+                                }))
+                                .children(self.right_panel_open.then(|| {
+                                    render_panel_resize_handle(
+                                        ResizeSide::Right,
+                                        crate::preferences::PanelSide::Left,
+                                        &palette,
+                                        pane_header_visible && right_header_visible,
+                                        cx,
+                                    )
+                                }))
+                                .into_any_element()
+                        });
+                        let right_dock_group: Option<AnyElement> = (!dock_on_left).then(|| {
+                            div()
+                                .flex()
+                                .flex_row()
+                                .min_h(px(0.0))
+                                .children(self.right_panel_open.then(|| {
+                                    render_panel_resize_handle(
+                                        ResizeSide::Right,
+                                        crate::preferences::PanelSide::Right,
+                                        &palette,
+                                        pane_header_visible && right_header_visible,
+                                        cx,
+                                    )
+                                }))
+                                .children(self.right_panel_open.then(|| {
+                                    screens::render_right_dock(
+                                        &mut screens::ScreenContext::new(&mut self.state),
+                                        language,
+                                        &palette,
+                                        window,
+                                        cx,
+                                    )
+                                }))
+                                .into_any_element()
+                        });
+                        let right_agent_group: Option<AnyElement> = (!agent_on_left).then(|| {
+                            div()
+                                .flex()
+                                .flex_row()
+                                .min_h(px(0.0))
+                                .children(self.agent_panel_open.then(|| {
+                                    render_panel_resize_handle(
+                                        ResizeSide::Left,
+                                        crate::preferences::PanelSide::Right,
+                                        &palette,
+                                        pane_header_visible,
+                                        cx,
+                                    )
+                                }))
+                                .children(self.agent_panel_open.then(|| {
+                                    screens::render_agent_panel(
+                                        &mut screens::ScreenContext::new(&mut self.state),
+                                        language,
+                                        &palette,
+                                        window,
+                                        cx,
+                                    )
+                                }))
+                                .children(self.history_sidebar.is_some().then(|| {
+                                    self.render_history_sidebar(window, cx)
+                                }))
+                                .into_any_element()
+                        });
                         div()
                             .flex()
                             .flex_row()
                             .flex_1()
                             .min_h(px(0.0))
                             .w_full()
-                            .children(
-                                self.history_sidebar
-                                    .is_some()
-                                    .then(|| self.render_history_sidebar(window, cx)),
-                            )
-                            .children(self.agent_panel_open.then(|| {
-                                screens::render_agent_panel(
-                                    &mut screens::ScreenContext::new(&mut self.state),
-                                    language,
-                                    &palette,
-                                    window,
-                                    cx,
-                                )
-                            }))
-                            .children(self.agent_panel_open.then(|| {
-                                render_panel_resize_handle(
-                                    ResizeSide::Left,
-                                    &palette,
-                                    pane_header_visible,
-                                    cx,
-                                )
-                            }))
+                            .children(left_agent_group)
+                            .children(left_dock_group)
                             .child(
                                 div()
                                     .flex()
@@ -1264,24 +1355,9 @@ impl Render for RootView {
                                             ),
                                     ),
                             )
-                            .children(self.right_panel_open.then(|| {
-                                render_panel_resize_handle(
-                                    ResizeSide::Right,
-                                    &palette,
-                                    pane_header_visible && right_header_visible,
-                                    cx,
-                                )
-                            }))
-                            .children(self.right_panel_open.then(|| {
-                                screens::render_right_dock(
-                                    &mut screens::ScreenContext::new(&mut self.state),
-                                    language,
-                                    &palette,
-                                    window,
-                                    cx,
-                                )
-                            })),
-                    )
+                            .children(right_dock_group)
+                            .children(right_agent_group)
+                        })
                     .child(self.render_footer(
                         language,
                         true,
@@ -1872,6 +1948,7 @@ impl RootView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         // 左侧：一级导航图标；右侧：主题/语言工具。版本号只放设置/关于，不进 footer。
+        let root_weak = cx.entity().downgrade();
         let shortcut = if cfg!(target_os = "macos") {
             "⌘J"
         } else {
@@ -1911,6 +1988,19 @@ impl RootView {
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_agent_panel(cx);
                 }))
+                .context_menu({
+                    let root = root_weak.clone();
+                    let side = self.agent_panel_side;
+                    move |menu, _, _| {
+                        render_panel_status_bar_menu(
+                            menu,
+                            language,
+                            StatusBarMenuTarget::Agent,
+                            side,
+                            root.clone(),
+                        )
+                    }
+                })
                 .into_any_element()
         });
         let history_toggle = include_nav.then(|| {
@@ -1945,13 +2035,27 @@ impl RootView {
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_history_sidebar(cx);
                 }))
+                .context_menu({
+                    let root = root_weak.clone();
+                    move |menu, _, _| {
+                        render_hide_button_menu(
+                            menu,
+                            language,
+                            state::StatusBarButton::History,
+                            root.clone(),
+                        )
+                    }
+                })
                 .into_any_element()
         });
         let panel_toggle = |id: &'static str,
                             label: SharedString,
                             icon: AssetIcon,
                             active: bool,
-                            panel: RightPanel| {
+                            panel: RightPanel,
+                            target: StatusBarMenuTarget,
+                            side: crate::preferences::PanelSide,
+                            root: WeakEntity<Self>| {
             let tooltip = label.clone();
             div()
                 .id(id)
@@ -1983,6 +2087,9 @@ impl RootView {
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.toggle_right_panel(panel, cx);
                 }))
+                .context_menu(move |menu, _, _| {
+                    render_panel_status_bar_menu(menu, language, target, side, root.clone())
+                })
                 .into_any_element()
         };
         let site_tree_active = self.right_panel_open && self.right_panel == RightPanel::SiteTree;
@@ -1993,6 +2100,9 @@ impl RootView {
             AssetIcon::ListTree,
             site_tree_active,
             RightPanel::SiteTree,
+            StatusBarMenuTarget::Navigation,
+            self.dock_side,
+            root_weak.clone(),
         );
         let outline_toggle = panel_toggle(
             "outline-toggle",
@@ -2000,6 +2110,9 @@ impl RootView {
             AssetIcon::FileText,
             outline_active,
             RightPanel::Outline,
+            StatusBarMenuTarget::Outline,
+            self.dock_side,
+            root_weak.clone(),
         );
         div()
             .id("status-bar")
@@ -2414,8 +2527,78 @@ fn nav_icon(icon: NavIcon) -> AssetIcon {
     }
 }
 
+/// 状态栏按钮右键菜单的目标（决定 Dock 切换作用于哪个面板）。
+#[derive(Clone, Copy)]
+enum StatusBarMenuTarget {
+    Agent,
+    Navigation,
+    Outline,
+}
+
+fn render_hide_button_menu(
+    menu: PopupMenu,
+    language: Language,
+    button: state::StatusBarButton,
+    root: WeakEntity<RootView>,
+) -> PopupMenu {
+    menu.item(
+        PopupMenuItem::new(translate(language, Key::AppSettingsHideButton)).on_click(
+            move |_, _, cx| {
+                let _ = root.update(cx, |root, cx| {
+                    root.hide_status_bar_button(button, cx);
+                });
+            },
+        ),
+    )
+}
+
+fn render_panel_status_bar_menu(
+    menu: PopupMenu,
+    language: Language,
+    target: StatusBarMenuTarget,
+    side: crate::preferences::PanelSide,
+    root: WeakEntity<RootView>,
+) -> PopupMenu {
+    use crate::preferences::PanelSide;
+    let button = match target {
+        StatusBarMenuTarget::Agent => state::StatusBarButton::Agent,
+        StatusBarMenuTarget::Navigation => state::StatusBarButton::Navigation,
+        StatusBarMenuTarget::Outline => state::StatusBarButton::Outline,
+    };
+    let left_root = root.clone();
+    let right_root = root.clone();
+    let menu = menu
+        .item(
+            PopupMenuItem::new(translate(language, Key::AppSettingsDockLeft))
+                .checked(side == PanelSide::Left)
+                .on_click(move |_, _, cx| {
+                    let _ = left_root.update(cx, |root, cx| match target {
+                        StatusBarMenuTarget::Agent => {
+                            root.set_agent_panel_side(PanelSide::Left, cx)
+                        }
+                        _ => root.set_dock_side(PanelSide::Left, cx),
+                    });
+                }),
+        )
+        .item(
+            PopupMenuItem::new(translate(language, Key::AppSettingsDockRight))
+                .checked(side == PanelSide::Right)
+                .on_click(move |_, _, cx| {
+                    let _ = right_root.update(cx, |root, cx| match target {
+                        StatusBarMenuTarget::Agent => {
+                            root.set_agent_panel_side(PanelSide::Right, cx)
+                        }
+                        _ => root.set_dock_side(PanelSide::Right, cx),
+                    });
+                }),
+        )
+        .separator();
+    render_hide_button_menu(menu, language, button, root)
+}
+
 fn render_panel_resize_handle(
     side: ResizeSide,
+    panel_side: crate::preferences::PanelSide,
     palette: &theme::Palette,
     header_bridge: bool,
     cx: &mut Context<RootView>,
@@ -2483,9 +2666,9 @@ fn render_panel_resize_handle(
                     this.resize_drag = Some((drag_side, current, start_width));
                     return;
                 }
-                let delta = match side {
-                    ResizeSide::Left => current - start_x,
-                    ResizeSide::Right => start_x - current,
+                let delta = match panel_side {
+                    crate::preferences::PanelSide::Left => current - start_x,
+                    crate::preferences::PanelSide::Right => start_x - current,
                 };
                 let viewport = window.viewport_size().width.as_f32();
                 let other = match side {

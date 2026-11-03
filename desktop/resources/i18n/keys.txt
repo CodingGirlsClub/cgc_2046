@@ -315,3 +315,6 @@ app.settings.dock_show_unenrolled_hint
 app.settings.status_bar
 app.settings.status_bar_history_button
 app.settings.status_bar_history_button_hint
+app.settings.dock_left
+app.settings.dock_right
+app.settings.hide_button

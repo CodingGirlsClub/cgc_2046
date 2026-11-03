@@ -314,3 +314,6 @@ app.settings.dock_show_unenrolled_hint = When off, the site tree lists enrolled 
 app.settings.status_bar = Status Bar
 app.settings.status_bar_history_button = Show history button
 app.settings.status_bar_history_button_hint = The ⌥⌘J shortcut still toggles the history sidebar.
+app.settings.dock_left = Dock Left
+app.settings.dock_right = Dock Right
+app.settings.hide_button = Hide Button

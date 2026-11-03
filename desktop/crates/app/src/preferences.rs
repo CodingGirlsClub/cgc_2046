@@ -6,6 +6,30 @@ use serde_json::{json, Value};
 
 use crate::approval_rules::ToolPermissionSettings;
 
+/// 面板停靠侧（Zed 的 Dock Left / Dock Right）。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PanelSide {
+    #[default]
+    Left,
+    Right,
+}
+
+impl PanelSide {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Right => "right",
+        }
+    }
+
+    pub fn from_value(value: Option<&str>) -> Self {
+        match value {
+            Some("right") => Self::Right,
+            _ => Self::Left,
+        }
+    }
+}
+
 /// 面板宽度默认值的可调范围；设置页 number field 与 preferences 解析共用。
 pub const AGENT_PANEL_WIDTH_RANGE: std::ops::RangeInclusive<f64> = 240.0..=560.0;
 pub const DOCK_WIDTH_RANGE: std::ops::RangeInclusive<f64> = 200.0..=480.0;
@@ -33,6 +57,10 @@ pub struct Preferences {
     pub agent_panel_width: f64,
     /// Panels → Dock：默认宽度（px）。仅新工作台使用；已有记录优先。
     pub dock_width: f64,
+    /// Panels → Agent Panel：停靠侧。
+    pub agent_panel_side: PanelSide,
+    /// Panels → Dock：停靠侧。
+    pub dock_side: PanelSide,
     /// Window & Layout → Status Bar：是否显示历史对话按钮。
     pub status_bar_history_button: bool,
     /// Panels → Agent Panel：状态栏是否显示 Agent 按钮。
@@ -90,6 +118,8 @@ impl Default for Preferences {
             cursor_blink: CursorBlinkPreference::default(),
             agent_panel_width: 380.0,
             dock_width: 288.0,
+            agent_panel_side: PanelSide::Left,
+            dock_side: PanelSide::Right,
             status_bar_history_button: true,
             agent_panel_button: true,
             dock_starts_open: true,
@@ -167,6 +197,13 @@ fn parse(value: &Value) -> Preferences {
             DOCK_WIDTH_RANGE,
             288.0,
         ),
+        agent_panel_side: PanelSide::from_value(
+            value.get("agentPanelSide").and_then(Value::as_str),
+        ),
+        dock_side: match value.get("dockSide").and_then(Value::as_str) {
+            Some("left") => PanelSide::Left,
+            _ => PanelSide::Right,
+        },
         status_bar_history_button: bool_field(value, "statusBarHistoryButton", true),
         agent_panel_button: bool_field(value, "agentPanelButton", true),
         dock_starts_open: bool_field(value, "dockStartsOpen", true),
@@ -202,6 +239,8 @@ pub fn save(preferences: Preferences) {
         "cursorBlink": preferences.cursor_blink.as_str(),
         "agentPanelWidth": preferences.agent_panel_width,
         "dockWidth": preferences.dock_width,
+        "agentPanelSide": preferences.agent_panel_side.as_str(),
+        "dockSide": preferences.dock_side.as_str(),
         "statusBarHistoryButton": preferences.status_bar_history_button,
         "agentPanelButton": preferences.agent_panel_button,
         "dockStartsOpen": preferences.dock_starts_open,
@@ -369,6 +408,8 @@ mod tests {
         assert_eq!(defaults.agent_panel_width, 380.0);
         assert_eq!(defaults.dock_width, 288.0);
         assert!(defaults.agent_panel_button);
+        assert_eq!(defaults.agent_panel_side, PanelSide::Left);
+        assert_eq!(defaults.dock_side, PanelSide::Right);
         assert!(defaults.status_bar_history_button);
         assert!(defaults.dock_starts_open);
         assert!(defaults.dock_navigation_button);
@@ -383,6 +424,8 @@ mod tests {
             "dockWidth": 320,
             "agentPanelButton": false,
             "statusBarHistoryButton": false,
+            "agentPanelSide": "right",
+            "dockSide": "left",
             "dockStartsOpen": false,
             "dockNavigationButton": false,
             "dockOutlineButton": false,
@@ -395,6 +438,8 @@ mod tests {
         assert_eq!(configured.dock_width, 320.0);
         assert!(!configured.agent_panel_button);
         assert!(!configured.status_bar_history_button);
+        assert_eq!(configured.agent_panel_side, PanelSide::Right);
+        assert_eq!(configured.dock_side, PanelSide::Left);
         assert!(!configured.dock_starts_open);
         assert!(!configured.dock_navigation_button);
         assert!(!configured.dock_outline_button);

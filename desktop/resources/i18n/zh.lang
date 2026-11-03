@@ -314,3 +314,6 @@ app.settings.dock_show_unenrolled_hint = 关闭后站点树只列出已报名的
 app.settings.status_bar = 状态栏
 app.settings.status_bar_history_button = 显示历史对话按钮
 app.settings.status_bar_history_button_hint = 关闭后仍可用快捷键 ⌥⌘J 开关历史侧栏
+app.settings.dock_left = 停靠到左侧
+app.settings.dock_right = 停靠到右侧
+app.settings.hide_button = 隐藏按钮

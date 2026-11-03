@@ -3132,7 +3132,71 @@ impl RootView {
         let preferences = crate::preferences::load();
         self.agent_panel_width = preferences.agent_panel_width as f32;
         self.right_panel_width = preferences.dock_width as f32;
+        self.agent_panel_side = preferences.agent_panel_side;
+        self.dock_side = preferences.dock_side;
         self.display_preferences = preferences;
+        cx.notify();
+    }
+
+    /// 右键菜单 Dock Left / Dock Right：只改停靠侧，不动宽度。
+    pub(crate) fn set_agent_panel_side(
+        &mut self,
+        side: crate::preferences::PanelSide,
+        cx: &mut Context<Self>,
+    ) {
+        if self.agent_panel_side == side {
+            return;
+        }
+        self.agent_panel_side = side;
+        self.display_preferences.agent_panel_side = side;
+        let mut preferences = crate::preferences::load();
+        preferences.agent_panel_side = side;
+        crate::preferences::save(preferences);
+        cx.notify();
+    }
+
+    pub(crate) fn set_dock_side(
+        &mut self,
+        side: crate::preferences::PanelSide,
+        cx: &mut Context<Self>,
+    ) {
+        if self.dock_side == side {
+            return;
+        }
+        self.dock_side = side;
+        self.display_preferences.dock_side = side;
+        let mut preferences = crate::preferences::load();
+        preferences.dock_side = side;
+        crate::preferences::save(preferences);
+        cx.notify();
+    }
+
+    /// 右键菜单 Hide Button：隐藏对应状态栏按钮。
+    pub(in crate::root_view) fn hide_status_bar_button(
+        &mut self,
+        button: state::StatusBarButton,
+        cx: &mut Context<Self>,
+    ) {
+        let mut preferences = crate::preferences::load();
+        match button {
+            state::StatusBarButton::History => {
+                self.display_preferences.status_bar_history_button = false;
+                preferences.status_bar_history_button = false;
+            }
+            state::StatusBarButton::Agent => {
+                self.display_preferences.agent_panel_button = false;
+                preferences.agent_panel_button = false;
+            }
+            state::StatusBarButton::Navigation => {
+                self.display_preferences.dock_navigation_button = false;
+                preferences.dock_navigation_button = false;
+            }
+            state::StatusBarButton::Outline => {
+                self.display_preferences.dock_outline_button = false;
+                preferences.dock_outline_button = false;
+            }
+        }
+        crate::preferences::save(preferences);
         cx.notify();
     }
 
