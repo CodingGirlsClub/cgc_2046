@@ -28,8 +28,8 @@ defmodule Cgc2046.Mcp.Tools.AdminListWorkspaceApplications do
   def description do
     """
     平台管理员专用：列出工作台创建申请，status 过滤（pending | approved | rejected | expired，默认
-    pending）。按申请时间倒序，最多 50 条。返回 application_id / name / slug / purpose / status /
-    申请人（id / email / display_name）/ 审批信息 / 时间戳。
+    pending）。按申请时间倒序，最多 50 条。返回 application_id / name / slug / purpose / description /
+    status / 申请人（id / email / display_name）/ 审批信息 / 时间戳。
     """
   end
 
@@ -87,6 +87,7 @@ defmodule Cgc2046.Mcp.Tools.AdminListWorkspaceApplications do
       name: application.name,
       slug: application.slug,
       purpose: application.purpose,
+      description: application.description,
       status: to_string(application.status),
       applicant: applicant_row(application.applicant),
       rejection_reason: application.rejection_reason,

@@ -1,9 +1,9 @@
 defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
   @moduledoc """
-  工作台管理十四工具测试（role-agent-journeys-v2 S3 + #676 draft 删除，直接调
+  工作台管理十五工具测试（role-agent-journeys-v2 S3 + #676 draft 删除 + #1226 工作台简介，直接调
   tool execute/2，不走 HTTP；member_tools_test 同款模式）。
 
-  - 授权：plain member / tutor / learner / 非成员对全部 14 工具一律 forbidden
+  - 授权：plain member / tutor / learner / 非成员对全部 15 工具一律 forbidden
     （非成员撞 Wrapper member 门；成员撞工具层 Owner/Admin 判定；#676
     delete_course 收窄为 Owner ∪ 平台管理员，admin 亦拒）
   - 读：list_enrollments / list_workspace_orders 只回本工作台行
@@ -43,6 +43,7 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
     RetryRefund,
     UpdateCourse,
     UpdateJoinPolicy,
+    UpdateWorkspaceDescription,
     WaivePayment
   }
 
@@ -69,7 +70,8 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
     "list_workspace_orders" => ListWorkspaceOrders,
     "refund_order" => RefundOrder,
     "retry_refund" => RetryRefund,
-    "update_join_policy" => UpdateJoinPolicy
+    "update_join_policy" => UpdateJoinPolicy,
+    "update_workspace_description" => UpdateWorkspaceDescription
   }
 
   defp frame_for(user), do: McpFrames.terminal(user)
@@ -1322,5 +1324,150 @@ defmodule Cgc2046.Mcp.WorkspaceAdminToolsTest do
       assert msg =~ "invalid join_policy"
       assert pending_count() == 0
     end
+  end
+
+  describe "update_workspace_description（确认流）" do
+    test "两段：摘要展示 旧 → 新，第一段不落库，confirm 落库并返回旧值" do
+      owner = Fixtures.platform_admin("s3-wd-owner")
+      workspace = Fixtures.create_workspace(owner)
+      assert workspace.description == nil
+
+      text = "北京分会：面向本地学习者。"
+
+      assert {:reply, _, _} =
+               reply =
+               UpdateWorkspaceDescription.execute(
+                 %{"workspace_id" => workspace.id, "description" => text},
+                 frame_for(owner)
+               )
+
+      payload = decode_reply(reply)
+      assert payload["status"] == "needs_confirmation"
+      assert payload["summary"] =~ "（空）"
+      assert payload["summary"] =~ "北京分会"
+      assert payload["summary"] =~ "共 #{String.length(text)} 字"
+
+      # 第一段不落业务库；pending 存归一后的全文（确认段执行的即摘要所展示）
+      assert Ash.get!(Workspace, workspace.id, authorize?: false).description == nil
+      pending = Ash.get!(PendingOperation, payload["pending_id"], authorize?: false)
+      assert pending.params["description"] == text
+      assert pending_status(payload["pending_id"]) == :pending
+
+      assert {:reply, _, _} =
+               confirm_reply =
+               ConfirmOperation.execute(
+                 %{"pending_id" => payload["pending_id"]},
+                 frame_for(owner)
+               )
+
+      confirmed = decode_reply(confirm_reply)
+      assert confirmed["result"]["workspace_id"] == workspace.id
+      assert confirmed["result"]["description"] == text
+      assert confirmed["result"]["previous_description"] == nil
+      assert Ash.get!(Workspace, workspace.id, authorize?: false).description == text
+
+      [log] = tool_logs_for(owner.id, "update_workspace_description")
+      assert log.result_status == :needs_confirmation
+    end
+
+    test "空串（含纯空白）清空为 nil；首尾空白归一" do
+      owner = Fixtures.platform_admin("s3-wd-blank")
+      workspace = Fixtures.create_workspace(owner)
+      set_description(workspace, owner, "旧简介")
+
+      cleared = confirm_flow(owner, workspace.id, "   ")
+      assert cleared["description"] == nil
+      assert cleared["previous_description"] == "旧简介"
+      assert Ash.get!(Workspace, workspace.id, authorize?: false).description == nil
+
+      trimmed = confirm_flow(owner, workspace.id, "  新简介  ")
+      assert trimmed["description"] == "新简介"
+      assert Ash.get!(Workspace, workspace.id, authorize?: false).description == "新简介"
+    end
+
+    test "摘要按 80 字截断并标注原文长度；pending params 保留全文" do
+      owner = Fixtures.platform_admin("s3-wd-long")
+      workspace = Fixtures.create_workspace(owner)
+      long = String.duplicate("甲", 200)
+
+      assert {:reply, _, _} =
+               reply =
+               UpdateWorkspaceDescription.execute(
+                 %{"workspace_id" => workspace.id, "description" => long},
+                 frame_for(owner)
+               )
+
+      payload = decode_reply(reply)
+      assert payload["summary"] =~ String.duplicate("甲", 80) <> "…"
+      assert payload["summary"] =~ "共 200 字"
+
+      pending = Ash.get!(PendingOperation, payload["pending_id"], authorize?: false)
+      assert pending.params["description"] == long
+    end
+
+    test "非管理角色成员 → forbidden，不建 pending，审计 forbidden" do
+      owner = Fixtures.platform_admin("s3-wd-authz-owner")
+      workspace = Fixtures.create_workspace(owner)
+
+      learner = Fixtures.register_user("s3-wd-authz-learner")
+      Fixtures.add_member(workspace, learner, [:learner])
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               UpdateWorkspaceDescription.execute(
+                 %{"workspace_id" => workspace.id, "description" => "x"},
+                 frame_for(learner)
+               )
+
+      assert msg =~ "forbidden: owner or admin required"
+      assert pending_count() == 0
+
+      [log] = tool_logs_for(learner.id, "update_workspace_description")
+      assert log.result_status == :forbidden
+    end
+
+    test "非成员平台管理员 → 撞 member 门（fail-closed 默认门先于工具层角色判定）" do
+      owner = Fixtures.platform_admin("s3-wd-other-owner")
+      workspace = Fixtures.create_workspace(owner)
+
+      outsider_admin = Fixtures.platform_admin("s3-wd-outsider-admin")
+
+      assert {:error, %Anubis.MCP.Error{message: msg}, _} =
+               UpdateWorkspaceDescription.execute(
+                 %{"workspace_id" => workspace.id, "description" => "x"},
+                 frame_for(outsider_admin)
+               )
+
+      assert msg =~ "forbidden: not a member of workspace"
+      assert pending_count() == 0
+    end
+  end
+
+  # 直接落一条旧简介（绕过确认流，只为构造「旧 → 新」的起点）
+  defp set_description(workspace, owner, text) do
+    workspace
+    |> Ash.Changeset.for_update(:update, %{description: text})
+    |> Ash.update!(actor: owner)
+  end
+
+  # 走完整两段：execute → confirm，返回 confirm 回执里的 result
+  defp confirm_flow(owner, workspace_id, text) do
+    assert {:reply, _, _} =
+             reply =
+             UpdateWorkspaceDescription.execute(
+               %{"workspace_id" => workspace_id, "description" => text},
+               frame_for(owner)
+             )
+
+    payload = decode_reply(reply)
+    assert payload["status"] == "needs_confirmation"
+
+    assert {:reply, _, _} =
+             confirm_reply =
+             ConfirmOperation.execute(
+               %{"pending_id" => payload["pending_id"]},
+               frame_for(owner)
+             )
+
+    decode_reply(confirm_reply)["result"]
   end
 end
