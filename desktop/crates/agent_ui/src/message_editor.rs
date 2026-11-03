@@ -35,6 +35,14 @@ impl MessageEditor {
         }
     }
 
+    pub fn on_paste(
+        mut self,
+        handler: impl Fn(&ClipboardItem, &mut Window, &mut App) -> bool + 'static,
+    ) -> Self {
+        self.input = self.input.on_paste(handler);
+        self
+    }
+
     pub fn token<R: IntoElement>(
         mut self,
         render: impl Fn(&InlineTokenContext, &mut Window, &mut App) -> R + 'static,

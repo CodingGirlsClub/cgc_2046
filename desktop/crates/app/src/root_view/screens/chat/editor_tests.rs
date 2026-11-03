@@ -105,3 +105,75 @@ fn acp_composer_uses_shared_editor_growth_and_preserves_draft(cx: &mut TestAppCo
         .unwrap();
     }
 }
+
+struct AgentHeaderProbe {
+    root: Entity<RootView>,
+    language: Language,
+}
+
+impl Render for AgentHeaderProbe {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let panel = self.root.update(cx, |root, cx| {
+            super::agent_panel::render_agent_panel(
+                &mut ScreenContext::new(&mut root.state),
+                self.language,
+                &crate::theme::palette(gpui_kit::component::ThemeMode::Light),
+                window,
+                cx,
+            )
+        });
+        div()
+            .id("agent-header-probe")
+            .test_support()
+            .size_full()
+            .child(panel)
+    }
+}
+
+#[gpui_kit::test]
+fn new_chat_button_has_a_localized_name_in_both_agent_modes(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    for native in [false, true] {
+        for (language, expected) in [(Language::En, "New chat"), (Language::Zh, "新对话")] {
+            let (handle, _) = cx.update(|cx| {
+                gpui_kit::open_window(
+                    WindowOptions {
+                        window_bounds: Some(WindowBounds::Windowed(Bounds {
+                            origin: Default::default(),
+                            size: size(px(420.0), px(500.0)),
+                        })),
+                        ..Default::default()
+                    },
+                    cx,
+                    |window, cx| {
+                        let root = cx.new(|_| {
+                            let mut root = RootView::with_session(
+                                crate::registration::build_registry().unwrap(),
+                                language,
+                                crate::theme::ThemePreference::Light,
+                                SessionService::new(
+                                    Box::new(FakeAuthApi::demo()),
+                                    Box::new(MemoryStore::default()),
+                                ),
+                            );
+                            root.state.native_chat_mode = native;
+                            root.state.chat.agent = "codex".into();
+                            root
+                        });
+                        root.update(cx, |root, cx| root.initialize_chat_input(window, cx));
+                        cx.new(|_| AgentHeaderProbe { root, language })
+                    },
+                )
+                .unwrap()
+            });
+            cx.update_window(handle, |_, window, cx| {
+                window.render_frame(cx);
+                let button = window.find("agent-panel-new-trigger");
+                assert!(button.visible());
+                assert_eq!(button.role(), Some(gpui_kit::Role::Button));
+                assert_eq!(button.label(), Some(expected), "native={native}");
+            })
+            .unwrap();
+        }
+    }
+}

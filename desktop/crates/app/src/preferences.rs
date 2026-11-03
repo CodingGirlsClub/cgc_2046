@@ -15,6 +15,34 @@ pub struct Preferences {
     pub tool_permissions: ToolPermissionSettings,
     /// Stage 3.3：历史侧栏开关状态（重启后恢复；Zed threads_sidebar 语义）。
     pub history_sidebar_open: bool,
+    /// 输入光标闪烁策略（映射到 Kit `Theme::cursor_blink`）。
+    pub cursor_blink: CursorBlinkPreference,
+}
+
+/// 输入光标闪烁策略。默认跟随 Kit 的 500ms 闪烁。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CursorBlinkPreference {
+    #[default]
+    Blinking,
+    /// 常亮：不启动闪烁计时器。
+    Steady,
+}
+
+impl CursorBlinkPreference {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Blinking => "blinking",
+            Self::Steady => "steady",
+        }
+    }
+
+    /// 解析 JSON / 设置项值；未知值回退默认（闪烁）。
+    pub fn from_value(value: Option<&str>) -> Self {
+        match value {
+            Some("steady") => Self::Steady,
+            _ => Self::Blinking,
+        }
+    }
 }
 
 impl Default for Preferences {
@@ -25,6 +53,7 @@ impl Default for Preferences {
             native_agent_enabled: true,
             tool_permissions: ToolPermissionSettings::default(),
             history_sidebar_open: false,
+            cursor_blink: CursorBlinkPreference::default(),
         }
     }
 }
@@ -70,6 +99,9 @@ fn parse(value: &Value) -> Preferences {
             .get("historySidebarOpen")
             .and_then(Value::as_bool)
             .unwrap_or(false),
+        cursor_blink: CursorBlinkPreference::from_value(
+            value.get("cursorBlink").and_then(Value::as_str),
+        ),
     }
 }
 
@@ -93,6 +125,7 @@ pub fn save(preferences: Preferences) {
         "trayHintShown": preferences.tray_hint_shown,
         "nativeAgentEnabled": preferences.native_agent_enabled,
         "historySidebarOpen": preferences.history_sidebar_open,
+        "cursorBlink": preferences.cursor_blink.as_str(),
         "toolPermissions": serde_json::to_value(&preferences.tool_permissions)
             .unwrap_or(Value::Null),
     })
@@ -210,23 +243,38 @@ mod tests {
     }
 
     #[test]
-    fn preferences_round_trip_shape() {
-        let value = json!({
-            "closeToTray": false,
-            "trayHintShown": true,
-            "nativeAgentEnabled": true,
-        });
+    fn cursor_blink_preference_parses_and_defaults_to_blinking() {
         assert_eq!(
-            value.get("closeToTray").and_then(Value::as_bool),
-            Some(false)
+            CursorBlinkPreference::default(),
+            CursorBlinkPreference::Blinking
         );
         assert_eq!(
-            value.get("trayHintShown").and_then(Value::as_bool),
-            Some(true)
+            CursorBlinkPreference::from_value(Some("steady")),
+            CursorBlinkPreference::Steady
         );
         assert_eq!(
-            value.get("nativeAgentEnabled").and_then(Value::as_bool),
-            Some(true)
+            CursorBlinkPreference::from_value(Some("blinking")),
+            CursorBlinkPreference::Blinking
         );
+        for unknown in [Some("nonsense"), None] {
+            assert_eq!(
+                CursorBlinkPreference::from_value(unknown),
+                CursorBlinkPreference::Blinking,
+                "未知/缺失值必须回退闪烁"
+            );
+        }
+    }
+
+    #[test]
+    fn new_preferences_parse_and_old_files_stay_compatible() {
+        let empty = parse(&json!({}));
+        assert_eq!(empty.cursor_blink, CursorBlinkPreference::Blinking);
+
+        let configured = parse(&json!({
+            "cursorBlink": "steady",
+            // 旧文件可能残留已移除的 iconOverlay 字段，解析必须忽略它。
+            "iconOverlay": true,
+        }));
+        assert_eq!(configured.cursor_blink, CursorBlinkPreference::Steady);
     }
 }

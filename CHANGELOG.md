@@ -57,6 +57,10 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 > 桌面客户端内测版由 tag `desktop-v*` 触发发布（`desktop/README.md`「发布节奏（内测）」），不走 develop→main 的 Web/后端发布流程；本节点在首次打 tag 前登记，条目不会随本批 Web 发布上线。
 
+- [Desktop] GPUI Kit 升级至 0.9.0；通用设置支持光标闪烁与常亮，主题切换继续保留该偏好。
+- [Desktop] 图片粘贴在文本插入前添加附件，保留多光标、中文正文、上下文 token、选区和撤销历史；修复替换选区丢字、描述文字被误删及菜单粘贴未添加图片。Native/External 共用的新对话按钮补齐中英文无障碍名称。
+- [Desktop] 内部图标覆盖改为启动时加载并复用，避免绘制期间访问覆盖目录；拒绝非普通文件和超限图标，错误日志只记录相对图标名。
+
 - [Desktop] 保存或删除 Provider 时同步清除已失效的模型选择，避免生成中切换 Provider、热刷新返回 Busy 后，重启仍使用旧 Provider 的模型。
 - [Desktop] 禁用最后一个模型或清空模型列表后，当前会话立即进入未配置状态并禁用发送，清除 Key 和重启也不会继续沿用旧模型与凭据，重新启用模型后可恢复。
 - [Desktop] 修复生成中关闭 ACP 连接时的卡死：退出命令同时终止当前 turn 和连接循环，解决 macOS CI 的 `native_runtime_busy` 超时。

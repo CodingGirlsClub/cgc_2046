@@ -279,3 +279,11 @@ agent.registry.loading
 agent.registry.error
 agent.registry.retry
 agent.registry.native_hint
+app.settings.cursor_blink
+app.settings.cursor_blink_hint
+app.settings.cursor_blink_blinking
+app.settings.cursor_blink_steady
+app.a11y.expand
+app.a11y.collapse
+app.a11y.new_chat
+app.a11y.add_more_agents

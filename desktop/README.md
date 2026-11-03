@@ -109,7 +109,12 @@ cgc://courses/<uuid>/learn
 
 - 启动后常驻系统托盘：左键打开/聚焦主窗口，右键菜单提供打开、设置、退出。
 - 主窗口关闭默认留在托盘（可在 Settings 的「窗口行为」关闭）；应用退出走托盘「退出」。
-- `preferences.json` 保存 `closeToTray` 与首次关闭提示状态。
+- `preferences.json` 保存 `closeToTray`、首次关闭提示状态，以及 Settings →「通用」的
+  `cursorBlink`（`blinking` / `steady` 光标闪烁）。
+- 图标覆盖是内部/调试能力（不进 Settings，也不写进 `preferences.json`）：设置
+  `CGC_ICON_OVERLAY_DIR=<目录>` 启动时预读与 Kit 图标同名的普通 SVG，缺失或不符合下述文件边界时继续使用内置图标；
+  符号链接、目录和 FIFO 不参与加载，单文件不超过 256 KiB、覆盖快照合计不超过 16 MiB。
+  覆盖字节与解析路径在启动时固定，绘制不再访问覆盖目录，修改文件后需重启；不设置时完全使用内置图标。
 - 登录后每 60 秒拉取 `notificationFeed`，未读通知通过系统通知中心展示；点击通知走
   `cgc://` 路由并调用 `markNotificationRead`。
 - `notifications.json` 保存最近已展示通知的 id 与目标路由，避免重启后重复弹。
@@ -349,10 +354,12 @@ CI 分工：PR 阶段 desktop 只跑 lint + 测试（快）；**打包在合并�
 - **审批规则**：`preferences.json` 的 `toolPermissions` **仅 native 生效**（详见上文「审批规则」）；external agent 的审批由 agent 自身模式决定。
 - **MCP（3.4a/b/c，2026-10-27）**：native MCP client 已落地 Streamable HTTP JSON-RPC（initialize/tools/list/tools/call，Bearer/SSE/超时/401/403 fail-closed，token 不进日志）。native-only 注入 5 个只读课程工具：`mcp:cgc-2046-learning:{get_course_content,get_course_revision,get_learning_state,get_role_playbook,get_enrollment_summary}`；白名单外不注册，无 lease/token 时 0 注册（fail-closed）。配置与 ACP 注入同源（`learning_host` lease + `mcp_endpoint(CGC_API_URL)`）；`CGC_MCP_ENDPOINT`/`CGC_MCP_TOKEN` 仅作 headless 测试 seam。**3.4d 真机待验**（真实平台 MCP server 的 tools/list 与工具调用）。
 - **平台工具凭证恢复**：Native 与 ACP 共用按账号和 API 服务端隔离的钥匙串凭证。冷启动通过 `GET /mcp/token` 核实归属、类型和 token ID 后复用；旧版 `learning_host` 明文项核实后迁移，额度已满也可恢复。401 才按失效处理；网络错误／429／5xx 保留凭证且不增发。新凭证保存失败会撤销本次签发，登出只撤销本机记录，不批量撤销其他客户端。授权失败在 Tab 栏下方独立提示，`Retry` 重新尝试恢复，长诊断不再挤掉标签。
-- **授权回归验证**：凭证测试在 `crates/platform/src/mcp/credential/tests.rs`；真实 TabBar 测试在 `crates/app/src/root_view/screens/workspace/pane/tests.rs`。后者使用 `CGC_UI_TESTS=1` 和 Kit 的 `test-support`（`cargo test -p cgc-desktop-app --features gpui-kit/test-support --lib authorization_failure_and_long_notices`）。当前 Kit 0.8.1 的可选 Fast 依赖版本解析存在缺失，本次在临时 workspace 中仅为未启用的 Fast 包提供解析占位后运行；项目依赖和锁文件保持原样。
+- **授权回归验证**：凭证测试在 `crates/platform/src/mcp/credential/tests.rs`；真实 TabBar 测试在 `crates/app/src/root_view/screens/workspace/pane/tests.rs`。后者使用 `CGC_UI_TESTS=1` 和 Kit 的 `test-support`（`cargo test -p cgc-desktop-app --features gpui-kit/test-support --lib authorization_failure_and_long_notices`）。当前 Kit 0.9.0 的这个聚合 feature 仍不能直接启用：它引用未启用的可选 `gpui-fast`，而 `gpui-fast 0.1.13` 把 `taffy` 钉在 `=0.15.0`、`unicode-properties` 钉在 `=0.1.3`，与 `gpui-pre 0.3.11` 解析到的补丁版冲突。验证时仍在临时 workspace 中为 Fast 包提供解析占位后运行；项目依赖和锁文件保持原样。
 - **侧栏状态**：历史侧栏开关会写入 `preferences.json`（`historySidebarOpen`），重启后恢复。
 - **全局 Agent Panel（3.5a）**：任意页面打开同一 Agent Panel / 同一线程；课程学习页自动把 course/revision/unit 作为上下文附加到每条 prompt（native/ACP 同一段文本，输入气泡不显示），上下文 chip 可移除。不再有课程页专用工作区/会话指针。
 - **默认 agent（3.5b，2026-10-27）**：新会话（含课程页）默认 native；`CGC_NATIVE_AGENT=0` 或设置「使用 Native Agent 运行时」关闭时回退 External Agent（external 仍可在 `＋` 菜单选择）。
+- **Native 图片粘贴**：共享编辑器通过 Kit `Textarea::on_paste` 在默认文本插入前接收图片与复制的图片文件；快捷键和菜单粘贴共用该入口，普通输入不读取剪贴板。附件粘贴保留正文、token、多光标、选区方向与文本撤销历史；带描述文字的剪贴板不会因包含图片文件名而被吞掉。真实 composer 回归在 `crates/app/src/native_agent_view/paste_tests.rs`（沿用上文隔离 workspace 与 `CGC_UI_TESTS=1`，测试过滤器 `paste_tests`）。
+- **Agent Header 无障碍名称**：Native/External 共用的实际新对话按钮提供中英文名称；真实 Header 回归在 `crates/app/src/root_view/screens/chat/editor_tests.rs`。
 - **全局 active tab 上下文**：所有中心内容 tab（课程 issue/整页、场次详情/列表、课程详情/目录、学习/参与列表、工作台概览）在 native/ACP 输入文字流中显示当前页附件 chip。草稿中的自动 chip 跟随当前 Tab，保留问题文字和手动附件；删除 chip 后本条消息不再附加当前页。发送时固定来源和正文快照，排队／重试不随之后的 Tab 改变。正文按线程 + Agent + tab 内容版本去重；chip 显示「待引用／已引用／待更新」，保留加载中、无正文、失败及部分引用状态，自动跟随与发送规则放在 tooltip。已引用页面的追问只带页面身份，不重复正文或通用提示；历史恢复或压缩后保守重载。Native 插话在收到实际消费回执后才标记已引用。
 - **Selection 与历史编辑**：`＋ → Selection` 将中心页面选中文字及其来源保存为独立附件；课程卡目标、清单及 Markdown 正文支持选择。Native 编辑历史消息时恢复原 chip 位置和快照，可替换为当前页再回滚重发；external ACP 的 `Edit copy` 将原消息及附件恢复到 Composer，作为新一轮发送。页面／Selection／File／Skill 快照随会话保存，重新打开历史后仍可恢复。
 
