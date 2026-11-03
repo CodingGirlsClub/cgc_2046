@@ -110,6 +110,9 @@ jobs:
         run: cargo install cargo-packager --locked --version =0.11.8
       - name: 解析源码 commit（tag 的提交，不是 dispatch ref）
         id: src
+        # Windows runner 默认 shell 是 pwsh，`$GITHUB_OUTPUT` 会当成 PowerShell 变量
+        # （应为 `$env:GITHUB_OUTPUT`）展开为空，重定向失败会挂掉整个 matrix。显式 bash。
+        shell: bash
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: 打包（Windows / Linux）
         if: runner.os != 'macOS'
