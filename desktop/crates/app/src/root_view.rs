@@ -2114,6 +2114,44 @@ impl RootView {
             self.dock_side,
             root_weak.clone(),
         );
+        let mut left_items: Vec<AnyElement> = Vec::new();
+        let mut right_items: Vec<AnyElement> = Vec::new();
+        if self.agent_panel_side == crate::preferences::PanelSide::Left {
+            if let Some(item) = history_toggle
+                .filter(|_| self.display_preferences.status_bar_history_button)
+            {
+                left_items.push(item);
+            }
+            if let Some(item) = agent_toggle.filter(|_| self.display_preferences.agent_panel_button)
+            {
+                left_items.push(item);
+            }
+        } else {
+            if let Some(item) = agent_toggle.filter(|_| self.display_preferences.agent_panel_button)
+            {
+                right_items.push(item);
+            }
+            if let Some(item) = history_toggle
+                .filter(|_| self.display_preferences.status_bar_history_button)
+            {
+                right_items.push(item);
+            }
+        }
+        if self.dock_side == crate::preferences::PanelSide::Left {
+            if self.display_preferences.dock_navigation_button {
+                left_items.push(site_tree_toggle);
+            }
+            if self.display_preferences.dock_outline_button {
+                left_items.push(outline_toggle);
+            }
+        } else {
+            if self.display_preferences.dock_navigation_button {
+                right_items.push(site_tree_toggle);
+            }
+            if self.display_preferences.dock_outline_button {
+                right_items.push(outline_toggle);
+            }
+        }
         div()
             .id("status-bar")
             .role(Role::Toolbar)
@@ -2129,23 +2167,7 @@ impl RootView {
                             .gap(px(4.0))
                             .min_w_0()
                             .overflow_x_hidden()
-                            .children(
-                                history_toggle
-                                    .filter(|_| self.display_preferences.status_bar_history_button),
-                            )
-                            .children(agent_toggle.filter(|_| {
-                                self.display_preferences.agent_panel_button
-                            }))
-                            .children(
-                                self.display_preferences
-                                    .dock_navigation_button
-                                    .then_some(site_tree_toggle),
-                            )
-                            .children(
-                                self.display_preferences
-                                    .dock_outline_button
-                                    .then_some(outline_toggle),
-                            ),
+                            .children(left_items),
                     )
                     .right(
                         div()
@@ -2155,6 +2177,7 @@ impl RootView {
                             .gap(px(4.0))
                             .flex_shrink_0()
                             .overflow_x_hidden()
+                            .children(right_items)
                             .child(
                                 div()
                                     .id("theme-menu-toggle")
