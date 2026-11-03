@@ -33,6 +33,8 @@ pub struct Preferences {
     pub agent_panel_width: f64,
     /// Panels → Dock：默认宽度（px）。仅新工作台使用；已有记录优先。
     pub dock_width: f64,
+    /// Window & Layout → Status Bar：是否显示历史对话按钮。
+    pub status_bar_history_button: bool,
     /// Panels → Agent Panel：状态栏是否显示 Agent 按钮。
     pub agent_panel_button: bool,
     /// Panels → Dock：新工作台首次打开时是否展开右侧 Dock。
@@ -88,6 +90,7 @@ impl Default for Preferences {
             cursor_blink: CursorBlinkPreference::default(),
             agent_panel_width: 380.0,
             dock_width: 288.0,
+            status_bar_history_button: true,
             agent_panel_button: true,
             dock_starts_open: true,
             dock_navigation_button: true,
@@ -164,6 +167,7 @@ fn parse(value: &Value) -> Preferences {
             DOCK_WIDTH_RANGE,
             288.0,
         ),
+        status_bar_history_button: bool_field(value, "statusBarHistoryButton", true),
         agent_panel_button: bool_field(value, "agentPanelButton", true),
         dock_starts_open: bool_field(value, "dockStartsOpen", true),
         dock_navigation_button: bool_field(value, "dockNavigationButton", true),
@@ -198,6 +202,7 @@ pub fn save(preferences: Preferences) {
         "cursorBlink": preferences.cursor_blink.as_str(),
         "agentPanelWidth": preferences.agent_panel_width,
         "dockWidth": preferences.dock_width,
+        "statusBarHistoryButton": preferences.status_bar_history_button,
         "agentPanelButton": preferences.agent_panel_button,
         "dockStartsOpen": preferences.dock_starts_open,
         "dockNavigationButton": preferences.dock_navigation_button,
@@ -364,6 +369,7 @@ mod tests {
         assert_eq!(defaults.agent_panel_width, 380.0);
         assert_eq!(defaults.dock_width, 288.0);
         assert!(defaults.agent_panel_button);
+        assert!(defaults.status_bar_history_button);
         assert!(defaults.dock_starts_open);
         assert!(defaults.dock_navigation_button);
         assert!(defaults.dock_outline_button);
@@ -376,6 +382,7 @@ mod tests {
             "agentPanelWidth": 420,
             "dockWidth": 320,
             "agentPanelButton": false,
+            "statusBarHistoryButton": false,
             "dockStartsOpen": false,
             "dockNavigationButton": false,
             "dockOutlineButton": false,
@@ -387,6 +394,7 @@ mod tests {
         assert_eq!(configured.agent_panel_width, 420.0);
         assert_eq!(configured.dock_width, 320.0);
         assert!(!configured.agent_panel_button);
+        assert!(!configured.status_bar_history_button);
         assert!(!configured.dock_starts_open);
         assert!(!configured.dock_navigation_button);
         assert!(!configured.dock_outline_button);

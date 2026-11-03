@@ -847,6 +847,16 @@ impl SettingsWindowView {
             ),
         )
         .description(translate(language, Key::AppSettingsTitleBarNotificationsHint));
+        let status_bar_history_button = SettingItem::new(
+            translate(language, Key::AppSettingsStatusBarHistoryButton),
+            SettingField::switch(
+                |_cx: &App| preferences::load().status_bar_history_button,
+                save_display_preference(root.clone(), |prefs, value: bool| {
+                    prefs.status_bar_history_button = value;
+                }),
+            ),
+        )
+        .description(translate(language, Key::AppSettingsStatusBarHistoryButtonHint));
         let agent_panel_button = SettingItem::new(
             translate(language, Key::AppSettingsAgentPanelButton),
             SettingField::switch(
@@ -1416,6 +1426,14 @@ impl SettingsWindowView {
                             title_bar_notifications,
                         ]),
                     SettingGroup::new()
+                        .title(translate(language, Key::AppSettingsStatusBar))
+                        .items(vec![
+                            status_bar_history_button,
+                            agent_panel_button,
+                            dock_navigation_button,
+                            dock_outline_button,
+                        ]),
+                    SettingGroup::new()
                         .title(translate(language, Key::AppSettingsBehavior))
                         .item(close_to_tray),
                 ]),
@@ -1429,16 +1447,10 @@ impl SettingsWindowView {
                         .item(Self::breadcrumb_item("设置 / 面板".to_string())),
                     SettingGroup::new()
                         .title(translate(language, Key::AppSettingsAgentPanel))
-                        .items(vec![agent_panel_button, agent_panel_width]),
+                        .items(vec![agent_panel_width]),
                     SettingGroup::new()
                         .title(translate(language, Key::AppSettingsDock))
-                        .items(vec![
-                            dock_starts_open,
-                            dock_width,
-                            dock_navigation_button,
-                            dock_outline_button,
-                            dock_show_unenrolled,
-                        ]),
+                        .items(vec![dock_starts_open, dock_width, dock_show_unenrolled]),
                 ]),
         )
         .page(ai_page)

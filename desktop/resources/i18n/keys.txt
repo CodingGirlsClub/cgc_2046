@@ -312,3 +312,6 @@ app.settings.dock_outline_button
 app.settings.dock_outline_button_hint
 app.settings.dock_show_unenrolled
 app.settings.dock_show_unenrolled_hint
+app.settings.status_bar
+app.settings.status_bar_history_button
+app.settings.status_bar_history_button_hint

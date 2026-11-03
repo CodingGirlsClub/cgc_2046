@@ -2016,7 +2016,10 @@ impl RootView {
                             .gap(px(4.0))
                             .min_w_0()
                             .overflow_x_hidden()
-                            .children(history_toggle)
+                            .children(
+                                history_toggle
+                                    .filter(|_| self.display_preferences.status_bar_history_button),
+                            )
                             .children(agent_toggle.filter(|_| {
                                 self.display_preferences.agent_panel_button
                             }))

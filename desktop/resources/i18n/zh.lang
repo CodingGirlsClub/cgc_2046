@@ -311,3 +311,6 @@ app.settings.dock_outline_button = 状态栏显示课程目录按钮
 app.settings.dock_outline_button_hint = 关闭后仍可用快捷键 ⇧⌘B 打开课程目录
 app.settings.dock_show_unenrolled = 显示未报名课程
 app.settings.dock_show_unenrolled_hint = 关闭后站点树只列出已报名的课程
+app.settings.status_bar = 状态栏
+app.settings.status_bar_history_button = 显示历史对话按钮
+app.settings.status_bar_history_button_hint = 关闭后仍可用快捷键 ⌥⌘J 开关历史侧栏

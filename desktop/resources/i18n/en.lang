@@ -311,3 +311,6 @@ app.settings.dock_outline_button = Show course outline button in status bar
 app.settings.dock_outline_button_hint = The ⇧⌘B shortcut still opens the outline.
 app.settings.dock_show_unenrolled = Show courses you are not enrolled in
 app.settings.dock_show_unenrolled_hint = When off, the site tree lists enrolled courses only.
+app.settings.status_bar = Status Bar
+app.settings.status_bar_history_button = Show history button
+app.settings.status_bar_history_button_hint = The ⌥⌘J shortcut still toggles the history sidebar.
