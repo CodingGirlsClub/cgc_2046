@@ -21,8 +21,9 @@ members = [
 ]
 
 [workspace.package]
-# 内测版起 0.1.0：每代构建靠 commit 区分（产物名 cgc2046_<version>_<commit>_<arch>）。
-# 不用 prerelease 后缀（0.1.0-test.1）：macOS 的 CFBundleShortVersionString 只接受数字点分。
+# 内测版起 0.1.0：这里是 base 版本，每代构建的身份在 git tag 上
+# （desktop-v<base>-dev.<YYYYMMDD>.<n>），产物名不带版本，见同名 .build.json。
+# 不要写成 prerelease（0.1.0-test.1）：macOS 的 CFBundleShortVersionString 只接受数字点分。
 version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-only"
