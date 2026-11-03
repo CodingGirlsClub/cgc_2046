@@ -1540,7 +1540,7 @@ fn save_display_width(
 ) -> impl Fn(f64, &mut App) + 'static {
     move |value: f64, cx: &mut App| {
         preferences::update(|prefs| update(prefs, value));
-        let _ = root.update(cx, |view, cx| view.apply_panel_widths(cx));
+        let _ = root.update(cx, |view, cx| view.apply_default_widths_if_unrecorded(cx));
     }
 }
 

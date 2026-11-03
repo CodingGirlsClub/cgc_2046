@@ -911,6 +911,10 @@ impl RootView {
             self.detail_started = false;
             if is_learning && self.right_panel_open {
                 self.right_panel = RightPanel::Outline;
+                self.panel_memory = state::PanelMemory {
+                    panel: RightPanel::Outline,
+                    open: true,
+                };
             }
         }
     }
@@ -3143,14 +3147,17 @@ impl RootView {
         cx.notify();
     }
 
-    /// 只应用默认宽度；由宽度设置项调用，开关不触发。
-    pub(crate) fn apply_panel_widths(&mut self, cx: &mut Context<Self>) {
+    /// 只对没有记录的 workspace 应用默认宽度；已有记忆的尺寸保持不变。
+    pub(crate) fn apply_default_widths_if_unrecorded(&mut self, cx: &mut Context<Self>) {
+        let Some(workspace_id) = self.workspaces.current_id() else {
+            return;
+        };
+        if crate::workspace_state::entry(workspace_id).is_some() {
+            return;
+        }
         let preferences = crate::preferences::load();
         self.agent_panel_width = preferences.agent_panel_width as f32;
         self.right_panel_width = preferences.dock_width as f32;
-        self.agent_panel_side = preferences.agent_panel_side;
-        self.dock_side = preferences.dock_side;
-        self.display_preferences = preferences;
         cx.notify();
     }
 
