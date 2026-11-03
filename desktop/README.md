@@ -233,7 +233,7 @@ CGC_ARTIFACT_ARCH=universal \
   binaries 目录正好是 `target/universal-apple-darwin/release/`。
 - `CGC_ARTIFACT_ARCH=universal` 让 `scripts/name-artifacts.sh` 产出 `_macos-universal` 后缀，
   并让 `scripts/verify-package.sh` 用 `lipo -archs` 断言两个 slice 都在（fail-closed）。
-- 发布走 tag：打 `desktop-v<version>` 触发 `.github/workflows/desktop-release.yml`，
+- 发布走 tag：打 `desktop-v<base>[-dev.<YYYYMMDD>.<n>]` 触发 `.github/workflows/desktop-release.yml`，
   三平台产物 + `SHA256SUMS` 挂到 GitHub Release（`--prerelease`，未签名不对外）。
 
 - `CGC_DEFAULT_API_URL` / `CGC_DEFAULT_ENV` 由 `crates/platform/build.rs` 登记，进
@@ -263,24 +263,64 @@ CGC_ARTIFACT_ARCH=universal \
 桌面客户端的内测版是 **tag 驱动**的，不走 `develop → main` 的 Web/后端发布流程：
 
 1. 确认 develop 的 CI 全绿（`desktop` required check 覆盖三平台构建与测试）。
-2. 打 tag 并推送。发布 job 会断言 **tag 与包版本一致**、**tag 提交已在 develop/main 上**：
+2. 生成并推送 tag。发布 job 会断言 **tag 的 base 版本与 `desktop/Cargo.toml` 一致**、
+   **tag 是合法 semver（允许 `-dev.…` 后缀）**、**tag 提交已在 develop/main 上**。
+
+   内测 tag 带日期与当天序号（`desktop-v<base>-dev.<YYYYMMDD>.<n>`），**不需要改 Cargo.toml**：
+   一天发多次时序号自动递增。`Cargo.toml` 的 `version` 只承载 base 版本，在功能里程碑时人工 bump
+   （它的注释写明 macOS 的 `CFBundleShortVersionString` 只接受数字点分，所以 dev 后缀只能放在 tag 上）。
 
    ```bash
-   git fetch origin develop
-   git tag -a desktop-v0.1.0 origin/develop -m "程序媛汇 桌面客户端 0.1.0 内测（未签名）"
-   git push origin desktop-v0.1.0
+   git fetch origin develop --tags
+   tag=$(bash scripts/next-dev-tag.sh)          # 例如 desktop-v0.1.0-dev.20261103.1
+   git tag -a "$tag" origin/develop -m "CGC-2046 桌面客户端内测（未签名）"
+   git push origin "$tag"
    ```
 
+   第一次发某个 base 的正式内测版时，也可以直接打 `desktop-v0.1.0`（无 `-dev` 后缀），
+   两者都走同一条流水线，区别只在版本号与产物名。
+
 3. `Desktop Release` 自动执行：**生产 schema 兼容门禁**（`desktop/scripts/check_release_schema.py`：
-   提取客户端实际使用的 GraphQL 字段并逐个探测生产端点，缺任一字段即 fail-closed 拒绝构建）
+   用完整 document 探测生产端点，缺任一字段即 fail-closed 拒绝构建）
    → 三平台构建 → 产物校验（universal 包用 `lipo -archs` 断言双架构）
    → 生成 `SHA256SUMS` → 建 **prerelease**（未签名，只作内测通道）。
-4. 抽查产物（下载后挂载校验，别只看日志）：
+
+   **产物形态**（内测期统一「免安装」）：
+
+   | 平台 | 产物 | 说明 |
+   |---|---|---|
+   | macOS | `cgc2046-macos-universal.dmg` | Intel + Apple Silicon 同一包（安装器注册 `cgc://`） |
+   | Windows | `cgc2046-windows-x64.zip` | 便携包，解压即用；**深链需手动注册**（见下） |
+   | Linux | `cgc2046-linux-x64.tar.gz` | 便携包，解压即用；**深链需手动注册**（见下） |
+
+   > 便携包不经过安装器，而 `cgc://` 协议注册原本由安装器完成（`crates/app/Cargo.toml` 的
+   > `deepLinkProtocols`）。要用「网页点链接跳回客户端」，解压后跑一次随包的注册脚本：
+   > Windows `powershell -ExecutionPolicy Bypass -File register-protocol.ps1`（写 HKCU，免管理员）；
+   > Linux `bash usr/bin/register-protocol.sh`（写 `~/.local/share/applications` + `xdg-mime`，免 root）。
+   > 不跑也能正常使用，只是 `cgc://` 深链打不开。
+
+   **文件名不带版本**（版本由 tag 承载）。每个产物配一个同名 `.build.json`，字段：
+
+   | 字段 | 含义 |
+   |---|---|
+   | `schemaVersion` | 元数据格式版本，当前 `1` |
+   | `product` | 固定 `cgc2046` |
+   | `version` | 完整版本，含 dev 后缀（如 `0.1.0-dev.20261103.1`） |
+   | `releaseTag` | 构建用的 git tag |
+   | `sourceRevision` | 完整 commit SHA |
+   | `platform` / `arch` | `macos|windows|linux` / `universal|x64|aarch64` |
+   | `signing` / `notarized` | 内测期固定 `unsigned` / `false` |
+
+   要确认「这个包是哪次构建」就查它——`verify-package.sh` 也是读它做断言，不再解析文件名。
+
+4. 抽查产物（下载后实跑校验，别只看日志）：
 
    ```bash
-   curl -LO <release>/cgc2046_<ver>_<commit>_macos-universal.dmg
+   curl -LO <release>/cgc2046-macos-universal.dmg
+   curl -LO <release>/cgc2046-macos-universal.build.json
    shasum -a 256 -c SHA256SUMS
-   hdiutil attach -nobrowse -readonly cgc2046_<ver>_<commit>_macos-universal.dmg
+   cat cgc2046-macos-universal.build.json      # 版本 / commit / 签名状态
+   hdiutil attach -nobrowse -readonly cgc2046-macos-universal.dmg
    lipo -archs /Volumes/程序媛汇/程序媛汇.app/Contents/MacOS/*
    ```
 
