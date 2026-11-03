@@ -196,6 +196,12 @@ defmodule Cgc2046.Mcp.Playbooks do
   下一版本,旧版本永不改写。读已发布版本用 get_course_revision(workspace_id,
   course_id, revision_number?)(缺省=最新;revision_number 可显式取旧版)。
 
+  周期读法(S6 次周期 + #1128):先比 get_prep_status 返回的 run_id 判断是否已换周期,
+  同一 run 内再比 version——version 是单个 run 的乐观锁,换周期后从低值重开,不能跨
+  周期比较大小。run 的来源可查:created_reason(course_created=课程创建自动开的首周期 /
+  next_cycle=发布后首次读取懒开的次周期)、created_by(触发人;首周期为 null)、
+  previous_run_id(上一周期;首周期为 null)。
+
   纪律:质量评分必须诚实反映内容质量,不为冲过阈值虚报高分;被退回是正常迭代,逐条
   回应 findings 再提交。任何会发布课程的动作都要先展示影响,经 Tutor 明确确认后才能发布;未确认不得调用发布动作。草稿经 get_course_content 读写,已发布版本经
   get_course_revision 读取——两份内容不要混淆,发布后修订仍以草稿为工作面(次周期 run)。
@@ -308,7 +314,7 @@ defmodule Cgc2046.Mcp.Playbooks do
   @playbooks %{
     platform_admin: %{version: "2026-10-03.1", content: @platform_admin_content},
     workspace_admin: %{version: "2026-11-03.1", content: @workspace_admin_content},
-    tutor: %{version: "2026-10-03.1", content: @tutor_content},
+    tutor: %{version: "2026-11-03.1", content: @tutor_content},
     learner: %{version: "2026-10-15.1", content: @learner_content}
   }
 

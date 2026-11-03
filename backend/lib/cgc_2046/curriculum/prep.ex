@@ -93,6 +93,25 @@ defmodule Cgc2046.Curriculum.Prep do
     |> Ash.read_one!(authorize?: false, tenant: workspace_id)
   end
 
+  @doc """
+  同课程最近一条 prep run（**含终态**；无 → nil）。
+
+  与 `fetch_run/2`（只取非终态）互补：#1128 归因用——次周期懒开时把上一周期
+  run 的 id 记进 `previous_run_id`。DB 错误上抛（与 fetch_run 同纪律）。
+  """
+  @spec latest_run(String.t(), String.t()) :: WorkflowRun.t() | nil
+  def latest_run(course_id, workspace_id) do
+    WorkflowRun
+    |> Ash.Query.filter(
+      definition.type == :course_preparation and
+        input_snapshot["key"] == ^instance_key(course_id)
+    )
+    |> Ash.Query.sort(inserted_at: :desc)
+    # 显式 limit：read_one!/2 在多行时 raise；同课程跨多个周期会有多条 run。
+    |> Ash.Query.limit(1)
+    |> Ash.read_one!(authorize?: false, tenant: workspace_id)
+  end
+
   @doc "prep_state（facts 未写 = draft）。"
   @spec prep_state(WorkflowRun.t()) :: String.t()
   def prep_state(%WorkflowRun{facts: facts}) do
@@ -775,12 +794,19 @@ defmodule Cgc2046.Curriculum.Prep do
   end
 
   defp do_spawn_next_run(%Course{} = course, opts) do
+    # 上一周期（已终态）的 run id 供归因；竞态取不到时为 nil（不影响开周期）。
+    previous = latest_run(course.id, course.workspace_id)
+
     with {:ok, definition} <- fetch_prep_definition(course.workspace_id),
          {:ok, run} <-
-           PrepInstantiator.launch(course.workspace_id, definition.id, %{
-             "course_id" => course.id,
-             "title" => course.title
-           }),
+           PrepInstantiator.launch(
+             course.workspace_id,
+             definition.id,
+             %{"course_id" => course.id, "title" => course.title},
+             created_reason: :next_cycle,
+             previous_run_id: previous && previous.id,
+             actor: opts[:actor]
+           ),
          :ok <- PrepInstantiator.link_prep_run(course, run),
          {:ok, run} <- carry_over_assignee(course, run, opts[:actor]) do
       {:ok, run}

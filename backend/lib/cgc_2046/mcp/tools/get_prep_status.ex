@@ -9,7 +9,9 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
 
   S6 起 run 读取经 `Prep.ensure_active_run/2` 懒开新 run（读取即写：触发面 =
   本工具与 submit_prep_for_check）——发布后首读即开新一轮周期，自动有活动
-  run 驱动下一版本（次周期 assignee 沿用）。
+  run 驱动下一版本（次周期 assignee 沿用）。#1128 起返回周期归因：`created_at` /
+  `created_reason`（`course_created` | `next_cycle`）/ `created_by`（触发人摘要，
+  首周期 null）/ `previous_run_id`（上一周期，首周期 null）。
   """
   use Anubis.Server.Component, type: :tool
 
@@ -27,6 +29,9 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
     """
     Read preparation status for a course visible to the caller: prep_state, effective policy,
     assigned tutor, latest quality report, gate_violations, gate_warnings, run_id and version.
+    Cycle attribution is included: created_at, created_reason (course_created = first cycle from
+    the course.created signal / next_cycle = lazily opened after publication), created_by
+    (triggering user; null for the first cycle) and previous_run_id (null for the first cycle).
     Draft courses require tutor/management access or review authorization for the course's active
     preparation run (designated reviewer, or current assignee when none is designated). Review
     authorization grants only this preparation-status projection. Reading a published course starts
@@ -57,11 +62,17 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
              prep_state: Prep.prep_state(run),
              policy: Prep.policy(run),
              assignee_user_id: assignee_id,
-             tutor: tutor_summary(assignee_id),
+             tutor: user_summary(assignee_id),
              latest_quality_report: (run.facts || %{})["latest_quality_report"],
              gate_violations: gate.violations,
              gate_warnings: gate.warnings,
-             version: run.version
+             version: run.version,
+             # #1128 归因：周期从哪来、谁触发、接的是哪一周期。
+             # 首周期（course_created）的 created_by 为 nil（事件载荷无 actor）。
+             created_at: run.inserted_at,
+             created_reason: run.created_reason && to_string(run.created_reason),
+             created_by: user_summary(run.created_by_actor_id),
+             previous_run_id: run.previous_run_id
            }}
         end
       end)
@@ -91,11 +102,12 @@ defmodule Cgc2046.Mcp.Tools.GetPrepStatus do
     end
   end
 
-  # tutor 摘要（内部读 authorize?: false——行可见性已由 member 门保证，
-  # 摘要只是同权限范围内的展示字段，PendingApprovals enrich 同款纪律）
-  defp tutor_summary(nil), do: nil
+  # 用户摘要（内部读 authorize?: false——行可见性已由 member 门保证，
+  # 摘要只是同权限范围内的展示字段，PendingApprovals enrich 同款纪律）。
+  # tutor（当前 assignee）与 created_by（#1128 归因）共用。
+  defp user_summary(nil), do: nil
 
-  defp tutor_summary(user_id) do
+  defp user_summary(user_id) do
     case User |> Ash.Query.filter(id == ^user_id) |> Ash.read_one(authorize?: false) do
       {:ok, %User{} = user} -> %{user_id: user.id, display_name: user.display_name}
       _ -> %{user_id: user_id, display_name: nil}

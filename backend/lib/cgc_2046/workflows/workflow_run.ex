@@ -105,6 +105,32 @@ defmodule Cgc2046.Workflows.WorkflowRun do
     attribute(:subject_enrollment_id, :uuid, public?: true, writable?: false)
     attribute(:subject_course_revision_id, :uuid, public?: true, writable?: false)
 
+    # #1128 裁决 D2（最小归因）：run 的创建原因 / 触发人 / 上一周期。
+    # 服务端设定（writable?: false），唯一写入点 = find_or_create_and_start/4
+    # （force_change_attribute，attribution 由创建方 opts 传入）。不建 FK：
+    # previous_run_id 是审计链接，避免 live 表 FK 校验与 fk guard 新增面。
+    attribute(:created_reason, :atom,
+      allow_nil?: true,
+      public?: true,
+      writable?: false,
+      constraints: [one_of: [:course_created, :next_cycle]],
+      description: "run 创建原因：course_created 首周期（course.created 信号）/ next_cycle 发布后次周期懒开"
+    )
+
+    attribute(:created_by_actor_id, :uuid,
+      allow_nil?: true,
+      public?: true,
+      writable?: false,
+      description: "次周期触发人（ensure_active_run 调用者）；首周期为 nil（事件载荷无 actor）"
+    )
+
+    attribute(:previous_run_id, :uuid,
+      allow_nil?: true,
+      public?: true,
+      writable?: false,
+      description: "上一周期 run id（次周期懒开时记录）；首周期为 nil。审计链接，刻意不建 FK"
+    )
+
     attribute(:facts, :map,
       sensitive?: true,
       public?: true,
@@ -824,9 +850,14 @@ defmodule Cgc2046.Workflows.WorkflowRun do
   # key 非 nil 时把去重键写入 input_snapshot（与 curriculum/learning 既有
   # Map.put(input, "key", key) 语义一致）；key nil 时 input 原样落库（speaker 的
   # key 字段随 input 自带）。
+  #
+  # #1128 归因：created_reason / created_by_actor_id / previous_run_id 由调用方
+  # opts 提供，经 force_change_attribute 落在**唯一创建 seam**（属性 writable?:
+  # false，不开放调用方伪造）。created_by 缺省取 opts[:actor].id。
   defp create_and_start(workspace_id, definition, input, start_action, opts, key \\ nil) do
     actor = opts[:actor]
     input_snapshot = if is_nil(key), do: input, else: Map.put(input, "key", key)
+    created_by_actor_id = opts[:created_by_actor_id] || (actor && actor.id)
 
     attrs = %{
       definition_id: definition.id,
@@ -834,10 +865,15 @@ defmodule Cgc2046.Workflows.WorkflowRun do
       input_snapshot: input_snapshot
     }
 
+    changeset =
+      __MODULE__
+      |> Ash.Changeset.for_create(:create, attrs, tenant: workspace_id, authorize?: false)
+      |> Ash.Changeset.force_change_attribute(:created_reason, opts[:created_reason])
+      |> Ash.Changeset.force_change_attribute(:created_by_actor_id, created_by_actor_id)
+      |> Ash.Changeset.force_change_attribute(:previous_run_id, opts[:previous_run_id])
+
     with {:ok, run} <-
-           __MODULE__
-           |> Ash.Changeset.for_create(:create, attrs, tenant: workspace_id, authorize?: false)
-           |> Ash.create(tenant: workspace_id, authorize?: false, actor: actor),
+           Ash.create(changeset, tenant: workspace_id, authorize?: false, actor: actor),
          {:ok, started} <-
            run
            |> Ash.Changeset.for_update(start_action, %{}, tenant: workspace_id, authorize?: false)
