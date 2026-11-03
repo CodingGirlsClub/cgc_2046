@@ -142,6 +142,7 @@ cgc://courses/<uuid>/learn
 - 状态栏图标右键提供 `Dock Left` / `Dock Right` / `Hide Button`；图标随面板停靠侧移到左组或右组。
 - 面板开合与右侧当前面板按 workspace 记忆（`workspace_state.json`），优先于设置默认值；通知面板不记忆。
 - `新工作台默认展开` 与默认宽度只在 workspace 无记录时生效；拖动宽度后按 workspace 记住。
+- 已知限制：debug 构建下，若 macOS 辅助功能被激活（例如自动化工具读取界面），点击「面板 → 默认宽度」的 `+`/`−` 会触发 `gpui-pre 0.3.11` 的 a11y 断言（`set_focus called more than once in a single frame`）并 panic；release 构建只记录 warn。移除条件：`gpui-kit` / `gpui-pre` 升级修复后删除此条。
 
 ## 审批规则（toolPermissions，native-only）
 
