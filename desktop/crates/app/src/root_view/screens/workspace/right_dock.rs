@@ -181,6 +181,7 @@ fn render_notifications_dock(
                         .text_color(palette.ink_3)
                         .small(),
                 )
+                .accessibility_label(translate(language, Key::AppNotificationsRefresh))
                 .tooltip(translate(language, Key::AppNotificationsRefresh))
                 .loading(loading)
                 .on_click(move |_, _, cx| {
@@ -530,6 +531,15 @@ fn render_site_tree(
             Button::new("site-tree-events-chevron")
                 .xsmall()
                 .ghost()
+                .accessibility_label(format!(
+                    "{} {}",
+                    if expanded {
+                        translate(language, Key::AppA11yCollapse)
+                    } else {
+                        translate(language, Key::AppA11yExpand)
+                    },
+                    translate(language, Key::EventsListTitle)
+                ))
                 .icon(
                     Icon::default()
                         .path(if expanded {
@@ -602,6 +612,15 @@ fn render_site_tree(
             Button::new("site-tree-courses-chevron")
                 .xsmall()
                 .ghost()
+                .accessibility_label(format!(
+                    "{} {}",
+                    if expanded {
+                        translate(language, Key::AppA11yCollapse)
+                    } else {
+                        translate(language, Key::AppA11yExpand)
+                    },
+                    translate(language, Key::CoursesCatalogTitle)
+                ))
                 .icon(
                     Icon::default()
                         .path(if expanded {
@@ -633,6 +652,14 @@ fn render_site_tree(
                 });
             let is_expanded = expanded_course.as_deref() == Some(id.as_str());
             let click_course_id = course_id.clone();
+            let chevron_label = format!(
+                "{} {title}",
+                if is_expanded {
+                    translate(language, Key::AppA11yCollapse)
+                } else {
+                    translate(language, Key::AppA11yExpand)
+                }
+            );
             let chevron = {
                 let root = root.clone();
                 move |_: &mut Window, _: &mut App| {
@@ -643,6 +670,7 @@ fn render_site_tree(
                     )))
                     .xsmall()
                     .ghost()
+                    .accessibility_label(chevron_label.clone())
                     .icon(
                         Icon::default()
                             .path(if is_expanded {

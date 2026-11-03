@@ -16,7 +16,7 @@ use cgc_platform::acp::connection::{AcpHost, AcpHostConfig, HostEvent};
 use futures::StreamExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::hover_card::HoverCard;
-use gpui_kit::component::input::{InputContent, InputEvent, TextareaState};
+use gpui_kit::component::input::{InputEvent, TextareaState};
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu};
 use gpui_kit::component::message_scroller::{MessageScroller, MessageScrollerState};
 use gpui_kit::component::popover::Popover;
@@ -150,26 +150,65 @@ impl NativeAgentView {
             input_value,
         }
     }
+
+    /// 在 Kit 插入文本前接收图片；不改输入内容、选区或撤销历史。
+    fn paste_images(&mut self, item: &ClipboardItem, cx: &mut Context<Self>) -> bool {
+        if let Some(image) = item.entries.iter().find_map(|entry| match entry {
+            ClipboardEntry::Image(image) => Some(image),
+            _ => None,
+        }) {
+            self.add_clipboard_image(image, cx);
+            return true;
+        }
+        let paths = clipboard_image_paths(item);
+        if paths.is_empty() {
+            return false;
+        }
+        if !self.model_supports_images() {
+            self.status = "当前模型不支持图片输入".to_string();
+            cx.notify();
+            return true;
+        }
+        self.add_images_from_paths(&paths, cx);
+        true
+    }
 }
 
-fn inserted_segment(previous: &str, current: &str) -> Option<String> {
-    if current.len() <= previous.len() {
-        return None;
+/// 文件 payload 才能成为附件；附带的正文必须逐行精确对应路径或文件名。
+/// 第三方剪贴板同时提供描述文字时，让 Kit 正常粘贴文字。
+fn clipboard_image_paths(item: &ClipboardItem) -> Vec<std::path::PathBuf> {
+    let paths: Vec<_> = item
+        .entries
+        .iter()
+        .filter_map(|entry| match entry {
+            ClipboardEntry::ExternalPaths(paths) => Some(paths.paths()),
+            _ => None,
+        })
+        .flatten()
+        .filter(|path| is_image_path(path))
+        .cloned()
+        .collect();
+    let has_text = item
+        .entries
+        .iter()
+        .any(|entry| matches!(entry, ClipboardEntry::String(text) if !text.text().is_empty()));
+    if has_text {
+        let text = item.text().unwrap_or_default();
+        if text.lines().count() != paths.len()
+            || !text.lines().zip(&paths).all(|(line, path)| {
+                path.to_str() == Some(line)
+                    || path.file_name().and_then(|name| name.to_str()) == Some(line)
+                    || url::Url::parse(line)
+                        .ok()
+                        .and_then(|url| url.to_file_path().ok())
+                        .as_ref()
+                        == Some(path)
+            })
+        {
+            return Vec::new();
+        }
     }
-    let a = previous.as_bytes();
-    let b = current.as_bytes();
-    let mut prefix = 0;
-    while prefix < a.len() && prefix < b.len() && a[prefix] == b[prefix] {
-        prefix += 1;
-    }
-    let mut suffix = 0;
-    while suffix < a.len().saturating_sub(prefix)
-        && suffix < b.len().saturating_sub(prefix)
-        && a[a.len() - 1 - suffix] == b[b.len() - 1 - suffix]
-    {
-        suffix += 1;
-    }
-    String::from_utf8(b[prefix..b.len() - suffix].to_vec()).ok()
+    paths
 }
 
 /// 把 thread entries 映射成 UI 状态：图片预览 + 工具调用参数/输出（工具卡片）。
@@ -322,7 +361,6 @@ pub struct NativeAgentView {
     pending_images: Vec<PendingImage>,
     /// 已发送用户消息 index → 图片预览（仅当前进程内显示，不持久化）。
     sent_images: HashMap<usize, Vec<SentImage>>,
-    last_input_content: InputContent,
     _input_subscription: Option<Subscription>,
     _key_interceptor: Option<Subscription>,
 }

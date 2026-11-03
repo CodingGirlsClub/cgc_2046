@@ -20,6 +20,7 @@ pub mod conversation_session;
 pub mod deep_link;
 pub mod formula;
 pub mod i18n;
+pub mod icon_theme;
 pub mod icons;
 pub mod image_viewer;
 pub mod mention;
