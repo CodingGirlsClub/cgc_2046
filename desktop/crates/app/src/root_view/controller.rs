@@ -2942,8 +2942,8 @@ impl RootView {
             site_tree_course_open: self.site_tree_course_open.clone(),
             site_tree_scroll_y: self.site_tree_scroll.offset().y.as_f32(),
             agent_panel_open: self.agent_panel_open,
-            right_panel_open: self.right_panel_open,
-            right_panel: match self.right_panel {
+            right_panel_open: self.panel_memory.open,
+            right_panel: match self.panel_memory.panel {
                 RightPanel::Outline => crate::workspace_state::PersistedRightPanel::Outline,
                 _ => crate::workspace_state::PersistedRightPanel::SiteTree,
             },
@@ -2961,6 +2961,10 @@ impl RootView {
             self.agent_panel_open = true;
             self.right_panel_open = preferences.dock_starts_open;
             self.right_panel = RightPanel::SiteTree;
+            self.panel_memory = state::PanelMemory {
+                panel: RightPanel::SiteTree,
+                open: preferences.dock_starts_open,
+            };
             self.right_panel_width = preferences.dock_width as f32;
             self.agent_panel_width = preferences.agent_panel_width as f32;
             cx.notify();
@@ -2971,6 +2975,10 @@ impl RootView {
         self.right_panel = match entry.right_panel {
             crate::workspace_state::PersistedRightPanel::Outline => RightPanel::Outline,
             crate::workspace_state::PersistedRightPanel::SiteTree => RightPanel::SiteTree,
+        };
+        self.panel_memory = state::PanelMemory {
+            panel: self.right_panel,
+            open: entry.right_panel_open,
         };
         self.site_tree_events_open = entry.site_tree_events_open;
         self.site_tree_courses_open = entry.site_tree_courses_open;
@@ -3120,6 +3128,7 @@ impl RootView {
         self.right_panel_open = open;
         // 通知面板是临时入口，不写入记忆。
         if !matches!(panel, RightPanel::Notifications) {
+            self.panel_memory = state::PanelMemory { panel, open };
             self.persist_current_workspace_state();
         }
         cx.notify();

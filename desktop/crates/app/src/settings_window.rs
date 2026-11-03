@@ -844,7 +844,10 @@ impl SettingsWindowView {
                 }),
             ),
         )
-        .description(translate(language, Key::AppSettingsTitleBarNotificationsHint));
+        .description(translate(
+            language,
+            Key::AppSettingsTitleBarNotificationsHint,
+        ));
         let status_bar_history_button = SettingItem::new(
             translate(language, Key::AppSettingsStatusBarHistoryButton),
             SettingField::switch(
@@ -854,7 +857,10 @@ impl SettingsWindowView {
                 }),
             ),
         )
-        .description(translate(language, Key::AppSettingsStatusBarHistoryButtonHint));
+        .description(translate(
+            language,
+            Key::AppSettingsStatusBarHistoryButtonHint,
+        ));
         let agent_panel_button = SettingItem::new(
             translate(language, Key::AppSettingsAgentPanelButton),
             SettingField::switch(
@@ -954,7 +960,10 @@ impl SettingsWindowView {
                 }),
             ),
         )
-        .description(translate(language, Key::AppSettingsDockNavigationButtonHint));
+        .description(translate(
+            language,
+            Key::AppSettingsDockNavigationButtonHint,
+        ));
         let dock_outline_button = SettingItem::new(
             translate(language, Key::AppSettingsDockOutlineButton),
             SettingField::switch(
@@ -1442,9 +1451,7 @@ impl SettingsWindowView {
                     SettingGroup::new()
                         .variant(GroupBoxVariant::Normal)
                         .item(Self::breadcrumb_item("设置 / 通用".to_string())),
-                    SettingGroup::new()
-                        .title("通用")
-                        .items(vec![cursor_blink]),
+                    SettingGroup::new().title("通用").items(vec![cursor_blink]),
                 ]),
         )
         .page(

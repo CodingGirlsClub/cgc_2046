@@ -434,6 +434,7 @@ fn render_site_tree(
         .courses
         .items()
         .iter()
+        .take(20)
         .filter(|course| {
             show_unenrolled
                 || ctx
@@ -441,7 +442,6 @@ fn render_site_tree(
                     .get(&course.id)
                     .is_none_or(Option::is_some)
         })
-        .take(20)
         .map(|course| (course.id.clone(), course.title.clone()))
         .collect::<Vec<_>>();
     let show_events = events_open;

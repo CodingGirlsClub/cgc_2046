@@ -20,6 +20,22 @@ pub(in crate::root_view) enum StatusBarButton {
     Outline,
 }
 
+/// 右侧 Dock 的持久化记忆；通知面板打开期间保持不变。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::root_view) struct PanelMemory {
+    pub(in crate::root_view) panel: RightPanel,
+    pub(in crate::root_view) open: bool,
+}
+
+impl Default for PanelMemory {
+    fn default() -> Self {
+        Self {
+            panel: RightPanel::SiteTree,
+            open: true,
+        }
+    }
+}
+
 /// 纯状态转移：点当前 panel 图标收起，点另一个切换；便于单测钉住互斥语义。
 pub(in crate::root_view) fn toggled_right_panel(
     current: RightPanel,
@@ -172,6 +188,8 @@ pub struct ShellState {
     pub(in crate::root_view) agent_panel_open: bool,
     pub(in crate::root_view) right_panel: RightPanel,
     pub(in crate::root_view) right_panel_open: bool,
+    /// 通知面板不覆盖右侧 Dock 的记忆。
+    pub(in crate::root_view) panel_memory: PanelMemory,
     pub(in crate::root_view) right_panel_width: f32,
     pub(in crate::root_view) agent_panel_width: f32,
     /// 面板停靠侧；右键菜单 Dock Left / Dock Right 修改。
@@ -331,6 +349,7 @@ impl ShellState {
             agent_panel_open: true,
             right_panel: RightPanel::SiteTree,
             right_panel_open: true,
+            panel_memory: PanelMemory::default(),
             right_panel_width: layout_preferences.dock_width as f32,
             agent_panel_width: layout_preferences.agent_panel_width as f32,
             agent_panel_side: layout_preferences.agent_panel_side,
