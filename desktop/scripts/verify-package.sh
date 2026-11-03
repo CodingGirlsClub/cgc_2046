@@ -89,9 +89,12 @@ for f in dist/*.tar.gz; do
     exit 1
   fi
   echo "   binary ok: ${bin#"$tmp"/}"
-  if ! grep -R -q 'x-scheme-handler/cgc' "$tmp" 2>/dev/null; then
+  # 只认实际会被桌面环境读取的 .desktop 文件：随包的 register-protocol.sh 本身也含
+  # `x-scheme-handler/cgc` 字面量，全目录 grep 会让缺 entry 的包蒙混过关。
+  entry=$(find "$tmp/usr/share/applications" -maxdepth 1 -type f -name "*.desktop" 2>/dev/null | head -1)
+  if [ -z "$entry" ] || ! grep -q 'x-scheme-handler/cgc' "$entry"; then
     rm -rf "$tmp"
-    echo "FAIL: tar.gz 缺 x-scheme-handler/cgc 的 desktop entry" >&2
+    echo "FAIL: tar.gz 缺声明 x-scheme-handler/cgc 的 desktop entry（usr/share/applications/*.desktop）" >&2
     exit 1
   fi
   echo "   cgc URL scheme ok"

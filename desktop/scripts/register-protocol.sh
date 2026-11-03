@@ -7,14 +7,20 @@
 # 这里只写用户目录（~/.local/share/applications + xdg-mime default），不影响系统级配置。
 set -euo pipefail
 self_dir=$(cd "$(dirname "$0")" && pwd)
+# 包内布局：脚本在 usr/bin/，desktop entry 在 usr/share/applications/，可执行文件在 usr/bin/。
+# 因此要从**包根**（usr/bin 的上两级）找 entry，而不是从脚本所在目录向下找。
+pkg_root=$(cd "$self_dir/../.." && pwd)
+if [ ! -d "$pkg_root/usr/share/applications" ]; then
+  pkg_root="$self_dir"   # 兜底：脚本被放在包根时仍可用
+fi
 
-desktop_entry=$(find "$self_dir" -type f -name "*.desktop" -path "*applications*" | head -1)
+desktop_entry=$(find "$pkg_root/usr/share/applications" -maxdepth 1 -type f -name "*.desktop" 2>/dev/null | head -1)
 [ -n "$desktop_entry" ] || {
-  echo "FAIL: 在当前目录找不到 .desktop 文件（应在 usr/share/applications/ 下）" >&2
+  echo "FAIL: 在 $pkg_root/usr/share/applications 找不到 .desktop 文件" >&2
   exit 1
 }
 
-exe=$(find "$self_dir" -type f -name "cgc-desktop-app" -perm -u+x | head -1)
+exe=$(find "$pkg_root" -maxdepth 3 -type f -name "cgc-desktop-app" -perm -u+x | head -1)
 [ -n "$exe" ] || {
   echo "FAIL: 找不到 cgc-desktop-app 可执行文件" >&2
   exit 1
