@@ -30,7 +30,10 @@ target_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 mkdir -p "$target_dir"
 name=$(basename "$desktop_entry")
 # 把 Desktop Entry 的 Exec 指向本次解压的实际路径（便携包位置可变）。
-sed -E "s|^Exec=.*|Exec=\"$exe\" %u|" "$desktop_entry" > "$target_dir/$name"
+# 必须用 awk 而不是 sed：sed 的替换串里 `&` 表示「整条匹配」，路径含 `&`
+# （如 `downloads & apps`）会被展开成原 Exec 行，写出一个不存在的路径。
+awk -v exe="$exe" '{ if ($0 ~ /^Exec=/) print "Exec=\"" exe "\" %u"; else print }' \
+  "$desktop_entry" > "$target_dir/$name"
 chmod 644 "$target_dir/$name"
 echo "installed desktop entry: $target_dir/$name"
 
