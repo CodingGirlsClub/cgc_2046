@@ -126,14 +126,26 @@ jobs:
           cargo packager -p cgc-desktop-app --release --target universal-apple-darwin -f dmg
       - name: 重命名产物（Unix）
         if: runner.os != 'Windows'
-        run: bash scripts/name-artifacts.sh
+        env:
+          VERSION: ${{ inputs.tag || github.ref_name }}
+        run: |
+          export VERSION="${VERSION#desktop-v}"
+          bash scripts/name-artifacts.sh
       - name: 重命名产物（Windows）
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/name-artifacts.ps1
+        env:
+          VERSION: ${{ inputs.tag || github.ref_name }}
+        run: |
+          $env:VERSION = $env:VERSION -replace '^desktop-v', ''
+          ./scripts/name-artifacts.ps1
       - name: 校验产物（Unix）
         if: runner.os != 'Windows'
-        run: bash scripts/verify-package.sh
+        env:
+          VERSION: ${{ inputs.tag || github.ref_name }}
+        run: |
+          export VERSION="${VERSION#desktop-v}"
+          bash scripts/verify-package.sh
       - name: 校验产物（Windows）
         if: runner.os == 'Windows'
         shell: pwsh
@@ -161,19 +173,25 @@ jobs:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           tag_version="${TAG#desktop-v}"
+          # 允许 semver prerelease：0.1.0 / 0.1.0-dev.20261102.1（后者是内测构建）。
+          if ! [[ "$tag_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
+            echo "FAIL: tag '$TAG' 不是合法版本（期望 desktop-v<X.Y.Z>[-<prerelease>]）" >&2
+            exit 1
+          fi
+          base="${tag_version%%-*}"
           version=$(python3 - <<'PY'
           import pathlib, re
           text = pathlib.Path("desktop/Cargo.toml").read_text()
-          # [workspace.package] 里的 version 就是桌面端版本
+          # [workspace.package] 里的 version 就是桌面端 base 版本
           match = re.search(r'^version\s*=\s*"([^"]+)"', text, re.M)
           print(match.group(1) if match else "")
           PY
           )
-          if [ -z "$version" ] || [ "$tag_version" != "$version" ]; then
-            echo "FAIL: tag '$TAG' 与 desktop 包版本 '$version' 不一致" >&2
+          if [ -z "$version" ] || [ "$base" != "$version" ]; then
+            echo "FAIL: tag '$TAG' 的 base '$base' 与 desktop 包版本 '$version' 不一致" >&2
             exit 1
           fi
-          echo "version ok: $version"
+          echo "version ok: $tag_version（base $base）"
       - name: 确认 tag 指向已合并的提交
         env:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}

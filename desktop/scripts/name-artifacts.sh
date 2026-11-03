@@ -5,8 +5,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-version=$(cargo metadata --no-deps --format-version 1 2>/dev/null \
-  | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="cgc-desktop-app"))')
+# 版本：CI 用 tag 的完整版本（含 -dev.YYYYMMDD.n 后缀）覆盖；本地回落到 Cargo 包版本。
+version="${VERSION:-}"
+if [ -z "$version" ]; then
+  version=$(cargo metadata --no-deps --format-version 1 2>/dev/null \
+    | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="cgc-desktop-app"))')
+fi
 commit="${CGC_BUILD_COMMIT:-$(git rev-parse --short=7 HEAD 2>/dev/null || echo unknown)}"
 # 架构段：macOS universal 包由 CI 用 CGC_ARTIFACT_ARCH=universal 指定；
 # 其余平台回落到本机架构（打包器只在对应平台跑）。
