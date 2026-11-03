@@ -429,11 +429,19 @@ fn render_site_tree(
         .take(20)
         .map(|event| (event.id.clone(), event.title.clone()))
         .collect::<Vec<_>>();
+    let show_unenrolled = ctx.display_preferences.dock_show_unenrolled;
     let courses = ctx
         .courses
         .items()
         .iter()
         .take(20)
+        .filter(|course| {
+            show_unenrolled
+                || ctx
+                    .course_enrollments
+                    .get(&course.id)
+                    .is_none_or(Option::is_some)
+        })
         .map(|course| (course.id.clone(), course.title.clone()))
         .collect::<Vec<_>>();
     let show_events = events_open;

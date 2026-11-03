@@ -5,6 +5,7 @@
 //! 整个窗口显示登录页（guard），登录成功后进入壳；登出在头像下拉里（同 Zed 的
 //! sign out）。网络调用放后台线程，结果回主线程刷新。
 
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
 use gpui_kit::InteractiveElement;
 use gpui_kit::*;
 
@@ -950,107 +951,123 @@ impl Render for RootView {
                 ));
             root
         } else {
-            root =
-                root.size_full()
-                    .flex()
-                    .flex_col()
-                    .bg(palette.canvas)
-                    .text_color(palette.ink)
-                    .font_family(theme::FONT_SANS)
-                    .text_size(px(14.0))
-                    .track_focus(&key_focus)
-                    .on_key_down(cx.listener(Self::handle_shell_key))
-                    .on_mouse_up(
-                        MouseButton::Left,
-                        cx.listener(|this, _, window, cx| {
-                            this.schedule_page_selection(window, cx);
-                        }),
-                    )
-                    .child(
+            root = root
+                .size_full()
+                .flex()
+                .flex_col()
+                .bg(palette.canvas)
+                .text_color(palette.ink)
+                .font_family(theme::FONT_SANS)
+                .text_size(px(14.0))
+                .track_focus(&key_focus)
+                .on_key_down(cx.listener(Self::handle_shell_key))
+                .on_mouse_up(
+                    MouseButton::Left,
+                    cx.listener(|this, _, window, cx| {
+                        this.schedule_page_selection(window, cx);
+                    }),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .h(px(TITLEBAR_HEIGHT))
+                        .pl(if cfg!(target_os = "macos") {
+                            px(84.0)
+                        } else {
+                            space(3)
+                        })
+                        .pr(space(2))
+                        .gap(space(1))
+                        .bg(palette.frame)
+                        .border_b_1()
+                        .border_color(palette.line)
+                        .child(
+                            div()
+                                .id("titlebar-drag")
+                                .flex()
+                                .items_center()
+                                .h_full()
+                                .pr(space(2))
+                                .on_mouse_down(MouseButton::Left, |_, window, _| {
+                                    window.start_window_move();
+                                })
+                                .children(self.display_preferences.title_bar_brand.then(|| {
+                                    div()
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap(px(6.0))
+                                        .child(
+                                            img(brand_badge())
+                                                .w(px(BRAND_BADGE_SIZE))
+                                                .h(px(BRAND_BADGE_SIZE))
+                                                .flex_none(),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_size(px(15.0))
+                                                .text_color(palette.ink)
+                                                .child(translate(language, Key::AppName)),
+                                        )
+                                })),
+                        )
+                        .children(
+                            self.display_preferences
+                                .title_bar_breadcrumb
+                                .then(|| div().w(px(1.0)).h(px(14.0)).bg(palette.line)),
+                        )
+                        .children(
+                            self.display_preferences
+                                .title_bar_breadcrumb
+                                .then(|| self.render_breadcrumb_bar(language, &palette, cx)),
+                        )
+                        .child(div().flex_1())
+                        .children(
+                            self.display_preferences
+                                .title_bar_notifications
+                                .then(|| self.render_notifications_bell(language, &palette, cx)),
+                        )
+                        .child(
+                            div()
+                                .id("account-toggle-wrap")
+                                .relative()
+                                .flex()
+                                .items_center()
+                                .tooltip(move |window, cx| {
+                                    Tooltip::new(account_tooltip).build(window, cx)
+                                })
+                                .child(
+                                    Avatar::new()
+                                        .name(email.clone())
+                                        .with_size(KitSize::Small)
+                                        .on_mouse_down(
+                                            MouseButton::Left,
+                                            cx.listener(|this, _, _, cx| {
+                                                this.toggle_account_menu();
+                                                cx.notify();
+                                            }),
+                                        ),
+                                ),
+                        ),
+                )
+                .child({
+                    let agent_on_left =
+                        self.agent_panel_side == crate::preferences::PanelSide::Left;
+                    let dock_on_left = self.dock_side == crate::preferences::PanelSide::Left;
+                    let left_agent_group: Option<AnyElement> = agent_on_left.then(|| {
                         div()
                             .flex()
                             .flex_row()
-                            .items_center()
-                            .h(px(TITLEBAR_HEIGHT))
-                            .pl(if cfg!(target_os = "macos") {
-                                px(84.0)
-                            } else {
-                                space(3)
-                            })
-                            .pr(space(2))
-                            .gap(space(1))
-                            .bg(palette.frame)
-                            .border_b_1()
-                            .border_color(palette.line)
-                            .child(
-                                div()
-                                    .id("titlebar-drag")
-                                    .flex()
-                                    .items_center()
-                                    .h_full()
-                                    .pr(space(2))
-                                    .on_mouse_down(MouseButton::Left, |_, window, _| {
-                                        window.start_window_move();
-                                    })
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .flex_row()
-                                            .items_center()
-                                            .gap(px(6.0))
-                                            .child(
-                                                img(brand_badge())
-                                                    .w(px(BRAND_BADGE_SIZE))
-                                                    .h(px(BRAND_BADGE_SIZE))
-                                                    .flex_none(),
-                                            )
-                                            .child(
-                                                div()
-                                                    .text_size(px(15.0))
-                                                    .text_color(palette.ink)
-                                                    .child(translate(language, Key::AppName)),
-                                            ),
-                                    ),
-                            )
-                            .child(div().w(px(1.0)).h(px(14.0)).bg(palette.line))
-                            .child(self.render_breadcrumb_bar(language, &palette, cx))
-                            .child(div().flex_1())
-                            .child(self.render_notifications_bell(language, &palette, cx))
-                            .child(
-                                div()
-                                    .id("account-toggle-wrap")
-                                    .relative()
-                                    .flex()
-                                    .items_center()
-                                    .tooltip(move |window, cx| {
-                                        Tooltip::new(account_tooltip).build(window, cx)
-                                    })
-                                    .child(
-                                        Avatar::new()
-                                            .name(email.clone())
-                                            .with_size(KitSize::Small)
-                                            .on_mouse_down(
-                                                MouseButton::Left,
-                                                cx.listener(|this, _, _, cx| {
-                                                    this.toggle_account_menu();
-                                                    cx.notify();
-                                                }),
-                                            ),
-                                    ),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .flex_1()
                             .min_h(px(0.0))
-                            .w_full()
-                            .children(
-                                self.history_sidebar
-                                    .is_some()
-                                    .then(|| self.render_history_sidebar(window, cx)),
-                            )
+                            .children(self.history_sidebar.is_some().then(|| {
+                                self.render_history_sidebar(
+                                    crate::preferences::PanelSide::Left,
+                                    window,
+                                    cx,
+                                )
+                            }))
                             .children(self.agent_panel_open.then(|| {
                                 screens::render_agent_panel(
                                     &mut screens::ScreenContext::new(&mut self.state),
@@ -1063,167 +1080,260 @@ impl Render for RootView {
                             .children(self.agent_panel_open.then(|| {
                                 render_panel_resize_handle(
                                     ResizeSide::Left,
+                                    crate::preferences::PanelSide::Left,
                                     &palette,
                                     pane_header_visible,
                                     cx,
                                 )
                             }))
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .flex_1()
-                                    .min_w(px(0.0))
-                                    .min_h(px(0.0))
-                                    .children(Some(screens::render_pane_tabs(
-                                        &mut screens::ScreenContext::new(&mut self.state),
-                                        &palette,
-                                        cx,
-                                    )))
-                                    .child(screens::render_pane_notices(
-                                        &mut screens::ScreenContext::new(&mut self.state),
-                                        &palette,
-                                        cx,
-                                    ))
-                                    .child(
-                                        div()
-                                            .id("content-scroll")
-                                            .on_mouse_down(
-                                                MouseButton::Left,
-                                                cx.listener(|this, _, _, _| {
-                                                    this.page_context.begin_selection();
-                                                }),
-                                            )
-                                            .on_key_up(cx.listener(|this, _, window, cx| {
+                            .into_any_element()
+                    });
+                    let left_dock_group: Option<AnyElement> = dock_on_left.then(|| {
+                        div()
+                            .flex()
+                            .flex_row()
+                            .min_h(px(0.0))
+                            .children(self.right_panel_open.then(|| {
+                                screens::render_right_dock(
+                                    &mut screens::ScreenContext::new(&mut self.state),
+                                    language,
+                                    &palette,
+                                    window,
+                                    cx,
+                                )
+                            }))
+                            .children(self.right_panel_open.then(|| {
+                                render_panel_resize_handle(
+                                    ResizeSide::Right,
+                                    crate::preferences::PanelSide::Left,
+                                    &palette,
+                                    pane_header_visible && right_header_visible,
+                                    cx,
+                                )
+                            }))
+                            .into_any_element()
+                    });
+                    let right_dock_group: Option<AnyElement> = (!dock_on_left).then(|| {
+                        div()
+                            .flex()
+                            .flex_row()
+                            .min_h(px(0.0))
+                            .children(self.right_panel_open.then(|| {
+                                render_panel_resize_handle(
+                                    ResizeSide::Right,
+                                    crate::preferences::PanelSide::Right,
+                                    &palette,
+                                    pane_header_visible && right_header_visible,
+                                    cx,
+                                )
+                            }))
+                            .children(self.right_panel_open.then(|| {
+                                screens::render_right_dock(
+                                    &mut screens::ScreenContext::new(&mut self.state),
+                                    language,
+                                    &palette,
+                                    window,
+                                    cx,
+                                )
+                            }))
+                            .into_any_element()
+                    });
+                    let right_agent_group: Option<AnyElement> = (!agent_on_left).then(|| {
+                        div()
+                            .flex()
+                            .flex_row()
+                            .min_h(px(0.0))
+                            .children(self.agent_panel_open.then(|| {
+                                render_panel_resize_handle(
+                                    ResizeSide::Left,
+                                    crate::preferences::PanelSide::Right,
+                                    &palette,
+                                    pane_header_visible,
+                                    cx,
+                                )
+                            }))
+                            .children(self.agent_panel_open.then(|| {
+                                screens::render_agent_panel(
+                                    &mut screens::ScreenContext::new(&mut self.state),
+                                    language,
+                                    &palette,
+                                    window,
+                                    cx,
+                                )
+                            }))
+                            .children(self.history_sidebar.is_some().then(|| {
+                                self.render_history_sidebar(
+                                    crate::preferences::PanelSide::Right,
+                                    window,
+                                    cx,
+                                )
+                            }))
+                            .into_any_element()
+                    });
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_1()
+                        .min_h(px(0.0))
+                        .w_full()
+                        .children(left_agent_group)
+                        .children(left_dock_group)
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .flex_1()
+                                .min_w(px(0.0))
+                                .min_h(px(0.0))
+                                .children(Some(screens::render_pane_tabs(
+                                    &mut screens::ScreenContext::new(&mut self.state),
+                                    &palette,
+                                    cx,
+                                )))
+                                .child(screens::render_pane_notices(
+                                    &mut screens::ScreenContext::new(&mut self.state),
+                                    &palette,
+                                    cx,
+                                ))
+                                .child(
+                                    div()
+                                        .id("content-scroll")
+                                        .on_mouse_down(
+                                            MouseButton::Left,
+                                            cx.listener(|this, _, _, _| {
                                                 this.page_context.begin_selection();
-                                                this.schedule_page_selection(window, cx);
-                                            }))
-                                            .flex_1()
-                                            .min_w(px(0.0))
-                                            .p(space(6))
-                                            .overflow_y_scroll()
-                                            .child(
-                                                if matches!(
-                                                    self.workspaces.state(),
-                                                    WorkspaceListState::Empty
-                                                ) {
-                                                    self.render_workspace_empty(language, &palette)
-                                                } else {
-                                                    match self
-                                                        .current
-                                                        .as_ref()
-                                                        .map(|route_match| route_match.route.id)
-                                                    {
-                                                        Some("account.workspace") => {
-                                                            screens::render_workspace_overview(
-                                                                &mut screens::ScreenContext::new(
-                                                                    &mut self.state,
-                                                                ),
-                                                                language,
-                                                                &palette,
-                                                                cx,
-                                                            )
-                                                        }
-                                                        Some("events.list") => {
-                                                            screens::render_events_list(
-                                                                &mut screens::ScreenContext::new(
-                                                                    &mut self.state,
-                                                                ),
-                                                                language,
-                                                                &palette,
-                                                                cx,
-                                                            )
-                                                        }
-                                                        Some("events.detail") => {
-                                                            screens::render_detail(
-                                                                &mut screens::ScreenContext::new(
-                                                                    &mut self.state,
-                                                                ),
-                                                                language,
-                                                                &palette,
-                                                                cx,
-                                                            )
-                                                        }
-                                                        Some("events.mine") => {
-                                                            screens::render_enrollments_list(
-                                                                &mut screens::ScreenContext::new(
-                                                                    &mut self.state,
-                                                                ),
-                                                                language,
-                                                                &palette,
-                                                                cx,
-                                                            )
-                                                        }
-                                                        Some("app.settings") => {
-                                                            screens::render_settings(
-                                                                &mut screens::ScreenContext::new(
-                                                                    &mut self.state,
-                                                                ),
-                                                                language,
-                                                                &palette,
-                                                                cx,
-                                                            )
-                                                        }
-                                                        Some("app.agents") => {
-                                                            screens::render_agent_registry(
-                                                                &mut screens::ScreenContext::new(
-                                                                    &mut self.state,
-                                                                ),
-                                                                language,
-                                                                &palette,
-                                                                cx,
-                                                            )
-                                                        }
-                                                        Some("courses.catalog") => {
-                                                            screens::render_courses_list(
-                                                                &mut screens::ScreenContext::new(
-                                                                    &mut self.state,
-                                                                ),
-                                                                language,
-                                                                &palette,
-                                                                cx,
-                                                            )
-                                                        }
-                                                        Some("courses.learning_home") => {
-                                                            screens::render_learning_home(
-                                                                &mut screens::ScreenContext::new(
-                                                                    &mut self.state,
-                                                                ),
-                                                                language,
-                                                                &palette,
-                                                                cx,
-                                                            )
-                                                        }
-                                                        Some("events.participations") => {
-                                                            screens::render_participations(
-                                                                &mut screens::ScreenContext::new(
-                                                                    &mut self.state,
-                                                                ),
-                                                                language,
-                                                                &palette,
-                                                                cx,
-                                                            )
-                                                        }
-                                                        Some("courses.detail") => {
-                                                            screens::render_course_detail(
-                                                                &mut screens::ScreenContext::new(
-                                                                    &mut self.state,
-                                                                ),
-                                                                language,
-                                                                &palette,
-                                                                cx,
-                                                            )
-                                                        }
-                                                        Some("courses.learning") => {
-                                                            let active_issue = self
-                                                                .active_issue_tab()
-                                                                .map(|(course_id, issue_id)| {
-                                                                    (
-                                                                        course_id.to_string(),
-                                                                        issue_id.to_string(),
-                                                                    )
-                                                                });
-                                                            match active_issue {
+                                            }),
+                                        )
+                                        .on_key_up(cx.listener(|this, _, window, cx| {
+                                            this.page_context.begin_selection();
+                                            this.schedule_page_selection(window, cx);
+                                        }))
+                                        .flex_1()
+                                        .min_w(px(0.0))
+                                        .p(space(6))
+                                        .overflow_y_scroll()
+                                        .child(
+                                            if matches!(
+                                                self.workspaces.state(),
+                                                WorkspaceListState::Empty
+                                            ) {
+                                                self.render_workspace_empty(language, &palette)
+                                            } else {
+                                                match self
+                                                    .current
+                                                    .as_ref()
+                                                    .map(|route_match| route_match.route.id)
+                                                {
+                                                    Some("account.workspace") => {
+                                                        screens::render_workspace_overview(
+                                                            &mut screens::ScreenContext::new(
+                                                                &mut self.state,
+                                                            ),
+                                                            language,
+                                                            &palette,
+                                                            cx,
+                                                        )
+                                                    }
+                                                    Some("events.list") => {
+                                                        screens::render_events_list(
+                                                            &mut screens::ScreenContext::new(
+                                                                &mut self.state,
+                                                            ),
+                                                            language,
+                                                            &palette,
+                                                            cx,
+                                                        )
+                                                    }
+                                                    Some("events.detail") => {
+                                                        screens::render_detail(
+                                                            &mut screens::ScreenContext::new(
+                                                                &mut self.state,
+                                                            ),
+                                                            language,
+                                                            &palette,
+                                                            cx,
+                                                        )
+                                                    }
+                                                    Some("events.mine") => {
+                                                        screens::render_enrollments_list(
+                                                            &mut screens::ScreenContext::new(
+                                                                &mut self.state,
+                                                            ),
+                                                            language,
+                                                            &palette,
+                                                            cx,
+                                                        )
+                                                    }
+                                                    Some("app.settings") => {
+                                                        screens::render_settings(
+                                                            &mut screens::ScreenContext::new(
+                                                                &mut self.state,
+                                                            ),
+                                                            language,
+                                                            &palette,
+                                                            cx,
+                                                        )
+                                                    }
+                                                    Some("app.agents") => {
+                                                        screens::render_agent_registry(
+                                                            &mut screens::ScreenContext::new(
+                                                                &mut self.state,
+                                                            ),
+                                                            language,
+                                                            &palette,
+                                                            cx,
+                                                        )
+                                                    }
+                                                    Some("courses.catalog") => {
+                                                        screens::render_courses_list(
+                                                            &mut screens::ScreenContext::new(
+                                                                &mut self.state,
+                                                            ),
+                                                            language,
+                                                            &palette,
+                                                            cx,
+                                                        )
+                                                    }
+                                                    Some("courses.learning_home") => {
+                                                        screens::render_learning_home(
+                                                            &mut screens::ScreenContext::new(
+                                                                &mut self.state,
+                                                            ),
+                                                            language,
+                                                            &palette,
+                                                            cx,
+                                                        )
+                                                    }
+                                                    Some("events.participations") => {
+                                                        screens::render_participations(
+                                                            &mut screens::ScreenContext::new(
+                                                                &mut self.state,
+                                                            ),
+                                                            language,
+                                                            &palette,
+                                                            cx,
+                                                        )
+                                                    }
+                                                    Some("courses.detail") => {
+                                                        screens::render_course_detail(
+                                                            &mut screens::ScreenContext::new(
+                                                                &mut self.state,
+                                                            ),
+                                                            language,
+                                                            &palette,
+                                                            cx,
+                                                        )
+                                                    }
+                                                    Some("courses.learning") => {
+                                                        let active_issue = self
+                                                            .active_issue_tab()
+                                                            .map(|(course_id, issue_id)| {
+                                                                (
+                                                                    course_id.to_string(),
+                                                                    issue_id.to_string(),
+                                                                )
+                                                            });
+                                                        match active_issue {
                                                     Some((course_id, issue_id)) => {
                                                         screens::render_issue_card(
                                                             &mut screens::ScreenContext::new(
@@ -1244,41 +1354,27 @@ impl Render for RootView {
                                                         cx,
                                                     ),
                                                 }
-                                                        }
-                                                        _ => self
-                                                            .render_content(language, &palette, cx),
                                                     }
-                                                },
-                                            ),
-                                    ),
-                            )
-                            .children(self.right_panel_open.then(|| {
-                                render_panel_resize_handle(
-                                    ResizeSide::Right,
-                                    &palette,
-                                    pane_header_visible && right_header_visible,
-                                    cx,
-                                )
-                            }))
-                            .children(self.right_panel_open.then(|| {
-                                screens::render_right_dock(
-                                    &mut screens::ScreenContext::new(&mut self.state),
-                                    language,
-                                    &palette,
-                                    window,
-                                    cx,
-                                )
-                            })),
-                    )
-                    .child(self.render_footer(
-                        language,
-                        true,
-                        language_icon,
-                        language_label,
-                        language_tooltip,
-                        &palette,
-                        cx,
-                    ));
+                                                    _ => {
+                                                        self.render_content(language, &palette, cx)
+                                                    }
+                                                }
+                                            },
+                                        ),
+                                ),
+                        )
+                        .children(right_dock_group)
+                        .children(right_agent_group)
+                })
+                .child(self.render_footer(
+                    language,
+                    true,
+                    language_icon,
+                    language_label,
+                    language_tooltip,
+                    &palette,
+                    cx,
+                ));
             if self.workspace_menu_open {
                 root = root.child(self.render_workspace_menu(language, &palette, cx));
             }
@@ -1324,15 +1420,17 @@ impl RootView {
             return;
         }
         let available = (viewport - 320.0).max(500.0);
+        let agent_min = *crate::preferences::AGENT_PANEL_WIDTH_RANGE.start() as f32;
+        let dock_min = *crate::preferences::DOCK_WIDTH_RANGE.start() as f32;
         let mut excess = self.agent_panel_width + self.right_panel_width - available;
         if excess <= 0.0 {
             return;
         }
-        let right_shrink = (self.right_panel_width - 240.0).max(0.0).min(excess);
+        let right_shrink = (self.right_panel_width - dock_min).max(0.0).min(excess);
         self.right_panel_width -= right_shrink;
         excess -= right_shrink;
         if excess > 0.0 {
-            let agent_shrink = (self.agent_panel_width - 260.0).max(0.0).min(excess);
+            let agent_shrink = (self.agent_panel_width - agent_min).max(0.0).min(excess);
             self.agent_panel_width -= agent_shrink;
         }
     }
@@ -1860,6 +1958,7 @@ impl RootView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         // 左侧：一级导航图标；右侧：主题/语言工具。版本号只放设置/关于，不进 footer。
+        let root_weak = cx.entity().downgrade();
         let shortcut = if cfg!(target_os = "macos") {
             "⌘J"
         } else {
@@ -1899,6 +1998,19 @@ impl RootView {
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_agent_panel(cx);
                 }))
+                .context_menu({
+                    let root = root_weak.clone();
+                    let side = self.agent_panel_side;
+                    move |menu, _, _| {
+                        render_panel_status_bar_menu(
+                            menu,
+                            language,
+                            StatusBarMenuTarget::Agent,
+                            side,
+                            root.clone(),
+                        )
+                    }
+                })
                 .into_any_element()
         });
         let history_toggle = include_nav.then(|| {
@@ -1933,13 +2045,27 @@ impl RootView {
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_history_sidebar(cx);
                 }))
+                .context_menu({
+                    let root = root_weak.clone();
+                    move |menu, _, _| {
+                        render_hide_button_menu(
+                            menu,
+                            language,
+                            state::StatusBarButton::History,
+                            root.clone(),
+                        )
+                    }
+                })
                 .into_any_element()
         });
         let panel_toggle = |id: &'static str,
                             label: SharedString,
                             icon: AssetIcon,
                             active: bool,
-                            panel: RightPanel| {
+                            panel: RightPanel,
+                            target: StatusBarMenuTarget,
+                            side: crate::preferences::PanelSide,
+                            root: WeakEntity<Self>| {
             let tooltip = label.clone();
             div()
                 .id(id)
@@ -1971,6 +2097,9 @@ impl RootView {
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.toggle_right_panel(panel, cx);
                 }))
+                .context_menu(move |menu, _, _| {
+                    render_panel_status_bar_menu(menu, language, target, side, root.clone())
+                })
                 .into_any_element()
         };
         let site_tree_active = self.right_panel_open && self.right_panel == RightPanel::SiteTree;
@@ -1981,6 +2110,9 @@ impl RootView {
             AssetIcon::ListTree,
             site_tree_active,
             RightPanel::SiteTree,
+            StatusBarMenuTarget::Navigation,
+            self.dock_side,
+            root_weak.clone(),
         );
         let outline_toggle = panel_toggle(
             "outline-toggle",
@@ -1988,7 +2120,56 @@ impl RootView {
             AssetIcon::FileText,
             outline_active,
             RightPanel::Outline,
+            StatusBarMenuTarget::Outline,
+            self.dock_side,
+            root_weak.clone(),
         );
+        let mut left_items: Vec<AnyElement> = Vec::new();
+        let mut right_items: Vec<AnyElement> = Vec::new();
+        let mut left_agent_items: Vec<AnyElement> = Vec::new();
+        let mut right_agent_items: Vec<AnyElement> = Vec::new();
+        if self.agent_panel_side == crate::preferences::PanelSide::Left {
+            if let Some(item) =
+                history_toggle.filter(|_| self.display_preferences.status_bar_history_button)
+            {
+                left_agent_items.push(item);
+            }
+            if let Some(item) = agent_toggle.filter(|_| self.display_preferences.agent_panel_button)
+            {
+                left_agent_items.push(item);
+            }
+        } else {
+            if let Some(item) = agent_toggle.filter(|_| self.display_preferences.agent_panel_button)
+            {
+                right_agent_items.push(item);
+            }
+            if let Some(item) =
+                history_toggle.filter(|_| self.display_preferences.status_bar_history_button)
+            {
+                right_agent_items.push(item);
+            }
+        }
+        let mut left_dock_items: Vec<AnyElement> = Vec::new();
+        let mut right_dock_items: Vec<AnyElement> = Vec::new();
+        if self.dock_side == crate::preferences::PanelSide::Left {
+            if self.display_preferences.dock_navigation_button {
+                left_dock_items.push(site_tree_toggle);
+            }
+            if self.display_preferences.dock_outline_button {
+                left_dock_items.push(outline_toggle);
+            }
+        } else {
+            if self.display_preferences.dock_navigation_button {
+                right_dock_items.push(site_tree_toggle);
+            }
+            if self.display_preferences.dock_outline_button {
+                right_dock_items.push(outline_toggle);
+            }
+        }
+        left_items.extend(left_agent_items);
+        left_items.extend(left_dock_items);
+        right_items.extend(right_dock_items);
+        right_items.extend(right_agent_items);
         div()
             .id("status-bar")
             .role(Role::Toolbar)
@@ -2004,10 +2185,7 @@ impl RootView {
                             .gap(px(4.0))
                             .min_w_0()
                             .overflow_x_hidden()
-                            .children(history_toggle)
-                            .children(agent_toggle)
-                            .child(site_tree_toggle)
-                            .child(outline_toggle),
+                            .children(left_items),
                     )
                     .right(
                         div()
@@ -2017,6 +2195,7 @@ impl RootView {
                             .gap(px(4.0))
                             .flex_shrink_0()
                             .overflow_x_hidden()
+                            .children(right_items)
                             .child(
                                 div()
                                     .id("theme-menu-toggle")
@@ -2389,8 +2568,78 @@ fn nav_icon(icon: NavIcon) -> AssetIcon {
     }
 }
 
+/// 状态栏按钮右键菜单的目标（决定 Dock 切换作用于哪个面板）。
+#[derive(Clone, Copy)]
+enum StatusBarMenuTarget {
+    Agent,
+    Navigation,
+    Outline,
+}
+
+fn render_hide_button_menu(
+    menu: PopupMenu,
+    language: Language,
+    button: state::StatusBarButton,
+    root: WeakEntity<RootView>,
+) -> PopupMenu {
+    menu.item(
+        PopupMenuItem::new(translate(language, Key::AppSettingsHideButton)).on_click(
+            move |_, _, cx| {
+                let _ = root.update(cx, |root, cx| {
+                    root.hide_status_bar_button(button, cx);
+                });
+            },
+        ),
+    )
+}
+
+fn render_panel_status_bar_menu(
+    menu: PopupMenu,
+    language: Language,
+    target: StatusBarMenuTarget,
+    side: crate::preferences::PanelSide,
+    root: WeakEntity<RootView>,
+) -> PopupMenu {
+    use crate::preferences::PanelSide;
+    let button = match target {
+        StatusBarMenuTarget::Agent => state::StatusBarButton::Agent,
+        StatusBarMenuTarget::Navigation => state::StatusBarButton::Navigation,
+        StatusBarMenuTarget::Outline => state::StatusBarButton::Outline,
+    };
+    let left_root = root.clone();
+    let right_root = root.clone();
+    let menu = menu
+        .item(
+            PopupMenuItem::new(translate(language, Key::AppSettingsDockLeft))
+                .checked(side == PanelSide::Left)
+                .on_click(move |_, _, cx| {
+                    let _ = left_root.update(cx, |root, cx| match target {
+                        StatusBarMenuTarget::Agent => {
+                            root.set_agent_panel_side(PanelSide::Left, cx)
+                        }
+                        _ => root.set_dock_side(PanelSide::Left, cx),
+                    });
+                }),
+        )
+        .item(
+            PopupMenuItem::new(translate(language, Key::AppSettingsDockRight))
+                .checked(side == PanelSide::Right)
+                .on_click(move |_, _, cx| {
+                    let _ = right_root.update(cx, |root, cx| match target {
+                        StatusBarMenuTarget::Agent => {
+                            root.set_agent_panel_side(PanelSide::Right, cx)
+                        }
+                        _ => root.set_dock_side(PanelSide::Right, cx),
+                    });
+                }),
+        )
+        .separator();
+    render_hide_button_menu(menu, language, button, root)
+}
+
 fn render_panel_resize_handle(
     side: ResizeSide,
+    panel_side: crate::preferences::PanelSide,
     palette: &theme::Palette,
     header_bridge: bool,
     cx: &mut Context<RootView>,
@@ -2458,9 +2707,9 @@ fn render_panel_resize_handle(
                     this.resize_drag = Some((drag_side, current, start_width));
                     return;
                 }
-                let delta = match side {
-                    ResizeSide::Left => current - start_x,
-                    ResizeSide::Right => start_x - current,
+                let delta = match panel_side {
+                    crate::preferences::PanelSide::Left => current - start_x,
+                    crate::preferences::PanelSide::Right => start_x - current,
                 };
                 let viewport = window.viewport_size().width.as_f32();
                 let other = match side {
@@ -2468,12 +2717,14 @@ fn render_panel_resize_handle(
                     ResizeSide::Right => this.agent_panel_width,
                 };
                 let max = (viewport - other - 320.0).max(260.0);
+                let agent_min = *crate::preferences::AGENT_PANEL_WIDTH_RANGE.start() as f32;
+                let dock_min = *crate::preferences::DOCK_WIDTH_RANGE.start() as f32;
                 match side {
                     ResizeSide::Left => {
-                        this.agent_panel_width = (start_width + delta).clamp(260.0, max)
+                        this.agent_panel_width = (start_width + delta).clamp(agent_min, max)
                     }
                     ResizeSide::Right => {
-                        this.right_panel_width = (start_width + delta).clamp(240.0, max)
+                        this.right_panel_width = (start_width + delta).clamp(dock_min, max)
                     }
                 }
                 cx.spawn(async move |this, cx| {

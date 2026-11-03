@@ -385,9 +385,7 @@ impl RootView {
                     body: hint_body.clone().into(),
                     actions: Vec::new(),
                 });
-                let mut preferences = crate::preferences::load();
-                preferences.tray_hint_shown = true;
-                crate::preferences::save(preferences);
+                crate::preferences::update(|preferences| preferences.tray_hint_shown = true);
             }
             true
         });
@@ -913,6 +911,10 @@ impl RootView {
             self.detail_started = false;
             if is_learning && self.right_panel_open {
                 self.right_panel = RightPanel::Outline;
+                self.panel_memory = state::PanelMemory {
+                    panel: RightPanel::Outline,
+                    open: true,
+                };
             }
         }
     }
@@ -2634,6 +2636,7 @@ impl RootView {
             ..Default::default()
         };
         let native_runtime = self.native_runtime.clone();
+        let root = cx.entity().downgrade();
         cx.open_window(options, move |window, cx| {
             let view = cx.new(|cx| {
                 SettingsWindowView::new(
@@ -2645,6 +2648,7 @@ impl RootView {
                     api,
                     self.close_to_tray.clone(),
                     native_runtime,
+                    root,
                     cx,
                 )
             });
@@ -2820,6 +2824,7 @@ impl RootView {
         {
             self.start_chat(cx);
         }
+        self.persist_current_workspace_state();
         cx.notify();
     }
 
@@ -2940,6 +2945,12 @@ impl RootView {
             agent_panel_width: self.agent_panel_width,
             site_tree_course_open: self.site_tree_course_open.clone(),
             site_tree_scroll_y: self.site_tree_scroll.offset().y.as_f32(),
+            agent_panel_open: self.agent_panel_open,
+            right_panel_open: self.panel_memory.open,
+            right_panel: match self.panel_memory.panel {
+                RightPanel::Outline => crate::workspace_state::PersistedRightPanel::Outline,
+                _ => crate::workspace_state::PersistedRightPanel::SiteTree,
+            },
         };
         crate::workspace_state::save_entry(workspace_id, entry);
     }
@@ -2949,7 +2960,29 @@ impl RootView {
             return;
         };
         let Some(entry) = crate::workspace_state::entry(&workspace_id) else {
+            // 新工作台：Starts Open 与偏好宽度只在这里生效。
+            let preferences = crate::preferences::load();
+            self.agent_panel_open = true;
+            self.right_panel_open = preferences.dock_starts_open;
+            self.right_panel = RightPanel::SiteTree;
+            self.panel_memory = state::PanelMemory {
+                panel: RightPanel::SiteTree,
+                open: preferences.dock_starts_open,
+            };
+            self.right_panel_width = preferences.dock_width as f32;
+            self.agent_panel_width = preferences.agent_panel_width as f32;
+            cx.notify();
             return;
+        };
+        self.agent_panel_open = entry.agent_panel_open;
+        self.right_panel_open = entry.right_panel_open;
+        self.right_panel = match entry.right_panel {
+            crate::workspace_state::PersistedRightPanel::Outline => RightPanel::Outline,
+            crate::workspace_state::PersistedRightPanel::SiteTree => RightPanel::SiteTree,
+        };
+        self.panel_memory = state::PanelMemory {
+            panel: self.right_panel,
+            open: entry.right_panel_open,
         };
         self.site_tree_events_open = entry.site_tree_events_open;
         self.site_tree_courses_open = entry.site_tree_courses_open;
@@ -3097,6 +3130,92 @@ impl RootView {
             state::toggled_right_panel(self.right_panel, self.right_panel_open, panel);
         self.right_panel = panel;
         self.right_panel_open = open;
+        // 通知面板是临时入口，不写入记忆。
+        if !matches!(panel, RightPanel::Notifications) {
+            self.panel_memory = state::PanelMemory { panel, open };
+            self.persist_current_workspace_state();
+        }
+        cx.notify();
+    }
+
+    /// 刷新显示偏好快照与停靠侧；不动当前窗口宽度。
+    pub(crate) fn apply_display_snapshot(&mut self, cx: &mut Context<Self>) {
+        let preferences = crate::preferences::load();
+        self.agent_panel_side = preferences.agent_panel_side;
+        self.dock_side = preferences.dock_side;
+        self.display_preferences = preferences;
+        cx.notify();
+    }
+
+    /// 只对没有记录的 workspace 应用默认宽度；已有记忆的尺寸保持不变。
+    pub(crate) fn apply_default_widths_if_unrecorded(&mut self, cx: &mut Context<Self>) {
+        let Some(workspace_id) = self.workspaces.current_id() else {
+            return;
+        };
+        if crate::workspace_state::entry(workspace_id).is_some() {
+            return;
+        }
+        let preferences = crate::preferences::load();
+        self.agent_panel_width = preferences.agent_panel_width as f32;
+        self.right_panel_width = preferences.dock_width as f32;
+        cx.notify();
+    }
+
+    /// 右键菜单 Dock Left / Dock Right：只改停靠侧，不动宽度。
+    pub(crate) fn set_agent_panel_side(
+        &mut self,
+        side: crate::preferences::PanelSide,
+        cx: &mut Context<Self>,
+    ) {
+        if self.agent_panel_side == side {
+            return;
+        }
+        self.agent_panel_side = side;
+        self.display_preferences.agent_panel_side = side;
+        crate::preferences::update(|preferences| preferences.agent_panel_side = side);
+        cx.notify();
+    }
+
+    pub(crate) fn set_dock_side(
+        &mut self,
+        side: crate::preferences::PanelSide,
+        cx: &mut Context<Self>,
+    ) {
+        if self.dock_side == side {
+            return;
+        }
+        self.dock_side = side;
+        self.display_preferences.dock_side = side;
+        crate::preferences::update(|preferences| preferences.dock_side = side);
+        cx.notify();
+    }
+
+    /// 右键菜单 Hide Button：隐藏对应状态栏按钮。
+    pub(in crate::root_view) fn hide_status_bar_button(
+        &mut self,
+        button: state::StatusBarButton,
+        cx: &mut Context<Self>,
+    ) {
+        match button {
+            state::StatusBarButton::History => {
+                self.display_preferences.status_bar_history_button = false;
+            }
+            state::StatusBarButton::Agent => {
+                self.display_preferences.agent_panel_button = false;
+            }
+            state::StatusBarButton::Navigation => {
+                self.display_preferences.dock_navigation_button = false;
+            }
+            state::StatusBarButton::Outline => {
+                self.display_preferences.dock_outline_button = false;
+            }
+        }
+        crate::preferences::update(|preferences| match button {
+            state::StatusBarButton::History => preferences.status_bar_history_button = false,
+            state::StatusBarButton::Agent => preferences.agent_panel_button = false,
+            state::StatusBarButton::Navigation => preferences.dock_navigation_button = false,
+            state::StatusBarButton::Outline => preferences.dock_outline_button = false,
+        });
         cx.notify();
     }
 
