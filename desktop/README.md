@@ -289,9 +289,15 @@ CGC_ARTIFACT_ARCH=universal \
 
    | 平台 | 产物 | 说明 |
    |---|---|---|
-   | macOS | `cgc2046-macos-universal.dmg` | Intel + Apple Silicon 同一包 |
-   | Windows | `cgc2046-windows-x64.zip` | 便携包，解压即用，绕开未签名安装器的 SmartScreen |
-   | Linux | `cgc2046-linux-x64.tar.gz` | 便携包，解压即用，不依赖 root 安装 |
+   | macOS | `cgc2046-macos-universal.dmg` | Intel + Apple Silicon 同一包（安装器注册 `cgc://`） |
+   | Windows | `cgc2046-windows-x64.zip` | 便携包，解压即用；**深链需手动注册**（见下） |
+   | Linux | `cgc2046-linux-x64.tar.gz` | 便携包，解压即用；**深链需手动注册**（见下） |
+
+   > 便携包不经过安装器，而 `cgc://` 协议注册原本由安装器完成（`crates/app/Cargo.toml` 的
+   > `deepLinkProtocols`）。要用「网页点链接跳回客户端」，解压后跑一次随包的注册脚本：
+   > Windows `powershell -ExecutionPolicy Bypass -File register-protocol.ps1`（写 HKCU，免管理员）；
+   > Linux `bash usr/bin/register-protocol.sh`（写 `~/.local/share/applications` + `xdg-mime`，免 root）。
+   > 不跑也能正常使用，只是 `cgc://` 深链打不开。
 
    **文件名不带版本**（版本由 tag 承载）。每个产物配一个同名 `.build.json`，字段：
 

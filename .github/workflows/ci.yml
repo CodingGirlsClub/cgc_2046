@@ -564,6 +564,8 @@ jobs:
           deb=$(ls dist/*.deb | head -1)
           stage=$(mktemp -d)
           dpkg-deb -x "$deb" "$stage"
+          cp scripts/register-protocol.sh "$stage/usr/bin/register-protocol.sh"
+          chmod +x "$stage/usr/bin/register-protocol.sh"
           tar -czf dist/cgc2046-linux-portable.tar.gz -C "$stage" .
           rm -f "$deb"
           rm -rf "$stage"
@@ -581,6 +583,7 @@ jobs:
           if ($proc.ExitCode -ne 0) { throw "msiexec /a 失败，exit=$($proc.ExitCode)" }
           $exe = Get-ChildItem -Path $stage -Recurse -Filter "cgc-desktop-app.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $exe) { throw "administrative install 后找不到 cgc-desktop-app.exe" }
+          Copy-Item scripts/register-protocol.ps1 -Destination (Join-Path $stage "register-protocol.ps1") -Force
           Compress-Archive -Path (Join-Path $stage "*") -DestinationPath "dist/cgc2046-windows-portable.zip" -Force
           Remove-Item $msi.FullName -Force
       - name: 重命名产物（版本+commit，Unix）

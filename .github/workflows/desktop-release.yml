@@ -144,6 +144,9 @@ jobs:
           deb=$(ls dist/*.deb | head -1)
           stage=$(mktemp -d)
           dpkg-deb -x "$deb" "$stage"
+          # 便携包不经安装器，协议注册要用户解压后手动跑一次这个脚本。
+          cp scripts/register-protocol.sh "$stage/usr/bin/register-protocol.sh"
+          chmod +x "$stage/usr/bin/register-protocol.sh"
           tar -czf dist/cgc2046-linux-portable.tar.gz -C "$stage" .
           rm -f "$deb"
           rm -rf "$stage"
@@ -166,6 +169,7 @@ jobs:
           $exe = Get-ChildItem -Path $stage -Recurse -Filter "cgc-desktop-app.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $exe) { throw "administrative install 后找不到 cgc-desktop-app.exe（MSI 布局与预期不符）" }
           Write-Host "staged exe: $($exe.FullName)"
+          Copy-Item scripts/register-protocol.ps1 -Destination (Join-Path $stage "register-protocol.ps1") -Force
           Compress-Archive -Path (Join-Path $stage "*") -DestinationPath "dist/cgc2046-windows-portable.zip" -Force
           Remove-Item $msi.FullName -Force
           Get-ChildItem dist
@@ -309,6 +313,10 @@ jobs:
           - **Linux（x64）**：解压 `.tar.gz` 后直接运行其中的 `cgc-desktop-app`。
             登录凭证走 secret-tool，需要系统装有 `libsecret-tools`
             （Debian/Ubuntu：`sudo apt install libsecret-tools`）。不需要安装、不需要 root。
+
+          > **便携包不注册 `cgc://` 深链**（那原本由安装器完成）。要让网页里的链接能跳回客户端，
+          > 解压后跑一次随包脚本：Windows `powershell -ExecutionPolicy Bypass -File register-protocol.ps1`；
+          > Linux `bash usr/bin/register-protocol.sh`。都只写当前用户，不需要管理员/root。
 
           ### 校验
           每个包旁边有 `SHA256SUMS`，下载后可 `sha256sum -c SHA256SUMS` 自查。
