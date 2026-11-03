@@ -54,12 +54,18 @@ jobs:
           # macOS 出 universal 包：Intel Mac 用户也要能装，且用户不该自己挑架构。
           - os: macos-15
             formats: dmg
+            archive: ""
             artifact_arch: universal
+          # 内测包要「免安装」：Windows 出 zip、Linux 出 tar.gz（cargo-packager 没有这两种
+          # 格式，先出 wix/deb 再解包重压）。未签名安装器会被 SmartScreen/签名检查拦，
+          # 便携包只需要解压即可运行。
           - os: windows-2022
             formats: wix
+            archive: zip
             artifact_arch: ""
           - os: ubuntu-24.04
-            formats: deb,appimage
+            formats: deb
+            archive: tar.gz
             artifact_arch: ""
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
@@ -124,10 +130,38 @@ jobs:
             target/x86_64-apple-darwin/release/cgc-desktop-app
           lipo -archs target/universal-apple-darwin/release/cgc-desktop-app
           cargo packager -p cgc-desktop-app --release --target universal-apple-darwin -f dmg
+      # 便携包：解开发行包再压缩，保证 DLL/资源与安装器内容一致（不靠手抄文件清单）。
+      - name: 生成便携 tar.gz（解 deb）
+        if: matrix.archive == 'tar.gz'
+        run: |
+          set -euo pipefail
+          deb=$(ls dist/*.deb | head -1)
+          stage=$(mktemp -d)
+          dpkg-deb -x "$deb" "$stage"
+          tar -czf dist/cgc2046-linux-portable.tar.gz -C "$stage" .
+          rm -f "$deb"
+          rm -rf "$stage"
+          ls -l dist/
+      - name: 生成便携 zip（解 msi）
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $msi = Get-ChildItem dist -Filter *.msi | Select-Object -First 1
+          if (-not $msi) { throw "FAIL: dist 下没有 msi" }
+          $stage = Join-Path $env:RUNNER_TEMP "cgc-portable"
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+          7z x $msi.FullName "-o$stage" -y | Out-Null
+          Get-ChildItem $stage -Filter "*.msi" -Recurse | Remove-Item -Force -ErrorAction SilentlyContinue
+          Compress-Archive -Path (Join-Path $stage "*") -DestinationPath "dist/cgc2046-windows-portable.zip" -Force
+          Remove-Item $msi.FullName -Force
+          Get-ChildItem dist
       - name: 重命名产物（Unix）
         if: runner.os != 'Windows'
         env:
           VERSION: ${{ inputs.tag || github.ref_name }}
+          CGC_BUILD_COMMIT: ${{ github.sha }}
+          CGC_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           export VERSION="${VERSION#desktop-v}"
           bash scripts/name-artifacts.sh
@@ -136,6 +170,8 @@ jobs:
         shell: pwsh
         env:
           VERSION: ${{ inputs.tag || github.ref_name }}
+          CGC_BUILD_COMMIT: ${{ github.sha }}
+          CGC_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           $env:VERSION = $env:VERSION -replace '^desktop-v', ''
           ./scripts/name-artifacts.ps1
@@ -143,13 +179,19 @@ jobs:
         if: runner.os != 'Windows'
         env:
           VERSION: ${{ inputs.tag || github.ref_name }}
+          CGC_BUILD_COMMIT: ${{ github.sha }}
         run: |
           export VERSION="${VERSION#desktop-v}"
           bash scripts/verify-package.sh
       - name: 校验产物（Windows）
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/verify-package.ps1
+        env:
+          VERSION: ${{ inputs.tag || github.ref_name }}
+          CGC_BUILD_COMMIT: ${{ github.sha }}
+        run: |
+          $env:VERSION = $env:VERSION -replace '^desktop-v', ''
+          ./scripts/verify-package.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.os }}
@@ -231,17 +273,13 @@ jobs:
               [ -e "$f" ] || continue
               printf '| macOS（Apple Silicon / Intel 通用） | `%s` | 拖进「应用程序」 |\n' "$(basename "$f")"
             done
-            for f in dist/*.msi; do
+            for f in dist/*.zip; do
               [ -e "$f" ] || continue
-              printf '| **Windows x64** | **`%s`** | **双击安装** |\n' "$(basename "$f")"
+              printf '| **Windows x64** | **`%s`** | **解压即用（便携包）** |\n' "$(basename "$f")"
             done
-            for f in dist/*.deb; do
+            for f in dist/*.tar.gz; do
               [ -e "$f" ] || continue
-              printf '| Linux（Debian / Ubuntu） | `%s` | 依赖 `libsecret-tools` |\n' "$(basename "$f")"
-            done
-            for f in dist/*.AppImage; do
-              [ -e "$f" ] || continue
-              printf '| Linux（通用） | `%s` | 无 FUSE 环境用 `--appimage-extract-and-run` |\n' "$(basename "$f")"
+              printf '| Linux（x64） | `%s` | 解压即用（便携包） |\n' "$(basename "$f")"
             done
             printf '| 校验 | `SHA256SUMS` | 下载后 `sha256sum -c SHA256SUMS` |\n'
             cat <<'MD'
@@ -253,16 +291,20 @@ jobs:
             用浏览器直接下载会被 Gatekeeper 拦（「已损坏，无法打开」），先执行
             `xattr -dr com.apple.quarantine "/Applications/程序媛汇.app"`；
             或用 `curl -LO` 下载（不会带 quarantine）。
-          - **Windows x64**：双击 `.msi` 安装；SmartScreen 提示时选「更多信息 → 仍要运行」。
-          - **Linux**：deb 依赖 `libsecret-tools`（登录凭证走 secret-tool）；
-            AppImage 在无 FUSE 环境用 `--appimage-extract-and-run` 启动。
+          - **Windows x64**：解压 `.zip` 到任意目录，双击其中的 `cgc-desktop-app.exe`。
+            首次运行 SmartScreen 会提示，选「更多信息 → 仍要运行」。不需要安装、不需要管理员权限。
+          - **Linux（x64）**：解压 `.tar.gz` 后直接运行其中的 `cgc-desktop-app`。
+            登录凭证走 secret-tool，需要系统装有 `libsecret-tools`
+            （Debian/Ubuntu：`sudo apt install libsecret-tools`）。不需要安装、不需要 root。
 
           ### 校验
           每个包旁边有 `SHA256SUMS`，下载后可 `sha256sum -c SHA256SUMS` 自查。
+          产物同名 `.build.json` 记录 `version` / `sourceRevision` / `platform` / `arch` / 签名状态。
 
           ### 说明
           内测包把生产端点烘进了二进制（`https://api.codingirlsclub.com/api/graphql`）。
-          安装包命名 `cgc2046_<version>_<commit>_<platform>-<arch>.<ext>`。
+          产物命名 `cgc2046-<platform>-<arch>.<ext>`，**文件名不带版本**；版本、源码 commit 与
+          签名状态写在各产物同名的 `.build.json` 里，下载后 `cat` 一下即可确认是哪个构建。
           MD
           } > "$notes"
           cat "$notes"
