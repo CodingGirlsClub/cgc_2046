@@ -24,6 +24,36 @@ pub(crate) struct WorkspaceEntry {
     pub(crate) agent_panel_width: f32,
     pub(crate) site_tree_course_open: Option<String>,
     pub(crate) site_tree_scroll_y: f32,
+    /// 左 Agent 面板是否展开（记忆；优先于 Panels 的 Starts Open）。
+    pub(crate) agent_panel_open: bool,
+    /// 右侧 Dock 是否展开。
+    pub(crate) right_panel_open: bool,
+    /// 右侧 Dock 当前 panel；通知不写入。
+    pub(crate) right_panel: PersistedRightPanel,
+}
+
+/// 右侧 Dock 持久化的 panel 取值（只存导航与课程目录）。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum PersistedRightPanel {
+    #[default]
+    SiteTree,
+    Outline,
+}
+
+impl PersistedRightPanel {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::SiteTree => "site_tree",
+            Self::Outline => "outline",
+        }
+    }
+
+    pub(crate) fn from_value(value: Option<&str>) -> Self {
+        match value {
+            Some("outline") => Self::Outline,
+            _ => Self::SiteTree,
+        }
+    }
 }
 
 impl Default for WorkspaceEntry {
@@ -38,6 +68,9 @@ impl Default for WorkspaceEntry {
             agent_panel_width: 380.0,
             site_tree_course_open: None,
             site_tree_scroll_y: 0.0,
+            agent_panel_open: true,
+            right_panel_open: true,
+            right_panel: PersistedRightPanel::default(),
         }
     }
 }
@@ -100,13 +133,13 @@ pub(crate) fn load() -> WorkspaceState {
                     .and_then(Value::as_f64)
                     .map(|width| width as f32)
                     .unwrap_or(288.0)
-                    .clamp(240.0, 520.0),
+                    .clamp(200.0, 480.0),
                 agent_panel_width: entry
                     .get("agent_panel_width")
                     .and_then(Value::as_f64)
                     .map(|width| width as f32)
                     .unwrap_or(380.0)
-                    .clamp(260.0, 520.0),
+                    .clamp(240.0, 560.0),
                 site_tree_course_open: entry
                     .get("site_tree_course_open")
                     .and_then(Value::as_str)
@@ -115,6 +148,17 @@ pub(crate) fn load() -> WorkspaceState {
                     .get("site_tree_scroll_y")
                     .and_then(Value::as_f64)
                     .unwrap_or(0.0) as f32,
+                agent_panel_open: entry
+                    .get("agent_panel_open")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+                right_panel_open: entry
+                    .get("right_panel_open")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+                right_panel: PersistedRightPanel::from_value(
+                    entry.get("right_panel").and_then(Value::as_str),
+                ),
             },
         );
     }
@@ -154,6 +198,9 @@ pub(crate) fn save(state: &WorkspaceState) {
                     "agent_panel_width": entry.agent_panel_width,
                     "site_tree_course_open": entry.site_tree_course_open,
                     "site_tree_scroll_y": entry.site_tree_scroll_y,
+                    "agent_panel_open": entry.agent_panel_open,
+                    "right_panel_open": entry.right_panel_open,
+                    "right_panel": entry.right_panel.as_str(),
                 }),
             )
         })
@@ -215,6 +262,9 @@ mod tests {
             agent_panel_width: 360.0,
             site_tree_course_open: Some("crs-002".to_string()),
             site_tree_scroll_y: 42.0,
+            agent_panel_open: false,
+            right_panel_open: true,
+            right_panel: PersistedRightPanel::Outline,
         };
         save_entry("ws-1", entry.clone());
         assert_eq!(super::entry("ws-1"), Some(entry));

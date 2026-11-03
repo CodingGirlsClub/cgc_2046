@@ -14,7 +14,7 @@ use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::group_box::GroupBoxVariant;
 use gpui_kit::component::input::{Input, InputState, TextareaState};
 use gpui_kit::component::setting::{
-    SelectIndex, SettingField, SettingGroup, SettingItem, SettingPage, Settings,
+    NumberFieldOptions, SelectIndex, SettingField, SettingGroup, SettingItem, SettingPage, Settings,
 };
 use gpui_kit::component::Sizable;
 use gpui_kit::InteractiveElement;
@@ -40,9 +40,9 @@ enum AiRoute {
     EditProvider(String),
 }
 
-// 页面顺序：账号 / 通用 / AI / 关于。
+// 页面顺序：账号 / 通用 / Window & Layout / Panels / AI / 关于。
 const SETTINGS_PAGE_ACCOUNT: usize = 0;
-const SETTINGS_PAGE_AI: usize = 2;
+const SETTINGS_PAGE_AI: usize = 4;
 
 pub struct SettingsWindowView {
     language: Language,
@@ -68,6 +68,8 @@ pub struct SettingsWindowView {
     /// Stage 3.3：清空 ACP 对话历史的二次确认状态与结果提示。
     clear_acp_history_armed: Arc<AtomicBool>,
     clear_acp_history_notice: Arc<Mutex<Option<String>>>,
+    /// 主窗口弱引用：显示偏好保存后立即应用。
+    root: WeakEntity<crate::root_view::RootView>,
 }
 
 impl SettingsWindowView {
@@ -81,6 +83,7 @@ impl SettingsWindowView {
         api: Arc<dyn AuthApi + Send + Sync>,
         close_to_tray: Arc<AtomicBool>,
         runtime: Option<NativeRuntimeHandle>,
+        root: WeakEntity<crate::root_view::RootView>,
         cx: &mut Context<Self>,
     ) -> Self {
         let provider_settings = ProviderSettings::new();
@@ -118,6 +121,7 @@ impl SettingsWindowView {
             runtime,
             clear_acp_history_armed: Arc::new(AtomicBool::new(false)),
             clear_acp_history_notice: Arc::new(Mutex::new(None)),
+            root,
         }
     }
 
@@ -746,6 +750,7 @@ impl SettingsWindowView {
         let revoked = self.revoked;
         let drafts = self.provider_drafts.clone();
         let weak = cx.entity().downgrade();
+        let root = self.root.clone();
 
         let account_item = SettingItem::render(move |_options, _window, cx| {
             let palette = theme::palette_from_theme(cx);
@@ -811,6 +816,117 @@ impl SettingsWindowView {
             ),
         )
         .description(translate(language, Key::AppSettingsCursorBlinkHint));
+
+        let title_bar_brand = SettingItem::new(
+            translate(language, Key::AppSettingsTitleBarBrand),
+            SettingField::switch(
+                |_cx: &App| preferences::load().title_bar_brand,
+                save_display_preference(root.clone(), |prefs, value: bool| {
+                    prefs.title_bar_brand = value;
+                }),
+            ),
+        )
+        .description(translate(language, Key::AppSettingsTitleBarBrandHint));
+        let title_bar_breadcrumb = SettingItem::new(
+            translate(language, Key::AppSettingsTitleBarBreadcrumb),
+            SettingField::switch(
+                |_cx: &App| preferences::load().title_bar_breadcrumb,
+                save_display_preference(root.clone(), |prefs, value: bool| {
+                    prefs.title_bar_breadcrumb = value;
+                }),
+            ),
+        )
+        .description(translate(language, Key::AppSettingsTitleBarBreadcrumbHint));
+        let title_bar_notifications = SettingItem::new(
+            translate(language, Key::AppSettingsTitleBarNotifications),
+            SettingField::switch(
+                |_cx: &App| preferences::load().title_bar_notifications,
+                save_display_preference(root.clone(), |prefs, value: bool| {
+                    prefs.title_bar_notifications = value;
+                }),
+            ),
+        )
+        .description(translate(language, Key::AppSettingsTitleBarNotificationsHint));
+        let agent_panel_button = SettingItem::new(
+            translate(language, Key::AppSettingsAgentPanelButton),
+            SettingField::switch(
+                |_cx: &App| preferences::load().agent_panel_button,
+                save_display_preference(root.clone(), |prefs, value: bool| {
+                    prefs.agent_panel_button = value;
+                }),
+            ),
+        )
+        .description(translate(language, Key::AppSettingsAgentPanelButtonHint));
+        let agent_panel_width = SettingItem::new(
+            translate(language, Key::AppSettingsAgentPanelWidth),
+            SettingField::number_input(
+                NumberFieldOptions {
+                    min: 240.0,
+                    max: 560.0,
+                    step: 20.0,
+                },
+                |_cx: &App| preferences::load().agent_panel_width,
+                save_display_preference(root.clone(), |prefs, value: f64| {
+                    prefs.agent_panel_width = value.clamp(240.0, 560.0);
+                }),
+            ),
+        )
+        .description(translate(language, Key::AppSettingsAgentPanelWidthHint));
+        let dock_starts_open = SettingItem::new(
+            translate(language, Key::AppSettingsDockStartsOpen),
+            SettingField::switch(
+                |_cx: &App| preferences::load().dock_starts_open,
+                save_display_preference(root.clone(), |prefs, value: bool| {
+                    prefs.dock_starts_open = value;
+                }),
+            ),
+        )
+        .description(translate(language, Key::AppSettingsDockStartsOpenHint));
+        let dock_width = SettingItem::new(
+            translate(language, Key::AppSettingsDockWidth),
+            SettingField::number_input(
+                NumberFieldOptions {
+                    min: 200.0,
+                    max: 480.0,
+                    step: 16.0,
+                },
+                |_cx: &App| preferences::load().dock_width,
+                save_display_preference(root.clone(), |prefs, value: f64| {
+                    prefs.dock_width = value.clamp(200.0, 480.0);
+                }),
+            ),
+        )
+        .description(translate(language, Key::AppSettingsDockWidthHint));
+        let dock_navigation_button = SettingItem::new(
+            translate(language, Key::AppSettingsDockNavigationButton),
+            SettingField::switch(
+                |_cx: &App| preferences::load().dock_navigation_button,
+                save_display_preference(root.clone(), |prefs, value: bool| {
+                    prefs.dock_navigation_button = value;
+                }),
+            ),
+        )
+        .description(translate(language, Key::AppSettingsDockNavigationButtonHint));
+        let dock_outline_button = SettingItem::new(
+            translate(language, Key::AppSettingsDockOutlineButton),
+            SettingField::switch(
+                |_cx: &App| preferences::load().dock_outline_button,
+                save_display_preference(root.clone(), |prefs, value: bool| {
+                    prefs.dock_outline_button = value;
+                }),
+            ),
+        )
+        .description(translate(language, Key::AppSettingsDockOutlineButtonHint));
+        let dock_show_unenrolled = SettingItem::new(
+            translate(language, Key::AppSettingsDockShowUnenrolled),
+            SettingField::switch(
+                |_cx: &App| preferences::load().dock_show_unenrolled,
+                save_display_preference(root.clone(), |prefs, value: bool| {
+                    prefs.dock_show_unenrolled = value;
+                }),
+            ),
+        )
+        .description(translate(language, Key::AppSettingsDockShowUnenrolledHint));
         let native_agent = SettingItem::new(
             "使用 Native Agent 运行时",
             SettingField::switch(
@@ -1282,7 +1398,47 @@ impl SettingsWindowView {
                         .item(Self::breadcrumb_item("设置 / 通用".to_string())),
                     SettingGroup::new()
                         .title("通用")
-                        .items(vec![close_to_tray, cursor_blink]),
+                        .items(vec![cursor_blink]),
+                ]),
+        )
+        .page(
+            SettingPage::new(translate(language, Key::AppSettingsWindowLayout))
+                .header_style(&hidden_header)
+                .groups(vec![
+                    SettingGroup::new()
+                        .variant(GroupBoxVariant::Normal)
+                        .item(Self::breadcrumb_item("设置 / 窗口与布局".to_string())),
+                    SettingGroup::new()
+                        .title(translate(language, Key::AppSettingsTitleBar))
+                        .items(vec![
+                            title_bar_brand,
+                            title_bar_breadcrumb,
+                            title_bar_notifications,
+                        ]),
+                    SettingGroup::new()
+                        .title(translate(language, Key::AppSettingsBehavior))
+                        .item(close_to_tray),
+                ]),
+        )
+        .page(
+            SettingPage::new(translate(language, Key::AppSettingsPanels))
+                .header_style(&hidden_header)
+                .groups(vec![
+                    SettingGroup::new()
+                        .variant(GroupBoxVariant::Normal)
+                        .item(Self::breadcrumb_item("设置 / 面板".to_string())),
+                    SettingGroup::new()
+                        .title(translate(language, Key::AppSettingsAgentPanel))
+                        .items(vec![agent_panel_button, agent_panel_width]),
+                    SettingGroup::new()
+                        .title(translate(language, Key::AppSettingsDock))
+                        .items(vec![
+                            dock_starts_open,
+                            dock_width,
+                            dock_navigation_button,
+                            dock_outline_button,
+                            dock_show_unenrolled,
+                        ]),
                 ]),
         )
         .page(ai_page)
@@ -1299,6 +1455,23 @@ impl SettingsWindowView {
                 ]),
         );
         div().size_full().child(settings).into_any_element()
+    }
+}
+
+/// 保存显示偏好后刷新主窗口快照，使开关与宽度立即生效。
+fn save_display_preference<T, U>(
+    root: WeakEntity<crate::root_view::RootView>,
+    update: U,
+) -> impl Fn(T, &mut App) + 'static
+where
+    T: 'static,
+    U: Fn(&mut preferences::Preferences, T) + 'static,
+{
+    move |value: T, cx: &mut App| {
+        let mut prefs = preferences::load();
+        update(&mut prefs, value);
+        preferences::save(prefs);
+        let _ = root.update(cx, |view, cx| view.apply_display_preferences(cx));
     }
 }
 

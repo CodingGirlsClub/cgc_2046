@@ -992,7 +992,7 @@ impl Render for RootView {
                                     .on_mouse_down(MouseButton::Left, |_, window, _| {
                                         window.start_window_move();
                                     })
-                                    .child(
+                                    .children(self.display_preferences.title_bar_brand.then(|| {
                                         div()
                                             .flex()
                                             .flex_row()
@@ -1009,13 +1009,25 @@ impl Render for RootView {
                                                     .text_size(px(15.0))
                                                     .text_color(palette.ink)
                                                     .child(translate(language, Key::AppName)),
-                                            ),
-                                    ),
+                                            )
+                                    })),
                             )
-                            .child(div().w(px(1.0)).h(px(14.0)).bg(palette.line))
-                            .child(self.render_breadcrumb_bar(language, &palette, cx))
+                            .children(
+                                self.display_preferences
+                                    .title_bar_breadcrumb
+                                    .then(|| div().w(px(1.0)).h(px(14.0)).bg(palette.line)),
+                            )
+                            .children(
+                                self.display_preferences
+                                    .title_bar_breadcrumb
+                                    .then(|| self.render_breadcrumb_bar(language, &palette, cx)),
+                            )
                             .child(div().flex_1())
-                            .child(self.render_notifications_bell(language, &palette, cx))
+                            .children(
+                                self.display_preferences
+                                    .title_bar_notifications
+                                    .then(|| self.render_notifications_bell(language, &palette, cx)),
+                            )
                             .child(
                                 div()
                                     .id("account-toggle-wrap")
@@ -2005,9 +2017,19 @@ impl RootView {
                             .min_w_0()
                             .overflow_x_hidden()
                             .children(history_toggle)
-                            .children(agent_toggle)
-                            .child(site_tree_toggle)
-                            .child(outline_toggle),
+                            .children(agent_toggle.filter(|_| {
+                                self.display_preferences.agent_panel_button
+                            }))
+                            .children(
+                                self.display_preferences
+                                    .dock_navigation_button
+                                    .then_some(site_tree_toggle),
+                            )
+                            .children(
+                                self.display_preferences
+                                    .dock_outline_button
+                                    .then_some(outline_toggle),
+                            ),
                     )
                     .right(
                         div()

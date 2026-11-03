@@ -2634,6 +2634,7 @@ impl RootView {
             ..Default::default()
         };
         let native_runtime = self.native_runtime.clone();
+        let root = cx.entity().downgrade();
         cx.open_window(options, move |window, cx| {
             let view = cx.new(|cx| {
                 SettingsWindowView::new(
@@ -2645,6 +2646,7 @@ impl RootView {
                     api,
                     self.close_to_tray.clone(),
                     native_runtime,
+                    root,
                     cx,
                 )
             });
@@ -2820,6 +2822,7 @@ impl RootView {
         {
             self.start_chat(cx);
         }
+        self.persist_current_workspace_state();
         cx.notify();
     }
 
@@ -2940,6 +2943,12 @@ impl RootView {
             agent_panel_width: self.agent_panel_width,
             site_tree_course_open: self.site_tree_course_open.clone(),
             site_tree_scroll_y: self.site_tree_scroll.offset().y.as_f32(),
+            agent_panel_open: self.agent_panel_open,
+            right_panel_open: self.right_panel_open,
+            right_panel: match self.right_panel {
+                RightPanel::Outline => crate::workspace_state::PersistedRightPanel::Outline,
+                _ => crate::workspace_state::PersistedRightPanel::SiteTree,
+            },
         };
         crate::workspace_state::save_entry(workspace_id, entry);
     }
@@ -2949,7 +2958,21 @@ impl RootView {
             return;
         };
         let Some(entry) = crate::workspace_state::entry(&workspace_id) else {
+            // 新工作台：Starts Open 与偏好宽度只在这里生效。
+            let preferences = crate::preferences::load();
+            self.agent_panel_open = true;
+            self.right_panel_open = preferences.dock_starts_open;
+            self.right_panel = RightPanel::SiteTree;
+            self.right_panel_width = preferences.dock_width as f32;
+            self.agent_panel_width = preferences.agent_panel_width as f32;
+            cx.notify();
             return;
+        };
+        self.agent_panel_open = entry.agent_panel_open;
+        self.right_panel_open = entry.right_panel_open;
+        self.right_panel = match entry.right_panel {
+            crate::workspace_state::PersistedRightPanel::Outline => RightPanel::Outline,
+            crate::workspace_state::PersistedRightPanel::SiteTree => RightPanel::SiteTree,
         };
         self.site_tree_events_open = entry.site_tree_events_open;
         self.site_tree_courses_open = entry.site_tree_courses_open;
@@ -3097,6 +3120,19 @@ impl RootView {
             state::toggled_right_panel(self.right_panel, self.right_panel_open, panel);
         self.right_panel = panel;
         self.right_panel_open = open;
+        // 通知面板是临时入口，不写入记忆。
+        if !matches!(panel, RightPanel::Notifications) {
+            self.persist_current_workspace_state();
+        }
+        cx.notify();
+    }
+
+    /// 设置窗口保存后调用：刷新偏好快照，并让宽度立即应用。
+    pub(crate) fn apply_display_preferences(&mut self, cx: &mut Context<Self>) {
+        let preferences = crate::preferences::load();
+        self.agent_panel_width = preferences.agent_panel_width as f32;
+        self.right_panel_width = preferences.dock_width as f32;
+        self.display_preferences = preferences;
         cx.notify();
     }
 
