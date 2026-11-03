@@ -390,8 +390,46 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
       assert run.input_snapshot["prep_policy"] == Prep.default_policy()
       assert Prep.prep_state(run) == "draft"
 
+      # #1128 归因：course.created 首周期，事件载荷无 actor
+      assert run.created_reason == :course_created
+      assert run.created_by_actor_id == nil
+      assert run.previous_run_id == nil
+
       # 产物引用链回写（save_course_content facts 镜像与 workflowRun 关系的锚）
       assert Ash.get!(Course, course.id, authorize?: false).workflow_run_id == run.id
+    end
+
+    test "首周期恢复：信号未处理时读取即建 run → first_cycle_recovery（#1128 评审修正）" do
+      owner = Fixtures.platform_admin("s5-inst-recover")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s5-inst-recover-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+      create_prep_definition(workspace, owner)
+      course = draft_course(workspace, owner, %{title: "首周期恢复"})
+
+      # 不投递 course.created（模拟信号尚未处理/丢失）→ 无 run
+      assert prep_runs(workspace) == []
+
+      # 读面补建：这是首周期，不是发布后的次周期
+      assert {:reply, _, _} =
+               status_reply =
+               GetPrepStatus.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      status = decode(status_reply)
+      run = prep_run!(course, workspace)
+      assert status["run_id"] == run.id
+      assert status["created_reason"] == "first_cycle_recovery"
+      assert run.created_reason == :first_cycle_recovery
+      assert run.created_by_actor_id == tutor.id
+      assert run.previous_run_id == nil
+
+      # 信号后到：命中已有 run（幂等），归因不被改写成 course_created
+      deliver_created(course)
+      assert [_only] = prep_runs(workspace)
+      assert reload_run(run, workspace).created_reason == :first_cycle_recovery
     end
 
     test "非 draft 课程守卫：信号重投不实例化（首投失败、课程已发布后重投的防护）" do
@@ -479,6 +517,12 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
       assert status["tutor"] == nil
       assert status["version"] == run.version
       assert status["gate_violations"] != []
+
+      # #1128 归因：首周期 course_created（事件无 actor）→ 触发人/上一周期为空
+      assert status["created_reason"] == "course_created"
+      assert status["created_by"] == nil
+      assert status["previous_run_id"] == nil
+      assert is_binary(status["created_at"])
 
       # Owner 指派 tutor：draft → authoring
       assert {:reply, _, _} =
@@ -858,6 +902,27 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
       # 周期切换可辨（#1126）：响应带 run_id；list 面对同一 run 同显 draft
       assert status["run_id"] == run2.id
 
+      # #1128 归因（D2）：首周期 course_created（事件无 actor）；次周期 next_cycle
+      # + 触发人（get_prep_status 调用者）+ 上一周期 run id
+      run1_reloaded = reload_run(run1, workspace)
+      assert run1_reloaded.created_reason == :course_created
+      assert run1_reloaded.created_by_actor_id == nil
+      assert run1_reloaded.previous_run_id == nil
+
+      assert run2.created_reason == :next_cycle
+      assert run2.created_by_actor_id == tutor.id
+      assert run2.previous_run_id == run1.id
+
+      assert status["created_reason"] == "next_cycle"
+
+      assert status["created_by"] == %{
+               "user_id" => tutor.id,
+               "display_name" => tutor.display_name
+             }
+
+      assert status["previous_run_id"] == run1.id
+      assert is_binary(status["created_at"])
+
       {:reply, _, _} =
         list_reply =
         ListWorkspaceCourses.execute(%{"workspace_id" => workspace.id}, frame_for(tutor))
@@ -932,6 +997,23 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
 
       assert reload_run(run2, workspace).facts["published_revision_number"] == 2
       assert reload_run(run1, workspace).facts["published_revision_number"] == 1
+
+      # 第二次换周期（#1128）：previous_run_id 指向上一条 run2（不是 run1）；
+      # 同时覆盖「历史多条 run 时 latest_run 仍取到唯一最新一条」
+      assert {:reply, _, _} =
+               status3_reply =
+               GetPrepStatus.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      status3 = decode(status3_reply)
+      run3 = prep_run!(course, workspace)
+      assert run3.id != run2.id
+      assert status3["run_id"] == run3.id
+      assert run3.created_reason == :next_cycle
+      assert run3.created_by_actor_id == tutor.id
+      assert run3.previous_run_id == run2.id
     end
 
     test "prep_state 读面一致：新 run 缺 prep_state 键时 list_workspace_courses 与 get_prep_status 同显 draft；无 run 课程为 null" do

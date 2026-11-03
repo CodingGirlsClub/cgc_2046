@@ -263,7 +263,12 @@ defmodule Cgc2046.Mcp.RoleWorkbenchToolsTest do
 
       # #677 bump:tutor playbook 起草规则 3 补 checklist/materials 嵌套位置口径
       assert payload["content"] =~ "嵌在 story 内"
-      assert payload["version"] == "2026-10-03.1"
+
+      # #1128 bump:次周期读法（run_id 优先于 version）+ 归因字段
+      assert payload["content"] =~ "先比 get_prep_status 返回的 run_id"
+      assert payload["content"] =~ "created_reason"
+      assert payload["content"] =~ "previous_run_id"
+      assert payload["version"] == "2026-11-03.1"
     end
 
     test "tutor：owner 成员可取" do
