@@ -53,7 +53,7 @@ pub(in crate::root_view) fn render_agent_panel(
         .flex()
         .flex_col()
         .bg(palette.canvas)
-        .child(header(ctx, palette, cx))
+        .child(header(ctx, language, palette, cx))
         .child(div().flex_1().min_h(px(0.0)).child(content))
         .into_any_element()
 }
@@ -92,6 +92,7 @@ fn panel_title(ctx: &ScreenContext<'_>, cx: &mut Context<RootView>) -> String {
 
 fn header(
     ctx: &mut ScreenContext<'_>,
+    language: Language,
     palette: &theme::Palette,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
@@ -315,6 +316,7 @@ fn header(
                 .trigger(
                     Button::new("agent-panel-new-trigger")
                         .label("＋")
+                        .accessibility_label(translate(language, Key::AppA11yNewChat))
                         .xsmall()
                         .ghost()
                         .tooltip("New Agent Thread"),
@@ -436,6 +438,8 @@ fn header(
                     rows.push(
                         div()
                             .id("agent-panel-add-more")
+                            .role(Role::Button)
+                            .aria_label(translate(language, Key::AppA11yAddMoreAgents))
                             .flex()
                             .flex_row()
                             .items_center()

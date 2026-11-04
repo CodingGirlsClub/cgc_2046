@@ -57,6 +57,16 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
       description: "申请目的"
     )
 
+    # 申请时填写的「工作台简介」（#1226，C2）：审批通过后透传为
+    # workspace.description。与 purpose 刻意分离——purpose 是审批理由（隐私文案），
+    # 永不出现在公开简介位。
+    attribute(:description, :string,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      description: "工作台简介（可选；审批通过后透传为工作台的公开展示文案）"
+    )
+
     attribute(:status, :atom,
       allow_nil?: false,
       default: :pending,
@@ -147,7 +157,7 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
 
     create :create do
       description("提交创建工作台申请（申请人自助，设 pending + approval_deadline）")
-      accept([:name, :slug, :purpose])
+      accept([:name, :slug, :purpose, :description])
 
       argument(:applicant_id, :uuid,
         allow_nil?: false,
@@ -236,12 +246,23 @@ defmodule Cgc2046.Accounts.WorkspaceApplication do
 
           with {:ok, workspace} <-
                  Cgc2046.Accounts.Workspace
-                 |> Ash.Changeset.for_create(:create, %{
-                   slug: application.slug,
-                   name: application.name,
-                   join_policy: :request,
-                   sponsorship_enabled: true
-                 })
+                 |> Ash.Changeset.for_create(
+                   :create,
+                   %{
+                     slug: application.slug,
+                     name: application.name,
+                     join_policy: :request,
+                     sponsorship_enabled: true
+                   }
+                   # #1226（C2）：申请时填写的简介透传为工作台门面文案。
+                   # purpose（申请目的）刻意不落——审批理由不是公开文案。
+                   |> then(fn input ->
+                     case application.description do
+                       nil -> input
+                       description -> Map.put(input, :description, description)
+                     end
+                   end)
+                 )
                  |> Ash.create(authorize?: false),
                {:ok, _membership} <-
                  Cgc2046.Accounts.MembershipContext.admit_member(

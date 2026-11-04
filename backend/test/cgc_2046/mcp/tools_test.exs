@@ -99,12 +99,28 @@ defmodule Cgc2046.Mcp.ToolsTest do
 
       payload = decode_reply(reply)
       assert payload["workspace_id"] == workspace.id
+      assert payload["description"] == nil
       assert is_list(payload["my_roles"])
       assert "owner" in payload["my_roles"] or "admin" in payload["my_roles"]
 
-      [log] = tool_logs_for(admin.id, "get_workspace_context")
-      assert log.result_status == :ok
-      assert is_integer(log.latency_ms)
+      # 有简介时原样透出（全文，不截断——截断只在 list_my_workspaces 行使，#1226）
+      workspace
+      |> Ash.Changeset.for_update(:update, %{description: "面向本地学习者的工作台"})
+      |> Ash.update!(actor: admin)
+
+      assert {:reply, _, _} =
+               reply2 =
+               GetWorkspaceContext.execute(
+                 %{"workspace_id" => workspace.id},
+                 frame_for(admin)
+               )
+
+      assert decode_reply(reply2)["description"] == "面向本地学习者的工作台"
+
+      logs = tool_logs_for(admin.id, "get_workspace_context")
+      assert length(logs) == 2
+      assert Enum.all?(logs, &(&1.result_status == :ok))
+      assert Enum.all?(logs, &is_integer(&1.latency_ms))
     end
   end
 

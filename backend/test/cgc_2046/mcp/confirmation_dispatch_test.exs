@@ -21,7 +21,7 @@ defmodule Cgc2046.Mcp.ConfirmationDispatchTest do
   # 招募批次三件（#747 campaign 运营，create 为直接写不入列））
   @confirmation_tools ~w(create_invitation approve_join_request assign_roles) ++
                         ~w(admin_approve_workspace_application admin_reject_workspace_application admin_create_workspace admin_reassign_workspace_owner admin_promote_user admin_demote_user admin_create_initiative admin_update_initiative admin_open_initiative admin_close_initiative admin_cancel_initiative admin_upsert_initiative_rule) ++
-                        ~w(update_course launch_course close_course cancel_course delete_course update_event launch_event close_event cancel_event delete_event confirm_enrollment reject_enrollment waive_payment refund_order retry_refund update_join_policy) ++
+                        ~w(update_course launch_course close_course cancel_course delete_course update_event launch_event close_event cancel_event delete_event confirm_enrollment reject_enrollment waive_payment refund_order retry_refund update_join_policy update_workspace_description) ++
                         ~w(update_recruitment_cohort open_recruitment_cohort close_recruitment_cohort) ++
                         ~w(update_prep_policy override_prep_gate approve_prep) ++
                         ~w(unforfeit_order) ++

@@ -86,6 +86,8 @@ export interface Workspace {
 	sponsorshipEnabled: boolean;
 	/** 赞助档位配置（JsonString 数组，每项 JSON.parse 后为 SponsorshipTierConfig；E-3 #48） */
 	sponsorshipTiers?: string[] | null;
+	/** 工作台简介（公开展示文案，可空）— #1226 */
+	description?: string | null;
 	/** 当前用户在该工作台的角色名数组（非成员为 []）— #64 */
 	myRoleNames?: MembershipRoleName[];
 	/** 当前用户在该工作台的成员资格 ID（非成员为 null）— #64 */
@@ -184,6 +186,8 @@ export interface UpdateWorkspaceInput {
 	sponsorshipEnabled?: boolean;
 	/** 赞助档位配置（每项 JSON.stringify 后作为 JsonString 提交；E-3 #48） */
 	sponsorshipTiers?: string[];
+	/** 工作台简介（公开展示文案；空串由后端归一为 null = 清空）— #1226 */
+	description?: string | null;
 }
 
 export type UpdateWorkspaceResultData = MutationResult<Workspace>;
@@ -377,6 +381,7 @@ export const UPDATE_WORKSPACE: TypedDocumentNode<
         id
         slug
         name
+        description
         joinPolicy
         sponsorshipEnabled
         sponsorshipTiers

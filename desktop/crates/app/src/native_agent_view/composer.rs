@@ -315,21 +315,6 @@ impl NativeAgentView {
                 .mx(space(2))
                 .mb(space(2))
                     .capture_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
-                        if event.keystroke.key == "v" && event.keystroke.modifiers.platform {
-                            let has_image = cx
-                                .read_from_clipboard()
-                                .map(|item| {
-                                    item.entries
-                                        .iter()
-                                        .any(|entry| matches!(entry, ClipboardEntry::Image(_)))
-                                })
-                                .unwrap_or(false);
-                            if has_image {
-                                this.add_clipboard_image(cx);
-                                cx.stop_propagation();
-                                return;
-                            }
-                        }
                         let value = this.input.read(cx).value().to_string();
                         if trailing_mention(&value).is_some() {
                             match event.keystroke.key.as_str() {
@@ -484,6 +469,10 @@ impl NativeAgentView {
                             composer_placeholder(model_setup),
                             palette.ink_3,
                         )
+                                    .on_paste({
+                                        let view = cx.entity().downgrade();
+                                        move |item, _, cx| view.update(cx, |this, cx| this.paste_images(item, cx)).unwrap_or(false)
+                                    })
                                     .token({
                                         let attachments = self.composer_context.labels();
                                         let page_context = self.page_context.clone();

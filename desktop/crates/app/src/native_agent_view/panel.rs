@@ -82,49 +82,9 @@ impl NativeAgentView {
                     return;
                 }
                 if let InputEvent::Change = event {
-                    let content = this.input.read(cx).content();
-                    let value = content.text().to_string();
-                    let previous = std::mem::replace(&mut this.last_input_content, content);
-                    if value != previous.text().as_str() {
-                        if let Some(inserted) = inserted_segment(previous.text(), &value) {
-                            let image_paths: Vec<std::path::PathBuf> = cx
-                                .read_from_clipboard()
-                                .map(|item| {
-                                    item.entries
-                                        .iter()
-                                        .filter_map(|entry| match entry {
-                                            ClipboardEntry::ExternalPaths(paths) => {
-                                                Some(paths.paths().to_vec())
-                                            }
-                                            _ => None,
-                                        })
-                                        .flatten()
-                                        .filter(|path| is_image_path(path))
-                                        .collect()
-                                })
-                                .unwrap_or_default();
-                            let inserted_matches_file = image_paths.iter().any(|path| {
-                                path.file_name()
-                                    .and_then(|name| name.to_str())
-                                    .map(|name| inserted.contains(name))
-                                    .unwrap_or(false)
-                                    || inserted.contains(path.to_string_lossy().as_ref())
-                            });
-                            if inserted_matches_file {
-                                this.add_images_from_paths(&image_paths, cx);
-                                this.input.update(cx, |state, cx| {
-                                    state.set_value(previous.clone(), window, cx)
-                                });
-                                this.last_input_content = previous;
-                                cx.notify();
-                                return;
-                            }
-                        }
-                    }
                     this.slash_dismissed = false;
                     this.slash_index = 0;
                     this.mention_index = 0;
-                    let _ = value;
                     cx.notify();
                     return;
                 }
@@ -206,7 +166,6 @@ impl NativeAgentView {
             pending_restart_confirm: None,
             pending_images: Vec::new(),
             sent_images: HashMap::new(),
-            last_input_content: InputContent::new(""),
             _input_subscription: input_subscription,
             _key_interceptor: Some(key_interceptor),
         }
@@ -363,25 +322,12 @@ impl NativeAgentView {
         }
     }
 
-    pub(super) fn add_clipboard_image(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn add_clipboard_image(&mut self, image: &Image, cx: &mut Context<Self>) {
         if !self.model_supports_images() {
             self.status = "当前模型不支持图片输入".to_string();
             cx.notify();
             return;
         }
-        let Some(item) = cx.read_from_clipboard() else {
-            self.status = "读取剪贴板失败".to_string();
-            cx.notify();
-            return;
-        };
-        let Some(image) = item.entries.iter().find_map(|entry| match entry {
-            ClipboardEntry::Image(image) => Some(image),
-            _ => None,
-        }) else {
-            self.status = "剪贴板里没有图片".to_string();
-            cx.notify();
-            return;
-        };
         let Some((png, preview)) = prepare_clipboard_image(&image.bytes) else {
             self.status = "图片无法处理（格式不支持或超过 5MB）".to_string();
             cx.notify();

@@ -11,6 +11,31 @@ pub(in crate::root_view) enum RightPanel {
     Notifications,
 }
 
+/// 状态栏可隐藏的按钮（右键菜单 Hide Button）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::root_view) enum StatusBarButton {
+    History,
+    Agent,
+    Navigation,
+    Outline,
+}
+
+/// 右侧 Dock 的持久化记忆；通知面板打开期间保持不变。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::root_view) struct PanelMemory {
+    pub(in crate::root_view) panel: RightPanel,
+    pub(in crate::root_view) open: bool,
+}
+
+impl Default for PanelMemory {
+    fn default() -> Self {
+        Self {
+            panel: RightPanel::SiteTree,
+            open: true,
+        }
+    }
+}
+
 /// 纯状态转移：点当前 panel 图标收起，点另一个切换；便于单测钉住互斥语义。
 pub(in crate::root_view) fn toggled_right_panel(
     current: RightPanel,
@@ -163,8 +188,15 @@ pub struct ShellState {
     pub(in crate::root_view) agent_panel_open: bool,
     pub(in crate::root_view) right_panel: RightPanel,
     pub(in crate::root_view) right_panel_open: bool,
+    /// 通知面板不覆盖右侧 Dock 的记忆。
+    pub(in crate::root_view) panel_memory: PanelMemory,
     pub(in crate::root_view) right_panel_width: f32,
     pub(in crate::root_view) agent_panel_width: f32,
+    /// 面板停靠侧；右键菜单 Dock Left / Dock Right 修改。
+    pub(in crate::root_view) agent_panel_side: crate::preferences::PanelSide,
+    pub(in crate::root_view) dock_side: crate::preferences::PanelSide,
+    /// Window & Layout / Panels 的显示偏好快照；设置窗口写入后由 apply 刷新。
+    pub(in crate::root_view) display_preferences: crate::preferences::Preferences,
     pub(in crate::root_view) resize_drag: Option<(ResizeSide, f32, f32)>,
     pub(in crate::root_view) tabs: Vec<PaneTab>,
     pub(in crate::root_view) active_tab: Option<String>,
@@ -284,6 +316,7 @@ impl ShellState {
         session: SessionService,
     ) -> Self {
         let current = initial_route(&registry);
+        let layout_preferences = crate::preferences::load();
         let events = build_events_service();
         let detail = EventDetailService::new(events.api_handle());
         let courses = build_courses_service();
@@ -316,8 +349,12 @@ impl ShellState {
             agent_panel_open: true,
             right_panel: RightPanel::SiteTree,
             right_panel_open: true,
-            right_panel_width: 288.0,
-            agent_panel_width: 380.0,
+            panel_memory: PanelMemory::default(),
+            right_panel_width: layout_preferences.dock_width as f32,
+            agent_panel_width: layout_preferences.agent_panel_width as f32,
+            agent_panel_side: layout_preferences.agent_panel_side,
+            dock_side: layout_preferences.dock_side,
+            display_preferences: layout_preferences,
             resize_drag: None,
             tabs: Vec::new(),
             active_tab: None,

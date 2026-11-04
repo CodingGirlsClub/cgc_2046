@@ -27,7 +27,12 @@ impl NativeComposerProbe {
             "test-model",
             "Test model",
             ModelLimits::new(8_000, 1_000),
-        );
+        )
+        .with_capabilities(cgc_agent_provider::ModelCapabilities {
+            tools: true,
+            images: true,
+            thinking: false,
+        });
         let mut thread = Thread::new(
             "editor-test",
             SelectedModel::new(ProviderId::new("fake"), ModelId::new("test-model")),
@@ -62,6 +67,40 @@ impl NativeComposerProbe {
                 Language::En,
                 None,
             )
+        });
+        view.update(cx, |view, _| {
+            let mut provider = cgc_agent_store::ProviderPrefs {
+                id: "fake".into(),
+                name: "Test provider".into(),
+                ..Default::default()
+            };
+            let mut model = cgc_agent_store::ModelPrefs::new("test-model");
+            model.supports_images = true;
+            provider.upsert_model(model);
+            let snapshot = view.snapshot.as_ref().expect("runtime snapshot");
+            view.snapshot = Some(Arc::new(crate::native_runtime::NativeRuntimeSnapshot {
+                thread: snapshot.thread.clone(),
+                model: snapshot.model.clone(),
+                workspace: snapshot.workspace.clone(),
+                phase: snapshot.phase,
+                generation: snapshot.generation,
+                revision: snapshot.revision,
+                authorization_epoch: snapshot.authorization_epoch,
+                mcp_unavailable_reason: snapshot.mcp_unavailable_reason.clone(),
+                display_title: snapshot.display_title.clone(),
+                title_generating: snapshot.title_generating,
+                title_generation_error: snapshot.title_generation_error.clone(),
+                schemas: snapshot.schemas.clone(),
+                providers: Arc::new(vec![provider]),
+                model_setup: snapshot.model_setup,
+                thinking_enabled: snapshot.thinking_enabled,
+                effort_index: snapshot.effort_index,
+                approval_mode: snapshot.approval_mode,
+                checkpoints: snapshot.checkpoints.clone(),
+                changes: snapshot.changes.clone(),
+                agent_state: snapshot.agent_state.clone(),
+                persistence_available: snapshot.persistence_available,
+            }));
         });
         if with_history {
             view.update(cx, |view, cx| {
@@ -230,3 +269,6 @@ fn native_composer_uses_shared_editor_growth_and_preserves_draft(cx: &mut TestAp
         .unwrap();
     }
 }
+
+#[path = "paste_tests.rs"]
+mod paste_tests;

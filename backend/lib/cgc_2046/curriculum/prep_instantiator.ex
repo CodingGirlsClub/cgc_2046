@@ -55,12 +55,17 @@ defmodule Cgc2046.Curriculum.PrepInstantiator do
   - `definition_id`：已 published 的 course_preparation WorkflowDefinition ID
   - `input`：run 输入（含 `course_id`/`title`；`prep_policy` 缺省补默认值——
     快照于 input_snapshot 固化，R22）
+  - `opts`（#1128）：`created_reason`（`:course_created` / `:first_cycle_recovery` /
+    `:next_cycle`）、`previous_run_id`、`actor`（创建人；也作为
+    `created_by_actor_id` 缺省值）
 
   幂等：同一课程已有非终态 prep run → 返回已有 run（不重复创建）。
   """
-  @spec launch(String.t(), String.t(), map()) :: {:ok, WorkflowRun.t()} | {:error, term()}
-  def launch(workspace_id, definition_id, input)
-      when is_binary(workspace_id) and is_binary(definition_id) and is_map(input) do
+  @spec launch(String.t(), String.t(), map(), keyword()) ::
+          {:ok, WorkflowRun.t()} | {:error, term()}
+  def launch(workspace_id, definition_id, input, opts \\ [])
+      when is_binary(workspace_id) and is_binary(definition_id) and is_map(input) and
+             is_list(opts) do
     with {:ok, defn} <- fetch_definition(workspace_id, definition_id),
          :ok <- ensure_prep_definition(defn),
          {:ok, run, _status} <-
@@ -70,8 +75,7 @@ defmodule Cgc2046.Curriculum.PrepInstantiator do
              Map.put_new(input, "prep_policy", Prep.default_policy()),
              # 教研 run 无平台侧执行步骤：纯 :start（pending → running），不经
              # :start_run 的 Engine.run（协议而非 DAG，learning run 同款）。
-             key: Prep.instance_key(input_course_id(input)),
-             start_action: :start
+             [key: Prep.instance_key(input_course_id(input)), start_action: :start] ++ opts
            ) do
       {:ok, run}
     end
@@ -92,7 +96,7 @@ defmodule Cgc2046.Curriculum.PrepInstantiator do
       # 封死）+ 锁内重读 active run（并发幂等）。
       course
       |> Prep.spawn_under_course_lock(["draft"], fn ->
-        launch(course.workspace_id, defn.id, input)
+        launch(course.workspace_id, defn.id, input, created_reason: :course_created)
       end)
       |> case do
         {:ok, %WorkflowRun{} = run} ->

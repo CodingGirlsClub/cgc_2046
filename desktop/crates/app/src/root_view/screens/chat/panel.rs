@@ -21,7 +21,7 @@ use cgc_agent_ui::picker::{
 use cgc_platform::acp::connection::ConfigOptionCategory;
 use gpui_kit::base::Disableable;
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu};
+use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::popover::Popover;
 
 pub(in crate::root_view) fn render_chat_panel(

@@ -1243,6 +1243,8 @@ export type CreateVolunteerApplicationInput = {
 export type CreateWorkspaceApplicationInput = {
   /** 申请人 ID */
   applicantId: Scalars['ID']['input'];
+  /** 工作台简介（可选；审批通过后透传为工作台的公开展示文案） */
+  description?: InputMaybe<Scalars['String']['input']>;
   /** 申请创建的工作台名称 */
   name: Scalars['String']['input'];
   /** 申请目的 */
@@ -1260,6 +1262,8 @@ export type CreateWorkspaceApplicationResult = {
 };
 
 export type CreateWorkspaceInput = {
+  /** 工作台简介（公开展示文案，可空） */
+  description?: InputMaybe<Scalars['String']['input']>;
   /** 加入策略：open 公开直接加入 / request 公开申请审批 / invite_only 私密仅邀请 */
   joinPolicy?: InputMaybe<Scalars['String']['input']>;
   /** 工作台名称 */
@@ -7522,6 +7526,8 @@ export type UpdateRecruitmentCohortInput = {
 };
 
 export type UpdateWorkspaceInput = {
+  /** 工作台简介（公开展示文案，可空） */
+  description?: InputMaybe<Scalars['String']['input']>;
   /** 加入策略：open 公开直接加入 / request 公开申请审批 / invite_only 私密仅邀请 */
   joinPolicy?: InputMaybe<Scalars['String']['input']>;
   /** 工作台名称 */
@@ -7646,6 +7652,8 @@ export type WechatSignInStatus =
 export type Workspace = {
   /** 当前用户是否可进入该工作台（成员/创建者） */
   canAccess?: Maybe<Scalars['Boolean']['output']>;
+  /** 工作台简介（公开展示文案，可空） */
+  description?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   /** 加入策略：open 公开直接加入 / request 公开申请审批 / invite_only 私密仅邀请 */
   joinPolicy: Scalars['String']['output'];
@@ -7678,6 +7686,8 @@ export type WorkspaceApplication = {
   approvedAt?: Maybe<Scalars['DateTime']['output']>;
   /** 审批人（platform_admin）ID */
   approvedBy?: Maybe<Scalars['ID']['output']>;
+  /** 工作台简介（可选；审批通过后透传为工作台的公开展示文案） */
+  description?: Maybe<Scalars['String']['output']>;
   /** 过期时间 */
   expiredAt?: Maybe<Scalars['DateTime']['output']>;
   id: Scalars['ID']['output'];
@@ -7749,6 +7759,24 @@ export type WorkspaceApplicationFilterApprovedBy = {
   notEq?: InputMaybe<Scalars['ID']['input']>;
 };
 
+export type WorkspaceApplicationFilterDescription = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
+};
+
 export type WorkspaceApplicationFilterExpiredAt = {
   eq?: InputMaybe<Scalars['DateTime']['input']>;
   greaterThan?: InputMaybe<Scalars['DateTime']['input']>;
@@ -7785,6 +7813,8 @@ export type WorkspaceApplicationFilterInput = {
   approvedAt?: InputMaybe<WorkspaceApplicationFilterApprovedAt>;
   /** 审批人（platform_admin）ID */
   approvedBy?: InputMaybe<WorkspaceApplicationFilterApprovedBy>;
+  /** 工作台简介（可选；审批通过后透传为工作台的公开展示文案） */
+  description?: InputMaybe<WorkspaceApplicationFilterDescription>;
   /** 过期时间 */
   expiredAt?: InputMaybe<WorkspaceApplicationFilterExpiredAt>;
   id?: InputMaybe<WorkspaceApplicationFilterId>;
@@ -7922,6 +7952,7 @@ export type WorkspaceApplicationSortField =
   | 'APPROVAL_DEADLINE'
   | 'APPROVED_AT'
   | 'APPROVED_BY'
+  | 'DESCRIPTION'
   | 'EXPIRED_AT'
   | 'ID'
   | 'NAME'
@@ -7935,6 +7966,24 @@ export type WorkspaceApplicationSortField =
 export type WorkspaceApplicationSortInput = {
   field: WorkspaceApplicationSortField;
   order?: InputMaybe<SortOrder>;
+};
+
+export type WorkspaceFilterDescription = {
+  contains?: InputMaybe<Scalars['String']['input']>;
+  eq?: InputMaybe<Scalars['String']['input']>;
+  greaterThan?: InputMaybe<Scalars['String']['input']>;
+  greaterThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  ilike?: InputMaybe<Scalars['String']['input']>;
+  in?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>>>;
+  isDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  isNil?: InputMaybe<Scalars['Boolean']['input']>;
+  isNotDistinctFrom?: InputMaybe<Scalars['String']['input']>;
+  lessThan?: InputMaybe<Scalars['String']['input']>;
+  lessThanOrEqual?: InputMaybe<Scalars['String']['input']>;
+  like?: InputMaybe<Scalars['String']['input']>;
+  notEq?: InputMaybe<Scalars['String']['input']>;
+  stringEndsWith?: InputMaybe<Scalars['String']['input']>;
+  stringStartsWith?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type WorkspaceFilterId = {
@@ -7952,6 +8001,8 @@ export type WorkspaceFilterId = {
 
 export type WorkspaceFilterInput = {
   and?: InputMaybe<Array<WorkspaceFilterInput>>;
+  /** 工作台简介（公开展示文案，可空） */
+  description?: InputMaybe<WorkspaceFilterDescription>;
   id?: InputMaybe<WorkspaceFilterId>;
   /** 加入策略：open 公开直接加入 / request 公开申请审批 / invite_only 私密仅邀请 */
   joinPolicy?: InputMaybe<WorkspaceFilterJoinPolicy>;
@@ -8198,6 +8249,7 @@ export type WorkspaceProfile = {
 };
 
 export type WorkspaceSortField =
+  | 'DESCRIPTION'
   | 'ID'
   | 'JOIN_POLICY'
   | 'NAME'
