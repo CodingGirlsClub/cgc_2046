@@ -1,17 +1,16 @@
 //! agent 启动计划（story 5.4）：按内置清单把条目翻译成可执行命令与环境白名单。
 //!
 //! - OMP：直接使用本机 `omp acp`（BYO 安装）。
-//! - Codex / Claude Code：使用客户端管理的 Node.js 24 runtime，由托管 node 直接执行
-//!   npm 的 `npx-cli.js`（固定版本 `--yes <pkg>@<version>`）；不依赖用户 PATH 里的
-//!   node/npm——npx 是 `#!/usr/bin/env node` 脚本，只选绝对路径仍会回落到 PATH。
-//! - 环境变量白名单：清空后只注入 PATH/HOME/临时目录/语言与 npm 缓存，不携带凭证。
+//! - Codex / Claude Code：用托管 Node 直接执行持久安装的固定版本 npm 包入口。
+//! - 托管 Node 的目录同时放入 PATH，覆盖 agent 派生的 shebang 子进程。
+//! - 环境变量白名单：保留 PATH/HOME/临时目录/语言、标准 HTTP 代理与 npm 缓存，不携带 API 密钥。
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::registry::manifest::{AgentEntry, Distribution};
 
-/// 允许从父进程继承的环境变量（最小集；不含 token/密钥类变量）。
+/// 允许从父进程继承的环境变量（最小集；不含 API token/密钥类变量）。
 pub const ALLOWED_ENV: &[&str] = &[
     "PATH",
     "HOME",
@@ -29,6 +28,12 @@ pub const ALLOWED_ENV: &[&str] = &[
     "LOCALAPPDATA",
     "XDG_CONFIG_HOME",
     "XDG_CACHE_HOME",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
 ];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -63,8 +68,8 @@ fn quote_part(part: &str) -> String {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LaunchError {
     NodeRuntimeMissing { expected: PathBuf },
-    NpxMissing { expected: PathBuf },
-    UnsupportedDistribution(String),
+    AgentPackageMissing(String),
+    InvalidEnvironment(String),
 }
 
 impl std::fmt::Display for LaunchError {
@@ -77,19 +82,15 @@ impl std::fmt::Display for LaunchError {
                     expected.display()
                 )
             }
-            LaunchError::NpxMissing { expected } => {
-                write!(formatter, "managed npx missing: {}", expected.display())
-            }
-            LaunchError::UnsupportedDistribution(kind) => {
-                write!(formatter, "unsupported distribution: {kind}")
-            }
+            LaunchError::AgentPackageMissing(message) => formatter.write_str(message),
+            LaunchError::InvalidEnvironment(message) => formatter.write_str(message),
         }
     }
 }
 
 impl std::error::Error for LaunchError {}
 
-/// 客户端管理的 Node runtime 根目录（包含 bin/node 与 bin/npx）。
+/// 客户端管理的 Node runtime 根目录。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeRuntime {
     pub root: PathBuf,
@@ -102,33 +103,91 @@ impl NodeRuntime {
 
     pub fn bin_dir(&self) -> PathBuf {
         if cfg!(windows) {
-            self.root.join("node_modules/.bin")
+            self.root.clone()
         } else {
             self.root.join("bin")
         }
     }
 
     pub fn node(&self) -> PathBuf {
-        if cfg!(windows) {
-            self.root.join("node.exe")
-        } else {
-            self.bin_dir().join("node")
-        }
+        self.bin_dir()
+            .join(if cfg!(windows) { "node.exe" } else { "node" })
     }
 
-    /// npm 的 npx 入口（JS）。npx 脚本本身是 `#!/usr/bin/env node`，必须由托管
-    /// node 执行，否则会去 PATH 找 node——没有系统 Node 的机器上直接失败。
-    pub fn npx_cli_js(&self) -> PathBuf {
-        if cfg!(windows) {
-            self.root.join("node_modules/npm/bin/npx-cli.js")
+    pub fn npm_cli_js(&self) -> PathBuf {
+        self.root.join(if cfg!(windows) {
+            "node_modules/npm/bin/npm-cli.js"
         } else {
-            self.root.join("lib/node_modules/npm/bin/npx-cli.js")
-        }
+            "lib/node_modules/npm/bin/npm-cli.js"
+        })
     }
 
     pub fn exists(&self) -> bool {
-        self.node().is_file() && self.npx_cli_js().is_file()
+        self.node().is_file() && self.npm_cli_js().is_file()
     }
+
+    pub fn version(&self) -> Option<String> {
+        if !self.exists() {
+            return None;
+        }
+        let plan = LaunchPlan {
+            program: self.node(),
+            args: vec!["--version".to_string()],
+            env: self.environment(|key| std::env::var(key).ok()).ok()?,
+            cwd: self.root.clone(),
+        };
+        let output = super::command::run_output(&plan, std::time::Duration::from_secs(5)).ok()?;
+        super::detect::parse_version(&output)
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.version().is_some_and(|version| {
+            super::detect::version_at_least(&version, super::node_runtime::NODE_VERSION)
+        })
+    }
+
+    pub fn environment(
+        &self,
+        env_source: impl Fn(&str) -> Option<String>,
+    ) -> Result<BTreeMap<String, String>, LaunchError> {
+        let mut env = inherited_environment(env_source);
+        let inherited_path = env.remove("PATH").unwrap_or_default();
+        let path = std::env::join_paths(
+            std::iter::once(self.bin_dir()).chain(std::env::split_paths(&inherited_path)),
+        )
+        .map_err(|error| LaunchError::InvalidEnvironment(error.to_string()))?;
+        env.insert("PATH".to_string(), path.to_string_lossy().into_owned());
+        for (key, relative) in [
+            ("NPM_CONFIG_USERCONFIG", "npm-user.conf"),
+            ("NPM_CONFIG_GLOBALCONFIG", "npm-global.conf"),
+            ("NPM_CONFIG_CACHE", "npm-cache"),
+        ] {
+            env.insert(
+                key.to_string(),
+                self.root.join(relative).to_string_lossy().into_owned(),
+            );
+        }
+        env.insert(
+            "NPM_CONFIG_UPDATE_NOTIFIER".to_string(),
+            "false".to_string(),
+        );
+        env.insert("NPM_CONFIG_FUND".to_string(), "false".to_string());
+        env.insert("NPM_CONFIG_AUDIT".to_string(), "false".to_string());
+        Ok(env)
+    }
+}
+
+pub(crate) fn inherited_environment(
+    env_source: impl Fn(&str) -> Option<String>,
+) -> BTreeMap<String, String> {
+    let mut env = BTreeMap::new();
+    for key in ALLOWED_ENV {
+        if let Some(value) = env_source(key) {
+            env.insert((*key).to_string(), value);
+        }
+    }
+    env.insert("NO_COLOR".to_string(), "1".to_string());
+    env
 }
 
 pub fn build_launch(
@@ -146,56 +205,30 @@ pub fn build_launch_with_env(
     cwd: &Path,
     env_source: impl Fn(&str) -> Option<String>,
 ) -> Result<LaunchPlan, LaunchError> {
-    let mut env = BTreeMap::new();
-    for key in ALLOWED_ENV {
-        if let Some(value) = env_source(key) {
-            env.insert((*key).to_string(), value);
-        }
-    }
-    // 隔离 npm 缓存/配置，避免写用户全局 npm 目录或读取用户 npmrc 凭证。
-    env.insert(
-        "NPM_CONFIG_UPDATE_NOTIFIER".to_string(),
-        "false".to_string(),
-    );
-    env.insert("NPM_CONFIG_FUND".to_string(), "false".to_string());
-    env.insert("NO_COLOR".to_string(), "1".to_string());
-
     match &entry.distribution {
         Distribution::Native { command } => Ok(LaunchPlan {
             program: PathBuf::from(command),
             args: entry.launch_args.clone(),
-            env,
+            env: inherited_environment(env_source),
             cwd: cwd.to_path_buf(),
         }),
-        Distribution::Npx {
-            package, version, ..
-        } => {
+        Distribution::Npx { .. } => {
             let runtime = node.ok_or_else(|| LaunchError::NodeRuntimeMissing {
                 expected: PathBuf::from("<managed node runtime>"),
             })?;
-            if !runtime.exists() {
+            if !runtime.is_ready() {
                 return Err(LaunchError::NodeRuntimeMissing {
                     expected: runtime.root.clone(),
                 });
             }
-            let npx_cli = runtime.npx_cli_js();
-            if !npx_cli.is_file() {
-                return Err(LaunchError::NpxMissing {
-                    expected: npx_cli.clone(),
-                });
-            }
-            // 用托管 node 执行 npx-cli.js：npx 的 shebang 是 `#!/usr/bin/env node`，
-            // 直接 spawn 绝对路径仍会去 PATH 找 node，无系统 Node 的机器上必挂。
-            let mut args = vec![
-                npx_cli.to_string_lossy().to_string(),
-                "--yes".to_string(),
-                format!("{package}@{version}"),
-            ];
+            let executable = crate::registry::package::executable(entry, runtime)
+                .map_err(LaunchError::AgentPackageMissing)?;
+            let mut args = vec![executable.to_string_lossy().into_owned()];
             args.extend(entry.launch_args.clone());
             Ok(LaunchPlan {
                 program: runtime.node(),
                 args,
-                env,
+                env: runtime.environment(env_source)?,
                 cwd: cwd.to_path_buf(),
             })
         }
@@ -244,36 +277,6 @@ mod tests {
     fn npx_plan_requires_managed_runtime() {
         let error = build_launch(&entry("codex"), None, Path::new("/tmp")).unwrap_err();
         assert!(matches!(error, LaunchError::NodeRuntimeMissing { .. }));
-    }
-
-    #[test]
-    fn npx_plan_uses_managed_node_and_pinned_package() {
-        let dir = std::env::temp_dir().join(format!("cgc-node-{}", std::process::id()));
-        let runtime = NodeRuntime::new(&dir);
-        // 夹具按平台布局落文件：Unix 是 bin/node + lib/node_modules/npm/bin/npx-cli.js，
-        // Windows 是 node.exe + node_modules/npm/bin/npx-cli.js。
-        std::fs::create_dir_all(runtime.bin_dir()).expect("mkdir");
-        std::fs::write(runtime.node(), b"#!/bin/sh\n").expect("node");
-        std::fs::create_dir_all(runtime.npx_cli_js().parent().expect("parent")).expect("mkdir npx");
-        std::fs::write(runtime.npx_cli_js(), b"#!/usr/bin/env node\n").expect("npx-cli");
-        let plan = build_launch(&entry("codex"), Some(&runtime), Path::new("/tmp")).expect("plan");
-        // 必须由托管 node 执行 npx-cli.js；直接 spawn npx 脚本会退回 PATH 找 node。
-        assert_eq!(plan.program, runtime.node());
-        assert_eq!(
-            plan.args,
-            vec![
-                runtime.npx_cli_js().to_string_lossy().to_string(),
-                "--yes".to_string(),
-                "@agentclientprotocol/codex-acp@2.2.2".to_string()
-            ]
-        );
-        assert_eq!(
-            plan.env
-                .get("NPM_CONFIG_UPDATE_NOTIFIER")
-                .map(String::as_str),
-            Some("false")
-        );
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

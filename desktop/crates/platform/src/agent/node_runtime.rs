@@ -1,7 +1,7 @@
 //! 客户端管理的 Node.js 24 LTS runtime（story 5.9）。
 //!
 //! 固定版本 + 平台产物 checksum（nodejs.org SHASUMS256）；下载 → SHA-256 校验 → 解压到
-//! 客户端数据目录。Codex / Claude Code 的 npx 适配器只从这里启动，不用用户 PATH 的 node。
+//! 客户端数据目录。Codex / Claude Code 的 npm 适配器由此处的 Node 启动，不用用户 PATH 的 node。
 //! 无网络/校验失败时 fail-closed，不执行未校验的归档。
 
 use std::path::{Path, PathBuf};
@@ -60,10 +60,12 @@ pub fn current_artifact() -> Option<NodeArtifact> {
 }
 
 /// runtime 根目录：`<data>/node24`。Unix 下含 `bin/node` 与
-/// `lib/node_modules/npm/bin/npx-cli.js`；Windows 下是根目录的 `node.exe` 与
-/// `node_modules/npm/bin/npx-cli.js`（官方 zip 解压布局）。
+/// `lib/node_modules/npm/bin/npm-cli.js`；Windows 下是根目录的 `node.exe` 与
+/// `node_modules/npm/bin/npm-cli.js`（官方 zip 解压布局）。
 pub fn default_root() -> PathBuf {
-    crate::paths::AppPaths::from_env().node_runtime_root()
+    std::env::var_os("CGC_MANAGED_NODE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| crate::paths::AppPaths::from_env().node_runtime_root())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -148,16 +150,13 @@ impl NodeRuntimeManager {
     }
 
     pub fn status(&self) -> RuntimeStatus {
-        // 布局必须和 `NodeRuntime` 同源：Unix 是 `bin/node` + `bin/npx`，
-        // Windows 是根目录下的 `node.exe` + `npx.cmd`（Node 官方 zip 解压即如此）。
-        // 这里硬写 `bin/node` 的话，Windows 上会永远判「未安装」，npx 类 agent 起不来。
         let runtime = crate::agent::launch::NodeRuntime::new(&self.root);
-        if runtime.exists() {
-            RuntimeStatus::Installed {
-                version: NODE_VERSION.to_string(),
-            }
-        } else {
-            RuntimeStatus::Missing
+        match runtime
+            .version()
+            .filter(|version| crate::agent::detect::version_at_least(version, NODE_VERSION))
+        {
+            Some(version) => RuntimeStatus::Installed { version },
+            None => RuntimeStatus::Missing,
         }
     }
 
@@ -322,18 +321,15 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("cgc-node-ok-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("mkdir");
-        // 先构造一个最小 tar.xz，布局按平台来：Unix 是 node-vX/bin/node +
-        // node-vX/lib/node_modules/npm/bin/npx-cli.js，Windows 是 node-vX/node.exe +
-        // node-vX/node_modules/npm/bin/npx-cli.js（与官方 zip 解压后的形态一致），
-        // 否则 status() 在 Windows 上会判成 Missing。
-        let (node_rel, npx_rel) = if cfg!(windows) {
-            ("node.exe", "node_modules/npm/bin/npx-cli.js")
+        // 归档夹具只验证解压布局；实际可执行版本由 managed_agent_runtime 集成测试验证。
+        let (node_rel, npm_rel) = if cfg!(windows) {
+            ("node.exe", "node_modules/npm/bin/npm-cli.js")
         } else {
-            ("bin/node", "lib/node_modules/npm/bin/npx-cli.js")
+            ("bin/node", "lib/node_modules/npm/bin/npm-cli.js")
         };
         let source = dir.join("source");
         let archive_root = source.join("node-v24.22.0-test");
-        for rel in [node_rel, npx_rel] {
+        for rel in [node_rel, npm_rel] {
             let path = archive_root.join(rel);
             std::fs::create_dir_all(path.parent().expect("parent")).expect("src");
             std::fs::write(path, b"#!/bin/sh\n").expect("runtime file");
@@ -367,13 +363,7 @@ mod tests {
         manager
             .install(&ArchiveDownloader { bytes })
             .expect("install");
-        assert_eq!(
-            manager.status(),
-            RuntimeStatus::Installed {
-                version: NODE_VERSION.to_string()
-            }
-        );
-        assert!(manager.installed_runtime().is_some());
+        assert!(crate::agent::launch::NodeRuntime::new(&manager.root).exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

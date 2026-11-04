@@ -3,7 +3,7 @@ use crate::agent_ingest;
 use cgc_agent_store::SessionStore;
 use cgc_agent_ui::conversation::{ConversationThread, ThreadCapabilities};
 use cgc_platform::notifications::NotificationsApi as _;
-use cgc_platform::registry::install::{install_entry, SystemRunner};
+use cgc_platform::registry::install::install_entry;
 use gpui_kit::component::breadcrumb::{Breadcrumb, BreadcrumbItem};
 use state::{PaneTab, SiteTreeSection};
 
@@ -1177,21 +1177,6 @@ impl RootView {
         .detach();
     }
 
-    fn apply_installed_versions(detected: &mut [DetectedAgent]) {
-        let installed = load_installed_agents();
-        for row in detected {
-            if let Some(version) = installed.get(&row.entry.id) {
-                // 只信任与当前签名清单版本一致的持久化安装记录；否则清单
-                // 升级后旧版本会永远显示 Ready（例如 1.11.0 vs 2.2.2）。
-                if version == &row.entry.minimum_version {
-                    row.status = AgentStatus::Ready {
-                        version: version.clone(),
-                    };
-                }
-            }
-        }
-    }
-
     pub(in crate::root_view) fn start_chat(&mut self, cx: &mut Context<Self>) {
         if matches!(
             self.chat.session.phase,
@@ -1240,9 +1225,8 @@ impl RootView {
                 detected: Vec::new(),
                 node_found: None,
             })?;
-            let probe = SystemProbe;
-            let mut detected = detect_all(&registry, &probe);
-            Self::apply_installed_versions(&mut detected);
+            let managed = NodeRuntime::new(NodeRuntimeManager::default_manager().root);
+            let detected = detect_all(&registry, Some(&managed));
             let guidance = detected
                 .iter()
                 .map(|agent| {
@@ -1252,12 +1236,12 @@ impl RootView {
                     )
                 })
                 .collect::<Vec<_>>();
-            let managed_node = NodeRuntimeManager::default_manager().installed_runtime();
-            // 启动路径只接受 managed Node 24；系统 PATH 里的 Node 26 不算可用，
-            // 否则 guidance 会显示“Node 可用”而隐藏安装按钮，重试仍会失败。
-            let node_found = managed_node
-                .as_ref()
-                .map(|_| cgc_platform::agent::node_runtime::NODE_VERSION.to_string());
+            let node_found = managed.version().filter(|version| {
+                cgc_platform::agent::detect::version_at_least(
+                    version,
+                    cgc_platform::agent::node_runtime::NODE_VERSION,
+                )
+            });
             if std::env::var("CGC_NO_AGENT").as_deref() == Ok("1") {
                 return Err(ChatStartError {
                     message: "no local agent ready (QA)".to_string(),
@@ -1293,9 +1277,7 @@ impl RootView {
                         node_found: node_found.clone(),
                     })?,
             };
-            let managed =
-                managed_node.or_else(|| std::env::var_os("CGC_MANAGED_NODE").map(NodeRuntime::new));
-            let plan = build_launch(&chosen.entry, managed.as_ref(), &cwd).map_err(|error| {
+            let plan = build_launch(&chosen.entry, Some(&managed), &cwd).map_err(|error| {
                 ChatStartError {
                     message: error.to_string(),
                     detected: guidance,
@@ -1323,11 +1305,10 @@ impl RootView {
                 }
                 match result {
                     Ok(prepared) => {
-                        let command = prepared.plan.command_string();
-                        let cwd = prepared.plan.cwd.clone();
+                        let plan = prepared.plan;
                         let server = prepared.server.clone();
                         let make_config = |load_session: Option<&str>| {
-                            let config = AcpHostConfig::new(command.clone(), cwd.clone())
+                            let config = AcpHostConfig::from_launch_plan(plan.clone())
                                 .with_name("agent")
                                 .with_mcp_servers(vec![server.clone()]);
                             match load_session {
@@ -3709,9 +3690,8 @@ impl RootView {
         self.agent_registry_error = None;
         let task = cx.background_executor().spawn(async move {
             let registry = Registry::builtin().map_err(|error| error.diagnostic())?;
-            let probe = SystemProbe;
-            let mut rows = detect_all(&registry, &probe);
-            Self::apply_installed_versions(&mut rows);
+            let managed = NodeRuntime::new(NodeRuntimeManager::default_manager().root);
+            let rows = detect_all(&registry, Some(&managed));
             Ok::<_, String>(rows)
         });
         cx.spawn(async move |this, cx| {
@@ -3758,7 +3738,7 @@ impl RootView {
                     .map_err(|error| error.to_string())?;
                 node = manager.installed_runtime();
             }
-            install_entry(&entry, node.as_ref(), &SystemRunner).map_err(|error| error.to_string())
+            install_entry(&entry, node.as_ref()).map_err(|error| error.to_string())
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
@@ -3768,15 +3748,6 @@ impl RootView {
                 match result {
                     Ok(result) => {
                         this.agent_install_error = None;
-                        // 安装命令已经验证过固定版本；直接标记 Ready，避免再用系统
-                        // node/npx 探测把托管 runtime 已安装的 agent 误判为不可用。
-                        save_installed_agent(
-                            &installed_id,
-                            &result
-                                .version
-                                .clone()
-                                .unwrap_or_else(|| installed_version.clone()),
-                        );
                         if let Some(row) = this
                             .agent_registry_rows
                             .iter_mut()
