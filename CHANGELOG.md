@@ -57,6 +57,8 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 > 桌面客户端内测版由 tag `desktop-v*` 触发发布（`desktop/README.md`「发布节奏（内测）」），不走 develop→main 的 Web/后端发布流程；本节点在首次打 tag 前登记，条目不会随本批 Web 发布上线。
 
+- [Desktop] native Agent 新增 Anthropic Compatible Provider：可配置 API 根地址、模型能力和 Budget／Adaptive thinking，支持流式输出、图片与工具调用，签名推理随会话保存并在前缀有效时回放。
+- [Desktop] Anthropic Provider 复核修复（9 项）：Messages 请求不再自动跟随重定向，`x-api-key` 不会被 `3xx` 带去其他源；保存新 Key 会作废仍在进行的旧验证，迟到的验证结果不再改写当前 Provider；旧 `threads.db` 的 schema 升级在写事务内检查并迁移，并发打开不再因重复列失败而丢掉会话持久化；标题、摘要和子 agent 请求按模型默认 thinking 发送（不再强制 `disabled`，同时保留显式 Off 语义），Adaptive 的 Off 也改为省略 `thinking`；Adaptive 不再凭空生成五档 effort，`efforts=` 声明在设置往返中保留；切换工具 schema 但未移除 reasoning 时保留历史实测 token 修正，避免漏掉必要的上下文压缩；Stop 会关闭底层 socket，阻塞中的图片上传立即可中断而不是等超时；`model_context_window_exceeded` 映射为截断结束原因，不再在 ACP 出口被当作正常完成。
 - [Desktop] 保存或删除 Provider 时同步清除已失效的模型选择，避免生成中切换 Provider、热刷新返回 Busy 后，重启仍使用旧 Provider 的模型。
 - [Desktop] 禁用最后一个模型或清空模型列表后，当前会话立即进入未配置状态并禁用发送，清除 Key 和重启也不会继续沿用旧模型与凭据，重新启用模型后可恢复。
 - [Desktop] 修复生成中关闭 ACP 连接时的卡死：退出命令同时终止当前 turn 和连接循环，解决 macOS CI 的 `native_runtime_busy` 超时。

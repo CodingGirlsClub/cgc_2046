@@ -209,6 +209,7 @@ mod tests {
             has_key: false,
             model_params: Vec::new(),
             builtin: false,
+            protocol: cgc_agent_provider::ProviderProtocol::OpenAiCompatible,
         }
     }
 

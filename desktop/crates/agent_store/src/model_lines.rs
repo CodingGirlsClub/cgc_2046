@@ -1,6 +1,8 @@
 //! 模型行文本格式的解析与格式化（Settings Provider 表单使用）。
 
 use crate::prefs::{ModelPrefs, ProviderPrefs};
+use cgc_agent_provider::ThinkingMode;
+use std::fmt::Write as _;
 
 /// 把 provider 的模型参数渲染为每行一模型的文本。
 pub fn format_model_lines(provider: &ProviderPrefs) -> String {
@@ -9,7 +11,7 @@ pub fn format_model_lines(provider: &ProviderPrefs) -> String {
         .iter()
         .map(|id| {
             let model = provider.model_config(id);
-            format!(
+            let mut line = format!(
                 "{} | {} | {} | {} | {} | {} | {}",
                 id,
                 model.context_window,
@@ -18,13 +20,36 @@ pub fn format_model_lines(provider: &ProviderPrefs) -> String {
                 model.enabled,
                 model.supports_tools,
                 model.supports_images
-            )
+            );
+            match model.thinking_mode {
+                ThinkingMode::Disabled => {}
+                ThinkingMode::Budget { budget_tokens } => {
+                    write!(&mut line, " | budget | {budget_tokens}").expect("write model line");
+                }
+                ThinkingMode::Adaptive => line.push_str(" | adaptive"),
+            }
+            append_reasoning_efforts(&mut line, &model.reasoning_efforts);
+            line
         })
         .collect::<Vec<_>>()
         .join("\n")
 }
 
-/// 解析模型行：`模型名 | context | max_output | thinking | enabled | tools | images`。
+/// Model capabilities are declarations, never inferred from Adaptive mode.
+pub fn append_reasoning_efforts(line: &mut String, efforts: &[String]) {
+    if efforts.is_empty() {
+        return;
+    }
+    line.push_str(" | efforts=");
+    for (index, effort) in efforts.iter().enumerate() {
+        if index > 0 {
+            line.push(',');
+        }
+        line.push_str(effort);
+    }
+}
+
+/// 模型行：`name | context | output | thinking | enabled | tools | images [| budget | tokens / adaptive] [| efforts=low,high]`。
 pub fn parse_model_lines(value: &str) -> (Vec<String>, Vec<ModelPrefs>) {
     let mut ids = Vec::new();
     let mut params = Vec::new();
@@ -61,6 +86,16 @@ pub fn parse_model_lines(value: &str) -> (Vec<String>, Vec<ModelPrefs>) {
             .get(6)
             .map(|value| matches!(value.to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
             .unwrap_or(false);
+        let thinking_mode = match parts.get(7).copied() {
+            Some("budget") => ThinkingMode::Budget {
+                budget_tokens: parts
+                    .get(8)
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(4096),
+            },
+            Some("adaptive") => ThinkingMode::Adaptive,
+            _ => ThinkingMode::Disabled,
+        };
         ids.push(id.to_string());
         params.push(ModelPrefs {
             id: id.to_string(),
@@ -70,7 +105,20 @@ pub fn parse_model_lines(value: &str) -> (Vec<String>, Vec<ModelPrefs>) {
             enabled,
             supports_tools: tools,
             supports_images: images,
-            reasoning_efforts: Vec::new(),
+            reasoning_efforts: parts
+                .iter()
+                .skip(7)
+                .find_map(|part| part.strip_prefix("efforts="))
+                .map(|value| {
+                    value
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|effort| !effort.is_empty())
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            thinking_mode,
         });
     }
     (ids, params)

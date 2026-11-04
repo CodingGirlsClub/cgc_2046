@@ -225,7 +225,12 @@ impl NativeAgentView {
             .map(|provider| provider.model_config(self.metadata().model.id.as_str()))
             .unwrap_or_default();
         let thinking_supported = current_model_config.supports_thinking;
-        let effort_levels = current_model_config.reasoning_efforts.clone();
+        let effort_levels =
+            if thinking_supported && current_model_config.reasoning_efforts.is_empty() {
+                vec!["Thinking".to_string()]
+            } else {
+                current_model_config.reasoning_efforts.clone()
+            };
         let providers_for_menu = self.metadata().providers.clone();
         let model_root = cx.entity().downgrade();
         let thinking_root = cx.entity().downgrade();
@@ -324,12 +329,9 @@ impl NativeAgentView {
                 on_select: Box::new(move |index, _window, cx| {
                     let _ = root.update(cx, |this, cx| {
                         if index < levels_len {
-                            if !this.metadata().thinking_enabled {
-                                this.set_thinking_enabled(true, cx);
-                            }
-                            this.set_effort_index(index, cx);
+                            this.set_thinking(true, index, cx);
                         } else {
-                            this.set_thinking_enabled(false, cx);
+                            this.set_thinking(false, this.metadata().effort_index, cx);
                         }
                     });
                 }),

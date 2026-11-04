@@ -5,6 +5,8 @@ mod execution;
 mod factory;
 mod mcp;
 mod operations;
+#[cfg(test)]
+mod thinking_tests;
 mod title;
 mod worker;
 
