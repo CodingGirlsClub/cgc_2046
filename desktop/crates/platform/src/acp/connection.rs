@@ -7,7 +7,9 @@
 //! - 审批请求只转发给 UI，默认回 Cancelled（不默认允许）；
 //! - 日志不打印凭证/对话内容。
 
-use std::collections::HashMap;
+use super::sleep;
+use crate::agent::launch::{inherited_environment, LaunchPlan};
+use std::collections::{BTreeMap, HashMap};
 use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -45,6 +47,7 @@ static PERMISSION_COUNTER: AtomicU64 = AtomicU64::new(1);
 pub struct AcpHostConfig {
     pub command: String,
     pub cwd: PathBuf,
+    pub env: BTreeMap<String, String>,
     pub agent_name: String,
     /// 只在 session/new 注入；含凭证，禁止 Debug/日志输出。
     pub mcp_servers: Vec<McpServer>,
@@ -68,9 +71,22 @@ impl std::fmt::Debug for AcpHostConfig {
 
 impl AcpHostConfig {
     pub fn new(command: impl Into<String>, cwd: PathBuf) -> Self {
-        Self {
-            command: command.into(),
+        Self::with_process(
+            command.into(),
             cwd,
+            inherited_environment(|key| std::env::var(key).ok()),
+        )
+    }
+
+    pub fn from_launch_plan(plan: LaunchPlan) -> Self {
+        Self::with_process(plan.command_string(), plan.cwd, plan.env)
+    }
+
+    fn with_process(command: String, cwd: PathBuf, env: BTreeMap<String, String>) -> Self {
+        Self {
+            command,
+            cwd,
+            env,
             agent_name: "agent".to_string(),
             mcp_servers: Vec::new(),
             load_session: None,
@@ -443,11 +459,26 @@ async fn run_connection(
     events: SyncSender<HostEvent>,
     pending_permissions: PendingPermissions,
 ) -> Result<(), String> {
+    let (finished_tx, finished_rx) = futures::channel::oneshot::channel();
+    let supervised = matches!(transport, HostTransport::Subprocess);
+    let finished_rx = supervised.then_some(finished_rx);
     let agent: DynConnectTo<Client> = match transport {
-        HostTransport::Subprocess => DynConnectTo::new(
-            AcpAgent::from_str(&config.command)
-                .map_err(|error| format!("agent launch: {error}"))?,
-        ),
+        HostTransport::Subprocess => {
+            let parsed = AcpAgent::from_str(&config.command)
+                .map_err(|error| format!("agent launch: {error}"))?
+                .into_config();
+            let mut env = config.env.clone();
+            env.extend(parsed.environment().clone());
+            DynConnectTo::new(super::process::ManagedProcess {
+                plan: LaunchPlan {
+                    program: parsed.command().to_path_buf(),
+                    args: parsed.arguments().to_vec(),
+                    env,
+                    cwd: config.cwd.clone(),
+                },
+                completion: Some(finished_tx),
+            })
+        }
         HostTransport::InProcess(agent) => agent,
     };
     let events_for_notifications = events.clone();
@@ -598,7 +629,25 @@ async fn run_connection(
                     send_sessions(&connection, &events, &config.cwd).await;
                 }
 
-                while let Some(command) = command_rx.next().await {
+                let mut finished = finished_rx.map(Box::pin);
+                loop {
+                    let next = match finished.as_mut() {
+                        Some(finished) => {
+                            let command = command_rx.next();
+                            futures::pin_mut!(command);
+                            match futures::future::select(finished.as_mut(), command).await {
+                                futures::future::Either::Left((finished, _)) => {
+                                    return match finished {
+                                        Ok(result) => result,
+                                        Err(_) => Ok(()),
+                                    };
+                                }
+                                futures::future::Either::Right((command, _)) => command,
+                            }
+                        }
+                        None => command_rx.next().await,
+                    };
+                    let Some(command) = next else { break };
                     match command {
                         HostCommand::Prompt(text) => {
                             if run_turn(
@@ -1072,17 +1121,6 @@ where
 /// 审批等待与长工具执行都会产生更新事件；把它们算进“模型沉默”会把正常流程误杀。
 fn idle_expired(seen_activity: u64, current_activity: u64) -> bool {
     current_activity == seen_activity
-}
-
-fn sleep(duration: Duration) -> impl std::future::Future<Output = ()> {
-    let (sender, receiver) = futures::channel::oneshot::channel();
-    std::thread::spawn(move || {
-        std::thread::sleep(duration);
-        let _ = sender.send(());
-    });
-    async move {
-        let _ = receiver.await;
-    }
 }
 
 #[cfg(test)]

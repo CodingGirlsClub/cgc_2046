@@ -96,6 +96,30 @@ cargo clippy --workspace --all-targets -- -D warnings
 `CGC_LANG=zh|en` 选择启动语言（默认 zh），`CGC_THEME=light|dark|system` 覆盖主题，
 `CGC_LOG=error|warn|info|debug|trace` 调日志级别（默认 info，文件见「内测分发」）。
 
+## External ACP agent 的安装与启动
+
+Codex / Claude Code 使用客户端托管的 Node 24 LTS，当前安全下限为 `24.22.0`。Node 放在
+`<data_root>/node24`，固定版本 npm 包放在 `<data_root>/agents/<agent-id>/<version>`，
+重装 Node 会保留已安装的 agent 包。开发环境可用 `CGC_MANAGED_NODE` 指定 Node 根目录，
+agent 包仍放在该根目录同级的 `agents` 目录。
+
+安装器按目标版本目录持有文件锁，在锁内复查已安装包；并发安装会复用先完成的健康包。
+需要安装时，先在独立临时目录安装并验证真实版本，再替换目标目录；已有包运行失败时会重新安装。
+探测和启动直接使用持久包的入口，因此清除 npm 缓存后仍可启动。托管 Node 的可执行目录会
+加入子进程 PATH，并保留标准 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` 及小写形式。
+ACP Host 保留启动环境与工作目录；正常 EOF 会结束连接，stdout 关闭后未完成的写入有独立退出期限。
+命令超时同时涵盖进程退出与 stdout/stderr 排空；后代进程继续持有管道也不会无限延长等待。
+
+本机探测和回归验证：
+
+```bash
+cargo run --locked -p cgc-platform --example agent_detect
+cargo test --locked -p cgc-platform --test managed_agent_runtime --test managed_agent_recovery --test managed_agent_install
+```
+
+Unix 回归使用系统 `curl`、`/usr/bin/python3` 和本机受控代理，不访问真实 npm registry。
+
+
 ## 单实例与深链
 
 打包后的客户端只允许一个实例；第二次启动会把 URL/参数交给已运行实例并聚焦原窗口。

@@ -22,6 +22,9 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 - [Backend] AshAdmin 的 users 页面展示用户手机号：`table_columns` 增加 `:phone` 并加入 `show_sensitive_fields` 豁免（运营联系学员需要）；admin 面由 `PlatformAdminPlug` + `PlatformAdminLiveAuth` 双层门控、仅 platform_admin 可达，`hashed_password` 保持遮罩，编辑面不变（管理员不能经 AshAdmin 改他人手机号）。
 
 ### Fixed
+- [Desktop] 修复 Codex / Claude Code 安装和启动时的 Node 缺失误报：统一使用托管 Node 和持久安装的固定版本包，清除 npm 缓存后仍可启动，损坏包可重装，重装 Node 也会保留已安装的 agent 包。
+- [Desktop] 修复 ACP agent 崩溃后会话仍显示可用：及时报告退出状态并回收子进程。
+- [Desktop] 保留 agent 安装所需的 HTTP 代理配置；串行处理同目标安装，避免删除刚完成的健康包；修复 stdout 关闭和后代持有管道时连接或命令超时无法及时结束的问题。
 - [Backend] 修复小程序「登录链接无效」：微信 URL Link 短链此前把 `cq=wl_<code>` 拼在短链 URL 的 query 上，而微信进小程序不转发 URL query，web-login 页拿不到 `requestId`；改为 `generate_urllink` 的 `path` 携带 `cq` 参数、动态参数走独立 `query` 字段，短链本身不再拼 query。
 
 

@@ -11,10 +11,7 @@ use gpui_kit::*;
 
 use std::sync::Arc;
 
-use crate::chat_state::{
-    load_chat_pref, load_installed_agents, load_selected_agent, save_chat_pref,
-    save_installed_agent, save_selected_agent,
-};
+use crate::chat_state::{load_chat_pref, load_selected_agent, save_chat_pref, save_selected_agent};
 use crate::conversation_session::{ConnectionPhase, ConversationSession};
 use crate::formula::render_markdown_with_math;
 use cgc_agent_ui::conversation::ConversationThread;
@@ -39,7 +36,7 @@ use cgc_events::orders::{is_terminal_status, parse_rfc3339_epoch, qr_code_url, O
 use cgc_platform::acp::connection::{
     AcpHost, AcpHostConfig, CommandView, HostEvent, SessionSummary,
 };
-use cgc_platform::agent::detect::{detect_all, AgentStatus, DetectedAgent, SystemProbe};
+use cgc_platform::agent::detect::{detect_all, AgentStatus, DetectedAgent};
 use cgc_platform::agent::launch::{build_launch, LaunchPlan, NodeRuntime};
 use cgc_platform::agent::node_runtime::{HttpDownloader, NodeRuntimeManager};
 use cgc_platform::events::{AppEvent, EventPublisher, MemoryEventBus};
