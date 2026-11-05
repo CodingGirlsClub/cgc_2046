@@ -27,7 +27,7 @@ defmodule Cgc2046.Mcp.ToolScopesTest do
   end
 
   describe "分层名单精确钉死（新增工具必须显式归层）" do
-    test "四个名单两两互斥，并集 = 全部注册工具（100）" do
+    test "四个名单两两互斥，并集 = 全部注册工具（101）" do
       lists = [
         Tiers.all_visible(),
         Tiers.tutor(),
@@ -39,8 +39,8 @@ defmodule Cgc2046.Mcp.ToolScopesTest do
 
       assert length(all) == length(Enum.uniq(all)), "名单有重复归层的工具"
       assert Enum.sort(all) == tools() |> Enum.map(& &1.name) |> Enum.sort()
-      assert length(all) == 100
-      assert Enum.map(lists, &length/1) == [34, 4, 34, 28]
+      assert length(all) == 101
+      assert Enum.map(lists, &length/1) == [34, 4, 35, 28]
     end
 
     test "scopes: [] = 全员可见名单" do

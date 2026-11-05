@@ -52,6 +52,7 @@ impl RootView {
     /// 不是模态框——打开线程时侧栏保持可见并高亮当前行。
     pub(in crate::root_view) fn render_history_sidebar(
         &mut self,
+        side: crate::preferences::PanelSide,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -147,7 +148,7 @@ impl RootView {
         );
         let close_root = cx.entity().downgrade();
         let new_root = cx.entity().downgrade();
-        div()
+        let mut panel = div()
             .id("history-sidebar")
             .w(px(260.0))
             .flex_none()
@@ -156,8 +157,13 @@ impl RootView {
             .flex_col()
             .gap(space(1))
             .p(space(1))
-            .bg(palette.card)
-            .border_r_1()
+            .bg(palette.card);
+        panel = if side == crate::preferences::PanelSide::Left {
+            panel.border_r_1()
+        } else {
+            panel.border_l_1()
+        };
+        panel
             .border_color(palette.line)
             .child(
                 div()

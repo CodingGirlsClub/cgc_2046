@@ -71,6 +71,16 @@ defmodule Cgc2046.Accounts.Workspace do
       description: "赞助意向截止；nil 表示长期开放"
     )
 
+    # 工作台门面文案（#1226）：可空、无长度约束——与 course/event 的 description
+    # 同款。长度治理在展示层（MCP 读面截断）与审计脱敏（Redact 1KB 截断），
+    # 不进模型；空串由写面工具归一为 nil（见 update_workspace_description）。
+    attribute(:description, :string,
+      allow_nil?: true,
+      public?: true,
+      writable?: true,
+      description: "工作台简介（公开展示文案，可空）"
+    )
+
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
   end
@@ -165,7 +175,8 @@ defmodule Cgc2046.Accounts.Workspace do
         :join_policy,
         :sponsorship_enabled,
         :sponsorship_tiers,
-        :sponsorship_deadline
+        :sponsorship_deadline,
+        :description
       ])
 
       argument(:owner_user_id, :uuid,

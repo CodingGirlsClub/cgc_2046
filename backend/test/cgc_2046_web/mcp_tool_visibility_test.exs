@@ -141,21 +141,21 @@ defmodule Cgc2046Web.McpToolVisibilityTest do
       assert length(names) == 38
     end
 
-    test "工作台 Admin 与 Owner：再加管理层（72）", ctx do
+    test "工作台 Admin 与 Owner：再加管理层（73）", ctx do
       for user <- [ctx.admin, ctx.owner] do
         names = user |> mcp_session() |> list_names(2)
 
         assert names == Tiers.visible_for(:workspace_admin)
-        assert length(names) == 72
+        assert length(names) == 73
         refute "admin_promote_user" in names
       end
     end
 
-    test "平台管理员（不属于任何工作台）：全部 100，与改动前一致", ctx do
+    test "平台管理员（不属于任何工作台）：全部 101，与改动前一致", ctx do
       names = ctx.platform_admin |> mcp_session() |> list_names(2)
 
       assert names == Tiers.visible_for(:platform_admin)
-      assert length(names) == 100
+      assert length(names) == 101
     end
 
     test "跨工作台并集：A 台学员、B 台 Admin → 管理层（具体哪个台仍由 Wrapper 判定）", ctx do

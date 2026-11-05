@@ -12,7 +12,8 @@ defmodule Cgc2046.Mcp.Tools.GetWorkspaceContext do
   def description do
     """
     工作台成员可读：读取工作台的基本信息与当前用户在其中的角色，返回 workspace_id / name / slug /
-    join_policy（open | request | invite_only）/ my_roles（当前用户的角色名列表）。
+    description（工作台简介，可空）/ join_policy（open | request | invite_only）/ my_roles（当前用户的
+    角色名列表）。
     """
   end
 
@@ -32,6 +33,7 @@ defmodule Cgc2046.Mcp.Tools.GetWorkspaceContext do
              workspace_id: workspace.id,
              name: workspace.name,
              slug: workspace.slug,
+             description: workspace.description,
              join_policy: to_string(workspace.join_policy),
              my_roles: Enum.map(roles, &to_string/1)
            }}

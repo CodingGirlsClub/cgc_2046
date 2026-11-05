@@ -22,7 +22,7 @@ defmodule Cgc2046.McpToolTiers do
     list_attendances list_enrollments list_join_requests list_workspace_orders
     open_recruitment_cohort preview_initiative_mount refund_order reject_enrollment
     remove_event_moderator retry_refund update_course update_event update_join_policy
-    update_prep_policy update_recruitment_cohort waive_payment
+    update_prep_policy update_recruitment_cohort update_workspace_description waive_payment
   )
 
   # tutor 层：工具层硬门是 Rbac.staff?（tutor ∪ Owner/Admin）
