@@ -20,13 +20,18 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ### Added
 - [Backend] AshAdmin 的 users 页面展示用户手机号：`table_columns` 增加 `:phone` 并加入 `show_sensitive_fields` 豁免（运营联系学员需要）；admin 面由 `PlatformAdminPlug` + `PlatformAdminLiveAuth` 双层门控、仅 platform_admin 可达，`hashed_password` 保持遮罩，编辑面不变（管理员不能经 AshAdmin 改他人手机号）。
+- [Backend] 修复小程序「登录链接无效」：微信 URL Link 短链此前把 `cq=wl_<code>` 拼在短链 URL 的 query 上，而微信进小程序不转发 URL query，web-login 页拿不到 `requestId`；改为 `generate_urllink` 的 `path` 携带 `cq` 参数、动态参数走独立 `query` 字段，短链本身不再拼 query。
+- [MCP] 工作台简介字段与 `update_workspace_description` 确认流工具（#1226）：Owner/Admin 可改工作台简介，变更走确认流。
+- [Prep] 教研 run 的归因与次周期读法（#1229）：能区分「首周期恢复」与「新一轮周期」，避免把恢复误读成周期切换。
 
 ### Fixed
-- [Desktop] 修复 Codex / Claude Code 安装和启动时的 Node 缺失误报：统一使用托管 Node 和持久安装的固定版本包，清除 npm 缓存后仍可启动，损坏包可重装，重装 Node 也会保留已安装的 agent 包。
-- [Desktop] 修复 ACP agent 崩溃后会话仍显示可用：及时报告退出状态并回收子进程。
-- [Desktop] 保留 agent 安装所需的 HTTP 代理配置；串行处理同目标安装，避免删除刚完成的健康包；修复 stdout 关闭和后代持有管道时连接或命令超时无法及时结束的问题。
-- [Backend] 修复小程序「登录链接无效」：微信 URL Link 短链此前把 `cq=wl_<code>` 拼在短链 URL 的 query 上，而微信进小程序不转发 URL query，web-login 页拿不到 `requestId`；改为 `generate_urllink` 的 `path` 携带 `cq` 参数、动态参数走独立 `query` 字段，短链本身不再拼 query。
+- [MCP] `list_my_workspaces` 的简介预览总长对齐 AC10（≤160 含省略号，#1226）。
+- [MCP] 审核与确认工具改为按**当前**授权校验，并保留授权审核者的准备读（此前可能读到已失效授权的数据）。
+- [Prep] 首周期恢复归因标 `first_cycle_recovery`，不再谎报 `next_cycle`（#1229）。
+- [Backend] 补齐 objective instructions 的下发，并处理后端审计发现。
 
+### Security
+- 依赖告警一批收敛：Dependabot critical（vm2 / swiper）已修、无修复版的 `decompress` 显式豁免（miniprogram 开发链）；high（`brace-expansion` / `joi` 等）与 moderate/low 共 22 条同步清理；`hex.audit` 命中的三条后端依赖告警一并修掉。
 
 ## [扩展 v0.1.8] - 2026-10-29（补记）
 
@@ -95,6 +100,15 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 - [Desktop] `Desktop Release` 新增**生产 schema 兼容门禁**：出包前用 `desktop/scripts/check_release_schema.py` 提取客户端实际使用的 GraphQL 字段并逐个探测生产端点，缺任一字段即 fail-closed 拒绝构建（`--self-test` 覆盖提取与判定）；修复 #1183 暴露的「客户端先发、后端未发」顺序问题。
 - [Desktop] schema 门禁的探测改为 fail-closed：HTTP 非 2xx 且无 GraphQL `errors`、或缺 `data`/`errors` 的 envelope 一律判为不可用（此前会被当成 exists，不可用后端可让所有探测通过）。
 
+- [Desktop] 修复 Codex / Claude Code 安装和启动时的 Node 缺失误报：统一使用托管 Node 和持久安装的固定版本包，清除 npm 缓存后仍可启动，损坏包可重装，重装 Node 也会保留已安装的 agent 包。
+- [Desktop] 修复 ACP agent 崩溃后会话仍显示可用：及时报告退出状态并回收子进程。
+- [Desktop] 保留 agent 安装所需的 HTTP 代理配置；串行处理同目标安装，避免删除刚完成的健康包；修复 stdout 关闭和后代持有管道时连接或命令超时无法及时结束的问题。
+- [Desktop] 新增 **Anthropic Compatible Provider**：可接入自建/第三方的 Anthropic 兼容端点。
+- [Desktop] **Window & Layout / Panels 设置页**：dock 位置可选，状态栏按钮随面板侧移动，状态栏上下文菜单集中开关，宽度应用与显示开关解耦。
+- [Desktop] **托管 Node 固定版本安装**并加固 ACP 生命周期（启动、崩溃回收、会话状态）。
+- [Desktop] 升级 GPUI Kit 0.9.0，修复图片粘贴。
+- [Desktop] 崩溃回收改为直接向进程组发 `SIGKILL`，避免孤儿子进程残留。
+- [Desktop] 导航与通知时保留 dock / workspace 尺寸记忆，过滤与状态栏开关行为对齐。
 ## [2026-10-18]
 
 ### Added
