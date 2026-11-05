@@ -64,7 +64,12 @@ overrides:
   #   2.14.1 → 2.14.2。
   # - GHSA-27r3-jxmh-p828（body-parser 压缩请求尾字节 DoS）：express 传递依赖，
   #   1.20.6 → 1.20.9。
-  "follow-redirects@>=1.16.0 <1.16.1": 1.16.1
+  "follow-redirects@>=1.16.0 <1.16.2": 1.16.2
+  # 2026-11-05：node-forge 上游发布 1.4.1，此前「无修复版」的 5 条 high
+  # （GHSA-7wch-p9px-956x / jc66-7q78-782g / 8hrf-8g6f-7xwp / hqq3-7jhf-c5jx /
+  # 5x38-2vff-x55p）现在可收敛；路径 webpack-dev-server>selfsigned>node-forge，
+  # 仅用于开发服务器自签名证书，不进产物。
+  "node-forge@<1.4.1": 1.4.1
   "launch-editor@<=2.14.1": 2.14.2
   "body-parser@<1.20.9": 1.20.9
   # 2026-10-29：Dependabot critical 收敛（vm2 一条依赖累计 19+ 条公告）。
@@ -153,7 +158,6 @@ auditConfig:
     #   路径 @tarojs/helper>chokidar>braces 与 micromatch>braces，仅用于
     #   构建期文件监听/glob 匹配，模式串由仓库自身写死，不接受用户输入。
     # 上游发布补丁版后改为 overrides 收敛并移除本豁免。
-    - GHSA-86w9-cpqp-85rv
     - GHSA-vfj7-8cjw-p6xm
 onlyBuiltDependencies:
   - "@parcel/watcher"
