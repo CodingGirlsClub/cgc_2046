@@ -27,9 +27,13 @@ impl NativeAgentView {
             .update(cx, |state, cx| state.scroll_to_end(cx));
         cx.notify();
     }
-    pub(super) fn set_thinking_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
-        self.runtime
-            .set_thinking(enabled, self.metadata().effort_index);
+    pub(super) fn set_thinking(
+        &mut self,
+        enabled: bool,
+        effort_index: usize,
+        cx: &mut Context<Self>,
+    ) {
+        self.runtime.set_thinking(enabled, effort_index);
         self.status = if enabled {
             "Thinking 开".to_string()
         } else {
@@ -43,12 +47,6 @@ impl NativeAgentView {
             state.focus(window, cx);
         });
         self.status = "输入 @ 引用工作区文件".to_string();
-        cx.notify();
-    }
-    pub(super) fn set_effort_index(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.runtime
-            .set_thinking(self.metadata().thinking_enabled, index);
-        self.status = format!("推理档位索引：{index}");
         cx.notify();
     }
     pub(super) fn set_approval_mode(&mut self, mode: ApprovalMode, cx: &mut Context<Self>) {

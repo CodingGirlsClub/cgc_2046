@@ -1,7 +1,8 @@
 use super::*;
 use cgc_agent_core::{run_subagent, Agent, SelectedModel};
 use cgc_agent_provider::{
-    EchoProvider, ModelLimits, OpenAiCompatibleConfig, OpenAiCompatibleProvider, ProviderId,
+    AnthropicCompatibleConfig, AnthropicCompatibleProvider, EchoProvider, ModelCapabilities,
+    ModelLimits, OpenAiCompatibleConfig, OpenAiCompatibleProvider, ProviderId, ProviderProtocol,
     UnconfiguredProvider,
 };
 use cgc_agent_store::{provider_key_account, PrefsStore};
@@ -17,6 +18,7 @@ use std::sync::Weak;
 pub(super) struct PendingCredentials {
     pub provider_id: String,
     pub base_url: String,
+    pub protocol: ProviderProtocol,
 }
 
 pub(super) struct Production {
@@ -56,6 +58,14 @@ pub(super) fn initialize_with_keychain(
         .map_err(|error| NativeRuntimeError::Storage(error.to_string()))?;
     let prefs = PrefsStore::new(data_root.join("agent_prefs.json")).load();
     let active = prefs.active_provider();
+    let protocol = std::env::var("CGC_AGENT_PROTOCOL")
+        .ok()
+        .map(|value| value.parse::<ProviderProtocol>())
+        .transpose()
+        .map_err(|error| NativeRuntimeError::Configuration(error.into()))?
+        .unwrap_or_else(|| {
+            active.map_or(ProviderProtocol::default(), |provider| provider.protocol)
+        });
     let provider_id = active
         .map(|provider| provider.id.clone())
         .filter(|id| !id.is_empty())
@@ -104,7 +114,13 @@ pub(super) fn initialize_with_keychain(
         model_id.clone(),
         model_id,
         ModelLimits::new(model_config.context_window, model_config.max_output_tokens),
-    );
+    )
+    .with_thinking_mode(model_config.thinking_mode)
+    .with_capabilities(ModelCapabilities {
+        tools: model_config.supports_tools,
+        images: model_config.supports_images,
+        thinking: model_config.supports_thinking,
+    });
     let base_url = std::env::var("CGC_AGENT_BASE_URL")
         .ok()
         .filter(|value| !value.is_empty())
@@ -120,14 +136,15 @@ pub(super) fn initialize_with_keychain(
             Some(PendingCredentials {
                 provider_id: model.provider_id.as_str().to_string(),
                 base_url: url.clone(),
+                protocol,
             })
         }
         _ => None,
     };
     let (provider, mut model_setup) = if model_available {
-        provider(&model, base_url, env_key, allow_echo)
+        provider(&model, protocol, base_url, env_key, allow_echo)
     } else {
-        provider(&model, None, None, false)
+        provider(&model, protocol, None, None, false)
     };
     if pending.is_some() {
         model_setup = ModelSetup::PendingCredentials;
@@ -166,17 +183,23 @@ pub(super) fn initialize_with_keychain(
 
 fn provider(
     model: &Model,
+    protocol: ProviderProtocol,
     base_url: Option<String>,
     api_key: Option<String>,
     allow_echo: bool,
 ) -> (Arc<dyn Provider>, ModelSetup) {
     match (base_url, api_key) {
         (Some(url), Some(key)) if !url.is_empty() && !key.is_empty() => (
-            Arc::new(OpenAiCompatibleProvider::new(OpenAiCompatibleConfig::new(
-                url,
-                key,
-                vec![model.clone()],
-            ))),
+            match protocol {
+                ProviderProtocol::OpenAiCompatible => Arc::new(OpenAiCompatibleProvider::new(
+                    OpenAiCompatibleConfig::new(url, key, vec![model.clone()]),
+                )),
+                ProviderProtocol::AnthropicCompatible => {
+                    Arc::new(AnthropicCompatibleProvider::new(
+                        AnthropicCompatibleConfig::new(url, key, vec![model.clone()]),
+                    ))
+                }
+            },
             ModelSetup::Configured,
         ),
         _ if allow_echo => (
@@ -200,26 +223,14 @@ pub(super) fn prepare_model(
         .iter()
         .find(|provider| provider.id == provider_id)
         .ok_or_else(|| NativeRuntimeError::Configuration("Provider 不在当前配置中".into()))?;
-    if !configured.models.iter().any(|id| id == model_id)
-        || !configured.model_config(model_id).enabled
-    {
-        return Err(NativeRuntimeError::Configuration(
-            "模型不可用或已禁用".into(),
-        ));
-    }
-    let limits = configured.model_config(model_id);
-    let model = Model::new(
-        ProviderId::new(configured.id.clone()),
-        configured.name.clone(),
-        model_id,
-        model_id,
-        ModelLimits::new(limits.context_window, limits.max_output_tokens),
-    );
+    let model = configured_model(configured, model_id)
+        .ok_or_else(|| NativeRuntimeError::Configuration("模型不可用或已禁用".into()))?;
     let key = production
         .keychain
         .load_secret(&provider_key_account(&configured.id));
     let (provider, model_setup) = provider(
         &model,
+        configured.protocol,
         Some(configured.base_url.clone()),
         key,
         production.allow_echo,
@@ -265,7 +276,7 @@ pub(super) fn summary_title_model(
     let store = PrefsStore::new(production.data_root.join("agent_prefs.json"));
     let prefs = store.load();
     let configured = prefs.provider(selection.provider.as_str())?;
-    let model = summary_model_for(configured, selection.model.as_str())?;
+    let model = configured_model(configured, selection.model.as_str())?;
     if !configured.has_key {
         return None;
     }
@@ -277,6 +288,7 @@ pub(super) fn summary_title_model(
     }
     let (provider, model_setup) = provider(
         &model,
+        configured.protocol,
         Some(configured.base_url.clone()),
         Some(key),
         production.allow_echo,
@@ -285,7 +297,7 @@ pub(super) fn summary_title_model(
 }
 
 /// 只做「配置是否可用」的判定，便于单测（不读钥匙串、不建 provider）。
-fn summary_model_for(configured: &ProviderPrefs, model_id: &str) -> Option<Model> {
+fn configured_model(configured: &ProviderPrefs, model_id: &str) -> Option<Model> {
     if !configured.models.iter().any(|id| id == model_id) {
         return None;
     }
@@ -293,13 +305,21 @@ fn summary_model_for(configured: &ProviderPrefs, model_id: &str) -> Option<Model
     if !limits.enabled {
         return None;
     }
-    Some(Model::new(
-        ProviderId::new(configured.id.clone()),
-        configured.name.clone(),
-        model_id,
-        model_id,
-        ModelLimits::new(limits.context_window, limits.max_output_tokens),
-    ))
+    Some(
+        Model::new(
+            ProviderId::new(configured.id.clone()),
+            configured.name.clone(),
+            model_id,
+            model_id,
+            ModelLimits::new(limits.context_window, limits.max_output_tokens),
+        )
+        .with_thinking_mode(limits.thinking_mode)
+        .with_capabilities(ModelCapabilities {
+            tools: limits.supports_tools,
+            images: limits.supports_images,
+            thinking: limits.supports_thinking,
+        }),
+    )
 }
 
 /// 首次 turn 前解析一次待定的钥匙串凭据（可能阻塞，但此时用户已主动发送）。
@@ -331,6 +351,7 @@ pub(super) fn resolve_pending_key(
     };
     let (provider, model_setup) = provider(
         &config.model,
+        pending.protocol,
         Some(pending.base_url),
         Some(key),
         production.allow_echo,

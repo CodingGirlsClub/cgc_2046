@@ -17,6 +17,15 @@ defmodule Cgc2046.Accounts.Token do
   import Ash.Expr, only: [expr: 1]
 
   actions do
+    # ash_authentication 4.15.1 起，`revoke_all_stored_for_subject` 改用
+    # `Ash.bulk_update/4` 一次性吊销，需要 token 资源的 primary read 作为基础查询。
+    # 这里必须是不带过滤的全量读：primary read 的过滤会成为吊销范围。外部读取
+    # 仍被 policies 拒绝（除 ash_authentication 私有 context 的 bypass）。
+    read :read do
+      primary?(true)
+      description("内部：ash_authentication 全量吊销构建基础查询，外部不可达")
+    end
+
     read :stored_for_subject do
       description("内部：枚举某 subject 全部活跃（purpose=user）已存 token（重登吊销用）")
 

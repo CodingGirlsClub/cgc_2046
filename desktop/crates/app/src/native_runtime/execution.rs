@@ -72,6 +72,12 @@ impl Owner {
             })
             .map(str::to_string);
         agent.set_reasoning_effort(effort);
+        agent.set_thinking_enabled(
+            self.thinking_enabled
+                && configured
+                    .as_ref()
+                    .is_some_and(|model| model.supports_thinking),
+        );
         // 用户设置文件里的 agent.model_parameters（显式 runtime 不读，保持测试隔离）。
         let settings = self
             .production

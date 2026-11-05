@@ -235,3 +235,65 @@ fn tool_schemas_share_the_same_fixed_input_budget() {
         "a schema-heavy fixed request cannot be sent"
     );
 }
+
+#[test]
+fn image_usage_survives_tool_prefix_changes_without_reasoning() {
+    use cgc_agent_provider::{Content, TokenUsage};
+    use cgc_agent_tools::{ToolContext, ToolRegistry};
+    let model = model();
+    let provider = FakeProvider::new(model.provider_id.clone(), "Fake", vec![model.clone()]);
+    provider.push_script(vec![
+        Ok(CompletionEvent::Text("Image described.".into())),
+        Ok(CompletionEvent::Usage(TokenUsage {
+            input: 1660,
+            output: 100,
+            ..TokenUsage::default()
+        })),
+        Ok(CompletionEvent::Stop(StopReason::EndTurn)),
+    ]);
+    answer(&provider, "The image shows the original learning goal.");
+    answer(&provider, "Continue with that learning goal.");
+    let thread = Thread::new(
+        "image-tools",
+        SelectedModel::new(model.provider_id.clone(), model.id.clone()),
+    );
+    let mut agent = Agent::new(thread, None);
+    agent.set_thinking_enabled(false);
+    agent.set_pending_images(vec![(
+        "image/png".into(),
+        "AAAA".into(),
+        "synthetic.png".into(),
+    )]);
+    futures::executor::block_on(agent.prompt(&provider, &model, "Describe the image")).unwrap();
+    assert!(provider.requests()[0]
+        .messages
+        .iter()
+        .flat_map(|message| &message.content)
+        .any(|content| matches!(content, Content::Image { .. })));
+    futures::executor::block_on(agent.prompt_with_tools(
+        &provider,
+        &model,
+        "continue",
+        &ToolRegistry::with_read_tools(),
+        &ToolContext::new(std::env::temp_dir()),
+        &cgc_agent_core::AutoApprover,
+    ))
+    .unwrap();
+    let requests = provider.requests();
+    let final_request = requests.last().unwrap();
+    assert!(
+        final_request.messages.iter().any(|message| message
+            .text()
+            .contains("The image shows the original learning goal.")),
+        "observed image cost must trigger compression when tools consume the remaining window"
+    );
+    assert!(!final_request
+        .messages
+        .iter()
+        .flat_map(|message| &message.content)
+        .any(|content| matches!(content, Content::Image { .. })));
+    assert!(final_request
+        .messages
+        .iter()
+        .any(|message| message.text() == "continue"));
+}

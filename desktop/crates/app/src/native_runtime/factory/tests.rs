@@ -141,6 +141,7 @@ fn prefs_with_provider(production: &Production, has_key: bool, model_enabled: bo
                 },
             ],
             builtin: false,
+            protocol: ProviderProtocol::OpenAiCompatible,
         }],
         ..Default::default()
     };
@@ -228,6 +229,7 @@ fn pending_credentials_resolve_once() {
         pending: Some(PendingCredentials {
             provider_id: "deepseek".into(),
             base_url: "https://example.invalid".into(),
+            protocol: ProviderProtocol::OpenAiCompatible,
         }),
     };
     let model = Model::new(

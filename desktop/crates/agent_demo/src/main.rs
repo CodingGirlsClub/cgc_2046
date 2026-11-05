@@ -17,8 +17,9 @@ use cgc_agent_core::{
 };
 use cgc_agent_provider::TokenUsage;
 use cgc_agent_provider::{
-    CompletionEvent, FakeProvider, Model, ModelId, ModelLimits, OpenAiCompatibleConfig,
-    OpenAiCompatibleProvider, Provider, ProviderId, StopReason, ToolUse,
+    AnthropicCompatibleConfig, AnthropicCompatibleProvider, CompletionEvent, FakeProvider, Model,
+    ModelId, ModelLimits, OpenAiCompatibleConfig, OpenAiCompatibleProvider, Provider, ProviderId,
+    ProviderProtocol, StopReason, ThinkingMode, ToolUse,
 };
 use cgc_agent_tools::{
     ActionSink, AgentState, AppAction, SandboxPolicy, SharedAgentState, SubagentEvent,
@@ -206,27 +207,57 @@ fn run_repl(options: Options) -> std::process::ExitCode {
         return std::process::ExitCode::FAILURE;
     }
 
-    let provider_name = std::env::var("CGC_AGENT_PROVIDER_NAME")
-        .unwrap_or_else(|_| "OpenAI Compatible".to_string());
+    let protocol = match std::env::var("CGC_AGENT_PROTOCOL")
+        .unwrap_or_else(|_| "openai_compatible".into())
+        .parse::<ProviderProtocol>()
+    {
+        Ok(protocol) => protocol,
+        Err(error) => {
+            eprintln!("CGC_AGENT_PROTOCOL: {error}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    let thinking = match std::env::var("CGC_AGENT_THINKING")
+        .unwrap_or_else(|_| "off".into())
+        .as_str()
+    {
+        "off" => ThinkingMode::Disabled,
+        "adaptive" => ThinkingMode::Adaptive,
+        value => match value.parse::<u32>() {
+            Ok(budget_tokens) => ThinkingMode::Budget { budget_tokens },
+            Err(_) => {
+                eprintln!("CGC_AGENT_THINKING must be off, adaptive, or a token budget");
+                return std::process::ExitCode::FAILURE;
+            }
+        },
+    };
+    let provider_name =
+        std::env::var("CGC_AGENT_PROVIDER_NAME").unwrap_or_else(|_| protocol.name().to_string());
     let model = Model::new(
         ProviderId::new("custom"),
         provider_name,
         model_id.clone(),
         model_id,
         ModelLimits::new(64_000, 8_000),
-    );
-    let provider: std::sync::Arc<dyn Provider> =
-        std::sync::Arc::new(OpenAiCompatibleProvider::new(OpenAiCompatibleConfig::new(
-            base_url,
-            api_key,
-            vec![model.clone()],
-        )));
+    )
+    .with_thinking_mode(thinking);
+    let provider: std::sync::Arc<dyn Provider> = match protocol {
+        ProviderProtocol::OpenAiCompatible => std::sync::Arc::new(OpenAiCompatibleProvider::new(
+            OpenAiCompatibleConfig::new(base_url, api_key, vec![model.clone()]),
+        )),
+        ProviderProtocol::AnthropicCompatible => {
+            std::sync::Arc::new(AnthropicCompatibleProvider::new(
+                AnthropicCompatibleConfig::new(base_url, api_key, vec![model.clone()]),
+            ))
+        }
+    };
     let thread = Thread::new(
         "demo",
         SelectedModel::new(model.provider_id.clone(), model.id.clone()),
     );
     let system_prompt = std::env::var("CGC_AGENT_SYSTEM_PROMPT").ok();
     let mut agent = Agent::new(thread, system_prompt);
+    agent.set_thinking_enabled(thinking != ThinkingMode::Disabled);
     let workspace = options.workspace;
     let agent_state: SharedAgentState =
         std::sync::Arc::new(std::sync::Mutex::new(AgentState::default()));

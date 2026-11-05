@@ -332,13 +332,15 @@ defmodule Cgc2046.Accounts.User do
 
   changes do
     # KTD5 偏差（RISK：见 writer03 report）：`log_out_everywhere` 的
-    # `apply_on_password_change?` 依赖 where `Changing(hashed_password, touching?: true)`，
-    # 而该条件在 changeset 构建期求值；自动生成的 `password_reset_with_password` 经
-    # HashPasswordChange 的 before_action 才写入 hashed_password → 条件恒不满足，
-    # 内置挂接在重置流程不触发；且其 bulk_update 缺 primary read action 直接抛错。
-    # 此处以资源级 change 在重置 action 的 after_action 内直调同一生成 action
+    # `apply_on_password_change?` 在内置实现里依赖 where
+    # `Changing(hashed_password, touching?: true)`；自动生成的
+    # `password_reset_with_password` 经 HashPasswordChange 的 before_action 才写入
+    # hashed_password，故内置挂接在重置路径上并不可靠。此处仍以资源级 change 在
+    # 重置 action 的 after_action 内直调同一生成 action
     # `revoke_all_stored_for_subject`（KTD5 指定的机制，非手写 revoke 循环），
     # 失败冒泡 → 改密事务整体回滚（fail-closed，同 KTD5 语义）。
+    # 该 action 在 ash_authentication 4.15.1 起走 `Ash.bulk_update/4`，因此 token
+    # 资源必须提供 primary read（见 accounts/token.ex）。
     change(
       fn changeset, context ->
         Ash.Changeset.after_action(changeset, fn _changeset, record ->
@@ -419,7 +421,12 @@ defmodule Cgc2046.Accounts.User do
 
     add_ons do
       log_out_everywhere do
-        apply_on_password_change?(true)
+        # 内置「改密即吊销」与资源级 change（见上方 KTD5 注释）重复：两者都调
+        # `revoke_all_stored_for_subject`，而内置路径的失败会先于我们的 after_action
+        # 冒泡成未分类的 Ash 错误，丢掉 `:revoke_failed` 遥测与 fail-closed 语义。
+        # 全库只有 `password_reset_with_password` 会改 hashed_password，该 action 已由
+        # 资源级 change 显式吊销；新增改密 action 时必须同时接入同一吊销。
+        apply_on_password_change?(false)
       end
     end
   end

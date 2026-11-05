@@ -150,6 +150,7 @@ pub struct Agent {
     context_steer_tx: mpsc::Sender<SteerMessage>,
     context_steer_rx: mpsc::Receiver<SteerMessage>,
     reasoning_effort: Option<String>,
+    thinking_enabled: Option<bool>,
     /// 采样温度；`None` = 不下发（provider 默认）。由 app 从用户设置文件解析。
     temperature: Option<f32>,
     /// 下一轮用户消息要携带的图片附件（MIME, base64）；发送一次后清空。
@@ -178,6 +179,7 @@ impl Agent {
             context_steer_tx,
             context_steer_rx,
             reasoning_effort: None,
+            thinking_enabled: None,
             temperature: None,
             pending_images: Vec::new(),
             pending_user_display: None,
@@ -255,6 +257,10 @@ impl Agent {
     /// 设置本轮请求的 reasoning 档位（`low`/`medium`/`high`）；`None` 表示不下发。
     pub fn set_reasoning_effort(&mut self, reasoning_effort: Option<String>) {
         self.reasoning_effort = reasoning_effort;
+    }
+
+    pub fn set_thinking_enabled(&mut self, enabled: bool) {
+        self.thinking_enabled = Some(enabled);
     }
 
     /// 用磁盘上最新的 thread 替换当前会话（多视图共享会话）。
@@ -349,12 +355,14 @@ impl Agent {
                 StreamOutcome::Finished {
                     text,
                     thinking,
+                    thinking_signature,
+                    replay_content,
                     usage,
                     stop_reason,
                     tool_calls,
                 } => {
-                    self.record_thinking(thinking);
-                    self.record_turn(text.clone(), tool_calls.clone(), usage);
+                    self.record_thinking(thinking, thinking_signature);
+                    self.record_turn(text.clone(), tool_calls.clone(), usage, replay_content);
                     // 插话只在 turn 边界生效（对齐 Zed 的 end_turn_at_next_boundary）：
                     // 已产生的文本保留，本轮结果不返回，直接进入下一轮。
                     if let Some(message) = self.take_steer() {
@@ -434,17 +442,28 @@ impl Agent {
                     .await?;
                 let stream_outcome =
                     run_stream(provider, model, request, &self.cancel, observer).await?;
-                let (text, thinking, usage, stop_reason, tool_calls) = match stream_outcome {
-                    StreamOutcome::Finished {
-                        text,
-                        thinking,
-                        usage,
-                        stop_reason,
-                        tool_calls,
-                    } => (text, thinking, usage, stop_reason, tool_calls),
-                };
-                self.record_thinking(thinking);
-                self.record_turn(text.clone(), tool_calls.clone(), usage);
+                let (text, thinking, signature, replay, usage, stop_reason, tool_calls) =
+                    match stream_outcome {
+                        StreamOutcome::Finished {
+                            text,
+                            thinking,
+                            thinking_signature,
+                            replay_content,
+                            usage,
+                            stop_reason,
+                            tool_calls,
+                        } => (
+                            text,
+                            thinking,
+                            thinking_signature,
+                            replay_content,
+                            usage,
+                            stop_reason,
+                            tool_calls,
+                        ),
+                    };
+                self.record_thinking(thinking, signature);
+                self.record_turn(text.clone(), tool_calls.clone(), usage, replay);
                 observer.on_usage(usage, self.thread.usage_total);
                 all_text.push_str(&text);
                 total_usage.add(usage);
@@ -505,13 +524,25 @@ impl Agent {
         Ok(())
     }
 
-    fn record_thinking(&mut self, thinking: String) {
+    fn record_thinking(&mut self, thinking: String, signature: Option<String>) {
         if !thinking.is_empty() {
             self.thread.push_thinking(thinking);
+            if let Some(Entry::Thinking {
+                signature: stored, ..
+            }) = self.thread.entries.last_mut()
+            {
+                *stored = signature;
+            }
         }
     }
 
-    fn record_turn(&mut self, text: String, tool_calls: Vec<ToolUse>, usage: TokenUsage) {
+    fn record_turn(
+        &mut self,
+        text: String,
+        tool_calls: Vec<ToolUse>,
+        usage: TokenUsage,
+        replay: Vec<cgc_agent_provider::Content>,
+    ) {
         let usage_for_entry = if usage == TokenUsage::default() {
             None
         } else {
@@ -520,5 +551,8 @@ impl Agent {
         self.thread.usage_total.add(usage);
         self.thread
             .push_assistant(text, tool_calls, usage_for_entry);
+        if let Some(Entry::Assistant { replay_content, .. }) = self.thread.entries.last_mut() {
+            *replay_content = replay;
+        }
     }
 }

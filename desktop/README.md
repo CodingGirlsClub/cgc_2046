@@ -32,6 +32,20 @@
   温度作用于 native agent 的普通 turn 与 thread title 请求；未配置时不下发，保持模型默认采样。
 - 文件缺失 = 默认设置；JSON 非法会打印诊断并回退默认，不阻塞启动。当前只支持标准 JSON（不支持注释）。
 
+## native 模型 Provider
+
+设置窗口的 AI Provider 列表可分别添加 OpenAI Compatible 和 Anthropic Compatible。旧配置默认使用 OpenAI 协议，已有 Provider 的协议不可切换。
+
+- Anthropic 的 API URL 填 API 根地址，可包含网关路径前缀或 `/v1`，客户端补全 Messages 路径并使用 `x-api-key` 鉴权。
+- 手动填写模型 ID，并配置 Context Window、Max Output Tokens、工具和图片能力。Anthropic 保存 Key 时只写入本机钥匙串，首次对话时由服务端验证，不调用模型发现或额外验证接口。
+- 模型支持 thinking 时可选 Budget 或 Adaptive。Budget 必须满足 `1024 <= budget < Max Output Tokens`，保存时校验；Adaptive 使用模型配置的 effort 档位。对话输入区可随时选择 Off，Budget 模型也有开关。
+- thinking 请求按模型声明下发：Budget 发送 `enabled` + `budget_tokens`，Adaptive 发送 `adaptive` 与 `effort`。Adaptive 的 Off 与标题、摘要、子 agent 请求一样省略 `thinking` 字段（这些模型可能拒绝 `disabled`，省略即模型默认）；Budget 与关闭 thinking 的模型在 Off 时显式发送 `disabled`。仅显式关闭 thinking 的请求才会携带 temperature。
+- Messages 请求不自动跟随 HTTP 重定向：`x-api-key` 不会因网关的 `3xx` 被转发到另一个源，重定向直接作为请求失败报告。
+- 模型行的能力声明可带 `efforts=low,high` 尾巴声明该模型接受的 effort 档位；未声明即不下发 `output_format.effort`。设置页保存会原样保留声明，不再由 Adaptive 推断档位。
+- 签名 thinking、redacted thinking 与工具块按原始顺序保存。续轮和重开会话只回放前缀仍有效的签名；修改 system、tools、历史或压缩边界后排除旧推理块，保留原始记录。带签名的工具续轮保持前缀不变，超过上下文上限时明确报错。
+
+CLI `cgc-agent-demo` 复用同一协议：设置 `CGC_AGENT_PROTOCOL=anthropic_compatible`，并提供 `CGC_AGENT_BASE_URL`、`CGC_AGENT_API_KEY`、`CGC_AGENT_MODEL`。`CGC_AGENT_THINKING` 可为 `off`、`adaptive` 或整数预算，默认 `off`。
+
 ## native 面板结构（Stage 3 Phase B）
 
 - `crates/app/src/native_agent_view/mod.rs` 是模块根（类型 + 结构体 + `mod` 声明，约 411 行）；
