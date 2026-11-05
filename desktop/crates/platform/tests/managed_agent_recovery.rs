@@ -57,6 +57,29 @@ impl Drop for Fixture {
     }
 }
 
+/// `kill -0` also succeeds for an exited-but-unreaped zombie, which a CI
+/// subreaper may hold until the step ends; that is not a running process.
+fn still_running(pid: &str) -> bool {
+    let alive = Command::new("/bin/kill")
+        .args(["-0", pid])
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    if !alive {
+        return false;
+    }
+    Command::new("/bin/ps")
+        .args(["-o", "stat=", "-p", pid])
+        .output()
+        .ok()
+        .map(|output| {
+            let state = String::from_utf8_lossy(&output.stdout);
+            !state.trim_start().starts_with('Z')
+        })
+        .unwrap_or(true)
+}
+
 #[test]
 fn reinstall_repairs_an_existing_but_unrunnable_package() {
     let fixture = Fixture::new();
@@ -174,14 +197,7 @@ done
         Some(HostEvent::Ready { .. })
     ));
     let pid = fs::read_to_string(fixture.0.join("descendant.pid")).unwrap();
-    let running = || {
-        Command::new("/bin/kill")
-            .args(["-0", pid.trim()])
-            .stderr(Stdio::null())
-            .status()
-            .unwrap()
-            .success()
-    };
+    let running = || still_running(pid.trim());
     assert!(running(), "descendant must exist before the crash");
 
     fs::write(fixture.0.join("crash-now"), b"crash").unwrap();
@@ -209,7 +225,14 @@ done
         error.contains("fixture crash diagnostic"),
         "stderr missing: {error}"
     );
-    assert!(!running(), "agent crash left a descendant process running");
+    let stopped = {
+        let started = Instant::now();
+        while still_running(pid.trim()) && started.elapsed() < Duration::from_secs(2) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        !still_running(pid.trim())
+    };
+    assert!(stopped, "agent crash left a descendant process running");
 }
 
 #[test]

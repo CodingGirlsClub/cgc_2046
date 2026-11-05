@@ -50,6 +50,29 @@ impl Drop for RuntimeFixture {
     }
 }
 
+/// `kill -0` also succeeds for an exited-but-unreaped zombie, which a CI
+/// subreaper may hold until the step ends; that is not a running process.
+fn still_running(pid: &str) -> bool {
+    let alive = Command::new("/bin/kill")
+        .args(["-0", pid])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    if !alive {
+        return false;
+    }
+    Command::new("/bin/ps")
+        .args(["-o", "stat=", "-p", pid])
+        .output()
+        .ok()
+        .map(|output| {
+            let state = String::from_utf8_lossy(&output.stdout);
+            !state.trim_start().starts_with('Z')
+        })
+        .unwrap_or(true)
+}
+
 #[test]
 fn managed_launch_runs_node_shebang_descendant_without_system_node() {
     let fixture = RuntimeFixture::new();
@@ -210,14 +233,7 @@ done
         "ACP initialization failed: {event:?}"
     );
     let pid = fs::read_to_string(fixture.0.join("child.pid")).unwrap();
-    let running = || {
-        Command::new("/bin/kill")
-            .args(["-0", pid.trim()])
-            .stderr(std::process::Stdio::null())
-            .status()
-            .unwrap()
-            .success()
-    };
+    let running = || still_running(pid.trim());
     assert!(running(), "agent descendant must exist before shutdown");
     host.shutdown();
     let started = std::time::Instant::now();
