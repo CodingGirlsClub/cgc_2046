@@ -189,20 +189,21 @@ pub(crate) fn configure_process_group(command: &mut Command) {
 }
 
 pub(crate) fn terminate_process_group(pid: u32) {
+    // Signal the group directly. Shelling out to `/bin/kill -KILL -<pgid>`
+    // let Ubuntu 24.04's procps parser exit 0 without delivering anything,
+    // which left agent descendants running after a crash.
     #[cfg(unix)]
-    let mut command = {
-        let mut command = Command::new("/bin/kill");
-        command.args(["-KILL", &format!("-{pid}")]);
-        command
-    };
+    {
+        unsafe extern "C" {
+            fn kill(pid: i32, sig: i32) -> i32;
+        }
+        // SAFETY: `kill(2)` takes no pointers; a stale group id only yields
+        // ESRCH, and a negative pid selects the process group as intended.
+        let _ = unsafe { kill(-(pid as i32), 9) };
+    }
     #[cfg(windows)]
-    let mut command = {
-        let mut command = Command::new("taskkill");
-        command.args(["/PID", &pid.to_string(), "/T", "/F"]);
-        command
-    };
-    #[cfg(any(unix, windows))]
-    let _ = command
+    let _ = Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
