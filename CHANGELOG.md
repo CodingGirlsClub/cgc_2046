@@ -1,3 +1,4 @@
+
 # Changelog
 
 本项目的所有重要变更记录在此文件中。
@@ -15,8 +16,10 @@ develop→main 发布时把该段改名为 `## [发布日期]` 并重新立一�
 另立节点 `## [微信 vX.Y.Z]` / `## [小红书 vX.Y.Z]` / `## [抖音 vX.Y.Z]` / `## [扩展 vX.Y.Z]` / `## [Desktop vX.Y.Z]`，
 与日期段按发布时间倒序混排；后端收紧 × 客户端需过审的组合在节点下写 `> ⚠️` 灰注。
 commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `miniprogram`）。
-
 ## [Unreleased]
+
+
+## [2026-11-05]
 
 ### Added
 - [Backend] AshAdmin 的 users 页面展示用户手机号：`table_columns` 增加 `:phone` 并加入 `show_sensitive_fields` 豁免（运营联系学员需要）；admin 面由 `PlatformAdminPlug` + `PlatformAdminLiveAuth` 双层门控、仅 platform_admin 可达，`hashed_password` 保持遮罩，编辑面不变（管理员不能经 AshAdmin 改他人手机号）。
