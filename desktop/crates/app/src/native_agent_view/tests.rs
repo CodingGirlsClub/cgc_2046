@@ -167,6 +167,7 @@ mod workspace_prompt_tests {
                     args: serde_json::json!({"command": "echo hi"}),
                 }],
                 usage: None,
+                replay_content: Vec::new(),
                 at: 0,
             },
             Entry::ToolResult {

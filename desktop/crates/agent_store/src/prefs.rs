@@ -1,16 +1,18 @@
 use std::path::{Path, PathBuf};
 
 use cgc_agent_core::SelectedModel;
+use cgc_agent_provider::{ProviderProtocol, ThinkingMode};
 use serde::{Deserialize, Serialize};
 
-/// 一个 OpenAI-compatible provider（API key 存系统钥匙串，不落 JSON）。
+/// Custom Provider configuration; API keys stay in the system keychain.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderPrefs {
     pub id: String,
     pub name: String,
     pub base_url: String,
+    #[serde(default)]
+    pub protocol: ProviderProtocol,
     pub models: Vec<String>,
-    /// 该 provider 的模型是否支持 reasoning/thinking 档位。
     /// 是否已保存 API key（仅标记，key 本体在钥匙串）。
     pub has_key: bool,
     /// 模型级参数（按 model id 索引；缺省时用默认值）。
@@ -35,6 +37,8 @@ pub struct ModelPrefs {
     pub supports_images: bool,
     /// 该模型接受的 reasoning_effort 取值；空表示不下发该字段。
     pub reasoning_efforts: Vec<String>,
+    #[serde(default)]
+    pub thinking_mode: ThinkingMode,
 }
 
 fn default_context_window() -> u32 {
@@ -56,6 +60,7 @@ impl Default for ModelPrefs {
             supports_tools: true,
             supports_images: false,
             reasoning_efforts: Vec::new(),
+            thinking_mode: ThinkingMode::Disabled,
         }
     }
 }
@@ -230,6 +235,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
             has_key: false,
             model_params: Vec::new(),
             builtin: true,
+            protocol: ProviderProtocol::OpenAiCompatible,
         }
     }
 
@@ -243,6 +249,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         supports_tools: true,
         supports_images: true,
         reasoning_efforts: vec!["low".into(), "high".into(), "max".into()],
+        thinking_mode: ThinkingMode::Disabled,
     });
     deepseek.upsert_model(ModelPrefs {
         id: "deepseek-v4-pro".to_string(),
@@ -253,6 +260,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         supports_tools: true,
         supports_images: false,
         reasoning_efforts: vec!["low".into(), "high".into(), "max".into()],
+        thinking_mode: ThinkingMode::Disabled,
     });
 
     let mut moonshot = provider("moonshot", "Moonshot", "https://api.moonshot.cn/v1");
@@ -270,6 +278,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
             supports_tools: true,
             supports_images: false,
             reasoning_efforts: vec!["low".into(), "high".into(), "max".into()],
+            thinking_mode: ThinkingMode::Disabled,
         });
     }
 
@@ -289,6 +298,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
             "xhigh".into(),
             "max".into(),
         ],
+        thinking_mode: ThinkingMode::Disabled,
     });
     minimax.upsert_model(ModelPrefs {
         id: "MiniMax-M3".to_string(),
@@ -299,6 +309,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         supports_tools: true,
         supports_images: false,
         reasoning_efforts: Vec::new(),
+        thinking_mode: ThinkingMode::Disabled,
     });
 
     let mut zhipu = provider("zhipu", "智谱", "https://open.bigmodel.cn/api/paas/v4");
@@ -311,6 +322,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         supports_tools: true,
         supports_images: false,
         reasoning_efforts: vec!["low".into(), "high".into(), "max".into()],
+        thinking_mode: ThinkingMode::Disabled,
     };
     zhipu.upsert_model(glm53);
     zhipu.upsert_model(ModelPrefs {
@@ -322,6 +334,7 @@ pub fn builtin_providers() -> Vec<ProviderPrefs> {
         supports_tools: true,
         supports_images: false,
         reasoning_efforts: Vec::new(),
+        thinking_mode: ThinkingMode::Disabled,
     });
 
     vec![deepseek, moonshot, minimax, zhipu]
@@ -404,6 +417,7 @@ mod tests {
             has_key: true,
             model_params: Vec::new(),
             builtin: false,
+            protocol: ProviderProtocol::OpenAiCompatible,
         }
     }
 
@@ -490,6 +504,7 @@ mod tests {
                 has_key: true,
                 model_params: vec![flash],
                 builtin: true,
+                protocol: ProviderProtocol::OpenAiCompatible,
             }],
         };
         store.save(&prefs).expect("save");
@@ -579,6 +594,7 @@ mod model_param_tests {
             supports_tools: true,
             supports_images: false,
             reasoning_efforts: Vec::new(),
+            thinking_mode: ThinkingMode::Disabled,
         });
         assert_eq!(provider.model_config("m1").context_window, 200_000);
         provider.remove_model("m1");

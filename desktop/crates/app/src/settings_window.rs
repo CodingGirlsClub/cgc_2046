@@ -8,7 +8,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use cgc_agent_provider::{validate_credentials, ProviderError, ProviderErrorCategory};
+use cgc_agent_provider::{
+    validate_credentials, ProviderError, ProviderErrorCategory, ProviderProtocol, ThinkingMode,
+};
 use cgc_agent_store::{builtin_providers, normalized_provider_name, ProviderPrefs};
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::group_box::GroupBoxVariant;
@@ -26,7 +28,8 @@ use crate::native_runtime::{NativeRuntimeError, NativeRuntimeHandle};
 use crate::preferences::{self, CursorBlinkPreference};
 use crate::provider_settings::{ProviderPrefsChange, ProviderSettings};
 use crate::settings_provider::{
-    format_model_lines, parse_model_lines, validation_is_current, ModelFieldInputs, ProviderDraft,
+    append_reasoning_efforts, format_model_lines, parse_model_lines, KeyValidation,
+    KeyValidationAction, ModelFieldInputs, ProviderDraft,
 };
 use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 use cgc_platform::session::AuthApi;
@@ -61,8 +64,7 @@ pub struct SettingsWindowView {
     ai_view: AiRoute,
     settings_page: usize,
     settings_nonce: u64,
-    validating_provider: Option<String>,
-    validation_serial: u64,
+    key_validation: KeyValidation,
     provider_settings: ProviderSettings,
     runtime: Option<NativeRuntimeHandle>,
     /// Stage 3.3：清空 ACP 对话历史的二次确认状态与结果提示。
@@ -115,8 +117,7 @@ impl SettingsWindowView {
             ai_view: AiRoute::General,
             settings_page: SETTINGS_PAGE_ACCOUNT,
             settings_nonce: 0,
-            validating_provider: None,
-            validation_serial: 0,
+            key_validation: KeyValidation::default(),
             provider_settings,
             runtime,
             clear_acp_history_armed: Arc::new(AtomicBool::new(false)),
@@ -214,6 +215,12 @@ impl SettingsWindowView {
                 let name_input = cx.new(|cx| InputState::new(window, cx).default_value(name));
                 let context_input = cx.new(|cx| InputState::new(window, cx).default_value(context));
                 let output_input = cx.new(|cx| InputState::new(window, cx).default_value(output));
+                let budget = match model.thinking_mode {
+                    ThinkingMode::Budget { budget_tokens } => budget_tokens,
+                    _ => 4096,
+                };
+                let budget_input =
+                    cx.new(|cx| InputState::new(window, cx).default_value(budget.to_string()));
                 fields.push(ModelFieldInputs {
                     model_id: model.id.clone(),
                     name_input,
@@ -223,6 +230,8 @@ impl SettingsWindowView {
                     thinking: model.supports_thinking,
                     supports_tools: model.supports_tools,
                     supports_images: model.supports_images,
+                    thinking_mode: model.thinking_mode,
+                    budget_input,
                 });
             }
             self.provider_drafts[index].model_fields = fields;
@@ -264,7 +273,7 @@ impl SettingsWindowView {
                 };
                 let context: u32 = context.parse().unwrap_or(64_000).max(1);
                 let output: u32 = output.parse().unwrap_or(8_000).max(1).min(context);
-                format!(
+                let mut line = format!(
                     "{} | {} | {} | {} | {} | {} | {}",
                     name,
                     context,
@@ -273,7 +282,24 @@ impl SettingsWindowView {
                     field.enabled,
                     field.supports_tools,
                     field.supports_images
-                )
+                );
+                if draft.protocol == ProviderProtocol::AnthropicCompatible && field.thinking {
+                    match field.thinking_mode {
+                        ThinkingMode::Adaptive => line.push_str(" | adaptive"),
+                        _ => {
+                            line.push_str(" | budget | ");
+                            line.push_str(field.budget_input.read(cx).value().trim());
+                        }
+                    }
+                }
+                if let Some(previous) = draft
+                    .model_params
+                    .iter()
+                    .find(|model| model.id == field.model_id)
+                {
+                    append_reasoning_efforts(&mut line, &previous.reasoning_efforts);
+                }
+                line
             })
             .collect::<Vec<_>>()
             .join("\n");
@@ -298,6 +324,15 @@ impl SettingsWindowView {
                 1 => field.thinking = !field.thinking,
                 2 => field.supports_tools = !field.supports_tools,
                 3 => field.supports_images = !field.supports_images,
+                4 => {
+                    field.thinking_mode = if field.thinking_mode == ThinkingMode::Adaptive {
+                        ThinkingMode::Budget {
+                            budget_tokens: 4096,
+                        }
+                    } else {
+                        ThinkingMode::Adaptive
+                    }
+                }
                 _ => field.enabled = !field.enabled,
             }
         }
@@ -330,6 +365,7 @@ impl SettingsWindowView {
     }
 
     fn add_model(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.sync_model_fields(index, window, cx);
         let Some(draft) = self.provider_drafts.get_mut(index) else {
             return;
         };
@@ -397,17 +433,19 @@ impl SettingsWindowView {
     }
 
     fn cancel_key_validation(&mut self) {
-        self.validation_serial = self.validation_serial.wrapping_add(1);
-        self.validating_provider = None;
+        self.key_validation.cancel();
     }
 
     fn cancel_validation_for(&mut self, provider_id: &str) {
-        if self.validating_provider.as_deref() == Some(provider_id) {
+        if self.key_validation.provider() == Some(provider_id) {
             self.cancel_key_validation();
         }
     }
 
     fn save_provider_key(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.validate_thinking_fields(index, cx) {
+            return;
+        }
         self.sync_model_fields(index, window, cx);
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
@@ -432,14 +470,18 @@ impl SettingsWindowView {
         return_to_providers: bool,
         cx: &mut Context<Self>,
     ) {
-        if self.validating_provider.is_some() {
-            self.error = Some("正在验证上一个 API Key，请稍候".to_string());
-            cx.notify();
-            return;
-        }
-        self.validation_serial = self.validation_serial.wrapping_add(1);
-        let serial = self.validation_serial;
-        self.validating_provider = Some(provider.id.clone());
+        let serial = match self.key_validation.begin(&provider) {
+            KeyValidationAction::Save => {
+                self.save_key_configuration(provider, key, return_to_providers, cx);
+                return;
+            }
+            KeyValidationAction::Busy => {
+                self.error = Some("正在验证上一个 API Key，请稍候".to_string());
+                cx.notify();
+                return;
+            }
+            KeyValidationAction::Validate(serial) => serial,
+        };
         self.error = None;
         self.notice = Some(format!("正在验证 {} API Key…", provider.name));
         cx.notify();
@@ -459,55 +501,19 @@ impl SettingsWindowView {
 
     fn finish_key_validation(
         &mut self,
-        mut provider: ProviderPrefs,
+        provider: ProviderPrefs,
         key: String,
         return_to_providers: bool,
         serial: u64,
         result: Result<(), ProviderError>,
         cx: &mut Context<Self>,
     ) {
-        if !validation_is_current(
-            self.validating_provider.as_deref(),
-            self.validation_serial,
-            &provider.id,
-            serial,
-        ) {
+        if !self.key_validation.finish(&provider.id, serial) {
             return;
         }
-        self.validating_provider = None;
         match result {
             Ok(()) => {
-                if let Err(error) = self.provider_settings.apply(ProviderPrefsChange::SaveKey {
-                    provider: provider.clone(),
-                    key,
-                }) {
-                    self.error = Some(error.to_string());
-                    cx.notify();
-                    return;
-                }
-                provider.has_key = true;
-                if let Some(draft) = self
-                    .provider_drafts
-                    .iter_mut()
-                    .find(|draft| draft.id == provider.id)
-                {
-                    draft.base_url = provider.base_url.clone();
-                    draft.name = provider.name.clone();
-                    draft.models = format_model_lines(&provider);
-                    draft.model_params = provider.model_params.clone();
-                    draft.has_key = true;
-                    draft.builtin = provider.builtin;
-                    draft.key_editing = false;
-                    draft.api_key_input = None;
-                }
-                self.error = None;
-                if return_to_providers {
-                    self.ai_view = AiRoute::Providers;
-                }
-                self.refresh_provider_runtime(
-                    format!("{} API Key 已验证并保存", provider.name),
-                    cx,
-                );
+                self.save_key_configuration(provider, key, return_to_providers, cx);
                 return;
             }
             Err(error) => {
@@ -519,6 +525,61 @@ impl SettingsWindowView {
             }
         }
         cx.notify();
+    }
+
+    fn save_key_configuration(
+        &mut self,
+        mut provider: ProviderPrefs,
+        key: String,
+        return_to_providers: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(error) = self.provider_settings.apply(ProviderPrefsChange::SaveKey {
+            provider: provider.clone(),
+            key,
+        }) {
+            self.error = Some(error.to_string());
+            cx.notify();
+            return;
+        }
+        provider.has_key = true;
+        if let Some(draft) = self
+            .provider_drafts
+            .iter_mut()
+            .find(|draft| draft.id == provider.id)
+        {
+            draft.base_url = provider.base_url.clone();
+            draft.name = provider.name.clone();
+            draft.models = format_model_lines(&provider);
+            draft.model_params = provider.model_params.clone();
+            draft.has_key = true;
+            draft.builtin = provider.builtin;
+            draft.key_editing = false;
+            draft.api_key_input = None;
+        }
+        self.error = None;
+        if return_to_providers {
+            self.ai_view = AiRoute::Providers;
+        }
+        let saved = if provider.protocol == ProviderProtocol::AnthropicCompatible {
+            format!("{} API Key 已保存", provider.name)
+        } else {
+            format!("{} API Key 已验证并保存", provider.name)
+        };
+        self.refresh_provider_runtime(saved, cx);
+    }
+
+    fn validate_thinking_fields(&mut self, index: usize, cx: &mut Context<Self>) -> bool {
+        if let Some(Err(error)) = self
+            .provider_drafts
+            .get(index)
+            .map(|draft| draft.validate_thinking(cx))
+        {
+            self.error = Some(error);
+            cx.notify();
+            return false;
+        }
+        true
     }
 
     fn refresh_provider_runtime(&mut self, success: String, cx: &mut Context<Self>) {
@@ -554,6 +615,9 @@ impl SettingsWindowView {
     }
 
     fn save_provider(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.validate_thinking_fields(index, cx) {
+            return;
+        }
         self.sync_all_draft_names(cx);
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
@@ -576,16 +640,7 @@ impl SettingsWindowView {
             .map(|input| input.read(cx).value().trim().to_string())
             .unwrap_or_else(|| draft.name.clone());
         let models_text = models_input.read(cx).value().to_string();
-        let (models, mut model_params) = parse_model_lines(&models_text);
-        for model in &mut model_params {
-            if let Some(previous) = draft
-                .model_params
-                .iter()
-                .find(|previous| previous.id == model.id)
-            {
-                model.reasoning_efforts = previous.reasoning_efforts.clone();
-            }
-        }
+        let (models, model_params) = parse_model_lines(&models_text);
         if base_url.is_empty() || models.is_empty() || name.is_empty() {
             self.error = Some("Provider Name、Base URL 与至少一个 Model 不能为空".to_string());
             cx.notify();
@@ -612,6 +667,7 @@ impl SettingsWindowView {
             has_key: draft.has_key,
             model_params,
             builtin: false,
+            protocol: draft.protocol,
         };
         if let Some(api_key_input) = draft.api_key_input.clone() {
             let api_key = api_key_input.read(cx).value().trim().to_string();
@@ -670,8 +726,8 @@ impl SettingsWindowView {
         cx.notify();
     }
 
-    fn add_provider(&mut self, cx: &mut Context<Self>) {
-        let draft = ProviderDraft::new_custom();
+    fn add_provider(&mut self, protocol: ProviderProtocol, cx: &mut Context<Self>) {
+        let draft = ProviderDraft::new_custom(protocol);
         let id = draft.id.clone();
         self.provider_drafts.push(draft);
         self.ai_view = AiRoute::NewProvider(id);
@@ -1060,7 +1116,7 @@ impl SettingsWindowView {
         });
         let providers_weak = weak.clone();
         let providers_drafts = drafts.clone();
-        let providers_validating = self.validating_provider.clone();
+        let providers_validating = self.key_validation.provider().map(str::to_owned);
         let providers_item = SettingItem::render(move |_options, _window, cx| {
             let palette = theme::palette_from_theme(cx);
             render_provider_list(
@@ -1105,22 +1161,33 @@ impl SettingsWindowView {
                             }),
                     )
                     .child(
-                        div()
-                            .id("settings-providers-add")
-                            .role(Role::Button)
-                            .aria_label("添加 Provider")
-                            .px(space(2))
-                            .py(px(4.0))
-                            .rounded(px(RADIUS_MEDIUM))
-                            .bg(palette.accent)
-                            .text_color(palette.canvas)
-                            .text_size(px(11.0))
-                            .child("＋ 添加 Provider")
-                            .on_click(move |_, _, cx| {
-                                let _ = add_weak.update(cx, |this, cx| {
-                                    this.add_provider(cx);
-                                });
+                        div().flex().gap(space(1)).children(
+                            [
+                                ProviderProtocol::OpenAiCompatible,
+                                ProviderProtocol::AnthropicCompatible,
+                            ]
+                            .into_iter()
+                            .map(|protocol| {
+                                let add_weak = add_weak.clone();
+                                div()
+                                    .id(SharedString::from(format!(
+                                        "settings-providers-add-{protocol:?}"
+                                    )))
+                                    .role(Role::Button)
+                                    .aria_label(format!("添加 {} Provider", protocol.name()))
+                                    .px(space(2))
+                                    .py(px(4.0))
+                                    .rounded(px(RADIUS_MEDIUM))
+                                    .bg(palette.accent)
+                                    .text_color(palette.canvas)
+                                    .text_size(px(11.0))
+                                    .child(format!("＋ {}", protocol.name()))
+                                    .on_click(move |_, _, cx| {
+                                        let _ = add_weak
+                                            .update(cx, |this, cx| this.add_provider(protocol, cx));
+                                    })
                             }),
+                        ),
                     )
                     .into_any_element()
             })
@@ -1851,9 +1918,10 @@ fn render_provider_cards(
                         palette,
                     )
                 }))
+                .child(div().text_size(px(11.0)).text_color(palette.ink_3).child(draft.protocol.name()))
                 .child(SettingsWindowView::render_provider_field(
                     "API URL *",
-                    Some("兼容 API 的基础 URL。"),
+                    Some(if draft.protocol == ProviderProtocol::AnthropicCompatible { "Anthropic API 根地址，可包含网关路径前缀或 /v1。" } else { "兼容 API 的基础 URL。" }),
                     base_input,
                     palette,
                 ))
@@ -2235,6 +2303,18 @@ fn render_provider_cards(
                                                     .child("模型会输出推理内容。"),
                                             ),
                                     )
+                                    .children((draft.protocol == ProviderProtocol::AnthropicCompatible && thinking).then(|| {
+                                        let mode_weak = weak.clone();
+                                        div().flex().flex_col().gap(space(1))
+                                            .child(div().flex().items_center().gap(space(1))
+                                                .child(Checkbox::new(SharedString::from(format!("settings-model-adaptive-{index}-{model_index}")))
+                                                    .checked(field.thinking_mode == ThinkingMode::Adaptive)
+                                                    .on_click(move |_, _, cx| { let _ = mode_weak.update(cx, |this, cx| this.toggle_model_field(index, model_index, 4, cx)); }))
+                                                .child(div().text_size(px(11.0)).child("Adaptive thinking")))
+                                            .children((field.thinking_mode != ThinkingMode::Adaptive).then(|| {
+                                                SettingsWindowView::render_provider_field("Thinking Budget", Some("至少 1024，且小于 Max Output Tokens。"), field.budget_input.clone(), palette)
+                                            }))
+                                    }))
                                     .child(
                                         div()
                                             .flex()
