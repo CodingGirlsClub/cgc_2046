@@ -3,8 +3,82 @@
 //! 子模块可直接访问父模块私有字段。
 
 use super::*;
+use gpui_kit::base::Disableable;
 
 impl NativeAgentView {
+    pub(crate) fn context_source(&self, id: &str) -> Option<crate::page_context::PageContext> {
+        self.edit_context
+            .source(id)
+            .or_else(|| self.composer_context.source(id))
+            .or_else(|| {
+                crate::composer_context::source_from_history(&self.state.session.thread, id)
+            })
+    }
+
+    pub(super) fn add_page_context(
+        &mut self,
+        selection: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let token = if selection {
+            self.page_context
+                .selection()
+                .map(|(page, text)| self.composer_context.add_selection(page, text))
+        } else {
+            self.page_context
+                .visible()
+                .map(|page| self.composer_context.add_page(page))
+        };
+        if let Some(token) = token {
+            self.input.update(cx, |state, cx| {
+                let _ = state.replace_with_token(token, window, cx);
+                state.focus(window, cx);
+            });
+        }
+        cx.notify();
+    }
+
+    fn add_edit_context(&mut self, selection: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(input) = self.user_edit_input.clone() else {
+            return;
+        };
+        let token = if selection {
+            self.page_context
+                .selection()
+                .map(|(page, text)| self.edit_context.add_selection(page, text))
+        } else {
+            self.page_context
+                .visible()
+                .map(|page| self.edit_context.add_page(page))
+        };
+        if let Some(token) = token {
+            input.update(cx, |state, cx| {
+                let range = if selection {
+                    state.selected_range()
+                } else {
+                    state
+                        .tokens()
+                        .iter()
+                        .find(|span| {
+                            self.edit_context
+                                .snapshots
+                                .get(span.token().id().as_ref())
+                                .is_some_and(|item| {
+                                    item.kind
+                                        == cgc_agent_ui::conversation::ContextAttachmentKind::Page
+                                })
+                        })
+                        .map(|span| span.range())
+                        .unwrap_or_else(|| state.selected_range())
+                };
+                let _ = state.replace_range_with_token(range, token, window, cx);
+                state.focus(window, cx);
+            });
+        }
+        cx.notify();
+    }
+
     pub(super) fn mention_matches(&self, query: &str) -> Vec<String> {
         mention_matches(&self.workspace_files, query)
     }
@@ -31,7 +105,19 @@ impl NativeAgentView {
         cx: &mut Context<Self>,
     ) {
         let mention = Mention::skill(&skill);
-        self.insert_mention_chip(mention, "", window, cx);
+        let token =
+            gpui_kit::component::input::InlineToken::new(mention.token_id(), mention.link_text())
+                .with_label(mention.chip_label());
+        self.input.update(cx, |state, cx| {
+            let range = crate::composer_context::slash_query_range(&state.content())
+                .unwrap_or_else(|| state.selected_range());
+            if state
+                .replace_range_with_token(range, token, window, cx)
+                .is_ok()
+            {
+                state.insert(" ", window, cx);
+            }
+        });
         self.slash_dismissed = true;
         self.slash_index = 0;
         cx.notify();
@@ -45,15 +131,17 @@ impl NativeAgentView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let content = mention.content_at(prefix, " ");
-        let text = content.text().to_string();
-        let end = Position::new(
-            text.matches('\n').count() as u32,
-            text.rsplit('\n').next().unwrap_or_default().chars().count() as u32,
-        );
+        let token =
+            gpui_kit::component::input::InlineToken::new(mention.token_id(), mention.link_text())
+                .with_label(mention.chip_label());
         self.input.update(cx, |state, cx| {
-            state.set_value(content, window, cx);
-            state.set_cursor_position(end, window, cx);
+            let range = if prefix.is_empty() {
+                state.selected_range()
+            } else {
+                prefix.len()..state.value().len()
+            };
+            let _ = state.replace_range_with_token(range, token, window, cx);
+            state.insert(" ", window, cx);
         });
         self.mention_index = 0;
         cx.notify();
@@ -82,8 +170,12 @@ impl NativeAgentView {
         };
         if let Some(tool) = entry.tool.clone() {
             let text = format!("使用 {tool} 工具：");
-            self.input
-                .update(cx, |state, cx| state.set_value(text.clone(), window, cx));
+            self.input.update(cx, |state, cx| {
+                if let Some(range) = crate::composer_context::slash_query_range(&state.content()) {
+                    state.set_selected_range(range, cx);
+                }
+                state.replace(text, window, cx);
+            });
             self.slash_dismissed = true;
             self.slash_index = 0;
             cx.notify();
@@ -107,6 +199,7 @@ impl NativeAgentView {
         }
         self.input
             .update(cx, |state, cx| state.set_value("", window, cx));
+        self.composer_context.reset();
         self.slash_index = 0;
         self.slash_dismissed = false;
         cx.notify();
@@ -130,14 +223,22 @@ impl NativeAgentView {
             return;
         };
         let text = text.clone();
+        let saved =
+            crate::composer_context::draft_for_entry(&self.state.session.thread, message_index)
+                .cloned();
+        self.edit_context.reset();
+        self.edit_context.disable_auto();
+        let restored = saved.as_ref().map(|draft| self.edit_context.restore(draft));
         let skills = self.skills.clone();
         let input = cx.new(|cx| {
             let mut state = TextareaState::new(window, cx).auto_grow(1, 8);
-            let content = mention::content_with_mentions(&text, |scope, name| {
-                skills
-                    .iter()
-                    .find(|skill| skill.name == name && skill.scope == scope)
-                    .map(|skill| skill.file_path.clone())
+            let content = restored.unwrap_or_else(|| {
+                mention::content_with_mentions(&text, |scope, name| {
+                    skills
+                        .iter()
+                        .find(|skill| skill.name == name && skill.scope == scope)
+                        .map(|skill| skill.file_path.clone())
+                })
             });
             state.set_value(content, window, cx);
             state
@@ -186,10 +287,12 @@ impl NativeAgentView {
                     .is_some_and(|(input, original)| {
                         input.read(cx).content().text().as_str() == original.as_str()
                     });
+
                 if should_cancel_edit_on_blur(
                     this.edit_serial,
                     serial,
                     this.pending_restart_confirm.is_some(),
+                    this.page_context.has_selection_activity(),
                     unchanged,
                 ) {
                     this.cancel_edit_user(cx);
@@ -221,7 +324,7 @@ impl NativeAgentView {
             return;
         };
         let content = input.read(cx).content();
-        let display = content.text().trim().to_string();
+        let display = crate::composer_context::user_text(&content);
         if display.is_empty() {
             self.status = "消息不能为空".into();
             cx.notify();
@@ -230,52 +333,57 @@ impl NativeAgentView {
         let Some(ordinal) = thread_entry_ordinal(&self.state.session.thread.entries, index) else {
             return;
         };
+        let ordinal = ordinal + self.hidden_user_count;
         let restore_files = self.checkpoint_for_message(index).is_some();
         if needs_checkpoint_confirm(restore_files, self.pending_restart_confirm, index) {
             self.pending_restart_confirm = Some(index);
             cx.notify();
             return;
         }
-        let prompt = mention::resolve_prompt(&content, &self.metadata().workspace);
-        let (prompt, context) = self.page_context.freeze(prompt);
-        let runtime = self.runtime.clone();
-        let rewind = self.runtime.rewind(ordinal, restore_files);
+        let (draft, prompt, context) = self.edit_context.freeze(
+            &content,
+            None,
+            &self.metadata().workspace,
+            &self.page_context,
+            self.conversation_scope(),
+        );
+        let thread_id = self.metadata().thread.id.clone();
+        let operation_serial = self.begin_operation(cx);
+        let rewind = self
+            .runtime
+            .rewind_thread(thread_id.clone(), ordinal, restore_files);
         let generation = self.state.session.generation;
         cx.spawn(async move |this, cx| {
-            // 旧实现是「检查点尽力回滚，失败不阻断重发」；单 actor 重构后
-            // runtime.rewind 遇到失效 checkpoint 会直接报错，编辑重发就整条
-            // 停住。这里保留旧语义：文件回滚失败时退回只回滚对话再重发。
-            let mut fallback_note = None;
-            let result = match rewind.await {
-                Ok(snapshot) => Ok(snapshot),
-                Err(first_error) if restore_files => match runtime.rewind(ordinal, false).await {
-                    Ok(snapshot) => {
-                        fallback_note =
-                            Some(format!("检查点无法回滚，已仅回滚对话：{first_error}"));
-                        Ok(snapshot)
-                    }
-                    Err(_) => Err(first_error),
-                },
-                Err(error) => Err(error),
-            };
+            let result = rewind.await;
             let _ = this.update(cx, |this, cx| match result {
                 Ok(snapshot) => {
-                    this.apply_snapshot(RuntimeChange::Rewound, snapshot, cx);
-                    if let Some(note) = fallback_note {
-                        this.status = note.clone();
-                        this.state.push_notice(note);
+                    if this.metadata().thread.id != thread_id
+                        || this.metadata().revision > snapshot.revision
+                    {
+                        return;
                     }
-                    let submission =
-                        this.state
-                            .session
-                            .submission(display, prompt, context, Vec::new(), false);
+                    this.apply_snapshot(RuntimeChange::Rewound, snapshot, cx);
+
+                    let (prompt, context) =
+                        this.page_context
+                            .refresh(this.conversation_scope(), prompt, context);
+                    let mut submission = this.state.session.submission(
+                        draft.text.clone(),
+                        prompt,
+                        context,
+                        Vec::new(),
+                        false,
+                    );
+                    submission.draft = Some(draft);
                     this.state.session.queue.push(submission);
                     this.state.session.queue_mode = QueueMode::Auto;
                     this.dispatch_queued(cx);
                 }
-                Err(error) if this.state.session.generation == generation => {
-                    this.status = error.to_string();
-                    this.state.push_notice(error.to_string());
+                Err(error)
+                    if this.state.session.generation == generation
+                        && this.operation_serial == operation_serial =>
+                {
+                    this.operation_error = Some(error.to_string());
                     cx.notify();
                 }
                 Err(_) => {}
@@ -298,15 +406,60 @@ impl NativeAgentView {
         let cancel_view = view.clone();
         let resend_view = view.clone();
         let confirm_cancel_view = view.clone();
-        let confirm_resend_view = view;
+        let confirm_resend_view = view.clone();
+        let page_view = view.clone();
+        let selection_view = view;
+        let has_selection = self.page_context.has_selection();
+        let attachments = self.edit_context.labels();
+        let language = self.language;
+        let workspace = self.metadata().workspace.clone();
+        let palette = *palette;
         shared_render_user_edit_row(UserEditRowSpec {
             input,
+            token_renderer: Some(std::rc::Rc::new(move |context, _, _| {
+                crate::mention_chip::render_resolved_chip(
+                    context,
+                    palette,
+                    &workspace,
+                    attachments.label(context.token().id(), None, language),
+                )
+            })),
+            token_click: Some(std::rc::Rc::new(crate::composer_context::open_token_source)),
+            context_actions: Some(
+                div()
+                    .flex()
+                    .flex_row()
+                    .gap(px(4.0))
+                    .child(
+                        Button::new("edit-replace-page")
+                            .label("Replace with current page")
+                            .ghost()
+                            .xsmall()
+                            .on_click(move |_, window, cx| {
+                                let _ = page_view.update(cx, |this, cx| {
+                                    this.add_edit_context(false, window, cx)
+                                });
+                            }),
+                    )
+                    .child(
+                        Button::new("edit-add-selection")
+                            .label("Selection")
+                            .ghost()
+                            .xsmall()
+                            .disabled(!has_selection)
+                            .on_click(move |_, window, cx| {
+                                let _ = selection_view
+                                    .update(cx, |this, cx| this.add_edit_context(true, window, cx));
+                            }),
+                    )
+                    .into_any_element(),
+            ),
             cancel_id: SharedString::from("native-user-edit-cancel"),
             resend_id: SharedString::from("native-user-edit-resend"),
             confirm_cancel_id: SharedString::from("native-restart-cancel"),
             confirm_resend_id: SharedString::from("native-restart-confirm"),
             pending_confirm: user_edit_confirm_visible(self.pending_restart_confirm, message_index),
-            style: native_row_palette(palette),
+            style: native_row_palette(&palette),
             on_cancel: Box::new(move |cx| {
                 let _ = cancel_view.update(cx, |this, cx| this.cancel_edit_user(cx));
             }),
@@ -352,9 +505,10 @@ fn should_cancel_edit_on_blur(
     current_serial: u64,
     edit_serial: u64,
     pending_confirm: bool,
+    selecting_page: bool,
     content_unchanged: bool,
 ) -> bool {
-    current_serial == edit_serial && !pending_confirm && content_unchanged
+    current_serial == edit_serial && !pending_confirm && !selecting_page && content_unchanged
 }
 
 #[cfg(test)]
@@ -364,17 +518,18 @@ mod tests {
 
     #[test]
     fn blur_cancel_requires_same_edit_no_confirm_and_unchanged_content() {
-        assert!(should_cancel_edit_on_blur(7, 7, false, true));
+        assert!(should_cancel_edit_on_blur(7, 7, false, false, true));
+        assert!(!should_cancel_edit_on_blur(7, 7, false, true, true));
         assert!(
-            !should_cancel_edit_on_blur(8, 7, false, true),
+            !should_cancel_edit_on_blur(8, 7, false, false, true),
             "重新进入编辑后，旧失焦任务不得取消新编辑"
         );
         assert!(
-            !should_cancel_edit_on_blur(7, 7, true, true),
+            !should_cancel_edit_on_blur(7, 7, true, false, true),
             "无 checkpoint 确认面板期间保持编辑态"
         );
         assert!(
-            !should_cancel_edit_on_blur(7, 7, false, false),
+            !should_cancel_edit_on_blur(7, 7, false, false, false),
             "已修改内容时点外部保留草稿，避免丢字"
         );
     }

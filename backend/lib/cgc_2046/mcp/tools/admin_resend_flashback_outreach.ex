@@ -10,6 +10,7 @@ defmodule Cgc2046.Mcp.Tools.AdminResendFlashbackOutreach do
     scopes: ["platform_admin"],
     meta: %{workspace_id: :optional, membership: :platform_admin}
 
+  alias Cgc2046.Accounts.Policies.PlatformAdmin
   alias Cgc2046.Flashback.{AlumniProjection, Outreach.Dispatch}
   alias Cgc2046.Mcp.{Confirmation, Wrapper}
 
@@ -63,28 +64,32 @@ defmodule Cgc2046.Mcp.Tools.AdminResendFlashbackOutreach do
   """
   @spec execute_confirmed(term(), map()) :: {:ok, map()} | {:error, String.t()}
   def execute_confirmed(actor, params) do
-    channel =
-      case Dispatch.parse_channel(params["channel"] || "all") do
-        {:ok, channel} -> channel
-        _ -> :all
-      end
+    if PlatformAdmin.platform_admin?(actor) do
+      channel =
+        case Dispatch.parse_channel(params["channel"] || "all") do
+          {:ok, channel} -> channel
+          _ -> :all
+        end
 
-    # 治理留痕单源在 Dispatch（R2）——与 /admin/flashback GraphQL 面共用。
-    with :ok <- Dispatch.ensure_channel_ready(channel),
-         {:ok, %{queued: queued, skipped: skipped, batch: batch}} <-
-           Dispatch.resend_for_person(params["person_id"], params["template"], channel, actor) do
-      {:ok,
-       %{
-         person_id: params["person_id"],
-         channel: to_string(channel),
-         batch: batch,
-         queued: queued,
-         skipped: skipped,
-         note: "已入队，错峰发送进行中；送达结果见 /admin/flashback 批次历史"
-       }}
+      # 治理留痕单源在 Dispatch（R2）——与 /admin/flashback GraphQL 面共用。
+      with :ok <- Dispatch.ensure_channel_ready(channel),
+           {:ok, %{queued: queued, skipped: skipped, batch: batch}} <-
+             Dispatch.resend_for_person(params["person_id"], params["template"], channel, actor) do
+        {:ok,
+         %{
+           person_id: params["person_id"],
+           channel: to_string(channel),
+           batch: batch,
+           queued: queued,
+           skipped: skipped,
+           note: "已入队，错峰发送进行中；送达结果见 /admin/flashback 批次历史"
+         }}
+      else
+        {:error, reason} ->
+          {:error, dispatch_error_message(reason)}
+      end
     else
-      {:error, reason} ->
-        {:error, dispatch_error_message(reason)}
+      {:error, "forbidden: platform admin required"}
     end
   end
 

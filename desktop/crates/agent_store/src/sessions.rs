@@ -3,7 +3,7 @@ use std::path::Path;
 use crate::snapshot::{SavedConversation, SnapshotSource};
 use cgc_agent_core::{Entry, SelectedModel, Thread};
 use cgc_agent_provider::{ModelId, ProviderId, TokenUsage};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 
 /// 会话存储错误。
 #[derive(Debug, thiserror::Error)]
@@ -87,8 +87,13 @@ impl SessionStore {
                 model_provider TEXT NOT NULL,
                 model_id TEXT NOT NULL,
                 usage_json TEXT,
+                thinking_context_json TEXT,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS native_scope_threads (
+                scope TEXT PRIMARY KEY,
+                thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE
             );
             CREATE TABLE IF NOT EXISTS entries (
                 thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
@@ -127,6 +132,21 @@ impl SessionStore {
         let _ = self
             .conn
             .execute("ALTER TABLE threads ADD COLUMN session_id TEXT", []);
+        let _ = self
+            .conn
+            .execute("ALTER TABLE threads ADD COLUMN user_drafts_json TEXT", []);
+        let migration = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+        let has_thinking_context: bool = migration.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('threads') WHERE name = 'thinking_context_json')",
+            [], |row| row.get(0),
+        )?;
+        if !has_thinking_context {
+            migration.execute(
+                "ALTER TABLE threads ADD COLUMN thinking_context_json TEXT",
+                [],
+            )?;
+        }
+        migration.commit()?;
         // 旧表迁移：ACP 标题覆盖收敛到 threads.title_override，然后删除旧表。
         self.migrate_legacy_acp_titles()?;
         Ok(())
@@ -199,6 +219,38 @@ impl SessionStore {
         Ok(())
     }
 
+    /// 当前线程指针只由显式切换更新；迟到的普通快照不得抢走当前选择。
+    pub fn activate_scope_thread(
+        &mut self,
+        scope: &str,
+        thread: &Thread,
+    ) -> Result<(), SessionError> {
+        let transaction = self.conn.transaction()?;
+        Self::write_thread(&transaction, thread)?;
+        transaction.execute(
+            "INSERT INTO native_scope_threads (scope, thread_id) VALUES (?1, ?2)
+             ON CONFLICT(scope) DO UPDATE SET thread_id = excluded.thread_id",
+            params![scope, thread.id],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn load_scope_thread(&self, scope: &str) -> Result<Option<Thread>, SessionError> {
+        let id: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT thread_id FROM native_scope_threads WHERE scope = ?1",
+                params![scope],
+                |row| row.get(0),
+            )
+            .optional()?;
+        match id {
+            Some(id) => self.load_thread(&id),
+            None => Ok(None),
+        }
+    }
+
     /// 执行内容的实际写入；调用方负责事务与提交，便于与投影原子配对。
     fn write_thread(
         transaction: &rusqlite::Transaction<'_>,
@@ -228,6 +280,18 @@ impl SessionStore {
                 usage_json,
                 thread.created_at,
                 thread.updated_at
+            ],
+        )?;
+        transaction.execute(
+            "UPDATE threads SET user_drafts_json = ?2, thinking_context_json = ?3 WHERE id = ?1",
+            params![
+                thread.id,
+                serde_json::to_string(&thread.user_drafts)?,
+                thread
+                    .thinking_context
+                    .as_ref()
+                    .map(serde_json::to_string)
+                    .transpose()?
             ],
         )?;
         transaction.execute(
@@ -294,6 +358,16 @@ impl SessionStore {
             .query_map(params![id], |row| row.get::<_, String>(0))?
             .map(|payload| -> Result<Entry, SessionError> { Ok(serde_json::from_str(&payload?)?) })
             .collect::<Result<Vec<_>, _>>()?;
+        let (drafts, thinking): (Option<String>, Option<String>) = self.conn.query_row(
+            "SELECT user_drafts_json, thinking_context_json FROM threads WHERE id = ?1",
+            params![id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let user_drafts = drafts
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()?
+            .unwrap_or_default();
         Ok(Some(Thread {
             id: id.to_string(),
             title,
@@ -302,6 +376,8 @@ impl SessionStore {
             session_id,
             model: SelectedModel::new(ProviderId::new(provider_id), ModelId::new(model_id)),
             entries,
+            user_drafts,
+            thinking_context: thinking.as_deref().map(serde_json::from_str).transpose()?,
             usage_total,
             created_at,
             updated_at,

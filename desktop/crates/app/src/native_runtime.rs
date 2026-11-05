@@ -5,6 +5,8 @@ mod execution;
 mod factory;
 mod mcp;
 mod operations;
+#[cfg(test)]
+mod thinking_tests;
 mod title;
 mod worker;
 
@@ -25,6 +27,40 @@ use crate::{
     agent_scope::AgentScope,
     native_panel_host::{McpContext, NativePanelHost},
 };
+
+fn fresh_thread_id() -> String {
+    format!("native-{}", uuid::Uuid::new_v4().simple())
+}
+
+fn scope_storage_key(scope: &AgentScope) -> String {
+    serde_json::to_string(&(&scope.key, scope.root.as_os_str().as_encoded_bytes()))
+        .expect("scope identity consists of a string and bytes")
+}
+
+fn restore_scope_thread(
+    store: Option<&mut SessionStore>,
+    scope: &AgentScope,
+    selected: cgc_agent_core::SelectedModel,
+) -> Result<Thread, NativeRuntimeError> {
+    let Some(store) = store else {
+        return Ok(Thread::new(fresh_thread_id(), selected));
+    };
+    let key = scope_storage_key(scope);
+    let mut thread = store
+        .load_scope_thread(&key)
+        .and_then(|current| match current {
+            Some(thread) => Ok(Some(thread)),
+            None => store.load_thread(&format!("native-{}", scope.key)),
+        })
+        .map_err(|error| NativeRuntimeError::Storage(error.to_string()))?
+        .unwrap_or_else(|| Thread::new(fresh_thread_id(), selected.clone()));
+
+    thread.model = selected;
+    store
+        .activate_scope_thread(&key, &thread)
+        .map_err(|error| NativeRuntimeError::Storage(error.to_string()))?;
+    Ok(thread)
+}
 
 #[derive(Clone)]
 pub struct NativeRuntimeConfig {
@@ -47,6 +83,29 @@ pub enum RuntimePhase {
 pub enum ApprovalMode {
     Ask,
     Auto,
+}
+
+/// 当前 native 会话的模型可用状态；UI 用它决定模型选择器/发送入口如何呈现。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModelSetup {
+    /// 已有可用 Provider 与凭据。
+    Configured,
+    /// Provider 已配置，但钥匙串凭据留到首次 turn 前解析。
+    PendingCredentials,
+    /// 没有可用 Provider/Key，生产环境禁止发送并引导配置。
+    Unconfigured,
+    /// demo/dev 的离线回显模式。
+    DemoEcho,
+}
+
+impl ModelSetup {
+    pub fn allows_send(self) -> bool {
+        !matches!(self, Self::Unconfigured)
+    }
+
+    pub fn is_demo(self) -> bool {
+        matches!(self, Self::DemoEcho)
+    }
 }
 
 impl ApprovalMode {
@@ -75,7 +134,7 @@ pub struct NativeRuntimeSnapshot {
     pub title_generation_error: Option<Arc<str>>,
     pub schemas: Arc<Vec<ToolSchema>>,
     pub providers: Arc<Vec<ProviderPrefs>>,
-    pub using_echo: bool,
+    pub model_setup: ModelSetup,
     pub thinking_enabled: bool,
     pub effort_index: usize,
     pub approval_mode: ApprovalMode,
@@ -147,6 +206,7 @@ pub struct PreparedNativeTurn {
     pub thread_id: String,
     pub generation: u64,
     pub display: String,
+    pub draft: Option<serde_json::Value>,
     pub images: Vec<ImageAttachment>,
     pub retry: bool,
 }
@@ -186,11 +246,12 @@ enum Command {
     },
     Prepare(PreparedNativeTurn, Reply<()>),
     Stop,
-    Steer(String, Reply<()>),
+    Steer(cgc_agent_core::session::SteerMessage, Reply<()>),
     Open(String, Reply<Arc<NativeRuntimeSnapshot>>),
     New(Reply<Arc<NativeRuntimeSnapshot>>),
     SwitchScope(AgentScope, Reply<Arc<NativeRuntimeSnapshot>>),
     Rewind {
+        thread_id: Option<String>,
         ordinal: usize,
         restore_files: bool,
         reply: Reply<Arc<NativeRuntimeSnapshot>>,
@@ -201,6 +262,7 @@ enum Command {
         model: String,
         reply: Reply<Arc<NativeRuntimeSnapshot>>,
     },
+    RefreshProviders(Reply<Arc<NativeRuntimeSnapshot>>),
     Thinking {
         enabled: bool,
         effort_index: usize,
@@ -245,12 +307,14 @@ impl NativeRuntimeHandle {
         data_root: PathBuf,
         host: NativePanelHost,
         authorization_epoch: u64,
+        allow_echo: bool,
     ) -> Self {
         Self::start(worker::Initialization::Workspace {
             scope,
             data_root,
             host,
             authorization_epoch,
+            allow_echo,
         })
     }
 
@@ -324,8 +388,26 @@ impl NativeRuntimeHandle {
         &self,
         text: String,
     ) -> impl Future<Output = Result<(), NativeRuntimeError>> + Send + 'static {
-        self.request(|reply| Command::Steer(text, reply))
+        self.steer_with_context(text.clone(), text, None)
     }
+    pub(crate) fn steer_with_context(
+        &self,
+        prompt: String,
+        display: String,
+        draft: Option<serde_json::Value>,
+    ) -> impl Future<Output = Result<(), NativeRuntimeError>> + Send + 'static {
+        self.request(|reply| {
+            Command::Steer(
+                cgc_agent_core::session::SteerMessage {
+                    prompt,
+                    display,
+                    draft,
+                },
+                reply,
+            )
+        })
+    }
+
     pub fn open_thread(
         &self,
         id: String,
@@ -353,11 +435,27 @@ impl NativeRuntimeHandle {
     ) -> impl Future<Output = Result<Arc<NativeRuntimeSnapshot>, NativeRuntimeError>> + Send + 'static
     {
         self.request(move |reply| Command::Rewind {
+            thread_id: None,
             ordinal,
             restore_files,
             reply,
         })
     }
+    pub(crate) fn rewind_thread(
+        &self,
+        thread_id: String,
+        ordinal: usize,
+        restore_files: bool,
+    ) -> impl Future<Output = Result<Arc<NativeRuntimeSnapshot>, NativeRuntimeError>> + Send + 'static
+    {
+        self.request(move |reply| Command::Rewind {
+            thread_id: Some(thread_id),
+            ordinal,
+            restore_files,
+            reply,
+        })
+    }
+
     pub fn checkpoint(
         &self,
         action: CheckpointAction,
@@ -382,6 +480,13 @@ impl NativeRuntimeHandle {
             enabled,
             effort_index,
         });
+    }
+    /// Settings 保存并验证 Provider 后，让当前会话重新读取 provider/model，无需重启客户端。
+    pub(crate) fn refresh_providers(
+        &self,
+    ) -> impl Future<Output = Result<Arc<NativeRuntimeSnapshot>, NativeRuntimeError>> + Send + 'static
+    {
+        self.request(Command::RefreshProviders)
     }
     pub fn set_approval(&self, mode: ApprovalMode) {
         let _ = self.commands.unbounded_send(Command::Approval(mode));
@@ -439,5 +544,18 @@ impl Drop for NativeRuntimeConnection {
             .handle
             .commands
             .unbounded_send(Command::Disconnect(self.generation));
+    }
+}
+
+#[cfg(test)]
+mod model_setup_tests {
+    use super::ModelSetup;
+
+    #[test]
+    fn only_unconfigured_blocks_send() {
+        assert!(!ModelSetup::Unconfigured.allows_send());
+        assert!(ModelSetup::Configured.allows_send());
+        assert!(ModelSetup::PendingCredentials.allows_send());
+        assert!(ModelSetup::DemoEcho.allows_send());
     }
 }

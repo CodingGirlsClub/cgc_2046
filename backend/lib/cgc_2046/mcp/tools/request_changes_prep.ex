@@ -19,9 +19,10 @@ defmodule Cgc2046.Mcp.Tools.RequestChangesPrep do
   @impl true
   def description do
     """
-    直接写入，不走确认流：审核时退回修改，只在课程教研流程处于 review 时可用。审核人（教研策略指定的
-    reviewer，未指定时任何工作台成员）或 Owner/Admin 可用。reason 必填，写明需要修改什么；流程回到
-    authoring，每次退回的理由都会累积保留。
+    Request changes to a course preparation in review. Available to workspace owners/admins or the
+    designated reviewer; when none is designated, only the assigned tutor may review. Writes directly
+    without confirmation. A reason is required and retained in change_requests; preparation returns
+    to authoring.
     """
   end
 

@@ -929,10 +929,10 @@ defmodule Cgc2046.Courses.Course do
   end
 
   policies do
-    # 读取：成员可读非 draft；Owner/Admin 与平台管理员可读全部；
+    # 读取：成员可读 open/closed，tutor 另可读 draft；Owner/Admin 与平台管理员可读全部；
     # 匿名仅可读 open + visibility=public（公开发现面，D2 白名单由 field_policies 收窄）。
     policy action_type(:read) do
-      authorize_if(Cgc2046.Offering.ActorReadsOffering)
+      authorize_if({Cgc2046.Offering.ActorReadsOffering, draft_roles: [:tutor]})
       authorize_if(Cgc2046.Accounts.Policies.PlatformAdmin)
       authorize_if(expr(status == :open and visibility == :public))
     end

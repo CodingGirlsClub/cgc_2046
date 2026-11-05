@@ -4,11 +4,19 @@
 
 use super::*;
 
+fn model_picker_label(model_id: &str, setup: ModelSetup) -> String {
+    match setup {
+        ModelSetup::Unconfigured => "未配置模型".to_string(),
+        ModelSetup::DemoEcho => format!("{model_id}（演示）"),
+        ModelSetup::Configured | ModelSetup::PendingCredentials => model_id.to_string(),
+    }
+}
+
 impl NativeAgentView {
     /// Phase B2b-3b：native composer 的 legacy 渲染（render 内联链纯搬迁，行为不变）。
     /// Phase B2b-3d-2a：slash 菜单（legacy 与 shared composer 共用）。
     pub(super) fn render_slash_menu(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let input_value = self.input.read(cx).value().to_string();
+        let input_value = crate::composer_context::user_text(&self.input.read(cx).content());
         let slash_open = input_value.trim_start().starts_with('/') && !self.slash_dismissed;
         let slash_matches = self.slash_entries(&input_value);
         let slash_selected = self.slash_index.min(slash_matches.len().saturating_sub(1));
@@ -101,10 +109,12 @@ impl NativeAgentView {
                 )
         });
         let element = div()
+            .id("native-slash-popup")
+            .test_support()
             .absolute()
             .left(space(1))
             .right(space(1))
-            .bottom(px(132.0))
+            .bottom(relative(1.0))
             .flex()
             .flex_row()
             .items_start()
@@ -205,6 +215,8 @@ impl NativeAgentView {
         }
         let current_provider_id = self.metadata().model.provider_id.as_str().to_string();
         let current_model_id = self.metadata().model.id.as_str().to_string();
+        let current_model_label =
+            model_picker_label(&current_model_id, self.metadata().model_setup);
         let current_model_config = self
             .metadata()
             .providers
@@ -213,12 +225,16 @@ impl NativeAgentView {
             .map(|provider| provider.model_config(self.metadata().model.id.as_str()))
             .unwrap_or_default();
         let thinking_supported = current_model_config.supports_thinking;
-        let effort_levels = current_model_config.reasoning_efforts.clone();
+        let effort_levels =
+            if thinking_supported && current_model_config.reasoning_efforts.is_empty() {
+                vec!["Thinking".to_string()]
+            } else {
+                current_model_config.reasoning_efforts.clone()
+            };
         let providers_for_menu = self.metadata().providers.clone();
         let model_root = cx.entity().downgrade();
         let thinking_root = cx.entity().downgrade();
         let approval_root = cx.entity().downgrade();
-        let model_id_for_label = current_model_id.clone();
         let model_groups: Vec<PickerGroup> = providers_for_menu
             .iter()
             .filter_map(|provider| {
@@ -251,7 +267,7 @@ impl NativeAgentView {
         let model_picker = render_picker_popover(PickerPopoverSpec {
             popover_id: SharedString::from("native-model-picker"),
             trigger_id: SharedString::from("native-model-trigger"),
-            trigger_label: model_id_for_label,
+            trigger_label: current_model_label,
             trigger_tooltip: "选择模型".to_string(),
             trigger_max_width: None,
             anchor: Some(Anchor::BottomRight),
@@ -313,12 +329,9 @@ impl NativeAgentView {
                 on_select: Box::new(move |index, _window, cx| {
                     let _ = root.update(cx, |this, cx| {
                         if index < levels_len {
-                            if !this.metadata().thinking_enabled {
-                                this.set_thinking_enabled(true, cx);
-                            }
-                            this.set_effort_index(index, cx);
+                            this.set_thinking(true, index, cx);
                         } else {
-                            this.set_thinking_enabled(false, cx);
+                            this.set_thinking(false, this.metadata().effort_index, cx);
                         }
                     });
                 }),
@@ -366,5 +379,31 @@ impl NativeAgentView {
             thinking: effort_picker,
             approval: Some(approval_picker),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::model_picker_label;
+    use crate::native_runtime::ModelSetup;
+
+    #[test]
+    fn model_picker_label_hides_echo_in_production() {
+        assert_eq!(
+            model_picker_label("echo", ModelSetup::Unconfigured),
+            "未配置模型"
+        );
+        assert_eq!(
+            model_picker_label("echo", ModelSetup::DemoEcho),
+            "echo（演示）"
+        );
+        assert_eq!(
+            model_picker_label("deepseek-flash", ModelSetup::Configured),
+            "deepseek-flash"
+        );
+        assert_eq!(
+            model_picker_label("deepseek-flash", ModelSetup::PendingCredentials),
+            "deepseek-flash"
+        );
     }
 }

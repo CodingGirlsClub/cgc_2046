@@ -20,10 +20,24 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ### Added
 - [Backend] AshAdmin 的 users 页面展示用户手机号：`table_columns` 增加 `:phone` 并加入 `show_sensitive_fields` 豁免（运营联系学员需要）；admin 面由 `PlatformAdminPlug` + `PlatformAdminLiveAuth` 双层门控、仅 platform_admin 可达，`hashed_password` 保持遮罩，编辑面不变（管理员不能经 AshAdmin 改他人手机号）。
+- [Backend] 修复小程序「登录链接无效」：微信 URL Link 短链此前把 `cq=wl_<code>` 拼在短链 URL 的 query 上，而微信进小程序不转发 URL query，web-login 页拿不到 `requestId`；改为 `generate_urllink` 的 `path` 携带 `cq` 参数、动态参数走独立 `query` 字段，短链本身不再拼 query。
+- [MCP] 工作台简介字段与 `update_workspace_description` 确认流工具（#1226）：Owner/Admin 可改工作台简介，变更走确认流。
+- [Prep] 教研 run 的归因与次周期读法（#1229）：能区分「首周期恢复」与「新一轮周期」，避免把恢复误读成周期切换。
 
 ### Fixed
-- [Backend] 修复小程序「登录链接无效」：微信 URL Link 短链此前把 `cq=wl_<code>` 拼在短链 URL 的 query 上，而微信进小程序不转发 URL query，web-login 页拿不到 `requestId`；改为 `generate_urllink` 的 `path` 携带 `cq` 参数、动态参数走独立 `query` 字段，短链本身不再拼 query。
+- [MCP] `list_my_workspaces` 的简介预览总长对齐 AC10（≤160 含省略号，#1226）。
+- [MCP] 审核与确认工具改为按**当前**授权校验，并保留授权审核者的准备读（此前可能读到已失效授权的数据）。
+- [Prep] 首周期恢复归因标 `first_cycle_recovery`，不再谎报 `next_cycle`（#1229）。
+- [Backend] 补齐 objective instructions 的下发，并处理后端审计发现。
 
+### Security
+- 依赖告警一批收敛：Dependabot critical（vm2 / swiper）已修、无修复版的 `decompress` 显式豁免（miniprogram 开发链）；high（`brace-expansion` / `joi` 等）与 moderate/low 共 22 条同步清理；`hex.audit` 命中的三条后端依赖告警一并修掉。
+
+## [扩展 v0.1.8] - 2026-10-29（补记）
+
+随 2026-10-29 的 develop→main 发布上线，明细见 [`openclacky-ext/cgc-2046/CHANGELOG.md`](openclacky-ext/cgc-2046/CHANGELOG.md)：
+
+- 新增 `cgc-quality-eval` skill（教研质检的判据化评审），随 `cgc-tutor` 挂载；原为 OMP 插件包内 skill，随 OMP 接入线下线迁入，宿主 API 措辞改为宿主无关。
 
 ## [2026-10-29]
 
@@ -51,6 +65,14 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 > 桌面客户端内测版由 tag `desktop-v*` 触发发布（`desktop/README.md`「发布节奏（内测）」），不走 develop→main 的 Web/后端发布流程；本节点在首次打 tag 前登记，条目不会随本批 Web 发布上线。
 
+- [Desktop] native Agent 新增 Anthropic Compatible Provider：可配置 API 根地址、模型能力和 Budget／Adaptive thinking，支持流式输出、图片与工具调用，签名推理随会话保存并在前缀有效时回放。
+- [Desktop] Anthropic Provider 复核修复（9 项）：Messages 请求不再自动跟随重定向，`x-api-key` 不会被 `3xx` 带去其他源；保存新 Key 会作废仍在进行的旧验证，迟到的验证结果不再改写当前 Provider；旧 `threads.db` 的 schema 升级在写事务内检查并迁移，并发打开不再因重复列失败而丢掉会话持久化；标题、摘要和子 agent 请求按模型默认 thinking 发送（不再强制 `disabled`，同时保留显式 Off 语义），Adaptive 的 Off 也改为省略 `thinking`；Adaptive 不再凭空生成五档 effort，`efforts=` 声明在设置往返中保留；切换工具 schema 但未移除 reasoning 时保留历史实测 token 修正，避免漏掉必要的上下文压缩；Stop 会关闭底层 socket，阻塞中的图片上传立即可中断而不是等超时；`model_context_window_exceeded` 映射为截断结束原因，不再在 ACP 出口被当作正常完成。
+- [Desktop] GPUI Kit 升级至 0.9.0；通用设置支持光标闪烁与常亮，主题切换继续保留该偏好。
+- [Desktop] 图片粘贴在文本插入前添加附件，保留多光标、中文正文、上下文 token、选区和撤销历史；修复替换选区丢字、描述文字被误删及菜单粘贴未添加图片。Native/External 共用的新对话按钮补齐中英文无障碍名称。
+- [Desktop] 内部图标覆盖改为启动时加载并复用，避免绘制期间访问覆盖目录；拒绝非普通文件和超限图标，错误日志只记录相对图标名。
+- [Desktop] 保存或删除 Provider 时同步清除已失效的模型选择，避免生成中切换 Provider、热刷新返回 Busy 后，重启仍使用旧 Provider 的模型。
+- [Desktop] 禁用最后一个模型或清空模型列表后，当前会话立即进入未配置状态并禁用发送，清除 Key 和重启也不会继续沿用旧模型与凭据，重新启用模型后可恢复。
+- [Desktop] 修复生成中关闭 ACP 连接时的卡死：退出命令同时终止当前 turn 和连接循环，解决 macOS CI 的 `native_runtime_busy` 超时。
 - [Desktop] macOS 产物改 **universal**（arm64 + x86_64）：`cargo-packager` 不做 lipo，CI 先分别交叉编译两个架构再 `lipo -create` 合并，然后按 `--target universal-apple-darwin` 打包；`verify-package.sh` 用 `lipo -archs` 断言两个 slice 都在（缺一个就红）。Intel Mac 用户不再需要另选包。
 - [Desktop] 新增 tag 触发的发布流水线 `.github/workflows/desktop-release.yml`：`desktop-v<version>` 打 tag → 三平台构建（macOS universal dmg / Windows msi / Linux deb+AppImage）+ `SHA256SUMS` → GitHub Release（`prerelease`，未签名只作内测通道）。发布前断言 tag 与包版本一致、且 tag 指向的提交已在 develop/main 上。
 - [Desktop] 内测包支持**把后端端点与运行环境编进二进制**（`CGC_DEFAULT_API_URL` / `CGC_DEFAULT_ENV=prod`）：用户双击 `.app` 启动拿不到 shell 环境变量，此前只能连 `localhost:4000` 且落 dev 数据根；现在解析顺序为 `CGC_API_URL` 环境变量 > `~/.cgc2046/settings.json` 的 `api.url` > 编译期默认值，手改设置即可切后端、无需重打包。源码默认值不变（本机端点 + dev），`cargo run` 行为不受影响。默认端点是**官方域** `https://api.codingirlsclub.com/api/graphql`，并新增端点白名单（`https://` 只认 `codingirlsclub.com` 及其子域、`http://` 只认本机回环），不在名单的覆盖值被忽略——Bearer token、登录密码、下单请求与 MCP lease token 都走这条通道；打包校验脚本对产物做 fail-closed 断言（必须含官方端点、不得含错拼域 `codinggirlsclub.com`）。
@@ -78,6 +100,15 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 - [Desktop] `Desktop Release` 新增**生产 schema 兼容门禁**：出包前用 `desktop/scripts/check_release_schema.py` 提取客户端实际使用的 GraphQL 字段并逐个探测生产端点，缺任一字段即 fail-closed 拒绝构建（`--self-test` 覆盖提取与判定）；修复 #1183 暴露的「客户端先发、后端未发」顺序问题。
 - [Desktop] schema 门禁的探测改为 fail-closed：HTTP 非 2xx 且无 GraphQL `errors`、或缺 `data`/`errors` 的 envelope 一律判为不可用（此前会被当成 exists，不可用后端可让所有探测通过）。
 
+- [Desktop] 修复 Codex / Claude Code 安装和启动时的 Node 缺失误报：统一使用托管 Node 和持久安装的固定版本包，清除 npm 缓存后仍可启动，损坏包可重装，重装 Node 也会保留已安装的 agent 包。
+- [Desktop] 修复 ACP agent 崩溃后会话仍显示可用：及时报告退出状态并回收子进程。
+- [Desktop] 保留 agent 安装所需的 HTTP 代理配置；串行处理同目标安装，避免删除刚完成的健康包；修复 stdout 关闭和后代持有管道时连接或命令超时无法及时结束的问题。
+- [Desktop] 新增 **Anthropic Compatible Provider**：可接入自建/第三方的 Anthropic 兼容端点。
+- [Desktop] **Window & Layout / Panels 设置页**：dock 位置可选，状态栏按钮随面板侧移动，状态栏上下文菜单集中开关，宽度应用与显示开关解耦。
+- [Desktop] **托管 Node 固定版本安装**并加固 ACP 生命周期（启动、崩溃回收、会话状态）。
+- [Desktop] 升级 GPUI Kit 0.9.0，修复图片粘贴。
+- [Desktop] 崩溃回收改为直接向进程组发 `SIGKILL`，避免孤儿子进程残留。
+- [Desktop] 导航与通知时保留 dock / workspace 尺寸记忆，过滤与状态栏开关行为对齐。
 ## [2026-10-18]
 
 ### Added

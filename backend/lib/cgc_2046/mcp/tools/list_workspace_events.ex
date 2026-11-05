@@ -20,9 +20,7 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceEvents do
   source: "locked"}}}`），仅活动被 detach 后非 nil，挂载中 / 从未挂载为 nil
   （agent 无需判键是否存在）。
 
-  授权 = Wrapper 默认 fail-closed member 门（`list_workspace_courses` 同款）：
-  workspace member 可读全部状态（含 draft）——本面读门禁在 Wrapper 层已真实
-  发生，活动直读走 `authorize?: false`。
+  授权 = Wrapper 成员门 + 领域 actor 读：普通成员仅 open/closed，管理者按领域权限读取。
   """
 
   use Anubis.Server.Component, type: :tool
@@ -38,11 +36,12 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceEvents do
   @impl true
   def description do
     """
-    工作台成员可读：列出工作台的全部活动（含 draft），status 可选过滤（draft | open | closed |
-    cancelled）。每条 event_id / title / slug / status / visibility / enrollment_badge（enrolling |
-    starting_soon | closed | full）/ starts_at / registration_deadline / payment_mode（free | pricing |
-    deposit）/ 押金明细 deposit / detached_rule_provenance（活动解除挂载后保留的原锁定规则来源，其余情况为
-    null）。缴费方式以 payment_mode 为准，押金场即使没有定价档也不是免费。按创建时间正序，最多 100 条。
+    List events visible to the caller in a workspace. Members can read open/closed events;
+    owners/admins can read all statuses. Optional status filter: draft | open | closed | cancelled.
+    Returns event_id, title, slug, status, visibility, enrollment_badge, starts_at,
+    registration_deadline, payment_mode, deposit and detached_rule_provenance (null when absent).
+    Use payment_mode to distinguish free, pricing and deposit events. Ordered by creation, up to
+    100 rows.
     """
   end
 
@@ -55,9 +54,9 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceEvents do
   @impl true
   def execute(params, frame) do
     result =
-      Wrapper.run(frame, params, "list_workspace_events", fn _actor, workspace_id, params ->
+      Wrapper.run(frame, params, "list_workspace_events", fn actor, workspace_id, params ->
         with {:ok, status} <- parse_status(params["status"]),
-             {:ok, rows} <- read_events(workspace_id, status) do
+             {:ok, rows} <- read_events(actor, workspace_id, status) do
           {:ok, %{count: length(rows), events: rows}}
         end
       end)
@@ -83,17 +82,14 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceEvents do
 
   defp parse_status(_), do: {:error, "status must be a string"}
 
-  # member 门已在 Wrapper 层真实发生（非成员 forbidden 落审计）；tenant 锁
-  # 工作台归属，authorize?: false 直读全部状态（含 draft）。enrollment_badge
-  # 计算列一并 load——状态徽章投影消费（load 依赖 capacity/confirmed_count/
-  # starts_at/registration_deadline 由 Ash 补载）。
-  defp read_events(workspace_id, status) do
+  # 成员门之后继续走领域 actor 读，状态过滤不能扩大 actor 的可见集合。
+  defp read_events(actor, workspace_id, status) do
     Event
     |> scope_status(status)
     |> Ash.Query.sort(inserted_at: :asc, id: :asc)
     |> Ash.Query.limit(@limit)
     |> Ash.Query.load(:enrollment_badge)
-    |> Ash.read(authorize?: false, tenant: workspace_id)
+    |> Ash.read(actor: actor, tenant: workspace_id)
     |> case do
       {:ok, events} -> {:ok, Enum.map(events, &to_row/1)}
       {:error, _} = err -> err

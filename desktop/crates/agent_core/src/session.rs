@@ -129,6 +129,12 @@ pub enum AgentError {
     RuntimeClosed,
 }
 
+pub struct SteerMessage {
+    pub prompt: String,
+    pub display: String,
+    pub draft: Option<serde_json::Value>,
+}
+
 /// 一个 native agent 会话。P1a 先内存态。
 pub struct Agent {
     thread: Thread,
@@ -141,19 +147,24 @@ pub struct Agent {
     follow_up_rx: mpsc::Receiver<String>,
     steer_tx: mpsc::Sender<String>,
     steer_rx: mpsc::Receiver<String>,
+    context_steer_tx: mpsc::Sender<SteerMessage>,
+    context_steer_rx: mpsc::Receiver<SteerMessage>,
     reasoning_effort: Option<String>,
+    thinking_enabled: Option<bool>,
     /// 采样温度；`None` = 不下发（provider 默认）。由 app 从用户设置文件解析。
     temperature: Option<f32>,
     /// 下一轮用户消息要携带的图片附件（MIME, base64）；发送一次后清空。
     pending_images: Vec<(String, String, String)>,
     /// 下一条用户消息的 UI 展示文本（不含注入上下文）；发送一次后清空。
     pending_user_display: Option<String>,
+    pending_user_draft: Option<serde_json::Value>,
 }
 
 impl Agent {
     pub fn new(thread: Thread, system_prompt: Option<String>) -> Self {
         let (follow_up_tx, follow_up_rx) = mpsc::channel();
         let (steer_tx, steer_rx) = mpsc::channel();
+        let (context_steer_tx, context_steer_rx) = mpsc::channel();
         Self {
             thread,
             system_prompt,
@@ -165,10 +176,14 @@ impl Agent {
             follow_up_rx,
             steer_tx,
             steer_rx,
+            context_steer_tx,
+            context_steer_rx,
             reasoning_effort: None,
+            thinking_enabled: None,
             temperature: None,
             pending_images: Vec::new(),
             pending_user_display: None,
+            pending_user_draft: None,
         }
     }
 
@@ -187,8 +202,22 @@ impl Agent {
         self.pending_user_display = display;
     }
 
+    pub fn set_pending_user_draft(&mut self, draft: Option<serde_json::Value>) {
+        self.pending_user_draft = draft;
+    }
+
     /// 把待发送图片挂到最近一条用户消息上（随 thread 持久化）。
     fn persist_pending_images(&mut self) {
+        let users = self
+            .thread
+            .entries
+            .iter()
+            .filter(|entry| matches!(entry, Entry::User { .. }))
+            .count();
+        self.thread.user_drafts.resize(users, None);
+        if let Some(slot) = self.thread.user_drafts.last_mut() {
+            *slot = self.pending_user_draft.take();
+        }
         if self.pending_images.is_empty() {
             return;
         }
@@ -230,6 +259,10 @@ impl Agent {
         self.reasoning_effort = reasoning_effort;
     }
 
+    pub fn set_thinking_enabled(&mut self, enabled: bool) {
+        self.thinking_enabled = Some(enabled);
+    }
+
     /// 用磁盘上最新的 thread 替换当前会话（多视图共享会话）。
     pub fn replace_thread(&mut self, thread: Thread) {
         self.thread = thread;
@@ -238,6 +271,7 @@ impl Agent {
         self.follow_ups.clear();
         while self.follow_up_rx.try_recv().is_ok() {}
         while self.steer_rx.try_recv().is_ok() {}
+        while self.context_steer_rx.try_recv().is_ok() {}
         self.cancel.reset();
     }
 
@@ -249,6 +283,40 @@ impl Agent {
     /// 运行中打断当前生成并插入一条消息。
     pub fn steer_sender(&self) -> mpsc::Sender<String> {
         self.steer_tx.clone()
+    }
+
+    pub fn discard_pending_steers(&mut self) {
+        while self.steer_rx.try_recv().is_ok() {}
+        while self.context_steer_rx.try_recv().is_ok() {}
+    }
+
+    pub fn context_steer_sender(&self) -> mpsc::Sender<SteerMessage> {
+        self.context_steer_tx.clone()
+    }
+
+    fn take_steer(&mut self) -> Option<SteerMessage> {
+        self.context_steer_rx.try_recv().ok().or_else(|| {
+            self.steer_rx.try_recv().ok().map(|text| SteerMessage {
+                prompt: text.clone(),
+                display: text,
+                draft: None,
+            })
+        })
+    }
+
+    fn push_steer(&mut self, message: SteerMessage) {
+        self.thread
+            .push_user_with_display(message.prompt, Some(message.display));
+        let users = self
+            .thread
+            .entries
+            .iter()
+            .filter(|entry| matches!(entry, Entry::User { .. }))
+            .count();
+        self.thread.user_drafts.resize(users, None);
+        if let Some(slot) = self.thread.user_drafts.last_mut() {
+            *slot = message.draft;
+        }
     }
 
     pub fn queue_follow_up(&mut self, text: impl Into<String>) {
@@ -287,16 +355,18 @@ impl Agent {
                 StreamOutcome::Finished {
                     text,
                     thinking,
+                    thinking_signature,
+                    replay_content,
                     usage,
                     stop_reason,
                     tool_calls,
                 } => {
-                    self.record_thinking(thinking);
-                    self.record_turn(text.clone(), tool_calls.clone(), usage);
+                    self.record_thinking(thinking, thinking_signature);
+                    self.record_turn(text.clone(), tool_calls.clone(), usage, replay_content);
                     // 插话只在 turn 边界生效（对齐 Zed 的 end_turn_at_next_boundary）：
                     // 已产生的文本保留，本轮结果不返回，直接进入下一轮。
-                    if let Ok(steer_text) = self.steer_rx.try_recv() {
-                        self.thread.push_user(steer_text);
+                    if let Some(message) = self.take_steer() {
+                        self.push_steer(message);
                         steers += 1;
                         if steers >= MAX_STEERS {
                             return Err(AgentError::StepLimitExceeded);
@@ -372,26 +442,37 @@ impl Agent {
                     .await?;
                 let stream_outcome =
                     run_stream(provider, model, request, &self.cancel, observer).await?;
-                let (text, thinking, usage, stop_reason, tool_calls) = match stream_outcome {
-                    StreamOutcome::Finished {
-                        text,
-                        thinking,
-                        usage,
-                        stop_reason,
-                        tool_calls,
-                    } => (text, thinking, usage, stop_reason, tool_calls),
-                };
-                self.record_thinking(thinking);
-                self.record_turn(text.clone(), tool_calls.clone(), usage);
+                let (text, thinking, signature, replay, usage, stop_reason, tool_calls) =
+                    match stream_outcome {
+                        StreamOutcome::Finished {
+                            text,
+                            thinking,
+                            thinking_signature,
+                            replay_content,
+                            usage,
+                            stop_reason,
+                            tool_calls,
+                        } => (
+                            text,
+                            thinking,
+                            thinking_signature,
+                            replay_content,
+                            usage,
+                            stop_reason,
+                            tool_calls,
+                        ),
+                    };
+                self.record_thinking(thinking, signature);
+                self.record_turn(text.clone(), tool_calls.clone(), usage, replay);
                 observer.on_usage(usage, self.thread.usage_total);
                 all_text.push_str(&text);
                 total_usage.add(usage);
                 all_tool_calls.extend(tool_calls.clone());
                 if stop_reason != StopReason::ToolUse || tool_calls.is_empty() {
                     // turn 边界：此刻没有待执行工具，插话可以安全地成为下一条用户消息。
-                    if let Ok(steer_text) = self.steer_rx.try_recv() {
-                        observer.on_steer_started(&steer_text);
-                        self.thread.push_user(steer_text);
+                    if let Some(message) = self.take_steer() {
+                        observer.on_steer_started(&message.display);
+                        self.push_steer(message);
                         steers += 1;
                         if steers >= MAX_STEERS {
                             return Err(AgentError::StepLimitExceeded);
@@ -443,13 +524,25 @@ impl Agent {
         Ok(())
     }
 
-    fn record_thinking(&mut self, thinking: String) {
+    fn record_thinking(&mut self, thinking: String, signature: Option<String>) {
         if !thinking.is_empty() {
             self.thread.push_thinking(thinking);
+            if let Some(Entry::Thinking {
+                signature: stored, ..
+            }) = self.thread.entries.last_mut()
+            {
+                *stored = signature;
+            }
         }
     }
 
-    fn record_turn(&mut self, text: String, tool_calls: Vec<ToolUse>, usage: TokenUsage) {
+    fn record_turn(
+        &mut self,
+        text: String,
+        tool_calls: Vec<ToolUse>,
+        usage: TokenUsage,
+        replay: Vec<cgc_agent_provider::Content>,
+    ) {
         let usage_for_entry = if usage == TokenUsage::default() {
             None
         } else {
@@ -458,5 +551,8 @@ impl Agent {
         self.thread.usage_total.add(usage);
         self.thread
             .push_assistant(text, tool_calls, usage_for_entry);
+        if let Some(Entry::Assistant { replay_content, .. }) = self.thread.entries.last_mut() {
+            *replay_content = replay;
+        }
     }
 }

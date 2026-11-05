@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use crate::event::ToolUse;
 
 /// 消息角色。
@@ -10,9 +12,17 @@ pub enum Role {
 }
 
 /// 消息内容块。
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Content {
     Text(String),
+    /// Signed provider reasoning, replayed verbatim when continuing a tool turn.
+    Thinking {
+        text: String,
+        signature: String,
+    },
+    RedactedThinking {
+        data: String,
+    },
     /// 图片附件（base64 编码的原始字节 + MIME）。
     Image {
         mime_type: String,
@@ -24,6 +34,12 @@ pub enum Content {
         content: String,
         is_error: bool,
     },
+}
+
+impl Content {
+    pub fn is_thinking(&self) -> bool {
+        matches!(self, Self::Thinking { .. } | Self::RedactedThinking { .. })
+    }
 }
 
 /// 一条对话消息。
@@ -107,8 +123,10 @@ pub struct Request {
     pub tools: Vec<ToolSchema>,
     pub temperature: Option<f32>,
     pub max_output_tokens: Option<u32>,
-    /// OpenAI-compatible 的 `reasoning_effort`（thinking 档位）。
+    /// Provider maps this effort to its own protocol field.
     pub reasoning_effort: Option<String>,
+    /// None uses model defaults; Some(false) explicitly disables thinking.
+    pub thinking_enabled: Option<bool>,
 }
 
 impl Request {
@@ -126,6 +144,11 @@ impl Request {
 
     pub fn with_reasoning_effort(mut self, reasoning_effort: Option<String>) -> Self {
         self.reasoning_effort = reasoning_effort;
+        self
+    }
+
+    pub fn with_thinking_enabled(mut self, enabled: bool) -> Self {
+        self.thinking_enabled = Some(enabled);
         self
     }
 

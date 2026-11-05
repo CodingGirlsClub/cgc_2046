@@ -9,6 +9,9 @@ impl NativeAgentView {
             .as_deref()
             .expect("render and commands require initialized runtime")
     }
+    pub(super) fn conversation_scope(&self) -> crate::page_context::ConversationScope {
+        crate::page_context::ConversationScope::new(self.metadata().thread.id.clone(), "native")
+    }
     pub fn is_empty_thread(&self) -> bool {
         self.snapshot
             .as_ref()
@@ -66,6 +69,13 @@ impl NativeAgentView {
         .detach();
     }
 
+    pub(super) fn begin_operation(&mut self, cx: &mut Context<Self>) -> u64 {
+        self.operation_serial = self.operation_serial.wrapping_add(1);
+        self.operation_error = None;
+        cx.notify();
+        self.operation_serial
+    }
+
     pub(super) fn command(
         &mut self,
         operation: impl Future<Output = Result<Arc<NativeRuntimeSnapshot>, NativeRuntimeError>>
@@ -73,11 +83,14 @@ impl NativeAgentView {
             + 'static,
         cx: &mut Context<Self>,
     ) {
+        let serial = self.begin_operation(cx);
         cx.spawn(async move |this, cx| {
             if let Err(error) = operation.await {
                 let _ = this.update(cx, |this, cx| {
-                    this.status = error.to_string();
-                    this.state.push_notice(error.to_string());
+                    if this.operation_serial != serial {
+                        return;
+                    }
+                    this.operation_error = Some(error.to_string());
                     cx.notify();
                 });
             }
@@ -103,7 +116,13 @@ impl NativeAgentView {
         }
         self.command(self.runtime.new_thread(), cx);
     }
-    fn persist_native(&self, snapshot: &NativeRuntimeSnapshot) {
+    pub(super) fn sync_saved_drafts(&mut self, snapshot: &NativeRuntimeSnapshot) -> bool {
+        self.state
+            .session
+            .sync_native_drafts(&snapshot.thread, self.hidden_user_count)
+    }
+
+    pub(super) fn persist_native(&self, snapshot: &NativeRuntimeSnapshot) {
         let Some(writer) = &self.writer else { return };
         if snapshot.thread.entries.is_empty() {
             return;
@@ -154,12 +173,28 @@ impl NativeAgentView {
             )
         });
         if reset {
+            self.begin_operation(cx);
+            let scope =
+                crate::page_context::ConversationScope::new(snapshot.thread.id.clone(), "native");
+            self.page_context.invalidate_loaded(&scope);
+
+            self.hidden_user_count = 0;
             self.state.session.disconnect();
-            self.state.session.thread =
+            let mut thread =
                 cgc_agent_ui::conversation::ConversationThread::new(snapshot.thread.id.clone())
                     .with_capabilities(cgc_agent_ui::conversation::ThreadCapabilities::native());
-            self.sent_images =
-                apply_thread_entries(&mut self.state.session.thread, &snapshot.thread.entries);
+            self.sent_images = apply_thread_entries(&mut thread, &snapshot.thread.entries);
+            thread.user_drafts = snapshot
+                .thread
+                .user_drafts
+                .iter()
+                .map(|draft| {
+                    draft
+                        .as_ref()
+                        .and_then(|value| serde::Deserialize::deserialize(value).ok())
+                })
+                .collect();
+            self.state.session.restore_thread(thread);
             self.state.subagents.clear();
             self.expanded_tools.clear();
             self.expanded_thinking.clear();
@@ -186,8 +221,9 @@ impl NativeAgentView {
             RuntimePhase::Idle => "就绪",
         }
         .into();
+        let projection_ready = idle && self.sync_saved_drafts(&snapshot);
         // turn 收尾：执行内容与展示投影同事务落盘，未答审批不会被恢复成活跃授权。
-        if idle
+        if projection_ready
             && self
                 .snapshot
                 .as_ref()

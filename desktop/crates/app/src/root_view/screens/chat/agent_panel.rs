@@ -4,10 +4,29 @@
 
 use super::super::super::*;
 use super::super::ScreenContext;
+use crate::icons::{AGENT_HEADER_ICON_SIZE, AGENT_ROW_ICON_SIZE};
 use cgc_platform::agent::detect::AgentStatus;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::popover::Popover;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::root_view) enum AgentPanelContent {
+    Native,
+    External,
+}
+
+/// Native/ACP 都是全局 Agent Panel；路由只决定中心内容，不再决定 ACP 是否可用。
+pub(in crate::root_view) fn content_kind(
+    native_mode: bool,
+    _route_id: Option<&str>,
+) -> AgentPanelContent {
+    if native_mode {
+        AgentPanelContent::Native
+    } else {
+        AgentPanelContent::External
+    }
+}
 
 pub(in crate::root_view) fn render_agent_panel(
     ctx: &mut ScreenContext<'_>,
@@ -16,28 +35,15 @@ pub(in crate::root_view) fn render_agent_panel(
     _window: &mut Window,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
-    let learning = ctx
-        .current
-        .as_ref()
-        .is_some_and(|route_match| route_match.route.id == "courses.learning");
+    let route_id = ctx.current.as_ref().map(|route_match| route_match.route.id);
     let native_mode = ctx.native_chat_mode && RootView::native_agent_enabled();
-    let content: AnyElement = if native_mode {
-        ctx.native_agent_view
+    let content: AnyElement = match content_kind(native_mode, route_id) {
+        AgentPanelContent::Native => ctx
+            .native_agent_view
             .clone()
             .map(IntoElement::into_any_element)
-            .unwrap_or_else(|| div().child("正在初始化 Agent…").into_any_element())
-    } else if learning {
-        super::panel::render_chat_panel(ctx, language, palette, cx)
-    } else {
-        div()
-            .flex()
-            .flex_col()
-            .gap(space(2))
-            .text_size(px(12.0))
-            .text_color(palette.ink_3)
-            .child(translate(language, Key::AgentChatPanelTitle))
-            .child(translate(language, Key::CoursesLearningContextRequired))
-            .into_any_element()
+            .unwrap_or_else(|| div().child("正在初始化 Agent…").into_any_element()),
+        AgentPanelContent::External => super::panel::render_chat_panel(ctx, language, palette, cx),
     };
     div()
         .id("agent-panel-dock")
@@ -47,7 +53,7 @@ pub(in crate::root_view) fn render_agent_panel(
         .flex()
         .flex_col()
         .bg(palette.canvas)
-        .child(header(ctx, palette, cx))
+        .child(header(ctx, language, palette, cx))
         .child(div().flex_1().min_h(px(0.0)).child(content))
         .into_any_element()
 }
@@ -86,6 +92,7 @@ fn panel_title(ctx: &ScreenContext<'_>, cx: &mut Context<RootView>) -> String {
 
 fn header(
     ctx: &mut ScreenContext<'_>,
+    language: Language,
     palette: &theme::Palette,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
@@ -254,13 +261,12 @@ fn header(
         .items_center()
         .gap(space(1))
         .px(space(2))
-        .pt(space(2))
-        .pb(space(1))
+        .h(px(COLUMN_HEADER_HEIGHT))
         .border_b_1()
         .border_color(palette.line)
         .child(crate::root_view::agent_icons::agent_icon_element(
             &agent_icon_id,
-            16.0,
+            AGENT_HEADER_ICON_SIZE,
             palette.ink_3,
         ))
         .child(title_area)
@@ -310,6 +316,7 @@ fn header(
                 .trigger(
                     Button::new("agent-panel-new-trigger")
                         .label("＋")
+                        .accessibility_label(translate(language, Key::AppA11yNewChat))
                         .xsmall()
                         .ghost()
                         .tooltip("New Agent Thread"),
@@ -343,7 +350,7 @@ fn header(
                                 .hover(|style| style.bg(palette.soft))
                                 .child(crate::root_view::agent_icons::agent_icon_element(
                                     "native",
-                                    14.0,
+                                    AGENT_ROW_ICON_SIZE,
                                     palette.ink_3,
                                 ))
                                 .child(div().flex_1().child("CGC Agent"))
@@ -410,7 +417,7 @@ fn header(
                                     .hover(|style| style.bg(palette.soft))
                                     .child(crate::root_view::agent_icons::agent_icon_element(
                                         &id,
-                                        14.0,
+                                        AGENT_ROW_ICON_SIZE,
                                         palette.ink_3,
                                     ))
                                     .child(div().flex_1().child(name.clone()))
@@ -431,6 +438,8 @@ fn header(
                     rows.push(
                         div()
                             .id("agent-panel-add-more")
+                            .role(Role::Button)
+                            .aria_label(translate(language, Key::AppA11yAddMoreAgents))
                             .flex()
                             .flex_row()
                             .items_center()

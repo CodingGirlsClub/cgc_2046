@@ -15,10 +15,13 @@ pub(crate) fn agent_workspace_root() -> std::path::PathBuf {
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| std::env::temp_dir()))
 }
 pub(crate) mod agent_scope;
+pub(crate) mod composer_context;
 pub mod conversation_session;
 pub mod deep_link;
 pub mod formula;
 pub mod i18n;
+pub mod icon_theme;
+pub mod icons;
 pub mod image_viewer;
 pub mod mention;
 pub mod mention_chip;
@@ -32,6 +35,7 @@ pub mod notifications;
 pub mod page_context;
 pub mod permission_ui;
 pub mod preferences;
+pub(crate) mod provider_settings;
 pub mod qr;
 pub mod registration;
 pub mod root_view;

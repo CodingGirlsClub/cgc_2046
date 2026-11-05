@@ -29,12 +29,73 @@ fn sample_thread() -> Thread {
 }
 
 #[test]
+fn native_and_display_snapshots_preserve_message_attachments() {
+    use cgc_agent_conversation::conversation::{
+        ContextAttachment, ContextAttachmentKind, MessageDraft,
+    };
+    let draft = MessageDraft {
+        text: "explain the selected task".into(),
+        tokens: Vec::new(),
+        attachments: vec![ContextAttachment {
+            id: "selection-1".into(),
+            label: "First task".into(),
+            kind: ContextAttachmentKind::Selection,
+            source: "/courses/course-a/learn".into(),
+            content: "original task snapshot".into(),
+            page_snapshot: None,
+        }],
+    };
+    let root = std::env::temp_dir().join(format!("cgc-draft-store-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join("threads.db");
+    let mut store = SessionStore::open(&path).unwrap();
+    let mut thread = sample_thread();
+    thread.user_drafts = vec![Some(serde_json::to_value(&draft).unwrap())];
+    store.save_thread(&thread).unwrap();
+    drop(store);
+    let store = SessionStore::open(&path).unwrap();
+    let restored = store.load_thread(&thread.id).unwrap().unwrap();
+    assert_eq!(restored.user_drafts, thread.user_drafts);
+    let saved = SavedConversation::from_execution_thread(&restored, 1);
+    let saved: SavedConversation =
+        serde_json::from_str(&serde_json::to_string(&saved).unwrap()).unwrap();
+    assert_eq!(saved.into_thread().user_drafts, vec![Some(draft)]);
+    drop(store);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn save_then_load_roundtrip() {
     let mut store = SessionStore::open_in_memory().expect("store");
     let thread = sample_thread();
     store.save_thread(&thread).expect("save");
     let loaded = store.load_thread("t1").expect("load").expect("present");
     assert_eq!(loaded, thread);
+}
+
+#[test]
+fn scope_selection_survives_late_saves_and_keeps_empty_current_thread() {
+    let mut store = SessionStore::open_in_memory().unwrap();
+    let original = sample_thread();
+    let empty = Thread::new("new-empty-thread", model());
+    store.activate_scope_thread("scope-a", &original).unwrap();
+    store.activate_scope_thread("scope-a", &empty).unwrap();
+    store.save_thread(&original).unwrap();
+    assert_eq!(store.load_scope_thread("scope-a").unwrap().unwrap(), empty);
+    store
+        .activate_scope_thread("scope-b", &Thread::new("other", model()))
+        .unwrap();
+    assert_eq!(
+        store.load_scope_thread("scope-a").unwrap().unwrap().id,
+        empty.id
+    );
+    store.activate_scope_thread("scope-a", &original).unwrap();
+    assert_eq!(
+        store.load_scope_thread("scope-a").unwrap().unwrap(),
+        original
+    );
+    store.delete_thread(&original.id).unwrap();
+    assert!(store.load_scope_thread("scope-a").unwrap().is_none());
 }
 
 #[test]

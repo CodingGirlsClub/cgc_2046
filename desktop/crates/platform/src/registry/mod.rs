@@ -4,3 +4,4 @@ pub mod checksum;
 pub mod discovery;
 pub mod install;
 pub mod manifest;
+pub(crate) mod package;

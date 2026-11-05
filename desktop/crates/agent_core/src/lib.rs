@@ -6,6 +6,7 @@
 
 mod context;
 pub mod session;
+mod thinking;
 pub mod thread;
 
 pub use context::project_thread;
@@ -14,4 +15,5 @@ pub use session::{
     DenyApprover, NoopObserver, ToolResultSummary, ToolTurnOutcome, TurnObserver, TurnOutcome,
     MAX_FOLLOW_UP_TURNS, MAX_STEERS, MAX_TOOL_STEPS,
 };
+pub use thinking::ThinkingContext;
 pub use thread::{Entry, ImageAttachment, SelectedModel, Thread};

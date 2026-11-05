@@ -12,11 +12,8 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceCourses do
   `status` 可选过滤（draft|open|closed|cancelled）。按创建时间正序，
   封顶 100。
 
-  授权 = Wrapper 默认 fail-closed member 门（`list_my_tasks` 同款）：
-  workspace member 可读全部状态（含 draft）——域 read policy 对 member
-  收窄 draft（`Offering.ActorReadsOffering`），本面读门禁在 Wrapper 层
-  已真实发生，课程直读走 `authorize?: false`（`Course.fetch_scoped/3`
-  纪律）。
+  授权 = Wrapper 成员门 + 领域 actor 读：普通成员 open/closed，tutor 另可读 draft，
+  Owner/Admin 全部状态。MCP 与领域读取共用状态授权单源（#1084）。
   """
 
   use Anubis.Server.Component, type: :tool
@@ -33,10 +30,11 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceCourses do
   @impl true
   def description do
     """
-    工作台成员可读：列出工作台的全部课程（含 draft），status 可选过滤（draft | open | closed |
-    cancelled）。每条 course_id / title / status / visibility / current_revision_id / prep_state（没有教研
-    流程的课程为 null），按创建时间正序，最多 100 条。用于找到要编辑或管理的课程；学员找可报名的课程用
-    discover_offerings。
+    List courses visible to the caller in a workspace. Members can read open/closed courses; tutors
+    can also read draft courses; owners/admins can read all statuses. Optional status filter:
+    draft | open | closed | cancelled. Returns course_id, title, status, visibility,
+    current_revision_id and prep_state (null without a preparation workflow), ordered by creation,
+    up to 100 rows. Learners looking for available enrollment can use discover_offerings.
     """
   end
 
@@ -49,9 +47,9 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceCourses do
   @impl true
   def execute(params, frame) do
     result =
-      Wrapper.run(frame, params, "list_workspace_courses", fn _actor, workspace_id, params ->
+      Wrapper.run(frame, params, "list_workspace_courses", fn actor, workspace_id, params ->
         with {:ok, status} <- parse_status(params["status"]),
-             {:ok, rows} <- read_courses(workspace_id, status) do
+             {:ok, rows} <- read_courses(actor, workspace_id, status) do
           {:ok, %{count: length(rows), courses: rows}}
         end
       end)
@@ -77,18 +75,14 @@ defmodule Cgc2046.Mcp.Tools.ListWorkspaceCourses do
 
   defp parse_status(_), do: {:error, "status must be a string"}
 
-  # member 门已在 Wrapper 层真实发生（非成员 forbidden 落审计）；tenant 锁
-  # 工作台归属，authorize?: false 直读全部状态（含 draft）。workflow_run 关系
-  # 用显式 related query 收窄 select 到 id + :prep_state calculation（复审 F1：
-  # Ash 关系 load 缺省 select 全部属性——不收窄则 facts JSONB 里的整份课程
-  # 内容镜像照样过网，calculation 形同虚设）。
-  defp read_courses(workspace_id, status) do
+  # actor 读由领域 policy 约束状态；关系投影只加载 id 与 prep_state，避免读整份 facts。
+  defp read_courses(actor, workspace_id, status) do
     Course
     |> scope_status(status)
     |> Ash.Query.sort(inserted_at: :asc, id: :asc)
     |> Ash.Query.limit(@limit)
     |> Ash.Query.load(workflow_run: workflow_run_projection())
-    |> Ash.read(authorize?: false, tenant: workspace_id)
+    |> Ash.read(actor: actor, tenant: workspace_id)
     |> case do
       {:ok, courses} -> {:ok, Enum.map(courses, &to_row/1)}
       {:error, _} = err -> err

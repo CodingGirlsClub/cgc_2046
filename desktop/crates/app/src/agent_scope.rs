@@ -11,7 +11,6 @@ use std::path::{Path, PathBuf};
 /// 一个页面 scope 对应的 agent 工作区。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AgentScope {
-    /// 稳定的 scope key（用于线程 id / checkpoint 命名）。
     pub key: String,
     /// 工作区根目录（sandbox 根、checkpoint 仓库、线程归属都按它）。
     pub root: PathBuf,

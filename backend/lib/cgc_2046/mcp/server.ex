@@ -199,6 +199,8 @@ defmodule Cgc2046.Mcp.Server do
   # #545 押金错没收补救：工具面 68 → 69（platform_admin 门 + 确认流两段）
   component(Cgc2046.Mcp.Tools.UnforfeitOrder)
   component(Cgc2046.Mcp.Tools.UpdateJoinPolicy)
+  # #1226：工作台简介确认流写（Owner/Admin；工具层 Rbac.manage? 快速拒绝）
+  component(Cgc2046.Mcp.Tools.UpdateWorkspaceDescription)
   # 课程教研流程九工具（role-agent-journeys-v2 S5，R22-R28）：工具面 49 → 58
   # （member-only 门 + 工具层角色判定；策略调整/门禁覆盖/审核发布三件走确认流，
   # 域逻辑宿主 Curriculum.Prep）

@@ -5,6 +5,9 @@ use cgc_agent_store::SessionStore;
 use futures::{stream::FuturesUnordered, FutureExt, StreamExt};
 use std::sync::Weak;
 
+#[cfg(test)]
+mod tests;
+
 pub(super) enum Initialization {
     Explicit {
         thread: Box<Thread>,
@@ -17,6 +20,7 @@ pub(super) enum Initialization {
         data_root: PathBuf,
         host: NativePanelHost,
         authorization_epoch: u64,
+        allow_echo: bool,
     },
 }
 
@@ -29,7 +33,7 @@ pub(super) enum TitleOutcome {
 
 pub(super) struct ActiveTurn {
     pub cancel: CancelToken,
-    pub steer: std::sync::mpsc::Sender<String>,
+    pub steer: std::sync::mpsc::Sender<cgc_agent_core::session::SteerMessage>,
 }
 
 pub(super) enum Job {
@@ -128,8 +132,10 @@ impl Owner {
                     data_root,
                     host,
                     authorization_epoch,
+                    allow_echo,
                 } => {
-                    let (agent, config, production) = factory::initialize(&scope, data_root, host)?;
+                    let (agent, config, production) =
+                        factory::initialize(&scope, data_root, host, allow_echo)?;
                     (
                         agent,
                         config,
@@ -145,13 +151,18 @@ impl Owner {
         let store = match production.as_ref() {
             Some(production) => {
                 match SessionStore::open(production.data_root.join("agent/threads.db")) {
-                    Ok(store) => {
-                        match store.load_thread(&agent.thread().id) {
-                            Ok(Some(thread)) if thread.model == agent.thread().model => {
-                                agent.replace_thread(thread)
+                    Ok(mut store) => {
+                        if let Some(scope) = scope.as_deref() {
+                            match restore_scope_thread(
+                                Some(&mut store),
+                                scope,
+                                agent.thread().model.clone(),
+                            ) {
+                                Ok(thread) => agent.replace_thread(thread),
+                                Err(error) => notices.push(format!(
+                                    "Unable to restore the previous conversation: {error}"
+                                )),
                             }
-                            Ok(_) => {}
-                            Err(error) => notices.push(format!("读取会话失败：{error}")),
                         }
                         Some(store)
                     }
@@ -164,7 +175,8 @@ impl Owner {
             None => supplied_store,
         };
         if let Some(production) = production.as_ref() {
-            if let Some(notice) = crate::native_context::offline_echo_notice(production.using_echo)
+            if let Some(notice) =
+                crate::native_context::offline_echo_notice(production.model_setup.is_demo())
             {
                 notices.push(notice.to_string());
             }
@@ -268,10 +280,11 @@ impl Owner {
             title_generating: self.title_running,
             title_generation_error: self.title_generation_error.clone(),
             providers: self.providers.clone(),
-            using_echo: self
+            model_setup: self
                 .production
                 .as_ref()
-                .is_some_and(|production| production.using_echo),
+                .map(|production| production.model_setup)
+                .unwrap_or(ModelSetup::Configured),
             thinking_enabled: self.thinking_enabled,
             effort_index: self.effort_index,
             approval_mode: if self.config.auto_approve {

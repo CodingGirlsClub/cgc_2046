@@ -77,6 +77,42 @@ fn steer_interrupts_stream_and_continues_with_new_message() {
 }
 
 #[test]
+fn steer_with_context_preserves_display_and_draft_for_history_editing() {
+    let fake = fake_with_texts(&["partial", "final"]);
+    let mut agent = agent();
+    let draft = serde_json::json!({"text": "explain the selection", "attachments": [{"content": "original selection"}]});
+    agent
+        .context_steer_sender()
+        .send(cgc_agent_core::session::SteerMessage {
+            prompt: "original selection\n\nexplain the selection".into(),
+            display: "explain the selection".into(),
+            draft: Some(draft.clone()),
+        })
+        .unwrap();
+    let mut recorder = Recorder::default();
+    futures::executor::block_on(agent.prompt_with_tools_observed(
+        &fake,
+        &model(),
+        "first",
+        &ToolRegistry::with_read_tools(),
+        &context(),
+        &AutoApprover,
+        &mut recorder,
+    ))
+    .unwrap();
+    assert_eq!(recorder.steers, vec!["explain the selection"]);
+    assert_eq!(agent.thread().user_drafts, vec![None, Some(draft)]);
+    assert!(
+        matches!(&agent.thread().entries[2], cgc_agent_core::Entry::User { text, display: Some(display), .. }
+        if text.contains("original selection") && display == "explain the selection")
+    );
+    assert!(fake.requests()[1]
+        .messages
+        .iter()
+        .any(|message| message.text().contains("original selection")));
+}
+
+#[test]
 fn steer_limit_stops_runaway_interrupts() {
     let fake = fake_with_texts(&["a", "b", "c", "d", "e", "f"]);
     let mut agent = agent();

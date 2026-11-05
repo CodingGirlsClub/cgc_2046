@@ -4,11 +4,11 @@
 //! `observe_window_appearance` 转给 `RootView::on_appearance_changed`。
 
 use cgc_desktop_app::i18n::{default_language, translate, Key};
+use cgc_desktop_app::icons::TRAY_ICON_PNG;
 use cgc_desktop_app::registration::{build_registry, validate};
 use cgc_desktop_app::root_view::{main_window_options, RootView};
 use cgc_desktop_app::theme;
 use gpui_kit::AppContext as _;
-use gpui_kit::{point, px, size, Bounds, WindowBounds};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
@@ -60,7 +60,11 @@ fn main() {
         Vec::<gpui_kit::SystemNotificationResponse>::new(),
     ));
 
-    let application = gpui_kit::application().with_assets(gpui_kit::assets::AllAssets);
+    // 内部/调试能力：`CGC_ICON_OVERLAY_DIR` 指向同名 SVG 覆盖目录；未设置时走内置图标。
+    let assets = cgc_desktop_app::icon_theme::AppAssets::new(
+        cgc_desktop_app::icon_theme::overlay_dir_from_env(),
+    );
+    let application = gpui_kit::application().with_assets(assets.clone());
     {
         let os_urls = os_urls.clone();
         application.on_open_urls(move |urls| {
@@ -71,17 +75,8 @@ fn main() {
     }
     application.run(move |cx| {
         gpui_kit::init(cx);
-        // demo / 真机回归实例使用独立 identity 与 display name，避免和正式客户端在
-        // Dock / 应用切换 / 单实例激活上混在一起（2026-10-25 真机回归发现）。
-        let demo_mode = std::env::var_os("CGC_NATIVE_AGENT_DEMO").is_some();
-        if demo_mode {
-            cx.set_app_identity(
-                "com.codingirlsclub.cgc2046.desktop.demo",
-                "程序媛汇（demo）",
-            );
-        } else {
-            cx.set_app_identity("com.codingirlsclub.cgc2046.desktop", "程序媛汇");
-        }
+        assets.install_resolver(cx);
+        cx.set_app_identity("com.codingirlsclub.cgc2046.desktop", "程序媛汇");
         cx.set_quit_mode(gpui_kit::QuitMode::Explicit);
         {
             let notification_responses = notification_responses.clone();
@@ -105,10 +100,6 @@ fn main() {
             }
 
             let view_registry = startup_registry.clone();
-            let chat_input = cx.new(|cx| {
-                gpui_kit::component::input::TextareaState::new(window, cx)
-                    .placeholder("给 agent 发消息… @ 引用上下文，/ 查看命令")
-            });
             let config_search_input = cx.new(|cx| {
                 gpui_kit::component::input::InputState::new(window, cx).placeholder(translate(
                     default_language(),
@@ -121,7 +112,7 @@ fn main() {
                 this.set_history_sidebar_persisted(history_sidebar_open);
                 this.set_tray_preferences(close_to_tray.clone(), tray_hint_shown.clone());
                 this.install_main_window_lifecycle(window, cx);
-                this.set_chat_input(chat_input);
+                this.initialize_chat_input(window, cx);
                 this.set_config_search_input(config_search_input);
                 this.initialize_agent_session(window, cx);
             });
@@ -150,7 +141,7 @@ fn main() {
                     tooltip: translate(language, Key::AppTrayTooltip).to_string(),
                 }
             };
-            match cgc_platform::tray::create(include_bytes!("../icons/32x32.png"), labels) {
+            match cgc_platform::tray::create(TRAY_ICON_PNG, labels) {
                 Ok(tray) => view.update(cx, |this, cx| this.install_tray(tray, cx)),
                 Err(error) => {
                     log::warn!(target: "app", "托盘不可用：{error}");
@@ -161,23 +152,5 @@ fn main() {
             view
         })
         .expect("main window opens");
-
-        if demo_mode {
-            // demo 窗口不抢焦点：正常客户端仍是前台窗口，Agent 只作为附加窗口。
-            // 关键：显式给独立 bounds + 标题。`window_bounds: None` 会继承主窗口
-            // bounds，在真机回归时几乎铺满屏幕、把客户端界面整体盖住（2026-10-25）。
-            let mut options = main_window_options();
-            options.focus = false;
-            if let Some(titlebar) = options.titlebar.as_mut() {
-                titlebar.title = Some("CGC Agent（demo）".into());
-            }
-            options.window_bounds = Some(WindowBounds::Windowed(Bounds {
-                origin: point(px(80.0), px(80.0)),
-                size: size(px(1000.0), px(760.0)),
-            }));
-            let _ = gpui_kit::open_window(options, cx, |window, cx| {
-                RootView::isolated_native_demo(window, cx)
-            });
-        }
     });
 }

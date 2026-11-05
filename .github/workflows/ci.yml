@@ -462,17 +462,22 @@ jobs:
           # 且用户不该自己挑架构。artifact_arch 决定产物命名的架构段。
           - os: macos-15
             formats: dmg
+            archive: ""
             artifact_arch: universal
+          # 与 desktop-release 同形态：先出安装包，再解包重压成免安装便携包
+          # （cargo-packager 没有 zip/tar.gz 格式），共用 name/verify 脚本。
           - os: windows-2022
             formats: wix
+            archive: zip
             artifact_arch: ""
           - os: ubuntu-24.04
-            formats: deb,appimage
+            formats: deb
+            archive: tar.gz
             artifact_arch: ""
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
-      # universal 时产物命名带 _universal、verify 断言 lipo 双架构；
+      # universal 时产物命名带 _macos-universal、verify 断言 lipo 双架构；
       # 其它平台留空 → name-artifacts.sh 回落到 uname -m。
       CGC_ARTIFACT_ARCH: ${{ matrix.artifact_arch }}
     defaults:
@@ -551,8 +556,52 @@ jobs:
             target/x86_64-apple-darwin/release/cgc-desktop-app
           lipo -archs target/universal-apple-darwin/release/cgc-desktop-app
           cargo packager -p cgc-desktop-app --release --target universal-apple-darwin -f dmg
+      # 便携包：与 desktop-release.yml 同一套流程（解安装包再压缩）。
+      - name: 生成便携 tar.gz（解 deb）
+        if: github.event_name == 'push' && matrix.archive == 'tar.gz'
+        run: |
+          set -euo pipefail
+          deb=$(ls dist/*.deb | head -1)
+          stage=$(mktemp -d)
+          dpkg-deb -x "$deb" "$stage"
+          cp scripts/register-protocol.sh "$stage/usr/bin/register-protocol.sh"
+          chmod +x "$stage/usr/bin/register-protocol.sh"
+          tar -czf dist/cgc2046-linux-portable.tar.gz -C "$stage" .
+          rm -f "$deb"
+          rm -rf "$stage"
+      - name: 生成便携 zip（解 msi）
+        if: github.event_name == 'push' && matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $msi = Get-ChildItem dist -Filter *.msi | Select-Object -First 1
+          if (-not $msi) { throw "FAIL: dist 下没有 msi" }
+          $stage = Join-Path $env:RUNNER_TEMP "cgc-portable"
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+          $args = @("/a", "`"$($msi.FullName)`"", "/qn", "TARGETDIR=`"$stage`"")
+          $proc = Start-Process msiexec.exe -ArgumentList $args -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "msiexec /a 失败，exit=$($proc.ExitCode)" }
+          $exe = Get-ChildItem -Path $stage -Recurse -Filter "cgc-desktop-app.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) { throw "administrative install 后找不到 cgc-desktop-app.exe（MSI 布局与预期不符）" }
+          # administrative install 会按 MSI 的 Program Files 布局还原，exe 落在
+          # PFiles/<程序名>/ 下；这里把它提到包根，用户解压后第一眼就能看到。
+          # 同目录若有 DLL/资源，一并搬走以保持相对关系。
+          $appDir = Split-Path -Parent $exe.FullName
+          Get-ChildItem -Path $appDir -Force | Move-Item -Destination $stage -Force
+          Get-ChildItem -Path $stage -Directory -Filter "PFiles" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+          # administrative install 会把 msi 自身复制进目标目录，去掉它（便携包不需要安装器）。
+          Get-ChildItem -Path $stage -Filter *.msi -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force
+          if (-not (Test-Path (Join-Path $stage "cgc-desktop-app.exe"))) {
+            throw "FAIL: exe 未落到包根（用户解压后会看不到）"
+          }
+          Write-Host "staged exe: $(Join-Path $stage 'cgc-desktop-app.exe')"
+          Copy-Item scripts/register-protocol.ps1 -Destination (Join-Path $stage "register-protocol.ps1") -Force
+          Compress-Archive -Path (Join-Path $stage "*") -DestinationPath "dist/cgc2046-windows-portable.zip" -Force
+          Remove-Item $msi.FullName -Force
       - name: 重命名产物（版本+commit，Unix）
         if: github.event_name == 'push' && runner.os != 'Windows'
+        env:
+          CGC_BUILD_COMMIT: ${{ github.sha }}
         run: bash scripts/name-artifacts.sh
       - name: 重命名产物（版本+commit，Windows）
         if: github.event_name == 'push' && runner.os == 'Windows'
@@ -560,6 +609,8 @@ jobs:
         run: ./scripts/name-artifacts.ps1
       - name: 校验产物（Unix）
         if: github.event_name == 'push' && runner.os != 'Windows'
+        env:
+          CGC_BUILD_COMMIT: ${{ github.sha }}
         run: bash scripts/verify-package.sh
       - name: 校验产物（Windows）
         if: github.event_name == 'push' && runner.os == 'Windows'

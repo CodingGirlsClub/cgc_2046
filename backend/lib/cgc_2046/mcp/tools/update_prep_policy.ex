@@ -11,7 +11,7 @@ defmodule Cgc2046.Mcp.Tools.UpdatePrepPolicy do
   - `review_required`：是否需要人工审核（默认快照 true）；
   - `quality_threshold`：质量报告通过阈值 0-100（默认 80）；
   - `reviewer_user_id`：指定审核人（须为本工作台成员；传空字符串清除指定，
-    回到「任何成员可审」）。
+    回到「被指派 tutor 或 Owner/Admin 可审」）。
 
   确认流依据：策略决定质量门槛与发布路径（可绕过人工审核直达发布），属高风险
   治理面；confirm 段由 Curriculum.Prep.update_policy/3 的 prep_state 前置断言
@@ -27,12 +27,12 @@ defmodule Cgc2046.Mcp.Tools.UpdatePrepPolicy do
   @impl true
   def description do
     """
-    工作台 Owner/Admin 专用：调整一门课程的教研策略，只在教研流程处于 draft 或 authoring 时可用（提交质量
-    检查后策略冻结）。至少传一项：review_required（是否需要人工审核）、quality_threshold（质量报告通过
-    阈值，0–100）、reviewer_user_id（指定审核人，须为本工作台成员；传空字符串清除指定，回到任何成员可审、
-    允许自审）。关闭审核或降低阈值会让课程更快直达发布，确认前向用户说明。
-    走确认流：第一次调用只返回 needs_confirmation + pending_id + summary，
-    用户确认后调 confirm_operation(pending_id) 才执行。
+    Workspace owners/admins can update a preparation policy while preparation is draft or authoring.
+    Provide at least one of review_required, quality_threshold (0-100), or reviewer_user_id (a workspace
+    member). An empty reviewer_user_id clears the designation; the assigned tutor then reviews, with
+    owners/admins retaining access. Self-review is allowed. Policy freezes after quality submission.
+    Disabling review or reducing the threshold can allow direct publication. The first call returns
+    needs_confirmation, pending_id and summary. Call confirm_operation only after the user confirms.
     """
   end
 
@@ -42,7 +42,10 @@ defmodule Cgc2046.Mcp.Tools.UpdatePrepPolicy do
     field(:review_required, :boolean, description: "是否需要人工审核（review 环节）")
     field(:quality_threshold, :integer, description: "质量报告通过阈值（0-100 整数）")
 
-    field(:reviewer_user_id, :string, description: "指定审核人用户 ID（须为本工作台成员）；传空字符串清除指定（任何成员可审，允许自审）")
+    field(:reviewer_user_id, :string,
+      description:
+        "Reviewer user ID (workspace member); empty clears designation, restoring assigned tutor or owner/admin review"
+    )
   end
 
   @impl true

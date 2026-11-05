@@ -5,15 +5,13 @@
 //! 整个窗口显示登录页（guard），登录成功后进入壳；登出在头像下拉里（同 Zed 的
 //! sign out）。网络调用放后台线程，结果回主线程刷新。
 
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
 use gpui_kit::InteractiveElement;
 use gpui_kit::*;
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
-use crate::chat_state::{
-    load_chat_pref, load_installed_agents, load_selected_agent, save_chat_pref,
-    save_installed_agent, save_selected_agent,
-};
+use crate::chat_state::{load_chat_pref, load_selected_agent, save_chat_pref, save_selected_agent};
 use crate::conversation_session::{ConnectionPhase, ConversationSession};
 use crate::formula::render_markdown_with_math;
 use cgc_agent_ui::conversation::ConversationThread;
@@ -38,13 +36,13 @@ use cgc_events::orders::{is_terminal_status, parse_rfc3339_epoch, qr_code_url, O
 use cgc_platform::acp::connection::{
     AcpHost, AcpHostConfig, CommandView, HostEvent, SessionSummary,
 };
-use cgc_platform::agent::detect::{detect_all, AgentStatus, DetectedAgent, SystemProbe};
+use cgc_platform::agent::detect::{detect_all, AgentStatus, DetectedAgent};
 use cgc_platform::agent::launch::{build_launch, LaunchPlan, NodeRuntime};
 use cgc_platform::agent::node_runtime::{HttpDownloader, NodeRuntimeManager};
 use cgc_platform::events::{AppEvent, EventPublisher, MemoryEventBus};
 use cgc_platform::mcp::credential::{
-    issue_lease, FakeLearningHostApi, HttpLearningHostApi, KeychainVault, LearningHostApi,
-    LearningHostLease, MemoryVault, SecretVault,
+    issue_lease, revoke_saved_lease, FakeLearningHostApi, HttpLearningHostApi, KeychainVault,
+    LearningHostApi, LeaseScope, McpError, MemoryVault, SecretVault,
 };
 use cgc_platform::mcp::inject::{build_mcp_server, mcp_endpoint, McpServerConfig};
 use cgc_platform::registry::manifest::Registry;
@@ -60,7 +58,7 @@ use gpui_kit::component::{
     avatar::Avatar,
     badge::Badge,
     empty::{Empty, EmptyDescription, EmptyHeader, EmptyTitle},
-    input::{InputEvent, InputState, TextareaState},
+    input::{InputEvent, InputState},
     kbd::Kbd,
     spinner::Spinner,
     status_bar::StatusBar,
@@ -70,6 +68,7 @@ use gpui_kit::component::{
 };
 
 use crate::i18n::{default_language, translate, translate_registered, Key, Language};
+use crate::icons::{brand_badge, BRAND_BADGE_SIZE};
 use crate::qr::{encode as encode_qr, render_qr, QrError};
 use crate::routing::{Route, RouteMatch, RouteRegistry};
 use crate::settings_window::SettingsWindowView;
@@ -81,6 +80,7 @@ mod controller;
 mod history_actions;
 pub(crate) use history_actions::notify_history_changed;
 pub use history_actions::register_history_root;
+pub(crate) use history_actions::root_weak;
 mod history_sidebar;
 mod screens;
 mod state;
@@ -219,6 +219,7 @@ struct ChatUi {
     version: Option<String>,
     chat_scroll: ScrollHandle,
     input: String,
+    composer_context: crate::composer_context::ComposerContext,
     focused: bool,
     auto_prompted: bool,
     config_search: String,
@@ -237,6 +238,15 @@ struct ChatUi {
     load_retry_available: bool,
 }
 
+impl ChatUi {
+    fn conversation_scope(&self) -> crate::page_context::ConversationScope {
+        crate::page_context::ConversationScope::new(
+            self.session.session_id.as_deref().unwrap_or("acp-pending"),
+            self.selected_agent.as_deref().unwrap_or("acp"),
+        )
+    }
+}
+
 /// 从本地历史打开 ACP 会话时的回放状态：agent 通过 `session/load` 回放的历史
 /// 先收在独立 thread 里，Ready 后按 `resume_decision` 决定替换本地内容或降级提示。
 struct ReplayState {
@@ -250,6 +260,13 @@ struct ChatGuidance {
     detected: Vec<(String, String)>,
     node_found: Option<String>,
 }
+
+/// 全局标题栏高度：32px 品牌 badge + 上下留白，与三栏 header 解耦。
+const TITLEBAR_HEIGHT: f32 = 44.0;
+
+/// 三栏（Agent 面板 / Pane TabBar / 右 Dock）header 统一高度。
+/// 中间 TabBar 内容 32px，加上上下各 2px；三栏共用保证水平分隔线对齐。
+const COLUMN_HEADER_HEIGHT: f32 = 36.0;
 
 const SLASH_CORE_COMMANDS: &[&str] = &[
     "plan",
@@ -432,8 +449,9 @@ impl RootView {
         }
     }
 
-    pub fn set_chat_input(&mut self, input: Entity<TextareaState>) {
-        self.state.chat_input = Some(input);
+    pub fn initialize_chat_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.state.chat_input =
+            Some(cx.new(|cx| cgc_agent_ui::message_editor::MessageEditor::new_state(window, cx)));
     }
 
     /// ACP 当前 agent 的展示名（未连接时用已选 agent id）。
@@ -600,12 +618,39 @@ impl RootView {
 
 impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let previous_page = self.page_context.visible();
         self.refresh_page_context();
+        let page_changed = previous_page != self.page_context.visible();
+        if let Some(view) = self.native_agent_view.clone() {
+            view.update(cx, |view, cx| {
+                view.set_language(self.language, cx);
+                if page_changed {
+                    cx.notify();
+                }
+            });
+        }
         self.refresh_history_if_dirty(cx);
+        if self.chat_input_pending_clear {
+            self.chat_input_pending_clear = false;
+            if let Some(input) = self.chat_input.clone() {
+                input.update(cx, |input, cx| input.set_value("", window, cx));
+            }
+        }
+        if let Some(input) = self.chat_input.clone() {
+            let current = self.page_context.visible();
+            self.chat
+                .composer_context
+                .ensure_auto(&input, current.as_ref(), window, cx);
+        }
         let mode = theme::resolve(self.preference, window.appearance());
         let _ = mode;
         let palette = theme::palette_from_theme(cx);
         let language = self.language;
+        let pane_header_visible = !self.state.tabs.is_empty() || self.state.pane_notice.is_some();
+        let right_header_visible = matches!(
+            self.state.right_panel,
+            RightPanel::Outline | RightPanel::Notifications
+        );
         let account_menu = self.account_menu_open;
         let is_signed_in = self.is_signed_in();
         if is_signed_in && self.pending_link.as_deref() == Some("/settings") {
@@ -628,12 +673,6 @@ impl Render for RootView {
             });
             self.key_interceptor = Some(subscription);
         }
-        if self.chat_input_pending_clear {
-            self.chat_input_pending_clear = false;
-            if let Some(input) = self.chat_input.clone() {
-                input.update(cx, |input, cx| input.set_value("", window, cx));
-            }
-        }
         if let Some(input) = self.chat_input.clone() {
             if self.chat_input_subscription.is_none() {
                 let subscription = cx.subscribe_in(
@@ -642,16 +681,19 @@ impl Render for RootView {
                     |this, state, event: &InputEvent, window, cx| match event {
                         InputEvent::Change => {
                             this.chat.focused = true;
-                            this.chat.input = state.read(cx).value().to_string();
+                            this.chat.input =
+                                crate::composer_context::command_text(&state.read(cx).content());
                             this.chat.slash_selection = 0;
                             this.chat.slash_dismissed = false;
                             this.chat_input_pending_clear = false;
                             cx.notify();
                         }
                         InputEvent::PressEnter { shift, .. } if !shift => {
-                            this.chat.input = state.read(cx).value().to_string();
-                            this.send_chat(cx);
-                            state.update(cx, |state, cx| state.set_value("", window, cx));
+                            this.chat.input =
+                                crate::composer_context::user_text(&state.read(cx).content());
+                            if this.send_chat(cx) {
+                                state.update(cx, |state, cx| state.set_value("", window, cx));
+                            }
                             cx.notify();
                         }
                         InputEvent::Focus => {
@@ -906,98 +948,123 @@ impl Render for RootView {
                 ));
             root
         } else {
-            root =
-                root.size_full()
-                    .flex()
-                    .flex_col()
-                    .bg(palette.canvas)
-                    .text_color(palette.ink)
-                    .font_family(theme::FONT_SANS)
-                    .text_size(px(14.0))
-                    .track_focus(&key_focus)
-                    .on_key_down(cx.listener(Self::handle_shell_key))
-                    .child(
+            root = root
+                .size_full()
+                .flex()
+                .flex_col()
+                .bg(palette.canvas)
+                .text_color(palette.ink)
+                .font_family(theme::FONT_SANS)
+                .text_size(px(14.0))
+                .track_focus(&key_focus)
+                .on_key_down(cx.listener(Self::handle_shell_key))
+                .on_mouse_up(
+                    MouseButton::Left,
+                    cx.listener(|this, _, window, cx| {
+                        this.schedule_page_selection(window, cx);
+                    }),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .h(px(TITLEBAR_HEIGHT))
+                        .pl(if cfg!(target_os = "macos") {
+                            px(84.0)
+                        } else {
+                            space(3)
+                        })
+                        .pr(space(2))
+                        .gap(space(1))
+                        .bg(palette.frame)
+                        .border_b_1()
+                        .border_color(palette.line)
+                        .child(
+                            div()
+                                .id("titlebar-drag")
+                                .flex()
+                                .items_center()
+                                .h_full()
+                                .pr(space(2))
+                                .on_mouse_down(MouseButton::Left, |_, window, _| {
+                                    window.start_window_move();
+                                })
+                                .children(self.display_preferences.title_bar_brand.then(|| {
+                                    div()
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap(px(6.0))
+                                        .child(
+                                            img(brand_badge())
+                                                .w(px(BRAND_BADGE_SIZE))
+                                                .h(px(BRAND_BADGE_SIZE))
+                                                .flex_none(),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_size(px(15.0))
+                                                .text_color(palette.ink)
+                                                .child(translate(language, Key::AppName)),
+                                        )
+                                })),
+                        )
+                        .children(
+                            self.display_preferences
+                                .title_bar_breadcrumb
+                                .then(|| div().w(px(1.0)).h(px(14.0)).bg(palette.line)),
+                        )
+                        .children(
+                            self.display_preferences
+                                .title_bar_breadcrumb
+                                .then(|| self.render_breadcrumb_bar(language, &palette, cx)),
+                        )
+                        .child(div().flex_1())
+                        .children(
+                            self.display_preferences
+                                .title_bar_notifications
+                                .then(|| self.render_notifications_bell(language, &palette, cx)),
+                        )
+                        .child(
+                            div()
+                                .id("account-toggle-wrap")
+                                .relative()
+                                .flex()
+                                .items_center()
+                                .tooltip(move |window, cx| {
+                                    Tooltip::new(account_tooltip).build(window, cx)
+                                })
+                                .child(
+                                    Avatar::new()
+                                        .name(email.clone())
+                                        .with_size(KitSize::Small)
+                                        .on_mouse_down(
+                                            MouseButton::Left,
+                                            cx.listener(|this, _, _, cx| {
+                                                this.toggle_account_menu();
+                                                cx.notify();
+                                            }),
+                                        ),
+                                ),
+                        ),
+                )
+                .child({
+                    let agent_on_left =
+                        self.agent_panel_side == crate::preferences::PanelSide::Left;
+                    let dock_on_left = self.dock_side == crate::preferences::PanelSide::Left;
+                    let left_agent_group: Option<AnyElement> = agent_on_left.then(|| {
                         div()
                             .flex()
                             .flex_row()
-                            .items_center()
-                            .h(px(44.0))
-                            .pl(if cfg!(target_os = "macos") {
-                                px(84.0)
-                            } else {
-                                space(3)
-                            })
-                            .pr(space(2))
-                            .gap(space(1))
-                            .bg(palette.frame)
-                            .border_b_1()
-                            .border_color(palette.line)
-                            .child(
-                                div()
-                                    .id("titlebar-drag")
-                                    .flex()
-                                    .items_center()
-                                    .h_full()
-                                    .pr(space(2))
-                                    .on_mouse_down(MouseButton::Left, |_, window, _| {
-                                        window.start_window_move();
-                                    })
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .flex_row()
-                                            .items_center()
-                                            .gap(px(6.0))
-                                            .child(
-                                                img(app_icon()).w(px(18.0)).h(px(18.0)).flex_none(),
-                                            )
-                                            .child(
-                                                div()
-                                                    .text_size(px(15.0))
-                                                    .text_color(palette.ink)
-                                                    .child(translate(language, Key::AppName)),
-                                            ),
-                                    ),
-                            )
-                            .child(div().w(px(1.0)).h(px(14.0)).bg(palette.line))
-                            .child(self.render_breadcrumb_bar(language, &palette, cx))
-                            .child(div().flex_1())
-                            .child(self.render_notifications_bell(language, &palette, cx))
-                            .child(
-                                div()
-                                    .id("account-toggle-wrap")
-                                    .relative()
-                                    .flex()
-                                    .items_center()
-                                    .tooltip(move |window, cx| {
-                                        Tooltip::new(account_tooltip).build(window, cx)
-                                    })
-                                    .child(
-                                        Avatar::new()
-                                            .name(email.clone())
-                                            .with_size(KitSize::Small)
-                                            .on_mouse_down(
-                                                MouseButton::Left,
-                                                cx.listener(|this, _, _, cx| {
-                                                    this.toggle_account_menu();
-                                                    cx.notify();
-                                                }),
-                                            ),
-                                    ),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .flex_1()
                             .min_h(px(0.0))
-                            .w_full()
-                            .children(
-                                self.history_sidebar
-                                    .is_some()
-                                    .then(|| self.render_history_sidebar(window, cx)),
-                            )
+                            .children(self.history_sidebar.is_some().then(|| {
+                                self.render_history_sidebar(
+                                    crate::preferences::PanelSide::Left,
+                                    window,
+                                    cx,
+                                )
+                            }))
                             .children(self.agent_panel_open.then(|| {
                                 screens::render_agent_panel(
                                     &mut screens::ScreenContext::new(&mut self.state),
@@ -1008,149 +1075,262 @@ impl Render for RootView {
                                 )
                             }))
                             .children(self.agent_panel_open.then(|| {
-                                render_panel_resize_handle(ResizeSide::Left, &palette, cx)
+                                render_panel_resize_handle(
+                                    ResizeSide::Left,
+                                    crate::preferences::PanelSide::Left,
+                                    &palette,
+                                    pane_header_visible,
+                                    cx,
+                                )
                             }))
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .flex_1()
-                                    .min_w(px(0.0))
-                                    .min_h(px(0.0))
-                                    .children(Some(screens::render_pane_tabs(
-                                        &mut screens::ScreenContext::new(&mut self.state),
-                                        &palette,
-                                        cx,
-                                    )))
-                                    .child(
-                                        div()
-                                            .id("content-scroll")
-                                            .flex_1()
-                                            .min_w(px(0.0))
-                                            .p(space(6))
-                                            .overflow_y_scroll()
-                                            .child(
-                                                if matches!(
-                                                    self.workspaces.state(),
-                                                    WorkspaceListState::Empty
-                                                ) {
-                                                    self.render_workspace_empty(language, &palette)
-                                                } else {
-                                                    match self
-                                                        .current
-                                                        .as_ref()
-                                                        .map(|route_match| route_match.route.id)
-                                                    {
-                                                        Some("account.workspace") => {
-                                                            screens::render_workspace_overview(
-                                                                &mut screens::ScreenContext::new(
-                                                                    &mut self.state,
-                                                                ),
-                                                                language,
-                                                                &palette,
-                                                                cx,
-                                                            )
-                                                        }
-                                                        Some("events.list") => {
-                                                            screens::render_events_list(
-                                                                &mut screens::ScreenContext::new(
-                                                                    &mut self.state,
-                                                                ),
-                                                                language,
-                                                                &palette,
-                                                                cx,
-                                                            )
-                                                        }
-                                                        Some("events.detail") => {
-                                                            screens::render_detail(
-                                                                &mut screens::ScreenContext::new(
-                                                                    &mut self.state,
-                                                                ),
-                                                                language,
-                                                                &palette,
-                                                                cx,
-                                                            )
-                                                        }
-                                                        Some("events.mine") => {
-                                                            screens::render_enrollments_list(
-                                                                &mut screens::ScreenContext::new(
-                                                                    &mut self.state,
-                                                                ),
-                                                                language,
-                                                                &palette,
-                                                                cx,
-                                                            )
-                                                        }
-                                                        Some("app.settings") => {
-                                                            screens::render_settings(
-                                                                &mut screens::ScreenContext::new(
-                                                                    &mut self.state,
-                                                                ),
-                                                                language,
-                                                                &palette,
-                                                                cx,
-                                                            )
-                                                        }
-                                                        Some("app.agents") => {
-                                                            screens::render_agent_registry(
-                                                                &mut screens::ScreenContext::new(
-                                                                    &mut self.state,
-                                                                ),
-                                                                language,
-                                                                &palette,
-                                                                cx,
-                                                            )
-                                                        }
-                                                        Some("courses.catalog") => {
-                                                            screens::render_courses_list(
-                                                                &mut screens::ScreenContext::new(
-                                                                    &mut self.state,
-                                                                ),
-                                                                language,
-                                                                &palette,
-                                                                cx,
-                                                            )
-                                                        }
-                                                        Some("courses.learning_home") => {
-                                                            screens::render_learning_home(
-                                                                &mut screens::ScreenContext::new(
-                                                                    &mut self.state,
-                                                                ),
-                                                                language,
-                                                                &palette,
-                                                                cx,
-                                                            )
-                                                        }
-                                                        Some("events.participations") => {
-                                                            screens::render_participations(
-                                                                &mut screens::ScreenContext::new(
-                                                                    &mut self.state,
-                                                                ),
-                                                                language,
-                                                                &palette,
-                                                                cx,
-                                                            )
-                                                        }
-                                                        Some("courses.detail") => {
-                                                            screens::render_course_detail(
-                                                                &mut screens::ScreenContext::new(
-                                                                    &mut self.state,
-                                                                ),
-                                                                language,
-                                                                &palette,
-                                                                cx,
-                                                            )
-                                                        }
-                                                        Some("courses.learning") => {
-                                                            let active_issue = self
-                                                                .active_issue_tab()
-                                                                .map(|(course_id, issue_id)| {
-                                                                    (
-                                                                        course_id.to_string(),
-                                                                        issue_id.to_string(),
-                                                                    )
-                                                                });
-                                                            match active_issue {
+                            .into_any_element()
+                    });
+                    let left_dock_group: Option<AnyElement> = dock_on_left.then(|| {
+                        div()
+                            .flex()
+                            .flex_row()
+                            .min_h(px(0.0))
+                            .children(self.right_panel_open.then(|| {
+                                screens::render_right_dock(
+                                    &mut screens::ScreenContext::new(&mut self.state),
+                                    language,
+                                    &palette,
+                                    window,
+                                    cx,
+                                )
+                            }))
+                            .children(self.right_panel_open.then(|| {
+                                render_panel_resize_handle(
+                                    ResizeSide::Right,
+                                    crate::preferences::PanelSide::Left,
+                                    &palette,
+                                    pane_header_visible && right_header_visible,
+                                    cx,
+                                )
+                            }))
+                            .into_any_element()
+                    });
+                    let right_dock_group: Option<AnyElement> = (!dock_on_left).then(|| {
+                        div()
+                            .flex()
+                            .flex_row()
+                            .min_h(px(0.0))
+                            .children(self.right_panel_open.then(|| {
+                                render_panel_resize_handle(
+                                    ResizeSide::Right,
+                                    crate::preferences::PanelSide::Right,
+                                    &palette,
+                                    pane_header_visible && right_header_visible,
+                                    cx,
+                                )
+                            }))
+                            .children(self.right_panel_open.then(|| {
+                                screens::render_right_dock(
+                                    &mut screens::ScreenContext::new(&mut self.state),
+                                    language,
+                                    &palette,
+                                    window,
+                                    cx,
+                                )
+                            }))
+                            .into_any_element()
+                    });
+                    let right_agent_group: Option<AnyElement> = (!agent_on_left).then(|| {
+                        div()
+                            .flex()
+                            .flex_row()
+                            .min_h(px(0.0))
+                            .children(self.agent_panel_open.then(|| {
+                                render_panel_resize_handle(
+                                    ResizeSide::Left,
+                                    crate::preferences::PanelSide::Right,
+                                    &palette,
+                                    pane_header_visible,
+                                    cx,
+                                )
+                            }))
+                            .children(self.agent_panel_open.then(|| {
+                                screens::render_agent_panel(
+                                    &mut screens::ScreenContext::new(&mut self.state),
+                                    language,
+                                    &palette,
+                                    window,
+                                    cx,
+                                )
+                            }))
+                            .children(self.history_sidebar.is_some().then(|| {
+                                self.render_history_sidebar(
+                                    crate::preferences::PanelSide::Right,
+                                    window,
+                                    cx,
+                                )
+                            }))
+                            .into_any_element()
+                    });
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_1()
+                        .min_h(px(0.0))
+                        .w_full()
+                        .children(left_agent_group)
+                        .children(left_dock_group)
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .flex_1()
+                                .min_w(px(0.0))
+                                .min_h(px(0.0))
+                                .children(Some(screens::render_pane_tabs(
+                                    &mut screens::ScreenContext::new(&mut self.state),
+                                    &palette,
+                                    cx,
+                                )))
+                                .child(screens::render_pane_notices(
+                                    &mut screens::ScreenContext::new(&mut self.state),
+                                    &palette,
+                                    cx,
+                                ))
+                                .child(
+                                    div()
+                                        .id("content-scroll")
+                                        .on_mouse_down(
+                                            MouseButton::Left,
+                                            cx.listener(|this, _, _, _| {
+                                                this.page_context.begin_selection();
+                                            }),
+                                        )
+                                        .on_key_up(cx.listener(|this, _, window, cx| {
+                                            this.page_context.begin_selection();
+                                            this.schedule_page_selection(window, cx);
+                                        }))
+                                        .flex_1()
+                                        .min_w(px(0.0))
+                                        .p(space(6))
+                                        .overflow_y_scroll()
+                                        .child(
+                                            if matches!(
+                                                self.workspaces.state(),
+                                                WorkspaceListState::Empty
+                                            ) {
+                                                self.render_workspace_empty(language, &palette)
+                                            } else {
+                                                match self
+                                                    .current
+                                                    .as_ref()
+                                                    .map(|route_match| route_match.route.id)
+                                                {
+                                                    Some("account.workspace") => {
+                                                        screens::render_workspace_overview(
+                                                            &mut screens::ScreenContext::new(
+                                                                &mut self.state,
+                                                            ),
+                                                            language,
+                                                            &palette,
+                                                            cx,
+                                                        )
+                                                    }
+                                                    Some("events.list") => {
+                                                        screens::render_events_list(
+                                                            &mut screens::ScreenContext::new(
+                                                                &mut self.state,
+                                                            ),
+                                                            language,
+                                                            &palette,
+                                                            cx,
+                                                        )
+                                                    }
+                                                    Some("events.detail") => {
+                                                        screens::render_detail(
+                                                            &mut screens::ScreenContext::new(
+                                                                &mut self.state,
+                                                            ),
+                                                            language,
+                                                            &palette,
+                                                            cx,
+                                                        )
+                                                    }
+                                                    Some("events.mine") => {
+                                                        screens::render_enrollments_list(
+                                                            &mut screens::ScreenContext::new(
+                                                                &mut self.state,
+                                                            ),
+                                                            language,
+                                                            &palette,
+                                                            cx,
+                                                        )
+                                                    }
+                                                    Some("app.settings") => {
+                                                        screens::render_settings(
+                                                            &mut screens::ScreenContext::new(
+                                                                &mut self.state,
+                                                            ),
+                                                            language,
+                                                            &palette,
+                                                            cx,
+                                                        )
+                                                    }
+                                                    Some("app.agents") => {
+                                                        screens::render_agent_registry(
+                                                            &mut screens::ScreenContext::new(
+                                                                &mut self.state,
+                                                            ),
+                                                            language,
+                                                            &palette,
+                                                            cx,
+                                                        )
+                                                    }
+                                                    Some("courses.catalog") => {
+                                                        screens::render_courses_list(
+                                                            &mut screens::ScreenContext::new(
+                                                                &mut self.state,
+                                                            ),
+                                                            language,
+                                                            &palette,
+                                                            cx,
+                                                        )
+                                                    }
+                                                    Some("courses.learning_home") => {
+                                                        screens::render_learning_home(
+                                                            &mut screens::ScreenContext::new(
+                                                                &mut self.state,
+                                                            ),
+                                                            language,
+                                                            &palette,
+                                                            cx,
+                                                        )
+                                                    }
+                                                    Some("events.participations") => {
+                                                        screens::render_participations(
+                                                            &mut screens::ScreenContext::new(
+                                                                &mut self.state,
+                                                            ),
+                                                            language,
+                                                            &palette,
+                                                            cx,
+                                                        )
+                                                    }
+                                                    Some("courses.detail") => {
+                                                        screens::render_course_detail(
+                                                            &mut screens::ScreenContext::new(
+                                                                &mut self.state,
+                                                            ),
+                                                            language,
+                                                            &palette,
+                                                            cx,
+                                                        )
+                                                    }
+                                                    Some("courses.learning") => {
+                                                        let active_issue = self
+                                                            .active_issue_tab()
+                                                            .map(|(course_id, issue_id)| {
+                                                                (
+                                                                    course_id.to_string(),
+                                                                    issue_id.to_string(),
+                                                                )
+                                                            });
+                                                        match active_issue {
                                                     Some((course_id, issue_id)) => {
                                                         screens::render_issue_card(
                                                             &mut screens::ScreenContext::new(
@@ -1171,36 +1351,27 @@ impl Render for RootView {
                                                         cx,
                                                     ),
                                                 }
-                                                        }
-                                                        _ => self
-                                                            .render_content(language, &palette, cx),
                                                     }
-                                                },
-                                            ),
-                                    ),
-                            )
-                            .children(self.right_panel_open.then(|| {
-                                render_panel_resize_handle(ResizeSide::Right, &palette, cx)
-                            }))
-                            .children(self.right_panel_open.then(|| {
-                                screens::render_right_dock(
-                                    &mut screens::ScreenContext::new(&mut self.state),
-                                    language,
-                                    &palette,
-                                    window,
-                                    cx,
-                                )
-                            })),
-                    )
-                    .child(self.render_footer(
-                        language,
-                        true,
-                        language_icon,
-                        language_label,
-                        language_tooltip,
-                        &palette,
-                        cx,
-                    ));
+                                                    _ => {
+                                                        self.render_content(language, &palette, cx)
+                                                    }
+                                                }
+                                            },
+                                        ),
+                                ),
+                        )
+                        .children(right_dock_group)
+                        .children(right_agent_group)
+                })
+                .child(self.render_footer(
+                    language,
+                    true,
+                    language_icon,
+                    language_label,
+                    language_tooltip,
+                    &palette,
+                    cx,
+                ));
             if self.workspace_menu_open {
                 root = root.child(self.render_workspace_menu(language, &palette, cx));
             }
@@ -1226,21 +1397,37 @@ impl Render for RootView {
 }
 
 impl RootView {
+    fn schedule_page_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let root = cx.entity().downgrade();
+        window.on_next_frame(move |window, cx| {
+            let text = gpui_kit::base::TextSelection::selected_text(window, cx);
+            let _ = root.update(cx, |this, cx| {
+                this.page_context.capture_selection(text);
+                if let Some(view) = this.native_agent_view.clone() {
+                    view.update(cx, |_, cx| cx.notify());
+                }
+                cx.notify();
+            });
+        });
+    }
+
     /// 窗口变窄或恢复旧宽度时，保证两侧 panel 不会把中心压到 320px 以下。
     fn clamp_open_panel_widths(&mut self, viewport: f32) {
         if !self.agent_panel_open || !self.right_panel_open {
             return;
         }
         let available = (viewport - 320.0).max(500.0);
+        let agent_min = *crate::preferences::AGENT_PANEL_WIDTH_RANGE.start() as f32;
+        let dock_min = *crate::preferences::DOCK_WIDTH_RANGE.start() as f32;
         let mut excess = self.agent_panel_width + self.right_panel_width - available;
         if excess <= 0.0 {
             return;
         }
-        let right_shrink = (self.right_panel_width - 240.0).max(0.0).min(excess);
+        let right_shrink = (self.right_panel_width - dock_min).max(0.0).min(excess);
         self.right_panel_width -= right_shrink;
         excess -= right_shrink;
         if excess > 0.0 {
-            let agent_shrink = (self.agent_panel_width - 260.0).max(0.0).min(excess);
+            let agent_shrink = (self.agent_panel_width - agent_min).max(0.0).min(excess);
             self.agent_panel_width -= agent_shrink;
         }
     }
@@ -1409,23 +1596,6 @@ impl RootView {
                         cx.notify();
                     })),
             )
-            .children(Self::native_agent_enabled().then(|| {
-                div()
-                    .id("account-native-agent")
-                    .role(Role::Button)
-                    .aria_label("Native Agent")
-                    .px(space(1))
-                    .py(px(6.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .text_color(palette.ink_2)
-                    .hover(|style| style.bg(palette.soft))
-                    .child("Native Agent（Beta）")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.open_native_agent_window(cx);
-                        this.account_menu_open = false;
-                        cx.notify();
-                    }))
-            }))
             .child(
                 div()
                     .id("account-sign-out")
@@ -1785,6 +1955,7 @@ impl RootView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         // 左侧：一级导航图标；右侧：主题/语言工具。版本号只放设置/关于，不进 footer。
+        let root_weak = cx.entity().downgrade();
         let shortcut = if cfg!(target_os = "macos") {
             "⌘J"
         } else {
@@ -1824,6 +1995,19 @@ impl RootView {
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_agent_panel(cx);
                 }))
+                .context_menu({
+                    let root = root_weak.clone();
+                    let side = self.agent_panel_side;
+                    move |menu, _, _| {
+                        render_panel_status_bar_menu(
+                            menu,
+                            language,
+                            StatusBarMenuTarget::Agent,
+                            side,
+                            root.clone(),
+                        )
+                    }
+                })
                 .into_any_element()
         });
         let history_toggle = include_nav.then(|| {
@@ -1858,13 +2042,27 @@ impl RootView {
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_history_sidebar(cx);
                 }))
+                .context_menu({
+                    let root = root_weak.clone();
+                    move |menu, _, _| {
+                        render_hide_button_menu(
+                            menu,
+                            language,
+                            state::StatusBarButton::History,
+                            root.clone(),
+                        )
+                    }
+                })
                 .into_any_element()
         });
         let panel_toggle = |id: &'static str,
                             label: SharedString,
                             icon: AssetIcon,
                             active: bool,
-                            panel: RightPanel| {
+                            panel: RightPanel,
+                            target: StatusBarMenuTarget,
+                            side: crate::preferences::PanelSide,
+                            root: WeakEntity<Self>| {
             let tooltip = label.clone();
             div()
                 .id(id)
@@ -1896,6 +2094,9 @@ impl RootView {
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.toggle_right_panel(panel, cx);
                 }))
+                .context_menu(move |menu, _, _| {
+                    render_panel_status_bar_menu(menu, language, target, side, root.clone())
+                })
                 .into_any_element()
         };
         let site_tree_active = self.right_panel_open && self.right_panel == RightPanel::SiteTree;
@@ -1906,6 +2107,9 @@ impl RootView {
             AssetIcon::ListTree,
             site_tree_active,
             RightPanel::SiteTree,
+            StatusBarMenuTarget::Navigation,
+            self.dock_side,
+            root_weak.clone(),
         );
         let outline_toggle = panel_toggle(
             "outline-toggle",
@@ -1913,7 +2117,56 @@ impl RootView {
             AssetIcon::FileText,
             outline_active,
             RightPanel::Outline,
+            StatusBarMenuTarget::Outline,
+            self.dock_side,
+            root_weak.clone(),
         );
+        let mut left_items: Vec<AnyElement> = Vec::new();
+        let mut right_items: Vec<AnyElement> = Vec::new();
+        let mut left_agent_items: Vec<AnyElement> = Vec::new();
+        let mut right_agent_items: Vec<AnyElement> = Vec::new();
+        if self.agent_panel_side == crate::preferences::PanelSide::Left {
+            if let Some(item) =
+                history_toggle.filter(|_| self.display_preferences.status_bar_history_button)
+            {
+                left_agent_items.push(item);
+            }
+            if let Some(item) = agent_toggle.filter(|_| self.display_preferences.agent_panel_button)
+            {
+                left_agent_items.push(item);
+            }
+        } else {
+            if let Some(item) = agent_toggle.filter(|_| self.display_preferences.agent_panel_button)
+            {
+                right_agent_items.push(item);
+            }
+            if let Some(item) =
+                history_toggle.filter(|_| self.display_preferences.status_bar_history_button)
+            {
+                right_agent_items.push(item);
+            }
+        }
+        let mut left_dock_items: Vec<AnyElement> = Vec::new();
+        let mut right_dock_items: Vec<AnyElement> = Vec::new();
+        if self.dock_side == crate::preferences::PanelSide::Left {
+            if self.display_preferences.dock_navigation_button {
+                left_dock_items.push(site_tree_toggle);
+            }
+            if self.display_preferences.dock_outline_button {
+                left_dock_items.push(outline_toggle);
+            }
+        } else {
+            if self.display_preferences.dock_navigation_button {
+                right_dock_items.push(site_tree_toggle);
+            }
+            if self.display_preferences.dock_outline_button {
+                right_dock_items.push(outline_toggle);
+            }
+        }
+        left_items.extend(left_agent_items);
+        left_items.extend(left_dock_items);
+        right_items.extend(right_dock_items);
+        right_items.extend(right_agent_items);
         div()
             .id("status-bar")
             .role(Role::Toolbar)
@@ -1929,10 +2182,7 @@ impl RootView {
                             .gap(px(4.0))
                             .min_w_0()
                             .overflow_x_hidden()
-                            .children(history_toggle)
-                            .children(agent_toggle)
-                            .child(site_tree_toggle)
-                            .child(outline_toggle),
+                            .children(left_items),
                     )
                     .right(
                         div()
@@ -1942,6 +2192,7 @@ impl RootView {
                             .gap(px(4.0))
                             .flex_shrink_0()
                             .overflow_x_hidden()
+                            .children(right_items)
                             .child(
                                 div()
                                     .id("theme-menu-toggle")
@@ -1996,7 +2247,8 @@ impl RootView {
                             ),
                     )
                     .bg(palette.frame)
-                    .border_t_0()
+                    .border_t_1()
+                    .border_color(palette.line)
                     .w_full(),
             )
             .into_any_element()
@@ -2122,19 +2374,21 @@ fn remaining_seconds(expires_at: Option<&str>) -> i64 {
         .unwrap_or(600)
 }
 
-fn build_learning_host_api() -> Arc<dyn LearningHostApi> {
+fn build_learning_host_api(scope: &LeaseScope) -> Arc<dyn LearningHostApi> {
     let use_http = !cgc_platform::runtime::use_fake_backend();
     if use_http {
-        Arc::new(HttpLearningHostApi::from_env())
+        Arc::new(HttpLearningHostApi::new(
+            cgc_platform::api::GraphqlClient::new(&scope.endpoint),
+        ))
     } else {
         Arc::new(FakeLearningHostApi::default())
     }
 }
 
-fn build_learning_host_vault() -> Arc<dyn SecretVault> {
+fn build_learning_host_vault(scope: &LeaseScope) -> Arc<dyn SecretVault> {
     let use_http = !cgc_platform::runtime::use_fake_backend();
     if use_http {
-        Arc::new(KeychainVault::from_env())
+        Arc::new(KeychainVault::for_scope(scope))
     } else {
         Arc::new(MemoryVault::default())
     }
@@ -2282,17 +2536,6 @@ fn enroll_error_label(language: Language, suffix: &str) -> &'static str {
     )
 }
 
-fn app_icon() -> Arc<Image> {
-    static ICON: OnceLock<Arc<Image>> = OnceLock::new();
-    ICON.get_or_init(|| {
-        Arc::new(Image::from_bytes(
-            ImageFormat::Png,
-            include_bytes!("../icons/128x128.png").to_vec(),
-        ))
-    })
-    .clone()
-}
-
 pub fn main_window_options() -> WindowOptions {
     WindowOptions {
         // 参考 Zed build_window_options：透明 titlebar + 自绘 header，
@@ -2322,9 +2565,80 @@ fn nav_icon(icon: NavIcon) -> AssetIcon {
     }
 }
 
+/// 状态栏按钮右键菜单的目标（决定 Dock 切换作用于哪个面板）。
+#[derive(Clone, Copy)]
+enum StatusBarMenuTarget {
+    Agent,
+    Navigation,
+    Outline,
+}
+
+fn render_hide_button_menu(
+    menu: PopupMenu,
+    language: Language,
+    button: state::StatusBarButton,
+    root: WeakEntity<RootView>,
+) -> PopupMenu {
+    menu.item(
+        PopupMenuItem::new(translate(language, Key::AppSettingsHideButton)).on_click(
+            move |_, _, cx| {
+                let _ = root.update(cx, |root, cx| {
+                    root.hide_status_bar_button(button, cx);
+                });
+            },
+        ),
+    )
+}
+
+fn render_panel_status_bar_menu(
+    menu: PopupMenu,
+    language: Language,
+    target: StatusBarMenuTarget,
+    side: crate::preferences::PanelSide,
+    root: WeakEntity<RootView>,
+) -> PopupMenu {
+    use crate::preferences::PanelSide;
+    let button = match target {
+        StatusBarMenuTarget::Agent => state::StatusBarButton::Agent,
+        StatusBarMenuTarget::Navigation => state::StatusBarButton::Navigation,
+        StatusBarMenuTarget::Outline => state::StatusBarButton::Outline,
+    };
+    let left_root = root.clone();
+    let right_root = root.clone();
+    let menu = menu
+        .item(
+            PopupMenuItem::new(translate(language, Key::AppSettingsDockLeft))
+                .checked(side == PanelSide::Left)
+                .on_click(move |_, _, cx| {
+                    let _ = left_root.update(cx, |root, cx| match target {
+                        StatusBarMenuTarget::Agent => {
+                            root.set_agent_panel_side(PanelSide::Left, cx)
+                        }
+                        _ => root.set_dock_side(PanelSide::Left, cx),
+                    });
+                }),
+        )
+        .item(
+            PopupMenuItem::new(translate(language, Key::AppSettingsDockRight))
+                .checked(side == PanelSide::Right)
+                .on_click(move |_, _, cx| {
+                    let _ = right_root.update(cx, |root, cx| match target {
+                        StatusBarMenuTarget::Agent => {
+                            root.set_agent_panel_side(PanelSide::Right, cx)
+                        }
+                        _ => root.set_dock_side(PanelSide::Right, cx),
+                    });
+                }),
+        )
+        .separator();
+    render_hide_button_menu(menu, language, button, root)
+}
+
 fn render_panel_resize_handle(
     side: ResizeSide,
+    panel_side: crate::preferences::PanelSide,
     palette: &theme::Palette,
+    header_bridge: bool,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
     let root = cx.entity().downgrade();
@@ -2341,15 +2655,28 @@ fn render_panel_resize_handle(
         .cursor_col_resize()
         .group(id)
         // Keep the 5 px drag target while painting only a 1 px separator.
+        // 上下各溢出 1px，压住 titlebar / footer 的边线，避免 T 字口留白。
         .child(
             div()
                 .absolute()
+                .top(px(-1.0))
+                .bottom(px(-1.0))
                 .left(px(2.0))
                 .w(px(1.0))
-                .h_full()
                 .bg(palette.line)
                 .group_hover(id, |style| style.bg(palette.accent)),
         )
+        // 横线只画在两侧都有 header 的交接处，补上 resize gutter 吃掉的那 5px。
+        .children(header_bridge.then(|| {
+            div()
+                .absolute()
+                .top(px(COLUMN_HEADER_HEIGHT - 1.0))
+                .left_0()
+                .w_full()
+                .h(px(1.0))
+                .bg(palette.line)
+                .group_hover(id, |style| style.bg(palette.accent))
+        }))
         .on_drag(side, move |_, position, _, cx| {
             let _ = root.update(cx, |this, cx| {
                 let width = match side {
@@ -2377,9 +2704,9 @@ fn render_panel_resize_handle(
                     this.resize_drag = Some((drag_side, current, start_width));
                     return;
                 }
-                let delta = match side {
-                    ResizeSide::Left => current - start_x,
-                    ResizeSide::Right => start_x - current,
+                let delta = match panel_side {
+                    crate::preferences::PanelSide::Left => current - start_x,
+                    crate::preferences::PanelSide::Right => start_x - current,
                 };
                 let viewport = window.viewport_size().width.as_f32();
                 let other = match side {
@@ -2387,12 +2714,14 @@ fn render_panel_resize_handle(
                     ResizeSide::Right => this.agent_panel_width,
                 };
                 let max = (viewport - other - 320.0).max(260.0);
+                let agent_min = *crate::preferences::AGENT_PANEL_WIDTH_RANGE.start() as f32;
+                let dock_min = *crate::preferences::DOCK_WIDTH_RANGE.start() as f32;
                 match side {
                     ResizeSide::Left => {
-                        this.agent_panel_width = (start_width + delta).clamp(260.0, max)
+                        this.agent_panel_width = (start_width + delta).clamp(agent_min, max)
                     }
                     ResizeSide::Right => {
-                        this.right_panel_width = (start_width + delta).clamp(240.0, max)
+                        this.right_panel_width = (start_width + delta).clamp(dock_min, max)
                     }
                 }
                 cx.spawn(async move |this, cx| {
@@ -2466,6 +2795,462 @@ mod tests {
             ThemePreference::System,
             session,
         )
+    }
+
+    fn activate_context_tab(view: &mut RootView, path: &str, title: &str) {
+        let tab = super::state::PaneTab::page(path, title);
+        view.state.active_tab = Some(tab.id.clone());
+        view.state.tabs.push(tab);
+        view.navigate(path);
+    }
+
+    fn context_prompt(view: &RootView, agent: &str) -> String {
+        let token = crate::composer_context::auto_page_token();
+        let input = gpui_kit::component::input::InputContent::new(format!(
+            "{}what is on this page?",
+            token.text()
+        ))
+        .with_token(0..token.text().len(), token)
+        .unwrap();
+        crate::composer_context::ComposerContext::default()
+            .freeze(
+                &input,
+                view.page_context.visible(),
+                std::path::Path::new("."),
+                &view.page_context,
+                crate::page_context::ConversationScope::new("projection-review-test", agent),
+            )
+            .1
+    }
+
+    fn context_event(id: &str, title: &str) -> cgc_events::detail::EventDetail {
+        let mut detail =
+            cgc_events::detail::EventDetail::from_summary(&cgc_events::list::EventSummary {
+                id: id.into(),
+                title: title.into(),
+                status: "open".into(),
+                visibility: "public".into(),
+                enrollment_policy: "open".into(),
+                capacity: None,
+                confirmed_count: None,
+                enrollment_badge: None,
+                registration_deadline: None,
+                starts_at: None,
+                venue: None,
+                pricing_enabled: false,
+            });
+        detail.description = Some(format!("Description for {title}"));
+        detail
+    }
+
+    #[test]
+    fn event_context_never_attributes_cached_or_unready_details_to_the_active_event() {
+        use crate::page_context::PageBody;
+        let mut view = view();
+        activate_context_tab(&mut view, "/events/event-a", "Event A");
+        view.state.detail.begin_load("event-a");
+        view.state.detail.adopt(context_event("event-a", "Event A"));
+        view.refresh_page_context();
+        for agent in ["native", "codex"] {
+            assert!(context_prompt(&view, agent).contains("Description for Event A"));
+        }
+        activate_context_tab(&mut view, "/events/event-b", "Event B");
+        view.refresh_page_context();
+        assert_eq!(view.page_context.visible().unwrap().body, PageBody::Loading);
+        for agent in ["native", "codex"] {
+            let prompt = context_prompt(&view, agent);
+            assert!(prompt.contains("route=/events/event-b"));
+            assert!(!prompt.contains("Description for Event A"));
+        }
+        view.state.detail.begin_load("event-b");
+        assert_eq!(view.state.detail.detail().unwrap().id, "event-a");
+        view.refresh_page_context();
+        assert_eq!(view.page_context.visible().unwrap().body, PageBody::Loading);
+        view.state
+            .detail
+            .fail(&cgc_events::list::EventsError::Transport(
+                "Event B request failed".into(),
+            ));
+        view.refresh_page_context();
+        assert!(
+            matches!(view.page_context.visible().unwrap().body, PageBody::Unavailable(ref reason) if reason.contains("Event B request failed"))
+        );
+        for agent in ["native", "codex"] {
+            assert!(!context_prompt(&view, agent).contains("Description for Event A"));
+        }
+        view.state.detail.adopt(context_event("event-a", "Event A"));
+        view.refresh_page_context();
+        assert_eq!(view.page_context.visible().unwrap().body, PageBody::Loading);
+        view.state.detail.adopt(context_event("event-b", "Event B"));
+        view.refresh_page_context();
+        for agent in ["native", "codex"] {
+            let prompt = context_prompt(&view, agent);
+            assert!(prompt.contains("Description for Event B"));
+            assert!(!prompt.contains("Description for Event A"));
+        }
+        view.state.detail.begin_load("event-b");
+        view.refresh_page_context();
+        assert_eq!(view.page_context.visible().unwrap().body, PageBody::Loading);
+        for agent in ["native", "codex"] {
+            assert!(!context_prompt(&view, agent).contains("Description for Event B"));
+        }
+        view.state
+            .detail
+            .fail(&cgc_events::list::EventsError::Transport(
+                "Previous event request failed".into(),
+            ));
+        activate_context_tab(&mut view, "/events/event-c", "Event C");
+        view.refresh_page_context();
+        assert_eq!(view.page_context.visible().unwrap().body, PageBody::Loading);
+        for agent in ["native", "codex"] {
+            let prompt = context_prompt(&view, agent);
+            assert!(prompt.contains("route=/events/event-c"));
+            assert!(!prompt.contains("Previous event request failed"));
+        }
+    }
+
+    #[test]
+    fn learning_context_filters_event_enrollments_while_participation_pages_keep_them() {
+        use crate::page_context::PageBody;
+        let mut view = view();
+        let event = cgc_events::enrollments::MyEnrollmentRow {
+            id: "event-enrollment".into(),
+            status: "confirmed".into(),
+            target_title: Some("Event registration outside the learning list".into()),
+            starts_at: None,
+            event_id: Some("event-a".into()),
+            course_id: None,
+            payment_mode: None,
+            check_in_code: None,
+        };
+        let course = cgc_events::enrollments::MyEnrollmentRow {
+            id: "course-enrollment".into(),
+            target_title: Some("Visible learning course".into()),
+            event_id: None,
+            course_id: Some("course-a".into()),
+            ..event.clone()
+        };
+        view.state.enrollments_rows = vec![event.clone(), course];
+        view.state.enrollments_state = super::EnrollmentsListState::Ready;
+        activate_context_tab(&mut view, "/learning", "My learning");
+        view.refresh_page_context();
+        for agent in ["native", "codex"] {
+            let prompt = context_prompt(&view, agent);
+            assert!(prompt.contains("Visible learning course"));
+            assert!(!prompt.contains("Event registration outside the learning list"));
+        }
+        let course_only_version = view.page_context.visible().unwrap().version;
+        view.state.enrollments_rows[0].target_title =
+            Some("Updated hidden event registration".into());
+        view.refresh_page_context();
+        assert_eq!(
+            view.page_context.visible().unwrap().version,
+            course_only_version
+        );
+        view.state.enrollments_rows = vec![event];
+        view.refresh_page_context();
+        assert_eq!(view.page_context.visible().unwrap().body, PageBody::Empty);
+        for agent in ["native", "codex"] {
+            assert!(!context_prompt(&view, agent)
+                .contains("Event registration outside the learning list"));
+        }
+        for path in ["/events/mine", "/participations"] {
+            activate_context_tab(&mut view, path, "Participations");
+            view.refresh_page_context();
+            for agent in ["native", "codex"] {
+                assert!(context_prompt(&view, agent)
+                    .contains("Event registration outside the learning list"));
+            }
+        }
+    }
+
+    #[test]
+    fn course_context_includes_visible_objective_instructions_and_versions_changes() {
+        use cgc_courses::content::{
+            CourseContent, CourseContentDocument, CourseIssue, CourseObjective,
+        };
+
+        let mut view = view();
+        let mut content = CourseContent {
+            course_id: "course-a".into(),
+            title: "Course A".into(),
+            description: None,
+            revision_number: Some(1),
+            published_at: None,
+            document: CourseContentDocument {
+                goals: vec!["Learn ownership".into()],
+                issues: vec![CourseIssue {
+                    id: Some("issue-a".into()),
+                    title: Some("Ownership".into()),
+                    objectives: vec![
+                        CourseObjective {
+                            id: Some("objective-required".into()),
+                            title: Some("Practice borrowing".into()),
+                            required: true,
+                            prereq_ids: Vec::new(),
+                            activity: Some("Borrow a value without moving it".into()),
+                            assessment: None,
+                            rubric: Vec::new(),
+                            materials: Vec::new(),
+                        },
+                        CourseObjective {
+                            id: Some("objective-optional".into()),
+                            title: None,
+                            required: false,
+                            prereq_ids: Vec::new(),
+                            activity: None,
+                            assessment: None,
+                            rubric: Vec::new(),
+                            materials: Vec::new(),
+                        },
+                    ],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        };
+        for focused_issue in [false, true] {
+            activate_context_tab(&mut view, "/courses/course-a/learn", "Course A");
+            if focused_issue {
+                let tab = super::state::PaneTab::issue("course-a", "issue-a", "Ownership");
+                view.state.active_tab = Some(tab.id.clone());
+                view.state.tabs.push(tab);
+            }
+            view.state.content.begin_load("course-a");
+            view.state.content.adopt(content.clone());
+            view.refresh_page_context();
+            let original_version = view.page_context.visible().unwrap().version;
+            for agent in ["native", "codex"] {
+                let prompt = context_prompt(&view, agent);
+                assert!(prompt
+                    .contains("Practice borrowing · required · Borrow a value without moving it"));
+                assert!(prompt.contains("Objective · optional"));
+            }
+
+            content.document.issues[0].objectives[0].activity =
+                Some("Explain when the borrow ends".into());
+            view.state.content.adopt(content.clone());
+            view.refresh_page_context();
+            let activity_version = view.page_context.visible().unwrap().version;
+            assert_ne!(activity_version, original_version);
+            for agent in ["native", "codex"] {
+                let prompt = context_prompt(&view, agent);
+                assert!(
+                    prompt.contains("Practice borrowing · required · Explain when the borrow ends")
+                );
+                assert!(!prompt.contains("Borrow a value without moving it"));
+            }
+
+            content.document.issues[0].objectives[0].required = false;
+            view.state.content.adopt(content.clone());
+            view.refresh_page_context();
+            assert_ne!(
+                view.page_context.visible().unwrap().version,
+                activity_version
+            );
+            for agent in ["native", "codex"] {
+                let prompt = context_prompt(&view, agent);
+                assert!(
+                    prompt.contains("Practice borrowing · optional · Explain when the borrow ends")
+                );
+                assert!(!prompt.contains("Practice borrowing · required"));
+            }
+            content.document.issues[0].objectives[0].required = true;
+            content.document.issues[0].objectives[0].activity =
+                Some("Borrow a value without moving it".into());
+        }
+    }
+
+    #[test]
+    fn retained_course_content_refreshes_when_learning_revision_changes() {
+        use crate::page_context::PageBody;
+        use cgc_courses::catalog::CourseDetail;
+        use cgc_courses::content::{CourseContent, CourseContentDocument, CourseContentState};
+
+        for (previous_revision, refreshed_revision) in
+            [(Some(1), Some(2)), (Some(1), None), (None, Some(2))]
+        {
+            let mut view = view();
+            let detail = CourseDetail {
+                id: "course-a".into(),
+                title: "Course A".into(),
+                description: None,
+                status: "published".into(),
+                visibility: "public".into(),
+                workspace_id: Some("course-workspace".into()),
+                pricing_enabled: false,
+                enrollment_status: Some("confirmed".into()),
+                revision_number: previous_revision,
+            };
+            let content = CourseContent {
+                course_id: "course-a".into(),
+                title: "Course A".into(),
+                description: None,
+                revision_number: previous_revision,
+                published_at: None,
+                document: CourseContentDocument {
+                    goals: vec!["Original revision material".into()],
+                    ..CourseContentDocument::default()
+                },
+            };
+            activate_context_tab(&mut view, "/courses/course-a/learn", "Course A");
+            view.adopt_course_detail(detail.clone());
+            view.state.content.begin_load("course-a");
+            view.state.content.adopt(content.clone());
+            view.refresh_page_context();
+            let original_version = view.page_context.visible().unwrap().version;
+            for agent in ["native", "codex"] {
+                assert!(context_prompt(&view, agent).contains("Original revision material"));
+            }
+
+            for revision in [previous_revision, refreshed_revision] {
+                activate_context_tab(&mut view, "/workspace", "Workspace");
+                activate_context_tab(&mut view, "/courses/course-a/learn", "Course A");
+                assert!(view.state.course_detail.detail().is_none());
+                assert_eq!(view.state.content.content(), Some(&content));
+                view.adopt_course_detail(CourseDetail {
+                    revision_number: revision,
+                    ..detail.clone()
+                });
+                view.refresh_page_context();
+                if revision == previous_revision {
+                    assert_eq!(view.state.content.state(), &CourseContentState::Ready);
+                    assert_eq!(view.state.content.content(), Some(&content));
+                    assert_eq!(
+                        view.page_context.visible().unwrap().version,
+                        original_version
+                    );
+                    for agent in ["native", "codex"] {
+                        assert!(context_prompt(&view, agent).contains("Original revision material"));
+                    }
+                }
+            }
+
+            assert_eq!(view.state.content.state(), &CourseContentState::Idle);
+            assert!(view.state.content.content().is_none());
+            let loading = view.page_context.visible().unwrap();
+            assert_eq!(loading.body, PageBody::Loading);
+            assert_eq!(loading.course.unwrap().revision, refreshed_revision);
+            for agent in ["native", "codex"] {
+                assert!(!context_prompt(&view, agent).contains("Original revision material"));
+            }
+
+            view.state.content.begin_load("course-a");
+            view.state.content.adopt(CourseContent {
+                revision_number: refreshed_revision,
+                document: CourseContentDocument {
+                    goals: vec!["Updated revision material".into()],
+                    ..CourseContentDocument::default()
+                },
+                ..content
+            });
+            view.refresh_page_context();
+            assert_eq!(view.state.content.state(), &CourseContentState::Ready);
+            let refreshed = view.page_context.visible().unwrap();
+            assert_eq!(refreshed.course.unwrap().revision, refreshed_revision);
+            assert_ne!(refreshed.version, original_version);
+            for agent in ["native", "codex"] {
+                let prompt = context_prompt(&view, agent);
+                assert!(prompt.contains("Updated revision material"));
+                assert!(!prompt.contains("Original revision material"));
+            }
+        }
+    }
+
+    #[test]
+    fn course_context_keeps_route_identity_before_detail_loads() {
+        let mut view = view();
+        view.state.tabs.push(super::state::PaneTab::issue(
+            "course-a",
+            "unit-a",
+            "First task",
+        ));
+        view.state.active_tab = Some("issue:course-a:unit-a".into());
+        view.navigate("/courses/course-a/learn");
+        view.refresh_page_context();
+        let page = view.page_context.visible().unwrap();
+        let course = page.course.unwrap();
+        assert_eq!(course.id, "course-a");
+        assert_eq!(course.unit.unwrap().id, "unit-a");
+        assert_eq!(page.body, crate::page_context::PageBody::Loading);
+        view.state.course_detail_started = true;
+        view.state.tabs.push(super::state::PaneTab::page(
+            "/courses/course-b/learn",
+            "Second course",
+        ));
+        view.state.active_tab = Some("page:/courses/course-b/learn".into());
+        view.navigate("/courses/course-b/learn");
+        assert!(!view.state.course_detail_started);
+        view.refresh_page_context();
+        assert_eq!(
+            view.page_context.visible().unwrap().course.unwrap().id,
+            "course-b"
+        );
+    }
+
+    #[test]
+    fn course_context_uses_the_courses_workspace_instead_of_the_selector() {
+        let mut view = view();
+        view.state
+            .workspaces
+            .adopt(vec![cgc_platform::workspace::WorkspaceSummary {
+                id: "selector-workspace".into(),
+                slug: "selected".into(),
+                name: "Selected workspace".into(),
+                my_role_names: Vec::new(),
+                member_count: None,
+                can_access: true,
+            }]);
+        assert_eq!(
+            view.state.workspaces.current_id(),
+            Some("selector-workspace")
+        );
+        view.state.tabs.push(super::state::PaneTab::page(
+            "/courses/course-a/learn",
+            "Course",
+        ));
+        view.state.active_tab = Some("page:/courses/course-a/learn".into());
+        view.navigate("/courses/course-a/learn");
+        view.state
+            .course_detail
+            .adopt(cgc_courses::catalog::CourseDetail {
+                id: "course-a".into(),
+                title: "Course A".into(),
+                description: None,
+                status: "published".into(),
+                visibility: "public".into(),
+                workspace_id: Some("course-workspace".into()),
+                pricing_enabled: false,
+                enrollment_status: None,
+                revision_number: Some(3),
+            });
+        view.refresh_page_context();
+        assert_eq!(
+            view.page_context.visible().unwrap().workspace_id.as_deref(),
+            Some("course-workspace")
+        );
+    }
+
+    #[test]
+    fn failed_course_detail_reports_unavailable_page_context_with_course_identity() {
+        let mut view = view();
+        view.state
+            .tabs
+            .push(super::state::PaneTab::page("/courses/course-a", "Course A"));
+        view.state.active_tab = Some("page:/courses/course-a".into());
+        view.navigate("/courses/course-a");
+        view.state
+            .course_detail
+            .fail(&cgc_courses::catalog::CoursesError::Transport(
+                "request failed".into(),
+            ));
+        view.refresh_page_context();
+        let context = view.page_context.visible().unwrap();
+        assert!(matches!(
+            context.body,
+            crate::page_context::PageBody::Unavailable(_)
+        ));
+        assert_eq!(context.course.unwrap().id, "course-a");
     }
 
     #[test]

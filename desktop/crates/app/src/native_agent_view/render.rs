@@ -5,7 +5,13 @@
 use super::*;
 
 impl Render for NativeAgentView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.composer_context.ensure_auto(
+            &self.input,
+            self.page_context.visible().as_ref(),
+            window,
+            cx,
+        );
         if self.snapshot.is_none() {
             // 兜底：即使订阅错过了首个快照，首帧也要主动取一次，避免永久停在载入态。
             self.ensure_initial_snapshot(cx);
@@ -20,12 +26,13 @@ impl Render for NativeAgentView {
         let palette = theme::palette_from_theme(cx);
         let pending = self.state.session.thread.pending_permission.clone();
         let _model_supports_images = draft.model_supports_images;
-        let busy = draft.busy;
+
         let _usage = draft.usage;
         let _input = draft.input.clone();
-        let _input_focus = draft.input_focus.clone();
+
         let input_value = draft.input_value.clone();
         let _has_input = draft.has_input;
+        let model_setup = self.metadata().model_setup;
         let slash_open = input_value.trim_start().starts_with('/') && !self.slash_dismissed;
         let slash_matches = self.slash_entries(&input_value);
         let _slash_selected = self.slash_index.min(slash_matches.len().saturating_sub(1));
@@ -38,14 +45,7 @@ impl Render for NativeAgentView {
         let _mention_selected = self
             .mention_index
             .min(mention_matches.len().saturating_sub(1));
-        let _can_undo = self
-            .state
-            .session
-            .thread
-            .capabilities
-            .checkpoint_available()
-            && !self.metadata().checkpoints.is_empty()
-            && !busy;
+
         let change_count = self.metadata().changes.len();
         let plan_state = self.metadata().agent_state.clone();
         let queued_messages: Vec<_> = self
@@ -231,11 +231,12 @@ impl Render for NativeAgentView {
                     },
                 })
             }))
-            .child({
-                // B4b-b'1：两条 composer 渲染路径已合一，这是唯一实现
-                // （附件/queue/slash/mention/pickers/checkpoint/usage 均在）。
-                self.render_native_composer_legacy(&draft, cx)
-            })
+            .children(
+                matches!(model_setup, ModelSetup::Unconfigured | ModelSetup::DemoEcho)
+                    .then(|| self.render_model_setup_notice(model_setup, palette, cx)),
+            )
+            .children(self.render_operation_error(cx))
+            .child(self.render_composer(&draft, window, cx))
             .into_any_element()
     }
 }

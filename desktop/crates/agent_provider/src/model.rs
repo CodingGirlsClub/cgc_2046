@@ -85,6 +85,7 @@ pub struct Model {
     pub provider_name: String,
     pub capabilities: ModelCapabilities,
     pub limits: ModelLimits,
+    pub thinking_mode: crate::ThinkingMode,
     pub telemetry_id: String,
 }
 
@@ -106,6 +107,7 @@ impl Model {
             provider_name: provider_name.into(),
             capabilities: ModelCapabilities::default(),
             limits,
+            thinking_mode: crate::ThinkingMode::Disabled,
             telemetry_id,
         }
     }
@@ -117,6 +119,12 @@ impl Model {
 
     pub fn with_thinking(mut self, thinking: bool) -> Self {
         self.capabilities.thinking = thinking;
+        self
+    }
+
+    pub fn with_thinking_mode(mut self, mode: crate::ThinkingMode) -> Self {
+        self.thinking_mode = mode;
+        self.capabilities.thinking = mode != crate::ThinkingMode::Disabled;
         self
     }
 

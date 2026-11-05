@@ -26,8 +26,8 @@ fi
 for f in dist/*.dmg; do
   echo "== dmg: $f"
   base=$(basename "$f")
-  if ! [[ "$base" =~ ^cgc2046_[0-9]+\.[0-9]+\.[0-9]+_[0-9a-f]{7,}_[a-z0-9]+\.dmg$ ]]; then
-    echo "FAIL: 产物名缺版本/commit（期望 cgc2046_<version>_<commit>_<arch>.dmg，实际 $base）" >&2
+  if ! [[ "$base" =~ ^cgc2046-macos-[a-z0-9]+\.dmg$ ]]; then
+    echo "FAIL: 产物名不符合 cgc2046-macos-<arch>.dmg（实际 $base）；版本应写在同名 .build.json" >&2
     exit 1
   fi
   echo "   name ok: $base"
@@ -72,56 +72,62 @@ for f in dist/*.dmg; do
   found=1
 done
 
-for f in dist/*.deb; do
-  echo "== deb: $f"
-  if command -v dpkg-deb >/dev/null 2>&1; then
-    dpkg-deb -c "$f" >/dev/null
-    echo "   dpkg-deb -c ok"
-    if ! depends=$(dpkg-deb -f "$f" Depends 2>/tmp/cgc-deb-field.err); then
-      # control 本身不合法（如 package 名非 ASCII）时 dpkg-deb -f 会直接报错，
-      # 这里把原始错误打出来，避免只剩一句「Depends: <empty>」。
-      echo "FAIL: deb control 无法被 dpkg 解析：" >&2
-      cat /tmp/cgc-deb-field.err >&2 || true
-      dpkg-deb -I "$f" >&2 2>/dev/null || true
-      exit 1
-    fi
-    case "$depends" in
-      *libsecret-tools*) echo "   dependency ok: libsecret-tools" ;;
-      *)
-        echo "FAIL: deb 缺少 libsecret-tools 运行时依赖（实际 Depends: ${depends:-<empty>}）" >&2
-        dpkg-deb -I "$f" >&2 2>/dev/null || true
-        exit 1
-        ;;
-    esac
-    tmp=$(mktemp -d "${TMPDIR:-/tmp}/cgc-deb.XXXXXX")
-    dpkg-deb -x "$f" "$tmp"
-    if ! grep -R -q 'x-scheme-handler/cgc' "$tmp/usr/share/applications" 2>/dev/null; then
-      rm -rf "$tmp"
-      echo "FAIL: deb desktop entry 缺少 x-scheme-handler/cgc" >&2
-      exit 1
-    fi
-    rm -rf "$tmp"
-    echo "   cgc URL scheme ok"
-  else
-    echo "   dpkg-deb 不可用（非 Debian 系宿主），跳过结构校验"
+for f in dist/*.tar.gz; do
+  echo "== tar.gz: $f"
+  base=$(basename "$f")
+  if ! [[ "$base" =~ ^cgc2046-linux-[a-z0-9]+\.tar\.gz$ ]]; then
+    echo "FAIL: 产物名不符合 cgc2046-linux-<arch>.tar.gz（实际 $base）" >&2
+    exit 1
   fi
-  found=1
-done
-
-for f in dist/*.AppImage; do
-  echo "== AppImage: $f"
-  rm -rf squashfs-root
-  "$f" --appimage-extract >/dev/null
-  test -x squashfs-root/AppRun
-  echo "   --appimage-extract ok"
-  if ! grep -R -q 'x-scheme-handler/cgc' squashfs-root/usr/share/applications 2>/dev/null; then
-    rm -rf squashfs-root
-    echo "FAIL: AppImage desktop entry 缺少 x-scheme-handler/cgc" >&2
+  echo "   name ok: $base"
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/cgc-tar.XXXXXX")
+  tar -xzf "$f" -C "$tmp"
+  bin=$(find "$tmp" -type f -name "cgc-desktop-app" -perm -u+x | head -1)
+  if [ -z "$bin" ]; then
+    rm -rf "$tmp"
+    echo "FAIL: tar.gz 内找不到可执行的 cgc-desktop-app" >&2
+    exit 1
+  fi
+  echo "   binary ok: ${bin#"$tmp"/}"
+  # 只认实际会被桌面环境读取的 .desktop 文件：随包的 register-protocol.sh 本身也含
+  # `x-scheme-handler/cgc` 字面量，全目录 grep 会让缺 entry 的包蒙混过关。
+  entry=$(find "$tmp/usr/share/applications" -maxdepth 1 -type f -name "*.desktop" 2>/dev/null | head -1)
+  if [ -z "$entry" ] || ! grep -q 'x-scheme-handler/cgc' "$entry"; then
+    rm -rf "$tmp"
+    echo "FAIL: tar.gz 缺声明 x-scheme-handler/cgc 的 desktop entry（usr/share/applications/*.desktop）" >&2
     exit 1
   fi
   echo "   cgc URL scheme ok"
-  rm -rf squashfs-root
+  rm -rf "$tmp"
   found=1
+done
+
+# 每个产物都必须有同名 .build.json：版本不在文件名里，元数据是唯一读取来源。
+for f in dist/*.dmg dist/*.tar.gz dist/*.zip; do
+  [ -e "$f" ] || continue
+  case "$f" in
+    *.tar.gz) meta="${f%.tar.gz}.build.json" ;;
+    *) meta="${f%.*}.build.json" ;;
+  esac
+  if [ ! -f "$meta" ]; then
+    echo "FAIL: 缺构建元数据 $meta（版本/commit 只能从这里读）" >&2
+    exit 1
+  fi
+  python3 - "$meta" <<'PYMETA'
+import json, os, sys
+path = sys.argv[1]
+meta = json.load(open(path))
+for key in ("version", "sourceRevision", "platform", "arch"):
+    if not meta.get(key):
+        sys.exit(f"FAIL: {path} 缺 {key}")
+want_version = os.environ.get("VERSION", "").replace("desktop-v", "")
+if want_version and meta["version"] != want_version:
+    sys.exit(f"FAIL: build.json version={meta['version']} 与预期 {want_version} 不一致")
+want_commit = os.environ.get("CGC_BUILD_COMMIT", "")
+if want_commit and meta["sourceRevision"] != want_commit:
+    sys.exit("FAIL: build.json sourceRevision 与 CI commit 不一致")
+PYMETA
+  echo "   metadata ok: $(basename "$meta")"
 done
 
 if [ "$found" -eq 0 ]; then

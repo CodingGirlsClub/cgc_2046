@@ -54,12 +54,18 @@ jobs:
           # macOS 出 universal 包：Intel Mac 用户也要能装，且用户不该自己挑架构。
           - os: macos-15
             formats: dmg
+            archive: ""
             artifact_arch: universal
+          # 内测包要「免安装」：Windows 出 zip、Linux 出 tar.gz（cargo-packager 没有这两种
+          # 格式，先出 wix/deb 再解包重压）。未签名安装器会被 SmartScreen/签名检查拦，
+          # 便携包只需要解压即可运行。
           - os: windows-2022
             formats: wix
+            archive: zip
             artifact_arch: ""
           - os: ubuntu-24.04
-            formats: deb,appimage
+            formats: deb
+            archive: tar.gz
             artifact_arch: ""
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
@@ -102,6 +108,12 @@ jobs:
       - name: 安装 cargo-packager
         if: steps.packager-cache.outputs.cache-hit != 'true'
         run: cargo install cargo-packager --locked --version =0.11.8
+      - name: 解析源码 commit（tag 的提交，不是 dispatch ref）
+        id: src
+        # Windows runner 默认 shell 是 pwsh，`$GITHUB_OUTPUT` 会当成 PowerShell 变量
+        # （应为 `$env:GITHUB_OUTPUT`）展开为空，重定向失败会挂掉整个 matrix。显式 bash。
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: 打包（Windows / Linux）
         if: runner.os != 'macOS'
         env:
@@ -124,20 +136,90 @@ jobs:
             target/x86_64-apple-darwin/release/cgc-desktop-app
           lipo -archs target/universal-apple-darwin/release/cgc-desktop-app
           cargo packager -p cgc-desktop-app --release --target universal-apple-darwin -f dmg
+      # 便携包：解开发行包再压缩，保证 DLL/资源与安装器内容一致（不靠手抄文件清单）。
+      - name: 生成便携 tar.gz（解 deb）
+        if: matrix.archive == 'tar.gz'
+        run: |
+          set -euo pipefail
+          deb=$(ls dist/*.deb | head -1)
+          stage=$(mktemp -d)
+          dpkg-deb -x "$deb" "$stage"
+          # 便携包不经安装器，协议注册要用户解压后手动跑一次这个脚本。
+          cp scripts/register-protocol.sh "$stage/usr/bin/register-protocol.sh"
+          chmod +x "$stage/usr/bin/register-protocol.sh"
+          tar -czf dist/cgc2046-linux-portable.tar.gz -C "$stage" .
+          rm -f "$deb"
+          rm -rf "$stage"
+          ls -l dist/
+      - name: 生成便携 zip（解 msi）
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $msi = Get-ChildItem dist -Filter *.msi | Select-Object -First 1
+          if (-not $msi) { throw "FAIL: dist 下没有 msi" }
+          $stage = Join-Path $env:RUNNER_TEMP "cgc-portable"
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+          # 必须用 msiexec /a（administrative install）：MSI 的 cabinet 里存的是 File 表的键，
+          # WiX 模板把主可执行文件的 id 设为 `Path`，直接 7z 解出来会得到 `Path` 这类键名、
+          # 且没有安装后的目录布局。administrative install 会按 MSI 表还原真实路径。
+          $args = @("/a", "`"$($msi.FullName)`"", "/qn", "TARGETDIR=`"$stage`"")
+          $proc = Start-Process msiexec.exe -ArgumentList $args -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "msiexec /a 失败，exit=$($proc.ExitCode)" }
+          $exe = Get-ChildItem -Path $stage -Recurse -Filter "cgc-desktop-app.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) { throw "administrative install 后找不到 cgc-desktop-app.exe（MSI 布局与预期不符）" }
+          # administrative install 会按 MSI 的 Program Files 布局还原，exe 落在
+          # PFiles/<程序名>/ 下；这里把它提到包根，用户解压后第一眼就能看到。
+          # 同目录若有 DLL/资源，一并搬走以保持相对关系。
+          $appDir = Split-Path -Parent $exe.FullName
+          Get-ChildItem -Path $appDir -Force | Move-Item -Destination $stage -Force
+          Get-ChildItem -Path $stage -Directory -Filter "PFiles" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+          # administrative install 会把 msi 自身复制进目标目录，去掉它（便携包不需要安装器）。
+          Get-ChildItem -Path $stage -Filter *.msi -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force
+          if (-not (Test-Path (Join-Path $stage "cgc-desktop-app.exe"))) {
+            throw "FAIL: exe 未落到包根（用户解压后会看不到）"
+          }
+          Write-Host "staged exe: $(Join-Path $stage 'cgc-desktop-app.exe')"
+          Copy-Item scripts/register-protocol.ps1 -Destination (Join-Path $stage "register-protocol.ps1") -Force
+          Compress-Archive -Path (Join-Path $stage "*") -DestinationPath "dist/cgc2046-windows-portable.zip" -Force
+          Remove-Item $msi.FullName -Force
+          Get-ChildItem dist
       - name: 重命名产物（Unix）
         if: runner.os != 'Windows'
-        run: bash scripts/name-artifacts.sh
+        env:
+          VERSION: ${{ inputs.tag || github.ref_name }}
+          CGC_BUILD_COMMIT: ${{ steps.src.outputs.sha }}
+          CGC_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          export VERSION="${VERSION#desktop-v}"
+          bash scripts/name-artifacts.sh
       - name: 重命名产物（Windows）
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/name-artifacts.ps1
+        env:
+          VERSION: ${{ inputs.tag || github.ref_name }}
+          CGC_BUILD_COMMIT: ${{ steps.src.outputs.sha }}
+          CGC_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          $env:VERSION = $env:VERSION -replace '^desktop-v', ''
+          ./scripts/name-artifacts.ps1
       - name: 校验产物（Unix）
         if: runner.os != 'Windows'
-        run: bash scripts/verify-package.sh
+        env:
+          VERSION: ${{ inputs.tag || github.ref_name }}
+          CGC_BUILD_COMMIT: ${{ steps.src.outputs.sha }}
+        run: |
+          export VERSION="${VERSION#desktop-v}"
+          bash scripts/verify-package.sh
       - name: 校验产物（Windows）
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/verify-package.ps1
+        env:
+          VERSION: ${{ inputs.tag || github.ref_name }}
+          CGC_BUILD_COMMIT: ${{ steps.src.outputs.sha }}
+        run: |
+          $env:VERSION = $env:VERSION -replace '^desktop-v', ''
+          ./scripts/verify-package.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.os }}
@@ -161,19 +243,25 @@ jobs:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           tag_version="${TAG#desktop-v}"
+          # 允许 semver prerelease：0.1.0 / 0.1.0-dev.20261102.1（后者是内测构建）。
+          if ! [[ "$tag_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
+            echo "FAIL: tag '$TAG' 不是合法版本（期望 desktop-v<X.Y.Z>[-<prerelease>]）" >&2
+            exit 1
+          fi
+          base="${tag_version%%-*}"
           version=$(python3 - <<'PY'
           import pathlib, re
           text = pathlib.Path("desktop/Cargo.toml").read_text()
-          # [workspace.package] 里的 version 就是桌面端版本
+          # [workspace.package] 里的 version 就是桌面端 base 版本
           match = re.search(r'^version\s*=\s*"([^"]+)"', text, re.M)
           print(match.group(1) if match else "")
           PY
           )
-          if [ -z "$version" ] || [ "$tag_version" != "$version" ]; then
-            echo "FAIL: tag '$TAG' 与 desktop 包版本 '$version' 不一致" >&2
+          if [ -z "$version" ] || [ "$base" != "$version" ]; then
+            echo "FAIL: tag '$TAG' 的 base '$base' 与 desktop 包版本 '$version' 不一致" >&2
             exit 1
           fi
-          echo "version ok: $version"
+          echo "version ok: $tag_version（base $base）"
       - name: 确认 tag 指向已合并的提交
         env:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
@@ -196,31 +284,62 @@ jobs:
           ls -lh dist
           cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
       - name: 生成发布说明
-        env:
-          TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
-          cat > "$RUNNER_TEMP/notes.md" <<'MD'
+          notes="$RUNNER_TEMP/notes.md"
+          {
+            cat <<'MD'
           ## 程序媛汇 · 桌面客户端（内测）
 
           未签名、未公证的构建，仅供内部测试（签名与公证归 epic-6）。
+
+          ### 下载哪个包
+
+          | 平台 | 下载文件 | 说明 |
+          |---|---|---|
+          MD
+            for f in dist/*.dmg; do
+              [ -e "$f" ] || continue
+              printf '| macOS（Apple Silicon / Intel 通用） | `%s` | 拖进「应用程序」 |\n' "$(basename "$f")"
+            done
+            for f in dist/*.zip; do
+              [ -e "$f" ] || continue
+              printf '| **Windows x64** | **`%s`** | **解压即用（便携包）** |\n' "$(basename "$f")"
+            done
+            for f in dist/*.tar.gz; do
+              [ -e "$f" ] || continue
+              printf '| Linux（x64） | `%s` | 解压即用（便携包） |\n' "$(basename "$f")"
+            done
+            printf '| 校验 | `SHA256SUMS` | 下载后 `sha256sum -c SHA256SUMS` |\n'
+            cat <<'MD'
+
+          > 列表末尾的 `Source code (zip)` / `Source code (tar.gz)` 是 GitHub 自动附带的源码归档，不是安装包，不用下载。
 
           ### 安装
           - **macOS（universal，Apple Silicon 与 Intel 通用）**：拖进「应用程序」。
             用浏览器直接下载会被 Gatekeeper 拦（「已损坏，无法打开」），先执行
             `xattr -dr com.apple.quarantine "/Applications/程序媛汇.app"`；
             或用 `curl -LO` 下载（不会带 quarantine）。
-          - **Windows**：SmartScreen 提示时选「更多信息 → 仍要运行」。
-          - **Linux**：deb 依赖 `libsecret-tools`（登录凭证走 secret-tool）；
-            AppImage 在无 FUSE 环境用 `--appimage-extract-and-run` 启动。
+          - **Windows x64**：解压 `.zip` 到任意目录，双击其中的 `cgc-desktop-app.exe`。
+            首次运行 SmartScreen 会提示，选「更多信息 → 仍要运行」。不需要安装、不需要管理员权限。
+          - **Linux（x64）**：解压 `.tar.gz` 后直接运行其中的 `cgc-desktop-app`。
+            登录凭证走 secret-tool，需要系统装有 `libsecret-tools`
+            （Debian/Ubuntu：`sudo apt install libsecret-tools`）。不需要安装、不需要 root。
+
+          > **便携包不注册 `cgc://` 深链**（那原本由安装器完成）。要让网页里的链接能跳回客户端，
+          > 解压后跑一次随包脚本：Windows `powershell -ExecutionPolicy Bypass -File register-protocol.ps1`；
+          > Linux `bash usr/bin/register-protocol.sh`。都只写当前用户，不需要管理员/root。
 
           ### 校验
           每个包旁边有 `SHA256SUMS`，下载后可 `sha256sum -c SHA256SUMS` 自查。
+          产物同名 `.build.json` 记录 `version` / `sourceRevision` / `platform` / `arch` / 签名状态。
 
           ### 说明
           内测包把生产端点烘进了二进制（`https://api.codingirlsclub.com/api/graphql`）。
-          安装包命名 `cgc2046_<version>_<commit>_<arch>.<ext>`。
+          产物命名 `cgc2046-<platform>-<arch>.<ext>`，**文件名不带版本**；版本、源码 commit 与
+          签名状态写在各产物同名的 `.build.json` 里，下载后 `cat` 一下即可确认是哪个构建。
           MD
-          cat "$RUNNER_TEMP/notes.md"
+          } > "$notes"
+          cat "$notes"
       - name: 发布
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

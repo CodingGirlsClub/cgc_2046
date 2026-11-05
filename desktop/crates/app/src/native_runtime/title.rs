@@ -162,6 +162,10 @@ fn title_request(
     max_output_tokens: u32,
 ) -> Request {
     let mut messages = history;
+    for message in &mut messages {
+        message.content.retain(|block| !block.is_thinking());
+    }
+    messages.retain(|message| !message.content.is_empty());
     messages.push(Message::user(SUMMARIZE_THREAD_PROMPT));
     let request = Request::new(messages).with_max_output_tokens(max_output_tokens);
     match temperature {
@@ -183,7 +187,7 @@ fn clean_generated_title(raw: &str) -> String {
 mod tests {
     // 显式导入：`use super::*` 叠加 glob 链会让 rustc 展开 #[test] 时 SIGBUS。
     use super::{clean_generated_title, title_request, SUMMARIZE_THREAD_PROMPT};
-    use cgc_agent_provider::{Message, Role};
+    use cgc_agent_provider::{Content, Message, Role};
 
     #[test]
     fn title_takes_first_non_empty_line_and_strips_wrapping_quotes() {
@@ -205,7 +209,16 @@ mod tests {
     fn title_request_keeps_full_history_and_appends_zed_prompt() {
         let history = vec![
             Message::user("第一问"),
-            Message::assistant_text("第一答"),
+            Message::new(
+                Role::Assistant,
+                vec![
+                    Content::Thinking {
+                        text: "private reasoning".into(),
+                        signature: "conversation prefix".into(),
+                    },
+                    Content::Text("第一答".into()),
+                ],
+            ),
             Message::user("第二问"),
             Message::assistant_text("第二答"),
         ];
@@ -213,6 +226,14 @@ mod tests {
         assert_eq!(request.messages.len(), 5);
         assert_eq!(request.messages[0].text(), "第一问");
         assert_eq!(request.messages[3].text(), "第二答");
+        assert!(
+            request
+                .messages
+                .iter()
+                .flat_map(|message| &message.content)
+                .all(|block| !block.is_thinking()),
+            "title generation has a different system/tools prefix"
+        );
         let prompt = request.messages.last().expect("prompt appended");
         assert_eq!(prompt.role, Role::User);
         assert_eq!(prompt.text(), SUMMARIZE_THREAD_PROMPT);

@@ -19,6 +19,7 @@ pub(crate) struct RequestPlan {
     pub summary_limit: usize,
     pub estimated_tokens: usize,
     pub image_cost_unknown: bool,
+    pub preserve_prefix: bool,
 }
 
 impl RequestPlan {
@@ -36,6 +37,10 @@ impl RequestPlan {
             Entry::Compaction { summary, .. } => text_tokens(summary) + 12,
             _ => 0,
         });
+        let thinking_from = thread
+            .thinking_context
+            .as_ref()
+            .map_or(0, |context| context.thinking_from);
         let image_cost_unknown = thread.entries[covered_until..].iter().any(has_image);
         // Actual usage is a lower bound for the previous request, not a replacement for
         // newly injected context. Scale history only when observed usage exceeds our estimate.
@@ -56,9 +61,16 @@ impl RequestPlan {
                 }
             });
         let correction = observed
-            .filter(|(index, _)| *index >= summary.unwrap_or(covered_until))
+            .filter(|(index, _)| {
+                *index >= summary.unwrap_or(covered_until)
+                    && (*index >= thinking_from
+                        || !thread.entries[covered_until..=*index].iter().any(|entry| {
+                            matches!(entry, Entry::Assistant { replay_content, .. }
+                                if replay_content.iter().any(Content::is_thinking))
+                        }))
+            })
             .map(|(index, usage)| {
-                let old = entries_tokens(&thread.entries[covered_until..=index]);
+                let old = entries_tokens(thread, covered_until..index + 1);
                 (
                     index,
                     usage.saturating_sub(fixed + summary_cost + old),
@@ -66,21 +78,32 @@ impl RequestPlan {
                 )
             });
         let cost_for = |range: Range<usize>| {
-            let raw = entries_tokens(&thread.entries[range.clone()]);
+            let raw = entries_tokens(thread, range.clone());
             let extra = correction.map_or(0, |(index, extra, old)| {
                 if range.start > index {
                     return 0;
                 }
-                entries_tokens(&thread.entries[range.start..range.end.min(index + 1)])
+                entries_tokens(thread, range.start..range.end.min(index + 1))
                     .saturating_mul(extra)
                     .div_ceil(old)
             });
             raw.saturating_add(extra)
         };
-        let mut start = covered_until;
-        let mut kept_cost = cost_for(covered_until..thread.entries.len());
+        let frozen_start = crate::thinking::active_tool_range(thread);
+        let mut start = frozen_start.unwrap_or(covered_until);
+        let mut kept_cost = cost_for(start..thread.entries.len());
         let total = fixed + summary_cost + kept_cost;
         if total > capacity {
+            // A tool continuation must keep the exact prefix that produced its signatures.
+            if frozen_start.is_some() {
+                return Err(AgentError::ContextTooLarge {
+                    estimated_tokens: total
+                        + PROTOCOL_RESERVE
+                        + model.limits.max_output_tokens as usize,
+                    context_window: model.limits.context_window,
+                    image_cost_unknown,
+                });
+            }
             let mut starts =
                 turn_starts(&thread.entries, covered_until..thread.entries.len()).rev();
             start = starts.next().unwrap_or(covered_until);
@@ -122,6 +145,7 @@ impl RequestPlan {
                 + PROTOCOL_RESERVE
                 + model.limits.max_output_tokens as usize,
             image_cost_unknown: thread.entries[start..].iter().any(has_image),
+            preserve_prefix: frozen_start.is_some(),
         })
     }
 
@@ -139,7 +163,13 @@ impl RequestPlan {
                 messages.push(Message::system(format!("历史摘要：{summary}")));
             }
         }
-        messages.extend(project_entries(&thread.entries[self.range.clone()]));
+        let thinking_from = thread.thinking_context.as_ref().map_or(0, |context| {
+            context.thinking_from.saturating_sub(self.range.start)
+        });
+        messages.extend(project_entries_after(
+            &thread.entries[self.range.clone()],
+            thinking_from,
+        ));
         messages
     }
 }
@@ -228,6 +258,10 @@ pub(crate) fn turn_starts(
 /// Incomplete legacy tool batches are omitted as a whole. Results are emitted only
 /// alongside their complete assistant batch, so malformed/restored history is legal.
 pub(crate) fn project_entries(entries: &[Entry]) -> Vec<Message> {
+    project_entries_after(entries, 0)
+}
+
+fn project_entries_after(entries: &[Entry], thinking_from: usize) -> Vec<Message> {
     let mut messages = Vec::new();
     for (index, entry) in entries.iter().enumerate() {
         match entry {
@@ -242,14 +276,29 @@ pub(crate) fn project_entries(entries: &[Entry]) -> Vec<Message> {
                 messages.push(message);
             }
             Entry::Assistant {
-                text, tool_calls, ..
+                text,
+                tool_calls,
+                replay_content,
+                ..
             } if tool_calls.is_empty() => {
-                if !text.is_empty() {
+                if !replay_content.is_empty() {
+                    let content: Vec<_> = replay_content
+                        .iter()
+                        .filter(|block| index >= thinking_from || !block.is_thinking())
+                        .cloned()
+                        .collect();
+                    if !content.is_empty() {
+                        messages.push(Message::new(Role::Assistant, content));
+                    }
+                } else if !text.is_empty() {
                     messages.push(Message::assistant_text(text));
                 }
             }
             Entry::Assistant {
-                text, tool_calls, ..
+                text,
+                tool_calls,
+                replay_content,
+                ..
             } => {
                 let tail = &entries[index + 1..];
                 let end = tail
@@ -267,11 +316,20 @@ pub(crate) fn project_entries(entries: &[Entry]) -> Vec<Message> {
                 }) {
                     continue;
                 }
-                let mut content = Vec::with_capacity(tool_calls.len() + 1);
-                if !text.is_empty() {
-                    content.push(Content::Text(text.clone()));
-                }
-                content.extend(tool_calls.iter().cloned().map(Content::ToolUse));
+                let content = if replay_content.is_empty() {
+                    let mut content = Vec::with_capacity(tool_calls.len() + 1);
+                    if !text.is_empty() {
+                        content.push(Content::Text(text.clone()));
+                    }
+                    content.extend(tool_calls.iter().cloned().map(Content::ToolUse));
+                    content
+                } else {
+                    replay_content
+                        .iter()
+                        .filter(|block| index >= thinking_from || !block.is_thinking())
+                        .cloned()
+                        .collect()
+                };
                 messages.push(Message::new(Role::Assistant, content));
                 messages.extend(results.iter().filter_map(|entry| match entry {
                     Entry::ToolResult {
@@ -317,20 +375,44 @@ fn schema_tokens(schema: &ToolSchema) -> usize {
 fn has_image(entry: &Entry) -> bool {
     matches!(entry, Entry::User { images, .. } if !images.is_empty())
 }
-pub(crate) fn entries_tokens(entries: &[Entry]) -> usize {
-    entries.iter().map(entry_tokens).sum()
+fn entries_tokens(thread: &Thread, range: Range<usize>) -> usize {
+    let thinking_from = thread
+        .thinking_context
+        .as_ref()
+        .map_or(thread.entries.len(), |context| context.thinking_from);
+    let start = range.start;
+    thread.entries[range]
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| entry_tokens(entry, start + index >= thinking_from))
+        .sum()
 }
-fn entry_tokens(entry: &Entry) -> usize {
+fn entry_tokens(entry: &Entry, include_thinking: bool) -> usize {
     match entry {
         Entry::User { text, images, .. } => text_tokens(text) + images.len() * 24,
         Entry::Assistant {
-            text, tool_calls, ..
+            text,
+            tool_calls,
+            replay_content,
+            ..
         } => {
             text_tokens(text)
                 + tool_calls
                     .iter()
                     .map(|call| text_tokens(&call.name) + json_tokens(&call.args))
                     .sum::<usize>()
+                + if include_thinking {
+                    replay_content
+                        .iter()
+                        .map(|content| match content {
+                            Content::Thinking { text, .. } => text_tokens(text),
+                            Content::RedactedThinking { data } => text_tokens(data),
+                            _ => 0,
+                        })
+                        .sum::<usize>()
+                } else {
+                    0
+                }
         }
         Entry::ToolResult { content, .. } => text_tokens(content),
         Entry::Thinking { .. } | Entry::Compaction { .. } => 0,

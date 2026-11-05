@@ -11,6 +11,31 @@ pub(in crate::root_view) enum RightPanel {
     Notifications,
 }
 
+/// 状态栏可隐藏的按钮（右键菜单 Hide Button）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::root_view) enum StatusBarButton {
+    History,
+    Agent,
+    Navigation,
+    Outline,
+}
+
+/// 右侧 Dock 的持久化记忆；通知面板打开期间保持不变。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::root_view) struct PanelMemory {
+    pub(in crate::root_view) panel: RightPanel,
+    pub(in crate::root_view) open: bool,
+}
+
+impl Default for PanelMemory {
+    fn default() -> Self {
+        Self {
+            panel: RightPanel::SiteTree,
+            open: true,
+        }
+    }
+}
+
 /// 纯状态转移：点当前 panel 图标收起，点另一个切换；便于单测钉住互斥语义。
 pub(in crate::root_view) fn toggled_right_panel(
     current: RightPanel,
@@ -67,6 +92,22 @@ pub(in crate::root_view) fn open_or_focus_tab(
         tabs.push(tab.clone());
     }
     *active = Some(tab.id);
+}
+
+/// 路由切换后 active tab 的归属：同路径保留当前 tab，否则取第一个同路径 tab。
+pub(in crate::root_view) fn active_tab_for_path(
+    tabs: &[PaneTab],
+    current: Option<&str>,
+    path: &str,
+) -> Option<String> {
+    if let Some(current) = current {
+        if tabs.iter().any(|tab| tab.id == current && tab.path == path) {
+            return Some(current.to_string());
+        }
+    }
+    tabs.iter()
+        .find(|tab| tab.path == path)
+        .map(|tab| tab.id.clone())
 }
 
 /// 关闭 Tab 后选择相邻项：优先右侧，其次左侧；没有则 None。
@@ -147,8 +188,15 @@ pub struct ShellState {
     pub(in crate::root_view) agent_panel_open: bool,
     pub(in crate::root_view) right_panel: RightPanel,
     pub(in crate::root_view) right_panel_open: bool,
+    /// 通知面板不覆盖右侧 Dock 的记忆。
+    pub(in crate::root_view) panel_memory: PanelMemory,
     pub(in crate::root_view) right_panel_width: f32,
     pub(in crate::root_view) agent_panel_width: f32,
+    /// 面板停靠侧；右键菜单 Dock Left / Dock Right 修改。
+    pub(in crate::root_view) agent_panel_side: crate::preferences::PanelSide,
+    pub(in crate::root_view) dock_side: crate::preferences::PanelSide,
+    /// Window & Layout / Panels 的显示偏好快照；设置窗口写入后由 apply 刷新。
+    pub(in crate::root_view) display_preferences: crate::preferences::Preferences,
     pub(in crate::root_view) resize_drag: Option<(ResizeSide, f32, f32)>,
     pub(in crate::root_view) tabs: Vec<PaneTab>,
     pub(in crate::root_view) active_tab: Option<String>,
@@ -242,6 +290,9 @@ pub struct ShellState {
     pub(in crate::root_view) agent_mcp: Option<crate::native_panel_host::McpContext>,
     pub(in crate::root_view) agent_lease_pending: Option<u64>,
     pub(in crate::root_view) agent_authorization_serial: u64,
+    pub(in crate::root_view) agent_authorization_tail:
+        Option<super::agent_session::AuthorizationTail>,
+    pub(in crate::root_view) agent_authorization_error: Option<McpError>,
     /// 单后台 writer：SQLite 写不在 UI 线程执行。
     pub(in crate::root_view) store_writer: Option<cgc_agent_store::StoreWriter>,
     pub(in crate::root_view) review_event_keys: std::collections::HashSet<String>,
@@ -265,6 +316,7 @@ impl ShellState {
         session: SessionService,
     ) -> Self {
         let current = initial_route(&registry);
+        let layout_preferences = crate::preferences::load();
         let events = build_events_service();
         let detail = EventDetailService::new(events.api_handle());
         let courses = build_courses_service();
@@ -297,8 +349,12 @@ impl ShellState {
             agent_panel_open: true,
             right_panel: RightPanel::SiteTree,
             right_panel_open: true,
-            right_panel_width: 288.0,
-            agent_panel_width: 380.0,
+            panel_memory: PanelMemory::default(),
+            right_panel_width: layout_preferences.dock_width as f32,
+            agent_panel_width: layout_preferences.agent_panel_width as f32,
+            agent_panel_side: layout_preferences.agent_panel_side,
+            dock_side: layout_preferences.dock_side,
+            display_preferences: layout_preferences,
             resize_drag: None,
             tabs: Vec::new(),
             active_tab: None,
@@ -387,6 +443,8 @@ impl ShellState {
             agent_mcp: None,
             agent_lease_pending: None,
             agent_authorization_serial: 0,
+            agent_authorization_tail: None,
+            agent_authorization_error: None,
             store_writer: None,
             review_event_keys: std::collections::HashSet::new(),
             workspaces: build_workspace_service(),
@@ -401,7 +459,9 @@ impl ShellState {
 
 #[cfg(test)]
 mod tests {
-    use super::{close_tab, open_or_focus_tab, toggled_right_panel, PaneTab, RightPanel};
+    use super::{
+        active_tab_for_path, close_tab, open_or_focus_tab, toggled_right_panel, PaneTab, RightPanel,
+    };
 
     #[test]
     fn right_panel_toggle_closes_same_and_switches_other() {
@@ -451,5 +511,29 @@ mod tests {
         assert_eq!(tab.id, "issue:course-1:issue-1");
         assert_eq!(tab.path, "/courses/course-1/learn");
         assert_eq!(tab.issue_id.as_deref(), Some("issue-1"));
+    }
+
+    #[test]
+    fn navigating_keeps_a_matching_active_tab_and_clears_a_stale_one() {
+        let issue_a = PaneTab::issue("course-1", "issue-1", "Card A");
+        let issue_b = PaneTab::issue("course-1", "issue-2", "Card B");
+        let event = PaneTab::page("/events/event-1", "Event");
+        let tabs = vec![issue_a.clone(), issue_b.clone(), event.clone()];
+
+        assert_eq!(
+            active_tab_for_path(&tabs, Some(issue_b.id.as_str()), &issue_b.path),
+            Some(issue_b.id.clone()),
+            "same-path issue tab keeps the user's current card"
+        );
+        assert_eq!(
+            active_tab_for_path(&tabs, Some(event.id.as_str()), &issue_a.path),
+            Some(issue_a.id.clone()),
+            "a different active tab moves to the first tab for the new path"
+        );
+        assert_eq!(
+            active_tab_for_path(&tabs, Some(issue_a.id.as_str()), "/settings"),
+            None,
+            "no matching tab must clear stale context"
+        );
     }
 }

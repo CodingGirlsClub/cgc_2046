@@ -126,7 +126,7 @@ mod tests {
     use gpui_kit::Hsla;
 
     #[test]
-    fn user_row_action_visibility_gates_on_busy_editing_and_checkpoint() {
+    fn user_row_action_visibility_gates_on_busy_editing_and_rewind_support() {
         assert_eq!(user_row_action_visibility(false, false, true), (true, true));
         assert_eq!(
             user_row_action_visibility(false, false, false),
@@ -378,10 +378,10 @@ pub fn render_error_row(spec: ErrorRowSpec) -> AnyElement {
 /// 带 window 的行内动作回调（编辑消息需要 window 聚焦输入框）。
 pub type WindowActionCallback = Box<dyn Fn(&mut Window, &mut App) + 'static>;
 
-/// user 行 hover 动作显隐（纯函数，可单测）：(编辑, 恢复检查点)。
-pub fn user_row_action_visibility(busy: bool, editing: bool, has_checkpoint: bool) -> (bool, bool) {
+/// user 行动作显隐：(编辑, 回退对话)。
+pub fn user_row_action_visibility(busy: bool, editing: bool, can_rewind: bool) -> (bool, bool) {
     let idle = !busy && !editing;
-    (idle, idle && has_checkpoint)
+    (idle, idle && can_rewind)
 }
 
 /// user 行：卡片 + mention 正文 slot + hover「编辑」/「恢复检查点」。
@@ -389,6 +389,8 @@ pub struct UserRowSpec {
     pub row_id: gpui_kit::SharedString,
     pub card_id: gpui_kit::SharedString,
     pub restore_id: gpui_kit::SharedString,
+    pub restore_label: SharedString,
+    pub restore_tooltip: SharedString,
     pub content: AnyElement,
     pub show_edit: bool,
     pub show_restore: bool,
@@ -402,6 +404,8 @@ pub fn render_user_row(spec: UserRowSpec) -> AnyElement {
         row_id,
         card_id,
         restore_id,
+        restore_label,
+        restore_tooltip,
         content,
         show_edit,
         show_restore,
@@ -442,8 +446,9 @@ pub fn render_user_row(spec: UserRowSpec) -> AnyElement {
         .children(show_restore.then(|| {
             div()
                 .id(restore_id)
+                .test_support()
                 .role(Role::Button)
-                .aria_label("恢复检查点")
+                .aria_label(restore_label.clone())
                 .flex()
                 .flex_row()
                 .items_center()
@@ -452,15 +457,28 @@ pub fn render_user_row(spec: UserRowSpec) -> AnyElement {
                 .text_size(px(10.0))
                 .text_color(style.ink_3)
                 .hover(|hovered| hovered.text_color(style.ink_2))
-                .child("⟲ 恢复检查点")
+                .child(format!("⟲ {restore_label}"))
+                .tooltip(move |window, cx| {
+                    gpui_kit::component::tooltip::Tooltip::new(restore_tooltip.clone())
+                        .build(window, cx)
+                })
                 .on_click(move |_, window, cx| on_restore(window, cx))
         }))
         .into_any_element()
 }
 
+pub type TokenRenderer = Rc<
+    dyn Fn(&gpui_kit::component::input::InlineTokenContext, &mut Window, &mut App) -> AnyElement,
+>;
+
+pub type TokenClickCallback = Rc<dyn Fn(&str, &mut Window, &mut App)>;
+
 /// 编辑态行（user 消息编辑/重发）。
 pub struct UserEditRowSpec {
     pub input: Entity<TextareaState>,
+    pub token_renderer: Option<TokenRenderer>,
+    pub token_click: Option<TokenClickCallback>,
+    pub context_actions: Option<AnyElement>,
     pub cancel_id: SharedString,
     pub resend_id: SharedString,
     pub confirm_cancel_id: SharedString,
@@ -484,6 +502,9 @@ pub fn user_edit_confirm_visible(
 pub fn render_user_edit_row(spec: UserEditRowSpec) -> AnyElement {
     let UserEditRowSpec {
         input,
+        token_renderer,
+        token_click,
+        context_actions,
         cancel_id,
         resend_id,
         confirm_cancel_id,
@@ -523,11 +544,23 @@ pub fn render_user_edit_row(spec: UserEditRowSpec) -> AnyElement {
                 .child(
                     div().pr(px(40.0)).child(
                         Textarea::new(&input)
+                            .token(move |context, window, cx| match &token_renderer {
+                                Some(render) => render(context, window, cx),
+                                None => div()
+                                    .child(context.token().label().clone())
+                                    .into_any_element(),
+                            })
+                            .on_token_click(move |event, window, cx| {
+                                if let Some(callback) = &token_click {
+                                    callback(event.token().id(), window, cx);
+                                }
+                            })
                             .appearance(false)
                             .bordered(false)
                             .w_full(),
                     ),
                 )
+                .children(context_actions)
                 .child(
                     // 对齐 Zed：编辑态右上角悬浮 X（取消）/ ↵（重发）。
                     div()

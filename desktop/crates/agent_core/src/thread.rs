@@ -1,4 +1,3 @@
-#[cfg(test)]
 use cgc_agent_provider::Content;
 use cgc_agent_provider::{Message, Model, ModelId, ProviderId, TokenUsage, ToolUse};
 use serde::{Deserialize, Serialize};
@@ -55,6 +54,9 @@ pub enum Entry {
         text: String,
         tool_calls: Vec<ToolUse>,
         usage: Option<TokenUsage>,
+        /// Exact provider blocks for replay. Legacy/OpenAI entries use text/tool_calls.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        replay_content: Vec<Content>,
         at: i64,
     },
     ToolResult {
@@ -99,6 +101,10 @@ pub struct Thread {
     pub session_id: Option<String>,
     pub model: SelectedModel,
     pub entries: Vec<Entry>,
+    #[serde(default)]
+    pub user_drafts: Vec<Option<serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking_context: Option<crate::ThinkingContext>,
     pub usage_total: TokenUsage,
     pub created_at: i64,
     pub updated_at: i64,
@@ -115,6 +121,8 @@ impl Thread {
             session_id: None,
             model,
             entries: Vec::new(),
+            user_drafts: Vec::new(),
+            thinking_context: None,
             usage_total: TokenUsage::default(),
             created_at: now,
             updated_at: now,
@@ -167,6 +175,12 @@ impl Thread {
             return false;
         };
         self.entries.truncate(index);
+        let users = self
+            .entries
+            .iter()
+            .filter(|entry| matches!(entry, Entry::User { .. }))
+            .count();
+        self.user_drafts.truncate(users);
         true
     }
 
@@ -195,6 +209,7 @@ impl Thread {
             text: text.into(),
             tool_calls,
             usage,
+            replay_content: Vec::new(),
             at: now_secs(),
         });
         self.updated_at = now_secs();

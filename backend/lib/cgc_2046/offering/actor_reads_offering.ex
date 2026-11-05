@@ -1,6 +1,7 @@
 defmodule Cgc2046.Offering.ActorReadsOffering do
   @moduledoc """
   Offering 读取授权：工作台成员可读 open/closed；Owner/Admin 可读全部状态。
+  资源可用 draft_roles 显式允许额外角色读取 draft（Course 的 tutor 教研面）。
 
   过滤器同时约束成员资格与管理角色，确保管理角色只在当前 offering 所属
   工作台内、且属于当前 actor 的 membership 上生效。
@@ -16,13 +17,19 @@ defmodule Cgc2046.Offering.ActorReadsOffering do
   @impl true
   def filter(nil, _context, _opts), do: expr(is_nil(id))
 
-  def filter(actor, _context, _opts) do
+  def filter(actor, _context, opts) do
     actor_id = actor.id
     manage_roles = Role.manage_roles()
+    draft_roles = Keyword.get(opts, :draft_roles, [])
 
     expr(
       exists(workspace.memberships, user_id == ^actor_id) and
         (status in [:open, :closed] or
+           (status == :draft and
+              exists(
+                workspace.memberships,
+                user_id == ^actor_id and exists(roles, name in ^draft_roles)
+              )) or
            exists(
              workspace.memberships,
              user_id == ^actor_id and exists(roles, name in ^manage_roles)

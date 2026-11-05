@@ -8,16 +8,15 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use cgc_agent_store::{
-    builtin_providers, normalized_provider_name, provider_key_account, PrefsStore, ProviderPrefs,
+use cgc_agent_provider::{
+    validate_credentials, ProviderError, ProviderErrorCategory, ProviderProtocol, ThinkingMode,
 };
-use cgc_platform::paths::AppPaths;
-use cgc_platform::session::KeychainStore;
+use cgc_agent_store::{builtin_providers, normalized_provider_name, ProviderPrefs};
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::group_box::GroupBoxVariant;
 use gpui_kit::component::input::{Input, InputState, TextareaState};
 use gpui_kit::component::setting::{
-    SettingField, SettingGroup, SettingItem, SettingPage, Settings,
+    NumberFieldOptions, SelectIndex, SettingField, SettingGroup, SettingItem, SettingPage, Settings,
 };
 use gpui_kit::component::Sizable;
 use gpui_kit::InteractiveElement;
@@ -25,9 +24,12 @@ use gpui_kit::*;
 
 use crate::build_info;
 use crate::i18n::{translate, Key, Language};
-use crate::preferences;
+use crate::native_runtime::{NativeRuntimeError, NativeRuntimeHandle};
+use crate::preferences::{self, CursorBlinkPreference};
+use crate::provider_settings::{ProviderPrefsChange, ProviderSettings};
 use crate::settings_provider::{
-    format_model_lines, parse_model_lines, ModelFieldInputs, ProviderDraft,
+    append_reasoning_efforts, format_model_lines, parse_model_lines, KeyValidation,
+    KeyValidationAction, ModelFieldInputs, ProviderDraft,
 };
 use crate::theme::{self, space, RADIUS_MEDIUM, RADIUS_SMALL};
 use cgc_platform::session::AuthApi;
@@ -40,6 +42,10 @@ enum AiRoute {
     NewProvider(String),
     EditProvider(String),
 }
+
+// 页面顺序：账号 / 通用 / Window & Layout / Panels / AI / 关于。
+const SETTINGS_PAGE_ACCOUNT: usize = 0;
+const SETTINGS_PAGE_AI: usize = 4;
 
 pub struct SettingsWindowView {
     language: Language,
@@ -56,11 +62,16 @@ pub struct SettingsWindowView {
     notice: Option<String>,
     provider_drafts: Vec<ProviderDraft>,
     ai_view: AiRoute,
-    prefs_store: PrefsStore,
-    keychain: KeychainStore,
+    settings_page: usize,
+    settings_nonce: u64,
+    key_validation: KeyValidation,
+    provider_settings: ProviderSettings,
+    runtime: Option<NativeRuntimeHandle>,
     /// Stage 3.3：清空 ACP 对话历史的二次确认状态与结果提示。
     clear_acp_history_armed: Arc<AtomicBool>,
     clear_acp_history_notice: Arc<Mutex<Option<String>>>,
+    /// 主窗口弱引用：显示偏好保存后立即应用。
+    root: WeakEntity<crate::root_view::RootView>,
 }
 
 impl SettingsWindowView {
@@ -73,10 +84,12 @@ impl SettingsWindowView {
         token: String,
         api: Arc<dyn AuthApi + Send + Sync>,
         close_to_tray: Arc<AtomicBool>,
+        runtime: Option<NativeRuntimeHandle>,
+        root: WeakEntity<crate::root_view::RootView>,
         cx: &mut Context<Self>,
     ) -> Self {
-        let prefs_store = PrefsStore::new(AppPaths::from_env().agent_prefs_file());
-        let prefs = prefs_store.load();
+        let provider_settings = ProviderSettings::new();
+        let prefs = provider_settings.load();
         let mut drafts: Vec<ProviderDraft> = builtin_providers()
             .iter()
             .map(ProviderDraft::from_prefs)
@@ -102,16 +115,30 @@ impl SettingsWindowView {
             notice: None,
             provider_drafts: drafts,
             ai_view: AiRoute::General,
-            prefs_store,
-            keychain: KeychainStore::from_env(),
+            settings_page: SETTINGS_PAGE_ACCOUNT,
+            settings_nonce: 0,
+            key_validation: KeyValidation::default(),
+            provider_settings,
+            runtime,
             clear_acp_history_armed: Arc::new(AtomicBool::new(false)),
             clear_acp_history_notice: Arc::new(Mutex::new(None)),
+            root,
         }
     }
 
     /// 从其他窗口打开 Settings 时直接定位到 AI 页。
     pub fn open_ai(&mut self, cx: &mut Context<Self>) {
         self.ai_view = AiRoute::General;
+        self.settings_page = SETTINGS_PAGE_AI;
+        self.settings_nonce = self.settings_nonce.wrapping_add(1);
+        cx.notify();
+    }
+
+    /// 从其他窗口直接定位到 LLM Providers 配置页。
+    pub fn open_llm_providers(&mut self, cx: &mut Context<Self>) {
+        self.ai_view = AiRoute::Providers;
+        self.settings_page = SETTINGS_PAGE_AI;
+        self.settings_nonce = self.settings_nonce.wrapping_add(1);
         cx.notify();
     }
 
@@ -188,6 +215,12 @@ impl SettingsWindowView {
                 let name_input = cx.new(|cx| InputState::new(window, cx).default_value(name));
                 let context_input = cx.new(|cx| InputState::new(window, cx).default_value(context));
                 let output_input = cx.new(|cx| InputState::new(window, cx).default_value(output));
+                let budget = match model.thinking_mode {
+                    ThinkingMode::Budget { budget_tokens } => budget_tokens,
+                    _ => 4096,
+                };
+                let budget_input =
+                    cx.new(|cx| InputState::new(window, cx).default_value(budget.to_string()));
                 fields.push(ModelFieldInputs {
                     model_id: model.id.clone(),
                     name_input,
@@ -197,6 +230,8 @@ impl SettingsWindowView {
                     thinking: model.supports_thinking,
                     supports_tools: model.supports_tools,
                     supports_images: model.supports_images,
+                    thinking_mode: model.thinking_mode,
+                    budget_input,
                 });
             }
             self.provider_drafts[index].model_fields = fields;
@@ -238,7 +273,7 @@ impl SettingsWindowView {
                 };
                 let context: u32 = context.parse().unwrap_or(64_000).max(1);
                 let output: u32 = output.parse().unwrap_or(8_000).max(1).min(context);
-                format!(
+                let mut line = format!(
                     "{} | {} | {} | {} | {} | {} | {}",
                     name,
                     context,
@@ -247,7 +282,24 @@ impl SettingsWindowView {
                     field.enabled,
                     field.supports_tools,
                     field.supports_images
-                )
+                );
+                if draft.protocol == ProviderProtocol::AnthropicCompatible && field.thinking {
+                    match field.thinking_mode {
+                        ThinkingMode::Adaptive => line.push_str(" | adaptive"),
+                        _ => {
+                            line.push_str(" | budget | ");
+                            line.push_str(field.budget_input.read(cx).value().trim());
+                        }
+                    }
+                }
+                if let Some(previous) = draft
+                    .model_params
+                    .iter()
+                    .find(|model| model.id == field.model_id)
+                {
+                    append_reasoning_efforts(&mut line, &previous.reasoning_efforts);
+                }
+                line
             })
             .collect::<Vec<_>>()
             .join("\n");
@@ -272,6 +324,15 @@ impl SettingsWindowView {
                 1 => field.thinking = !field.thinking,
                 2 => field.supports_tools = !field.supports_tools,
                 3 => field.supports_images = !field.supports_images,
+                4 => {
+                    field.thinking_mode = if field.thinking_mode == ThinkingMode::Adaptive {
+                        ThinkingMode::Budget {
+                            budget_tokens: 4096,
+                        }
+                    } else {
+                        ThinkingMode::Adaptive
+                    }
+                }
                 _ => field.enabled = !field.enabled,
             }
         }
@@ -304,6 +365,7 @@ impl SettingsWindowView {
     }
 
     fn add_model(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.sync_model_fields(index, window, cx);
         let Some(draft) = self.provider_drafts.get_mut(index) else {
             return;
         };
@@ -329,6 +391,7 @@ impl SettingsWindowView {
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
         };
+        self.cancel_validation_for(&draft.id);
         let Some(default) = builtin_providers()
             .into_iter()
             .find(|provider| provider.id == draft.id)
@@ -353,7 +416,36 @@ impl SettingsWindowView {
         cx.notify();
     }
 
+    fn provider_from_draft_inputs(&self, draft: &ProviderDraft, cx: &App) -> ProviderPrefs {
+        let base_url = draft
+            .base_url_input
+            .as_ref()
+            .map(|input| input.read(cx).value().trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| draft.base_url.clone());
+        let name = draft
+            .name_input
+            .as_ref()
+            .map(|input| input.read(cx).value().trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| draft.name.clone());
+        draft.to_prefs_with(&base_url, &name)
+    }
+
+    fn cancel_key_validation(&mut self) {
+        self.key_validation.cancel();
+    }
+
+    fn cancel_validation_for(&mut self, provider_id: &str) {
+        if self.key_validation.provider() == Some(provider_id) {
+            self.cancel_key_validation();
+        }
+    }
+
     fn save_provider_key(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.validate_thinking_fields(index, cx) {
+            return;
+        }
         self.sync_model_fields(index, window, cx);
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
@@ -367,29 +459,148 @@ impl SettingsWindowView {
             cx.notify();
             return;
         }
-        match self
-            .keychain
-            .save_secret(&provider_key_account(&draft.id), &key)
-        {
-            Ok(()) => {
-                input.update(cx, |state, cx| state.set_value("", window, cx));
-                if let Some(draft) = self.provider_drafts.get_mut(index) {
-                    draft.has_key = true;
-                    draft.key_editing = false;
-                    let provider = draft.to_prefs();
-                    let mut prefs = self.prefs_store.load();
-                    prefs.upsert_provider(provider);
-                    if prefs.selected_provider.as_deref().is_none() {
-                        prefs.selected_provider = Some(self.provider_drafts[index].id.clone());
-                    }
-                    let _ = self.prefs_store.save(&prefs);
-                }
-                self.notice = Some("API Key 已保存；重新打开 Agent 面板后生效".to_string());
-                self.error = None;
+        let provider = self.provider_from_draft_inputs(&draft, cx);
+        self.begin_key_validation(provider, key, true, cx);
+    }
+
+    fn begin_key_validation(
+        &mut self,
+        provider: ProviderPrefs,
+        key: String,
+        return_to_providers: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let serial = match self.key_validation.begin(&provider) {
+            KeyValidationAction::Save => {
+                self.save_key_configuration(provider, key, return_to_providers, cx);
+                return;
             }
-            Err(error) => self.error = Some(format!("API Key 保存失败：{error}")),
+            KeyValidationAction::Busy => {
+                self.error = Some("正在验证上一个 API Key，请稍候".to_string());
+                cx.notify();
+                return;
+            }
+            KeyValidationAction::Validate(serial) => serial,
+        };
+        self.error = None;
+        self.notice = Some(format!("正在验证 {} API Key…", provider.name));
+        cx.notify();
+        let task_provider = provider.clone();
+        let task_key = key.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move { validate_credentials(&task_provider.base_url, &task_key) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.finish_key_validation(provider, key, return_to_providers, serial, result, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn finish_key_validation(
+        &mut self,
+        provider: ProviderPrefs,
+        key: String,
+        return_to_providers: bool,
+        serial: u64,
+        result: Result<(), ProviderError>,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.key_validation.finish(&provider.id, serial) {
+            return;
+        }
+        match result {
+            Ok(()) => {
+                self.save_key_configuration(provider, key, return_to_providers, cx);
+                return;
+            }
+            Err(error) => {
+                self.notice = None;
+                self.error = Some(format!(
+                    "API Key 验证失败：{}",
+                    provider_validation_message(&error)
+                ));
+            }
         }
         cx.notify();
+    }
+
+    fn save_key_configuration(
+        &mut self,
+        mut provider: ProviderPrefs,
+        key: String,
+        return_to_providers: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(error) = self.provider_settings.apply(ProviderPrefsChange::SaveKey {
+            provider: provider.clone(),
+            key,
+        }) {
+            self.error = Some(error.to_string());
+            cx.notify();
+            return;
+        }
+        provider.has_key = true;
+        if let Some(draft) = self
+            .provider_drafts
+            .iter_mut()
+            .find(|draft| draft.id == provider.id)
+        {
+            draft.base_url = provider.base_url.clone();
+            draft.name = provider.name.clone();
+            draft.models = format_model_lines(&provider);
+            draft.model_params = provider.model_params.clone();
+            draft.has_key = true;
+            draft.builtin = provider.builtin;
+            draft.key_editing = false;
+            draft.api_key_input = None;
+        }
+        self.error = None;
+        if return_to_providers {
+            self.ai_view = AiRoute::Providers;
+        }
+        let saved = if provider.protocol == ProviderProtocol::AnthropicCompatible {
+            format!("{} API Key 已保存", provider.name)
+        } else {
+            format!("{} API Key 已验证并保存", provider.name)
+        };
+        self.refresh_provider_runtime(saved, cx);
+    }
+
+    fn validate_thinking_fields(&mut self, index: usize, cx: &mut Context<Self>) -> bool {
+        if let Some(Err(error)) = self
+            .provider_drafts
+            .get(index)
+            .map(|draft| draft.validate_thinking(cx))
+        {
+            self.error = Some(error);
+            cx.notify();
+            return false;
+        }
+        true
+    }
+
+    fn refresh_provider_runtime(&mut self, success: String, cx: &mut Context<Self>) {
+        let Some(runtime) = self.runtime.clone() else {
+            self.notice = Some(format!("{success}；重新打开客户端后生效"));
+            cx.notify();
+            return;
+        };
+        self.notice = Some(format!("{success}，正在应用…"));
+        cx.notify();
+        let operation = runtime.refresh_providers();
+        cx.spawn(async move |this, cx| {
+            let result = operation.await.map(|_| ());
+            let _ = this.update(cx, |this, cx| {
+                let (notice, error) = refresh_outcome(&success, result);
+                this.notice = notice;
+                this.error = error;
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn sync_all_draft_names(&mut self, cx: &mut Context<Self>) {
@@ -404,10 +615,14 @@ impl SettingsWindowView {
     }
 
     fn save_provider(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.validate_thinking_fields(index, cx) {
+            return;
+        }
         self.sync_all_draft_names(cx);
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
         };
+        self.cancel_validation_for(&draft.id);
         let Some(base_url_input) = draft.base_url_input.clone() else {
             return;
         };
@@ -425,16 +640,7 @@ impl SettingsWindowView {
             .map(|input| input.read(cx).value().trim().to_string())
             .unwrap_or_else(|| draft.name.clone());
         let models_text = models_input.read(cx).value().to_string();
-        let (models, mut model_params) = parse_model_lines(&models_text);
-        for model in &mut model_params {
-            if let Some(previous) = draft
-                .model_params
-                .iter()
-                .find(|previous| previous.id == model.id)
-            {
-                model.reasoning_efforts = previous.reasoning_efforts.clone();
-            }
-        }
+        let (models, model_params) = parse_model_lines(&models_text);
         if base_url.is_empty() || models.is_empty() || name.is_empty() {
             self.error = Some("Provider Name、Base URL 与至少一个 Model 不能为空".to_string());
             cx.notify();
@@ -461,47 +667,24 @@ impl SettingsWindowView {
             has_key: draft.has_key,
             model_params,
             builtin: false,
+            protocol: draft.protocol,
         };
         if let Some(api_key_input) = draft.api_key_input.clone() {
             let api_key = api_key_input.read(cx).value().trim().to_string();
-            if api_key.is_empty()
-                && self
-                    .keychain
-                    .load_secret(&provider_key_account(&provider.id))
-                    .is_some_and(|key| !key.is_empty())
-            {
+            if api_key.is_empty() && self.provider_settings.has_key(&provider.id) {
                 provider.has_key = true;
             }
             if !api_key.is_empty() {
-                match self
-                    .keychain
-                    .save_secret(&provider_key_account(&provider.id), &api_key)
-                {
-                    Ok(()) => {
-                        provider.has_key = true;
-                        api_key_input.update(cx, |state, cx| {
-                            state.set_value("", window, cx);
-                        });
-                    }
-                    Err(error) => {
-                        self.error = Some(format!("API Key 保存失败：{error}"));
-                        cx.notify();
-                        return;
-                    }
-                }
+                self.begin_key_validation(provider, api_key, true, cx);
+                return;
             }
         }
-        let mut prefs = self.prefs_store.load();
-        prefs.upsert_provider(provider.clone());
-        if prefs.selected_provider.as_deref().is_none()
-            || prefs.provider(&provider.id).map(|item| item.id.clone()) == Some(provider.id.clone())
+        match self
+            .provider_settings
+            .apply(ProviderPrefsChange::SaveProvider(provider.clone()))
         {
-            prefs.selected_provider = Some(provider.id.clone());
-        }
-        match self.prefs_store.save(&prefs) {
             Ok(()) => {
                 self.error = None;
-                self.notice = Some("Provider 已保存".to_string());
                 self.ai_view = AiRoute::Providers;
                 if let Some(draft) = self.provider_drafts.get_mut(index) {
                     draft.base_url = provider.base_url.clone();
@@ -511,8 +694,10 @@ impl SettingsWindowView {
                     draft.has_key = provider.has_key;
                     draft.builtin = false;
                 }
+                self.refresh_provider_runtime("Provider 已保存".to_string(), cx);
+                return;
             }
-            Err(error) => self.error = Some(format!("保存失败：{error}")),
+            Err(error) => self.error = Some(error.to_string()),
         }
         cx.notify();
     }
@@ -521,28 +706,28 @@ impl SettingsWindowView {
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
         };
-        match self.keychain.clear_secret(&provider_key_account(&draft.id)) {
+        self.cancel_validation_for(&draft.id);
+        match self.provider_settings.apply(ProviderPrefsChange::ClearKey {
+            provider_id: draft.id.clone(),
+        }) {
             Ok(()) => {
-                let mut provider = draft.to_prefs();
-                provider.has_key = false;
-                let mut prefs = self.prefs_store.load();
-                prefs.upsert_provider(provider);
-                let _ = self.prefs_store.save(&prefs);
                 if let Some(draft) = self.provider_drafts.get_mut(index) {
                     draft.has_key = false;
                     draft.key_editing = false;
                     draft.confirm_clear = false;
+                    draft.api_key_input = None;
                 }
-                self.notice = Some("API Key 已清除；重新打开 Agent 面板后生效".to_string());
                 self.error = None;
+                self.refresh_provider_runtime("API Key 已清除".to_string(), cx);
+                return;
             }
-            Err(error) => self.error = Some(format!("清除 API Key 失败：{error}")),
+            Err(error) => self.error = Some(error.to_string()),
         }
         cx.notify();
     }
 
-    fn add_provider(&mut self, cx: &mut Context<Self>) {
-        let draft = ProviderDraft::new_custom();
+    fn add_provider(&mut self, protocol: ProviderProtocol, cx: &mut Context<Self>) {
+        let draft = ProviderDraft::new_custom(protocol);
         let id = draft.id.clone();
         self.provider_drafts.push(draft);
         self.ai_view = AiRoute::NewProvider(id);
@@ -554,11 +739,20 @@ impl SettingsWindowView {
         let Some(draft) = self.provider_drafts.get(index).cloned() else {
             return;
         };
+        self.cancel_validation_for(&draft.id);
         self.provider_drafts.remove(index);
-        let mut prefs = self.prefs_store.load();
-        prefs.remove_provider(&draft.id);
-        let _ = self.prefs_store.save(&prefs);
-        self.notice = Some("Provider 已删除".to_string());
+        match self
+            .provider_settings
+            .apply(ProviderPrefsChange::RemoveProvider {
+                provider_id: draft.id,
+            }) {
+            Ok(()) => {
+                self.error = None;
+                self.refresh_provider_runtime("Provider 已删除".to_string(), cx);
+                return;
+            }
+            Err(error) => self.error = Some(error.to_string()),
+        }
         cx.notify();
     }
 
@@ -612,6 +806,7 @@ impl SettingsWindowView {
         let revoked = self.revoked;
         let drafts = self.provider_drafts.clone();
         let weak = cx.entity().downgrade();
+        let root = self.root.clone();
 
         let account_item = SettingItem::render(move |_options, _window, cx| {
             let palette = theme::palette_from_theme(cx);
@@ -641,26 +836,221 @@ impl SettingsWindowView {
                 |_cx: &App| preferences::load().close_to_tray,
                 move |value: bool, _cx: &mut App| {
                     close_to_tray_flag.store(value, Ordering::Relaxed);
-                    let mut prefs = preferences::load();
-                    prefs.close_to_tray = value;
-                    preferences::save(prefs);
+                    preferences::update(|preferences| preferences.close_to_tray = value);
                 },
             ),
         )
         .description(translate(language, Key::AppSettingsCloseToTrayHint));
+        let cursor_blink = SettingItem::new(
+            translate(language, Key::AppSettingsCursorBlink),
+            SettingField::dropdown(
+                vec![
+                    (
+                        SharedString::from(CursorBlinkPreference::Blinking.as_str()),
+                        SharedString::from(translate(
+                            language,
+                            Key::AppSettingsCursorBlinkBlinking,
+                        )),
+                    ),
+                    (
+                        SharedString::from(CursorBlinkPreference::Steady.as_str()),
+                        SharedString::from(translate(language, Key::AppSettingsCursorBlinkSteady)),
+                    ),
+                ],
+                |_cx: &App| SharedString::from(preferences::load().cursor_blink.as_str()),
+                |value: SharedString, cx: &mut App| {
+                    let preference = CursorBlinkPreference::from_value(Some(value.as_ref()));
+                    preferences::update(|preferences| {
+                        if preferences.cursor_blink != preference {
+                            preferences.cursor_blink = preference;
+                        }
+                    });
+                    theme::apply_cursor_blink(preference, cx);
+                },
+            ),
+        )
+        .description(translate(language, Key::AppSettingsCursorBlinkHint));
+
+        let title_bar_brand = SettingItem::new(
+            translate(language, Key::AppSettingsTitleBarBrand),
+            SettingField::switch(
+                |_cx: &App| preferences::load().title_bar_brand,
+                save_display_preference(root.clone(), |prefs, value: bool| {
+                    prefs.title_bar_brand = value;
+                }),
+            ),
+        )
+        .description(translate(language, Key::AppSettingsTitleBarBrandHint));
+        let title_bar_breadcrumb = SettingItem::new(
+            translate(language, Key::AppSettingsTitleBarBreadcrumb),
+            SettingField::switch(
+                |_cx: &App| preferences::load().title_bar_breadcrumb,
+                save_display_preference(root.clone(), |prefs, value: bool| {
+                    prefs.title_bar_breadcrumb = value;
+                }),
+            ),
+        )
+        .description(translate(language, Key::AppSettingsTitleBarBreadcrumbHint));
+        let title_bar_notifications = SettingItem::new(
+            translate(language, Key::AppSettingsTitleBarNotifications),
+            SettingField::switch(
+                |_cx: &App| preferences::load().title_bar_notifications,
+                save_display_preference(root.clone(), |prefs, value: bool| {
+                    prefs.title_bar_notifications = value;
+                }),
+            ),
+        )
+        .description(translate(
+            language,
+            Key::AppSettingsTitleBarNotificationsHint,
+        ));
+        let status_bar_history_button = SettingItem::new(
+            translate(language, Key::AppSettingsStatusBarHistoryButton),
+            SettingField::switch(
+                |_cx: &App| preferences::load().status_bar_history_button,
+                save_display_preference(root.clone(), |prefs, value: bool| {
+                    prefs.status_bar_history_button = value;
+                }),
+            ),
+        )
+        .description(translate(
+            language,
+            Key::AppSettingsStatusBarHistoryButtonHint,
+        ));
+        let agent_panel_button = SettingItem::new(
+            translate(language, Key::AppSettingsAgentPanelButton),
+            SettingField::switch(
+                |_cx: &App| preferences::load().agent_panel_button,
+                save_display_preference(root.clone(), |prefs, value: bool| {
+                    prefs.agent_panel_button = value;
+                }),
+            ),
+        )
+        .description(translate(language, Key::AppSettingsAgentPanelButtonHint));
+        let agent_panel_width = SettingItem::new(
+            translate(language, Key::AppSettingsAgentPanelWidth),
+            SettingField::number_input(
+                NumberFieldOptions {
+                    min: 240.0,
+                    max: 560.0,
+                    step: 20.0,
+                },
+                |_cx: &App| preferences::load().agent_panel_width,
+                save_display_width(root.clone(), |prefs, value: f64| {
+                    prefs.agent_panel_width = value.clamp(240.0, 560.0);
+                }),
+            ),
+        )
+        .description(translate(language, Key::AppSettingsAgentPanelWidthHint));
+        let agent_panel_side = SettingItem::new(
+            translate(language, Key::AppSettingsDockPosition),
+            SettingField::dropdown(
+                vec![
+                    (
+                        SharedString::from("left"),
+                        SharedString::from(translate(language, Key::AppSettingsDockLeft)),
+                    ),
+                    (
+                        SharedString::from("right"),
+                        SharedString::from(translate(language, Key::AppSettingsDockRight)),
+                    ),
+                ],
+                |_cx: &App| SharedString::from(preferences::load().agent_panel_side.as_str()),
+                save_display_preference(root.clone(), |prefs, value: SharedString| {
+                    prefs.agent_panel_side =
+                        crate::preferences::PanelSide::from_value(Some(value.as_ref()));
+                }),
+            ),
+        );
+        let dock_starts_open = SettingItem::new(
+            translate(language, Key::AppSettingsDockStartsOpen),
+            SettingField::switch(
+                |_cx: &App| preferences::load().dock_starts_open,
+                save_display_preference(root.clone(), |prefs, value: bool| {
+                    prefs.dock_starts_open = value;
+                }),
+            ),
+        )
+        .description(translate(language, Key::AppSettingsDockStartsOpenHint));
+        let dock_width = SettingItem::new(
+            translate(language, Key::AppSettingsDockWidth),
+            SettingField::number_input(
+                NumberFieldOptions {
+                    min: 200.0,
+                    max: 480.0,
+                    step: 16.0,
+                },
+                |_cx: &App| preferences::load().dock_width,
+                save_display_width(root.clone(), |prefs, value: f64| {
+                    prefs.dock_width = value.clamp(200.0, 480.0);
+                }),
+            ),
+        )
+        .description(translate(language, Key::AppSettingsDockWidthHint));
+        let dock_side = SettingItem::new(
+            translate(language, Key::AppSettingsDockPosition),
+            SettingField::dropdown(
+                vec![
+                    (
+                        SharedString::from("left"),
+                        SharedString::from(translate(language, Key::AppSettingsDockLeft)),
+                    ),
+                    (
+                        SharedString::from("right"),
+                        SharedString::from(translate(language, Key::AppSettingsDockRight)),
+                    ),
+                ],
+                |_cx: &App| SharedString::from(preferences::load().dock_side.as_str()),
+                save_display_preference(root.clone(), |prefs, value: SharedString| {
+                    prefs.dock_side =
+                        crate::preferences::PanelSide::from_value(Some(value.as_ref()));
+                }),
+            ),
+        );
+        let dock_navigation_button = SettingItem::new(
+            translate(language, Key::AppSettingsDockNavigationButton),
+            SettingField::switch(
+                |_cx: &App| preferences::load().dock_navigation_button,
+                save_display_preference(root.clone(), |prefs, value: bool| {
+                    prefs.dock_navigation_button = value;
+                }),
+            ),
+        )
+        .description(translate(
+            language,
+            Key::AppSettingsDockNavigationButtonHint,
+        ));
+        let dock_outline_button = SettingItem::new(
+            translate(language, Key::AppSettingsDockOutlineButton),
+            SettingField::switch(
+                |_cx: &App| preferences::load().dock_outline_button,
+                save_display_preference(root.clone(), |prefs, value: bool| {
+                    prefs.dock_outline_button = value;
+                }),
+            ),
+        )
+        .description(translate(language, Key::AppSettingsDockOutlineButtonHint));
+        let dock_show_unenrolled = SettingItem::new(
+            translate(language, Key::AppSettingsDockShowUnenrolled),
+            SettingField::switch(
+                |_cx: &App| preferences::load().dock_show_unenrolled,
+                save_display_preference(root.clone(), |prefs, value: bool| {
+                    prefs.dock_show_unenrolled = value;
+                }),
+            ),
+        )
+        .description(translate(language, Key::AppSettingsDockShowUnenrolledHint));
         let native_agent = SettingItem::new(
-            "启用 Native Agent 入口",
+            "使用 Native Agent 运行时",
             SettingField::switch(
                 |_cx: &App| preferences::load().native_agent_enabled,
                 |value: bool, _cx: &mut App| {
-                    let mut prefs = preferences::load();
-                    prefs.native_agent_enabled = value;
-                    preferences::save(prefs);
+                    preferences::update(|preferences| preferences.native_agent_enabled = value);
                 },
             ),
         )
         .description(
-            "默认开启；关闭后账号菜单与课程页使用 External Agent 入口（Native 工具/MCP 不可用）",
+            "默认开启；关闭后 Agent Panel 使用 External Agent 运行时（Native 工具/MCP 不可用）",
         );
         // Stage 3.3：清空 ACP 对话历史（二次确认；只清 conversations.db，
         // native threads.db 完全不碰）。
@@ -726,6 +1116,7 @@ impl SettingsWindowView {
         });
         let providers_weak = weak.clone();
         let providers_drafts = drafts.clone();
+        let providers_validating = self.key_validation.provider().map(str::to_owned);
         let providers_item = SettingItem::render(move |_options, _window, cx| {
             let palette = theme::palette_from_theme(cx);
             render_provider_list(
@@ -735,6 +1126,7 @@ impl SettingsWindowView {
                 &palette,
                 notice.clone(),
                 error.clone(),
+                providers_validating.as_deref(),
             )
         });
         let providers_header = {
@@ -769,22 +1161,33 @@ impl SettingsWindowView {
                             }),
                     )
                     .child(
-                        div()
-                            .id("settings-providers-add")
-                            .role(Role::Button)
-                            .aria_label("添加 Provider")
-                            .px(space(2))
-                            .py(px(4.0))
-                            .rounded(px(RADIUS_MEDIUM))
-                            .bg(palette.accent)
-                            .text_color(palette.canvas)
-                            .text_size(px(11.0))
-                            .child("＋ 添加 Provider")
-                            .on_click(move |_, _, cx| {
-                                let _ = add_weak.update(cx, |this, cx| {
-                                    this.add_provider(cx);
-                                });
+                        div().flex().gap(space(1)).children(
+                            [
+                                ProviderProtocol::OpenAiCompatible,
+                                ProviderProtocol::AnthropicCompatible,
+                            ]
+                            .into_iter()
+                            .map(|protocol| {
+                                let add_weak = add_weak.clone();
+                                div()
+                                    .id(SharedString::from(format!(
+                                        "settings-providers-add-{protocol:?}"
+                                    )))
+                                    .role(Role::Button)
+                                    .aria_label(format!("添加 {} Provider", protocol.name()))
+                                    .px(space(2))
+                                    .py(px(4.0))
+                                    .rounded(px(RADIUS_MEDIUM))
+                                    .bg(palette.accent)
+                                    .text_color(palette.canvas)
+                                    .text_size(px(11.0))
+                                    .child(format!("＋ {}", protocol.name()))
+                                    .on_click(move |_, _, cx| {
+                                        let _ = add_weak
+                                            .update(cx, |this, cx| this.add_provider(protocol, cx));
+                                    })
                             }),
+                        ),
                     )
                     .into_any_element()
             })
@@ -1088,43 +1491,152 @@ impl SettingsWindowView {
                 ]),
         };
 
-        let settings = Settings::new("cgc-settings")
-            .page(
-                SettingPage::new(translate(language, Key::AppSettingsAccount))
-                    .header_style(&hidden_header)
-                    .groups(vec![
-                        SettingGroup::new()
-                            .variant(GroupBoxVariant::Normal)
-                            .item(Self::breadcrumb_item("设置 / 账号".to_string())),
-                        SettingGroup::new()
-                            .title(translate(language, Key::AppSettingsAccount))
-                            .item(account_item),
-                    ]),
-            )
-            .page(
-                SettingPage::new("通用")
-                    .header_style(&hidden_header)
-                    .groups(vec![
-                        SettingGroup::new()
-                            .variant(GroupBoxVariant::Normal)
-                            .item(Self::breadcrumb_item("设置 / 通用".to_string())),
-                        SettingGroup::new().title("通用").item(close_to_tray),
-                    ]),
-            )
-            .page(ai_page)
-            .page(
-                SettingPage::new("关于")
-                    .header_style(&hidden_header)
-                    .groups(vec![
-                        SettingGroup::new()
-                            .variant(GroupBoxVariant::Normal)
-                            .item(Self::breadcrumb_item("设置 / 关于".to_string())),
-                        SettingGroup::new()
-                            .title("关于")
-                            .items(vec![about_item, revoke_item]),
-                    ]),
-            );
+        let settings = Settings::new(SharedString::from(format!(
+            "cgc-settings-{}",
+            self.settings_nonce
+        )))
+        .default_selected_index(SelectIndex {
+            page_ix: self.settings_page,
+            group_ix: None,
+        })
+        .page(
+            SettingPage::new(translate(language, Key::AppSettingsAccount))
+                .header_style(&hidden_header)
+                .groups(vec![
+                    SettingGroup::new()
+                        .variant(GroupBoxVariant::Normal)
+                        .item(Self::breadcrumb_item("设置 / 账号".to_string())),
+                    SettingGroup::new()
+                        .title(translate(language, Key::AppSettingsAccount))
+                        .item(account_item),
+                ]),
+        )
+        .page(
+            SettingPage::new("通用")
+                .header_style(&hidden_header)
+                .groups(vec![
+                    SettingGroup::new()
+                        .variant(GroupBoxVariant::Normal)
+                        .item(Self::breadcrumb_item("设置 / 通用".to_string())),
+                    SettingGroup::new().title("通用").items(vec![cursor_blink]),
+                ]),
+        )
+        .page(
+            SettingPage::new(translate(language, Key::AppSettingsWindowLayout))
+                .header_style(&hidden_header)
+                .groups(vec![
+                    SettingGroup::new()
+                        .variant(GroupBoxVariant::Normal)
+                        .item(Self::breadcrumb_item("设置 / 窗口与布局".to_string())),
+                    SettingGroup::new()
+                        .title(translate(language, Key::AppSettingsTitleBar))
+                        .items(vec![
+                            title_bar_brand,
+                            title_bar_breadcrumb,
+                            title_bar_notifications,
+                        ]),
+                    SettingGroup::new()
+                        .title(translate(language, Key::AppSettingsStatusBar))
+                        .items(vec![
+                            status_bar_history_button,
+                            agent_panel_button,
+                            dock_navigation_button,
+                            dock_outline_button,
+                        ]),
+                    SettingGroup::new()
+                        .title(translate(language, Key::AppSettingsBehavior))
+                        .item(close_to_tray),
+                ]),
+        )
+        .page(
+            SettingPage::new(translate(language, Key::AppSettingsPanels))
+                .header_style(&hidden_header)
+                .groups(vec![
+                    SettingGroup::new()
+                        .variant(GroupBoxVariant::Normal)
+                        .item(Self::breadcrumb_item("设置 / 面板".to_string())),
+                    SettingGroup::new()
+                        .title(translate(language, Key::AppSettingsAgentPanel))
+                        .items(vec![agent_panel_side, agent_panel_width]),
+                    SettingGroup::new()
+                        .title(translate(language, Key::AppSettingsDock))
+                        .items(vec![
+                            dock_side,
+                            dock_starts_open,
+                            dock_width,
+                            dock_show_unenrolled,
+                        ]),
+                ]),
+        )
+        .page(ai_page)
+        .page(
+            SettingPage::new("关于")
+                .header_style(&hidden_header)
+                .groups(vec![
+                    SettingGroup::new()
+                        .variant(GroupBoxVariant::Normal)
+                        .item(Self::breadcrumb_item("设置 / 关于".to_string())),
+                    SettingGroup::new()
+                        .title("关于")
+                        .items(vec![about_item, revoke_item]),
+                ]),
+        );
         div().size_full().child(settings).into_any_element()
+    }
+}
+
+/// 保存显示偏好后刷新主窗口快照；不改当前窗口宽度。
+fn save_display_preference<T, U>(
+    root: WeakEntity<crate::root_view::RootView>,
+    update: U,
+) -> impl Fn(T, &mut App) + 'static
+where
+    T: Clone + 'static,
+    U: Fn(&mut preferences::Preferences, T) + 'static,
+{
+    move |value: T, cx: &mut App| {
+        preferences::update(|prefs| update(prefs, value.clone()));
+        let _ = root.update(cx, |view, cx| view.apply_display_snapshot(cx));
+    }
+}
+
+/// 保存默认宽度后刷新快照并应用宽度。
+fn save_display_width(
+    root: WeakEntity<crate::root_view::RootView>,
+    update: impl Fn(&mut preferences::Preferences, f64) + 'static,
+) -> impl Fn(f64, &mut App) + 'static {
+    move |value: f64, cx: &mut App| {
+        preferences::update(|prefs| update(prefs, value));
+        let _ = root.update(cx, |view, cx| view.apply_default_widths_if_unrecorded(cx));
+    }
+}
+
+fn refresh_outcome(
+    success: &str,
+    result: Result<(), NativeRuntimeError>,
+) -> (Option<String>, Option<String>) {
+    match result {
+        Ok(()) => (Some(success.to_string()), None),
+        Err(NativeRuntimeError::Busy) => (
+            None,
+            Some("配置已保存，但当前会话正在运行；请结束当前对话后重试或重启客户端".to_string()),
+        ),
+        Err(error) => (None, Some(format!("配置已保存，但应用失败：{error}"))),
+    }
+}
+
+fn provider_validation_message(error: &ProviderError) -> &'static str {
+    match error.category() {
+        ProviderErrorCategory::Authentication => "API Key 无效或已过期",
+        ProviderErrorCategory::Permission => "API Key 没有访问权限",
+        ProviderErrorCategory::PaymentRequired => "账户余额不足",
+        ProviderErrorCategory::RateLimit => "请求过于频繁，请稍后重试",
+        ProviderErrorCategory::Overloaded => "Provider 服务暂时不可用，请稍后重试",
+        ProviderErrorCategory::Transport => "网络连接失败，请检查网络后重试",
+        ProviderErrorCategory::InvalidRequest => "Provider 不接受该 API Key 或模型配置",
+        ProviderErrorCategory::ContextTooLong => "验证请求超出模型上下文",
+        ProviderErrorCategory::Cancelled => "验证已取消",
+        ProviderErrorCategory::Other => "无法验证 API Key，请稍后重试",
     }
 }
 
@@ -1135,6 +1647,7 @@ fn render_provider_list(
     palette: &theme::Palette,
     notice: Option<String>,
     error: Option<String>,
+    validating_provider: Option<&str>,
 ) -> AnyElement {
     let mut rows: Vec<AnyElement> = Vec::new();
     for (index, draft) in drafts.iter().enumerate() {
@@ -1144,7 +1657,10 @@ fn render_provider_list(
             .iter()
             .filter(|model| model.enabled)
             .count();
-        let status = if draft.has_key {
+        let validating = validating_provider == Some(draft.id.as_str());
+        let status = if validating {
+            "正在验证 API Key…"
+        } else if draft.has_key {
             "✓ API Key 已配置"
         } else {
             "未配置 API Key"
@@ -1156,6 +1672,7 @@ fn render_provider_list(
             div()
                 .flex()
                 .flex_row()
+                .flex_wrap()
                 .items_center()
                 .gap(space(2))
                 .p(space(1))
@@ -1192,11 +1709,26 @@ fn render_provider_list(
                                 .px(space(2))
                                 .py(px(3.0))
                                 .rounded(px(RADIUS_SMALL))
-                                .bg(palette.accent)
-                                .text_color(palette.canvas)
+                                .bg(if validating {
+                                    palette.soft
+                                } else {
+                                    palette.accent
+                                })
+                                .text_color(if validating {
+                                    palette.ink_3
+                                } else {
+                                    palette.canvas
+                                })
                                 .text_size(px(10.0))
-                                .child("保存 Key")
+                                .child(if validating {
+                                    "验证中…"
+                                } else {
+                                    "保存 Key"
+                                })
                                 .on_click(move |_, window, cx| {
+                                    if validating {
+                                        return;
+                                    }
                                     let _ = save_weak.update(cx, |this, cx| {
                                         this.save_provider_key(index, window, cx);
                                     });
@@ -1386,9 +1918,10 @@ fn render_provider_cards(
                         palette,
                     )
                 }))
+                .child(div().text_size(px(11.0)).text_color(palette.ink_3).child(draft.protocol.name()))
                 .child(SettingsWindowView::render_provider_field(
                     "API URL *",
-                    Some("兼容 API 的基础 URL。"),
+                    Some(if draft.protocol == ProviderProtocol::AnthropicCompatible { "Anthropic API 根地址，可包含网关路径前缀或 /v1。" } else { "兼容 API 的基础 URL。" }),
                     base_input,
                     palette,
                 ))
@@ -1770,6 +2303,18 @@ fn render_provider_cards(
                                                     .child("模型会输出推理内容。"),
                                             ),
                                     )
+                                    .children((draft.protocol == ProviderProtocol::AnthropicCompatible && thinking).then(|| {
+                                        let mode_weak = weak.clone();
+                                        div().flex().flex_col().gap(space(1))
+                                            .child(div().flex().items_center().gap(space(1))
+                                                .child(Checkbox::new(SharedString::from(format!("settings-model-adaptive-{index}-{model_index}")))
+                                                    .checked(field.thinking_mode == ThinkingMode::Adaptive)
+                                                    .on_click(move |_, _, cx| { let _ = mode_weak.update(cx, |this, cx| this.toggle_model_field(index, model_index, 4, cx)); }))
+                                                .child(div().text_size(px(11.0)).child("Adaptive thinking")))
+                                            .children((field.thinking_mode != ThinkingMode::Adaptive).then(|| {
+                                                SettingsWindowView::render_provider_field("Thinking Budget", Some("至少 1024，且小于 Max Output Tokens。"), field.budget_input.clone(), palette)
+                                            }))
+                                    }))
                                     .child(
                                         div()
                                             .flex()
@@ -1986,5 +2531,54 @@ impl Render for SettingsWindowView {
                     .min_h(px(0.0))
                     .child(self.build_settings(window, cx)),
             )
+    }
+}
+
+#[cfg(test)]
+mod settings_provider_validation_tests {
+    use super::{provider_validation_message, refresh_outcome};
+    use crate::native_runtime::NativeRuntimeError;
+    use cgc_agent_provider::{ProviderError, ProviderErrorCategory};
+
+    #[test]
+    fn validation_errors_are_user_readable() {
+        assert_eq!(
+            provider_validation_message(&ProviderError::api(401, "invalid key")),
+            "API Key 无效或已过期"
+        );
+        assert_eq!(
+            provider_validation_message(&ProviderError::transport("offline")),
+            "网络连接失败，请检查网络后重试"
+        );
+        assert_eq!(
+            provider_validation_message(&ProviderError::api_with_category(
+                ProviderErrorCategory::PaymentRequired,
+                Some(402),
+                "balance",
+            )),
+            "账户余额不足"
+        );
+    }
+
+    #[test]
+    fn refresh_outcomes_distinguish_success_busy_and_failure() {
+        let (notice, error) = refresh_outcome("Provider 已保存", Ok(()));
+        assert_eq!(notice.as_deref(), Some("Provider 已保存"));
+        assert!(error.is_none());
+
+        let (notice, error) = refresh_outcome("Provider 已保存", Err(NativeRuntimeError::Busy));
+        assert!(notice.is_none());
+        assert!(error
+            .as_deref()
+            .is_some_and(|message| message.contains("当前会话正在运行")));
+
+        let (notice, error) = refresh_outcome(
+            "Provider 已保存",
+            Err(NativeRuntimeError::Configuration("bad model".into())),
+        );
+        assert!(notice.is_none());
+        assert!(error
+            .as_deref()
+            .is_some_and(|message| message.contains("bad model")));
     }
 }

@@ -299,6 +299,13 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
                frame_for(owner)
              )
 
+    assert {:ok, _run} =
+             Prep.update_policy(
+               reload_run(run, workspace),
+               %{"reviewer_user_id" => reviewer.id},
+               owner
+             )
+
     assert :ok = drive_to_quality_check(workspace, course, tutor)
     assert {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 85)
     assert decode(report_reply)["prep_state"] == "review"
@@ -383,8 +390,46 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
       assert run.input_snapshot["prep_policy"] == Prep.default_policy()
       assert Prep.prep_state(run) == "draft"
 
+      # #1128 归因：course.created 首周期，事件载荷无 actor
+      assert run.created_reason == :course_created
+      assert run.created_by_actor_id == nil
+      assert run.previous_run_id == nil
+
       # 产物引用链回写（save_course_content facts 镜像与 workflowRun 关系的锚）
       assert Ash.get!(Course, course.id, authorize?: false).workflow_run_id == run.id
+    end
+
+    test "首周期恢复：信号未处理时读取即建 run → first_cycle_recovery（#1128 评审修正）" do
+      owner = Fixtures.platform_admin("s5-inst-recover")
+      workspace = Fixtures.create_workspace(owner)
+      tutor = Fixtures.register_user("s5-inst-recover-tutor")
+      Fixtures.add_member(workspace, tutor, [:tutor])
+      create_prep_definition(workspace, owner)
+      course = draft_course(workspace, owner, %{title: "首周期恢复"})
+
+      # 不投递 course.created（模拟信号尚未处理/丢失）→ 无 run
+      assert prep_runs(workspace) == []
+
+      # 读面补建：这是首周期，不是发布后的次周期
+      assert {:reply, _, _} =
+               status_reply =
+               GetPrepStatus.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      status = decode(status_reply)
+      run = prep_run!(course, workspace)
+      assert status["run_id"] == run.id
+      assert status["created_reason"] == "first_cycle_recovery"
+      assert run.created_reason == :first_cycle_recovery
+      assert run.created_by_actor_id == tutor.id
+      assert run.previous_run_id == nil
+
+      # 信号后到：命中已有 run（幂等），归因不被改写成 course_created
+      deliver_created(course)
+      assert [_only] = prep_runs(workspace)
+      assert reload_run(run, workspace).created_reason == :first_cycle_recovery
     end
 
     test "非 draft 课程守卫：信号重投不实例化（首投失败、课程已发布后重投的防护）" do
@@ -453,8 +498,7 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
       workspace = Fixtures.create_workspace(owner)
       tutor = Fixtures.register_user("s5-golden-tutor")
       Fixtures.add_member(workspace, tutor, [:tutor])
-      reviewer = Fixtures.register_user("s5-golden-reviewer")
-      Fixtures.add_member(workspace, reviewer, [])
+      reviewer = tutor
 
       {course, run} = course_with_prep(workspace, owner, %{title: "黄金链路"})
 
@@ -473,6 +517,12 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
       assert status["tutor"] == nil
       assert status["version"] == run.version
       assert status["gate_violations"] != []
+
+      # #1128 归因：首周期 course_created（事件无 actor）→ 触发人/上一周期为空
+      assert status["created_reason"] == "course_created"
+      assert status["created_by"] == nil
+      assert status["previous_run_id"] == nil
+      assert is_binary(status["created_at"])
 
       # Owner 指派 tutor：draft → authoring
       assert {:reply, _, _} =
@@ -529,7 +579,7 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
       assert reported["threshold"] == 80
       assert reported["course_status"] == "draft"
 
-      # 另一成员审核通过（reviewer-per-policy 未指定 = 任何成员；确认流两段）
+      # 默认策略由被指派 tutor 自审（确认流两段）。
       assert {:reply, _, _} =
                approve_reply =
                ApprovePrep.execute(
@@ -852,6 +902,27 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
       # 周期切换可辨（#1126）：响应带 run_id；list 面对同一 run 同显 draft
       assert status["run_id"] == run2.id
 
+      # #1128 归因（D2）：首周期 course_created（事件无 actor）；次周期 next_cycle
+      # + 触发人（get_prep_status 调用者）+ 上一周期 run id
+      run1_reloaded = reload_run(run1, workspace)
+      assert run1_reloaded.created_reason == :course_created
+      assert run1_reloaded.created_by_actor_id == nil
+      assert run1_reloaded.previous_run_id == nil
+
+      assert run2.created_reason == :next_cycle
+      assert run2.created_by_actor_id == tutor.id
+      assert run2.previous_run_id == run1.id
+
+      assert status["created_reason"] == "next_cycle"
+
+      assert status["created_by"] == %{
+               "user_id" => tutor.id,
+               "display_name" => tutor.display_name
+             }
+
+      assert status["previous_run_id"] == run1.id
+      assert is_binary(status["created_at"])
+
       {:reply, _, _} =
         list_reply =
         ListWorkspaceCourses.execute(%{"workspace_id" => workspace.id}, frame_for(tutor))
@@ -926,6 +997,23 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
 
       assert reload_run(run2, workspace).facts["published_revision_number"] == 2
       assert reload_run(run1, workspace).facts["published_revision_number"] == 1
+
+      # 第二次换周期（#1128）：previous_run_id 指向上一条 run2（不是 run1）；
+      # 同时覆盖「历史多条 run 时 latest_run 仍取到唯一最新一条」
+      assert {:reply, _, _} =
+               status3_reply =
+               GetPrepStatus.execute(
+                 %{"workspace_id" => workspace.id, "course_id" => course.id},
+                 frame_for(tutor)
+               )
+
+      status3 = decode(status3_reply)
+      run3 = prep_run!(course, workspace)
+      assert run3.id != run2.id
+      assert status3["run_id"] == run3.id
+      assert run3.created_reason == :next_cycle
+      assert run3.created_by_actor_id == tutor.id
+      assert run3.previous_run_id == run2.id
     end
 
     test "prep_state 读面一致：新 run 缺 prep_state 键时 list_workspace_courses 与 get_prep_status 同显 draft；无 run 课程为 null" do
@@ -2005,7 +2093,8 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
 
       {course, run} = course_with_prep(workspace, owner, %{title: "覆盖链路"})
 
-      {:ok, _run} = Prep.assign_tutor(run, tutor.id, owner)
+      {:ok, run} = Prep.assign_tutor(run, tutor.id, owner)
+      {:ok, _run} = Prep.update_policy(run, %{"reviewer_user_id" => reviewer.id}, owner)
       :ok = drive_to_quality_check(workspace, course, tutor)
 
       # 报告 50 < 80 → 回 authoring，待覆盖报告落 facts
@@ -2019,7 +2108,7 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
       assert below.facts["below_threshold_pending"]["score"] == 50
       assert below.facts["latest_quality_report"]["outcome"] == "below_threshold"
 
-      # reviewer（默认策略：任何成员可审）带理由覆盖（确认流）→ review
+      # 显式指定的无角色 reviewer 带理由覆盖（确认流）→ review
       assert {:reply, _, _} =
                override_reply =
                OverridePrepGate.execute(
@@ -2421,8 +2510,7 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
       workspace = Fixtures.create_workspace(owner)
       tutor = Fixtures.register_user("s5-rc-tutor")
       Fixtures.add_member(workspace, tutor, [:tutor])
-      reviewer = Fixtures.register_user("s5-rc-reviewer")
-      Fixtures.add_member(workspace, reviewer, [])
+      reviewer = tutor
 
       {course, run} = course_with_prep(workspace, owner, %{title: "请求修改"})
 
@@ -2638,11 +2726,18 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
                  frame_for(owner)
                )
 
+      assert {:ok, _run} =
+               Prep.update_policy(
+                 reload_run(run, workspace),
+                 %{"reviewer_user_id" => reviewer.id},
+                 owner
+               )
+
       assert :ok = drive_to_quality_check(workspace, course, tutor)
       assert {:reply, _, _} = report_reply = submit_report(tutor, workspace, course, 85)
       assert decode(report_reply)["prep_state"] == "review"
 
-      # reviewer（未指定 = 任何成员）发起 approve → 建 pending
+      # 显式 reviewer 发起 approve → 建 pending
       assert {:reply, _, _} =
                approve_reply =
                ApprovePrep.execute(
@@ -2653,8 +2748,7 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
       payload = decode(approve_reply)
       assert payload["status"] == "needs_confirmation"
 
-      # 确认窗口内被移出工作台 → confirm 段 forbidden（发布步 authorize?: false，
-      # 兜底只能靠工具层 authorize 重查；reviewer? 未指定时恒 true，须自包含成员判定）
+      # 确认窗口内被移出工作台 → confirm 段重查成员资格并拒绝。
       Fixtures.remove_membership(workspace, reviewer)
 
       assert {:error, %Anubis.MCP.Error{message: msg}, _} =
@@ -2706,7 +2800,7 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
   # ── 授权矩阵（九工具 × 负例角色） + ToolCallLog -----------------------------------
 
   describe "授权矩阵与 ToolCallLog" do
-    test "plain member/learner/outsider 各拒；get_prep_status 成员可读、outsider 拒" do
+    test "unprivileged users cannot read draft preparation or mutate it" do
       owner = Fixtures.platform_admin("s5-authz-owner")
       workspace = Fixtures.create_workspace(owner)
       tutor = Fixtures.register_user("s5-authz-tutor")
@@ -2749,7 +2843,7 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
       end
 
       expected_for = fn
-        "get_prep_status" -> :member_readable
+        "get_prep_status" -> :course_readable
         "assign_prep_tutor" -> "owner or admin required"
         "claim_prep_authoring" -> "tutor, owner or admin required"
         "update_prep_policy" -> "owner or admin required"
@@ -2764,11 +2858,16 @@ defmodule Cgc2046.Mcp.CoursePrepToolsTest do
         params = params_for.(tool_name)
 
         case expected_for.(tool_name) do
-          :member_readable ->
-            # 读面：任何成员（含 learner）放行；outsider 撞 member 门
+          :course_readable ->
+            # draft 读面按课程领域权限收窄；tutor 可读，普通成员不可读。
+            assert {:reply, _, _} = apply(module, :execute, [params, frame_for(tutor)])
+
             for user <- [member, learner] do
-              assert {:reply, _, _} = apply(module, :execute, [params, frame_for(user)]),
-                     "expected #{tool_name} readable for #{user.email}"
+              assert {:error, %Anubis.MCP.Error{message: message}, _} =
+                       apply(module, :execute, [params, frame_for(user)])
+
+              assert message =~ "course not found"
+              assert [%{result_status: :error}] = tool_logs_for(user.id, tool_name)
             end
 
             assert {:error, %Anubis.MCP.Error{message: msg}, _} =

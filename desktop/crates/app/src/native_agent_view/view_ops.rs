@@ -27,9 +27,13 @@ impl NativeAgentView {
             .update(cx, |state, cx| state.scroll_to_end(cx));
         cx.notify();
     }
-    pub(super) fn set_thinking_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
-        self.runtime
-            .set_thinking(enabled, self.metadata().effort_index);
+    pub(super) fn set_thinking(
+        &mut self,
+        enabled: bool,
+        effort_index: usize,
+        cx: &mut Context<Self>,
+    ) {
+        self.runtime.set_thinking(enabled, effort_index);
         self.status = if enabled {
             "Thinking 开".to_string()
         } else {
@@ -38,23 +42,11 @@ impl NativeAgentView {
         cx.notify();
     }
     pub(super) fn insert_context_marker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let current = self.input.read(cx).value().to_string();
-        let next = if current.trim().is_empty() {
-            "@".to_string()
-        } else if current.ends_with(char::is_whitespace) {
-            format!("{current}@")
-        } else {
-            format!("{current} @")
-        };
-        self.input
-            .update(cx, |state, cx| state.set_value(next, window, cx));
+        self.input.update(cx, |state, cx| {
+            state.replace(" @", window, cx);
+            state.focus(window, cx);
+        });
         self.status = "输入 @ 引用工作区文件".to_string();
-        cx.notify();
-    }
-    pub(super) fn set_effort_index(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.runtime
-            .set_thinking(self.metadata().thinking_enabled, index);
-        self.status = format!("推理档位索引：{index}");
         cx.notify();
     }
     pub(super) fn set_approval_mode(&mut self, mode: ApprovalMode, cx: &mut Context<Self>) {

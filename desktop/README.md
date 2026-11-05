@@ -32,13 +32,27 @@
   温度作用于 native agent 的普通 turn 与 thread title 请求；未配置时不下发，保持模型默认采样。
 - 文件缺失 = 默认设置；JSON 非法会打印诊断并回退默认，不阻塞启动。当前只支持标准 JSON（不支持注释）。
 
+## native 模型 Provider
+
+设置窗口的 AI Provider 列表可分别添加 OpenAI Compatible 和 Anthropic Compatible。旧配置默认使用 OpenAI 协议，已有 Provider 的协议不可切换。
+
+- Anthropic 的 API URL 填 API 根地址，可包含网关路径前缀或 `/v1`，客户端补全 Messages 路径并使用 `x-api-key` 鉴权。
+- 手动填写模型 ID，并配置 Context Window、Max Output Tokens、工具和图片能力。Anthropic 保存 Key 时只写入本机钥匙串，首次对话时由服务端验证，不调用模型发现或额外验证接口。
+- 模型支持 thinking 时可选 Budget 或 Adaptive。Budget 必须满足 `1024 <= budget < Max Output Tokens`，保存时校验；Adaptive 使用模型配置的 effort 档位。对话输入区可随时选择 Off，Budget 模型也有开关。
+- thinking 请求按模型声明下发：Budget 发送 `enabled` + `budget_tokens`，Adaptive 发送 `adaptive` 与 `effort`。Adaptive 的 Off 与标题、摘要、子 agent 请求一样省略 `thinking` 字段（这些模型可能拒绝 `disabled`，省略即模型默认）；Budget 与关闭 thinking 的模型在 Off 时显式发送 `disabled`。仅显式关闭 thinking 的请求才会携带 temperature。
+- Messages 请求不自动跟随 HTTP 重定向：`x-api-key` 不会因网关的 `3xx` 被转发到另一个源，重定向直接作为请求失败报告。
+- 模型行的能力声明可带 `efforts=low,high` 尾巴声明该模型接受的 effort 档位；未声明即不下发 `output_format.effort`。设置页保存会原样保留声明，不再由 Adaptive 推断档位。
+- 签名 thinking、redacted thinking 与工具块按原始顺序保存。续轮和重开会话只回放前缀仍有效的签名；修改 system、tools、历史或压缩边界后排除旧推理块，保留原始记录。带签名的工具续轮保持前缀不变，超过上下文上限时明确报错。
+
+CLI `cgc-agent-demo` 复用同一协议：设置 `CGC_AGENT_PROTOCOL=anthropic_compatible`，并提供 `CGC_AGENT_BASE_URL`、`CGC_AGENT_API_KEY`、`CGC_AGENT_MODEL`。`CGC_AGENT_THINKING` 可为 `off`、`adaptive` 或整数预算，默认 `off`。
+
 ## native 面板结构（Stage 3 Phase B）
 
 - `crates/app/src/native_agent_view/mod.rs` 是模块根（类型 + 结构体 + `mod` 声明，约 411 行）；
   渲染/输入/会话/运行时拆到同目录 12 个子模块（`panel`、`composer`、`rows`、`turn`、`panels`、
   `session`、`input`、`runtime_ops`、`render`、`widgets`、`state`、`tests`）。
   子模块可访问父模块私有字段，未放宽可见性。
-- `CGC_NATIVE_SHARED_VIEW` 已移除；composer 只有一条渲染路径。
+- Native 与 external ACP 的输入区共用 `agent_ui::message_editor::MessageEditor`，统一状态创建、4～8 行自动增高、可换行 placeholder 和 inline token 回调；卡片留白与发送按钮尺寸由共享 composer 管理。每个会话保留独立草稿和发送/审批/queue/steer 处理。`CGC_NATIVE_SHARED_VIEW` 已移除。
 - `native_thread_state.rs` 已删除，状态类型在 `native_agent_view::state`，对外重新导出为
   `native_agent_view::NativeThreadState`。
 
@@ -49,6 +63,14 @@
 - 预算包含 system、工具 schema、历史、输出和协议开销；中文采用 UTF-8 保守估计。实际 usage 只修正已有上下文，新注入内容单独计入；图片成本标记为未知，不承诺硬 token 上界。
 - 固定输入超限返回 `ContextTooLarge`，不发送已知超限请求，不截短最新输入或附件；原始 transcript 保留。
 - `Compaction.covered_until` 是原始 entry 的 exclusive prefix boundary。请求只使用最新有效摘要和未覆盖尾部；旧记录缺覆盖字段时不推测覆盖范围。摘要按完整 turn 有界分块。
+
+## 页面上下文与会话恢复
+
+Native 与 external ACP 共用页面上下文提交逻辑：每轮携带 active tab 的页面、工作台和课程标识；正文按会话、agent、工作台和内容版本去重。排队与重试保留提交时的页面快照，实际发送前重新核对历史；回滚、恢复、压缩或发送失败只失效对应会话。chip 的“已在上下文中”来自本次确实附带正文的发送记录，旧历史世代的记录不能反写。
+
+Native 每次新建对话分配独立 ID，保留旧历史与 checkpoint。scope 的当前线程指针单独存于 `threads.db`，重启后恢复当前选择（包括尚未发送消息的空对话）；旧 `native-<scope>` ID 保持原值兼容恢复。切换模型保留当前对话。ACP 的稳定身份继续使用实际 session ID 和 agent ID，模型、工具、授权与审批仍由对应运行时负责。
+
+Native 的文件操作集中在“变更 N”打开的面板中：N 是相对本轮快照的变更文件数；没有变更时不显示入口。消息上的“回退到此消息之前”回退会话，并恢复可用的文件快照，不自动重新生成回答。纯聊天与空文件快照可正常回退；真实文件恢复失败时保留会话、历史草稿及编辑内容。操作失败只显示一条可关闭的本地提示，新操作会替换旧提示，不向聊天记录反复追加 system 消息。
 
 ## 本机前置
 
@@ -73,6 +95,30 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 `CGC_LANG=zh|en` 选择启动语言（默认 zh），`CGC_THEME=light|dark|system` 覆盖主题，
 `CGC_LOG=error|warn|info|debug|trace` 调日志级别（默认 info，文件见「内测分发」）。
+
+## External ACP agent 的安装与启动
+
+Codex / Claude Code 使用客户端托管的 Node 24 LTS，当前安全下限为 `24.22.0`。Node 放在
+`<data_root>/node24`，固定版本 npm 包放在 `<data_root>/agents/<agent-id>/<version>`，
+重装 Node 会保留已安装的 agent 包。开发环境可用 `CGC_MANAGED_NODE` 指定 Node 根目录，
+agent 包仍放在该根目录同级的 `agents` 目录。
+
+安装器按目标版本目录持有文件锁，在锁内复查已安装包；并发安装会复用先完成的健康包。
+需要安装时，先在独立临时目录安装并验证真实版本，再替换目标目录；已有包运行失败时会重新安装。
+探测和启动直接使用持久包的入口，因此清除 npm 缓存后仍可启动。托管 Node 的可执行目录会
+加入子进程 PATH，并保留标准 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` 及小写形式。
+ACP Host 保留启动环境与工作目录；正常 EOF 会结束连接，stdout 关闭后未完成的写入有独立退出期限。
+命令超时同时涵盖进程退出与 stdout/stderr 排空；后代进程继续持有管道也不会无限延长等待。
+
+本机探测和回归验证：
+
+```bash
+cargo run --locked -p cgc-platform --example agent_detect
+cargo test --locked -p cgc-platform --test managed_agent_runtime --test managed_agent_recovery --test managed_agent_install
+```
+
+Unix 回归使用系统 `curl`、`/usr/bin/python3` 和本机受控代理，不访问真实 npm registry。
+
 
 ## 单实例与深链
 
@@ -101,7 +147,12 @@ cgc://courses/<uuid>/learn
 
 - 启动后常驻系统托盘：左键打开/聚焦主窗口，右键菜单提供打开、设置、退出。
 - 主窗口关闭默认留在托盘（可在 Settings 的「窗口行为」关闭）；应用退出走托盘「退出」。
-- `preferences.json` 保存 `closeToTray` 与首次关闭提示状态。
+- `preferences.json` 保存 `closeToTray`、首次关闭提示状态，以及 Settings →「通用」的
+  `cursorBlink`（`blinking` / `steady` 光标闪烁）。
+- 图标覆盖是内部/调试能力（不进 Settings，也不写进 `preferences.json`）：设置
+  `CGC_ICON_OVERLAY_DIR=<目录>` 启动时预读与 Kit 图标同名的普通 SVG，缺失或不符合下述文件边界时继续使用内置图标；
+  符号链接、目录和 FIFO 不参与加载，单文件不超过 256 KiB、覆盖快照合计不超过 16 MiB。
+  覆盖字节与解析路径在启动时固定，绘制不再访问覆盖目录，修改文件后需重启；不设置时完全使用内置图标。
 - 登录后每 60 秒拉取 `notificationFeed`，未读通知通过系统通知中心展示；点击通知走
   `cgc://` 路由并调用 `markNotificationRead`。
 - `notifications.json` 保存最近已展示通知的 id 与目标路由，避免重启后重复弹。
@@ -119,6 +170,17 @@ cgc://courses/<uuid>/learn
 - 通知时间按系统本地时区展示，解析失败时退回 UTC 截断格式。
 - 托盘菜单的 `通知` 也会打开通知中心；主窗口已关闭时会先恢复窗口。
 - 当前不做「全部已读」，因为后端只有单条 `markNotificationRead`。
+
+## 设置与面板布局
+
+设置窗口（`⌘,` / 托盘「设置」）分六页：账号、通用、`Window & Layout`、`Panels`、AI、关于。
+
+- `Window & Layout`：标题栏的品牌名/面包屑/通知按钮显隐；状态栏四个面板按钮显隐；关闭窗口时留在托盘。
+- `Panels`：每个面板一组，含 Dock Position（左/右）、默认宽度、新工作台默认展开（仅 Dock）、显示未报名课程。
+- 状态栏图标右键提供 `Dock Left` / `Dock Right` / `Hide Button`；图标随面板停靠侧移到左组或右组。
+- 面板开合与右侧当前面板按 workspace 记忆（`workspace_state.json`），优先于设置默认值；通知面板不记忆。
+- `新工作台默认展开` 与默认宽度只在 workspace 无记录时生效；拖动宽度后按 workspace 记住。
+- 已知限制：debug 构建下，若 macOS 辅助功能被激活（例如自动化工具读取界面），点击「面板 → 默认宽度」的 `+`/`−` 会触发 `gpui-pre 0.3.11` 的 a11y 断言（`set_focus called more than once in a single frame`）并 panic；release 构建只记录 warn。移除条件：`gpui-kit` / `gpui-pre` 升级修复后删除此条。
 
 ## 审批规则（toolPermissions，native-only）
 
@@ -189,7 +251,7 @@ cd desktop
 cargo install cargo-packager --locked --version =0.11.8
 cargo packager -p cgc-desktop-app --release -f dmg     # macOS（单架构）；Windows 用 -f wix，Linux 用 -f deb,appimage
 # macOS universal（发版用）见下节「内测分发（无证书）」
-bash scripts/name-artifacts.sh                          # 重命名为 cgc2046_<version>_<commit>_<arch>.*
+bash scripts/name-artifacts.sh                          # 重命名为 cgc2046_<version>_<commit>_<platform>-<arch>.*
 bash scripts/verify-package.sh                          # hdiutil / dpkg-deb / AppImage 结构校验
 bash scripts/smoke-package-runtime.sh                   # macOS：从 dmg 启动 release 二进制并确认存活
 CGC_DESKTOP_TOKEN=<jwt> bash scripts/verify-m0-backend.sh  # 真实后端 M0 冒烟（工作台/场次/课程/投影）
@@ -223,9 +285,9 @@ CGC_ARTIFACT_ARCH=universal \
 
 - `cargo-packager` 不做 lipo，所以先合并再打包：`--target universal-apple-darwin` 的
   binaries 目录正好是 `target/universal-apple-darwin/release/`。
-- `CGC_ARTIFACT_ARCH=universal` 让 `scripts/name-artifacts.sh` 产出 `_universal` 后缀，
+- `CGC_ARTIFACT_ARCH=universal` 让 `scripts/name-artifacts.sh` 产出 `_macos-universal` 后缀，
   并让 `scripts/verify-package.sh` 用 `lipo -archs` 断言两个 slice 都在（fail-closed）。
-- 发布走 tag：打 `desktop-v<version>` 触发 `.github/workflows/desktop-release.yml`，
+- 发布走 tag：打 `desktop-v<base>[-dev.<YYYYMMDD>.<n>]` 触发 `.github/workflows/desktop-release.yml`，
   三平台产物 + `SHA256SUMS` 挂到 GitHub Release（`--prerelease`，未签名不对外）。
 
 - `CGC_DEFAULT_API_URL` / `CGC_DEFAULT_ENV` 由 `crates/platform/build.rs` 登记，进
@@ -255,24 +317,64 @@ CGC_ARTIFACT_ARCH=universal \
 桌面客户端的内测版是 **tag 驱动**的，不走 `develop → main` 的 Web/后端发布流程：
 
 1. 确认 develop 的 CI 全绿（`desktop` required check 覆盖三平台构建与测试）。
-2. 打 tag 并推送。发布 job 会断言 **tag 与包版本一致**、**tag 提交已在 develop/main 上**：
+2. 生成并推送 tag。发布 job 会断言 **tag 的 base 版本与 `desktop/Cargo.toml` 一致**、
+   **tag 是合法 semver（允许 `-dev.…` 后缀）**、**tag 提交已在 develop/main 上**。
+
+   内测 tag 带日期与当天序号（`desktop-v<base>-dev.<YYYYMMDD>.<n>`），**不需要改 Cargo.toml**：
+   一天发多次时序号自动递增。`Cargo.toml` 的 `version` 只承载 base 版本，在功能里程碑时人工 bump
+   （它的注释写明 macOS 的 `CFBundleShortVersionString` 只接受数字点分，所以 dev 后缀只能放在 tag 上）。
 
    ```bash
-   git fetch origin develop
-   git tag -a desktop-v0.1.0 origin/develop -m "程序媛汇 桌面客户端 0.1.0 内测（未签名）"
-   git push origin desktop-v0.1.0
+   git fetch origin develop --tags
+   tag=$(bash scripts/next-dev-tag.sh)          # 例如 desktop-v0.1.0-dev.20261103.1
+   git tag -a "$tag" origin/develop -m "CGC-2046 桌面客户端内测（未签名）"
+   git push origin "$tag"
    ```
 
+   第一次发某个 base 的正式内测版时，也可以直接打 `desktop-v0.1.0`（无 `-dev` 后缀），
+   两者都走同一条流水线，区别只在版本号与产物名。
+
 3. `Desktop Release` 自动执行：**生产 schema 兼容门禁**（`desktop/scripts/check_release_schema.py`：
-   提取客户端实际使用的 GraphQL 字段并逐个探测生产端点，缺任一字段即 fail-closed 拒绝构建）
+   用完整 document 探测生产端点，缺任一字段即 fail-closed 拒绝构建）
    → 三平台构建 → 产物校验（universal 包用 `lipo -archs` 断言双架构）
    → 生成 `SHA256SUMS` → 建 **prerelease**（未签名，只作内测通道）。
-4. 抽查产物（下载后挂载校验，别只看日志）：
+
+   **产物形态**（内测期统一「免安装」）：
+
+   | 平台 | 产物 | 说明 |
+   |---|---|---|
+   | macOS | `cgc2046-macos-universal.dmg` | Intel + Apple Silicon 同一包（安装器注册 `cgc://`） |
+   | Windows | `cgc2046-windows-x64.zip` | 便携包，解压即用；**深链需手动注册**（见下） |
+   | Linux | `cgc2046-linux-x64.tar.gz` | 便携包，解压即用；**深链需手动注册**（见下） |
+
+   > 便携包不经过安装器，而 `cgc://` 协议注册原本由安装器完成（`crates/app/Cargo.toml` 的
+   > `deepLinkProtocols`）。要用「网页点链接跳回客户端」，解压后跑一次随包的注册脚本：
+   > Windows `powershell -ExecutionPolicy Bypass -File register-protocol.ps1`（写 HKCU，免管理员）；
+   > Linux `bash usr/bin/register-protocol.sh`（写 `~/.local/share/applications` + `xdg-mime`，免 root）。
+   > 不跑也能正常使用，只是 `cgc://` 深链打不开。
+
+   **文件名不带版本**（版本由 tag 承载）。每个产物配一个同名 `.build.json`，字段：
+
+   | 字段 | 含义 |
+   |---|---|
+   | `schemaVersion` | 元数据格式版本，当前 `1` |
+   | `product` | 固定 `cgc2046` |
+   | `version` | 完整版本，含 dev 后缀（如 `0.1.0-dev.20261103.1`） |
+   | `releaseTag` | 构建用的 git tag |
+   | `sourceRevision` | 完整 commit SHA |
+   | `platform` / `arch` | `macos|windows|linux` / `universal|x64|aarch64` |
+   | `signing` / `notarized` | 内测期固定 `unsigned` / `false` |
+
+   要确认「这个包是哪次构建」就查它——`verify-package.sh` 也是读它做断言，不再解析文件名。
+
+4. 抽查产物（下载后实跑校验，别只看日志）：
 
    ```bash
-   curl -LO <release>/cgc2046_<ver>_<commit>_universal.dmg
+   curl -LO <release>/cgc2046-macos-universal.dmg
+   curl -LO <release>/cgc2046-macos-universal.build.json
    shasum -a 256 -c SHA256SUMS
-   hdiutil attach -nobrowse -readonly cgc2046_<ver>_<commit>_universal.dmg
+   cat cgc2046-macos-universal.build.json      # 版本 / commit / 签名状态
+   hdiutil attach -nobrowse -readonly cgc2046-macos-universal.dmg
    lipo -archs /Volumes/程序媛汇/程序媛汇.app/Contents/MacOS/*
    ```
 
@@ -300,9 +402,15 @@ CI 分工：PR 阶段 desktop 只跑 lint + 测试（快）；**打包在合并�
 - **永久清空**：Settings → AI →「清空 ACP 对话历史」（二次确认，仅 ACP；native 不受影响）。Archive 只隐藏，不删除。
 - **审批规则**：`preferences.json` 的 `toolPermissions` **仅 native 生效**（详见上文「审批规则」）；external agent 的审批由 agent 自身模式决定。
 - **MCP（3.4a/b/c，2026-10-27）**：native MCP client 已落地 Streamable HTTP JSON-RPC（initialize/tools/list/tools/call，Bearer/SSE/超时/401/403 fail-closed，token 不进日志）。native-only 注入 5 个只读课程工具：`mcp:cgc-2046-learning:{get_course_content,get_course_revision,get_learning_state,get_role_playbook,get_enrollment_summary}`；白名单外不注册，无 lease/token 时 0 注册（fail-closed）。配置与 ACP 注入同源（`learning_host` lease + `mcp_endpoint(CGC_API_URL)`）；`CGC_MCP_ENDPOINT`/`CGC_MCP_TOKEN` 仅作 headless 测试 seam。**3.4d 真机待验**（真实平台 MCP server 的 tools/list 与工具调用）。
+- **平台工具凭证恢复**：Native 与 ACP 共用按账号和 API 服务端隔离的钥匙串凭证。冷启动通过 `GET /mcp/token` 核实归属、类型和 token ID 后复用；旧版 `learning_host` 明文项核实后迁移，额度已满也可恢复。401 才按失效处理；网络错误／429／5xx 保留凭证且不增发。新凭证保存失败会撤销本次签发，登出只撤销本机记录，不批量撤销其他客户端。授权失败在 Tab 栏下方独立提示，`Retry` 重新尝试恢复，长诊断不再挤掉标签。
+- **授权回归验证**：凭证测试在 `crates/platform/src/mcp/credential/tests.rs`；真实 TabBar 测试在 `crates/app/src/root_view/screens/workspace/pane/tests.rs`。后者使用 `CGC_UI_TESTS=1` 和 Kit 的 `test-support`（`cargo test -p cgc-desktop-app --features gpui-kit/test-support --lib authorization_failure_and_long_notices`）。当前 Kit 0.9.0 的这个聚合 feature 仍不能直接启用：它引用未启用的可选 `gpui-fast`，而 `gpui-fast 0.1.13` 把 `taffy` 钉在 `=0.15.0`、`unicode-properties` 钉在 `=0.1.3`，与 `gpui-pre 0.3.11` 解析到的补丁版冲突。验证时仍在临时 workspace 中为 Fast 包提供解析占位后运行；项目依赖和锁文件保持原样。
 - **侧栏状态**：历史侧栏开关会写入 `preferences.json`（`historySidebarOpen`），重启后恢复。
 - **全局 Agent Panel（3.5a）**：任意页面打开同一 Agent Panel / 同一线程；课程学习页自动把 course/revision/unit 作为上下文附加到每条 prompt（native/ACP 同一段文本，输入气泡不显示），上下文 chip 可移除。不再有课程页专用工作区/会话指针。
-- **默认 agent（3.5b，2026-10-27）**：新会话（含课程页）默认 native；`CGC_NATIVE_AGENT=0` 或设置「启用 Native Agent 入口」关闭时回退 External Agent（external 仍可在 `＋` 菜单选择）。
+- **默认 agent（3.5b，2026-10-27）**：新会话（含课程页）默认 native；`CGC_NATIVE_AGENT=0` 或设置「使用 Native Agent 运行时」关闭时回退 External Agent（external 仍可在 `＋` 菜单选择）。
+- **Native 图片粘贴**：共享编辑器通过 Kit `Textarea::on_paste` 在默认文本插入前接收图片与复制的图片文件；快捷键和菜单粘贴共用该入口，普通输入不读取剪贴板。附件粘贴保留正文、token、多光标、选区方向与文本撤销历史；带描述文字的剪贴板不会因包含图片文件名而被吞掉。真实 composer 回归在 `crates/app/src/native_agent_view/paste_tests.rs`（沿用上文隔离 workspace 与 `CGC_UI_TESTS=1`，测试过滤器 `paste_tests`）。
+- **Agent Header 无障碍名称**：Native/External 共用的实际新对话按钮提供中英文名称；真实 Header 回归在 `crates/app/src/root_view/screens/chat/editor_tests.rs`。
+- **全局 active tab 上下文**：所有中心内容 tab（课程 issue/整页、场次详情/列表、课程详情/目录、学习/参与列表、工作台概览）在 native/ACP 输入文字流中显示当前页附件 chip。草稿中的自动 chip 跟随当前 Tab，保留问题文字和手动附件；删除 chip 后本条消息不再附加当前页。发送时固定来源和正文快照，排队／重试不随之后的 Tab 改变。正文按线程 + Agent + tab 内容版本去重；chip 显示「待引用／已引用／待更新」，保留加载中、无正文、失败及部分引用状态，自动跟随与发送规则放在 tooltip。已引用页面的追问只带页面身份，不重复正文或通用提示；历史恢复或压缩后保守重载。Native 插话在收到实际消费回执后才标记已引用。
+- **Selection 与历史编辑**：`＋ → Selection` 将中心页面选中文字及其来源保存为独立附件；课程卡目标、清单及 Markdown 正文支持选择。Native 编辑历史消息时恢复原 chip 位置和快照，可替换为当前页再回滚重发；external ACP 的 `Edit copy` 将原消息及附件恢复到 Composer，作为新一轮发送。页面／Selection／File／Skill 快照随会话保存，重新打开历史后仍可恢复。
 
 ## 共享视图（Stage 3.6 Phase B，2026-10-26）
 

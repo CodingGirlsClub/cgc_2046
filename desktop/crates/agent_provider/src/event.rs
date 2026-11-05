@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 /// 一次请求的 token 用量。四个分项与 OpenAI / Anthropic 的 usage 对齐。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TokenUsage {
+    /// Total input, including cached input; cache fields are subsets for billing.
     pub input: u64,
     pub output: u64,
     pub cache_read: u64,
@@ -11,7 +12,7 @@ pub struct TokenUsage {
 
 impl TokenUsage {
     pub fn total(&self) -> u64 {
-        self.input + self.output + self.cache_read + self.cache_creation
+        self.input + self.output
     }
 
     pub fn add(&mut self, other: TokenUsage) {
@@ -53,6 +54,8 @@ pub enum CompletionEvent {
         signature: Option<String>,
     },
     ToolUse(ToolUse),
+    /// Completed, ordered content for protocol replay; deltas drive the live UI.
+    ContentBlock(crate::request::Content),
     Usage(TokenUsage),
     Stop(StopReason),
 }
@@ -76,6 +79,6 @@ mod tests {
             cache_read: 0,
             cache_creation: 0,
         });
-        assert_eq!(total.total(), 22);
+        assert_eq!(total.total(), 18);
     }
 }

@@ -159,7 +159,8 @@ Stage 3 已按设计文档 `docs/plans/2026-10-26-1000-stage3-capability-converg
 
 - **MCP 只读白名单（3.4a/b/c）**：native MCP client 走 Streamable HTTP JSON-RPC（initialize/tools/list/tools/call，Bearer、SSE/JSON、超时与 401/403 fail-closed、token 脱敏）。只注册 5 个只读课程工具（`mcp:cgc-2046-learning:*`：get_course_content / get_course_revision / get_learning_state / get_role_playbook / get_enrollment_summary）；白名单外一律不注册，只读工具审批分类为 `Allow`（不弹卡）。
 - **native-only 注入**：配置与 ACP `session/new` 注入同源（`learning_host` lease + `mcp_endpoint(CGC_API_URL)`），但当前只注入 native `ToolRegistry`；external ACP agent 的 MCP 注入保持原逻辑。无 lease/token → 0 工具（fail-closed），不 panic、不打印 token；`CGC_MCP_ENDPOINT/TOKEN` 仅作 headless 测试 seam。
-- **默认 native（3.5b）**：`preferences.nativeAgentEnabled` 默认 true，`resolve_native_agent_enabled` = `CGC_NATIVE_AGENT`（"0" 关闭）> `CGC_NATIVE_AGENT_DEMO` > 设置开关；课程页与非课程页同默认，关闭后回退 External Agent。3.4d（真实平台 MCP 工具调用）真机待验。
+- **默认 native（3.5b）**：`preferences.nativeAgentEnabled` 默认 true，`resolve_native_agent_enabled` = `CGC_NATIVE_AGENT`（"0" 关闭）> 设置开关；课程页与非课程页同默认，关闭后回退 External Agent。3.4d（真实平台 MCP 工具调用）真机待验。
+- **demo 开关已移除（2026-10-30）**：`CGC_NATIVE_AGENT_DEMO` 的独立 identity / 附加窗口 / 临时数据根 / 强制 native 全部删除；本地调试统一用 `CGC_DATA_DIR` 隔离数据根 + 真实登录与 provider，不再保留无登录的 echo 视图。dev 环境仍允许 echo 作为未配置 provider 的兜底。
 - **B4b**：旧视图 `native_agent_view.rs`（约 5850 行）/`native_thread_state.rs`（635 行）尚未删除，等两轨真机验收；删除计划见设计文档 §13.4/§13.6。
 
 ## B4b 进展（2026-10-27）

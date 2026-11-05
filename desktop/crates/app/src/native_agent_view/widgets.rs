@@ -33,9 +33,16 @@ pub(crate) fn render_user_message_body(text: &str, palette: &theme::Palette) -> 
                 } => {
                     let icon = match kind {
                         mention::MentionKind::Skill => gpui_kit::assets::IconName::Sparkle,
-                        mention::MentionKind::File => gpui_kit::assets::IconName::FileText,
+                        mention::MentionKind::File | mention::MentionKind::Context => {
+                            gpui_kit::assets::IconName::FileText
+                        }
                     };
+                    let source = target.clone();
                     let chip = div()
+                        .id(SharedString::from(format!("message-context-{index}")))
+                        .on_click(move |_, window, cx| {
+                            crate::composer_context::open_token_source(&source, window, cx)
+                        })
                         .flex()
                         .flex_row()
                         .flex_shrink_0()
@@ -181,22 +188,6 @@ pub(crate) fn message_menu_payloads(
         plain,
         markdown: text.to_string(),
         agent_response,
-    }
-}
-
-/// native 主题 → 共享消息行样式。
-pub(crate) fn native_composer_style(
-    palette: theme::Palette,
-) -> cgc_agent_ui::composer::ComposerStyle {
-    cgc_agent_ui::composer::ComposerStyle {
-        view: palette.view,
-        line: palette.line,
-        accent: palette.accent,
-        danger: palette.danger,
-        canvas: palette.canvas,
-        radius: RADIUS_MEDIUM,
-        padding: 4.0,
-        gap: 1.0,
     }
 }
 

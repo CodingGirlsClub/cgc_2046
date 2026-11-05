@@ -9,10 +9,12 @@
 
 pub mod command_menu;
 pub mod composer;
+pub mod context_chip;
 pub mod history;
 pub mod markdown_text;
 pub mod markdown_view;
 pub mod message_actions;
+pub mod message_editor;
 pub mod message_row;
 pub mod panel;
 pub mod permission_card;

@@ -1,5 +1,9 @@
 //! Agent 品牌图标（历史侧栏行 / Agent Panel 头部 / Agent 选择列表共用）。
 //!
+//! 所有位置共用 [`agent_icon_element`]，只是尺寸不同：Agent Panel 头部 16px
+//! （Zed `IconSize::Medium`，native / ACP 同一槽位），历史行与选择器 14px
+//! （Zed `IconSize::Small`）。native 用 mark-only 应用图标，外部 agent 用品牌 mark。
+//!
 //! native（CGC Agent）用应用自身图标；已知外部 agent 用其品牌 mark（SVG 直接
 //! `include_bytes!`，经 `Icon::data` 内联渲染，离线可用）：
 //! - codex.svg  ← https://cdn.agentclientprotocol.com/registry/v1/latest/codex-acp.svg
@@ -10,6 +14,7 @@
 //! 未知 agent 回退 Bot 图标（Lucide）。品牌 mark 只用于标识对应 agent。
 
 use super::*;
+use crate::icons::app_icon;
 
 /// Agent 图标种类（纯函数可单测；渲染时映射成 SVG/图片）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

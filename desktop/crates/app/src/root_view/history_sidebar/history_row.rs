@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::acp_history::{HistoryEntry, HistorySource};
+use crate::icons::AGENT_ROW_ICON_SIZE;
 
 /// 行操作（hover 时出现的图标按钮；没有逐条永久删除）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -117,13 +118,13 @@ impl RootView {
             .child(
                 div()
                     .flex_none()
-                    .size(px(14.0))
+                    .size(px(AGENT_ROW_ICON_SIZE))
                     .flex()
                     .items_center()
                     .justify_center()
                     .child(crate::root_view::agent_icons::agent_icon_element(
                         &agent_label,
-                        14.0,
+                        AGENT_ROW_ICON_SIZE,
                         palette.ink_3,
                     )),
             )

@@ -93,6 +93,25 @@ defmodule Cgc2046.Curriculum.Prep do
     |> Ash.read_one!(authorize?: false, tenant: workspace_id)
   end
 
+  @doc """
+  同课程最近一条 prep run（**含终态**；无 → nil）。
+
+  与 `fetch_run/2`（只取非终态）互补：#1128 归因用——次周期懒开时把上一周期
+  run 的 id 记进 `previous_run_id`。DB 错误上抛（与 fetch_run 同纪律）。
+  """
+  @spec latest_run(String.t(), String.t()) :: WorkflowRun.t() | nil
+  def latest_run(course_id, workspace_id) do
+    WorkflowRun
+    |> Ash.Query.filter(
+      definition.type == :course_preparation and
+        input_snapshot["key"] == ^instance_key(course_id)
+    )
+    |> Ash.Query.sort(inserted_at: :desc)
+    # 显式 limit：read_one!/2 在多行时 raise；同课程跨多个周期会有多条 run。
+    |> Ash.Query.limit(1)
+    |> Ash.read_one!(authorize?: false, tenant: workspace_id)
+  end
+
   @doc "prep_state（facts 未写 = draft）。"
   @spec prep_state(WorkflowRun.t()) :: String.t()
   def prep_state(%WorkflowRun{facts: facts}) do
@@ -238,27 +257,14 @@ defmodule Cgc2046.Curriculum.Prep do
   end
 
   @doc """
-  reviewer-per-policy 判定（R28）：快照指定 reviewer_user_id → 仅本人；
-  未指定 → 任何工作台成员（成员门槛由 Wrapper member-only 门保证，本函数
-  不再重复判定），允许 tutor 自审。Owner/Admin 豁免由工具层并集完成。
+  reviewer-per-policy 判定（R28）：指定 reviewer_user_id → 仅本人；
+  未指定 → 仅当前被指派的 tutor，允许自审。成员资格与 Owner/Admin 并集
+  由工具层判定；普通成员及未被指派的 tutor 不因默认策略获得审核权（#1084）。
   """
   @spec reviewer?(WorkflowRun.t(), term()) :: boolean()
   def reviewer?(%WorkflowRun{} = run, actor) do
     case policy(run)["reviewer_user_id"] do
-      nil -> true
-      reviewer_id when is_binary(reviewer_id) -> reviewer_id == actor.id
-    end
-  end
-
-  @doc """
-  指定 reviewer 判定：生效策略指定了 reviewer_user_id 且即本人。
-  与 reviewer?/2 互补——后者在默认策略下恒 true（授权面，R28）；
-  本判定用于「该把审核待办推给谁」的注意力路由（list_my_tasks）。
-  """
-  @spec designated_reviewer?(WorkflowRun.t(), term()) :: boolean()
-  def designated_reviewer?(%WorkflowRun{} = run, actor) do
-    case policy(run)["reviewer_user_id"] do
-      nil -> false
+      nil -> assignee(run) == actor.id
       reviewer_id when is_binary(reviewer_id) -> reviewer_id == actor.id
     end
   end
@@ -788,12 +794,24 @@ defmodule Cgc2046.Curriculum.Prep do
   end
 
   defp do_spawn_next_run(%Course{} = course, opts) do
+    # 上一周期（已终态）的 run id 供归因；竞态取不到时为 nil（不影响开周期）。
+    previous = latest_run(course.id, course.workspace_id)
+
+    # 归因（#1128 评审修正）：本分支也覆盖「草稿课程的首 run 尚未被
+    # course.created 处理」的恢复场景——此时 previous 为 nil，必须标
+    # first_cycle_recovery，不能谎报成发布后的次周期。
+    created_reason = if previous, do: :next_cycle, else: :first_cycle_recovery
+
     with {:ok, definition} <- fetch_prep_definition(course.workspace_id),
          {:ok, run} <-
-           PrepInstantiator.launch(course.workspace_id, definition.id, %{
-             "course_id" => course.id,
-             "title" => course.title
-           }),
+           PrepInstantiator.launch(
+             course.workspace_id,
+             definition.id,
+             %{"course_id" => course.id, "title" => course.title},
+             created_reason: created_reason,
+             previous_run_id: previous && previous.id,
+             actor: opts[:actor]
+           ),
          :ok <- PrepInstantiator.link_prep_run(course, run),
          {:ok, run} <- carry_over_assignee(course, run, opts[:actor]) do
       {:ok, run}

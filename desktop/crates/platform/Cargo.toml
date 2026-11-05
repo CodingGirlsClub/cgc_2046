@@ -12,6 +12,9 @@ base64 = "0.22"
 sha2 = "0.10"
 agent-client-protocol = { version = "3.4", features = ["process"] }
 futures = "0.3"
+# 已在锁文件中；受控 ACP spawn 需要 env_clear/cwd，SDK 3.4 未提供这些选项。
+# Apache-2.0 OR MIT，与 AGPL-3.0 兼容。
+async-process = "2.5"
 ureq = { version = "3.4", features = ["json"] }
 interprocess = "2.4"
 tray-icon = { version = "0.26", default-features = false, features = ["ksni"] }
@@ -27,4 +30,4 @@ url = "2.5"
 security-framework = "3.7"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security_Credentials"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_System_Pipes"] }

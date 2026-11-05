@@ -202,6 +202,12 @@ pub fn register_history_root(weak: WeakEntity<RootView>) {
     }
 }
 
+pub(crate) fn root_weak() -> Option<WeakEntity<RootView>> {
+    HISTORY_ROOT
+        .get()
+        .and_then(|slot| slot.lock().ok().and_then(|slot| slot.clone()))
+}
+
 /// 设置窗口改库（清空 ACP 历史）后调用：刷新主窗口缓存列表；若清掉的正是
 /// 当前打开的 ACP 会话，回到新会话/空态并提示（Zed 无永久删除，这是 CGC 扩展）。
 pub(crate) fn notify_history_changed(cx: &mut App) {

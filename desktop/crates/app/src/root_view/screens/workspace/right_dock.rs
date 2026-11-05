@@ -56,7 +56,7 @@ pub(in crate::root_view) fn render_right_dock(
             .items_center()
             .gap(px(6.0))
             .px(space(2))
-            .py(space(1))
+            .h(px(COLUMN_HEADER_HEIGHT))
             .border_b_1()
             .border_color(palette.line)
             .child(
@@ -142,7 +142,7 @@ fn render_notifications_dock(
         .justify_between()
         .gap(px(6.0))
         .px(space(2))
-        .py(space(1))
+        .h(px(COLUMN_HEADER_HEIGHT))
         .border_b_1()
         .border_color(palette.line)
         .child(
@@ -181,6 +181,7 @@ fn render_notifications_dock(
                         .text_color(palette.ink_3)
                         .small(),
                 )
+                .accessibility_label(translate(language, Key::AppNotificationsRefresh))
                 .tooltip(translate(language, Key::AppNotificationsRefresh))
                 .loading(loading)
                 .on_click(move |_, _, cx| {
@@ -428,11 +429,19 @@ fn render_site_tree(
         .take(20)
         .map(|event| (event.id.clone(), event.title.clone()))
         .collect::<Vec<_>>();
+    let show_unenrolled = ctx.display_preferences.dock_show_unenrolled;
     let courses = ctx
         .courses
         .items()
         .iter()
         .take(20)
+        .filter(|course| {
+            show_unenrolled
+                || ctx
+                    .course_enrollments
+                    .get(&course.id)
+                    .is_none_or(Option::is_some)
+        })
         .map(|course| (course.id.clone(), course.title.clone()))
         .collect::<Vec<_>>();
     let show_events = events_open;
@@ -530,6 +539,15 @@ fn render_site_tree(
             Button::new("site-tree-events-chevron")
                 .xsmall()
                 .ghost()
+                .accessibility_label(format!(
+                    "{} {}",
+                    if expanded {
+                        translate(language, Key::AppA11yCollapse)
+                    } else {
+                        translate(language, Key::AppA11yExpand)
+                    },
+                    translate(language, Key::EventsListTitle)
+                ))
                 .icon(
                     Icon::default()
                         .path(if expanded {
@@ -602,6 +620,15 @@ fn render_site_tree(
             Button::new("site-tree-courses-chevron")
                 .xsmall()
                 .ghost()
+                .accessibility_label(format!(
+                    "{} {}",
+                    if expanded {
+                        translate(language, Key::AppA11yCollapse)
+                    } else {
+                        translate(language, Key::AppA11yExpand)
+                    },
+                    translate(language, Key::CoursesCatalogTitle)
+                ))
                 .icon(
                     Icon::default()
                         .path(if expanded {
@@ -633,6 +660,14 @@ fn render_site_tree(
                 });
             let is_expanded = expanded_course.as_deref() == Some(id.as_str());
             let click_course_id = course_id.clone();
+            let chevron_label = format!(
+                "{} {title}",
+                if is_expanded {
+                    translate(language, Key::AppA11yCollapse)
+                } else {
+                    translate(language, Key::AppA11yExpand)
+                }
+            );
             let chevron = {
                 let root = root.clone();
                 move |_: &mut Window, _: &mut App| {
@@ -643,6 +678,7 @@ fn render_site_tree(
                     )))
                     .xsmall()
                     .ghost()
+                    .accessibility_label(chevron_label.clone())
                     .icon(
                         Icon::default()
                             .path(if is_expanded {

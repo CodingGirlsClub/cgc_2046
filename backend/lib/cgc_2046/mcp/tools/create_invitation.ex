@@ -46,7 +46,7 @@ defmodule Cgc2046.Mcp.Tools.CreateInvitation do
   @impl true
   def execute(params, frame) do
     result =
-      Wrapper.run(frame, params, "create_invitation", fn _actor, workspace_id, params ->
+      Wrapper.run(frame, params, "create_invitation", fn actor, workspace_id, params ->
         target = params["target_email"]
 
         roles = params["preauthorized_role_names"] || []
@@ -54,7 +54,7 @@ defmodule Cgc2046.Mcp.Tools.CreateInvitation do
         roles_str =
           if is_list(roles) and roles != [], do: "（预授权角色: #{Enum.join(roles, ", ")}）", else: ""
 
-        with {:ok, courses_str} <- courses_summary(workspace_id, params["prep_course_ids"]) do
+        with {:ok, courses_str} <- courses_summary(actor, workspace_id, params["prep_course_ids"]) do
           summary =
             if target do
               "在 workspace #{workspace_id} 创建指向 #{target} 的邀请#{roles_str}#{courses_str}（邮件将自动发送）"
@@ -138,23 +138,23 @@ defmodule Cgc2046.Mcp.Tools.CreateInvitation do
 
   defp expires_at_from(_), do: nil
 
-  # 绑定课程摘要：查课程标题，供确认流展示（查不到的资源层创建校验兜底）。
+  # 绑定课程摘要只回显 actor 可读的课程，避免首段确认摘要泄露草稿标题（#1084）。
   # 租户收紧（P2）：查询带 `tenant: workspace_id`——Course 为 global? 多租户资源，
   # 不带 tenant 会全表读，成员可借已知 UUID 窥他租户课程标题进确认摘要；归属
   # 校验失败即拒绝建 pending，他租户课程与不存在同一 not found（fetch_scoped
   # 先例），不泄露存在性。确认段的创建校验仍由 Invitation.validate_prep_courses
   # 兜底。
-  defp courses_summary(_workspace_id, nil), do: {:ok, ""}
+  defp courses_summary(_actor, _workspace_id, nil), do: {:ok, ""}
 
-  defp courses_summary(_workspace_id, []), do: {:ok, ""}
+  defp courses_summary(_actor, _workspace_id, []), do: {:ok, ""}
 
-  defp courses_summary(workspace_id, course_ids) when is_list(course_ids) do
+  defp courses_summary(actor, workspace_id, course_ids) when is_list(course_ids) do
     ids = course_ids |> Enum.map(&to_string/1) |> Enum.uniq()
 
     courses =
       Course
       |> Ash.Query.filter(id in ^ids)
-      |> Ash.read!(authorize?: false, tenant: workspace_id)
+      |> Ash.read!(actor: actor, tenant: workspace_id)
 
     found_ids = MapSet.new(courses, & &1.id)
 
@@ -168,5 +168,5 @@ defmodule Cgc2046.Mcp.Tools.CreateInvitation do
     end
   end
 
-  defp courses_summary(_workspace_id, _), do: {:ok, ""}
+  defp courses_summary(_actor, _workspace_id, _), do: {:ok, ""}
 end

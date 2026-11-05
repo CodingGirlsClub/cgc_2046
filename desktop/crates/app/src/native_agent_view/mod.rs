@@ -1,7 +1,5 @@
 //! Native agent 的 GPUI 面板（P1a UI 接入）。
 //!
-//! 通过 `CGC_NATIVE_AGENT_DEMO=1` 打开独立窗口，不影响现有 ACP 对话路径。
-//!
 //! Stage 3.1 Phase A：native 运行时由进程内 ACP server 包装，面板经 `AcpHost`
 //! （与外部 ACP agent 完全相同的客户端路径）消费 `HostEvent` 并归约到共享
 //! `ConversationThread`；native 专属能力（附件 / queue / steer / checkpoint /
@@ -18,7 +16,7 @@ use cgc_platform::acp::connection::{AcpHost, AcpHostConfig, HostEvent};
 use futures::StreamExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::hover_card::HoverCard;
-use gpui_kit::component::input::{InputEvent, Position, Textarea, TextareaState};
+use gpui_kit::component::input::{InputEvent, TextareaState};
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu};
 use gpui_kit::component::message_scroller::{MessageScroller, MessageScrollerState};
 use gpui_kit::component::popover::Popover;
@@ -36,8 +34,8 @@ use crate::native_context::{
 };
 use crate::native_panel_host::SubagentCard;
 use crate::native_runtime::{
-    ApprovalMode, CheckpointAction, NativeRuntimeEvent, NativeRuntimeHandle, NativeRuntimeSnapshot,
-    PreparedNativeTurn, RuntimeChange, RuntimePhase,
+    ApprovalMode, CheckpointAction, ModelSetup, NativeRuntimeEvent, NativeRuntimeHandle,
+    NativeRuntimeSnapshot, PreparedNativeTurn, RuntimeChange, RuntimePhase,
 };
 use crate::native_view_model::{
     build_message_row_kinds, needs_checkpoint_confirm, subagent_cards_for_rows,
@@ -128,7 +126,6 @@ struct ComposerDraft {
     usage: u64,
     model_supports_images: bool,
     input: Entity<TextareaState>,
-    input_focus: gpui_kit::FocusHandle,
     input_value: String,
 }
 
@@ -143,37 +140,75 @@ fn queued_panel_header_text(count: usize) -> String {
 
 impl NativeAgentView {
     fn composer_draft(&self, cx: &mut Context<Self>) -> ComposerDraft {
-        let input_value = self.input.read(cx).value().to_string();
+        let input_value = crate::composer_context::user_text(&self.input.read(cx).content());
         ComposerDraft {
             busy: self.is_generating(),
             has_input: composer_has_input(&input_value),
             usage: self.state.usage_total.total(),
             model_supports_images: self.model_supports_images(),
             input: self.input.clone(),
-            input_focus: self.input.read(cx).focus_handle(cx).clone(),
             input_value,
         }
     }
+
+    /// 在 Kit 插入文本前接收图片；不改输入内容、选区或撤销历史。
+    fn paste_images(&mut self, item: &ClipboardItem, cx: &mut Context<Self>) -> bool {
+        if let Some(image) = item.entries.iter().find_map(|entry| match entry {
+            ClipboardEntry::Image(image) => Some(image),
+            _ => None,
+        }) {
+            self.add_clipboard_image(image, cx);
+            return true;
+        }
+        let paths = clipboard_image_paths(item);
+        if paths.is_empty() {
+            return false;
+        }
+        if !self.model_supports_images() {
+            self.status = "当前模型不支持图片输入".to_string();
+            cx.notify();
+            return true;
+        }
+        self.add_images_from_paths(&paths, cx);
+        true
+    }
 }
 
-fn inserted_segment(previous: &str, current: &str) -> Option<String> {
-    if current.len() <= previous.len() {
-        return None;
+/// 文件 payload 才能成为附件；附带的正文必须逐行精确对应路径或文件名。
+/// 第三方剪贴板同时提供描述文字时，让 Kit 正常粘贴文字。
+fn clipboard_image_paths(item: &ClipboardItem) -> Vec<std::path::PathBuf> {
+    let paths: Vec<_> = item
+        .entries
+        .iter()
+        .filter_map(|entry| match entry {
+            ClipboardEntry::ExternalPaths(paths) => Some(paths.paths()),
+            _ => None,
+        })
+        .flatten()
+        .filter(|path| is_image_path(path))
+        .cloned()
+        .collect();
+    let has_text = item
+        .entries
+        .iter()
+        .any(|entry| matches!(entry, ClipboardEntry::String(text) if !text.text().is_empty()));
+    if has_text {
+        let text = item.text().unwrap_or_default();
+        if text.lines().count() != paths.len()
+            || !text.lines().zip(&paths).all(|(line, path)| {
+                path.to_str() == Some(line)
+                    || path.file_name().and_then(|name| name.to_str()) == Some(line)
+                    || url::Url::parse(line)
+                        .ok()
+                        .and_then(|url| url.to_file_path().ok())
+                        .as_ref()
+                        == Some(path)
+            })
+        {
+            return Vec::new();
+        }
     }
-    let a = previous.as_bytes();
-    let b = current.as_bytes();
-    let mut prefix = 0;
-    while prefix < a.len() && prefix < b.len() && a[prefix] == b[prefix] {
-        prefix += 1;
-    }
-    let mut suffix = 0;
-    while suffix < a.len().saturating_sub(prefix)
-        && suffix < b.len().saturating_sub(prefix)
-        && a[a.len() - 1 - suffix] == b[b.len() - 1 - suffix]
-    {
-        suffix += 1;
-    }
-    String::from_utf8(b[prefix..b.len() - suffix].to_vec()).ok()
+    paths
 }
 
 /// 把 thread entries 映射成 UI 状态：图片预览 + 工具调用参数/输出（工具卡片）。
@@ -285,9 +320,15 @@ pub struct NativeAgentView {
     /// 首帧兜底是否已经主动拉过快照。
     initial_snapshot_requested: bool,
     page_context: crate::page_context::PageContextState,
+    language: crate::i18n::Language,
+    composer_context: crate::composer_context::ComposerContext,
+    edit_context: crate::composer_context::ComposerContext,
     input: Entity<TextareaState>,
     state: NativeThreadState,
+    hidden_user_count: usize,
     status: String,
+    operation_error: Option<String>,
+    operation_serial: u64,
     show_checkpoint_panel: bool,
     /// 无可用 checkpoint 时，编辑重发需要二次确认的消息 index。
     pending_restart_confirm: Option<usize>,
@@ -296,8 +337,7 @@ pub struct NativeAgentView {
     mention_index: usize,
     workspace_files: Vec<String>,
     skills: Vec<SkillEntry>,
-    /// 最近一轮的 prompt / 展示文本，供失败后重试重放。
-    last_turn: Option<(String, String)>,
+
     /// 已展开的工具调用卡片 id。
     expanded_tools: std::collections::HashSet<String>,
     /// 已展开的思考折叠块（UI message index）。
@@ -321,11 +361,12 @@ pub struct NativeAgentView {
     pending_images: Vec<PendingImage>,
     /// 已发送用户消息 index → 图片预览（仅当前进程内显示，不持久化）。
     sent_images: HashMap<usize, Vec<SentImage>>,
-    last_input_value: String,
     _input_subscription: Option<Subscription>,
     _key_interceptor: Option<Subscription>,
 }
 
-/// 每个 workspace scope 一条 native 线程（ADR-0028）。
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, cgc_ui_tests))]
+mod editor_tests;

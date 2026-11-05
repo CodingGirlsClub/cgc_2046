@@ -133,6 +133,7 @@ impl Mention {
     }
 
     /// 把 mention 放进编辑框内容：prefix + 链接文本 + suffix，链接整体为一个原子 token。
+    #[cfg(test)]
     pub(crate) fn content_at(&self, prefix: &str, suffix: &str) -> InputContent {
         let link = self.link_text();
         let text = format!("{prefix}{link}{suffix}");
@@ -161,6 +162,7 @@ impl Mention {
 }
 
 /// 发送文本：token 里的技能 / 文件内容作为上下文前置，其余文本原样保留。
+#[cfg(test)]
 pub(crate) fn resolve_prompt(content: &InputContent, workspace: &Path) -> String {
     let text = content.text().as_ref();
     let mut context = String::new();
@@ -185,6 +187,7 @@ pub(crate) fn resolve_prompt(content: &InputContent, workspace: &Path) -> String
 pub(crate) enum MentionKind {
     Skill,
     File,
+    Context,
 }
 
 /// 一条消息渲染出来的片段：普通文本，或一个 mention chip。
@@ -268,6 +271,7 @@ pub(crate) fn content_with_mentions(
     let mut content = InputContent::new(text);
     for link in mention_links(text) {
         let mention = match link.kind {
+            MentionKind::Context => continue,
             MentionKind::File => Mention::File {
                 path: link.path.unwrap_or_default(),
             },
@@ -323,6 +327,22 @@ fn parse_mention_link_detail(text: &str, start: usize) -> Option<(MentionLink, u
                 skill_name: Some(name),
                 path: None,
                 target: target.to_string(),
+            },
+            next,
+        ));
+    }
+    if target.starts_with("cgc-context://") {
+        return Some((
+            MentionLink {
+                start,
+                end: next,
+                kind: MentionKind::Context,
+                display_label: display_label.clone(),
+                chip_label: display_label,
+                skill_scope: None,
+                skill_name: None,
+                path: None,
+                target: target.into(),
             },
             next,
         ));
@@ -437,6 +457,7 @@ fn load_skills_from(roots: Vec<(PathBuf, &'static str)>) -> Vec<SkillEntry> {
     result
 }
 
+#[cfg(test)]
 fn legacy_at_context(text: &str, workspace: &Path) -> String {
     let mut context = String::new();
     for token in text.split_whitespace() {
@@ -488,7 +509,7 @@ fn parse_mention_link(text: &str, start: usize) -> Option<(String, usize)> {
     if target.starts_with("skill://") {
         return Some((format!("/{}", decode_component(label)), next));
     }
-    if target.starts_with("file://") {
+    if target.starts_with("file://") || target.starts_with("cgc-context://") {
         return Some((format!("@{}", decode_component(label)), next));
     }
     // 普通 markdown 链接原样保留。

@@ -2,6 +2,8 @@ use super::worker::Owner;
 use super::*;
 use cgc_agent_checkpoint::CheckpointManager;
 use cgc_agent_core::{Agent, SelectedModel};
+use cgc_agent_provider::{EchoProvider, UnconfiguredProvider};
+use cgc_agent_store::PrefsStore;
 use cgc_agent_tools::SandboxPolicy;
 
 impl Owner {
@@ -111,11 +113,16 @@ impl Owner {
                 let _ = reply.send(result);
             }
             Command::Rewind {
+                thread_id,
                 ordinal,
                 restore_files,
                 reply,
             } => {
-                let result = self.rewind(ordinal, restore_files);
+                let result = if thread_id.as_ref().is_some_and(|id| id != &self.frozen.id) {
+                    Err(NativeRuntimeError::StaleConnection)
+                } else {
+                    self.rewind(ordinal, restore_files)
+                };
                 let _ = reply.send(result);
             }
             Command::Checkpoint(action, reply) => {
@@ -128,6 +135,10 @@ impl Owner {
                 reply,
             } => {
                 let result = self.select_model(&provider, &model);
+                let _ = reply.send(result);
+            }
+            Command::RefreshProviders(reply) => {
+                let result = self.refresh_providers();
                 let _ = reply.send(result);
             }
             Command::Thinking {
@@ -231,43 +242,61 @@ impl Owner {
             self.config.model.provider_id.clone(),
             self.config.model.id.clone(),
         );
-        if thread.model != selected {
-            let production = self.production.as_mut().ok_or_else(|| {
+        let prepared_model = if thread.model != selected {
+            let production = self.production.as_ref().ok_or_else(|| {
                 NativeRuntimeError::Configuration("历史模型不在当前 runtime 中".into())
             })?;
-            let (provider, model) = factory::select_model(
+            Some(factory::prepare_model(
                 production,
                 thread.model.provider_id.as_str(),
                 thread.model.model_id.as_str(),
-            )?;
+            )?)
+        } else {
+            None
+        };
+        self.persist();
+        self.activate_thread(&thread)?;
+        if let Some((provider, model, setup)) = prepared_model {
+            if let Some(production) = &self.production {
+                if let Err(error) = factory::save_model_selection(production, &model) {
+                    self.notice(format!("Unable to save the selected model: {error}"));
+                }
+            }
             self.config.provider = provider;
             self.config.context_size = model.limits.context_window as u64;
             self.config.model = model;
+            if let Some(production) = &mut self.production {
+                production.model_setup = setup;
+                production.pending = None;
+            }
         }
-        self.persist();
         self.replace(thread, RuntimeChange::Opened);
         Ok(self.snapshot())
     }
 
+    fn activate_thread(&mut self, thread: &Thread) -> Result<(), NativeRuntimeError> {
+        let Some(store) = &mut self.store else {
+            return Ok(());
+        };
+        let result = match self.scope.as_deref() {
+            Some(scope) => store.activate_scope_thread(&scope_storage_key(scope), thread),
+            None => store.save_thread(thread),
+        };
+        result.map_err(|error| NativeRuntimeError::Storage(error.to_string()))
+    }
+
     fn new_thread(&mut self) -> Result<Arc<NativeRuntimeSnapshot>, NativeRuntimeError> {
         self.idle()?;
-        let id = self
-            .scope
-            .as_ref()
-            .map(|scope| format!("native-{}", scope.key))
-            .unwrap_or_else(|| self.frozen.id.clone());
-        self.invalidate_checkpoints(1)?;
-        self.replace(
-            Thread::new(
-                id,
-                SelectedModel::new(
-                    self.config.model.provider_id.clone(),
-                    self.config.model.id.clone(),
-                ),
-            ),
-            RuntimeChange::Opened,
-        );
         self.persist();
+        let thread = Thread::new(
+            fresh_thread_id(),
+            SelectedModel::new(
+                self.config.model.provider_id.clone(),
+                self.config.model.id.clone(),
+            ),
+        );
+        self.activate_thread(&thread)?;
+        self.replace(thread, RuntimeChange::Opened);
         Ok(self.snapshot())
     }
 
@@ -283,15 +312,7 @@ impl Owner {
             self.config.model.provider_id.clone(),
             self.config.model.id.clone(),
         );
-        let id = format!("native-{}", scope.key);
-        let thread = match &self.store {
-            Some(store) => store
-                .load_thread(&id)
-                .map_err(|error| NativeRuntimeError::Storage(error.to_string()))?
-                .filter(|thread| thread.model == selected)
-                .unwrap_or_else(|| Thread::new(id, selected)),
-            None => Thread::new(id, selected),
-        };
+        let thread = restore_scope_thread(self.store.as_mut(), &scope, selected)?;
         self.config.context =
             ToolContext::new(&scope.root).with_sandbox(SandboxPolicy::new(&scope.root));
         self.checkpoint_manager = CheckpointManager::open(&scope.root)
@@ -326,13 +347,9 @@ impl Owner {
         self.config.provider = provider;
         self.config.context_size = model.limits.context_window as u64;
         self.config.model = model;
-        let serial = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
         self.replace(
-            Thread::new(
-                format!("native-demo-{serial}"),
+            thread_for_model_switch(
+                &self.frozen,
                 SelectedModel::new(
                     self.config.model.provider_id.clone(),
                     self.config.model.id.clone(),
@@ -342,5 +359,133 @@ impl Owner {
         );
         self.persist();
         Ok(self.snapshot())
+    }
+
+    /// Settings 保存并验证 Provider 后重新读取 `agent_prefs.json`，同步当前会话的
+    /// provider/model，避免用户重启客户端。
+    fn refresh_providers(&mut self) -> Result<Arc<NativeRuntimeSnapshot>, NativeRuntimeError> {
+        self.idle()?;
+        let production = self
+            .production
+            .as_mut()
+            .ok_or_else(|| NativeRuntimeError::Configuration("runtime 未配置模型目录".into()))?;
+        let prefs = PrefsStore::new(production.data_root.join("agent_prefs.json")).load();
+        production.providers = Arc::new(prefs.providers.clone());
+        self.providers = Arc::new(prefs.providers.clone());
+        let active = prefs.active_provider();
+        let model_id = active.and_then(|active| {
+            prefs
+                .selected_model
+                .as_ref()
+                .filter(|selection| selection.provider_id.as_str() == active.id)
+                .map(|selection| selection.model_id.as_str())
+                .filter(|id| model_is_available(active, id))
+                .or_else(|| {
+                    active
+                        .models
+                        .iter()
+                        .find(|id| active.model_config(id).enabled)
+                        .map(String::as_str)
+                })
+        });
+        let Some((active, model_id)) = active.zip(model_id) else {
+            let allow_echo = production.allow_echo && active.is_none();
+            production.pending = None;
+            production.model_setup = if allow_echo {
+                ModelSetup::DemoEcho
+            } else {
+                ModelSetup::Unconfigured
+            };
+            self.config.provider = if allow_echo {
+                Arc::new(EchoProvider::new(self.config.model.clone()))
+            } else {
+                Arc::new(UnconfiguredProvider::new(self.config.model.clone()))
+            };
+            self.model_meta = Arc::new(self.config.model.clone());
+            self.cancel_title();
+            self.rebuild_tools();
+            self.publish(RuntimeChange::Configuration);
+            return Ok(self.snapshot());
+        };
+        let (provider, model) = factory::select_model(production, &active.id, model_id)?;
+        self.config.provider = provider;
+        self.config.context_size = model.limits.context_window as u64;
+        self.config.model = model.clone();
+        self.model_meta = Arc::new(model.clone());
+        let selected = SelectedModel::new(model.provider_id.clone(), model.id.clone());
+        if self.frozen.model != selected {
+            self.persist();
+            // 保留当前会话的 entries，只切换模型；否则同 ID 的空 thread 会把原对话覆盖掉。
+            self.replace(
+                thread_for_model_switch(&self.frozen, selected),
+                RuntimeChange::Opened,
+            );
+        } else {
+            // 同一个 model 但 provider/key 变了：SubagentRunner 仍持有旧 provider，
+            // 必须重建 tools registry 后再发布配置快照。
+            self.rebuild_tools();
+            self.publish(RuntimeChange::Configuration);
+        }
+        self.persist();
+        Ok(self.snapshot())
+    }
+}
+
+fn model_is_available(active: &cgc_agent_store::ProviderPrefs, model_id: &str) -> bool {
+    active.models.iter().any(|id| id == model_id) && active.model_config(model_id).enabled
+}
+
+fn thread_for_model_switch(current: &Thread, selected: SelectedModel) -> Thread {
+    let mut thread = current.clone();
+    thread.model = selected;
+    thread
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{model_is_available, thread_for_model_switch};
+    use cgc_agent_core::{SelectedModel, Thread};
+    use cgc_agent_provider::{ModelId, ProviderId};
+    use cgc_agent_store::{ModelPrefs, ProviderPrefs};
+
+    fn provider(models: &[(&str, bool)]) -> ProviderPrefs {
+        ProviderPrefs {
+            id: "test".into(),
+            name: "Test".into(),
+            base_url: "https://example.test/v1".into(),
+            models: models.iter().map(|(id, _)| id.to_string()).collect(),
+            has_key: true,
+            model_params: models
+                .iter()
+                .map(|(id, enabled)| ModelPrefs {
+                    enabled: *enabled,
+                    ..ModelPrefs::new(*id)
+                })
+                .collect(),
+            builtin: false,
+            protocol: cgc_agent_provider::ProviderProtocol::OpenAiCompatible,
+        }
+    }
+
+    #[test]
+    fn refresh_requires_membership_before_retaining_selected_model() {
+        let active = provider(&[("removed", false), ("available", true)]);
+        assert!(!model_is_available(&active, "removed"));
+        assert!(!model_is_available(&active, "missing"));
+        assert!(model_is_available(&active, "available"));
+    }
+
+    #[test]
+    fn switching_model_keeps_thread_entries() {
+        let old_model = SelectedModel::new(ProviderId::new("p"), ModelId::new("old"));
+        let mut current = Thread::new("native-scope", old_model);
+        current.push_user("keep this conversation");
+        let next_model = SelectedModel::new(ProviderId::new("p"), ModelId::new("new"));
+
+        let switched = thread_for_model_switch(&current, next_model.clone());
+
+        assert_eq!(switched.id, "native-scope");
+        assert_eq!(switched.entries, current.entries);
+        assert_eq!(switched.model, next_model);
     }
 }

@@ -20,7 +20,7 @@ gpui-kit.workspace = true
 # 关闭默认 features（image/svg/pic）：只需要矩阵，不引入 image 等额外依赖。
 qrcode = { version = "0.14.1", default-features = false }
 url = "2.5"
-uuid = "1"
+uuid = { version = "1", features = ["v4"] }
 futures = "0.3"
 cgc-account.workspace = true
 cgc-agent-ui.workspace = true

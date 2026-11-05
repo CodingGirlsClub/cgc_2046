@@ -4,6 +4,8 @@ pub(super) enum StreamOutcome {
     Finished {
         text: String,
         thinking: String,
+        thinking_signature: Option<String>,
+        replay_content: Vec<cgc_agent_provider::Content>,
         usage: TokenUsage,
         stop_reason: StopReason,
         tool_calls: Vec<ToolUse>,
@@ -20,6 +22,8 @@ pub(super) async fn run_stream(
     let mut stream = provider.stream(model, request).await?;
     let mut text = String::new();
     let mut thinking = String::new();
+    let mut thinking_signature = None;
+    let mut replay_content = Vec::new();
     let mut usage = TokenUsage::default();
     let mut stop_reason = None;
     let mut tool_calls: Vec<ToolUse> = Vec::new();
@@ -40,11 +44,18 @@ pub(super) async fn run_stream(
                 observer.on_text(&chunk);
                 text.push_str(&chunk);
             }
-            CompletionEvent::Thinking { text: chunk, .. } => {
+            CompletionEvent::Thinking {
+                text: chunk,
+                signature,
+            } => {
                 observer.on_thinking(&chunk);
                 thinking.push_str(&chunk);
+                if signature.is_some() {
+                    thinking_signature = signature;
+                }
             }
             CompletionEvent::ToolUse(tool_use) => tool_calls.push(tool_use),
+            CompletionEvent::ContentBlock(content) => replay_content.push(content),
             CompletionEvent::Usage(delta) => usage.add(delta),
             CompletionEvent::Stop(reason) => {
                 // 记录结束原因但**不 break**：OpenAI 兼容端点会在 finish_reason 之后
@@ -59,6 +70,8 @@ pub(super) async fn run_stream(
     Ok(StreamOutcome::Finished {
         text,
         thinking,
+        thinking_signature,
+        replay_content,
         usage,
         stop_reason: stop_reason.unwrap_or_else(|| StopReason::Other("stream ended".to_string())),
         tool_calls,
