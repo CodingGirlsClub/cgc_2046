@@ -28,6 +28,7 @@ use crate::i18n::{translate, Key, Language};
 use crate::native_runtime::{NativeRuntimeError, NativeRuntimeHandle};
 use crate::preferences::{self, CursorBlinkPreference};
 use crate::provider_settings::{ProviderPrefsChange, ProviderSettings};
+use crate::root_view::{title_bar_left_inset, TITLEBAR_HEIGHT};
 use crate::settings_provider::{
     append_reasoning_efforts, format_model_lines, parse_model_lines, KeyValidation,
     KeyValidationAction, ModelFieldInputs, ProviderDraft,
@@ -2457,6 +2458,7 @@ fn render_provider_cards(
 
 impl Render for SettingsWindowView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let fullscreen = window.is_fullscreen() || window.is_simple_fullscreen();
         let language = self.language;
         let palette = theme::palette_from_theme(cx);
         let focus = self.focus.clone();
@@ -2486,12 +2488,8 @@ impl Render for SettingsWindowView {
             ))
             .child(
                 TitleBar::new()
-                    .h(px(44.0))
-                    .pl(if cfg!(target_os = "macos") {
-                        px(84.0)
-                    } else {
-                        space(3)
-                    })
+                    .h(px(TITLEBAR_HEIGHT))
+                    .pl(title_bar_left_inset(fullscreen))
                     .pr(space(2))
                     .gap(space(2))
                     .bg(palette.frame)

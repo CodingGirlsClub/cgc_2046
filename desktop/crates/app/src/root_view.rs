@@ -262,7 +262,26 @@ struct ChatGuidance {
 }
 
 /// 全局标题栏高度：32px 品牌 badge + 上下留白，与三栏 header 解耦。
-const TITLEBAR_HEIGHT: f32 = 44.0;
+pub(crate) const TITLEBAR_HEIGHT: f32 = 44.0;
+
+/// macOS 红绿灯左/上边距：系统按钮 14px，`TITLEBAR_HEIGHT` 内垂直居中。
+pub(crate) const TRAFFIC_LIGHT_X: f32 = 9.0;
+pub(crate) const TRAFFIC_LIGHT_Y: f32 = (TITLEBAR_HEIGHT - 14.0) / 2.0;
+
+/// 红绿灯右侧给标题栏内容留的起点（Zed 的 macOS 26 取值 78，与窗口左侧同像素对齐）。
+pub(crate) const TITLEBAR_LEFT_INSET: f32 = 78.0;
+
+/// 自绘标题栏左侧内缩：macOS 让开红绿灯；全屏时红绿灯隐藏，内容顶到前面
+/// （`TitleBar` 内部在全屏时会再补 12px）。
+pub(crate) fn title_bar_left_inset(fullscreen: bool) -> Pixels {
+    if fullscreen {
+        px(0.0)
+    } else if cfg!(target_os = "macos") {
+        px(TITLEBAR_LEFT_INSET)
+    } else {
+        space(3)
+    }
+}
 
 /// 三栏（Agent 面板 / Pane TabBar / 右 Dock）header 统一高度。
 /// 中间 TabBar 内容 32px，加上上下各 2px；三栏共用保证水平分隔线对齐。
@@ -618,6 +637,7 @@ impl RootView {
 
 impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let fullscreen = window.is_fullscreen() || window.is_simple_fullscreen();
         let previous_page = self.page_context.visible();
         self.refresh_page_context();
         let page_changed = previous_page != self.page_context.visible();
@@ -931,11 +951,7 @@ impl Render for RootView {
                 .child(
                     TitleBar::new()
                         .h(px(TITLEBAR_HEIGHT))
-                        .pl(if cfg!(target_os = "macos") {
-                            px(84.0)
-                        } else {
-                            space(3)
-                        })
+                        .pl(title_bar_left_inset(fullscreen))
                         .bg(palette.canvas)
                         .border_color(palette.canvas),
                 )
@@ -978,11 +994,7 @@ impl Render for RootView {
                 .child(
                     TitleBar::new()
                         .h(px(TITLEBAR_HEIGHT))
-                        .pl(if cfg!(target_os = "macos") {
-                            px(84.0)
-                        } else {
-                            space(3)
-                        })
+                        .pl(title_bar_left_inset(fullscreen))
                         .pr(space(2))
                         .gap(space(1))
                         .bg(palette.frame)
@@ -2546,7 +2558,7 @@ pub fn main_window_options() -> WindowOptions {
     // `TitleBar` 组件自己处理（`app_owns_titlebar_drag` 也由它设置）。
     WindowOptions {
         titlebar: Some(TitlebarOptions {
-            traffic_light_position: Some(point(px(12.0), px(12.0))),
+            traffic_light_position: Some(point(px(TRAFFIC_LIGHT_X), px(TRAFFIC_LIGHT_Y))),
             ..TitleBar::title_bar_options()
         }),
         window_decorations: Some(WindowDecorations::Client),

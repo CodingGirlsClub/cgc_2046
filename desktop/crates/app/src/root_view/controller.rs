@@ -2601,6 +2601,7 @@ impl RootView {
         let options = WindowOptions {
             titlebar: Some(TitlebarOptions {
                 title: Some(title.into()),
+                traffic_light_position: Some(point(px(TRAFFIC_LIGHT_X), px(TRAFFIC_LIGHT_Y))),
                 ..TitleBar::title_bar_options()
             }),
             focus: true,
