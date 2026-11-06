@@ -338,12 +338,15 @@ impl NativeAgentView {
             }));
         }
         // 共享渲染：本函数只组装 spec 与回调（P9）。
-        render_action_bar(native_action_bar_spec(
-            id_prefix,
-            native_action_style(palette),
-            native_action_glyphs(),
-            callbacks,
-        ))
+        render_action_bar(
+            native_action_bar_spec(
+                id_prefix,
+                native_action_style(palette),
+                native_action_glyphs(),
+                callbacks,
+            ),
+            cx,
+        )
     }
 
     /// 滚到指定用户消息（再映射到 MessageScroller 的 item index）。

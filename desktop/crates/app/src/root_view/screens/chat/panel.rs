@@ -320,6 +320,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                 agent_response.clone(),
                                 &view_weak,
                                 palette,
+                                cx,
                             )
                         });
                         let menu_view = view_weak.clone();
@@ -527,6 +528,7 @@ pub(in crate::root_view) fn render_chat_panel(
                     row_view.turn_copy_text(plan.assistant_index),
                     &view_weak,
                     palette,
+                    cx,
                 ));
             }
             let status = if streaming {
@@ -925,14 +927,11 @@ pub(in crate::root_view) fn render_chat_panel(
                                                 translate(language, Key::AgentChatChatSend)
                                             }
                                             .into(),
-                                            glyph: Icon::default()
-                                                .path(if streaming {
-                                                    AssetIcon::Square.path()
-                                                } else {
-                                                    AssetIcon::ArrowUp.path()
-                                                })
-                                                .small()
-                                                .into_any_element(),
+                                            glyph: Icon::default().path(if streaming {
+                                                AssetIcon::Square.path()
+                                            } else {
+                                                AssetIcon::ArrowUp.path()
+                                            }),
                                             bg: if streaming {
                                                 palette.danger
                                             } else {
@@ -955,6 +954,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                                 })
                                             },
                                         },
+                                        cx,
                                     )),
                             ),
                         )
@@ -1187,6 +1187,7 @@ fn render_chat_message_controls(
     copy_text: Option<String>,
     view: &WeakEntity<RootView>,
     palette: &theme::Palette,
+    cx: &App,
 ) -> AnyElement {
     let mut callbacks = ActionCallbacks::default();
     if let Some(copy_text) = copy_text {
@@ -1206,15 +1207,18 @@ fn render_chat_message_controls(
             let _ = top_view.update(cx, |this, cx| this.scroll_chat_to_top(cx));
         }));
     }
-    render_action_bar(ActionBarSpec {
-        row_id: SharedString::from(format!("{id_prefix}-{index}")),
-        copy_id: SharedString::from(format!("{id_prefix}-copy-{index}")),
-        user_id: SharedString::from(format!("{id_prefix}-user-{index}")),
-        top_id: SharedString::from(format!("{id_prefix}-top-{index}")),
-        glyphs: chat_action_glyphs(),
-        style: chat_action_style(palette),
-        callbacks,
-    })
+    render_action_bar(
+        ActionBarSpec {
+            row_id: SharedString::from(format!("{id_prefix}-{index}")),
+            copy_id: SharedString::from(format!("{id_prefix}-copy-{index}")),
+            user_id: SharedString::from(format!("{id_prefix}-user-{index}")),
+            top_id: SharedString::from(format!("{id_prefix}-top-{index}")),
+            glyphs: chat_action_glyphs(),
+            style: chat_action_style(palette),
+            callbacks,
+        },
+        cx,
+    )
 }
 
 fn chat_action_glyphs() -> ActionGlyphs {

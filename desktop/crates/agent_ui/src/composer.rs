@@ -1,3 +1,5 @@
+use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
+use gpui_kit::component::{Icon, Sizable, Size};
 use gpui_kit::InteractiveElement as _;
 use gpui_kit::*;
 
@@ -14,24 +16,6 @@ pub struct ComposerStyle {
 
 /// 发送/停止回调（需要 window 聚焦输入框等）。
 pub type ComposerAction = Box<dyn Fn(&mut Window, &mut App) + 'static>;
-
-pub struct ComposerSpec {
-    pub card_id: SharedString,
-    pub focused: bool,
-    pub style: ComposerStyle,
-    pub streaming: bool,
-    /// 输入区（Textarea 或 fallback 的自定义输入行）。
-    pub input: AnyElement,
-    /// footer 左侧控件（附件、picker、usage…）。
-    pub footer: Vec<AnyElement>,
-    /// 发送按钮内容（图标或文字）。
-    pub send_glyph: AnyElement,
-    pub stop_glyph: AnyElement,
-    pub send_aria: SharedString,
-    pub stop_aria: SharedString,
-    pub on_send: ComposerAction,
-    pub on_stop: ComposerAction,
-}
 
 /// composer 输入卡容器（两栈共用：圆角/focus 边框/背景/padding）。
 ///
@@ -65,66 +49,12 @@ pub fn composer_footer() -> gpui_kit::Div {
         .min_w(px(0.0))
 }
 
-/// 渲染 composer 卡片（输入区 + footer + 发送/停止）。
-pub fn render_composer(spec: ComposerSpec) -> AnyElement {
-    let ComposerSpec {
-        card_id,
-        focused,
-        style,
-        streaming,
-        input,
-        footer,
-        send_glyph,
-        stop_glyph,
-        send_aria,
-        stop_aria,
-        on_send,
-        on_stop,
-    } = spec;
-    let button_bg = if streaming {
-        style.danger
-    } else {
-        style.accent
-    };
-    composer_card(card_id, focused, style)
-        .child(input)
-        .child(
-            composer_footer().children(footer).child(
-                div()
-                    .id("composer-send")
-                    .role(Role::Button)
-                    .aria_label(if streaming {
-                        stop_aria.clone()
-                    } else {
-                        send_aria.clone()
-                    })
-                    .size(px(24.0))
-                    .rounded(px(style.radius))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .ml_auto()
-                    .bg(button_bg)
-                    .text_color(style.canvas)
-                    .child(if streaming { stop_glyph } else { send_glyph })
-                    .on_click(move |_, window, cx| {
-                        if streaming {
-                            on_stop(window, cx);
-                        } else {
-                            on_send(window, cx);
-                        }
-                    }),
-            ),
-        )
-        .into_any_element()
-}
-
 /// 发送/停止按钮（两栈共用外观与交互语义）。
 pub struct SendButtonSpec {
     pub id: SharedString,
     pub aria: SharedString,
     pub tooltip: SharedString,
-    pub glyph: AnyElement,
+    pub glyph: Icon,
     pub bg: Hsla,
     pub fg: Hsla,
     pub radius: f32,
@@ -132,7 +62,12 @@ pub struct SendButtonSpec {
     pub on_click: ComposerAction,
 }
 
-pub fn render_send_button(spec: SendButtonSpec) -> AnyElement {
+/// 发送/停止按钮：Kit `Button` 的 icon-only 形态（24px），配色走 custom
+/// 变体以保持两栈现有的 accent/danger/soft 语义。
+///
+/// 注意：`!model_ready` 目前由调用方在 `on_click` 里提前返回，这里不设
+/// `disabled`（kit 的 disabled 会替换配色）；保持现状的观感，语义留待单独收敛。
+pub fn render_send_button(spec: SendButtonSpec, cx: &App) -> AnyElement {
     let SendButtonSpec {
         id,
         aria,
@@ -144,30 +79,23 @@ pub fn render_send_button(spec: SendButtonSpec) -> AnyElement {
         ml_auto,
         on_click,
     } = spec;
-    let mut button = div()
-        .id(id)
-        .test_support()
-        .role(Role::Button)
-        .aria_label(aria)
-        .size(px(24.0))
-        .flex_shrink_0()
+    let custom = ButtonCustomVariant::new(cx)
+        .color(bg)
+        .foreground(fg)
+        .hover(bg)
+        .active(bg);
+    let mut button = Button::new(id)
+        .icon(glyph)
+        .custom(custom)
+        .with_size(Size::Size(px(24.0)))
         .rounded(px(radius))
-        .bg(bg)
-        .text_color(fg)
-        .text_size(px(12.0))
-        .flex()
-        .items_center()
-        .justify_center();
+        .accessibility_label(aria)
+        .tooltip(tooltip)
+        .on_click(move |_, window, cx| on_click(window, cx));
     if ml_auto {
         button = button.ml_auto();
     }
-    button
-        .child(glyph)
-        .tooltip(move |window, cx| {
-            gpui_kit::component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
-        })
-        .on_click(move |_, window, cx| on_click(window, cx))
-        .into_any_element()
+    button.into_any_element()
 }
 
 #[cfg(test)]
