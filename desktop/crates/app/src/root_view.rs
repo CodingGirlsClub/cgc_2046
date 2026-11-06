@@ -1742,14 +1742,24 @@ impl RootView {
                     WorkspaceListState::Idle | WorkspaceListState::Loading => menu.item(
                         PopupMenuItem::label(translate(language, Key::AppWorkspaceLoading)),
                     ),
-                    WorkspaceListState::Failed(_) => menu.item(
-                        PopupMenuItem::element(move |_, _| {
-                            div()
-                                .text_color(palette.danger)
-                                .child(translate(language, Key::AppWorkspaceError))
-                        })
-                        .disabled(true),
-                    ),
+                    WorkspaceListState::Failed(_) => {
+                        let retry_root = switch_root.clone();
+                        menu.item(
+                            PopupMenuItem::element(move |_, _| {
+                                div()
+                                    .text_color(palette.danger)
+                                    .child(translate(language, Key::AppWorkspaceError))
+                            })
+                            .disabled(true),
+                        )
+                        .item(
+                            PopupMenuItem::label(translate(language, Key::AppWorkspaceRetry))
+                                .on_click(move |_, _, cx| {
+                                    let _ = retry_root
+                                        .update(cx, |root, cx| root.retry_workspace_load(cx));
+                                }),
+                        )
+                    }
                     WorkspaceListState::Empty => menu.item(PopupMenuItem::label(translate(
                         language,
                         Key::AppWorkspaceEmpty,

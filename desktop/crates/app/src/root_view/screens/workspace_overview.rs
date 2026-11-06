@@ -1,6 +1,9 @@
 use super::super::*;
 use super::ScreenContext;
 
+#[cfg(all(test, cgc_ui_tests))]
+mod tests;
+
 pub(in crate::root_view) fn render_workspace_overview(
     ctx: &mut ScreenContext<'_>,
     language: Language,
@@ -8,6 +11,7 @@ pub(in crate::root_view) fn render_workspace_overview(
     cx: &mut Context<RootView>,
 ) -> AnyElement {
     let workspace = ctx.workspaces.current().cloned();
+    let workspace_state = ctx.workspaces.state().clone();
     let enrollments_state = ctx.enrollments_state.clone();
     let enrollment_rows = ctx.enrollments_rows.clone();
     let events_state = ctx.events.state().clone();
@@ -21,17 +25,24 @@ pub(in crate::root_view) fn render_workspace_overview(
     let participation_rows = enrollment_rows.iter().take(3).cloned().collect::<Vec<_>>();
 
     let Some(workspace) = workspace else {
-        return div()
-            .flex()
-            .flex_col()
-            .gap(space(2))
-            .child(
-                div()
-                    .text_size(px(12.0))
-                    .text_color(palette.ink_3)
-                    .child(translate(language, Key::AccountWorkspaceLoading)),
-            )
-            .into_any_element();
+        // 没有当前工作台时，失败必须直接可见：否则后台不可达会让概览页永远停在
+        // 「加载中…」，用户既看不到原因也没有重试入口（issue #1238）。
+        return match workspace_state {
+            WorkspaceListState::Failed(message) => {
+                render_workspace_failure(language, palette, &message, cx)
+            }
+            _ => div()
+                .flex()
+                .flex_col()
+                .gap(space(2))
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(palette.ink_3)
+                        .child(translate(language, Key::AccountWorkspaceLoading)),
+                )
+                .into_any_element(),
+        };
     };
 
     let roles = workspace
@@ -399,5 +410,49 @@ pub(in crate::root_view) fn render_workspace_overview(
                 ),
         )
         .child(participation_body)
+        .into_any_element()
+}
+
+/// 工作台列表拉取失败且没有可渲染的工作台：给出类别文案、原始诊断与重试入口。
+///
+/// 诊断行直接展示 `WorkspaceError::diagnostic()`（端点 + 错误类别，不含凭证），
+/// 用户反馈「加载不出来」时不必再让维护者去猜是网络、端点还是服务端错误。
+fn render_workspace_failure(
+    language: Language,
+    palette: &theme::Palette,
+    diagnostic: &str,
+    cx: &mut Context<RootView>,
+) -> AnyElement {
+    use gpui_kit::component::button::{Button, ButtonVariants};
+    div()
+        .id("workspace-overview-error")
+        .test_support()
+        .role(Role::Alert)
+        .aria_label(translate(language, Key::AppWorkspaceError))
+        .flex()
+        .flex_col()
+        .gap(space(1))
+        .child(
+            div()
+                .text_size(px(16.0))
+                .text_color(palette.ink)
+                .child(translate(language, Key::AppWorkspaceError)),
+        )
+        .child(
+            div()
+                .id("workspace-overview-error-detail")
+                .test_support()
+                .aria_label(diagnostic.to_string())
+                .text_size(px(12.0))
+                .text_color(palette.ink_3)
+                .child(diagnostic.to_string()),
+        )
+        .child(
+            Button::new("workspace-overview-retry")
+                .label(translate(language, Key::AppWorkspaceRetry))
+                .ghost()
+                .xsmall()
+                .on_click(cx.listener(|this, _, _, cx| this.retry_workspace_load(cx))),
+        )
         .into_any_element()
 }

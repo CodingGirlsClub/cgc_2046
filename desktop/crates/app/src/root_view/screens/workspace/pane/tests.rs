@@ -1,5 +1,6 @@
 use super::{render_pane_notices, render_pane_tabs};
 
+use crate::i18n::{translate, Key, Language};
 use crate::root_view::{screens::ScreenContext, state::PaneTab, RootView};
 use cgc_platform::mcp::credential::McpError;
 use cgc_platform::session::{FakeAuthApi, MemoryStore, SessionService};
@@ -33,11 +34,18 @@ impl Render for PaneProbe {
     }
 }
 
-#[gpui_kit::test]
-fn authorization_failure_and_long_notices_keep_restored_tabs_visible(cx: &mut TestAppContext) {
+/// 打开一个只渲染 TabBar + notices 的真实窗口；`seed` 在首帧前改 `RootView` 状态。
+fn open_pane_probe(
+    cx: &mut TestAppContext,
+    seed: impl FnOnce(&mut RootView),
+) -> (
+    gpui_kit::AnyWindowHandle,
+    Entity<RootView>,
+    Entity<PaneProbe>,
+) {
     cx.update(gpui_kit::init);
-    let (handle, probe) = cx.update(|cx| {
-        gpui_kit::open_window(
+    cx.update(|cx| {
+        let (handle, probe) = gpui_kit::open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                     None,
@@ -51,32 +59,40 @@ fn authorization_failure_and_long_notices_keep_restored_tabs_visible(cx: &mut Te
                 let root = cx.new(|_| {
                     let mut root = RootView::with_session(
                         crate::registration::build_registry().unwrap(),
-                        crate::i18n::Language::En,
+                        Language::En,
                         crate::theme::ThemePreference::Light,
                         SessionService::new(
                             Box::new(FakeAuthApi::demo()),
                             Box::new(MemoryStore::default()),
                         ),
                     );
-                    root.state.tabs.push(PaneTab::issue(
-                        "course-test",
-                        "unit-test",
-                        "Temperature and measurement",
-                    ));
-                    root.state.active_tab = Some(root.state.tabs[0].id.clone());
+                    seed(&mut root);
                     root
                 });
                 cx.new(|_| PaneProbe { root, width: 740. })
             },
         )
-        .unwrap()
+        .expect("pane probe window");
+        let root = probe.read(cx).root.clone();
+        (handle, root, probe)
+    })
+}
+
+#[gpui_kit::test]
+fn authorization_failure_and_long_notices_keep_restored_tabs_visible(cx: &mut TestAppContext) {
+    let (handle, root, probe) = open_pane_probe(cx, |root| {
+        root.state.tabs.push(PaneTab::issue(
+            "course-test",
+            "unit-test",
+            "Temperature and measurement",
+        ));
+        root.state.active_tab = Some(root.state.tabs[0].id.clone());
     });
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
         let normal = window.find_by_label("Temperature and measurement");
         assert!(normal.visible());
-        let root = probe.read(cx).root.clone();
-        root.update(cx, |root, cx| {
+        root.clone().update(cx, |root, cx| {
             root.state.pane_notice = Some("Platform tools unavailable: domain mcp_token_limit_reached: active connection token limit reached (10; active = unrevoked and not idle-expired); revoke an unused token first".repeat(3));
             root.state.agent_authorization_error = Some(McpError::Domain {
                 code: "mcp_token_limit_reached".into(), message: "Active connection token limit reached".into(),
@@ -103,41 +119,63 @@ fn authorization_failure_and_long_notices_keep_restored_tabs_visible(cx: &mut Te
     }).unwrap();
 }
 
+/// 横幅必须按失败类别给出不同文案：后台不可达 vs 平台凭据不可用（issue #1238）。
+#[gpui_kit::test]
+fn authorization_notice_copy_matches_the_failure_class(cx: &mut TestAppContext) {
+    let (handle, root, _probe) = open_pane_probe(cx, |_| {});
+
+    root.update(cx, |root, cx| {
+        root.state.agent_authorization_error = Some(McpError::Transport(
+            "http://127.0.0.1:4000/mcp: Connection refused".into(),
+        ));
+        cx.notify();
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window
+                .find_by_label(translate(Language::En, Key::PlatformNoticeUnreachable))
+                .visible(),
+            "step 1: transport failure must say the backend is unreachable"
+        );
+        assert!(
+            window
+                .try_find_by_label(translate(Language::En, Key::PlatformNoticeCredential))
+                .is_none(),
+            "step 1: unreachable must not be reported as a credential problem"
+        );
+    })
+    .unwrap();
+
+    root.update(cx, |root, cx| {
+        root.state.agent_authorization_error = Some(McpError::Server("internal error".into()));
+        cx.notify();
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window
+                .find_by_label(translate(Language::En, Key::PlatformNoticeCredential))
+                .visible(),
+            "step 2: credential failures keep the credential copy"
+        );
+        assert!(
+            window
+                .try_find_by_label(translate(Language::En, Key::PlatformNoticeUnreachable))
+                .is_none(),
+            "step 2: credential failure must not claim the backend is unreachable"
+        );
+    })
+    .unwrap();
+}
+
 #[gpui_kit::test]
 fn pane_tab_close_button_removes_the_tab(cx: &mut TestAppContext) {
-    cx.update(gpui_kit::init);
-    let (handle, probe) = cx.update(|cx| {
-        gpui_kit::open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                    None,
-                    size(px(740.), px(360.)),
-                    cx,
-                ))),
-                ..Default::default()
-            },
-            cx,
-            |_, cx| {
-                let root = cx.new(|_| {
-                    let mut root = RootView::with_session(
-                        crate::registration::build_registry().unwrap(),
-                        crate::i18n::Language::En,
-                        crate::theme::ThemePreference::Light,
-                        SessionService::new(
-                            Box::new(FakeAuthApi::demo()),
-                            Box::new(MemoryStore::default()),
-                        ),
-                    );
-                    root.state
-                        .tabs
-                        .push(PaneTab::page("/workspace", "Overview"));
-                    root.state.active_tab = Some(root.state.tabs[0].id.clone());
-                    root
-                });
-                cx.new(|_| PaneProbe { root, width: 740. })
-            },
-        )
-        .unwrap()
+    let (handle, root, _probe) = open_pane_probe(cx, |root| {
+        root.state
+            .tabs
+            .push(PaneTab::page("/workspace", "Overview"));
+        root.state.active_tab = Some(root.state.tabs[0].id.clone());
     });
 
     cx.update_window(handle, |_, window, cx| {
@@ -147,6 +185,7 @@ fn pane_tab_close_button_removes_the_tab(cx: &mut TestAppContext) {
     })
     .unwrap();
 
-    let tabs = cx.update(|cx| probe.read(cx).root.read(cx).state.tabs.len());
-    assert_eq!(tabs, 0, "关闭按钮应移除标签");
+    root.update(cx, |root, _| {
+        assert_eq!(root.state.tabs.len(), 0, "关闭按钮应移除标签");
+    });
 }

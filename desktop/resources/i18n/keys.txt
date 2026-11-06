@@ -319,3 +319,7 @@ app.settings.dock_left
 app.settings.dock_right
 app.settings.hide_button
 app.settings.dock_position
+platform.notice.unreachable
+platform.notice.credential
+platform.notice.credential_limit
+platform.notice.retry

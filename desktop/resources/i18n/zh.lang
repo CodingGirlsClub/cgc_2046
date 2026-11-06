@@ -318,3 +318,7 @@ app.settings.dock_left = 停靠到左侧
 app.settings.dock_right = 停靠到右侧
 app.settings.hide_button = 隐藏按钮
 app.settings.dock_position = 停靠位置
+platform.notice.unreachable = 无法连接平台服务，工具功能暂不可用；已打开的标签与课程内容仍可浏览。
+platform.notice.credential = 平台凭据不可用，工具功能暂不可用；已打开的标签与课程内容仍可浏览。
+platform.notice.credential_limit = 平台凭据已达上限，重试可恢复本机保存的凭据；若仍失败，请到平台设置撤销一个未使用的凭据。
+platform.notice.retry = 重试

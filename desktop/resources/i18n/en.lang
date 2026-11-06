@@ -318,3 +318,7 @@ app.settings.dock_left = Dock Left
 app.settings.dock_right = Dock Right
 app.settings.hide_button = Hide Button
 app.settings.dock_position = Dock Position
+platform.notice.unreachable = Cannot reach the platform service, so tools are unavailable. Your tabs and course content are still accessible.
+platform.notice.credential = Platform credentials are unavailable, so tools are paused. Your tabs and course content are still accessible.
+platform.notice.credential_limit = Platform credential limit reached. Retry to recover this device's saved credential. If it is unavailable, revoke one unused credential in platform settings.
+platform.notice.retry = Retry

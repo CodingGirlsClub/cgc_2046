@@ -163,6 +163,15 @@ impl RootView {
                         }
                     }
                     Err(error) => {
+                        // 授权失败只进横幅 tooltip 时，用户与内测日志都看不出失败类别
+                        // （后台不可达 vs 凭据不可用）。这里落一条可定位的 WARN；lease
+                        // 明文从不进错误类型，logger 另有 redact 兜底（issue #1238）。
+                        log::warn!(
+                            target: "mcp",
+                            "平台授权失败 endpoint={} epoch={epoch}：{}",
+                            requested_scope.endpoint,
+                            error.diagnostic()
+                        );
                         this.agent_authorization_error = Some(error.clone());
                         if this.chat.start_after_authorization {
                             this.chat.start_after_authorization = false;
