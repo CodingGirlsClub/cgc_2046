@@ -913,6 +913,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                                 }
                                             }),
                                     )
+                                    .child(div().flex_1())
                                     .children(
                                         surface_flags
                                             .usage
@@ -957,7 +958,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                             },
                                             fg: palette.canvas,
                                             radius: RADIUS_SMALL,
-                                            ml_auto: true,
+                                            ml_auto: false,
                                             on_click: {
                                                 let view = cx.entity().downgrade();
                                                 let send = composer.callbacks.send.clone();
