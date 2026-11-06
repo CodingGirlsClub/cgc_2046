@@ -5,7 +5,7 @@
 //! 整个窗口显示登录页（guard），登录成功后进入壳；登出在头像下拉里（同 Zed 的
 //! sign out）。网络调用放后台线程，结果回主线程刷新。
 
-use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
+use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::InteractiveElement;
 use gpui_kit::*;
 
@@ -87,6 +87,8 @@ mod state;
 
 #[cfg(all(test, cgc_ui_tests))]
 mod footer_tests;
+#[cfg(all(test, cgc_ui_tests))]
+mod titlebar_tests;
 
 use state::{AgentRegistryFilter, RightPanel, ShellState, SiteTreeSection};
 
@@ -674,7 +676,6 @@ impl Render for RootView {
             self.state.right_panel,
             RightPanel::Outline | RightPanel::Notifications
         );
-        let account_menu = self.account_menu_open;
         let is_signed_in = self.is_signed_in();
         if is_signed_in && self.pending_link.as_deref() == Some("/settings") {
             self.pending_link = None;
@@ -1054,28 +1055,14 @@ impl Render for RootView {
                                 .title_bar_notifications
                                 .then(|| self.render_notifications_bell(language, &palette, cx)),
                         )
-                        .child(
-                            div()
-                                .id("account-toggle-wrap")
-                                .relative()
-                                .flex()
-                                .items_center()
-                                .tooltip(move |window, cx| {
-                                    Tooltip::new(account_tooltip).build(window, cx)
-                                })
-                                .child(
-                                    Avatar::new()
-                                        .name(email.clone())
-                                        .with_size(KitSize::Small)
-                                        .on_mouse_down(
-                                            MouseButton::Left,
-                                            cx.listener(|this, _, _, cx| {
-                                                this.toggle_account_menu();
-                                                cx.notify();
-                                            }),
-                                        ),
-                                ),
-                        ),
+                        .child(self.render_account_menu_button(
+                            &palette,
+                            &email,
+                            signed_in_as,
+                            sign_out_label,
+                            account_tooltip,
+                            cx,
+                        )),
                 )
                 .child({
                     let agent_on_left =
@@ -1409,16 +1396,6 @@ impl Render for RootView {
             if self.theme_menu_open {
                 root = root.child(self.render_theme_menu(&palette, cx));
             }
-            if account_menu {
-                root = root.child(self.render_account_menu(
-                    language,
-                    &palette,
-                    &email,
-                    signed_in_as,
-                    sign_out_label,
-                    cx,
-                ));
-            }
             root
         }
     }
@@ -1559,81 +1536,6 @@ impl RootView {
                             })
                             .small(),
                     ),
-            )
-            .into_any_element()
-    }
-
-    /// 账户下拉：必须挂在根级最后绘制，否则会被后续 content/footer 覆盖（表现为“半透明”）。
-    fn render_account_menu(
-        &self,
-        language: Language,
-        palette: &theme::Palette,
-        email: &str,
-        signed_in_as: &str,
-        sign_out_label: &str,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        div()
-            .id("account-menu")
-            .absolute()
-            .top(px(52.0))
-            .right(space(2))
-            .w(px(220.0))
-            .flex()
-            .flex_col()
-            .gap(px(2.0))
-            .p(space(1))
-            .rounded(px(RADIUS_MEDIUM))
-            .border_1()
-            .border_color(palette.line_strong)
-            .bg(palette.card)
-            .occlude()
-            .text_color(palette.ink)
-            .child(
-                div()
-                    .px(space(1))
-                    .py(px(4.0))
-                    .text_size(px(10.0))
-                    .text_color(palette.ink_3)
-                    .child(format!("{signed_in_as} {email}")),
-            )
-            .child(
-                div()
-                    .id("account-settings")
-                    .role(Role::Button)
-                    .aria_label(translate(language, Key::AppSettingsTitle))
-                    .px(space(1))
-                    .py(px(6.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .text_color(palette.ink_2)
-                    .hover(|style| style.bg(palette.soft))
-                    .child(
-                        div()
-                            .flex()
-                            .justify_between()
-                            .child(translate(language, Key::AppSettingsTitle))
-                            .child(shortcut_kbd(if cfg!(target_os = "macos") {
-                                "cmd-,"
-                            } else {
-                                "ctrl-,"
-                            })),
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.open_settings_window(cx);
-                        this.account_menu_open = false;
-                        cx.notify();
-                    })),
-            )
-            .child(
-                div()
-                    .id("account-sign-out")
-                    .px(space(1))
-                    .py(px(6.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .text_color(palette.ink_2)
-                    .hover(|style| style.bg(palette.soft))
-                    .child(sign_out_label.to_string())
-                    .on_click(cx.listener(|this, _, _, cx| this.sign_out(cx))),
             )
             .into_any_element()
     }
@@ -1968,6 +1870,80 @@ impl RootView {
                     .child(translate(language, Key::AppWorkspaceSwitch)),
             )
             .child(body)
+            .into_any_element()
+    }
+
+    /// 右上角账户头像：Kit `Button` 触发器 + 下拉菜单（Zed 的
+    /// `ButtonLike` + `PopoverMenu` 同构）。菜单状态由 Kit 自己管，
+    /// 点外/Esc/点项都会关闭。
+    fn render_account_menu_button(
+        &self,
+        palette: &theme::Palette,
+        email: &str,
+        signed_in_as: &'static str,
+        sign_out_label: &'static str,
+        account_tooltip: &'static str,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let language = self.language;
+        let palette = *palette;
+        use gpui_kit::component::button::{Button, ButtonVariants as _};
+        let settings_root = cx.entity().downgrade();
+        let sign_out_root = cx.entity().downgrade();
+        let menu_email = email.to_string();
+        let menu_signed_in_as = signed_in_as;
+        let menu_sign_out = sign_out_label;
+        Button::new("account-toggle")
+            .child(
+                Avatar::new()
+                    .name(email.to_string())
+                    .with_size(KitSize::Small),
+            )
+            .ghost()
+            .with_size(KitSize::Size(px(26.0)))
+            .rounded(px(RADIUS_SMALL))
+            .accessibility_label(account_tooltip)
+            .tooltip(account_tooltip)
+            .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _window, _cx| {
+                let header = format!("{menu_signed_in_as} {menu_email}");
+                let settings_root = settings_root.clone();
+                let sign_out_root = sign_out_root.clone();
+                menu.item(PopupMenuItem::element(move |_, _| {
+                    div()
+                        .text_size(px(10.0))
+                        .text_color(palette.ink_3)
+                        .child(header.clone())
+                }))
+                .item(PopupMenuItem::separator())
+                .item(
+                    PopupMenuItem::element(move |_, _| {
+                        div()
+                            .flex()
+                            .w_full()
+                            .justify_between()
+                            .gap(space(2))
+                            .child(translate(language, Key::AppSettingsTitle))
+                            .child(shortcut_kbd(if cfg!(target_os = "macos") {
+                                "cmd-,"
+                            } else {
+                                "ctrl-,"
+                            }))
+                    })
+                    .on_click(move |_, _, cx| {
+                        let _ = settings_root.update(cx, |this, cx| {
+                            this.open_settings_window(cx);
+                        });
+                    }),
+                )
+                .item(PopupMenuItem::separator())
+                .item(
+                    PopupMenuItem::new(menu_sign_out.to_string()).on_click(move |_, _, cx| {
+                        let _ = sign_out_root.update(cx, |this, cx| {
+                            this.sign_out(cx);
+                        });
+                    }),
+                )
+            })
             .into_any_element()
     }
 
@@ -3592,15 +3568,6 @@ mod tests {
         assert_eq!(view.cycle_theme(), ThemePreference::Light);
         assert_eq!(view.cycle_theme(), ThemePreference::Dark);
         assert_eq!(view.cycle_theme(), ThemePreference::System);
-    }
-
-    #[test]
-    fn account_menu_toggles_and_closes() {
-        let mut view = view();
-        assert!(!view.account_menu_open());
-        assert!(view.toggle_account_menu());
-        view.close_account_menu();
-        assert!(!view.account_menu_open());
     }
 
     #[test]

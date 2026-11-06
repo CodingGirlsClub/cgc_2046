@@ -38,19 +38,6 @@ impl RootView {
         self.preference
     }
 
-    pub fn account_menu_open(&self) -> bool {
-        self.account_menu_open
-    }
-
-    pub fn toggle_account_menu(&mut self) -> bool {
-        self.account_menu_open = !self.account_menu_open;
-        self.account_menu_open
-    }
-
-    pub fn close_account_menu(&mut self) {
-        self.account_menu_open = false;
-    }
-
     /// 把当前 active tab 的页面身份、正文与版本写入全局上下文。
     /// active tab 与当前路由不一致时不猜上下文，避免把旧 tab 正文送给 Agent。
     pub(in crate::root_view) fn refresh_page_context(&self) {
@@ -438,7 +425,6 @@ impl RootView {
         }
         self.right_panel = RightPanel::Notifications;
         self.right_panel_open = true;
-        self.account_menu_open = false;
         self.theme_menu_open = false;
         self.refresh_notifications(cx);
         cx.notify();
@@ -4041,7 +4027,6 @@ impl RootView {
                 })
                 .detach();
         }
-        self.account_menu_open = false;
         self.workspace_menu_open = false;
         self.workspaces.reset();
         self.workspaces_started = false;
