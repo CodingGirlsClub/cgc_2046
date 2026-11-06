@@ -14,7 +14,7 @@
 //! 未知 agent 回退 Bot 图标（Lucide）。品牌 mark 只用于标识对应 agent。
 
 use super::*;
-use crate::icons::brand_badge;
+use crate::icons::app_icon;
 
 /// Agent 图标种类（纯函数可单测；渲染时映射成 SVG/图片）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,12 +58,15 @@ pub(in crate::root_view) fn agent_icon_element(
     color: gpui::Hsla,
 ) -> AnyElement {
     match agent_icon_kind(agent_id) {
-        // 用居中的品牌 badge，而不是带不对称留白的应用图标（128x128.png 的
-        // 内容 bbox 偏下 ~10%，16px 显示时会让 logo 比标题低 1.5pt）。
-        AgentIconKind::Native => img(brand_badge())
+        // 128x128.png 的火苗圆牌在画布里偏下：内容 bbox y=31..123，中心 77，
+        // 画布中心 64 → 偏下 13/128。按显示尺寸等比上移，logo 才与标题居中
+        // （16px 时约 −1.63pt）。不要改成 brand badge：那张是火苗 + 字标的
+        // 竖版 lockup，16px 下字标会糊。
+        AgentIconKind::Native => img(app_icon())
             .w(px(size))
             .h(px(size))
             .flex_none()
+            .mt(px(-size * 13.0 / 128.0))
             .into_any_element(),
         AgentIconKind::Codex => svg_icon(CODEX_SVG, size, color),
         AgentIconKind::Claude => svg_icon(CLAUDE_SVG, size, color),
