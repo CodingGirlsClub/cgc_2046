@@ -24,6 +24,12 @@ case "$FAKE_MIX_MODE" in
     echo "** (Mix) mix format failed due to --check-formatted."
     echo "The following files are not formatted:"
     exit 1 ;;
+  format-big)
+    # 输出超过管道缓冲：grep -q 提前退出会让上游 printf 收到 SIGPIPE，
+    # pipefail 下整条 pipeline 返回 141——分类不能依赖 pipeline 退出码。
+    echo "** (Mix) mix format failed due to --check-formatted."
+    i=0; while [ "$i" -lt 3000 ]; do echo "lib/file_$i.ex is not formatted"; i=$((i + 1)); done
+    exit 1 ;;
   deps)
     echo '** (Mix) Unknown dependency :ecto_sql given to :import_deps in the formatter configuration. Make sure the dependency is listed in your mix.exs for environment :dev and you have run "mix deps.get"'
     exit 1 ;;
@@ -81,5 +87,10 @@ check "格式失败：拦截" 1 "格式检查未通过" "跳过"
 dir="$(setup_repo broken-deps yes yes)"
 run_hook "$dir" deps
 check "依赖缺失：放行并提示 deps.get" 0 "deps.get" "格式检查未通过"
+
+# 6. 大量未格式化文件（输出超出管道缓冲）：仍必须拦截。
+dir="$(setup_repo many-diffs yes yes)"
+run_hook "$dir" format-big
+check "大输出格式失败：仍拦截" 1 "格式检查未通过" "跳过"
 
 exit $fail

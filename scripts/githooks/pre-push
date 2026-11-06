@@ -31,18 +31,25 @@ if [ "$status" -eq 0 ]; then
   exit 0
 fi
 
-if printf '%s\n' "$output" | grep -qF 'mix format failed due to --check-formatted'; then
-  printf '%s\n' "$output" >&2
-  echo "[pre-push] 格式检查未通过——在 backend/ 执行 'mix format' 后重新暂存再推送。" >&2
-  exit 1
-fi
+# 用 case 而非 `printf | grep -q`：大输出下 grep 提前退出会让上游 SIGPIPE，
+# pipefail 把整条 pipeline 判成失败，真格式失败会被误放行。
+case "$output" in
+  *"mix format failed due to --check-formatted"*)
+    printf '%s\n' "$output" >&2
+    echo "[pre-push] 格式检查未通过——在 backend/ 执行 'mix format' 后重新暂存再推送。" >&2
+    exit 1
+    ;;
+esac
 
 # 其余非零退出 = mix 自身故障：不阻塞，CI 会兜底。
 printf '%s\n' "$output" >&2
-if printf '%s\n' "$output" | grep -qE 'Unknown dependency|mix deps\.get|Could not find dependency'; then
-  echo "[pre-push] 依赖未装齐（exit $status）——跳过本地检查，CI 仍会校验。" >&2
-  echo "[pre-push] 在 backend/ 执行 'mix deps.get'；新 worktree 请跑 scripts/worktree/setup-worktree.sh。" >&2
-else
-  echo "[pre-push] mix 运行异常（exit $status）——跳过本地检查，CI 仍会校验。" >&2
-fi
+case "$output" in
+  *"Unknown dependency"*|*"mix deps.get"*|*"Could not find dependency"*)
+    echo "[pre-push] 依赖未装齐（exit $status）——跳过本地检查，CI 仍会校验。" >&2
+    echo "[pre-push] 在 backend/ 执行 'mix deps.get'；新 worktree 请跑 scripts/worktree/setup-worktree.sh。" >&2
+    ;;
+  *)
+    echo "[pre-push] mix 运行异常（exit $status）——跳过本地检查，CI 仍会校验。" >&2
+    ;;
+esac
 exit 0
