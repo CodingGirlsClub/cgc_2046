@@ -53,6 +53,30 @@ impl Render for SharedProbe {
             },
             cx,
         );
+        let copies_second = self.copies.clone();
+        let copied_bar = render_action_bar(
+            ActionBarSpec {
+                row_id: "test-row-copied".into(),
+                copy_id: "test-copy-copied".into(),
+                user_id: "test-user-copied".into(),
+                top_id: "test-top-copied".into(),
+                glyphs: ActionGlyphs {
+                    copy: ActionGlyph::Named(IconName::Copy),
+                    user: ActionGlyph::Named(IconName::ArrowUp),
+                    top: ActionGlyph::Named(IconName::ArrowUp),
+                },
+                style,
+                callbacks: ActionCallbacks {
+                    on_copy: Some(Box::new(move |_| {
+                        copies_second.set(copies_second.get() + 1)
+                    })),
+                    on_scroll_user: Some(Box::new(|_| {})),
+                    on_scroll_top: Some(Box::new(|_| {})),
+                },
+                copied: true,
+            },
+            cx,
+        );
         let sends = self.sends.clone();
         let send = render_send_button(
             SendButtonSpec {
@@ -68,7 +92,12 @@ impl Render for SharedProbe {
             },
             cx,
         );
-        div().flex().items_center().child(bar).child(send)
+        div()
+            .flex()
+            .items_center()
+            .child(bar)
+            .child(copied_bar)
+            .child(send)
     }
 }
 
@@ -111,8 +140,13 @@ fn check_shared(cx: &mut TestAppContext) {
             "Scroll to User Message",
             "Scroll to Top",
         ] {
-            let button = window.find_by_label(label);
+            let button = window.within("test-row").find_by_label(label);
             assert!(button.visible(), "操作栏按钮 `{label}` 应渲染");
+            assert_eq!(button.role(), Some(Role::Button));
+        }
+        for label in ["Copied", "Scroll to User Message", "Scroll to Top"] {
+            let button = window.within("test-row-copied").find_by_label(label);
+            assert!(button.visible(), "已复制态按钮 `{label}` 应渲染");
             assert_eq!(button.role(), Some(Role::Button));
         }
         let send = window.find_by_label("Send");

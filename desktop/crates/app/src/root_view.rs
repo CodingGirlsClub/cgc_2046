@@ -1473,38 +1473,34 @@ impl RootView {
         };
         let label = translate(language, Key::AppNotificationsTitle);
         let tooltip = label.to_string();
+        use gpui_kit::component::button::{Button, ButtonVariants as _};
+
+        let tint = if active {
+            palette.accent
+        } else {
+            palette.ink_3
+        };
+        // Badge 的计数是绝对定位、会画出子元素边界；Button 的内容层是
+        // overflow_hidden，所以 Badge 必须包在 Button 外层，否则角标被裁掉。
         div()
-            .id("notifications-toggle")
-            .role(Role::Button)
-            .aria_label(label)
-            .size(px(26.0))
             .mr(px(7.0))
-            .rounded(px(RADIUS_MEDIUM))
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_color(if active {
-                palette.accent
-            } else {
-                palette.ink_3
-            })
-            .hover(|style| style.bg(palette.soft))
-            .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
-            .on_click(cx.listener(|this, _, _, cx| this.toggle_notifications(cx)))
             .child(
                 Badge::new()
                     .count(unread)
                     .max(9)
                     .with_size(gpui_kit::component::Size::Small)
                     .child(
-                        Icon::default()
-                            .path(icon.path())
-                            .text_color(if active {
-                                palette.accent
-                            } else {
-                                palette.ink_3
-                            })
-                            .small(),
+                        Button::new("notifications-toggle")
+                            .icon(Icon::default().path(icon.path()).text_color(tint).small())
+                            .ghost()
+                            .with_size(KitSize::Size(px(26.0)))
+                            .size(px(26.0))
+                            .px(px(0.0))
+                            .py(px(0.0))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .accessibility_label(label)
+                            .tooltip(tooltip.clone())
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_notifications(cx))),
                     ),
             )
             .into_any_element()
@@ -1681,6 +1677,7 @@ impl RootView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         use gpui_kit::component::button::{Button, ButtonVariants as _};
+        use gpui_kit::component::Disableable as _;
 
         let palette = *palette;
         let label = self
@@ -1715,6 +1712,10 @@ impl RootView {
             })
             .collect::<Vec<_>>();
 
+        let loading = matches!(
+            state,
+            WorkspaceListState::Idle | WorkspaceListState::Loading
+        );
         let trigger = Button::new("workspace-menu-toggle")
             .icon(
                 Icon::default()
@@ -1724,6 +1725,14 @@ impl RootView {
             .ghost()
             .xsmall()
             .accessibility_label(translate(language, Key::AppWorkspaceSwitch))
+            // 菜单内容在打开时构建并缓存到 dismiss；加载中打开会永远停在
+            // “加载中”，所以 Idle/Loading 直接禁用触发器（失败/空态仍可查看）。
+            .disabled(loading)
+            .tooltip(if loading {
+                translate(language, Key::AppWorkspaceLoading)
+            } else {
+                translate(language, Key::AppWorkspaceSwitch)
+            })
             .dropdown_menu(move |menu, _window, _cx| {
                 let mut menu = menu.item(PopupMenuItem::label(translate(
                     language,

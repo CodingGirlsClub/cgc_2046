@@ -4,6 +4,7 @@ use super::super::super::*;
 use super::super::ScreenContext;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::tab::{Tab, TabBar};
+use gpui_kit::component::FocusableExt as _;
 
 #[cfg(all(test, cgc_ui_tests))]
 mod tests;
@@ -31,6 +32,9 @@ pub(in crate::root_view) fn render_pane_tabs(
             .label("×")
             .xsmall()
             .ghost()
+            // 与改前的不可聚焦 div 一致：不进 Tab 序、点击不留 focus ring。
+            .tab_stop(false)
+            .focus_ring(false)
             .accessibility_label("关闭标签")
             .on_click(move |_, _, cx| {
                 cx.stop_propagation();

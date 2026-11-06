@@ -312,8 +312,14 @@ pub(in crate::root_view) fn render_chat_panel(
                         // 操作栏在流式时仍可见，仅底部条在生成/等审批时隐藏。
                         let plan = row_view.action_plan(index, streaming, needs_confirmation);
                         let agent_response = row_view.turn_copy_text(index);
-                        let copied = ctx.chat.copied_actions.as_deref()
-                            == Some(format!("chat-controls-{index}").as_str());
+                        let conversation = ctx
+                            .chat
+                            .session
+                            .session_id
+                            .as_deref()
+                            .unwrap_or("acp-pending");
+                        let copy_key = format!("{conversation}:chat-controls-{index}");
+                        let copied = ctx.chat.copied_actions.as_deref() == Some(copy_key.as_str());
                         let actions = plan.map(|plan| {
                             render_chat_message_controls(
                                 "chat-controls",
@@ -322,6 +328,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                 agent_response.clone(),
                                 &view_weak,
                                 palette,
+                                copy_key.clone(),
                                 copied,
                                 cx,
                             )
@@ -521,8 +528,18 @@ pub(in crate::root_view) fn render_chat_panel(
             // 回合停在工具卡等非 assistant 行时，底部补一条兜底操作栏
             // （对齐 Zed 的 last-assistant fallback）。
             if let Some(plan) = row_view.trailing_plan(streaming, needs_confirmation) {
-                let trailing_copied = ctx.chat.copied_actions.as_deref()
-                    == Some(format!("chat-trailing-controls-{}", plan.assistant_index).as_str());
+                let conversation = ctx
+                    .chat
+                    .session
+                    .session_id
+                    .as_deref()
+                    .unwrap_or("acp-pending");
+                let trailing_key = format!(
+                    "{conversation}:chat-trailing-controls-{}",
+                    plan.assistant_index
+                );
+                let trailing_copied =
+                    ctx.chat.copied_actions.as_deref() == Some(trailing_key.as_str());
                 rows.push(render_chat_message_controls(
                     "chat-trailing-controls",
                     plan.assistant_index,
@@ -533,6 +550,7 @@ pub(in crate::root_view) fn render_chat_panel(
                     row_view.turn_copy_text(plan.assistant_index),
                     &view_weak,
                     palette,
+                    trailing_key,
                     trailing_copied,
                     cx,
                 ));
@@ -1194,13 +1212,14 @@ fn render_chat_message_controls(
     copy_text: Option<String>,
     view: &WeakEntity<RootView>,
     palette: &theme::Palette,
+    copy_key: String,
     copied: bool,
     cx: &App,
 ) -> AnyElement {
     let mut callbacks = ActionCallbacks::default();
     if let Some(copy_text) = copy_text {
         let copy_view = view.clone();
-        let key = format!("{id_prefix}-{index}");
+        let key = copy_key;
         callbacks.on_copy = Some(Box::new(move |cx: &mut App| {
             cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
             let _ = copy_view.update(cx, |this, cx| {

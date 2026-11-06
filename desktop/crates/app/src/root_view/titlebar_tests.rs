@@ -9,10 +9,11 @@ use crate::i18n::{translate, Key, Language};
 use crate::root_view::screens::ScreenContext;
 use crate::theme::{self, ThemePreference};
 use cgc_platform::session::{FakeAuthApi, MemoryStore, SessionService, SignedInSession};
+use cgc_platform::workspace::WorkspaceSummary;
 use gpui_kit::test::{TestQueryExt, TestWindowExt};
 use gpui_kit::{
     div, px, size, AnyWindowHandle, AppContext, Bounds, Context, Entity, IntoElement, Modifiers,
-    ParentElement, Render, Styled, TestAppContext, VisualTestContext, Window, WindowBounds,
+    ParentElement, Render, Role, Styled, TestAppContext, VisualTestContext, Window, WindowBounds,
     WindowOptions,
 };
 
@@ -235,32 +236,56 @@ fn workspace_menu_opens_and_closes(cx: &mut TestAppContext) {
 
 fn check_workspace_menu(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
-    let (handle, _probe) = open_breadcrumb_probe(cx);
-    let mut vcx = VisualTestContext::from_window(handle, cx);
+    let (handle, probe) = open_breadcrumb_probe(cx);
 
-    // 头行文案与触发器同名，标签会歧义；用状态行（加载/失败/空）判定菜单是否打开。
-    let state_labels = [
-        translate(Language::En, Key::AppWorkspaceLoading).to_string(),
-        translate(Language::En, Key::AppWorkspaceError).to_string(),
-        translate(Language::En, Key::AppWorkspaceEmpty).to_string(),
-    ];
-    let menu_visible = |window: &mut Window, cx: &mut gpui_kit::App| {
+    // 加载中（Idle）触发器禁用：菜单内容在打开时缓存，加载中打开会停在“加载中”。
+    cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
-        state_labels.iter().any(|label| {
-            window
-                .try_find_by_label(label)
-                .is_some_and(|element| element.visible())
-        })
-    };
+        assert_eq!(
+            window.find("workspace-menu-toggle").disabled(),
+            Some(true),
+            "工作台加载中应禁用下拉触发器"
+        );
+    })
+    .unwrap();
 
-    vcx.update(|window, cx| window.click("workspace-menu-toggle", cx));
-    assert!(
-        vcx.update(|window, cx| menu_visible(window, cx)),
-        "点击后工作台菜单应打开"
-    );
+    // 造出 Ready 状态后再开菜单。
+    cx.update_window(handle, |_, window, cx| {
+        let root = probe.read(cx).root.clone();
+        root.update(cx, |root, _| {
+            root.workspaces.adopt(vec![WorkspaceSummary {
+                id: "ws-test".to_string(),
+                slug: "ws-test".to_string(),
+                name: "Demo Workspace".to_string(),
+                my_role_names: vec!["owner".to_string()],
+                member_count: Some(1),
+                can_access: true,
+            }]);
+        });
+        window.render_frame(cx);
+        assert_ne!(
+            window.find("workspace-menu-toggle").disabled(),
+            Some(true),
+            "加载完成后触发器应可用"
+        );
+        window.click("workspace-menu-toggle", cx);
+        window.render_frame(cx);
+        // 行是 PopupMenuItem::element（无可访问名），用 MenuItem role 判开合：
+        // 标题行 + 工作台行至少两条。
+        assert!(
+            window.find_all_by_role(Role::MenuItem).len() >= 2,
+            "菜单打开后应至少有两个 MenuItem"
+        );
+    })
+    .unwrap();
+
+    let mut vcx = VisualTestContext::from_window(handle, cx);
     vcx.simulate_keystrokes("escape");
     assert!(
-        !vcx.update(|window, cx| menu_visible(window, cx)),
+        vcx.update(|window, cx| {
+            window.render_frame(cx);
+            window.find_all_by_role(Role::MenuItem).is_empty()
+        }),
         "Esc 后工作台菜单应关闭"
     );
 }
@@ -336,7 +361,14 @@ fn check_agent_header(cx: &mut TestAppContext) {
         "Esc 后应退出编辑态"
     );
 
-    // 点进来又点走（Blur/commit 未改值）：不应把当前标题固化成 override。
+    // 切到 ACP 分支（探针里没有 NativeAgentView，native 分支不写盘），
+    // 让「未改动不写 override」的断言真的可被破坏。
+    cx.update_window(handle, |_, _, cx| {
+        let root = probe.read(cx).root.clone();
+        root.update(cx, |root, _| root.native_chat_mode = false);
+    })
+    .unwrap();
+
     cx.update_window(handle, |_, window, cx| {
         root_start_edit(&probe, window, cx);
         let root = probe.read(cx).root.clone();
@@ -347,6 +379,24 @@ fn check_agent_header(cx: &mut TestAppContext) {
     .unwrap();
     let unchanged = cx.update(|cx| probe.read(cx).root.read(cx).chat.title_override.is_none());
     assert!(unchanged, "未改动时不应写 title_override");
+
+    // 正例：真的改了标题，必须写入 override（证明上面不是空断言）。
+    cx.update_window(handle, |_, window, cx| {
+        root_start_edit(&probe, window, cx);
+        let root = probe.read(cx).root.clone();
+        let input = root
+            .read(cx)
+            .agent_panel_title_input
+            .clone()
+            .expect("title input");
+        input.update(cx, |state, cx| state.set_value("Renamed", window, cx));
+        root.update(cx, |root, cx| {
+            root.commit_agent_panel_title(window, cx);
+        });
+    })
+    .unwrap();
+    let renamed = cx.update(|cx| probe.read(cx).root.read(cx).chat.title_override.clone());
+    assert_eq!(renamed.as_deref(), Some("Renamed"), "改动后应写入 override");
 
     let mut vcx = VisualTestContext::from_window(handle, cx);
     // `agent-panel-new` 仍是 Popover（registry 异步加载需要每次渲染重建行）；
@@ -427,4 +477,63 @@ fn check_history_tabs(cx: &mut TestAppContext) {
         tab,
         Some(crate::root_view::history_sidebar::HistoryTab::Archive)
     );
+}
+
+struct BellProbe {
+    root: Entity<RootView>,
+}
+
+impl Render for BellProbe {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let bell = self.root.update(cx, |root, cx| {
+            let palette = theme::palette_from_theme(cx);
+            let language = root.language;
+            root.render_notifications_bell(language, &palette, cx)
+        });
+        div().child(bell)
+    }
+}
+
+#[gpui_kit::test]
+fn notifications_bell_is_kit_button_and_opens_panel(cx: &mut TestAppContext) {
+    check_bell(cx);
+}
+
+fn check_bell(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (handle, probe) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                    None,
+                    size(px(320.), px(120.)),
+                    cx,
+                ))),
+                ..Default::default()
+            },
+            cx,
+            |_, cx| {
+                let root = cx.new(|_| signed_in_root());
+                cx.new(|_| BellProbe { root })
+            },
+        )
+        .unwrap()
+    });
+
+    let mut vcx = VisualTestContext::from_window(handle, cx);
+    assert!(
+        vcx.update(|window, cx| {
+            window.render_frame(cx);
+            let bell = window.find("notifications-toggle");
+            bell.role() == Some(Role::Button) && bell.visible()
+        }),
+        "铃铛应是可见的 Kit Button"
+    );
+    vcx.update(|window, cx| window.click("notifications-toggle", cx));
+    let opened = cx.update(|cx| {
+        let root = probe.read(cx).root.read(cx);
+        root.right_panel_open
+            && root.right_panel == crate::root_view::state::RightPanel::Notifications
+    });
+    assert!(opened, "点击铃铛应打开通知面板");
 }

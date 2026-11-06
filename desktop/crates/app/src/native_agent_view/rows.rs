@@ -318,10 +318,17 @@ impl NativeAgentView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let view = cx.entity().downgrade();
+        let conversation = self
+            .state
+            .session
+            .session_id
+            .clone()
+            .unwrap_or_else(|| "native".to_string());
+        let copy_key = SharedString::from(format!("{conversation}:{id_prefix}"));
         let mut callbacks = ActionCallbacks::default();
         if let Some(copy_text) = copy_text {
             let copy_view = view.clone();
-            let key = SharedString::from(id_prefix.to_string());
+            let key = copy_key.clone();
             callbacks.on_copy = Some(Box::new(move |cx: &mut App| {
                 cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
                 let _ = copy_view.update(cx, |this, cx| this.mark_actions_copied(key.clone(), cx));
@@ -347,7 +354,7 @@ impl NativeAgentView {
                 native_action_style(palette),
                 native_action_glyphs(),
                 callbacks,
-                self.copied_actions.as_deref() == Some(id_prefix),
+                self.copied_actions.as_deref() == Some(copy_key.as_str()),
             ),
             cx,
         )

@@ -89,10 +89,15 @@ pub fn render_action_bar(spec: ActionBarSpec, cx: &App) -> AnyElement {
     } else {
         glyphs.copy
     };
+    let copy_label = if copied {
+        "Copied"
+    } else {
+        "Copy This Agent Response"
+    };
     if let Some(on_copy) = callbacks.on_copy {
         row = row.child(action_button(
             copy_id,
-            "Copy This Agent Response",
+            copy_label,
             &copy_glyph,
             style,
             on_copy,

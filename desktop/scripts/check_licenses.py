@@ -149,8 +149,17 @@ def sbom(packages, version):
 
 
 def metadata():
+    # 显式带上 test-support 依赖面：gpui-pre 的该 feature 会引入
+    # proptest/postage 等测试依赖，默认 metadata 看不到它们，门禁会漏扫。
     raw = subprocess.check_output(
-        ["cargo", "metadata", "--format-version", "1"],
+        [
+            "cargo",
+            "metadata",
+            "--format-version",
+            "1",
+            "--features",
+            "gpui-kit/test-support",
+        ],
         text=True,
     )
     return json.loads(raw)
