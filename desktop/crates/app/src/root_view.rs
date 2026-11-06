@@ -951,6 +951,10 @@ impl Render for RootView {
                 .child(
                     TitleBar::new()
                         .h(px(TITLEBAR_HEIGHT))
+                        .on_close_window(cx.listener(|this, _, window, cx| {
+                            this.handle_main_window_close(cx);
+                            window.remove_window();
+                        }))
                         .pl(title_bar_left_inset(fullscreen))
                         .bg(palette.canvas)
                         .border_color(palette.canvas),
@@ -994,6 +998,10 @@ impl Render for RootView {
                 .child(
                     TitleBar::new()
                         .h(px(TITLEBAR_HEIGHT))
+                        .on_close_window(cx.listener(|this, _, window, cx| {
+                            this.handle_main_window_close(cx);
+                            window.remove_window();
+                        }))
                         .pl(title_bar_left_inset(fullscreen))
                         .pr(space(2))
                         .gap(space(1))
