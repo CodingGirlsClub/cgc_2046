@@ -27,7 +27,6 @@ impl Render for NativeAgentView {
         let pending = self.state.session.thread.pending_permission.clone();
         let _model_supports_images = draft.model_supports_images;
 
-        let _usage = draft.usage;
         let _input = draft.input.clone();
 
         let input_value = draft.input_value.clone();

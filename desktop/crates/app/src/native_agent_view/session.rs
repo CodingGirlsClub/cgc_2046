@@ -211,7 +211,6 @@ impl NativeAgentView {
             self.workspace_files = collect_workspace_files(&snapshot.workspace);
             self.skills = mention::load_skills(&snapshot.workspace);
         }
-        self.state.usage_total = snapshot.thread.usage_total;
         self.state.session.thread.usage.size = snapshot.model.limits.context_window as u64;
         self.state.session.thread.title = snapshot.display_title.as_deref().map(str::to_string);
         let idle = snapshot.phase == RuntimePhase::Idle;

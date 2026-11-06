@@ -108,7 +108,6 @@ impl NativeAgentView {
     ) -> AnyElement {
         let busy = draft.busy;
         let has_input = draft.has_input;
-        let usage = draft.usage;
         let model_supports_images = draft.model_supports_images;
         let input = draft.input.clone();
         let add_menu_root = cx.entity().downgrade();
@@ -166,30 +165,29 @@ impl NativeAgentView {
             "输入内容后可发送"
         };
         let send_weak = cx.entity().downgrade();
-        let context_window = self.metadata().model.limits.context_window.max(1) as u64;
-        let output_window = self.metadata().model.limits.max_output_tokens.max(1) as u64;
-        let usage_total = self.state.usage_total;
-        let input_percent = (usage as f64 / context_window as f64 * 100.0).clamp(0.0, 100.0);
-        let output_percent =
-            (usage_total.output as f64 / output_window as f64 * 100.0).clamp(0.0, 100.0);
-        let progress_color = |percent: f64| {
-            if percent >= 85.0 {
-                palette.danger
+        let usage = latest_request_usage(&self.metadata().thread.entries);
+        let input_capacity = cgc_agent_core::input_capacity(self.metadata().model.as_ref()) as u64;
+        let output_capacity = self.metadata().model.limits.max_output_tokens as u64;
+        let input_ratio = token_ratio(usage.map_or(0, |usage| usage.input), input_capacity);
+        let output_ratio = token_ratio(usage.map_or(0, |usage| usage.output), output_capacity);
+        let progress_color = |ratio: f32| {
+            if ratio >= 0.85 {
+                palette.warning
             } else {
                 palette.ink_3
             }
         };
-        let input_color = progress_color(input_percent);
-        let output_color = progress_color(output_percent);
+        let input_color = progress_color(input_ratio);
+        let output_color = progress_color(output_ratio);
         let input_label = format!(
             "{} / {}",
-            humanize_tokens(usage),
-            humanize_tokens(context_window)
+            humanize_tokens(usage.map_or(0, |usage| usage.input)),
+            humanize_tokens(input_capacity)
         );
         let output_label = format!(
             "{} / {}",
-            humanize_tokens(usage_total.output),
-            humanize_tokens(output_window)
+            humanize_tokens(usage.map_or(0, |usage| usage.output)),
+            humanize_tokens(output_capacity)
         );
         let rules = project_rule_files(self.metadata().workspace.as_ref());
         let rules_count = rules.len();
@@ -209,8 +207,8 @@ impl NativeAgentView {
                     )
                     .child(
                         ProgressCircle::new("native-input-context")
-                            .xsmall()
-                            .value(input_percent as f32)
+                            .with_size(Size::Medium)
+                            .value(input_ratio * 100.0)
                             .color(input_color),
                     )
                     .child(
@@ -220,8 +218,8 @@ impl NativeAgentView {
                     )
                     .child(
                         ProgressCircle::new("native-output-context")
-                            .xsmall()
-                            .value(output_percent as f32)
+                            .with_size(Size::Medium)
+                            .value(output_ratio * 100.0)
                             .color(output_color),
                     ),
             )
@@ -596,9 +594,8 @@ impl NativeAgentView {
                             .children(pickers.model)
                             .children(pickers.thinking)
                             .children(
-                                self.state.session.thread
-                                    .capabilities
-                                    .usage_available()
+                                (usage.is_some()
+                                    && self.state.session.thread.capabilities.usage_available())
                                     .then_some(context_usage),
                             )
                             .child(cgc_agent_ui::composer::render_send_button(

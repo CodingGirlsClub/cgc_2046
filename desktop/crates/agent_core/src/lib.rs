@@ -9,7 +9,7 @@ pub mod session;
 mod thinking;
 pub mod thread;
 
-pub use context::project_thread;
+pub use context::{input_capacity, project_thread};
 pub use session::{
     run_subagent, Agent, AgentError, ApprovalRequest, Approver, AutoApprover, CancelToken,
     DenyApprover, NoopObserver, ToolResultSummary, ToolTurnOutcome, TurnObserver, TurnOutcome,
