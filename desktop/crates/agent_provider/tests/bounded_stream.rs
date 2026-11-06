@@ -16,7 +16,11 @@ use cgc_agent_provider::{
 use futures::StreamExt;
 
 const CHUNK_BYTES: usize = 8 * 1024;
-const CHUNKS: usize = 1024;
+// 断言口径是「服务端没写满一半」，而服务端能写下去的量 = 对端内核缓冲。
+// Windows loopback 实测吸收 4.7–4.8 MB（#1246），payload 若只有 8.4 MB，缓冲就
+// 越过一半阈值——背压没坏，是量太小。8192 帧 ≈ 67.5 MB 后缓冲占比 <8%，
+// 一半阈值有 7 倍余量：通道退化成无界时服务端会写满全部，测试仍必红。
+const CHUNKS: usize = 8192;
 
 fn model() -> Model {
     Model::new(
@@ -92,8 +96,11 @@ fn a_stalled_consumer_backpressures_the_provider_worker() {
         Some(Ok(CompletionEvent::Text(text))) => text,
         _ => unreachable!(),
     };
-    let mut text = first_text;
-    for event in futures::executor::block_on(stream.collect::<Vec<_>>()) {
+    // 一次性预分配：payload 放大到 ~67 MB 后，collect 的 Vec 与 String 倍增会叠出
+    // 数倍峰值内存；逐事件拼接只保留最终文本。
+    let mut text = String::with_capacity(CHUNKS * CHUNK_BYTES);
+    text.push_str(&first_text);
+    while let Some(event) = futures::executor::block_on(stream.next()) {
         match event {
             Ok(CompletionEvent::Text(chunk)) => text.push_str(&chunk),
             Ok(CompletionEvent::Stop(_)) => {}

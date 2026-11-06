@@ -261,8 +261,10 @@ impl Owner {
         Ok(owner)
     }
 
+    /// 构建快照并刷新 `latest` 镜像：视图首帧同步读取它，因此每次构建即发布，
+    /// 不依赖是否已有订阅者（见 #1246）。
     pub fn snapshot(&self) -> Arc<NativeRuntimeSnapshot> {
-        Arc::new(NativeRuntimeSnapshot {
+        let snapshot = Arc::new(NativeRuntimeSnapshot {
             thread: self.frozen.clone(),
             model: self.model_meta.clone(),
             workspace: self.workspace_meta.clone(),
@@ -296,7 +298,11 @@ impl Owner {
             changes: self.changes.clone(),
             agent_state: self.state_meta.clone(),
             persistence_available: self.store.is_some(),
-        })
+        });
+        if let Ok(mut slot) = self.latest.lock() {
+            *slot = Some(Arc::clone(&snapshot));
+        }
+        snapshot
     }
 
     pub fn emit(&mut self, event: NativeRuntimeEvent) {
