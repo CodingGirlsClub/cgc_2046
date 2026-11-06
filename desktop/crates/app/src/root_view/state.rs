@@ -169,7 +169,6 @@ pub struct ShellState {
     pub(in crate::root_view) language: Language,
     pub(in crate::root_view) preference: ThemePreference,
     pub(in crate::root_view) theme_name: String,
-    pub(in crate::root_view) theme_menu_open: bool,
     pub(in crate::root_view) session: SessionService,
     pub(in crate::root_view) session_checked: bool,
     pub(in crate::root_view) login_mode: LoginMode,
@@ -327,7 +326,6 @@ impl ShellState {
             preference,
             theme_name: theme::load_selected_theme()
                 .unwrap_or_else(|| theme::DEFAULT_THEME_NAME.to_string()),
-            theme_menu_open: false,
             session,
             session_checked: false,
             login_mode: LoginMode::Password,

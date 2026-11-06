@@ -423,7 +423,6 @@ impl RootView {
         }
         self.right_panel = RightPanel::Notifications;
         self.right_panel_open = true;
-        self.theme_menu_open = false;
         self.refresh_notifications(cx);
         cx.notify();
     }
@@ -941,18 +940,11 @@ impl RootView {
         self.preference
     }
 
-    /// 系统外观变化时由 `observe_window_appearance` 调用：只有「跟随系统」才重刷 kit 主题。
-    pub fn toggle_theme_menu(&mut self, cx: &mut Context<Self>) {
-        self.theme_menu_open = !self.theme_menu_open;
-        cx.notify();
-    }
-
     pub fn select_theme(&mut self, name: String, cx: &mut Context<Self>) {
         if theme::apply_named(&name, cx) {
             theme::save_selected_theme(&name);
             self.theme_name = name;
         }
-        self.theme_menu_open = false;
         cx.notify();
     }
 

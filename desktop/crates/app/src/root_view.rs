@@ -1382,9 +1382,6 @@ impl Render for RootView {
                     &palette,
                     cx,
                 ));
-            if self.theme_menu_open {
-                root = root.child(self.render_theme_menu(&palette, cx));
-            }
             root
         }
     }
@@ -1424,57 +1421,6 @@ impl RootView {
             let agent_shrink = (self.agent_panel_width - agent_min).max(0.0).min(excess);
             self.agent_panel_width -= agent_shrink;
         }
-    }
-
-    fn render_theme_menu(&self, palette: &theme::Palette, cx: &mut Context<Self>) -> AnyElement {
-        let rows = theme::available_themes(cx)
-            .into_iter()
-            .map(|(name, _mode)| {
-                let selected = self.theme_name == name;
-                let root = cx.entity().downgrade();
-                div()
-                    .id(SharedString::from(format!("theme-menu-{name}")))
-                    .px(space(1))
-                    .py(px(4.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .text_size(px(11.0))
-                    .text_color(if selected {
-                        palette.accent
-                    } else {
-                        palette.ink_2
-                    })
-                    .hover(|style| style.bg(palette.soft))
-                    .child(if selected {
-                        format!("{name} ✓")
-                    } else {
-                        name.clone()
-                    })
-                    .on_click(move |_, _, cx| {
-                        let _ = root.update(cx, |this, cx| {
-                            this.select_theme(name.clone(), cx);
-                        });
-                    })
-            });
-        div()
-            .id("theme-menu")
-            .absolute()
-            .bottom(px(36.0))
-            .right(space(2))
-            .w(px(240.0))
-            .max_h(px(420.0))
-            .overflow_y_scroll()
-            .flex()
-            .flex_col()
-            .gap(px(1.0))
-            .p(space(1))
-            .rounded(px(RADIUS_MEDIUM))
-            .border_1()
-            .border_color(palette.line_strong)
-            .bg(palette.card)
-            .occlude()
-            .text_color(palette.ink)
-            .children(rows)
-            .into_any_element()
     }
 
     fn render_notifications_bell(
@@ -2098,7 +2044,10 @@ impl RootView {
                             .flex_shrink_0()
                             .overflow_x_hidden()
                             .children(right_items)
-                            .child(
+                            .child({
+                                let themes = theme::available_themes(cx);
+                                let selected_name = self.theme_name.clone();
+                                let select_root = cx.entity().downgrade();
                                 icon_button(
                                     "theme-menu-toggle",
                                     AssetIcon::Palette,
@@ -2106,12 +2055,28 @@ impl RootView {
                                     "主题".into(),
                                     "主题".into(),
                                 )
-                                .on_click(cx.listener(
-                                    |this, _, _, cx| {
-                                        this.toggle_theme_menu(cx);
+                                .dropdown_menu_with_anchor(
+                                    Anchor::BottomRight,
+                                    move |menu, _window, _cx| {
+                                        let mut menu = menu.scrollable(true).max_h(px(420.0));
+                                        for (name, _mode) in themes.clone() {
+                                            let root = select_root.clone();
+                                            let selected = name == selected_name;
+                                            let label = name.clone();
+                                            menu = menu.item(
+                                                PopupMenuItem::new(name)
+                                                    .checked(selected)
+                                                    .on_click(move |_, _, cx| {
+                                                        let _ = root.update(cx, |this, cx| {
+                                                            this.select_theme(label.clone(), cx);
+                                                        });
+                                                    }),
+                                            );
+                                        }
+                                        menu
                                     },
-                                )),
-                            )
+                                )
+                            })
                             .child(
                                 icon_button(
                                     "language-toggle",

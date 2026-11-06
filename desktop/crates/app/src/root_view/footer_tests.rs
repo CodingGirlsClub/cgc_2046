@@ -107,7 +107,8 @@ fn check_footer(cx: &mut TestAppContext) {
     })
     .unwrap();
 
-    // 主题按钮只翻转菜单开关，不写盘；语言按钮只翻转 root.language。
+    // 主题按钮现在是 Kit 下拉：点开后出现主题项，Esc 关闭；语言按钮翻转 root.language。
+    cx.update(crate::theme::load_builtin_themes);
     let mut vcx = VisualTestContext::from_window(handle, cx);
 
     let theme_center = cx
@@ -117,14 +118,26 @@ fn check_footer(cx: &mut TestAppContext) {
         })
         .unwrap();
     vcx.simulate_click(theme_center, Modifiers::default());
-    vcx.update(|window, cx| window.render_frame(cx));
-    let theme_open = cx.update(|cx| probe.read(cx).root.read(cx).theme_menu_open);
-    assert!(theme_open, "点击主题按钮后 theme_menu_open 应为 true");
+    vcx.update(|window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window
+                .try_find_by_label("Ayu Light")
+                .is_some_and(|element| element.visible()),
+            "点击主题按钮后应出现主题项"
+        );
+    });
 
-    vcx.simulate_click(theme_center, Modifiers::default());
-    vcx.update(|window, cx| window.render_frame(cx));
-    let theme_open = cx.update(|cx| probe.read(cx).root.read(cx).theme_menu_open);
-    assert!(!theme_open, "再次点击主题按钮后 theme_menu_open 应为 false");
+    vcx.simulate_keystrokes("escape");
+    vcx.update(|window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window
+                .try_find_by_label("Ayu Light")
+                .is_none_or(|element| !element.visible()),
+            "Esc 后主题菜单应关闭"
+        );
+    });
 
     let language_center = cx
         .update_window(handle, |_, window, cx| {
