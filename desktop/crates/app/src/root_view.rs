@@ -85,6 +85,9 @@ mod history_sidebar;
 mod screens;
 mod state;
 
+#[cfg(all(test, cgc_ui_tests))]
+mod footer_tests;
+
 use state::{AgentRegistryFilter, RightPanel, ShellState, SiteTreeSection};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
