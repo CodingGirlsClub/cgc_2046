@@ -913,68 +913,82 @@ pub(in crate::root_view) fn render_chat_panel(
                                                 }
                                             }),
                                     )
-                                    .child(div().flex_1())
-                                    .children(
-                                        surface_flags
-                                            .usage
-                                            .then(|| {
-                                                render_context_usage(
-                                                    &ctx.chat.session.thread.usage,
-                                                    *palette,
-                                                )
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_row()
+                                            .flex_wrap()
+                                            .items_center()
+                                            .justify_end()
+                                            .gap(px(4.0))
+                                            .min_w(px(0.0))
+                                            .ml_auto()
+                                            .children(
+                                                surface_flags
+                                                    .usage
+                                                    .then(|| {
+                                                        render_context_usage(
+                                                            &ctx.chat.session.thread.usage,
+                                                            *palette,
+                                                        )
+                                                    })
+                                                    .flatten(),
+                                            )
+                                            .children(if surface_flags.config_options {
+                                                config_pickers
+                                            } else {
+                                                Vec::new()
                                             })
-                                            .flatten(),
-                                    )
-                                    .children(if surface_flags.config_options {
-                                        config_pickers
-                                    } else {
-                                        Vec::new()
-                                    })
-                                    .child(cgc_agent_ui::composer::render_send_button(
-                                        cgc_agent_ui::composer::SendButtonSpec {
-                                            id: if streaming { "chat-stop" } else { "chat-send" }
-                                                .into(),
-                                            aria: if streaming {
-                                                "Stop Generation"
-                                            } else {
-                                                translate(language, Key::AgentChatChatSend)
-                                            }
-                                            .into(),
-                                            tooltip: if streaming {
-                                                "Stop Generation"
-                                            } else {
-                                                translate(language, Key::AgentChatChatSend)
-                                            }
-                                            .into(),
-                                            glyph: Icon::default().path(if streaming {
-                                                AssetIcon::Square.path()
-                                            } else {
-                                                AssetIcon::ArrowUp.path()
-                                            }),
-                                            bg: if streaming {
-                                                palette.danger
-                                            } else {
-                                                palette.accent
-                                            },
-                                            fg: palette.canvas,
-                                            radius: RADIUS_SMALL,
-                                            ml_auto: false,
-                                            on_click: {
-                                                let view = cx.entity().downgrade();
-                                                let send = composer.callbacks.send.clone();
-                                                Box::new(move |window, cx| {
-                                                    if !streaming {
-                                                        (send)(window, cx);
-                                                        return;
+                                            .child(cgc_agent_ui::composer::render_send_button(
+                                                cgc_agent_ui::composer::SendButtonSpec {
+                                                    id: if streaming {
+                                                        "chat-stop"
+                                                    } else {
+                                                        "chat-send"
                                                     }
-                                                    let _ = view.update(cx, |this, cx| {
-                                                        this.stop_chat_turn(cx);
-                                                    });
-                                                })
-                                            },
-                                        },
-                                        cx,
-                                    )),
+                                                    .into(),
+                                                    aria: if streaming {
+                                                        "Stop Generation"
+                                                    } else {
+                                                        translate(language, Key::AgentChatChatSend)
+                                                    }
+                                                    .into(),
+                                                    tooltip: if streaming {
+                                                        "Stop Generation"
+                                                    } else {
+                                                        translate(language, Key::AgentChatChatSend)
+                                                    }
+                                                    .into(),
+                                                    glyph: Icon::default().path(if streaming {
+                                                        AssetIcon::Square.path()
+                                                    } else {
+                                                        AssetIcon::ArrowUp.path()
+                                                    }),
+                                                    bg: if streaming {
+                                                        palette.danger
+                                                    } else {
+                                                        palette.accent
+                                                    },
+                                                    fg: palette.canvas,
+                                                    radius: RADIUS_SMALL,
+                                                    ml_auto: false,
+                                                    on_click: {
+                                                        let view = cx.entity().downgrade();
+                                                        let send = composer.callbacks.send.clone();
+                                                        Box::new(move |window, cx| {
+                                                            if !streaming {
+                                                                (send)(window, cx);
+                                                                return;
+                                                            }
+                                                            let _ = view.update(cx, |this, cx| {
+                                                                this.stop_chat_turn(cx);
+                                                            });
+                                                        })
+                                                    },
+                                                },
+                                                cx,
+                                            )),
+                                    ),
                             ),
                         )
                         .children(slash_rows.map(|menu| {

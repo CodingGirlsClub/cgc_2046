@@ -53,6 +53,7 @@ CLI `cgc-agent-demo` 复用同一协议：设置 `CGC_AGENT_PROTOCOL=anthropic_c
   `session`、`input`、`runtime_ops`、`render`、`widgets`、`state`、`tests`）。
   子模块可访问父模块私有字段，未放宽可见性。
 - Native 与 external ACP 的输入区共用 `agent_ui::message_editor::MessageEditor`，统一状态创建、4～8 行自动增高、可换行 placeholder 和 inline token 回调；卡片留白与发送按钮尺寸由共享 composer 管理。每个会话保留独立草稿和发送/审批/queue/steer 处理。`CGC_NATIVE_SHARED_VIEW` 已移除。
+- External ACP 的用量环、模型／推理配置和发送／停止按钮共用右侧控件组，窄面板换行后仍靠右。费用沿用 agent 上报的币种，非零且小于 `0.01` 时显示 4 位小数，其余显示 2 位。
 - `native_thread_state.rs` 已删除，状态类型在 `native_agent_view::state`，对外重新导出为
   `native_agent_view::NativeThreadState`。
 
