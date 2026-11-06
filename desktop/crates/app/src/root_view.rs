@@ -1954,6 +1954,8 @@ impl RootView {
         palette: &theme::Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        use gpui_kit::component::button::{Button, ButtonVariants as _};
+
         // 左侧：一级导航图标；右侧：主题/语言工具。版本号只放设置/关于，不进 footer。
         let root_weak = cx.entity().downgrade();
         let shortcut = if cfg!(target_os = "macos") {
@@ -1962,98 +1964,76 @@ impl RootView {
             "Ctrl+J"
         };
         let palette = *palette;
-        let agent_toggle = include_nav.then(|| {
-            div()
-                .id("agent-panel-toggle")
-                .role(Role::Button)
-                .aria_label("Agent")
-                .tab_index(0isize)
-                .size(px(22.0))
+        // Footer 图标按钮统一走 Kit `Button`：`ghost` 变体吃主题的 hover 面，
+        // 图标色沿用 palette（激活 accent / 常态 ink_3），尺寸保持 22px。
+        let icon_button = |id: &'static str,
+                           icon: AssetIcon,
+                           active: bool,
+                           label: SharedString,
+                           tooltip: SharedString| {
+            let tint = if active {
+                palette.accent
+            } else {
+                palette.ink_3
+            };
+            Button::new(id)
+                .icon(Icon::default().path(icon.path()).text_color(tint))
+                .ghost()
+                .with_size(KitSize::Size(px(22.0)))
                 .rounded(px(RADIUS_SMALL))
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(if self.agent_panel_open {
-                    palette.accent
-                } else {
-                    palette.ink_3
-                })
-                .hover(|style| style.bg(palette.soft))
-                .child(
-                    Icon::default()
-                        .path(nav_icon(NavIcon::Companion).path())
-                        .text_color(if self.agent_panel_open {
-                            palette.accent
-                        } else {
-                            palette.ink_3
-                        })
-                        .small(),
-                )
-                .tooltip(move |window, cx| {
-                    Tooltip::new(format!("Agent · {shortcut}")).build(window, cx)
-                })
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_agent_panel(cx);
-                }))
-                .context_menu({
-                    let root = root_weak.clone();
-                    let side = self.agent_panel_side;
-                    move |menu, _, _| {
-                        render_panel_status_bar_menu(
-                            menu,
-                            language,
-                            StatusBarMenuTarget::Agent,
-                            side,
-                            root.clone(),
-                        )
-                    }
-                })
-                .into_any_element()
+                .accessibility_label(label)
+                .tooltip(tooltip)
+        };
+        let agent_toggle = include_nav.then(|| {
+            icon_button(
+                "agent-panel-toggle",
+                nav_icon(NavIcon::Companion),
+                self.agent_panel_open,
+                "Agent".into(),
+                format!("Agent · {shortcut}").into(),
+            )
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.toggle_agent_panel(cx);
+            }))
+            .context_menu({
+                let root = root_weak.clone();
+                let side = self.agent_panel_side;
+                move |menu, _, _| {
+                    render_panel_status_bar_menu(
+                        menu,
+                        language,
+                        StatusBarMenuTarget::Agent,
+                        side,
+                        root.clone(),
+                    )
+                }
+            })
+            .into_any_element()
         });
         let history_toggle = include_nav.then(|| {
             let active = self.history_sidebar.is_some();
-            div()
-                .id("chat-history-toggle")
-                .role(Role::Button)
-                .aria_label("历史对话")
-                .tab_index(0isize)
-                .size(px(22.0))
-                .rounded(px(RADIUS_SMALL))
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(if active {
-                    palette.accent
-                } else {
-                    palette.ink_3
-                })
-                .hover(|style| style.bg(palette.soft))
-                .child(
-                    Icon::default()
-                        .path(AssetIcon::Clock.path())
-                        .text_color(if active {
-                            palette.accent
-                        } else {
-                            palette.ink_3
-                        })
-                        .small(),
-                )
-                .tooltip(move |window, cx| Tooltip::new("历史对话").build(window, cx))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_history_sidebar(cx);
-                }))
-                .context_menu({
-                    let root = root_weak.clone();
-                    move |menu, _, _| {
-                        render_hide_button_menu(
-                            menu,
-                            language,
-                            state::StatusBarButton::History,
-                            root.clone(),
-                        )
-                    }
-                })
-                .into_any_element()
+            icon_button(
+                "chat-history-toggle",
+                AssetIcon::Clock,
+                active,
+                "历史对话".into(),
+                "历史对话".into(),
+            )
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.toggle_history_sidebar(cx);
+            }))
+            .context_menu({
+                let root = root_weak.clone();
+                move |menu, _, _| {
+                    render_hide_button_menu(
+                        menu,
+                        language,
+                        state::StatusBarButton::History,
+                        root.clone(),
+                    )
+                }
+            })
+            .into_any_element()
         });
         let panel_toggle = |id: &'static str,
                             label: SharedString,
@@ -2063,34 +2043,7 @@ impl RootView {
                             target: StatusBarMenuTarget,
                             side: crate::preferences::PanelSide,
                             root: WeakEntity<Self>| {
-            let tooltip = label.clone();
-            div()
-                .id(id)
-                .role(Role::Button)
-                .aria_label(label.clone())
-                .tab_index(0isize)
-                .size(px(22.0))
-                .rounded(px(RADIUS_SMALL))
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(if active {
-                    palette.accent
-                } else {
-                    palette.ink_3
-                })
-                .hover(|style| style.bg(palette.soft))
-                .child(
-                    Icon::default()
-                        .path(icon.path())
-                        .text_color(if active {
-                            palette.accent
-                        } else {
-                            palette.ink_3
-                        })
-                        .small(),
-                )
-                .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+            icon_button(id, icon, active, label.clone(), label)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.toggle_right_panel(panel, cx);
                 }))
@@ -2194,56 +2147,33 @@ impl RootView {
                             .overflow_x_hidden()
                             .children(right_items)
                             .child(
-                                div()
-                                    .id("theme-menu-toggle")
-                                    .tab_index(0isize)
-                                    .size(px(22.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .text_color(palette.ink_3)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child(
-                                        Icon::default()
-                                            .path(AssetIcon::Palette.path())
-                                            .text_color(palette.ink_3)
-                                            .small(),
-                                    )
-                                    .tooltip(move |window, cx| {
-                                        Tooltip::new("主题").build(window, cx)
-                                    })
-                                    .on_click(cx.listener(|this, _, _, cx| {
+                                icon_button(
+                                    "theme-menu-toggle",
+                                    AssetIcon::Palette,
+                                    false,
+                                    "主题".into(),
+                                    "主题".into(),
+                                )
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| {
                                         this.toggle_theme_menu(cx);
-                                    })),
+                                    },
+                                )),
                             )
                             .child(
-                                div()
-                                    .id("language-toggle")
-                                    .tab_index(0isize)
-                                    .size(px(22.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .text_color(palette.ink_3)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child(
-                                        Icon::default()
-                                            .path(language_icon.path())
-                                            .text_color(palette.ink_3)
-                                            .small(),
-                                    )
-                                    .tooltip(move |window, cx| {
-                                        Tooltip::new(format!(
-                                            "{language_tooltip} · {language_label}"
-                                        ))
-                                        .build(window, cx)
-                                    })
-                                    .on_click(cx.listener(|this, _, _, cx| {
+                                icon_button(
+                                    "language-toggle",
+                                    language_icon,
+                                    false,
+                                    language_label.into(),
+                                    format!("{language_tooltip} · {language_label}").into(),
+                                )
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| {
                                         this.toggle_language();
                                         cx.notify();
-                                    })),
+                                    },
+                                )),
                             ),
                     )
                     .bg(palette.frame)
