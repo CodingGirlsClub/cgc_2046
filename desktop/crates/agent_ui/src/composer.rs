@@ -79,6 +79,8 @@ pub fn render_send_button(spec: SendButtonSpec, cx: &App) -> AnyElement {
         ml_auto,
         on_click,
     } = spec;
+    // Kit `Icon` 不继承外层 text_color，按 spec.fg 显式上色。
+    let glyph = glyph.text_color(fg);
     let custom = ButtonCustomVariant::new(cx)
         .color(bg)
         .foreground(fg)

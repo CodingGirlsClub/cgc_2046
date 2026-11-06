@@ -8,6 +8,7 @@
 
 use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
+use gpui_kit::component::FocusableExt as _;
 use gpui_kit::component::{Icon, Sizable, Size};
 use gpui_kit::InteractiveElement as _;
 use gpui_kit::*;
@@ -120,9 +121,12 @@ fn action_button(
     on_click: ActionCallback,
     cx: &App,
 ) -> AnyElement {
+    // Kit `Icon` 不继承外层 text_color，必须显式给色，否则丢掉 ActionStyle。
     let icon = match glyph {
-        ActionGlyph::Named(name) => Icon::new(*name),
-        ActionGlyph::Path(path) => Icon::default().path(path.clone()),
+        ActionGlyph::Named(name) => Icon::new(*name).text_color(style.icon_color),
+        ActionGlyph::Path(path) => Icon::default()
+            .path(path.clone())
+            .text_color(style.icon_color),
     };
     // 静止态透明；hover 用调用方给的表面色，与改前的 div 版一致。
     let rest = style.hover_bg.opacity(0.0);
@@ -138,8 +142,9 @@ fn action_button(
         .rounded(px(style.radius))
         .accessibility_label(label)
         .tooltip(label)
-        // 消息行可能很多：不把这些按钮塞进 Tab 序。
+        // 消息行可能很多：不把这些按钮塞进 Tab 序；也不画点击后的 focus ring。
         .tab_stop(false)
+        .focus_ring(false)
         .on_click(move |_, _, cx| on_click(cx))
         .into_any_element()
 }
