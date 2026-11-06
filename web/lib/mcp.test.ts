@@ -8,13 +8,20 @@ import { client } from "./apollo-client";
 import { mapMcpToken, issueMcpToken } from "./mcp";
 import { CREATE_MCP_TOKEN, type McpToken } from "./graphql/mcp-token";
 
+const DAY_MS = 86_400_000;
+/** daysAgo 天前的 UTC ISO 串（相对 Date.now()，随跑测时间漂移安全） */
+const isoDaysAgo = (daysAgo: number) =>
+	new Date(Date.now() - daysAgo * DAY_MS).toISOString();
+
 const BASE: McpToken = {
 	id: "tok_1",
 	name: "我的 Mac",
 	kind: "TERMINAL",
 	lastUsedAt: null,
 	revokedAt: null,
-	insertedAt: "2026-08-08T10:00:00Z",
+	// 固定日期会在恰好满 90 天那天把 `active` 用例变成 `idle_expired`（#1248 起
+	// 全量 PR 被 web 门禁卡住）；夹具锚点一律相对当前时间。
+	insertedAt: isoDaysAgo(1),
 };
 
 describe("issueMcpToken", () => {
@@ -94,11 +101,6 @@ describe("mapMcpToken", () => {
 		expect(mapMcpToken({ ...BASE, kind: "LEARNING_HOST" }).kind).toBe("LEARNING_HOST");
 	});
 });
-
-const DAY_MS = 86_400_000;
-/** daysAgo 天前的 UTC ISO 串（相对 Date.now()，随跑测时间漂移安全） */
-const isoDaysAgo = (daysAgo: number) =>
-	new Date(Date.now() - daysAgo * DAY_MS).toISOString();
 
 describe("mapMcpToken 闲置过期派生（#226，对齐 backend 90 天窗口）", () => {
 	it("从未使用，insertedAt -91 天 → idle_expired", () => {
