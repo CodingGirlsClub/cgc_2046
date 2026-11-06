@@ -320,8 +320,11 @@ impl NativeAgentView {
         let view = cx.entity().downgrade();
         let mut callbacks = ActionCallbacks::default();
         if let Some(copy_text) = copy_text {
+            let copy_view = view.clone();
+            let key = SharedString::from(id_prefix.to_string());
             callbacks.on_copy = Some(Box::new(move |cx: &mut App| {
                 cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
+                let _ = copy_view.update(cx, |this, cx| this.mark_actions_copied(key.clone(), cx));
             }));
         }
         if let Some(user_index) = plan.scroll_to_user {
@@ -344,9 +347,30 @@ impl NativeAgentView {
                 native_action_style(palette),
                 native_action_glyphs(),
                 callbacks,
+                self.copied_actions.as_deref() == Some(id_prefix),
             ),
             cx,
         )
+    }
+
+    /// Copy 反馈：记录 key 并启动 1.2s 定时清除（同 key 的更新会取消旧计时）。
+    pub(super) fn mark_actions_copied(&mut self, key: SharedString, cx: &mut Context<Self>) {
+        self.copied_actions = Some(key);
+        self.copied_actions_serial = self.copied_actions_serial.wrapping_add(1);
+        let serial = self.copied_actions_serial;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(1200))
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.copied_actions_serial == serial {
+                    this.copied_actions = None;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+        cx.notify();
     }
 
     /// 滚到指定用户消息（再映射到 MessageScroller 的 item index）。

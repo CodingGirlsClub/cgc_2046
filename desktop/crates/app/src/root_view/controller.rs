@@ -427,6 +427,30 @@ impl RootView {
         cx.notify();
     }
 
+    /// Copy 反馈：记录 key 并启动 1.2s 定时清除（同 key 的更新会取消旧计时）。
+    pub(in crate::root_view) fn mark_chat_actions_copied(
+        &mut self,
+        key: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.chat.copied_actions = Some(key);
+        self.chat.copied_actions_serial = self.chat.copied_actions_serial.wrapping_add(1);
+        let serial = self.chat.copied_actions_serial;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(1200))
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.chat.copied_actions_serial == serial {
+                    this.chat.copied_actions = None;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
     pub fn refresh_notifications(&mut self, cx: &mut Context<Self>) {
         let Some(token) = self.notification_token() else {
             return;

@@ -89,6 +89,10 @@ pub fn render_send_button(spec: SendButtonSpec, cx: &App) -> AnyElement {
     let mut button = Button::new(id)
         .icon(glyph)
         .custom(custom)
+        // custom 变体的静止态会向透明混合 20%（alpha×0.8），hover 才是满色；
+        // 实例样式在最后应用，把静止态盖回满色，和改前的 div 一致。
+        .bg(bg)
+        .text_color(fg)
         .with_size(Size::Size(px(24.0)))
         .rounded(px(radius))
         .accessibility_label(aria)

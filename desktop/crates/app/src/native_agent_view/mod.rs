@@ -363,6 +363,9 @@ pub struct NativeAgentView {
     sent_images: HashMap<usize, Vec<SentImage>>,
     _input_subscription: Option<Subscription>,
     _key_interceptor: Option<Subscription>,
+    /// 最近点了 Copy 的操作栏 key：短暂把复制图标换成 Check。
+    copied_actions: Option<SharedString>,
+    copied_actions_serial: u64,
 }
 
 #[cfg(test)]

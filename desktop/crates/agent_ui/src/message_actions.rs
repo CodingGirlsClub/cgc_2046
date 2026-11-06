@@ -6,6 +6,7 @@
 //!
 //! 对齐 Zed：默认 40% 透明的 muted 图标按钮，hover 提亮；按钮 22px。
 
+use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::FocusableExt as _;
@@ -57,6 +58,8 @@ pub struct ActionBarSpec {
     pub glyphs: ActionGlyphs,
     pub style: ActionStyle,
     pub callbacks: ActionCallbacks,
+    /// 刚点过 Copy：把复制图标换成 Check，作为短暂反馈。
+    pub copied: bool,
 }
 
 /// 渲染一组消息操作按钮（Copy / Scroll to User Message / Scroll to Top）。
@@ -69,6 +72,7 @@ pub fn render_action_bar(spec: ActionBarSpec, cx: &App) -> AnyElement {
         glyphs,
         style,
         callbacks,
+        copied,
     } = spec;
     let mut row = div()
         .id(row_id)
@@ -80,11 +84,16 @@ pub fn render_action_bar(spec: ActionBarSpec, cx: &App) -> AnyElement {
         .gap(px(style.gap))
         .opacity(0.4)
         .hover(|style| style.opacity(1.0));
+    let copy_glyph = if copied {
+        ActionGlyph::Named(IconName::Check)
+    } else {
+        glyphs.copy
+    };
     if let Some(on_copy) = callbacks.on_copy {
         row = row.child(action_button(
             copy_id,
             "Copy This Agent Response",
-            &glyphs.copy,
+            &copy_glyph,
             style,
             on_copy,
             cx,

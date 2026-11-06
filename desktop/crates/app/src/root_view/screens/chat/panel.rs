@@ -312,6 +312,8 @@ pub(in crate::root_view) fn render_chat_panel(
                         // 操作栏在流式时仍可见，仅底部条在生成/等审批时隐藏。
                         let plan = row_view.action_plan(index, streaming, needs_confirmation);
                         let agent_response = row_view.turn_copy_text(index);
+                        let copied = ctx.chat.copied_actions.as_deref()
+                            == Some(format!("chat-controls-{index}").as_str());
                         let actions = plan.map(|plan| {
                             render_chat_message_controls(
                                 "chat-controls",
@@ -320,6 +322,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                 agent_response.clone(),
                                 &view_weak,
                                 palette,
+                                copied,
                                 cx,
                             )
                         });
@@ -518,6 +521,8 @@ pub(in crate::root_view) fn render_chat_panel(
             // 回合停在工具卡等非 assistant 行时，底部补一条兜底操作栏
             // （对齐 Zed 的 last-assistant fallback）。
             if let Some(plan) = row_view.trailing_plan(streaming, needs_confirmation) {
+                let trailing_copied = ctx.chat.copied_actions.as_deref()
+                    == Some(format!("chat-trailing-controls-{}", plan.assistant_index).as_str());
                 rows.push(render_chat_message_controls(
                     "chat-trailing-controls",
                     plan.assistant_index,
@@ -528,6 +533,7 @@ pub(in crate::root_view) fn render_chat_panel(
                     row_view.turn_copy_text(plan.assistant_index),
                     &view_weak,
                     palette,
+                    trailing_copied,
                     cx,
                 ));
             }
@@ -1180,6 +1186,7 @@ pub(in crate::root_view) fn render_chat_panel(
 /// gating 与复制内容来自 `agent_ui::message_flow`，与 native 栈共用同一份实现；
 /// 这里只负责 ACP 面板的渲染与元素 id。`copy_text` 为 `None` 时不画 Copy，
 /// 避免出现点了没反应的按钮。
+#[allow(clippy::too_many_arguments)]
 fn render_chat_message_controls(
     id_prefix: &str,
     index: usize,
@@ -1187,12 +1194,18 @@ fn render_chat_message_controls(
     copy_text: Option<String>,
     view: &WeakEntity<RootView>,
     palette: &theme::Palette,
+    copied: bool,
     cx: &App,
 ) -> AnyElement {
     let mut callbacks = ActionCallbacks::default();
     if let Some(copy_text) = copy_text {
+        let copy_view = view.clone();
+        let key = format!("{id_prefix}-{index}");
         callbacks.on_copy = Some(Box::new(move |cx: &mut App| {
             cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
+            let _ = copy_view.update(cx, |this, cx| {
+                this.mark_chat_actions_copied(key.clone(), cx);
+            });
         }));
     }
     if let Some(user_index) = plan.scroll_to_user {
@@ -1216,6 +1229,7 @@ fn render_chat_message_controls(
             glyphs: chat_action_glyphs(),
             style: chat_action_style(palette),
             callbacks,
+            copied,
         },
         cx,
     )

@@ -236,6 +236,9 @@ struct ChatUi {
     history_open: bool,
     guidance: Option<ChatGuidance>,
     load_retry_available: bool,
+    /// 最近点了 Copy 的操作栏 key：短暂把复制图标换成 Check。
+    copied_actions: Option<String>,
+    copied_actions_serial: u64,
 }
 
 impl ChatUi {

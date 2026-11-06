@@ -18,6 +18,7 @@ use std::rc::Rc;
 
 struct SharedProbe {
     sends: Rc<Cell<usize>>,
+    copies: Rc<Cell<usize>>,
 }
 
 impl Render for SharedProbe {
@@ -30,6 +31,7 @@ impl Render for SharedProbe {
             radius: 6.0,
             gap: 4.0,
         };
+        let copies = self.copies.clone();
         let bar = render_action_bar(
             ActionBarSpec {
                 row_id: "test-row".into(),
@@ -43,10 +45,11 @@ impl Render for SharedProbe {
                 },
                 style,
                 callbacks: ActionCallbacks {
-                    on_copy: Some(Box::new(|_| {})),
+                    on_copy: Some(Box::new(move |_| copies.set(copies.get() + 1))),
                     on_scroll_user: Some(Box::new(|_| {})),
                     on_scroll_top: Some(Box::new(|_| {})),
                 },
+                copied: false,
             },
             cx,
         );
@@ -78,6 +81,8 @@ fn check_shared(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let sends = Rc::new(Cell::new(0));
     let sends_for_probe = sends.clone();
+    let copies = Rc::new(Cell::new(0));
+    let copies_for_probe = copies.clone();
     let (handle, _probe) = cx.update(|cx| {
         gpui_kit::open_window(
             WindowOptions {
@@ -92,6 +97,7 @@ fn check_shared(cx: &mut TestAppContext) {
             |_, cx| {
                 cx.new(|_| SharedProbe {
                     sends: sends_for_probe,
+                    copies: copies_for_probe,
                 })
             },
         )
@@ -116,6 +122,8 @@ fn check_shared(cx: &mut TestAppContext) {
     .unwrap();
 
     let mut vcx = VisualTestContext::from_window(handle, cx);
+    vcx.update(|window, cx| window.click("test-copy", cx));
+    assert_eq!(copies.get(), 1, "点击 Copy 应触发回调");
     vcx.update(|window, cx| window.click("test-send", cx));
     assert_eq!(sends.get(), 1, "点击发送按钮应触发回调");
 }
