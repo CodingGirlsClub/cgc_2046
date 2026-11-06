@@ -138,15 +138,6 @@ impl NativeAgentView {
         } else {
             "发送"
         };
-        let send_label = if busy {
-            if has_input {
-                "⏳"
-            } else {
-                "■"
-            }
-        } else {
-            "↑"
-        };
         let send_bg = if !model_ready {
             palette.soft
         } else if busy && !has_input {
@@ -620,7 +611,18 @@ impl NativeAgentView {
                                     .into(),
                                     aria: send_aria.into(),
                                     tooltip: send_tip.into(),
-                                    glyph: div().child(send_label).into_any_element(),
+                                    glyph: Icon::default().path(
+                                        (if busy {
+                                            if has_input {
+                                                gpui_kit::assets::IconName::Clock
+                                            } else {
+                                                gpui_kit::assets::IconName::Square
+                                            }
+                                        } else {
+                                            gpui_kit::assets::IconName::ArrowUp
+                                        })
+                                        .path(),
+                                    ),
                                     bg: send_bg,
                                     fg: send_fg,
                                     radius: RADIUS_SMALL,
@@ -638,6 +640,7 @@ impl NativeAgentView {
                                         });
                                     }),
                                 },
+                                cx,
                             )),
                     )
             .into_any_element()

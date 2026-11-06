@@ -102,3 +102,51 @@ fn authorization_failure_and_long_notices_keep_restored_tabs_visible(cx: &mut Te
         println!("Actual TabBar: restored tab visible at 740/320px; authorization retry and long notices occupy separate rows");
     }).unwrap();
 }
+
+#[gpui_kit::test]
+fn pane_tab_close_button_removes_the_tab(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (handle, probe) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                    None,
+                    size(px(740.), px(360.)),
+                    cx,
+                ))),
+                ..Default::default()
+            },
+            cx,
+            |_, cx| {
+                let root = cx.new(|_| {
+                    let mut root = RootView::with_session(
+                        crate::registration::build_registry().unwrap(),
+                        crate::i18n::Language::En,
+                        crate::theme::ThemePreference::Light,
+                        SessionService::new(
+                            Box::new(FakeAuthApi::demo()),
+                            Box::new(MemoryStore::default()),
+                        ),
+                    );
+                    root.state
+                        .tabs
+                        .push(PaneTab::page("/workspace", "Overview"));
+                    root.state.active_tab = Some(root.state.tabs[0].id.clone());
+                    root
+                });
+                cx.new(|_| PaneProbe { root, width: 740. })
+            },
+        )
+        .unwrap()
+    });
+
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        window.click("pane-tab-close-page:/workspace", cx);
+        window.render_frame(cx);
+    })
+    .unwrap();
+
+    let tabs = cx.update(|cx| probe.read(cx).root.read(cx).state.tabs.len());
+    assert_eq!(tabs, 0, "关闭按钮应移除标签");
+}
