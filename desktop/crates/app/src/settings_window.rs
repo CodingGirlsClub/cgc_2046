@@ -19,6 +19,7 @@ use gpui_kit::component::setting::{
     NumberFieldOptions, SelectIndex, SettingField, SettingGroup, SettingItem, SettingPage, Settings,
 };
 use gpui_kit::component::Sizable;
+use gpui_kit::component::TitleBar;
 use gpui_kit::InteractiveElement;
 use gpui_kit::*;
 
@@ -27,6 +28,7 @@ use crate::i18n::{translate, Key, Language};
 use crate::native_runtime::{NativeRuntimeError, NativeRuntimeHandle};
 use crate::preferences::{self, CursorBlinkPreference};
 use crate::provider_settings::{ProviderPrefsChange, ProviderSettings};
+use crate::root_view::{title_bar_left_inset, TITLEBAR_HEIGHT};
 use crate::settings_provider::{
     append_reasoning_efforts, format_model_lines, parse_model_lines, KeyValidation,
     KeyValidationAction, ModelFieldInputs, ProviderDraft,
@@ -2456,6 +2458,7 @@ fn render_provider_cards(
 
 impl Render for SettingsWindowView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let fullscreen = window.is_fullscreen() || window.is_simple_fullscreen();
         let language = self.language;
         let palette = theme::palette_from_theme(cx);
         let focus = self.focus.clone();
@@ -2484,24 +2487,14 @@ impl Render for SettingsWindowView {
                 },
             ))
             .child(
-                div()
-                    .id("settings-titlebar")
-                    .flex()
-                    .items_center()
-                    .h(px(44.0))
-                    .pl(if cfg!(target_os = "macos") {
-                        px(84.0)
-                    } else {
-                        space(3)
-                    })
+                TitleBar::new()
+                    .h(px(TITLEBAR_HEIGHT))
+                    .pl(title_bar_left_inset(fullscreen))
                     .pr(space(2))
                     .gap(space(2))
                     .bg(palette.frame)
                     .border_b_1()
                     .border_color(palette.line)
-                    .on_mouse_down(MouseButton::Left, |_, window, _| {
-                        window.start_window_move();
-                    })
                     .child(
                         div()
                             .text_size(px(14.0))

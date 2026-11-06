@@ -64,7 +64,7 @@ use gpui_kit::component::{
     status_bar::StatusBar,
     tag::Tag,
     tooltip::Tooltip,
-    Icon, Sizable as _, Size as KitSize,
+    Icon, Sizable as _, Size as KitSize, TitleBar,
 };
 
 use crate::i18n::{default_language, translate, translate_registered, Key, Language};
@@ -262,7 +262,26 @@ struct ChatGuidance {
 }
 
 /// 全局标题栏高度：32px 品牌 badge + 上下留白，与三栏 header 解耦。
-const TITLEBAR_HEIGHT: f32 = 44.0;
+pub(crate) const TITLEBAR_HEIGHT: f32 = 44.0;
+
+/// macOS 红绿灯左/上边距：系统按钮 14px，`TITLEBAR_HEIGHT` 内垂直居中。
+pub(crate) const TRAFFIC_LIGHT_X: f32 = 9.0;
+pub(crate) const TRAFFIC_LIGHT_Y: f32 = (TITLEBAR_HEIGHT - 14.0) / 2.0;
+
+/// 红绿灯右侧给标题栏内容留的起点（Zed 的 macOS 26 取值 78，与窗口左侧同像素对齐）。
+pub(crate) const TITLEBAR_LEFT_INSET: f32 = 78.0;
+
+/// 自绘标题栏左侧内缩：macOS 让开红绿灯；全屏时红绿灯隐藏，内容顶到前面
+/// （`TitleBar` 内部在全屏时会再补 12px）。
+pub(crate) fn title_bar_left_inset(fullscreen: bool) -> Pixels {
+    if fullscreen {
+        px(0.0)
+    } else if cfg!(target_os = "macos") {
+        px(TITLEBAR_LEFT_INSET)
+    } else {
+        space(3)
+    }
+}
 
 /// 三栏（Agent 面板 / Pane TabBar / 右 Dock）header 统一高度。
 /// 中间 TabBar 内容 32px，加上上下各 2px；三栏共用保证水平分隔线对齐。
@@ -618,6 +637,7 @@ impl RootView {
 
 impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let fullscreen = window.is_fullscreen() || window.is_simple_fullscreen();
         let previous_page = self.page_context.visible();
         self.refresh_page_context();
         let page_changed = previous_page != self.page_context.visible();
@@ -929,6 +949,17 @@ impl Render for RootView {
                 .track_focus(&key_focus)
                 .on_key_down(cx.listener(Self::handle_key))
                 .child(
+                    TitleBar::new()
+                        .h(px(TITLEBAR_HEIGHT))
+                        .on_close_window(cx.listener(|this, _, window, cx| {
+                            this.handle_main_window_close(cx);
+                            window.remove_window();
+                        }))
+                        .pl(title_bar_left_inset(fullscreen))
+                        .bg(palette.canvas)
+                        .border_color(palette.canvas),
+                )
+                .child(
                     div()
                         .flex_1()
                         .w_full()
@@ -965,16 +996,13 @@ impl Render for RootView {
                     }),
                 )
                 .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
+                    TitleBar::new()
                         .h(px(TITLEBAR_HEIGHT))
-                        .pl(if cfg!(target_os = "macos") {
-                            px(84.0)
-                        } else {
-                            space(3)
-                        })
+                        .on_close_window(cx.listener(|this, _, window, cx| {
+                            this.handle_main_window_close(cx);
+                            window.remove_window();
+                        }))
+                        .pl(title_bar_left_inset(fullscreen))
                         .pr(space(2))
                         .gap(space(1))
                         .bg(palette.frame)
@@ -982,14 +1010,11 @@ impl Render for RootView {
                         .border_color(palette.line)
                         .child(
                             div()
-                                .id("titlebar-drag")
+                                .id("titlebar-brand")
                                 .flex()
                                 .items_center()
                                 .h_full()
                                 .pr(space(2))
-                                .on_mouse_down(MouseButton::Left, |_, window, _| {
-                                    window.start_window_move();
-                                })
                                 .children(self.display_preferences.title_bar_brand.then(|| {
                                     div()
                                         .flex()
@@ -2467,21 +2492,19 @@ fn enroll_error_label(language: Language, suffix: &str) -> &'static str {
 }
 
 pub fn main_window_options() -> WindowOptions {
+    // 透明 titlebar + 自绘 header：红绿灯位置由 gpui 负责，拖动/双击由
+    // `TitleBar` 组件自己处理（`app_owns_titlebar_drag` 也由它设置）。
     WindowOptions {
-        // 参考 Zed build_window_options：透明 titlebar + 自绘 header，
-        // 红绿灯位置由 gpui 负责；Linux/Wayland 用 client side decorations。
         titlebar: Some(TitlebarOptions {
-            title: None,
-            appears_transparent: true,
-            traffic_light_position: Some(point(px(12.0), px(12.0))),
+            traffic_light_position: Some(point(px(TRAFFIC_LIGHT_X), px(TRAFFIC_LIGHT_Y))),
+            ..TitleBar::title_bar_options()
         }),
-        app_owns_titlebar_drag: cfg!(target_os = "macos"),
         window_decorations: Some(WindowDecorations::Client),
         window_min_size: Some(Size {
             width: px(800.0),
             height: px(560.0),
         }),
-        ..Default::default()
+        ..TitleBar::window_options()
     }
 }
 
