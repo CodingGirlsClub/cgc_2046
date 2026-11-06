@@ -107,6 +107,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: bash scripts/ci/docs-only.test.sh
+      - run: bash scripts/githooks/pre-push.test.sh
       - id: detect
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
