@@ -6,11 +6,12 @@
 //!
 //! 对齐 Zed：默认 40% 透明的 muted 图标按钮，hover 提亮；按钮 22px。
 
+use gpui_kit::assets::IconName;
+use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
-use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::{Icon, Sizable};
+use gpui_kit::component::FocusableExt as _;
+use gpui_kit::component::{Icon, Sizable, Size};
 use gpui_kit::InteractiveElement as _;
-use gpui_kit::StatefulInteractiveElement as _;
 use gpui_kit::*;
 
 /// 图标来源：native 用 kit 内置 `IconName`，ACP 用资产路径。
@@ -57,10 +58,12 @@ pub struct ActionBarSpec {
     pub glyphs: ActionGlyphs,
     pub style: ActionStyle,
     pub callbacks: ActionCallbacks,
+    /// 刚点过 Copy：把复制图标换成 Check，作为短暂反馈。
+    pub copied: bool,
 }
 
 /// 渲染一组消息操作按钮（Copy / Scroll to User Message / Scroll to Top）。
-pub fn render_action_bar(spec: ActionBarSpec) -> AnyElement {
+pub fn render_action_bar(spec: ActionBarSpec, cx: &App) -> AnyElement {
     let ActionBarSpec {
         row_id,
         copy_id,
@@ -69,6 +72,7 @@ pub fn render_action_bar(spec: ActionBarSpec) -> AnyElement {
         glyphs,
         style,
         callbacks,
+        copied,
     } = spec;
     let mut row = div()
         .id(row_id)
@@ -80,13 +84,24 @@ pub fn render_action_bar(spec: ActionBarSpec) -> AnyElement {
         .gap(px(style.gap))
         .opacity(0.4)
         .hover(|style| style.opacity(1.0));
+    let copy_glyph = if copied {
+        ActionGlyph::Named(IconName::Check)
+    } else {
+        glyphs.copy
+    };
+    let copy_label = if copied {
+        "Copied"
+    } else {
+        "Copy This Agent Response"
+    };
     if let Some(on_copy) = callbacks.on_copy {
         row = row.child(action_button(
             copy_id,
-            "Copy This Agent Response",
-            &glyphs.copy,
+            copy_label,
+            &copy_glyph,
             style,
             on_copy,
+            cx,
         ));
     }
     if let Some(on_scroll_user) = callbacks.on_scroll_user {
@@ -96,6 +111,7 @@ pub fn render_action_bar(spec: ActionBarSpec) -> AnyElement {
             &glyphs.user,
             style,
             on_scroll_user,
+            cx,
         ));
     }
     if let Some(on_scroll_top) = callbacks.on_scroll_top {
@@ -105,6 +121,7 @@ pub fn render_action_bar(spec: ActionBarSpec) -> AnyElement {
             &glyphs.top,
             style,
             on_scroll_top,
+            cx,
         ));
     }
     row.into_any_element()
@@ -116,27 +133,32 @@ fn action_button(
     glyph: &ActionGlyph,
     style: ActionStyle,
     on_click: ActionCallback,
+    cx: &App,
 ) -> AnyElement {
+    // Kit `Icon` 不继承外层 text_color，必须显式给色，否则丢掉 ActionStyle。
     let icon = match glyph {
-        ActionGlyph::Named(name) => Icon::new(*name).xsmall().into_any_element(),
+        ActionGlyph::Named(name) => Icon::new(*name).text_color(style.icon_color),
         ActionGlyph::Path(path) => Icon::default()
             .path(path.clone())
-            .small()
-            .into_any_element(),
+            .text_color(style.icon_color),
     };
-    div()
-        .id(id)
-        .role(Role::Button)
-        .aria_label(label)
-        .flex()
-        .items_center()
-        .justify_center()
-        .size(px(style.button_size))
+    // 静止态透明；hover 用调用方给的表面色，与改前的 div 版一致。
+    let rest = style.hover_bg.opacity(0.0);
+    let custom = ButtonCustomVariant::new(cx)
+        .color(rest)
+        .foreground(style.icon_color)
+        .hover(style.hover_bg)
+        .active(style.hover_bg);
+    Button::new(id)
+        .icon(icon)
+        .custom(custom)
+        .with_size(Size::Size(px(style.button_size)))
         .rounded(px(style.radius))
-        .text_color(style.icon_color)
-        .hover(|hovered| hovered.bg(style.hover_bg))
-        .child(icon)
-        .tooltip(move |window, cx| Tooltip::new(label).build(window, cx))
+        .accessibility_label(label)
+        .tooltip(label)
+        // 消息行可能很多：不把这些按钮塞进 Tab 序；也不画点击后的 focus ring。
+        .tab_stop(false)
+        .focus_ring(false)
         .on_click(move |_, _, cx| on_click(cx))
         .into_any_element()
 }

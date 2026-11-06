@@ -312,14 +312,27 @@ pub(in crate::root_view) fn render_chat_panel(
                         // 操作栏在流式时仍可见，仅底部条在生成/等审批时隐藏。
                         let plan = row_view.action_plan(index, streaming, needs_confirmation);
                         let agent_response = row_view.turn_copy_text(index);
+                        let conversation = ctx
+                            .chat
+                            .session
+                            .session_id
+                            .as_deref()
+                            .unwrap_or("acp-pending");
+                        let copy_key = format!("{conversation}:chat-controls-{index}");
+                        let copied = ctx.chat.copied_actions.as_deref() == Some(copy_key.as_str());
                         let actions = plan.map(|plan| {
                             render_chat_message_controls(
-                                "chat-controls",
-                                index,
-                                plan,
-                                agent_response.clone(),
-                                &view_weak,
-                                palette,
+                                MessageControlsSpec {
+                                    id_prefix: "chat-controls",
+                                    index,
+                                    plan,
+                                    copy_text: agent_response.clone(),
+                                    view: view_weak.clone(),
+                                    palette: *palette,
+                                    copy_key: copy_key.clone(),
+                                    copied,
+                                },
+                                cx,
                             )
                         });
                         let menu_view = view_weak.clone();
@@ -517,16 +530,33 @@ pub(in crate::root_view) fn render_chat_panel(
             // 回合停在工具卡等非 assistant 行时，底部补一条兜底操作栏
             // （对齐 Zed 的 last-assistant fallback）。
             if let Some(plan) = row_view.trailing_plan(streaming, needs_confirmation) {
+                let conversation = ctx
+                    .chat
+                    .session
+                    .session_id
+                    .as_deref()
+                    .unwrap_or("acp-pending");
+                let trailing_key = format!(
+                    "{conversation}:chat-trailing-controls-{}",
+                    plan.assistant_index
+                );
+                let trailing_copied =
+                    ctx.chat.copied_actions.as_deref() == Some(trailing_key.as_str());
                 rows.push(render_chat_message_controls(
-                    "chat-trailing-controls",
-                    plan.assistant_index,
-                    cgc_agent_ui::message_flow::ActionPlan {
-                        scroll_to_user: plan.scroll_to_user,
-                        scroll_to_top: true,
+                    MessageControlsSpec {
+                        id_prefix: "chat-trailing-controls",
+                        index: plan.assistant_index,
+                        plan: cgc_agent_ui::message_flow::ActionPlan {
+                            scroll_to_user: plan.scroll_to_user,
+                            scroll_to_top: true,
+                        },
+                        copy_text: row_view.turn_copy_text(plan.assistant_index),
+                        view: view_weak.clone(),
+                        palette: *palette,
+                        copy_key: trailing_key,
+                        copied: trailing_copied,
                     },
-                    row_view.turn_copy_text(plan.assistant_index),
-                    &view_weak,
-                    palette,
+                    cx,
                 ));
             }
             let status = if streaming {
@@ -925,14 +955,11 @@ pub(in crate::root_view) fn render_chat_panel(
                                                 translate(language, Key::AgentChatChatSend)
                                             }
                                             .into(),
-                                            glyph: Icon::default()
-                                                .path(if streaming {
-                                                    AssetIcon::Square.path()
-                                                } else {
-                                                    AssetIcon::ArrowUp.path()
-                                                })
-                                                .small()
-                                                .into_any_element(),
+                                            glyph: Icon::default().path(if streaming {
+                                                AssetIcon::Square.path()
+                                            } else {
+                                                AssetIcon::ArrowUp.path()
+                                            }),
                                             bg: if streaming {
                                                 palette.danger
                                             } else {
@@ -955,6 +982,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                                 })
                                             },
                                         },
+                                        cx,
                                     )),
                             ),
                         )
@@ -1180,18 +1208,37 @@ pub(in crate::root_view) fn render_chat_panel(
 /// gating 与复制内容来自 `agent_ui::message_flow`，与 native 栈共用同一份实现；
 /// 这里只负责 ACP 面板的渲染与元素 id。`copy_text` 为 `None` 时不画 Copy，
 /// 避免出现点了没反应的按钮。
-fn render_chat_message_controls(
-    id_prefix: &str,
+struct MessageControlsSpec {
+    id_prefix: &'static str,
     index: usize,
     plan: cgc_agent_ui::message_flow::ActionPlan,
     copy_text: Option<String>,
-    view: &WeakEntity<RootView>,
-    palette: &theme::Palette,
-) -> AnyElement {
+    view: WeakEntity<RootView>,
+    palette: theme::Palette,
+    copy_key: String,
+    copied: bool,
+}
+
+fn render_chat_message_controls(spec: MessageControlsSpec, cx: &App) -> AnyElement {
+    let MessageControlsSpec {
+        id_prefix,
+        index,
+        plan,
+        copy_text,
+        view,
+        palette,
+        copy_key,
+        copied,
+    } = spec;
     let mut callbacks = ActionCallbacks::default();
     if let Some(copy_text) = copy_text {
+        let copy_view = view.clone();
+        let key = copy_key;
         callbacks.on_copy = Some(Box::new(move |cx: &mut App| {
             cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
+            let _ = copy_view.update(cx, |this, cx| {
+                this.mark_chat_actions_copied(key.clone(), cx);
+            });
         }));
     }
     if let Some(user_index) = plan.scroll_to_user {
@@ -1206,15 +1253,19 @@ fn render_chat_message_controls(
             let _ = top_view.update(cx, |this, cx| this.scroll_chat_to_top(cx));
         }));
     }
-    render_action_bar(ActionBarSpec {
-        row_id: SharedString::from(format!("{id_prefix}-{index}")),
-        copy_id: SharedString::from(format!("{id_prefix}-copy-{index}")),
-        user_id: SharedString::from(format!("{id_prefix}-user-{index}")),
-        top_id: SharedString::from(format!("{id_prefix}-top-{index}")),
-        glyphs: chat_action_glyphs(),
-        style: chat_action_style(palette),
-        callbacks,
-    })
+    render_action_bar(
+        ActionBarSpec {
+            row_id: SharedString::from(format!("{id_prefix}-{index}")),
+            copy_id: SharedString::from(format!("{id_prefix}-copy-{index}")),
+            user_id: SharedString::from(format!("{id_prefix}-user-{index}")),
+            top_id: SharedString::from(format!("{id_prefix}-top-{index}")),
+            glyphs: chat_action_glyphs(),
+            style: chat_action_style(&palette),
+            callbacks,
+            copied,
+        },
+        cx,
+    )
 }
 
 fn chat_action_glyphs() -> ActionGlyphs {

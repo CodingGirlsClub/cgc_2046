@@ -5,7 +5,7 @@
 //! 整个窗口显示登录页（guard），登录成功后进入壳；登出在头像下拉里（同 Zed 的
 //! sign out）。网络调用放后台线程，结果回主线程刷新。
 
-use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
+use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::InteractiveElement;
 use gpui_kit::*;
 
@@ -85,6 +85,11 @@ mod history_sidebar;
 mod screens;
 mod state;
 
+#[cfg(all(test, cgc_ui_tests))]
+mod footer_tests;
+#[cfg(all(test, cgc_ui_tests))]
+mod titlebar_tests;
+
 use state::{AgentRegistryFilter, RightPanel, ShellState, SiteTreeSection};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -114,11 +119,6 @@ enum WechatLoginView {
     },
     Expired,
     Failed(LoginError),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BreadcrumbMenu {
-    Sections,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -236,6 +236,9 @@ struct ChatUi {
     history_open: bool,
     guidance: Option<ChatGuidance>,
     load_retry_available: bool,
+    /// 最近点了 Copy 的操作栏 key：短暂把复制图标换成 Check。
+    copied_actions: Option<String>,
+    copied_actions_serial: u64,
 }
 
 impl ChatUi {
@@ -548,10 +551,14 @@ impl RootView {
             &input,
             window,
             |this, _input, event: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { .. } = event {
-                    if this.agent_panel_editing_title {
+                // 对齐 Zed：回车或失焦都提交（点别处保存）。
+                match event {
+                    InputEvent::PressEnter { .. } | InputEvent::Blur
+                        if this.agent_panel_editing_title =>
+                    {
                         this.commit_agent_panel_title(window, cx);
                     }
+                    _ => {}
                 }
             },
         ));
@@ -565,8 +572,12 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         let title = self.agent_panel_title(cx);
+        self.agent_panel_title_original = Some(title.clone());
         let input = self.ensure_agent_panel_title_input(window, cx);
-        input.update(cx, |state, cx| state.set_value(title, window, cx));
+        input.update(cx, |state, cx| {
+            state.set_value(title, window, cx);
+            state.select_all(window, cx);
+        });
         let focus = input.read(cx).focus_handle(cx);
         window.focus(&focus, cx);
         self.agent_panel_editing_title = true;
@@ -582,6 +593,14 @@ impl RootView {
             return;
         };
         let raw = input.read(cx).value().trim().to_string();
+        let unchanged = self.agent_panel_title_original.as_deref() == Some(raw.as_str());
+        self.agent_panel_title_original = None;
+        if unchanged {
+            // 只是点进来又点走：退出编辑，不固化 override。
+            self.agent_panel_editing_title = false;
+            cx.notify();
+            return;
+        }
         let title = if raw.is_empty() { None } else { Some(raw) };
         if self.native_chat_mode && RootView::native_agent_enabled() {
             if let Some(view) = self.native_panel_view() {
@@ -603,11 +622,26 @@ impl RootView {
         cx.notify();
     }
 
+    /// 标题编辑时拦截 Esc：取消本次修改（Blur 会提交改动，所以必须先拦）。
+    pub(in crate::root_view) fn handle_title_edit_escape(
+        &mut self,
+        keystroke: &Keystroke,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if keystroke.key != "escape" || !self.agent_panel_editing_title {
+            return false;
+        }
+        self.cancel_agent_panel_title(window, cx);
+        true
+    }
+
     pub(in crate::root_view) fn cancel_agent_panel_title(
         &mut self,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.agent_panel_title_original = None;
         self.agent_panel_editing_title = false;
         cx.notify();
     }
@@ -671,7 +705,6 @@ impl Render for RootView {
             self.state.right_panel,
             RightPanel::Outline | RightPanel::Notifications
         );
-        let account_menu = self.account_menu_open;
         let is_signed_in = self.is_signed_in();
         if is_signed_in && self.pending_link.as_deref() == Some("/settings") {
             self.pending_link = None;
@@ -684,7 +717,8 @@ impl Render for RootView {
                 let keystroke = event.keystroke.clone();
                 let handled = root
                     .update(cx, |this, cx| {
-                        this.handle_slash_keystroke(&keystroke, window, cx)
+                        this.handle_title_edit_escape(&keystroke, window, cx)
+                            || this.handle_slash_keystroke(&keystroke, window, cx)
                     })
                     .unwrap_or(false);
                 if handled {
@@ -1051,28 +1085,14 @@ impl Render for RootView {
                                 .title_bar_notifications
                                 .then(|| self.render_notifications_bell(language, &palette, cx)),
                         )
-                        .child(
-                            div()
-                                .id("account-toggle-wrap")
-                                .relative()
-                                .flex()
-                                .items_center()
-                                .tooltip(move |window, cx| {
-                                    Tooltip::new(account_tooltip).build(window, cx)
-                                })
-                                .child(
-                                    Avatar::new()
-                                        .name(email.clone())
-                                        .with_size(KitSize::Small)
-                                        .on_mouse_down(
-                                            MouseButton::Left,
-                                            cx.listener(|this, _, _, cx| {
-                                                this.toggle_account_menu();
-                                                cx.notify();
-                                            }),
-                                        ),
-                                ),
-                        ),
+                        .child(self.render_account_menu_button(
+                            &palette,
+                            &email,
+                            signed_in_as,
+                            sign_out_label,
+                            account_tooltip,
+                            cx,
+                        )),
                 )
                 .child({
                     let agent_on_left =
@@ -1397,25 +1417,6 @@ impl Render for RootView {
                     &palette,
                     cx,
                 ));
-            if self.workspace_menu_open {
-                root = root.child(self.render_workspace_menu(language, &palette, cx));
-            }
-            if let Some(menu) = self.breadcrumb_menu {
-                root = root.child(self.render_breadcrumb_menu(language, &palette, menu, cx));
-            }
-            if self.theme_menu_open {
-                root = root.child(self.render_theme_menu(&palette, cx));
-            }
-            if account_menu {
-                root = root.child(self.render_account_menu(
-                    language,
-                    &palette,
-                    &email,
-                    signed_in_as,
-                    sign_out_label,
-                    cx,
-                ));
-            }
             root
         }
     }
@@ -1457,57 +1458,6 @@ impl RootView {
         }
     }
 
-    fn render_theme_menu(&self, palette: &theme::Palette, cx: &mut Context<Self>) -> AnyElement {
-        let rows = theme::available_themes(cx)
-            .into_iter()
-            .map(|(name, _mode)| {
-                let selected = self.theme_name == name;
-                let root = cx.entity().downgrade();
-                div()
-                    .id(SharedString::from(format!("theme-menu-{name}")))
-                    .px(space(1))
-                    .py(px(4.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .text_size(px(11.0))
-                    .text_color(if selected {
-                        palette.accent
-                    } else {
-                        palette.ink_2
-                    })
-                    .hover(|style| style.bg(palette.soft))
-                    .child(if selected {
-                        format!("{name} ✓")
-                    } else {
-                        name.clone()
-                    })
-                    .on_click(move |_, _, cx| {
-                        let _ = root.update(cx, |this, cx| {
-                            this.select_theme(name.clone(), cx);
-                        });
-                    })
-            });
-        div()
-            .id("theme-menu")
-            .absolute()
-            .bottom(px(36.0))
-            .right(space(2))
-            .w(px(240.0))
-            .max_h(px(420.0))
-            .overflow_y_scroll()
-            .flex()
-            .flex_col()
-            .gap(px(1.0))
-            .p(space(1))
-            .rounded(px(RADIUS_MEDIUM))
-            .border_1()
-            .border_color(palette.line_strong)
-            .bg(palette.card)
-            .occlude()
-            .text_color(palette.ink)
-            .children(rows)
-            .into_any_element()
-    }
-
     fn render_notifications_bell(
         &self,
         language: Language,
@@ -1523,114 +1473,35 @@ impl RootView {
         };
         let label = translate(language, Key::AppNotificationsTitle);
         let tooltip = label.to_string();
+        use gpui_kit::component::button::{Button, ButtonVariants as _};
+
+        let tint = if active {
+            palette.accent
+        } else {
+            palette.ink_3
+        };
+        // Badge 的计数是绝对定位、会画出子元素边界；Button 的内容层是
+        // overflow_hidden，所以 Badge 必须包在 Button 外层，否则角标被裁掉。
         div()
-            .id("notifications-toggle")
-            .role(Role::Button)
-            .aria_label(label)
-            .size(px(26.0))
             .mr(px(7.0))
-            .rounded(px(RADIUS_MEDIUM))
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_color(if active {
-                palette.accent
-            } else {
-                palette.ink_3
-            })
-            .hover(|style| style.bg(palette.soft))
-            .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
-            .on_click(cx.listener(|this, _, _, cx| this.toggle_notifications(cx)))
             .child(
                 Badge::new()
                     .count(unread)
                     .max(9)
                     .with_size(gpui_kit::component::Size::Small)
                     .child(
-                        Icon::default()
-                            .path(icon.path())
-                            .text_color(if active {
-                                palette.accent
-                            } else {
-                                palette.ink_3
-                            })
-                            .small(),
+                        Button::new("notifications-toggle")
+                            .icon(Icon::default().path(icon.path()).text_color(tint).small())
+                            .ghost()
+                            .with_size(KitSize::Size(px(26.0)))
+                            .size(px(26.0))
+                            .px(px(0.0))
+                            .py(px(0.0))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .accessibility_label(label)
+                            .tooltip(tooltip.clone())
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_notifications(cx))),
                     ),
-            )
-            .into_any_element()
-    }
-
-    /// 账户下拉：必须挂在根级最后绘制，否则会被后续 content/footer 覆盖（表现为“半透明”）。
-    fn render_account_menu(
-        &self,
-        language: Language,
-        palette: &theme::Palette,
-        email: &str,
-        signed_in_as: &str,
-        sign_out_label: &str,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        div()
-            .id("account-menu")
-            .absolute()
-            .top(px(52.0))
-            .right(space(2))
-            .w(px(220.0))
-            .flex()
-            .flex_col()
-            .gap(px(2.0))
-            .p(space(1))
-            .rounded(px(RADIUS_MEDIUM))
-            .border_1()
-            .border_color(palette.line_strong)
-            .bg(palette.card)
-            .occlude()
-            .text_color(palette.ink)
-            .child(
-                div()
-                    .px(space(1))
-                    .py(px(4.0))
-                    .text_size(px(10.0))
-                    .text_color(palette.ink_3)
-                    .child(format!("{signed_in_as} {email}")),
-            )
-            .child(
-                div()
-                    .id("account-settings")
-                    .role(Role::Button)
-                    .aria_label(translate(language, Key::AppSettingsTitle))
-                    .px(space(1))
-                    .py(px(6.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .text_color(palette.ink_2)
-                    .hover(|style| style.bg(palette.soft))
-                    .child(
-                        div()
-                            .flex()
-                            .justify_between()
-                            .child(translate(language, Key::AppSettingsTitle))
-                            .child(shortcut_kbd(if cfg!(target_os = "macos") {
-                                "cmd-,"
-                            } else {
-                                "ctrl-,"
-                            })),
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.open_settings_window(cx);
-                        this.account_menu_open = false;
-                        cx.notify();
-                    })),
-            )
-            .child(
-                div()
-                    .id("account-sign-out")
-                    .px(space(1))
-                    .py(px(6.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .text_color(palette.ink_2)
-                    .hover(|style| style.bg(palette.soft))
-                    .child(sign_out_label.to_string())
-                    .on_click(cx.listener(|this, _, _, cx| this.sign_out(cx))),
             )
             .into_any_element()
     }
@@ -1805,181 +1676,222 @@ impl RootView {
         palette: &theme::Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        use gpui_kit::component::button::{Button, ButtonVariants as _};
+        use gpui_kit::component::Disableable as _;
+
+        let palette = *palette;
         let label = self
             .workspaces
             .current()
             .map(|workspace| workspace.name.clone())
             .unwrap_or_else(|| translate(language, Key::AppWorkspaceSwitch).to_string());
+        let overview_root = cx.entity().downgrade();
+        let switch_root = cx.entity().downgrade();
+        let state = self.workspaces.state().clone();
+        let current_id = self
+            .workspaces
+            .current()
+            .map(|workspace| workspace.id.clone());
+        let rows = self
+            .workspaces
+            .workspaces()
+            .iter()
+            .map(|workspace| {
+                let roles = workspace
+                    .my_role_names
+                    .iter()
+                    .map(|role| workspace_role_label(language, role))
+                    .collect::<Vec<_>>()
+                    .join(" · ");
+                (
+                    workspace.id.clone(),
+                    workspace.name.clone(),
+                    roles,
+                    current_id.as_deref() == Some(workspace.id.as_str()),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let loading = matches!(
+            state,
+            WorkspaceListState::Idle | WorkspaceListState::Loading
+        );
+        let trigger = Button::new("workspace-menu-toggle")
+            .icon(
+                Icon::default()
+                    .path(AssetIcon::ChevronDown.path())
+                    .text_color(palette.ink_3),
+            )
+            .ghost()
+            .xsmall()
+            .accessibility_label(translate(language, Key::AppWorkspaceSwitch))
+            // 菜单内容在打开时构建并缓存到 dismiss；加载中打开会永远停在
+            // “加载中”，所以 Idle/Loading 直接禁用触发器（失败/空态仍可查看）。
+            .disabled(loading)
+            .tooltip(if loading {
+                translate(language, Key::AppWorkspaceLoading)
+            } else {
+                translate(language, Key::AppWorkspaceSwitch)
+            })
+            .dropdown_menu(move |menu, _window, _cx| {
+                let mut menu = menu.item(PopupMenuItem::label(translate(
+                    language,
+                    Key::AppWorkspaceSwitch,
+                )));
+                match state {
+                    WorkspaceListState::Idle | WorkspaceListState::Loading => menu.item(
+                        PopupMenuItem::label(translate(language, Key::AppWorkspaceLoading)),
+                    ),
+                    WorkspaceListState::Failed(_) => {
+                        let retry_root = switch_root.clone();
+                        menu.item(
+                            PopupMenuItem::element(move |_, _| {
+                                div()
+                                    .text_color(palette.danger)
+                                    .child(translate(language, Key::AppWorkspaceError))
+                            })
+                            .disabled(true),
+                        )
+                        .item(
+                            PopupMenuItem::label(translate(language, Key::AppWorkspaceRetry))
+                                .on_click(move |_, _, cx| {
+                                    let _ = retry_root
+                                        .update(cx, |root, cx| root.retry_workspace_load(cx));
+                                }),
+                        )
+                    }
+                    WorkspaceListState::Empty => menu.item(PopupMenuItem::label(translate(
+                        language,
+                        Key::AppWorkspaceEmpty,
+                    ))),
+                    WorkspaceListState::Ready => {
+                        for (workspace_id, name, roles, selected) in rows.iter().cloned() {
+                            let root = switch_root.clone();
+                            menu = menu.item(
+                                PopupMenuItem::element(move |_, _| {
+                                    div()
+                                        .flex()
+                                        .flex_col()
+                                        .gap(px(2.0))
+                                        .child(div().child(name.clone()))
+                                        .children((!roles.is_empty()).then(|| {
+                                            div()
+                                                .text_size(px(10.0))
+                                                .text_color(palette.ink_3)
+                                                .child(roles.clone())
+                                        }))
+                                })
+                                .checked(selected)
+                                .on_click(move |_, _, cx| {
+                                    let _ = root.update(cx, |this, cx| {
+                                        this.switch_workspace(&workspace_id, cx);
+                                        cx.notify();
+                                    });
+                                }),
+                            );
+                        }
+                        menu
+                    }
+                }
+            });
+
         div()
             .flex()
             .flex_row()
             .items_center()
             .gap(px(1.0))
             .child(
-                div()
-                    .id("workspace-overview-link")
-                    .role(Role::Link)
-                    .aria_label(translate(language, Key::AccountWorkspaceTitle))
-                    .px(space(1))
-                    .py(px(2.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .hover(|style| style.bg(palette.soft))
-                    .child(
-                        div()
-                            .text_size(px(12.0))
-                            .text_color(palette.ink_2)
-                            .child(label),
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.workspace_menu_open = false;
-                        this.breadcrumb_menu = None;
-                        this.navigate("/workspace");
-                        cx.notify();
-                    })),
+                Button::new("workspace-overview-link")
+                    .label(label)
+                    .ghost()
+                    .xsmall()
+                    .accessibility_label(translate(language, Key::AccountWorkspaceTitle))
+                    .on_click(move |_, _, cx| {
+                        let _ = overview_root.update(cx, |this, cx| {
+                            this.navigate("/workspace");
+                            cx.notify();
+                        });
+                    }),
             )
-            .child(
-                div()
-                    .id("workspace-menu-toggle")
-                    .role(Role::Button)
-                    .aria_label(translate(language, Key::AppWorkspaceSwitch))
-                    .px(px(3.0))
-                    .py(px(3.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .hover(|style| style.bg(palette.soft))
-                    .child(
-                        Icon::default()
-                            .path(AssetIcon::ChevronDown.path())
-                            .text_color(palette.ink_3)
-                            .with_size(px(12.0)),
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.workspace_menu_open = !this.workspace_menu_open;
-                        this.breadcrumb_menu = None;
-                        cx.notify();
-                    })),
-            )
+            .child(trigger)
             .into_any_element()
     }
 
-    /// 工作台下拉（根级 overlay，避免被内容区覆盖）。
-    fn render_workspace_menu(
-        &mut self,
-        language: Language,
+    /// 右上角账户头像：Kit `Button` 触发器 + 下拉菜单（Zed 的
+    /// `ButtonLike` + `PopoverMenu` 同构）。菜单状态由 Kit 自己管，
+    /// 点外/Esc/点项都会关闭。
+    fn render_account_menu_button(
+        &self,
         palette: &theme::Palette,
+        email: &str,
+        signed_in_as: &'static str,
+        sign_out_label: &'static str,
+        account_tooltip: &'static str,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let state = self.workspaces.state().clone();
-        let current = self.workspaces.current().cloned();
-        let workspaces = self.workspaces.workspaces().to_vec();
-        let body: AnyElement = match state {
-            WorkspaceListState::Idle | WorkspaceListState::Loading => {
-                render_loading_state(language, Key::AppWorkspaceLoading, palette).into_any_element()
-            }
-            WorkspaceListState::Failed(_) => div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(space(1))
-                .px(space(1))
-                .py(px(4.0))
-                .text_size(px(12.0))
-                .text_color(palette.danger)
-                .child(translate(language, Key::AppWorkspaceError))
-                .child(
-                    div()
-                        .id("workspace-menu-retry")
-                        .px(space(1))
-                        .py(px(2.0))
-                        .rounded(px(RADIUS_SMALL))
-                        .bg(palette.soft)
-                        .text_color(palette.ink_2)
-                        .child(translate(language, Key::AppWorkspaceRetry))
-                        .on_click(cx.listener(|this, _, _, cx| this.retry_workspace_load(cx))),
-                )
-                .into_any_element(),
-            WorkspaceListState::Empty => div()
-                .px(space(1))
-                .py(px(4.0))
-                .text_size(px(12.0))
-                .text_color(palette.ink_3)
-                .child(translate(language, Key::AppWorkspaceEmpty))
-                .into_any_element(),
-            WorkspaceListState::Ready => div()
-                .flex()
-                .flex_col()
-                .children(workspaces.iter().map(|workspace| {
-                    let selected = current
-                        .as_ref()
-                        .is_some_and(|current| current.id == workspace.id);
-                    let workspace_id = workspace.id.clone();
-                    let roles = workspace
-                        .my_role_names
-                        .iter()
-                        .map(|role| workspace_role_label(language, role))
-                        .collect::<Vec<_>>()
-                        .join(" · ");
-                    div()
-                        .id(format!("workspace-option-{}", workspace.id))
-                        .flex()
-                        .flex_col()
-                        .gap(px(2.0))
-                        .px(space(1))
-                        .py(px(6.0))
-                        .rounded(px(RADIUS_SMALL))
-                        .hover(|style| style.bg(palette.soft))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .justify_between()
-                                .child(div().text_color(palette.ink).child(workspace.name.clone()))
-                                .child(div().text_color(palette.accent).child(if selected {
-                                    "✓"
-                                } else {
-                                    ""
-                                })),
-                        )
-                        .children((!roles.is_empty()).then(|| {
-                            div()
-                                .text_size(px(11.0))
-                                .text_color(palette.ink_3)
-                                .child(roles)
-                                .into_any_element()
-                        }))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.switch_workspace(&workspace_id, cx);
-                            this.workspace_menu_open = false;
-                            cx.notify();
-                        }))
-                        .into_any_element()
-                }))
-                .into_any_element(),
-        };
-        div()
-            .id("workspace-menu")
-            .absolute()
-            .top(px(44.0))
-            .left(px(130.0))
-            .w(px(260.0))
-            .flex()
-            .flex_col()
-            .gap(px(2.0))
-            .p(space(1))
-            .rounded(px(RADIUS_MEDIUM))
-            .border_1()
-            .border_color(palette.line_strong)
-            .bg(palette.card)
-            .occlude()
+        let language = self.language;
+        let palette = *palette;
+        use gpui_kit::component::button::{Button, ButtonVariants as _};
+        let settings_root = cx.entity().downgrade();
+        let sign_out_root = cx.entity().downgrade();
+        let menu_email = email.to_string();
+        let menu_signed_in_as = signed_in_as;
+        let menu_sign_out = sign_out_label;
+        Button::new("account-toggle")
             .child(
-                div()
-                    .px(space(1))
-                    .py(px(3.0))
-                    .text_size(px(10.0))
-                    .text_color(palette.ink_3)
-                    .child(translate(language, Key::AppWorkspaceSwitch)),
+                Avatar::new()
+                    .name(email.to_string())
+                    .with_size(KitSize::Small),
             )
-            .child(body)
+            .ghost()
+            .with_size(KitSize::Size(px(24.0)))
+            // 有 child 的 Button 只按 size 加水平内边距（24*0.2=4.8），
+            // 会把 24px 头像撑成 33.6×24 的胶囊；这里显式收回成 30×30。
+            .px(px(3.0))
+            .py(px(3.0))
+            .rounded(px(RADIUS_SMALL))
+            .accessibility_label(account_tooltip)
+            .tooltip(account_tooltip)
+            .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _window, _cx| {
+                let header = format!("{menu_signed_in_as} {menu_email}");
+                let settings_root = settings_root.clone();
+                let sign_out_root = sign_out_root.clone();
+                menu.item(PopupMenuItem::element(move |_, _| {
+                    div()
+                        .text_size(px(10.0))
+                        .text_color(palette.ink_3)
+                        .child(header.clone())
+                }))
+                .item(PopupMenuItem::separator())
+                .item(
+                    PopupMenuItem::element(move |_, _| {
+                        div()
+                            .flex()
+                            .w_full()
+                            .justify_between()
+                            .gap(space(2))
+                            .child(translate(language, Key::AppSettingsTitle))
+                            .child(shortcut_kbd(if cfg!(target_os = "macos") {
+                                "cmd-,"
+                            } else {
+                                "ctrl-,"
+                            }))
+                    })
+                    .on_click(move |_, _, cx| {
+                        let _ = settings_root.update(cx, |this, cx| {
+                            this.open_settings_window(cx);
+                        });
+                    }),
+                )
+                .item(PopupMenuItem::separator())
+                .item(
+                    PopupMenuItem::new(menu_sign_out.to_string()).on_click(move |_, _, cx| {
+                        let _ = sign_out_root.update(cx, |this, cx| {
+                            this.sign_out(cx);
+                        });
+                    }),
+                )
+            })
             .into_any_element()
     }
 
@@ -1994,6 +1906,8 @@ impl RootView {
         palette: &theme::Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        use gpui_kit::component::button::{Button, ButtonVariants as _};
+
         // 左侧：一级导航图标；右侧：主题/语言工具。版本号只放设置/关于，不进 footer。
         let root_weak = cx.entity().downgrade();
         let shortcut = if cfg!(target_os = "macos") {
@@ -2002,98 +1916,76 @@ impl RootView {
             "Ctrl+J"
         };
         let palette = *palette;
-        let agent_toggle = include_nav.then(|| {
-            div()
-                .id("agent-panel-toggle")
-                .role(Role::Button)
-                .aria_label("Agent")
-                .tab_index(0isize)
-                .size(px(22.0))
+        // Footer 图标按钮统一走 Kit `Button`：`ghost` 变体吃主题的 hover 面，
+        // 图标色沿用 palette（激活 accent / 常态 ink_3），尺寸保持 22px。
+        let icon_button = |id: &'static str,
+                           icon: AssetIcon,
+                           active: bool,
+                           label: SharedString,
+                           tooltip: SharedString| {
+            let tint = if active {
+                palette.accent
+            } else {
+                palette.ink_3
+            };
+            Button::new(id)
+                .icon(Icon::default().path(icon.path()).text_color(tint))
+                .ghost()
+                .with_size(KitSize::Size(px(22.0)))
                 .rounded(px(RADIUS_SMALL))
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(if self.agent_panel_open {
-                    palette.accent
-                } else {
-                    palette.ink_3
-                })
-                .hover(|style| style.bg(palette.soft))
-                .child(
-                    Icon::default()
-                        .path(nav_icon(NavIcon::Companion).path())
-                        .text_color(if self.agent_panel_open {
-                            palette.accent
-                        } else {
-                            palette.ink_3
-                        })
-                        .small(),
-                )
-                .tooltip(move |window, cx| {
-                    Tooltip::new(format!("Agent · {shortcut}")).build(window, cx)
-                })
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_agent_panel(cx);
-                }))
-                .context_menu({
-                    let root = root_weak.clone();
-                    let side = self.agent_panel_side;
-                    move |menu, _, _| {
-                        render_panel_status_bar_menu(
-                            menu,
-                            language,
-                            StatusBarMenuTarget::Agent,
-                            side,
-                            root.clone(),
-                        )
-                    }
-                })
-                .into_any_element()
+                .accessibility_label(label)
+                .tooltip(tooltip)
+        };
+        let agent_toggle = include_nav.then(|| {
+            icon_button(
+                "agent-panel-toggle",
+                nav_icon(NavIcon::Companion),
+                self.agent_panel_open,
+                "Agent".into(),
+                format!("Agent · {shortcut}").into(),
+            )
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.toggle_agent_panel(cx);
+            }))
+            .context_menu({
+                let root = root_weak.clone();
+                let side = self.agent_panel_side;
+                move |menu, _, _| {
+                    render_panel_status_bar_menu(
+                        menu,
+                        language,
+                        StatusBarMenuTarget::Agent,
+                        side,
+                        root.clone(),
+                    )
+                }
+            })
+            .into_any_element()
         });
         let history_toggle = include_nav.then(|| {
             let active = self.history_sidebar.is_some();
-            div()
-                .id("chat-history-toggle")
-                .role(Role::Button)
-                .aria_label("历史对话")
-                .tab_index(0isize)
-                .size(px(22.0))
-                .rounded(px(RADIUS_SMALL))
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(if active {
-                    palette.accent
-                } else {
-                    palette.ink_3
-                })
-                .hover(|style| style.bg(palette.soft))
-                .child(
-                    Icon::default()
-                        .path(AssetIcon::Clock.path())
-                        .text_color(if active {
-                            palette.accent
-                        } else {
-                            palette.ink_3
-                        })
-                        .small(),
-                )
-                .tooltip(move |window, cx| Tooltip::new("历史对话").build(window, cx))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_history_sidebar(cx);
-                }))
-                .context_menu({
-                    let root = root_weak.clone();
-                    move |menu, _, _| {
-                        render_hide_button_menu(
-                            menu,
-                            language,
-                            state::StatusBarButton::History,
-                            root.clone(),
-                        )
-                    }
-                })
-                .into_any_element()
+            icon_button(
+                "chat-history-toggle",
+                AssetIcon::Clock,
+                active,
+                "历史对话".into(),
+                "历史对话".into(),
+            )
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.toggle_history_sidebar(cx);
+            }))
+            .context_menu({
+                let root = root_weak.clone();
+                move |menu, _, _| {
+                    render_hide_button_menu(
+                        menu,
+                        language,
+                        state::StatusBarButton::History,
+                        root.clone(),
+                    )
+                }
+            })
+            .into_any_element()
         });
         let panel_toggle = |id: &'static str,
                             label: SharedString,
@@ -2103,34 +1995,7 @@ impl RootView {
                             target: StatusBarMenuTarget,
                             side: crate::preferences::PanelSide,
                             root: WeakEntity<Self>| {
-            let tooltip = label.clone();
-            div()
-                .id(id)
-                .role(Role::Button)
-                .aria_label(label.clone())
-                .tab_index(0isize)
-                .size(px(22.0))
-                .rounded(px(RADIUS_SMALL))
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(if active {
-                    palette.accent
-                } else {
-                    palette.ink_3
-                })
-                .hover(|style| style.bg(palette.soft))
-                .child(
-                    Icon::default()
-                        .path(icon.path())
-                        .text_color(if active {
-                            palette.accent
-                        } else {
-                            palette.ink_3
-                        })
-                        .small(),
-                )
-                .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+            icon_button(id, icon, active, label.clone(), label)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.toggle_right_panel(panel, cx);
                 }))
@@ -2233,57 +2098,53 @@ impl RootView {
                             .flex_shrink_0()
                             .overflow_x_hidden()
                             .children(right_items)
+                            .child({
+                                let themes = theme::available_themes(cx);
+                                let selected_name = self.theme_name.clone();
+                                let select_root = cx.entity().downgrade();
+                                icon_button(
+                                    "theme-menu-toggle",
+                                    AssetIcon::Palette,
+                                    false,
+                                    "主题".into(),
+                                    "主题".into(),
+                                )
+                                .dropdown_menu_with_anchor(
+                                    Anchor::BottomRight,
+                                    move |menu, _window, _cx| {
+                                        let mut menu = menu.scrollable(true).max_h(px(420.0));
+                                        for (name, _mode) in themes.clone() {
+                                            let root = select_root.clone();
+                                            let selected = name == selected_name;
+                                            let label = name.clone();
+                                            menu = menu.item(
+                                                PopupMenuItem::new(name)
+                                                    .checked(selected)
+                                                    .on_click(move |_, _, cx| {
+                                                        let _ = root.update(cx, |this, cx| {
+                                                            this.select_theme(label.clone(), cx);
+                                                        });
+                                                    }),
+                                            );
+                                        }
+                                        menu
+                                    },
+                                )
+                            })
                             .child(
-                                div()
-                                    .id("theme-menu-toggle")
-                                    .tab_index(0isize)
-                                    .size(px(22.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .text_color(palette.ink_3)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child(
-                                        Icon::default()
-                                            .path(AssetIcon::Palette.path())
-                                            .text_color(palette.ink_3)
-                                            .small(),
-                                    )
-                                    .tooltip(move |window, cx| {
-                                        Tooltip::new("主题").build(window, cx)
-                                    })
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.toggle_theme_menu(cx);
-                                    })),
-                            )
-                            .child(
-                                div()
-                                    .id("language-toggle")
-                                    .tab_index(0isize)
-                                    .size(px(22.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .text_color(palette.ink_3)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child(
-                                        Icon::default()
-                                            .path(language_icon.path())
-                                            .text_color(palette.ink_3)
-                                            .small(),
-                                    )
-                                    .tooltip(move |window, cx| {
-                                        Tooltip::new(format!(
-                                            "{language_tooltip} · {language_label}"
-                                        ))
-                                        .build(window, cx)
-                                    })
-                                    .on_click(cx.listener(|this, _, _, cx| {
+                                icon_button(
+                                    "language-toggle",
+                                    language_icon,
+                                    false,
+                                    language_label.into(),
+                                    format!("{language_tooltip} · {language_label}").into(),
+                                )
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| {
                                         this.toggle_language();
                                         cx.notify();
-                                    })),
+                                    },
+                                )),
                             ),
                     )
                     .bg(palette.frame)
@@ -3674,15 +3535,6 @@ mod tests {
         assert_eq!(view.cycle_theme(), ThemePreference::Light);
         assert_eq!(view.cycle_theme(), ThemePreference::Dark);
         assert_eq!(view.cycle_theme(), ThemePreference::System);
-    }
-
-    #[test]
-    fn account_menu_toggles_and_closes() {
-        let mut view = view();
-        assert!(!view.account_menu_open());
-        assert!(view.toggle_account_menu());
-        view.close_account_menu();
-        assert!(!view.account_menu_open());
     }
 
     #[test]

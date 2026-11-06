@@ -268,6 +268,7 @@ pub(crate) fn native_action_bar_spec(
     style: ActionStyle,
     glyphs: ActionGlyphs,
     callbacks: ActionCallbacks,
+    copied: bool,
 ) -> ActionBarSpec {
     let (row_id, copy_id, user_id, top_id) = native_action_bar_ids(prefix);
     ActionBarSpec {
@@ -278,6 +279,7 @@ pub(crate) fn native_action_bar_spec(
         glyphs,
         style,
         callbacks,
+        copied,
     }
 }
 

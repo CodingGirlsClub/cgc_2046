@@ -12,7 +12,7 @@
 
 use super::*;
 use crate::acp_history::{self, HistoryEntry, RECENT_PER_AGENT};
-use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::button::{Button, ButtonVariants, Toggle, ToggleGroup};
 use gpui_kit::component::input::{Input, InputState};
 
 mod history_row;
@@ -105,47 +105,28 @@ impl RootView {
                 }
             }
         }
-        let tab_button = |id: &'static str,
-                          tab_value: HistoryTab,
-                          current: HistoryTab,
-                          palette: &theme::Palette,
-                          cx: &mut Context<Self>| {
-            let active = tab_value == current;
-            div()
-                .id(id)
-                .role(Role::Button)
-                .aria_label(tab_value.label())
-                .px(space(1))
-                .py(px(2.0))
-                .rounded(px(RADIUS_SMALL))
-                .text_size(px(11.0))
-                .text_color(if active {
-                    palette.accent
-                } else {
-                    palette.ink_3
-                })
-                .bg(if active { palette.soft } else { palette.card })
-                .hover(|style| style.bg(palette.soft))
-                .child(tab_value.label())
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.set_history_tab(tab_value, cx);
-                }))
-                .into_any_element()
-        };
-        let threads_tab = tab_button(
-            "history-tab-threads",
-            HistoryTab::Threads,
-            tab,
-            &palette,
-            cx,
-        );
-        let archive_tab = tab_button(
-            "history-tab-archive",
-            HistoryTab::Archive,
-            tab,
-            &palette,
-            cx,
-        );
+        let tabs = ToggleGroup::new("history-tabs")
+            .segmented()
+            .xsmall()
+            .child(
+                Toggle::new("history-tab-threads")
+                    .label(HistoryTab::Threads.label())
+                    .checked(tab == HistoryTab::Threads),
+            )
+            .child(
+                Toggle::new("history-tab-archive")
+                    .label(HistoryTab::Archive.label())
+                    .checked(tab == HistoryTab::Archive),
+            )
+            .on_click(cx.listener(move |this, checks: &Vec<bool>, _, cx| {
+                // 组内回调给的是「翻转后的全量状态」，未做互斥；选中那个与当前
+                // tab 不同的真值才算用户真的点了它。
+                if checks.get(1).copied() == Some(true) && tab != HistoryTab::Archive {
+                    this.set_history_tab(HistoryTab::Archive, cx);
+                } else if checks.first().copied() == Some(true) && tab != HistoryTab::Threads {
+                    this.set_history_tab(HistoryTab::Threads, cx);
+                }
+            }));
         let close_root = cx.entity().downgrade();
         let new_root = cx.entity().downgrade();
         let mut panel = div()
@@ -167,6 +148,9 @@ impl RootView {
             .border_color(palette.line)
             .child(
                 div()
+                    .id("history-header")
+                    .role(Role::Toolbar)
+                    .aria_label("历史对话")
                     .flex()
                     .flex_row()
                     .items_center()
@@ -184,17 +168,16 @@ impl RootView {
                             .items_center()
                             .gap(px(2.0))
                             .child(
-                                div()
-                                    .id("history-new-thread")
-                                    .role(Role::Button)
-                                    .aria_label("新建对话")
-                                    .px(space(1))
-                                    .py(px(1.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .text_size(px(12.0))
-                                    .text_color(palette.ink_3)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child("＋")
+                                Button::new("history-new-thread")
+                                    .icon(
+                                        Icon::default()
+                                            .path(AssetIcon::Plus.path())
+                                            .text_color(palette.ink_3),
+                                    )
+                                    .xsmall()
+                                    .ghost()
+                                    .accessibility_label("新建对话（当前 Agent）")
+                                    .tooltip("新建对话（当前 Agent）")
                                     .on_click(move |_, _, cx| {
                                         let _ = new_root.update(cx, |this, cx| {
                                             this.start_new_thread_from_history(cx);
@@ -202,18 +185,12 @@ impl RootView {
                                     }),
                             )
                             .child(
-                                div()
-                                    .id("history-sidebar-close")
-                                    .role(Role::Button)
-                                    .aria_label("关闭历史")
-                                    .size(px(20.0))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .rounded(px(RADIUS_SMALL))
-                                    .text_color(palette.ink_3)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child("×")
+                                Button::new("history-sidebar-close")
+                                    .label("×")
+                                    .xsmall()
+                                    .ghost()
+                                    .accessibility_label("关闭历史")
+                                    .tooltip("关闭历史")
                                     .on_click(move |_, _, cx| {
                                         let _ = close_root.update(cx, |this, cx| {
                                             this.close_history_sidebar(cx);
@@ -228,8 +205,7 @@ impl RootView {
                     .flex_row()
                     .items_center()
                     .gap(space(1))
-                    .child(threads_tab)
-                    .child(archive_tab)
+                    .child(tabs)
                     .child(div().flex_1()),
             )
             .child(Input::new(&filter_input))

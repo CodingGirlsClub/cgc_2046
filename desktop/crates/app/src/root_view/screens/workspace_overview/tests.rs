@@ -119,21 +119,24 @@ fn unreachable_backend_leaves_loading_and_offers_retry(cx: &mut TestAppContext) 
     })
     .unwrap();
 
-    // 3. 重试：失败态立即让位给加载态。
-    root.update(cx, |root, cx| {
-        root.retry_workspace_load(cx);
+    // 3. 真实点击重试按钮（走 Kit 的点击派发，验证按钮真的接线）：
+    //    失败态让位，重新进入加载/已就绪。
+    root.update(cx, |_, cx| cx.notify());
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        window.click("workspace-overview-retry", cx);
+        window.render_frame(cx);
         assert!(
-            matches!(root.state.workspaces.state(), WorkspaceListState::Loading),
+            window.try_find_by_label(error_label).is_none(),
+            "step 3: clicking retry must clear the failure state"
+        );
+    })
+    .unwrap();
+    root.update(cx, |root, _| {
+        assert!(
+            !matches!(root.state.workspaces.state(), WorkspaceListState::Failed(_)),
             "step 3: retry restarts the load, got {:?}",
             root.state.workspaces.state()
         );
     });
-    cx.update_window(handle, |_, window, cx| {
-        window.render_frame(cx);
-        assert!(
-            window.try_find_by_label(error_label).is_none(),
-            "step 3: retry must clear the failure state"
-        );
-    })
-    .unwrap();
 }

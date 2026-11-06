@@ -168,3 +168,24 @@ fn authorization_notice_copy_matches_the_failure_class(cx: &mut TestAppContext) 
     })
     .unwrap();
 }
+
+#[gpui_kit::test]
+fn pane_tab_close_button_removes_the_tab(cx: &mut TestAppContext) {
+    let (handle, root, _probe) = open_pane_probe(cx, |root| {
+        root.state
+            .tabs
+            .push(PaneTab::page("/workspace", "Overview"));
+        root.state.active_tab = Some(root.state.tabs[0].id.clone());
+    });
+
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        window.click("pane-tab-close-page:/workspace", cx);
+        window.render_frame(cx);
+    })
+    .unwrap();
+
+    root.update(cx, |root, _| {
+        assert_eq!(root.state.tabs.len(), 0, "关闭按钮应移除标签");
+    });
+}
