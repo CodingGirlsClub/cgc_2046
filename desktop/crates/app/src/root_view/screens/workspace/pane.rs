@@ -2,6 +2,7 @@
 
 use super::super::super::*;
 use super::super::ScreenContext;
+use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::tab::{Tab, TabBar};
 
 #[cfg(all(test, cgc_ui_tests))]
@@ -26,17 +27,11 @@ pub(in crate::root_view) fn render_pane_tabs(
         let open_id = tab.id.clone();
         let close_root = cx.entity().downgrade();
         let open_root = close_root.clone();
-        let close = div()
-            .id(SharedString::from(format!("pane-tab-close-{close_id}")))
-            .flex()
-            .items_center()
-            .justify_center()
-            .size(px(16.0))
-            .rounded(px(RADIUS_SMALL))
-            .text_size(px(11.0))
-            .text_color(palette.ink_3)
-            .hover(|style| style.bg(palette.soft).text_color(palette.ink))
-            .child("×")
+        let close = Button::new(SharedString::from(format!("pane-tab-close-{close_id}")))
+            .label("×")
+            .xsmall()
+            .ghost()
+            .accessibility_label("关闭标签")
             .on_click(move |_, _, cx| {
                 cx.stop_propagation();
                 let _ = close_root.update(cx, |this, cx| this.close_pane_tab(&close_id, cx));

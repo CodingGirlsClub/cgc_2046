@@ -244,7 +244,6 @@ pub struct ShellState {
     /// native 面板事件订阅：标题生成中/失败/完成时重绘 header。
     pub(in crate::root_view) native_agent_view_subscription: Option<Subscription>,
     pub(in crate::root_view) agent_panel_editing_title: bool,
-    pub(in crate::root_view) agent_panel_title_hovered: bool,
     pub(in crate::root_view) history_sidebar:
         Option<crate::root_view::history_sidebar::HistorySidebar>,
     pub(in crate::root_view) history_dirty_seen: u64,
@@ -401,7 +400,6 @@ impl ShellState {
             agent_panel_title_subscription: None,
             native_agent_view_subscription: None,
             agent_panel_editing_title: false,
-            agent_panel_title_hovered: false,
             history_sidebar: None,
             history_dirty_seen: 0,
             history_cleared_seen: 0,

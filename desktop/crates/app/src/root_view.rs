@@ -548,10 +548,14 @@ impl RootView {
             &input,
             window,
             |this, _input, event: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { .. } = event {
-                    if this.agent_panel_editing_title {
+                // 对齐 Zed：回车或失焦都提交（点别处保存）。
+                match event {
+                    InputEvent::PressEnter { .. } | InputEvent::Blur
+                        if this.agent_panel_editing_title =>
+                    {
                         this.commit_agent_panel_title(window, cx);
                     }
+                    _ => {}
                 }
             },
         ));
@@ -566,7 +570,10 @@ impl RootView {
     ) {
         let title = self.agent_panel_title(cx);
         let input = self.ensure_agent_panel_title_input(window, cx);
-        input.update(cx, |state, cx| state.set_value(title, window, cx));
+        input.update(cx, |state, cx| {
+            state.set_value(title, window, cx);
+            state.select_all(window, cx);
+        });
         let focus = input.read(cx).focus_handle(cx);
         window.focus(&focus, cx);
         self.agent_panel_editing_title = true;
@@ -601,6 +608,20 @@ impl RootView {
         }
         self.agent_panel_editing_title = false;
         cx.notify();
+    }
+
+    /// 标题编辑时拦截 Esc：取消本次修改（Blur 会提交改动，所以必须先拦）。
+    pub(in crate::root_view) fn handle_title_edit_escape(
+        &mut self,
+        keystroke: &Keystroke,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if keystroke.key != "escape" || !self.agent_panel_editing_title {
+            return false;
+        }
+        self.cancel_agent_panel_title(window, cx);
+        true
     }
 
     pub(in crate::root_view) fn cancel_agent_panel_title(
@@ -683,7 +704,8 @@ impl Render for RootView {
                 let keystroke = event.keystroke.clone();
                 let handled = root
                     .update(cx, |this, cx| {
-                        this.handle_slash_keystroke(&keystroke, window, cx)
+                        this.handle_title_edit_escape(&keystroke, window, cx)
+                            || this.handle_slash_keystroke(&keystroke, window, cx)
                     })
                     .unwrap_or(false);
                 if handled {

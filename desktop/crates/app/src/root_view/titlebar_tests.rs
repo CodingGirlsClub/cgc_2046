@@ -6,6 +6,7 @@
 
 use super::RootView;
 use crate::i18n::{translate, Key, Language};
+use crate::root_view::screens::ScreenContext;
 use crate::theme::{self, ThemePreference};
 use cgc_platform::session::{FakeAuthApi, MemoryStore, SessionService, SignedInSession};
 use gpui_kit::test::{TestQueryExt, TestWindowExt};
@@ -261,5 +262,168 @@ fn check_workspace_menu(cx: &mut TestAppContext) {
     assert!(
         !vcx.update(|window, cx| menu_visible(window, cx)),
         "Esc 后工作台菜单应关闭"
+    );
+}
+
+struct AgentHeaderProbe {
+    root: Entity<RootView>,
+}
+
+impl Render for AgentHeaderProbe {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let header = self.root.update(cx, |root, cx| {
+            let palette = theme::palette_from_theme(cx);
+            let language = root.language;
+            let mut context = ScreenContext::new(&mut root.state);
+            crate::root_view::screens::render_agent_panel_header(
+                &mut context,
+                language,
+                &palette,
+                cx,
+            )
+        });
+        div().w_full().child(header)
+    }
+}
+
+#[gpui_kit::test]
+fn agent_header_title_edits_and_new_menu_opens(cx: &mut TestAppContext) {
+    check_agent_header(cx);
+}
+
+fn check_agent_header(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (handle, probe) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                    None,
+                    size(px(640.), px(200.)),
+                    cx,
+                ))),
+                ..Default::default()
+            },
+            cx,
+            |_, cx| {
+                let root = cx.new(|_| signed_in_root());
+                cx.new(|_| AgentHeaderProbe { root })
+            },
+        )
+        .unwrap()
+    });
+
+    // 标题是普通 div（不进 observation），直接驱动状态机验证编辑/取消。
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        root_start_edit(&probe, window, cx);
+    })
+    .unwrap();
+    assert!(
+        cx.update(|cx| probe.read(cx).root.read(cx).agent_panel_editing_title),
+        "start_edit 后应进入编辑态"
+    );
+    cx.update_window(handle, |_, window, cx| {
+        let escape = gpui_kit::Keystroke::parse("escape").expect("valid escape");
+        let root = probe.read(cx).root.clone();
+        let cancelled = root.update(cx, |root, cx| {
+            root.handle_title_edit_escape(&escape, window, cx)
+        });
+        assert!(cancelled, "Esc 应被标题编辑拦截");
+    })
+    .unwrap();
+    assert!(
+        !cx.update(|cx| probe.read(cx).root.read(cx).agent_panel_editing_title),
+        "Esc 后应退出编辑态"
+    );
+
+    let mut vcx = VisualTestContext::from_window(handle, cx);
+    vcx.update(|window, cx| window.click("agent-panel-new-trigger", cx));
+    assert!(
+        vcx.update(|window, cx| {
+            window.render_frame(cx);
+            window
+                .try_find_by_label("External Agents")
+                .is_some_and(|element| element.visible())
+        }),
+        "＋ 菜单应包含 External Agents"
+    );
+    vcx.simulate_keystrokes("escape");
+    assert!(
+        vcx.update(|window, cx| {
+            window.render_frame(cx);
+            window
+                .try_find_by_label("External Agents")
+                .is_none_or(|element| !element.visible())
+        }),
+        "Esc 后 ＋ 菜单应关闭"
+    );
+}
+
+fn root_start_edit(probe: &Entity<AgentHeaderProbe>, window: &mut Window, cx: &mut gpui_kit::App) {
+    let root = probe.read(cx).root.clone();
+    root.update(cx, |root, cx| {
+        root.start_edit_agent_panel_title(window, cx);
+    });
+}
+
+struct HistoryHeaderProbe {
+    root: Entity<RootView>,
+}
+
+impl Render for HistoryHeaderProbe {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.root.update(cx, |root, cx| {
+            root.render_history_sidebar(crate::preferences::PanelSide::Left, window, cx)
+        })
+    }
+}
+
+#[gpui_kit::test]
+fn history_tabs_switch_and_close_is_a_button(cx: &mut TestAppContext) {
+    check_history_tabs(cx);
+}
+
+fn check_history_tabs(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (handle, probe) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                    None,
+                    size(px(520.), px(420.)),
+                    cx,
+                ))),
+                ..Default::default()
+            },
+            cx,
+            |_, cx| {
+                let root = cx.new(|_| signed_in_root());
+                root.update(cx, |root, _| {
+                    root.history_sidebar = Some(Default::default());
+                });
+                cx.new(|_| HistoryHeaderProbe { root })
+            },
+        )
+        .unwrap()
+    });
+
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        window.click("history-tab-archive", cx);
+        window.render_frame(cx);
+    })
+    .unwrap();
+    let tab = cx.update(|cx| {
+        probe
+            .read(cx)
+            .root
+            .read(cx)
+            .history_sidebar
+            .as_ref()
+            .map(|sidebar| sidebar.tab)
+    });
+    assert_eq!(
+        tab,
+        Some(crate::root_view::history_sidebar::HistoryTab::Archive)
     );
 }

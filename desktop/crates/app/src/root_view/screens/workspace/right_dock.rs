@@ -51,6 +51,9 @@ pub(in crate::root_view) fn render_right_dock(
 
     let header = (panel == RightPanel::Outline).then(|| {
         div()
+            .id("right-dock-header")
+            .role(Role::Toolbar)
+            .aria_label(title)
             .flex()
             .flex_row()
             .items_center()
@@ -136,6 +139,9 @@ fn render_notifications_dock(
     let scroll = ctx.notification_scroll.clone();
 
     let header = div()
+        .id("notifications-header")
+        .role(Role::Toolbar)
+        .aria_label(translate(language, Key::AppNotificationsTitle))
         .flex()
         .flex_row()
         .items_center()
