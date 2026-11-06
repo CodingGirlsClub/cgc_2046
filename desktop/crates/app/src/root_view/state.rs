@@ -240,6 +240,8 @@ pub struct ShellState {
     pub(in crate::root_view) deposit_consent: bool,
     pub(in crate::root_view) events_bus: Arc<MemoryEventBus>,
     pub(in crate::root_view) agent_panel_title_input: Option<Entity<InputState>>,
+    /// 进入编辑时的标题快照：提交时值没变就不写 override（点进来又点走不算重命名）。
+    pub(in crate::root_view) agent_panel_title_original: Option<String>,
     pub(in crate::root_view) agent_panel_title_subscription: Option<Subscription>,
     /// native 面板事件订阅：标题生成中/失败/完成时重绘 header。
     pub(in crate::root_view) native_agent_view_subscription: Option<Subscription>,
@@ -397,6 +399,7 @@ impl ShellState {
                 ..ChatUi::default()
             },
             agent_panel_title_input: None,
+            agent_panel_title_original: None,
             agent_panel_title_subscription: None,
             native_agent_view_subscription: None,
             agent_panel_editing_title: false,

@@ -2123,6 +2123,7 @@ impl RootView {
         self.chat.title_override = None;
         self.chat.npx_cache_retry = false;
         self.agent_panel_editing_title = false;
+        self.agent_panel_title_original = None;
         self.reset_chat_local(cx);
         self.start_chat(cx);
     }
@@ -2200,6 +2201,7 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         self.agent_panel_editing_title = false;
+        self.agent_panel_title_original = None;
         self.reset_chat_local(cx);
         let sidebar = crate::acp_history::load_local_sidebar(&thread_id);
         self.chat.title_override = sidebar
@@ -2450,6 +2452,7 @@ impl RootView {
     pub fn enter_native_chat(&mut self, cx: &mut Context<Self>) {
         self.set_native_chat_mode(true);
         self.agent_panel_editing_title = false;
+        self.agent_panel_title_original = None;
         cx.notify();
     }
 
@@ -2457,6 +2460,7 @@ impl RootView {
     pub fn new_native_chat(&mut self, cx: &mut Context<Self>) {
         self.set_native_chat_mode(true);
         self.agent_panel_editing_title = false;
+        self.agent_panel_title_original = None;
         if let Some(view) = &self.native_agent_view {
             view.update(cx, |view, cx| view.start_new_thread(cx));
         }
@@ -3845,6 +3849,7 @@ impl RootView {
         self.chat.title_override = None;
         self.chat.npx_cache_retry = false;
         self.agent_panel_editing_title = false;
+        self.agent_panel_title_original = None;
         self.chat.session.configs.clear();
         self.chat.session.commands.clear();
         self.chat.configs_applied = false;

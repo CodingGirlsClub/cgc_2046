@@ -8,6 +8,7 @@ use crate::icons::{AGENT_HEADER_ICON_SIZE, AGENT_ROW_ICON_SIZE};
 use cgc_platform::agent::detect::AgentStatus;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::Input;
+use gpui_kit::component::popover::Popover;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::root_view) enum AgentPanelContent {
@@ -239,114 +240,166 @@ pub(in crate::root_view) fn header(
             palette.ink_3,
         ))
         .child(title_area)
-        .child({
-            let registry_root = menu_root.clone();
-            Button::new("agent-panel-new-trigger")
-                .label("＋")
-                .accessibility_label(translate(language, Key::AppA11yNewChat))
-                .xsmall()
-                .ghost()
-                .tooltip("New Agent Thread")
-                .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _window, _cx| {
-                    let mut menu = menu;
-                    if RootView::native_agent_enabled() {
-                        let cgc_root = menu_root.clone();
-                        menu = menu.item(
-                            PopupMenuItem::element(move |_, _| {
-                                div()
-                                    .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .gap(space(1))
-                                    .child(crate::root_view::agent_icons::agent_icon_element(
-                                        "native",
-                                        AGENT_ROW_ICON_SIZE,
-                                        palette.ink_3,
-                                    ))
-                                    .child(div().flex_1().child("CGC Agent"))
-                                    .child(
-                                        div()
-                                            .text_size(px(10.0))
-                                            .text_color(palette.ink_3)
-                                            .child("Native"),
-                                    )
-                            })
-                            .on_click(move |_, _, cx| {
-                                let _ = cgc_root.update(cx, |this, cx| {
-                                    this.enter_native_chat(cx);
-                                    this.new_native_chat(cx);
-                                });
-                            }),
-                        );
-                        menu = menu.item(PopupMenuItem::separator());
-                    }
-                    menu = menu.item(PopupMenuItem::label("External Agents"));
-                    if agent_options.is_empty() {
-                        menu = menu.item(PopupMenuItem::label(if loading || !registry_started {
-                            "检测本机 agent…"
-                        } else {
-                            "没有已安装的 agent"
-                        }));
-                    } else {
-                        for (id, name) in &agent_options {
-                            let row_root = add_menu_root.clone();
-                            let icon_id = id.clone();
-                            let row_name = name.clone();
-                            let click_id = id.clone();
-                            let click_name = name.clone();
-                            menu = menu.item(
-                                PopupMenuItem::element(move |_, _| {
-                                    div()
-                                        .flex()
-                                        .flex_row()
-                                        .items_center()
-                                        .gap(space(1))
-                                        .child(crate::root_view::agent_icons::agent_icon_element(
-                                            &icon_id,
-                                            AGENT_ROW_ICON_SIZE,
-                                            palette.ink_3,
-                                        ))
-                                        .child(div().flex_1().child(row_name.clone()))
-                                })
-                                .on_click(move |_, _, cx| {
-                                    let _ = row_root.update(cx, |this, cx| {
-                                        this.select_chat_agent(
-                                            click_id.clone(),
-                                            click_name.clone(),
-                                            cx,
-                                        );
-                                    });
-                                }),
-                            );
-                        }
-                    }
-                    menu = menu.item(PopupMenuItem::separator());
-                    let add_root = add_menu_root.clone();
-                    menu.item(
-                        PopupMenuItem::element(move |_, _| {
-                            div()
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .gap(space(1))
-                                .child(Icon::default().path(AssetIcon::Plus.path()).small())
-                                .child("Add More Agents")
-                        })
-                        .on_click(move |_, _, cx| {
-                            let _ = add_root.update(cx, |this, cx| {
-                                this.open_agent_registry(cx);
-                            });
-                        }),
-                    )
-                })
+        .child(
+            Popover::new("agent-panel-new")
+                .anchor(Anchor::TopRight)
+                .trigger(
+                    Button::new("agent-panel-new-trigger")
+                        .label("＋")
+                        .accessibility_label(translate(language, Key::AppA11yNewChat))
+                        .xsmall()
+                        .ghost()
+                        .tooltip("New Agent Thread"),
+                )
                 .on_open_change(move |open, _, cx| {
                     if *open && !registry_started {
-                        let _ = registry_root.update(cx, |this, cx| {
+                        let load_root = menu_root.clone();
+                        let _ = load_root.update(cx, |this, cx| {
                             this.start_agent_registry_load(cx);
                         });
                     }
                 })
-        })
+                .content(move |_, _, cx| {
+                    let dismiss = cx.entity().downgrade();
+                    let mut rows: Vec<AnyElement> = Vec::new();
+                    if RootView::native_agent_enabled() {
+                        let cgc_root = add_menu_root.clone();
+                        let cgc_dismiss = dismiss.clone();
+                        rows.push(
+                            div()
+                                .id("agent-panel-native")
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(space(1))
+                                .px(space(1))
+                                .py(px(3.0))
+                                .rounded(px(RADIUS_SMALL))
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_2)
+                                .hover(|style| style.bg(palette.soft))
+                                .child(crate::root_view::agent_icons::agent_icon_element(
+                                    "native",
+                                    AGENT_ROW_ICON_SIZE,
+                                    palette.ink_3,
+                                ))
+                                .child(div().flex_1().child("CGC Agent"))
+                                .child(
+                                    div()
+                                        .text_size(px(10.0))
+                                        .text_color(palette.ink_3)
+                                        .child("Native"),
+                                )
+                                .on_click(move |_, window, cx| {
+                                    let _ = cgc_root.update(cx, |this, cx| {
+                                        this.enter_native_chat(cx);
+                                        this.new_native_chat(cx);
+                                    });
+                                    let _ = cgc_dismiss
+                                        .update(cx, |state, cx| state.dismiss(window, cx));
+                                })
+                                .into_any_element(),
+                        );
+                    }
+                    rows.push(menu_separator(palette));
+                    rows.push(
+                        div()
+                            .px(space(1))
+                            .pt(px(2.0))
+                            .pb(px(1.0))
+                            .text_size(px(10.0))
+                            .text_color(palette.ink_3)
+                            .child("External Agents")
+                            .into_any_element(),
+                    );
+                    if agent_options.is_empty() {
+                        rows.push(
+                            div()
+                                .px(space(1))
+                                .py(px(3.0))
+                                .text_size(px(10.0))
+                                .text_color(palette.ink_3)
+                                .child(if loading || !registry_started {
+                                    "检测本机 agent…"
+                                } else {
+                                    "没有已安装的 agent"
+                                })
+                                .into_any_element(),
+                        );
+                    } else {
+                        for (id, name) in &agent_options {
+                            let row_root = add_menu_root.clone();
+                            let row_dismiss = dismiss.clone();
+                            let id = id.clone();
+                            let name = name.clone();
+                            rows.push(
+                                div()
+                                    .id(SharedString::from(format!("agent-panel-agent-{id}")))
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap(space(1))
+                                    .px(space(1))
+                                    .py(px(3.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .hover(|style| style.bg(palette.soft))
+                                    .child(crate::root_view::agent_icons::agent_icon_element(
+                                        &id,
+                                        AGENT_ROW_ICON_SIZE,
+                                        palette.ink_3,
+                                    ))
+                                    .child(div().flex_1().child(name.clone()))
+                                    .on_click(move |_, window, cx| {
+                                        let _ = row_root.update(cx, |this, cx| {
+                                            this.select_chat_agent(id.clone(), name.clone(), cx);
+                                        });
+                                        let _ = row_dismiss
+                                            .update(cx, |state, cx| state.dismiss(window, cx));
+                                    })
+                                    .into_any_element(),
+                            );
+                        }
+                    }
+                    rows.push(menu_separator(palette));
+                    let add_weak = add_menu_root.clone();
+                    let add_dismiss = dismiss.clone();
+                    rows.push(
+                        div()
+                            .id("agent-panel-add-more")
+                            .role(Role::Button)
+                            .aria_label(translate(language, Key::AppA11yAddMoreAgents))
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(1))
+                            .px(space(1))
+                            .py(px(3.0))
+                            .rounded(px(RADIUS_SMALL))
+                            .text_size(px(11.0))
+                            .text_color(palette.accent)
+                            .hover(|style| style.bg(palette.soft))
+                            .child(Icon::default().path(AssetIcon::Plus.path()).small())
+                            .child("Add More Agents")
+                            .on_click(move |_, window, cx| {
+                                let _ = add_weak.update(cx, |this, cx| {
+                                    this.open_agent_registry(cx);
+                                });
+                                let _ =
+                                    add_dismiss.update(cx, |state, cx| state.dismiss(window, cx));
+                            })
+                            .into_any_element(),
+                    );
+                    div()
+                        .w(px(240.0))
+                        .flex()
+                        .flex_col()
+                        .gap(px(1.0))
+                        .children(rows)
+                        .into_any_element()
+                }),
+        )
         .child(
             Button::new("agent-panel-more-trigger")
                 .label("⋯")
@@ -393,6 +446,14 @@ pub(in crate::root_view) fn header(
                     }))
                 }),
         )
+        .into_any_element()
+}
+
+fn menu_separator(palette: theme::Palette) -> AnyElement {
+    div()
+        .h(px(1.0))
+        .w_full()
+        .bg(palette.line)
         .into_any_element()
 }
 

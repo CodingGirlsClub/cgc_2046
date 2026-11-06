@@ -569,6 +569,7 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         let title = self.agent_panel_title(cx);
+        self.agent_panel_title_original = Some(title.clone());
         let input = self.ensure_agent_panel_title_input(window, cx);
         input.update(cx, |state, cx| {
             state.set_value(title, window, cx);
@@ -589,6 +590,14 @@ impl RootView {
             return;
         };
         let raw = input.read(cx).value().trim().to_string();
+        let unchanged = self.agent_panel_title_original.as_deref() == Some(raw.as_str());
+        self.agent_panel_title_original = None;
+        if unchanged {
+            // 只是点进来又点走：退出编辑，不固化 override。
+            self.agent_panel_editing_title = false;
+            cx.notify();
+            return;
+        }
         let title = if raw.is_empty() { None } else { Some(raw) };
         if self.native_chat_mode && RootView::native_agent_enabled() {
             if let Some(view) = self.native_panel_view() {
@@ -629,6 +638,7 @@ impl RootView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.agent_panel_title_original = None;
         self.agent_panel_editing_title = false;
         cx.notify();
     }
