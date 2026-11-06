@@ -322,14 +322,16 @@ pub(in crate::root_view) fn render_chat_panel(
                         let copied = ctx.chat.copied_actions.as_deref() == Some(copy_key.as_str());
                         let actions = plan.map(|plan| {
                             render_chat_message_controls(
-                                "chat-controls",
-                                index,
-                                plan,
-                                agent_response.clone(),
-                                &view_weak,
-                                palette,
-                                copy_key.clone(),
-                                copied,
+                                MessageControlsSpec {
+                                    id_prefix: "chat-controls",
+                                    index,
+                                    plan,
+                                    copy_text: agent_response.clone(),
+                                    view: view_weak.clone(),
+                                    palette: *palette,
+                                    copy_key: copy_key.clone(),
+                                    copied,
+                                },
                                 cx,
                             )
                         });
@@ -541,17 +543,19 @@ pub(in crate::root_view) fn render_chat_panel(
                 let trailing_copied =
                     ctx.chat.copied_actions.as_deref() == Some(trailing_key.as_str());
                 rows.push(render_chat_message_controls(
-                    "chat-trailing-controls",
-                    plan.assistant_index,
-                    cgc_agent_ui::message_flow::ActionPlan {
-                        scroll_to_user: plan.scroll_to_user,
-                        scroll_to_top: true,
+                    MessageControlsSpec {
+                        id_prefix: "chat-trailing-controls",
+                        index: plan.assistant_index,
+                        plan: cgc_agent_ui::message_flow::ActionPlan {
+                            scroll_to_user: plan.scroll_to_user,
+                            scroll_to_top: true,
+                        },
+                        copy_text: row_view.turn_copy_text(plan.assistant_index),
+                        view: view_weak.clone(),
+                        palette: *palette,
+                        copy_key: trailing_key,
+                        copied: trailing_copied,
                     },
-                    row_view.turn_copy_text(plan.assistant_index),
-                    &view_weak,
-                    palette,
-                    trailing_key,
-                    trailing_copied,
                     cx,
                 ));
             }
@@ -1204,18 +1208,28 @@ pub(in crate::root_view) fn render_chat_panel(
 /// gating 与复制内容来自 `agent_ui::message_flow`，与 native 栈共用同一份实现；
 /// 这里只负责 ACP 面板的渲染与元素 id。`copy_text` 为 `None` 时不画 Copy，
 /// 避免出现点了没反应的按钮。
-#[allow(clippy::too_many_arguments)]
-fn render_chat_message_controls(
-    id_prefix: &str,
+struct MessageControlsSpec {
+    id_prefix: &'static str,
     index: usize,
     plan: cgc_agent_ui::message_flow::ActionPlan,
     copy_text: Option<String>,
-    view: &WeakEntity<RootView>,
-    palette: &theme::Palette,
+    view: WeakEntity<RootView>,
+    palette: theme::Palette,
     copy_key: String,
     copied: bool,
-    cx: &App,
-) -> AnyElement {
+}
+
+fn render_chat_message_controls(spec: MessageControlsSpec, cx: &App) -> AnyElement {
+    let MessageControlsSpec {
+        id_prefix,
+        index,
+        plan,
+        copy_text,
+        view,
+        palette,
+        copy_key,
+        copied,
+    } = spec;
     let mut callbacks = ActionCallbacks::default();
     if let Some(copy_text) = copy_text {
         let copy_view = view.clone();
@@ -1246,7 +1260,7 @@ fn render_chat_message_controls(
             user_id: SharedString::from(format!("{id_prefix}-user-{index}")),
             top_id: SharedString::from(format!("{id_prefix}-top-{index}")),
             glyphs: chat_action_glyphs(),
-            style: chat_action_style(palette),
+            style: chat_action_style(&palette),
             callbacks,
             copied,
         },
