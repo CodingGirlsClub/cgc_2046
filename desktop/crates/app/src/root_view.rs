@@ -1900,7 +1900,11 @@ impl RootView {
                     .with_size(KitSize::Small),
             )
             .ghost()
-            .with_size(KitSize::Size(px(26.0)))
+            .with_size(KitSize::Size(px(24.0)))
+            // 有 child 的 Button 只按 size 加水平内边距（24*0.2=4.8），
+            // 会把 24px 头像撑成 33.6×24 的胶囊；这里显式收回成 30×30。
+            .px(px(3.0))
+            .py(px(3.0))
             .rounded(px(RADIUS_SMALL))
             .accessibility_label(account_tooltip)
             .tooltip(account_tooltip)
