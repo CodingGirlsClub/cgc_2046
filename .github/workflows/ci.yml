@@ -516,6 +516,15 @@ jobs:
           python3 scripts/check_licenses.py
       - name: 测试
         run: cargo test --workspace
+      # UI 测试默认不编译：crates/app/build.rs 只在 CGC_UI_TESTS=1 时打开
+      # cfg(cgc_ui_tests)。启用 Kit test-support 依赖 Cargo.lock 对
+      # taffy/unicode-properties 的精确 pin（见 desktop/README.md「授权回归验证」）。
+      # 只在 macOS 跑：headless 窗口在 Linux/Windows runner 上尚未验证。
+      - name: UI 测试（Kit test-support）
+        if: runner.os == 'macOS'
+        env:
+          CGC_UI_TESTS: "1"
+        run: cargo test -p cgc-desktop-app --features gpui-kit/test-support --lib
       - name: 缓存 cargo-packager
         id: packager-cache
         # 打包只在合并后（push）跑：PR 阶段只做 lint + 测试，把 23 分钟的
