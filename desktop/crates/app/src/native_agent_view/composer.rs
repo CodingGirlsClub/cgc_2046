@@ -588,14 +588,14 @@ impl NativeAgentView {
                                     }))
                             }))
 
-                            .children(pickers.approval)
-                            .children(pickers.model)
-                            .children(pickers.thinking)
                             .children(
                                 (usage.is_some()
                                     && self.state.session.thread.capabilities.usage_available())
                                     .then_some(context_usage),
                             )
+                            .children(pickers.approval)
+                            .children(pickers.model)
+                            .children(pickers.thinking)
                             .child(cgc_agent_ui::composer::render_send_button(
                                 cgc_agent_ui::composer::SendButtonSpec {
                                     id: if busy {
