@@ -2,9 +2,11 @@
 # push 前本地门禁：backend 格式检查（与 CI backend job 的第一步相同）。
 # 目的：漏跑 mix format 的提交在本地就被拦下，不必等远端 CI 返工一轮。
 #
-# - 直接在仓库根执行 git push 时自动触发；也可手动 `bash .githooks/pre-push` 试用。
+# - 直接在仓库根执行 git push 时自动触发；也可手动 `bash scripts/githooks/pre-push` 试用。
 # - 只读检查（--check-formatted），不会改动文件；耗时通常 1-3 秒。
-# - mix 本身跑不起来（依赖未装等）时不阻塞推送——CI 仍会兜底，但会打印提醒。
+# - 只有 mix 明确报告格式 diff（`mix format failed due to --check-formatted`）才拦截；
+#   mix 本身跑不起来（依赖未装、mix 不在 PATH 等）时不阻塞推送——CI 仍会兜底，但会打印提醒。
+# - 分类依据是输出内容而不是退出码：依赖解析失败与格式 diff 都是 exit 1（#1241）。
 set -uo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
@@ -12,17 +14,35 @@ if [ -z "$REPO_ROOT" ] || [ ! -f "$REPO_ROOT/backend/mix.exs" ]; then
   exit 0  # 不含 backend 的推送目标无需此检查
 fi
 
-echo "[pre-push] backend mix format --check-formatted ..."
-if (cd "$REPO_ROOT/backend" && mix format --check-formatted); then
-  echo "[pre-push] format ok"
-  exit 0
-else
-  status=$?
-  if [ "$status" -eq 1 ]; then
-    echo "[pre-push] 格式检查未通过——在 backend/ 执行 'mix format' 后重新暂存再推送。" >&2
-    exit 1
-  fi
-  # 2+ = mix 自身故障（依赖缺失等）：不阻塞，CI 会兜底
-  echo "[pre-push] mix 运行异常（exit $status）——跳过本地检查，CI 仍会校验。" >&2
+# 快路径：.formatter.exs 的 import_deps 要读 backend/deps 里各依赖的 mix.exs，
+# 缺了必然解析失败。git worktree add 不带被 ignore 的 deps，新 worktree 都缺。
+if [ ! -d "$REPO_ROOT/backend/deps" ]; then
+  echo "[pre-push] backend/deps 不存在——跳过本地格式检查，CI 仍会校验。" >&2
+  echo "[pre-push] 先跑 scripts/worktree/setup-worktree.sh（或 cd backend && mix deps.get）。" >&2
   exit 0
 fi
+
+echo "[pre-push] backend mix format --check-formatted ..."
+output="$(cd "$REPO_ROOT/backend" && mix format --check-formatted 2>&1)"
+status=$?
+
+if [ "$status" -eq 0 ]; then
+  echo "[pre-push] format ok"
+  exit 0
+fi
+
+if printf '%s\n' "$output" | grep -qF 'mix format failed due to --check-formatted'; then
+  printf '%s\n' "$output" >&2
+  echo "[pre-push] 格式检查未通过——在 backend/ 执行 'mix format' 后重新暂存再推送。" >&2
+  exit 1
+fi
+
+# 其余非零退出 = mix 自身故障：不阻塞，CI 会兜底。
+printf '%s\n' "$output" >&2
+if printf '%s\n' "$output" | grep -qE 'Unknown dependency|mix deps\.get|Could not find dependency'; then
+  echo "[pre-push] 依赖未装齐（exit $status）——跳过本地检查，CI 仍会校验。" >&2
+  echo "[pre-push] 在 backend/ 执行 'mix deps.get'；新 worktree 请跑 scripts/worktree/setup-worktree.sh。" >&2
+else
+  echo "[pre-push] mix 运行异常（exit $status）——跳过本地检查，CI 仍会校验。" >&2
+fi
+exit 0
