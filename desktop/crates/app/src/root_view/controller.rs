@@ -1053,6 +1053,16 @@ impl RootView {
         .detach();
     }
 
+    /// 失败态的重试入口（概览页 / 工作台切换器）：复位为 Idle 后重新拉列表。
+    ///
+    /// `start_workspace_load` 只在 `Idle` 时被自动触发，失败后不会自愈，
+    /// 因此必须有一个显式入口把状态机推回加载（issue #1238）。
+    pub(in crate::root_view) fn retry_workspace_load(&mut self, cx: &mut Context<Self>) {
+        self.workspaces.retry_ready();
+        self.start_workspace_load(cx);
+        cx.notify();
+    }
+
     pub(in crate::root_view) fn switch_workspace(
         &mut self,
         workspace_id: &str,

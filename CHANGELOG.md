@@ -18,6 +18,8 @@ develop→main 发布时把该段改名为 `## [发布日期]` 并重新立一�
 commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `miniprogram`）。
 ## [Unreleased]
 
+### Fixed
+- [Desktop] 后台不可达时概览页不再永远停在「加载中…」：工作台列表失败渲染失败态（原因 + 重试），工作台切换器补重试入口；GraphQL 与 MCP 授权失败落 `app.log`（operation + 端点 + 错误类别，不含凭证）；平台工具横幅按「后台不可达 / 凭据不可用 / 凭据额度满」分流文案（#1238）。
 
 ## [2026-11-05]
 

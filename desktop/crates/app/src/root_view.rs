@@ -1876,11 +1876,26 @@ impl RootView {
                 render_loading_state(language, Key::AppWorkspaceLoading, palette).into_any_element()
             }
             WorkspaceListState::Failed(_) => div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(space(1))
                 .px(space(1))
                 .py(px(4.0))
                 .text_size(px(12.0))
                 .text_color(palette.danger)
                 .child(translate(language, Key::AppWorkspaceError))
+                .child(
+                    div()
+                        .id("workspace-menu-retry")
+                        .px(space(1))
+                        .py(px(2.0))
+                        .rounded(px(RADIUS_SMALL))
+                        .bg(palette.soft)
+                        .text_color(palette.ink_2)
+                        .child(translate(language, Key::AppWorkspaceRetry))
+                        .on_click(cx.listener(|this, _, _, cx| this.retry_workspace_load(cx))),
+                )
                 .into_any_element(),
             WorkspaceListState::Empty => div()
                 .px(space(1))
