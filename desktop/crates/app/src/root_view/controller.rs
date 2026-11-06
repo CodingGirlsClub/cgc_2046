@@ -361,32 +361,45 @@ impl RootView {
             .store(enabled, std::sync::atomic::Ordering::Relaxed);
     }
 
+    /// 主窗口关闭策略：关到托盘开启时隐藏窗口（首次给一次提示），否则落盘后退出。
+    ///
+    /// 系统关闭（`on_window_should_close`）与 Linux 自绘标题栏的关闭按钮共用这一条路径：
+    /// gpui-kit 的关闭按钮默认直接 `window.remove_window()`，会绕过 flush 与 `cx.quit()`，
+    /// 关托盘关闭时留下无窗口的后台进程。
+    pub(in crate::root_view) fn handle_main_window_close(&mut self, cx: &mut Context<Self>) {
+        if !self
+            .close_to_tray
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            // 退出前把已接受的写入落盘：后台 writer 不确认就等于可能丢最后一批。
+            self.flush_store_writer();
+            cx.quit();
+            return;
+        }
+        if !self
+            .tray_hint_shown
+            .swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            let language = self.language;
+            let app_name = translate(language, Key::AppName).to_string();
+            let hint_body = translate(language, Key::AppTrayFirstClose).to_string();
+            cx.show_system_notification(SystemNotification {
+                tag: "tray-first-close".into(),
+                title: app_name.into(),
+                body: hint_body.into(),
+                actions: Vec::new(),
+            });
+            crate::preferences::update(|preferences| preferences.tray_hint_shown = true);
+        }
+    }
+
     /// 主窗口生命周期：记录句柄、拦截关闭、跟踪系统外观。
     pub fn install_main_window_lifecycle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.window_handle = Some(window.window_handle());
         self.window_opening = false;
-        let close_to_tray = self.close_to_tray.clone();
-        let tray_hint_shown = self.tray_hint_shown.clone();
-        let flush_root = cx.entity().downgrade();
-        let language = self.language;
-        let app_name = translate(language, Key::AppName).to_string();
-        let hint_body = translate(language, Key::AppTrayFirstClose).to_string();
+        let root = cx.entity().downgrade();
         window.on_window_should_close(cx, move |_window, cx| {
-            if !close_to_tray.load(std::sync::atomic::Ordering::Relaxed) {
-                // 退出前把已接受的写入落盘：后台 writer 不确认就等于可能丢最后一批。
-                let _ = flush_root.update(cx, |this, _| this.flush_store_writer());
-                cx.quit();
-                return true;
-            }
-            if !tray_hint_shown.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                cx.show_system_notification(SystemNotification {
-                    tag: "tray-first-close".into(),
-                    title: app_name.clone().into(),
-                    body: hint_body.clone().into(),
-                    actions: Vec::new(),
-                });
-                crate::preferences::update(|preferences| preferences.tray_hint_shown = true);
-            }
+            let _ = root.update(cx, |this, cx| this.handle_main_window_close(cx));
             true
         });
         let observer = cx.entity().downgrade();
@@ -2601,20 +2614,19 @@ impl RootView {
         let options = WindowOptions {
             titlebar: Some(TitlebarOptions {
                 title: Some(title.into()),
-                appears_transparent: true,
-                traffic_light_position: Some(point(px(12.0), px(12.0))),
+                traffic_light_position: Some(point(px(TRAFFIC_LIGHT_X), px(TRAFFIC_LIGHT_Y))),
+                ..TitleBar::title_bar_options()
             }),
             focus: true,
             show: true,
             is_movable: true,
-            app_owns_titlebar_drag: cfg!(target_os = "macos"),
             window_decorations: Some(WindowDecorations::Client),
             window_min_size: Some(Size {
                 width: px(480.0),
                 height: px(360.0),
             }),
             window_bounds: Some(bounds),
-            ..Default::default()
+            ..TitleBar::window_options()
         };
         let native_runtime = self.native_runtime.clone();
         let root = cx.entity().downgrade();
