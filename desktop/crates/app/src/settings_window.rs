@@ -12,6 +12,7 @@ use cgc_agent_provider::{
     validate_credentials, ProviderError, ProviderErrorCategory, ProviderProtocol, ThinkingMode,
 };
 use cgc_agent_store::{builtin_providers, normalized_provider_name, ProviderPrefs};
+use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::group_box::GroupBoxVariant;
 use gpui_kit::component::input::{Input, InputState, TextareaState};
@@ -20,6 +21,7 @@ use gpui_kit::component::setting::{
 };
 use gpui_kit::component::Sizable;
 use gpui_kit::component::TitleBar;
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::InteractiveElement;
 use gpui_kit::*;
 
@@ -1071,21 +1073,11 @@ impl SettingsWindowView {
                             translate(language, Key::AppSettingsResetWorkspaceLayoutHint),
                         ))
                         .child(
-                            div()
-                                .id("settings-reset-workspace-layout")
-                                .role(Role::Button)
-                                .aria_label(translate(
-                                    language,
-                                    Key::AppSettingsResetWorkspaceLayout,
-                                ))
-                                .px(space(2))
-                                .py(px(4.0))
-                                .rounded(px(RADIUS_MEDIUM))
-                                .border_1()
-                                .border_color(if armed { palette.danger } else { palette.line })
-                                .text_size(px(12.0))
-                                .text_color(if armed { palette.danger } else { palette.ink_2 })
-                                .child(translate(
+                            Button::new("settings-reset-workspace-layout")
+                                .outline()
+                                .small()
+                                .when(armed, |button| button.danger())
+                                .label(translate(
                                     language,
                                     if armed {
                                         Key::AppSettingsResetWorkspaceLayoutArmed
@@ -1698,7 +1690,7 @@ fn save_display_width(
 ) -> impl Fn(f64, &mut App) + 'static {
     move |value: f64, cx: &mut App| {
         preferences::update(|prefs| update(prefs, value));
-        let _ = root.update(cx, |view, cx| view.apply_default_widths_if_unrecorded(cx));
+        let _ = root.update(cx, |view, cx| view.apply_default_panel_widths(cx));
     }
 }
 

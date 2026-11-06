@@ -6,6 +6,10 @@ use cgc_platform::notifications::NotificationsApi as _;
 use cgc_platform::registry::install::install_entry;
 use state::{PaneTab, SiteTreeSection};
 
+#[cfg(all(test, cgc_ui_tests))]
+#[path = "workspace_layout_tests.rs"]
+mod workspace_layout_tests;
+
 /// 登录标识是否是邮箱。客户端只支持邮箱登录，这里做最小形状校验：
 /// 本地部分非空、域部分含点且不以点开头/结尾（真正的校验在服务端）。
 fn looks_like_email(value: &str) -> bool {
@@ -2586,14 +2590,20 @@ impl RootView {
     }
 
     fn open_settings_window_inner(&mut self, open_llm_providers: bool, cx: &mut Context<Self>) {
-        if let Some(existing) = cx
-            .windows()
-            .into_iter()
-            .find_map(|window| window.downcast::<SettingsWindowView>())
-        {
-            let _ = existing.update(cx, |view, window, cx| {
+        if let Some((existing, view)) = cx.windows().into_iter().find_map(|window| {
+            let root = window.downcast::<gpui_kit::base::Root>()?;
+            let view = root
+                .read(cx)
+                .ok()?
+                .view()
+                .clone()
+                .downcast::<SettingsWindowView>()
+                .ok()?;
+            Some((window, view))
+        }) {
+            let _ = existing.update(cx, |_, window, cx| {
                 if open_llm_providers {
-                    view.open_llm_providers(cx);
+                    view.update(cx, |view, cx| view.open_llm_providers(cx));
                 }
                 window.activate_window();
             });
@@ -2638,7 +2648,7 @@ impl RootView {
         };
         let native_runtime = self.native_runtime.clone();
         let root = cx.entity().downgrade();
-        cx.open_window(options, move |window, cx| {
+        gpui_kit::open_window(options, cx, move |window, cx| {
             let view = cx.new(|cx| {
                 SettingsWindowView::new(
                     language,
@@ -2771,6 +2781,7 @@ impl RootView {
 
     pub(in crate::root_view) fn toggle_agent_panel(&mut self, cx: &mut Context<Self>) {
         self.agent_panel_open = !self.agent_panel_open;
+        self.workspace_layout_overridden = true;
         if self.agent_panel_open
             && !self.native_chat_mode
             && matches!(self.chat.session.phase, ConnectionPhase::Idle)
@@ -2894,16 +2905,22 @@ impl RootView {
             site_tree_events_open: self.site_tree_events_open,
             site_tree_courses_open: self.site_tree_courses_open,
             site_tree_query: self.site_tree_query.clone(),
-            right_panel_width: self.right_panel_width,
-            agent_panel_width: self.agent_panel_width,
             site_tree_course_open: self.site_tree_course_open.clone(),
-            site_tree_scroll_y: self.site_tree_scroll.offset().y.as_f32(),
-            agent_panel_open: self.agent_panel_open,
-            right_panel_open: self.panel_memory.open,
-            right_panel: match self.panel_memory.panel {
-                RightPanel::Outline => crate::workspace_state::PersistedRightPanel::Outline,
-                _ => crate::workspace_state::PersistedRightPanel::SiteTree,
-            },
+            site_tree_scroll_y: self
+                .site_tree_scroll_restore
+                .unwrap_or_else(|| self.site_tree_scroll.offset().y.as_f32()),
+            layout: self.workspace_layout_overridden.then_some(
+                crate::workspace_state::PanelLayout {
+                    right_panel_width: self.right_panel_width,
+                    agent_panel_width: self.agent_panel_width,
+                    agent_panel_open: self.agent_panel_open,
+                    right_panel_open: self.panel_memory.open,
+                    right_panel: match self.panel_memory.panel {
+                        RightPanel::Outline => crate::workspace_state::PersistedRightPanel::Outline,
+                        _ => crate::workspace_state::PersistedRightPanel::SiteTree,
+                    },
+                },
+            ),
         };
         crate::workspace_state::save_entry(workspace_id, entry);
     }
@@ -2928,6 +2945,8 @@ impl RootView {
         self.agent_panel_side = preferences.agent_panel_side;
         self.dock_side = preferences.dock_side;
         self.display_preferences = preferences.clone();
+        self.workspace_layout_overridden = false;
+        self.resize_drag = None;
     }
 
     /// 设置页动作：当前工作台的布局恢复为 Panels 默认值，保留已打开的标签。
@@ -2939,12 +2958,8 @@ impl RootView {
         let Some(workspace_id) = self.workspaces.current_id().map(str::to_string) else {
             return false;
         };
-        let recorded = crate::workspace_state::entry(&workspace_id).is_some();
         self.apply_panel_defaults(&crate::preferences::load());
-        if recorded {
-            // 覆盖记录里的布局字段；tabs 取自内存，因此标签保留。
-            self.persist_workspace_state(&workspace_id);
-        }
+        self.persist_workspace_state(&workspace_id);
         cx.notify();
         true
     }
@@ -2953,27 +2968,29 @@ impl RootView {
         let Some(workspace_id) = self.workspaces.current_id().map(str::to_string) else {
             return;
         };
+        self.apply_panel_defaults(&crate::preferences::load());
         let Some(entry) = crate::workspace_state::entry(&workspace_id) else {
-            // 新工作台：Panels 默认值只在这里与显式重置时生效。
-            self.apply_panel_defaults(&crate::preferences::load());
             cx.notify();
             return;
         };
-        self.agent_panel_open = entry.agent_panel_open;
-        self.right_panel_open = entry.right_panel_open;
-        self.right_panel = match entry.right_panel {
-            crate::workspace_state::PersistedRightPanel::Outline => RightPanel::Outline,
-            crate::workspace_state::PersistedRightPanel::SiteTree => RightPanel::SiteTree,
-        };
-        self.panel_memory = state::PanelMemory {
-            panel: self.right_panel,
-            open: entry.right_panel_open,
-        };
+        if let Some(layout) = entry.layout {
+            self.workspace_layout_overridden = true;
+            self.agent_panel_open = layout.agent_panel_open;
+            self.right_panel_open = layout.right_panel_open;
+            self.right_panel = match layout.right_panel {
+                crate::workspace_state::PersistedRightPanel::Outline => RightPanel::Outline,
+                crate::workspace_state::PersistedRightPanel::SiteTree => RightPanel::SiteTree,
+            };
+            self.panel_memory = state::PanelMemory {
+                panel: self.right_panel,
+                open: layout.right_panel_open,
+            };
+            self.right_panel_width = layout.right_panel_width;
+            self.agent_panel_width = layout.agent_panel_width;
+        }
         self.site_tree_events_open = entry.site_tree_events_open;
         self.site_tree_courses_open = entry.site_tree_courses_open;
         self.site_tree_query = entry.site_tree_query;
-        self.right_panel_width = entry.right_panel_width;
-        self.agent_panel_width = entry.agent_panel_width;
         self.site_tree_course_open = entry.site_tree_course_open;
         self.site_tree_scroll = ScrollHandle::new();
         self.site_tree_scroll_restore = Some(entry.site_tree_scroll_y);
@@ -3117,6 +3134,7 @@ impl RootView {
         self.right_panel_open = open;
         // 通知面板是临时入口，不写入记忆。
         if !matches!(panel, RightPanel::Notifications) {
+            self.workspace_layout_overridden = true;
             self.panel_memory = state::PanelMemory { panel, open };
             self.persist_current_workspace_state();
         }
@@ -3128,16 +3146,21 @@ impl RootView {
         let preferences = crate::preferences::load();
         self.agent_panel_side = preferences.agent_panel_side;
         self.dock_side = preferences.dock_side;
+        if !self.workspace_layout_overridden
+            && preferences.dock_starts_open != self.display_preferences.dock_starts_open
+        {
+            self.panel_memory.open = preferences.dock_starts_open;
+            if self.right_panel != RightPanel::Notifications {
+                self.right_panel_open = preferences.dock_starts_open;
+            }
+        }
         self.display_preferences = preferences;
         cx.notify();
     }
 
-    /// 只对没有记录的 workspace 应用默认宽度；已有记忆的尺寸保持不变。
-    pub(crate) fn apply_default_widths_if_unrecorded(&mut self, cx: &mut Context<Self>) {
-        let Some(workspace_id) = self.workspaces.current_id() else {
-            return;
-        };
-        if crate::workspace_state::entry(workspace_id).is_some() {
+    /// 无布局覆盖时应用默认宽度；导航记录不影响继承 Panels 偏好。
+    pub(crate) fn apply_default_panel_widths(&mut self, cx: &mut Context<Self>) {
+        if self.workspaces.current_id().is_none() || self.workspace_layout_overridden {
             return;
         }
         let preferences = crate::preferences::load();

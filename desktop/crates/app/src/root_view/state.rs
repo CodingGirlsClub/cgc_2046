@@ -190,6 +190,8 @@ pub struct ShellState {
     pub(in crate::root_view) panel_memory: PanelMemory,
     pub(in crate::root_view) right_panel_width: f32,
     pub(in crate::root_view) agent_panel_width: f32,
+    /// 只有显式拖宽或开合面板才创建覆盖；导航保存保留默认继承。
+    pub(in crate::root_view) workspace_layout_overridden: bool,
     /// 面板停靠侧；右键菜单 Dock Left / Dock Right 修改。
     pub(in crate::root_view) agent_panel_side: crate::preferences::PanelSide,
     pub(in crate::root_view) dock_side: crate::preferences::PanelSide,
@@ -347,6 +349,7 @@ impl ShellState {
             panel_memory: PanelMemory::default(),
             right_panel_width: layout_preferences.dock_width as f32,
             agent_panel_width: layout_preferences.agent_panel_width as f32,
+            workspace_layout_overridden: false,
             agent_panel_side: layout_preferences.agent_panel_side,
             dock_side: layout_preferences.dock_side,
             display_preferences: layout_preferences,

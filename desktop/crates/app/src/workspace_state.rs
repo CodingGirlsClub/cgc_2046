@@ -13,22 +13,25 @@ pub(crate) struct WorkspaceState {
     pub(crate) workspaces: BTreeMap<String, WorkspaceEntry>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct WorkspaceEntry {
     pub(crate) tabs: Vec<PersistedTab>,
     pub(crate) active_tab: Option<String>,
     pub(crate) site_tree_events_open: bool,
     pub(crate) site_tree_courses_open: bool,
     pub(crate) site_tree_query: String,
-    pub(crate) right_panel_width: f32,
-    pub(crate) agent_panel_width: f32,
     pub(crate) site_tree_course_open: Option<String>,
     pub(crate) site_tree_scroll_y: f32,
-    /// 左 Agent 面板是否展开（记忆；优先于 Panels 的 Starts Open）。
+    /// None 表示布局没有工作台覆盖，使用 Panels 偏好；导航仍独立保存。
+    pub(crate) layout: Option<PanelLayout>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct PanelLayout {
+    pub(crate) right_panel_width: f32,
+    pub(crate) agent_panel_width: f32,
     pub(crate) agent_panel_open: bool,
-    /// 右侧 Dock 是否展开。
     pub(crate) right_panel_open: bool,
-    /// 右侧 Dock 当前 panel；通知不写入。
     pub(crate) right_panel: PersistedRightPanel,
 }
 
@@ -56,25 +59,6 @@ impl PersistedRightPanel {
     }
 }
 
-impl Default for WorkspaceEntry {
-    fn default() -> Self {
-        Self {
-            tabs: Vec::new(),
-            active_tab: None,
-            site_tree_events_open: false,
-            site_tree_courses_open: false,
-            site_tree_query: String::new(),
-            right_panel_width: 288.0,
-            agent_panel_width: 380.0,
-            site_tree_course_open: None,
-            site_tree_scroll_y: 0.0,
-            agent_panel_open: true,
-            right_panel_open: true,
-            right_panel: PersistedRightPanel::default(),
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PersistedTab {
     pub(crate) id: String,
@@ -88,6 +72,44 @@ fn state_path() -> PathBuf {
         return path.into();
     }
     cgc_platform::paths::AppPaths::from_env().workspace_state_file()
+}
+
+fn parse_layout(entry: &Value) -> Option<PanelLayout> {
+    let fields = [
+        "right_panel_width",
+        "agent_panel_width",
+        "agent_panel_open",
+        "right_panel_open",
+        "right_panel",
+    ];
+    if fields.iter().all(|field| entry.get(field).is_none()) {
+        return None;
+    }
+    Some(PanelLayout {
+        right_panel_width: entry
+            .get("right_panel_width")
+            .and_then(Value::as_f64)
+            .map(|width| width as f32)
+            .unwrap_or(288.0)
+            .clamp(200.0, 480.0),
+        agent_panel_width: entry
+            .get("agent_panel_width")
+            .and_then(Value::as_f64)
+            .map(|width| width as f32)
+            .unwrap_or(380.0)
+            .clamp(240.0, 560.0),
+        agent_panel_open: entry
+            .get("agent_panel_open")
+            .and_then(Value::as_bool)
+            .unwrap_or(true),
+        right_panel_open: entry
+            .get("right_panel_open")
+            .and_then(Value::as_bool)
+            .unwrap_or(true),
+        right_panel: PersistedRightPanel::from_value(
+            entry.get("right_panel").and_then(Value::as_str),
+        ),
+    })
 }
 
 pub(crate) fn load() -> WorkspaceState {
@@ -128,18 +150,6 @@ pub(crate) fn load() -> WorkspaceState {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string(),
-                right_panel_width: entry
-                    .get("right_panel_width")
-                    .and_then(Value::as_f64)
-                    .map(|width| width as f32)
-                    .unwrap_or(288.0)
-                    .clamp(200.0, 480.0),
-                agent_panel_width: entry
-                    .get("agent_panel_width")
-                    .and_then(Value::as_f64)
-                    .map(|width| width as f32)
-                    .unwrap_or(380.0)
-                    .clamp(240.0, 560.0),
                 site_tree_course_open: entry
                     .get("site_tree_course_open")
                     .and_then(Value::as_str)
@@ -148,17 +158,7 @@ pub(crate) fn load() -> WorkspaceState {
                     .get("site_tree_scroll_y")
                     .and_then(Value::as_f64)
                     .unwrap_or(0.0) as f32,
-                agent_panel_open: entry
-                    .get("agent_panel_open")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(true),
-                right_panel_open: entry
-                    .get("right_panel_open")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(true),
-                right_panel: PersistedRightPanel::from_value(
-                    entry.get("right_panel").and_then(Value::as_str),
-                ),
+                layout: parse_layout(entry),
             },
         );
     }
@@ -186,23 +186,24 @@ pub(crate) fn save(state: &WorkspaceState) {
                     })
                 })
                 .collect::<Vec<_>>();
-            (
-                workspace_id.clone(),
-                json!({
-                    "tabs": tabs,
-                    "active_tab": entry.active_tab,
-                    "site_tree_events_open": entry.site_tree_events_open,
-                    "site_tree_courses_open": entry.site_tree_courses_open,
-                    "site_tree_query": entry.site_tree_query,
-                    "right_panel_width": entry.right_panel_width,
-                    "agent_panel_width": entry.agent_panel_width,
-                    "site_tree_course_open": entry.site_tree_course_open,
-                    "site_tree_scroll_y": entry.site_tree_scroll_y,
-                    "agent_panel_open": entry.agent_panel_open,
-                    "right_panel_open": entry.right_panel_open,
-                    "right_panel": entry.right_panel.as_str(),
-                }),
-            )
+            let mut value = json!({
+                "tabs": tabs,
+                "active_tab": entry.active_tab,
+                "site_tree_events_open": entry.site_tree_events_open,
+                "site_tree_courses_open": entry.site_tree_courses_open,
+                "site_tree_query": entry.site_tree_query,
+                "site_tree_course_open": entry.site_tree_course_open,
+                "site_tree_scroll_y": entry.site_tree_scroll_y,
+            });
+            if let Some(layout) = &entry.layout {
+                let fields = value.as_object_mut().expect("workspace entry object");
+                fields.insert("right_panel_width".into(), json!(layout.right_panel_width));
+                fields.insert("agent_panel_width".into(), json!(layout.agent_panel_width));
+                fields.insert("agent_panel_open".into(), json!(layout.agent_panel_open));
+                fields.insert("right_panel_open".into(), json!(layout.right_panel_open));
+                fields.insert("right_panel".into(), json!(layout.right_panel.as_str()));
+            }
+            (workspace_id.clone(), value)
         })
         .collect::<serde_json::Map<_, _>>();
     let raw = serde_json::to_string_pretty(&json!({ "workspaces": workspaces }))
@@ -258,13 +259,15 @@ mod tests {
             site_tree_events_open: false,
             site_tree_courses_open: true,
             site_tree_query: "hitl".to_string(),
-            right_panel_width: 320.0,
-            agent_panel_width: 360.0,
             site_tree_course_open: Some("crs-002".to_string()),
             site_tree_scroll_y: 42.0,
-            agent_panel_open: false,
-            right_panel_open: true,
-            right_panel: PersistedRightPanel::Outline,
+            layout: Some(PanelLayout {
+                right_panel_width: 320.0,
+                agent_panel_width: 360.0,
+                agent_panel_open: false,
+                right_panel_open: true,
+                right_panel: PersistedRightPanel::Outline,
+            }),
         };
         save_entry("ws-1", entry.clone());
         assert_eq!(super::entry("ws-1"), Some(entry));

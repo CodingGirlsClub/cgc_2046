@@ -2623,6 +2623,7 @@ fn render_panel_resize_handle(
                         this.right_panel_width = (start_width + delta).clamp(dock_min, max)
                     }
                 }
+                this.workspace_layout_overridden = true;
                 cx.spawn(async move |this, cx| {
                     cx.background_executor()
                         .timer(std::time::Duration::from_millis(250))
