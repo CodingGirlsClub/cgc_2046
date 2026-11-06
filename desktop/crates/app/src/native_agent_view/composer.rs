@@ -225,12 +225,10 @@ impl NativeAgentView {
             )
             .content(move |_, _, _| {
                 let mut card = div()
-                    .w(px(200.0))
-                    .p(space(1))
-                    .rounded(px(RADIUS_MEDIUM))
-                    .border_1()
-                    .border_color(palette.line)
-                    .bg(palette.card)
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.0))
+                    .min_w(px(160.0))
                     .child(
                         div()
                             .text_size(px(10.0))
