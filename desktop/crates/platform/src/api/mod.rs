@@ -77,7 +77,7 @@ pub fn apply_workspace_scope(variables: &mut Value, scope: Option<&WorkspaceScop
 ///
 /// 只用于日志定位，不做完整解析：跳过前导空白，读 `query|mutation|subscription`
 /// 之后的标识符，遇到空白/`(`/`{` 即止。
-pub fn operation_name(document: &str) -> &str {
+fn operation_name(document: &str) -> &str {
     let trimmed = document.trim_start();
     let Some((kind, rest)) =
         trimmed.split_once(|ch: char| ch.is_whitespace() || ch == '(' || ch == '{')
