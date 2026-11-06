@@ -2908,22 +2908,54 @@ impl RootView {
         crate::workspace_state::save_entry(workspace_id, entry);
     }
 
+    /// 套用 Panels 默认值：只改面板布局，不碰标签与站点树等导航记忆。
+    ///
+    /// 新工作台与设置页「重置当前工作台布局」共用。重置回到「无覆盖」语义，
+    /// 与 Zed 的 `PanelSizeState::default()` 同构：不把当前像素写死成新的默认。
+    pub(in crate::root_view) fn apply_panel_defaults(
+        &mut self,
+        preferences: &crate::preferences::Preferences,
+    ) {
+        self.agent_panel_open = true;
+        self.right_panel_open = preferences.dock_starts_open;
+        self.right_panel = RightPanel::SiteTree;
+        self.panel_memory = state::PanelMemory {
+            panel: RightPanel::SiteTree,
+            open: preferences.dock_starts_open,
+        };
+        self.right_panel_width = preferences.dock_width as f32;
+        self.agent_panel_width = preferences.agent_panel_width as f32;
+        self.agent_panel_side = preferences.agent_panel_side;
+        self.dock_side = preferences.dock_side;
+        self.display_preferences = preferences.clone();
+    }
+
+    /// 设置页动作：当前工作台的布局恢复为 Panels 默认值，保留已打开的标签。
+    ///
+    /// 只重置布局字段；标签、当前标签、站点树展开/搜索/滚动属于导航记忆，
+    /// 与 Zed 的 `ResetActiveDockSize` 一样不动。没有当前工作台时返回 `false`，
+    /// 由调用方提示先选工作台。
+    pub(crate) fn reset_workspace_layout(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(workspace_id) = self.workspaces.current_id().map(str::to_string) else {
+            return false;
+        };
+        let recorded = crate::workspace_state::entry(&workspace_id).is_some();
+        self.apply_panel_defaults(&crate::preferences::load());
+        if recorded {
+            // 覆盖记录里的布局字段；tabs 取自内存，因此标签保留。
+            self.persist_workspace_state(&workspace_id);
+        }
+        cx.notify();
+        true
+    }
+
     fn restore_workspace_state(&mut self, cx: &mut Context<Self>) {
         let Some(workspace_id) = self.workspaces.current_id().map(str::to_string) else {
             return;
         };
         let Some(entry) = crate::workspace_state::entry(&workspace_id) else {
-            // 新工作台：Starts Open 与偏好宽度只在这里生效。
-            let preferences = crate::preferences::load();
-            self.agent_panel_open = true;
-            self.right_panel_open = preferences.dock_starts_open;
-            self.right_panel = RightPanel::SiteTree;
-            self.panel_memory = state::PanelMemory {
-                panel: RightPanel::SiteTree,
-                open: preferences.dock_starts_open,
-            };
-            self.right_panel_width = preferences.dock_width as f32;
-            self.agent_panel_width = preferences.agent_panel_width as f32;
+            // 新工作台：Panels 默认值只在这里与显式重置时生效。
+            self.apply_panel_defaults(&crate::preferences::load());
             cx.notify();
             return;
         };
