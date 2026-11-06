@@ -62,11 +62,15 @@ pub(in crate::root_view) fn agent_icon_element(
         // 画布中心 64 → 偏下 13/128。按显示尺寸等比上移，logo 才与标题居中
         // （16px 时约 −1.63pt）。不要改成 brand badge：那张是火苗 + 字标的
         // 竖版 lockup，16px 下字标会糊。
+        //
+        // 必须用相对定位而不是负 margin：`items_center` 居中的是 margin box，
+        // 负 top margin 会把盒子高度也改小，实际位移只有一半。
         AgentIconKind::Native => img(app_icon())
             .w(px(size))
             .h(px(size))
             .flex_none()
-            .mt(px(-size * 13.0 / 128.0))
+            .relative()
+            .top(px(-size * 13.0 / 128.0))
             .into_any_element(),
         AgentIconKind::Codex => svg_icon(CODEX_SVG, size, color),
         AgentIconKind::Claude => svg_icon(CLAUDE_SVG, size, color),
