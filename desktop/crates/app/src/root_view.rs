@@ -88,6 +88,8 @@ mod state;
 #[cfg(all(test, cgc_ui_tests))]
 mod footer_tests;
 #[cfg(all(test, cgc_ui_tests))]
+mod panel_memory_tests;
+#[cfg(all(test, cgc_ui_tests))]
 mod titlebar_tests;
 
 use state::{AgentRegistryFilter, RightPanel, ShellState, SiteTreeSection};
