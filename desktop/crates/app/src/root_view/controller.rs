@@ -2601,20 +2601,18 @@ impl RootView {
         let options = WindowOptions {
             titlebar: Some(TitlebarOptions {
                 title: Some(title.into()),
-                appears_transparent: true,
-                traffic_light_position: Some(point(px(12.0), px(12.0))),
+                ..TitleBar::title_bar_options()
             }),
             focus: true,
             show: true,
             is_movable: true,
-            app_owns_titlebar_drag: cfg!(target_os = "macos"),
             window_decorations: Some(WindowDecorations::Client),
             window_min_size: Some(Size {
                 width: px(480.0),
                 height: px(360.0),
             }),
             window_bounds: Some(bounds),
-            ..Default::default()
+            ..TitleBar::window_options()
         };
         let native_runtime = self.native_runtime.clone();
         let root = cx.entity().downgrade();

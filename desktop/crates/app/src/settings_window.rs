@@ -19,6 +19,7 @@ use gpui_kit::component::setting::{
     NumberFieldOptions, SelectIndex, SettingField, SettingGroup, SettingItem, SettingPage, Settings,
 };
 use gpui_kit::component::Sizable;
+use gpui_kit::component::TitleBar;
 use gpui_kit::InteractiveElement;
 use gpui_kit::*;
 
@@ -2484,10 +2485,7 @@ impl Render for SettingsWindowView {
                 },
             ))
             .child(
-                div()
-                    .id("settings-titlebar")
-                    .flex()
-                    .items_center()
+                TitleBar::new()
                     .h(px(44.0))
                     .pl(if cfg!(target_os = "macos") {
                         px(84.0)
@@ -2499,9 +2497,6 @@ impl Render for SettingsWindowView {
                     .bg(palette.frame)
                     .border_b_1()
                     .border_color(palette.line)
-                    .on_mouse_down(MouseButton::Left, |_, window, _| {
-                        window.start_window_move();
-                    })
                     .child(
                         div()
                             .text_size(px(14.0))

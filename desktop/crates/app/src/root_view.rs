@@ -64,7 +64,7 @@ use gpui_kit::component::{
     status_bar::StatusBar,
     tag::Tag,
     tooltip::Tooltip,
-    Icon, Sizable as _, Size as KitSize,
+    Icon, Sizable as _, Size as KitSize, TitleBar,
 };
 
 use crate::i18n::{default_language, translate, translate_registered, Key, Language};
@@ -929,6 +929,17 @@ impl Render for RootView {
                 .track_focus(&key_focus)
                 .on_key_down(cx.listener(Self::handle_key))
                 .child(
+                    TitleBar::new()
+                        .h(px(TITLEBAR_HEIGHT))
+                        .pl(if cfg!(target_os = "macos") {
+                            px(84.0)
+                        } else {
+                            space(3)
+                        })
+                        .bg(palette.canvas)
+                        .border_color(palette.canvas),
+                )
+                .child(
                     div()
                         .flex_1()
                         .w_full()
@@ -965,10 +976,7 @@ impl Render for RootView {
                     }),
                 )
                 .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
+                    TitleBar::new()
                         .h(px(TITLEBAR_HEIGHT))
                         .pl(if cfg!(target_os = "macos") {
                             px(84.0)
@@ -982,14 +990,11 @@ impl Render for RootView {
                         .border_color(palette.line)
                         .child(
                             div()
-                                .id("titlebar-drag")
+                                .id("titlebar-brand")
                                 .flex()
                                 .items_center()
                                 .h_full()
                                 .pr(space(2))
-                                .on_mouse_down(MouseButton::Left, |_, window, _| {
-                                    window.start_window_move();
-                                })
                                 .children(self.display_preferences.title_bar_brand.then(|| {
                                     div()
                                         .flex()
@@ -2537,21 +2542,19 @@ fn enroll_error_label(language: Language, suffix: &str) -> &'static str {
 }
 
 pub fn main_window_options() -> WindowOptions {
+    // 透明 titlebar + 自绘 header：红绿灯位置由 gpui 负责，拖动/双击由
+    // `TitleBar` 组件自己处理（`app_owns_titlebar_drag` 也由它设置）。
     WindowOptions {
-        // 参考 Zed build_window_options：透明 titlebar + 自绘 header，
-        // 红绿灯位置由 gpui 负责；Linux/Wayland 用 client side decorations。
         titlebar: Some(TitlebarOptions {
-            title: None,
-            appears_transparent: true,
             traffic_light_position: Some(point(px(12.0), px(12.0))),
+            ..TitleBar::title_bar_options()
         }),
-        app_owns_titlebar_drag: cfg!(target_os = "macos"),
         window_decorations: Some(WindowDecorations::Client),
         window_min_size: Some(Size {
             width: px(800.0),
             height: px(560.0),
         }),
-        ..Default::default()
+        ..TitleBar::window_options()
     }
 }
 
