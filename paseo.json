@@ -1,9 +1,0 @@
-{
-  "worktree": {
-    "setup": "bash scripts/worktree/setup-worktree.sh || echo '[paseo] worktree bootstrap failed; continuing' >&2"
-  },
-  "scripts": {
-    "api": { "type": "service", "command": "cd backend && PORT=$PASEO_PORT mix phx.server" },
-    "web": { "type": "service", "command": "cd web && BACKEND_URL=$PASEO_SERVICE_API_URL pnpm dev --port $PASEO_PORT" }
-  }
-}
