@@ -524,7 +524,8 @@ jobs:
         if: runner.os == 'macOS'
         env:
           CGC_UI_TESTS: "1"
-        run: cargo test -p cgc-desktop-app --features gpui-kit/test-support --lib
+        # 串行：UI 用例共享进程级全局（主题/原生 runtime），并行会互相拖垮超时。
+        run: cargo test -p cgc-desktop-app --features gpui-kit/test-support --lib -- --test-threads=1
       - name: 缓存 cargo-packager
         id: packager-cache
         # 打包只在合并后（push）跑：PR 阶段只做 lint + 测试，把 23 分钟的

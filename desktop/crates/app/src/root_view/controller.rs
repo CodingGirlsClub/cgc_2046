@@ -4,7 +4,6 @@ use cgc_agent_store::SessionStore;
 use cgc_agent_ui::conversation::{ConversationThread, ThreadCapabilities};
 use cgc_platform::notifications::NotificationsApi as _;
 use cgc_platform::registry::install::install_entry;
-use gpui_kit::component::breadcrumb::{Breadcrumb, BreadcrumbItem};
 use state::{PaneTab, SiteTreeSection};
 
 /// 登录标识是否是邮箱。客户端只支持邮箱登录，这里做最小形状校验：
@@ -326,7 +325,6 @@ impl RootView {
     }
 
     pub fn select(&mut self, route: Route) {
-        self.breadcrumb_menu = None;
         self.current = Some(RouteMatch {
             route,
             params: std::collections::BTreeMap::new(),
@@ -876,7 +874,6 @@ impl RootView {
     }
 
     pub fn navigate(&mut self, path: &str) {
-        self.breadcrumb_menu = None;
         self.site_tree_search_focused = false;
         if let crate::routing::RouteSelection::Match(route_match) = self.registry.select(path) {
             let is_learning = route_match.route.id == "courses.learning";
@@ -1052,7 +1049,6 @@ impl RootView {
             self.reset_workspace_data(cx);
             self.navigate("/workspace");
             self.restore_workspace_state(cx);
-            self.workspace_menu_open = false;
             self.prepare_agent_authorization(cx);
             cx.notify();
         }
@@ -2668,67 +2664,28 @@ impl RootView {
         }
     }
 
-    pub(in crate::root_view) fn toggle_breadcrumb_menu(&mut self, cx: &mut Context<Self>) {
-        self.breadcrumb_menu = if self.breadcrumb_menu.is_some() {
-            None
-        } else {
-            Some(BreadcrumbMenu::Sections)
-        };
-        self.workspace_menu_open = false;
-        cx.notify();
-    }
-
     pub(in crate::root_view) fn render_breadcrumb_bar(
         &mut self,
         language: Language,
         palette: &theme::Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let workspace_switcher = self.render_workspace_switcher(language, palette, cx);
-        let mut bar = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(px(4.0))
-            .text_size(px(12.0))
-            .text_color(palette.ink_3)
-            .child(workspace_switcher);
+        use gpui_kit::component::button::{Button, ButtonVariants as _};
+        use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
+
+        let palette = *palette;
+        let workspace_switcher = self.render_workspace_switcher(language, &palette, cx);
         let context = self.breadcrumb_context();
         let section_label = match context {
             Some((label_key, _)) => translate_registered(language, label_key),
             None => translate(language, Key::AppBreadcrumbSections),
         };
-        let selected = self.breadcrumb_menu.is_some();
-        let root = cx.entity().downgrade();
-        let mut breadcrumb = Breadcrumb::new().child(
-            BreadcrumbItem::new(format!("{section_label} ▾"))
-                .px(space(1))
-                .py(px(2.0))
-                .rounded(px(RADIUS_SMALL))
-                .bg(if selected { palette.soft } else { palette.card })
-                .on_click(move |_, _, cx| {
-                    let _ = root.update(cx, |this, cx| this.toggle_breadcrumb_menu(cx));
-                }),
-        );
-        if let Some((_, Some(title))) = context {
-            breadcrumb = breadcrumb.child(BreadcrumbItem::new(title));
-        }
-        bar = bar.child(div().child("›")).child(breadcrumb);
-        bar.into_any_element()
-    }
-
-    pub(in crate::root_view) fn render_breadcrumb_menu(
-        &mut self,
-        language: Language,
-        palette: &theme::Palette,
-        _menu: BreadcrumbMenu,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
         let current = self
             .current
             .as_ref()
             .map(|route_match| route_match.route.id);
-        let rows = [
+        let nav_root = cx.entity().downgrade();
+        let routes = [
             ("account.workspace", "/workspace", "account.workspace.title"),
             ("events.list", "/events", "events.list.title"),
             ("courses.catalog", "/courses", "courses.catalog.title"),
@@ -2742,57 +2699,48 @@ impl RootView {
                 "/participations",
                 "events.participations.title",
             ),
-        ]
-        .into_iter()
-        .map(|(route_id, path, title_key)| {
-            let selected = current.is_some_and(|id| {
-                id == route_id
-                    || id.starts_with(&format!("{route_id}."))
-                    || (route_id == "events.list" && id == "events.mine")
+        ];
+        let section = Button::new("breadcrumb-section")
+            .label(section_label.to_string())
+            .ghost()
+            .xsmall()
+            .dropdown_caret(true)
+            .dropdown_menu(move |menu, _window, _cx| {
+                let mut menu = menu;
+                for (route_id, path, title_key) in routes {
+                    let selected = current.is_some_and(|id| {
+                        id == route_id
+                            || id.starts_with(&format!("{route_id}."))
+                            || (route_id == "events.list" && id == "events.mine")
+                    });
+                    let root = nav_root.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(translate_registered(language, title_key).to_string())
+                            .checked(selected)
+                            .on_click(move |_, _, cx| {
+                                let _ = root.update(cx, |this, cx| {
+                                    this.navigate(path);
+                                    cx.notify();
+                                });
+                            }),
+                    );
+                }
+                menu
             });
-            div()
-                .id(format!("breadcrumb-{}", route_id))
-                .flex()
-                .flex_row()
-                .items_center()
-                .justify_between()
-                .px(space(1))
-                .py(px(5.0))
-                .rounded(px(RADIUS_SMALL))
-                .text_size(px(12.0))
-                .text_color(palette.ink_2)
-                .hover(|style| style.bg(palette.soft))
-                .child(translate_registered(language, title_key))
-                .child(
-                    div()
-                        .text_color(palette.accent)
-                        .child(if selected { "✓" } else { "" }),
-                )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.breadcrumb_menu = None;
-                    this.navigate(path);
-                    cx.notify();
-                }))
-                .into_any_element()
-        })
-        .collect::<Vec<_>>();
-        div()
-            .id("breadcrumb-menu")
-            .absolute()
-            .top(px(44.0))
-            .left(px(220.0))
-            .w(px(230.0))
+        let mut bar = div()
             .flex()
-            .flex_col()
-            .gap(px(1.0))
-            .p(space(1))
-            .rounded(px(RADIUS_MEDIUM))
-            .border_1()
-            .border_color(palette.line_strong)
-            .bg(palette.card)
-            .occlude()
-            .children(rows)
-            .into_any_element()
+            .flex_row()
+            .items_center()
+            .gap(px(4.0))
+            .text_size(px(12.0))
+            .text_color(palette.ink_3)
+            .child(workspace_switcher)
+            .child(div().child("›"))
+            .child(section);
+        if let Some((_, Some(title))) = context {
+            bar = bar.child(div().child("›")).child(div().child(title));
+        }
+        bar.into_any_element()
     }
 
     pub(in crate::root_view) fn toggle_agent_panel(&mut self, cx: &mut Context<Self>) {
@@ -4027,7 +3975,6 @@ impl RootView {
                 })
                 .detach();
         }
-        self.workspace_menu_open = false;
         self.workspaces.reset();
         self.workspaces_started = false;
         self.reset_workspace_data(cx);

@@ -10,8 +10,9 @@ use crate::theme::{self, ThemePreference};
 use cgc_platform::session::{FakeAuthApi, MemoryStore, SessionService, SignedInSession};
 use gpui_kit::test::{TestQueryExt, TestWindowExt};
 use gpui_kit::{
-    div, px, size, AppContext, Bounds, Context, Entity, IntoElement, Modifiers, ParentElement,
-    Render, Styled, TestAppContext, VisualTestContext, Window, WindowBounds, WindowOptions,
+    div, px, size, AnyWindowHandle, AppContext, Bounds, Context, Entity, IntoElement, Modifiers,
+    ParentElement, Render, Styled, TestAppContext, VisualTestContext, Window, WindowBounds,
+    WindowOptions,
 };
 
 struct AccountProbe {
@@ -132,4 +133,133 @@ fn check_account_menu(cx: &mut TestAppContext) {
 
     let signed_in = cx.update(|cx| probe.read(cx).root.read(cx).is_signed_in());
     assert!(!signed_in, "点击登出项后应退出登录");
+}
+
+struct BreadcrumbProbe {
+    root: Entity<RootView>,
+}
+
+impl Render for BreadcrumbProbe {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let bar = self.root.update(cx, |root, cx| {
+            let palette = theme::palette_from_theme(cx);
+            let language = root.language;
+            root.render_breadcrumb_bar(language, &palette, cx)
+        });
+        div().w_full().flex().items_center().p(px(8.0)).child(bar)
+    }
+}
+
+fn open_breadcrumb_probe(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<BreadcrumbProbe>) {
+    cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                    None,
+                    size(px(520.), px(200.)),
+                    cx,
+                ))),
+                ..Default::default()
+            },
+            cx,
+            |_, cx| {
+                let root = cx.new(|_| signed_in_root());
+                cx.new(|_| BreadcrumbProbe { root })
+            },
+        )
+        .unwrap()
+    })
+}
+
+#[gpui_kit::test]
+fn breadcrumb_menu_opens_navigates_and_closes(cx: &mut TestAppContext) {
+    check_breadcrumb_menu(cx);
+}
+
+fn check_breadcrumb_menu(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (handle, probe) = open_breadcrumb_probe(cx);
+    let mut vcx = VisualTestContext::from_window(handle, cx);
+
+    let section = translate(Language::En, Key::AppBreadcrumbSections).to_string();
+    let participations = translate(Language::En, Key::EventsParticipationsTitle).to_string();
+
+    assert!(
+        vcx.update(|window, cx| {
+            window.render_frame(cx);
+            window.find("breadcrumb-section").visible()
+        }),
+        "面包屑触发器应渲染"
+    );
+    assert!(
+        vcx.update(|window, _| window.try_find_by_label(&participations).is_none()),
+        "菜单未打开时不应出现路由项"
+    );
+
+    vcx.update(|window, cx| window.click("breadcrumb-section", cx));
+    assert!(
+        vcx.update(|window, cx| {
+            window.render_frame(cx);
+            window.find_by_label(&participations).visible()
+        }),
+        "点击后应出现路由项（section={section}）"
+    );
+
+    vcx.simulate_keystrokes("escape");
+    assert!(
+        vcx.update(|window, cx| {
+            window.render_frame(cx);
+            window
+                .try_find_by_label(&participations)
+                .is_none_or(|element| !element.visible())
+        }),
+        "Esc 后菜单应关闭"
+    );
+
+    vcx.update(|window, cx| window.click("breadcrumb-section", cx));
+    let row_center = vcx.update(|window, cx| {
+        window.render_frame(cx);
+        window.find_by_label(&participations).bounds().center()
+    });
+    vcx.simulate_click(row_center, Modifiers::default());
+    vcx.update(|window, cx| window.render_frame(cx));
+    let route = cx.update(|cx| probe.read(cx).root.read(cx).current().map(|route| route.id));
+    assert_eq!(route, Some("events.participations"));
+}
+
+#[gpui_kit::test]
+fn workspace_menu_opens_and_closes(cx: &mut TestAppContext) {
+    check_workspace_menu(cx);
+}
+
+fn check_workspace_menu(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (handle, _probe) = open_breadcrumb_probe(cx);
+    let mut vcx = VisualTestContext::from_window(handle, cx);
+
+    // 头行文案与触发器同名，标签会歧义；用状态行（加载/失败/空）判定菜单是否打开。
+    let state_labels = [
+        translate(Language::En, Key::AppWorkspaceLoading).to_string(),
+        translate(Language::En, Key::AppWorkspaceError).to_string(),
+        translate(Language::En, Key::AppWorkspaceEmpty).to_string(),
+    ];
+    let menu_visible = |window: &mut Window, cx: &mut gpui_kit::App| {
+        window.render_frame(cx);
+        state_labels.iter().any(|label| {
+            window
+                .try_find_by_label(label)
+                .is_some_and(|element| element.visible())
+        })
+    };
+
+    vcx.update(|window, cx| window.click("workspace-menu-toggle", cx));
+    assert!(
+        vcx.update(|window, cx| menu_visible(window, cx)),
+        "点击后工作台菜单应打开"
+    );
+    vcx.simulate_keystrokes("escape");
+    assert!(
+        !vcx.update(|window, cx| menu_visible(window, cx)),
+        "Esc 后工作台菜单应关闭"
+    );
 }

@@ -122,11 +122,6 @@ enum WechatLoginView {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BreadcrumbMenu {
-    Sections,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LoginError {
     Invalid,
     /// 登录标识不是邮箱：客户端只提供邮箱登录（手机号登录已下线）。
@@ -1387,12 +1382,6 @@ impl Render for RootView {
                     &palette,
                     cx,
                 ));
-            if self.workspace_menu_open {
-                root = root.child(self.render_workspace_menu(language, &palette, cx));
-            }
-            if let Some(menu) = self.breadcrumb_menu {
-                root = root.child(self.render_breadcrumb_menu(language, &palette, menu, cx));
-            }
             if self.theme_menu_open {
                 root = root.child(self.render_theme_menu(&palette, cx));
             }
@@ -1710,166 +1699,121 @@ impl RootView {
         palette: &theme::Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        use gpui_kit::component::button::{Button, ButtonVariants as _};
+
+        let palette = *palette;
         let label = self
             .workspaces
             .current()
             .map(|workspace| workspace.name.clone())
             .unwrap_or_else(|| translate(language, Key::AppWorkspaceSwitch).to_string());
+        let overview_root = cx.entity().downgrade();
+        let switch_root = cx.entity().downgrade();
+        let state = self.workspaces.state().clone();
+        let current_id = self
+            .workspaces
+            .current()
+            .map(|workspace| workspace.id.clone());
+        let rows = self
+            .workspaces
+            .workspaces()
+            .iter()
+            .map(|workspace| {
+                let roles = workspace
+                    .my_role_names
+                    .iter()
+                    .map(|role| workspace_role_label(language, role))
+                    .collect::<Vec<_>>()
+                    .join(" · ");
+                (
+                    workspace.id.clone(),
+                    workspace.name.clone(),
+                    roles,
+                    current_id.as_deref() == Some(workspace.id.as_str()),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let trigger = Button::new("workspace-menu-toggle")
+            .icon(
+                Icon::default()
+                    .path(AssetIcon::ChevronDown.path())
+                    .text_color(palette.ink_3),
+            )
+            .ghost()
+            .xsmall()
+            .accessibility_label(translate(language, Key::AppWorkspaceSwitch))
+            .dropdown_menu(move |menu, _window, _cx| {
+                let mut menu = menu.item(PopupMenuItem::label(translate(
+                    language,
+                    Key::AppWorkspaceSwitch,
+                )));
+                match state {
+                    WorkspaceListState::Idle | WorkspaceListState::Loading => menu.item(
+                        PopupMenuItem::label(translate(language, Key::AppWorkspaceLoading)),
+                    ),
+                    WorkspaceListState::Failed(_) => menu.item(
+                        PopupMenuItem::element(move |_, _| {
+                            div()
+                                .text_color(palette.danger)
+                                .child(translate(language, Key::AppWorkspaceError))
+                        })
+                        .disabled(true),
+                    ),
+                    WorkspaceListState::Empty => menu.item(PopupMenuItem::label(translate(
+                        language,
+                        Key::AppWorkspaceEmpty,
+                    ))),
+                    WorkspaceListState::Ready => {
+                        for (workspace_id, name, roles, selected) in rows.iter().cloned() {
+                            let root = switch_root.clone();
+                            menu = menu.item(
+                                PopupMenuItem::element(move |_, _| {
+                                    div()
+                                        .flex()
+                                        .flex_col()
+                                        .gap(px(2.0))
+                                        .child(div().child(name.clone()))
+                                        .children((!roles.is_empty()).then(|| {
+                                            div()
+                                                .text_size(px(10.0))
+                                                .text_color(palette.ink_3)
+                                                .child(roles.clone())
+                                        }))
+                                })
+                                .checked(selected)
+                                .on_click(move |_, _, cx| {
+                                    let _ = root.update(cx, |this, cx| {
+                                        this.switch_workspace(&workspace_id, cx);
+                                        cx.notify();
+                                    });
+                                }),
+                            );
+                        }
+                        menu
+                    }
+                }
+            });
+
         div()
             .flex()
             .flex_row()
             .items_center()
             .gap(px(1.0))
             .child(
-                div()
-                    .id("workspace-overview-link")
-                    .role(Role::Link)
-                    .aria_label(translate(language, Key::AccountWorkspaceTitle))
-                    .px(space(1))
-                    .py(px(2.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .hover(|style| style.bg(palette.soft))
-                    .child(
-                        div()
-                            .text_size(px(12.0))
-                            .text_color(palette.ink_2)
-                            .child(label),
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.workspace_menu_open = false;
-                        this.breadcrumb_menu = None;
-                        this.navigate("/workspace");
-                        cx.notify();
-                    })),
-            )
-            .child(
-                div()
-                    .id("workspace-menu-toggle")
-                    .role(Role::Button)
-                    .aria_label(translate(language, Key::AppWorkspaceSwitch))
-                    .px(px(3.0))
-                    .py(px(3.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .hover(|style| style.bg(palette.soft))
-                    .child(
-                        Icon::default()
-                            .path(AssetIcon::ChevronDown.path())
-                            .text_color(palette.ink_3)
-                            .with_size(px(12.0)),
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.workspace_menu_open = !this.workspace_menu_open;
-                        this.breadcrumb_menu = None;
-                        cx.notify();
-                    })),
-            )
-            .into_any_element()
-    }
-
-    /// 工作台下拉（根级 overlay，避免被内容区覆盖）。
-    fn render_workspace_menu(
-        &mut self,
-        language: Language,
-        palette: &theme::Palette,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let state = self.workspaces.state().clone();
-        let current = self.workspaces.current().cloned();
-        let workspaces = self.workspaces.workspaces().to_vec();
-        let body: AnyElement = match state {
-            WorkspaceListState::Idle | WorkspaceListState::Loading => {
-                render_loading_state(language, Key::AppWorkspaceLoading, palette).into_any_element()
-            }
-            WorkspaceListState::Failed(_) => div()
-                .px(space(1))
-                .py(px(4.0))
-                .text_size(px(12.0))
-                .text_color(palette.danger)
-                .child(translate(language, Key::AppWorkspaceError))
-                .into_any_element(),
-            WorkspaceListState::Empty => div()
-                .px(space(1))
-                .py(px(4.0))
-                .text_size(px(12.0))
-                .text_color(palette.ink_3)
-                .child(translate(language, Key::AppWorkspaceEmpty))
-                .into_any_element(),
-            WorkspaceListState::Ready => div()
-                .flex()
-                .flex_col()
-                .children(workspaces.iter().map(|workspace| {
-                    let selected = current
-                        .as_ref()
-                        .is_some_and(|current| current.id == workspace.id);
-                    let workspace_id = workspace.id.clone();
-                    let roles = workspace
-                        .my_role_names
-                        .iter()
-                        .map(|role| workspace_role_label(language, role))
-                        .collect::<Vec<_>>()
-                        .join(" · ");
-                    div()
-                        .id(format!("workspace-option-{}", workspace.id))
-                        .flex()
-                        .flex_col()
-                        .gap(px(2.0))
-                        .px(space(1))
-                        .py(px(6.0))
-                        .rounded(px(RADIUS_SMALL))
-                        .hover(|style| style.bg(palette.soft))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .justify_between()
-                                .child(div().text_color(palette.ink).child(workspace.name.clone()))
-                                .child(div().text_color(palette.accent).child(if selected {
-                                    "✓"
-                                } else {
-                                    ""
-                                })),
-                        )
-                        .children((!roles.is_empty()).then(|| {
-                            div()
-                                .text_size(px(11.0))
-                                .text_color(palette.ink_3)
-                                .child(roles)
-                                .into_any_element()
-                        }))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.switch_workspace(&workspace_id, cx);
-                            this.workspace_menu_open = false;
+                Button::new("workspace-overview-link")
+                    .label(label)
+                    .ghost()
+                    .xsmall()
+                    .accessibility_label(translate(language, Key::AccountWorkspaceTitle))
+                    .on_click(move |_, _, cx| {
+                        let _ = overview_root.update(cx, |this, cx| {
+                            this.navigate("/workspace");
                             cx.notify();
-                        }))
-                        .into_any_element()
-                }))
-                .into_any_element(),
-        };
-        div()
-            .id("workspace-menu")
-            .absolute()
-            .top(px(44.0))
-            .left(px(130.0))
-            .w(px(260.0))
-            .flex()
-            .flex_col()
-            .gap(px(2.0))
-            .p(space(1))
-            .rounded(px(RADIUS_MEDIUM))
-            .border_1()
-            .border_color(palette.line_strong)
-            .bg(palette.card)
-            .occlude()
-            .child(
-                div()
-                    .px(space(1))
-                    .py(px(3.0))
-                    .text_size(px(10.0))
-                    .text_color(palette.ink_3)
-                    .child(translate(language, Key::AppWorkspaceSwitch)),
+                        });
+                    }),
             )
-            .child(body)
+            .child(trigger)
             .into_any_element()
     }
 
