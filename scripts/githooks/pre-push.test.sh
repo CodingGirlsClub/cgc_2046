@@ -21,17 +21,19 @@ printf 'mix %s\n' "$*" >> "$MIX_CALL_LOG"
 case "$FAKE_MIX_MODE" in
   ok) exit 0 ;;
   format)
-    echo "** (Mix) mix format failed due to --check-formatted."
-    echo "The following files are not formatted:"
+    # 真实 Mix.raise 与 diff 都写 stderr；stdout 为空。写 stdout 会让测试
+    # 对 hook 漏掉 `2>&1` 的改动变盲。
+    echo "** (Mix) mix format failed due to --check-formatted." >&2
+    echo "The following files are not formatted:" >&2
     exit 1 ;;
   format-big)
     # 输出超过管道缓冲：grep -q 提前退出会让上游 printf 收到 SIGPIPE，
     # pipefail 下整条 pipeline 返回 141——分类不能依赖 pipeline 退出码。
-    echo "** (Mix) mix format failed due to --check-formatted."
-    i=0; while [ "$i" -lt 3000 ]; do echo "lib/file_$i.ex is not formatted"; i=$((i + 1)); done
+    echo "** (Mix) mix format failed due to --check-formatted." >&2
+    i=0; while [ "$i" -lt 3000 ]; do echo "lib/file_$i.ex is not formatted" >&2; i=$((i + 1)); done
     exit 1 ;;
   deps)
-    echo '** (Mix) Unknown dependency :ecto_sql given to :import_deps in the formatter configuration. Make sure the dependency is listed in your mix.exs for environment :dev and you have run "mix deps.get"'
+    echo '** (Mix) Unknown dependency :ecto_sql given to :import_deps in the formatter configuration. Make sure the dependency is listed in your mix.exs for environment :dev and you have run "mix deps.get"' >&2
     exit 1 ;;
 esac
 MIX
@@ -55,8 +57,10 @@ check() { # check <描述> <want_status> <want_text> <forbidden_text>
   if [ "$ok" -eq 1 ]; then
     echo "ok   $1"
   else
+    local shown="${out:0:300}"
+    [ "${#out}" -gt 300 ] && shown="$shown…（共 ${#out} 字符）"
     echo "FAIL $1: exit=$status want=$2"
-    printf '     output: %s\n' "${out//$'\n'/ | }"
+    printf '     output: %s\n' "${shown//$'\n'/ | }"
     fail=1
   fi
 }
@@ -84,6 +88,9 @@ run_hook "$dir" format
 check "格式失败：拦截" 1 "格式检查未通过" "跳过"
 
 # 5. 依赖解析失败（同样 exit 1）：放行，提示 deps.get，不得说成格式失败。
+#    合成故障：实测空 backend/deps 目录时真实 mix 直接 exit 0，只有目录整体
+#    缺失才报 Unknown dependency（已由快路径覆盖）；这里模拟 deps 目录存在
+#    但依赖 mix.exs 不全的中间态，作为分类分支的兜底覆盖。
 dir="$(setup_repo broken-deps yes yes)"
 run_hook "$dir" deps
 check "依赖缺失：放行并提示 deps.get" 0 "deps.get" "格式检查未通过"
