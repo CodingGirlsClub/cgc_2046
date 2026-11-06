@@ -11,12 +11,9 @@ impl Owner {
         match command {
             Command::Subscribe(sender) => {
                 let snapshot = self.snapshot();
-                if let Ok(mut slot) = self.latest.lock() {
-                    *slot = Some(Arc::clone(&snapshot));
-                }
                 let _ = sender.unbounded_send(Arc::new(NativeRuntimeEvent::Snapshot {
                     change: RuntimeChange::Initialized,
-                    snapshot: self.snapshot(),
+                    snapshot,
                 }));
                 for message in &self.notices {
                     let _ = sender.unbounded_send(Arc::new(NativeRuntimeEvent::Notice {
