@@ -179,8 +179,10 @@ cgc://courses/<uuid>/learn
 - `Window & Layout`：标题栏的品牌名/面包屑/通知按钮显隐；状态栏四个面板按钮显隐；关闭窗口时留在托盘。
 - `Panels`：每个面板一组，含 Dock Position（左/右）、默认宽度、新工作台默认展开（仅 Dock）、显示未报名课程。
 - 状态栏图标右键提供 `Dock Left` / `Dock Right` / `Hide Button`；图标随面板停靠侧移到左组或右组。
-- 面板开合与右侧当前面板按 workspace 记忆（`workspace_state.json`），优先于设置默认值；通知面板不记忆。
-- `新工作台默认展开` 与默认宽度只在 workspace 无记录时生效；拖动宽度后按 workspace 记住。
+- 面板宽度、开合与右侧当前面板按 workspace 记忆（`workspace_state.json`），优先于设置默认值；通知面板不记忆。
+- `新工作台默认展开` 与默认宽度作用于尚未自定义布局的 workspace；手动切换面板或拖动宽度后，按 workspace 保留布局覆盖。
+- `Panels → 当前工作台 → 重置当前工作台布局`：二次确认后清除当前 workspace 的布局覆盖并套用当前 `Panels` 默认值；保留标签、当前页面、站点树筛选与滚动位置，其他 workspace 不变。重置后继续跟随默认值，直到再次手动调整布局。
+- 重置按钮支持 `Tab` / `Shift-Tab` 聚焦，`Enter` / `Space` 激活；首次激活只进入确认状态。
 - 已知限制：debug 构建下，若 macOS 辅助功能被激活（例如自动化工具读取界面），点击「面板 → 默认宽度」的 `+`/`−` 会触发 `gpui-pre 0.3.11` 的 a11y 断言（`set_focus called more than once in a single frame`）并 panic；release 构建只记录 warn。移除条件：`gpui-kit` / `gpui-pre` 升级修复后删除此条。
 
 ## 审批规则（toolPermissions，native-only）
