@@ -14,6 +14,7 @@ members = [
   "crates/agent_store",
   "crates/agent_host",
   "crates/agent_checkpoint",
+  "crates/terminal",
   "crates/platform",
   "crates/platform-macos",
   "crates/platform-windows",

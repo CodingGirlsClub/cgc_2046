@@ -1,0 +1,17 @@
+[package]
+name = "cgc-terminal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# VT 核心：libghostty-vt 的 Rust 绑定（MIT OR Apache-2.0，AGPL-3.0 兼容）。
+# 用 git rev 而不是 crates.io 0.2.2：0.2.2 pin 的 ghostty commit 使用 `b.build_root`，
+# 该字段在 Zig 0.17 已移除；此 rev 的 pin（0b8b9984）改用 `b.root.root_dir.handle`。
+# 构建需要 Zig 0.17.1 在 PATH（本机由 mise 管理）。
+libghostty-vt = { git = "https://github.com/uzaaft/libghostty-rs", rev = "84373f8d48b8f0b794e259f74a71a52686616f5d" }
+# 跨平台 PTY：Unix forkpty / Windows ConPTY（MIT）。
+portable-pty = "0.9"
+# 双宽字符判定（CJK/emoji 占两个 cell），MIT OR Apache-2.0。
+unicode-width = "0.2"
