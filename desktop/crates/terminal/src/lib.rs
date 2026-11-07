@@ -6,7 +6,9 @@
 //!
 //! 这一层不依赖 GPUI；渲染与面板集成在 `terminal_view`。
 
+use std::cell::RefCell;
 use std::error::Error;
+use std::rc::Rc;
 
 use libghostty_vt::render::{CellIterator, RowIterator};
 use libghostty_vt::screen::CellWide;
@@ -33,11 +35,29 @@ pub use libghostty_vt::style::RgbColor as FrameColor;
 
 pub type Result<T, E = Box<dyn Error + Send + Sync>> = std::result::Result<T, E>;
 
+/// 终端在解析输出时上报的副作用事件。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CoreEvent {
+    /// 程序通过 OSC 设置了窗口标题。
+    Title(String),
+    /// 程序通过 OSC 7/9/1337 上报了工作目录。
+    Pwd(String),
+    /// 收到 BEL。
+    Bell,
+}
+
 /// 终端尺寸：以字符单元为单位。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GridSize {
     pub cols: u16,
     pub rows: u16,
+}
+
+/// 搜索一次的结果。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SearchOutcome {
+    pub total: usize,
+    pub index: Option<usize>,
 }
 
 /// 一个终端的 VT 状态与可复用的渲染游标。
@@ -48,18 +68,57 @@ pub struct TerminalCore {
     cells: CellIterator<'static>,
     frame: Frame,
     size: GridSize,
+    events: Rc<RefCell<Vec<CoreEvent>>>,
+    search: Option<libghostty_vt::search::Search<'static, 'static>>,
 }
 
 impl TerminalCore {
     pub fn new(size: GridSize) -> Result<Self> {
+        let mut terminal = Terminal::new(size.cols, size.rows)?;
+        let events: Rc<RefCell<Vec<CoreEvent>>> = Rc::new(RefCell::new(Vec::new()));
+
+        let title_events = Rc::clone(&events);
+        terminal.on_title_changed(move |term| {
+            if let Ok(bytes) = term.title() {
+                if let Ok(text) = std::str::from_utf8(bytes) {
+                    title_events
+                        .borrow_mut()
+                        .push(CoreEvent::Title(text.to_string()));
+                }
+            }
+        })?;
+
+        let pwd_events = Rc::clone(&events);
+        terminal.on_pwd_changed(move |term| {
+            if let Ok(bytes) = term.pwd() {
+                if let Ok(text) = std::str::from_utf8(bytes) {
+                    pwd_events
+                        .borrow_mut()
+                        .push(CoreEvent::Pwd(text.to_string()));
+                }
+            }
+        })?;
+
+        let bell_events = Rc::clone(&events);
+        terminal.on_bell(move |_term| {
+            bell_events.borrow_mut().push(CoreEvent::Bell);
+        })?;
+
         Ok(Self {
-            terminal: Terminal::new(size.cols, size.rows)?,
+            terminal,
             render_state: RenderState::new()?,
             rows: RowIterator::new()?,
             cells: CellIterator::new()?,
             frame: Frame::new(size),
             size,
+            events,
+            search: None,
         })
+    }
+
+    /// 取走解析过程中累积的事件（标题 / cwd / bell）。
+    pub fn take_events(&mut self) -> Vec<CoreEvent> {
+        std::mem::take(&mut *self.events.borrow_mut())
     }
 
     pub fn size(&self) -> GridSize {
@@ -93,6 +152,7 @@ impl TerminalCore {
             cells,
             frame,
             size,
+            ..
         } = self;
         let snapshot = render_state.update(terminal)?;
         frame.update(&snapshot, rows, cells, *size)
@@ -126,6 +186,52 @@ impl TerminalCore {
 
     pub fn clear_selection(&mut self) {
         let _ = self.terminal.set_selection(None);
+    }
+
+    /// 选中某个 cell 所在单词（双击）。
+    pub fn select_word(&mut self, cell: (u16, u16)) -> Result<()> {
+        let grid_ref = self.terminal.grid_ref(Point::Viewport(PointCoordinate {
+            x: cell.0,
+            y: u32::from(cell.1),
+        }))?;
+        let options = libghostty_vt::selection::SelectWordOptions::new(grid_ref);
+        let _ = self.terminal.select_word(options)?;
+        Ok(())
+    }
+
+    /// 选中某个 cell 所在行（三击）。
+    pub fn select_line(&mut self, cell: (u16, u16)) -> Result<()> {
+        let grid_ref = self.terminal.grid_ref(Point::Viewport(PointCoordinate {
+            x: cell.0,
+            y: u32::from(cell.1),
+        }))?;
+        let options = libghostty_vt::selection::SelectLineOptions::new(grid_ref);
+        let _ = self.terminal.select_line(options)?;
+        Ok(())
+    }
+
+    /// 在终端（含 scrollback）中搜索；`forward` 决定下一个还是上一个匹配。
+    pub fn search(&mut self, needle: &str, forward: bool) -> Result<SearchOutcome> {
+        let Self {
+            terminal, search, ..
+        } = self;
+        if search.is_none() {
+            *search = Some(libghostty_vt::search::Search::new(terminal)?);
+        }
+        let search = search.as_mut().expect("search initialized");
+        search.set_needle(terminal, needle.as_bytes())?;
+        search.run(terminal)?;
+        let total = search.total_matches()?;
+        if total == 0 {
+            return Ok(SearchOutcome { total, index: None });
+        }
+        if forward {
+            search.select_next(terminal)?;
+        } else {
+            search.select_prev(terminal)?;
+        }
+        let index = search.selected_index()?;
+        Ok(SearchOutcome { total, index })
     }
 
     /// 当前选区的纯文本（无选区时返回 `None`）。

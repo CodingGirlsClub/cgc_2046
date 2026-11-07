@@ -141,8 +141,21 @@ impl Session {
         self.core.clear_selection();
     }
 
+    pub fn select_word(&mut self, cell: (u16, u16)) -> Result<()> {
+        self.core.select_word(cell)
+    }
+
+    pub fn select_line(&mut self, cell: (u16, u16)) -> Result<()> {
+        self.core.select_line(cell)
+    }
+
     pub fn selection_text(&self) -> Result<Option<String>> {
         self.core.selection_text()
+    }
+
+    /// 搜索（含 scrollback）。
+    pub fn search(&mut self, needle: &str, forward: bool) -> Result<crate::SearchOutcome> {
+        self.core.search(needle, forward)
     }
 
     pub fn core(&self) -> &TerminalCore {

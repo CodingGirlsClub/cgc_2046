@@ -30,12 +30,31 @@
 `KeyInput::encode` 依据终端当前模式（应用光标键、Kitty keyboard protocol）
 编码成字节写入 PTY。未知键返回 `Unidentified`，由编码器决定是否输出。
 
+- `Cmd+V`：剪贴板文本直接写 PTY
+- `Cmd+C`：复制当前选区
+- `Cmd+F`：打开搜索条（进入键盘输入模式，按键只编辑查询，不发给 PTY）。
+  `Enter` 下一个、`Shift+Enter` 上一个、`Esc` 关闭并清空选区。
+
+## 鼠标与选择
+
+- 拖拽：从按下点开始按 cell 建立选区，hover 时实时更新。
+- 双击：选中单词（`SelectWordOptions`）。
+- 三击：选中整行（`SelectLineOptions`）。
+- 滚轮：`ScrollViewport::Delta` 回看 scrollback。
+
+## 终端事件
+
+`TerminalCore` 通过 libghostty 的 effect 回调收集 `Title` / `Pwd` / `Bell`，
+`TerminalView::poll` 消费后暴露 `title()` / `cwd()`；进程退出后终端下方显示
+一行退出提示。
+
 ## 已知缺口（后续 milestone）
 
-- 鼠标选择/滚动、拖拽选中、Cmd+C 复制
+- 超链接（OSC 8）识别与点击
 - IME：提交文本已接入，组合中的预编辑（marked）文本尚未回显
-- 滚动条与回看
+- 滚动条（`terminal.scrollbar()` 未接 UI）
 - bracketed paste（当前 Cmd+V 直接写字节，未经 `paste` API 的安全包装）
 - ANSI 调色板映射到应用主题（浅色主题下黄/绿对比度偏低）
 - 光标闪烁、Hollow 描边
 - 事件驱动重绘（当前 33ms 轮询）
+- 搜索只跳转并选中匹配，没有逐格高亮

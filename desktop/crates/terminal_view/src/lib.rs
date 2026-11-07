@@ -7,7 +7,8 @@ use std::ops::Range;
 use std::panic;
 
 use cgc_terminal::{
-    CursorVisualStyle, Frame, FrameCell, FrameColors, GridSize, Key, KeyInput, Mods, Session,
+    CoreEvent, CursorVisualStyle, Frame, FrameCell, FrameColors, GridSize, Key, KeyInput, Mods,
+    Session,
 };
 use gpui_kit::*;
 
@@ -57,6 +58,12 @@ pub struct TerminalView {
     bounds: Option<Bounds<Pixels>>,
     selection_start: Option<(u16, u16)>,
     selecting: bool,
+    title: String,
+    cwd: Option<String>,
+    exit_notice: Option<String>,
+    search_open: bool,
+    search_query: String,
+    search_status: String,
 }
 
 impl TerminalView {
@@ -81,6 +88,12 @@ impl TerminalView {
             bounds: None,
             selection_start: None,
             selecting: false,
+            title: String::new(),
+            cwd: None,
+            exit_notice: None,
+            search_open: false,
+            search_query: String::new(),
+            search_status: String::new(),
         }
     }
 
@@ -90,6 +103,23 @@ impl TerminalView {
 
     fn handle_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
         let keystroke = &event.keystroke;
+
+        // 搜索模式：按键只编辑查询，不发给 PTY。
+        if self.search_open {
+            self.handle_search_key(keystroke, cx);
+            cx.stop_propagation();
+            return;
+        }
+
+        // Cmd+F：打开搜索条。
+        if keystroke.modifiers.platform && keystroke.key == "f" {
+            self.search_open = true;
+            self.search_query.clear();
+            self.search_status.clear();
+            cx.notify();
+            cx.stop_propagation();
+            return;
+        }
 
         // Cmd+V：把剪贴板文本直接写进 PTY（也用于验证 IME 的文本通道）。
         if keystroke.modifiers.platform && keystroke.key == "v" {
@@ -133,13 +163,46 @@ impl TerminalView {
         let Ok(result) = self.session.poll() else {
             return;
         };
+        let mut changed = false;
         if result.fed_bytes > 0 {
             let _ = self.session.core_mut().update_frame();
+            changed = true;
+        }
+        for event in self.session.core_mut().take_events() {
+            match event {
+                CoreEvent::Title(title) => {
+                    self.title = title;
+                    changed = true;
+                }
+                CoreEvent::Pwd(pwd) => {
+                    self.cwd = Some(pwd);
+                    changed = true;
+                }
+                CoreEvent::Bell => {}
+            }
+        }
+        if let Some(exit) = result.exit {
+            if self.exit_notice.is_none() {
+                self.exit_notice = Some(format!(
+                    "进程已退出（code {}），关闭终端可重新打开",
+                    exit.code
+                ));
+                changed = true;
+            }
+        }
+        if changed {
             cx.notify();
         }
-        if result.exit.is_some() {
-            cx.notify();
-        }
+    }
+
+    /// 程序通过 OSC 设置的窗口标题（未设置时为空串）。
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    /// 程序上报的工作目录（OSC 7/9/1337）。
+    pub fn cwd(&self) -> Option<&str> {
+        self.cwd.as_deref()
     }
 
     pub fn frame(&self) -> &Frame {
@@ -220,10 +283,22 @@ impl TerminalView {
         ))
     }
 
-    fn mouse_down(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+    fn mouse_down(&mut self, position: Point<Pixels>, click_count: usize, cx: &mut Context<Self>) {
         let Some(cell) = self.cell_at(position) else {
             return;
         };
+        if click_count >= 3 {
+            let _ = self.session.select_line(cell);
+            let _ = self.session.core_mut().update_frame();
+            cx.notify();
+            return;
+        }
+        if click_count == 2 {
+            let _ = self.session.select_word(cell);
+            let _ = self.session.core_mut().update_frame();
+            cx.notify();
+            return;
+        }
         self.selection_start = Some(cell);
         self.selecting = true;
         let _ = self.session.set_selection(cell, cell);
@@ -255,13 +330,80 @@ impl TerminalView {
             }
         }
     }
+
+    fn handle_search_key(&mut self, keystroke: &Keystroke, cx: &mut Context<Self>) {
+        match keystroke.key.as_str() {
+            "escape" => {
+                self.search_open = false;
+                self.search_query.clear();
+                self.search_status.clear();
+                self.session.clear_selection();
+                let _ = self.session.core_mut().update_frame();
+                cx.notify();
+            }
+            "enter" => self.run_search(!keystroke.modifiers.shift, cx),
+            "backspace" => {
+                self.search_query.pop();
+                cx.notify();
+            }
+            key if key.chars().count() == 1 => {
+                self.search_query.push_str(key);
+                cx.notify();
+            }
+            _ => {}
+        }
+    }
+
+    fn run_search(&mut self, forward: bool, cx: &mut Context<Self>) {
+        if self.search_query.is_empty() {
+            return;
+        }
+        match self.session.search(&self.search_query, forward) {
+            Ok(outcome) => {
+                self.search_status = if outcome.total == 0 {
+                    "无匹配".to_string()
+                } else {
+                    format!(
+                        "{}/{}",
+                        outcome.index.map_or(0, |index| index + 1),
+                        outcome.total
+                    )
+                };
+                let _ = self.session.core_mut().update_frame();
+            }
+            Err(error) => self.search_status = format!("搜索失败：{error}"),
+        }
+        cx.notify();
+    }
 }
 
 impl Render for TerminalView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let exit_notice = self.exit_notice.clone();
+        let notice_color = Hsla {
+            a: self.style.foreground.a * 0.65,
+            ..self.style.foreground
+        };
+        let search_bar = self.search_open.then(|| {
+            let color = self.style.foreground;
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(6.0))
+                .px(px(8.0))
+                .py(px(4.0))
+                .text_size(px(11.0))
+                .text_color(color)
+                .child(format!("搜索：{}", self.search_query))
+                .child(div().flex_1())
+                .child(self.search_status.clone())
+        });
         div()
             .id("terminal-view")
             .size_full()
+            .flex()
+            .flex_col()
             .track_focus(&self.focus_handle)
             .on_click(cx.listener(|this, _, window, cx| this.focus(window, cx)))
             .on_key_down(
@@ -282,7 +424,7 @@ impl Render for TerminalView {
                 MouseButton::Left,
                 cx.listener(|this, event: &MouseDownEvent, window, cx| {
                     this.focus(window, cx);
-                    this.mouse_down(event.position, cx);
+                    this.mouse_down(event.position, event.click_count, cx);
                 }),
             )
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
@@ -295,11 +437,20 @@ impl Render for TerminalView {
                     cx.notify();
                 }),
             )
-            .child(TerminalElement {
+            .children(search_bar)
+            .child(div().flex_1().min_h(px(0.0)).child(TerminalElement {
                 view: cx.entity(),
                 style: self.style.clone(),
                 cell_width: self.cell_width,
-            })
+            }))
+            .children(exit_notice.map(|notice| {
+                div()
+                    .px(px(8.0))
+                    .pb(px(6.0))
+                    .text_size(px(11.0))
+                    .text_color(notice_color)
+                    .child(notice)
+            }))
     }
 }
 
