@@ -22,7 +22,17 @@ pub(in crate::root_view) fn render_course_detail(
         .text_color(palette.ink_3)
         .child(translate(language, Key::CoursesDetailBack))
         .on_click(cx.listener(|this, _, _, cx| {
-            this.navigate("/courses");
+            let public = this
+                .current
+                .as_ref()
+                .is_some_and(|route_match| route_match.route.id == "courses.public_detail");
+            let path = if public {
+                "/courses".to_string()
+            } else {
+                this.workspace_path("/courses")
+                    .unwrap_or_else(|| "/courses".to_string())
+            };
+            this.navigate(&path);
             cx.notify();
         }));
 

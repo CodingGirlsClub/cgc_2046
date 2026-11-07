@@ -426,6 +426,65 @@ fn render_site_tree(
         .current()
         .map(|workspace| workspace.name.clone())
         .unwrap_or_else(|| "Workspace".to_string());
+    // 工作区面节点必须有 slug；无工作区时树只保留跨工作区的两项。
+    let Some(workspace_slug) = ctx
+        .workspaces
+        .current()
+        .map(|workspace| workspace.slug.clone())
+    else {
+        let mut items: Vec<SidebarMenuItem> = Vec::new();
+        let root_learning = cx.entity().downgrade();
+        items.push(
+            SidebarMenuItem::new(translate(language, Key::CoursesLearningHomeTitle).to_string())
+                .icon(
+                    Icon::default()
+                        .path(AssetIcon::GraduationCap.path())
+                        .small(),
+                )
+                .on_click(move |_, _, cx| {
+                    let _ = root_learning.update(cx, |this, cx| {
+                        this.open_page_tab(
+                            "/learning",
+                            translate(language, Key::CoursesLearningHomeTitle).to_string(),
+                            cx,
+                        );
+                    });
+                }),
+        );
+        let root_participations = cx.entity().downgrade();
+        items.push(
+            SidebarMenuItem::new(translate(language, Key::EventsParticipationsTitle).to_string())
+                .icon(Icon::default().path(AssetIcon::Ticket.path()).small())
+                .on_click(move |_, _, cx| {
+                    let _ = root_participations.update(cx, |this, cx| {
+                        this.open_page_tab(
+                            "/participations",
+                            translate(language, Key::EventsParticipationsTitle).to_string(),
+                            cx,
+                        );
+                    });
+                }),
+        );
+        return Sidebar::new("site-tree-sidebar")
+            .side(gpui_kit::component::Side::Right)
+            .collapsible(SidebarCollapsible::None)
+            .header(
+                div()
+                    .px(space(1))
+                    .py(px(3.0))
+                    .text_size(px(11.0))
+                    .text_color(palette.ink_3)
+                    .child(workspace),
+            )
+            .children(items)
+            .w_full()
+            .border_l_0()
+            .bg(palette.frame)
+            .into_any_element();
+    };
+    let overview_path = crate::routing::workspace_path(&workspace_slug, "");
+    let events_path = crate::routing::workspace_path(&workspace_slug, "/events");
+    let courses_path = crate::routing::workspace_path(&workspace_slug, "/courses");
     let events_open = ctx.site_tree_events_open;
     let courses_open = ctx.site_tree_courses_open;
     let events = ctx
@@ -511,27 +570,30 @@ fn render_site_tree(
     let root_overview = cx.entity().downgrade();
     let overview_label = translate(language, Key::AccountWorkspaceOverview).to_string();
     let overview_title = overview_label.clone();
+    let overview_open = overview_path.clone();
     items.push(
         SidebarMenuItem::new(overview_label)
             .icon(Icon::default().path(AssetIcon::House.path()).small())
-            .active(section_active("/workspace"))
+            .active(section_active(&overview_path))
             .on_click(move |_, _, cx| {
                 let _ = root_overview.update(cx, |this, cx| {
-                    this.open_page_tab("/workspace", overview_title.clone(), cx);
+                    this.open_page_tab(&overview_open, overview_title.clone(), cx);
                 });
             }),
     );
 
+    let events_open_path = crate::routing::workspace_path(&workspace_slug, "/events");
     let root_events = cx.entity().downgrade();
     let mut events_item =
         SidebarMenuItem::new(translate(language, Key::EventsListTitle).to_string())
             .icon(Icon::default().path(AssetIcon::Calendar.path()).small())
-            .active(section_active("/events"))
+            .active(section_active(&events_path))
             .on_click(move |_, _, cx| {
+                let path = events_open_path.clone();
                 let _ = root_events.update(cx, |this, cx| {
                     this.toggle_site_tree_section(SiteTreeSection::Events, cx);
                     this.open_page_tab(
-                        "/events",
+                        &path,
                         translate(language, Key::EventsListTitle).to_string(),
                         cx,
                     );
@@ -576,7 +638,7 @@ fn render_site_tree(
     items.push(events_item);
     if show_events {
         for (id, title) in events {
-            let path = format!("/events/{id}");
+            let path = crate::routing::workspace_path(&workspace_slug, &format!("/events/{id}"));
             let active = active_path.as_deref() == Some(path.as_str());
             let root = cx.entity().downgrade();
             let page_title = title.clone();
@@ -603,16 +665,18 @@ fn render_site_tree(
         }
     }
 
+    let courses_open_path = crate::routing::workspace_path(&workspace_slug, "/courses");
     let root_courses = cx.entity().downgrade();
     let mut courses_item =
         SidebarMenuItem::new(translate(language, Key::CoursesCatalogTitle).to_string())
             .icon(Icon::default().path(AssetIcon::BookOpen.path()).small())
-            .active(section_active("/courses"))
+            .active(section_active(&courses_path))
             .on_click(move |_, _, cx| {
+                let path = courses_open_path.clone();
                 let _ = root_courses.update(cx, |this, cx| {
                     this.toggle_site_tree_section(SiteTreeSection::Courses, cx);
                     this.open_page_tab(
-                        "/courses",
+                        &path,
                         translate(language, Key::CoursesCatalogTitle).to_string(),
                         cx,
                     );
@@ -659,7 +723,7 @@ fn render_site_tree(
         for (id, title) in courses {
             let root = cx.entity().downgrade();
             let course_id = id.clone();
-            let path = format!("/courses/{id}");
+            let path = crate::routing::workspace_path(&workspace_slug, &format!("/courses/{id}"));
             let active = active_course.as_deref() == Some(id.as_str())
                 || active_path.as_deref().is_some_and(|active| {
                     active == path || active.starts_with(&format!("{path}/"))

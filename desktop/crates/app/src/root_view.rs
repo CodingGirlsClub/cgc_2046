@@ -473,6 +473,26 @@ impl RootView {
         }
     }
 
+    /// 测试/受控启动：固定起始路径，不读本机最近工作区记录。
+    #[cfg(test)]
+    pub(crate) fn with_session_from(
+        registry: RouteRegistry,
+        language: Language,
+        preference: ThemePreference,
+        session: SessionService,
+        start_path: &str,
+    ) -> Self {
+        Self {
+            state: ShellState::with_session_from(
+                registry,
+                language,
+                preference,
+                session,
+                Some(start_path),
+            ),
+        }
+    }
+
     pub fn initialize_chat_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.state.chat_input =
             Some(cx.new(|cx| cgc_agent_ui::message_editor::MessageEditor::new_state(window, cx)));
@@ -846,22 +866,30 @@ impl Render for RootView {
                 self.workspaces.state(),
                 WorkspaceListState::Idle | WorkspaceListState::Loading
             );
+            if workspaces_ready {
+                self.sync_workspace_route(cx);
+            }
             let current_id = self
                 .current
                 .as_ref()
                 .map(|route_match| route_match.route.id);
-            if workspaces_ready
-                && matches!(current_id, Some("events.list") | Some("account.workspace"))
+            // 站点级页面（公开目录 / 我的学习 / 我的报名）不等工作区加载。
+            let data_ready =
+                workspaces_ready || !current_id.is_some_and(crate::routing::requires_workspace);
+            if data_ready
+                && matches!(
+                    current_id,
+                    Some("events.list") | Some("events.public_list") | Some("account.workspace")
+                )
                 && !self.events_started
                 && matches!(self.events.state(), ListState::Idle)
             {
                 self.start_events_load(cx, true);
             }
-            if workspaces_ready
+            if data_ready
                 && matches!(
                     current_id,
-                    Some("events.mine")
-                        | Some("events.participations")
+                    Some("events.participations")
                         | Some("account.workspace")
                         | Some("courses.learning_home")
                 )
@@ -870,8 +898,11 @@ impl Render for RootView {
             {
                 self.start_enrollments_load(cx);
             }
-            if workspaces_ready
-                && current_id == Some("events.detail")
+            if data_ready
+                && matches!(
+                    current_id,
+                    Some("events.detail") | Some("events.public_detail")
+                )
                 && !self.detail_started
                 && matches!(self.detail.state(), ListState::Idle)
             {
@@ -884,17 +915,22 @@ impl Render for RootView {
                     self.start_detail_load(cx, event_id);
                 }
             }
-            if workspaces_ready
-                && current_id == Some("courses.catalog")
+            if data_ready
+                && matches!(
+                    current_id,
+                    Some("courses.catalog") | Some("courses.public_list")
+                )
                 && !self.courses_started
                 && matches!(self.courses.state(), CoursesListState::Idle)
             {
                 self.start_courses_load(cx, true);
             }
-            if workspaces_ready
+            if data_ready
                 && matches!(
                     current_id,
-                    Some("courses.detail") | Some("courses.learning")
+                    Some("courses.detail")
+                        | Some("courses.public_detail")
+                        | Some("courses.learning")
                 )
                 && !self.course_detail_started
                 && matches!(self.course_detail.state(), CoursesListState::Idle)
@@ -916,7 +952,7 @@ impl Render for RootView {
                 self.start_chat(cx);
             }
 
-            if workspaces_ready
+            if data_ready
                 && current_id == Some("courses.learning")
                 && matches!(self.course_detail.state(), CoursesListState::Ready)
                 && matches!(self.content.state(), CourseContentState::Idle)
@@ -930,7 +966,7 @@ impl Render for RootView {
                     self.start_content_load(cx, course_id);
                 }
             }
-            if workspaces_ready
+            if data_ready
                 && current_id == Some("courses.learning")
                 && matches!(self.course_detail.state(), CoursesListState::Ready)
                 && matches!(self.projection.state(), ProjectionState::Idle)
@@ -948,10 +984,12 @@ impl Render for RootView {
 
         let key_focus = self.ensure_key_focus(cx);
         if is_signed_in
-            && self
-                .current
-                .as_ref()
-                .is_some_and(|route_match| route_match.route.id == "courses.detail")
+            && self.current.as_ref().is_some_and(|route_match| {
+                matches!(
+                    route_match.route.id,
+                    "courses.detail" | "courses.public_detail"
+                )
+            })
         {
             window.focus(&key_focus, cx);
         }
@@ -1260,6 +1298,12 @@ impl Render for RootView {
                                             if matches!(
                                                 self.workspaces.state(),
                                                 WorkspaceListState::Empty
+                                            ) && self.current.as_ref().is_some_and(
+                                                |route_match| {
+                                                    crate::routing::requires_workspace(
+                                                        route_match.route.id,
+                                                    )
+                                                },
                                             ) {
                                                 self.render_workspace_empty(language, &palette)
                                             } else {
@@ -1278,7 +1322,8 @@ impl Render for RootView {
                                                             cx,
                                                         )
                                                     }
-                                                    Some("events.list") => {
+                                                    Some("events.list")
+                                                    | Some("events.public_list") => {
                                                         screens::render_events_list(
                                                             &mut screens::ScreenContext::new(
                                                                 &mut self.state,
@@ -1288,18 +1333,9 @@ impl Render for RootView {
                                                             cx,
                                                         )
                                                     }
-                                                    Some("events.detail") => {
+                                                    Some("events.detail")
+                                                    | Some("events.public_detail") => {
                                                         screens::render_detail(
-                                                            &mut screens::ScreenContext::new(
-                                                                &mut self.state,
-                                                            ),
-                                                            language,
-                                                            &palette,
-                                                            cx,
-                                                        )
-                                                    }
-                                                    Some("events.mine") => {
-                                                        screens::render_enrollments_list(
                                                             &mut screens::ScreenContext::new(
                                                                 &mut self.state,
                                                             ),
@@ -1328,7 +1364,8 @@ impl Render for RootView {
                                                             cx,
                                                         )
                                                     }
-                                                    Some("courses.catalog") => {
+                                                    Some("courses.catalog")
+                                                    | Some("courses.public_list") => {
                                                         screens::render_courses_list(
                                                             &mut screens::ScreenContext::new(
                                                                 &mut self.state,
@@ -1358,7 +1395,8 @@ impl Render for RootView {
                                                             cx,
                                                         )
                                                     }
-                                                    Some("courses.detail") => {
+                                                    Some("courses.detail")
+                                                    | Some("courses.public_detail") => {
                                                         screens::render_course_detail(
                                                             &mut screens::ScreenContext::new(
                                                                 &mut self.state,
@@ -1810,7 +1848,10 @@ impl RootView {
                     .accessibility_label(translate(language, Key::AccountWorkspaceTitle))
                     .on_click(move |_, _, cx| {
                         let _ = overview_root.update(cx, |this, cx| {
-                            this.navigate("/workspace");
+                            let path = this
+                                .workspace_path("")
+                                .unwrap_or_else(|| "/learning".to_string());
+                            this.navigate(&path);
                             cx.notify();
                         });
                     }),
@@ -2158,7 +2199,16 @@ impl RootView {
     }
 }
 
-fn initial_route(registry: &RouteRegistry) -> Option<RouteMatch> {
+fn initial_route(
+    registry: &RouteRegistry,
+    start_path: Option<&str>,
+    last_slug: Option<&str>,
+) -> Option<RouteMatch> {
+    if let Some(path) = start_path {
+        if let crate::routing::RouteSelection::Match(route_match) = registry.select(path) {
+            return Some(route_match);
+        }
+    }
     if let Ok(path) = std::env::var("CGC_START_PATH") {
         if let crate::routing::RouteSelection::Match(route_match) = registry.select(&path) {
             return Some(route_match);
@@ -2172,7 +2222,8 @@ fn initial_route(registry: &RouteRegistry) -> Option<RouteMatch> {
             });
         }
     }
-    if let crate::routing::RouteSelection::Match(route_match) = registry.select("/workspace") {
+    let start = crate::routing::home_target(last_slug);
+    if let crate::routing::RouteSelection::Match(route_match) = registry.select(&start) {
         return Some(route_match);
     }
     registry.routes().first().copied().map(|route| RouteMatch {
@@ -2691,11 +2742,12 @@ mod tests {
             Box::new(FakeAuthApi::demo()),
             Box::new(MemoryStore::default()),
         );
-        RootView::with_session(
+        RootView::with_session_from(
             build_registry().expect("registry builds"),
             Language::Zh,
             ThemePreference::System,
             session,
+            "/learning",
         )
     }
 
@@ -2794,19 +2846,19 @@ mod tests {
     fn event_context_never_attributes_cached_or_unready_details_to_the_active_event() {
         use crate::page_context::PageBody;
         let mut view = view();
-        activate_context_tab(&mut view, "/events/event-a", "Event A");
+        activate_context_tab(&mut view, "/w/2046/events/event-a", "Event A");
         view.state.detail.begin_load("event-a");
         view.state.detail.adopt(context_event("event-a", "Event A"));
         view.refresh_page_context();
         for agent in ["native", "codex"] {
             assert!(context_prompt(&view, agent).contains("Description for Event A"));
         }
-        activate_context_tab(&mut view, "/events/event-b", "Event B");
+        activate_context_tab(&mut view, "/w/2046/events/event-b", "Event B");
         view.refresh_page_context();
         assert_eq!(view.page_context.visible().unwrap().body, PageBody::Loading);
         for agent in ["native", "codex"] {
             let prompt = context_prompt(&view, agent);
-            assert!(prompt.contains("route=/events/event-b"));
+            assert!(prompt.contains("route=/w/2046/events/event-b"));
             assert!(!prompt.contains("Description for Event A"));
         }
         view.state.detail.begin_load("event-b");
@@ -2846,12 +2898,12 @@ mod tests {
             .fail(&cgc_events::list::EventsError::Transport(
                 "Previous event request failed".into(),
             ));
-        activate_context_tab(&mut view, "/events/event-c", "Event C");
+        activate_context_tab(&mut view, "/w/2046/events/event-c", "Event C");
         view.refresh_page_context();
         assert_eq!(view.page_context.visible().unwrap().body, PageBody::Loading);
         for agent in ["native", "codex"] {
             let prompt = context_prompt(&view, agent);
-            assert!(prompt.contains("route=/events/event-c"));
+            assert!(prompt.contains("route=/w/2046/events/event-c"));
             assert!(!prompt.contains("Previous event request failed"));
         }
     }
@@ -2901,7 +2953,7 @@ mod tests {
             assert!(!context_prompt(&view, agent)
                 .contains("Event registration outside the learning list"));
         }
-        for path in ["/events/mine", "/participations"] {
+        for path in ["/participations"] {
             activate_context_tab(&mut view, path, "Participations");
             view.refresh_page_context();
             for agent in ["native", "codex"] {
@@ -2957,9 +3009,14 @@ mod tests {
             },
         };
         for focused_issue in [false, true] {
-            activate_context_tab(&mut view, "/courses/course-a/learn", "Course A");
+            activate_context_tab(&mut view, "/w/2046/courses/course-a/learn", "Course A");
             if focused_issue {
-                let tab = super::state::PaneTab::issue("course-a", "issue-a", "Ownership");
+                let tab = super::state::PaneTab::issue(
+                    "/w/2046/courses/course-a/learn",
+                    "course-a",
+                    "issue-a",
+                    "Ownership",
+                );
                 view.state.active_tab = Some(tab.id.clone());
                 view.state.tabs.push(tab);
             }
@@ -3040,7 +3097,7 @@ mod tests {
                     ..CourseContentDocument::default()
                 },
             };
-            activate_context_tab(&mut view, "/courses/course-a/learn", "Course A");
+            activate_context_tab(&mut view, "/w/2046/courses/course-a/learn", "Course A");
             view.adopt_course_detail(detail.clone());
             view.state.content.begin_load("course-a");
             view.state.content.adopt(content.clone());
@@ -3051,8 +3108,8 @@ mod tests {
             }
 
             for revision in [previous_revision, refreshed_revision] {
-                activate_context_tab(&mut view, "/workspace", "Workspace");
-                activate_context_tab(&mut view, "/courses/course-a/learn", "Course A");
+                activate_context_tab(&mut view, "/w/2046", "Workspace");
+                activate_context_tab(&mut view, "/w/2046/courses/course-a/learn", "Course A");
                 assert!(view.state.course_detail.detail().is_none());
                 assert_eq!(view.state.content.content(), Some(&content));
                 view.adopt_course_detail(CourseDetail {
@@ -3108,12 +3165,13 @@ mod tests {
     fn course_context_keeps_route_identity_before_detail_loads() {
         let mut view = view();
         view.state.tabs.push(super::state::PaneTab::issue(
+            "/w/2046/courses/course-a/learn",
             "course-a",
             "unit-a",
             "First task",
         ));
         view.state.active_tab = Some("issue:course-a:unit-a".into());
-        view.navigate("/courses/course-a/learn");
+        view.navigate("/w/2046/courses/course-a/learn");
         view.refresh_page_context();
         let page = view.page_context.visible().unwrap();
         let course = page.course.unwrap();
@@ -3122,11 +3180,11 @@ mod tests {
         assert_eq!(page.body, crate::page_context::PageBody::Loading);
         view.state.course_detail_started = true;
         view.state.tabs.push(super::state::PaneTab::page(
-            "/courses/course-b/learn",
+            "/w/2046/courses/course-b/learn",
             "Second course",
         ));
-        view.state.active_tab = Some("page:/courses/course-b/learn".into());
-        view.navigate("/courses/course-b/learn");
+        view.state.active_tab = Some("page:/w/2046/courses/course-b/learn".into());
+        view.navigate("/w/2046/courses/course-b/learn");
         assert!(!view.state.course_detail_started);
         view.refresh_page_context();
         assert_eq!(
@@ -3153,11 +3211,11 @@ mod tests {
             Some("selector-workspace")
         );
         view.state.tabs.push(super::state::PaneTab::page(
-            "/courses/course-a/learn",
+            "/w/2046/courses/course-a/learn",
             "Course",
         ));
         view.state.active_tab = Some("page:/courses/course-a/learn".into());
-        view.navigate("/courses/course-a/learn");
+        view.navigate("/w/2046/courses/course-a/learn");
         view.state
             .course_detail
             .adopt(cgc_courses::catalog::CourseDetail {
@@ -3181,11 +3239,12 @@ mod tests {
     #[test]
     fn failed_course_detail_reports_unavailable_page_context_with_course_identity() {
         let mut view = view();
-        view.state
-            .tabs
-            .push(super::state::PaneTab::page("/courses/course-a", "Course A"));
+        view.state.tabs.push(super::state::PaneTab::page(
+            "/w/2046/courses/course-a",
+            "Course A",
+        ));
         view.state.active_tab = Some("page:/courses/course-a".into());
-        view.navigate("/courses/course-a");
+        view.navigate("/w/2046/courses/course-a");
         view.state
             .course_detail
             .fail(&cgc_courses::catalog::CoursesError::Transport(
@@ -3203,34 +3262,70 @@ mod tests {
     #[test]
     fn breadcrumb_sections_follow_route() {
         let mut view = view();
-        view.navigate("/events");
+        view.navigate("/w/2046/events");
         assert_eq!(
             view.breadcrumb_context().map(|(label, _)| label),
             Some("events.list.title")
         );
-        view.navigate("/courses/00dcc9a9-3876-4018-ab52-bcf1f0e4e05c/learn");
+        view.navigate("/w/2046/courses/00dcc9a9-3876-4018-ab52-bcf1f0e4e05c/learn");
         assert_eq!(
             view.breadcrumb_context().map(|(label, _)| label),
             Some("courses.catalog.title")
         );
-        view.navigate("/workspace");
+        view.navigate("/w/2046");
         assert_eq!(
             view.breadcrumb_context().map(|(label, _)| label),
             Some("account.workspace.overview")
         );
+        view.navigate("/courses");
+        assert_eq!(
+            view.breadcrumb_context().map(|(label, _)| label),
+            Some("courses.public.title")
+        );
+        view.navigate("/events");
+        assert_eq!(
+            view.breadcrumb_context().map(|(label, _)| label),
+            Some("events.public.title")
+        );
     }
 
     #[test]
-    fn workspace_is_default_landing_and_login_target() {
+    fn navigate_slash_uses_the_last_workspace() {
+        let mut with_last = view();
+        with_last.last_workspace_slug = Some("2046".into());
+        with_last.navigate("/");
+        assert_eq!(
+            with_last.current().map(|route| route.id),
+            Some("account.workspace")
+        );
+        assert_eq!(
+            with_last
+                .current_match()
+                .and_then(|route_match| route_match.params.get("slug"))
+                .map(String::as_str),
+            Some("2046")
+        );
+
+        let mut fresh = view();
+        fresh.last_workspace_slug = None;
+        fresh.navigate("/");
+        assert_eq!(
+            fresh.current().map(|route| route.id),
+            Some("courses.learning_home")
+        );
+    }
+
+    #[test]
+    fn my_learning_is_default_landing_and_login_target() {
         let mut view = view();
         assert_eq!(
             view.current().map(|route| route.id),
-            Some("account.workspace")
+            Some("courses.learning_home")
         );
         view.finish_login(Ok(fake_signed_in()));
         assert_eq!(
             view.current().map(|route| route.id),
-            Some("account.workspace")
+            Some("courses.learning_home")
         );
     }
 
@@ -3487,11 +3582,11 @@ mod tests {
     }
 
     #[test]
-    fn starts_on_workspace_route_signed_out() {
+    fn starts_on_my_learning_signed_out() {
         let view = view();
         assert_eq!(
             view.current().map(|route| route.id),
-            Some("account.workspace")
+            Some("courses.learning_home")
         );
         assert_eq!(view.language(), Language::Zh);
         assert_eq!(view.preference(), ThemePreference::System);
@@ -3539,11 +3634,11 @@ mod tests {
     #[test]
     fn pending_deep_link_is_consumed_after_login() {
         let mut view = view();
-        view.pending_link = Some("/workspace".to_string());
+        view.pending_link = Some("/learning".to_string());
         view.finish_login(Ok(fake_signed_in()));
         assert_eq!(
             view.current().map(|route| route.id),
-            Some("account.workspace")
+            Some("courses.learning_home")
         );
         assert!(view.pending_link.is_none());
     }
@@ -3588,13 +3683,31 @@ mod tests {
     #[test]
     fn navigate_to_event_detail_captures_id_param() {
         let mut view = view();
-        view.navigate("/events/evt-007");
+        view.navigate("/w/2046/events/evt-007");
         assert_eq!(view.current().map(|route| route.id), Some("events.detail"));
         assert_eq!(
             view.current_match()
                 .and_then(|route_match| route_match.params.get("id"))
                 .map(String::as_str),
             Some("evt-007")
+        );
+        assert_eq!(
+            view.current_match()
+                .and_then(|route_match| route_match.params.get("slug"))
+                .map(String::as_str),
+            Some("2046")
+        );
+
+        view.navigate("/events/evt-008");
+        assert_eq!(
+            view.current().map(|route| route.id),
+            Some("events.public_detail")
+        );
+        assert_eq!(
+            view.current_match()
+                .and_then(|route_match| route_match.params.get("id"))
+                .map(String::as_str),
+            Some("evt-008")
         );
     }
 

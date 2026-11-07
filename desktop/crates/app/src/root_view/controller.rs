@@ -280,7 +280,7 @@ impl RootView {
                     .collect::<Vec<_>>();
                 crate::page_context::project_enrollments(&courses, &tab.id)
             }
-            "events.mine" | "events.participations" => {
+            "events.participations" => {
                 crate::page_context::project_enrollments(&self.enrollments_rows, &tab.id)
             }
             "account.workspace" => self
@@ -833,7 +833,7 @@ impl RootView {
             Err(error) => {
                 log::warn!(target: "deeplink", "深链被拒绝：{error:?}");
                 self.pending_link = None;
-                self.navigate("/workspace");
+                self.navigate("/");
                 self.pane_notice =
                     Some(translate(self.language, Key::AppDeeplinkInvalid).to_string());
             }
@@ -902,6 +902,13 @@ impl RootView {
 
     pub fn navigate(&mut self, path: &str) {
         self.site_tree_search_focused = false;
+        // `/` 不是可渲染页面：落到上次工作区概览，没有记录则落到「我的学习」。
+        let target = if path == "/" {
+            crate::routing::home_target(self.last_workspace_slug.as_deref())
+        } else {
+            path.to_string()
+        };
+        let path = target.as_str();
         if let crate::routing::RouteSelection::Match(route_match) = self.registry.select(path) {
             let is_learning = route_match.route.id == "courses.learning";
             let next_course = matches!(route_match.route.id, "courses.detail" | "courses.learning")
@@ -947,7 +954,18 @@ impl RootView {
         event_id: &str,
         cx: &mut Context<Self>,
     ) {
-        let path = format!("/events/{event_id}");
+        let public_face = self.current.as_ref().is_some_and(|route_match| {
+            matches!(
+                route_match.route.id,
+                "events.public_list" | "events.public_detail"
+            )
+        });
+        let path = match (&self.workspaces.current(), public_face) {
+            (Some(workspace), false) => {
+                crate::routing::workspace_path(&workspace.slug, &format!("/events/{event_id}"))
+            }
+            _ => format!("/events/{event_id}"),
+        };
         let title = self
             .events
             .items()
@@ -1071,17 +1089,68 @@ impl RootView {
         workspace_id: &str,
         cx: &mut Context<Self>,
     ) {
-        let previous = self.workspaces.current_id().map(str::to_string);
-        if let Some(previous) = previous.as_deref() {
-            self.persist_workspace_state(previous);
+        // 路由是工作区的唯一真源：只导航到目标 slug，切换与恢复由 sync 完成。
+        let Some(slug) = self
+            .workspaces
+            .workspaces()
+            .iter()
+            .find(|workspace| workspace.id == workspace_id && workspace.can_access)
+            .map(|workspace| workspace.slug.clone())
+        else {
+            return;
+        };
+        self.navigate(&crate::routing::workspace_path(&slug, ""));
+        cx.notify();
+    }
+
+    /// 路由里的 `/w/<slug>` 是工作区的唯一真源：路由变了就把当前工作区切过去。
+    ///
+    /// 未知或无权限的 slug 不静默保留错配的工作区，回到当前台并给出一次提示。
+    pub(in crate::root_view) fn sync_workspace_route(&mut self, cx: &mut Context<Self>) {
+        let route_slug = self
+            .current
+            .as_ref()
+            .and_then(|route_match| route_match.params.get("slug"))
+            .cloned();
+        let current_slug = self
+            .workspaces
+            .current()
+            .map(|workspace| workspace.slug.clone());
+        let action = crate::routing::route_workspace_action(
+            route_slug.as_deref(),
+            current_slug.as_deref(),
+            self.workspaces.workspaces(),
+        );
+        match action {
+            crate::routing::WorkspaceRouteAction::Keep => {}
+            crate::routing::WorkspaceRouteAction::Inaccessible => {
+                self.notice_inaccessible_workspace();
+            }
+            crate::routing::WorkspaceRouteAction::Switch { id, slug } => {
+                if let Some(previous) = self.workspaces.current_id().map(str::to_string) {
+                    self.persist_workspace_state(&previous);
+                }
+                if self.workspaces.switch_to(&id) {
+                    self.last_workspace_slug = Some(slug.clone());
+                    crate::workspace_state::set_last_workspace(&slug);
+                    self.reset_workspace_data(cx);
+                    self.restore_workspace_state(cx);
+                    self.prepare_agent_authorization(cx);
+                }
+            }
         }
-        if self.workspaces.switch_to(workspace_id) {
-            self.reset_workspace_data(cx);
-            self.navigate("/workspace");
-            self.restore_workspace_state(cx);
-            self.prepare_agent_authorization(cx);
-            cx.notify();
-        }
+    }
+
+    fn notice_inaccessible_workspace(&mut self) {
+        let Some(path) = self
+            .workspaces
+            .current()
+            .map(|workspace| crate::routing::workspace_path(&workspace.slug, ""))
+        else {
+            return;
+        };
+        self.pane_notice = Some("该工作区不存在或你没有访问权限".to_string());
+        self.navigate(&path);
     }
 
     pub(in crate::root_view) fn reset_workspace_data(&mut self, cx: &mut Context<Self>) {
@@ -2343,9 +2412,19 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn start_courses_load(&mut self, cx: &mut Context<Self>, first: bool) {
-        // 工作区目录必须有作用域：没有工作区时不启动，避免把空 filter 当成「全平台」。
-        let Some(scope) = self.workspaces.scope() else {
+        let Some(scope_mode) = self
+            .current
+            .as_ref()
+            .and_then(|route_match| crate::routing::offering_list_scope(route_match.route.id))
+        else {
             return;
+        };
+        let scope = match scope_mode {
+            crate::routing::ListScope::Workspace => match self.workspaces.scope() {
+                Some(scope) => Some(scope),
+                None => return,
+            },
+            crate::routing::ListScope::Public => None,
         };
         if first {
             self.courses.begin_first_load();
@@ -2362,12 +2441,11 @@ impl RootView {
         };
         let epoch = self.workspaces.epoch();
         let task = cx.background_executor().spawn(async move {
-            api.list_courses(
-                token.as_deref(),
-                cgc_platform::workspace::OfferingScope::Workspace(&scope),
-                cursor.as_deref(),
-                10,
-            )
+            let offering = match scope.as_ref() {
+                Some(scope) => cgc_platform::workspace::OfferingScope::Workspace(scope),
+                None => cgc_platform::workspace::OfferingScope::Public,
+            };
+            api.list_courses(token.as_deref(), offering, cursor.as_deref(), 10)
         });
 
         cx.spawn(async move |this, cx| {
@@ -2469,7 +2547,12 @@ impl RootView {
         course_id: &str,
         cx: &mut Context<Self>,
     ) {
-        let path = format!("/courses/{course_id}/learn");
+        let Some(workspace) = self.workspaces.current() else {
+            self.navigate("/learning");
+            return;
+        };
+        let path =
+            crate::routing::workspace_path(&workspace.slug, &format!("/courses/{course_id}/learn"));
         let title = self
             .courses
             .items()
@@ -2690,14 +2773,24 @@ impl RootView {
             .map(|route_match| route_match.route.id)?;
         match route_id {
             "account.workspace" => Some(("account.workspace.overview", None)),
-            "events.list" | "events.mine" | "events.participations" => {
-                Some(("events.list.title", None))
-            }
+            "events.list" | "events.participations" => Some(("events.list.title", None)),
             "events.detail" => Some((
                 "events.list.title",
                 self.detail.detail().map(|detail| detail.title.clone()),
             )),
+            "events.public_list" => Some(("events.public.title", None)),
+            "events.public_detail" => Some((
+                "events.public.title",
+                self.detail.detail().map(|detail| detail.title.clone()),
+            )),
             "courses.catalog" | "courses.learning_home" => Some(("courses.catalog.title", None)),
+            "courses.public_list" => Some(("courses.public.title", None)),
+            "courses.public_detail" => Some((
+                "courses.public.title",
+                self.course_detail
+                    .detail()
+                    .map(|detail| detail.title.clone()),
+            )),
             "courses.detail" | "courses.learning" => Some((
                 "courses.catalog.title",
                 self.course_detail
@@ -2729,21 +2822,35 @@ impl RootView {
             .as_ref()
             .map(|route_match| route_match.route.id);
         let nav_root = cx.entity().downgrade();
-        let routes = [
-            ("account.workspace", "/workspace", "account.workspace.title"),
-            ("events.list", "/events", "events.list.title"),
-            ("courses.catalog", "/courses", "courses.catalog.title"),
-            (
-                "courses.learning_home",
-                "/learning",
-                "courses.learning_home.title",
-            ),
-            (
-                "events.participations",
-                "/participations",
-                "events.participations.title",
-            ),
-        ];
+        let mut routes: Vec<(&'static str, String, &'static str)> = Vec::new();
+        if let Some(workspace) = self.workspaces.current() {
+            let slug = workspace.slug.clone();
+            routes.push((
+                "account.workspace",
+                crate::routing::workspace_path(&slug, ""),
+                "account.workspace.title",
+            ));
+            routes.push((
+                "events.list",
+                crate::routing::workspace_path(&slug, "/events"),
+                "events.list.title",
+            ));
+            routes.push((
+                "courses.catalog",
+                crate::routing::workspace_path(&slug, "/courses"),
+                "courses.catalog.title",
+            ));
+        }
+        routes.push((
+            "courses.learning_home",
+            "/learning".to_string(),
+            "courses.learning_home.title",
+        ));
+        routes.push((
+            "events.participations",
+            "/participations".to_string(),
+            "events.participations.title",
+        ));
         let section = Button::new("breadcrumb-section")
             .label(section_label.to_string())
             .ghost()
@@ -2751,11 +2858,9 @@ impl RootView {
             .dropdown_caret(true)
             .dropdown_menu(move |menu, _window, _cx| {
                 let mut menu = menu;
-                for (route_id, path, title_key) in routes {
+                for (route_id, path, title_key) in routes.clone() {
                     let selected = current.is_some_and(|id| {
-                        id == route_id
-                            || id.starts_with(&format!("{route_id}."))
-                            || (route_id == "events.list" && id == "events.mine")
+                        id == route_id || id.starts_with(&format!("{route_id}."))
                     });
                     let root = nav_root.clone();
                     menu = menu.item(
@@ -2763,7 +2868,7 @@ impl RootView {
                             .checked(selected)
                             .on_click(move |_, _, cx| {
                                 let _ = root.update(cx, |this, cx| {
-                                    this.navigate(path);
+                                    this.navigate(&path);
                                     cx.notify();
                                 });
                             }),
@@ -2819,7 +2924,15 @@ impl RootView {
         title: impl Into<String>,
         cx: &mut Context<Self>,
     ) {
-        let tab = PaneTab::issue(course_id, issue_id, title);
+        let Some(slug) = self
+            .workspaces
+            .current()
+            .map(|workspace| workspace.slug.clone())
+        else {
+            return;
+        };
+        let path = crate::routing::workspace_path(&slug, &format!("/courses/{course_id}/learn"));
+        let tab = PaneTab::issue(&path, course_id, issue_id, title);
         self.open_tab(tab, cx);
     }
 
@@ -2857,7 +2970,13 @@ impl RootView {
                 .map(|tab| tab.path.clone())
             {
                 Some(path) => self.navigate(&path),
-                None => self.navigate("/workspace"),
+                None => match self.workspaces.current() {
+                    Some(workspace) => {
+                        let path = crate::routing::workspace_path(&workspace.slug, "");
+                        self.navigate(&path);
+                    }
+                    None => self.navigate("/learning"),
+                },
             }
         }
         self.persist_current_workspace_state();
@@ -2874,8 +2993,7 @@ impl RootView {
         let active = self.active_tab.as_deref()?;
         let tab = self.tabs.iter().find(|tab| tab.id == active)?;
         let issue_id = tab.issue_id.as_deref()?;
-        let course_id = tab
-            .path
+        let course_id = crate::routing::without_workspace_prefix(&tab.path)
             .strip_prefix("/courses/")
             .and_then(|rest| rest.strip_suffix("/learn"))?;
         Some((course_id, issue_id))
@@ -2891,13 +3009,23 @@ impl RootView {
         cx.notify();
     }
 
-    fn persist_current_workspace_state(&self) {
-        if let Some(workspace_id) = self.workspaces.current_id() {
-            self.persist_workspace_state(workspace_id);
+    fn persist_current_workspace_state(&mut self) {
+        if let Some(workspace_id) = self.workspaces.current_id().map(str::to_string) {
+            self.persist_workspace_state(&workspace_id);
         }
     }
 
-    fn persist_workspace_state(&self, workspace_id: &str) {
+    fn persist_workspace_state(&mut self, workspace_id: &str) {
+        if let Some(slug) = self
+            .workspaces
+            .workspaces()
+            .iter()
+            .find(|workspace| workspace.id == workspace_id)
+            .map(|workspace| workspace.slug.clone())
+        {
+            self.last_workspace_slug = Some(slug.clone());
+            crate::workspace_state::set_last_workspace(&slug);
+        }
         let entry = crate::workspace_state::WorkspaceEntry {
             tabs: self
                 .tabs
@@ -3003,14 +3131,19 @@ impl RootView {
         self.site_tree_scroll = ScrollHandle::new();
         self.site_tree_scroll_restore = Some(entry.site_tree_scroll_y);
         let stored_tab_count = entry.tabs.len();
+        let current_slug = self
+            .workspaces
+            .current()
+            .map(|workspace| workspace.slug.clone());
         self.tabs = entry
             .tabs
             .into_iter()
             .filter(|tab| {
-                matches!(
-                    self.registry.select(&tab.path),
-                    crate::routing::RouteSelection::Match(_)
-                )
+                crate::routing::tab_belongs_to(&tab.path, current_slug.as_deref())
+                    && matches!(
+                        self.registry.select(&tab.path),
+                        crate::routing::RouteSelection::Match(_)
+                    )
             })
             .map(|tab| PaneTab {
                 id: tab.id,
@@ -3021,7 +3154,7 @@ impl RootView {
             .collect();
         if stored_tab_count > self.tabs.len() {
             self.pane_notice = Some(format!(
-                "{} 个失效标签已清理",
+                "{} 个失效或不属于当前工作区的标签已清理",
                 stored_tab_count - self.tabs.len()
             ));
         }
@@ -3763,8 +3896,19 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn start_events_load(&mut self, cx: &mut Context<Self>, first: bool) {
-        let Some(scope) = self.workspaces.scope() else {
+        let Some(scope_mode) = self
+            .current
+            .as_ref()
+            .and_then(|route_match| crate::routing::offering_list_scope(route_match.route.id))
+        else {
             return;
+        };
+        let scope = match scope_mode {
+            crate::routing::ListScope::Workspace => match self.workspaces.scope() {
+                Some(scope) => Some(scope),
+                None => return,
+            },
+            crate::routing::ListScope::Public => None,
         };
         if first {
             self.events.begin_first_load();
@@ -3782,13 +3926,11 @@ impl RootView {
             self.events.next_cursor().map(str::to_string)
         };
         let task = cx.background_executor().spawn(async move {
-            api.list_events(
-                token.as_deref(),
-                cgc_platform::workspace::OfferingScope::Workspace(&scope),
-                filter,
-                after.as_deref(),
-                10,
-            )
+            let offering = match scope.as_ref() {
+                Some(scope) => cgc_platform::workspace::OfferingScope::Workspace(scope),
+                None => cgc_platform::workspace::OfferingScope::Public,
+            };
+            api.list_events(token.as_deref(), offering, filter, after.as_deref(), 10)
         });
 
         cx.spawn(async move |this, cx| {
@@ -4038,7 +4180,7 @@ impl RootView {
                 self.workspaces_started = false;
                 self.session_checked = false;
                 self.login_password.clear();
-                self.navigate("/workspace");
+                self.navigate("/");
                 self.consume_pending_link();
             }
             Err(error) => {

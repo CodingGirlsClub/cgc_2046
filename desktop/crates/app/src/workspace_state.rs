@@ -10,6 +10,8 @@ use serde_json::{json, Value};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct WorkspaceState {
+    /// 最近一次使用的工作区 slug；`/` 的落点与启动恢复用它。
+    pub(crate) last_workspace: Option<String>,
     pub(crate) workspaces: BTreeMap<String, WorkspaceEntry>,
 }
 
@@ -119,10 +121,16 @@ pub(crate) fn load() -> WorkspaceState {
     let Ok(value) = serde_json::from_str::<Value>(&raw) else {
         return WorkspaceState::default();
     };
-    let Some(workspaces) = value.get("workspaces").and_then(Value::as_object) else {
-        return WorkspaceState::default();
+    let mut state = WorkspaceState {
+        last_workspace: value
+            .get("last_workspace")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        ..WorkspaceState::default()
     };
-    let mut state = WorkspaceState::default();
+    let Some(workspaces) = value.get("workspaces").and_then(Value::as_object) else {
+        return state;
+    };
     for (workspace_id, entry) in workspaces {
         let tabs = entry
             .get("tabs")
@@ -206,13 +214,31 @@ pub(crate) fn save(state: &WorkspaceState) {
             (workspace_id.clone(), value)
         })
         .collect::<serde_json::Map<_, _>>();
-    let raw = serde_json::to_string_pretty(&json!({ "workspaces": workspaces }))
-        .unwrap_or_else(|_| "{\"workspaces\":{}}".to_string());
+    let raw = serde_json::to_string_pretty(&json!({
+        "last_workspace": state.last_workspace,
+        "workspaces": workspaces,
+    }))
+    .unwrap_or_else(|_| "{\"workspaces\":{}}".to_string());
     let _ = std::fs::write(path, raw);
 }
 
 pub(crate) fn entry(workspace_id: &str) -> Option<WorkspaceEntry> {
     load().workspaces.remove(workspace_id)
+}
+
+/// 最近使用的工作区 slug。
+pub(crate) fn last_workspace() -> Option<String> {
+    load().last_workspace
+}
+
+/// 记录最近使用的工作区；已相同则不重写文件。
+pub(crate) fn set_last_workspace(slug: &str) {
+    let mut state = load();
+    if state.last_workspace.as_deref() == Some(slug) {
+        return;
+    }
+    state.last_workspace = Some(slug.to_string());
+    save(&state);
 }
 
 pub(crate) fn save_entry(workspace_id: &str, entry: WorkspaceEntry) {
@@ -272,6 +298,14 @@ mod tests {
         save_entry("ws-1", entry.clone());
         assert_eq!(super::entry("ws-1"), Some(entry));
         assert_eq!(super::entry("ws-2"), None);
+        set_last_workspace("2046");
+        assert_eq!(last_workspace().as_deref(), Some("2046"));
+        save_entry("ws-2", WorkspaceEntry::default());
+        assert_eq!(
+            last_workspace().as_deref(),
+            Some("2046"),
+            "saving another workspace entry must not drop the last workspace"
+        );
         if let Some(previous) = previous {
             std::env::set_var("CGC_WORKSPACE_STATE_FILE", previous);
         } else {

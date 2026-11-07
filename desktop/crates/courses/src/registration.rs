@@ -6,7 +6,7 @@ use cgc_platform::routes::{NavIcon, Route};
 pub const ROUTES: &[Route] = &[
     Route::new(
         "courses.catalog",
-        "/courses",
+        "/w/:slug/courses",
         "courses.catalog.title",
         NavIcon::Courses,
     ),
@@ -18,14 +18,26 @@ pub const ROUTES: &[Route] = &[
     ),
     Route::new(
         "courses.detail",
-        "/courses/:id",
+        "/w/:slug/courses/:id",
         "courses.detail.title",
         NavIcon::Courses,
     ),
     Route::new(
         "courses.learning",
-        "/courses/:id/learn",
+        "/w/:slug/courses/:id/learn",
         "courses.learning.title",
+        NavIcon::Courses,
+    ),
+    Route::new(
+        "courses.public_list",
+        "/courses",
+        "courses.public.title",
+        NavIcon::Courses,
+    ),
+    Route::new(
+        "courses.public_detail",
+        "/courses/:id",
+        "courses.public_detail.title",
         NavIcon::Courses,
     ),
 ];
@@ -36,4 +48,6 @@ pub const I18N_KEYS: &[&str] = &[
     "courses.learning_home.title",
     "courses.detail.title",
     "courses.learning.title",
+    "courses.public.title",
+    "courses.public_detail.title",
 ];

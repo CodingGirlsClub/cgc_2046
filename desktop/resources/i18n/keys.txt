@@ -16,7 +16,8 @@ app.lang.en
 account.workspace.title
 events.list.title
 courses.catalog.title
-agent_chat.panel.title
+courses.public.title
+courses.public_detail.title
 agent_chat.context.pending
 agent_chat.context.referenced
 agent_chat.context.update
@@ -62,6 +63,8 @@ events.list.paid
 events.list.free
 events.list.detail
 events.detail.title
+events.public.title
+events.public_detail.title
 events.detail.back
 events.detail.loading
 events.detail.error
@@ -142,7 +145,6 @@ events.pay.terminal.forfeited
 events.pay.terminal.refunding
 events.pay.terminal.refund_failed
 events.enroll.cancel
-events.mine.title
 events.mine.loading
 events.mine.empty
 events.mine.retry

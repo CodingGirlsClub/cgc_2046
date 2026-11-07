@@ -108,7 +108,10 @@ pub(in crate::root_view) fn render_workspace_overview(
                     .text_size(px(12.0))
                     .child(translate(language, Key::AccountWorkspaceBrowseCourses))
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.navigate("/courses");
+                        let path = this
+                            .workspace_path("/courses")
+                            .unwrap_or_else(|| "/courses".to_string());
+                        this.navigate(&path);
                         cx.notify();
                     })),
             )
@@ -158,7 +161,10 @@ pub(in crate::root_view) fn render_workspace_overview(
                         if confirmed {
                             this.navigate_to_learning(&course_id, cx);
                         } else {
-                            this.navigate(&format!("/courses/{course_id}"));
+                            let path = this
+                                .workspace_path(&format!("/courses/{course_id}"))
+                                .unwrap_or_else(|| format!("/courses/{course_id}"));
+                            this.navigate(&path);
                         }
                         cx.notify();
                     }))
@@ -290,7 +296,10 @@ pub(in crate::root_view) fn render_workspace_overview(
                         if let Some(event_id) = event_id.as_deref() {
                             this.navigate_to_event_detail(event_id, cx);
                         } else if let Some(course_id) = course_id.as_deref() {
-                            this.navigate(&format!("/courses/{course_id}"));
+                            let path = this
+                                .workspace_path(&format!("/courses/{course_id}"))
+                                .unwrap_or_else(|| format!("/courses/{course_id}"));
+                            this.navigate(&path);
                         }
                         cx.notify();
                     }))
@@ -379,7 +388,10 @@ pub(in crate::root_view) fn render_workspace_overview(
                         .text_color(palette.accent)
                         .child(translate(language, Key::AccountWorkspaceViewAll))
                         .on_click(cx.listener(|this, _, _, cx| {
-                            this.navigate("/events");
+                            let path = this
+                                .workspace_path("/events")
+                                .unwrap_or_else(|| "/events".to_string());
+                            this.navigate(&path);
                             cx.notify();
                         })),
                 ),

@@ -17,7 +17,17 @@ pub(in crate::root_view) fn render_detail(
         .text_color(palette.ink_3)
         .text_size(px(12.0))
         .on_click(cx.listener(|this, _, _, cx| {
-            this.navigate("/events");
+            let public = this
+                .current
+                .as_ref()
+                .is_some_and(|route_match| route_match.route.id == "events.public_detail");
+            let path = if public {
+                "/events".to_string()
+            } else {
+                this.workspace_path("/events")
+                    .unwrap_or_else(|| "/events".to_string())
+            };
+            this.navigate(&path);
             cx.notify();
         }));
 

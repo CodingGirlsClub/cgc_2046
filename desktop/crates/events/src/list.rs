@@ -965,7 +965,7 @@ mod tests {
     }
 
     #[test]
-    fn http_list_events_public_scope_has_no_workspace() {
+    fn http_list_events_public_scope_forces_open_public() {
         use std::io::{Read, Write};
         use std::net::TcpListener;
 
@@ -1014,7 +1014,7 @@ mod tests {
 
         let api = HttpEventsApi::new(GraphqlClient::new(format!("http://{addr}/api/graphql")));
         let _ = api
-            .list_events(None, OfferingScope::Public, StatusFilter::All, None, 10)
+            .list_events(None, OfferingScope::Public, StatusFilter::Closed, None, 10)
             .expect("http page");
         let sent = receiver.recv().expect("request");
         let body = sent.split("\r\n\r\n").nth(1).expect("request body");

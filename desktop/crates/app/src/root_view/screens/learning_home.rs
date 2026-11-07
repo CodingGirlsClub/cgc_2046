@@ -110,7 +110,10 @@ pub(in crate::root_view) fn render_learning_home(
                         if confirmed {
                             this.navigate_to_learning(&course_id, cx);
                         } else {
-                            this.navigate(&format!("/courses/{course_id}"));
+                            let path = this
+                                .workspace_path(&format!("/courses/{course_id}"))
+                                .unwrap_or_else(|| format!("/courses/{course_id}"));
+                            this.navigate(&path);
                         }
                         cx.notify();
                     }))

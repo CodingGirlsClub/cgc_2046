@@ -846,7 +846,7 @@ mod tests {
                 request.extend_from_slice(&buffer[..read]);
             }
             let _ = sender.send(String::from_utf8_lossy(&request).to_string());
-            let body = r#"{"data":{"listCourses":{"count":0,"endKeyset":null,"results":[]}}}"#;
+            let body = r#"{"data":{"listCourses":{"count":1,"endKeyset":null,"results":[{"id":"c-1","title":"Rust","status":"open","visibility":"public","pricingEnabled":false,"enrollmentBadge":"enrolling"}]}}}"#;
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
@@ -855,9 +855,11 @@ mod tests {
         });
 
         let api = HttpCoursesApi::new(GraphqlClient::new(format!("http://{addr}/api/graphql")));
-        let _ = api
+        let page = api
             .list_courses(None, OfferingScope::Public, None, 10)
             .expect("page");
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].enrollment_badge.as_deref(), Some("enrolling"));
         let sent = receiver.recv().expect("request");
         let body = sent.split("\r\n\r\n").nth(1).expect("request body");
         let body: Value = serde_json::from_str(body).expect("json body");

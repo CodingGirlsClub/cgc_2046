@@ -246,6 +246,53 @@ mod tests {
     }
 
     #[test]
+    fn workspace_routes_carry_slug_and_site_routes_do_not() {
+        let registry = build_registry().expect("registry");
+        let cases: &[(&str, &str, Option<&str>, Option<&str>)] = &[
+            ("/w/2046", "account.workspace", Some("2046"), None),
+            ("/w/2046/events", "events.list", Some("2046"), None),
+            (
+                "/w/2046/events/e-1",
+                "events.detail",
+                Some("2046"),
+                Some("e-1"),
+            ),
+            ("/w/2046/courses", "courses.catalog", Some("2046"), None),
+            (
+                "/w/2046/courses/c-1",
+                "courses.detail",
+                Some("2046"),
+                Some("c-1"),
+            ),
+            (
+                "/w/2046/courses/c-1/learn",
+                "courses.learning",
+                Some("2046"),
+                Some("c-1"),
+            ),
+            ("/events", "events.public_list", None, None),
+            ("/events/e-1", "events.public_detail", None, Some("e-1")),
+            ("/courses", "courses.public_list", None, None),
+            ("/courses/c-1", "courses.public_detail", None, Some("c-1")),
+            ("/learning", "courses.learning_home", None, None),
+            ("/participations", "events.participations", None, None),
+        ];
+        for (path, id, slug, item) in cases {
+            let selection = registry.select(path);
+            let crate::routing::RouteSelection::Match(found) = selection else {
+                panic!("{path} did not match");
+            };
+            assert_eq!(found.route.id, *id, "{path}");
+            assert_eq!(
+                found.params.get("slug").map(String::as_str),
+                *slug,
+                "{path}"
+            );
+            assert_eq!(found.params.get("id").map(String::as_str), *item, "{path}");
+        }
+    }
+
+    #[test]
     fn baseline_registration_stays_valid() {
         let registry = build_registry().expect("registry builds");
         validate(&registry).expect("baseline valid");

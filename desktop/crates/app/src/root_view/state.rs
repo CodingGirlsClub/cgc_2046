@@ -69,6 +69,7 @@ impl PaneTab {
     }
 
     pub(in crate::root_view) fn issue(
+        path: &str,
         course_id: &str,
         issue_id: &str,
         title: impl Into<String>,
@@ -76,7 +77,7 @@ impl PaneTab {
         Self {
             id: format!("issue:{course_id}:{issue_id}"),
             title: title.into(),
-            path: format!("/courses/{course_id}/learn"),
+            path: path.to_string(),
             issue_id: Some(issue_id.to_string()),
         }
     }
@@ -128,6 +129,13 @@ pub(in crate::root_view) fn close_tab(
 }
 
 impl ShellState {
+    /// 当前工作区面路径；无工作区时返回 None（站点级页面自行兜底）。
+    pub(in crate::root_view) fn workspace_path(&self, suffix: &str) -> Option<String> {
+        self.workspaces
+            .current()
+            .map(|workspace| crate::routing::workspace_path(&workspace.slug, suffix))
+    }
+
     pub(in crate::root_view) fn open_tab(&mut self, tab: PaneTab) {
         open_or_focus_tab(&mut self.tabs, tab, &mut self.active_tab);
     }
@@ -166,6 +174,8 @@ pub struct NativeAgentHighlight {
 pub struct ShellState {
     pub(in crate::root_view) registry: RouteRegistry,
     pub(in crate::root_view) current: Option<RouteMatch>,
+    /// 最近使用的工作区 slug（启动时读本地状态；测试可注入空值）。
+    pub(in crate::root_view) last_workspace_slug: Option<String>,
     pub(in crate::root_view) language: Language,
     pub(in crate::root_view) preference: ThemePreference,
     pub(in crate::root_view) theme_name: String,
@@ -314,7 +324,22 @@ impl ShellState {
         preference: ThemePreference,
         session: SessionService,
     ) -> Self {
-        let current = initial_route(&registry);
+        Self::with_session_from(registry, language, preference, session, None)
+    }
+
+    pub(in crate::root_view) fn with_session_from(
+        registry: RouteRegistry,
+        language: Language,
+        preference: ThemePreference,
+        session: SessionService,
+        start_path: Option<&str>,
+    ) -> Self {
+        let last_workspace_slug = if start_path.is_some() {
+            None
+        } else {
+            crate::workspace_state::last_workspace()
+        };
+        let current = initial_route(&registry, start_path, last_workspace_slug.as_deref());
         let layout_preferences = crate::preferences::load();
         let events = build_events_service();
         let detail = EventDetailService::new(events.api_handle());
@@ -325,6 +350,7 @@ impl ShellState {
         Self {
             registry,
             current,
+            last_workspace_slug,
             language,
             preference,
             theme_name: theme::load_selected_theme()
@@ -502,18 +528,33 @@ mod tests {
     }
 
     #[test]
-    fn pane_issue_tab_keeps_course_learning_path() {
-        let tab = PaneTab::issue("course-1", "issue-1", "Card");
+    fn pane_issue_tab_keeps_the_given_path() {
+        let tab = PaneTab::issue(
+            "/w/2046/courses/course-1/learn",
+            "course-1",
+            "issue-1",
+            "Card",
+        );
         assert_eq!(tab.id, "issue:course-1:issue-1");
-        assert_eq!(tab.path, "/courses/course-1/learn");
+        assert_eq!(tab.path, "/w/2046/courses/course-1/learn");
         assert_eq!(tab.issue_id.as_deref(), Some("issue-1"));
     }
 
     #[test]
     fn navigating_keeps_a_matching_active_tab_and_clears_a_stale_one() {
-        let issue_a = PaneTab::issue("course-1", "issue-1", "Card A");
-        let issue_b = PaneTab::issue("course-1", "issue-2", "Card B");
-        let event = PaneTab::page("/events/event-1", "Event");
+        let issue_a = PaneTab::issue(
+            "/w/2046/courses/course-1/learn",
+            "course-1",
+            "issue-1",
+            "Card A",
+        );
+        let issue_b = PaneTab::issue(
+            "/w/2046/courses/course-1/learn",
+            "course-1",
+            "issue-2",
+            "Card B",
+        );
+        let event = PaneTab::page("/w/2046/events/event-1", "Event");
         let tabs = vec![issue_a.clone(), issue_b.clone(), event.clone()];
 
         assert_eq!(

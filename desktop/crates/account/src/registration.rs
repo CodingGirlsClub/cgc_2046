@@ -5,7 +5,7 @@ use cgc_platform::routes::{NavIcon, Route};
 /// 本 feature 贡献的路由；顺序即导航顺序。
 pub const ROUTES: &[Route] = &[Route::new(
     "account.workspace",
-    "/workspace",
+    "/w/:slug",
     "account.workspace.title",
     NavIcon::Workspace,
 )];
