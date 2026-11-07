@@ -9,7 +9,7 @@ pub(in crate::root_view) use courses::{
 #[cfg(all(test, cgc_ui_tests))]
 pub(in crate::root_view) use events::detail::render_enrollment_area;
 pub(in crate::root_view) use events::{detail::render_detail, list::render_events_list};
-pub(in crate::root_view) use learning_home::{course_enrollments, render_learning_home};
+pub(in crate::root_view) use learning_home::render_learning_home;
 pub(in crate::root_view) use offering_workspace::{render_workspace_badge, render_workspace_link};
 pub(in crate::root_view) use participations::render_participations;
 pub(in crate::root_view) use settings::render_settings;

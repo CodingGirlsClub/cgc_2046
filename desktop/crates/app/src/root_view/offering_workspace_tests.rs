@@ -2,7 +2,10 @@
 
 use super::RootView;
 use crate::{i18n::Language, theme::ThemePreference};
-use cgc_events::enrollments::{EnrollmentsApi, HttpEnrollmentsApi, MyEnrollmentRow};
+use cgc_events::enrollments::{
+    EnrollmentsApi, HttpEnrollmentsApi, LearningNextAction, LearningProgress, MyEnrollmentRow,
+    MyLearningRunRow,
+};
 use cgc_platform::{
     api::GraphqlClient,
     session::{FakeAuthApi, MemoryStore, SessionService},
@@ -225,6 +228,121 @@ fn participation_entries_route_courses_and_events_to_their_owner(cx: &mut TestAp
         })
         .unwrap();
     }
+}
+
+#[gpui_kit::test]
+fn run_from_an_event_enrollment_opens_the_owning_workspace(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    // course=false：这条报名是活动报名（course_id 为空），run 来自配套课程。
+    let (window, root) = open_personal_page(cx, PersonalPage::Learning, false, "confirmed", true);
+    root.update(cx, |root, cx| {
+        root.learning_runs = vec![MyLearningRunRow {
+            run_id: "run-paired".into(),
+            enrollment_id: "owned-enrollment".into(),
+            course_id: "paired-course".into(),
+            target_title: Some("Paired course".into()),
+            status: "active".into(),
+            stale_revision: false,
+            progress: LearningProgress {
+                mastered_required: 0,
+                total_required: 2,
+                complete: false,
+            },
+            next_action: None,
+        }];
+        cx.notify();
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        let row = window.within("learning-run-run-paired");
+        assert!(
+            row.try_find_by_label("Workspace · Beta").is_some(),
+            "the run resolves its workspace through the event enrollment"
+        );
+        window.click("learning-run-run-paired", cx);
+    })
+    .unwrap();
+    root.update(cx, |root, _| {
+        let current = root.current.as_ref().expect("learning route");
+        assert_eq!(current.route.id, "courses.learning");
+        assert_eq!(current.params.get("slug").map(String::as_str), Some("beta"));
+        assert_eq!(
+            current.params.get("id").map(String::as_str),
+            Some("paired-course")
+        );
+    });
+}
+
+#[gpui_kit::test]
+fn learning_home_prefers_runs_and_hides_rows_without_one(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let (window, root) = open_personal_page(cx, PersonalPage::Learning, true, "confirmed", true);
+    root.update(cx, |root, cx| {
+        root.learning_runs = vec![MyLearningRunRow {
+            run_id: "run-1".into(),
+            enrollment_id: "owned-enrollment".into(),
+            course_id: "c-1".into(),
+            target_title: Some("Beta offering".into()),
+            status: "active".into(),
+            stale_revision: true,
+            progress: LearningProgress {
+                mastered_required: 2,
+                total_required: 4,
+                complete: false,
+            },
+            next_action: Some(LearningNextAction {
+                kind: "review".into(),
+                objective_id: "obj-1".into(),
+                reason: "due".into(),
+            }),
+        }];
+        root.enrollments_rows.push(MyEnrollmentRow {
+            id: "confirmed-without-run".into(),
+            workspace_id: "ws-alpha".into(),
+            status: "confirmed".into(),
+            target_title: Some("Alpha course".into()),
+            starts_at: None,
+            event_id: None,
+            course_id: Some("c-9".into()),
+            payment_mode: None,
+            check_in_code: None,
+        });
+        root.enrollments_rows.push(MyEnrollmentRow {
+            id: "awaiting-payment".into(),
+            workspace_id: "ws-alpha".into(),
+            status: "payment_pending".into(),
+            target_title: Some("Unpaid course".into()),
+            starts_at: None,
+            event_id: None,
+            course_id: Some("c-8".into()),
+            payment_mode: Some("paid".into()),
+            check_in_code: None,
+        });
+        cx.notify();
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.find_by_label("Mastered 2/4 required").visible());
+        assert!(window.find_by_label("Review due").visible());
+        assert!(window
+            .find_by_label("Course updated; progress stays on the older revision")
+            .visible());
+        assert!(
+            window.try_find("learning-run-run-1").is_some(),
+            "the run row is the primary entry"
+        );
+        assert!(
+            window
+                .try_find("learning-home-confirmed-without-run")
+                .is_some(),
+            "a confirmed enrollment without a run stays as fallback"
+        );
+        assert!(
+            window.try_find("learning-home-awaiting-payment").is_none(),
+            "unpaid courses belong to My enrollments, not the learning page"
+        );
+    })
+    .unwrap();
 }
 
 #[gpui_kit::test]

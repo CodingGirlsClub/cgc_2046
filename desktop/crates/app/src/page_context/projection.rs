@@ -183,6 +183,51 @@ fn enrollment_line(row: &cgc_events::enrollments::MyEnrollmentRow) -> String {
     facts.join(" · ")
 }
 
+fn learning_run_line(run: &cgc_events::enrollments::MyLearningRunRow) -> String {
+    let mut facts = vec![
+        run.target_title
+            .clone()
+            .unwrap_or_else(|| run.course_id.clone()),
+        format!(
+            "必修 {}/{}",
+            run.progress.mastered_required, run.progress.total_required
+        ),
+    ];
+    if run.progress.complete {
+        facts.push("必修已完成".to_string());
+    }
+    if run.stale_revision {
+        facts.push("课程已更新".to_string());
+    }
+    if let Some(action) = run.next_action.as_ref() {
+        facts.push(format!("下一动作：{}", action.kind));
+    }
+    facts.join(" · ")
+}
+
+/// 学习页上下文：run 是主数据，已确认但无 run 的课程作为兜底行。
+pub(crate) fn project_learning_runs(
+    runs: &[cgc_events::enrollments::MyLearningRunRow],
+    enrollments: &[cgc_events::enrollments::MyEnrollmentRow],
+    tab_id: &str,
+) -> (PageBody, String) {
+    let mut sections = runs.iter().map(learning_run_line).collect::<Vec<_>>();
+    sections.extend(
+        enrollments
+            .iter()
+            .filter(|row| row.status == "confirmed" && row.course_id.is_some())
+            .filter(|row| {
+                let course_id = row.course_id.as_deref().unwrap_or_default();
+                !runs.iter().any(|run| run.course_id == course_id)
+            })
+            .map(enrollment_line),
+    );
+    if sections.is_empty() {
+        return project_body(tab_id, "learning-runs-v1", Vec::new());
+    }
+    project_body(tab_id, "learning-runs-v1", sections)
+}
+
 /// 我的学习/参与/报名列表的可见行；核销码等敏感字段不进入上下文。
 pub(crate) fn project_enrollments(
     rows: &[cgc_events::enrollments::MyEnrollmentRow],

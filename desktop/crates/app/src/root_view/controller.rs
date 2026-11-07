@@ -310,10 +310,12 @@ impl RootView {
                 }
             }
             "courses.learning_home" => {
-                let courses = screens::course_enrollments(&self.enrollments_rows)
-                    .cloned()
-                    .collect::<Vec<_>>();
-                crate::page_context::project_enrollments(&courses, &tab.id)
+                // 页面以 run 为主、已确认课程兜底；上下文与可见行同源。
+                crate::page_context::project_learning_runs(
+                    &self.learning_runs,
+                    &self.enrollments_rows,
+                    &tab.id,
+                )
             }
             "events.participations" => {
                 crate::page_context::project_enrollments(&self.enrollments_rows, &tab.id)
@@ -1113,6 +1115,7 @@ impl RootView {
         self.events_started = false;
         self.enrollments_started = false;
         self.enrollments_rows.clear();
+        self.learning_runs.clear();
         self.enrollments_state = EnrollmentsListState::Idle;
         self.detail_started = false;
         self.courses_started = false;
@@ -3736,9 +3739,11 @@ impl RootView {
         let api = Arc::clone(&self.enrollments_api);
         let token = self.session_token();
         let epoch = self.workspaces.epoch();
-        let task = cx
-            .background_executor()
-            .spawn(async move { api.my_enrollments(token.as_deref()) });
+        let task = cx.background_executor().spawn(async move {
+            let rows = api.my_enrollments(token.as_deref())?;
+            let runs = api.my_learning_runs(token.as_deref())?;
+            Ok::<_, cgc_events::list::EventsError>((rows, runs))
+        });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
@@ -3750,13 +3755,15 @@ impl RootView {
                     return;
                 }
                 match result {
-                    Ok(rows) => {
+                    Ok((rows, runs)) => {
                         this.enrollments_rows = rows;
-                        this.enrollments_state = if this.enrollments_rows.is_empty() {
-                            EnrollmentsListState::Empty
-                        } else {
-                            EnrollmentsListState::Ready
-                        };
+                        this.learning_runs = runs;
+                        this.enrollments_state =
+                            if this.enrollments_rows.is_empty() && this.learning_runs.is_empty() {
+                                EnrollmentsListState::Empty
+                            } else {
+                                EnrollmentsListState::Ready
+                            };
                     }
                     Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
                     Err(error) => {

@@ -27,7 +27,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use cgc_events::enroll::{enrollment_error_key, EnrollmentRequest};
 use cgc_events::enrollments::{
-    EnrollmentsApi, FakeEnrollmentsApi, HttpEnrollmentsApi, MyEnrollmentRow,
+    EnrollmentsApi, FakeEnrollmentsApi, HttpEnrollmentsApi, MyEnrollmentRow, MyLearningRunRow,
 };
 use cgc_events::list::{
     EventListService, EventsApi, FakeEventsApi, HttpEventsApi, ListState, StatusFilter,
@@ -3208,6 +3208,44 @@ mod tests {
                 assert!(!prompt.contains("Original revision material"));
             }
         }
+    }
+
+    #[test]
+    fn learning_home_context_excludes_unconfirmed_courses() {
+        let mut view = view();
+        view.state.enrollments_rows = vec![
+            cgc_events::enrollments::MyEnrollmentRow {
+                id: "enr-a".into(),
+                workspace_id: "ws-1".into(),
+                status: "confirmed".into(),
+                target_title: Some("Confirmed course".into()),
+                starts_at: None,
+                event_id: None,
+                course_id: Some("c-1".into()),
+                payment_mode: None,
+                check_in_code: None,
+            },
+            cgc_events::enrollments::MyEnrollmentRow {
+                id: "enr-b".into(),
+                workspace_id: "ws-1".into(),
+                status: "payment_pending".into(),
+                target_title: Some("Unpaid course".into()),
+                starts_at: None,
+                event_id: None,
+                course_id: Some("c-2".into()),
+                payment_mode: Some("paid".into()),
+                check_in_code: None,
+            },
+        ];
+        view.state.enrollments_state = super::EnrollmentsListState::Ready;
+        activate_context_tab(&mut view, "/learning", "My learning");
+        view.refresh_page_context();
+        let prompt = context_prompt(&view, "native");
+        assert!(prompt.contains("Confirmed course"));
+        assert!(
+            !prompt.contains("Unpaid course"),
+            "the learning page hides unpaid courses, so its context must too"
+        );
     }
 
     #[test]

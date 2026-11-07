@@ -279,6 +279,15 @@ courses.learning_home.subtitle
 courses.learning_home.empty
 courses.learning_home.browse
 courses.learning_home.continue
+courses.learning_home.progress
+courses.learning_home.complete
+courses.learning_home.stale
+courses.learning_home.no_progress
+courses.learning_home.next_review
+courses.learning_home.next_remediation
+courses.learning_home.next_developing
+courses.learning_home.next_required
+courses.learning_home.next_elective
 events.participations.title
 events.participations.subtitle
 events.participations.empty

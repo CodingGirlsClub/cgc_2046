@@ -153,6 +153,7 @@ cgc://courses/<uuid>/learn         # 站点级学习页（无工作区也可达�
 - 课程树仅在本人报名状态为 `confirmed` 时加载和展开学习正文；未报名、审批中、待支付及已取消的课程保留详情入口并显示解锁提示。报名状态覆盖已加载的全部分页，报名成功后同步更新。
 - 学习卡（issue）是学习页地址上的定位参数：`/w/<slug>/courses/<id>/learn?issue=<id>`，tab 身份就是完整地址，卡片与整课不再共用一个 path；旧 `workspace_state.json` 读取时把 `issue_id` 升级进地址，`active_tab` 同步映射。
 - 「我的学习」「我的报名」按条目所属工作区显示名称并跳转；没有归属信息或没有工作区访问权时使用站点级页面。跨工作区打开学习页或 issue，会在目标工作区恢复标签后插入并保存新标签。
+- 「我的学习」以 `myLearningRuns` 为主：每门课显示必修掌握进度、下一动作与「课程已更新」标记，点击进入所属工作区的学习页；`myEnrollments` 只兜底「已确认但还没有 run」的课程，待支付/审批中留在「我的报名」。
 - 公开目录的基础查询不读取受成员权限保护的归属字段。课程详情优先读取本人报名或学习投影的归属；可访问工作区的课程归属通过既有权限查询按页批量补齐，成员未报名时也可进入所属工作区。来源名称无法从可见工作区列表解析时隐藏徽标，不显示内部 ID。
 
 自动化回归覆盖完整 `RootView` 输入焦点、切台与标签恢复，以及 HTTP 字段权限和报名归属。UI 测试使用 `CGC_UI_TESTS=1 cargo test -p cgc-desktop-app --features gpui-kit/test-support --lib -- --test-threads=1`，课程 HTTP 端到端测试使用 `cargo test -p cgc-courses --test public_course_e2e`。

@@ -125,6 +125,65 @@ fn enrollment_projection_excludes_check_in_code() {
 }
 
 #[test]
+fn learning_run_projection_carries_progress_and_falls_back_to_confirmed_courses() {
+    use cgc_events::enrollments::{
+        LearningNextAction, LearningProgress, MyEnrollmentRow, MyLearningRunRow,
+    };
+
+    let run = MyLearningRunRow {
+        run_id: "run-1".into(),
+        enrollment_id: "enroll-from-event".into(),
+        course_id: "course-1".into(),
+        target_title: Some("Rust Basics".into()),
+        status: "active".into(),
+        stale_revision: true,
+        progress: LearningProgress {
+            mastered_required: 2,
+            total_required: 4,
+            complete: false,
+        },
+        next_action: Some(LearningNextAction {
+            kind: "review".into(),
+            objective_id: "obj-1".into(),
+            reason: "due".into(),
+        }),
+    };
+    // 这条报名不在 myEnrollments 第一页（活动报名且 course_id 为空）也不影响 run 投影。
+    let fallback = MyEnrollmentRow {
+        id: "enroll-confirmed".into(),
+        workspace_id: "ws-1".into(),
+        status: "confirmed".into(),
+        target_title: Some("Owned course".into()),
+        starts_at: None,
+        event_id: None,
+        course_id: Some("course-2".into()),
+        payment_mode: None,
+        check_in_code: None,
+    };
+    let (body, version) =
+        project_learning_runs(std::slice::from_ref(&run), &[fallback], "page:/learning");
+    let PageBody::Ready(text) = body else {
+        panic!("runs must produce a ready body");
+    };
+    assert!(text.contains("Rust Basics"));
+    assert!(text.contains("必修 2/4"));
+    assert!(text.contains("课程已更新"));
+    assert!(text.contains("下一动作：review"));
+    assert!(
+        text.contains("Owned course"),
+        "confirmed fallback stays visible"
+    );
+
+    let mut advanced = run;
+    advanced.progress.mastered_required = 3;
+    let (_, advanced_version) = project_learning_runs(&[advanced], &[], "page:/learning");
+    assert_ne!(
+        version, advanced_version,
+        "progress changes must change the context version"
+    );
+}
+
+#[test]
 fn course_pages_project_detail_and_catalog_rows() {
     use cgc_courses::catalog::{CourseDetail, CourseSummary};
 
