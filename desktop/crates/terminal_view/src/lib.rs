@@ -5,7 +5,7 @@
 
 use std::panic;
 
-use cgc_terminal::{Frame, FrameCell, FrameColors, Session};
+use cgc_terminal::{Frame, FrameCell, FrameColors, Key, KeyInput, Mods, Session};
 use gpui_kit::*;
 
 /// 终端绘制样式。颜色覆盖 `Frame` 自带的默认色（主题跟随宿主）。
@@ -37,14 +37,17 @@ pub struct TerminalView {
     session: Session,
     style: TerminalStyle,
     cell_width: Pixels,
+    focus_handle: FocusHandle,
+    key_input: KeyInput,
 }
 
 impl TerminalView {
     pub fn new(
         session: Session,
         style: TerminalStyle,
+        key_input: KeyInput,
         window: &mut Window,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) -> Self {
         let font_id = window.text_system().resolve_font(&style.font);
         let cell_width = window
@@ -55,7 +58,33 @@ impl TerminalView {
             session,
             style,
             cell_width,
+            focus_handle: cx.focus_handle(),
+            key_input,
         }
+    }
+
+    pub fn focus(&self, window: &mut Window, cx: &mut App) {
+        self.focus_handle.focus(window, cx);
+    }
+
+    fn handle_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
+        let keystroke = &event.keystroke;
+        let key = key_from_str(&keystroke.key);
+        let mods = mods_from(&keystroke.modifiers);
+        let text = if keystroke.key.chars().count() == 1 {
+            Some(keystroke.key.as_str())
+        } else {
+            None
+        };
+
+        if let Ok(bytes) = self.key_input.encode(self.session.core(), key, mods, text) {
+            let bytes = bytes.to_vec();
+            if !bytes.is_empty() {
+                let _ = self.session.write(&bytes);
+                cx.notify();
+            }
+        }
+        cx.stop_propagation();
     }
 
     /// 排空 PTY 输出并刷新渲染帧；有变化时通知 GPUI 重绘。
@@ -100,11 +129,19 @@ impl TerminalView {
 
 impl Render for TerminalView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        TerminalElement {
-            view: cx.entity(),
-            style: self.style.clone(),
-            cell_width: self.cell_width,
-        }
+        div()
+            .id("terminal-view")
+            .size_full()
+            .track_focus(&self.focus_handle)
+            .on_click(cx.listener(|this, _, window, cx| this.focus(window, cx)))
+            .on_key_down(
+                cx.listener(|this, event: &KeyDownEvent, _, cx| this.handle_key(event, cx)),
+            )
+            .child(TerminalElement {
+                view: cx.entity(),
+                style: self.style.clone(),
+                cell_width: self.cell_width,
+            })
     }
 }
 
@@ -178,28 +215,31 @@ impl Element for TerminalElement {
             let view = self.view.read(cx);
             build_plan(view.frame(), &self.style, self.cell_width, bounds)
         };
+        // 与 Zed 的 TerminalElement 一样，把整帧放进 element 的内容遮罩里：
+        // glyph 绘制依赖 content mask。
+        window.with_content_mask(Some(ContentMask { bounds }), |window| {
+            window.paint_quad(fill(bounds, plan.background));
+            for (quad, color) in &plan.backgrounds {
+                window.paint_quad(fill(*quad, *color));
+            }
+            if let Some((quad, color)) = plan.cursor {
+                window.paint_quad(fill(quad, color));
+            }
 
-        window.paint_quad(fill(bounds, plan.background));
-        for (quad, color) in &plan.backgrounds {
-            window.paint_quad(fill(*quad, *color));
-        }
-        if let Some((quad, color)) = plan.cursor {
-            window.paint_quad(fill(quad, color));
-        }
-
-        for row in &plan.rows {
-            let line = window.text_system().shape_line(
-                row.text.clone().into(),
-                plan.font_size,
-                &row.runs,
-                None,
-            );
-            let origin = Point {
-                x: bounds.origin.x,
-                y: row.y + (plan.line_height - plan.font_size) / 2.0 + line.ascent,
-            };
-            let _ = line.paint(origin, plan.line_height, TextAlign::Left, None, window, cx);
-        }
+            for row in &plan.rows {
+                let line = window.text_system().shape_line(
+                    row.text.clone().into(),
+                    plan.font_size,
+                    &row.runs,
+                    None,
+                );
+                let origin = Point {
+                    x: bounds.origin.x,
+                    y: row.y + (plan.line_height - plan.font_size) / 2.0 + line.ascent,
+                };
+                let _ = line.paint(origin, plan.line_height, TextAlign::Left, None, window, cx);
+            }
+        });
     }
 }
 
@@ -360,4 +400,102 @@ fn to_hsla(color: cgc_terminal::FrameColor) -> Hsla {
         a: 1.0,
     }
     .into()
+}
+
+fn mods_from(modifiers: &Modifiers) -> Mods {
+    let mut mods = Mods::empty();
+    if modifiers.shift {
+        mods |= Mods::SHIFT;
+    }
+    if modifiers.control {
+        mods |= Mods::CTRL;
+    }
+    if modifiers.alt {
+        mods |= Mods::ALT;
+    }
+    if modifiers.platform {
+        mods |= Mods::SUPER;
+    }
+    mods
+}
+
+/// GPUI 的按键名 → libghostty-vt 的 [`Key`]。
+fn key_from_str(key: &str) -> Key {
+    match key {
+        "a" => Key::A,
+        "b" => Key::B,
+        "c" => Key::C,
+        "d" => Key::D,
+        "e" => Key::E,
+        "f" => Key::F,
+        "g" => Key::G,
+        "h" => Key::H,
+        "i" => Key::I,
+        "j" => Key::J,
+        "k" => Key::K,
+        "l" => Key::L,
+        "m" => Key::M,
+        "n" => Key::N,
+        "o" => Key::O,
+        "p" => Key::P,
+        "q" => Key::Q,
+        "r" => Key::R,
+        "s" => Key::S,
+        "t" => Key::T,
+        "u" => Key::U,
+        "v" => Key::V,
+        "w" => Key::W,
+        "x" => Key::X,
+        "y" => Key::Y,
+        "z" => Key::Z,
+        "0" => Key::Digit0,
+        "1" => Key::Digit1,
+        "2" => Key::Digit2,
+        "3" => Key::Digit3,
+        "4" => Key::Digit4,
+        "5" => Key::Digit5,
+        "6" => Key::Digit6,
+        "7" => Key::Digit7,
+        "8" => Key::Digit8,
+        "9" => Key::Digit9,
+        "-" => Key::Minus,
+        "=" => Key::Equal,
+        "[" => Key::BracketLeft,
+        "]" => Key::BracketRight,
+        "\\" => Key::Backslash,
+        ";" => Key::Semicolon,
+        "'" => Key::Quote,
+        "," => Key::Comma,
+        "." => Key::Period,
+        "/" => Key::Slash,
+        "`" => Key::Backquote,
+        "enter" => Key::Enter,
+        "backspace" => Key::Backspace,
+        "tab" => Key::Tab,
+        "space" => Key::Space,
+        "escape" => Key::Escape,
+        "delete" => Key::Delete,
+        "home" => Key::Home,
+        "end" => Key::End,
+        "pageup" => Key::PageUp,
+        "pagedown" => Key::PageDown,
+        "insert" => Key::Insert,
+        "up" => Key::ArrowUp,
+        "down" => Key::ArrowDown,
+        "left" => Key::ArrowLeft,
+        "right" => Key::ArrowRight,
+        "f1" => Key::F1,
+        "f2" => Key::F2,
+        "f3" => Key::F3,
+        "f4" => Key::F4,
+        "f5" => Key::F5,
+        "f6" => Key::F6,
+        "f7" => Key::F7,
+        "f8" => Key::F8,
+        "f9" => Key::F9,
+        "f10" => Key::F10,
+        "f11" => Key::F11,
+        "f12" => Key::F12,
+        _ => Key::Unidentified,
+    }
 }

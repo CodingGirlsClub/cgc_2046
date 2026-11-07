@@ -37,13 +37,19 @@ pub(in crate::root_view) fn render_agent_panel(
 ) -> AnyElement {
     let route_id = ctx.current.as_ref().map(|route_match| route_match.route.id);
     let native_mode = ctx.native_chat_mode && RootView::native_agent_enabled();
-    let content: AnyElement = match content_kind(native_mode, route_id) {
-        AgentPanelContent::Native => ctx
-            .native_agent_view
-            .clone()
-            .map(IntoElement::into_any_element)
-            .unwrap_or_else(|| div().child("正在初始化 Agent…").into_any_element()),
-        AgentPanelContent::External => super::panel::render_chat_panel(ctx, language, palette, cx),
+    let content: AnyElement = if let Some(view) = ctx.terminal_view.clone() {
+        view.into_any_element()
+    } else {
+        match content_kind(native_mode, route_id) {
+            AgentPanelContent::Native => ctx
+                .native_agent_view
+                .clone()
+                .map(IntoElement::into_any_element)
+                .unwrap_or_else(|| div().child("正在初始化 Agent…").into_any_element()),
+            AgentPanelContent::External => {
+                super::panel::render_chat_panel(ctx, language, palette, cx)
+            }
+        }
     };
     div()
         .id("agent-panel-dock")
@@ -301,6 +307,32 @@ pub(in crate::root_view) fn header(
                                 .into_any_element(),
                         );
                     }
+                    let term_root = add_menu_root.clone();
+                    let term_dismiss = dismiss.clone();
+                    rows.push(
+                        div()
+                            .id("agent-panel-terminal")
+                            .role(Role::Button)
+                            .aria_label("Terminal")
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(1))
+                            .px(space(1))
+                            .py(px(3.0))
+                            .rounded(px(RADIUS_SMALL))
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_2)
+                            .hover(|style| style.bg(palette.soft))
+                            .child(div().flex_1().child("Terminal"))
+                            .on_click(move |_, window, cx| {
+                                let _ =
+                                    term_root.update(cx, |this, cx| this.open_terminal(window, cx));
+                                let _ =
+                                    term_dismiss.update(cx, |state, cx| state.dismiss(window, cx));
+                            })
+                            .into_any_element(),
+                    );
                     rows.push(menu_separator(palette));
                     rows.push(
                         div()

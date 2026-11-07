@@ -1031,6 +1031,8 @@ dependencies = [
  "cgc-courses",
  "cgc-events",
  "cgc-platform",
+ "cgc-terminal",
+ "cgc-terminal-view",
  "chrono",
  "futures",
  "gpui-kit",

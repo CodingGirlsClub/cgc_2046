@@ -2505,6 +2505,67 @@ impl RootView {
         cx.notify();
     }
 
+    /// 「+」菜单 → Terminal：在 Agent Panel 内打开一个终端（已存在则复用）。
+    pub fn open_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.agent_panel_editing_title = false;
+        if self.terminal_view.is_some() {
+            cx.notify();
+            return;
+        }
+
+        let size = cgc_terminal::GridSize { cols: 80, rows: 24 };
+        let session = match cgc_terminal::Session::spawn_default(size) {
+            Ok(session) => session,
+            Err(error) => {
+                self.pane_notice = Some(format!("无法启动终端：{error}"));
+                cx.notify();
+                return;
+            }
+        };
+
+        let palette = theme::palette_from_theme(cx);
+        let mut style = cgc_terminal_view::TerminalStyle::new(
+            gpui_kit::font(crate::theme::FONT_MONO),
+            px(13.0),
+        );
+        style.background = palette.canvas;
+        style.foreground = palette.ink;
+        style.cursor = palette.accent;
+
+        let key_input = match cgc_terminal::KeyInput::new() {
+            Ok(key_input) => key_input,
+            Err(error) => {
+                self.pane_notice = Some(format!("无法初始化终端输入：{error}"));
+                cx.notify();
+                return;
+            }
+        };
+        let view = cx
+            .new(|cx| cgc_terminal_view::TerminalView::new(session, style, key_input, window, cx));
+        view.update(cx, |view, cx| view.poll(cx));
+        view.update(cx, |view, cx| view.focus(window, cx));
+        self.terminal_view = Some(view.clone());
+        cx.notify();
+
+        // 33ms 轮询 PTY；视图析构后 `update` 失败，循环自然退出。
+        let weak = view.downgrade();
+        cx.spawn(async move |_root, cx| loop {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(33))
+                .await;
+            if weak.update(cx, |view, cx| view.poll(cx)).is_err() {
+                break;
+            }
+        })
+        .detach();
+    }
+
+    /// 关闭终端并回到对话视图。
+    pub fn close_terminal(&mut self, cx: &mut Context<Self>) {
+        self.terminal_view = None;
+        cx.notify();
+    }
+
     /// 执行 native agent 投递的应用内动作（AppAction）。
     pub fn apply_native_agent_action(
         &mut self,

@@ -13,10 +13,15 @@ use libghostty_vt::{RenderState, Terminal};
 use unicode_width::UnicodeWidthChar;
 
 mod frame;
+mod input;
 mod pty;
 
 pub use frame::{Frame, FrameCell, FrameColors, FrameCursor, FrameRow};
+pub use input::KeyInput;
 pub use pty::{ExitInfo, PollResult, Session};
+
+/// 按键类型与修饰键（libghostty-vt 的编码输入）。
+pub use libghostty_vt::key::{Key, Mods};
 
 /// 终端颜色类型（libghostty-vt 的 `RgbColor`），供视图层使用。
 pub use libghostty_vt::style::RgbColor as FrameColor;
@@ -91,6 +96,11 @@ impl TerminalCore {
     /// 最近一次 [`Self::update_frame`] 的结果。
     pub fn frame(&self) -> &Frame {
         &self.frame
+    }
+
+    /// 供同 crate 的输入编码同步终端模式。
+    pub(crate) fn terminal(&self) -> &Terminal<'static, 'static> {
+        &self.terminal
     }
 
     /// 当前视口的纯文本（每行去掉尾部空白），用于测试、复制与调试。
