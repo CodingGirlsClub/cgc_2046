@@ -9,8 +9,8 @@
 use std::error::Error;
 
 use libghostty_vt::render::{CellIterator, RowIterator};
+use libghostty_vt::screen::CellWide;
 use libghostty_vt::{RenderState, Terminal};
-use unicode_width::UnicodeWidthChar;
 
 mod frame;
 mod input;
@@ -110,21 +110,17 @@ impl TerminalCore {
         let mut row_iter = self.rows.update(&snapshot)?;
         while let Some(row) = row_iter.next() {
             let mut line = String::new();
-            // 双宽字符占两个 cell，尾格没有 grapheme；跳过后才能拼回原文。
-            let mut skip_tail = false;
             let mut cell_iter = self.cells.update(row)?;
             while let Some(cell) = cell_iter.next() {
-                if skip_tail {
-                    skip_tail = false;
+                let wide = cell.raw_cell()?.wide()?;
+                if matches!(wide, CellWide::SpacerTail | CellWide::SpacerHead) {
                     continue;
                 }
                 let graphemes = cell.graphemes()?;
-                match graphemes.first() {
-                    Some(&base) => {
-                        line.extend(graphemes);
-                        skip_tail = UnicodeWidthChar::width(base).unwrap_or(1) > 1;
-                    }
-                    None => line.push(' '),
+                if graphemes.is_empty() {
+                    line.push(' ');
+                } else {
+                    line.extend(graphemes);
                 }
             }
             lines.push(line.trim_end().to_string());

@@ -7,8 +7,8 @@
 //! 缓冲复用：行与 cell 都原地复用（`String::clear`），稳态下每帧不分配。
 
 use libghostty_vt::render::{CellIterator, CursorVisualStyle, Dirty, RowIterator, Snapshot};
+use libghostty_vt::screen::CellWide;
 use libghostty_vt::style::{RgbColor, Underline};
-use unicode_width::UnicodeWidthChar;
 
 use crate::{GridSize, Result};
 
@@ -29,6 +29,8 @@ pub struct FrameCell {
     pub underline: bool,
     /// 占两列（CJK/emoji）。尾格留空，绘制时由首格跨列。
     pub wide: bool,
+    /// 宽字符的尾格 / 软换行末尾的占位格：渲染时跳过，不占文本流的一列。
+    pub spacer_tail: bool,
 }
 
 /// 一行 cell。
@@ -156,12 +158,9 @@ impl Frame {
                 dst.underline = style.underline != Underline::None;
                 dst.fg = cell.fg_color()?;
                 dst.bg = cell.bg_color()?;
-                dst.wide = dst
-                    .text
-                    .chars()
-                    .next()
-                    .map(|c| UnicodeWidthChar::width(c).unwrap_or(1) > 1)
-                    .unwrap_or(false);
+                let wide = cell.raw_cell()?.wide()?;
+                dst.wide = matches!(wide, CellWide::Wide);
+                dst.spacer_tail = matches!(wide, CellWide::SpacerTail | CellWide::SpacerHead);
                 x += 1;
             }
             y += 1;

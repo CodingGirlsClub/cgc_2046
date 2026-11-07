@@ -5,7 +5,7 @@
 
 use std::panic;
 
-use cgc_terminal::{Frame, FrameCell, FrameColors, Key, KeyInput, Mods, Session};
+use cgc_terminal::{Frame, FrameCell, FrameColors, GridSize, Key, KeyInput, Mods, Session};
 use gpui_kit::*;
 
 /// 终端绘制样式。颜色覆盖 `Frame` 自带的默认色（主题跟随宿主）。
@@ -17,6 +17,8 @@ pub struct TerminalStyle {
     pub background: Hsla,
     pub foreground: Hsla,
     pub cursor: Hsla,
+    /// 内容与 pane 边缘的内边距（Zed 的终端也不贴边）。
+    pub padding: Pixels,
 }
 
 impl TerminalStyle {
@@ -28,6 +30,7 @@ impl TerminalStyle {
             background: rgb(0x1e1e1e).into(),
             foreground: rgb(0xd4d4d4).into(),
             cursor: rgb(0xffffff).into(),
+            padding: px(8.0),
         }
     }
 }
@@ -117,6 +120,18 @@ impl TerminalView {
         self.cell_width
     }
 
+    /// 按容器尺寸重排终端网格（PTY 与 VT 同步 resize）。
+    pub fn resize(&mut self, cols: u16, rows: u16, cx: &mut Context<Self>) {
+        let size = GridSize { cols, rows };
+        if self.frame().size() == size {
+            return;
+        }
+        if self.session.resize(size).is_ok() {
+            let _ = self.session.core_mut().update_frame();
+            cx.notify();
+        }
+    }
+
     /// 终端内容区尺寸（cols × rows 个 cell）。
     pub fn content_size(&self) -> Size<Pixels> {
         let size = self.frame().size();
@@ -178,14 +193,10 @@ impl Element for TerminalElement {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
-        let (cols, rows) = {
-            let view = self.view.read(cx);
-            let size = view.frame().size();
-            (size.cols, size.rows)
-        };
+        // 与 Zed 一致：终端撑满可用区域，行列数由 prepaint 按实际尺寸换算。
         let mut style = Style::default();
-        style.size.width = (self.cell_width * cols as f32).into();
-        style.size.height = (self.style.line_height * rows as f32).into();
+        style.size.width = relative(1.0).into();
+        style.size.height = relative(1.0).into();
         (window.request_layout(style, [], cx), ())
     }
 
@@ -193,11 +204,28 @@ impl Element for TerminalElement {
         &mut self,
         _id: Option<&GlobalElementId>,
         _inspector_id: Option<&InspectorElementId>,
-        _bounds: Bounds<Pixels>,
+        bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
         _window: &mut Window,
-        _cx: &mut App,
+        cx: &mut App,
     ) -> Self::PrepaintState {
+        let padding = f32::from(self.style.padding);
+        let cols = ((f32::from(bounds.size.width) - padding * 2.0) / f32::from(self.cell_width))
+            .floor()
+            .max(1.0) as u16;
+        let rows = ((f32::from(bounds.size.height) - padding * 2.0)
+            / f32::from(self.style.line_height))
+        .floor()
+        .max(1.0) as u16;
+        let current = {
+            let view = self.view.read(cx);
+            view.frame().size()
+        };
+        if current.cols != cols || current.rows != rows {
+            self.view.update(cx, |view, cx| {
+                view.resize(cols, rows, cx);
+            });
+        }
     }
 
     fn paint(
@@ -234,7 +262,7 @@ impl Element for TerminalElement {
                     None,
                 );
                 let origin = Point {
-                    x: bounds.origin.x,
+                    x: plan.origin.x,
                     y: row.y + (plan.line_height - plan.font_size) / 2.0 + line.ascent,
                 };
                 let _ = line.paint(origin, plan.line_height, TextAlign::Left, None, window, cx);
@@ -254,6 +282,7 @@ struct PaintPlan {
     backgrounds: Vec<(Bounds<Pixels>, Hsla)>,
     rows: Vec<RowPlan>,
     cursor: Option<(Bounds<Pixels>, Hsla)>,
+    origin: Point<Pixels>,
     font_size: Pixels,
     line_height: Pixels,
 }
@@ -266,23 +295,31 @@ fn build_plan(
 ) -> PaintPlan {
     let colors = frame.colors();
     let foreground = style.foreground;
+    let origin = Point {
+        x: bounds.origin.x + style.padding,
+        y: bounds.origin.y + style.padding,
+    };
 
     let mut backgrounds = Vec::new();
     let mut rows = Vec::new();
 
     for (row_index, row) in frame.rows().iter().enumerate() {
-        let y = bounds.origin.y + style.line_height * row_index as f32;
+        let y = origin.y + style.line_height * row_index as f32;
         let mut text = String::new();
         let mut runs: Vec<TextRun> = Vec::new();
         let mut column = 0usize;
 
         while column < row.cells.len() {
             let cell = &row.cells[column];
+            if cell.spacer_tail {
+                column += 1;
+                continue;
+            }
             let (fg, bg) = cell_colors(cell, colors, foreground);
             let font = cell_font(cell, style);
 
             if let Some(bg) = bg {
-                let x = bounds.origin.x + cell_width * column as f32;
+                let x = origin.x + cell_width * column as f32;
                 backgrounds.push((
                     Bounds::new(
                         Point { x, y },
@@ -335,7 +372,7 @@ fn build_plan(
             }
 
             text.push_str(piece);
-            column += if cell.wide { 2 } else { 1 };
+            column += 1;
         }
 
         if !text.trim().is_empty() {
@@ -345,8 +382,8 @@ fn build_plan(
 
     let cursor = frame.cursor().map(|cursor| {
         let color = colors.cursor.map(to_hsla).unwrap_or(style.cursor);
-        let x = bounds.origin.x + cell_width * cursor.x as f32;
-        let y = bounds.origin.y + style.line_height * cursor.y as f32;
+        let x = origin.x + cell_width * cursor.x as f32;
+        let y = origin.y + style.line_height * cursor.y as f32;
         let quad = Bounds::new(
             Point { x, y },
             Size {
@@ -362,6 +399,7 @@ fn build_plan(
         backgrounds,
         rows,
         cursor,
+        origin,
         font_size: style.font_size,
         line_height: style.line_height,
     }

@@ -13,5 +13,3 @@ rust-version.workspace = true
 libghostty-vt = { git = "https://github.com/uzaaft/libghostty-rs", rev = "84373f8d48b8f0b794e259f74a71a52686616f5d" }
 # 跨平台 PTY：Unix forkpty / Windows ConPTY（MIT）。
 portable-pty = "0.9"
-# 双宽字符判定（CJK/emoji 占两个 cell），MIT OR Apache-2.0。
-unicode-width = "0.2"

@@ -1104,7 +1104,6 @@ version = "0.1.0"
 dependencies = [
  "libghostty-vt",
  "portable-pty",
- "unicode-width",
 ]
 
 [[package]]
