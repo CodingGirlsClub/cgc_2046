@@ -7,6 +7,8 @@ pub(in crate::root_view) use courses::{
     detail::render_course_detail, learning::render_course_learning, list::render_courses_list,
 };
 pub(in crate::root_view) use events::{detail::render_detail, list::render_events_list};
+#[cfg(all(test, cgc_ui_tests))]
+pub(in crate::root_view) use events::detail::render_enrollment_area;
 pub(in crate::root_view) use learning_home::{course_enrollments, render_learning_home};
 pub(in crate::root_view) use participations::render_participations;
 pub(in crate::root_view) use settings::render_settings;

@@ -18,6 +18,10 @@ mod breadcrumb_tests;
 #[path = "public_list_tests.rs"]
 mod public_list_tests;
 
+#[cfg(all(test, cgc_ui_tests))]
+#[path = "enrollment_tests.rs"]
+mod enrollment_tests;
+
 /// 登录标识是否是邮箱。客户端只支持邮箱登录，这里做最小形状校验：
 /// 本地部分非空、域部分含点且不以点开头/结尾（真正的校验在服务端）。
 fn looks_like_email(value: &str) -> bool {

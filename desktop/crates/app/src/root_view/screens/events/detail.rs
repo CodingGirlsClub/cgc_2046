@@ -240,6 +240,18 @@ pub(in crate::root_view) fn render_enrollment_area(
                             ))
                             .into_any_element()
                     });
+            let view_participations = div()
+                .id("enroll-view-participations")
+                .test_support()
+                .role(Role::Link)
+                .aria_label(translate(language, Key::EventsEnrollViewParticipations).to_string())
+                .text_size(px(12.0))
+                .text_color(palette.accent)
+                .child(translate(language, Key::EventsEnrollViewParticipations))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.navigate("/participations");
+                    cx.notify();
+                }));
             return div()
                 .mt(space(2))
                 .flex()
@@ -250,6 +262,7 @@ pub(in crate::root_view) fn render_enrollment_area(
                 .child(enroll_status_label(language, enrollment.status.as_str()))
                 .children(paid_notice)
                 .children(check_in)
+                .child(view_participations)
                 .into_any_element();
         }
 
@@ -433,6 +446,23 @@ pub(in crate::root_view) fn render_enrollment_area(
             .text_size(px(12.0))
             .text_color(palette.danger)
             .child(translate(language, Key::EventsEnrollErrorNotOpen))
+            .into_any_element();
+    }
+
+    let public_face = ctx
+        .current
+        .as_ref()
+        .is_some_and(|route_match| route_match.route.id == "events.public_detail");
+    if public_face && detail.visibility == "workspace" {
+        return div()
+            .id("events-enroll-workspace-only")
+            .test_support()
+            .role(Role::Status)
+            .aria_label(translate(language, Key::EventsEnrollWorkspaceOnly).to_string())
+            .mt(space(2))
+            .text_size(px(12.0))
+            .text_color(palette.ink_3)
+            .child(translate(language, Key::EventsEnrollWorkspaceOnly))
             .into_any_element();
     }
 

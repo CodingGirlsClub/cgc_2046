@@ -134,6 +134,8 @@ events.enroll.error.tier_unavailable
 events.enroll.error.age_required
 events.enroll.error.auth
 events.enroll.error.generic
+events.enroll.workspace_only
+events.enroll.view_participations
 events.pay.wechat
 events.pay.alipay
 events.pay.creating
