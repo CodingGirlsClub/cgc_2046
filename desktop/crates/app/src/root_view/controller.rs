@@ -10,6 +10,10 @@ use state::{PaneTab, SiteTreeSection};
 #[path = "workspace_layout_tests.rs"]
 mod workspace_layout_tests;
 
+#[cfg(all(test, cgc_ui_tests))]
+#[path = "breadcrumb_tests.rs"]
+mod breadcrumb_tests;
+
 /// 登录标识是否是邮箱。客户端只支持邮箱登录，这里做最小形状校验：
 /// 本地部分非空、域部分含点且不以点开头/结尾（真正的校验在服务端）。
 fn looks_like_email(value: &str) -> bool {
@@ -2900,9 +2904,6 @@ impl RootView {
         palette: &theme::Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        use gpui_kit::component::button::{Button, ButtonVariants as _};
-        use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
-
         let palette = *palette;
         let workspace_switcher = self.render_workspace_switcher(language, &palette, cx);
         let context = self.breadcrumb_context();
@@ -2910,65 +2911,8 @@ impl RootView {
             Some((label_key, _)) => translate_registered(language, label_key),
             None => translate(language, Key::AppBreadcrumbSections),
         };
-        let current = self
-            .current
-            .as_ref()
-            .map(|route_match| route_match.route.id);
-        let nav_root = cx.entity().downgrade();
-        let mut routes: Vec<(&'static str, String, &'static str)> = Vec::new();
-        if let Some(workspace) = self.workspaces.current() {
-            let slug = workspace.slug.clone();
-            routes.push((
-                "account.workspace",
-                crate::routing::workspace_path(&slug, ""),
-                "account.workspace.title",
-            ));
-            routes.push((
-                "events.list",
-                crate::routing::workspace_path(&slug, "/events"),
-                "events.list.title",
-            ));
-            routes.push((
-                "courses.catalog",
-                crate::routing::workspace_path(&slug, "/courses"),
-                "courses.catalog.title",
-            ));
-        }
-        routes.push((
-            "courses.learning_home",
-            "/learning".to_string(),
-            "courses.learning_home.title",
-        ));
-        routes.push((
-            "events.participations",
-            "/participations".to_string(),
-            "events.participations.title",
-        ));
-        let section = Button::new("breadcrumb-section")
-            .label(section_label.to_string())
-            .ghost()
-            .xsmall()
-            .dropdown_caret(true)
-            .dropdown_menu(move |menu, _window, _cx| {
-                let mut menu = menu;
-                for (route_id, path, title_key) in routes.clone() {
-                    let selected = current.is_some_and(|id| {
-                        id == route_id || id.starts_with(&format!("{route_id}."))
-                    });
-                    let root = nav_root.clone();
-                    menu = menu.item(
-                        PopupMenuItem::new(translate_registered(language, title_key).to_string())
-                            .checked(selected)
-                            .on_click(move |_, _, cx| {
-                                let _ = root.update(cx, |this, cx| {
-                                    this.navigate(&path);
-                                    cx.notify();
-                                });
-                            }),
-                    );
-                }
-                menu
-            });
+        // 只显示位置；导航职责归 Site Tree。
+        let section = div().child(section_label);
         let mut bar = div()
             .flex()
             .flex_row()

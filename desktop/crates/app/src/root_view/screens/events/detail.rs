@@ -11,9 +11,15 @@ pub(in crate::root_view) fn render_detail(
     let state = ctx.detail.state().clone();
     let detail = ctx.detail.detail().cloned();
 
+    let back_key = crate::root_view::nav_copy::event_detail_back_key(
+        ctx.current
+            .as_ref()
+            .map(|route_match| route_match.route.id)
+            .unwrap_or("events.detail"),
+    );
     let back = div()
         .id("detail-back")
-        .child(translate(language, Key::EventsDetailBack))
+        .child(translate(language, back_key))
         .text_color(palette.ink_3)
         .text_size(px(12.0))
         .on_click(cx.listener(|this, _, _, cx| {

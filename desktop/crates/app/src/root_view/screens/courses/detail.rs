@@ -16,11 +16,17 @@ pub(in crate::root_view) fn render_course_detail(
         .cloned()
         .unwrap_or_default();
 
+    let back_key = crate::root_view::nav_copy::course_detail_back_key(
+        ctx.current
+            .as_ref()
+            .map(|route_match| route_match.route.id)
+            .unwrap_or("courses.detail"),
+    );
     let back = div()
         .id("course-detail-back")
         .text_size(px(12.0))
         .text_color(palette.ink_3)
-        .child(translate(language, Key::CoursesDetailBack))
+        .child(translate(language, back_key))
         .on_click(cx.listener(|this, _, _, cx| {
             let public = this
                 .current

@@ -426,65 +426,11 @@ fn render_site_tree(
         .current()
         .map(|workspace| workspace.name.clone())
         .unwrap_or_else(|| "Workspace".to_string());
-    // 工作区面节点必须有 slug；无工作区时树只保留跨工作区的两项。
-    let Some(workspace_slug) = ctx
+    // 工作区面节点只在有当前工作区时出现；站点级两组始终可见。
+    let workspace_slug = ctx
         .workspaces
         .current()
-        .map(|workspace| workspace.slug.clone())
-    else {
-        let mut items: Vec<SidebarMenuItem> = Vec::new();
-        let root_learning = cx.entity().downgrade();
-        items.push(
-            SidebarMenuItem::new(translate(language, Key::CoursesLearningHomeTitle).to_string())
-                .icon(
-                    Icon::default()
-                        .path(AssetIcon::GraduationCap.path())
-                        .small(),
-                )
-                .on_click(move |_, _, cx| {
-                    let _ = root_learning.update(cx, |this, cx| {
-                        this.open_page_tab(
-                            "/learning",
-                            translate(language, Key::CoursesLearningHomeTitle).to_string(),
-                            cx,
-                        );
-                    });
-                }),
-        );
-        let root_participations = cx.entity().downgrade();
-        items.push(
-            SidebarMenuItem::new(translate(language, Key::EventsParticipationsTitle).to_string())
-                .icon(Icon::default().path(AssetIcon::Ticket.path()).small())
-                .on_click(move |_, _, cx| {
-                    let _ = root_participations.update(cx, |this, cx| {
-                        this.open_page_tab(
-                            "/participations",
-                            translate(language, Key::EventsParticipationsTitle).to_string(),
-                            cx,
-                        );
-                    });
-                }),
-        );
-        return Sidebar::new("site-tree-sidebar")
-            .side(gpui_kit::component::Side::Right)
-            .collapsible(SidebarCollapsible::None)
-            .header(
-                div()
-                    .px(space(1))
-                    .py(px(3.0))
-                    .text_size(px(11.0))
-                    .text_color(palette.ink_3)
-                    .child(workspace),
-            )
-            .children(items)
-            .w_full()
-            .border_l_0()
-            .bg(palette.frame)
-            .into_any_element();
-    };
-    let overview_path = crate::routing::workspace_path(&workspace_slug, "");
-    let events_path = crate::routing::workspace_path(&workspace_slug, "/events");
-    let courses_path = crate::routing::workspace_path(&workspace_slug, "/courses");
+        .map(|workspace| workspace.slug.clone());
     let events_open = ctx.site_tree_events_open;
     let courses_open = ctx.site_tree_courses_open;
     let events = ctx
@@ -567,191 +513,84 @@ fn render_site_tree(
         .into_any_element();
 
     let mut items: Vec<SidebarMenuItem> = Vec::new();
-    let root_overview = cx.entity().downgrade();
-    let overview_label = translate(language, Key::AccountWorkspaceOverview).to_string();
-    let overview_title = overview_label.clone();
-    let overview_open = overview_path.clone();
-    items.push(
-        SidebarMenuItem::new(overview_label)
-            .icon(Icon::default().path(AssetIcon::House.path()).small())
-            .active(section_active(&overview_path))
-            .on_click(move |_, _, cx| {
-                let _ = root_overview.update(cx, |this, cx| {
-                    this.open_page_tab(&overview_open, overview_title.clone(), cx);
-                });
-            }),
-    );
+    let group_heading = |key: Key| {
+        let label = translate(language, key).to_string();
+        SidebarMenuItem::new(label.clone())
+            .accessibility_label(label)
+            .pl(px(8.0))
+    };
 
-    let events_open_path = crate::routing::workspace_path(&workspace_slug, "/events");
-    let root_events = cx.entity().downgrade();
-    let mut events_item =
-        SidebarMenuItem::new(translate(language, Key::EventsListTitle).to_string())
-            .icon(Icon::default().path(AssetIcon::Calendar.path()).small())
-            .active(section_active(&events_path))
-            .on_click(move |_, _, cx| {
-                let path = events_open_path.clone();
-                let _ = root_events.update(cx, |this, cx| {
-                    this.toggle_site_tree_section(SiteTreeSection::Events, cx);
-                    this.open_page_tab(
-                        &path,
-                        translate(language, Key::EventsListTitle).to_string(),
-                        cx,
-                    );
-                });
-            });
-    let events_chevron = {
-        let root = cx.entity().downgrade();
-        let expanded = show_events;
-        move |_: &mut Window, _: &mut App| {
-            let click_root = root.clone();
-            Button::new("site-tree-events-chevron")
-                .xsmall()
-                .ghost()
-                .accessibility_label(format!(
-                    "{} {}",
-                    if expanded {
-                        translate(language, Key::AppA11yCollapse)
-                    } else {
-                        translate(language, Key::AppA11yExpand)
-                    },
-                    translate(language, Key::EventsListTitle)
-                ))
+    if let Some(workspace_slug) = &workspace_slug {
+        let overview_path = crate::routing::workspace_path(workspace_slug, "");
+        let events_path = crate::routing::workspace_path(workspace_slug, "/events");
+        let courses_path = crate::routing::workspace_path(workspace_slug, "/courses");
+        items.push(group_heading(Key::NavGroupWorkspace));
+        let root_overview = cx.entity().downgrade();
+        let overview_label = translate(language, Key::AccountWorkspaceOverview).to_string();
+        let overview_title = overview_label.clone();
+        let overview_open = overview_path.clone();
+        items.push(
+            SidebarMenuItem::new(overview_label)
+                .icon(Icon::default().path(AssetIcon::House.path()).small())
+                .active(section_active(&overview_path))
+                .on_click(move |_, _, cx| {
+                    let _ = root_overview.update(cx, |this, cx| {
+                        this.open_page_tab(&overview_open, overview_title.clone(), cx);
+                    });
+                }),
+        );
+
+        let root_agents = cx.entity().downgrade();
+        items.push(
+            SidebarMenuItem::new(translate(language, Key::NavAgents).to_string())
                 .icon(
                     Icon::default()
-                        .path(if expanded {
-                            AssetIcon::ChevronDown.path()
-                        } else {
-                            AssetIcon::ChevronRight.path()
-                        })
+                        .path(AssetIcon::BotMessageSquare.path())
                         .small(),
                 )
+                .active(active_path.as_deref() == Some("/agents"))
                 .on_click(move |_, _, cx| {
-                    cx.stop_propagation();
-                    let _ = click_root.update(cx, |this, cx| {
+                    let _ = root_agents.update(cx, |this, cx| this.open_agent_registry(cx));
+                }),
+        );
+
+        let events_open_path = crate::routing::workspace_path(workspace_slug, "/events");
+        let root_events = cx.entity().downgrade();
+        let mut events_item =
+            SidebarMenuItem::new(translate(language, Key::EventsListTitle).to_string())
+                .icon(Icon::default().path(AssetIcon::Calendar.path()).small())
+                .active(section_active(&events_path))
+                .on_click(move |_, _, cx| {
+                    let path = events_open_path.clone();
+                    let _ = root_events.update(cx, |this, cx| {
                         this.toggle_site_tree_section(SiteTreeSection::Events, cx);
+                        this.open_page_tab(
+                            &path,
+                            translate(language, Key::EventsListTitle).to_string(),
+                            cx,
+                        );
                     });
-                })
-                .into_any_element()
-        }
-    };
-    events_item = events_item.suffix(events_chevron);
-    items.push(events_item);
-    if show_events {
-        for (id, title) in events {
-            let path = crate::routing::workspace_path(&workspace_slug, &format!("/events/{id}"));
-            let active = active_path.as_deref() == Some(path.as_str());
-            let root = cx.entity().downgrade();
-            let page_title = title.clone();
-            items.push(
-                SidebarMenuItem::new(title)
-                    .active(active)
-                    .pl(px(16.0))
-                    .border_l_1()
-                    .border_color(palette.line)
-                    .on_click(move |_, _, cx| {
-                        let _ = root.update(cx, |this, cx| {
-                            this.open_page_tab(&path, page_title.clone(), cx);
-                        });
-                    }),
-            );
-        }
-        if ctx.events.has_more() {
-            let root = cx.entity().downgrade();
-            items.push(SidebarMenuItem::new("加载更多活动").pl(px(16.0)).on_click(
-                move |_, _, cx| {
-                    let _ = root.update(cx, |this, cx| this.start_events_load(cx, false));
-                },
-            ));
-        }
-    }
-
-    let courses_open_path = crate::routing::workspace_path(&workspace_slug, "/courses");
-    let root_courses = cx.entity().downgrade();
-    let mut courses_item =
-        SidebarMenuItem::new(translate(language, Key::CoursesCatalogTitle).to_string())
-            .icon(Icon::default().path(AssetIcon::BookOpen.path()).small())
-            .active(section_active(&courses_path))
-            .on_click(move |_, _, cx| {
-                let path = courses_open_path.clone();
-                let _ = root_courses.update(cx, |this, cx| {
-                    this.toggle_site_tree_section(SiteTreeSection::Courses, cx);
-                    this.open_page_tab(
-                        &path,
-                        translate(language, Key::CoursesCatalogTitle).to_string(),
-                        cx,
-                    );
                 });
-            });
-    let courses_chevron = {
-        let root = cx.entity().downgrade();
-        let expanded = show_courses;
-        move |_: &mut Window, _: &mut App| {
-            let click_root = root.clone();
-            Button::new("site-tree-courses-chevron")
-                .xsmall()
-                .ghost()
-                .accessibility_label(format!(
-                    "{} {}",
-                    if expanded {
-                        translate(language, Key::AppA11yCollapse)
-                    } else {
-                        translate(language, Key::AppA11yExpand)
-                    },
-                    translate(language, Key::CoursesCatalogTitle)
-                ))
-                .icon(
-                    Icon::default()
-                        .path(if expanded {
-                            AssetIcon::ChevronDown.path()
-                        } else {
-                            AssetIcon::ChevronRight.path()
-                        })
-                        .small(),
-                )
-                .on_click(move |_, _, cx| {
-                    cx.stop_propagation();
-                    let _ = click_root.update(cx, |this, cx| {
-                        this.toggle_site_tree_section(SiteTreeSection::Courses, cx);
-                    });
-                })
-                .into_any_element()
-        }
-    };
-    courses_item = courses_item.suffix(courses_chevron);
-    items.push(courses_item);
-    if show_courses {
-        for (id, title) in courses {
+        let events_chevron = {
             let root = cx.entity().downgrade();
-            let course_id = id.clone();
-            let path = crate::routing::workspace_path(&workspace_slug, &format!("/courses/{id}"));
-            let active = active_course.as_deref() == Some(id.as_str())
-                || active_path.as_deref().is_some_and(|active| {
-                    active == path || active.starts_with(&format!("{path}/"))
-                });
-            let is_expanded = expanded_course.as_deref() == Some(id.as_str());
-            let click_course_id = course_id.clone();
-            let chevron_label = format!(
-                "{} {title}",
-                if is_expanded {
-                    translate(language, Key::AppA11yCollapse)
-                } else {
-                    translate(language, Key::AppA11yExpand)
-                }
-            );
-            let chevron = {
-                let root = root.clone();
-                move |_: &mut Window, _: &mut App| {
-                    let root = root.clone();
-                    let course_id = course_id.clone();
-                    Button::new(SharedString::from(format!(
-                        "site-course-chevron-{course_id}"
-                    )))
+            let expanded = show_events;
+            move |_: &mut Window, _: &mut App| {
+                let click_root = root.clone();
+                Button::new("site-tree-events-chevron")
                     .xsmall()
                     .ghost()
-                    .accessibility_label(chevron_label.clone())
+                    .accessibility_label(format!(
+                        "{} {}",
+                        if expanded {
+                            translate(language, Key::AppA11yCollapse)
+                        } else {
+                            translate(language, Key::AppA11yExpand)
+                        },
+                        translate(language, Key::EventsListTitle)
+                    ))
                     .icon(
                         Icon::default()
-                            .path(if is_expanded {
+                            .path(if expanded {
                                 AssetIcon::ChevronDown.path()
                             } else {
                                 AssetIcon::ChevronRight.path()
@@ -760,113 +599,247 @@ fn render_site_tree(
                     )
                     .on_click(move |_, _, cx| {
                         cx.stop_propagation();
-                        let _ = root.update(cx, |this, cx| {
-                            this.toggle_site_tree_course(&course_id, cx);
+                        let _ = click_root.update(cx, |this, cx| {
+                            this.toggle_site_tree_section(SiteTreeSection::Events, cx);
                         });
                     })
                     .into_any_element()
-                }
-            };
-            let open_path = path.clone();
-            let open_title = title.clone();
-            let mut course_item = SidebarMenuItem::new(title)
-                .active(active)
-                .pl(px(16.0))
-                .suffix(chevron)
+            }
+        };
+        events_item = events_item.suffix(events_chevron);
+        items.push(events_item);
+        if show_events {
+            for (id, title) in events {
+                let path = crate::routing::workspace_path(workspace_slug, &format!("/events/{id}"));
+                let active = active_path.as_deref() == Some(path.as_str());
+                let root = cx.entity().downgrade();
+                let page_title = title.clone();
+                items.push(
+                    SidebarMenuItem::new(title)
+                        .active(active)
+                        .pl(px(16.0))
+                        .border_l_1()
+                        .border_color(palette.line)
+                        .on_click(move |_, _, cx| {
+                            let _ = root.update(cx, |this, cx| {
+                                this.open_page_tab(&path, page_title.clone(), cx);
+                            });
+                        }),
+                );
+            }
+            if ctx.events.has_more() {
+                let root = cx.entity().downgrade();
+                items.push(SidebarMenuItem::new("加载更多活动").pl(px(16.0)).on_click(
+                    move |_, _, cx| {
+                        let _ = root.update(cx, |this, cx| this.start_events_load(cx, false));
+                    },
+                ));
+            }
+        }
+
+        let courses_open_path = crate::routing::workspace_path(workspace_slug, "/courses");
+        let root_courses = cx.entity().downgrade();
+        let mut courses_item =
+            SidebarMenuItem::new(translate(language, Key::CoursesCatalogTitle).to_string())
+                .icon(Icon::default().path(AssetIcon::BookOpen.path()).small())
+                .active(section_active(&courses_path))
                 .on_click(move |_, _, cx| {
-                    let _ = root.update(cx, |this, cx| {
-                        this.toggle_site_tree_course(&click_course_id, cx);
-                        this.open_page_tab(&open_path, open_title.clone(), cx);
+                    let path = courses_open_path.clone();
+                    let _ = root_courses.update(cx, |this, cx| {
+                        this.toggle_site_tree_section(SiteTreeSection::Courses, cx);
+                        this.open_page_tab(
+                            &path,
+                            translate(language, Key::CoursesCatalogTitle).to_string(),
+                            cx,
+                        );
                     });
                 });
-            let _ = &mut course_item;
-            items.push(course_item);
-            if is_expanded {
-                if let Some(content) = course_content
-                    .as_ref()
-                    .filter(|content| content.course_id == id)
-                {
-                    let outline = build_outline(&content.document);
-                    for chapter in &outline.chapters {
-                        items.push(
-                            SidebarMenuItem::new(chapter.title.clone())
-                                .disable(true)
-                                .pl(px(28.0))
-                                .border_l_1()
-                                .border_color(palette.line),
-                        );
-                        for issue in &chapter.issues {
-                            let root = cx.entity().downgrade();
-                            let issue_id = issue.id.clone();
-                            let title = issue.title.clone();
-                            let active = active_issue.as_deref() == Some(issue_id.as_str());
-                            let course_id = id.clone();
+        let courses_chevron = {
+            let root = cx.entity().downgrade();
+            let expanded = show_courses;
+            move |_: &mut Window, _: &mut App| {
+                let click_root = root.clone();
+                Button::new("site-tree-courses-chevron")
+                    .xsmall()
+                    .ghost()
+                    .accessibility_label(format!(
+                        "{} {}",
+                        if expanded {
+                            translate(language, Key::AppA11yCollapse)
+                        } else {
+                            translate(language, Key::AppA11yExpand)
+                        },
+                        translate(language, Key::CoursesCatalogTitle)
+                    ))
+                    .icon(
+                        Icon::default()
+                            .path(if expanded {
+                                AssetIcon::ChevronDown.path()
+                            } else {
+                                AssetIcon::ChevronRight.path()
+                            })
+                            .small(),
+                    )
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        let _ = click_root.update(cx, |this, cx| {
+                            this.toggle_site_tree_section(SiteTreeSection::Courses, cx);
+                        });
+                    })
+                    .into_any_element()
+            }
+        };
+        courses_item = courses_item.suffix(courses_chevron);
+        items.push(courses_item);
+        if show_courses {
+            for (id, title) in courses {
+                let root = cx.entity().downgrade();
+                let course_id = id.clone();
+                let path =
+                    crate::routing::workspace_path(workspace_slug, &format!("/courses/{id}"));
+                let active = active_course.as_deref() == Some(id.as_str())
+                    || active_path.as_deref().is_some_and(|active| {
+                        active == path || active.starts_with(&format!("{path}/"))
+                    });
+                let is_expanded = expanded_course.as_deref() == Some(id.as_str());
+                let click_course_id = course_id.clone();
+                let chevron_label = format!(
+                    "{} {title}",
+                    if is_expanded {
+                        translate(language, Key::AppA11yCollapse)
+                    } else {
+                        translate(language, Key::AppA11yExpand)
+                    }
+                );
+                let chevron = {
+                    let root = root.clone();
+                    move |_: &mut Window, _: &mut App| {
+                        let root = root.clone();
+                        let course_id = course_id.clone();
+                        Button::new(SharedString::from(format!(
+                            "site-course-chevron-{course_id}"
+                        )))
+                        .xsmall()
+                        .ghost()
+                        .accessibility_label(chevron_label.clone())
+                        .icon(
+                            Icon::default()
+                                .path(if is_expanded {
+                                    AssetIcon::ChevronDown.path()
+                                } else {
+                                    AssetIcon::ChevronRight.path()
+                                })
+                                .small(),
+                        )
+                        .on_click(move |_, _, cx| {
+                            cx.stop_propagation();
+                            let _ = root.update(cx, |this, cx| {
+                                this.toggle_site_tree_course(&course_id, cx);
+                            });
+                        })
+                        .into_any_element()
+                    }
+                };
+                let open_path = path.clone();
+                let open_title = title.clone();
+                let mut course_item = SidebarMenuItem::new(title)
+                    .active(active)
+                    .pl(px(16.0))
+                    .suffix(chevron)
+                    .on_click(move |_, _, cx| {
+                        let _ = root.update(cx, |this, cx| {
+                            this.toggle_site_tree_course(&click_course_id, cx);
+                            this.open_page_tab(&open_path, open_title.clone(), cx);
+                        });
+                    });
+                let _ = &mut course_item;
+                items.push(course_item);
+                if is_expanded {
+                    if let Some(content) = course_content
+                        .as_ref()
+                        .filter(|content| content.course_id == id)
+                    {
+                        let outline = build_outline(&content.document);
+                        for chapter in &outline.chapters {
                             items.push(
-                                SidebarMenuItem::new(title.clone())
-                                    .active(active)
-                                    .pl(px(36.0))
+                                SidebarMenuItem::new(chapter.title.clone())
+                                    .disable(true)
+                                    .pl(px(28.0))
                                     .border_l_1()
-                                    .border_color(palette.line)
-                                    .on_click(move |_, _, cx| {
-                                        let _ = root.update(cx, |this, cx| {
-                                            this.open_issue_tab(
-                                                &course_id,
-                                                &issue_id,
-                                                title.clone(),
-                                                cx,
-                                            );
-                                        });
-                                    }),
+                                    .border_color(palette.line),
                             );
+                            for issue in &chapter.issues {
+                                let root = cx.entity().downgrade();
+                                let issue_id = issue.id.clone();
+                                let title = issue.title.clone();
+                                let active = active_issue.as_deref() == Some(issue_id.as_str());
+                                let course_id = id.clone();
+                                items.push(
+                                    SidebarMenuItem::new(title.clone())
+                                        .active(active)
+                                        .pl(px(36.0))
+                                        .border_l_1()
+                                        .border_color(palette.line)
+                                        .on_click(move |_, _, cx| {
+                                            let _ = root.update(cx, |this, cx| {
+                                                this.open_issue_tab(
+                                                    &course_id,
+                                                    &issue_id,
+                                                    title.clone(),
+                                                    cx,
+                                                );
+                                            });
+                                        }),
+                                );
+                            }
                         }
                     }
                 }
             }
-        }
-        let root = cx.entity().downgrade();
-        if ctx.courses.has_more() {
-            items.push(SidebarMenuItem::new("加载更多课程").pl(px(16.0)).on_click(
-                move |_, _, cx| {
-                    let _ = root.update(cx, |this, cx| this.start_courses_load(cx, false));
-                },
-            ));
+            let root = cx.entity().downgrade();
+            if ctx.courses.has_more() {
+                items.push(SidebarMenuItem::new("加载更多课程").pl(px(16.0)).on_click(
+                    move |_, _, cx| {
+                        let _ = root.update(cx, |this, cx| this.start_courses_load(cx, false));
+                    },
+                ));
+            }
         }
     }
 
-    let root_learning = cx.entity().downgrade();
-    items.push(
-        SidebarMenuItem::new(translate(language, Key::CoursesLearningHomeTitle).to_string())
-            .icon(
-                Icon::default()
-                    .path(AssetIcon::GraduationCap.path())
-                    .small(),
-            )
-            .active(section_active("/learning"))
-            .on_click(move |_, _, cx| {
-                let _ = root_learning.update(cx, |this, cx| {
-                    this.open_page_tab(
-                        "/learning",
-                        translate(language, Key::CoursesLearningHomeTitle).to_string(),
-                        cx,
-                    );
-                });
-            }),
-    );
-    let root_participations = cx.entity().downgrade();
-    items.push(
-        SidebarMenuItem::new(translate(language, Key::EventsParticipationsTitle).to_string())
-            .icon(Icon::default().path(AssetIcon::Ticket.path()).small())
-            .active(section_active("/participations"))
-            .on_click(move |_, _, cx| {
-                let _ = root_participations.update(cx, |this, cx| {
-                    this.open_page_tab(
-                        "/participations",
-                        translate(language, Key::EventsParticipationsTitle).to_string(),
-                        cx,
-                    );
-                });
-            }),
-    );
+    items.push(group_heading(Key::NavGroupMine));
+    for spec in crate::root_view::nav_copy::SITE_TREE_MINE {
+        let root = cx.entity().downgrade();
+        let title = translate(language, spec.key).to_string();
+        let path = spec.path.to_string();
+        items.push(
+            SidebarMenuItem::new(title.clone())
+                .icon(Icon::default().path(spec.icon.path()).small())
+                .active(section_active(spec.path))
+                .on_click(move |_, _, cx| {
+                    let _ = root.update(cx, |this, cx| {
+                        this.open_page_tab(&path, title.clone(), cx);
+                    });
+                }),
+        );
+    }
+
+    items.push(group_heading(Key::NavGroupCommunity));
+    for spec in crate::root_view::nav_copy::SITE_TREE_COMMUNITY {
+        let root = cx.entity().downgrade();
+        let title = translate(language, spec.key).to_string();
+        let path = spec.path.to_string();
+        items.push(
+            SidebarMenuItem::new(title.clone())
+                .icon(Icon::default().path(spec.icon.path()).small())
+                .active(section_active(spec.path))
+                .on_click(move |_, _, cx| {
+                    let _ = root.update(cx, |this, cx| {
+                        this.open_page_tab(&path, title.clone(), cx);
+                    });
+                }),
+        );
+    }
 
     Sidebar::new("site-tree-sidebar")
         .side(gpui_kit::component::Side::Right)

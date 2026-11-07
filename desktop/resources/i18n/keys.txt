@@ -19,6 +19,8 @@ courses.catalog.title
 courses.public.title
 courses.public_detail.title
 courses.public_learning.title
+courses.public_detail.back
+courses.public.empty
 agent_chat.context.pending
 agent_chat.context.referenced
 agent_chat.context.update
@@ -66,6 +68,8 @@ events.list.detail
 events.detail.title
 events.public.title
 events.public_detail.title
+events.public_detail.back
+events.public.empty
 events.detail.back
 events.detail.loading
 events.detail.error
@@ -272,6 +276,10 @@ events.participations.view
 events.participations.check_in
 account.workspace.overview
 workspace.site_tree.title
+nav.group.workspace
+nav.group.mine
+nav.group.community
+nav.agents
 workspace.outline.title
 courses.learning.ungrouped
 agent.registry.title

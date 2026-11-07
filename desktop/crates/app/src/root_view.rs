@@ -78,6 +78,7 @@ mod agent_icons;
 mod agent_session;
 mod controller;
 mod history_actions;
+mod nav_copy;
 pub(crate) use history_actions::notify_history_changed;
 pub use history_actions::register_history_root;
 pub(crate) use history_actions::root_weak;
