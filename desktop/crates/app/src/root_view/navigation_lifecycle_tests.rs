@@ -1,0 +1,223 @@
+use super::RootView;
+use crate::{i18n::Language, theme::ThemePreference, workspace_state};
+use cgc_courses::catalog::{CoursesApi, FakeCoursesApi};
+use cgc_platform::{
+    session::{FakeAuthApi, MemoryStore, SessionService},
+    workspace::WorkspaceSummary,
+};
+use gpui_kit::test::TestWindowExt;
+use gpui_kit::{px, size, AppContext, Bounds, Entity, TestAppContext, WindowBounds, WindowOptions};
+
+pub(super) fn root_window(
+    cx: &mut TestAppContext,
+    path: &str,
+) -> (gpui_kit::AnyWindowHandle, Entity<RootView>) {
+    cx.update(gpui_kit::init);
+    cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                    None,
+                    size(px(1280.), px(900.)),
+                    cx,
+                ))),
+                ..Default::default()
+            },
+            cx,
+            |_, cx| {
+                cx.new(|_| {
+                    let mut session = SessionService::new(
+                        Box::new(FakeAuthApi::demo()),
+                        Box::new(MemoryStore::default()),
+                    );
+                    session
+                        .sign_in("demo@example.com", "demo")
+                        .expect("fake login");
+                    let mut root = RootView::with_session_from(
+                        crate::registration::build_registry().unwrap(),
+                        Language::Zh,
+                        ThemePreference::Light,
+                        session,
+                        path,
+                    );
+                    root.session_checked = true;
+                    root.workspaces_started = true;
+                    root.native_chat_mode = false;
+                    root.agent_panel_open = false;
+                    root.right_panel_open = true;
+                    root.right_panel = crate::root_view::state::RightPanel::SiteTree;
+                    root.workspaces.adopt(vec![
+                        WorkspaceSummary {
+                            id: "ws-alpha".into(),
+                            slug: "alpha".into(),
+                            name: "Alpha".into(),
+                            my_role_names: vec![],
+                            member_count: None,
+                            can_access: true,
+                        },
+                        WorkspaceSummary {
+                            id: "ws-beta".into(),
+                            slug: "beta".into(),
+                            name: "Beta".into(),
+                            my_role_names: vec![],
+                            member_count: None,
+                            can_access: true,
+                        },
+                    ]);
+                    let mut detail = FakeCoursesApi::with_seed(2)
+                        .get_course(None, "crs-001")
+                        .unwrap();
+                    detail.workspace_id = Some("ws-beta".into());
+                    root.course_detail.adopt(detail);
+                    root
+                })
+            },
+        )
+        .expect("full RootView window")
+    })
+}
+
+#[gpui_kit::test]
+fn tree_search_keeps_keyboard_focus_through_full_root_render(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    for path in [
+        "/courses/crs-001",
+        "/w/alpha/courses/crs-001",
+        "/courses/crs-001/learn",
+    ] {
+        let (window, root) = root_window(cx, path);
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            window.click("site-tree-search", cx);
+        })
+        .unwrap();
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            window.input("课程 2", cx);
+        })
+        .unwrap();
+        cx.update_window(window, |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(
+                root.read(cx).site_tree_query,
+                "课程 2",
+                "search lost focus on {path}"
+            );
+        })
+        .unwrap();
+    }
+}
+
+#[gpui_kit::test]
+fn cross_workspace_issue_survives_full_root_render_and_workspace_restore(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let (window, root) = root_window(cx, "/courses/crs-001/learn");
+    root.update(cx, |root, cx| {
+        root.open_page_tab("/learning", "My learning", cx);
+        root.open_page_tab("/courses/crs-001/learn", "Public learning", cx);
+        let mut detail = FakeCoursesApi::with_seed(2)
+            .get_course(None, "crs-001")
+            .unwrap();
+        detail.workspace_id = Some("ws-beta".into());
+        root.course_detail.adopt(detail);
+        root.open_issue_tab("crs-001", "issue-target", "Target issue", cx);
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(root.read(cx).workspaces.current_id(), Some("ws-beta"));
+        assert_eq!(
+            root.read(cx).active_issue_tab(),
+            Some(("crs-001", "issue-target"))
+        );
+    })
+    .unwrap();
+    let alpha = workspace_state::entry("ws-alpha").expect("source workspace saved");
+    assert_eq!(
+        alpha.active_tab.as_deref(),
+        Some("page:/courses/crs-001/learn")
+    );
+    assert!(alpha.tabs.iter().all(|tab| tab.issue_id.is_none()));
+    let beta = workspace_state::entry("ws-beta").expect("target workspace saved");
+    assert!(beta
+        .tabs
+        .iter()
+        .any(|tab| tab.issue_id.as_deref() == Some("issue-target")));
+    root.update(cx, |root, cx| root.switch_workspace("ws-alpha", cx));
+    cx.update_window(window, |_, window, cx| window.render_frame(cx))
+        .unwrap();
+    root.update(cx, |root, cx| root.switch_workspace("ws-beta", cx));
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            root.read(cx).active_issue_tab(),
+            Some(("crs-001", "issue-target"))
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn restored_search_loads_event_results_while_the_center_shows_courses(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let (window, root) = root_window(cx, "/w/alpha/courses");
+    workspace_state::save_entry(
+        "ws-alpha",
+        workspace_state::WorkspaceEntry {
+            site_tree_query: "场次 1".into(),
+            ..Default::default()
+        },
+    );
+    root.update(cx, |root, cx| {
+        root.restore_workspace_state(cx, true);
+        root.right_panel_open = true;
+    });
+    cx.update_window(window, |_, window, cx| window.render_frame(cx))
+        .unwrap();
+    cx.run_until_parked();
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            root.read(cx)
+                .events
+                .items()
+                .iter()
+                .find(|event| event.title == "场次 1")
+                .map(|event| event.id.as_str()),
+            Some("evt-000"),
+            "restored query must populate its event results"
+        );
+        assert_eq!(
+            root.read(cx).current().map(|route| route.id),
+            Some("courses.catalog")
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn active_learning_course_takes_priority_over_an_old_expanded_tree_course(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let (window, root) = root_window(cx, "/w/alpha/courses/crs-002/learn");
+    root.update(cx, |root, cx| {
+        let api = std::sync::Arc::new(FakeCoursesApi::with_seed(3));
+        root.courses = cgc_courses::catalog::CourseCatalogService::new(api.clone());
+        root.course_detail = cgc_courses::catalog::CourseDetailService::new(api.clone());
+        root.content = cgc_courses::content::CourseContentService::new(api);
+        root.site_tree_course_open = Some("crs-000".into());
+        root.course_enrollments
+            .insert("crs-000".into(), Some("confirmed".into()));
+        root.start_course_detail_load(cx, "crs-002".into());
+    });
+    cx.run_until_parked();
+    cx.update_window(window, |_, window, cx| window.render_frame(cx))
+        .unwrap();
+    cx.run_until_parked();
+    root.update(cx, |root, _| {
+        assert_eq!(
+            root.content
+                .content()
+                .map(|content| content.course_id.as_str()),
+            Some("crs-002")
+        );
+    });
+}

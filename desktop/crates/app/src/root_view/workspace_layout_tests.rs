@@ -19,20 +19,27 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::{atomic::AtomicBool, Arc};
 
-struct LayoutFiles {
+pub(super) struct LayoutFiles {
     directory: PathBuf,
     previous: Vec<(&'static str, Option<OsString>)>,
 }
 
 impl LayoutFiles {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let directory =
             std::env::temp_dir().join(format!("cgc-layout-regression-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&directory).expect("isolated data directory");
-        let previous = ["CGC_DATA_DIR", "CGC_WORKSPACE_STATE_FILE"]
-            .into_iter()
-            .map(|key| (key, std::env::var_os(key)))
-            .collect();
+        let previous = [
+            "CGC_DATA_DIR",
+            "CGC_WORKSPACE_STATE_FILE",
+            "CGC_AUTH",
+            "CGC_AGENT_MODE",
+        ]
+        .into_iter()
+        .map(|key| (key, std::env::var_os(key)))
+        .collect();
+        std::env::set_var("CGC_AUTH", "fake");
+        std::env::set_var("CGC_AGENT_MODE", "echo");
         std::env::set_var("CGC_DATA_DIR", &directory);
         std::env::set_var(
             "CGC_WORKSPACE_STATE_FILE",

@@ -44,7 +44,7 @@ pub(in crate::root_view) fn render_right_dock(
         }
     }
     let body = match panel {
-        RightPanel::SiteTree => render_site_tree(ctx, language, palette, cx),
+        RightPanel::SiteTree => render_site_tree(ctx, language, palette, window, cx),
         RightPanel::Outline => render_outline(ctx, language, palette, cx),
         RightPanel::Notifications => unreachable!(),
     };
@@ -416,6 +416,7 @@ fn render_site_tree(
     ctx: &mut ScreenContext<'_>,
     language: Language,
     palette: &theme::Palette,
+    window: &mut Window,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
     use gpui_kit::component::button::{Button, ButtonVariants};
@@ -433,11 +434,48 @@ fn render_site_tree(
         .map(|workspace| workspace.slug.clone());
     let events_open = ctx.site_tree_events_open;
     let courses_open = ctx.site_tree_courses_open;
+    let search = render_site_tree_search(ctx, language, window, cx);
+    let query = ctx
+        .site_tree_search_input
+        .as_ref()
+        .expect("initialized search")
+        .read(cx)
+        .value()
+        .trim()
+        .to_lowercase();
+    let matches_query = |title: &str| query.is_empty() || title.to_lowercase().contains(&query);
+    let course_outline = ctx
+        .content
+        .content()
+        .filter(|content| {
+            ctx.course_enrollments
+                .get(&content.course_id)
+                .and_then(Option::as_deref)
+                == Some("confirmed")
+        })
+        .map(|content| (content.course_id.clone(), build_outline(&content.document)));
+    let outline_matches_course = |id: &str| {
+        course_outline
+            .as_ref()
+            .filter(|(course_id, _)| course_id == id)
+            .is_some_and(|(_, outline)| {
+                outline.chapters.iter().any(|chapter| {
+                    matches_query(&chapter.title)
+                        || chapter
+                            .issues
+                            .iter()
+                            .any(|issue| matches_query(&issue.title))
+                }) || outline
+                    .ungrouped
+                    .iter()
+                    .any(|issue| matches_query(&issue.title))
+            })
+    };
     let events = ctx
         .events
         .items()
         .iter()
-        .take(20)
+        .filter(|event| matches_query(&event.title))
         .map(|event| (event.id.clone(), event.title.clone()))
         .collect::<Vec<_>>();
     let show_unenrolled = ctx.display_preferences.dock_show_unenrolled;
@@ -445,7 +483,7 @@ fn render_site_tree(
         .courses
         .items()
         .iter()
-        .take(20)
+        .filter(|course| matches_query(&course.title) || outline_matches_course(&course.id))
         .filter(|course| {
             show_unenrolled
                 || ctx
@@ -455,10 +493,11 @@ fn render_site_tree(
         })
         .map(|course| (course.id.clone(), course.title.clone()))
         .collect::<Vec<_>>();
-    let show_events = events_open;
-    let show_courses = courses_open;
+    let show_events = events_open || !query.is_empty();
+    let show_courses = courses_open || !query.is_empty();
+    let search_events_empty = events.is_empty();
+    let search_courses_empty = courses.is_empty();
     let expanded_course = ctx.site_tree_course_open.clone();
-    let course_content = ctx.content.content().cloned();
     let active_course = ctx
         .current
         .as_ref()
@@ -509,6 +548,7 @@ fn render_site_tree(
                 .text_color(palette.ink_3)
                 .child(workspace),
         )
+        .child(search)
         .w_full()
         .into_any_element();
 
@@ -701,7 +741,9 @@ fn render_site_tree(
                     || active_path.as_deref().is_some_and(|active| {
                         active == path || active.starts_with(&format!("{path}/"))
                     });
-                let is_expanded = expanded_course.as_deref() == Some(id.as_str());
+                let course_matches = matches_query(&title);
+                let is_expanded = expanded_course.as_deref() == Some(id.as_str())
+                    || (!query.is_empty() && outline_matches_course(&id));
                 let click_course_id = course_id.clone();
                 let chevron_label = format!(
                     "{} {title}",
@@ -755,20 +797,50 @@ fn render_site_tree(
                 let _ = &mut course_item;
                 items.push(course_item);
                 if is_expanded {
-                    if let Some(content) = course_content
+                    let enrolled = ctx.course_enrollments.get(&id).and_then(Option::as_deref)
+                        == Some("confirmed");
+                    if !enrolled {
+                        items.push(
+                            SidebarMenuItem::new(
+                                translate(language, Key::CoursesSiteTreeEnrollToUnlock).to_string(),
+                            )
+                            .disable(true)
+                            .pl(px(28.0))
+                            .border_l_1()
+                            .border_color(palette.line),
+                        );
+                    } else if let Some((_, outline)) = course_outline
                         .as_ref()
-                        .filter(|content| content.course_id == id)
+                        .filter(|(course_id, _)| course_id == &id)
                     {
-                        let outline = build_outline(&content.document);
-                        for chapter in &outline.chapters {
-                            items.push(
-                                SidebarMenuItem::new(chapter.title.clone())
-                                    .disable(true)
-                                    .pl(px(28.0))
-                                    .border_l_1()
-                                    .border_color(palette.line),
-                            );
-                            for issue in &chapter.issues {
+                        let groups = outline
+                            .chapters
+                            .iter()
+                            .map(|chapter| {
+                                (Some(chapter.title.as_str()), chapter.issues.as_slice())
+                            })
+                            .chain(std::iter::once((None, outline.ungrouped.as_slice())));
+                        for (chapter_title, issues) in groups {
+                            let chapter_matches =
+                                course_matches || chapter_title.is_some_and(matches_query);
+                            let chapter_visible = chapter_matches
+                                || issues.iter().any(|issue| matches_query(&issue.title));
+                            if !chapter_visible {
+                                continue;
+                            }
+                            if let Some(title) = chapter_title {
+                                items.push(
+                                    SidebarMenuItem::new(title.to_string())
+                                        .disable(true)
+                                        .pl(px(28.0))
+                                        .border_l_1()
+                                        .border_color(palette.line),
+                                );
+                            }
+                            for issue in issues {
+                                if !chapter_matches && !matches_query(&issue.title) {
+                                    continue;
+                                }
                                 let root = cx.entity().downgrade();
                                 let issue_id = issue.id.clone();
                                 let title = issue.title.clone();
@@ -803,6 +875,13 @@ fn render_site_tree(
                         let _ = root.update(cx, |this, cx| this.start_courses_load(cx, false));
                     },
                 ));
+            }
+            if !query.is_empty() && search_events_empty && search_courses_empty {
+                items.push(
+                    SidebarMenuItem::new(translate(language, Key::NavSiteTreeEmpty).to_string())
+                        .disable(true)
+                        .pl(px(8.0)),
+                );
             }
         }
     }
@@ -852,16 +931,68 @@ fn render_site_tree(
         .into_any_element()
 }
 
+fn render_site_tree_search(
+    ctx: &mut ScreenContext<'_>,
+    language: Language,
+    window: &mut Window,
+    cx: &mut Context<RootView>,
+) -> AnyElement {
+    use gpui_kit::component::input::{Input, InputEvent, InputState};
+
+    if ctx.site_tree_search_input.is_none() {
+        let value = ctx.site_tree_query.clone();
+        let input = cx.new(|cx| InputState::new(window, cx).default_value(value));
+        ctx.site_tree_search_subscription =
+            Some(
+                cx.subscribe_in(&input, window, |this, input, event: &InputEvent, _, cx| {
+                    match event {
+                        InputEvent::Change => {
+                            this.site_tree_query = input.read(cx).value().to_string();
+                            if !this.site_tree_query.trim().is_empty() {
+                                this.ensure_navigation_data(cx);
+                            }
+                        }
+                        InputEvent::Focus => this.site_tree_search_focused = true,
+                        InputEvent::Blur => this.site_tree_search_focused = false,
+                        _ => return,
+                    }
+                    cx.notify();
+                }),
+            );
+        ctx.site_tree_search_input = Some(input);
+    }
+    let input = ctx
+        .site_tree_search_input
+        .as_ref()
+        .expect("initialized search")
+        .clone();
+    if ctx.site_tree_search_language != Some(language) {
+        input.update(cx, |state, cx| {
+            state.set_placeholder(translate(language, Key::NavSiteTreeSearch), window, cx);
+        });
+        ctx.site_tree_search_language = Some(language);
+    }
+    div()
+        .id("site-tree-search")
+        .test_support()
+        .mx(space(1))
+        .mb(px(2.0))
+        .child(Input::new(&input).small())
+        .into_any_element()
+}
+
 fn render_outline(
     ctx: &mut ScreenContext<'_>,
     language: Language,
     palette: &theme::Palette,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
-    let is_learning = ctx
-        .current
-        .as_ref()
-        .is_some_and(|route_match| route_match.route.id == "courses.learning");
+    let is_learning = ctx.current.as_ref().is_some_and(|route_match| {
+        matches!(
+            route_match.route.id,
+            "courses.learning" | "courses.public_learning"
+        )
+    });
     let content = ctx.content.content().cloned();
     let Some(content) = content else {
         return empty_outline(language, palette);

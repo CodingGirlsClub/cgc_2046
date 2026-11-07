@@ -15,6 +15,10 @@ pub(in crate::root_view) fn render_course_detail(
         .and_then(|route_match| route_match.params.get("id"))
         .cloned()
         .unwrap_or_default();
+    let public_face = ctx
+        .current
+        .as_ref()
+        .is_some_and(|route_match| route_match.route.id == "courses.public_detail");
 
     let back_key = crate::root_view::nav_copy::course_detail_back_key(
         ctx.current
@@ -81,9 +85,13 @@ pub(in crate::root_view) fn render_course_detail(
             .into_any_element(),
         CoursesListState::Ready => match detail {
             Some(detail) => {
-                let enrolled = detail.enrollment_status.as_deref() == Some("confirmed");
+                let enrollment_status = detail.enrollment_status.as_deref();
+                let enrolled = enrollment_status == Some("confirmed");
+                let pending =
+                    matches!(enrollment_status, Some("pending") | Some("payment_pending"));
                 let action = if enrolled {
                     let target = course_id.clone();
+                    let workspace_id = detail.workspace_id.clone();
                     div()
                         .flex()
                         .flex_col()
@@ -98,7 +106,7 @@ pub(in crate::root_view) fn render_course_detail(
                                 .text_color(white())
                                 .child(translate(language, Key::CoursesDetailEnrolled))
                                 .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.navigate_to_learning(&target, cx);
+                                    this.navigate_to_learning(&target, workspace_id.as_deref(), cx);
                                     cx.notify();
                                 })),
                         )
@@ -109,12 +117,42 @@ pub(in crate::root_view) fn render_course_detail(
                                 .child(translate(language, Key::CoursesLearningKeyboardHint)),
                         )
                         .into_any_element()
+                } else if pending {
+                    let status_key = if enrollment_status == Some("pending") {
+                        Key::EventsEnrollStatusPending
+                    } else {
+                        Key::EventsEnrollStatusPaymentPending
+                    };
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(4.0))
+                        .child(
+                            div()
+                                .text_size(px(12.0))
+                                .text_color(palette.ink_2)
+                                .child(translate(language, status_key)),
+                        )
+                        .child(
+                            div()
+                                .id("course-view-participations")
+                                .test_support()
+                                .role(Role::Link)
+                                .aria_label(
+                                    translate(language, Key::EventsEnrollViewParticipations)
+                                        .to_string(),
+                                )
+                                .text_size(px(12.0))
+                                .text_color(palette.accent)
+                                .child(translate(language, Key::EventsEnrollViewParticipations))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.navigate("/participations");
+                                    cx.notify();
+                                })),
+                        )
+                        .into_any_element()
                 } else {
                     let target = course_id.clone();
-                    let public_face = ctx
-                        .current
-                        .as_ref()
-                        .is_some_and(|route_match| route_match.route.id == "courses.public_detail");
                     if public_face && detail.visibility == "workspace" {
                         div()
                             .id("course-enroll-workspace-only")
@@ -126,6 +164,18 @@ pub(in crate::root_view) fn render_course_detail(
                             .text_size(px(12.0))
                             .text_color(palette.ink_3)
                             .child(translate(language, Key::EventsEnrollWorkspaceOnly))
+                            .into_any_element()
+                    } else if detail.enrollment_policy == "invite_only" {
+                        div()
+                            .id("course-enroll-invite-only")
+                            .test_support()
+                            .role(Role::Status)
+                            .aria_label(
+                                translate(language, Key::CoursesEnrollInviteRequired).to_string(),
+                            )
+                            .text_size(px(12.0))
+                            .text_color(palette.ink_3)
+                            .child(translate(language, Key::CoursesEnrollInviteRequired))
                             .into_any_element()
                     } else if detail.status != "open" {
                         div()
@@ -233,6 +283,26 @@ pub(in crate::root_view) fn render_course_detail(
                             .text_size(px(24.0))
                             .text_color(palette.ink)
                             .child(detail.title.clone()),
+                    )
+                    .children(super::super::render_workspace_badge(
+                        ctx.workspaces.workspaces(),
+                        detail.workspace_id.as_deref(),
+                        language,
+                        palette,
+                    ))
+                    .children(
+                        public_face
+                            .then(|| {
+                                super::super::render_workspace_link(
+                                    ctx.workspaces.workspaces(),
+                                    detail.workspace_id.as_deref(),
+                                    &format!("/courses/{}", detail.id),
+                                    language,
+                                    palette,
+                                    cx,
+                                )
+                            })
+                            .flatten(),
                     )
                     .children(detail.description.clone().map(|description| {
                         div()

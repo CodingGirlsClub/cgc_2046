@@ -180,9 +180,24 @@ pub(crate) fn offering_list_scope(route_id: &str) -> Option<ListScope> {
     }
 }
 
-/// 列表页在 Public 与 Workspace 之间切换时，服务里的缓存不再属于当前数据面。
-pub(crate) fn list_scope_switched(from: Option<ListScope>, to: Option<ListScope>) -> bool {
-    matches!((from, to), (Some(from), Some(to)) if from != to)
+/// 缓存所属的数据面与目标列表页不同 → 必须重载；缓存尚未建立（None）不重载。
+pub(crate) fn list_scope_needs_reload(cached: Option<ListScope>, next: ListScope) -> bool {
+    cached.is_some_and(|cached| cached != next)
+}
+
+/// 站点级条目按其所属工作区定位；无访问权时保留站点级路径，不借用当前台。
+pub(crate) fn offering_path(
+    workspaces: &[cgc_platform::workspace::WorkspaceSummary],
+    workspace_id: Option<&str>,
+    suffix: &str,
+) -> String {
+    match workspaces
+        .iter()
+        .find(|workspace| Some(workspace.id.as_str()) == workspace_id && workspace.can_access)
+    {
+        Some(workspace) => workspace_path(&workspace.slug, suffix),
+        None => suffix.to_string(),
+    }
 }
 
 /// 路由 slug 与当前工作区的关系；副作用由调用方执行。
@@ -472,21 +487,21 @@ mod tests {
     }
 
     #[test]
-    fn list_scope_switch_is_detected_only_between_known_faces() {
-        assert!(list_scope_switched(
+    fn cached_list_scope_reloads_when_the_face_changes() {
+        assert!(list_scope_needs_reload(
             Some(ListScope::Workspace),
-            Some(ListScope::Public)
+            ListScope::Public
         ));
-        assert!(list_scope_switched(
+        assert!(list_scope_needs_reload(
             Some(ListScope::Public),
-            Some(ListScope::Workspace)
+            ListScope::Workspace
         ));
-        assert!(!list_scope_switched(
+        assert!(!list_scope_needs_reload(
             Some(ListScope::Workspace),
-            Some(ListScope::Workspace)
+            ListScope::Workspace
         ));
-        assert!(!list_scope_switched(None, Some(ListScope::Workspace)));
-        assert!(!list_scope_switched(Some(ListScope::Public), None));
+        assert!(!list_scope_needs_reload(None, ListScope::Workspace));
+        assert!(!list_scope_needs_reload(None, ListScope::Public));
     }
 
     #[test]

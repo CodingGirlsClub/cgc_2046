@@ -5,6 +5,7 @@
 //! - 详情携带本人报名状态与 `revisionNumber`，学习入口按报名状态显示；
 //! - 学习页通过 `CourseContextPort` 校验上下文，缺失时 fail-closed 给引导。
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use cgc_platform::api::{apply_offering_scope, ApiError, GraphqlClient};
@@ -17,14 +18,23 @@ use serde_json::{json, Value};
 use crate::content::CourseContent;
 
 const LIST_COURSES_QUERY: &str = r#"
-query ListCourses($first: Int!, $after: String, $filter: CourseFilterInput) {
+query ListCourses($first: Int!, $after: String, $filter: CourseFilterInput, $includeWorkspaceId: Boolean!) {
   listCourses(first: $first, after: $after, filter: $filter) {
     count
     endKeyset
     results {
       id title status visibility registrationDeadline startsAt endsAt
+      workspaceId @include(if: $includeWorkspaceId)
       pricingEnabled enrollmentBadge
     }
+  }
+}
+"#;
+
+const COURSE_WORKSPACES_QUERY: &str = r#"
+query CourseWorkspaces($first: Int!, $filter: CourseFilterInput!) {
+  listCourses(first: $first, filter: $filter) {
+    results { id workspaceId }
   }
 }
 "#;
@@ -32,7 +42,7 @@ query ListCourses($first: Int!, $after: String, $filter: CourseFilterInput) {
 const GET_COURSE_QUERY: &str = r#"
 query GetCourse($id: ID!) {
   getCourse(id: $id) {
-    id workspaceId title description status visibility enrollmentPolicy
+    id title description status visibility enrollmentPolicy
     registrationDeadline startsAt endsAt pricingEnabled availablePriceTiers
   }
 }
@@ -40,13 +50,13 @@ query GetCourse($id: ID!) {
 
 const MY_ENROLLMENT_QUERY: &str = r#"
 query MyEnrollment($offeringId: ID!) {
-  myEnrollment(kind: "course", offeringId: $offeringId) { id status }
+  myEnrollment(kind: "course", offeringId: $offeringId) { id status workspaceId }
 }
 "#;
 
 const COURSE_LEARNING_QUERY: &str = r#"
 query CourseLearning($courseId: ID!) {
-  courseLearningDetail(courseId: $courseId) { courseId title revisionNumber staleRevision }
+  courseLearningDetail(courseId: $courseId) { courseId workspaceId title revisionNumber staleRevision }
 }
 "#;
 
@@ -143,6 +153,13 @@ pub trait CoursesApi: Send + Sync {
         after: Option<&str>,
         first: u32,
     ) -> Result<CoursePage, CoursesError>;
+    /// 仅查询给定可访问工作区内、当前页课程的归属；不扩大公开字段权限。
+    fn course_workspaces(
+        &self,
+        token: Option<&str>,
+        course_ids: &[String],
+        workspace_ids: &[String],
+    ) -> Result<BTreeMap<String, String>, CoursesError>;
     fn get_course(&self, token: Option<&str>, id: &str) -> Result<CourseDetail, CoursesError>;
     /// 课程报名状态；未报名返回 None（不把 404/权限错误当未报名以外的事实）。
     fn get_my_enrollment_status(
@@ -256,7 +273,10 @@ impl CoursesApi for HttpCoursesApi {
         after: Option<&str>,
         first: u32,
     ) -> Result<CoursePage, CoursesError> {
-        let mut variables = json!({ "first": first });
+        let mut variables = json!({
+            "first": first,
+            "includeWorkspaceId": matches!(&scope, OfferingScope::Workspace(_)),
+        });
         if let Some(after) = after {
             variables["after"] = json!(after);
         }
@@ -285,6 +305,36 @@ impl CoursesApi for HttpCoursesApi {
         })
     }
 
+    fn course_workspaces(
+        &self,
+        token: Option<&str>,
+        course_ids: &[String],
+        workspace_ids: &[String],
+    ) -> Result<BTreeMap<String, String>, CoursesError> {
+        if course_ids.is_empty() || workspace_ids.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+        let payload = self.client.post(token, COURSE_WORKSPACES_QUERY, json!({
+            "first": course_ids.len(),
+            "filter": { "id": { "in": course_ids }, "workspaceId": { "in": workspace_ids } },
+        })).map_err(CoursesError::from)?;
+        let rows = payload
+            .get("data")
+            .and_then(|data| data.get("listCourses"))
+            .and_then(|page| page.get("results"))
+            .and_then(Value::as_array)
+            .ok_or_else(|| CoursesError::Server("missing course workspace results".into()))?;
+        Ok(rows
+            .iter()
+            .filter_map(|row| {
+                Some((
+                    row.get("id")?.as_str()?.to_string(),
+                    row.get("workspaceId")?.as_str()?.to_string(),
+                ))
+            })
+            .collect())
+    }
+
     fn get_course(&self, token: Option<&str>, id: &str) -> Result<CourseDetail, CoursesError> {
         let payload = self
             .client
@@ -296,30 +346,37 @@ impl CoursesApi for HttpCoursesApi {
             .filter(|value| !value.is_null())
             .ok_or(CoursesError::NotFound)?;
 
-        let enrollment_status = self
+        let enrollment = self
             .client
             .post(token, MY_ENROLLMENT_QUERY, json!({ "offeringId": id }))
-            .ok()
-            .and_then(|payload| {
-                payload
-                    .get("data")
-                    .and_then(|data| data.get("myEnrollment"))
-                    .and_then(|enrollment| enrollment.get("status"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            });
+            .map_err(CoursesError::from)?;
+        let enrollment = enrollment
+            .get("data")
+            .and_then(|data| data.get("myEnrollment"));
+        let enrollment_status = enrollment
+            .and_then(|row| row.get("status"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let enrollment_workspace_id = enrollment
+            .and_then(|row| row.get("workspaceId"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
 
-        let revision_number = self
+        let (revision_number, learning_workspace_id) = self
             .client
             .post(token, COURSE_LEARNING_QUERY, json!({ "courseId": id }))
             .ok()
             .and_then(|payload| {
-                payload
-                    .get("data")
-                    .and_then(|data| data.get("courseLearningDetail"))
-                    .and_then(|detail| detail.get("revisionNumber"))
-                    .and_then(Value::as_i64)
-            });
+                let detail = payload.get("data")?.get("courseLearningDetail")?;
+                Some((
+                    detail.get("revisionNumber").and_then(Value::as_i64),
+                    detail
+                        .get("workspaceId")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                ))
+            })
+            .unwrap_or_default();
 
         let id = value
             .get("id")
@@ -348,10 +405,7 @@ impl CoursesApi for HttpCoursesApi {
                 .and_then(Value::as_str)
                 .unwrap_or("public")
                 .to_string(),
-            workspace_id: value
-                .get("workspaceId")
-                .and_then(Value::as_str)
-                .map(str::to_string),
+            workspace_id: learning_workspace_id.or(enrollment_workspace_id),
             pricing_enabled: value
                 .get("pricingEnabled")
                 .and_then(Value::as_bool)
@@ -483,6 +537,28 @@ impl CoursesApi for FakeCoursesApi {
             next_cursor: (end < self.courses.len()).then(|| end.to_string()),
             total: Some(self.courses.len() as i64),
         })
+    }
+
+    fn course_workspaces(
+        &self,
+        _token: Option<&str>,
+        course_ids: &[String],
+        workspace_ids: &[String],
+    ) -> Result<BTreeMap<String, String>, CoursesError> {
+        if self.fail {
+            return Err(CoursesError::Transport("fake network down".into()));
+        }
+        Ok(self
+            .courses
+            .iter()
+            .filter(|course| course_ids.contains(&course.id))
+            .filter_map(|course| {
+                let workspace_id = course.workspace_id.as_ref()?;
+                workspace_ids
+                    .contains(workspace_id)
+                    .then(|| (course.id.clone(), workspace_id.clone()))
+            })
+            .collect())
     }
 
     fn get_course(&self, _token: Option<&str>, id: &str) -> Result<CourseDetail, CoursesError> {
@@ -705,9 +781,16 @@ impl CourseCatalogService {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CourseEnrollment {
+    pub id: String,
+    pub status: String,
+}
+
 pub struct CourseDetailService {
     api: Arc<dyn CoursesApi>,
     detail: Option<CourseDetail>,
+    enrollment: Option<CourseEnrollment>,
     state: CoursesListState,
 }
 
@@ -716,6 +799,7 @@ impl CourseDetailService {
         Self {
             api,
             detail: None,
+            enrollment: None,
             state: CoursesListState::Idle,
         }
     }
@@ -730,6 +814,14 @@ impl CourseDetailService {
 
     pub fn detail(&self) -> Option<&CourseDetail> {
         self.detail.as_ref()
+    }
+
+    pub fn enrollment(&self) -> Option<&CourseEnrollment> {
+        self.enrollment.as_ref()
+    }
+
+    pub fn adopt_enrollment(&mut self, enrollment: Option<CourseEnrollment>) {
+        self.enrollment = enrollment;
     }
 
     pub fn begin_load(&mut self) {
@@ -751,6 +843,7 @@ impl CourseDetailService {
 
     pub fn reset(&mut self) {
         self.detail = None;
+        self.enrollment = None;
         self.state = CoursesListState::Idle;
     }
 }
@@ -894,7 +987,20 @@ mod tests {
                 request.extend_from_slice(&buffer[..read]);
             }
             let _ = sender.send(String::from_utf8_lossy(&request).to_string());
-            let body = r#"{"data":{"listCourses":{"count":1,"endKeyset":null,"results":[{"id":"c-1","title":"Rust","status":"open","visibility":"public","pricingEnabled":false,"enrollmentBadge":"enrolling"}]}}}"#;
+            let query: Value = serde_json::from_slice(&request[header_end..]).expect("query");
+            let course = json!({"id":"c-1","title":"Rust","status":"open","visibility":"public","pricingEnabled":false,"enrollmentBadge":"enrolling"});
+            let requests_workspace = query["query"]
+                .as_str()
+                .expect("document")
+                .contains("workspaceId")
+                && query["variables"]["includeWorkspaceId"] != false;
+            let body = if requests_workspace {
+                json!({"errors":[{"message":"forbidden field","code":"forbidden_field"}]})
+                    .to_string()
+            } else {
+                json!({"data":{"listCourses":{"count":1,"endKeyset":null,"results":[course]}}})
+                    .to_string()
+            };
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
@@ -908,6 +1014,7 @@ mod tests {
             .expect("page");
         assert_eq!(page.items.len(), 1);
         assert_eq!(page.items[0].enrollment_badge.as_deref(), Some("enrolling"));
+        assert_eq!(page.items[0].workspace_id, None);
         let sent = receiver.recv().expect("request");
         let body = sent.split("\r\n\r\n").nth(1).expect("request body");
         let body: Value = serde_json::from_str(body).expect("json body");

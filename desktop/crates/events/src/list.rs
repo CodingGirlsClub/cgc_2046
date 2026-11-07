@@ -617,6 +617,18 @@ impl EventsApi for FakeEventsApi {
         if self.fail {
             return Err(EventsError::Transport("fake network down".to_string()));
         }
+        if let Some(course_id) = request.course_id.as_deref() {
+            let enrollment = crate::enroll::MyEnrollment {
+                id: format!("enroll-{course_id}"),
+                status: "confirmed".to_string(),
+                check_in_code: None,
+            };
+            self.enrollments
+                .lock()
+                .expect("enrollments lock")
+                .insert(course_id.to_string(), enrollment.clone());
+            return Ok(enrollment);
+        }
         let Some(event_id) = request.event_id.as_deref() else {
             return Err(EventsError::NotFound);
         };

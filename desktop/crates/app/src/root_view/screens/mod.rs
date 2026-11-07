@@ -10,6 +10,7 @@ pub(in crate::root_view) use courses::{
 pub(in crate::root_view) use events::detail::render_enrollment_area;
 pub(in crate::root_view) use events::{detail::render_detail, list::render_events_list};
 pub(in crate::root_view) use learning_home::{course_enrollments, render_learning_home};
+pub(in crate::root_view) use offering_workspace::{render_workspace_badge, render_workspace_link};
 pub(in crate::root_view) use participations::render_participations;
 pub(in crate::root_view) use settings::render_settings;
 pub(in crate::root_view) use workspace_overview::render_workspace_overview;
@@ -22,6 +23,7 @@ mod context;
 mod courses;
 mod events;
 mod learning_home;
+mod offering_workspace;
 mod participations;
 mod settings;
 mod workspace_overview;

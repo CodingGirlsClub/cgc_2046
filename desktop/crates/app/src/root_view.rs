@@ -995,10 +995,18 @@ impl Render for RootView {
                     self.start_projection_load(cx, course_id);
                 }
             }
+            if data_ready
+                && self.right_panel_open
+                && self.right_panel == RightPanel::SiteTree
+                && !self.site_tree_query.trim().is_empty()
+            {
+                self.ensure_navigation_data(cx);
+            }
         }
 
         let key_focus = self.ensure_key_focus(cx);
         if is_signed_in
+            && window.focused(cx).is_none()
             && self.current.as_ref().is_some_and(|route_match| {
                 matches!(
                     route_match.route.id,
@@ -2272,6 +2280,7 @@ fn status_label(language: Language, status: &str) -> &'static str {
 
 fn course_row(
     course: &CourseSummary,
+    origin: Option<AnyElement>,
     language: Language,
     palette: &theme::Palette,
     cx: &mut Context<RootView>,
@@ -2289,6 +2298,9 @@ fn course_row(
     let course_id = course.id.clone();
     div()
         .id(format!("course-row-{}", course.id))
+        .test_support()
+        .role(Role::Link)
+        .aria_label(course.title.clone())
         .flex()
         .flex_row()
         .items_center()
@@ -2305,6 +2317,7 @@ fn course_row(
                 .flex_col()
                 .gap(px(2.0))
                 .child(div().text_color(palette.ink).child(course.title.clone()))
+                .children(origin)
                 .child(div().text_size(px(11.0)).text_color(palette.ink_3).child({
                     let base = format!("{starts} · {price}");
                     match course.registration_deadline.as_deref() {
@@ -2948,6 +2961,7 @@ mod tests {
         let mut view = view();
         let event = cgc_events::enrollments::MyEnrollmentRow {
             id: "event-enrollment".into(),
+            workspace_id: "ws-1".into(),
             status: "confirmed".into(),
             target_title: Some("Event registration outside the learning list".into()),
             starts_at: None,
@@ -3325,6 +3339,16 @@ mod tests {
             view.breadcrumb_context().map(|(label, _)| label),
             Some("events.public.title")
         );
+        view.navigate("/participations");
+        assert_eq!(
+            view.breadcrumb_context().map(|(label, _)| label),
+            Some("events.participations.title")
+        );
+        view.navigate("/courses/c-1/learn");
+        assert_eq!(
+            view.breadcrumb_context().map(|(label, _)| label),
+            Some("courses.public.title")
+        );
     }
 
     #[test]
@@ -3332,11 +3356,84 @@ mod tests {
         let mut view = view();
         view.navigate("/courses/c-1");
         view.state.course_detail_started = true;
+        view.selected_tier = Some("tier-from-a".into());
         view.navigate("/courses/c-2");
         assert!(
             !view.state.course_detail_started,
             "switching course ids must drop the previous detail"
         );
+        assert_eq!(
+            view.selected_tier, None,
+            "switching courses must drop a stale tier selection"
+        );
+    }
+
+    #[test]
+    fn list_cache_reloads_after_crossing_a_detail_page() {
+        use cgc_courses::catalog::{CoursesListState, FakeCoursesApi};
+        use cgc_platform::workspace::{OfferingScope, WorkspaceScope};
+
+        let mut view = view();
+        view.navigate("/w/2046/courses");
+        view.courses = cgc_courses::catalog::CourseCatalogService::new(std::sync::Arc::new(
+            FakeCoursesApi::with_seed(2),
+        ));
+        view.courses.begin_first_load();
+        let scope = WorkspaceScope {
+            workspace_id: "ws-1".into(),
+            epoch: 1,
+        };
+        let page = view
+            .courses
+            .fetch(None, OfferingScope::Workspace(&scope))
+            .expect("page");
+        view.courses.adopt_page(page);
+        view.courses_started = true;
+        view.courses_scope = Some(crate::routing::ListScope::Workspace);
+
+        view.navigate("/w/2046/courses/c-1");
+        assert_eq!(
+            view.courses.state(),
+            &CoursesListState::Ready,
+            "same-face detail navigation keeps the cache"
+        );
+        view.navigate("/courses");
+        assert_eq!(view.courses.state(), &CoursesListState::Idle);
+        assert!(!view.courses_started);
+        assert_eq!(view.courses_scope, None);
+    }
+
+    #[test]
+    fn switching_workspaces_resets_list_caches() {
+        use cgc_courses::catalog::{CoursesListState, FakeCoursesApi};
+        use cgc_platform::workspace::{OfferingScope, WorkspaceScope};
+
+        let mut view = view();
+        view.navigate("/w/2046/courses");
+        view.courses = cgc_courses::catalog::CourseCatalogService::new(std::sync::Arc::new(
+            FakeCoursesApi::with_seed(4),
+        ));
+        view.courses.begin_first_load();
+        let page = view
+            .courses
+            .fetch(
+                None,
+                OfferingScope::Workspace(&WorkspaceScope {
+                    workspace_id: "ws-1".into(),
+                    epoch: 0,
+                }),
+            )
+            .expect("page");
+        view.courses.adopt_page(page);
+        view.courses_scope = Some(crate::routing::ListScope::Workspace);
+
+        view.navigate("/w/other/courses");
+        assert_eq!(
+            view.courses.state(),
+            &CoursesListState::Idle,
+            "switching workspaces must invalidate list caches"
+        );
+        assert_eq!(view.courses_scope, None);
     }
 
     #[test]
@@ -3354,6 +3451,7 @@ mod tests {
             .fetch(None, OfferingScope::Public)
             .expect("page");
         view.courses.adopt_page(page);
+        view.courses_scope = Some(crate::routing::ListScope::Public);
         assert_eq!(view.courses.state(), &CoursesListState::Ready);
 
         view.navigate("/courses");

@@ -60,7 +60,19 @@ pub(in crate::root_view) fn render_courses_list(
         CoursesListState::Ready => {
             let rows = items
                 .iter()
-                .map(|course| course_row(course, language, palette, cx))
+                .map(|course| {
+                    let origin = if public_face {
+                        super::super::render_workspace_badge(
+                            ctx.workspaces.workspaces(),
+                            course.workspace_id.as_deref(),
+                            language,
+                            palette,
+                        )
+                    } else {
+                        None
+                    };
+                    course_row(course, origin, language, palette, cx)
+                })
                 .collect::<Vec<_>>();
             let load_more = has_more.then(|| {
                 div()

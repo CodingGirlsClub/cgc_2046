@@ -173,6 +173,7 @@ fn overview_drops_cross_workspace_blocks_and_shows_local_courses(cx: &mut TestAp
         // 跨台报名数据存在，但概览不应再渲染它。
         root.enrollments_rows = vec![MyEnrollmentRow {
             id: "enr-1".into(),
+            workspace_id: "ws-other".into(),
             status: "confirmed".into(),
             target_title: Some("Cross workspace".into()),
             starts_at: None,

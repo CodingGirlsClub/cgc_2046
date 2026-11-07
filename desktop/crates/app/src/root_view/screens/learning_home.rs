@@ -74,8 +74,18 @@ pub(in crate::root_view) fn render_learning_home(
                 let title = row.target_title.clone().unwrap_or_default();
                 let status = enroll_status_label(language, row.status.as_str());
                 let confirmed = row.status == "confirmed";
+                let origin = super::render_workspace_badge(
+                    ctx.workspaces.workspaces(),
+                    Some(&row.workspace_id),
+                    language,
+                    palette,
+                );
+                let workspace_id = row.workspace_id;
                 div()
                     .id(format!("learning-home-{}", row.id))
+                    .test_support()
+                    .role(Role::Link)
+                    .aria_label(title.clone())
                     .flex()
                     .flex_row()
                     .items_center()
@@ -92,6 +102,7 @@ pub(in crate::root_view) fn render_learning_home(
                             .flex_col()
                             .gap(px(2.0))
                             .child(div().text_color(palette.ink).child(title))
+                            .children(origin)
                             .child(
                                 div()
                                     .text_size(px(11.0))
@@ -108,11 +119,13 @@ pub(in crate::root_view) fn render_learning_home(
                     ))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if confirmed {
-                            this.navigate_to_learning(&course_id, cx);
+                            this.navigate_to_learning(&course_id, Some(&workspace_id), cx);
                         } else {
-                            let path = this
-                                .workspace_path(&format!("/courses/{course_id}"))
-                                .unwrap_or_else(|| format!("/courses/{course_id}"));
+                            let path = crate::routing::offering_path(
+                                this.workspaces.workspaces(),
+                                Some(&workspace_id),
+                                &format!("/courses/{course_id}"),
+                            );
                             this.navigate(&path);
                         }
                         cx.notify();

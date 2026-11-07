@@ -16,6 +16,7 @@ fn workspace_overview_projection_uses_visible_subset_without_secrets() {
     };
     let course = MyEnrollmentRow {
         id: "enroll-course".into(),
+        workspace_id: "ws-1".into(),
         status: "confirmed".into(),
         target_title: Some("Rust Basics".into()),
         starts_at: None,
@@ -105,6 +106,7 @@ fn enrollment_projection_excludes_check_in_code() {
 
     let row = MyEnrollmentRow {
         id: "enroll-1".into(),
+        workspace_id: "ws-1".into(),
         status: "confirmed".into(),
         target_title: Some("Rust Night".into()),
         starts_at: Some("2026-11-02".into()),

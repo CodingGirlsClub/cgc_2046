@@ -7,7 +7,7 @@ const MY_ENROLLMENTS_QUERY: &str = r#"
 query MyEnrollments {
   myEnrollments(first: 50) {
     count
-    results { id status targetTitle startsAt eventId courseId paymentMode checkInCode }
+    results { id workspaceId status targetTitle startsAt eventId courseId paymentMode checkInCode }
   }
 }
 "#;
@@ -15,6 +15,7 @@ query MyEnrollments {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MyEnrollmentRow {
     pub id: String,
+    pub workspace_id: String,
     pub status: String,
     pub target_title: Option<String>,
     pub starts_at: Option<String>,
@@ -46,6 +47,7 @@ impl HttpEnrollmentsApi {
     fn parse(value: &Value) -> Option<MyEnrollmentRow> {
         Some(MyEnrollmentRow {
             id: value.get("id")?.as_str()?.to_string(),
+            workspace_id: value.get("workspaceId")?.as_str()?.to_string(),
             status: value
                 .get("status")?
                 .as_str()
@@ -117,6 +119,7 @@ impl EnrollmentsApi for FakeEnrollmentsApi {
         Ok(vec![
             MyEnrollmentRow {
                 id: "enr-1".to_string(),
+                workspace_id: "ws-2046".to_string(),
                 status: "confirmed".to_string(),
                 target_title: Some("示例场次".to_string()),
                 starts_at: Some("2026-11-01T10:00:00Z".to_string()),
@@ -127,6 +130,7 @@ impl EnrollmentsApi for FakeEnrollmentsApi {
             },
             MyEnrollmentRow {
                 id: "enr-2".to_string(),
+                workspace_id: "ws-demo".to_string(),
                 status: "payment_pending".to_string(),
                 target_title: Some("示例课程".to_string()),
                 starts_at: None,
@@ -181,7 +185,7 @@ mod tests {
                 request.extend_from_slice(&buffer[..read]);
             }
             assert!(String::from_utf8_lossy(&request).contains("myEnrollments"));
-            let body = r#"{"data":{"myEnrollments":{"count":1,"results":[{"id":"enr-1","status":"confirmed","targetTitle":"场次 A","startsAt":"2026-11-01T10:00:00Z","eventId":"evt-1","courseId":null,"paymentMode":null,"checkInCode":"123456"}]}}}"#;
+            let body = r#"{"data":{"myEnrollments":{"count":1,"results":[{"id":"enr-1","workspaceId":"ws-own","status":"confirmed","targetTitle":"场次 A","startsAt":"2026-11-01T10:00:00Z","eventId":"evt-1","courseId":null,"paymentMode":null,"checkInCode":"123456"}]}}}"#;
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
@@ -193,6 +197,7 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].target_title.as_deref(), Some("场次 A"));
         assert_eq!(rows[0].check_in_code.as_deref(), Some("123456"));
+        assert_eq!(rows[0].workspace_id, "ws-own");
     }
 
     #[test]

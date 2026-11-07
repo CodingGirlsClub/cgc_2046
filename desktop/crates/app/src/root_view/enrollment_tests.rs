@@ -110,7 +110,7 @@ fn public_workspace_only_event_explains_the_gate(cx: &mut TestAppContext) {
         window.render_frame(cx);
         assert!(
             window
-                .try_find_by_label("Only workspace members can enroll. Join the workspace first.")
+                .try_find_by_label("Only workspace members can enroll. If you're a member, open it from the workspace.")
                 .is_some(),
             "workspace-only public detail must explain the membership gate"
         );
@@ -148,12 +148,26 @@ impl Render for CourseDetailProbe {
         let detail = self.root.update(cx, |root, cx| {
             let palette = crate::theme::palette(gpui_kit::component::ThemeMode::Light);
             let mut context = crate::root_view::screens::ScreenContext::new(&mut root.state);
-            crate::root_view::screens::render_course_detail(
-                &mut context,
-                Language::En,
-                &palette,
-                cx,
-            )
+            if context.current.as_ref().is_some_and(|route_match| {
+                matches!(
+                    route_match.route.id,
+                    "courses.learning" | "courses.public_learning"
+                )
+            }) {
+                crate::root_view::screens::render_course_learning(
+                    &mut context,
+                    Language::En,
+                    &palette,
+                    cx,
+                )
+            } else {
+                crate::root_view::screens::render_course_detail(
+                    &mut context,
+                    Language::En,
+                    &palette,
+                    cx,
+                )
+            }
         });
         div().size(px(640.0)).flex().flex_col().child(detail)
     }
@@ -162,7 +176,8 @@ impl Render for CourseDetailProbe {
 fn open_course_detail(
     cx: &mut TestAppContext,
     visibility: &str,
-    enrolled: bool,
+    policy: &str,
+    status: Option<&str>,
 ) -> (gpui_kit::AnyWindowHandle, Entity<RootView>) {
     cx.update(gpui_kit::init);
     cx.update(|cx| {
@@ -199,9 +214,9 @@ fn open_course_detail(
                         visibility: visibility.into(),
                         workspace_id: Some("ws-1".into()),
                         pricing_enabled: false,
-                        enrollment_policy: "open".into(),
+                        enrollment_policy: policy.into(),
                         available_price_tiers: Vec::new(),
-                        enrollment_status: enrolled.then(|| "confirmed".to_string()),
+                        enrollment_status: status.map(str::to_string),
                         revision_number: None,
                     });
                     root.state.course_detail = service;
@@ -218,12 +233,12 @@ fn open_course_detail(
 
 #[gpui_kit::test]
 fn public_workspace_only_course_explains_the_gate(cx: &mut TestAppContext) {
-    let (handle, _root) = open_course_detail(cx, "workspace", false);
+    let (handle, _root) = open_course_detail(cx, "workspace", "open", None);
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
         assert!(
             window
-                .try_find_by_label("Only workspace members can enroll. Join the workspace first.")
+                .try_find_by_label("Only workspace members can enroll. If you're a member, open it from the workspace.")
                 .is_some(),
             "workspace-only public course must explain the membership gate"
         );
@@ -233,7 +248,7 @@ fn public_workspace_only_course_explains_the_gate(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn public_free_course_shows_enroll_button(cx: &mut TestAppContext) {
-    let (handle, _root) = open_course_detail(cx, "public", false);
+    let (handle, _root) = open_course_detail(cx, "public", "open", None);
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
         let paths = window
@@ -249,4 +264,152 @@ fn public_free_course_shows_enroll_button(cx: &mut TestAppContext) {
         );
     })
     .unwrap();
+}
+
+#[gpui_kit::test]
+fn payment_pending_course_hides_the_enroll_button(cx: &mut TestAppContext) {
+    let (handle, _root) = open_course_detail(cx, "public", "open", Some("payment_pending"));
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let paths = window
+            .elements()
+            .iter()
+            .map(|element| format!("{:?}", element.path()))
+            .collect::<Vec<_>>();
+        assert!(
+            paths
+                .iter()
+                .any(|path| path.contains("Name(\"course-view-participations\")")),
+            "payment_pending course must link to My enrollments: {paths:?}"
+        );
+        assert!(
+            !paths
+                .iter()
+                .any(|path| path.contains("Name(\"course-enroll-button\")")),
+            "payment_pending course must not offer a second enrollment: {paths:?}"
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn invite_only_course_explains_the_gate(cx: &mut TestAppContext) {
+    let (handle, _root) = open_course_detail(cx, "public", "invite_only", None);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let paths = window
+            .elements()
+            .iter()
+            .map(|element| format!("{:?}", element.path()))
+            .collect::<Vec<_>>();
+        assert!(
+            !paths
+                .iter()
+                .any(|path| path.contains("Name(\"course-enroll-button\")")),
+            "invite-only course must not offer enrollment: {paths:?}"
+        );
+        assert!(
+            window
+                .try_find_by_label("Invitation required for this course.")
+                .is_some(),
+            "invite-only course must explain the gate"
+        );
+    })
+    .unwrap();
+}
+
+fn adopt_course_workspaces(root: &mut RootView, accessible: bool) {
+    use cgc_platform::workspace::WorkspaceSummary;
+    root.workspaces.adopt(vec![
+        WorkspaceSummary {
+            id: "ws-alpha".into(),
+            slug: "alpha".into(),
+            name: "Alpha".into(),
+            my_role_names: vec![],
+            member_count: None,
+            can_access: true,
+        },
+        WorkspaceSummary {
+            id: "ws-1".into(),
+            slug: "beta".into(),
+            name: "Beta".into(),
+            my_role_names: vec![],
+            member_count: None,
+            can_access: accessible,
+        },
+    ]);
+}
+
+#[gpui_kit::test]
+fn public_course_detail_opens_its_own_workspace(cx: &mut TestAppContext) {
+    let (handle, root) = open_course_detail(cx, "public", "open", None);
+    root.update(cx, |root, cx| {
+        adopt_course_workspaces(root, true);
+        cx.notify();
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.find_by_label("Workspace · Beta").visible());
+        window.click("course-open-workspace", cx);
+        let current = root.read(cx).current.as_ref().unwrap();
+        assert_eq!(current.route.id, "courses.detail");
+        assert_eq!(current.params.get("slug").map(String::as_str), Some("beta"));
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn public_course_detail_omits_an_inaccessible_workspace_entry(cx: &mut TestAppContext) {
+    let (handle, root) = open_course_detail(cx, "public", "open", None);
+    root.update(cx, |root, cx| {
+        adopt_course_workspaces(root, false);
+        cx.notify();
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("course-open-workspace").is_none());
+        assert!(window.find_by_label("Workspace · Beta").visible());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn public_learning_opens_the_course_workspace(cx: &mut TestAppContext) {
+    let (handle, root) = open_course_detail(cx, "public", "open", Some("confirmed"));
+    root.update(cx, |root, cx| {
+        adopt_course_workspaces(root, true);
+        root.session
+            .sign_in("demo@example.com", "demo")
+            .expect("fake session");
+        root.navigate("/courses/c-1/learn");
+        let mut detail = root.course_detail.detail().unwrap().clone();
+        detail.revision_number = Some(1);
+        root.course_detail.adopt(detail);
+        cx.notify();
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.find_by_label("Workspace · Beta").visible());
+        window.click("course-open-workspace", cx);
+        let current = root.read(cx).current.as_ref().unwrap();
+        assert_eq!(current.route.id, "courses.learning");
+        assert_eq!(current.params.get("slug").map(String::as_str), Some("beta"));
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn issue_tab_without_owner_access_stays_on_public_learning(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let (_, root) = open_course_detail(cx, "public", "open", Some("confirmed"));
+    root.update(cx, |root, cx| {
+        adopt_course_workspaces(root, false);
+        root.navigate("/courses/c-1/learn");
+        root.open_issue_tab("c-1", "issue-1", "First card", cx);
+        assert_eq!(
+            root.current.as_ref().unwrap().route.id,
+            "courses.public_learning"
+        );
+        assert_eq!(root.current.as_ref().unwrap().params.get("slug"), None);
+    });
 }

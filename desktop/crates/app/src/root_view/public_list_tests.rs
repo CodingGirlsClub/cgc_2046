@@ -176,3 +176,28 @@ fn public_events_list_hides_workspace_filters(cx: &mut TestAppContext) {
     })
     .unwrap();
 }
+
+#[gpui_kit::test]
+fn public_course_card_displays_its_own_workspace(cx: &mut TestAppContext) {
+    let (handle, root) = open_courses(cx, false);
+    root.update(cx, |root, cx| {
+        root.workspaces
+            .adopt(vec![cgc_platform::workspace::WorkspaceSummary {
+                id: "ws-demo".into(),
+                slug: "demo".into(),
+                name: "Demo".into(),
+                my_role_names: vec![],
+                member_count: None,
+                can_access: true,
+            }]);
+        cx.notify();
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let origin = window
+            .within("course-row-crs-000")
+            .find_by_label("Workspace · Demo");
+        assert!(origin.visible());
+    })
+    .unwrap();
+}

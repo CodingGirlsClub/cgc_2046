@@ -20,6 +20,12 @@ courses.catalog.title
 courses.public.title
 courses.public_detail.title
 courses.public_learning.title
+courses.enroll.invite_required
+courses.site_tree.enroll_to_unlock
+nav.site_tree.search
+nav.site_tree.empty
+nav.workspace_origin
+courses.open_workspace
 courses.public_detail.back
 courses.public.empty
 agent_chat.context.pending
@@ -95,7 +101,6 @@ courses.detail.not_enrolled
 courses.learning.loading
 courses.learning.retry
 courses.learning.context_required
-courses.learning.workspace
 courses.learning.revision
 courses.learning.keyboard_hint
 courses.detail.title

@@ -176,6 +176,9 @@ pub struct ShellState {
     pub(in crate::root_view) current: Option<RouteMatch>,
     /// 最近使用的工作区 slug（启动时读本地状态；测试可注入空值）。
     pub(in crate::root_view) last_workspace_slug: Option<String>,
+    /// 列表缓存所属的数据面；详情页等无 scope 的路由不改变它。
+    pub(in crate::root_view) events_scope: Option<crate::routing::ListScope>,
+    pub(in crate::root_view) courses_scope: Option<crate::routing::ListScope>,
     pub(in crate::root_view) language: Language,
     pub(in crate::root_view) preference: ThemePreference,
     pub(in crate::root_view) theme_name: String,
@@ -228,6 +231,10 @@ pub struct ShellState {
     pub(in crate::root_view) site_tree_events_open: bool,
     pub(in crate::root_view) site_tree_courses_open: bool,
     pub(in crate::root_view) site_tree_query: String,
+    pub(in crate::root_view) site_tree_search_input:
+        Option<Entity<gpui_kit::component::input::InputState>>,
+    pub(in crate::root_view) site_tree_search_subscription: Option<Subscription>,
+    pub(in crate::root_view) site_tree_search_language: Option<Language>,
     pub(in crate::root_view) site_tree_search_focused: bool,
     pub(in crate::root_view) site_tree_course_open: Option<String>,
     pub(in crate::root_view) site_tree_scroll: ScrollHandle,
@@ -351,6 +358,8 @@ impl ShellState {
             registry,
             current,
             last_workspace_slug,
+            events_scope: None,
+            courses_scope: None,
             language,
             preference,
             theme_name: theme::load_selected_theme()
@@ -400,6 +409,9 @@ impl ShellState {
             site_tree_events_open: false,
             site_tree_courses_open: false,
             site_tree_query: String::new(),
+            site_tree_search_input: None,
+            site_tree_search_subscription: None,
+            site_tree_search_language: None,
             site_tree_search_focused: false,
             site_tree_course_open: None,
             site_tree_scroll: ScrollHandle::new(),

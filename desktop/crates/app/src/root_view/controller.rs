@@ -22,6 +22,22 @@ mod public_list_tests;
 #[path = "enrollment_tests.rs"]
 mod enrollment_tests;
 
+#[cfg(all(test, cgc_ui_tests))]
+#[path = "site_tree_tests.rs"]
+mod site_tree_tests;
+
+#[cfg(all(test, cgc_ui_tests))]
+#[path = "offering_workspace_tests.rs"]
+mod offering_workspace_tests;
+
+#[cfg(all(test, cgc_ui_tests))]
+#[path = "navigation_lifecycle_tests.rs"]
+mod navigation_lifecycle_tests;
+
+#[cfg(all(test, cgc_ui_tests))]
+#[path = "public_course_workspace_tests.rs"]
+mod public_course_workspace_tests;
+
 /// 登录标识是否是邮箱。客户端只支持邮箱登录，这里做最小形状校验：
 /// 本地部分非空、域部分含点且不以点开头/结尾（真正的校验在服务端）。
 fn looks_like_email(value: &str) -> bool {
@@ -934,23 +950,47 @@ impl RootView {
             let current_slug = self
                 .workspaces
                 .current()
-                .map(|workspace| workspace.slug.clone());
+                .map(|workspace| workspace.slug.clone())
+                .or_else(|| self.last_workspace_slug.clone());
             if next_slug.is_some() && next_slug != current_slug {
                 if let Some(previous) = self.workspaces.current_id().map(str::to_string) {
                     self.persist_workspace_state(&previous);
                 }
-            }
-            // Public 与 Workspace 的列表缓存互不通用：切面即失效，避免串台。
-            let next_scope = crate::routing::offering_list_scope(route_match.route.id);
-            let previous_scope = self
-                .current
-                .as_ref()
-                .and_then(|current| crate::routing::offering_list_scope(current.route.id));
-            if crate::routing::list_scope_switched(previous_scope, next_scope) {
-                self.events.reset();
-                self.events_started = false;
                 self.courses.reset();
                 self.courses_started = false;
+                self.courses_scope = None;
+                self.events.reset();
+                self.events_started = false;
+                self.events_scope = None;
+            }
+            if let Some(slug) = next_slug.clone() {
+                self.last_workspace_slug = Some(slug);
+            }
+            // 列表缓存带数据面身份：从详情/其它页面回到列表时也能发现归属不符。
+            let route_id = route_match.route.id;
+            if let Some(next_scope) = crate::routing::offering_list_scope(route_id) {
+                let uses_events = matches!(
+                    route_id,
+                    "events.list" | "events.public_list" | "account.workspace"
+                );
+                let uses_courses = matches!(
+                    route_id,
+                    "courses.catalog" | "courses.public_list" | "account.workspace"
+                );
+                if uses_events
+                    && crate::routing::list_scope_needs_reload(self.events_scope, next_scope)
+                {
+                    self.events.reset();
+                    self.events_started = false;
+                    self.events_scope = None;
+                }
+                if uses_courses
+                    && crate::routing::list_scope_needs_reload(self.courses_scope, next_scope)
+                {
+                    self.courses.reset();
+                    self.courses_started = false;
+                    self.courses_scope = None;
+                }
             }
             let is_learning = matches!(
                 route_match.route.id,
@@ -982,6 +1022,10 @@ impl RootView {
                 self.course_detail_started = false;
                 self.course_detail.reset();
                 self.projection.reset();
+                self.selected_tier = None;
+                self.age_confirmed = false;
+                self.enrollment_error = None;
+                self.enrolling = false;
                 if self
                     .content
                     .content()
@@ -1233,8 +1277,10 @@ impl RootView {
     pub(in crate::root_view) fn reset_workspace_data(&mut self, cx: &mut Context<Self>) {
         self.reset_events();
         self.events.reset();
+        self.events_scope = None;
         self.detail.reset();
         self.courses.reset();
+        self.courses_scope = None;
         self.course_enrollments.clear();
         self.course_detail.reset();
         self.content.reset();
@@ -1252,6 +1298,9 @@ impl RootView {
         self.tabs.clear();
         self.active_tab = None;
         self.site_tree_query.clear();
+        self.site_tree_search_input = None;
+        self.site_tree_search_subscription = None;
+        self.site_tree_search_language = None;
         self.site_tree_course_open = None;
         self.site_tree_scroll = ScrollHandle::new();
         self.site_tree_scroll_restore = None;
@@ -2513,6 +2562,7 @@ impl RootView {
             },
             crate::routing::ListScope::Public => None,
         };
+        self.courses_scope = Some(scope_mode);
         if first {
             self.courses.begin_first_load();
         } else {
@@ -2521,6 +2571,16 @@ impl RootView {
         self.courses_started = true;
         let api = self.courses.api_handle();
         let token = self.session_token();
+        let workspace_ids = if matches!(scope_mode, crate::routing::ListScope::Public) {
+            self.workspaces
+                .workspaces()
+                .iter()
+                .filter(|workspace| workspace.can_access)
+                .map(|workspace| workspace.id.clone())
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
         let cursor = if first {
             None
         } else {
@@ -2533,7 +2593,27 @@ impl RootView {
                 Some(scope) => cgc_platform::workspace::OfferingScope::Workspace(scope),
                 None => cgc_platform::workspace::OfferingScope::Public,
             };
-            api.list_courses(token.as_deref(), offering, cursor.as_deref(), 10)
+            let mut page = api.list_courses(token.as_deref(), offering, cursor.as_deref(), 10)?;
+            if matches!(scope_mode, crate::routing::ListScope::Public) {
+                let ids = page
+                    .items
+                    .iter()
+                    .filter(|course| course.workspace_id.is_none())
+                    .map(|course| course.id.clone())
+                    .collect::<Vec<_>>();
+                match api.course_workspaces(token.as_deref(), &ids, &workspace_ids) {
+                    Ok(mut owners) => {
+                        for course in &mut page.items {
+                            if course.workspace_id.is_none() {
+                                course.workspace_id = owners.remove(&course.id);
+                            }
+                        }
+                    }
+                    Err(error) if error.is_unauthorized() => return Err(error),
+                    Err(_) => {}
+                }
+            }
+            Ok(page)
         });
 
         cx.spawn(async move |this, cx| {
@@ -2564,6 +2644,8 @@ impl RootView {
         &mut self,
         detail: cgc_courses::catalog::CourseDetail,
     ) {
+        self.course_enrollments
+            .insert(detail.id.clone(), detail.enrollment_status.clone());
         if self.content.content().is_some_and(|content| {
             content.course_id != detail.id || content.revision_number != detail.revision_number
         }) {
@@ -2577,6 +2659,10 @@ impl RootView {
         cx: &mut Context<Self>,
         course_id: String,
     ) {
+        self.selected_tier = None;
+        self.age_confirmed = false;
+        self.enrollment_error = None;
+        self.enrolling = false;
         self.course_detail.begin_load();
         self.course_detail_started = true;
         if self
@@ -2592,9 +2678,37 @@ impl RootView {
         let requested_course = course_id.clone();
         let api = self.course_detail.api_handle();
         let token = self.session_token();
-        let task = cx
-            .background_executor()
-            .spawn(async move { api.get_course(token.as_deref(), &course_id) });
+        let cached_workspace = self
+            .courses
+            .items()
+            .iter()
+            .find(|course| course.id == course_id)
+            .and_then(|course| course.workspace_id.clone());
+        let workspace_ids = self
+            .workspaces
+            .workspaces()
+            .iter()
+            .filter(|workspace| workspace.can_access)
+            .map(|workspace| workspace.id.clone())
+            .collect::<Vec<_>>();
+        let task = cx.background_executor().spawn(async move {
+            let mut detail = api.get_course(token.as_deref(), &course_id)?;
+            if detail.workspace_id.is_none() {
+                detail.workspace_id = cached_workspace;
+            }
+            if detail.workspace_id.is_none() {
+                match api.course_workspaces(
+                    token.as_deref(),
+                    std::slice::from_ref(&course_id),
+                    &workspace_ids,
+                ) {
+                    Ok(mut owners) => detail.workspace_id = owners.remove(&course_id),
+                    Err(error) if error.is_unauthorized() => return Err(error),
+                    Err(_) => {}
+                }
+            }
+            Ok(detail)
+        });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
@@ -2608,7 +2722,10 @@ impl RootView {
                     return;
                 }
                 match result {
-                    Ok(detail) => this.adopt_course_detail(detail),
+                    Ok(detail) => {
+                        this.adopt_course_detail(detail);
+                        this.load_expanded_site_tree_course(cx);
+                    }
                     Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
                     Err(error) => this.course_detail.fail(&error),
                 }
@@ -2648,16 +2765,14 @@ impl RootView {
     pub(in crate::root_view) fn navigate_to_learning(
         &mut self,
         course_id: &str,
+        workspace_id: Option<&str>,
         cx: &mut Context<Self>,
     ) {
-        let path = match self.workspaces.current() {
-            Some(workspace) => crate::routing::workspace_path(
-                &workspace.slug,
-                &format!("/courses/{course_id}/learn"),
-            ),
-            // 公开报名不要求 membership：没有工作区时走站点级学习页。
-            None => format!("/courses/{course_id}/learn"),
-        };
+        let path = crate::routing::offering_path(
+            self.workspaces.workspaces(),
+            workspace_id,
+            &format!("/courses/{course_id}/learn"),
+        );
         let title = self
             .courses
             .items()
@@ -2878,7 +2993,8 @@ impl RootView {
             .map(|route_match| route_match.route.id)?;
         match route_id {
             "account.workspace" => Some(("account.workspace.overview", None)),
-            "events.list" | "events.participations" => Some(("events.list.title", None)),
+            "events.list" => Some(("events.list.title", None)),
+            "events.participations" => Some(("events.participations.title", None)),
             "events.detail" => Some((
                 "events.list.title",
                 self.detail.detail().map(|detail| detail.title.clone()),
@@ -2889,6 +3005,12 @@ impl RootView {
                 self.detail.detail().map(|detail| detail.title.clone()),
             )),
             "courses.catalog" | "courses.learning_home" => Some(("courses.catalog.title", None)),
+            "courses.public_learning" => Some((
+                "courses.public.title",
+                self.course_detail
+                    .detail()
+                    .map(|detail| detail.title.clone()),
+            )),
             "courses.public_list" => Some(("courses.public.title", None)),
             "courses.public_detail" => Some((
                 "courses.public.title",
@@ -2969,23 +3091,33 @@ impl RootView {
         title: impl Into<String>,
         cx: &mut Context<Self>,
     ) {
-        let Some(slug) = self
-            .workspaces
-            .current()
-            .map(|workspace| workspace.slug.clone())
-        else {
-            return;
-        };
-        let path = crate::routing::workspace_path(&slug, &format!("/courses/{course_id}/learn"));
+        let workspace_id = self
+            .course_detail
+            .detail()
+            .filter(|detail| detail.id == course_id)
+            .and_then(|detail| detail.workspace_id.as_deref())
+            .or_else(|| {
+                self.courses
+                    .items()
+                    .iter()
+                    .find(|course| course.id == course_id)
+                    .and_then(|course| course.workspace_id.as_deref())
+            });
+        let path = crate::routing::offering_path(
+            self.workspaces.workspaces(),
+            workspace_id,
+            &format!("/courses/{course_id}/learn"),
+        );
         let tab = PaneTab::issue(&path, course_id, issue_id, title);
         self.open_tab(tab, cx);
     }
 
     fn open_tab(&mut self, tab: PaneTab, cx: &mut Context<Self>) {
-        self.state.open_tab(tab.clone());
         self.site_tree_search_focused = false;
         self.page_context.reset_dismissed();
         self.navigate(&tab.path);
+        self.sync_workspace_route(cx);
+        self.state.open_tab(tab);
         self.persist_current_workspace_state();
         cx.notify();
     }
@@ -3172,6 +3304,9 @@ impl RootView {
         self.site_tree_events_open = entry.site_tree_events_open;
         self.site_tree_courses_open = entry.site_tree_courses_open;
         self.site_tree_query = entry.site_tree_query;
+        self.site_tree_search_input = None;
+        self.site_tree_search_subscription = None;
+        self.site_tree_search_language = None;
         self.site_tree_course_open = entry.site_tree_course_open;
         self.site_tree_scroll = ScrollHandle::new();
         self.site_tree_scroll_restore = Some(entry.site_tree_scroll_y);
@@ -3234,7 +3369,6 @@ impl RootView {
             .courses
             .items()
             .iter()
-            .take(20)
             .filter(|course| !self.course_enrollments.contains_key(&course.id))
             .map(|course| course.id.clone())
             .collect::<Vec<_>>();
@@ -3259,7 +3393,10 @@ impl RootView {
                 if !this.workspaces.is_current_epoch(epoch) {
                     return;
                 }
-                this.course_enrollments.extend(statuses);
+                for (id, status) in statuses {
+                    this.course_enrollments.entry(id).or_insert(status);
+                }
+                this.load_expanded_site_tree_course(cx);
                 cx.notify();
             });
         })
@@ -3286,15 +3423,43 @@ impl RootView {
             self.site_tree_course_open = None;
         } else {
             self.site_tree_course_open = Some(course_id.to_string());
-            if self
+            self.load_expanded_site_tree_course(cx);
+        }
+        cx.notify();
+    }
+
+    fn load_expanded_site_tree_course(&mut self, cx: &mut Context<Self>) {
+        let Some(course_id) = self.site_tree_course_open.as_deref() else {
+            return;
+        };
+        if self
+            .current
+            .as_ref()
+            .filter(|route| {
+                matches!(
+                    route.route.id,
+                    "courses.learning" | "courses.public_learning"
+                )
+            })
+            .and_then(|route| route.params.get("id"))
+            .is_some_and(|active| active != course_id)
+        {
+            return;
+        }
+        if self
+            .course_enrollments
+            .get(course_id)
+            .and_then(Option::as_deref)
+            == Some("confirmed")
+            && self
                 .content
                 .content()
                 .is_none_or(|content| content.course_id != course_id)
-            {
-                self.start_content_load(cx, course_id.to_string());
-            }
+            && !(self.content.course_id() == Some(course_id)
+                && matches!(self.content.state(), CourseContentState::Loading))
+        {
+            self.start_content_load(cx, course_id.to_string());
         }
-        cx.notify();
     }
 
     pub(in crate::root_view) fn toggle_site_tree_section(
@@ -3485,24 +3650,6 @@ impl RootView {
             && self.right_panel_open
             && self.right_panel == RightPanel::SiteTree
         {
-            match event.keystroke.key.as_str() {
-                "escape" => self.site_tree_search_focused = false,
-                "enter" => self.site_tree_search_focused = false,
-                "backspace" => {
-                    self.site_tree_query.pop();
-                }
-                _ => {
-                    if let Some(text) = event.keystroke.key_char.as_deref() {
-                        if !event.keystroke.modifiers.modified() && !text.is_empty() {
-                            self.site_tree_query.push_str(text);
-                        }
-                    }
-                }
-            }
-            if !self.site_tree_query.trim().is_empty() {
-                self.ensure_navigation_data(cx);
-            }
-            cx.notify();
             return;
         }
         if self.agent_registry_search_focused
@@ -3574,7 +3721,11 @@ impl RootView {
             .and_then(|detail| detail.enrollment_status.as_deref())
             == Some("confirmed");
         if enrolled {
-            self.navigate_to_learning(&course_id, cx);
+            let workspace_id = self
+                .course_detail
+                .detail()
+                .and_then(|detail| detail.workspace_id.clone());
+            self.navigate_to_learning(&course_id, workspace_id.as_deref(), cx);
             cx.notify();
         }
     }
@@ -3915,6 +4066,7 @@ impl RootView {
         let api = self.events.api_handle();
         let token = self.session_token();
         let course_id = course_id.to_string();
+        let epoch = self.workspaces.epoch();
         let task = cx
             .background_executor()
             .spawn(async move { api.create_enrollment(token.as_deref(), &request) });
@@ -3922,18 +4074,43 @@ impl RootView {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
                 this.enrolling = false;
+                let same_course = this
+                    .current
+                    .as_ref()
+                    .and_then(|route_match| route_match.params.get("id"))
+                    .is_some_and(|id| id == &course_id);
                 match result {
-                    Ok(_) => {
+                    Ok(enrollment) => {
+                        if this.workspaces.is_current_epoch(epoch) {
+                            this.course_enrollments
+                                .insert(course_id.clone(), Some(enrollment.status.clone()));
+                            this.load_expanded_site_tree_course(cx);
+                        }
                         this.enrollment_error = None;
                         this.selected_tier = None;
-                        this.course_detail_started = false;
-                        this.start_course_detail_load(cx, course_id);
+                        this.enrollments_started = false;
+                        this.enrollments_state = EnrollmentsListState::Idle;
+                        if same_course {
+                            this.course_detail.adopt_enrollment(Some(
+                                cgc_courses::catalog::CourseEnrollment {
+                                    id: enrollment.id,
+                                    status: enrollment.status,
+                                },
+                            ));
+                            this.course_detail_started = false;
+                            this.start_course_detail_load(cx, course_id);
+                        }
                     }
                     Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
                     Err(cgc_events::list::EventsError::Domain { code, .. }) => {
-                        this.enrollment_error = Some(enrollment_error_key(&code).to_string());
+                        if same_course {
+                            this.enrollment_error = Some(enrollment_error_key(&code).to_string());
+                        }
                     }
-                    Err(_) => this.enrollment_error = Some("generic".to_string()),
+                    Err(_) if same_course => {
+                        this.enrollment_error = Some("generic".to_string());
+                    }
+                    Err(_) => {}
                 }
                 cx.notify();
             });
@@ -3970,6 +4147,7 @@ impl RootView {
         }
         self.enrolling = true;
         self.enrollment_error = None;
+        let requested_event = detail.id.clone();
         let mut request = EnrollmentRequest::event(detail.id.clone(), user_id);
         request.tier_id = self.selected_tier.clone();
         request.age_confirmed = self.age_confirmed;
@@ -3982,21 +4160,33 @@ impl RootView {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
                 this.enrolling = false;
+                let same_event = this
+                    .current
+                    .as_ref()
+                    .and_then(|route_match| route_match.params.get("id"))
+                    .is_some_and(|id| id == &requested_event);
                 match result {
                     Ok(enrollment) => {
-                        this.detail.adopt_enrollment(Some(enrollment));
+                        if same_event {
+                            this.detail.adopt_enrollment(Some(enrollment));
+                        }
                         this.enrollment_error = None;
+                        this.enrollments_started = false;
+                        this.enrollments_state = EnrollmentsListState::Idle;
                     }
                     Err(cgc_events::list::EventsError::Domain { code, .. }) => {
-                        let suffix = enrollment_error_key(&code).to_string();
-                        this.enrollment_error = Some(suffix);
-                        if code == "enrollment_duplicate_active" {
-                            this.refresh_enrollment(cx);
+                        if same_event {
+                            let suffix = enrollment_error_key(&code).to_string();
+                            this.enrollment_error = Some(suffix);
+                            if code == "enrollment_duplicate_active" {
+                                this.refresh_enrollment(cx);
+                            }
                         }
                     }
-                    Err(_) => {
+                    Err(_) if same_event => {
                         this.enrollment_error = Some("generic".to_string());
                     }
+                    Err(_) => {}
                 }
                 cx.notify();
             });
@@ -4043,6 +4233,7 @@ impl RootView {
             },
             crate::routing::ListScope::Public => None,
         };
+        self.events_scope = Some(scope_mode);
         if first {
             self.events.begin_first_load();
         } else {

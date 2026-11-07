@@ -49,10 +49,29 @@ pub(in crate::root_view) fn render_participations(
                         )
                     })
                     .unwrap_or_default();
-                let event_id = row.event_id.clone();
-                let course_id = row.course_id.clone();
+                let origin = super::render_workspace_badge(
+                    ctx.workspaces.workspaces(),
+                    Some(&row.workspace_id),
+                    language,
+                    palette,
+                );
+                let path = row
+                    .event_id
+                    .as_ref()
+                    .map(|id| format!("/events/{id}"))
+                    .or_else(|| row.course_id.as_ref().map(|id| format!("/courses/{id}")))
+                    .map(|suffix| {
+                        crate::routing::offering_path(
+                            ctx.workspaces.workspaces(),
+                            Some(&row.workspace_id),
+                            &suffix,
+                        )
+                    });
                 div()
                     .id(format!("participation-{}", row.id))
+                    .test_support()
+                    .role(Role::Link)
+                    .aria_label(title.clone())
                     .flex()
                     .flex_row()
                     .items_center()
@@ -69,6 +88,7 @@ pub(in crate::root_view) fn render_participations(
                             .flex_col()
                             .gap(px(2.0))
                             .child(div().text_color(palette.ink).child(title))
+                            .children(origin)
                             .child(
                                 div()
                                     .text_size(px(11.0))
@@ -97,13 +117,8 @@ pub(in crate::root_view) fn render_participations(
                             .child(translate(language, Key::EventsParticipationsView)),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        if let Some(event_id) = event_id.as_deref() {
-                            this.navigate_to_event_detail(event_id, cx);
-                        } else if let Some(course_id) = course_id.as_deref() {
-                            let path = this
-                                .workspace_path(&format!("/courses/{course_id}"))
-                                .unwrap_or_else(|| format!("/courses/{course_id}"));
-                            this.navigate(&path);
+                        if let Some(path) = path.as_deref() {
+                            this.navigate(path);
                         }
                         cx.notify();
                     }))
