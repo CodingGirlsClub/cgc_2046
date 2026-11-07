@@ -3,6 +3,7 @@
 //! 这一层只读 [`TerminalView`] 的状态；终端模拟与进程归 `cgc-terminal`，
 //! 宿主（pane / agent panel）归 `cgc-desktop-app`。
 
+use std::ops::Range;
 use std::panic;
 
 use cgc_terminal::{
@@ -74,6 +75,16 @@ impl TerminalView {
 
     fn handle_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
         let keystroke = &event.keystroke;
+
+        // Cmd+V：把剪贴板文本直接写进 PTY（也用于验证 IME 的文本通道）。
+        if keystroke.modifiers.platform && keystroke.key == "v" {
+            if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+                self.send_text(&text, cx);
+            }
+            cx.stop_propagation();
+            return;
+        }
+
         let key = key_from_str(&keystroke.key);
         let mods = mods_from(&keystroke.modifiers);
         // 空格没有单字符 key 名，必须显式给编码器文本，否则会被当成纯修饰键丢掉。
@@ -143,6 +154,16 @@ impl TerminalView {
         Size {
             width: self.cell_width * size.cols as f32,
             height: self.style.line_height * size.rows as f32,
+        }
+    }
+
+    /// IME 提交的文本直接写入 PTY（预编辑阶段不落字）。
+    pub fn send_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        if text.is_empty() {
+            return;
+        }
+        if self.session.write(text.as_bytes()).is_ok() {
+            cx.notify();
         }
     }
 }
@@ -248,6 +269,16 @@ impl Element for TerminalElement {
             let view = self.view.read(cx);
             build_plan(view.frame(), &self.style, self.cell_width, bounds)
         };
+
+        // IME：macOS 的输入法通过 InputHandler 提交文本，直接写进 PTY。
+        let focus = self.view.read(cx).focus_handle.clone();
+        window.handle_input(
+            &focus,
+            TerminalInputHandler {
+                view: self.view.clone(),
+            },
+            cx,
+        );
         // 与 Zed 的 TerminalElement 一样，把整帧放进 element 的内容遮罩里：
         // glyph 绘制依赖 content mask。
         window.with_content_mask(Some(ContentMask { bounds }), |window| {
@@ -586,5 +617,83 @@ fn key_from_str(key: &str) -> Key {
         "f11" => Key::F11,
         "f12" => Key::F12,
         _ => Key::Unidentified,
+    }
+}
+
+/// IME 桥：把输入法提交的文本写进 PTY。
+///
+/// 预编辑（marked text）阶段不落字——macOS 在用户选词后调用
+/// `replace_text_in_range` 提交最终文本；若在 marked 阶段就发送，
+/// 组合过程中会重复写入。
+struct TerminalInputHandler {
+    view: Entity<TerminalView>,
+}
+
+impl InputHandler for TerminalInputHandler {
+    fn selected_text_range(
+        &mut self,
+        _ignore_disabled_input: bool,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<UTF16Selection> {
+        Some(UTF16Selection {
+            range: 0..0,
+            reversed: false,
+        })
+    }
+
+    fn marked_text_range(&mut self, _window: &mut Window, _cx: &mut App) -> Option<Range<usize>> {
+        None
+    }
+
+    fn text_for_range(
+        &mut self,
+        _range_utf16: Range<usize>,
+        _adjusted_range: &mut Option<Range<usize>>,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<String> {
+        Some(String::new())
+    }
+
+    fn replace_text_in_range(
+        &mut self,
+        _replacement_range: Option<Range<usize>>,
+        text: &str,
+        _window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.view.update(cx, |view, cx| view.send_text(text, cx));
+    }
+
+    fn replace_and_mark_text_in_range(
+        &mut self,
+        _range_utf16: Option<Range<usize>>,
+        _new_text: &str,
+        _new_selected_range: Option<Range<usize>>,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) {
+    }
+
+    fn unmark_text(&mut self, _window: &mut Window, _cx: &mut App) {}
+
+    fn bounds_for_range(
+        &mut self,
+        _range_utf16: Range<usize>,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<Bounds<Pixels>> {
+        // 候选窗定位依赖 element bounds；当前未保存，先返回 None。
+        None
+    }
+
+    fn character_index_for_point(
+        &mut self,
+        _point: Point<Pixels>,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<usize> {
+        None
     }
 }
