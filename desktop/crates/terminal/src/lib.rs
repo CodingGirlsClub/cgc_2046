@@ -12,8 +12,10 @@ use libghostty_vt::render::{CellIterator, RowIterator};
 use libghostty_vt::{RenderState, Terminal};
 use unicode_width::UnicodeWidthChar;
 
+mod frame;
 mod pty;
 
+pub use frame::{Frame, FrameCell, FrameColors, FrameCursor, FrameRow};
 pub use pty::{ExitInfo, PollResult, Session};
 
 pub type Result<T, E = Box<dyn Error + Send + Sync>> = std::result::Result<T, E>;
@@ -31,6 +33,7 @@ pub struct TerminalCore {
     render_state: RenderState<'static>,
     rows: RowIterator<'static>,
     cells: CellIterator<'static>,
+    frame: Frame,
     size: GridSize,
 }
 
@@ -41,6 +44,7 @@ impl TerminalCore {
             render_state: RenderState::new()?,
             rows: RowIterator::new()?,
             cells: CellIterator::new()?,
+            frame: Frame::new(size),
             size,
         })
     }
@@ -65,6 +69,25 @@ impl TerminalCore {
             .resize(size.cols, size.rows, cell_width_px, cell_height_px)?;
         self.size = size;
         Ok(())
+    }
+
+    /// 刷新渲染帧；返回是否需要重绘（`false` 表示屏幕自上次以来没有变化）。
+    pub fn update_frame(&mut self) -> Result<bool> {
+        let Self {
+            terminal,
+            render_state,
+            rows,
+            cells,
+            frame,
+            size,
+        } = self;
+        let snapshot = render_state.update(terminal)?;
+        frame.update(&snapshot, rows, cells, *size)
+    }
+
+    /// 最近一次 [`Self::update_frame`] 的结果。
+    pub fn frame(&self) -> &Frame {
+        &self.frame
     }
 
     /// 当前视口的纯文本（每行去掉尾部空白），用于测试、复制与调试。
