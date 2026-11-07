@@ -101,6 +101,12 @@ impl TerminalCore {
         &self.frame
     }
 
+    /// 在 scrollback 中滚动；负值向上（历史），正值向下（回到活动区）。
+    pub fn scroll(&mut self, delta: isize) {
+        self.terminal
+            .scroll_viewport(libghostty_vt::terminal::ScrollViewport::Delta(delta));
+    }
+
     /// 供同 crate 的输入编码同步终端模式。
     pub(crate) fn terminal(&self) -> &Terminal<'static, 'static> {
         &self.terminal

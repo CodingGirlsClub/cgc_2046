@@ -128,6 +128,11 @@ impl Session {
         Ok(())
     }
 
+    /// 在 scrollback 中滚动（滚轮）。
+    pub fn scroll(&mut self, delta: isize) {
+        self.core.scroll(delta);
+    }
+
     pub fn core(&self) -> &TerminalCore {
         &self.core
     }

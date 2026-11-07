@@ -166,6 +166,16 @@ impl TerminalView {
             cx.notify();
         }
     }
+
+    /// 滚轮：正 delta 向下（回活动区），负 delta 向上（看历史）。
+    pub fn scroll(&mut self, lines: isize, cx: &mut Context<Self>) {
+        if lines == 0 {
+            return;
+        }
+        self.session.scroll(lines);
+        let _ = self.session.core_mut().update_frame();
+        cx.notify();
+    }
 }
 
 impl Render for TerminalView {
@@ -178,6 +188,17 @@ impl Render for TerminalView {
             .on_key_down(
                 cx.listener(|this, event: &KeyDownEvent, _, cx| this.handle_key(event, cx)),
             )
+            .on_scroll(cx.listener(|this, event: &ScrollEvent, _, cx| {
+                let lines = match event.delta {
+                    ScrollDelta::Lines(point) => point.y.round() as isize,
+                    ScrollDelta::Pixels(point) => {
+                        let line_height = f32::from(this.style.line_height).max(1.0);
+                        (f32::from(point.y) / line_height).round() as isize
+                    }
+                };
+                this.scroll(lines, cx);
+                cx.stop_propagation();
+            }))
             .child(TerminalElement {
                 view: cx.entity(),
                 style: self.style.clone(),
