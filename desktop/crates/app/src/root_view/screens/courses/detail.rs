@@ -110,14 +110,118 @@ pub(in crate::root_view) fn render_course_detail(
                         )
                         .into_any_element()
                 } else {
-                    div()
-                        .px(space(2))
-                        .py(px(6.0))
-                        .rounded(px(RADIUS_MEDIUM))
-                        .bg(palette.soft)
-                        .text_color(palette.ink_3)
-                        .child(translate(language, Key::CoursesDetailNotEnrolled))
-                        .into_any_element()
+                    let target = course_id.clone();
+                    let public_face = ctx
+                        .current
+                        .as_ref()
+                        .is_some_and(|route_match| route_match.route.id == "courses.public_detail");
+                    if public_face && detail.visibility == "workspace" {
+                        div()
+                            .id("course-enroll-workspace-only")
+                            .test_support()
+                            .role(Role::Status)
+                            .aria_label(
+                                translate(language, Key::EventsEnrollWorkspaceOnly).to_string(),
+                            )
+                            .text_size(px(12.0))
+                            .text_color(palette.ink_3)
+                            .child(translate(language, Key::EventsEnrollWorkspaceOnly))
+                            .into_any_element()
+                    } else if detail.status != "open" {
+                        div()
+                            .text_size(px(12.0))
+                            .text_color(palette.danger)
+                            .child(translate(language, Key::EventsEnrollErrorNotOpen))
+                            .into_any_element()
+                    } else {
+                        let selected_tier = ctx.selected_tier.clone();
+                        let tier_chips = detail
+                            .available_price_tiers
+                            .iter()
+                            .map(|tier| {
+                                let selected = selected_tier.as_deref() == Some(tier.id.as_str());
+                                let tier_id = tier.id.clone();
+                                div()
+                                    .id(format!("course-tier-{}", tier.id))
+                                    .px(space(1))
+                                    .py(px(3.0))
+                                    .rounded(px(RADIUS_SMALL))
+                                    .text_size(px(12.0))
+                                    .bg(if selected {
+                                        palette.accent
+                                    } else {
+                                        palette.soft
+                                    })
+                                    .text_color(if selected {
+                                        palette.canvas
+                                    } else {
+                                        palette.ink_2
+                                    })
+                                    .child(format!(
+                                        "{} ¥{:.2}",
+                                        tier.name,
+                                        tier.amount_cents as f64 / 100.0
+                                    ))
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.selected_tier = Some(tier_id.clone());
+                                        cx.notify();
+                                    }))
+                                    .into_any_element()
+                            })
+                            .collect::<Vec<_>>();
+                        let error = ctx.enrollment_error.as_deref().map(|suffix| {
+                            div()
+                                .text_size(px(12.0))
+                                .text_color(palette.danger)
+                                .child(enroll_error_label(language, suffix))
+                                .into_any_element()
+                        });
+                        div()
+                            .flex()
+                            .flex_col()
+                            .items_start()
+                            .gap(space(1))
+                            .children((detail.pricing_enabled && !tier_chips.is_empty()).then(
+                                || {
+                                    div()
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap(space(1))
+                                        .children(tier_chips)
+                                        .into_any_element()
+                                },
+                            ))
+                            .child(
+                                div()
+                                    .id("course-enroll-button")
+                                    .test_support()
+                                    .px(space(2))
+                                    .py(px(6.0))
+                                    .rounded(px(RADIUS_MEDIUM))
+                                    .bg(if ctx.enrolling {
+                                        palette.soft
+                                    } else {
+                                        palette.accent
+                                    })
+                                    .text_color(if ctx.enrolling {
+                                        palette.ink_3
+                                    } else {
+                                        white()
+                                    })
+                                    .child(if ctx.enrolling {
+                                        translate(language, Key::EventsEnrollEnrolling)
+                                    } else {
+                                        translate(language, Key::EventsEnrollButton)
+                                    })
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.submit_course_enrollment(&target, cx);
+                                        cx.notify();
+                                    })),
+                            )
+                            .children(error)
+                            .into_any_element()
+                    }
                 };
 
                 div()

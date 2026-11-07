@@ -617,10 +617,13 @@ impl EventsApi for FakeEventsApi {
         if self.fail {
             return Err(EventsError::Transport("fake network down".to_string()));
         }
+        let Some(event_id) = request.event_id.as_deref() else {
+            return Err(EventsError::NotFound);
+        };
         let event = self
             .events
             .iter()
-            .find(|event| event.id == request.event_id)
+            .find(|event| event.id == event_id)
             .ok_or(EventsError::NotFound)?;
         let status = if event.pricing_enabled {
             "payment_pending"
@@ -628,14 +631,14 @@ impl EventsApi for FakeEventsApi {
             "confirmed"
         };
         let enrollment = crate::enroll::MyEnrollment {
-            id: format!("enroll-{}", request.event_id),
+            id: format!("enroll-{event_id}"),
             status: status.to_string(),
             check_in_code: Some("654321".to_string()),
         };
         self.enrollments
             .lock()
             .expect("enrollments lock")
-            .insert(request.event_id.clone(), enrollment.clone());
+            .insert(event_id.to_string(), enrollment.clone());
         Ok(enrollment)
     }
 
@@ -1032,7 +1035,8 @@ mod tests {
     fn fake_cancel_enrollment_sets_cancelled() {
         let api = FakeEventsApi::with_seed(2);
         let request = crate::enroll::EnrollmentRequest {
-            event_id: "evt-001".to_string(),
+            event_id: Some("evt-001".to_string()),
+            course_id: None,
             user_id: "u-1".to_string(),
             tier_id: None,
             age_confirmed: false,
@@ -1056,7 +1060,8 @@ mod tests {
             .expect("none")
             .is_none());
         let request = crate::enroll::EnrollmentRequest {
-            event_id: "evt-000".to_string(),
+            event_id: Some("evt-000".to_string()),
+            course_id: None,
             user_id: "u-1".to_string(),
             tier_id: None,
             age_confirmed: false,
@@ -1071,7 +1076,8 @@ mod tests {
         );
         // 奇数 index 的 fake 场次免费 → confirmed
         let priced = crate::enroll::EnrollmentRequest {
-            event_id: "evt-001".to_string(),
+            event_id: Some("evt-001".to_string()),
+            course_id: None,
             user_id: "u-1".to_string(),
             tier_id: Some("tier-early".to_string()),
             age_confirmed: false,
@@ -1137,7 +1143,8 @@ mod tests {
         );
         let api = HttpEventsApi::new(GraphqlClient::new(endpoint));
         let request = crate::enroll::EnrollmentRequest {
-            event_id: "e-1".into(),
+            event_id: Some("e-1".into()),
+            course_id: None,
             user_id: "u-1".into(),
             tier_id: Some("tier-early".into()),
             age_confirmed: true,

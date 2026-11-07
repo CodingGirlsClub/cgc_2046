@@ -138,3 +138,115 @@ fn enrolled_detail_links_to_my_enrollments(cx: &mut TestAppContext) {
     })
     .unwrap();
 }
+
+struct CourseDetailProbe {
+    root: Entity<RootView>,
+}
+
+impl Render for CourseDetailProbe {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let detail = self.root.update(cx, |root, cx| {
+            let palette = crate::theme::palette(gpui_kit::component::ThemeMode::Light);
+            let mut context = crate::root_view::screens::ScreenContext::new(&mut root.state);
+            crate::root_view::screens::render_course_detail(
+                &mut context,
+                Language::En,
+                &palette,
+                cx,
+            )
+        });
+        div().size(px(640.0)).flex().flex_col().child(detail)
+    }
+}
+
+fn open_course_detail(
+    cx: &mut TestAppContext,
+    visibility: &str,
+    enrolled: bool,
+) -> (gpui_kit::AnyWindowHandle, Entity<RootView>) {
+    cx.update(gpui_kit::init);
+    cx.update(|cx| {
+        let (handle, probe) = gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                    None,
+                    size(px(640.), px(480.)),
+                    cx,
+                ))),
+                ..Default::default()
+            },
+            cx,
+            |_, cx| {
+                let root = cx.new(|_| {
+                    let mut root = RootView::with_session_from(
+                        crate::registration::build_registry().unwrap(),
+                        Language::En,
+                        ThemePreference::Light,
+                        SessionService::new(
+                            Box::new(FakeAuthApi::demo()),
+                            Box::new(MemoryStore::default()),
+                        ),
+                        "/courses/c-1",
+                    );
+                    let mut service = cgc_courses::catalog::CourseDetailService::new(Arc::new(
+                        cgc_courses::catalog::FakeCoursesApi::with_seed(1),
+                    ));
+                    service.adopt(cgc_courses::catalog::CourseDetail {
+                        id: "c-1".into(),
+                        title: "Public course".into(),
+                        description: None,
+                        status: "open".into(),
+                        visibility: visibility.into(),
+                        workspace_id: Some("ws-1".into()),
+                        pricing_enabled: false,
+                        enrollment_policy: "open".into(),
+                        available_price_tiers: Vec::new(),
+                        enrollment_status: enrolled.then(|| "confirmed".to_string()),
+                        revision_number: None,
+                    });
+                    root.state.course_detail = service;
+                    root
+                });
+                cx.new(|_| CourseDetailProbe { root })
+            },
+        )
+        .expect("course detail probe window");
+        let root = probe.read(cx).root.clone();
+        (handle, root)
+    })
+}
+
+#[gpui_kit::test]
+fn public_workspace_only_course_explains_the_gate(cx: &mut TestAppContext) {
+    let (handle, _root) = open_course_detail(cx, "workspace", false);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window
+                .try_find_by_label("Only workspace members can enroll. Join the workspace first.")
+                .is_some(),
+            "workspace-only public course must explain the membership gate"
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn public_free_course_shows_enroll_button(cx: &mut TestAppContext) {
+    let (handle, _root) = open_course_detail(cx, "public", false);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let paths = window
+            .elements()
+            .iter()
+            .map(|element| format!("{:?}", element.path()))
+            .collect::<Vec<_>>();
+        assert!(
+            paths
+                .iter()
+                .any(|path| path.contains("Name(\"course-enroll-button\")")),
+            "unenrolled public course must offer enrollment: {paths:?}"
+        );
+    })
+    .unwrap();
+}

@@ -69,6 +69,13 @@ pub struct CoursePage {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CoursePriceTier {
+    pub id: String,
+    pub name: String,
+    pub amount_cents: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CourseDetail {
     pub id: String,
     pub title: String,
@@ -77,6 +84,8 @@ pub struct CourseDetail {
     pub visibility: String,
     pub workspace_id: Option<String>,
     pub pricing_enabled: bool,
+    pub enrollment_policy: String,
+    pub available_price_tiers: Vec<CoursePriceTier>,
     /// 本人报名状态（confirmed/pending/...；None = 未报名或未登录）。
     pub enrollment_status: Option<String>,
     /// 学习 revision；None 表示后端没有可用学习数据（学习页 fail-closed 引导）。
@@ -177,6 +186,28 @@ query CourseLearningDetail($courseId: ID!) {
   }
 }
 "#;
+
+fn parse_course_price_tiers(raw: &Value) -> Vec<CoursePriceTier> {
+    raw.as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let text = item.as_str()?;
+                    let parsed: Value = serde_json::from_str(text).ok()?;
+                    Some(CoursePriceTier {
+                        id: parsed.get("id")?.as_str()?.to_string(),
+                        name: parsed.get("name")?.as_str()?.to_string(),
+                        amount_cents: parsed
+                            .get("amount_cents")
+                            .and_then(Value::as_i64)
+                            .unwrap_or(0),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
 
 impl HttpCoursesApi {
     pub fn new(client: GraphqlClient) -> Self {
@@ -320,6 +351,15 @@ impl CoursesApi for HttpCoursesApi {
                 .get("pricingEnabled")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
+            enrollment_policy: value
+                .get("enrollmentPolicy")
+                .and_then(Value::as_str)
+                .unwrap_or("open")
+                .to_string(),
+            available_price_tiers: value
+                .get("availablePriceTiers")
+                .map(parse_course_price_tiers)
+                .unwrap_or_default(),
             enrollment_status,
             revision_number,
         })
@@ -458,6 +498,8 @@ impl CoursesApi for FakeCoursesApi {
             visibility: "public".to_string(),
             workspace_id: summary.workspace_id.clone(),
             pricing_enabled: summary.pricing_enabled,
+            enrollment_policy: "open".to_string(),
+            available_price_tiers: Vec::new(),
             enrollment_status: enrolled.then(|| "confirmed".to_string()),
             revision_number: enrolled.then(|| (index as i64) + 1),
         })

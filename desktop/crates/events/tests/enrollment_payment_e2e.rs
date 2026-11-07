@@ -12,12 +12,9 @@ use cgc_platform::workspace::OfferingScope;
 use std::sync::Arc;
 
 fn free_request(event_id: &str, tier: Option<&str>) -> EnrollmentRequest {
-    EnrollmentRequest {
-        event_id: event_id.to_string(),
-        user_id: "u-1".to_string(),
-        tier_id: tier.map(str::to_string),
-        age_confirmed: false,
-    }
+    let mut request = EnrollmentRequest::event(event_id, "u-1");
+    request.tier_id = tier.map(str::to_string);
+    request
 }
 
 #[test]

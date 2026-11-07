@@ -134,6 +134,8 @@ fn course_pages_project_detail_and_catalog_rows() {
         visibility: "public".into(),
         workspace_id: Some("ws-1".into()),
         pricing_enabled: false,
+        enrollment_policy: "open".into(),
+        available_price_tiers: Vec::new(),
         enrollment_status: Some("confirmed".into()),
         revision_number: Some(7),
     };

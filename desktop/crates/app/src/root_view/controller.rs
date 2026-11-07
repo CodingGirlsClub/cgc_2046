@@ -3879,6 +3879,68 @@ impl RootView {
         .detach();
     }
 
+    /// 课程报名：与活动共用 createEnrollment；成功后重拉详情刷新报名状态。
+    pub(in crate::root_view) fn submit_course_enrollment(
+        &mut self,
+        course_id: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if self.enrolling {
+            return;
+        }
+        let Some(detail) = self.course_detail.detail().cloned() else {
+            return;
+        };
+        if detail.pricing_enabled
+            && !detail.available_price_tiers.is_empty()
+            && self.selected_tier.is_none()
+        {
+            self.enrollment_error = Some("tier_required".to_string());
+            cx.notify();
+            return;
+        }
+        let Some(user_id) = self
+            .session
+            .signed_in()
+            .map(|session| session.user_id.clone())
+        else {
+            self.enrollment_error = Some("auth".to_string());
+            cx.notify();
+            return;
+        };
+        self.enrolling = true;
+        self.enrollment_error = None;
+        let mut request = EnrollmentRequest::course(course_id, user_id);
+        request.tier_id = self.selected_tier.clone();
+        let api = self.events.api_handle();
+        let token = self.session_token();
+        let course_id = course_id.to_string();
+        let task = cx
+            .background_executor()
+            .spawn(async move { api.create_enrollment(token.as_deref(), &request) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.enrolling = false;
+                match result {
+                    Ok(_) => {
+                        this.enrollment_error = None;
+                        this.selected_tier = None;
+                        this.course_detail_started = false;
+                        this.start_course_detail_load(cx, course_id);
+                    }
+                    Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
+                    Err(cgc_events::list::EventsError::Domain { code, .. }) => {
+                        this.enrollment_error = Some(enrollment_error_key(&code).to_string());
+                    }
+                    Err(_) => this.enrollment_error = Some("generic".to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     pub(in crate::root_view) fn submit_enrollment(&mut self, cx: &mut Context<Self>) {
         if self.enrolling {
             return;
@@ -3908,12 +3970,9 @@ impl RootView {
         }
         self.enrolling = true;
         self.enrollment_error = None;
-        let request = EnrollmentRequest {
-            event_id: detail.id.clone(),
-            user_id,
-            tier_id: self.selected_tier.clone(),
-            age_confirmed: self.age_confirmed,
-        };
+        let mut request = EnrollmentRequest::event(detail.id.clone(), user_id);
+        request.tier_id = self.selected_tier.clone();
+        request.age_confirmed = self.age_confirmed;
         let api = self.detail.api_handle();
         let token = self.session_token();
         let task = cx
