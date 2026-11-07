@@ -20,6 +20,8 @@ pub struct TerminalStyle {
     pub background: Hsla,
     pub foreground: Hsla,
     pub cursor: Hsla,
+    /// 选中区域的背景色（半透明）。
+    pub selection: Hsla,
     /// 内容与 pane 边缘的内边距（Zed 的终端也不贴边）。
     pub padding: Pixels,
 }
@@ -33,6 +35,12 @@ impl TerminalStyle {
             background: rgb(0x1e1e1e).into(),
             foreground: rgb(0xd4d4d4).into(),
             cursor: rgb(0xffffff).into(),
+            selection: Hsla {
+                h: 0.58,
+                s: 0.6,
+                l: 0.55,
+                a: 0.3,
+            },
             padding: px(8.0),
         }
     }
@@ -45,6 +53,10 @@ pub struct TerminalView {
     cell_width: Pixels,
     focus_handle: FocusHandle,
     key_input: KeyInput,
+    /// 最近一次布局的 element bounds（鼠标坐标换算用）。
+    bounds: Option<Bounds<Pixels>>,
+    selection_start: Option<(u16, u16)>,
+    selecting: bool,
 }
 
 impl TerminalView {
@@ -66,6 +78,9 @@ impl TerminalView {
             cell_width,
             focus_handle: cx.focus_handle(),
             key_input,
+            bounds: None,
+            selection_start: None,
+            selecting: false,
         }
     }
 
@@ -81,6 +96,13 @@ impl TerminalView {
             if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
                 self.send_text(&text, cx);
             }
+            cx.stop_propagation();
+            return;
+        }
+
+        // Cmd+C：复制当前选区。
+        if keystroke.modifiers.platform && keystroke.key == "c" {
+            self.copy_selection(cx);
             cx.stop_propagation();
             return;
         }
@@ -176,6 +198,63 @@ impl TerminalView {
         let _ = self.session.core_mut().update_frame();
         cx.notify();
     }
+
+    /// 记录 element 布局，供鼠标坐标换算（不触发重绘）。
+    pub fn set_bounds(&mut self, bounds: Bounds<Pixels>) {
+        self.bounds = Some(bounds);
+    }
+
+    fn cell_at(&self, position: Point<Pixels>) -> Option<(u16, u16)> {
+        let bounds = self.bounds?;
+        let x = f32::from(position.x) - f32::from(bounds.origin.x) - f32::from(self.style.padding);
+        let y = f32::from(position.y) - f32::from(bounds.origin.y) - f32::from(self.style.padding);
+        if x < 0.0 || y < 0.0 {
+            return None;
+        }
+        let size = self.frame().size();
+        let col = (x / f32::from(self.cell_width)).floor() as u16;
+        let row = (y / f32::from(self.style.line_height)).floor() as u16;
+        Some((
+            col.min(size.cols.saturating_sub(1)),
+            row.min(size.rows.saturating_sub(1)),
+        ))
+    }
+
+    fn mouse_down(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let Some(cell) = self.cell_at(position) else {
+            return;
+        };
+        self.selection_start = Some(cell);
+        self.selecting = true;
+        let _ = self.session.set_selection(cell, cell);
+        let _ = self.session.core_mut().update_frame();
+        cx.notify();
+    }
+
+    fn mouse_move(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        if !self.selecting {
+            return;
+        }
+        let (Some(start), Some(end)) = (self.selection_start, self.cell_at(position)) else {
+            return;
+        };
+        let _ = self.session.set_selection(start, end);
+        let _ = self.session.core_mut().update_frame();
+        cx.notify();
+    }
+
+    fn mouse_up(&mut self) {
+        self.selecting = false;
+    }
+
+    /// Cmd+C：把选区文本写入系统剪贴板。
+    pub fn copy_selection(&mut self, cx: &mut App) {
+        if let Ok(Some(text)) = self.session.selection_text() {
+            if !text.is_empty() {
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+            }
+        }
+    }
 }
 
 impl Render for TerminalView {
@@ -199,6 +278,23 @@ impl Render for TerminalView {
                 this.scroll(lines, cx);
                 cx.stop_propagation();
             }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                    this.focus(window, cx);
+                    this.mouse_down(event.position, cx);
+                }),
+            )
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+                this.mouse_move(event.position, cx)
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _event: &MouseUpEvent, _, cx| {
+                    this.mouse_up();
+                    cx.notify();
+                }),
+            )
             .child(TerminalElement {
                 view: cx.entity(),
                 style: self.style.clone(),
@@ -272,6 +368,13 @@ impl Element for TerminalElement {
             self.view.update(cx, |view, cx| {
                 view.resize(cols, rows, cx);
             });
+        }
+        let known_bounds = {
+            let view = self.view.read(cx);
+            view.bounds
+        };
+        if known_bounds != Some(bounds) {
+            self.view.update(cx, |view, _| view.set_bounds(bounds));
         }
     }
 
@@ -378,6 +481,7 @@ fn build_plan(
 
     for (row_index, row) in frame.rows().iter().enumerate() {
         let y = origin.y + style.line_height * row_index as f32;
+        let selected_range = row.selected;
         let mut text = String::new();
         let mut runs: Vec<TextRun> = Vec::new();
         let mut column = 0usize;
@@ -389,6 +493,11 @@ fn build_plan(
                 continue;
             }
             let (mut fg, mut bg) = cell_colors(cell, colors, foreground);
+            if let Some((start, end)) = selected_range {
+                if column >= start && column <= end {
+                    bg = Some(style.selection);
+                }
+            }
             if let Some(cursor) = &cursor_plan {
                 if cursor.style == CursorVisualStyle::Block
                     && row_index as u16 == cursor.y

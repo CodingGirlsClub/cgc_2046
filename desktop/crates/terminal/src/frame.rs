@@ -37,6 +37,8 @@ pub struct FrameCell {
 #[derive(Clone, Debug, Default)]
 pub struct FrameRow {
     pub cells: Vec<FrameCell>,
+    /// 选区在本行的列区间（含两端）；无选区为 `None`。
+    pub selected: Option<(usize, usize)>,
 }
 
 /// 终端调色板与默认色。
@@ -140,6 +142,9 @@ impl Frame {
             if y >= self.rows.len() {
                 break;
             }
+            self.rows[y].selected = row
+                .selection()?
+                .map(|selection| (selection.start_x as usize, selection.end_x as usize));
             let mut x = 0usize;
             let mut cell_iter = cells.update(row)?;
             while let Some(cell) = cell_iter.next() {

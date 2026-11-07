@@ -10,6 +10,8 @@ use std::error::Error;
 
 use libghostty_vt::render::{CellIterator, RowIterator};
 use libghostty_vt::screen::CellWide;
+use libghostty_vt::selection::{FormatOptions, Selection};
+use libghostty_vt::terminal::{Point, PointCoordinate};
 use libghostty_vt::{RenderState, Terminal};
 
 mod frame;
@@ -105,6 +107,33 @@ impl TerminalCore {
     pub fn scroll(&mut self, delta: isize) {
         self.terminal
             .scroll_viewport(libghostty_vt::terminal::ScrollViewport::Delta(delta));
+    }
+
+    /// 设置选区（视口坐标，含两端）。
+    pub fn set_selection(&mut self, start: (u16, u16), end: (u16, u16)) -> Result<()> {
+        let start_ref = self.terminal.grid_ref(Point::Viewport(PointCoordinate {
+            x: start.0,
+            y: u32::from(start.1),
+        }))?;
+        let end_ref = self.terminal.grid_ref(Point::Viewport(PointCoordinate {
+            x: end.0,
+            y: u32::from(end.1),
+        }))?;
+        let selection = Selection::new(start_ref, end_ref, false);
+        self.terminal.set_selection(Some(&selection))?;
+        Ok(())
+    }
+
+    pub fn clear_selection(&mut self) {
+        let _ = self.terminal.set_selection(None);
+    }
+
+    /// 当前选区的纯文本（无选区时返回 `None`）。
+    pub fn selection_text(&self) -> Result<Option<String>> {
+        let bytes = self
+            .terminal
+            .format_selection_alloc(None, FormatOptions::new())?;
+        Ok(bytes.map(|bytes| String::from_utf8_lossy(bytes.as_ref()).into_owned()))
     }
 
     /// 供同 crate 的输入编码同步终端模式。

@@ -133,6 +133,18 @@ impl Session {
         self.core.scroll(delta);
     }
 
+    pub fn set_selection(&mut self, start: (u16, u16), end: (u16, u16)) -> Result<()> {
+        self.core.set_selection(start, end)
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.core.clear_selection();
+    }
+
+    pub fn selection_text(&self) -> Result<Option<String>> {
+        self.core.selection_text()
+    }
+
     pub fn core(&self) -> &TerminalCore {
         &self.core
     }
