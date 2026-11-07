@@ -128,19 +128,22 @@ Unix 回归使用系统 `curl`、`/usr/bin/python3` 和本机受控代理，不�
 
 ```text
 cgc://home
-cgc://workspace
+cgc://workspace                    # /：上次工作区概览，没有记录则「我的学习」
+cgc://workspace/<slug>             # 指定工作区概览
+cgc://workspace/<slug>/events/<uuid>
+cgc://workspace/<slug>/courses/<uuid>/learn
 cgc://settings
 cgc://agents
-cgc://companion
-cgc://events
-cgc://events/<uuid>
-cgc://events/mine
-cgc://courses
-cgc://courses/<uuid>
-cgc://courses/<uuid>/learn
+cgc://events                       # 公开活动目录（跨工作区）
+cgc://events/<uuid>                # 公开活动详情
+cgc://events/mine                  # 兼容：重定向到「我的报名」(/participations)
+cgc://courses                      # 公开课程目录（跨工作区）
+cgc://courses/<uuid>               # 公开课程详情
+cgc://courses/<uuid>/learn         # 站点级学习页（无工作区也可达）
 ```
 
-未登录时先保存 pending link，登录成功后继续跳转；非法链接回到工作台。
+未登录时先保存 pending link，登录成功后继续跳转；非法链接回到上次工作区。
+`cgc://companion` 已移除：Agent 面板是 dock，不是页面。
 `cgc` scheme 由安装包注册；开发时直接以 argv 传入，例如
 `cargo run -p cgc-desktop-app -- 'cgc://settings'`。
 

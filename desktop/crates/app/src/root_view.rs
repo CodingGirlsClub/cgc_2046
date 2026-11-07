@@ -903,8 +903,6 @@ impl Render for RootView {
                     current_id,
                     Some("events.detail") | Some("events.public_detail")
                 )
-                && !self.detail_started
-                && matches!(self.detail.state(), ListState::Idle)
             {
                 if let Some(event_id) = self
                     .current
@@ -912,7 +910,14 @@ impl Render for RootView {
                     .and_then(|route_match| route_match.params.get("id"))
                     .cloned()
                 {
-                    self.start_detail_load(cx, event_id);
+                    // 详情服务跨 route 复用：id 变了必须先清掉上一条，否则显示错对象。
+                    if self.detail.event_id() != Some(event_id.as_str()) {
+                        self.detail.reset();
+                        self.detail_started = false;
+                    }
+                    if !self.detail_started && matches!(self.detail.state(), ListState::Idle) {
+                        self.start_detail_load(cx, event_id);
+                    }
                 }
             }
             if data_ready
@@ -931,6 +936,7 @@ impl Render for RootView {
                     Some("courses.detail")
                         | Some("courses.public_detail")
                         | Some("courses.learning")
+                        | Some("courses.public_learning")
                 )
                 && !self.course_detail_started
                 && matches!(self.course_detail.state(), CoursesListState::Idle)
@@ -944,8 +950,10 @@ impl Render for RootView {
                     self.start_course_detail_load(cx, course_id);
                 }
             }
-            if current_id == Some("courses.learning")
-                && matches!(self.course_detail.state(), CoursesListState::Ready)
+            if matches!(
+                current_id,
+                Some("courses.learning") | Some("courses.public_learning")
+            ) && matches!(self.course_detail.state(), CoursesListState::Ready)
                 && std::env::var("CGC_AUTO_CHAT").as_deref() == Ok("1")
                 && matches!(self.chat.session.phase, ConnectionPhase::Idle)
             {
@@ -953,7 +961,10 @@ impl Render for RootView {
             }
 
             if data_ready
-                && current_id == Some("courses.learning")
+                && matches!(
+                    current_id,
+                    Some("courses.learning") | Some("courses.public_learning")
+                )
                 && matches!(self.course_detail.state(), CoursesListState::Ready)
                 && matches!(self.content.state(), CourseContentState::Idle)
             {
@@ -967,7 +978,10 @@ impl Render for RootView {
                 }
             }
             if data_ready
-                && current_id == Some("courses.learning")
+                && matches!(
+                    current_id,
+                    Some("courses.learning") | Some("courses.public_learning")
+                )
                 && matches!(self.course_detail.state(), CoursesListState::Ready)
                 && matches!(self.projection.state(), ProjectionState::Idle)
             {
@@ -987,7 +1001,7 @@ impl Render for RootView {
             && self.current.as_ref().is_some_and(|route_match| {
                 matches!(
                     route_match.route.id,
-                    "courses.detail" | "courses.public_detail"
+                    "courses.detail" | "courses.public_detail" | "courses.public_learning"
                 )
             })
         {
@@ -1406,7 +1420,8 @@ impl Render for RootView {
                                                             cx,
                                                         )
                                                     }
-                                                    Some("courses.learning") => {
+                                                    Some("courses.learning")
+                                                    | Some("courses.public_learning") => {
                                                         let active_issue = self
                                                             .active_issue_tab()
                                                             .map(|(course_id, issue_id)| {
@@ -3286,6 +3301,53 @@ mod tests {
         assert_eq!(
             view.breadcrumb_context().map(|(label, _)| label),
             Some("events.public.title")
+        );
+    }
+
+    #[test]
+    fn switching_between_public_and_workspace_resets_list_cache() {
+        use cgc_courses::catalog::{CoursesListState, FakeCoursesApi};
+        use cgc_platform::workspace::OfferingScope;
+
+        let mut view = view();
+        view.courses = cgc_courses::catalog::CourseCatalogService::new(std::sync::Arc::new(
+            FakeCoursesApi::with_seed(4),
+        ));
+        view.courses.begin_first_load();
+        let page = view
+            .courses
+            .fetch(None, OfferingScope::Public)
+            .expect("page");
+        view.courses.adopt_page(page);
+        assert_eq!(view.courses.state(), &CoursesListState::Ready);
+
+        view.navigate("/courses");
+        view.navigate("/w/2046/courses");
+        assert_eq!(
+            view.courses.state(),
+            &CoursesListState::Idle,
+            "switching data faces must invalidate the list cache"
+        );
+        assert!(!view.courses_started);
+    }
+
+    #[test]
+    fn public_learning_route_resolves_without_a_workspace() {
+        let mut view = view();
+        view.navigate("/courses/c-1/learn");
+        assert_eq!(
+            view.current().map(|route| route.id),
+            Some("courses.public_learning")
+        );
+        assert_eq!(
+            view.current_match()
+                .and_then(|route_match| route_match.params.get("id"))
+                .map(String::as_str),
+            Some("c-1")
+        );
+        assert!(
+            !crate::routing::requires_workspace("courses.public_learning"),
+            "public learning must stay reachable without a workspace"
         );
     }
 

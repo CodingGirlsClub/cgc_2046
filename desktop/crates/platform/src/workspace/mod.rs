@@ -490,6 +490,19 @@ impl WorkspaceService {
         self.epoch == epoch
     }
 
+    /// 按 slug 切换（路由是唯一真源）；未知或无权限时返回 false 且不改 current。
+    pub fn switch_to_slug(&mut self, slug: &str) -> bool {
+        let Some(workspace_id) = self
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.slug == slug && workspace.can_access)
+            .map(|workspace| workspace.id.clone())
+        else {
+            return false;
+        };
+        self.switch_to(&workspace_id)
+    }
+
     /// 切换当前工作台：变更成功才递增 epoch（旧 in-flight 响应随后被守卫丢弃）。
     pub fn switch_to(&mut self, workspace_id: &str) -> bool {
         if self.current_id() == Some(workspace_id) {
@@ -529,6 +542,29 @@ mod workspace_tests {
             Some("2046")
         );
         assert_eq!(service.epoch(), 1);
+    }
+
+    #[test]
+    fn switch_by_slug_selects_only_accessible_workspaces() {
+        let mut service = service();
+        service.begin_load();
+        service.adopt(service.fetch(None).expect("workspaces"));
+        assert_eq!(
+            service.current().map(|workspace| workspace.slug.as_str()),
+            Some("2046")
+        );
+
+        assert!(service.switch_to_slug("demo"));
+        assert_eq!(
+            service.current().map(|workspace| workspace.slug.as_str()),
+            Some("demo")
+        );
+
+        assert!(!service.switch_to_slug("missing"));
+        assert_eq!(
+            service.current().map(|workspace| workspace.slug.as_str()),
+            Some("demo")
+        );
     }
 
     #[test]

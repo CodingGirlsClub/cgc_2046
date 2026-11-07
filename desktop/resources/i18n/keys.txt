@@ -18,6 +18,7 @@ events.list.title
 courses.catalog.title
 courses.public.title
 courses.public_detail.title
+courses.public_learning.title
 agent_chat.context.pending
 agent_chat.context.referenced
 agent_chat.context.update

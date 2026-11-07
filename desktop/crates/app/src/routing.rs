@@ -174,10 +174,15 @@ pub(crate) enum ListScope {
 /// 只有列表页需要决定数据面；详情页按 id 读取，由后端策略裁决可见性。
 pub(crate) fn offering_list_scope(route_id: &str) -> Option<ListScope> {
     match route_id {
-        "events.list" | "courses.catalog" => Some(ListScope::Workspace),
+        "account.workspace" | "events.list" | "courses.catalog" => Some(ListScope::Workspace),
         "events.public_list" | "courses.public_list" => Some(ListScope::Public),
         _ => None,
     }
+}
+
+/// 列表页在 Public 与 Workspace 之间切换时，服务里的缓存不再属于当前数据面。
+pub(crate) fn list_scope_switched(from: Option<ListScope>, to: Option<ListScope>) -> bool {
+    matches!((from, to), (Some(from), Some(to)) if from != to)
 }
 
 /// 路由 slug 与当前工作区的关系；副作用由调用方执行。
@@ -404,6 +409,10 @@ mod tests {
             offering_list_scope("courses.catalog"),
             Some(ListScope::Workspace)
         );
+        assert_eq!(
+            offering_list_scope("account.workspace"),
+            Some(ListScope::Workspace)
+        );
         assert_eq!(offering_list_scope("events.detail"), None);
         assert_eq!(offering_list_scope("app.home"), None);
     }
@@ -460,6 +469,24 @@ mod tests {
             route_workspace_action(Some("missing"), Some("a"), &workspaces),
             WorkspaceRouteAction::Inaccessible
         );
+    }
+
+    #[test]
+    fn list_scope_switch_is_detected_only_between_known_faces() {
+        assert!(list_scope_switched(
+            Some(ListScope::Workspace),
+            Some(ListScope::Public)
+        ));
+        assert!(list_scope_switched(
+            Some(ListScope::Public),
+            Some(ListScope::Workspace)
+        ));
+        assert!(!list_scope_switched(
+            Some(ListScope::Workspace),
+            Some(ListScope::Workspace)
+        ));
+        assert!(!list_scope_switched(None, Some(ListScope::Workspace)));
+        assert!(!list_scope_switched(Some(ListScope::Public), None));
     }
 
     #[test]

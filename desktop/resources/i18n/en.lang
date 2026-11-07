@@ -17,6 +17,7 @@ events.list.title = Events
 courses.catalog.title = Courses
 courses.public.title = Public courses
 courses.public_detail.title = Course details
+courses.public_learning.title = Learning
 agent_chat.context.pending = Pending reference
 agent_chat.context.referenced = Referenced
 agent_chat.context.update = Update pending

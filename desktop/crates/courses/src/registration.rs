@@ -40,6 +40,12 @@ pub const ROUTES: &[Route] = &[
         "courses.public_detail.title",
         NavIcon::Courses,
     ),
+    Route::new_secondary(
+        "courses.public_learning",
+        "/courses/:id/learn",
+        "courses.public_learning.title",
+        NavIcon::Courses,
+    ),
 ];
 
 /// 本 feature 贡献的词表 key。
@@ -50,4 +56,5 @@ pub const I18N_KEYS: &[&str] = &[
     "courses.learning.title",
     "courses.public.title",
     "courses.public_detail.title",
+    "courses.public_learning.title",
 ];

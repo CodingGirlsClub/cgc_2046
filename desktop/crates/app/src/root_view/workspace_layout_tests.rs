@@ -112,8 +112,70 @@ fn restored_root(cx: &mut TestAppContext) -> Entity<RootView> {
             root
         })
     });
-    root.update(cx, |root, cx| root.restore_workspace_state(cx));
+    root.update(cx, |root, cx| root.restore_workspace_state(cx, false));
     root
+}
+
+#[gpui_kit::test]
+fn switching_workspace_persists_the_old_active_tab(cx: &mut TestAppContext) {
+    let _files = LayoutFiles::new();
+    workspace_state::save_entry("layout-current", saved_workspace());
+    let root = restored_root(cx);
+
+    root.update(cx, |root, cx| {
+        root.workspaces.adopt(vec![
+            WorkspaceSummary {
+                id: "layout-current".into(),
+                slug: "layout-current".into(),
+                name: "Layout current".into(),
+                my_role_names: Vec::new(),
+                member_count: Some(1),
+                can_access: true,
+            },
+            WorkspaceSummary {
+                id: "layout-other".into(),
+                slug: "layout-other".into(),
+                name: "Layout other".into(),
+                my_role_names: Vec::new(),
+                member_count: Some(1),
+                can_access: true,
+            },
+        ]);
+        // 直接改内存 active，不经过 activate_tab（它自己会落盘），
+        // 这样只有切台前的持久化能把它写进磁盘。
+        root.state.active_tab = Some("page:/w/layout-current/events".into());
+        root.switch_workspace("layout-other", cx);
+
+        let saved = workspace_state::entry("layout-current").expect("entry");
+        assert_eq!(
+            saved.active_tab.as_deref(),
+            Some("page:/w/layout-current/events"),
+            "switching away must persist the active tab before navigation clears it"
+        );
+    });
+}
+
+#[gpui_kit::test]
+fn explicit_route_survives_tab_restore(cx: &mut TestAppContext) {
+    let _files = LayoutFiles::new();
+    workspace_state::save_entry("layout-current", saved_workspace());
+    let root = restored_root(cx);
+
+    root.update(cx, |root, cx| {
+        root.navigate("/w/layout-current/events/evt-1");
+        root.restore_workspace_state(cx, true);
+
+        assert_eq!(
+            root.current().map(|route| route.id),
+            Some("events.detail"),
+            "an explicit deep-link target must not be replaced by the restored tab"
+        );
+        assert_eq!(root.tabs.len(), 2, "tabs are still restored");
+        assert!(
+            root.active_tab.is_none(),
+            "no tab matches the explicit route"
+        );
+    });
 }
 
 #[gpui_kit::test]

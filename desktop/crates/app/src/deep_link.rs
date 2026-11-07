@@ -71,10 +71,7 @@ pub fn parse(raw: &str) -> Result<DeepLink, DeepLinkError> {
         ("courses", []) => "/courses".to_string(),
         ("courses", [id]) => format!("/courses/{}", uuid(id)?),
         // 学习页必须先知道工作区；旧链接没有 slug，落到跨工作区的「我的学习」。
-        ("courses", [id, "learn"]) => {
-            uuid(id)?;
-            "/learning".to_string()
-        }
+        ("courses", [id, "learn"]) => format!("/courses/{}/learn", uuid(id)?),
         _ => return Err(DeepLinkError::BadPath),
     };
     Ok(DeepLink { path })
@@ -118,7 +115,7 @@ mod tests {
         );
         assert_eq!(
             parse(&format!("cgc://courses/{ID}/learn")).unwrap().path,
-            "/learning"
+            format!("/courses/{ID}/learn")
         );
         assert_eq!(
             parse(&format!("cgc://workspace/2046/events/{ID}"))

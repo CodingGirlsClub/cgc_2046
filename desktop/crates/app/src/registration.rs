@@ -274,6 +274,12 @@ mod tests {
             ("/events/e-1", "events.public_detail", None, Some("e-1")),
             ("/courses", "courses.public_list", None, None),
             ("/courses/c-1", "courses.public_detail", None, Some("c-1")),
+            (
+                "/courses/c-1/learn",
+                "courses.public_learning",
+                None,
+                Some("c-1"),
+            ),
             ("/learning", "courses.learning_home", None, None),
             ("/participations", "events.participations", None, None),
         ];

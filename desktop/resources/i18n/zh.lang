@@ -17,6 +17,7 @@ events.list.title = 活动
 courses.catalog.title = 课程
 courses.public.title = 公开课程
 courses.public_detail.title = 课程详情
+courses.public_learning.title = 学习
 agent_chat.context.pending = 待引用
 agent_chat.context.referenced = 已引用
 agent_chat.context.update = 待更新

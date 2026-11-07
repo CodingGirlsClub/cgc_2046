@@ -61,7 +61,13 @@ impl RootView {
             self.page_context.set_current(None);
             return;
         }
-        let mut context = if matches!(route_id, "courses.learning" | "courses.detail") {
+        let mut context = if matches!(
+            route_id,
+            "courses.learning"
+                | "courses.detail"
+                | "courses.public_detail"
+                | "courses.public_learning"
+        ) {
             self.course_page_context(&tab)
         } else {
             Some(self.generic_page_context(&tab, route_id))
@@ -124,7 +130,10 @@ impl RootView {
                 if self.active_issue_tab().is_some() {
                     return None;
                 }
-                if self.current.as_ref()?.route.id == "courses.detail" {
+                if matches!(
+                    self.current.as_ref()?.route.id,
+                    "courses.detail" | "courses.public_detail"
+                ) {
                     detail.map(|detail| crate::page_context::project_course_detail(detail, &tab.id))
                 } else {
                     content.map(|content| {
@@ -133,11 +142,9 @@ impl RootView {
                 }
             })
             .unwrap_or_else(|| {
-                if self
-                    .current
-                    .as_ref()
-                    .is_some_and(|route| route.route.id == "courses.detail")
-                {
+                if self.current.as_ref().is_some_and(|route| {
+                    matches!(route.route.id, "courses.detail" | "courses.public_detail")
+                }) {
                     return match self.course_detail.state() {
                         cgc_courses::catalog::CoursesListState::Failed(message) => {
                             Self::failed_context(&tab.id, message)
@@ -209,7 +216,7 @@ impl RootView {
         route_id: &str,
     ) -> crate::page_context::PageContext {
         let (body, version) = match route_id {
-            "events.detail" => {
+            "events.detail" | "events.public_detail" => {
                 let event_id = self
                     .current
                     .as_ref()
@@ -237,7 +244,7 @@ impl RootView {
                     _ => Self::loading_context(&tab.id),
                 }
             }
-            "events.list" => {
+            "events.list" | "events.public_list" => {
                 if self.events.items().is_empty() {
                     match self.events.state() {
                         cgc_events::list::ListState::Failed(message) => {
@@ -258,7 +265,7 @@ impl RootView {
                 }
             }
 
-            "courses.catalog" => {
+            "courses.catalog" | "courses.public_list" => {
                 if self.courses.items().is_empty() {
                     match self.courses.state() {
                         cgc_courses::catalog::CoursesListState::Failed(message) => {
@@ -910,14 +917,54 @@ impl RootView {
         };
         let path = target.as_str();
         if let crate::routing::RouteSelection::Match(route_match) = self.registry.select(path) {
-            let is_learning = route_match.route.id == "courses.learning";
-            let next_course = matches!(route_match.route.id, "courses.detail" | "courses.learning")
-                .then(|| route_match.params.get("id"))
-                .flatten();
+            // 切台前先把旧台的导航状态落盘，否则 active tab 已随导航被清空。
+            let next_slug = route_match.params.get("slug").cloned();
+            let current_slug = self
+                .workspaces
+                .current()
+                .map(|workspace| workspace.slug.clone());
+            if next_slug.is_some() && next_slug != current_slug {
+                if let Some(previous) = self.workspaces.current_id().map(str::to_string) {
+                    self.persist_workspace_state(&previous);
+                }
+            }
+            // Public 与 Workspace 的列表缓存互不通用：切面即失效，避免串台。
+            let next_scope = crate::routing::offering_list_scope(route_match.route.id);
+            let previous_scope = self
+                .current
+                .as_ref()
+                .and_then(|current| crate::routing::offering_list_scope(current.route.id));
+            if crate::routing::list_scope_switched(previous_scope, next_scope) {
+                self.events.reset();
+                self.events_started = false;
+                self.courses.reset();
+                self.courses_started = false;
+            }
+            let is_learning = matches!(
+                route_match.route.id,
+                "courses.learning" | "courses.public_learning"
+            );
+            let next_course = matches!(
+                route_match.route.id,
+                "courses.detail"
+                    | "courses.learning"
+                    | "courses.public_detail"
+                    | "courses.public_learning"
+            )
+            .then(|| route_match.params.get("id"))
+            .flatten();
             let previous_course = self
                 .current
                 .as_ref()
-                .filter(|current| matches!(current.route.id, "courses.detail" | "courses.learning"))
+                .filter(|current| {
+                    matches!(
+                        current.route.id,
+                        "courses.detail"
+                            | "courses.learning"
+                            | "courses.public_detail"
+                            | "courses.public_learning"
+                    )
+                })
                 .and_then(|current| current.params.get("id"));
             if next_course.is_some() && next_course != previous_course {
                 self.course_detail_started = false;
@@ -1062,8 +1109,24 @@ impl RootView {
                 match result {
                     Ok(workspaces) => {
                         this.workspaces.adopt(workspaces);
+                        // 启动路由（上次工作区）优先于 adopt 的默认第一项。
+                        let route_slug = this
+                            .current
+                            .as_ref()
+                            .and_then(|route_match| route_match.params.get("slug"))
+                            .cloned();
+                        if let Some(slug) = route_slug {
+                            let selected = this.workspaces.switch_to_slug(&slug)
+                                || this
+                                    .workspaces
+                                    .current()
+                                    .is_some_and(|workspace| workspace.slug == slug);
+                            if selected {
+                                this.last_workspace_slug = Some(slug);
+                            }
+                        }
                         this.prepare_agent_authorization(cx);
-                        this.restore_workspace_state(cx);
+                        this.restore_workspace_state(cx, false);
                     }
                     Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
                     Err(error) => this.workspaces.fail(&error),
@@ -1127,14 +1190,16 @@ impl RootView {
                 self.notice_inaccessible_workspace();
             }
             crate::routing::WorkspaceRouteAction::Switch { id, slug } => {
-                if let Some(previous) = self.workspaces.current_id().map(str::to_string) {
-                    self.persist_workspace_state(&previous);
-                }
                 if self.workspaces.switch_to(&id) {
                     self.last_workspace_slug = Some(slug.clone());
                     crate::workspace_state::set_last_workspace(&slug);
                     self.reset_workspace_data(cx);
-                    self.restore_workspace_state(cx);
+                    // 显式深链目标优先于该台上次停留的 tab；概览仍恢复上次页面。
+                    let keep_route = self
+                        .current
+                        .as_ref()
+                        .is_some_and(|route_match| route_match.route.id != "account.workspace");
+                    self.restore_workspace_state(cx, keep_route);
                     self.prepare_agent_authorization(cx);
                 }
             }
@@ -2419,6 +2484,16 @@ impl RootView {
         else {
             return;
         };
+        self.start_courses_load_with_scope(cx, first, scope_mode);
+    }
+
+    /// `scope_mode` 由调用方显式决定：中心列表按路由，Site Tree / 概览恒为本工作区。
+    pub(in crate::root_view) fn start_courses_load_with_scope(
+        &mut self,
+        cx: &mut Context<Self>,
+        first: bool,
+        scope_mode: crate::routing::ListScope,
+    ) {
         let scope = match scope_mode {
             crate::routing::ListScope::Workspace => match self.workspaces.scope() {
                 Some(scope) => Some(scope),
@@ -2439,7 +2514,8 @@ impl RootView {
         } else {
             self.courses.next_cursor().map(str::to_string)
         };
-        let epoch = self.workspaces.epoch();
+        // 只有依赖工作区的请求才受 workspace epoch 约束；公开面与工作区无关。
+        let epoch = scope.as_ref().map(|_| self.workspaces.epoch());
         let task = cx.background_executor().spawn(async move {
             let offering = match scope.as_ref() {
                 Some(scope) => cgc_platform::workspace::OfferingScope::Workspace(scope),
@@ -2451,7 +2527,11 @@ impl RootView {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                if !this.workspaces.is_current_epoch(epoch) {
+                if epoch.is_some_and(|epoch| !this.workspaces.is_current_epoch(epoch)) {
+                    // 丢弃越界响应后必须复位，否则闸门会永久停在 Loading。
+                    this.courses.reset();
+                    this.courses_started = false;
+                    cx.notify();
                     return;
                 }
                 match result {
@@ -2558,12 +2638,14 @@ impl RootView {
         course_id: &str,
         cx: &mut Context<Self>,
     ) {
-        let Some(workspace) = self.workspaces.current() else {
-            self.navigate("/learning");
-            return;
+        let path = match self.workspaces.current() {
+            Some(workspace) => crate::routing::workspace_path(
+                &workspace.slug,
+                &format!("/courses/{course_id}/learn"),
+            ),
+            // 公开报名不要求 membership：没有工作区时走站点级学习页。
+            None => format!("/courses/{course_id}/learn"),
         };
-        let path =
-            crate::routing::workspace_path(&workspace.slug, &format!("/courses/{course_id}/learn"));
         let title = self
             .courses
             .items()
@@ -3111,7 +3193,7 @@ impl RootView {
         true
     }
 
-    fn restore_workspace_state(&mut self, cx: &mut Context<Self>) {
+    fn restore_workspace_state(&mut self, cx: &mut Context<Self>, keep_route: bool) {
         let Some(workspace_id) = self.workspaces.current_id().map(str::to_string) else {
             return;
         };
@@ -3173,7 +3255,17 @@ impl RootView {
             .active_tab
             .filter(|active| self.tabs.iter().any(|tab| &tab.id == active))
             .or_else(|| self.tabs.first().map(|tab| tab.id.clone()));
-        if let Some(path) = self
+        if keep_route {
+            // 深链/显式导航目标不因恢复旧 tab 被覆盖；tab 高亮只按当前路径匹配。
+            let current_path = self.current_path();
+            self.active_tab = current_path.as_deref().and_then(|path| {
+                crate::root_view::state::active_tab_for_path(
+                    &self.tabs,
+                    self.active_tab.as_deref(),
+                    path,
+                )
+            });
+        } else if let Some(path) = self
             .active_tab
             .as_deref()
             .and_then(|active| self.tabs.iter().find(|tab| tab.id == active))
@@ -3185,6 +3277,7 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn load_course_enrollments(&mut self, cx: &mut Context<Self>) {
+        let epoch = self.workspaces.epoch();
         let ids = self
             .courses
             .items()
@@ -3211,6 +3304,9 @@ impl RootView {
         cx.spawn(async move |this, cx| {
             let statuses = task.await;
             let _ = this.update(cx, |this, cx| {
+                if !this.workspaces.is_current_epoch(epoch) {
+                    return;
+                }
                 this.course_enrollments.extend(statuses);
                 cx.notify();
             });
@@ -3220,11 +3316,12 @@ impl RootView {
 
     /// Site Tree 的数据按需加载；只有进入已登录工作区后才调用。
     pub(in crate::root_view) fn ensure_navigation_data(&mut self, cx: &mut Context<Self>) {
+        // Site Tree 永远展示当前工作区的数据，与中心页面是哪条路由无关。
         if !self.events_started {
-            self.start_events_load(cx, true);
+            self.start_events_load_with_scope(cx, true, crate::routing::ListScope::Workspace);
         }
         if !self.courses_started {
-            self.start_courses_load(cx, true);
+            self.start_courses_load_with_scope(cx, true, crate::routing::ListScope::Workspace);
         }
     }
 
@@ -3543,6 +3640,10 @@ impl RootView {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
                 if !this.workspaces.is_current_epoch(epoch) {
+                    // 报名数据跨台，但切台/换账号后旧响应不能落地；复位让闸门重发。
+                    this.enrollments_started = false;
+                    this.enrollments_state = EnrollmentsListState::Idle;
+                    cx.notify();
                     return;
                 }
                 match result {
@@ -3914,6 +4015,16 @@ impl RootView {
         else {
             return;
         };
+        self.start_events_load_with_scope(cx, first, scope_mode);
+    }
+
+    /// `scope_mode` 由调用方显式决定：中心列表按路由，Site Tree / 概览恒为本工作区。
+    pub(in crate::root_view) fn start_events_load_with_scope(
+        &mut self,
+        cx: &mut Context<Self>,
+        first: bool,
+        scope_mode: crate::routing::ListScope,
+    ) {
         let scope = match scope_mode {
             crate::routing::ListScope::Workspace => match self.workspaces.scope() {
                 Some(scope) => Some(scope),
@@ -3936,6 +4047,7 @@ impl RootView {
         } else {
             self.events.next_cursor().map(str::to_string)
         };
+        let epoch = scope.as_ref().map(|_| self.workspaces.epoch());
         let task = cx.background_executor().spawn(async move {
             let offering = match scope.as_ref() {
                 Some(scope) => cgc_platform::workspace::OfferingScope::Workspace(scope),
@@ -3947,6 +4059,12 @@ impl RootView {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
+                if epoch.is_some_and(|epoch| !this.workspaces.is_current_epoch(epoch)) {
+                    this.events.reset();
+                    this.events_started = false;
+                    cx.notify();
+                    return;
+                }
                 match result {
                     Ok(page) => this.events.adopt_page(page),
                     Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
