@@ -101,11 +101,20 @@ impl RootView {
             Some(self.generic_page_context(&tab, route_id))
         };
         if let Some(context) = &mut context {
-            if context.course.is_none() {
-                context.workspace_id = self.workspaces.current_id().map(str::to_string);
-            }
+            // 工作区单一真源是路由：`/w/<slug>` 决定归属，站点级页面不借用当前台。
+            context.workspace_id = self.route_workspace_id();
         }
         self.page_context.set_current(context);
+    }
+
+    /// 当前路由 `:slug` 对应的可访问工作区 id；站点级页面返回 None。
+    pub(in crate::root_view) fn route_workspace_id(&self) -> Option<String> {
+        let slug = self.current.as_ref()?.params.get("slug")?;
+        self.workspaces
+            .workspaces()
+            .iter()
+            .find(|workspace| &workspace.slug == slug && workspace.can_access)
+            .map(|workspace| workspace.id.clone())
     }
 
     fn current_path(&self) -> Option<String> {
@@ -196,15 +205,8 @@ impl RootView {
                 }
             });
         Some(crate::page_context::PageContext {
-            workspace_id: detail
-                .and_then(|detail| detail.workspace_id.clone())
-                .or_else(|| {
-                    self.courses
-                        .items()
-                        .iter()
-                        .find(|course| &course.id == course_id)
-                        .and_then(|course| course.workspace_id.clone())
-                }),
+            // 归属由 `refresh_page_context` 按路由统一写入，课程详情不再提供第二真源。
+            workspace_id: None,
             tab_id: tab.id.clone(),
             route: tab.path.clone(),
             title: tab.title.clone(),
@@ -2658,6 +2660,56 @@ impl RootView {
         self.course_detail.adopt(detail);
     }
 
+    /// 课程归属与路由 slug 不一致（深链/旧地址）时把地址收敛到课程所属工作区，
+    /// 保证路由、tab 与 Agent 上下文只有一个归属。
+    pub(in crate::root_view) fn canonicalize_course_route(
+        &mut self,
+        detail: &cgc_courses::catalog::CourseDetail,
+    ) {
+        let Some(owner) = detail.workspace_id.as_deref().and_then(|id| {
+            self.workspaces
+                .workspaces()
+                .iter()
+                .find(|workspace| workspace.id == id && workspace.can_access)
+        }) else {
+            return;
+        };
+        let Some((suffix, query, route_slug)) = self.current.as_ref().and_then(|route_match| {
+            let route_slug = route_match.params.get("slug")?.clone();
+            let suffix = match route_match.route.id {
+                "courses.learning" | "courses.public_learning" => {
+                    format!("/courses/{}/learn", detail.id)
+                }
+                "courses.detail" | "courses.public_detail" => {
+                    format!("/courses/{}", detail.id)
+                }
+                _ => return None,
+            };
+            Some((suffix, route_match.query.clone(), route_slug))
+        }) else {
+            return;
+        };
+        // 站点级公开页没有 slug，保持公开地址不动。
+        if route_slug == owner.slug {
+            return;
+        }
+        let target = crate::routing::path_with_query(
+            &crate::routing::workspace_path(&owner.slug, &suffix),
+            &query,
+        );
+        if self.current_path().as_deref() == Some(target.as_str()) {
+            return;
+        }
+        if let Some(active) = self.active_tab.clone() {
+            if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == active) {
+                tab.path = target.clone();
+                tab.id = format!("page:{target}");
+                self.active_tab = Some(tab.id.clone());
+            }
+        }
+        self.navigate(&target);
+    }
+
     pub(in crate::root_view) fn start_course_detail_load(
         &mut self,
         cx: &mut Context<Self>,
@@ -2727,8 +2779,10 @@ impl RootView {
                 }
                 match result {
                     Ok(detail) => {
+                        this.canonicalize_course_route(&detail);
                         this.adopt_course_detail(detail);
                         this.load_expanded_site_tree_course(cx);
+                        this.sync_agent_workspace_scope(cx);
                     }
                     Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
                     Err(error) => this.course_detail.fail(&error),

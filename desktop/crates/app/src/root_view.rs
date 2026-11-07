@@ -869,6 +869,7 @@ impl Render for RootView {
             );
             if workspaces_ready {
                 self.sync_workspace_route(cx);
+                self.sync_agent_workspace_scope(cx);
             }
             let current_id = self
                 .current
@@ -3278,28 +3279,19 @@ mod tests {
     }
 
     #[test]
-    fn course_context_uses_the_courses_workspace_instead_of_the_selector() {
+    fn course_context_workspace_follows_the_route_slug() {
         let mut view = view();
         view.state
             .workspaces
             .adopt(vec![cgc_platform::workspace::WorkspaceSummary {
-                id: "selector-workspace".into(),
-                slug: "selected".into(),
-                name: "Selected workspace".into(),
+                id: "route-workspace".into(),
+                slug: "2046".into(),
+                name: "Route workspace".into(),
                 my_role_names: Vec::new(),
                 member_count: None,
                 can_access: true,
             }]);
-        assert_eq!(
-            view.state.workspaces.current_id(),
-            Some("selector-workspace")
-        );
-        view.state.tabs.push(super::state::PaneTab::page(
-            "/w/2046/courses/course-a/learn",
-            "Course",
-        ));
-        view.state.active_tab = Some("page:/courses/course-a/learn".into());
-        view.navigate("/w/2046/courses/course-a/learn");
+        activate_context_tab(&mut view, "/w/2046/courses/course-a/learn", "Course");
         view.state
             .course_detail
             .adopt(cgc_courses::catalog::CourseDetail {
@@ -3318,7 +3310,117 @@ mod tests {
         view.refresh_page_context();
         assert_eq!(
             view.page_context.visible().unwrap().workspace_id.as_deref(),
-            Some("course-workspace")
+            Some("route-workspace"),
+            "the route slug decides the workspace, not the course detail"
+        );
+
+        // 站点级学习页不借用当前工作区，即使课程详情自带归属。
+        activate_context_tab(&mut view, "/courses/course-a/learn", "Public course");
+        view.refresh_page_context();
+        assert_eq!(
+            view.page_context.visible().unwrap().workspace_id,
+            None,
+            "site-level pages must not borrow the selected workspace"
+        );
+    }
+
+    #[test]
+    fn agent_workspace_prefers_route_then_course_then_session() {
+        let mut view = view();
+        view.state.workspaces.adopt(vec![
+            cgc_platform::workspace::WorkspaceSummary {
+                id: "ws-alpha".into(),
+                slug: "alpha".into(),
+                name: "Alpha".into(),
+                my_role_names: Vec::new(),
+                member_count: None,
+                can_access: true,
+            },
+            cgc_platform::workspace::WorkspaceSummary {
+                id: "ws-beta".into(),
+                slug: "beta".into(),
+                name: "Beta".into(),
+                my_role_names: Vec::new(),
+                member_count: None,
+                can_access: true,
+            },
+        ]);
+        activate_context_tab(&mut view, "/w/alpha/courses", "Courses");
+        assert_eq!(view.agent_workspace_id().as_deref(), Some("ws-alpha"));
+
+        activate_context_tab(&mut view, "/courses/course-b/learn", "Public course");
+        view.state
+            .course_detail
+            .adopt(cgc_courses::catalog::CourseDetail {
+                id: "course-b".into(),
+                title: "Course B".into(),
+                description: None,
+                status: "published".into(),
+                visibility: "public".into(),
+                workspace_id: Some("ws-beta".into()),
+                pricing_enabled: false,
+                enrollment_policy: "open".into(),
+                available_price_tiers: Vec::new(),
+                enrollment_status: None,
+                revision_number: Some(1),
+            });
+        assert_eq!(
+            view.agent_workspace_id().as_deref(),
+            Some("ws-beta"),
+            "site-level course pages use the course owner for tool parameters"
+        );
+
+        activate_context_tab(&mut view, "/learning", "My learning");
+        assert_eq!(
+            view.agent_workspace_id().as_deref(),
+            Some("ws-alpha"),
+            "pages without a course fall back to the session workspace"
+        );
+    }
+
+    #[test]
+    fn loading_a_course_under_the_wrong_slug_canonicalizes_the_route() {
+        let mut view = view();
+        view.state.workspaces.adopt(vec![
+            cgc_platform::workspace::WorkspaceSummary {
+                id: "ws-alpha".into(),
+                slug: "alpha".into(),
+                name: "Alpha".into(),
+                my_role_names: Vec::new(),
+                member_count: None,
+                can_access: true,
+            },
+            cgc_platform::workspace::WorkspaceSummary {
+                id: "ws-beta".into(),
+                slug: "beta".into(),
+                name: "Beta".into(),
+                my_role_names: Vec::new(),
+                member_count: None,
+                can_access: true,
+            },
+        ]);
+        activate_context_tab(&mut view, "/w/alpha/courses/course-b/learn", "Course B");
+        let detail = cgc_courses::catalog::CourseDetail {
+            id: "course-b".into(),
+            title: "Course B".into(),
+            description: None,
+            status: "published".into(),
+            visibility: "public".into(),
+            workspace_id: Some("ws-beta".into()),
+            pricing_enabled: false,
+            enrollment_policy: "open".into(),
+            available_price_tiers: Vec::new(),
+            enrollment_status: None,
+            revision_number: Some(1),
+        };
+        view.canonicalize_course_route(&detail);
+        let current = view.current.as_ref().expect("route");
+        assert_eq!(current.route.id, "courses.learning");
+        assert_eq!(current.params.get("slug").map(String::as_str), Some("beta"));
+        assert_eq!(
+            view.page_context.visible(),
+            None,
+            "context refreshes on the next render, not mid-navigation"
         );
     }
 

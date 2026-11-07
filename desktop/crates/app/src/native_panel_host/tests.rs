@@ -93,6 +93,26 @@ fn context(endpoint: &str, epoch: u64) -> McpContext {
 }
 
 #[test]
+fn workspace_free_pages_keep_only_the_role_playbook_tool() {
+    let (endpoint, requests) = spawn_mcp_mock(vec![init_body(), tools_body()]);
+    let api_url = format!("{}/api/graphql", endpoint.trim_end_matches("/mcp"));
+    let context = McpContext::for_lease(lease(3), 3, Some(&api_url), None)
+        .expect("lease is valid without a workspace");
+    let tools = context.discover_tools().expect("discovery");
+    assert_eq!(
+        tools
+            .iter()
+            .map(|tool| tool.name().to_string())
+            .collect::<Vec<_>>(),
+        vec!["mcp_cgc-2046-learning_get_role_playbook".to_string()],
+        "only the workspace-free playbook survives without a workspace"
+    );
+    for _ in 0..2 {
+        let _ = requests.recv();
+    }
+}
+
+#[test]
 fn authorization_removal_revokes_captured_clients_without_inventing_server_tools() {
     let (endpoint, requests) = spawn_mcp_mock(vec![
         init_body(),

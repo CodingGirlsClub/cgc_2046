@@ -103,7 +103,9 @@ impl RootView {
         };
         self.agent_lease_pending = Some(epoch);
         let authorization_serial = self.agent_authorization_serial;
-        let workspace_id = self.workspaces.current_id().map(str::to_string);
+        // 工具固定参数随页面：工作区路由 > 站点级课程归属 > 当前工作区；
+        // 作用域变化由 sync_agent_workspace_scope 重建上下文。
+        let workspace_id = self.agent_workspace_id();
         let previous = self.agent_authorization_tail.take();
         let api = build_learning_host_api(&scope);
         let vault = build_learning_host_vault(&scope);
@@ -191,6 +193,50 @@ impl RootView {
             &session.user_id,
             &cgc_platform::runtime::api_endpoint(),
         ))
+    }
+
+    /// Agent/MCP 固定参数的工作区：工作区路由 > 站点级课程归属 > 当前工作区。
+    pub(in crate::root_view) fn agent_workspace_id(&self) -> Option<String> {
+        if let Some(id) = self.route_workspace_id() {
+            return Some(id);
+        }
+        if let Some(id) = self
+            .current
+            .as_ref()
+            .filter(|route_match| {
+                matches!(
+                    route_match.route.id,
+                    "courses.detail"
+                        | "courses.learning"
+                        | "courses.public_detail"
+                        | "courses.public_learning"
+                )
+            })
+            .and_then(|_| self.course_detail.detail())
+            .and_then(|detail| detail.workspace_id.clone())
+        {
+            if self
+                .workspaces
+                .workspaces()
+                .iter()
+                .any(|workspace| workspace.id == id && workspace.can_access)
+            {
+                return Some(id);
+            }
+        }
+        self.workspaces.current_id().map(str::to_string)
+    }
+
+    /// 页面作用域变化（同 epoch 内换工作区/进站点级课程页）时重建工具上下文。
+    pub(in crate::root_view) fn sync_agent_workspace_scope(&mut self, cx: &mut Context<Self>) {
+        let Some(context) = self.agent_mcp.as_ref() else {
+            return;
+        };
+        let current = context.workspace_id().map(str::to_string);
+        if current != self.agent_workspace_id() {
+            self.invalidate_agent_clients(cx);
+            self.prepare_agent_authorization(cx);
+        }
     }
 
     fn invalidate_agent_clients(&mut self, _cx: &mut Context<Self>) {
