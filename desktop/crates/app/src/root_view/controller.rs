@@ -2343,6 +2343,10 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn start_courses_load(&mut self, cx: &mut Context<Self>, first: bool) {
+        // 工作区目录必须有作用域：没有工作区时不启动，避免把空 filter 当成「全平台」。
+        let Some(scope) = self.workspaces.scope() else {
+            return;
+        };
         if first {
             self.courses.begin_first_load();
         } else {
@@ -2357,9 +2361,13 @@ impl RootView {
             self.courses.next_cursor().map(str::to_string)
         };
         let epoch = self.workspaces.epoch();
-        let scope = self.workspaces.scope();
         let task = cx.background_executor().spawn(async move {
-            api.list_courses(token.as_deref(), scope.as_ref(), cursor.as_deref(), 10)
+            api.list_courses(
+                token.as_deref(),
+                cgc_platform::workspace::OfferingScope::Workspace(&scope),
+                cursor.as_deref(),
+                10,
+            )
         });
 
         cx.spawn(async move |this, cx| {
@@ -3755,6 +3763,9 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn start_events_load(&mut self, cx: &mut Context<Self>, first: bool) {
+        let Some(scope) = self.workspaces.scope() else {
+            return;
+        };
         if first {
             self.events.begin_first_load();
         } else {
@@ -3770,11 +3781,10 @@ impl RootView {
         } else {
             self.events.next_cursor().map(str::to_string)
         };
-        let scope = self.workspaces.scope();
         let task = cx.background_executor().spawn(async move {
             api.list_events(
                 token.as_deref(),
-                scope.as_ref(),
+                cgc_platform::workspace::OfferingScope::Workspace(&scope),
                 filter,
                 after.as_deref(),
                 10,

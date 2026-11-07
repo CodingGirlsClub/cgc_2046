@@ -8,6 +8,7 @@ use cgc_events::list::{EventsApi, FakeEventsApi, ListState, StatusFilter};
 use cgc_events::orders::{
     is_terminal_status, qr_code_url, FakeOrderScenario, FakeOrdersApi, OrdersApi,
 };
+use cgc_platform::workspace::OfferingScope;
 use std::sync::Arc;
 
 fn free_request(event_id: &str, tier: Option<&str>) -> EnrollmentRequest {
@@ -23,7 +24,7 @@ fn free_request(event_id: &str, tier: Option<&str>) -> EnrollmentRequest {
 fn free_open_enrollment_confirms() {
     let api = Arc::new(FakeEventsApi::with_seed(8));
     let page = api
-        .list_events(None, None, StatusFilter::All, None, 5)
+        .list_events(None, OfferingScope::Public, StatusFilter::All, None, 5)
         .expect("step 1: list events");
     assert!(!page.items.is_empty(), "step 1: list should not be empty");
     let event = page

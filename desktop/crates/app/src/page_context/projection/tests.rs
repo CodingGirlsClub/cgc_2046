@@ -142,6 +142,7 @@ fn course_pages_project_detail_and_catalog_rows() {
         title: "Rust Basics".into(),
         status: "published".into(),
         workspace_id: Some("ws-1".into()),
+        enrollment_badge: None,
         pricing_enabled: false,
         starts_at: Some("2026-11-02".into()),
     };

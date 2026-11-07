@@ -6,8 +6,8 @@
 
 use std::sync::Arc;
 
-use cgc_platform::api::{apply_workspace_scope, ApiError, GraphqlClient};
-use cgc_platform::workspace::WorkspaceScope;
+use cgc_platform::api::{apply_offering_scope, ApiError, GraphqlClient};
+use cgc_platform::workspace::OfferingScope;
 use serde_json::{json, Value};
 
 const LIST_EVENTS_QUERY: &str = r#"
@@ -125,7 +125,7 @@ pub trait EventsApi: Send + Sync {
     fn list_events(
         &self,
         token: Option<&str>,
-        scope: Option<&WorkspaceScope>,
+        scope: OfferingScope<'_>,
         filter: StatusFilter,
         after: Option<&str>,
         first: u32,
@@ -278,7 +278,7 @@ impl EventsApi for HttpEventsApi {
     fn list_events(
         &self,
         token: Option<&str>,
-        scope: Option<&WorkspaceScope>,
+        scope: OfferingScope<'_>,
         filter: StatusFilter,
         after: Option<&str>,
         first: u32,
@@ -290,7 +290,8 @@ impl EventsApi for HttpEventsApi {
         if let Some(status) = filter.status_value() {
             variables["filter"] = json!({ "status": { "eq": status } });
         }
-        apply_workspace_scope(&mut variables, scope);
+        // 公开面覆盖 status 并补 visibility；工作区面只注入 workspaceId。
+        apply_offering_scope(&mut variables, scope);
 
         let payload = self
             .client
@@ -524,7 +525,7 @@ impl EventsApi for FakeEventsApi {
     fn list_events(
         &self,
         _token: Option<&str>,
-        _scope: Option<&WorkspaceScope>,
+        _scope: OfferingScope<'_>,
         filter: StatusFilter,
         after: Option<&str>,
         first: u32,
@@ -744,10 +745,14 @@ impl EventListService {
     }
 
     /// 后台线程调用：按当前筛选/游标取一页。
-    pub fn fetch(&self, token: Option<&str>) -> Result<EventPage, EventsError> {
+    pub fn fetch(
+        &self,
+        token: Option<&str>,
+        scope: OfferingScope<'_>,
+    ) -> Result<EventPage, EventsError> {
         self.api.list_events(
             token,
-            None,
+            scope,
             self.filter,
             if self.loading_more {
                 self.next_cursor.as_deref()
@@ -796,6 +801,7 @@ impl EventListService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cgc_platform::workspace::WorkspaceScope;
 
     fn service() -> EventListService {
         EventListService::new(Arc::new(FakeEventsApi::with_seed(23)))
@@ -805,7 +811,9 @@ mod tests {
     fn first_page_has_items_and_next_cursor() {
         let mut service = service();
         service.begin_first_load();
-        let page = service.fetch(None).expect("fake page");
+        let page = service
+            .fetch(None, OfferingScope::Public)
+            .expect("fake page");
         service.adopt_page(page);
 
         assert_eq!(service.items().len(), 10);
@@ -817,11 +825,11 @@ mod tests {
     fn load_more_appends_until_exhausted() {
         let mut service = service();
         service.begin_first_load();
-        service.adopt_page(service.fetch(None).expect("page 1"));
+        service.adopt_page(service.fetch(None, OfferingScope::Public).expect("page 1"));
 
         while service.next_cursor().is_some() {
             service.begin_load_more();
-            service.adopt_page(service.fetch(None).expect("page n"));
+            service.adopt_page(service.fetch(None, OfferingScope::Public).expect("page n"));
         }
 
         assert_eq!(service.items().len(), 23);
@@ -833,7 +841,11 @@ mod tests {
         let mut service = service();
         service.set_filter(StatusFilter::Closed);
         service.begin_first_load();
-        service.adopt_page(service.fetch(None).expect("filtered page"));
+        service.adopt_page(
+            service
+                .fetch(None, OfferingScope::Public)
+                .expect("filtered page"),
+        );
 
         assert!(!service.items().is_empty());
         assert!(service.items().iter().all(|event| event.status == "closed"));
@@ -843,12 +855,16 @@ mod tests {
     fn has_more_uses_total_not_cursor() {
         let mut service = service();
         service.begin_first_load();
-        service.adopt_page(service.fetch(None).expect("page 1"));
+        service.adopt_page(service.fetch(None, OfferingScope::Public).expect("page 1"));
         assert!(service.has_more(), "23 items, first page of 10");
 
         while service.next_cursor().is_some() {
             service.begin_load_more();
-            service.adopt_page(service.fetch(None).expect("next page"));
+            service.adopt_page(
+                service
+                    .fetch(None, OfferingScope::Public)
+                    .expect("next page"),
+            );
         }
         assert!(!service.has_more(), "all items loaded");
     }
@@ -857,7 +873,11 @@ mod tests {
     fn empty_filter_result_sets_empty_state() {
         let mut service = EventListService::new(Arc::new(FakeEventsApi::with_seed(0)));
         service.begin_first_load();
-        service.adopt_page(service.fetch(None).expect("empty page"));
+        service.adopt_page(
+            service
+                .fetch(None, OfferingScope::Public)
+                .expect("empty page"),
+        );
         assert_eq!(service.state(), &ListState::Empty);
         assert!(service.items().is_empty());
     }
@@ -866,7 +886,7 @@ mod tests {
     fn transport_error_sets_failed_and_retry_returns_idle() {
         let mut service = EventListService::new(Arc::new(FakeEventsApi::failing()));
         service.begin_first_load();
-        let error = service.fetch(None).unwrap_err();
+        let error = service.fetch(None, OfferingScope::Public).unwrap_err();
         service.fail(&error);
 
         assert!(matches!(service.state(), ListState::Failed(_)));
@@ -928,7 +948,7 @@ mod tests {
         let page = api
             .list_events(
                 Some("token"),
-                Some(&WorkspaceScope {
+                OfferingScope::Workspace(&WorkspaceScope {
                     workspace_id: "ws-1".into(),
                     epoch: 1,
                 }),
@@ -942,6 +962,70 @@ mod tests {
         assert_eq!(page.items[0].title, "Demo");
         assert_eq!(page.next_cursor.as_deref(), Some("cursor-2"));
         assert_eq!(page.total, Some(1));
+    }
+
+    #[test]
+    fn http_list_events_public_scope_has_no_workspace() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 4096];
+            let header_end = loop {
+                let read = stream.read(&mut buffer).expect("read");
+                if read == 0 {
+                    break request.len();
+                }
+                request.extend_from_slice(&buffer[..read]);
+                if let Some(pos) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                    break pos + 4;
+                }
+            };
+            let headers = String::from_utf8_lossy(&request[..header_end]).to_string();
+            let content_length = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().ok())
+                        .flatten()
+                })
+                .unwrap_or(0);
+            while request.len() < header_end + content_length {
+                let read = stream.read(&mut buffer).expect("read body");
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..read]);
+            }
+            let _ = sender.send(String::from_utf8_lossy(&request).to_string());
+            let body = r#"{"data":{"listEvents":{"count":0,"endKeyset":null,"results":[]}}}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).expect("write");
+        });
+
+        let api = HttpEventsApi::new(GraphqlClient::new(format!("http://{addr}/api/graphql")));
+        let _ = api
+            .list_events(None, OfferingScope::Public, StatusFilter::All, None, 10)
+            .expect("http page");
+        let sent = receiver.recv().expect("request");
+        let body = sent.split("\r\n\r\n").nth(1).expect("request body");
+        let body: Value = serde_json::from_str(body).expect("json body");
+        let filter = &body["variables"]["filter"];
+        assert!(
+            filter.get("workspaceId").is_none(),
+            "public scope leaked: {filter}"
+        );
+        assert_eq!(filter["status"]["eq"], "open");
+        assert_eq!(filter["visibility"]["eq"], "public");
     }
 
     #[test]

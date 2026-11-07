@@ -7,8 +7,8 @@
 
 use std::sync::Arc;
 
-use cgc_platform::api::{apply_workspace_scope, ApiError, GraphqlClient};
-use cgc_platform::workspace::WorkspaceScope;
+use cgc_platform::api::{apply_offering_scope, ApiError, GraphqlClient};
+use cgc_platform::workspace::OfferingScope;
 use cgc_platform::workspace::{
     ContextError, CourseContext, CourseContextPort, CourseContextProvider,
 };
@@ -21,7 +21,10 @@ query ListCourses($first: Int!, $after: String, $filter: CourseFilterInput) {
   listCourses(first: $first, after: $after, filter: $filter) {
     count
     endKeyset
-    results { id title status visibility registrationDeadline startsAt endsAt pricingEnabled }
+    results {
+      id title status visibility registrationDeadline startsAt endsAt
+      pricingEnabled enrollmentBadge
+    }
   }
 }
 "#;
@@ -53,6 +56,7 @@ pub struct CourseSummary {
     pub title: String,
     pub status: String,
     pub workspace_id: Option<String>,
+    pub enrollment_badge: Option<String>,
     pub pricing_enabled: bool,
     pub starts_at: Option<String>,
 }
@@ -125,7 +129,7 @@ pub trait CoursesApi: Send + Sync {
     fn list_courses(
         &self,
         token: Option<&str>,
-        scope: Option<&WorkspaceScope>,
+        scope: OfferingScope<'_>,
         after: Option<&str>,
         first: u32,
     ) -> Result<CoursePage, CoursesError>;
@@ -192,6 +196,10 @@ impl HttpCoursesApi {
                 .get("workspaceId")
                 .and_then(Value::as_str)
                 .map(str::to_string),
+            enrollment_badge: value
+                .get("enrollmentBadge")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             pricing_enabled: value
                 .get("pricingEnabled")
                 .and_then(Value::as_bool)
@@ -208,7 +216,7 @@ impl CoursesApi for HttpCoursesApi {
     fn list_courses(
         &self,
         token: Option<&str>,
-        scope: Option<&WorkspaceScope>,
+        scope: OfferingScope<'_>,
         after: Option<&str>,
         first: u32,
     ) -> Result<CoursePage, CoursesError> {
@@ -216,7 +224,7 @@ impl CoursesApi for HttpCoursesApi {
         if let Some(after) = after {
             variables["after"] = json!(after);
         }
-        apply_workspace_scope(&mut variables, scope);
+        apply_offering_scope(&mut variables, scope);
         let payload = self
             .client
             .post(token, LIST_COURSES_QUERY, variables)
@@ -380,6 +388,7 @@ impl FakeCoursesApi {
                 title: format!("课程 {}", index + 1),
                 status: "open".to_string(),
                 workspace_id: Some("ws-demo".to_string()),
+                enrollment_badge: None,
                 pricing_enabled: index % 3 == 0,
                 starts_at: Some(format!("2026-12-{:02}T09:00:00Z", (index % 28) + 1)),
             })
@@ -412,7 +421,7 @@ impl CoursesApi for FakeCoursesApi {
     fn list_courses(
         &self,
         _token: Option<&str>,
-        _scope: Option<&WorkspaceScope>,
+        _scope: OfferingScope<'_>,
         after: Option<&str>,
         first: u32,
     ) -> Result<CoursePage, CoursesError> {
@@ -597,10 +606,14 @@ impl CourseCatalogService {
         self.state = CoursesListState::Loading;
     }
 
-    pub fn fetch(&self, token: Option<&str>) -> Result<CoursePage, CoursesError> {
+    pub fn fetch(
+        &self,
+        token: Option<&str>,
+        scope: OfferingScope<'_>,
+    ) -> Result<CoursePage, CoursesError> {
         self.api.list_courses(
             token,
-            None,
+            scope,
             if self.loading_more {
                 self.next_cursor.as_deref()
             } else {
@@ -711,6 +724,7 @@ pub fn learning_context(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cgc_platform::workspace::WorkspaceScope;
 
     fn catalog() -> CourseCatalogService {
         CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(15)))
@@ -720,12 +734,12 @@ mod tests {
     fn catalog_pages_and_appends() {
         let mut service = catalog();
         service.begin_first_load();
-        service.adopt_page(service.fetch(None).expect("page 1"));
+        service.adopt_page(service.fetch(None, OfferingScope::Public).expect("page 1"));
         assert_eq!(service.items().len(), 10);
         assert!(service.next_cursor().is_some());
 
         service.begin_load_more();
-        service.adopt_page(service.fetch(None).expect("page 2"));
+        service.adopt_page(service.fetch(None, OfferingScope::Public).expect("page 2"));
         assert_eq!(service.items().len(), 15);
         assert!(service.next_cursor().is_none());
     }
@@ -784,7 +798,7 @@ mod tests {
             epoch: 2,
         };
         let _ = api
-            .list_courses(None, Some(&scope), None, 10)
+            .list_courses(None, OfferingScope::Workspace(&scope), None, 10)
             .expect("page");
         let sent = receiver.recv().expect("request");
         assert!(sent.contains("ListCourses"));
@@ -793,15 +807,79 @@ mod tests {
     }
 
     #[test]
+    fn http_list_courses_public_scope_has_no_workspace() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 4096];
+            let header_end = loop {
+                let read = stream.read(&mut buffer).expect("read");
+                if read == 0 {
+                    break request.len();
+                }
+                request.extend_from_slice(&buffer[..read]);
+                if let Some(pos) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break pos + 4;
+                }
+            };
+            let headers = String::from_utf8_lossy(&request[..header_end]).to_string();
+            let content_length = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().ok())
+                        .flatten()
+                })
+                .unwrap_or(0);
+            while request.len() < header_end + content_length {
+                let read = stream.read(&mut buffer).expect("read body");
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..read]);
+            }
+            let _ = sender.send(String::from_utf8_lossy(&request).to_string());
+            let body = r#"{"data":{"listCourses":{"count":0,"endKeyset":null,"results":[]}}}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).expect("write");
+        });
+
+        let api = HttpCoursesApi::new(GraphqlClient::new(format!("http://{addr}/api/graphql")));
+        let _ = api
+            .list_courses(None, OfferingScope::Public, None, 10)
+            .expect("page");
+        let sent = receiver.recv().expect("request");
+        let body = sent.split("\r\n\r\n").nth(1).expect("request body");
+        let body: Value = serde_json::from_str(body).expect("json body");
+        let filter = &body["variables"]["filter"];
+        assert!(
+            filter.get("workspaceId").is_none(),
+            "public scope leaked: {filter}"
+        );
+        assert_eq!(filter["status"]["eq"], "open");
+        assert_eq!(filter["visibility"]["eq"], "public");
+    }
+
+    #[test]
     fn catalog_empty_and_failure_states() {
         let mut empty = CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(0)));
         empty.begin_first_load();
-        empty.adopt_page(empty.fetch(None).expect("empty"));
+        empty.adopt_page(empty.fetch(None, OfferingScope::Public).expect("empty"));
         assert_eq!(empty.state(), &CoursesListState::Empty);
 
         let mut failing = CourseCatalogService::new(Arc::new(FakeCoursesApi::failing()));
         failing.begin_first_load();
-        let error = failing.fetch(None).unwrap_err();
+        let error = failing.fetch(None, OfferingScope::Public).unwrap_err();
         failing.fail(&error);
         assert!(matches!(failing.state(), CoursesListState::Failed(_)));
         failing.retry_ready();
@@ -812,12 +890,16 @@ mod tests {
     fn has_more_uses_total_not_cursor() {
         let mut service = catalog();
         service.begin_first_load();
-        service.adopt_page(service.fetch(None).expect("page 1"));
+        service.adopt_page(service.fetch(None, OfferingScope::Public).expect("page 1"));
         assert!(service.has_more(), "15 items, first page of 10");
 
         while service.next_cursor().is_some() {
             service.begin_load_more();
-            service.adopt_page(service.fetch(None).expect("next page"));
+            service.adopt_page(
+                service
+                    .fetch(None, OfferingScope::Public)
+                    .expect("next page"),
+            );
         }
         assert!(!service.has_more(), "all items loaded");
     }

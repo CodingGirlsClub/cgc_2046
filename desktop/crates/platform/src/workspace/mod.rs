@@ -183,6 +183,26 @@ pub struct WorkspaceScope {
     pub epoch: u64,
 }
 
+/// 列表查询的数据作用域：当前工作区，或全平台公开面。
+///
+/// `Public` 不注入 `workspaceId`，并把过滤固定为 `status=open` + `visibility=public`，
+/// 与 Web 公开发现页（`web/lib/public-offerings.ts`）同一口径；
+/// `Workspace` 只按工作区隔离，不额外收窄可见性。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OfferingScope<'a> {
+    Workspace(&'a WorkspaceScope),
+    Public,
+}
+
+impl<'a> OfferingScope<'a> {
+    pub fn workspace(self) -> Option<&'a WorkspaceScope> {
+        match self {
+            Self::Workspace(scope) => Some(scope),
+            Self::Public => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WorkspaceSummary {
     pub id: String,
