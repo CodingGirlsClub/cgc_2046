@@ -850,9 +850,14 @@ fn host_event_from_update(update: SessionUpdate) -> Option<HostEvent> {
         SessionUpdate::UsageUpdate(usage) => Some(HostEvent::UsageUpdated {
             used: usage.used,
             size: usage.size,
-            cost: usage
-                .cost
-                .map(|cost| format!("{:.2} {}", cost.amount, cost.currency)),
+            cost: usage.cost.map(|cost| {
+                let precision = if cost.amount != 0.0 && cost.amount < 0.01 {
+                    4
+                } else {
+                    2
+                };
+                format!("{:.precision$} {}", cost.amount, cost.currency)
+            }),
         }),
         SessionUpdate::ConfigOptionUpdate(update) => Some(HostEvent::ConfigOptions {
             options: config_option_views(&update.config_options),
@@ -1405,6 +1410,28 @@ mod tests {
             panic!("expected UsageUpdated");
         };
         assert_eq!((used, size, cost), (1200, 64_000, None));
+    }
+
+    #[test]
+    fn usage_cost_preserves_subcent_precision_and_currency() {
+        use agent_client_protocol::schema::v1::{Cost, UsageUpdate};
+
+        for (amount, currency, expected) in [
+            (0.0001, "USD", "0.0001 USD"),
+            (0.004, "USD", "0.0040 USD"),
+            (0.0083, "USD", "0.0083 USD"),
+            (0.0, "USD", "0.00 USD"),
+            (0.01, "USD", "0.01 USD"),
+            (1.23, "EUR", "1.23 EUR"),
+        ] {
+            let update = UsageUpdate::new(26_000, 1_000_000).cost(Cost::new(amount, currency));
+            let event = super::host_event_from_update(SessionUpdate::UsageUpdate(update))
+                .expect("usage event");
+            let HostEvent::UsageUpdated { cost, .. } = event else {
+                panic!("expected UsageUpdated");
+            };
+            assert_eq!(cost.as_deref(), Some(expected), "amount={amount}");
+        }
     }
 
     #[test]
