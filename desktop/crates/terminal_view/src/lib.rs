@@ -5,7 +5,9 @@
 
 use std::panic;
 
-use cgc_terminal::{Frame, FrameCell, FrameColors, GridSize, Key, KeyInput, Mods, Session};
+use cgc_terminal::{
+    CursorVisualStyle, Frame, FrameCell, FrameColors, GridSize, Key, KeyInput, Mods, Session,
+};
 use gpui_kit::*;
 
 /// 终端绘制样式。颜色覆盖 `Frame` 自带的默认色（主题跟随宿主）。
@@ -74,7 +76,10 @@ impl TerminalView {
         let keystroke = &event.keystroke;
         let key = key_from_str(&keystroke.key);
         let mods = mods_from(&keystroke.modifiers);
-        let text = if keystroke.key.chars().count() == 1 {
+        // 空格没有单字符 key 名，必须显式给编码器文本，否则会被当成纯修饰键丢掉。
+        let text: Option<&str> = if keystroke.key == "space" {
+            Some(" ")
+        } else if keystroke.key.chars().count() == 1 {
             Some(keystroke.key.as_str())
         } else {
             None
@@ -271,6 +276,14 @@ impl Element for TerminalElement {
     }
 }
 
+struct CursorPlan {
+    x: u16,
+    y: u16,
+    color: Hsla,
+    style: CursorVisualStyle,
+    at_wide_tail: bool,
+}
+
 struct RowPlan {
     text: String,
     runs: Vec<TextRun>,
@@ -300,6 +313,14 @@ fn build_plan(
         y: bounds.origin.y + style.padding,
     };
 
+    let cursor_plan = frame.cursor().map(|cursor| CursorPlan {
+        x: cursor.x,
+        y: cursor.y,
+        color: colors.cursor.map(to_hsla).unwrap_or(style.cursor),
+        style: cursor.style,
+        at_wide_tail: cursor.at_wide_tail,
+    });
+
     let mut backgrounds = Vec::new();
     let mut rows = Vec::new();
 
@@ -315,7 +336,18 @@ fn build_plan(
                 column += 1;
                 continue;
             }
-            let (fg, bg) = cell_colors(cell, colors, foreground);
+            let (mut fg, mut bg) = cell_colors(cell, colors, foreground);
+            if let Some(cursor) = &cursor_plan {
+                if cursor.style == CursorVisualStyle::Block
+                    && row_index as u16 == cursor.y
+                    && (column as u16 == cursor.x
+                        || (cursor.at_wide_tail && column as u16 + 1 == cursor.x))
+                {
+                    // Block 光标：该格反色（zed 的做法），文字用背景色画在光标块上。
+                    fg = style.background;
+                    bg = Some(cursor.color);
+                }
+            }
             let font = cell_font(cell, style);
 
             if let Some(bg) = bg {
@@ -380,18 +412,37 @@ fn build_plan(
         }
     }
 
-    let cursor = frame.cursor().map(|cursor| {
-        let color = colors.cursor.map(to_hsla).unwrap_or(style.cursor);
+    let cursor = cursor_plan.map(|cursor| {
         let x = origin.x + cell_width * cursor.x as f32;
         let y = origin.y + style.line_height * cursor.y as f32;
-        let quad = Bounds::new(
-            Point { x, y },
-            Size {
-                width: cell_width,
-                height: style.line_height,
-            },
-        );
-        (quad, color)
+        let quad = match cursor.style {
+            CursorVisualStyle::Bar => Bounds::new(
+                Point { x, y },
+                Size {
+                    width: px(2.0),
+                    height: style.line_height,
+                },
+            ),
+            CursorVisualStyle::Underline => Bounds::new(
+                Point {
+                    x,
+                    y: y + style.line_height - px(2.0),
+                },
+                Size {
+                    width: cell_width,
+                    height: px(2.0),
+                },
+            ),
+            // Block / Hollow / 未来新增样式都先按整格块画。
+            _ => Bounds::new(
+                Point { x, y },
+                Size {
+                    width: cell_width,
+                    height: style.line_height,
+                },
+            ),
+        };
+        (quad, cursor.color)
     });
 
     PaintPlan {

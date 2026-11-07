@@ -23,6 +23,9 @@ pub use pty::{ExitInfo, PollResult, Session};
 /// 按键类型与修饰键（libghostty-vt 的编码输入）。
 pub use libghostty_vt::key::{Key, Mods};
 
+/// 光标形状（block / bar / underline / hollow）。
+pub use libghostty_vt::render::CursorVisualStyle;
+
 /// 终端颜色类型（libghostty-vt 的 `RgbColor`），供视图层使用。
 pub use libghostty_vt::style::RgbColor as FrameColor;
 
