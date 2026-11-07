@@ -890,9 +890,7 @@ impl Render for RootView {
             if data_ready
                 && matches!(
                     current_id,
-                    Some("events.participations")
-                        | Some("account.workspace")
-                        | Some("courses.learning_home")
+                    Some("events.participations") | Some("courses.learning_home")
                 )
                 && !self.enrollments_started
                 && matches!(self.enrollments_state, EnrollmentsListState::Idle)
@@ -924,7 +922,9 @@ impl Render for RootView {
             if data_ready
                 && matches!(
                     current_id,
-                    Some("courses.catalog") | Some("courses.public_list")
+                    Some("courses.catalog")
+                        | Some("courses.public_list")
+                        | Some("account.workspace")
                 )
                 && !self.courses_started
                 && matches!(self.courses.state(), CoursesListState::Idle)
