@@ -2305,12 +2305,19 @@ fn course_row(
                 .flex_col()
                 .gap(px(2.0))
                 .child(div().text_color(palette.ink).child(course.title.clone()))
-                .child(
-                    div()
-                        .text_size(px(11.0))
-                        .text_color(palette.ink_3)
-                        .child(format!("{starts} · {price}")),
-                ),
+                .child(div().text_size(px(11.0)).text_color(palette.ink_3).child({
+                    let base = format!("{starts} · {price}");
+                    match course.registration_deadline.as_deref() {
+                        Some(deadline) => {
+                            let deadline = deadline.chars().take(10).collect::<String>();
+                            format!(
+                                "{base} · {} {deadline}",
+                                translate(language, Key::EventsListDeadline)
+                            )
+                        }
+                        None => base,
+                    }
+                })),
         )
         .child({
             let badge_key = course

@@ -147,6 +147,7 @@ fn course_pages_project_detail_and_catalog_rows() {
         enrollment_badge: None,
         pricing_enabled: false,
         starts_at: Some("2026-11-02".into()),
+        registration_deadline: None,
     };
 
     let (body, _) = project_course_detail(&detail, "page:/courses/course-1");

@@ -59,6 +59,7 @@ pub struct CourseSummary {
     pub enrollment_badge: Option<String>,
     pub pricing_enabled: bool,
     pub starts_at: Option<String>,
+    pub registration_deadline: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -237,6 +238,10 @@ impl HttpCoursesApi {
                 .unwrap_or(false),
             starts_at: value
                 .get("startsAt")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            registration_deadline: value
+                .get("registrationDeadline")
                 .and_then(Value::as_str)
                 .map(str::to_string),
         })
@@ -431,6 +436,7 @@ impl FakeCoursesApi {
                 enrollment_badge: None,
                 pricing_enabled: index % 3 == 0,
                 starts_at: Some(format!("2026-12-{:02}T09:00:00Z", (index % 28) + 1)),
+                registration_deadline: None,
             })
             .collect();
         Self {

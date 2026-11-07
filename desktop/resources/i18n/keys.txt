@@ -15,6 +15,7 @@ app.lang.zh
 app.lang.en
 account.workspace.title
 events.list.title
+events.list.deadline
 courses.catalog.title
 courses.public.title
 courses.public_detail.title

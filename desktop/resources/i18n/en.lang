@@ -14,6 +14,7 @@ app.lang.zh = 中文
 app.lang.en = English
 account.workspace.title = Workspace
 events.list.title = Events
+events.list.deadline = Closes
 courses.catalog.title = Courses
 courses.public.title = Public courses
 courses.public_detail.title = Course details

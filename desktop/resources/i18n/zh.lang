@@ -14,6 +14,7 @@ app.lang.zh = 中文
 app.lang.en = English
 account.workspace.title = 工作区
 events.list.title = 活动
+events.list.deadline = 截止
 courses.catalog.title = 课程
 courses.public.title = 公开课程
 courses.public_detail.title = 课程详情

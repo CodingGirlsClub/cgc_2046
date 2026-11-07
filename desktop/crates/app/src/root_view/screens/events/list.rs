@@ -124,11 +124,22 @@ pub(in crate::root_view) fn render_events_list(
                                             .venue
                                             .as_deref()
                                             .filter(|venue| !venue.trim().is_empty());
-                                        match (public_face, venue) {
+                                        let base = match (public_face, venue) {
                                             (true, Some(venue)) => {
                                                 format!("{starts} · {venue} · {price}")
                                             }
                                             _ => format!("{starts} · {price}"),
+                                        };
+                                        match event.registration_deadline.as_deref() {
+                                            Some(deadline) => {
+                                                let deadline =
+                                                    deadline.chars().take(10).collect::<String>();
+                                                format!(
+                                                    "{base} · {} {deadline}",
+                                                    translate(language, Key::EventsListDeadline)
+                                                )
+                                            }
+                                            None => base,
                                         }
                                     },
                                 )),
