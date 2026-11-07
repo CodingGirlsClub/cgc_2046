@@ -100,7 +100,10 @@ pub(in crate::root_view) fn render_participations(
                         if let Some(event_id) = event_id.as_deref() {
                             this.navigate_to_event_detail(event_id, cx);
                         } else if let Some(course_id) = course_id.as_deref() {
-                            this.navigate(&format!("/courses/{course_id}"));
+                            let path = this
+                                .workspace_path(&format!("/courses/{course_id}"))
+                                .unwrap_or_else(|| format!("/courses/{course_id}"));
+                            this.navigate(&path);
                         }
                         cx.notify();
                     }))

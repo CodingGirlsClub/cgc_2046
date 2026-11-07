@@ -168,7 +168,7 @@ fn learning_navigation_syncs_dock_memory_to_outline(cx: &mut TestAppContext) {
             open: true,
         };
 
-        root.navigate("/courses/crs-test/learn");
+        root.navigate("/w/2046/courses/crs-test/learn");
 
         assert_eq!(
             root.right_panel,

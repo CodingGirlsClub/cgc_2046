@@ -63,19 +63,19 @@ fn saved_workspace() -> WorkspaceEntry {
     WorkspaceEntry {
         tabs: vec![
             PersistedTab {
-                id: "page:/courses".into(),
+                id: "page:/w/layout-current/courses".into(),
                 title: "Courses".into(),
-                path: "/courses".into(),
+                path: "/w/layout-current/courses".into(),
                 issue_id: None,
             },
             PersistedTab {
-                id: "page:/events".into(),
+                id: "page:/w/layout-current/events".into(),
                 title: "Events".into(),
-                path: "/events".into(),
+                path: "/w/layout-current/events".into(),
                 issue_id: None,
             },
         ],
-        active_tab: Some("page:/courses".into()),
+        active_tab: Some("page:/w/layout-current/courses".into()),
         site_tree_courses_open: true,
         site_tree_query: "learning".into(),
         layout: Some(PanelLayout {
@@ -117,6 +117,36 @@ fn restored_root(cx: &mut TestAppContext) -> Entity<RootView> {
 }
 
 #[gpui_kit::test]
+fn restore_drops_tabs_belonging_to_another_workspace(cx: &mut TestAppContext) {
+    let _files = LayoutFiles::new();
+    let mut saved = saved_workspace();
+    saved.tabs.push(PersistedTab {
+        id: "page:/w/other/courses/c-1".into(),
+        title: "Other course".into(),
+        path: "/w/other/courses/c-1".into(),
+        issue_id: None,
+    });
+    workspace_state::save_entry("layout-current", saved);
+
+    let root = restored_root(cx);
+    root.update(cx, |root, _| {
+        assert!(
+            root.tabs
+                .iter()
+                .all(|tab| tab.path != "/w/other/courses/c-1"),
+            "tabs from another workspace must be dropped"
+        );
+        assert_eq!(root.tabs.len(), 2, "site-level tabs are kept");
+        assert!(
+            root.pane_notice
+                .as_deref()
+                .is_some_and(|notice| notice.contains("1 个")),
+            "dropping a tab must be reported once"
+        );
+    });
+}
+
+#[gpui_kit::test]
 fn workspace_layout_reset_inherits_defaults_after_navigation_and_reload(cx: &mut TestAppContext) {
     let _files = LayoutFiles::new();
     let saved = saved_workspace();
@@ -135,7 +165,7 @@ fn workspace_layout_reset_inherits_defaults_after_navigation_and_reload(cx: &mut
     let root = restored_root(cx);
     root.update(cx, |root, cx| {
         assert!(root.reset_workspace_layout(cx));
-        root.activate_tab("page:/events", cx);
+        root.activate_tab("page:/w/layout-current/events", cx);
     });
 
     preferences::update(|prefs| {
@@ -158,14 +188,20 @@ fn workspace_layout_reset_inherits_defaults_after_navigation_and_reload(cx: &mut
         assert_eq!(root.agent_panel_width, 420.0, "重载应使用新的默认宽度");
         assert_eq!(root.right_panel_width, 336.0);
         assert!(root.right_panel_open);
-        assert_eq!(root.active_tab.as_deref(), Some("page:/events"));
+        assert_eq!(
+            root.active_tab.as_deref(),
+            Some("page:/w/layout-current/events")
+        );
         assert_eq!(root.current().map(|route| route.id), Some("events.list"));
         assert_eq!(
             root.tabs
                 .iter()
                 .map(|tab| tab.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["page:/courses", "page:/events"]
+            vec![
+                "page:/w/layout-current/courses",
+                "page:/w/layout-current/events"
+            ]
         );
         assert!(root.site_tree_courses_open);
         assert_eq!(root.site_tree_query, "learning");
@@ -316,7 +352,10 @@ fn workspace_layout_reset_can_be_confirmed_with_tab_enter_and_space(cx: &mut Tes
                 root.agent_panel_width, 380.0,
                 "第二次激活应套用 Panels 默认值"
             );
-            assert_eq!(root.active_tab.as_deref(), Some("page:/courses"));
+            assert_eq!(
+                root.active_tab.as_deref(),
+                Some("page:/w/layout-current/courses")
+            );
         })
     });
     assert!(workspace_state::entry("layout-current")
@@ -407,7 +446,10 @@ fn workspace_layout_reset_keyboard_works_through_production_settings_entry(
                 root.agent_panel_width, 380.0,
                 "键盘确认应重置真实工作台布局"
             );
-            assert_eq!(root.active_tab.as_deref(), Some("page:/courses"));
+            assert_eq!(
+                root.active_tab.as_deref(),
+                Some("page:/w/layout-current/courses")
+            );
         })
     });
     assert!(workspace_state::entry("layout-current")

@@ -2531,7 +2531,18 @@ impl RootView {
         course_id: &str,
         cx: &mut Context<Self>,
     ) {
-        let path = format!("/courses/{course_id}");
+        let public_face = self.current.as_ref().is_some_and(|route_match| {
+            matches!(
+                route_match.route.id,
+                "courses.public_list" | "courses.public_detail"
+            )
+        });
+        let path = match (&self.workspaces.current(), public_face) {
+            (Some(workspace), false) => {
+                crate::routing::workspace_path(&workspace.slug, &format!("/courses/{course_id}"))
+            }
+            _ => format!("/courses/{course_id}"),
+        };
         let title = self
             .courses
             .items()
