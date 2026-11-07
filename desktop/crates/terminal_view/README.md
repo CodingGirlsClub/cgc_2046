@@ -19,6 +19,10 @@
 - 宽字符占两列：首格绘制完整 grapheme，尾格跳过。
 - 连续同色/同字重的 cell 合并成一个 `TextRun`，减少 shaping 次数。
 - 光标按 `FrameCursor` 画成 block（后续补 bar/underline 与闪烁）。
+- **整帧必须画在 `window.with_content_mask(Some(ContentMask { bounds }), ...)` 里**：
+  缺了它 quad 能画、glyph 却完全不出现。
+- 背景色取宿主主题（`palette.canvas`），前景取 `palette.ink`，光标取 `palette.accent`；
+  ANSI 调色板仍来自 libghostty-vt，浅色主题下的 ANSI 色对比度待映射（见缺口）。
 
 ## 键盘
 
@@ -32,3 +36,5 @@
 - IME 组合输入（目前只处理单字符按键）
 - 滚动条与回看
 - Cmd+C / Cmd+V 等宿主快捷键的让位
+- ANSI 调色板映射到应用主题（浅色主题下黄/绿对比度偏低）
+- 事件驱动重绘（当前 33ms 轮询）
