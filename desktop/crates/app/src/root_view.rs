@@ -3305,6 +3305,18 @@ mod tests {
     }
 
     #[test]
+    fn public_course_detail_switch_resets_the_loaded_detail() {
+        let mut view = view();
+        view.navigate("/courses/c-1");
+        view.state.course_detail_started = true;
+        view.navigate("/courses/c-2");
+        assert!(
+            !view.state.course_detail_started,
+            "switching course ids must drop the previous detail"
+        );
+    }
+
+    #[test]
     fn switching_between_public_and_workspace_resets_list_cache() {
         use cgc_courses::catalog::{CoursesListState, FakeCoursesApi};
         use cgc_platform::workspace::OfferingScope;
