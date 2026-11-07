@@ -8,36 +8,55 @@ pub(in crate::root_view) fn render_events_list(
     palette: &theme::Palette,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
+    let public_face = ctx
+        .current
+        .as_ref()
+        .is_some_and(|route_match| route_match.route.id == "events.public_list");
+    let title_key = if public_face {
+        Key::EventsPublicTitle
+    } else {
+        Key::EventsListTitle
+    };
+    let empty_key = if public_face {
+        Key::EventsPublicEmpty
+    } else {
+        Key::EventsListEmpty
+    };
     let filter = ctx.events.filter();
     let state = ctx.events.state().clone();
     let items = ctx.events.items().to_vec();
     let has_more = ctx.events.has_more();
     let selected = ctx.selected_event.clone();
 
-    let filters = StatusFilter::ALL
-        .iter()
-        .map(|candidate| {
-            let candidate = *candidate;
-            let active = candidate == filter;
-            div()
-                .id(format!("events-filter-{:?}", candidate).to_lowercase())
-                .px(space(1))
-                .py(px(3.0))
-                .rounded(px(RADIUS_MEDIUM))
-                .text_size(px(12.0))
-                .text_color(if active {
-                    palette.canvas
-                } else {
-                    palette.ink_2
-                })
-                .bg(if active { palette.accent } else { palette.soft })
-                .child(translate(language, filter_key(candidate)))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.select_events_filter(candidate, cx);
-                }))
-                .into_any_element()
-        })
-        .collect::<Vec<_>>();
+    let filters = if public_face {
+        Vec::new()
+    } else {
+        StatusFilter::ALL
+            .iter()
+            .map(|candidate| {
+                let candidate = *candidate;
+                let active = candidate == filter;
+                div()
+                    .id(format!("events-filter-{:?}", candidate).to_lowercase())
+                    .test_support()
+                    .px(space(1))
+                    .py(px(3.0))
+                    .rounded(px(RADIUS_MEDIUM))
+                    .text_size(px(12.0))
+                    .text_color(if active {
+                        palette.canvas
+                    } else {
+                        palette.ink_2
+                    })
+                    .bg(if active { palette.accent } else { palette.soft })
+                    .child(translate(language, filter_key(candidate)))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.select_events_filter(candidate, cx);
+                    }))
+                    .into_any_element()
+            })
+            .collect::<Vec<_>>()
+    };
 
     let body: AnyElement = match state {
         ListState::Idle | ListState::Loading => {
@@ -59,8 +78,12 @@ pub(in crate::root_view) fn render_events_list(
             })
             .into_any_element(),
         ListState::Empty => div()
+            .id("events-list-empty")
+            .test_support()
+            .role(Role::Status)
+            .aria_label(translate(language, empty_key).to_string())
             .text_color(palette.ink_3)
-            .child(translate(language, Key::EventsListEmpty))
+            .child(translate(language, empty_key))
             .into_any_element(),
         ListState::Ready => {
             let rows = items
@@ -95,26 +118,64 @@ pub(in crate::root_view) fn render_events_list(
                                 .flex_col()
                                 .gap(px(2.0))
                                 .child(div().text_color(palette.ink).child(event.title.clone()))
-                                .child(
-                                    div()
-                                        .text_size(px(11.0))
-                                        .text_color(palette.ink_3)
-                                        .child(format!("{starts} · {price}")),
-                                ),
+                                .child(div().text_size(px(11.0)).text_color(palette.ink_3).child(
+                                    {
+                                        let venue = event
+                                            .venue
+                                            .as_deref()
+                                            .filter(|venue| !venue.trim().is_empty());
+                                        match (public_face, venue) {
+                                            (true, Some(venue)) => {
+                                                format!("{starts} · {venue} · {price}")
+                                            }
+                                            _ => format!("{starts} · {price}"),
+                                        }
+                                    },
+                                )),
                         )
                         .child(
                             div()
                                 .flex()
                                 .items_center()
                                 .gap(space(1))
-                                .child(
+                                .child(if public_face {
+                                    let badge = event
+                                        .enrollment_badge
+                                        .as_deref()
+                                        .and_then(crate::root_view::nav_copy::enrollment_badge_key);
+                                    match badge {
+                                        Some(key) => {
+                                            let label = translate(language, key);
+                                            div()
+                                                .id(format!("event-badge-{}", event.id))
+                                                .test_support()
+                                                .aria_label(label.to_string())
+                                                .px(px(6.0))
+                                                .py(px(2.0))
+                                                .rounded(px(RADIUS_SMALL))
+                                                .bg(palette.soft)
+                                                .text_size(px(11.0))
+                                                .text_color(palette.ink_2)
+                                                .child(label)
+                                                .into_any_element()
+                                        }
+                                        None => event_status_tag(
+                                            event.status.as_str(),
+                                            translate(language, status_key(event.status.as_str()))
+                                                .into(),
+                                        )
+                                        .with_size(gpui_kit::component::Size::Small)
+                                        .into_any_element(),
+                                    }
+                                } else {
                                     event_status_tag(
                                         event.status.as_str(),
                                         translate(language, status_key(event.status.as_str()))
                                             .into(),
                                     )
-                                    .with_size(gpui_kit::component::Size::Small),
-                                )
+                                    .with_size(gpui_kit::component::Size::Small)
+                                    .into_any_element()
+                                })
                                 .child(div().text_size(px(11.0)).text_color(palette.ink_3).child(
                                     match (event.confirmed_count, event.capacity) {
                                         (Some(confirmed), Some(capacity)) => {
@@ -181,9 +242,13 @@ pub(in crate::root_view) fn render_events_list(
                 .justify_between()
                 .child(
                     div()
+                        .id("events-list-title")
+                        .test_support()
+                        .role(Role::Heading)
+                        .aria_label(translate(language, title_key).to_string())
                         .text_size(px(24.0))
                         .text_color(palette.ink)
-                        .child(translate_registered(language, "events.list.title")),
+                        .child(translate(language, title_key)),
                 )
                 .child(
                     div()

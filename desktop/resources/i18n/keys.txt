@@ -112,6 +112,10 @@ app.workspace.role.volunteer
 app.workspace.role.learner
 events.enroll.button
 events.enroll.enrolling
+enrollment.badge.enrolling
+enrollment.badge.starting_soon
+enrollment.badge.closed
+enrollment.badge.full
 events.enroll.tier
 events.enroll.age_confirm
 events.enroll.invite_required

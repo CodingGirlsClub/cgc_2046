@@ -2312,16 +2312,27 @@ fn course_row(
                         .child(format!("{starts} · {price}")),
                 ),
         )
-        .child(
+        .child({
+            let badge_key = course
+                .enrollment_badge
+                .as_deref()
+                .and_then(crate::root_view::nav_copy::enrollment_badge_key);
+            let label = match badge_key {
+                Some(key) => translate(language, key),
+                None => status_label(language, course.status.as_str()),
+            };
             div()
+                .id(format!("course-badge-{}", course.id))
+                .test_support()
+                .aria_label(label.to_string())
                 .px(px(6.0))
                 .py(px(2.0))
                 .rounded(px(RADIUS_SMALL))
                 .bg(palette.soft)
                 .text_size(px(11.0))
                 .text_color(palette.ink_2)
-                .child(status_label(language, course.status.as_str())),
-        )
+                .child(label)
+        })
         .on_click(cx.listener(move |this, _, _, cx| {
             this.navigate_to_course_detail(&course_id, cx);
             cx.notify();

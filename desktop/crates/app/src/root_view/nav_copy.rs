@@ -46,6 +46,16 @@ pub(in crate::root_view) const SITE_TREE_COMMUNITY: &[SiteTreeEntrySpec] = &[
     },
 ];
 
+pub(in crate::root_view) fn enrollment_badge_key(badge: &str) -> Option<Key> {
+    match badge {
+        "enrolling" => Some(Key::EnrollmentBadgeEnrolling),
+        "starting_soon" => Some(Key::EnrollmentBadgeStartingSoon),
+        "closed" => Some(Key::EnrollmentBadgeClosed),
+        "full" => Some(Key::EnrollmentBadgeFull),
+        _ => None,
+    }
+}
+
 pub(in crate::root_view) fn event_detail_back_key(route_id: &str) -> Key {
     if route_id == "events.public_detail" {
         Key::EventsPublicDetailBack
@@ -85,6 +95,24 @@ mod tests {
         assert_eq!(SITE_TREE_MINE[1].path, "/learning");
         assert_eq!(SITE_TREE_COMMUNITY[0].path, "/events");
         assert_eq!(SITE_TREE_COMMUNITY[1].path, "/courses");
+    }
+
+    #[test]
+    fn enrollment_badges_map_to_web_copy() {
+        assert_eq!(
+            enrollment_badge_key("enrolling"),
+            Some(Key::EnrollmentBadgeEnrolling)
+        );
+        assert_eq!(
+            enrollment_badge_key("starting_soon"),
+            Some(Key::EnrollmentBadgeStartingSoon)
+        );
+        assert_eq!(
+            enrollment_badge_key("closed"),
+            Some(Key::EnrollmentBadgeClosed)
+        );
+        assert_eq!(enrollment_badge_key("full"), Some(Key::EnrollmentBadgeFull));
+        assert_eq!(enrollment_badge_key("unknown"), None);
     }
 
     #[test]
