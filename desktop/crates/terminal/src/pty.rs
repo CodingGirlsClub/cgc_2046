@@ -12,6 +12,9 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 
 use crate::{GridSize, Result, TerminalCore};
 
+/// 单次 [`Session::poll`] 最多喂给 VT 解析器的字节数。
+const MAX_BYTES_PER_POLL: usize = 2 * 1024 * 1024;
+
 /// 子进程退出信息（不把 portable-pty 的类型泄漏出去）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExitInfo {
@@ -83,7 +86,9 @@ impl Session {
     pub fn poll(&mut self) -> Result<PollResult> {
         let mut fed_bytes = 0;
         if !self.output_closed {
-            loop {
+            // 单次最多解析 2 MiB：进程狂输出（`yes`、大文件 cat）时保证一帧
+            // 的解析时间可控，剩余数据留在 channel 里下一帧继续。
+            while fed_bytes < MAX_BYTES_PER_POLL {
                 match self.output.try_recv() {
                     Ok(chunk) => {
                         fed_bytes += chunk.len();

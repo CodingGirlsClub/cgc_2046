@@ -264,4 +264,41 @@ mod tests {
         assert!(core.update_frame().unwrap());
         assert!(!core.update_frame().unwrap(), "second update is clean");
     }
+
+    #[test]
+    fn resize_updates_frame_dimensions() {
+        let mut core = TerminalCore::new(grid(20, 3)).unwrap();
+        core.feed(b"abc");
+        core.update_frame().unwrap();
+        assert_eq!(core.frame().size(), grid(20, 3));
+
+        core.resize(grid(10, 2), 0, 0).unwrap();
+        core.update_frame().unwrap();
+        assert_eq!(core.frame().size(), grid(10, 2));
+        assert_eq!(core.frame().rows().len(), 2);
+        assert_eq!(core.frame().rows()[0].cells.len(), 10);
+    }
+
+    #[test]
+    fn marks_spacer_tail_after_wide_char() {
+        let mut core = TerminalCore::new(grid(6, 2)).unwrap();
+        core.feed("中a".as_bytes());
+        core.update_frame().unwrap();
+
+        let cells = &core.frame().rows()[0].cells;
+        assert!(cells[0].wide);
+        assert!(cells[1].spacer_tail);
+        assert_eq!(cells[2].text, "a");
+    }
+
+    #[test]
+    fn selection_marks_row_range() {
+        let mut core = TerminalCore::new(grid(10, 2)).unwrap();
+        core.feed(b"hello");
+        core.set_selection((1, 0), (3, 0)).unwrap();
+        core.update_frame().unwrap();
+
+        let row = &core.frame().rows()[0];
+        assert_eq!(row.selected, Some((1, 3)));
+    }
 }

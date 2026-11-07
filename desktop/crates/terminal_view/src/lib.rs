@@ -165,8 +165,7 @@ impl TerminalView {
         };
         let mut changed = false;
         if result.fed_bytes > 0 {
-            let _ = self.session.core_mut().update_frame();
-            changed = true;
+            changed |= self.session.core_mut().update_frame().unwrap_or(false);
         }
         for event in self.session.core_mut().take_events() {
             match event {
