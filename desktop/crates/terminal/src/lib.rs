@@ -1,16 +1,20 @@
-//! 终端核心：libghostty-vt（VT 解析 / 屏幕状态 / 渲染快照）。
+//! 终端核心：libghostty-vt（VT 解析 / 屏幕状态 / 渲染快照）+ PTY 会话。
 //!
 //! libghostty-vt 的句柄全部是 `!Send + !Sync`（C API 不承诺线程安全），
-//! 因此本类型必须在同一线程创建、使用和释放；PTY 读线程只能通过 channel
-//! 把字节送进来，不能共享终端。
+//! 因此本 crate 的类型必须在同一线程创建、使用和释放；PTY 读线程只通过
+//! channel 把字节送进来，不能共享终端。
 //!
-//! 这一层只做「字节 → 屏幕状态」，不涉及 GPUI、不涉及进程管理。
+//! 这一层不依赖 GPUI；渲染与面板集成在 `terminal_view`。
 
 use std::error::Error;
 
 use libghostty_vt::render::{CellIterator, RowIterator};
 use libghostty_vt::{RenderState, Terminal};
 use unicode_width::UnicodeWidthChar;
+
+mod pty;
+
+pub use pty::{ExitInfo, PollResult, Session};
 
 pub type Result<T, E = Box<dyn Error + Send + Sync>> = std::result::Result<T, E>;
 

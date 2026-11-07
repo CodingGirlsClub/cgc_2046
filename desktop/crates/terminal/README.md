@@ -32,13 +32,29 @@ HTTP 客户端不可靠（socks 代理会得到 400），CI 要保证直连或�
 export GHOSTTY_SOURCE_DIR=/path/to/ghostty-src
 ```
 
-## 许可证
+## 会话层（M1）
 
-- `libghostty-vt`：MIT OR Apache-2.0
-- `portable-pty`：MIT
-- `unicode-width`：MIT OR Apache-2.0
+```rust
+let mut session = Session::spawn_default(GridSize { cols: 80, rows: 24 })?;
+// UI 每帧调用一次：排空 PTY 输出、喂给 VT、检查子进程
+let poll = session.poll()?;
+let lines = session.screen_text()?;
+session.write(b"ls\r")?;          // 键盘/粘贴字节
+session.resize(GridSize { cols: 100, rows: 30 })?;
+```
 
-均与 AGPL-3.0 兼容。
+线程模型（由 `!Send` 决定）：
+
+```
+PTY 子进程 ──read──> 读线程 ──channel(Vec<u8>)──> owner 线程：Session::poll → TerminalCore::feed
+owner 线程 ──write_all──> PTY master
+```
+
+- `TerminalCore`、`RenderState` 永远在 owner 线程（桌面端是 GPUI 主线程）。
+- 读线程只持有 `Box<dyn Read + Send>` 和 channel，不接触 VT 状态。
+- `Session::poll` 非阻塞；`exit` 每次返回当前已知状态，`None` 表示仍在运行。
+- `Drop` 会 kill 并回收子进程，不会留僵尸。
+- 子进程环境固定设置 `TERM=xterm-256color`、`COLORTERM=truecolor`、`TERM_PROGRAM=cgc-desktop`。
 
 ## 测试
 
@@ -46,4 +62,15 @@ export GHOSTTY_SOURCE_DIR=/path/to/ghostty-src
 cargo test -p cgc-terminal
 ```
 
-覆盖：纯文本/样式、光标移动与擦除、双宽字符（CJK/emoji）、resize 后 reflow。
+覆盖：
+
+- VT 核心：样式化文本、光标移动与擦除、双宽字符（CJK/emoji）、resize 后 reflow
+- 会话层：输出捕获 + 退出码、写入到达子进程、resize 传播到 PTY（`stty size` 断言）
+
+## 许可证
+
+- `libghostty-vt`：MIT OR Apache-2.0
+- `portable-pty`：MIT
+- `unicode-width`：MIT OR Apache-2.0
+
+均与 AGPL-3.0 兼容。
