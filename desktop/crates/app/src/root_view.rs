@@ -2625,6 +2625,7 @@ fn render_panel_resize_handle(
                         this.right_panel_width = (start_width + delta).clamp(dock_min, max)
                     }
                 }
+                this.workspace_layout_overridden = true;
                 cx.spawn(async move |this, cx| {
                     cx.background_executor()
                         .timer(std::time::Duration::from_millis(250))
@@ -2703,6 +2704,51 @@ mod tests {
         view.state.active_tab = Some(tab.id.clone());
         view.state.tabs.push(tab);
         view.navigate(path);
+    }
+
+    #[test]
+    fn reset_workspace_layout_keeps_navigation_and_restores_panel_defaults() {
+        use super::state::{PanelMemory, RightPanel};
+
+        let mut view = view();
+        view.agent_panel_open = false;
+        view.right_panel_open = false;
+        view.right_panel = RightPanel::Outline;
+        view.panel_memory = PanelMemory {
+            panel: RightPanel::Outline,
+            open: false,
+        };
+        view.agent_panel_width = 500.0;
+        view.right_panel_width = 400.0;
+        view.site_tree_courses_open = true;
+        view.site_tree_query = "hitl".to_string();
+        activate_context_tab(&mut view, "/courses", "课程");
+
+        let preferences = crate::preferences::Preferences {
+            agent_panel_width: 420.0,
+            dock_width: 300.0,
+            agent_panel_side: crate::preferences::PanelSide::Right,
+            dock_side: crate::preferences::PanelSide::Left,
+            dock_starts_open: false,
+            ..Default::default()
+        };
+        view.apply_panel_defaults(&preferences);
+
+        // 导航记忆保留：标签、active tab、站点树展开与搜索。
+        assert_eq!(view.tabs.len(), 1);
+        assert_eq!(view.active_tab.as_deref(), Some("page:/courses"));
+        assert!(view.site_tree_courses_open);
+        assert_eq!(view.site_tree_query, "hitl");
+        // 布局回到 Panels 默认值。
+        assert_eq!(view.agent_panel_width, 420.0);
+        assert_eq!(view.right_panel_width, 300.0);
+        assert!(view.agent_panel_open);
+        assert!(!view.right_panel_open);
+        assert_eq!(view.right_panel, RightPanel::SiteTree);
+        assert_eq!(view.panel_memory.panel, RightPanel::SiteTree);
+        assert!(!view.panel_memory.open);
+        assert_eq!(view.agent_panel_side, crate::preferences::PanelSide::Right);
+        assert_eq!(view.dock_side, crate::preferences::PanelSide::Left);
     }
 
     fn context_prompt(view: &RootView, agent: &str) -> String {

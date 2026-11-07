@@ -149,8 +149,9 @@ fn normal_panel_toggle_persists_dock_memory(cx: &mut TestAppContext) {
             "切换普通面板应同步 dock 记忆"
         );
         let saved = workspace_state::entry(&workspace_id).expect("切换普通面板必须落盘");
-        assert_eq!(saved.right_panel, PersistedRightPanel::Outline);
-        assert!(saved.right_panel_open);
+        let layout = saved.layout.expect("普通面板切换必须保存布局覆盖");
+        assert_eq!(layout.right_panel, PersistedRightPanel::Outline);
+        assert!(layout.right_panel_open);
     });
 }
 

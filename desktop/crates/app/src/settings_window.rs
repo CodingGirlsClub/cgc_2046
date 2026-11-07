@@ -12,6 +12,7 @@ use cgc_agent_provider::{
     validate_credentials, ProviderError, ProviderErrorCategory, ProviderProtocol, ThinkingMode,
 };
 use cgc_agent_store::{builtin_providers, normalized_provider_name, ProviderPrefs};
+use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::group_box::GroupBoxVariant;
 use gpui_kit::component::input::{Input, InputState, TextareaState};
@@ -20,6 +21,7 @@ use gpui_kit::component::setting::{
 };
 use gpui_kit::component::Sizable;
 use gpui_kit::component::TitleBar;
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::InteractiveElement;
 use gpui_kit::*;
 
@@ -72,6 +74,9 @@ pub struct SettingsWindowView {
     /// Stage 3.3：清空 ACP 对话历史的二次确认状态与结果提示。
     clear_acp_history_armed: Arc<AtomicBool>,
     clear_acp_history_notice: Arc<Mutex<Option<String>>>,
+    /// 「重置当前工作台布局」的二次确认状态与结果提示。
+    reset_workspace_layout_armed: Arc<AtomicBool>,
+    reset_workspace_layout_notice: Arc<Mutex<Option<String>>>,
     /// 主窗口弱引用：显示偏好保存后立即应用。
     root: WeakEntity<crate::root_view::RootView>,
 }
@@ -124,6 +129,8 @@ impl SettingsWindowView {
             runtime,
             clear_acp_history_armed: Arc::new(AtomicBool::new(false)),
             clear_acp_history_notice: Arc::new(Mutex::new(None)),
+            reset_workspace_layout_armed: Arc::new(AtomicBool::new(false)),
+            reset_workspace_layout_notice: Arc::new(Mutex::new(None)),
             root,
         }
     }
@@ -1042,6 +1049,77 @@ impl SettingsWindowView {
             ),
         )
         .description(translate(language, Key::AppSettingsDockShowUnenrolledHint));
+        // 重置当前工作台布局：只清布局字段，保留已打开标签（与 Zed 的
+        // ResetActiveDockSize 同语义，不碰 tabs）。二次确认防止误触。
+        let reset_armed = self.reset_workspace_layout_armed.clone();
+        let reset_notice = self.reset_workspace_layout_notice.clone();
+        let reset_root = self.root.clone();
+        let reset_weak = weak.clone();
+        let reset_workspace_layout =
+            SettingItem::render(move |_options, _window, cx| {
+                let palette = theme::palette_from_theme(cx);
+                let armed = reset_armed.load(Ordering::Relaxed);
+                let notice = reset_notice.lock().ok().and_then(|notice| notice.clone());
+                let armed_for_click = reset_armed.clone();
+                let notice_for_click = reset_notice.clone();
+                let weak_for_click = reset_weak.clone();
+                let root_for_click = reset_root.clone();
+                let mut column =
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(3.0))
+                        .child(div().text_size(px(11.0)).text_color(palette.ink_3).child(
+                            translate(language, Key::AppSettingsResetWorkspaceLayoutHint),
+                        ))
+                        .child(
+                            Button::new("settings-reset-workspace-layout")
+                                .outline()
+                                .small()
+                                .when(armed, |button| button.danger())
+                                .label(translate(
+                                    language,
+                                    if armed {
+                                        Key::AppSettingsResetWorkspaceLayoutArmed
+                                    } else {
+                                        Key::AppSettingsResetWorkspaceLayout
+                                    },
+                                ))
+                                .on_click(move |_, _, cx| {
+                                    if !armed_for_click.load(Ordering::Relaxed) {
+                                        armed_for_click.store(true, Ordering::Relaxed);
+                                    } else {
+                                        let reset = root_for_click
+                                            .update(cx, |view, cx| view.reset_workspace_layout(cx))
+                                            .unwrap_or(false);
+                                        armed_for_click.store(false, Ordering::Relaxed);
+                                        if let Ok(mut notice) = notice_for_click.lock() {
+                                            *notice = Some(
+                                        translate(
+                                            language,
+                                            if reset {
+                                                Key::AppSettingsResetWorkspaceLayoutDone
+                                            } else {
+                                                Key::AppSettingsResetWorkspaceLayoutNoWorkspace
+                                            },
+                                        )
+                                        .to_string(),
+                                    );
+                                        }
+                                    }
+                                    let _ = weak_for_click.update(cx, |_this, cx| cx.notify());
+                                }),
+                        );
+                if let Some(notice) = notice {
+                    column = column.child(
+                        div()
+                            .text_size(px(10.0))
+                            .text_color(palette.ink_3)
+                            .child(notice),
+                    );
+                }
+                column.into_any_element()
+            });
         let native_agent = SettingItem::new(
             "使用 Native Agent 运行时",
             SettingField::switch(
@@ -1568,6 +1646,9 @@ impl SettingsWindowView {
                             dock_width,
                             dock_show_unenrolled,
                         ]),
+                    SettingGroup::new()
+                        .title(translate(language, Key::AppSettingsWorkspace))
+                        .item(reset_workspace_layout),
                 ]),
         )
         .page(ai_page)
@@ -1609,7 +1690,7 @@ fn save_display_width(
 ) -> impl Fn(f64, &mut App) + 'static {
     move |value: f64, cx: &mut App| {
         preferences::update(|prefs| update(prefs, value));
-        let _ = root.update(cx, |view, cx| view.apply_default_widths_if_unrecorded(cx));
+        let _ = root.update(cx, |view, cx| view.apply_default_panel_widths(cx));
     }
 }
 
