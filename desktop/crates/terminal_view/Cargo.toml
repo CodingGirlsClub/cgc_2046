@@ -1,0 +1,10 @@
+[package]
+name = "cgc-terminal-view"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+cgc-terminal.workspace = true
+gpui-kit.workspace = true

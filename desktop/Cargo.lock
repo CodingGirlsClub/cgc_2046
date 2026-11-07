@@ -1106,6 +1106,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cgc-terminal-view"
+version = "0.1.0"
+dependencies = [
+ "cgc-terminal",
+ "gpui-kit",
+]
+
+[[package]]
 name = "chacha20"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

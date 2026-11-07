@@ -18,6 +18,9 @@ mod pty;
 pub use frame::{Frame, FrameCell, FrameColors, FrameCursor, FrameRow};
 pub use pty::{ExitInfo, PollResult, Session};
 
+/// 终端颜色类型（libghostty-vt 的 `RgbColor`），供视图层使用。
+pub use libghostty_vt::style::RgbColor as FrameColor;
+
 pub type Result<T, E = Box<dyn Error + Send + Sync>> = std::result::Result<T, E>;
 
 /// 终端尺寸：以字符单元为单位。
