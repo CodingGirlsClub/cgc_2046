@@ -504,12 +504,10 @@ fn render_site_tree(
         .filter(|route_match| route_match.route.id.starts_with("courses."))
         .and_then(|route_match| route_match.params.get("id"))
         .cloned();
-    let active_issue = ctx.active_tab.as_deref().and_then(|active| {
-        ctx.tabs
-            .iter()
-            .find(|tab| tab.id == active)
-            .and_then(|tab| tab.issue_id.clone())
-    });
+    let active_issue = ctx
+        .current
+        .as_ref()
+        .and_then(|route_match| route_match.query.get("issue").cloned());
     let active_path = ctx
         .current
         .as_ref()
@@ -518,7 +516,7 @@ fn render_site_tree(
             for (key, value) in &route_match.params {
                 path = path.replace(&format!(":{key}"), value);
             }
-            path
+            crate::routing::path_with_query(&path, &route_match.query)
         })
         .or_else(|| {
             ctx.active_tab.as_deref().and_then(|active| {
@@ -1004,12 +1002,10 @@ fn render_outline(
     let outline = build_outline(&content.document);
     let projection = ctx.projection.projection().cloned();
     let course_id = content.course_id.clone();
-    let active_issue = ctx.active_tab.as_deref().and_then(|active| {
-        ctx.tabs
-            .iter()
-            .find(|tab| tab.id == active)
-            .and_then(|tab| tab.issue_id.clone())
-    });
+    let active_issue = ctx
+        .current
+        .as_ref()
+        .and_then(|route_match| route_match.query.get("issue").cloned());
     let mut rows = Vec::new();
     rows.push(
         div()

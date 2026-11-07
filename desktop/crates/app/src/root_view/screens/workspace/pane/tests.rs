@@ -81,10 +81,8 @@ fn open_pane_probe(
 #[gpui_kit::test]
 fn authorization_failure_and_long_notices_keep_restored_tabs_visible(cx: &mut TestAppContext) {
     let (handle, root, probe) = open_pane_probe(cx, |root| {
-        root.state.tabs.push(PaneTab::issue(
-            "/w/2046/courses/course-test/learn",
-            "course-test",
-            "unit-test",
+        root.state.tabs.push(PaneTab::page(
+            "/w/2046/courses/course-test/learn?issue=unit-test",
             "Temperature and measurement",
         ));
         root.state.active_tab = Some(root.state.tabs[0].id.clone());
@@ -113,8 +111,10 @@ fn authorization_failure_and_long_notices_keep_restored_tabs_visible(cx: &mut Te
         }
         root.update(cx, |root, _| {
             assert_eq!(root.state.tabs.len(), 1);
-            assert_eq!(root.state.active_tab.as_deref(), Some("issue:course-test:unit-test"));
-
+            assert_eq!(
+                root.state.active_tab.as_deref(),
+                Some("page:/w/2046/courses/course-test/learn?issue=unit-test")
+            );
         });
         println!("Actual TabBar: restored tab visible at 740/320px; authorization retry and long notices occupy separate rows");
     }).unwrap();

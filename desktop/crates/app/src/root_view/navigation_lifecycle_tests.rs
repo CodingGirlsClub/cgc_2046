@@ -136,12 +136,15 @@ fn cross_workspace_issue_survives_full_root_render_and_workspace_restore(cx: &mu
         alpha.active_tab.as_deref(),
         Some("page:/courses/crs-001/learn")
     );
-    assert!(alpha.tabs.iter().all(|tab| tab.issue_id.is_none()));
+    assert!(alpha
+        .tabs
+        .iter()
+        .all(|tab| crate::routing::issue_of(&tab.path).is_none()));
     let beta = workspace_state::entry("ws-beta").expect("target workspace saved");
     assert!(beta
         .tabs
         .iter()
-        .any(|tab| tab.issue_id.as_deref() == Some("issue-target")));
+        .any(|tab| crate::routing::issue_of(&tab.path) == Some("issue-target")));
     root.update(cx, |root, cx| root.switch_workspace("ws-alpha", cx));
     cx.update_window(window, |_, window, cx| window.render_frame(cx))
         .unwrap();

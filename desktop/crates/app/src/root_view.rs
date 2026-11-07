@@ -2243,6 +2243,7 @@ fn initial_route(
             return Some(RouteMatch {
                 route,
                 params: std::collections::BTreeMap::new(),
+                query: std::collections::BTreeMap::new(),
             });
         }
     }
@@ -2253,6 +2254,7 @@ fn initial_route(
     registry.routes().first().copied().map(|route| RouteMatch {
         route,
         params: std::collections::BTreeMap::new(),
+        query: std::collections::BTreeMap::new(),
     })
 }
 
@@ -3059,14 +3061,11 @@ mod tests {
         for focused_issue in [false, true] {
             activate_context_tab(&mut view, "/w/2046/courses/course-a/learn", "Course A");
             if focused_issue {
-                let tab = super::state::PaneTab::issue(
-                    "/w/2046/courses/course-a/learn",
-                    "course-a",
-                    "issue-a",
+                activate_context_tab(
+                    &mut view,
+                    "/w/2046/courses/course-a/learn?issue=issue-a",
                     "Ownership",
                 );
-                view.state.active_tab = Some(tab.id.clone());
-                view.state.tabs.push(tab);
             }
             view.state.content.begin_load("course-a");
             view.state.content.adopt(content.clone());
@@ -3214,14 +3213,11 @@ mod tests {
     #[test]
     fn course_context_keeps_route_identity_before_detail_loads() {
         let mut view = view();
-        view.state.tabs.push(super::state::PaneTab::issue(
-            "/w/2046/courses/course-a/learn",
-            "course-a",
-            "unit-a",
+        activate_context_tab(
+            &mut view,
+            "/w/2046/courses/course-a/learn?issue=unit-a",
             "First task",
-        ));
-        view.state.active_tab = Some("issue:course-a:unit-a".into());
-        view.navigate("/w/2046/courses/course-a/learn");
+        );
         view.refresh_page_context();
         let page = view.page_context.visible().unwrap();
         let course = page.course.unwrap();

@@ -49,13 +49,12 @@ pub(in crate::root_view) fn toggled_right_panel(
     }
 }
 
-/// 中心 Pane 的一个 Tab。page tab 以 path 唯一；issue tab 以课程+卡唯一。
+/// 中心 Pane 的一个 Tab：身份就是完整地址（含 `?issue=` 这类定位参数）。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::root_view) struct PaneTab {
     pub id: String,
     pub title: String,
     pub path: String,
-    pub issue_id: Option<String>,
 }
 
 impl PaneTab {
@@ -64,21 +63,6 @@ impl PaneTab {
             id: format!("page:{path}"),
             title: title.into(),
             path: path.to_string(),
-            issue_id: None,
-        }
-    }
-
-    pub(in crate::root_view) fn issue(
-        path: &str,
-        course_id: &str,
-        issue_id: &str,
-        title: impl Into<String>,
-    ) -> Self {
-        Self {
-            id: format!("issue:{course_id}:{issue_id}"),
-            title: title.into(),
-            path: path.to_string(),
-            issue_id: Some(issue_id.to_string()),
         }
     }
 }
@@ -540,44 +524,37 @@ mod tests {
     }
 
     #[test]
-    fn pane_issue_tab_keeps_the_given_path() {
-        let tab = PaneTab::issue(
-            "/w/2046/courses/course-1/learn",
-            "course-1",
-            "issue-1",
-            "Card",
+    fn issue_tab_identity_lives_in_its_address() {
+        let card = PaneTab::page("/w/2046/courses/course-1/learn?issue=issue-1", "Card");
+        let lesson = PaneTab::page("/w/2046/courses/course-1/learn", "Course");
+        assert_eq!(card.id, "page:/w/2046/courses/course-1/learn?issue=issue-1");
+        assert_ne!(
+            card.path, lesson.path,
+            "cards and the lesson are distinct pages"
         );
-        assert_eq!(tab.id, "issue:course-1:issue-1");
-        assert_eq!(tab.path, "/w/2046/courses/course-1/learn");
-        assert_eq!(tab.issue_id.as_deref(), Some("issue-1"));
+        assert_eq!(
+            crate::routing::issue_of(&card.path),
+            Some("issue-1"),
+            "the card id is read back from the address"
+        );
     }
 
     #[test]
     fn navigating_keeps_a_matching_active_tab_and_clears_a_stale_one() {
-        let issue_a = PaneTab::issue(
-            "/w/2046/courses/course-1/learn",
-            "course-1",
-            "issue-1",
-            "Card A",
-        );
-        let issue_b = PaneTab::issue(
-            "/w/2046/courses/course-1/learn",
-            "course-1",
-            "issue-2",
-            "Card B",
-        );
+        let issue_a = PaneTab::page("/w/2046/courses/course-1/learn?issue=issue-1", "Card A");
+        let issue_b = PaneTab::page("/w/2046/courses/course-1/learn?issue=issue-2", "Card B");
         let event = PaneTab::page("/w/2046/events/event-1", "Event");
         let tabs = vec![issue_a.clone(), issue_b.clone(), event.clone()];
 
         assert_eq!(
             active_tab_for_path(&tabs, Some(issue_b.id.as_str()), &issue_b.path),
             Some(issue_b.id.clone()),
-            "same-path issue tab keeps the user's current card"
+            "same-address card keeps the user's current card"
         );
         assert_eq!(
             active_tab_for_path(&tabs, Some(event.id.as_str()), &issue_a.path),
             Some(issue_a.id.clone()),
-            "a different active tab moves to the first tab for the new path"
+            "a different active tab moves to the tab for the new address"
         );
         assert_eq!(
             active_tab_for_path(&tabs, Some(issue_a.id.as_str()), "/settings"),

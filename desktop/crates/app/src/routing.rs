@@ -11,11 +11,13 @@ use std::collections::BTreeMap;
 
 pub use cgc_platform::routes::Route;
 
-/// 一次成功匹配：路由 + 动态段参数（`id` → "evt-001"）。
+/// 一次成功匹配：路由 + 动态段参数（`id` → "evt-001"）+ query 定位参数。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RouteMatch {
     pub route: Route,
     pub params: BTreeMap<&'static str, String>,
+    /// 地址里的 query（如 `issue`）；不参与路由匹配，但属于页面身份。
+    pub query: BTreeMap<String, String>,
 }
 
 /// 路由选择结果：命中或落回空态页。
@@ -84,11 +86,13 @@ impl RouteRegistry {
     }
 
     pub fn select_with_diagnostic(&self, path: &str) -> (RouteSelection, Option<&'static str>) {
+        let (path, query) = split_query(path);
         if let Some(route) = self.routes.iter().find(|route| route.path == path) {
             return (
                 RouteSelection::Match(RouteMatch {
                     route: *route,
                     params: BTreeMap::new(),
+                    query,
                 }),
                 None,
             );
@@ -137,6 +141,7 @@ impl RouteRegistry {
             let candidate = RouteMatch {
                 route: *route,
                 params,
+                query: query.clone(),
             };
             match &best {
                 Some((best_static, _)) if *best_static >= static_segments => {}
@@ -231,34 +236,66 @@ pub(crate) fn route_workspace_action(
     }
 }
 
-/// 去掉 `/w/<slug>` 前缀，得到站点级相对路径；概览返回 `/`。
-pub(crate) fn without_workspace_prefix(path: &str) -> &str {
-    let Some(slug) = workspace_slug(path) else {
-        return path;
-    };
-    let Some(rest) = path
-        .strip_prefix("/w/")
-        .and_then(|rest| rest.strip_prefix(slug))
-    else {
-        return path;
-    };
-    if rest.is_empty() {
-        "/"
-    } else if rest.starts_with('/') {
-        rest
-    } else {
-        path
-    }
-}
-
 /// 工作区面路径：`slug` + 以 `/` 开头的后缀；空后缀得到概览。
 pub(crate) fn workspace_path(slug: &str, suffix: &str) -> String {
     debug_assert!(suffix.is_empty() || suffix.starts_with('/'));
     format!("/w/{slug}{suffix}")
 }
 
+/// 地址拆成「路由用路径」与 query 参数；query 不参与路由匹配。
+pub(crate) fn split_query(path: &str) -> (&str, BTreeMap<String, String>) {
+    let Some((base, query)) = path.split_once('?') else {
+        return (path, BTreeMap::new());
+    };
+    let params = query
+        .split('&')
+        .filter_map(|pair| {
+            let (key, value) = pair.split_once('=')?;
+            (!key.is_empty() && is_safe_query_value(value))
+                .then(|| (key.to_string(), value.to_string()))
+        })
+        .collect();
+    (base, params)
+}
+
+/// 把 query 参数拼回地址；空表原样返回路径，顺序由 `BTreeMap` 固定。
+pub(crate) fn path_with_query(base: &str, query: &BTreeMap<String, String>) -> String {
+    if query.is_empty() {
+        return base.to_string();
+    }
+    let pairs = query
+        .iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join("&");
+    format!("{base}?{pairs}")
+}
+
+/// 学习页地址里的 issue 定位参数（迁移与回归断言用）。
+#[cfg(test)]
+pub(crate) fn issue_of(path: &str) -> Option<&str> {
+    let (_, query) = path.split_once('?')?;
+    query.split('&').find_map(|pair| {
+        let (key, value) = pair.split_once('=')?;
+        (key == "issue" && is_safe_query_value(value)).then_some(value)
+    })
+}
+
+/// 学习卡地址；issue 不能安全编码进 query 时返回 `None`（调用方退回整课页）。
+pub(crate) fn path_with_issue(base: &str, issue_id: &str) -> Option<String> {
+    is_safe_query_value(issue_id).then(|| format!("{base}?issue={issue_id}"))
+}
+
+fn is_safe_query_value(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+}
+
 /// `/w/<slug>` 前缀里的工作区 slug；站点级路径返回 `None`。
 pub(crate) fn workspace_slug(path: &str) -> Option<&str> {
+    let (path, _) = split_query(path);
     let mut segments = path.split('/').filter(|segment| !segment.is_empty());
     if segments.next()? != "w" {
         return None;
@@ -505,17 +542,61 @@ mod tests {
     }
 
     #[test]
-    fn workspace_prefix_is_stripped_for_relative_parsing() {
+    fn learning_address_carries_the_card_as_query() {
+        let mut registry = registry();
+        registry
+            .register(Route::new(
+                "courses.learning",
+                "/w/:slug/courses/:id/learn",
+                "courses.learning.title",
+                NavIcon::Courses,
+            ))
+            .expect("learning route");
+        let selection = registry.select("/w/2046/courses/c-1/learn?issue=unit-1");
+        let RouteSelection::Match(route_match) = selection else {
+            panic!("learning address must match");
+        };
+        assert_eq!(route_match.route.id, "courses.learning");
         assert_eq!(
-            without_workspace_prefix("/w/2046/courses/c-1/learn"),
-            "/courses/c-1/learn"
+            route_match.params.get("id").map(String::as_str),
+            Some("c-1")
         );
-        assert_eq!(without_workspace_prefix("/w/2046"), "/");
-        assert_eq!(without_workspace_prefix("/learning"), "/learning");
+        let base = "/w/2046/courses/c-1/learn";
         assert_eq!(
-            without_workspace_prefix("/w/2046%20x/events"),
-            "/w/2046%20x/events"
+            path_with_query(base, &route_match.query),
+            "/w/2046/courses/c-1/learn?issue=unit-1"
         );
+        assert_eq!(
+            issue_of("/w/2046/courses/c-1/learn?issue=unit-1"),
+            Some("unit-1")
+        );
+        assert_eq!(
+            workspace_slug("/w/2046/courses/c-1/learn?issue=unit-1"),
+            Some("2046")
+        );
+        assert!(tab_belongs_to(
+            "/w/2046/courses/c-1/learn?issue=unit-1",
+            Some("2046")
+        ));
+        assert!(!tab_belongs_to(
+            "/w/2046/courses/c-1/learn?issue=unit-1",
+            Some("other")
+        ));
+    }
+
+    #[test]
+    fn unsafe_query_values_never_become_card_identity() {
+        assert_eq!(issue_of("/courses/c-1/learn"), None);
+        assert_eq!(issue_of("/courses/c-1/learn?issue="), None);
+        assert_eq!(issue_of("/courses/c-1/learn?issue=../x"), None);
+        assert_eq!(issue_of("/courses/c-1/learn?other=1"), None);
+        assert_eq!(issue_of("/courses/c-1/learn?issue=unit%201"), None);
+        assert_eq!(
+            path_with_issue("/w/2046/courses/c-1/learn", "unit-a").as_deref(),
+            Some("/w/2046/courses/c-1/learn?issue=unit-a")
+        );
+        assert_eq!(path_with_issue("/w/2046/courses/c-1/learn", "a&b"), None);
+        assert_eq!(path_with_issue("/w/2046/courses/c-1/learn", ""), None);
     }
 
     #[test]
@@ -526,6 +607,7 @@ mod tests {
             RouteSelection::Match(RouteMatch {
                 route: HOME,
                 params: BTreeMap::new(),
+                query: BTreeMap::new(),
             })
         );
     }

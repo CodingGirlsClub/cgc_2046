@@ -70,16 +70,12 @@ fn saved_workspace() -> WorkspaceEntry {
     WorkspaceEntry {
         tabs: vec![
             PersistedTab {
-                id: "page:/w/layout-current/courses".into(),
                 title: "Courses".into(),
                 path: "/w/layout-current/courses".into(),
-                issue_id: None,
             },
             PersistedTab {
-                id: "page:/w/layout-current/events".into(),
                 title: "Events".into(),
                 path: "/w/layout-current/events".into(),
-                issue_id: None,
             },
         ],
         active_tab: Some("page:/w/layout-current/courses".into()),
@@ -190,10 +186,8 @@ fn restore_drops_tabs_belonging_to_another_workspace(cx: &mut TestAppContext) {
     let _files = LayoutFiles::new();
     let mut saved = saved_workspace();
     saved.tabs.push(PersistedTab {
-        id: "page:/w/other/courses/c-1".into(),
         title: "Other course".into(),
         path: "/w/other/courses/c-1".into(),
-        issue_id: None,
     });
     workspace_state::save_entry("layout-current", saved);
 

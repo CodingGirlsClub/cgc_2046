@@ -63,10 +63,28 @@ impl PersistedRightPanel {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PersistedTab {
-    pub(crate) id: String,
     pub(crate) title: String,
+    /// 完整地址；`?issue=` 也在其中，tab 身份由它派生。
     pub(crate) path: String,
-    pub(crate) issue_id: Option<String>,
+}
+
+/// 读取一个 tab，并把旧版 `issue_id` 字段升级成地址里的 `?issue=`。
+fn parse_tab(value: &Value) -> Option<PersistedTab> {
+    let path = value.get("path")?.as_str()?;
+    let path = match value.get("issue_id").and_then(Value::as_str) {
+        Some(issue) if !path.contains('?') => {
+            crate::routing::path_with_issue(path, issue).unwrap_or_else(|| path.to_string())
+        }
+        _ => path.to_string(),
+    };
+    Some(PersistedTab {
+        title: value
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        path,
+    })
 }
 
 fn state_path() -> PathBuf {
@@ -132,19 +150,29 @@ pub(crate) fn load() -> WorkspaceState {
         return state;
     };
     for (workspace_id, entry) in workspaces {
-        let tabs = entry
-            .get("tabs")
-            .and_then(Value::as_array)
-            .map(|tabs| tabs.iter().filter_map(parse_tab).collect())
-            .unwrap_or_default();
+        let mut tabs = Vec::new();
+        // 旧文件用 `issue:course:card` 这类内存 id；恢复时映射到地址派生 id。
+        let mut id_map = BTreeMap::new();
+        if let Some(raw_tabs) = entry.get("tabs").and_then(Value::as_array) {
+            for raw in raw_tabs {
+                let Some(tab) = parse_tab(raw) else {
+                    continue;
+                };
+                if let Some(old_id) = raw.get("id").and_then(Value::as_str) {
+                    id_map.insert(old_id.to_string(), format!("page:{}", tab.path));
+                }
+                tabs.push(tab);
+            }
+        }
+        let active_tab = entry
+            .get("active_tab")
+            .and_then(Value::as_str)
+            .map(|id| id_map.get(id).cloned().unwrap_or_else(|| id.to_string()));
         state.workspaces.insert(
             workspace_id.clone(),
             WorkspaceEntry {
                 tabs,
-                active_tab: entry
-                    .get("active_tab")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
+                active_tab,
                 site_tree_events_open: entry
                     .get("site_tree_events_open")
                     .and_then(Value::as_bool)
@@ -187,10 +215,9 @@ pub(crate) fn save(state: &WorkspaceState) {
                 .iter()
                 .map(|tab| {
                     json!({
-                        "id": tab.id,
+                        "id": format!("page:{}", tab.path),
                         "title": tab.title,
                         "path": tab.path,
-                        "issue_id": tab.issue_id,
                     })
                 })
                 .collect::<Vec<_>>();
@@ -247,28 +274,16 @@ pub(crate) fn save_entry(workspace_id: &str, entry: WorkspaceEntry) {
     save(&state);
 }
 
-fn parse_tab(value: &Value) -> Option<PersistedTab> {
-    Some(PersistedTab {
-        id: value.get("id").and_then(Value::as_str)?.to_string(),
-        title: value
-            .get("title")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string(),
-        path: value.get("path").and_then(Value::as_str)?.to_string(),
-        issue_id: value
-            .get("issue_id")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// 两个用例都会改写进程级 `CGC_WORKSPACE_STATE_FILE`，必须互斥。
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn roundtrip_keeps_tabs_and_expansion() {
+        let _env = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
         let dir = std::env::temp_dir().join(format!("cgc-workspace-state-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("mkdir");
         let path = dir.join("workspace_state.json");
@@ -276,10 +291,8 @@ mod tests {
         std::env::set_var("CGC_WORKSPACE_STATE_FILE", &path);
         let entry = WorkspaceEntry {
             tabs: vec![PersistedTab {
-                id: "page:/courses".to_string(),
                 title: "课程".to_string(),
                 path: "/courses".to_string(),
-                issue_id: None,
             }],
             active_tab: Some("page:/courses".to_string()),
             site_tree_events_open: false,
@@ -306,6 +319,46 @@ mod tests {
             Some("2046"),
             "saving another workspace entry must not drop the last workspace"
         );
+        if let Some(previous) = previous {
+            std::env::set_var("CGC_WORKSPACE_STATE_FILE", previous);
+        } else {
+            std::env::remove_var("CGC_WORKSPACE_STATE_FILE");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn legacy_issue_tabs_migrate_into_their_address() {
+        let _env = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+        let dir = std::env::temp_dir().join(format!("cgc-workspace-legacy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join("workspace_state.json");
+        std::fs::write(
+            &path,
+            r#"{"last_workspace":"2046","workspaces":{"ws-1":{
+                "tabs":[
+                  {"id":"page:/w/2046/courses","title":"课程","path":"/w/2046/courses","issue_id":null},
+                  {"id":"issue:course-a:unit-a","title":"First task","path":"/w/2046/courses/course-a/learn","issue_id":"unit-a"}
+                ],
+                "active_tab":"issue:course-a:unit-a"
+            }}}"#,
+        )
+        .expect("write legacy state");
+        let previous = std::env::var_os("CGC_WORKSPACE_STATE_FILE");
+        std::env::set_var("CGC_WORKSPACE_STATE_FILE", &path);
+
+        let entry = super::entry("ws-1").expect("workspace entry");
+        assert_eq!(entry.tabs.len(), 2);
+        assert_eq!(
+            entry.tabs[1].path,
+            "/w/2046/courses/course-a/learn?issue=unit-a"
+        );
+        assert_eq!(
+            entry.active_tab.as_deref(),
+            Some("page:/w/2046/courses/course-a/learn?issue=unit-a"),
+            "the legacy in-memory id must map onto the migrated address"
+        );
+
         if let Some(previous) = previous {
             std::env::set_var("CGC_WORKSPACE_STATE_FILE", previous);
         } else {

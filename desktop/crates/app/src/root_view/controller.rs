@@ -114,7 +114,7 @@ impl RootView {
         for (name, value) in &route_match.params {
             path = path.replace(&format!(":{name}"), value);
         }
-        Some(path)
+        Some(crate::routing::path_with_query(&path, &route_match.query))
     }
 
     fn course_page_context(&self, tab: &PaneTab) -> Option<crate::page_context::PageContext> {
@@ -367,6 +367,7 @@ impl RootView {
         self.current = Some(RouteMatch {
             route,
             params: std::collections::BTreeMap::new(),
+            query: std::collections::BTreeMap::new(),
         });
     }
 
@@ -3103,13 +3104,16 @@ impl RootView {
                     .find(|course| course.id == course_id)
                     .and_then(|course| course.workspace_id.as_deref())
             });
-        let path = crate::routing::offering_path(
+        let base = crate::routing::offering_path(
             self.workspaces.workspaces(),
             workspace_id,
             &format!("/courses/{course_id}/learn"),
         );
-        let tab = PaneTab::issue(&path, course_id, issue_id, title);
-        self.open_tab(tab, cx);
+        let Some(path) = crate::routing::path_with_issue(&base, issue_id) else {
+            self.open_page_tab(&base, title, cx);
+            return;
+        };
+        self.open_page_tab(&path, title, cx);
     }
 
     fn open_tab(&mut self, tab: PaneTab, cx: &mut Context<Self>) {
@@ -3160,20 +3164,23 @@ impl RootView {
         cx.notify();
     }
 
-    /// 当前 active Tab 若是 issue 卡，返回课程 id 与 issue id。
     pub(in crate::root_view) fn clear_pane_notice(&mut self, cx: &mut Context<Self>) {
         self.pane_notice = None;
         cx.notify();
     }
 
+    /// 当前路由若是学习页上的 issue 卡，返回课程 id 与 issue id。
     pub(in crate::root_view) fn active_issue_tab(&self) -> Option<(&str, &str)> {
-        let active = self.active_tab.as_deref()?;
-        let tab = self.tabs.iter().find(|tab| tab.id == active)?;
-        let issue_id = tab.issue_id.as_deref()?;
-        let course_id = crate::routing::without_workspace_prefix(&tab.path)
-            .strip_prefix("/courses/")
-            .and_then(|rest| rest.strip_suffix("/learn"))?;
-        Some((course_id, issue_id))
+        let route_match = self.current.as_ref()?;
+        if !matches!(
+            route_match.route.id,
+            "courses.learning" | "courses.public_learning"
+        ) {
+            return None;
+        }
+        let course_id = route_match.params.get("id")?;
+        let issue_id = route_match.query.get("issue")?;
+        Some((course_id.as_str(), issue_id.as_str()))
     }
 
     pub(in crate::root_view) fn persist_site_tree_scroll(&mut self, cx: &mut Context<Self>) {
@@ -3208,10 +3215,8 @@ impl RootView {
                 .tabs
                 .iter()
                 .map(|tab| crate::workspace_state::PersistedTab {
-                    id: tab.id.clone(),
                     title: tab.title.clone(),
                     path: tab.path.clone(),
-                    issue_id: tab.issue_id.clone(),
                 })
                 .collect(),
             active_tab: self.active_tab.clone(),
@@ -3325,12 +3330,7 @@ impl RootView {
                         crate::routing::RouteSelection::Match(_)
                     )
             })
-            .map(|tab| PaneTab {
-                id: tab.id,
-                title: tab.title,
-                path: tab.path,
-                issue_id: tab.issue_id,
-            })
+            .map(|tab| PaneTab::page(&tab.path, tab.title))
             .collect();
         if stored_tab_count > self.tabs.len() {
             self.pane_notice = Some(format!(
