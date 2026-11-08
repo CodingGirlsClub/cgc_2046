@@ -1407,11 +1407,15 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 let stale_epoch =
                     epoch.is_some_and(|epoch| !this.workspaces.is_current_epoch(epoch));
-                let same_course = this.route_object_id() == Some(requested_course.as_str());
-                if stale_epoch || !same_course {
-                    // 丢弃后必须复位：render 闸门要求 `Idle` 才会重发，否则正文/投影
-                    // 永久停在加载态且没有重试入口（R1）。
-                    if same_course {
+                // 正文/投影可以由 Site Tree 为「不是当前路由」的课程加载，所以路由不带
+                // 课程 id 时不能判定为过期；只有路由明确指向别的课程才只丢弃不复位。
+                let still_wanted = this
+                    .route_object_id()
+                    .is_none_or(|id| id == requested_course.as_str());
+                if stale_epoch || !still_wanted {
+                    // 丢弃后必须复位：render 闸门要求 `Idle` 才会重发，否则投影永久
+                    // 停在加载态且没有重试入口（R1）。
+                    if still_wanted {
                         this.projection.reset();
                     }
                     return;
@@ -1468,10 +1472,12 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 let stale_epoch =
                     epoch.is_some_and(|epoch| !this.workspaces.is_current_epoch(epoch));
-                let same_course = this.route_object_id() == Some(requested_course.as_str());
-                if stale_epoch || !same_course {
+                let still_wanted = this
+                    .route_object_id()
+                    .is_none_or(|id| id == requested_course.as_str());
+                if stale_epoch || !still_wanted {
                     // 丢弃后必须复位，否则正文闸门（`Idle`）不再重发（R1）。
-                    if same_course {
+                    if still_wanted {
                         this.content.reset();
                     }
                     return;
