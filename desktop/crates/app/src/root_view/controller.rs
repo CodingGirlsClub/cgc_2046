@@ -1232,6 +1232,10 @@ impl RootView {
                         }
                         this.prepare_agent_authorization(cx);
                         this.restore_workspace_state(cx, false);
+                        // R5：工作区列表到达后，Site Tree 才能拿到当前工作区的数据面。
+                        if this.right_panel_open && this.right_panel == RightPanel::SiteTree {
+                            this.ensure_navigation_data(cx);
+                        }
                     }
                     Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
                     Err(error) => this.workspaces.fail(&error),
@@ -3564,11 +3568,13 @@ impl RootView {
     /// Site Tree 的数据按需加载；只有进入已登录工作区后才调用。
     pub(in crate::root_view) fn ensure_navigation_data(&mut self, cx: &mut Context<Self>) {
         // Site Tree 永远展示当前工作区的数据，与中心页面是哪条路由无关。
-        if !self.events_started {
-            self.start_events_load_with_scope(cx, true, crate::routing::ListScope::Workspace);
+        // R5：中心列表可能已经以 Public scope 加载完成；`started` 只说明有缓存，
+        // 不说明缓存属于当前工作区，必须比较完整的数据面后再决定是否重载。
+        if state::navigation_data_needs_reload(self.events_started, self.events_scope) {
+            self.start_events_load_with_scope(cx, true, state::site_tree_list_scope());
         }
-        if !self.courses_started {
-            self.start_courses_load_with_scope(cx, true, crate::routing::ListScope::Workspace);
+        if state::navigation_data_needs_reload(self.courses_started, self.courses_scope) {
+            self.start_courses_load_with_scope(cx, true, state::site_tree_list_scope());
         }
     }
 
@@ -3656,6 +3662,9 @@ impl RootView {
             state::toggled_right_panel(self.right_panel, self.right_panel_open, panel);
         self.right_panel = panel;
         self.right_panel_open = open;
+        if open && panel == RightPanel::SiteTree {
+            self.ensure_navigation_data(cx);
+        }
         // 通知面板是临时入口，不写入记忆。
         if !matches!(panel, RightPanel::Notifications) {
             self.workspace_layout_overridden = true;

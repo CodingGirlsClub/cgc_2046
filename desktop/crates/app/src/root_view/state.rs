@@ -482,6 +482,23 @@ impl ShellState {
     }
 }
 
+/// R5：Site Tree 的数据面判定：未加载或缓存属于别的数据面时都必须重载。
+pub(in crate::root_view) fn navigation_data_needs_reload(
+    started: bool,
+    cached: Option<crate::routing::ListScope>,
+) -> bool {
+    !started
+        || crate::routing::list_scope_needs_reload(
+            cached,
+            crate::routing::ListScope::Workspace,
+        )
+}
+
+/// R6：Site Tree 的列表调用一律使用显式 Workspace scope（与中心路由无关）。
+pub(in crate::root_view) fn site_tree_list_scope() -> crate::routing::ListScope {
+    crate::routing::ListScope::Workspace
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
