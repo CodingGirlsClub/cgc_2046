@@ -84,6 +84,13 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn prepare_agent_authorization(&mut self, cx: &mut Context<Self>) {
+        // 旧版 workspace_state 的 bucket 键是 workspace id，迁移 tab 路径需要 id→slug 映射。
+        crate::workspace_state::remember_workspace_slugs(
+            self.workspaces
+                .workspaces()
+                .iter()
+                .map(|workspace| (workspace.id.as_str(), workspace.slug.as_str())),
+        );
         self.update_native_scope(cx);
         let epoch = self.workspaces.epoch();
         if self

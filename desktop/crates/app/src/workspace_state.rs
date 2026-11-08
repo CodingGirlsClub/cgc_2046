@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
 use serde_json::{json, Value};
 
@@ -68,14 +69,107 @@ pub(crate) struct PersistedTab {
     pub(crate) path: String,
 }
 
-/// 读取一个 tab，并把旧版 `issue_id` 字段升级成地址里的 `?issue=`。
-fn parse_tab(value: &Value) -> Option<PersistedTab> {
+/// 进程内 workspace id → slug 映射：工作区列表加载后登记，供旧版状态文件迁移路径。
+fn workspace_slugs() -> &'static Mutex<BTreeMap<String, String>> {
+    static SLUGS: OnceLock<Mutex<BTreeMap<String, String>>> = OnceLock::new();
+    SLUGS.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+/// 登记工作区 id 与 slug 的对应关系；重复登记覆盖旧值（slug 可变，id 稳定）。
+pub(crate) fn remember_workspace_slugs<'a>(
+    workspaces: impl IntoIterator<Item = (&'a str, &'a str)>,
+) {
+    let mut slugs = workspace_slugs()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    for (id, slug) in workspaces {
+        slugs.insert(id.to_string(), slug.to_string());
+    }
+}
+
+fn known_workspace_slug(workspace_id: &str) -> Option<String> {
+    workspace_slugs()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .get(workspace_id)
+        .cloned()
+}
+
+/// 旧版文件没有 `workspace_slug` 字段；测试夹具里 bucket 键也可能直接是 slug。
+fn looks_like_uuid(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 36
+        && bytes[8] == b'-'
+        && bytes[13] == b'-'
+        && bytes[18] == b'-'
+        && bytes[23] == b'-'
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(index, byte)| matches!(index, 8 | 13 | 18 | 23) || byte.is_ascii_hexdigit())
+}
+
+fn bucket_workspace_slug(workspace_id: &str, entry: &Value) -> Option<String> {
+    entry
+        .get("workspace_slug")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| known_workspace_slug(workspace_id))
+        .or_else(|| {
+            (!looks_like_uuid(workspace_id) && crate::routing::is_safe_slug(workspace_id))
+                .then(|| workspace_id.to_string())
+        })
+}
+
+/// 旧版工作区 tab 的路径补 `/w/<slug>`：只迁六条工作区路由的形状，站点级 tab 原样保留。
+fn migrate_legacy_workspace_path(path: &str, slug: &str) -> String {
+    let (base, query) = match path.split_once('?') {
+        Some((base, query)) => (base, Some(query)),
+        None => (path, None),
+    };
+    if crate::routing::workspace_slug(base).is_some() {
+        return path.to_string();
+    }
+    let suffix = match base {
+        "/workspace" => "",
+        "/courses" | "/events" => base,
+        _ => {
+            let segments = base
+                .trim_matches('/')
+                .split('/')
+                .filter(|segment| !segment.is_empty())
+                .collect::<Vec<_>>();
+            match segments.as_slice() {
+                ["courses", id] | ["events", id] if !id.is_empty() => base,
+                ["courses", id, "learn"] if !id.is_empty() => base,
+                _ => return path.to_string(),
+            }
+        }
+    };
+    let migrated = crate::routing::workspace_path(slug, suffix);
+    match query {
+        Some(query) => format!("{migrated}?{query}"),
+        None => migrated,
+    }
+}
+
+/// 读取一个 tab，并把旧版 `issue_id` 字段升级成地址里的 `?issue=`；
+/// 旧版工作区 sheet 的 tab 还需要补工作区前缀。
+fn parse_tab(
+    value: &Value,
+    workspace_slug: Option<&str>,
+    migrate_legacy_workspace_paths: bool,
+) -> Option<PersistedTab> {
     let path = value.get("path")?.as_str()?;
     let path = match value.get("issue_id").and_then(Value::as_str) {
         Some(issue) if !path.contains('?') => {
             crate::routing::path_with_issue(path, issue).unwrap_or_else(|| path.to_string())
         }
         _ => path.to_string(),
+    };
+    let path = match (migrate_legacy_workspace_paths, workspace_slug) {
+        (true, Some(slug)) => migrate_legacy_workspace_path(&path, slug),
+        _ => path,
     };
     Some(PersistedTab {
         title: value
@@ -149,13 +243,18 @@ pub(crate) fn load() -> WorkspaceState {
     let Some(workspaces) = value.get("workspaces").and_then(Value::as_object) else {
         return state;
     };
+    // `last_workspace` 是路由分层（/w/:slug）时引入的字段；缺它说明整个文件是旧版。
+    let migrate_legacy_workspace_paths = value.get("last_workspace").is_none();
     for (workspace_id, entry) in workspaces {
+        let workspace_slug = bucket_workspace_slug(workspace_id, entry);
         let mut tabs = Vec::new();
         // 旧文件用 `issue:course:card` 这类内存 id；恢复时映射到地址派生 id。
         let mut id_map = BTreeMap::new();
         if let Some(raw_tabs) = entry.get("tabs").and_then(Value::as_array) {
             for raw in raw_tabs {
-                let Some(tab) = parse_tab(raw) else {
+                let Some(tab) =
+                    parse_tab(raw, workspace_slug.as_deref(), migrate_legacy_workspace_paths)
+                else {
                     continue;
                 };
                 if let Some(old_id) = raw.get("id").and_then(Value::as_str) {
@@ -230,6 +329,12 @@ pub(crate) fn save(state: &WorkspaceState) {
                 "site_tree_course_open": entry.site_tree_course_open,
                 "site_tree_scroll_y": entry.site_tree_scroll_y,
             });
+            if let Some(slug) = known_workspace_slug(workspace_id) {
+                value
+                    .as_object_mut()
+                    .expect("workspace entry object")
+                    .insert("workspace_slug".into(), json!(slug));
+            }
             if let Some(layout) = &entry.layout {
                 let fields = value.as_object_mut().expect("workspace entry object");
                 fields.insert("right_panel_width".into(), json!(layout.right_panel_width));
@@ -400,6 +505,59 @@ mod tests {
             entry.active_tab.as_deref(),
             Some("page:/w/2046/courses/course-a/learn?issue=unit-a"),
             "the legacy in-memory id must map onto the migrated address"
+        );
+
+        if let Some(previous) = previous {
+            std::env::set_var("CGC_WORKSPACE_STATE_FILE", previous);
+        } else {
+            std::env::remove_var("CGC_WORKSPACE_STATE_FILE");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn legacy_workspace_bucket_rewrites_paths_to_workspace_slug() {
+        let _env = test_env_lock::acquire();
+        let dir = std::env::temp_dir().join(format!(
+            "cgc-workspace-legacy-bucket-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join("workspace_state.json");
+        std::fs::write(
+            &path,
+            r#"{"workspaces":{"03a460fb-fcdb-471d-90d8-8ded19e157dc":{
+                "tabs":[
+                  {"id":"page:/courses","title":"课程","path":"/courses","issue_id":null},
+                  {"id":"page:/events","title":"活动","path":"/events","issue_id":null},
+                  {"id":"page:/agents","title":"Agents","path":"/agents","issue_id":null},
+                  {"id":"issue:course-a:unit-a","title":"First task","path":"/courses/course-a/learn","issue_id":"unit-a"}
+                ],
+                "active_tab":"issue:course-a:unit-a"
+            }}}"#,
+        )
+        .expect("write legacy state");
+        // 旧版持久化只存 workspace id；运行时会先登记工作区列表再恢复 tab。
+        remember_workspace_slugs([("03a460fb-fcdb-471d-90d8-8ded19e157dc", "2046")]);
+        let previous = std::env::var_os("CGC_WORKSPACE_STATE_FILE");
+        std::env::set_var("CGC_WORKSPACE_STATE_FILE", &path);
+
+        let entry = super::entry("03a460fb-fcdb-471d-90d8-8ded19e157dc").expect("workspace entry");
+        assert_eq!(entry.tabs.len(), 4);
+        assert_eq!(entry.tabs[0].path, "/w/2046/courses");
+        assert_eq!(entry.tabs[1].path, "/w/2046/events");
+        assert_eq!(
+            entry.tabs[2].path, "/agents",
+            "站点级 tab 不能被误加上工作区前缀"
+        );
+        assert_eq!(
+            entry.tabs[3].path,
+            "/w/2046/courses/course-a/learn?issue=unit-a"
+        );
+        assert_eq!(
+            entry.active_tab.as_deref(),
+            Some("page:/w/2046/courses/course-a/learn?issue=unit-a"),
+            "active id 必须同步映射到迁移后的地址"
         );
 
         if let Some(previous) = previous {
