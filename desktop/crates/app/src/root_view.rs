@@ -77,12 +77,13 @@ use crate::theme::{self, space, ThemePreference, RADIUS_LARGE, RADIUS_MEDIUM, RA
 mod agent_icons;
 mod agent_session;
 mod controller;
-mod key_dispatch;
 mod enrollment_flow;
-mod tab_lifecycle;
-mod offering_load;
 mod history_actions;
+mod key_dispatch;
 mod nav_copy;
+mod offering_load;
+mod page_context_build;
+mod tab_lifecycle;
 pub(crate) use history_actions::notify_history_changed;
 pub use history_actions::register_history_root;
 pub(crate) use history_actions::root_weak;
