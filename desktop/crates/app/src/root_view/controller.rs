@@ -3591,12 +3591,23 @@ impl RootView {
             .courses
             .items()
             .iter()
-            .filter(|course| !self.course_enrollments.contains_key(&course.id))
+            // M2：同一课程的状态查询在途时不再重复发起（快速翻页会反复触发本方法）。
+            .filter(|course| {
+                state::should_query_course_enrollment(
+                    &course.id,
+                    &self.course_enrollments,
+                    &self.course_enrollments_inflight,
+                )
+            })
             .map(|course| course.id.clone())
             .collect::<Vec<_>>();
         if ids.is_empty() {
             return;
         }
+        for id in &ids {
+            self.course_enrollments_inflight.insert(id.clone());
+        }
+        let requested_ids = ids.clone();
         let api = self.courses.api_handle();
         let token = self.session_token();
         let task = cx.background_executor().spawn(async move {
@@ -3612,6 +3623,10 @@ impl RootView {
         cx.spawn(async move |this, cx| {
             let statuses = task.await;
             let _ = this.update(cx, |this, cx| {
+                // 回调无论是否因 epoch 丢弃都要清在途标记，否则该课程永不再查。
+                for id in &requested_ids {
+                    this.course_enrollments_inflight.remove(id);
+                }
                 if !this.workspaces.is_current_epoch(epoch) {
                     return;
                 }

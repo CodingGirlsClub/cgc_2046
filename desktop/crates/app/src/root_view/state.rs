@@ -275,6 +275,8 @@ pub struct ShellState {
     pub(in crate::root_view) courses_started: bool,
     pub(in crate::root_view) courses_load_serial: u64,
     pub(in crate::root_view) course_enrollments: std::collections::BTreeMap<String, Option<String>>,
+    /// M2：报名状态查询在途的课程 id，避免快速翻页时重复查询尚未落缓存的课程。
+    pub(in crate::root_view) course_enrollments_inflight: std::collections::HashSet<String>,
     /// R11：登录后已消费显式深链，首次工作区恢复必须保留当前路由，不被旧 active tab 覆盖。
     pub(in crate::root_view) deep_link_keep_route: bool,
     pub(in crate::root_view) workspaces: WorkspaceService,
@@ -457,6 +459,7 @@ impl ShellState {
             courses_started: false,
             courses_load_serial: 0,
             course_enrollments: std::collections::BTreeMap::new(),
+            course_enrollments_inflight: std::collections::HashSet::new(),
             deep_link_keep_route: false,
             course_detail,
             course_detail_started: false,
@@ -523,6 +526,15 @@ pub(in crate::root_view) fn should_keep_initial_route(deep_link_consumed: bool) 
 /// R15：报名重复错误必须触发权威状态刷新（与活动分支同口径）。
 pub(in crate::root_view) fn enrollment_error_needs_refresh(code: &str) -> bool {
     code == "enrollment_duplicate_active"
+}
+
+/// M2：该课程既未缓存也未在途时才应发起报名状态查询。
+pub(in crate::root_view) fn should_query_course_enrollment(
+    course_id: &str,
+    cached: &std::collections::BTreeMap<String, Option<String>>,
+    inflight: &std::collections::HashSet<String>,
+) -> bool {
+    !cached.contains_key(course_id) && !inflight.contains(course_id)
 }
 
 #[cfg(test)]
