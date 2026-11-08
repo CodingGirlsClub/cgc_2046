@@ -160,6 +160,56 @@ fn cross_workspace_issue_survives_full_root_render_and_workspace_restore(cx: &mu
 }
 
 #[gpui_kit::test]
+fn cross_workspace_open_goes_through_tab_lifecycle(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    // 「在工作区中打开」入口：公开课程页没有 slug，开课台是 beta；源台是 adopt 后的 alpha。
+    let (window, root) = root_window(cx, "/courses/crs-001");
+    root.update(cx, |root, _| {
+        root.state.tabs.push(super::state::PaneTab::page(
+            "/w/alpha/courses",
+            "Alpha courses",
+        ));
+        root.active_tab = Some("page:/w/alpha/courses".into());
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        window.click("course-open-workspace", cx);
+    })
+    .unwrap();
+    root.update(cx, |root, _| {
+        assert_eq!(
+            root.workspaces.current_id(),
+            Some("ws-beta"),
+            "跨台打开必须切到目标台"
+        );
+        assert!(
+            root.state
+                .tabs
+                .iter()
+                .any(|tab| tab.path == "/w/beta/courses/crs-001"),
+            "跨台打开必须插入目标台 tab，而不是只导航"
+        );
+        assert_eq!(
+            root.active_tab.as_deref(),
+            Some("page:/w/beta/courses/crs-001"),
+            "目标 tab 必须被激活"
+        );
+    });
+    let alpha = workspace_state::entry("ws-alpha").expect("源台状态已落盘");
+    assert!(
+        alpha.tabs.iter().any(|tab| tab.path == "/w/alpha/courses"),
+        "切台前必须先持久化源台"
+    );
+    let beta = workspace_state::entry("ws-beta").expect("目标台状态已落盘");
+    assert!(
+        beta.tabs
+            .iter()
+            .any(|tab| tab.path == "/w/beta/courses/crs-001"),
+        "目标 tab 必须持久化到目标台"
+    );
+}
+
+#[gpui_kit::test]
 fn restored_search_loads_event_results_while_the_center_shows_courses(cx: &mut TestAppContext) {
     let _files = super::workspace_layout_tests::LayoutFiles::new();
     let (window, root) = root_window(cx, "/w/alpha/courses");

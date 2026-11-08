@@ -67,6 +67,7 @@ pub(in crate::root_view) fn render_participations(
                             &suffix,
                         )
                     });
+                let tab_title = title.clone();
                 div()
                     .id(format!("participation-{}", row.id))
                     .test_support()
@@ -118,7 +119,9 @@ pub(in crate::root_view) fn render_participations(
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(path) = path.as_deref() {
-                            this.navigate(path);
+                            // 「我的报名 → 查看」走统一 tab 生命周期：先持久化源台 →
+                            // 切台恢复目标台 → 插入并持久化目标 tab（R10）。
+                            this.open_page_tab(path, tab_title.clone(), cx);
                         }
                         cx.notify();
                     }))

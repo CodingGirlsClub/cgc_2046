@@ -1,7 +1,7 @@
 //! 从真实 HTTP 读取报名归属，再通过个人页面验证跨工作台导航。
 
 use super::RootView;
-use crate::{i18n::Language, theme::ThemePreference};
+use crate::{i18n::Language, theme::ThemePreference, workspace_state};
 use cgc_events::enrollments::{
     EnrollmentsApi, HttpEnrollmentsApi, LearningNextAction, LearningProgress, MyEnrollmentRow,
     MyLearningRunRow,
@@ -213,9 +213,9 @@ fn personal_entries_show_the_owning_workspace(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn participation_entries_route_courses_and_events_to_their_owner(cx: &mut TestAppContext) {
     let _files = super::workspace_layout_tests::LayoutFiles::new();
-    for (course, status, expected_route) in [
-        (true, "pending", "courses.detail"),
-        (false, "confirmed", "events.detail"),
+    for (course, status, expected_route, expected_path) in [
+        (true, "pending", "courses.detail", "/w/beta/courses/c-1"),
+        (false, "confirmed", "events.detail", "/w/beta/events/e-1"),
     ] {
         let (window, root) =
             open_personal_page(cx, PersonalPage::Participations, course, status, true);
@@ -227,6 +227,23 @@ fn participation_entries_route_courses_and_events_to_their_owner(cx: &mut TestAp
             assert_eq!(current.params.get("slug").map(String::as_str), Some("beta"));
         })
         .unwrap();
+        // R10：「我的报名 → 查看」必须走 tab 生命周期，而不是只 navigate。
+        root.update(cx, |root, _| {
+            assert!(
+                root.state.tabs.iter().any(|tab| tab.path == expected_path),
+                "跨台查看必须插入目标台 tab（{expected_path}）"
+            );
+        });
+        let alpha = workspace_state::entry("ws-alpha").expect("源台状态已落盘");
+        assert_eq!(
+            alpha.active_tab, None,
+            "源台停在无 tab 的个人页，切换前也要先把源台状态落盘"
+        );
+        let beta = workspace_state::entry("ws-beta").expect("目标台状态已落盘");
+        assert!(
+            beta.tabs.iter().any(|tab| tab.path == expected_path),
+            "目标 tab 必须持久化到目标台"
+        );
     }
 }
 

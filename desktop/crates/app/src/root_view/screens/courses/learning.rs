@@ -112,6 +112,7 @@ pub(in crate::root_view) fn render_course_learning(
                                     ctx.workspaces.workspaces(),
                                     Some(&context.workspace_id),
                                     &format!("/courses/{}/learn", detail.id),
+                                    &detail.title,
                                     language,
                                     palette,
                                     cx,

@@ -297,6 +297,7 @@ pub(in crate::root_view) fn render_course_detail(
                                     ctx.workspaces.workspaces(),
                                     detail.workspace_id.as_deref(),
                                     &format!("/courses/{}", detail.id),
+                                    &detail.title,
                                     language,
                                     palette,
                                     cx,

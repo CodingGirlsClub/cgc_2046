@@ -32,6 +32,7 @@ pub(in crate::root_view) fn render_workspace_link(
     workspaces: &[WorkspaceSummary],
     workspace_id: Option<&str>,
     suffix: &str,
+    title: &str,
     language: Language,
     palette: &theme::Palette,
     cx: &mut Context<RootView>,
@@ -41,6 +42,7 @@ pub(in crate::root_view) fn render_workspace_link(
         .find(|workspace| Some(workspace.id.as_str()) == workspace_id && workspace.can_access)?;
     let path = crate::routing::workspace_path(&workspace.slug, suffix);
     let label = translate(language, Key::CoursesOpenWorkspace);
+    let title = title.to_string();
     Some(
         div()
             .id("course-open-workspace")
@@ -51,7 +53,9 @@ pub(in crate::root_view) fn render_workspace_link(
             .text_color(palette.accent)
             .child(label)
             .on_click(cx.listener(move |this, _, _, cx| {
-                this.navigate(&path);
+                // 跨台打开走统一 tab 生命周期：先持久化源台 → 切台恢复目标台 →
+                // 插入并持久化目标 tab；只 navigate 会让目标页没有 tab 归属（R10）。
+                this.open_page_tab(&path, title.clone(), cx);
                 cx.notify();
             }))
             .into_any_element(),
