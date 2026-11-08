@@ -33,6 +33,15 @@ impl KeyInput {
         mods: Mods,
         text: Option<&str>,
     ) -> Result<&[u8]> {
+        // Ctrl+字母（不含 Alt/Super/Shift）在所有终端协议里都是 C0 控制字符。
+        // Kitty 协议下编码器会把 Ctrl+C 退化成普通 "c"（丢修饰），TUI 因此
+        // 收不到中断；这里直接给出确定的控制字节。
+        if let Some(byte) = text.and_then(|text| control_byte_for_text(text, mods)) {
+            self.buffer.clear();
+            self.buffer.push(byte);
+            return Ok(&self.buffer);
+        }
+
         self.encoder.set_options_from_terminal(core.terminal());
         self.event
             .set_action(Action::Press)
@@ -44,6 +53,22 @@ impl KeyInput {
         self.encoder.encode_to_vec(&self.event, &mut self.buffer)?;
         Ok(&self.buffer)
     }
+}
+
+/// 纯 Ctrl + 单个 ASCII 字母 → C0 控制字节（`Ctrl+A`=0x01 … `Ctrl+Z`=0x1A）。
+///
+/// 带 Shift/Alt/Super 的组合不走这条路径：它们在 Kitty 协议下是独立键。
+fn control_byte_for_text(text: &str, mods: Mods) -> Option<u8> {
+    if !mods.contains(Mods::CTRL) || mods.intersects(Mods::ALT | Mods::SUPER | Mods::SHIFT) {
+        return None;
+    }
+    let mut chars = text.chars();
+    let ch = chars.next()?;
+    if chars.next().is_some() {
+        return None;
+    }
+    let lower = ch.to_ascii_lowercase();
+    lower.is_ascii_lowercase().then(|| lower as u8 - b'a' + 1)
 }
 
 #[cfg(test)]
@@ -77,6 +102,47 @@ mod tests {
                 .expect("encode"),
             b"\x03"
         );
+    }
+
+    #[test]
+    fn ctrl_c_with_text_still_encodes_etx() {
+        let core = core();
+        let mut input = KeyInput::new().expect("encoder");
+        assert_eq!(
+            input
+                .encode(&core, Key::C, Mods::CTRL, Some("c"))
+                .expect("encode"),
+            b"\x03",
+            "带 text 的 Ctrl+C 必须仍是 ETX，否则程序收不到中断"
+        );
+    }
+
+    #[test]
+    fn ctrl_c_under_kitty_keyboard() {
+        let mut core = core();
+        core.feed(b"\x1b[>1u");
+        let mut input = KeyInput::new().expect("encoder");
+        let bytes = input
+            .encode(&core, Key::C, Mods::CTRL, Some("c"))
+            .expect("encode")
+            .to_vec();
+        assert_eq!(
+            String::from_utf8_lossy(&bytes),
+            "\u{3}".to_string(),
+            "kitty disambiguate 模式下 Ctrl+C 仍应是 ETX"
+        );
+    }
+
+    #[test]
+    fn ctrl_shift_c_is_left_to_the_encoder() {
+        // Kitty 协议下 Ctrl+Shift+C 是独立键；兜底只处理纯 Ctrl。
+        let mut core = core();
+        core.feed(b"\x1b[>1u");
+        let mut input = KeyInput::new().expect("encoder");
+        let bytes = input
+            .encode(&core, Key::C, Mods::CTRL | Mods::SHIFT, Some("c"))
+            .expect("encode");
+        assert_ne!(bytes, b"\x03", "带 Shift 的 Ctrl+C 是独立键，不能压成 ETX");
     }
 
     #[test]

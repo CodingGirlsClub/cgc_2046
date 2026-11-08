@@ -327,6 +327,19 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn ctrl_c_interrupts_the_foreground_process() {
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        cmd.args(["-c", "sleep 30"]);
+        let mut session = Session::spawn_command(cmd, grid(40, 6)).expect("spawn");
+        thread::sleep(Duration::from_millis(300));
+        session.write(b"\x03").expect("write");
+
+        let exit = wait_exit(&mut session, Duration::from_secs(3));
+        assert!(exit.is_some(), "Ctrl+C 应终止前台进程（SIGINT 未送达？）");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn writes_reach_the_child() {
         let mut cmd = CommandBuilder::new("/bin/sh");
         cmd.args(["-c", "read line; printf 'got:%s\\n' \"$line\""]);
