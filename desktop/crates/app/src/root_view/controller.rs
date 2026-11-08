@@ -1770,7 +1770,11 @@ impl RootView {
             .as_ref()
             .and_then(|store| store.archived_native_threads().ok())
             .unwrap_or_default();
-        crate::acp_history::merge_history_with_native_archived(native, acp, &native_archived)
+        let terminals = store
+            .as_ref()
+            .and_then(|store| store.list_terminal_sessions(50).ok())
+            .unwrap_or_default();
+        crate::acp_history::merge_history_with_terminals(native, acp, &native_archived, terminals)
     }
 
     pub(in crate::root_view) fn reset_config_search(
@@ -2515,15 +2519,41 @@ impl RootView {
             cx.notify();
             return;
         }
+        let cwd = self.default_terminal_cwd();
+        self.spawn_terminal(cwd, window, cx);
+    }
 
-        let size = cgc_terminal::GridSize { cols: 80, rows: 24 };
-        // 新终端的工作目录：上次关闭时的目录 → agent 工作区 → home（方案 A）。
-        // 上次的目录可能已被删除；agent 工作区首次使用可能还不存在，
-        // 所以先补建目录，建不出来就退回下一级。
+    /// 从历史侧栏打开终端：已有终端在跑时，需要再点一次才替换。
+    pub(in crate::root_view) fn open_terminal_at(
+        &mut self,
+        cwd: std::path::PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.agent_panel_editing_title = false;
+        if self.terminal_view.is_some() {
+            if self.pending_terminal_open.as_ref() == Some(&cwd) {
+                self.pending_terminal_open = None;
+                self.close_terminal(cx);
+                self.spawn_terminal(Some(cwd), window, cx);
+            } else {
+                self.pending_terminal_open = Some(cwd);
+                self.pane_notice = Some("已有终端在运行：再点一次历史记录替换".to_string());
+                cx.notify();
+            }
+            return;
+        }
+        self.spawn_terminal(Some(cwd), window, cx);
+    }
+
+    /// 新终端的工作目录：上次关闭时的目录 → agent 工作区 → home（方案 A）。
+    /// 上次的目录可能已被删除；agent 工作区首次使用可能还不存在，
+    /// 所以先补建目录，建不出来就退回下一级。
+    fn default_terminal_cwd(&self) -> Option<std::path::PathBuf> {
         let last = self.last_terminal_cwd.clone().filter(|path| path.is_dir());
         let scope_root = self.native_scope.as_ref().map(|scope| scope.root.clone());
         let home = home_dir();
-        let cwd = terminal_cwd(last.as_deref(), scope_root.as_deref(), home.as_deref())
+        terminal_cwd(last.as_deref(), scope_root.as_deref(), home.as_deref())
             .map(std::path::Path::to_path_buf)
             .filter(|dir| match std::fs::create_dir_all(dir) {
                 Ok(()) => true,
@@ -2535,7 +2565,16 @@ impl RootView {
                     );
                     false
                 }
-            });
+            })
+    }
+
+    fn spawn_terminal(
+        &mut self,
+        cwd: Option<std::path::PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let size = cgc_terminal::GridSize { cols: 80, rows: 24 };
         let mut session = match cgc_terminal::Session::spawn_default_in(size, cwd.as_deref()) {
             Ok(session) => session,
             Err(error) => {
@@ -2563,6 +2602,29 @@ impl RootView {
         view.update(cx, |view, cx| view.poll(cx));
         view.update(cx, |view, cx| view.focus(window, cx));
         self.terminal_view = Some(view.clone());
+
+        // 会话日志：open 时插入一行，close 时回填标题/退出码（低频写库）。
+        let session_id = next_terminal_session_id();
+        let record = cgc_agent_store::TerminalSession {
+            terminal_id: session_id.clone(),
+            title: cwd
+                .as_deref()
+                .and_then(std::path::Path::file_name)
+                .map(|name| name.to_string_lossy().into_owned()),
+            custom_title: None,
+            working_directory: cwd.as_ref().map(|dir| dir.display().to_string()),
+            created_at: cgc_agent_store::now_utc_rfc3339(),
+            closed_at: None,
+            exit_code: None,
+        };
+        if let Err(error) = crate::acp_history::open_conversation_store()
+            .and_then(|store| store.upsert_terminal_session(&record))
+        {
+            log::warn!(target: "terminal", "记录终端会话失败：{error}");
+        }
+        self.terminal_session_id = Some(session_id);
+        self.pending_terminal_open = None;
+        self.chat.history = self.load_unified_history();
         cx.notify();
 
         // 33ms 轮询 PTY；视图析构后 `update` 失败，循环自然退出。
@@ -2578,11 +2640,37 @@ impl RootView {
         .detach();
     }
 
-    /// 关闭终端并回到对话视图；记住当前目录供下次启动使用。
+    /// 关闭终端并回到对话视图；记住当前目录、回填会话日志。
     pub fn close_terminal(&mut self, cx: &mut Context<Self>) {
         if let Some(view) = self.terminal_view.take() {
-            self.last_terminal_cwd = view.read(cx).cwd().map(std::path::PathBuf::from);
+            let (cwd, title, exit_code) = {
+                let view = view.read(cx);
+                let title = view.title().trim().to_string();
+                (
+                    view.cwd().map(std::path::PathBuf::from),
+                    (!title.is_empty()).then_some(title),
+                    view.exit_code(),
+                )
+            };
+            self.last_terminal_cwd = cwd;
+            if let Some(session_id) = self.terminal_session_id.take() {
+                let closed_at = cgc_agent_store::now_utc_rfc3339();
+                if let Err(error) =
+                    crate::acp_history::open_conversation_store().and_then(|store| {
+                        store.finish_terminal_session(
+                            &session_id,
+                            title.as_deref(),
+                            &closed_at,
+                            exit_code.map(i64::from),
+                        )
+                    })
+                {
+                    log::warn!(target: "terminal", "回填终端会话失败：{error}");
+                }
+            }
         }
+        self.pending_terminal_open = None;
+        self.chat.history = self.load_unified_history();
         cx.notify();
     }
 
@@ -4653,6 +4741,17 @@ mod login_email_tests {
         assert!(!looks_like_email("user@example."));
         assert!(!looks_like_email("user name@example.com"));
     }
+}
+
+/// 进程内唯一、按时间可排序的终端会话 id。
+fn next_terminal_session_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    format!("term-{millis}-{}", COUNTER.fetch_add(1, Ordering::Relaxed))
 }
 
 /// 用户 home：macOS/Linux 用 `HOME`，Windows 用 `USERPROFILE`。

@@ -250,6 +250,7 @@ pub(in crate::root_view) fn header(
     let add_menu_root = root.clone();
     let regenerate_root = root.clone();
     let settings_root = root.clone();
+    let terminal_open = ctx.terminal_view.is_some();
 
     div()
         .id("agent-panel-header")
@@ -496,9 +497,18 @@ pub(in crate::root_view) fn header(
                         }),
                     );
                     let settings = settings_root.clone();
-                    menu.item(PopupMenuItem::new("Settings").on_click(move |_, _, cx| {
+                    menu = menu.item(PopupMenuItem::new("Settings").on_click(move |_, _, cx| {
                         let _ = settings.update(cx, |this, cx| this.open_settings_window(cx));
-                    }))
+                    }));
+                    if terminal_open {
+                        let close_root = settings_root.clone();
+                        menu = menu.item(PopupMenuItem::new("Close Terminal").on_click(
+                            move |_, _, cx| {
+                                let _ = close_root.update(cx, |this, cx| this.close_terminal(cx));
+                            },
+                        ));
+                    }
+                    menu
                 }),
         )
         .into_any_element()

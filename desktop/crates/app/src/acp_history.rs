@@ -49,6 +49,8 @@ pub fn history_dirty_generation_for_test() -> u64 {
 pub enum HistorySource {
     Native,
     Acp,
+    /// 终端会话日志（不参与归档）。
+    Terminal,
 }
 
 /// 统一历史列表条目（native + ACP 合并后）。
@@ -63,6 +65,8 @@ pub struct HistoryEntry {
     /// 归档标记（仅 ACP 可归档；native 恒 false）。
     pub archived: bool,
     pub source: HistorySource,
+    /// 仅 Terminal 行：点开时新终端的工作目录。
+    pub working_directory: Option<String>,
 }
 
 impl HistoryEntry {
@@ -71,6 +75,7 @@ impl HistoryEntry {
         match self.source {
             HistorySource::Native => "native",
             HistorySource::Acp => self.agent_id.as_deref().unwrap_or("external"),
+            HistorySource::Terminal => "terminal",
         }
     }
 }
@@ -229,6 +234,16 @@ pub fn merge_history_with_native_archived(
     acp_threads: Vec<SidebarThread>,
     native_archived: &std::collections::HashSet<String>,
 ) -> Vec<HistoryEntry> {
+    merge_history_with_terminals(native_threads, acp_threads, native_archived, Vec::new())
+}
+
+/// 完整合并：native 线程 + ACP 线程 + 终端会话日志，按最近活动倒序。
+pub fn merge_history_with_terminals(
+    native_threads: Vec<ThreadSummary>,
+    acp_threads: Vec<SidebarThread>,
+    native_archived: &std::collections::HashSet<String>,
+    terminal_sessions: Vec<cgc_agent_store::TerminalSession>,
+) -> Vec<HistoryEntry> {
     let mut entries: Vec<HistoryEntry> = native_threads
         .into_iter()
         .filter(|thread| thread.agent == "native")
@@ -242,6 +257,7 @@ pub fn merge_history_with_native_archived(
                 updated_at: cgc_agent_store::format_epoch_rfc3339(thread.updated_at),
                 archived,
                 source: HistorySource::Native,
+                working_directory: None,
             }
         })
         .chain(acp_threads.into_iter().map(|thread| {
@@ -257,7 +273,19 @@ pub fn merge_history_with_native_archived(
                 updated_at: thread.updated_at,
                 archived: thread.archived,
                 source: HistorySource::Acp,
+                working_directory: None,
             }
+        }))
+        .chain(terminal_sessions.into_iter().map(|session| HistoryEntry {
+            // 前缀避免与 thread_id 冲突（重命名/点击都按这个 key 分派）。
+            thread_id: format!("terminal:{}", session.terminal_id),
+            session_id: None,
+            agent_id: None,
+            title: session.display_title().map(str::to_string),
+            updated_at: session.updated_at().to_string(),
+            archived: false,
+            source: HistorySource::Terminal,
+            working_directory: session.working_directory.clone(),
         }))
         .collect();
     entries.sort_by(|left, right| {
@@ -278,6 +306,8 @@ pub fn main_list(entries: &[HistoryEntry], keep_per_agent: usize) -> Vec<History
         .filter(|entry| !entry.archived)
         .filter(|entry| match entry.source {
             HistorySource::Native => true,
+            // 终端会话没有 agent，不受每 agent 截断影响。
+            HistorySource::Terminal => true,
             HistorySource::Acp => {
                 let agent = entry.agent_id.clone().unwrap_or_default();
                 let count = acp_seen.entry(agent).or_insert(0);
@@ -733,7 +763,37 @@ mod tests {
             updated_at: updated_at.to_string(),
             archived,
             source: HistorySource::Acp,
+            working_directory: None,
         }
+    }
+
+    #[test]
+    fn terminal_sessions_are_merged_and_kept_in_main_list() {
+        let session = cgc_agent_store::TerminalSession {
+            terminal_id: "t1".into(),
+            title: Some("vim".into()),
+            custom_title: None,
+            working_directory: Some("/tmp/x".into()),
+            created_at: "2026-01-02T00:00:00Z".into(),
+            closed_at: None,
+            exit_code: None,
+        };
+        let merged =
+            merge_history_with_terminals(vec![], vec![], &Default::default(), vec![session]);
+        assert_eq!(merged.len(), 1);
+        let row = &merged[0];
+        assert_eq!(row.source, HistorySource::Terminal);
+        assert_eq!(row.thread_id, "terminal:t1");
+        assert_eq!(row.title.as_deref(), Some("vim"));
+        assert_eq!(row.working_directory.as_deref(), Some("/tmp/x"));
+        assert_eq!(row.agent_label(), "terminal");
+        assert!(!row.archived, "终端行不参与归档");
+
+        assert_eq!(
+            main_list(&merged, 1).len(),
+            1,
+            "终端行不受每 agent 截断影响"
+        );
     }
 
     #[test]

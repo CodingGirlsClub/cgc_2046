@@ -290,6 +290,10 @@ pub struct ShellState {
     pub(in crate::root_view) theme_subscription: Option<Subscription>,
     /// 上次终端的 cwd：新终端从该目录启动（终端关闭后仍保留）。
     pub(in crate::root_view) last_terminal_cwd: Option<std::path::PathBuf>,
+    /// 当前终端会话 id（历史侧栏 terminal 行的 key）。
+    pub(in crate::root_view) terminal_session_id: Option<String>,
+    /// 等待二次确认的替换目录（已有终端在跑时点历史记录）。
+    pub(in crate::root_view) pending_terminal_open: Option<std::path::PathBuf>,
     pub(in crate::root_view) native_runtime: Option<crate::native_runtime::NativeRuntimeHandle>,
     pub(in crate::root_view) native_scope: Option<crate::agent_scope::AgentScope>,
     pub(in crate::root_view) page_context: crate::page_context::PageContextState,
@@ -444,6 +448,8 @@ impl ShellState {
             terminal_view: None,
             theme_subscription: None,
             last_terminal_cwd: None,
+            terminal_session_id: None,
+            pending_terminal_open: None,
             native_runtime: None,
             native_scope: None,
             page_context: Default::default(),

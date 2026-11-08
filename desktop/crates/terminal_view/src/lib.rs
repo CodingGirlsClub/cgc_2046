@@ -90,6 +90,8 @@ pub struct TerminalView {
     bell_pending: bool,
     /// 等待用户确认的不安全粘贴内容（非 bracketed 且含换行）。
     pending_paste: Option<String>,
+    /// 子进程退出码（历史侧栏回填用）。
+    exit_code: Option<u32>,
 }
 
 impl TerminalView {
@@ -135,6 +137,7 @@ impl TerminalView {
             search_subscription: Some(search_subscription),
             bell_pending: false,
             pending_paste: None,
+            exit_code: None,
         }
     }
 
@@ -257,6 +260,7 @@ impl TerminalView {
             }
         }
         if let Some(exit) = result.exit {
+            self.exit_code = Some(exit.code);
             if self.exit_notice.is_none() {
                 self.exit_notice = Some(format!(
                     "进程已退出（code {}），关闭终端可重新打开",
@@ -274,6 +278,11 @@ impl TerminalView {
     /// 程序通过 OSC 设置的窗口标题（未设置时为空串）。
     pub fn title(&self) -> &str {
         &self.title
+    }
+
+    /// 子进程退出码；仍在运行时为 `None`。
+    pub fn exit_code(&self) -> Option<u32> {
+        self.exit_code
     }
 
     /// 程序上报的工作目录（OSC 7/9/1337）。

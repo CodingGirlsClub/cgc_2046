@@ -110,8 +110,13 @@ impl RootView {
         };
         let raw = rename.input.read(cx).value().trim().to_string();
         let title = if raw.is_empty() { None } else { Some(raw) };
-        let is_acp = rename.thread_id.starts_with(acp_history::ACP_THREAD_PREFIX);
-        if is_acp {
+        if let Some(terminal_id) = rename.thread_id.strip_prefix("terminal:") {
+            if let Err(error) = crate::acp_history::open_conversation_store()
+                .and_then(|store| store.rename_terminal_session(terminal_id, title.as_deref()))
+            {
+                log::warn!(target: "terminal", "重命名终端会话失败：{error}");
+            }
+        } else if rename.thread_id.starts_with(acp_history::ACP_THREAD_PREFIX) {
             let _ = acp_history::rename_override(&rename.thread_id, title.as_deref());
             if self
                 .chat
@@ -172,6 +177,7 @@ impl RootView {
         thread_id: String,
         session_id: Option<String>,
         source: HistorySource,
+        working_directory: Option<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -182,6 +188,11 @@ impl RootView {
                 self.agent_panel_open = true;
                 let session_id = session_id.unwrap_or_default();
                 self.open_acp_history_thread(thread_id, session_id, cx);
+            }
+            HistorySource::Terminal => {
+                if let Some(directory) = working_directory {
+                    self.open_terminal_at(std::path::PathBuf::from(directory), window, cx);
+                }
             }
         }
         cx.notify();
