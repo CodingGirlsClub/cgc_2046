@@ -2787,7 +2787,59 @@ mod tests {
         }
     }
 
+    thread_local! {
+        /// R16：导航与布局用例会经 `navigate` → `persist_workspace_state` 把工作区状态
+        /// 整文件重写。夹具在用例线程首次构造视图时安装隔离 guard，把
+        /// `CGC_WORKSPACE_STATE_FILE` 指向用例私有的临时文件，避免写进开发者真实状态文件。
+        static WORKSPACE_STATE_ISOLATION: std::cell::RefCell<Option<WorkspaceStateIsolation>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    /// 用例私有的工作区状态文件；`Drop` 时还原进程级 env 并删除临时文件。
+    ///
+    /// 前提：本模块用例按项目纪律以 `--test-threads=1` 串行运行，进程级 env 不会被
+    /// 并发改写。`workspace_state` 自身用例的 `ENV_LOCK` 只在该模块内，跨模块无法复用，
+    /// 所以这里靠「串行 + 每次 `view()` 换新文件」隔离，而不是共享一把锁。
+    struct WorkspaceStateIsolation {
+        previous: Option<std::ffi::OsString>,
+        file: std::path::PathBuf,
+    }
+
+    impl WorkspaceStateIsolation {
+        fn install(file: std::path::PathBuf) -> Self {
+            let previous = std::env::var_os("CGC_WORKSPACE_STATE_FILE");
+            std::env::set_var("CGC_WORKSPACE_STATE_FILE", &file);
+            Self { previous, file }
+        }
+    }
+
+    impl Drop for WorkspaceStateIsolation {
+        fn drop(&mut self) {
+            match self.previous.take() {
+                Some(previous) => std::env::set_var("CGC_WORKSPACE_STATE_FILE", previous),
+                None => std::env::remove_var("CGC_WORKSPACE_STATE_FILE"),
+            }
+            let _ = std::fs::remove_file(&self.file);
+        }
+    }
+
+    /// 隔离状态文件路径：临时目录下按进程隔离，每次调用换一个新文件名，
+    /// 避免用例之间共享残留状态。
+    fn isolated_workspace_state_file() -> std::path::PathBuf {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let index = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let directory =
+            std::env::temp_dir().join(format!("cgc-root-view-state-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("isolated workspace state directory");
+        directory.join(format!("workspace_state-{index}.json"))
+    }
+
     fn view() -> RootView {
+        WORKSPACE_STATE_ISOLATION.with(|isolation| {
+            *isolation.borrow_mut() = Some(WorkspaceStateIsolation::install(
+                isolated_workspace_state_file(),
+            ));
+        });
         let session = SessionService::new(
             Box::new(FakeAuthApi::demo()),
             Box::new(MemoryStore::default()),
@@ -3381,6 +3433,13 @@ mod tests {
     #[test]
     fn loading_a_course_under_the_wrong_slug_canonicalizes_the_route() {
         let mut view = view();
+        // R16：下面的 `canonicalize_course_route` 会触发 `navigate` → 整文件持久化，
+        // 必须写进夹具安装的隔离文件，而不是开发者真实状态文件。
+        let isolated = std::path::PathBuf::from(
+            std::env::var_os("CGC_WORKSPACE_STATE_FILE").expect("隔离状态文件已安装"),
+        );
+        let developer_file = cgc_platform::paths::AppPaths::from_env().workspace_state_file();
+        let developer_before = std::fs::read(&developer_file).ok();
         view.state.workspaces.adopt(vec![
             cgc_platform::workspace::WorkspaceSummary {
                 id: "ws-alpha".into(),
@@ -3421,6 +3480,15 @@ mod tests {
             view.page_context.visible(),
             None,
             "context refreshes on the next render, not mid-navigation"
+        );
+        assert!(
+            isolated.exists(),
+            "导航必须把工作区状态写进用例隔离文件（{isolated:?}）"
+        );
+        assert_eq!(
+            std::fs::read(&developer_file).ok(),
+            developer_before,
+            "单测不得创建或改写开发者真实状态文件（{developer_file:?}）"
         );
     }
 
