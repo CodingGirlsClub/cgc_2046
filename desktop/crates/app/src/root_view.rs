@@ -2800,7 +2800,7 @@ mod tests {
     /// 前提：本模块用例按项目纪律以 `--test-threads=1` 串行运行，进程级 env 不会被
     /// 并发改写。`workspace_state` 自身用例的 `ENV_LOCK` 只在该模块内，跨模块无法复用，
     /// 所以这里靠「串行 + 每次 `view()` 换新文件」隔离，而不是共享一把锁。
-    struct WorkspaceStateIsolation {
+    pub(super) struct WorkspaceStateIsolation {
         previous: Option<std::ffi::OsString>,
         file: std::path::PathBuf,
     }
@@ -2835,17 +2835,22 @@ mod tests {
     }
 
     /// 默认状态文件的摘要：断言只比较摘要，失败时不把开发者状态文件内容打进测试输出。
-    fn default_state_digest(path: &std::path::Path) -> Option<String> {
+    pub(super) fn default_state_digest(path: &std::path::Path) -> Option<String> {
         std::fs::read(path)
             .ok()
             .map(|bytes| cgc_platform::registry::checksum::sha256_hex(&bytes))
     }
 
+    /// 供同 crate 其他测试模块复用同一套隔离（`enrollment_tests` 点跨台入口也会
+    /// 整文件持久化工作区状态）。调用方持有 guard 到用例结束：`Drop` 还原
+    /// `CGC_WORKSPACE_STATE_FILE` 并清理临时文件。
+    pub(super) fn isolate_workspace_state() -> WorkspaceStateIsolation {
+        WorkspaceStateIsolation::install(isolated_workspace_state_file())
+    }
+
     fn view() -> RootView {
         WORKSPACE_STATE_ISOLATION.with(|isolation| {
-            *isolation.borrow_mut() = Some(WorkspaceStateIsolation::install(
-                isolated_workspace_state_file(),
-            ));
+            *isolation.borrow_mut() = Some(isolate_workspace_state());
         });
         let session = SessionService::new(
             Box::new(FakeAuthApi::demo()),

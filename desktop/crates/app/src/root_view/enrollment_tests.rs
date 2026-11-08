@@ -342,6 +342,13 @@ fn adopt_course_workspaces(root: &mut RootView, accessible: bool) {
 
 #[gpui_kit::test]
 fn public_course_detail_opens_its_own_workspace(cx: &mut TestAppContext) {
+    // R16：跨台点击会整文件持久化工作区状态；隔离到用例临时文件，不写开发者真实状态文件。
+    let developer_file = cgc_platform::paths::AppPaths::from_env().workspace_state_file();
+    let developer_before = super::tests::default_state_digest(&developer_file);
+    let _isolation = super::tests::isolate_workspace_state();
+    let isolated = std::path::PathBuf::from(
+        std::env::var_os("CGC_WORKSPACE_STATE_FILE").expect("隔离状态文件已安装"),
+    );
     let (handle, root) = open_course_detail(cx, "public", "open", None);
     root.update(cx, |root, cx| {
         adopt_course_workspaces(root, true);
@@ -356,6 +363,15 @@ fn public_course_detail_opens_its_own_workspace(cx: &mut TestAppContext) {
         assert_eq!(current.params.get("slug").map(String::as_str), Some("beta"));
     })
     .unwrap();
+    assert!(
+        isolated.exists(),
+        "跨台点击必须把工作区状态写进用例隔离文件（{isolated:?}）"
+    );
+    assert_eq!(
+        super::tests::default_state_digest(&developer_file),
+        developer_before,
+        "单测不得创建或改写开发者真实状态文件（{developer_file:?}）"
+    );
 }
 
 #[gpui_kit::test]
@@ -375,6 +391,13 @@ fn public_course_detail_omits_an_inaccessible_workspace_entry(cx: &mut TestAppCo
 
 #[gpui_kit::test]
 fn public_learning_opens_the_course_workspace(cx: &mut TestAppContext) {
+    // R16：跨台点击会整文件持久化工作区状态；隔离到用例临时文件，不写开发者真实状态文件。
+    let developer_file = cgc_platform::paths::AppPaths::from_env().workspace_state_file();
+    let developer_before = super::tests::default_state_digest(&developer_file);
+    let _isolation = super::tests::isolate_workspace_state();
+    let isolated = std::path::PathBuf::from(
+        std::env::var_os("CGC_WORKSPACE_STATE_FILE").expect("隔离状态文件已安装"),
+    );
     let (handle, root) = open_course_detail(cx, "public", "open", Some("confirmed"));
     root.update(cx, |root, cx| {
         adopt_course_workspaces(root, true);
@@ -396,6 +419,15 @@ fn public_learning_opens_the_course_workspace(cx: &mut TestAppContext) {
         assert_eq!(current.params.get("slug").map(String::as_str), Some("beta"));
     })
     .unwrap();
+    assert!(
+        isolated.exists(),
+        "跨台点击必须把工作区状态写进用例隔离文件（{isolated:?}）"
+    );
+    assert_eq!(
+        super::tests::default_state_digest(&developer_file),
+        developer_before,
+        "单测不得创建或改写开发者真实状态文件（{developer_file:?}）"
+    );
 }
 
 #[gpui_kit::test]
