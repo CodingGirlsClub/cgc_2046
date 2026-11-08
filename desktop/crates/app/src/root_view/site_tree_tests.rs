@@ -3,7 +3,13 @@
 use super::RootView;
 use crate::i18n::Language;
 use crate::theme::ThemePreference;
-use cgc_courses::catalog::{CourseCatalogService, FakeCoursesApi};
+use cgc_courses::catalog::{
+    CourseCatalogService, CourseDetail, CoursePage, CourseSummary, CoursesApi, CoursesError,
+    FakeCoursesApi,
+};
+use cgc_courses::content::CourseContent;
+use cgc_courses::projection::LearningProjection;
+use std::collections::BTreeMap;
 use cgc_platform::session::{FakeAuthApi, MemoryStore, SessionService};
 use cgc_platform::workspace::{OfferingScope, WorkspaceScope, WorkspaceSummary};
 use gpui_kit::test::{TestQueryExt, TestWindowExt};
@@ -201,36 +207,111 @@ fn confirmed_course_expansion_loads_its_learning_content(cx: &mut TestAppContext
     .unwrap();
 }
 
+struct PublicOnlyCoursesApi {
+    inner: FakeCoursesApi,
+}
+
+impl CoursesApi for PublicOnlyCoursesApi {
+    fn list_courses(
+        &self,
+        token: Option<&str>,
+        scope: OfferingScope<'_>,
+        after: Option<&str>,
+        first: u32,
+    ) -> Result<CoursePage, CoursesError> {
+        if matches!(scope, OfferingScope::Public) {
+            let items = (0..3)
+                .map(|index| CourseSummary {
+                    id: format!("pub-{index:03}"),
+                    title: format!("公开条目 {}", index + 1),
+                    status: "open".to_string(),
+                    workspace_id: Some("ws-other".to_string()),
+                    enrollment_badge: None,
+                    pricing_enabled: false,
+                    starts_at: None,
+                    registration_deadline: None,
+                })
+                .collect::<Vec<_>>();
+            return Ok(CoursePage {
+                items,
+                next_cursor: None,
+                total: Some(3),
+            });
+        }
+        self.inner.list_courses(token, scope, after, first)
+    }
+
+    fn course_workspaces(
+        &self,
+        token: Option<&str>,
+        course_ids: &[String],
+        workspace_ids: &[String],
+    ) -> Result<BTreeMap<String, String>, CoursesError> {
+        self.inner
+            .course_workspaces(token, course_ids, workspace_ids)
+    }
+
+    fn get_course(&self, token: Option<&str>, id: &str) -> Result<CourseDetail, CoursesError> {
+        self.inner.get_course(token, id)
+    }
+
+    fn get_my_enrollment_status(
+        &self,
+        token: Option<&str>,
+        course_id: &str,
+    ) -> Result<Option<String>, CoursesError> {
+        self.inner.get_my_enrollment_status(token, course_id)
+    }
+
+    fn get_course_content(
+        &self,
+        token: Option<&str>,
+        course_id: &str,
+    ) -> Result<CourseContent, CoursesError> {
+        self.inner.get_course_content(token, course_id)
+    }
+
+    fn get_learning_projection(
+        &self,
+        token: Option<&str>,
+        course_id: &str,
+    ) -> Result<LearningProjection, CoursesError> {
+        self.inner.get_learning_projection(token, course_id)
+    }
+}
+
+/// R5：公开目录的条目不得进入当前工作区的 Site Tree；搜索时树必须已切回 Workspace 数据面。
 #[gpui_kit::test]
-fn public_catalog_third_page_courses_can_unlock_in_the_tree(cx: &mut TestAppContext) {
+fn site_tree_ignores_public_catalog_after_scope_change(cx: &mut TestAppContext) {
     let _files = super::workspace_layout_tests::LayoutFiles::new();
     let (handle, root) = site_tree_window(cx);
     root.update(cx, |root, cx| {
         load_fake_courses(root);
-        let api = Arc::new(FakeCoursesApi::with_seed(25));
+        let api = Arc::new(PublicOnlyCoursesApi {
+            inner: FakeCoursesApi::with_seed(25),
+        });
         root.courses = CourseCatalogService::new(api.clone());
         root.content = cgc_courses::content::CourseContentService::new(api);
         root.navigate("/courses");
         root.start_courses_load(cx, true);
     });
     cx.run_until_parked();
-    for _ in 0..2 {
-        root.update(cx, |root, cx| root.start_courses_load(cx, false));
-        cx.run_until_parked();
-    }
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
         window.click("site-tree-search", cx);
-        window.input("课程 21", cx);
+        window.input("课程", cx);
     })
     .unwrap();
+    cx.run_until_parked();
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
-        window.click("site-course-chevron-crs-020", cx);
-        assert_eq!(root.read(cx).content.course_id(), Some("crs-020"));
-        assert_eq!(
-            root.read(cx).current().map(|route| route.id),
-            Some("courses.public_list")
+        assert!(
+            window.try_find_by_label("展开 课程 1").is_some(),
+            "搜索必须把树切回当前工作区数据面"
+        );
+        assert!(
+            window.try_find_by_label("展开 公开条目 1").is_none(),
+            "公开目录条目不得进入工作区树"
         );
     })
     .unwrap();
