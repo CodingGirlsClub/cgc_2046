@@ -3452,6 +3452,51 @@ mod tests {
     }
 
     #[test]
+    fn agent_workspace_keeps_enrolled_non_member_course_owner() {
+        let mut view = view();
+        view.state
+            .workspaces
+            .adopt(vec![cgc_platform::workspace::WorkspaceSummary {
+                id: "ws-alpha".into(),
+                slug: "alpha".into(),
+                name: "Alpha".into(),
+                my_role_names: Vec::new(),
+                member_count: None,
+                can_access: true,
+            }]);
+        activate_context_tab(&mut view, "/courses/course-b/learn", "Public course");
+        view.state
+            .course_detail
+            .adopt(cgc_courses::catalog::CourseDetail {
+                id: "course-b".into(),
+                title: "Course B".into(),
+                description: None,
+                status: "published".into(),
+                visibility: "public".into(),
+                workspace_id: Some("ws-owner".into()),
+                pricing_enabled: false,
+                enrollment_policy: "open".into(),
+                available_price_tiers: Vec::new(),
+                enrollment_status: Some("confirmed".into()),
+                revision_number: Some(1),
+            });
+        assert_eq!(
+            view.agent_workspace_id().as_deref(),
+            Some("ws-owner"),
+            "已报名公开课的非成员学员必须保留报名/学习投影返回的 owner，不能按 can_access 丢弃"
+        );
+        assert!(
+            !view
+                .state
+                .workspaces
+                .workspaces()
+                .iter()
+                .any(|workspace| workspace.id == "ws-owner"),
+            "测试前提：owner 工作区不是本人工作区列表成员"
+        );
+    }
+
+    #[test]
     fn loading_a_course_under_the_wrong_slug_canonicalizes_the_route() {
         let mut view = view();
         // R16：下面的 `canonicalize_course_route` 会触发 `navigate` → 整文件持久化，

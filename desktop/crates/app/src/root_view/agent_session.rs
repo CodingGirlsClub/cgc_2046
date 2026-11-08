@@ -234,7 +234,7 @@ impl RootView {
         if let Some(id) = self.route_workspace_id() {
             return Some(id);
         }
-        if let Some(id) = self
+        if let Some(detail) = self
             .current
             .as_ref()
             .filter(|route_match| {
@@ -246,15 +246,16 @@ impl RootView {
                         | "courses.public_learning"
                 )
             })
-            .and_then(|_| self.course_detail.detail())
-            .and_then(|detail| detail.workspace_id.clone())
+            .and_then(|route_match| {
+                let course_id = route_match.params.get("id")?;
+                self.course_detail
+                    .detail()
+                    .filter(|detail| &detail.id == course_id)
+            })
         {
-            if self
-                .workspaces
-                .workspaces()
-                .iter()
-                .any(|workspace| workspace.id == id && workspace.can_access)
-            {
+            // 归属工作区来自 myEnrollment / courseLearningDetail 的 owner：已报名公开课
+            // 的学员可能不是该工作区成员（can_access=false），Native 工具仍须用 owner。
+            if let Some(id) = detail.workspace_id.clone() {
                 return Some(id);
             }
         }
