@@ -15,6 +15,9 @@ use crate::{GridSize, Result, TerminalCore};
 /// 单次 [`Session::poll`] 最多喂给 VT 解析器的字节数。
 const MAX_BYTES_PER_POLL: usize = 2 * 1024 * 1024;
 
+/// PTY 输出队列的容量（块数，每块 ≤ 8 KiB）。填满后读线程阻塞，形成背压。
+const OUTPUT_QUEUE_CHUNKS: usize = 64;
+
 /// 用户默认 shell 的命令行；`cwd` 为 `Some` 时在该目录启动。
 fn default_command(cwd: Option<&std::path::Path>) -> CommandBuilder {
     let mut cmd = CommandBuilder::new_default_prog();
@@ -78,7 +81,10 @@ impl Session {
         let writer = pair.master.take_writer()?;
         let core = TerminalCore::new(size)?;
 
-        let (tx, output) = mpsc::channel();
+        // 有界队列做背压：64 × 8 KiB = 512 KiB 上限。UI 每帧最多排 2 MiB，
+        // 但读线程不能无限堆积（`yes` 类输出会把内存撑爆）；塞满后读线程阻塞，
+        // 反压到 PTY 缓冲，子进程的 write 随之阻塞。
+        let (tx, output) = mpsc::sync_channel(OUTPUT_QUEUE_CHUNKS);
         thread::Builder::new()
             .name("cgc-terminal-pty".to_string())
             .spawn(move || pump(reader, tx))?;
@@ -236,7 +242,7 @@ impl Drop for Session {
     }
 }
 
-fn pump(mut reader: Box<dyn Read + Send>, tx: mpsc::Sender<Vec<u8>>) {
+fn pump(mut reader: Box<dyn Read + Send>, tx: mpsc::SyncSender<Vec<u8>>) {
     let mut buf = [0u8; 8192];
     loop {
         match reader.read(&mut buf) {
