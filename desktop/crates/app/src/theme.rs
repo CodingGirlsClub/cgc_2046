@@ -228,7 +228,7 @@ pub fn terminal_theme(name: &str, cx: &App) -> cgc_terminal::TerminalTheme {
 /// 终端绘制样式：字体固定，颜色跟随当前主题。
 pub fn terminal_style(cx: &App) -> cgc_terminal_view::TerminalStyle {
     let palette = palette_from_theme(cx);
-    let mut style = cgc_terminal_view::TerminalStyle::new(gpui_kit::font(FONT_MONO), px(13.0));
+    let mut style = cgc_terminal_view::TerminalStyle::new(crate::fonts::terminal_font(), px(13.0));
     style.background = palette.canvas;
     style.foreground = palette.ink;
     style.cursor = palette.accent;
