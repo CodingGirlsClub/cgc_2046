@@ -7,6 +7,8 @@ pub(in crate::root_view) fn course_enrollments(
     rows.iter().filter(|row| row.course_id.is_some())
 }
 
+
+
 fn next_action_key(kind: &str) -> Option<Key> {
     match kind {
         "review" => Some(Key::CoursesLearningHomeNextReview),
@@ -108,7 +110,8 @@ pub(in crate::root_view) fn render_learning_home(
         _ => {
             let mut items = Vec::new();
             for run in runs {
-                let enrollment = all_rows.iter().find(|row| row.id == run.enrollment_id);
+                let enrollment =
+                    cgc_events::enrollments::enrollment_for_run(&all_rows, &run);
                 let workspace_id = enrollment.map(|row| row.workspace_id.clone());
                 let origin = super::render_workspace_badge(
                     ctx.workspaces.workspaces(),
@@ -283,3 +286,4 @@ pub(in crate::root_view) fn render_learning_home(
         .child(body)
         .into_any_element()
 }
+

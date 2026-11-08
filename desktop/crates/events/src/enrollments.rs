@@ -74,6 +74,22 @@ impl MyEnrollmentsPage {
     }
 }
 
+/// run 的 enrollment 归属：先按 `enrollment_id`，找不到时用补查追加的
+/// `course_id + confirmed` 行兜底（R13：不能因分页缺失丢工作区徽标）。
+pub fn enrollment_for_run<'a>(
+    rows: &'a [MyEnrollmentRow],
+    run: &MyLearningRunRow,
+) -> Option<&'a MyEnrollmentRow> {
+    rows.iter()
+        .find(|row| row.id == run.enrollment_id)
+        .or_else(|| {
+            rows.iter().find(|row| {
+                row.status == "confirmed"
+                    && row.course_id.as_deref() == Some(run.course_id.as_str())
+            })
+        })
+}
+
 pub trait EnrollmentsApi: Send + Sync {
     fn my_enrollments_page(
         &self,
@@ -571,6 +587,56 @@ mod tests {
         assert!(request["query"].as_str().unwrap().contains("myEnrollment("));
         assert_eq!(row.id, "enr-9");
         assert_eq!(row.workspace_id, "ws-owner");
+    }
+
+    fn enrollment_row(id: &str, course_id: Option<&str>, workspace_id: &str) -> MyEnrollmentRow {
+        MyEnrollmentRow {
+            id: id.to_string(),
+            workspace_id: workspace_id.to_string(),
+            status: "confirmed".to_string(),
+            target_title: None,
+            starts_at: None,
+            event_id: None,
+            course_id: course_id.map(str::to_string),
+            payment_mode: None,
+            check_in_code: None,
+        }
+    }
+
+    fn learning_run(enrollment_id: &str, course_id: &str) -> MyLearningRunRow {
+        MyLearningRunRow {
+            run_id: "run-1".to_string(),
+            enrollment_id: enrollment_id.to_string(),
+            course_id: course_id.to_string(),
+            target_title: None,
+            status: "active".to_string(),
+            stale_revision: false,
+            progress: LearningProgress {
+                mastered_required: 0,
+                total_required: 1,
+                complete: false,
+            },
+            next_action: None,
+        }
+    }
+
+    #[test]
+    fn enrollment_for_run_prefers_enrollment_id() {
+        let rows = vec![
+            enrollment_row("enr-other", Some("crs-1"), "ws-wrong"),
+            enrollment_row("enr-1", None, "ws-own"),
+        ];
+        let found = enrollment_for_run(&rows, &learning_run("enr-1", "crs-1")).expect("by id");
+        assert_eq!(found.workspace_id, "ws-own");
+    }
+
+    #[test]
+    fn enrollment_for_run_falls_back_to_course_owner_row() {
+        // 分页只加载了部分报名；补查按 course_id 追加的 confirmed 行应兜底工作区归属。
+        let rows = vec![enrollment_row("enr-supplemented", Some("crs-9"), "ws-owner")];
+        let found = enrollment_for_run(&rows, &learning_run("enr-missing", "crs-9"))
+            .expect("补查行必须按 course_id 兜底");
+        assert_eq!(found.workspace_id, "ws-owner");
     }
 
     #[test]
