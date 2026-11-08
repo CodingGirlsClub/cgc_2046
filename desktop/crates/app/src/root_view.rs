@@ -77,6 +77,7 @@ use crate::theme::{self, space, ThemePreference, RADIUS_LARGE, RADIUS_MEDIUM, RA
 mod agent_icons;
 mod agent_session;
 mod controller;
+mod key_dispatch;
 mod enrollment_flow;
 mod tab_lifecycle;
 mod offering_load;
