@@ -2517,7 +2517,9 @@ impl RootView {
         }
 
         let size = cgc_terminal::GridSize { cols: 80, rows: 24 };
-        let mut session = match cgc_terminal::Session::spawn_default(size) {
+        // 新终端沿用上次的工作目录；目录已被删除时退回默认位置。
+        let cwd = self.last_terminal_cwd.clone().filter(|path| path.is_dir());
+        let mut session = match cgc_terminal::Session::spawn_default_in(size, cwd.as_deref()) {
             Ok(session) => session,
             Err(error) => {
                 self.pane_notice = Some(format!("无法启动终端：{error}"));
@@ -2559,9 +2561,11 @@ impl RootView {
         .detach();
     }
 
-    /// 关闭终端并回到对话视图。
+    /// 关闭终端并回到对话视图；记住当前目录供下次启动使用。
     pub fn close_terminal(&mut self, cx: &mut Context<Self>) {
-        self.terminal_view = None;
+        if let Some(view) = self.terminal_view.take() {
+            self.last_terminal_cwd = view.read(cx).cwd().map(std::path::PathBuf::from);
+        }
         cx.notify();
     }
 

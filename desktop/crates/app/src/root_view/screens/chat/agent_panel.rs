@@ -65,6 +65,9 @@ pub(in crate::root_view) fn render_agent_panel(
 }
 
 fn panel_title(ctx: &ScreenContext<'_>, cx: &mut Context<RootView>) -> String {
+    if let Some(view) = ctx.terminal_view.as_ref() {
+        return terminal_panel_title(view.read(cx).title());
+    }
     if ctx.native_chat_mode && RootView::native_agent_enabled() {
         return ctx
             .native_agent_view
@@ -85,6 +88,16 @@ fn panel_title(ctx: &ScreenContext<'_>, cx: &mut Context<RootView>) -> String {
             })
         })
         .unwrap_or_else(|| "新对话".to_string())
+}
+
+/// 终端面板标题：程序通过 OSC 设置了标题就用它，否则回退 `Terminal`。
+pub(in crate::root_view) fn terminal_panel_title(title: &str) -> String {
+    let trimmed = title.trim();
+    if trimmed.is_empty() {
+        "Terminal".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 pub(in crate::root_view) fn header(
@@ -496,5 +509,22 @@ fn threads_sidebar_shortcut_label() -> &'static str {
         "⌥⌘J"
     } else {
         "Ctrl+Alt+J"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // 只做显式导入：父模块的 glob 会引入 gpui 的 test 宏。
+    use super::terminal_panel_title;
+
+    #[test]
+    fn terminal_title_falls_back_when_empty() {
+        assert_eq!(terminal_panel_title(""), "Terminal");
+        assert_eq!(terminal_panel_title("   \n"), "Terminal");
+    }
+
+    #[test]
+    fn terminal_title_uses_program_title() {
+        assert_eq!(terminal_panel_title("  vim main.rs  "), "vim main.rs");
     }
 }

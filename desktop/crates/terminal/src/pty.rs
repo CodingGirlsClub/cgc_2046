@@ -15,6 +15,15 @@ use crate::{GridSize, Result, TerminalCore};
 /// 单次 [`Session::poll`] 最多喂给 VT 解析器的字节数。
 const MAX_BYTES_PER_POLL: usize = 2 * 1024 * 1024;
 
+/// 用户默认 shell 的命令行；`cwd` 为 `Some` 时在该目录启动。
+fn default_command(cwd: Option<&std::path::Path>) -> CommandBuilder {
+    let mut cmd = CommandBuilder::new_default_prog();
+    if let Some(dir) = cwd {
+        cmd.cwd(dir);
+    }
+    cmd
+}
+
 /// 子进程退出信息（不把 portable-pty 的类型泄漏出去）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExitInfo {
@@ -47,7 +56,12 @@ pub struct Session {
 impl Session {
     /// 用用户默认 shell 开一个交互会话。
     pub fn spawn_default(size: GridSize) -> Result<Self> {
-        Self::spawn_command(CommandBuilder::new_default_prog(), size)
+        Self::spawn_default_in(size, None)
+    }
+
+    /// 用用户默认 shell 开一个会话，`cwd` 为 `Some` 时在该目录启动。
+    pub fn spawn_default_in(size: GridSize, cwd: Option<&std::path::Path>) -> Result<Self> {
+        Self::spawn_command(default_command(cwd), size)
     }
 
     /// 用给定命令开一个会话（「在终端运行任务」与测试用）。
@@ -323,5 +337,36 @@ mod tests {
 
         let text = wait_for(&mut session, "hello-pty", Duration::from_secs(10));
         assert!(text.contains("hello-pty"), "screen: {text:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn spawn_in_directory_starts_there() {
+        let dir = std::env::temp_dir().join(format!("cgc-cwd-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let expected = dir.canonicalize().unwrap_or_else(|_| dir.clone());
+
+        // 配置层：默认 shell 的命令行带上了工作目录。
+        let cmd = default_command(Some(&dir));
+        assert_eq!(cmd.get_cwd(), Some(&dir.as_os_str().to_os_string()));
+
+        // 端到端：用不读用户配置的 /bin/sh 验证 PTY 确实在目录内启动。
+        let mut shell = CommandBuilder::new("/bin/sh");
+        shell.args(["-c", "pwd"]);
+        shell.cwd(&dir);
+        let mut session = Session::spawn_command(shell, grid(60, 4)).expect("spawn");
+        // 等进程退出（输出已全部读入），避免路径折行干扰文本等待。
+        let exit = wait_exit(&mut session, Duration::from_secs(5)).expect("pwd 应退出");
+        assert_eq!(exit.code, 0);
+        let text = session.screen_text().expect("screen").join("\n");
+        let _ = std::fs::remove_dir_all(&dir);
+        // 路径可能被按列宽折行，把屏幕拉平后比较完整路径。
+        let flat: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+        let expected = expected.display().to_string();
+        let needle = expected
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect::<String>();
+        assert!(flat.contains(&needle), "screen: {text:?}，期望 {expected}");
     }
 }

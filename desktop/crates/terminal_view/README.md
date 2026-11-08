@@ -52,9 +52,12 @@
 
 ## 终端事件
 
-`TerminalCore` 通过 libghostty 的 effect 回调收集 `Title` / `Pwd` / `Bell`，
-`TerminalView::poll` 消费后暴露 `title()` / `cwd()`；进程退出后终端下方显示
-一行退出提示。
+`TerminalCore` 通过 libghostty 的 effect 回调收集 `Title` / `Pwd` / `Bell`：
+
+- `Title`：显示在 agent panel 的 header（程序没设标题时回退 `Terminal`）。
+- `Pwd`：关闭终端时记住，下次打开从该目录启动；目录已被删除时退回默认位置。
+- `Bell`：终端顶部显示 1.2 秒的「终端响铃」提示（未接系统通知）。
+- 进程退出后，终端下方显示一行退出提示。
 
 ## 已知缺口（后续 milestone）
 

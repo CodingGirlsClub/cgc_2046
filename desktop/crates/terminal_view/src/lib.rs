@@ -5,6 +5,7 @@
 
 use std::ops::Range;
 use std::panic;
+use std::time::{Duration, Instant};
 
 use cgc_terminal::{
     CoreEvent, CursorVisualStyle, Frame, FrameCell, FrameColors, GridSize, Key, KeyInput, Mods,
@@ -67,6 +68,8 @@ pub struct TerminalView {
     search_open: bool,
     search_query: String,
     search_status: String,
+    /// 收到 BEL 后的提示截止时间；`None` 表示当前没有提示。
+    bell_until: Option<Instant>,
 }
 
 impl TerminalView {
@@ -98,6 +101,7 @@ impl TerminalView {
             search_open: false,
             search_query: String::new(),
             search_status: String::new(),
+            bell_until: None,
         }
     }
 
@@ -181,7 +185,10 @@ impl TerminalView {
                     self.cwd = Some(pwd);
                     changed = true;
                 }
-                CoreEvent::Bell => {}
+                CoreEvent::Bell => {
+                    self.bell_until = Some(Instant::now() + BELL_PROMPT);
+                    changed = true;
+                }
             }
         }
         if let Some(exit) = result.exit {
@@ -192,6 +199,12 @@ impl TerminalView {
                 ));
                 changed = true;
             }
+        }
+        // 响铃提示显示期间保持重绘，让它到点自然消失。
+        if bell_prompt_visible(self.bell_until, Instant::now()) {
+            changed = true;
+        } else {
+            self.bell_until = None;
         }
         if changed {
             cx.notify();
@@ -464,6 +477,14 @@ impl Render for TerminalView {
                 .child(div().flex_1())
                 .child(self.search_status.clone())
         });
+        let bell_bar = bell_prompt_visible(self.bell_until, Instant::now()).then(|| {
+            div()
+                .px(px(8.0))
+                .py(px(4.0))
+                .text_size(px(11.0))
+                .text_color(self.style.foreground)
+                .child("终端响铃（bell）")
+        });
         div()
             .id("terminal-view")
             .size_full()
@@ -566,6 +587,7 @@ impl Render for TerminalView {
                 }),
             )
             .children(search_bar)
+            .children(bell_bar)
             .child(div().flex_1().min_h(px(0.0)).child(TerminalElement {
                 view: cx.entity(),
                 style: self.style.clone(),
@@ -1104,5 +1126,36 @@ impl InputHandler for TerminalInputHandler {
         _cx: &mut App,
     ) -> Option<usize> {
         None
+    }
+}
+
+/// 响铃提示的显示时长。
+const BELL_PROMPT: Duration = Duration::from_millis(1200);
+
+/// 响铃提示在 `now` 时刻是否可见。
+fn bell_prompt_visible(until: Option<Instant>, now: Instant) -> bool {
+    until.is_some_and(|deadline| now < deadline)
+}
+
+#[cfg(test)]
+mod tests {
+    // 只做显式导入：父模块的 `use gpui_kit::*` 会引入 gpui 的 test 宏，
+    // 遮蔽 std 的 `#[test]` 并触发递归展开。
+    use super::bell_prompt_visible;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn bell_prompt_expires_at_its_deadline() {
+        let now = Instant::now();
+        assert!(!bell_prompt_visible(None, now));
+        assert!(bell_prompt_visible(
+            Some(now + Duration::from_millis(1)),
+            now
+        ));
+        assert!(!bell_prompt_visible(Some(now), now));
+        assert!(!bell_prompt_visible(
+            Some(now - Duration::from_millis(1)),
+            now
+        ));
     }
 }
