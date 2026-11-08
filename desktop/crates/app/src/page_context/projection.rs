@@ -16,6 +16,28 @@ fn project_body(tab_id: &str, schema: &str, sections: Vec<String>) -> (PageBody,
     (body, version)
 }
 
+/// 正文按行序渲染（与 UI 的列表顺序一致），版本按排序后的正文行计算。
+///
+/// 列表行序抖动（同一批数据以不同顺序返回）不应改动 Agent 上下文版本：概览这类由
+/// 列表拼出来的页面若直接用正文哈希，行序一变版本就变（R7）。
+fn project_body_ignoring_row_order(
+    tab_id: &str,
+    schema: &str,
+    sections: Vec<String>,
+) -> (PageBody, String) {
+    let body = sections.join("\n\n").trim().to_string();
+    let mut stable_lines = body.lines().collect::<Vec<_>>();
+    stable_lines.sort_unstable();
+    let version_source = format!("{schema}\0{tab_id}\0{}", stable_lines.join("\n"));
+    let version = cgc_platform::registry::checksum::sha256_hex(version_source.as_bytes());
+    let body = if body.is_empty() {
+        PageBody::Empty
+    } else {
+        PageBody::Ready(Arc::from(body))
+    };
+    (body, version)
+}
+
 /// 场次详情页的可见主内容。
 pub(crate) fn project_event_detail(
     detail: &cgc_events::detail::EventDetail,
@@ -243,11 +265,14 @@ pub(crate) fn project_enrollments(
     )
 }
 
-/// 工作台概览的可见子集：工作区身份、课程/参与/近期活动摘要。
+/// 工作台概览的可见子集：工作区身份 + 「本区近期活动」「本区课程」两块。
+///
+/// 概览 UI 只有这两块列表，没有任何报名区块；投影也只投影它们。带上全局报名行会造出
+/// 「Agent 看得到、用户在概览里看不到」的第二类失真（R7），因此这里既不接收也不输出报名。
 pub(crate) fn project_workspace_overview(
     workspace: &cgc_platform::workspace::WorkspaceSummary,
-    enrollments: &[cgc_events::enrollments::MyEnrollmentRow],
     events: &[cgc_events::list::EventSummary],
+    courses: &[cgc_courses::catalog::CourseSummary],
     tab_id: &str,
 ) -> (PageBody, String) {
     let mut sections = vec![workspace.name.clone()];
@@ -256,23 +281,6 @@ pub(crate) fn project_workspace_overview(
     }
     if let Some(member_count) = workspace.member_count {
         sections.push(format!("成员数：{member_count}"));
-    }
-    let courses = enrollments
-        .iter()
-        .filter(|row| row.course_id.is_some())
-        .take(4)
-        .map(enrollment_line)
-        .collect::<Vec<_>>();
-    if !courses.is_empty() {
-        sections.push(format!("我的课程\n{}", courses.join("\n")));
-    }
-    let participations = enrollments
-        .iter()
-        .take(3)
-        .map(enrollment_line)
-        .collect::<Vec<_>>();
-    if !participations.is_empty() {
-        sections.push(format!("我的参与\n{}", participations.join("\n")));
     }
     let upcoming = events
         .iter()
@@ -286,9 +294,17 @@ pub(crate) fn project_workspace_overview(
         })
         .collect::<Vec<_>>();
     if !upcoming.is_empty() {
-        sections.push(format!("近期活动\n{}", upcoming.join("\n")));
+        sections.push(format!("本区近期活动\n{}", upcoming.join("\n")));
     }
-    project_body(tab_id, "workspace-overview-v1", sections)
+    let course_rows = courses
+        .iter()
+        .take(3)
+        .map(|course| course.title.clone())
+        .collect::<Vec<_>>();
+    if !course_rows.is_empty() {
+        sections.push(format!("本区课程\n{}", course_rows.join("\n")));
+    }
+    project_body_ignoring_row_order(tab_id, "workspace-overview-v1", sections)
 }
 
 fn push_material(sections: &mut Vec<String>, material: &cgc_courses::content::TypedMaterial) {
