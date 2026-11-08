@@ -214,6 +214,21 @@ impl TerminalView {
         cx.stop_propagation();
     }
 
+    /// 视口内容或尺寸变化后重算搜索高亮（滚动、新输出、resize）。
+    fn refresh_search_highlights(&mut self, cx: &mut Context<Self>) {
+        let query = self.search_input.read(cx).value().to_string();
+        if !needs_highlight_refresh(self.search_open, &query) {
+            self.search_highlights.clear();
+            return;
+        }
+        let rows = self.frame().size().rows;
+        self.search_highlights = self
+            .session
+            .core_mut()
+            .search_highlights(rows)
+            .unwrap_or_default();
+    }
+
     /// 排空 PTY 输出并刷新渲染帧；有变化时通知 GPUI 重绘。
     pub fn poll(&mut self, cx: &mut Context<Self>) {
         let Ok(result) = self.session.poll() else {
@@ -249,6 +264,7 @@ impl TerminalView {
             }
         }
         if changed {
+            self.refresh_search_highlights(cx);
             cx.notify();
         }
     }
@@ -304,6 +320,7 @@ impl TerminalView {
         }
         if self.session.resize(size).is_ok() {
             let _ = self.session.core_mut().update_frame();
+            self.refresh_search_highlights(cx);
             cx.notify();
         }
     }
@@ -375,6 +392,15 @@ impl TerminalView {
         }
         self.session.scroll(lines);
         let _ = self.session.core_mut().update_frame();
+        self.refresh_search_highlights(cx);
+        cx.notify();
+    }
+
+    /// 滚动条跳转：移动视口并刷新搜索高亮。
+    pub fn scroll_to_offset(&mut self, offset: usize, cx: &mut Context<Self>) {
+        self.session.scroll_to(offset);
+        let _ = self.session.core_mut().update_frame();
+        self.refresh_search_highlights(cx);
         cx.notify();
     }
 
@@ -710,9 +736,7 @@ impl Render for TerminalView {
                                     / height)
                                     .clamp(0.0, 1.0);
                                 let max = total.saturating_sub(len) as f32;
-                                this.session.scroll_to((ratio * max) as usize);
-                                let _ = this.session.core_mut().update_frame();
-                                cx.notify();
+                                this.scroll_to_offset((ratio * max) as usize, cx);
                                 cx.stop_propagation();
                             }),
                         ),
@@ -1504,6 +1528,11 @@ fn alternate_scroll_key(lines: isize) -> Option<(Key, usize)> {
     }
 }
 
+/// 是否需要重算搜索高亮：搜索条打开且查询非空。
+fn needs_highlight_refresh(search_open: bool, query: &str) -> bool {
+    search_open && !query.is_empty()
+}
+
 /// `(row, column)` 是否落在任一搜索匹配区间内（列含两端）。
 fn is_highlighted(highlights: &[(u16, u16, u16)], row: u16, column: u16) -> bool {
     highlights
@@ -1530,9 +1559,18 @@ mod tests {
     // 只做显式导入：父模块的 `use gpui_kit::*` 会引入 gpui 的 test 宏，
     // 遮蔽 std 的 `#[test]` 并触发递归展开。
     use super::{
-        alternate_scroll_key, clears_bell, is_highlighted, search_status_text, thumb_geometry,
+        alternate_scroll_key, clears_bell, is_highlighted, needs_highlight_refresh,
+        search_status_text, thumb_geometry,
     };
     use cgc_terminal::Key;
+
+    #[test]
+    fn highlight_refresh_only_while_searching() {
+        assert!(needs_highlight_refresh(true, "foo"));
+        assert!(!needs_highlight_refresh(true, ""));
+        assert!(!needs_highlight_refresh(false, "foo"));
+        assert!(!needs_highlight_refresh(false, ""));
+    }
 
     #[test]
     fn highlights_cover_inclusive_columns() {
