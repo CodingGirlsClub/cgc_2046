@@ -520,6 +520,11 @@ pub(in crate::root_view) fn should_keep_initial_route(deep_link_consumed: bool) 
     deep_link_consumed
 }
 
+/// R15：报名重复错误必须触发权威状态刷新（与活动分支同口径）。
+pub(in crate::root_view) fn enrollment_error_needs_refresh(code: &str) -> bool {
+    code == "enrollment_duplicate_active"
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

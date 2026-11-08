@@ -4350,6 +4350,14 @@ impl RootView {
                     Err(cgc_events::list::EventsError::Domain { code, .. }) => {
                         if same_course {
                             this.enrollment_error = Some(enrollment_error_key(&code).to_string());
+                            if state::enrollment_error_needs_refresh(&code) {
+                                // R15：跨端已完成报名，本端缓存已过期；像活动分支一样
+                                // 重拉详情与本人报名，恢复权威状态后按钮才会消失。
+                                this.course_enrollments.remove(&course_id);
+                                this.course_detail_started = false;
+                                this.start_course_detail_load(cx, course_id.clone());
+                                this.load_course_enrollments(cx);
+                            }
                         }
                     }
                     Err(_) if same_course => {
