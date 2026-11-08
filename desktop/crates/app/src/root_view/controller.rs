@@ -3587,6 +3587,7 @@ impl RootView {
             self.site_tree_course_open = None;
         } else {
             self.site_tree_course_open = Some(course_id.to_string());
+            self.ensure_navigation_data(cx);
             self.load_expanded_site_tree_course(cx);
         }
         cx.notify();
@@ -3634,16 +3635,14 @@ impl RootView {
         match section {
             SiteTreeSection::Events => {
                 self.site_tree_events_open = !self.site_tree_events_open;
-                if self.site_tree_events_open && !self.events_started {
-                    self.start_events_load(cx, true);
+                if self.site_tree_events_open {
+                    self.ensure_navigation_data(cx);
                 }
             }
             SiteTreeSection::Courses => {
                 self.site_tree_courses_open = !self.site_tree_courses_open;
                 if self.site_tree_courses_open {
-                    if !self.courses_started {
-                        self.start_courses_load(cx, true);
-                    }
+                    self.ensure_navigation_data(cx);
                     self.load_course_enrollments(cx);
                 }
             }
