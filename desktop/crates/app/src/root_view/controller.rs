@@ -3986,8 +3986,21 @@ impl RootView {
         let token = self.session_token();
         let epoch = self.workspaces.epoch();
         let task = cx.background_executor().spawn(async move {
-            let rows = api.my_enrollments(token.as_deref())?;
+            let mut rows = api.my_enrollments(token.as_deref())?;
             let runs = api.my_learning_runs(token.as_deref())?;
+            // R13：run 引用的 enrollment 不在分页结果里时，按 course 补查本人报名，
+            // 让 learning_home 仍有 workspace_id 徽标与工作区地址。
+            for run in &runs {
+                if rows.iter().any(|row| row.id == run.enrollment_id) {
+                    continue;
+                }
+                if let Ok(Some(row)) = api.my_enrollment_for_course(token.as_deref(), &run.course_id)
+                {
+                    if !rows.iter().any(|existing| existing.id == row.id) {
+                        rows.push(row);
+                    }
+                }
+            }
             Ok::<_, cgc_events::list::EventsError>((rows, runs))
         });
         cx.spawn(async move |this, cx| {
