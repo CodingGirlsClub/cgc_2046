@@ -107,7 +107,9 @@ fn load_fake_courses(root: &mut RootView) {
         )
         .expect("courses page");
     root.courses.adopt_page(page);
+    root.courses_scope = Some(crate::routing::ListScope::Workspace);
     root.courses_started = true;
+    root.events_scope = Some(crate::routing::ListScope::Workspace);
     root.events_started = true;
 }
 
@@ -298,6 +300,13 @@ fn site_tree_ignores_public_catalog_after_scope_change(cx: &mut TestAppContext) 
     cx.run_until_parked();
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
+        assert!(
+            window.try_find_by_label("展开 公开条目 1").is_none(),
+            "被动浏览公开目录时树也不得显示公开条目"
+        );
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
         window.click("site-tree-search", cx);
         window.input("课程", cx);
     })

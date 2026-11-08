@@ -471,28 +471,39 @@ fn render_site_tree(
                     .any(|issue| matches_query(&issue.title))
             })
     };
-    let events = ctx
-        .events
-        .items()
-        .iter()
-        .filter(|event| matches_query(&event.title))
-        .map(|event| (event.id.clone(), event.title.clone()))
-        .collect::<Vec<_>>();
+    // R5：树只读当前工作区的数据面。中心列表是 Public 缓存时，被动浏览公开目录
+    // 也不能在树里短暂显示公开条目；等 ensure_navigation_data 切回 Workspace 再渲染。
+    let events_scope_is_workspace = ctx.events_scope == Some(crate::routing::ListScope::Workspace);
+    let events = if events_scope_is_workspace {
+        ctx.events
+            .items()
+            .iter()
+            .filter(|event| matches_query(&event.title))
+            .map(|event| (event.id.clone(), event.title.clone()))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
     let show_unenrolled = ctx.display_preferences.dock_show_unenrolled;
-    let courses = ctx
-        .courses
-        .items()
-        .iter()
-        .filter(|course| matches_query(&course.title) || outline_matches_course(&course.id))
-        .filter(|course| {
-            show_unenrolled
-                || ctx
-                    .course_enrollments
-                    .get(&course.id)
-                    .is_none_or(Option::is_some)
-        })
-        .map(|course| (course.id.clone(), course.title.clone()))
-        .collect::<Vec<_>>();
+    let courses_scope_is_workspace =
+        ctx.courses_scope == Some(crate::routing::ListScope::Workspace);
+    let courses = if courses_scope_is_workspace {
+        ctx.courses
+            .items()
+            .iter()
+            .filter(|course| matches_query(&course.title) || outline_matches_course(&course.id))
+            .filter(|course| {
+                show_unenrolled
+                    || ctx
+                        .course_enrollments
+                        .get(&course.id)
+                        .is_none_or(Option::is_some)
+            })
+            .map(|course| (course.id.clone(), course.title.clone()))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
     let show_events = events_open || !query.is_empty();
     let show_courses = courses_open || !query.is_empty();
     let search_events_empty = events.is_empty();
@@ -665,7 +676,7 @@ fn render_site_tree(
                         }),
                 );
             }
-            if ctx.events.has_more() {
+            if events_scope_is_workspace && ctx.events.has_more() {
                 let root = cx.entity().downgrade();
                 items.push(SidebarMenuItem::new("加载更多活动").pl(px(16.0)).on_click(
                     move |_, _, cx| {
@@ -873,7 +884,7 @@ fn render_site_tree(
                 }
             }
             let root = cx.entity().downgrade();
-            if ctx.courses.has_more() {
+            if courses_scope_is_workspace && ctx.courses.has_more() {
                 items.push(SidebarMenuItem::new("加载更多课程").pl(px(16.0)).on_click(
                     move |_, _, cx| {
                         let _ = root.update(cx, |this, cx| {
