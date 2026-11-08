@@ -39,6 +39,9 @@ pub use libghostty_vt::style::RgbColor as FrameColor;
 
 pub type Result<T, E = Box<dyn Error + Send + Sync>> = std::result::Result<T, E>;
 
+/// scrollback 保留的最大行数（超出后丢最旧的）。
+const SCROLLBACK_MAX_LINES: usize = 10_000;
+
 /// 终端在解析输出时上报的副作用事件。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CoreEvent {
@@ -107,6 +110,9 @@ impl TerminalCore {
         terminal.on_bell(move |_term| {
             bell_events.borrow_mut().push(CoreEvent::Bell);
         })?;
+
+        // 回看上限：`seq 1 100000` 这类输出不应无限吃内存。
+        terminal.set_scrollback_max_lines(Some(SCROLLBACK_MAX_LINES))?;
 
         Ok(Self {
             terminal,
@@ -421,6 +427,16 @@ mod tests {
             "链接末格"
         );
         assert_eq!(core.hyperlink_at((5, 0)).unwrap(), None, "链接后的普通文本");
+    }
+
+    #[test]
+    fn caps_scrollback_growth() {
+        let core = TerminalCore::new(size(40, 10)).unwrap();
+        assert_eq!(
+            core.terminal.scrollback_max_lines().unwrap(),
+            Some(SCROLLBACK_MAX_LINES),
+            "回看区必须配置上限，否则长输出会无限吃内存"
+        );
     }
 
     #[test]
