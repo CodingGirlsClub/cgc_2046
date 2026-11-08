@@ -197,8 +197,8 @@ pub(in crate::root_view) fn render_course_detail(
                             .iter()
                             .map(|tier| {
                                 let price_known = tier.amount_cents.is_some();
-                                let selected =
-                                    price_known && selected_tier.as_deref() == Some(tier.id.as_str());
+                                let selected = price_known
+                                    && selected_tier.as_deref() == Some(tier.id.as_str());
                                 let tier_id = tier.id.clone();
                                 let label = match tier.amount_cents {
                                     Some(cents) => {

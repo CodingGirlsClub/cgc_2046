@@ -205,7 +205,6 @@ query CourseLearningDetail($courseId: ID!) {
 }
 "#;
 
-
 /// R9：目录读面拒绝时，用 `courseLearningDetail` 的学员授权数据构造最小课程详情。
 fn course_detail_from_learning(
     learning: &Value,
@@ -396,7 +395,9 @@ impl CoursesApi for HttpCoursesApi {
             .and_then(Value::as_str)
             .map(str::to_string);
 
-        let catalog = self.client.post(token, GET_COURSE_QUERY, json!({ "id": id }));
+        let catalog = self
+            .client
+            .post(token, GET_COURSE_QUERY, json!({ "id": id }));
         let value = match catalog {
             Ok(payload) => payload
                 .get("data")
@@ -1148,8 +1149,8 @@ mod tests {
             "revisionNumber": 4,
             "staleRevision": false
         });
-        let detail =
-            course_detail_from_learning(&learning, Some("confirmed".to_string())).expect("fallback");
+        let detail = course_detail_from_learning(&learning, Some("confirmed".to_string()))
+            .expect("fallback");
         assert_eq!(detail.id, "crs-9");
         assert_eq!(detail.title, "活动配套课");
         assert_eq!(detail.workspace_id.as_deref(), Some("ws-beta"));
