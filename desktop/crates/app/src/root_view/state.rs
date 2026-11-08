@@ -624,4 +624,92 @@ mod tests {
             "no matching tab must clear stale context"
         );
     }
+
+    #[test]
+    fn stage2_site_tree_scope_is_workspace() {
+        assert_eq!(
+            super::site_tree_list_scope(),
+            crate::routing::ListScope::Workspace
+        );
+    }
+
+    #[test]
+    fn stage2_navigation_data_reloads_foreign_or_missing_cache() {
+        assert!(super::navigation_data_needs_reload(false, None));
+        assert!(super::navigation_data_needs_reload(
+            true,
+            Some(crate::routing::ListScope::Public)
+        ));
+        assert!(!super::navigation_data_needs_reload(
+            true,
+            Some(crate::routing::ListScope::Workspace)
+        ));
+    }
+
+    #[test]
+    fn stage2_public_ownership_backfill_requires_arrival_and_unowned() {
+        assert!(super::should_backfill_public_ownership(
+            false,
+            true,
+            Some(crate::routing::ListScope::Public),
+            true
+        ));
+        assert!(!super::should_backfill_public_ownership(
+            true,
+            true,
+            Some(crate::routing::ListScope::Public),
+            true
+        ));
+        assert!(!super::should_backfill_public_ownership(
+            false,
+            true,
+            Some(crate::routing::ListScope::Workspace),
+            true
+        ));
+        assert!(!super::should_backfill_public_ownership(
+            false,
+            true,
+            Some(crate::routing::ListScope::Public),
+            false
+        ));
+    }
+
+    #[test]
+    fn stage2_deep_link_consumption_keeps_initial_route() {
+        assert!(super::should_keep_initial_route(true));
+        assert!(!super::should_keep_initial_route(false));
+    }
+
+    #[test]
+    fn stage2_enrollment_query_skips_cached_and_inflight_courses() {
+        let mut cached = std::collections::BTreeMap::new();
+        cached.insert("crs-cached".to_string(), None);
+        let mut inflight = std::collections::HashSet::new();
+        inflight.insert("crs-inflight".to_string());
+        assert!(!super::should_query_course_enrollment(
+            "crs-cached",
+            &cached,
+            &inflight
+        ));
+        assert!(!super::should_query_course_enrollment(
+            "crs-inflight",
+            &cached,
+            &inflight
+        ));
+        assert!(super::should_query_course_enrollment(
+            "crs-new",
+            &cached,
+            &inflight
+        ));
+    }
+
+    #[test]
+    fn stage2_duplicate_enrollment_error_requires_refresh() {
+        assert!(super::enrollment_error_needs_refresh(
+            "enrollment_duplicate_active"
+        ));
+        assert!(!super::enrollment_error_needs_refresh(
+            "enrollment_capacity_full"
+        ));
+    }
 }
