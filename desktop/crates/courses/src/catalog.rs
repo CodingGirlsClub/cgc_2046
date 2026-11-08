@@ -817,16 +817,9 @@ impl CourseCatalogService {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CourseEnrollment {
-    pub id: String,
-    pub status: String,
-}
-
 pub struct CourseDetailService {
     api: Arc<dyn CoursesApi>,
     detail: Option<CourseDetail>,
-    enrollment: Option<CourseEnrollment>,
     state: CoursesListState,
 }
 
@@ -835,7 +828,6 @@ impl CourseDetailService {
         Self {
             api,
             detail: None,
-            enrollment: None,
             state: CoursesListState::Idle,
         }
     }
@@ -850,14 +842,6 @@ impl CourseDetailService {
 
     pub fn detail(&self) -> Option<&CourseDetail> {
         self.detail.as_ref()
-    }
-
-    pub fn enrollment(&self) -> Option<&CourseEnrollment> {
-        self.enrollment.as_ref()
-    }
-
-    pub fn adopt_enrollment(&mut self, enrollment: Option<CourseEnrollment>) {
-        self.enrollment = enrollment;
     }
 
     pub fn begin_load(&mut self) {
@@ -879,7 +863,6 @@ impl CourseDetailService {
 
     pub fn reset(&mut self) {
         self.detail = None;
-        self.enrollment = None;
         self.state = CoursesListState::Idle;
     }
 }
