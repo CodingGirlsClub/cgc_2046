@@ -936,6 +936,9 @@ impl RootView {
             return;
         }
         if let Some(path) = self.pending_link.take() {
+            // R11：本次登录后已消费显式深链；随后首次工作区列表到达时，
+            // restore 必须保留该路由，不能拿旧 active tab 把它覆盖掉。
+            self.deep_link_keep_route = true;
             self.navigate(&path);
         }
     }
@@ -1250,7 +1253,10 @@ impl RootView {
                             }
                         }
                         this.prepare_agent_authorization(cx);
-                        this.restore_workspace_state(cx, false);
+                        let keep_route = state::should_keep_initial_route(std::mem::take(
+                            &mut this.deep_link_keep_route,
+                        ));
+                        this.restore_workspace_state(cx, keep_route);
                         // R5：工作区列表到达后，Site Tree 才能拿到当前工作区的数据面。
                         if this.right_panel_open && this.right_panel == RightPanel::SiteTree {
                             this.ensure_navigation_data(cx);

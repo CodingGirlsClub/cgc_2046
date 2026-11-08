@@ -275,6 +275,8 @@ pub struct ShellState {
     pub(in crate::root_view) courses_started: bool,
     pub(in crate::root_view) courses_load_serial: u64,
     pub(in crate::root_view) course_enrollments: std::collections::BTreeMap<String, Option<String>>,
+    /// R11：登录后已消费显式深链，首次工作区恢复必须保留当前路由，不被旧 active tab 覆盖。
+    pub(in crate::root_view) deep_link_keep_route: bool,
     pub(in crate::root_view) workspaces: WorkspaceService,
     pub(in crate::root_view) workspaces_started: bool,
     pub(in crate::root_view) revoking: bool,
@@ -455,6 +457,7 @@ impl ShellState {
             courses_started: false,
             courses_load_serial: 0,
             course_enrollments: std::collections::BTreeMap::new(),
+            deep_link_keep_route: false,
             course_detail,
             course_detail_started: false,
             content,
@@ -510,6 +513,11 @@ pub(in crate::root_view) fn should_backfill_public_ownership(
         && has_accessible_workspaces
         && scope == Some(crate::routing::ListScope::Public)
         && has_unowned_public_course
+}
+
+/// R11：本次是否已消费显式深链；是则首次工作区恢复必须保留当前路由。
+pub(in crate::root_view) fn should_keep_initial_route(deep_link_consumed: bool) -> bool {
+    deep_link_consumed
 }
 
 #[cfg(test)]
