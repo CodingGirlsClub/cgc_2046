@@ -2791,25 +2791,34 @@ mod tests {
         /// R16：导航与布局用例会经 `navigate` → `persist_workspace_state` 把工作区状态
         /// 整文件重写。夹具在用例线程首次构造视图时安装隔离 guard，把
         /// `CGC_WORKSPACE_STATE_FILE` 指向用例私有的临时文件，避免写进开发者真实状态文件。
+        /// guard 自带进程级锁，因此不依赖测试线程数（CI 的 `cargo test --workspace` 是并行的）。
         static WORKSPACE_STATE_ISOLATION: std::cell::RefCell<Option<WorkspaceStateIsolation>> =
             const { std::cell::RefCell::new(None) };
     }
 
     /// 用例私有的工作区状态文件；`Drop` 时还原进程级 env 并删除临时文件。
     ///
-    /// 前提：本模块用例按项目纪律以 `--test-threads=1` 串行运行，进程级 env 不会被
-    /// 并发改写。`workspace_state` 自身用例的 `ENV_LOCK` 只在该模块内，跨模块无法复用，
-    /// 所以这里靠「串行 + 每次 `view()` 换新文件」隔离，而不是共享一把锁。
+    /// guard 在整个生命周期里持有进程级环境锁（`workspace_state::test_env_lock`，与
+    /// `workspace_state` 自身用例共用）：`CGC_WORKSPACE_STATE_FILE` 是进程级 env，而 CI
+    /// 的 workspace 步骤是裸 `cargo test --workspace`（并行），靠 `--test-threads=1`
+    /// 串行才成立的前提在 CI 上不成立。
     pub(super) struct WorkspaceStateIsolation {
         previous: Option<std::ffi::OsString>,
         file: std::path::PathBuf,
+        /// 持锁到 guard drop；同线程嵌套申请时是空壳（锁由外层 guard 持有）。
+        _env_lock: crate::workspace_state::test_env_lock::Guard,
     }
 
     impl WorkspaceStateIsolation {
         fn install(file: std::path::PathBuf) -> Self {
+            let env_lock = crate::workspace_state::test_env_lock::acquire();
             let previous = std::env::var_os("CGC_WORKSPACE_STATE_FILE");
             std::env::set_var("CGC_WORKSPACE_STATE_FILE", &file);
-            Self { previous, file }
+            Self {
+                previous,
+                file,
+                _env_lock: env_lock,
+            }
         }
     }
 

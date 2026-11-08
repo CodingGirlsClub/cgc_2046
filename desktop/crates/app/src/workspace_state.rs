@@ -274,16 +274,59 @@ pub(crate) fn save_entry(workspace_id: &str, entry: WorkspaceEntry) {
     save(&state);
 }
 
+/// 测试用的进程级环境锁：`CGC_WORKSPACE_STATE_FILE` 是进程级 env，凡是临时改写它的
+/// 用例（本模块 + `root_view` 的隔离 guard）都必须持同一把锁，否则 CI 的裸
+/// `cargo test --workspace`（并行）会互相覆盖，把隔离写成假的。
+///
+/// 同线程可重入：`root_view` 的 `view()` 会把 guard 存进 thread_local 直到线程退出，
+/// 同一线程再显式申请时不能再 lock（`std::sync::Mutex` 不可重入），因此用 thread-local
+/// 标记判断本线程是否已持锁，嵌套申请只返回空壳 guard。
+#[cfg(test)]
+pub(crate) mod test_env_lock {
+    use std::cell::Cell;
+    use std::sync::{Mutex, MutexGuard};
+
+    static LOCK: Mutex<()> = Mutex::new(());
+
+    thread_local! {
+        static HELD_BY_CURRENT_THREAD: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub(crate) struct Guard {
+        /// 只有最外层申请才真正持锁；嵌套申请为 `None`。
+        lock: Option<MutexGuard<'static, ()>>,
+    }
+
+    pub(crate) fn acquire() -> Guard {
+        let nested = HELD_BY_CURRENT_THREAD.with(|held| held.replace(true));
+        let lock = if nested {
+            None
+        } else {
+            Some(LOCK.lock().unwrap_or_else(|poison| poison.into_inner()))
+        };
+        Guard { lock }
+    }
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            if self.lock.take().is_some() {
+                HELD_BY_CURRENT_THREAD.with(|held| held.set(false));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// 两个用例都会改写进程级 `CGC_WORKSPACE_STATE_FILE`，必须互斥。
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    /// 两个用例都会改写进程级 `CGC_WORKSPACE_STATE_FILE`，必须与 `root_view` 的隔离
+    /// guard 共用同一把锁（并行运行也不互相覆盖）。
+    use super::test_env_lock;
 
     #[test]
     fn roundtrip_keeps_tabs_and_expansion() {
-        let _env = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+        let _env = test_env_lock::acquire();
         let dir = std::env::temp_dir().join(format!("cgc-workspace-state-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("mkdir");
         let path = dir.join("workspace_state.json");
@@ -329,7 +372,7 @@ mod tests {
 
     #[test]
     fn legacy_issue_tabs_migrate_into_their_address() {
-        let _env = ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
+        let _env = test_env_lock::acquire();
         let dir = std::env::temp_dir().join(format!("cgc-workspace-legacy-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("mkdir");
         let path = dir.join("workspace_state.json");
@@ -365,5 +408,26 @@ mod tests {
             std::env::remove_var("CGC_WORKSPACE_STATE_FILE");
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_env_lock_serializes_threads() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let guard = test_env_lock::acquire();
+        let (tx, rx) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            let _guard = test_env_lock::acquire();
+            tx.send(()).expect("child should acquire after release");
+        });
+        assert!(
+            rx.recv_timeout(Duration::from_millis(100)).is_err(),
+            "子线程在主线程释放锁前不应拿到锁"
+        );
+        drop(guard);
+        rx.recv_timeout(Duration::from_secs(2))
+            .expect("子线程应在主线程释放锁后拿到锁");
+        handle.join().expect("join child thread");
     }
 }
