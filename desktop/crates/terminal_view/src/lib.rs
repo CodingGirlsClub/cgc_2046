@@ -860,9 +860,13 @@ impl Element for TerminalElement {
                     &row.runs,
                     None,
                 );
+                // `ShapedLine::paint` 把 origin 当作**行顶**，内部自己加
+                // `padding_top + ascent` 算基线。这里再补一次半行与 ascent，
+                // 整行文字会被推下约半个行高，而光标块留在行顶 —— 表现就是
+                // “光标位置偏上”。origin 只给行顶，垂直居中交给 paint。
                 let origin = Point {
                     x: plan.origin.x,
-                    y: row.y + (plan.line_height - plan.font_size) / 2.0 + line.ascent,
+                    y: row.y,
                 };
                 let _ = line.paint(origin, plan.line_height, TextAlign::Left, None, window, cx);
             }
