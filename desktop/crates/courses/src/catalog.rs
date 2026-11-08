@@ -205,6 +205,30 @@ query CourseLearningDetail($courseId: ID!) {
 }
 "#;
 
+
+/// R9：目录读面拒绝时，用 `courseLearningDetail` 的学员授权数据构造最小课程详情。
+fn course_detail_from_learning(
+    learning: &Value,
+    enrollment_status: Option<String>,
+) -> Option<CourseDetail> {
+    Some(CourseDetail {
+        id: learning.get("courseId")?.as_str()?.to_string(),
+        title: learning.get("title")?.as_str()?.to_string(),
+        description: None,
+        status: "open".to_string(),
+        visibility: "workspace".to_string(),
+        workspace_id: learning
+            .get("workspaceId")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        pricing_enabled: false,
+        enrollment_policy: "open".to_string(),
+        available_price_tiers: Vec::new(),
+        enrollment_status,
+        revision_number: learning.get("revisionNumber").and_then(Value::as_i64),
+    })
+}
+
 fn parse_course_price_tiers(raw: &Value) -> Vec<CoursePriceTier> {
     raw.as_array()
         .map(|items| {
@@ -333,15 +357,19 @@ impl CoursesApi for HttpCoursesApi {
     }
 
     fn get_course(&self, token: Option<&str>, id: &str) -> Result<CourseDetail, CoursesError> {
-        let payload = self
+        // R9：先读学员授权面 `courseLearningDetail`。非成员但已报名公开活动时，
+        // 配套课即使 visibility=workspace，也应以学习关系放行，不能被 getCourse 目录权限挡住。
+        let learning = self
             .client
-            .post(token, GET_COURSE_QUERY, json!({ "id": id }))
-            .map_err(CoursesError::from)?;
-        let value = payload
-            .get("data")
-            .and_then(|data| data.get("getCourse"))
-            .filter(|value| !value.is_null())
-            .ok_or(CoursesError::NotFound)?;
+            .post(token, COURSE_LEARNING_QUERY, json!({ "courseId": id }))
+            .ok()
+            .and_then(|payload| {
+                payload
+                    .get("data")
+                    .and_then(|data| data.get("courseLearningDetail"))
+                    .filter(|value| !value.is_null())
+                    .cloned()
+            });
 
         let enrollment = self
             .client
@@ -358,22 +386,33 @@ impl CoursesApi for HttpCoursesApi {
             .and_then(|row| row.get("workspaceId"))
             .and_then(Value::as_str)
             .map(str::to_string);
+        let revision_number = learning
+            .as_ref()
+            .and_then(|detail| detail.get("revisionNumber"))
+            .and_then(Value::as_i64);
+        let learning_workspace_id = learning
+            .as_ref()
+            .and_then(|detail| detail.get("workspaceId"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
 
-        let (revision_number, learning_workspace_id) = self
-            .client
-            .post(token, COURSE_LEARNING_QUERY, json!({ "courseId": id }))
-            .ok()
-            .and_then(|payload| {
-                let detail = payload.get("data")?.get("courseLearningDetail")?;
-                Some((
-                    detail.get("revisionNumber").and_then(Value::as_i64),
-                    detail
-                        .get("workspaceId")
-                        .and_then(Value::as_str)
-                        .map(str::to_string),
-                ))
-            })
-            .unwrap_or_default();
+        let catalog = self.client.post(token, GET_COURSE_QUERY, json!({ "id": id }));
+        let value = match catalog {
+            Ok(payload) => payload
+                .get("data")
+                .and_then(|data| data.get("getCourse"))
+                .filter(|value| !value.is_null())
+                .cloned(),
+            // 目录读面可能因 workspace 可见性拒绝；已报名学员还能用学习读面拿到课程。
+            Err(_) if learning.is_some() => None,
+            Err(error) => return Err(CoursesError::from(error)),
+        };
+
+        let Some(value) = value else {
+            let learning = learning.ok_or(CoursesError::NotFound)?;
+            return course_detail_from_learning(&learning, enrollment_status)
+                .ok_or(CoursesError::NotFound);
+        };
 
         let id = value
             .get("id")
@@ -1115,5 +1154,23 @@ mod tests {
             tiers[1].amount_cents, None,
             "缺 amount_cents 必须是未知金额，不得当成 0"
         );
+    }
+
+    #[test]
+    fn learning_detail_fallback_builds_enrolled_non_member_course() {
+        let learning = json!({
+            "courseId": "crs-9",
+            "workspaceId": "ws-beta",
+            "title": "活动配套课",
+            "revisionNumber": 4,
+            "staleRevision": false
+        });
+        let detail =
+            course_detail_from_learning(&learning, Some("confirmed".to_string())).expect("fallback");
+        assert_eq!(detail.id, "crs-9");
+        assert_eq!(detail.title, "活动配套课");
+        assert_eq!(detail.workspace_id.as_deref(), Some("ws-beta"));
+        assert_eq!(detail.enrollment_status.as_deref(), Some("confirmed"));
+        assert_eq!(detail.revision_number, Some(4));
     }
 }
