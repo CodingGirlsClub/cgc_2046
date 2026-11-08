@@ -25,6 +25,10 @@
 再跑 `zig build`。需要能访问 `github.com` 与 `deps.files.ghostty.org`；代理网络下 Zig 的
 HTTP 客户端不可靠（socks 代理会得到 400），CI 要保证直连或预取。
 
+CI（`.github/workflows/ci.yml` 的 `desktop-build`、`desktop-release.yml` 的 `build`）
+由「安装 Zig 0.17.1」步骤下载官方 tarball 到 `$RUNNER_TEMP/zig`，再用 job 级 `ZIG`
+环境变量把路径交给 build.rs；本地不设 `ZIG` 时回落到 PATH 里的 `zig`。
+
 加快重复构建：
 
 ```sh

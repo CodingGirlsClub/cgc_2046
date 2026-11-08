@@ -476,11 +476,14 @@ jobs:
             archive: tar.gz
             artifact_arch: ""
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    # 首次构建要先由 Zig 编译 ghostty 的 C 库；缓存命中后才会回落。
+    timeout-minutes: 90
     env:
       # universal 时产物命名带 _macos-universal、verify 断言 lipo 双架构；
       # 其它平台留空 → name-artifacts.sh 回落到 uname -m。
       CGC_ARTIFACT_ARCH: ${{ matrix.artifact_arch }}
+      # Zig 由「安装 Zig 0.17.1」步骤解到 runner 临时目录，build.rs 优先读这个变量。
+      ZIG: ${{ runner.temp }}/zig/zig/zig
     defaults:
       run:
         working-directory: desktop
@@ -493,6 +496,46 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "desktop -> target"
+      # libghostty-vt 的 build.rs 会调用 `zig build` 编译 ghostty 的 C 库；
+      # 版本必须与 crates/terminal/README.md 记录的 0.17.1 一致。
+      # 官方 tarball 解到 runner 临时目录，再用 job 级 `ZIG` 指过去：
+      # 不写 GITHUB_PATH/GITHUB_ENV，避开 Windows 上 bash 与 Windows 路径混用的坑。
+      - name: 安装 Zig 0.17.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=0.17.1
+          case "${RUNNER_OS}-${RUNNER_ARCH}" in
+            macOS-ARM64) asset="aarch64-macos" ;;
+            macOS-X64)   asset="x86_64-macos" ;;
+            Linux-X64)   asset="x86_64-linux" ;;
+            Windows-X64) asset="x86_64-windows" ;;
+            *)
+              echo "不支持的 runner：${RUNNER_OS}-${RUNNER_ARCH}" >&2
+              exit 1
+              ;;
+          esac
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            archive="zig-${asset}-${version}.zip"
+          else
+            archive="zig-${asset}-${version}.tar.xz"
+          fi
+          dest="${RUNNER_TEMP}/zig"
+          mkdir -p "$dest"
+          curl -fsSL "https://ziglang.org/download/${version}/${archive}" \
+            -o "${RUNNER_TEMP}/${archive}"
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            7z x -y "${RUNNER_TEMP}/${archive}" -o"$dest" > /dev/null
+          else
+            tar -xf "${RUNNER_TEMP}/${archive}" -C "$dest"
+          fi
+          rm -rf "${dest}/zig"
+          mv "${dest}/zig-${asset}-${version}" "${dest}/zig"
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            "${dest}/zig/zig.exe" version
+          else
+            "${dest}/zig/zig" version
+          fi
       - name: Linux 系统依赖
         if: runner.os == 'Linux'
         run: |
