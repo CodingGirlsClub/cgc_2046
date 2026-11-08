@@ -45,6 +45,11 @@
 - 三击：选中整行（`SelectLineOptions`）。
 - 滚轮：`ScrollViewport::Delta` 回看 scrollback。
 
+**鼠标上报**：终端程序开启 DECSET 1000/1002/1003（格式 1006 = SGR）后，
+`cgc_terminal::MouseInput` 会把左键按下/释放、拖动与滚轮编码成 xterm 序列
+写回 PTY，程序内（`htop`、`vim`、`less`）可直接用鼠标。
+按住 `Shift` 强制走本地选区与本地 scrollback，这是终端惯例的覆盖方式。
+
 ## 终端事件
 
 `TerminalCore` 通过 libghostty 的 effect 回调收集 `Title` / `Pwd` / `Bell`，
@@ -54,6 +59,7 @@
 ## 已知缺口（后续 milestone）
 
 - 超链接（OSC 8）识别与点击
+- 右键/中键上报（当前只接左键与滚轮）
 - IME：提交文本已接入，组合中的预编辑（marked）文本尚未回显
 - 滚动条（`terminal.scrollbar()` 未接 UI）
 - bracketed paste（当前 Cmd+V 直接写字节，未经 `paste` API 的安全包装）

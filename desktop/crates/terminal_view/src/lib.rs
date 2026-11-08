@@ -8,7 +8,8 @@ use std::panic;
 
 use cgc_terminal::{
     CoreEvent, CursorVisualStyle, Frame, FrameCell, FrameColors, GridSize, Key, KeyInput, Mods,
-    Session,
+    MouseAction as TermMouseAction, MouseButton as TermMouseButton, MouseEvent as TermMouseEvent,
+    MouseInput, Session,
 };
 use gpui_kit::*;
 
@@ -56,6 +57,8 @@ pub struct TerminalView {
     key_input: KeyInput,
     /// 最近一次布局的 element bounds（鼠标坐标换算用）。
     bounds: Option<Bounds<Pixels>>,
+    /// 鼠标上报编码器：终端程序开启 DECSET 1000+ 时使用。
+    mouse_input: Option<MouseInput>,
     selection_start: Option<(u16, u16)>,
     selecting: bool,
     title: String,
@@ -86,6 +89,7 @@ impl TerminalView {
             focus_handle: cx.focus_handle(),
             key_input,
             bounds: None,
+            mouse_input: MouseInput::new().ok(),
             selection_start: None,
             selecting: false,
             title: String::new(),
@@ -283,6 +287,51 @@ impl TerminalView {
         self.bounds = Some(bounds);
     }
 
+    /// 终端程序开启鼠标上报时，把事件写给 PTY；返回是否已消费。
+    ///
+    /// Shift 是终端惯例的“强制本地选择”修饰键，调用方在 Shift 按下时应跳过本方法。
+    fn forward_mouse(
+        &mut self,
+        action: TermMouseAction,
+        button: Option<TermMouseButton>,
+        modifiers: &Modifiers,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(bounds) = self.bounds else {
+            return false;
+        };
+        let cell_height = f32::from(self.style.line_height).max(1.0);
+        let Some(input) = self.mouse_input.as_mut() else {
+            return false;
+        };
+        input.set_geometry(
+            f32::from(bounds.size.width).max(1.0) as u32,
+            f32::from(bounds.size.height).max(1.0) as u32,
+            f32::from(self.cell_width).max(1.0) as u32,
+            cell_height as u32,
+            f32::from(self.style.padding).max(0.0) as u32,
+        );
+        let event = TermMouseEvent {
+            action,
+            button,
+            mods: mods_from(modifiers),
+            x: f32::from(position.x) - f32::from(bounds.origin.x),
+            y: f32::from(position.y) - f32::from(bounds.origin.y),
+        };
+        let bytes = input
+            .encode(self.session.core(), event)
+            .ok()
+            .flatten()
+            .map(<[u8]>::to_vec);
+        let Some(bytes) = bytes else {
+            return false;
+        };
+        let _ = self.session.write(&bytes);
+        cx.notify();
+        true
+    }
+
     fn cell_at(&self, position: Point<Pixels>) -> Option<(u16, u16)> {
         let bounds = self.bounds?;
         let x = f32::from(position.x) - f32::from(bounds.origin.x) - f32::from(self.style.padding);
@@ -425,7 +474,35 @@ impl Render for TerminalView {
             .on_key_down(
                 cx.listener(|this, event: &KeyDownEvent, _, cx| this.handle_key(event, cx)),
             )
-            .on_scroll(cx.listener(|this, event: &ScrollEvent, _, cx| {
+            .on_scroll(cx.listener(|this, event: &ScrollEvent, window, cx| {
+                let modifiers = window.modifiers();
+                let delta_y: f32 = match event.delta {
+                    ScrollDelta::Lines(point) => point.y,
+                    ScrollDelta::Pixels(point) => f32::from(point.y),
+                };
+                // 终端程序开启鼠标上报时，滚轮作为按键 4/5 发给 PTY；
+                // Shift+滚轮保留给本地 scrollback（终端惯例）。
+                let wheel = if delta_y > 0.0 {
+                    Some(TermMouseButton::WheelDown)
+                } else if delta_y < 0.0 {
+                    Some(TermMouseButton::WheelUp)
+                } else {
+                    None
+                };
+                if !modifiers.shift {
+                    if let Some(button) = wheel {
+                        if this.forward_mouse(
+                            TermMouseAction::Press,
+                            Some(button),
+                            &modifiers,
+                            event.position,
+                            cx,
+                        ) {
+                            cx.stop_propagation();
+                            return;
+                        }
+                    }
+                }
                 let lines = match event.delta {
                     ScrollDelta::Lines(point) => point.y.round() as isize,
                     ScrollDelta::Pixels(point) => {
@@ -440,15 +517,50 @@ impl Render for TerminalView {
                 MouseButton::Left,
                 cx.listener(|this, event: &MouseDownEvent, window, cx| {
                     this.focus(window, cx);
+                    if !event.modifiers.shift
+                        && this.forward_mouse(
+                            TermMouseAction::Press,
+                            Some(TermMouseButton::Left),
+                            &event.modifiers,
+                            event.position,
+                            cx,
+                        )
+                    {
+                        cx.stop_propagation();
+                        return;
+                    }
                     this.mouse_down(event.position, event.click_count, cx);
                 }),
             )
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+                if this.forward_mouse(
+                    TermMouseAction::Motion,
+                    None,
+                    &event.modifiers,
+                    event.position,
+                    cx,
+                ) {
+                    return;
+                }
                 this.mouse_move(event.position, cx)
             }))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, _event: &MouseUpEvent, _, cx| {
+                cx.listener(|this, event: &MouseUpEvent, _, cx| {
+                    // 本地选择（Shift 按下或正在拖选）时不向终端发孤立的 Release。
+                    if !this.selecting
+                        && !event.modifiers.shift
+                        && this.forward_mouse(
+                            TermMouseAction::Release,
+                            Some(TermMouseButton::Left),
+                            &event.modifiers,
+                            event.position,
+                            cx,
+                        )
+                    {
+                        cx.stop_propagation();
+                        return;
+                    }
                     this.mouse_up();
                     cx.notify();
                 }),

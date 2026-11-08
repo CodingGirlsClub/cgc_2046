@@ -18,11 +18,13 @@ use libghostty_vt::{RenderState, Terminal};
 
 mod frame;
 mod input;
+mod mouse_input;
 mod pty;
 mod terminal_theme;
 
 pub use frame::{Frame, FrameCell, FrameColors, FrameCursor, FrameRow};
 pub use input::KeyInput;
+pub use mouse_input::{MouseAction, MouseButton, MouseEvent, MouseInput};
 pub use pty::{ExitInfo, PollResult, Session};
 pub use terminal_theme::{parse_hex, TerminalTheme};
 
