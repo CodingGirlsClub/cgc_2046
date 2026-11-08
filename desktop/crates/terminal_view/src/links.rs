@@ -3,7 +3,7 @@
 //! 只做「点击位置落在哪个链接上」的纯计算；打开动作在 view 里。
 //! 不引入正则依赖：按字节扫描起点，再裁剪尾部标点。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LinkKind {
@@ -56,6 +56,32 @@ pub(crate) fn resolve_path(target: &str, cwd: Option<&str>) -> Option<PathBuf> {
     }
     let cwd = cwd?;
     Some(PathBuf::from(cwd).join(path))
+}
+
+/// 把本地路径编码成 `file://` URL：保留常见 ASCII，转义空格、分隔符与非 ASCII
+/// 字节（`Path::display` 直接拼进 URL 会让含空格/中文的路径打不开）。
+pub(crate) fn file_url(path: &Path) -> String {
+    let mut out = String::from("file://");
+    for byte in path.to_string_lossy().bytes() {
+        match byte {
+            b'%' => out.push_str("%25"),
+            b' ' => out.push_str("%20"),
+            b'#' => out.push_str("%23"),
+            b'?' => out.push_str("%3F"),
+            b'(' => out.push_str("%28"),
+            b')' => out.push_str("%29"),
+            b'[' => out.push_str("%5B"),
+            b']' => out.push_str("%5D"),
+            b'\n' => out.push_str("%0A"),
+            b'\r' => out.push_str("%0D"),
+            b'\t' => out.push_str("%09"),
+            other if !(0x20..0x7F).contains(&other) => {
+                out.push_str(&format!("%{other:02X}"));
+            }
+            other => out.push(other as char),
+        }
+    }
+    out
 }
 
 fn scan(text: &str) -> Vec<Span> {
@@ -226,6 +252,19 @@ mod tests {
         assert_eq!(strip_line_col("src/main.rs"), "src/main.rs");
         assert_eq!(strip_line_col("a:b"), "a:b", "非数字后缀保留");
         assert_eq!(strip_line_col("/tmp/dir:1/file"), "/tmp/dir:1/file");
+    }
+
+    #[test]
+    fn file_urls_escape_spaces_and_non_ascii() {
+        assert_eq!(file_url(Path::new("/tmp/a b.txt")), "file:///tmp/a%20b.txt");
+        assert_eq!(
+            file_url(Path::new("/tmp/中文.md")),
+            "file:///tmp/%E4%B8%AD%E6%96%87.md"
+        );
+        assert_eq!(
+            file_url(Path::new("/tmp/100%.txt")),
+            "file:///tmp/100%25.txt"
+        );
     }
 
     #[test]

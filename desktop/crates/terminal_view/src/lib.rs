@@ -16,7 +16,7 @@ use gpui_kit::*;
 
 mod links;
 
-use links::{link_in_line, resolve_path, LinkKind};
+use links::{file_url, link_in_line, resolve_path, LinkKind};
 
 /// 终端绘制样式。颜色覆盖 `Frame` 自带的默认色（主题跟随宿主）。
 #[derive(Clone)]
@@ -415,7 +415,11 @@ impl TerminalView {
             return false;
         };
         if let Ok(Some(uri)) = self.session.core().hyperlink_at(cell) {
-            cx.open_url(&uri);
+            // OSC 8 的 URI 与可见文本无关：只放行 http(s)，其它 scheme
+            // （file / smb / 自定义）不拉起，避免被输出诱骗打开本地目标。
+            if is_safe_link(&uri) {
+                cx.open_url(&uri);
+            }
             return true;
         }
         let Some((target, kind)) = self.text_link_at(cell) else {
@@ -430,7 +434,7 @@ impl TerminalView {
                 if !path.exists() {
                     return false;
                 }
-                cx.open_url(&format!("file://{}", path.display()));
+                cx.open_url(&file_url(&path));
             }
         }
         true
@@ -1528,6 +1532,13 @@ fn alternate_scroll_key(lines: isize) -> Option<(Key, usize)> {
     }
 }
 
+/// 只放行 http(s) 链接：OSC 8 的 URI 与可见文本无关，其它 scheme 可以拉起
+/// 本地应用或网络挂载，与 `agent_ui::safe_markdown` 的链接策略保持一致。
+fn is_safe_link(target: &str) -> bool {
+    let lower = target.trim().to_ascii_lowercase();
+    lower.starts_with("https://") || lower.starts_with("http://")
+}
+
 /// 是否需要重算搜索高亮：搜索条打开且查询非空。
 fn needs_highlight_refresh(search_open: bool, query: &str) -> bool {
     search_open && !query.is_empty()
@@ -1559,10 +1570,20 @@ mod tests {
     // 只做显式导入：父模块的 `use gpui_kit::*` 会引入 gpui 的 test 宏，
     // 遮蔽 std 的 `#[test]` 并触发递归展开。
     use super::{
-        alternate_scroll_key, clears_bell, is_highlighted, needs_highlight_refresh,
+        alternate_scroll_key, clears_bell, is_highlighted, is_safe_link, needs_highlight_refresh,
         search_status_text, thumb_geometry,
     };
     use cgc_terminal::Key;
+
+    #[test]
+    fn links_are_limited_to_http_schemes() {
+        assert!(is_safe_link("https://example.com"));
+        assert!(is_safe_link("HTTP://EXAMPLE.COM"));
+        assert!(!is_safe_link("file:///etc/passwd"));
+        assert!(!is_safe_link("smb://attacker/share"));
+        assert!(!is_safe_link("javascript:alert(1)"));
+        assert!(!is_safe_link(""));
+    }
 
     #[test]
     fn highlight_refresh_only_while_searching() {
