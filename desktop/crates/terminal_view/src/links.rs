@@ -125,8 +125,31 @@ fn url_at(bytes: &[u8], start: usize) -> Option<usize> {
     while end < bytes.len() && !is_terminator(bytes[end]) {
         end += 1;
     }
-    let end = trim_trailing_punct(bytes, start, end);
+    end = trim_unbalanced_paren(bytes, start, end);
+    // URL 的尾部标点里不裁 `)`：括号平衡已在上面处理。
+    while end > start
+        && matches!(
+            bytes[end - 1],
+            b'.' | b',' | b';' | b':' | b'!' | b'?' | b']' | b'}'
+        )
+    {
+        end -= 1;
+    }
     (end > start + scheme).then_some(end)
+}
+
+/// 从尾部去掉**不配对**的右括号：`Foo_(bar)` 保留，`(see https://x)` 去掉。
+fn trim_unbalanced_paren(bytes: &[u8], start: usize, mut end: usize) -> usize {
+    while end > start && bytes[end - 1] == b')' {
+        let opens = bytes[start..end].iter().filter(|&&b| b == b'(').count();
+        let closes = bytes[start..end].iter().filter(|&&b| b == b')').count();
+        if closes > opens {
+            end -= 1;
+        } else {
+            break;
+        }
+    }
+    end
 }
 
 fn path_at(bytes: &[u8], start: usize) -> Option<usize> {
@@ -226,6 +249,21 @@ mod tests {
         );
         assert_eq!(hit(line, "error"), None, "普通单词不是链接");
         assert_eq!(hit(line, "see"), None);
+    }
+
+    #[test]
+    fn keeps_balanced_parentheses_in_urls() {
+        let line = "see https://en.wikipedia.org/wiki/Foo_(bar) now";
+        assert_eq!(
+            hit(line, "wikipedia"),
+            Some(("https://en.wikipedia.org/wiki/Foo_(bar)", LinkKind::Url))
+        );
+
+        let wrapped = "(see https://example.com/a)";
+        assert_eq!(
+            hit(wrapped, "example"),
+            Some(("https://example.com/a", LinkKind::Url))
+        );
     }
 
     #[test]

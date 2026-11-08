@@ -82,7 +82,7 @@ pub struct TerminalView {
     search_input: gpui_kit::Entity<InputState>,
     search_status: String,
     /// 当前搜索在视口内的匹配区间 `(row, start_col, end_col)`，供渲染高亮。
-    pub search_highlights: Vec<(u16, u16, u16)>,
+    pub(crate) search_highlights: Vec<(u16, u16, u16)>,
     /// 输入框订阅：View 存活期间保持订阅，字段本身不读取。
     #[allow(dead_code)]
     search_subscription: Option<Subscription>,
@@ -222,11 +222,13 @@ impl TerminalView {
             return;
         }
         let rows = self.frame().size().rows;
-        self.search_highlights = self
-            .session
-            .core_mut()
-            .search_highlights(rows)
-            .unwrap_or_default();
+        self.search_highlights = match self.session.core_mut().search_highlights(rows) {
+            Ok(ranges) => ranges,
+            Err(error) => {
+                log::warn!(target: "terminal", "搜索高亮失败：{error}");
+                Vec::new()
+            }
+        };
     }
 
     /// 排空 PTY 输出并刷新渲染帧；有变化时通知 GPUI 重绘。
@@ -339,6 +341,8 @@ impl TerminalView {
         if text.is_empty() {
             return;
         }
+        // 粘贴也是用户动作：清掉响铃标记。
+        self.bell_pending = false;
         // 第二次粘贴同一内容视为用户确认（内容可能含换行，会立即执行）。
         let confirmed = self.pending_paste.as_deref() == Some(text);
         match self.session.paste(text, confirmed) {
@@ -611,11 +615,13 @@ impl TerminalView {
             Ok(outcome) => {
                 self.search_status = search_status_text(outcome.index, outcome.total);
                 let rows = self.frame().size().rows;
-                self.search_highlights = self
-                    .session
-                    .core_mut()
-                    .search_highlights(rows)
-                    .unwrap_or_default();
+                self.search_highlights = match self.session.core_mut().search_highlights(rows) {
+                    Ok(ranges) => ranges,
+                    Err(error) => {
+                        log::warn!(target: "terminal", "搜索高亮失败：{error}");
+                        Vec::new()
+                    }
+                };
                 let _ = self.session.core_mut().update_frame();
             }
             Err(error) => {
