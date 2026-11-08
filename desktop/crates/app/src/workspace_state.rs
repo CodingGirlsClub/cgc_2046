@@ -252,9 +252,11 @@ pub(crate) fn load() -> WorkspaceState {
         let mut id_map = BTreeMap::new();
         if let Some(raw_tabs) = entry.get("tabs").and_then(Value::as_array) {
             for raw in raw_tabs {
-                let Some(tab) =
-                    parse_tab(raw, workspace_slug.as_deref(), migrate_legacy_workspace_paths)
-                else {
+                let Some(tab) = parse_tab(
+                    raw,
+                    workspace_slug.as_deref(),
+                    migrate_legacy_workspace_paths,
+                ) else {
                     continue;
                 };
                 if let Some(old_id) = raw.get("id").and_then(Value::as_str) {
