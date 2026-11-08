@@ -485,6 +485,67 @@ impl Render for TerminalView {
                 .text_color(self.style.foreground)
                 .child("终端响铃（bell）")
         });
+        let handle_color = Hsla {
+            a: 0.32,
+            ..self.style.foreground
+        };
+        let padding = f32::from(self.style.padding);
+        let track_height = self.bounds.map_or(0.0, |bounds| {
+            (f32::from(bounds.size.height) - padding * 2.0).max(0.0)
+        });
+        let scrollbar_el = self
+            .session
+            .scrollbar()
+            .ok()
+            .and_then(|bar| thumb_geometry(bar.total, bar.offset, bar.len).map(|geo| (bar, geo)))
+            .and_then(|(bar, (top, height))| {
+                if track_height <= 0.0 {
+                    return None;
+                }
+                let total = bar.total;
+                let len = bar.len;
+                let thumb_top = track_height * top;
+                let thumb_height = (track_height * height).max(8.0);
+                Some(
+                    div()
+                        .id("terminal-scrollbar")
+                        .absolute()
+                        .top(px(padding))
+                        .right(px(0.0))
+                        .bottom(px(padding))
+                        .w(px(10.0))
+                        .child(
+                            div()
+                                .absolute()
+                                .right(px(2.0))
+                                .top(px(thumb_top))
+                                .w(px(6.0))
+                                .h(px(thumb_height))
+                                .rounded(px(3.0))
+                                .bg(handle_color),
+                        )
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                                let Some(bounds) = this.bounds else {
+                                    return;
+                                };
+                                let height =
+                                    (f32::from(bounds.size.height) - padding * 2.0).max(1.0);
+                                let ratio = ((f32::from(event.position.y)
+                                    - f32::from(bounds.origin.y)
+                                    - padding)
+                                    / height)
+                                    .clamp(0.0, 1.0);
+                                let max = total.saturating_sub(len) as f32;
+                                this.session.scroll_to((ratio * max) as usize);
+                                let _ = this.session.core_mut().update_frame();
+                                cx.notify();
+                                cx.stop_propagation();
+                            }),
+                        ),
+                )
+            });
         div()
             .id("terminal-view")
             .size_full()
@@ -588,11 +649,18 @@ impl Render for TerminalView {
             )
             .children(search_bar)
             .children(bell_bar)
-            .child(div().flex_1().min_h(px(0.0)).child(TerminalElement {
-                view: cx.entity(),
-                style: self.style.clone(),
-                cell_width: self.cell_width,
-            }))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .relative()
+                    .child(TerminalElement {
+                        view: cx.entity(),
+                        style: self.style.clone(),
+                        cell_width: self.cell_width,
+                    })
+                    .children(scrollbar_el),
+            )
             .children(exit_notice.map(|notice| {
                 div()
                     .px(px(8.0))
@@ -1132,6 +1200,20 @@ impl InputHandler for TerminalInputHandler {
 /// 响铃提示的显示时长。
 const BELL_PROMPT: Duration = Duration::from_millis(1200);
 
+/// 滚动条拇指的 `(top, height)`，单位是轨道比例；不需要滚动时返回 `None`。
+fn thumb_geometry(total: u64, offset: u64, len: u64) -> Option<(f32, f32)> {
+    // 极小屏也要留出可拖动的拇指。
+    const MIN_THUMB: f32 = 0.04;
+    if len == 0 || total <= len {
+        return None;
+    }
+    let height = (len as f32 / total as f32).clamp(MIN_THUMB, 1.0);
+    let max_top = 1.0 - height;
+    let scrollable = (total - len) as f32;
+    let progress = (offset as f32 / scrollable).clamp(0.0, 1.0);
+    Some((progress * max_top, height))
+}
+
 /// 响铃提示在 `now` 时刻是否可见。
 fn bell_prompt_visible(until: Option<Instant>, now: Instant) -> bool {
     until.is_some_and(|deadline| now < deadline)
@@ -1141,8 +1223,30 @@ fn bell_prompt_visible(until: Option<Instant>, now: Instant) -> bool {
 mod tests {
     // 只做显式导入：父模块的 `use gpui_kit::*` 会引入 gpui 的 test 宏，
     // 遮蔽 std 的 `#[test]` 并触发递归展开。
-    use super::bell_prompt_visible;
+    use super::{bell_prompt_visible, thumb_geometry};
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn scrollbar_thumb_tracks_offset_and_length() {
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-6;
+
+        let (top, height) = thumb_geometry(100, 0, 20).expect("需要滚动条");
+        assert!(close(top, 0.0));
+        assert!(close(height, 0.2));
+
+        let (top, _) = thumb_geometry(100, 80, 20).expect("需要滚动条");
+        assert!(close(top, 0.8), "滚到底部时拇指贴底");
+
+        let (top, _) = thumb_geometry(100, 40, 20).expect("需要滚动条");
+        assert!(close(top, 0.4));
+    }
+
+    #[test]
+    fn scrollbar_hidden_when_everything_fits() {
+        assert_eq!(thumb_geometry(20, 0, 20), None);
+        assert_eq!(thumb_geometry(10, 0, 19), None);
+        assert_eq!(thumb_geometry(0, 0, 0), None);
+    }
 
     #[test]
     fn bell_prompt_expires_at_its_deadline() {

@@ -152,6 +152,16 @@ impl Session {
         self.core.scroll(delta);
     }
 
+    /// 当前滚动条状态。
+    pub fn scrollbar(&self) -> Result<libghostty_vt::terminal::Scrollbar> {
+        self.core.scrollbar()
+    }
+
+    /// 跳转到 scrollback 的绝对行偏移。
+    pub fn scroll_to(&mut self, offset: usize) {
+        self.core.scroll_to(offset);
+    }
+
     pub fn set_selection(&mut self, start: (u16, u16), end: (u16, u16)) -> Result<()> {
         self.core.set_selection(start, end)
     }

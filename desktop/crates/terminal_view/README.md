@@ -44,6 +44,8 @@
 - 双击：选中单词（`SelectWordOptions`）。
 - 三击：选中整行（`SelectLineOptions`）。
 - 滚轮：`ScrollViewport::Delta` 回看 scrollback。
+- 滚动条：右侧 10px 轨道 + 6px 拇指，长度按可见/总行数比例；点击轨道按位置
+  跳转（`ScrollViewport::Row`）。内容不足一屏时不显示。
 
 **鼠标上报**：终端程序开启 DECSET 1000/1002/1003（格式 1006 = SGR）后，
 `cgc_terminal::MouseInput` 会把左键按下/释放、拖动与滚轮编码成 xterm 序列
@@ -64,7 +66,6 @@
 - 超链接（OSC 8）识别与点击
 - 右键/中键上报（当前只接左键与滚轮）
 - IME：提交文本已接入，组合中的预编辑（marked）文本尚未回显
-- 滚动条（`terminal.scrollbar()` 未接 UI）
 - bracketed paste（当前 Cmd+V 直接写字节，未经 `paste` API 的安全包装）
 - 光标闪烁、Hollow 描边
 - 事件驱动重绘（当前 33ms 轮询）
