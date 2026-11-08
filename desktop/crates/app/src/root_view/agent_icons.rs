@@ -84,6 +84,20 @@ pub(in crate::root_view) fn agent_icon_element(
     }
 }
 
+/// 终端图标：用 kit 自带的 Lucide `terminal`（与 Zed 的 `IconName::Terminal`
+/// 同一套图形），单色、跟随 header 的弱化文字色。
+pub(in crate::root_view) fn terminal_icon_element(size: f32, color: gpui::Hsla) -> AnyElement {
+    use gpui_kit::assets::IconName as AssetIcon;
+
+    gpui_kit::svg()
+        .path(AssetIcon::Terminal.path())
+        .w(px(size))
+        .h(px(size))
+        .flex_none()
+        .text_color(color)
+        .into_any_element()
+}
+
 fn svg_icon(data: &'static [u8], size: f32, color: gpui::Hsla) -> AnyElement {
     // 直接用 gpui 的 Svg 元素 + 显式尺寸，避免 Icon::data 在部分图标上尺寸/
     // tint 异常导致空白。

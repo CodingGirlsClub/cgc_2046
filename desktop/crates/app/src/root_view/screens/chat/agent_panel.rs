@@ -114,6 +114,16 @@ pub(in crate::root_view) fn header(
     } else {
         ctx.chat.selected_agent.clone().unwrap_or_default()
     };
+    // 终端模式用终端图标，其余沿用 agent 品牌 mark（Zed 的 tab 同样按内容切图标）。
+    let header_icon = if ctx.terminal_view.is_some() {
+        crate::root_view::agent_icons::terminal_icon_element(AGENT_HEADER_ICON_SIZE, palette.ink_3)
+    } else {
+        crate::root_view::agent_icons::agent_icon_element(
+            &agent_icon_id,
+            AGENT_HEADER_ICON_SIZE,
+            palette.ink_3,
+        )
+    };
     let title = panel_title(ctx, cx);
     let editing = ctx.agent_panel_editing_title;
     let title_input = ctx.agent_panel_title_input.clone();
@@ -253,11 +263,7 @@ pub(in crate::root_view) fn header(
         .h(px(COLUMN_HEADER_HEIGHT))
         .border_b_1()
         .border_color(palette.line)
-        .child(crate::root_view::agent_icons::agent_icon_element(
-            &agent_icon_id,
-            AGENT_HEADER_ICON_SIZE,
-            palette.ink_3,
-        ))
+        .child(header_icon)
         .child(title_area)
         .child(
             Popover::new("agent-panel-new")
@@ -337,6 +343,10 @@ pub(in crate::root_view) fn header(
                             .text_size(px(11.0))
                             .text_color(palette.ink_2)
                             .hover(|style| style.bg(palette.soft))
+                            .child(crate::root_view::agent_icons::terminal_icon_element(
+                                AGENT_ROW_ICON_SIZE,
+                                palette.ink_3,
+                            ))
                             .child(div().flex_1().child("Terminal"))
                             .on_click(move |_, window, cx| {
                                 let _ =
