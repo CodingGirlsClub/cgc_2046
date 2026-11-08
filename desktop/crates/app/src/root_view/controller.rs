@@ -1407,11 +1407,10 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 let stale_epoch =
                     epoch.is_some_and(|epoch| !this.workspaces.is_current_epoch(epoch));
-                // 正文/投影可以由 Site Tree 为「不是当前路由」的课程加载，所以路由不带
-                // 课程 id 时不能判定为过期；只有路由明确指向别的课程才只丢弃不复位。
-                let still_wanted = this
-                    .route_object_id()
-                    .is_none_or(|id| id == requested_course.as_str());
+                // 复位判据是「服务当前正在跟踪的那门课」，不是路由对象：Site Tree 会为
+                // 树里展开的**另一门课**加载正文/投影，此时路由往往没有 :id，按路由判会
+                // 把别人已加载的数据清空（CourseContentService::adopt 不校验课程）。
+                let still_wanted = this.projection.course_id() == Some(requested_course.as_str());
                 if stale_epoch || !still_wanted {
                     // 丢弃后必须复位：render 闸门要求 `Idle` 才会重发，否则投影永久
                     // 停在加载态且没有重试入口（R1）。
@@ -1472,9 +1471,9 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 let stale_epoch =
                     epoch.is_some_and(|epoch| !this.workspaces.is_current_epoch(epoch));
-                let still_wanted = this
-                    .route_object_id()
-                    .is_none_or(|id| id == requested_course.as_str());
+                // 同 projection：判据是「当前加载/已加载的那门课」。旧课的迟到响应不得
+                // 复位另一门课（Site Tree 展开的课）的正文。
+                let still_wanted = this.content.course_id() == Some(requested_course.as_str());
                 if stale_epoch || !still_wanted {
                     // 丢弃后必须复位，否则正文闸门（`Idle`）不再重发（R1）。
                     if still_wanted {

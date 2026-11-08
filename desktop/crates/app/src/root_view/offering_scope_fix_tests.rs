@@ -360,3 +360,60 @@ fn approval_shortcut_works_on_public_learning(cx: &mut TestAppContext) {
         );
     });
 }
+
+#[gpui_kit::test]
+fn late_response_for_another_course_does_not_reset_loaded_content(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let root = root_at(cx, "/w/alpha/courses");
+    root.update(cx, |root, _| {
+        root.workspaces.adopt(workspaces());
+        assert!(
+            root.current
+                .as_ref()
+                .is_some_and(|route| route.params.get("id").is_none()),
+            "夹具必须是「路由不带课程 id」的 Site Tree 场景"
+        );
+    });
+    // crs-000 的正文/投影请求先发，稍后才返回。
+    root.update(cx, |root, cx| {
+        root.start_content_load(cx, "crs-000".into());
+        root.start_projection_load(cx, "crs-000".into());
+    });
+    root.update(cx, |root, _| {
+        // Site Tree 展开的是另一门课，且已经加载完成；随后工作区列表重取，
+        // 让 crs-000 的在途响应变成过期响应。
+        let content = root
+            .content
+            .api_handle()
+            .get_course_content(None, "crs-002")
+            .expect("fake content");
+        root.content.begin_load("crs-002");
+        root.content.adopt(content);
+        let projection = root
+            .projection
+            .api_handle()
+            .get_learning_projection(None, "crs-002")
+            .expect("fake projection");
+        root.projection.begin_load("crs-002");
+        root.projection.adopt(projection);
+        root.workspaces.adopt(workspaces());
+    });
+    cx.run_until_parked();
+    root.read_with(cx, |root, _| {
+        assert_eq!(
+            root.content.course_id(),
+            Some("crs-002"),
+            "旧课迟到响应不得复位另一门课已加载的正文"
+        );
+        assert_eq!(
+            root.content.content().map(|content| content.course_id.as_str()),
+            Some("crs-002")
+        );
+        assert_eq!(
+            root.projection.course_id(),
+            Some("crs-002"),
+            "投影同口径：旧课迟到响应不得清掉另一门课"
+        );
+        assert!(root.projection.projection().is_some());
+    });
+}
