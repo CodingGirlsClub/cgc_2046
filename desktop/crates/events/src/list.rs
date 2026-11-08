@@ -576,7 +576,7 @@ impl EventsApi for FakeEventsApi {
             detail.available_price_tiers = vec![crate::detail::PriceTier {
                 id: "tier-early".to_string(),
                 name: "早鸟".to_string(),
-                amount_cents: 9900,
+                amount_cents: Some(9900),
             }];
         }
         // 每 5 条造一个押金场（evt-004/009/...），供三态 UI 与测试使用。

@@ -94,10 +94,10 @@ pub(crate) fn project_event_detail(
         PriceMode::Paid {
             min_amount_cents,
             tiers,
-        } => format!(
-            "价格：¥{:.2} 起 · {tiers} 档",
-            min_amount_cents as f64 / 100.0
-        ),
+        } => match min_amount_cents {
+            Some(cents) => format!("价格：¥{:.2} 起 · {tiers} 档", cents as f64 / 100.0),
+            None => format!("价格：金额待定 · {tiers} 档"),
+        },
         PriceMode::Deposit { amount_cents } => {
             format!("押金：¥{:.2}（可退）", amount_cents as f64 / 100.0)
         }

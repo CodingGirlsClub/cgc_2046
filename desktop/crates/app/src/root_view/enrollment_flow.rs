@@ -338,6 +338,18 @@ impl RootView {
             cx.notify();
             return;
         }
+        // 与课程档位同口径：未知金额档位不可提交（UI 已禁用，这里再兜一层）。
+        if let Some(tier_id) = self.selected_tier.as_deref() {
+            if detail
+                .available_price_tiers
+                .iter()
+                .any(|tier| tier.id == tier_id && tier.amount_cents.is_none())
+            {
+                self.enrollment_error = Some("tier_unavailable".to_string());
+                cx.notify();
+                return;
+            }
+        }
         if detail.min_age.is_some() && !self.age_confirmed {
             self.enrollment_error = Some("age_required".to_string());
             cx.notify();

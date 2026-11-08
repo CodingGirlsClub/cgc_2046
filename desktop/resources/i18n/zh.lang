@@ -83,6 +83,7 @@ events.detail.retry = 重试
 events.detail.not_found = 活动不存在或不可见
 events.detail.free = 免费
 events.detail.paid = 收费
+events.detail.price_pending = 金额待定
 events.detail.deposit = 押金
 events.detail.venue = 场地
 events.detail.capacity = 名额

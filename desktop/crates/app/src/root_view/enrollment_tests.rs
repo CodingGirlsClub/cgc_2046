@@ -3,7 +3,7 @@
 use super::RootView;
 use crate::i18n::Language;
 use crate::theme::ThemePreference;
-use cgc_events::detail::{EventDetail, EventDetailService};
+use cgc_events::detail::{EventDetail, EventDetailService, PriceTier};
 use cgc_events::enroll::MyEnrollment;
 use cgc_events::list::{EventSummary, FakeEventsApi};
 use cgc_platform::session::{FakeAuthApi, MemoryStore, SessionService};
@@ -59,9 +59,20 @@ fn open_enrollment_area(
     visibility: &str,
     enrollment: Option<MyEnrollment>,
 ) -> (gpui_kit::AnyWindowHandle, Entity<RootView>) {
+    open_enrollment_area_with_detail(
+        cx,
+        EventDetail::from_summary(&summary(visibility)),
+        enrollment,
+    )
+}
+
+fn open_enrollment_area_with_detail(
+    cx: &mut TestAppContext,
+    detail: EventDetail,
+    enrollment: Option<MyEnrollment>,
+) -> (gpui_kit::AnyWindowHandle, Entity<RootView>) {
     cx.update(gpui_kit::init);
     cx.update(|cx| {
-        let detail = EventDetail::from_summary(&summary(visibility));
         let (handle, probe) = gpui_kit::open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
@@ -443,5 +454,71 @@ fn issue_tab_without_owner_access_stays_on_public_learning(cx: &mut TestAppConte
             "courses.public_learning"
         );
         assert_eq!(root.current.as_ref().unwrap().params.get("slug"), None);
+    });
+}
+
+fn priced_detail_with_dirty_tier() -> EventDetail {
+    let mut detail = EventDetail::from_summary(&summary("public"));
+    detail.pricing_enabled = true;
+    detail.available_price_tiers = vec![
+        PriceTier {
+            id: "dirty".into(),
+            name: "Dirty".into(),
+            amount_cents: None,
+        },
+        PriceTier {
+            id: "known".into(),
+            name: "Early".into(),
+            amount_cents: Some(9900),
+        },
+    ];
+    detail
+}
+
+#[gpui_kit::test]
+fn unknown_amount_tier_chip_is_pending_and_not_selectable(cx: &mut TestAppContext) {
+    let (handle, root) =
+        open_enrollment_area_with_detail(cx, priced_detail_with_dirty_tier(), None);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window.try_find_by_label("Dirty Price pending").is_some(),
+            "未知金额档位必须显示「金额待定」，不得渲染 ¥0.00"
+        );
+        assert!(window.try_find_by_label("Dirty ¥0.00").is_none());
+        window.click("enroll-tier-dirty", cx);
+    })
+    .unwrap();
+    assert_eq!(
+        root.read_with(cx, |root, _| root.selected_tier.clone()),
+        None,
+        "未知金额档位不可选中"
+    );
+    cx.update_window(handle, |_, window, cx| {
+        window.click("enroll-tier-known", cx);
+    })
+    .unwrap();
+    assert_eq!(
+        root.read_with(cx, |root, _| root.selected_tier.clone())
+            .as_deref(),
+        Some("known"),
+        "已知金额档位仍可正常选择"
+    );
+}
+
+#[gpui_kit::test]
+fn unknown_amount_tier_cannot_be_submitted(cx: &mut TestAppContext) {
+    let (_handle, root) =
+        open_enrollment_area_with_detail(cx, priced_detail_with_dirty_tier(), None);
+    root.update(cx, |root, cx| {
+        root.session.sign_in("demo@example.com", "demo").unwrap();
+        root.selected_tier = Some("dirty".into());
+        root.submit_enrollment(cx);
+        assert_eq!(
+            root.enrollment_error.as_deref(),
+            Some("tier_unavailable"),
+            "未知金额档位必须在控制器层被拒绝（UI 禁用之外再兜一层）"
+        );
+        assert!(!root.enrolling, "被拒绝的提交不得进入在途态");
     });
 }

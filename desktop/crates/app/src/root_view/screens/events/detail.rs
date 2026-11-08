@@ -92,7 +92,15 @@ pub(in crate::root_view) fn render_detail(
                         tiers,
                     } => (
                         translate(language, Key::EventsDetailPaid).to_string(),
-                        format!("¥{:.2} 起 · {tiers} 档", min_amount_cents as f64 / 100.0),
+                        match min_amount_cents {
+                            Some(cents) => {
+                                format!("¥{:.2} 起 · {tiers} 档", cents as f64 / 100.0)
+                            }
+                            None => format!(
+                                "{} · {tiers} 档",
+                                translate(language, Key::EventsDetailPricePending)
+                            ),
+                        },
                     ),
                     PriceMode::Deposit { amount_cents } => (
                         translate(language, Key::EventsDetailDeposit).to_string(),
@@ -471,8 +479,17 @@ pub(in crate::root_view) fn render_enrollment_area(
         .available_price_tiers
         .iter()
         .map(|tier| {
-            let selected = selected_tier.as_deref() == Some(tier.id.as_str());
+            let price_known = tier.amount_cents.is_some();
+            let selected = price_known && selected_tier.as_deref() == Some(tier.id.as_str());
             let tier_id = tier.id.clone();
+            let label = match tier.amount_cents {
+                Some(cents) => format!("{} ¥{:.2}", tier.name, cents as f64 / 100.0),
+                None => format!(
+                    "{} {}",
+                    tier.name,
+                    translate(language, Key::EventsDetailPricePending)
+                ),
+            };
             div()
                 .id(format!("enroll-tier-{}", tier.id))
                 .px(space(1))
@@ -484,19 +501,23 @@ pub(in crate::root_view) fn render_enrollment_area(
                 } else {
                     palette.soft
                 })
-                .text_color(if selected {
+                .text_color(if !price_known {
+                    palette.ink_3
+                } else if selected {
                     palette.canvas
                 } else {
                     palette.ink_2
                 })
-                .child(format!(
-                    "{} ¥{:.2}",
-                    tier.name,
-                    tier.amount_cents as f64 / 100.0
-                ))
+                .test_support()
+                .role(Role::Button)
+                .aria_label(label.clone())
+                .child(label)
                 .on_click(cx.listener(move |this, _, _, cx| {
-                    this.selected_tier = Some(tier_id.clone());
-                    cx.notify();
+                    // 未知金额档位不可选：显示「金额待定」，避免把 0 元价带上报名。
+                    if price_known {
+                        this.selected_tier = Some(tier_id.clone());
+                        cx.notify();
+                    }
                 }))
                 .into_any_element()
         })

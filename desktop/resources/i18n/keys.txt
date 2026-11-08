@@ -84,6 +84,7 @@ events.detail.retry
 events.detail.not_found
 events.detail.free
 events.detail.paid
+events.detail.price_pending
 events.detail.deposit
 events.detail.venue
 events.detail.capacity

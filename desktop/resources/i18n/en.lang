@@ -83,6 +83,7 @@ events.detail.retry = Retry
 events.detail.not_found = Event not found or not visible
 events.detail.free = Free
 events.detail.paid = Paid
+events.detail.price_pending = Price pending
 events.detail.deposit = Deposit
 events.detail.venue = Venue
 events.detail.capacity = Capacity
