@@ -96,6 +96,7 @@ courses.detail.error = Failed to load, please retry
 courses.detail.retry = Retry
 courses.detail.not_found = Course not found or not visible
 courses.detail.enrolled = Start learning
+courses.detail.price_pending = Price pending
 courses.detail.not_enrolled = Enroll to unlock learning
 courses.learning.loading = Loading…
 courses.learning.retry = Retry

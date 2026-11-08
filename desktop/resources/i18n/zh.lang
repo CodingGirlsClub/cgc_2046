@@ -96,6 +96,7 @@ courses.detail.error = 加载失败，请重试
 courses.detail.retry = 重试
 courses.detail.not_found = 课程不存在或不可见
 courses.detail.enrolled = 开始学习
+courses.detail.price_pending = 金额待定
 courses.detail.not_enrolled = 报名后解锁学习
 courses.learning.loading = 加载中…
 courses.learning.retry = 重试

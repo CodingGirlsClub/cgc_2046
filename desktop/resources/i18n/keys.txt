@@ -98,6 +98,7 @@ courses.detail.retry
 courses.detail.not_found
 courses.detail.enrolled
 courses.detail.not_enrolled
+courses.detail.price_pending
 courses.learning.loading
 courses.learning.retry
 courses.learning.context_required

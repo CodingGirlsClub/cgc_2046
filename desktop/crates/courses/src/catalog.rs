@@ -83,7 +83,7 @@ pub struct CoursePage {
 pub struct CoursePriceTier {
     pub id: String,
     pub name: String,
-    pub amount_cents: i64,
+    pub amount_cents: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -216,10 +216,7 @@ fn parse_course_price_tiers(raw: &Value) -> Vec<CoursePriceTier> {
                     Some(CoursePriceTier {
                         id: parsed.get("id")?.as_str()?.to_string(),
                         name: parsed.get("name")?.as_str()?.to_string(),
-                        amount_cents: parsed
-                            .get("amount_cents")
-                            .and_then(Value::as_i64)
-                            .unwrap_or(0),
+                        amount_cents: parsed.get("amount_cents").and_then(Value::as_i64),
                     })
                 })
                 .collect()
@@ -1103,5 +1100,20 @@ mod tests {
         assert_eq!(context.workspace_id, "ws-demo");
         assert_eq!(context.course_revision_id, "3");
         assert_eq!(context.user_id, "u-1");
+    }
+
+    #[test]
+    fn parse_price_tiers_preserves_unknown_amounts() {
+        let raw = json!([
+            "{\"id\":\"t-early\",\"name\":\"早鸟\",\"amount_cents\":9900}",
+            "{\"id\":\"t-tbd\",\"name\":\"待定\"}"
+        ]);
+        let tiers = parse_course_price_tiers(&raw);
+        assert_eq!(tiers.len(), 2);
+        assert_eq!(tiers[0].amount_cents, Some(9900));
+        assert_eq!(
+            tiers[1].amount_cents, None,
+            "缺 amount_cents 必须是未知金额，不得当成 0"
+        );
     }
 }

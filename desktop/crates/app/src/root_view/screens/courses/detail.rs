@@ -185,12 +185,31 @@ pub(in crate::root_view) fn render_course_detail(
                             .into_any_element()
                     } else {
                         let selected_tier = ctx.selected_tier.clone();
+                        let selected_tier_unavailable =
+                            selected_tier.as_deref().is_some_and(|id| {
+                                detail
+                                    .available_price_tiers
+                                    .iter()
+                                    .any(|tier| tier.id == id && tier.amount_cents.is_none())
+                            });
                         let tier_chips = detail
                             .available_price_tiers
                             .iter()
                             .map(|tier| {
-                                let selected = selected_tier.as_deref() == Some(tier.id.as_str());
+                                let price_known = tier.amount_cents.is_some();
+                                let selected =
+                                    price_known && selected_tier.as_deref() == Some(tier.id.as_str());
                                 let tier_id = tier.id.clone();
+                                let label = match tier.amount_cents {
+                                    Some(cents) => {
+                                        format!("{} ¥{:.2}", tier.name, cents as f64 / 100.0)
+                                    }
+                                    None => format!(
+                                        "{} {}",
+                                        tier.name,
+                                        translate(language, Key::CoursesDetailPricePending)
+                                    ),
+                                };
                                 div()
                                     .id(format!("course-tier-{}", tier.id))
                                     .px(space(1))
@@ -202,19 +221,19 @@ pub(in crate::root_view) fn render_course_detail(
                                     } else {
                                         palette.soft
                                     })
-                                    .text_color(if selected {
+                                    .text_color(if !price_known {
+                                        palette.ink_3
+                                    } else if selected {
                                         palette.canvas
                                     } else {
                                         palette.ink_2
                                     })
-                                    .child(format!(
-                                        "{} ¥{:.2}",
-                                        tier.name,
-                                        tier.amount_cents as f64 / 100.0
-                                    ))
+                                    .child(label)
                                     .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.selected_tier = Some(tier_id.clone());
-                                        cx.notify();
+                                        if price_known {
+                                            this.selected_tier = Some(tier_id.clone());
+                                            cx.notify();
+                                        }
                                     }))
                                     .into_any_element()
                             })
@@ -249,24 +268,28 @@ pub(in crate::root_view) fn render_course_detail(
                                     .px(space(2))
                                     .py(px(6.0))
                                     .rounded(px(RADIUS_MEDIUM))
-                                    .bg(if ctx.enrolling {
+                                    .bg(if ctx.enrolling || selected_tier_unavailable {
                                         palette.soft
                                     } else {
                                         palette.accent
                                     })
-                                    .text_color(if ctx.enrolling {
+                                    .text_color(if ctx.enrolling || selected_tier_unavailable {
                                         palette.ink_3
                                     } else {
                                         white()
                                     })
-                                    .child(if ctx.enrolling {
+                                    .child(if selected_tier_unavailable {
+                                        translate(language, Key::CoursesDetailPricePending)
+                                    } else if ctx.enrolling {
                                         translate(language, Key::EventsEnrollEnrolling)
                                     } else {
                                         translate(language, Key::EventsEnrollButton)
                                     })
                                     .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.submit_course_enrollment(&target, cx);
-                                        cx.notify();
+                                        if !selected_tier_unavailable {
+                                            this.submit_course_enrollment(&target, cx);
+                                            cx.notify();
+                                        }
                                     })),
                             )
                             .children(error)
