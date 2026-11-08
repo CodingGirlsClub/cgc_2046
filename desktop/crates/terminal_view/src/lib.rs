@@ -15,6 +15,10 @@ use cgc_terminal::{
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::*;
 
+mod links;
+
+use links::{link_in_line, resolve_path, LinkKind};
+
 /// 终端绘制样式。颜色覆盖 `Frame` 自带的默认色（主题跟随宿主）。
 #[derive(Clone)]
 pub struct TerminalStyle {
@@ -348,10 +352,52 @@ impl TerminalView {
         self.bounds = Some(bounds);
     }
 
-    /// 鼠标指向的 cell 上的超链接（OSC 8）。
-    fn link_at(&self, position: Point<Pixels>) -> Option<String> {
-        let cell = self.cell_at(position)?;
-        self.session.core().hyperlink_at(cell).ok().flatten()
+    /// Cmd+单击：OSC 8 链接优先，其次识别输出文本里的 URL / 文件路径。
+    fn open_link_at(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) -> bool {
+        let Some(cell) = self.cell_at(position) else {
+            return false;
+        };
+        if let Ok(Some(uri)) = self.session.core().hyperlink_at(cell) {
+            cx.open_url(&uri);
+            return true;
+        }
+        let Some((target, kind)) = self.text_link_at(cell) else {
+            return false;
+        };
+        match kind {
+            LinkKind::Url => cx.open_url(&target),
+            LinkKind::Path => {
+                let Some(path) = resolve_path(&target, self.cwd.as_deref()) else {
+                    return false;
+                };
+                if !path.exists() {
+                    return false;
+                }
+                cx.open_url(&format!("file://{}", path.display()));
+            }
+        }
+        true
+    }
+
+    /// 行文本里与 `cell` 重叠的链接（文本由 cell 拼出，列 → 字节偏移同步记录）。
+    fn text_link_at(&self, cell: (u16, u16)) -> Option<(String, LinkKind)> {
+        let row = self.frame().rows().get(cell.1 as usize)?;
+        let mut text = String::new();
+        let mut offsets = Vec::with_capacity(row.cells.len());
+        for frame_cell in &row.cells {
+            offsets.push(text.len());
+            if frame_cell.spacer_tail {
+                continue;
+            }
+            if frame_cell.text.is_empty() {
+                text.push(' ');
+            } else {
+                text.push_str(&frame_cell.text);
+            }
+        }
+        let byte_index = *offsets.get(cell.0 as usize)?;
+        let span = link_in_line(&text, byte_index)?;
+        Some((text[span.start..span.end].to_string(), span.kind))
     }
 
     /// 终端程序开启鼠标上报时，把事件写给 PTY；返回是否已消费。
@@ -675,13 +721,10 @@ impl Render for TerminalView {
                 MouseButton::Left,
                 cx.listener(|this, event: &MouseDownEvent, window, cx| {
                     this.focus(window, cx);
-                    // Cmd+单击优先打开 OSC 8 链接（与 Zed 一致）。
-                    if event.modifiers.platform {
-                        if let Some(uri) = this.link_at(event.position) {
-                            cx.open_url(&uri);
-                            cx.stop_propagation();
-                            return;
-                        }
+                    // Cmd+单击优先打开链接（OSC 8，或输出里的 URL/路径）。
+                    if event.modifiers.platform && this.open_link_at(event.position, cx) {
+                        cx.stop_propagation();
+                        return;
                     }
                     if !event.modifiers.shift
                         && this.forward_mouse(

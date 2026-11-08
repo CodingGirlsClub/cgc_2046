@@ -47,7 +47,9 @@
 - 三击：选中整行（`SelectLineOptions`）。
 - 滚轮：`ScrollViewport::Delta` 回看 scrollback；在 alternate screen
   （`vim` / `less`）里转成方向键发给程序，单次事件最多 10 个按键。
-- 超链接：`Cmd+单击` 打开 cell 的 OSC 8 链接（优先于鼠标上报与选区）。
+- 链接：`Cmd+单击` 打开 OSC 8 链接；没有 OSC 8 时识别输出里的 URL 或文件路径
+  （`src/main.rs:42:5` 这类，点击前会去掉 `:行:列`）。相对路径需要终端的 cwd
+  （OSC 7 上报），否则不打开。链接优先于鼠标上报与选区。
 - 滚动条：右侧 10px 轨道 + 6px 拇指，长度按可见/总行数比例；点击轨道按位置
   跳转（`ScrollViewport::Row`）。内容不足一屏时不显示。
 
