@@ -300,6 +300,12 @@ impl TerminalView {
         self.bounds = Some(bounds);
     }
 
+    /// 鼠标指向的 cell 上的超链接（OSC 8）。
+    fn link_at(&self, position: Point<Pixels>) -> Option<String> {
+        let cell = self.cell_at(position)?;
+        self.session.core().hyperlink_at(cell).ok().flatten()
+    }
+
     /// 终端程序开启鼠标上报时，把事件写给 PTY；返回是否已消费。
     ///
     /// Shift 是终端惯例的“强制本地选择”修饰键，调用方在 Shift 按下时应跳过本方法。
@@ -599,6 +605,14 @@ impl Render for TerminalView {
                 MouseButton::Left,
                 cx.listener(|this, event: &MouseDownEvent, window, cx| {
                     this.focus(window, cx);
+                    // Cmd+单击优先打开 OSC 8 链接（与 Zed 一致）。
+                    if event.modifiers.platform {
+                        if let Some(uri) = this.link_at(event.position) {
+                            cx.open_url(&uri);
+                            cx.stop_propagation();
+                            return;
+                        }
+                    }
                     if !event.modifiers.shift
                         && this.forward_mouse(
                             TermMouseAction::Press,

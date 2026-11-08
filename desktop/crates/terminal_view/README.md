@@ -44,6 +44,7 @@
 - 双击：选中单词（`SelectWordOptions`）。
 - 三击：选中整行（`SelectLineOptions`）。
 - 滚轮：`ScrollViewport::Delta` 回看 scrollback。
+- 超链接：`Cmd+单击` 打开 cell 的 OSC 8 链接（优先于鼠标上报与选区）。
 - 滚动条：右侧 10px 轨道 + 6px 拇指，长度按可见/总行数比例；点击轨道按位置
   跳转（`ScrollViewport::Row`）。内容不足一屏时不显示。
 
@@ -63,7 +64,6 @@
 
 ## 已知缺口（后续 milestone）
 
-- 超链接（OSC 8）识别与点击
 - 右键/中键上报（当前只接左键与滚轮）
 - IME：提交文本已接入，组合中的预编辑（marked）文本尚未回显
 - bracketed paste（当前 Cmd+V 直接写字节，未经 `paste` API 的安全包装）

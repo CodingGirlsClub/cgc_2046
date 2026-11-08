@@ -265,6 +265,28 @@ impl TerminalCore {
         Ok(SearchOutcome { total, index })
     }
 
+    /// 某个视口 cell 上的超链接 URI（OSC 8）；没有链接时 `None`。
+    pub fn hyperlink_at(&self, cell: (u16, u16)) -> Result<Option<String>> {
+        let grid_ref = self.terminal.grid_ref(Point::Viewport(PointCoordinate {
+            x: cell.0,
+            y: u32::from(cell.1),
+        }))?;
+        // OSC 8 的 URI 可能很长，按后端返回的 required 逐步扩容。
+        let mut buffer = vec![0u8; 256];
+        loop {
+            match grid_ref.hyperlink_uri(&mut buffer) {
+                Ok(0) => return Ok(None),
+                Ok(len) => {
+                    return Ok(Some(String::from_utf8_lossy(&buffer[..len]).into_owned()));
+                }
+                Err(libghostty_vt::error::Error::OutOfSpace { required }) => {
+                    buffer.resize(required.max(buffer.len() * 2), 0);
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+
     /// 当前选区的纯文本（无选区时返回 `None`）。
     pub fn selection_text(&self) -> Result<Option<String>> {
         let bytes = self
@@ -348,6 +370,24 @@ mod tests {
         // resize 后按新宽度重排；拼回去必须还是原文本。
         let text = core.viewport_text().unwrap().concat();
         assert_eq!(text, "one two three four");
+    }
+
+    #[test]
+    fn reads_hyperlink_uri_from_cells() {
+        let mut core = TerminalCore::new(size(20, 2)).unwrap();
+        core.feed(b"\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\ plain");
+
+        assert_eq!(
+            core.hyperlink_at((0, 0)).unwrap().as_deref(),
+            Some("https://example.com"),
+            "链接首格"
+        );
+        assert_eq!(
+            core.hyperlink_at((3, 0)).unwrap().as_deref(),
+            Some("https://example.com"),
+            "链接末格"
+        );
+        assert_eq!(core.hyperlink_at((5, 0)).unwrap(), None, "链接后的普通文本");
     }
 
     #[test]
