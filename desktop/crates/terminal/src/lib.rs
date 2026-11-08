@@ -214,6 +214,14 @@ impl TerminalCore {
             .scroll_viewport(libghostty_vt::terminal::ScrollViewport::Delta(delta));
     }
 
+    /// 当前是否在 alternate screen（vim / less 等全屏程序）。
+    pub fn is_alternate_screen(&self) -> Result<bool> {
+        Ok(matches!(
+            self.terminal.active_screen()?,
+            libghostty_vt::screen::Screen::Alternate
+        ))
+    }
+
     /// 当前滚动条状态：总行数、视口偏移与可见行数。
     pub fn scrollbar(&self) -> Result<libghostty_vt::terminal::Scrollbar> {
         self.terminal.scrollbar().map_err(Into::into)
@@ -413,6 +421,18 @@ mod tests {
             "链接末格"
         );
         assert_eq!(core.hyperlink_at((5, 0)).unwrap(), None, "链接后的普通文本");
+    }
+
+    #[test]
+    fn detects_alternate_screen() {
+        let mut core = TerminalCore::new(size(40, 6)).unwrap();
+        assert!(!core.is_alternate_screen().unwrap(), "默认在主屏");
+
+        core.feed(b"\x1b[?1049h");
+        assert!(core.is_alternate_screen().unwrap(), "进入 alternate screen");
+
+        core.feed(b"\x1b[?1049l");
+        assert!(!core.is_alternate_screen().unwrap(), "回到主屏");
     }
 
     #[test]

@@ -314,9 +314,28 @@ impl TerminalView {
         }
     }
 
-    /// 滚轮：正 delta 向下（回活动区），负 delta 向上（看历史）。
+    /// 滚轮：alternate screen（vim / less）里转成方向键；否则滚动 scrollback。
+    ///
+    /// 全屏程序没有 scrollback，滚轮事件必须变成按键它们才能响应。
     pub fn scroll(&mut self, lines: isize, cx: &mut Context<Self>) {
         if lines == 0 {
+            return;
+        }
+        if self.session.core().is_alternate_screen().unwrap_or(false) {
+            if let Some((key, count)) = alternate_scroll_key(lines) {
+                for _ in 0..count {
+                    if let Ok(bytes) =
+                        self.key_input
+                            .encode(self.session.core(), key, Mods::empty(), None)
+                    {
+                        let bytes = bytes.to_vec();
+                        if !bytes.is_empty() {
+                            let _ = self.session.write(&bytes);
+                        }
+                    }
+                }
+            }
+            cx.notify();
             return;
         }
         self.session.scroll(lines);
@@ -1364,6 +1383,17 @@ fn search_nav_button(
 /// 响铃提示的显示时长。
 const BELL_PROMPT: Duration = Duration::from_millis(1200);
 
+/// alternate screen 里滚轮对应的方向键与次数。
+///
+/// 单次事件最多发 10 个按键，避免一次大幅滚动灌进过多输入。
+fn alternate_scroll_key(lines: isize) -> Option<(Key, usize)> {
+    match lines.cmp(&0) {
+        std::cmp::Ordering::Less => Some((Key::ArrowUp, lines.unsigned_abs().min(10))),
+        std::cmp::Ordering::Greater => Some((Key::ArrowDown, lines.unsigned_abs().min(10))),
+        std::cmp::Ordering::Equal => None,
+    }
+}
+
 /// 滚动条拇指的 `(top, height)`，单位是轨道比例；不需要滚动时返回 `None`。
 fn thumb_geometry(total: u64, offset: u64, len: u64) -> Option<(f32, f32)> {
     // 极小屏也要留出可拖动的拇指。
@@ -1387,8 +1417,21 @@ fn bell_prompt_visible(until: Option<Instant>, now: Instant) -> bool {
 mod tests {
     // 只做显式导入：父模块的 `use gpui_kit::*` 会引入 gpui 的 test 宏，
     // 遮蔽 std 的 `#[test]` 并触发递归展开。
-    use super::{bell_prompt_visible, search_status_text, thumb_geometry};
+    use super::{alternate_scroll_key, bell_prompt_visible, search_status_text, thumb_geometry};
+    use cgc_terminal::Key;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn alternate_scroll_maps_wheel_to_arrows() {
+        assert_eq!(alternate_scroll_key(-3), Some((Key::ArrowUp, 3)));
+        assert_eq!(alternate_scroll_key(5), Some((Key::ArrowDown, 5)));
+        assert_eq!(alternate_scroll_key(0), None);
+        assert_eq!(
+            alternate_scroll_key(-100),
+            Some((Key::ArrowUp, 10)),
+            "单次事件最多 10 个按键"
+        );
+    }
 
     #[test]
     fn search_status_reports_position_and_total() {
