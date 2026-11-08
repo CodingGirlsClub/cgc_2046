@@ -661,6 +661,62 @@ impl Render for TerminalView {
                     cx.notify();
                 }),
             )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, event: &MouseDownEvent, _, cx| {
+                    if this.forward_mouse(
+                        TermMouseAction::Press,
+                        Some(TermMouseButton::Right),
+                        &event.modifiers,
+                        event.position,
+                        cx,
+                    ) {
+                        cx.stop_propagation();
+                    }
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Right,
+                cx.listener(|this, event: &MouseUpEvent, _, cx| {
+                    if this.forward_mouse(
+                        TermMouseAction::Release,
+                        Some(TermMouseButton::Right),
+                        &event.modifiers,
+                        event.position,
+                        cx,
+                    ) {
+                        cx.stop_propagation();
+                    }
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Middle,
+                cx.listener(|this, event: &MouseDownEvent, _, cx| {
+                    if this.forward_mouse(
+                        TermMouseAction::Press,
+                        Some(TermMouseButton::Middle),
+                        &event.modifiers,
+                        event.position,
+                        cx,
+                    ) {
+                        cx.stop_propagation();
+                    }
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Middle,
+                cx.listener(|this, event: &MouseUpEvent, _, cx| {
+                    if this.forward_mouse(
+                        TermMouseAction::Release,
+                        Some(TermMouseButton::Middle),
+                        &event.modifiers,
+                        event.position,
+                        cx,
+                    ) {
+                        cx.stop_propagation();
+                    }
+                }),
+            )
             .children(search_bar)
             .children(bell_bar)
             .child(

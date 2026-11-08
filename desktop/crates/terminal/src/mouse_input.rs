@@ -218,6 +218,42 @@ mod tests {
     }
 
     #[test]
+    fn encodes_right_and_middle_buttons() {
+        let core = tracked_terminal();
+        let mut input = input();
+
+        let right = input
+            .encode(
+                &core,
+                MouseEvent {
+                    action: MouseAction::Press,
+                    button: Some(MouseButton::Right),
+                    mods: Mods::empty(),
+                    x: 41.0,
+                    y: 49.0,
+                },
+            )
+            .expect("encode")
+            .expect("right press produces bytes");
+        assert_eq!(right, b"\x1b[<2;6;4M");
+
+        let middle = input
+            .encode(
+                &core,
+                MouseEvent {
+                    action: MouseAction::Press,
+                    button: Some(MouseButton::Middle),
+                    mods: Mods::empty(),
+                    x: 41.0,
+                    y: 49.0,
+                },
+            )
+            .expect("encode")
+            .expect("middle press produces bytes");
+        assert_eq!(middle, b"\x1b[<1;6;4M");
+    }
+
+    #[test]
     fn encodes_wheel_as_buttons_four_and_five() {
         let core = tracked_terminal();
         let mut input = input();

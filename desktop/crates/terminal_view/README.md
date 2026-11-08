@@ -64,7 +64,6 @@
 
 ## 已知缺口（后续 milestone）
 
-- 右键/中键上报（当前只接左键与滚轮）
 - IME：提交文本已接入，组合中的预编辑（marked）文本尚未回显
 - bracketed paste（当前 Cmd+V 直接写字节，未经 `paste` API 的安全包装）
 - 光标闪烁、Hollow 描边
