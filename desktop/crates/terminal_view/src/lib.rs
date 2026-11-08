@@ -92,6 +92,8 @@ pub struct TerminalView {
     pending_paste: Option<String>,
     /// 子进程退出码（历史侧栏回填用）。
     exit_code: Option<u32>,
+    /// IME 预编辑（marked）文本：只用于回显，不写入 PTY。
+    ime_marked: Option<String>,
 }
 
 impl TerminalView {
@@ -138,6 +140,7 @@ impl TerminalView {
             bell_pending: false,
             pending_paste: None,
             exit_code: None,
+            ime_marked: None,
         }
     }
 
@@ -285,6 +288,28 @@ impl TerminalView {
         self.exit_code
     }
 
+    /// 预编辑（IME marked）文本：只用于回显，不写入 PTY。
+    pub(crate) fn set_ime_marked(&mut self, text: String, cx: &mut Context<Self>) {
+        let next = (!text.is_empty()).then_some(text);
+        if self.ime_marked != next {
+            self.ime_marked = next;
+            cx.notify();
+        }
+    }
+
+    /// 光标格的窗口矩形：IME 候选窗据此贴着光标弹出。
+    pub(crate) fn cursor_bounds(&self) -> Option<Bounds<Pixels>> {
+        let bounds = self.bounds?;
+        let cursor = self.frame().cursor()?;
+        Some(cursor_rect(
+            bounds.origin,
+            (cursor.x, cursor.y),
+            self.cell_width,
+            self.style.line_height,
+            self.style.padding,
+        ))
+    }
+
     /// 程序上报的工作目录（OSC 7/9/1337）。
     pub fn cwd(&self) -> Option<&str> {
         self.cwd.as_deref()
@@ -374,6 +399,8 @@ impl TerminalView {
         if text.is_empty() {
             return;
         }
+        // 提交即结束组合，清掉回显。
+        self.ime_marked = None;
         if self.session.write(text.as_bytes()).is_ok() {
             cx.notify();
         }
@@ -702,6 +729,14 @@ impl Render for TerminalView {
                 .text_color(self.style.foreground)
                 .child("粘贴内容含换行，可能立即执行命令 · 再按一次 Cmd+V 确认")
         });
+        let ime_bar = self.ime_marked.as_ref().map(|text| {
+            div()
+                .px(px(8.0))
+                .py(px(4.0))
+                .text_size(px(11.0))
+                .text_color(self.style.foreground)
+                .child(format!("预编辑：{text}"))
+        });
         let handle_color = Hsla {
             a: 0.32,
             ..self.style.foreground
@@ -926,6 +961,7 @@ impl Render for TerminalView {
             .children(search_bar)
             .children(bell_bar)
             .children(paste_bar)
+            .children(ime_bar)
             .child(
                 div()
                     .flex_1()
@@ -1446,8 +1482,12 @@ impl InputHandler for TerminalInputHandler {
         })
     }
 
-    fn marked_text_range(&mut self, _window: &mut Window, _cx: &mut App) -> Option<Range<usize>> {
-        None
+    fn marked_text_range(&mut self, _window: &mut Window, cx: &mut App) -> Option<Range<usize>> {
+        self.view
+            .read(cx)
+            .ime_marked
+            .as_ref()
+            .map(|text| 0..text.encode_utf16().count())
     }
 
     fn text_for_range(
@@ -1455,9 +1495,9 @@ impl InputHandler for TerminalInputHandler {
         _range_utf16: Range<usize>,
         _adjusted_range: &mut Option<Range<usize>>,
         _window: &mut Window,
-        _cx: &mut App,
+        cx: &mut App,
     ) -> Option<String> {
-        Some(String::new())
+        Some(self.view.read(cx).ime_marked.clone().unwrap_or_default())
     }
 
     fn replace_text_in_range(
@@ -1473,23 +1513,34 @@ impl InputHandler for TerminalInputHandler {
     fn replace_and_mark_text_in_range(
         &mut self,
         _range_utf16: Option<Range<usize>>,
-        _new_text: &str,
+        new_text: &str,
         _new_selected_range: Option<Range<usize>>,
         _window: &mut Window,
-        _cx: &mut App,
+        cx: &mut App,
     ) {
+        let text = new_text.to_string();
+        self.view
+            .update(cx, |view, cx| view.set_ime_marked(text, cx));
     }
 
-    fn unmark_text(&mut self, _window: &mut Window, _cx: &mut App) {}
+    fn unmark_text(&mut self, _window: &mut Window, cx: &mut App) {
+        self.view
+            .update(cx, |view, cx| view.set_ime_marked(String::new(), cx));
+    }
+
+    /// 组合型输入法（中文等）激活时，字母先给 IME 组合；ABC 等直排布局
+    /// 由平台侧 `is_ime_input_source_active` 过滤，英文输入不受影响。
+    fn prefers_ime_for_printable_keys(&mut self, _window: &mut Window, _cx: &mut App) -> bool {
+        true
+    }
 
     fn bounds_for_range(
         &mut self,
         _range_utf16: Range<usize>,
         _window: &mut Window,
-        _cx: &mut App,
+        cx: &mut App,
     ) -> Option<Bounds<Pixels>> {
-        // 候选窗定位依赖 element bounds；当前未保存，先返回 None。
-        None
+        self.view.read(cx).cursor_bounds()
     }
 
     fn character_index_for_point(
@@ -1500,6 +1551,26 @@ impl InputHandler for TerminalInputHandler {
     ) -> Option<usize> {
         None
     }
+}
+
+/// 光标格在窗口中的矩形（IME 候选窗定位用）。
+fn cursor_rect(
+    origin: Point<Pixels>,
+    cursor: (u16, u16),
+    cell_width: Pixels,
+    line_height: Pixels,
+    padding: Pixels,
+) -> Bounds<Pixels> {
+    Bounds::new(
+        Point {
+            x: origin.x + padding + cell_width * cursor.0 as f32,
+            y: origin.y + padding + line_height * cursor.1 as f32,
+        },
+        Size {
+            width: cell_width,
+            height: line_height,
+        },
+    )
 }
 
 /// 搜索状态文案：`3/7`；没有匹配时 `无匹配`。
@@ -1598,10 +1669,29 @@ mod tests {
     // 只做显式导入：父模块的 `use gpui_kit::*` 会引入 gpui 的 test 宏，
     // 遮蔽 std 的 `#[test]` 并触发递归展开。
     use super::{
-        alternate_scroll_key, clears_bell, is_highlighted, is_safe_link, needs_highlight_refresh,
-        search_status_text, thumb_geometry,
+        alternate_scroll_key, clears_bell, cursor_rect, is_highlighted, is_safe_link,
+        needs_highlight_refresh, search_status_text, thumb_geometry,
     };
     use cgc_terminal::Key;
+    use gpui_kit::{px, Point};
+
+    #[test]
+    fn ime_candidate_bounds_follow_the_cursor() {
+        let rect = cursor_rect(
+            Point {
+                x: px(100.0),
+                y: px(50.0),
+            },
+            (3, 2),
+            px(8.0),
+            px(18.0),
+            px(8.0),
+        );
+        assert_eq!(f32::from(rect.origin.x), 132.0, "padding + 3 列");
+        assert_eq!(f32::from(rect.origin.y), 94.0, "padding + 2 行");
+        assert_eq!(f32::from(rect.size.width), 8.0);
+        assert_eq!(f32::from(rect.size.height), 18.0);
+    }
 
     #[test]
     fn links_are_limited_to_http_schemes() {
