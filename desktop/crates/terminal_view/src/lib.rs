@@ -29,6 +29,8 @@ pub struct TerminalStyle {
     pub cursor: Hsla,
     /// 选中区域的背景色（半透明）。
     pub selection: Hsla,
+    /// 搜索匹配的背景色（半透明；选区与光标会覆盖它）。
+    pub match_highlight: Hsla,
     /// 内容与 pane 边缘的内边距（Zed 的终端也不贴边）。
     pub padding: Pixels,
 }
@@ -47,6 +49,12 @@ impl TerminalStyle {
                 s: 0.6,
                 l: 0.55,
                 a: 0.3,
+            },
+            match_highlight: Hsla {
+                h: 0.12,
+                s: 0.9,
+                l: 0.55,
+                a: 0.35,
             },
             padding: px(8.0),
         }
@@ -73,6 +81,8 @@ pub struct TerminalView {
     /// 搜索输入框：Cmd+F 打开后获得焦点，走 Input 组件（支持 IME）。
     search_input: gpui_kit::Entity<InputState>,
     search_status: String,
+    /// 当前搜索在视口内的匹配区间 `(row, start_col, end_col)`，供渲染高亮。
+    pub search_highlights: Vec<(u16, u16, u16)>,
     /// 输入框订阅：View 存活期间保持订阅，字段本身不读取。
     #[allow(dead_code)]
     search_subscription: Option<Subscription>,
@@ -119,6 +129,7 @@ impl TerminalView {
             search_open: false,
             search_input,
             search_status: String::new(),
+            search_highlights: Vec::new(),
             search_subscription: Some(search_subscription),
             bell_pending: false,
         }
@@ -512,6 +523,7 @@ impl TerminalView {
     fn close_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.search_open = false;
         self.search_status.clear();
+        self.search_highlights.clear();
         self.search_input
             .update(cx, |state, cx| state.set_value("", window, cx));
         self.session.clear_selection();
@@ -525,6 +537,7 @@ impl TerminalView {
         let query = self.search_input.read(cx).value().to_string();
         if query.is_empty() {
             self.search_status.clear();
+            self.search_highlights.clear();
             self.session.clear_selection();
             let _ = self.session.core_mut().update_frame();
             cx.notify();
@@ -546,9 +559,18 @@ impl TerminalView {
         match self.session.search(query, forward) {
             Ok(outcome) => {
                 self.search_status = search_status_text(outcome.index, outcome.total);
+                let rows = self.frame().size().rows;
+                self.search_highlights = self
+                    .session
+                    .core_mut()
+                    .search_highlights(rows)
+                    .unwrap_or_default();
                 let _ = self.session.core_mut().update_frame();
             }
-            Err(error) => self.search_status = format!("搜索失败：{error}"),
+            Err(error) => {
+                self.search_status = format!("搜索失败：{error}");
+                self.search_highlights.clear();
+            }
         }
         cx.notify();
     }
@@ -942,7 +964,13 @@ impl Element for TerminalElement {
         // 先在只读借用里把绘制计划取成 owned 数据，之后才能可变借用 cx 去画文字。
         let plan = {
             let view = self.view.read(cx);
-            build_plan(view.frame(), &self.style, self.cell_width, bounds)
+            build_plan(
+                view.frame(),
+                &self.style,
+                self.cell_width,
+                bounds,
+                &view.search_highlights,
+            )
         };
 
         // IME：macOS 的输入法通过 InputHandler 提交文本，直接写进 PTY。
@@ -1015,6 +1043,7 @@ fn build_plan(
     style: &TerminalStyle,
     cell_width: Pixels,
     bounds: Bounds<Pixels>,
+    highlights: &[(u16, u16, u16)],
 ) -> PaintPlan {
     let colors = frame.colors();
     let foreground = style.foreground;
@@ -1048,6 +1077,10 @@ fn build_plan(
                 continue;
             }
             let (mut fg, mut bg) = cell_colors(cell, colors, foreground);
+            // 搜索匹配先铺底，选区和光标会依次覆盖。
+            if is_highlighted(highlights, row_index as u16, column as u16) {
+                bg = Some(style.match_highlight);
+            }
             if let Some((start, end)) = selected_range {
                 if column >= start && column <= end {
                     bg = Some(style.selection);
@@ -1441,6 +1474,13 @@ fn alternate_scroll_key(lines: isize) -> Option<(Key, usize)> {
     }
 }
 
+/// `(row, column)` 是否落在任一搜索匹配区间内（列含两端）。
+fn is_highlighted(highlights: &[(u16, u16, u16)], row: u16, column: u16) -> bool {
+    highlights
+        .iter()
+        .any(|&(match_row, start, end)| match_row == row && column >= start && column <= end)
+}
+
 /// 滚动条拇指的 `(top, height)`，单位是轨道比例；不需要滚动时返回 `None`。
 fn thumb_geometry(total: u64, offset: u64, len: u64) -> Option<(f32, f32)> {
     // 极小屏也要留出可拖动的拇指。
@@ -1459,8 +1499,21 @@ fn thumb_geometry(total: u64, offset: u64, len: u64) -> Option<(f32, f32)> {
 mod tests {
     // 只做显式导入：父模块的 `use gpui_kit::*` 会引入 gpui 的 test 宏，
     // 遮蔽 std 的 `#[test]` 并触发递归展开。
-    use super::{alternate_scroll_key, clears_bell, search_status_text, thumb_geometry};
+    use super::{
+        alternate_scroll_key, clears_bell, is_highlighted, search_status_text, thumb_geometry,
+    };
     use cgc_terminal::Key;
+
+    #[test]
+    fn highlights_cover_inclusive_columns() {
+        let rows = [(0u16, 2u16, 5u16), (3, 0, u16::MAX)];
+        assert!(is_highlighted(&rows, 0, 2), "起始列包含");
+        assert!(is_highlighted(&rows, 0, 5), "结束列包含");
+        assert!(!is_highlighted(&rows, 0, 6));
+        assert!(!is_highlighted(&rows, 1, 2), "别的行不命中");
+        assert!(is_highlighted(&rows, 3, 9999), "整行高亮");
+        assert!(!is_highlighted(&[], 0, 0));
+    }
 
     #[test]
     fn alternate_scroll_maps_wheel_to_arrows() {

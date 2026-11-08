@@ -238,6 +238,10 @@ pub fn terminal_style(cx: &App) -> cgc_terminal_view::TerminalStyle {
         l: palette.accent.l,
         a: 0.3,
     };
+    style.match_highlight = Hsla {
+        a: 0.32,
+        ..palette.warning
+    };
     style
 }
 

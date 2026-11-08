@@ -77,6 +77,8 @@ pub struct TerminalCore {
     size: GridSize,
     events: Rc<RefCell<Vec<CoreEvent>>>,
     search: Option<libghostty_vt::search::Search<'static, 'static>>,
+    /// 搜索匹配的复用缓冲，避免每帧重新分配。
+    match_buffer: libghostty_vt::search::MatchBuffer,
 }
 
 impl TerminalCore {
@@ -123,6 +125,7 @@ impl TerminalCore {
             size,
             events,
             search: None,
+            match_buffer: libghostty_vt::search::MatchBuffer::new(),
         })
     }
 
@@ -304,6 +307,53 @@ impl TerminalCore {
         Ok(SearchOutcome { total, index })
     }
 
+    /// 当前搜索在视口内的匹配区间：`(row, start_col, end_col)`，列含两端。
+    ///
+    /// 跨行匹配展开成多段，视口外的部分裁掉。没有搜索时返回空。
+    pub fn search_highlights(&mut self, viewport_rows: u16) -> Result<Vec<(u16, u16, u16)>> {
+        let Some(mut search) = self.search.take() else {
+            return Ok(Vec::new());
+        };
+        let result = self.collect_highlights(&mut search, viewport_rows);
+        self.search = Some(search);
+        result
+    }
+
+    fn collect_highlights(
+        &mut self,
+        search: &mut libghostty_vt::search::Search<'static, 'static>,
+        viewport_rows: u16,
+    ) -> Result<Vec<(u16, u16, u16)>> {
+        let mut out = Vec::new();
+        let space = libghostty_vt::terminal::PointSpace::Viewport;
+        let snapshot = search.snapshot(&mut self.terminal)?;
+        let terminal = snapshot.terminal();
+        for item in snapshot.viewport_matches(&mut self.match_buffer)? {
+            let start = terminal.point_from_grid_ref(&item.start(), space)?;
+            let end = terminal.point_from_grid_ref(&item.end(), space)?;
+            let (Some(start), Some(end)) = (start, end) else {
+                continue;
+            };
+            let start_row = u16::try_from(start.y).unwrap_or(u16::MAX);
+            let end_row = u16::try_from(end.y).unwrap_or(u16::MAX);
+            if start_row >= viewport_rows {
+                continue;
+            }
+            if start_row == end_row {
+                out.push((start_row, start.x, end.x));
+                continue;
+            }
+            out.push((start_row, start.x, u16::MAX));
+            for row in start_row + 1..end_row.min(viewport_rows) {
+                out.push((row, 0, u16::MAX));
+            }
+            if end_row < viewport_rows {
+                out.push((end_row, 0, end.x));
+            }
+        }
+        Ok(out)
+    }
+
     /// 某个视口 cell 上的超链接 URI（OSC 8）；没有链接时 `None`。
     pub fn hyperlink_at(&self, cell: (u16, u16)) -> Result<Option<String>> {
         let grid_ref = self.terminal.grid_ref(Point::Viewport(PointCoordinate {
@@ -427,6 +477,19 @@ mod tests {
             "链接末格"
         );
         assert_eq!(core.hyperlink_at((5, 0)).unwrap(), None, "链接后的普通文本");
+    }
+
+    #[test]
+    fn reports_search_highlight_rows() {
+        let mut core = TerminalCore::new(size(20, 4)).unwrap();
+        core.feed(b"foo bar foo\r\nbaz foo\r\n");
+        core.update_frame().unwrap();
+        core.search("foo", true).unwrap();
+
+        let rows = core.search_highlights(4).unwrap();
+        assert!(rows.contains(&(0, 0, 2)), "第一行第一个 foo：{rows:?}");
+        assert!(rows.contains(&(0, 8, 10)), "第一行第二个 foo：{rows:?}");
+        assert!(rows.contains(&(1, 4, 6)), "第二行 foo：{rows:?}");
     }
 
     #[test]
