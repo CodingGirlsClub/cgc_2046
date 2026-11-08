@@ -2517,8 +2517,25 @@ impl RootView {
         }
 
         let size = cgc_terminal::GridSize { cols: 80, rows: 24 };
-        // 新终端沿用上次的工作目录；目录已被删除时退回默认位置。
-        let cwd = self.last_terminal_cwd.clone().filter(|path| path.is_dir());
+        // 新终端的工作目录：上次关闭时的目录 → agent 工作区 → home（方案 A）。
+        // 上次的目录可能已被删除；agent 工作区首次使用可能还不存在，
+        // 所以先补建目录，建不出来就退回下一级。
+        let last = self.last_terminal_cwd.clone().filter(|path| path.is_dir());
+        let scope_root = self.native_scope.as_ref().map(|scope| scope.root.clone());
+        let home = home_dir();
+        let cwd = terminal_cwd(last.as_deref(), scope_root.as_deref(), home.as_deref())
+            .map(std::path::Path::to_path_buf)
+            .filter(|dir| match std::fs::create_dir_all(dir) {
+                Ok(()) => true,
+                Err(error) => {
+                    log::warn!(
+                        target: "terminal",
+                        "无法创建工作目录 {}：{error}",
+                        dir.display()
+                    );
+                    false
+                }
+            });
         let mut session = match cgc_terminal::Session::spawn_default_in(size, cwd.as_deref()) {
             Ok(session) => session,
             Err(error) => {
@@ -4636,4 +4653,22 @@ mod login_email_tests {
         assert!(!looks_like_email("user@example."));
         assert!(!looks_like_email("user name@example.com"));
     }
+}
+
+/// 用户 home：macOS/Linux 用 `HOME`，Windows 用 `USERPROFILE`。
+fn home_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(std::path::PathBuf::from)
+}
+
+/// 新终端的默认工作目录优先级：上次关闭时的目录 → agent 工作区 → home。
+///
+/// 只做选择，不做存在性检查：调用方过滤已删除的 `last`，并为 agent 工作区补建目录。
+pub(in crate::root_view) fn terminal_cwd<'a>(
+    last: Option<&'a std::path::Path>,
+    scope_root: Option<&'a std::path::Path>,
+    home: Option<&'a std::path::Path>,
+) -> Option<&'a std::path::Path> {
+    last.or(scope_root).or(home)
 }

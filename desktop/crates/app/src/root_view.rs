@@ -2678,11 +2678,13 @@ mod tests {
     };
     use crate::i18n::{translate, Key, Language};
     use crate::registration::build_registry;
+    use crate::root_view::controller::terminal_cwd;
     use crate::theme::ThemePreference;
     use cgc_agent_ui::conversation::{ConversationThread, Entry as ConversationEntry};
     use cgc_platform::session::{
         AuthError, FakeAuthApi, MemoryStore, SessionService, SignedInSession,
     };
+    use std::path::Path;
 
     fn fake_signed_in() -> SignedInSession {
         SignedInSession {
@@ -3582,6 +3584,35 @@ mod tests {
         assert_ne!(before, after);
         view.toggle_language();
         assert_eq!(translate(view.language(), Key::AppEmptyTitle), before);
+    }
+
+    /// 终端默认目录优先级：上次 cwd → agent 工作区 → home。方案 A 的锚点是 agent 工作区。
+    #[test]
+    fn terminal_cwd_prefers_last_then_scope_then_home() {
+        let last = Path::new("/tmp/last");
+        let scope = Path::new("/tmp/scope");
+        let home = Path::new("/Users/me");
+
+        assert_eq!(
+            terminal_cwd(Some(last), Some(scope), Some(home)),
+            Some(last),
+            "同一进程内关闭重开：沿用上次目录"
+        );
+        assert_eq!(
+            terminal_cwd(None, Some(scope), Some(home)),
+            Some(scope),
+            "首次打开：落在 agent 工作区，而不是 home"
+        );
+        assert_eq!(
+            terminal_cwd(None, None, Some(home)),
+            Some(home),
+            "agent 未初始化：退回 home"
+        );
+        assert_eq!(
+            terminal_cwd(None, None, None),
+            None,
+            "都没有时交给 shell 默认"
+        );
     }
 
     #[test]
