@@ -357,6 +357,8 @@ impl TerminalCore {
                 out.push((end_row, 0, end.x));
             }
         }
+        // 按 (row, start, end) 排序，渲染层可用游标按行切片，避免每格线性扫描。
+        out.sort_unstable();
         Ok(out)
     }
 

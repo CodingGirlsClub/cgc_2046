@@ -1121,7 +1121,20 @@ fn build_plan(
     let mut backgrounds = Vec::new();
     let mut rows = Vec::new();
 
+    let mut highlight_cursor = 0usize;
     for (row_index, row) in frame.rows().iter().enumerate() {
+        let row_index_u16 = row_index as u16;
+        while highlight_cursor < highlights.len() && highlights[highlight_cursor].0 < row_index_u16
+        {
+            highlight_cursor += 1;
+        }
+        let row_start = highlight_cursor;
+        let mut row_end = row_start;
+        while row_end < highlights.len() && highlights[row_end].0 == row_index_u16 {
+            row_end += 1;
+        }
+        // 本行的匹配区间：后续每格只在这一小段里查找。
+        let row_highlights = &highlights[row_start..row_end];
         let y = origin.y + style.line_height * row_index as f32;
         let selected_range = row.selected;
         let mut text = String::new();
@@ -1136,7 +1149,7 @@ fn build_plan(
             }
             let (mut fg, mut bg) = cell_colors(cell, colors, foreground);
             // 搜索匹配先铺底，选区和光标会依次覆盖。
-            if is_highlighted(highlights, row_index as u16, column as u16) {
+            if is_highlighted(row_highlights, column as u16) {
                 bg = Some(style.match_highlight);
             }
             if let Some((start, end)) = selected_range {
@@ -1544,11 +1557,11 @@ fn needs_highlight_refresh(search_open: bool, query: &str) -> bool {
     search_open && !query.is_empty()
 }
 
-/// `(row, column)` 是否落在任一搜索匹配区间内（列含两端）。
-fn is_highlighted(highlights: &[(u16, u16, u16)], row: u16, column: u16) -> bool {
-    highlights
+/// 某一行的 `column` 是否落在本行任一匹配区间内（列含两端）。
+fn is_highlighted(row_ranges: &[(u16, u16, u16)], column: u16) -> bool {
+    row_ranges
         .iter()
-        .any(|&(match_row, start, end)| match_row == row && column >= start && column <= end)
+        .any(|&(_, start, end)| column >= start && column <= end)
 }
 
 /// 滚动条拇指的 `(top, height)`，单位是轨道比例；不需要滚动时返回 `None`。
@@ -1595,13 +1608,14 @@ mod tests {
 
     #[test]
     fn highlights_cover_inclusive_columns() {
-        let rows = [(0u16, 2u16, 5u16), (3, 0, u16::MAX)];
-        assert!(is_highlighted(&rows, 0, 2), "起始列包含");
-        assert!(is_highlighted(&rows, 0, 5), "结束列包含");
-        assert!(!is_highlighted(&rows, 0, 6));
-        assert!(!is_highlighted(&rows, 1, 2), "别的行不命中");
-        assert!(is_highlighted(&rows, 3, 9999), "整行高亮");
-        assert!(!is_highlighted(&[], 0, 0));
+        let row = [(0u16, 2u16, 5u16)];
+        assert!(is_highlighted(&row, 2), "起始列包含");
+        assert!(is_highlighted(&row, 5), "结束列包含");
+        assert!(!is_highlighted(&row, 6));
+
+        let full_row = [(3u16, 0u16, u16::MAX)];
+        assert!(is_highlighted(&full_row, 9999), "整行高亮");
+        assert!(!is_highlighted(&[], 0));
     }
 
     #[test]
