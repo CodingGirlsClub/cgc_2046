@@ -2859,7 +2859,11 @@ mod tests {
 
     fn view() -> RootView {
         WORKSPACE_STATE_ISOLATION.with(|isolation| {
-            *isolation.borrow_mut() = Some(isolate_workspace_state());
+            // 同一用例可能构造多个 view：保留首个 guard，否则第二个空壳 guard 会在
+            // 替换 `Some` 时释放真正的进程锁，等于测试环境隔离失效（P2-2 边角）。
+            if isolation.borrow().is_none() {
+                *isolation.borrow_mut() = Some(isolate_workspace_state());
+            }
         });
         let session = SessionService::new(
             Box::new(FakeAuthApi::demo()),
@@ -3752,6 +3756,20 @@ mod tests {
             !crate::routing::requires_workspace("courses.public_learning"),
             "public learning must stay reachable without a workspace"
         );
+    }
+
+    #[test]
+    fn repeated_view_keeps_the_workspace_state_process_lock() {
+        let _first = view();
+        let _second = view();
+        WORKSPACE_STATE_ISOLATION.with(|isolation| {
+            let isolation = isolation.borrow();
+            let guard = isolation.as_ref().expect("workspace state guard installed");
+            assert!(
+                guard._env_lock.holds_process_lock(),
+                "同一用例第二次 view() 必须复用首个隔离 guard，不能退化成空壳后释放真锁"
+            );
+        });
     }
 
     #[test]

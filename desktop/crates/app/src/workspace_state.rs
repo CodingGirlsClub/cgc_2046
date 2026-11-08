@@ -402,6 +402,13 @@ pub(crate) mod test_env_lock {
         lock: Option<MutexGuard<'static, ()>>,
     }
 
+    impl Guard {
+        /// 测试断言用：本 guard 是否真的持有进程锁（而非同线程嵌套的空壳）。
+        pub(crate) fn holds_process_lock(&self) -> bool {
+            self.lock.is_some()
+        }
+    }
+
     pub(crate) fn acquire() -> Guard {
         let nested = HELD_BY_CURRENT_THREAD.with(|held| held.replace(true));
         let lock = if nested {
