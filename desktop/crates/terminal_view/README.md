@@ -33,9 +33,11 @@
 `KeyInput::encode` 依据终端当前模式（应用光标键、Kitty keyboard protocol）
 编码成字节写入 PTY。未知键返回 `Unidentified`，由编码器决定是否输出。
 
-- `Cmd+V`：剪贴板文本直接写 PTY
+- `Cmd+V`：按终端当前模式编码粘贴（`TerminalCore::encode_paste`）——
+  DECSET 2004 开启时用 `ESC[200~`/`ESC[201~` 包裹，否则换行转回车；
+  两种模式都会过滤可注入命令的控制字节
 - `Cmd+C`：复制当前选区
-- `Cmd+F`：打开搜索条（进入键盘输入模式，按键只编辑查询，不发给 PTY）。
+- `Cmd+F`：打开搜索条（真输入框，支持 IME）。
   `Enter` 下一个、`Shift+Enter` 上一个、`Esc` 关闭并清空选区。
 
 ## 鼠标与选择
@@ -65,7 +67,6 @@
 ## 已知缺口（后续 milestone）
 
 - IME：提交文本已接入，组合中的预编辑（marked）文本尚未回显
-- bracketed paste（当前 Cmd+V 直接写字节，未经 `paste` API 的安全包装）
 - 光标闪烁、Hollow 描边
 - 事件驱动重绘（当前 33ms 轮询）
 - 搜索只跳转并选中匹配，没有逐格高亮

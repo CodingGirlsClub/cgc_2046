@@ -134,6 +134,31 @@ impl TerminalCore {
         self.terminal.vt_write(bytes);
     }
 
+    /// 把剪贴板文本编码成 PTY 输入。
+    ///
+    /// 终端开启 bracketed paste（DECSET 2004）时用 `ESC[200~`/`ESC[201~` 包裹，
+    /// 否则换行转回车；两种模式都会剔除可注入命令的控制字节（ESC、DEL 等）。
+    pub fn encode_paste(&self, text: &str) -> Result<Vec<u8>> {
+        if text.is_empty() {
+            return Ok(Vec::new());
+        }
+        let bracketed = self
+            .terminal
+            .mode(libghostty_vt::terminal::Mode::BRACKETED_PASTE)?;
+        let mut data = text.as_bytes().to_vec();
+        let mut out = vec![0u8; data.len() + 16];
+        let written = match libghostty_vt::paste::encode(&mut data, bracketed, &mut out) {
+            Ok(written) => written,
+            Err(libghostty_vt::error::Error::OutOfSpace { required }) => {
+                out.resize(required, 0);
+                libghostty_vt::paste::encode(&mut data, bracketed, &mut out)?
+            }
+            Err(error) => return Err(error.into()),
+        };
+        out.truncate(written);
+        Ok(out)
+    }
+
     /// 应用主题配色：默认前景/背景/光标与 ANSI 0–15。
     ///
     /// 调色板变化后 libghostty 会重解析已显示的 cell，历史输出也跟着换色；
@@ -388,6 +413,31 @@ mod tests {
             "链接末格"
         );
         assert_eq!(core.hyperlink_at((5, 0)).unwrap(), None, "链接后的普通文本");
+    }
+
+    #[test]
+    fn paste_is_framed_only_when_bracketed_paste_is_on() {
+        let mut core = TerminalCore::new(size(40, 4)).unwrap();
+
+        // 未开启：换行转回车，且不带 bracketed 前缀。
+        let plain = core.encode_paste("a\nb").unwrap();
+        assert_eq!(plain, b"a\rb");
+
+        // 开启 DECSET 2004 后：整段被包裹，换行保持原样。
+        core.feed(b"\x1b[?2004h");
+        let framed = core.encode_paste("a\nb").unwrap();
+        assert_eq!(framed, b"\x1b[200~a\nb\x1b[201~");
+    }
+
+    #[test]
+    fn paste_strips_command_injection_bytes() {
+        let mut core = TerminalCore::new(size(40, 4)).unwrap();
+        core.feed(b"\x1b[?2004h");
+
+        // 夹带 `ESC[201~` 试图提前结束 bracketed paste：ESC 必须被中和。
+        let framed = core.encode_paste("a\x1b[201~rm -rf /\x1b[201~").unwrap();
+        let text = String::from_utf8_lossy(&framed);
+        assert_eq!(text.matches("\x1b[201~").count(), 1, "只有结尾的合法终止符");
     }
 
     #[test]

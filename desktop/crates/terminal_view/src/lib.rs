@@ -12,6 +12,7 @@ use cgc_terminal::{
     MouseAction as TermMouseAction, MouseButton as TermMouseButton, MouseEvent as TermMouseEvent,
     MouseInput, Session,
 };
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::*;
 
 /// 终端绘制样式。颜色覆盖 `Frame` 自带的默认色（主题跟随宿主）。
@@ -66,8 +67,12 @@ pub struct TerminalView {
     cwd: Option<String>,
     exit_notice: Option<String>,
     search_open: bool,
-    search_query: String,
+    /// 搜索输入框：Cmd+F 打开后获得焦点，走 Input 组件（支持 IME）。
+    search_input: gpui_kit::Entity<InputState>,
     search_status: String,
+    /// 输入框订阅：View 存活期间保持订阅，字段本身不读取。
+    #[allow(dead_code)]
+    search_subscription: Option<Subscription>,
     /// 收到 BEL 后的提示截止时间；`None` 表示当前没有提示。
     bell_until: Option<Instant>,
 }
@@ -85,6 +90,16 @@ impl TerminalView {
             .text_system()
             .ch_width(font_id, style.font_size)
             .unwrap_or_else(|_| px(8.0));
+        let search_input = cx.new(|cx| InputState::new(window, cx).placeholder("搜索"));
+        let search_subscription = cx.subscribe(
+            &search_input,
+            |this, _input, event: &InputEvent, cx| match event {
+                InputEvent::Change => this.search_changed(cx),
+                // Enter 下一个、Shift+Enter 上一个（与 Zed 的搜索条一致）。
+                InputEvent::PressEnter { shift, .. } => this.search_step(!*shift, cx),
+                _ => {}
+            },
+        );
         Self {
             session,
             style,
@@ -99,8 +114,9 @@ impl TerminalView {
             cwd: None,
             exit_notice: None,
             search_open: false,
-            search_query: String::new(),
+            search_input,
             search_status: String::new(),
+            search_subscription: Some(search_subscription),
             bell_until: None,
         }
     }
@@ -109,30 +125,33 @@ impl TerminalView {
         self.focus_handle.focus(window, cx);
     }
 
-    fn handle_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
+    fn handle_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let keystroke = &event.keystroke;
 
-        // 搜索模式：按键只编辑查询，不发给 PTY。
+        // 搜索模式：字符与 Enter 由输入框处理；只有未被消费的 Esc 冒泡到这里。
         if self.search_open {
-            self.handle_search_key(keystroke, cx);
+            if keystroke.key == "escape" {
+                self.close_search(window, cx);
+            }
             cx.stop_propagation();
             return;
         }
 
-        // Cmd+F：打开搜索条。
+        // Cmd+F：打开搜索条并把焦点交给输入框。
         if keystroke.modifiers.platform && keystroke.key == "f" {
             self.search_open = true;
-            self.search_query.clear();
-            self.search_status.clear();
+            self.session.clear_selection();
+            let handle = self.search_input.read(cx).focus_handle(cx).clone();
+            window.focus(&handle, cx);
             cx.notify();
             cx.stop_propagation();
             return;
         }
 
-        // Cmd+V：把剪贴板文本直接写进 PTY（也用于验证 IME 的文本通道）。
+        // Cmd+V：按终端模式编码粘贴（bracketed paste / 换行转换 / 控制字节过滤）。
         if keystroke.modifiers.platform && keystroke.key == "v" {
             if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-                self.send_text(&text, cx);
+                self.paste(&text, cx);
             }
             cx.stop_propagation();
             return;
@@ -272,6 +291,16 @@ impl TerminalView {
         Size {
             width: self.cell_width * size.cols as f32,
             height: self.style.line_height * size.rows as f32,
+        }
+    }
+
+    /// Cmd+V：粘贴走终端的编码规则，而不是把原始字节直接灌进 PTY。
+    pub fn paste(&mut self, text: &str, cx: &mut Context<Self>) {
+        if text.is_empty() {
+            return;
+        }
+        if self.session.paste(text).is_ok() {
+            cx.notify();
         }
     }
 
@@ -415,44 +444,44 @@ impl TerminalView {
         }
     }
 
-    fn handle_search_key(&mut self, keystroke: &Keystroke, cx: &mut Context<Self>) {
-        match keystroke.key.as_str() {
-            "escape" => {
-                self.search_open = false;
-                self.search_query.clear();
-                self.search_status.clear();
-                self.session.clear_selection();
-                let _ = self.session.core_mut().update_frame();
-                cx.notify();
-            }
-            "enter" => self.run_search(!keystroke.modifiers.shift, cx),
-            "backspace" => {
-                self.search_query.pop();
-                cx.notify();
-            }
-            key if key.chars().count() == 1 => {
-                self.search_query.push_str(key);
-                cx.notify();
-            }
-            _ => {}
-        }
+    /// 关闭搜索条：清空查询、清选区、焦点还给终端。
+    fn close_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.search_open = false;
+        self.search_status.clear();
+        self.search_input
+            .update(cx, |state, cx| state.set_value("", window, cx));
+        self.session.clear_selection();
+        let _ = self.session.core_mut().update_frame();
+        self.focus(window, cx);
+        cx.notify();
     }
 
-    fn run_search(&mut self, forward: bool, cx: &mut Context<Self>) {
-        if self.search_query.is_empty() {
+    /// 输入框内容变化：空查询清状态，其余实时跳到下一个匹配。
+    fn search_changed(&mut self, cx: &mut Context<Self>) {
+        let query = self.search_input.read(cx).value().to_string();
+        if query.is_empty() {
+            self.search_status.clear();
+            self.session.clear_selection();
+            let _ = self.session.core_mut().update_frame();
+            cx.notify();
             return;
         }
-        match self.session.search(&self.search_query, forward) {
+        self.search(&query, true, cx);
+    }
+
+    /// 上/下一个匹配（Enter、Shift+Enter 与箭头按钮共用）。
+    fn search_step(&mut self, forward: bool, cx: &mut Context<Self>) {
+        let query = self.search_input.read(cx).value().to_string();
+        if query.is_empty() {
+            return;
+        }
+        self.search(&query, forward, cx);
+    }
+
+    fn search(&mut self, query: &str, forward: bool, cx: &mut Context<Self>) {
+        match self.session.search(query, forward) {
             Ok(outcome) => {
-                self.search_status = if outcome.total == 0 {
-                    "无匹配".to_string()
-                } else {
-                    format!(
-                        "{}/{}",
-                        outcome.index.map_or(0, |index| index + 1),
-                        outcome.total
-                    )
-                };
+                self.search_status = search_status_text(outcome.index, outcome.total);
                 let _ = self.session.core_mut().update_frame();
             }
             Err(error) => self.search_status = format!("搜索失败：{error}"),
@@ -470,18 +499,40 @@ impl Render for TerminalView {
         };
         let search_bar = self.search_open.then(|| {
             let color = self.style.foreground;
+            let muted = Hsla { a: 0.18, ..color };
             div()
                 .flex()
                 .flex_row()
                 .items_center()
-                .gap(px(6.0))
-                .px(px(8.0))
-                .py(px(4.0))
-                .text_size(px(11.0))
-                .text_color(color)
-                .child(format!("搜索：{}", self.search_query))
-                .child(div().flex_1())
-                .child(self.search_status.clone())
+                .gap(px(4.0))
+                .px(px(6.0))
+                .py(px(3.0))
+                .border_b_1()
+                .border_color(muted)
+                .child(
+                    div()
+                        .flex_1()
+                        .child(Input::new(&self.search_input).w_full()),
+                )
+                .child(search_nav_button(
+                    "terminal-search-prev",
+                    gpui_kit::assets::IconName::ChevronLeft,
+                    color,
+                    cx.listener(|this, _, _, cx| this.search_step(false, cx)),
+                ))
+                .child(search_nav_button(
+                    "terminal-search-next",
+                    gpui_kit::assets::IconName::ChevronRight,
+                    color,
+                    cx.listener(|this, _, _, cx| this.search_step(true, cx)),
+                ))
+                .child(
+                    div()
+                        .min_w(px(36.0))
+                        .text_size(px(10.0))
+                        .text_color(color)
+                        .child(self.search_status.clone()),
+                )
         });
         let bell_bar = bell_prompt_visible(self.bell_until, Instant::now()).then(|| {
             div()
@@ -559,9 +610,9 @@ impl Render for TerminalView {
             .flex_col()
             .track_focus(&self.focus_handle)
             .on_click(cx.listener(|this, _, window, cx| this.focus(window, cx)))
-            .on_key_down(
-                cx.listener(|this, event: &KeyDownEvent, _, cx| this.handle_key(event, cx)),
-            )
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                this.handle_key(event, window, cx)
+            }))
             .on_scroll(cx.listener(|this, event: &ScrollEvent, window, cx| {
                 let modifiers = window.modifiers();
                 let delta_y: f32 = match event.delta {
@@ -1271,6 +1322,45 @@ impl InputHandler for TerminalInputHandler {
     }
 }
 
+/// 搜索状态文案：`3/7`；没有匹配时 `无匹配`。
+fn search_status_text(index: Option<usize>, total: usize) -> String {
+    if total == 0 {
+        return "无匹配".to_string();
+    }
+    match index {
+        Some(index) => format!("{}/{}", index + 1, total),
+        None => format!("-/{total}"),
+    }
+}
+
+/// 搜索条上的上一个/下一个按钮（Zed 用 ChevronLeft/Right 的图标按钮）。
+fn search_nav_button(
+    id: &'static str,
+    icon: gpui_kit::assets::IconName,
+    color: Hsla,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .justify_center()
+        .w(px(18.0))
+        .h(px(18.0))
+        .rounded(px(3.0))
+        .cursor_pointer()
+        .hover(|style| style.bg(Hsla { a: 0.08, ..color }))
+        .child(
+            svg()
+                .path(icon.path())
+                .w(px(12.0))
+                .h(px(12.0))
+                .text_color(color),
+        )
+        .on_click(on_click)
+        .into_any_element()
+}
+
 /// 响铃提示的显示时长。
 const BELL_PROMPT: Duration = Duration::from_millis(1200);
 
@@ -1297,8 +1387,16 @@ fn bell_prompt_visible(until: Option<Instant>, now: Instant) -> bool {
 mod tests {
     // 只做显式导入：父模块的 `use gpui_kit::*` 会引入 gpui 的 test 宏，
     // 遮蔽 std 的 `#[test]` 并触发递归展开。
-    use super::{bell_prompt_visible, thumb_geometry};
+    use super::{bell_prompt_visible, search_status_text, thumb_geometry};
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn search_status_reports_position_and_total() {
+        assert_eq!(search_status_text(Some(0), 7), "1/7");
+        assert_eq!(search_status_text(Some(6), 7), "7/7");
+        assert_eq!(search_status_text(None, 7), "-/7");
+        assert_eq!(search_status_text(None, 0), "无匹配");
+    }
 
     #[test]
     fn scrollbar_thumb_tracks_offset_and_length() {

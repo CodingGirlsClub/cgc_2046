@@ -187,6 +187,15 @@ impl Session {
         self.core.search(needle, forward)
     }
 
+    /// 按终端当前模式粘贴文本（见 [`crate::TerminalCore::encode_paste`]）。
+    pub fn paste(&mut self, text: &str) -> Result<()> {
+        let bytes = self.core.encode_paste(text)?;
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        self.write(&bytes)
+    }
+
     /// 应用主题配色(见 [`crate::TerminalCore::set_theme`])。
     pub fn set_theme(&mut self, theme: &crate::TerminalTheme) -> Result<()> {
         self.core.set_theme(theme)
