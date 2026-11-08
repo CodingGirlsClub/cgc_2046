@@ -1216,15 +1216,17 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 match result {
                     Ok(workspaces) => {
-                        let had_accessible_workspaces =
-                            this.workspaces.workspaces().iter().any(|workspace| workspace.can_access);
+                        let had_accessible_workspaces = this
+                            .workspaces
+                            .workspaces()
+                            .iter()
+                            .any(|workspace| workspace.can_access);
                         this.workspaces.adopt(workspaces);
                         // R4：工作区列表从空变非空后，此前按空 workspace_ids 加载的公开课程
                         // 列表/详情需要补查归属，否则来源徽标与工作区入口永远缺失。
                         if state::should_backfill_public_ownership(
                             had_accessible_workspaces,
-                            this
-                                .workspaces
+                            this.workspaces
                                 .workspaces()
                                 .iter()
                                 .any(|workspace| workspace.can_access),

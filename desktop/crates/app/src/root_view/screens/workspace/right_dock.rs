@@ -669,7 +669,13 @@ fn render_site_tree(
                 let root = cx.entity().downgrade();
                 items.push(SidebarMenuItem::new("加载更多活动").pl(px(16.0)).on_click(
                     move |_, _, cx| {
-                        let _ = root.update(cx, |this, cx| this.start_events_load_with_scope(cx, false, crate::routing::ListScope::Workspace));
+                        let _ = root.update(cx, |this, cx| {
+                            this.start_events_load_with_scope(
+                                cx,
+                                false,
+                                crate::routing::ListScope::Workspace,
+                            )
+                        });
                     },
                 ));
             }
@@ -870,7 +876,13 @@ fn render_site_tree(
             if ctx.courses.has_more() {
                 items.push(SidebarMenuItem::new("加载更多课程").pl(px(16.0)).on_click(
                     move |_, _, cx| {
-                        let _ = root.update(cx, |this, cx| this.start_courses_load_with_scope(cx, false, crate::routing::ListScope::Workspace));
+                        let _ = root.update(cx, |this, cx| {
+                            this.start_courses_load_with_scope(
+                                cx,
+                                false,
+                                crate::routing::ListScope::Workspace,
+                            )
+                        });
                     },
                 ));
             }

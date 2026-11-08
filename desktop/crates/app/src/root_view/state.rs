@@ -494,10 +494,7 @@ pub(in crate::root_view) fn navigation_data_needs_reload(
     cached: Option<crate::routing::ListScope>,
 ) -> bool {
     !started
-        || crate::routing::list_scope_needs_reload(
-            cached,
-            crate::routing::ListScope::Workspace,
-        )
+        || crate::routing::list_scope_needs_reload(cached, crate::routing::ListScope::Workspace)
 }
 
 /// R6：Site Tree 的列表调用一律使用显式 Workspace scope（与中心路由无关）。
@@ -697,9 +694,7 @@ mod tests {
             &inflight
         ));
         assert!(super::should_query_course_enrollment(
-            "crs-new",
-            &cached,
-            &inflight
+            "crs-new", &cached, &inflight
         ));
     }
 
