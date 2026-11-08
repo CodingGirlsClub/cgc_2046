@@ -972,6 +972,9 @@ impl RootView {
         if theme::apply_named(&name, cx) {
             theme::save_selected_theme(&name);
             self.theme_name = name;
+            // 全局主题观察者可能在 `apply_named` 期间就触发了，那时
+            // `theme_name` 还是旧值；这里用新名字再同步一次终端。
+            self.sync_terminal_theme(cx);
         }
         cx.notify();
     }
@@ -2514,7 +2517,7 @@ impl RootView {
         }
 
         let size = cgc_terminal::GridSize { cols: 80, rows: 24 };
-        let session = match cgc_terminal::Session::spawn_default(size) {
+        let mut session = match cgc_terminal::Session::spawn_default(size) {
             Ok(session) => session,
             Err(error) => {
                 self.pane_notice = Some(format!("无法启动终端：{error}"));
@@ -2522,15 +2525,11 @@ impl RootView {
                 return;
             }
         };
+        if let Err(error) = session.set_theme(&theme::terminal_theme(&self.theme_name, cx)) {
+            log::warn!(target: "terminal", "应用终端配色失败：{error}");
+        }
 
-        let palette = theme::palette_from_theme(cx);
-        let mut style = cgc_terminal_view::TerminalStyle::new(
-            gpui_kit::font(crate::theme::FONT_MONO),
-            px(13.0),
-        );
-        style.background = palette.canvas;
-        style.foreground = palette.ink;
-        style.cursor = palette.accent;
+        let style = theme::terminal_style(cx);
 
         let key_input = match cgc_terminal::KeyInput::new() {
             Ok(key_input) => key_input,
@@ -2564,6 +2563,19 @@ impl RootView {
     pub fn close_terminal(&mut self, cx: &mut Context<Self>) {
         self.terminal_view = None;
         cx.notify();
+    }
+
+    /// 应用主题变化后，把新配色同步给已打开的终端（历史输出一起换色）。
+    pub(in crate::root_view) fn sync_terminal_theme(&mut self, cx: &mut Context<Self>) {
+        let Some(view) = self.terminal_view.clone() else {
+            return;
+        };
+        let style = theme::terminal_style(cx);
+        let colors = theme::terminal_theme(&self.theme_name, cx);
+        match view.update(cx, |view, cx| view.apply_theme(style, &colors, cx)) {
+            Ok(()) => {}
+            Err(error) => log::warn!(target: "terminal", "同步终端配色失败：{error}"),
+        }
     }
 
     /// 执行 native agent 投递的应用内动作（AppAction）。

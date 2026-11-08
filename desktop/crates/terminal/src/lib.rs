@@ -19,10 +19,12 @@ use libghostty_vt::{RenderState, Terminal};
 mod frame;
 mod input;
 mod pty;
+mod terminal_theme;
 
 pub use frame::{Frame, FrameCell, FrameColors, FrameCursor, FrameRow};
 pub use input::KeyInput;
 pub use pty::{ExitInfo, PollResult, Session};
+pub use terminal_theme::{parse_hex, TerminalTheme};
 
 /// 按键类型与修饰键（libghostty-vt 的编码输入）。
 pub use libghostty_vt::key::{Key, Mods};
@@ -128,6 +130,22 @@ impl TerminalCore {
     /// 把 PTY 输出的字节喂进 VT 解析器。
     pub fn feed(&mut self, bytes: &[u8]) {
         self.terminal.vt_write(bytes);
+    }
+
+    /// 应用主题配色：默认前景/背景/光标与 ANSI 0–15。
+    ///
+    /// 调色板变化后 libghostty 会重解析已显示的 cell，历史输出也跟着换色；
+    /// 下一次 [`Self::update_frame`] 会返回 `true`，宿主据此重绘。
+    pub fn set_theme(&mut self, theme: &TerminalTheme) -> Result<()> {
+        self.terminal.set_default_fg_color(Some(theme.foreground))?;
+        self.terminal.set_default_bg_color(Some(theme.background))?;
+        self.terminal.set_default_cursor_color(Some(theme.cursor))?;
+        let mut palette = self.terminal.default_color_palette()?;
+        for (index, color) in TerminalTheme::INDICES.into_iter().zip(theme.ansi) {
+            palette.set(index, color);
+        }
+        self.terminal.set_default_color_palette(Some(palette))?;
+        Ok(())
     }
 
     /// 调整网格；像素尺寸由调用方从字体度量给出（0 表示未知）。
@@ -317,5 +335,77 @@ mod tests {
         // resize 后按新宽度重排；拼回去必须还是原文本。
         let text = core.viewport_text().unwrap().concat();
         assert_eq!(text, "one two three four");
+    }
+
+    #[test]
+    fn theme_change_recolors_existing_cells() {
+        let mut core = TerminalCore::new(size(6, 2)).unwrap();
+        core.feed(b"\x1b[31mX");
+        core.update_frame().unwrap();
+        let before = core.frame().rows()[0].cells[0].fg.expect("red fg");
+
+        let mut ansi = [crate::FrameColor {
+            r: 0x10,
+            g: 0x10,
+            b: 0x10,
+        }; 16];
+        ansi[1] = crate::FrameColor {
+            r: 0x00,
+            g: 0x00,
+            b: 0xFF,
+        };
+        let theme = TerminalTheme {
+            foreground: crate::FrameColor {
+                r: 0xEE,
+                g: 0xEE,
+                b: 0xEE,
+            },
+            background: crate::FrameColor {
+                r: 0x11,
+                g: 0x11,
+                b: 0x11,
+            },
+            cursor: crate::FrameColor {
+                r: 0xFF,
+                g: 0x99,
+                b: 0x40,
+            },
+            ansi,
+        };
+        core.set_theme(&theme).unwrap();
+
+        assert!(core.update_frame().unwrap(), "theme change must redraw");
+        let colors = core.frame().colors();
+        assert_eq!(colors.palette[1], ansi[1], "ANSI red follows the theme");
+        assert_eq!(colors.background, theme.background);
+        assert_eq!(colors.cursor, Some(theme.cursor));
+
+        let after = core.frame().rows()[0].cells[0].fg.expect("red fg");
+        assert_ne!(before, after, "existing cells re-resolve the new palette");
+        assert_eq!(after, ansi[1]);
+    }
+
+    #[test]
+    fn theme_palette_leaves_the_256_color_cube_alone() {
+        let mut core = TerminalCore::new(size(4, 2)).unwrap();
+        let standard = core.terminal.default_color_palette().unwrap();
+
+        let mut ansi = [crate::FrameColor::default(); 16];
+        ansi[0] = crate::FrameColor { r: 1, g: 2, b: 3 };
+        core.set_theme(&TerminalTheme {
+            foreground: crate::FrameColor::default(),
+            background: crate::FrameColor::default(),
+            cursor: crate::FrameColor::default(),
+            ansi,
+        })
+        .unwrap();
+
+        let themed = core.terminal.default_color_palette().unwrap();
+        for index in 16..256 {
+            assert_eq!(
+                standard.0[index], themed.0[index],
+                "index {index} is a standard 256-color entry"
+            );
+        }
     }
 }

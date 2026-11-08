@@ -286,6 +286,8 @@ pub struct ShellState {
     /// 终端视图（＋ 菜单 → Terminal）。存在即表示 agent panel 处于终端模式。
     pub(in crate::root_view) terminal_view:
         Option<gpui_kit::Entity<cgc_terminal_view::TerminalView>>,
+    /// 应用主题变化订阅：切换主题时把新配色同步给已打开的终端。
+    pub(in crate::root_view) theme_subscription: Option<Subscription>,
     pub(in crate::root_view) native_runtime: Option<crate::native_runtime::NativeRuntimeHandle>,
     pub(in crate::root_view) native_scope: Option<crate::agent_scope::AgentScope>,
     pub(in crate::root_view) page_context: crate::page_context::PageContextState,
@@ -438,6 +440,7 @@ impl ShellState {
             native_chat_mode: crate::chat_state::load_native_chat_mode().unwrap_or(true),
             native_agent_view: None,
             terminal_view: None,
+            theme_subscription: None,
             native_runtime: None,
             native_scope: None,
             page_context: Default::default(),

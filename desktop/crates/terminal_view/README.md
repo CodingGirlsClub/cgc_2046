@@ -21,8 +21,11 @@
 - 光标按 `FrameCursor` 画成 block（后续补 bar/underline 与闪烁）。
 - **整帧必须画在 `window.with_content_mask(Some(ContentMask { bounds }), ...)` 里**：
   缺了它 quad 能画、glyph 却完全不出现。
-- 背景色取宿主主题（`palette.canvas`），前景取 `palette.ink`，光标取 `palette.accent`；
-  ANSI 调色板仍来自 libghostty-vt，浅色主题下的 ANSI 色对比度待映射（见缺口）。
+- 背景色取宿主主题（`palette.canvas`），前景取 `palette.ink`，光标取 `palette.accent`。
+- ANSI 0–15、默认前景/背景/光标由 `TerminalView::apply_theme` 交给 libghostty：
+  创建终端时注入一次，应用切主题时再注入并重绘。libghostty 会按新调色板
+  重新解析已显示的 cell，所以历史输出也会换色，shell 进程与滚动位置不受影响。
+- 16–255（色立方与灰阶）保持标准值；程序用 SGR 指定的 RGB 颜色原样保留。
 
 ## 键盘
 
@@ -54,7 +57,6 @@
 - IME：提交文本已接入，组合中的预编辑（marked）文本尚未回显
 - 滚动条（`terminal.scrollbar()` 未接 UI）
 - bracketed paste（当前 Cmd+V 直接写字节，未经 `paste` API 的安全包装）
-- ANSI 调色板映射到应用主题（浅色主题下黄/绿对比度偏低）
 - 光标闪烁、Hollow 描边
 - 事件驱动重绘（当前 33ms 轮询）
 - 搜索只跳转并选中匹配，没有逐格高亮

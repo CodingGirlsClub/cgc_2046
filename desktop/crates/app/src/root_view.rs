@@ -673,6 +673,13 @@ impl RootView {
 
 impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 应用主题切换时同步终端配色；订阅常驻，终端打开与否由回调自行判断。
+        if self.theme_subscription.is_none() {
+            self.theme_subscription =
+                Some(cx.observe_global::<gpui_kit::component::Theme>(|this, cx| {
+                    this.sync_terminal_theme(cx)
+                }));
+        }
         let fullscreen = window.is_fullscreen() || window.is_simple_fullscreen();
         let previous_page = self.page_context.visible();
         self.refresh_page_context();

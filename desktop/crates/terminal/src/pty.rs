@@ -158,9 +158,14 @@ impl Session {
         self.core.selection_text()
     }
 
-    /// 搜索（含 scrollback）。
+    /// 搜索(含 scrollback)。
     pub fn search(&mut self, needle: &str, forward: bool) -> Result<crate::SearchOutcome> {
         self.core.search(needle, forward)
+    }
+
+    /// 应用主题配色(见 [`crate::TerminalCore::set_theme`])。
+    pub fn set_theme(&mut self, theme: &crate::TerminalTheme) -> Result<()> {
+        self.core.set_theme(theme)
     }
 
     pub fn core(&self) -> &TerminalCore {

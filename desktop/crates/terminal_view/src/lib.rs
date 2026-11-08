@@ -216,6 +216,23 @@ impl TerminalView {
         &self.style
     }
 
+    /// 应用新的主题样式与终端配色。
+    ///
+    /// 配色交给 libghostty 后，已显示的 cell 会按新调色板重新解析，
+    /// 因此历史输出也会换色；随后强制刷新一帧并请求重绘。
+    pub fn apply_theme(
+        &mut self,
+        style: TerminalStyle,
+        theme: &cgc_terminal::TerminalTheme,
+        cx: &mut Context<Self>,
+    ) -> cgc_terminal::Result<()> {
+        self.style = style;
+        self.session.set_theme(theme)?;
+        self.session.core_mut().update_frame()?;
+        cx.notify();
+        Ok(())
+    }
+
     pub fn cell_width(&self) -> Pixels {
         self.cell_width
     }
