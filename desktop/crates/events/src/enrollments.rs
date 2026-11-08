@@ -3,11 +3,23 @@
 use cgc_platform::api::{ApiError, GraphqlClient};
 use serde_json::Value;
 
+/// `myEnrollments` 后端单页上限（schema：Maximum 250）。
+pub const MY_ENROLLMENTS_PAGE_SIZE: i64 = 250;
+
 const MY_ENROLLMENTS_QUERY: &str = r#"
-query MyEnrollments {
-  myEnrollments(first: 50) {
+query MyEnrollments($first: Int, $after: String) {
+  myEnrollments(first: $first, after: $after) {
     count
+    endKeyset
     results { id workspaceId status targetTitle startsAt eventId courseId paymentMode checkInCode }
+  }
+}
+"#;
+
+const MY_ENROLLMENT_FOR_COURSE_QUERY: &str = r#"
+query MyEnrollmentForCourse($offeringId: ID!) {
+  myEnrollment(kind: "course", offeringId: $offeringId) {
+    id workspaceId status targetTitle startsAt eventId courseId paymentMode checkInCode
   }
 }
 "#;
@@ -25,11 +37,70 @@ pub struct MyEnrollmentRow {
     pub check_in_code: Option<String>,
 }
 
+/// `myEnrollments` 的一页；`next_cursor` 来自 `endKeyset`，为空表示没有下一页。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MyEnrollmentsPage {
+    pub rows: Vec<MyEnrollmentRow>,
+    pub total: Option<i64>,
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EnrollmentPaginationMeta {
+    pub total: Option<i64>,
+    pub next_cursor: Option<String>,
+}
+
+/// 是否还有下一页：优先用 `count` 与已加载行数判定，缺 count 时退回 cursor 存在性。
+pub fn has_more_enrollments(
+    meta: Option<&EnrollmentPaginationMeta>,
+    loaded_rows: usize,
+) -> bool {
+    let Some(meta) = meta else {
+        return false;
+    };
+    meta.next_cursor.is_some()
+        && meta
+            .total
+            .is_none_or(|total| (loaded_rows as i64) < total)
+}
+
+impl MyEnrollmentsPage {
+    pub fn pagination(&self) -> EnrollmentPaginationMeta {
+        EnrollmentPaginationMeta {
+            total: self.total,
+            next_cursor: self.next_cursor.clone(),
+        }
+    }
+}
+
 pub trait EnrollmentsApi: Send + Sync {
+    fn my_enrollments_page(
+        &self,
+        token: Option<&str>,
+        after: Option<&str>,
+    ) -> Result<MyEnrollmentsPage, crate::list::EventsError>;
+
+    /// 首屏（向后兼容旧调用点）；分页请用 `my_enrollments_page`。
     fn my_enrollments(
         &self,
         token: Option<&str>,
-    ) -> Result<Vec<MyEnrollmentRow>, crate::list::EventsError>;
+    ) -> Result<Vec<MyEnrollmentRow>, crate::list::EventsError> {
+        self.my_enrollments_page(token, None)
+            .map(|page| page.rows)
+    }
+
+    /// 按课程补查本人报名（run 的 enrollment 不在已加载页时兜底）。
+    fn my_enrollment_for_course(
+        &self,
+        token: Option<&str>,
+        course_id: &str,
+    ) -> Result<Option<MyEnrollmentRow>, crate::list::EventsError>;
+
+    /// 最近一次 `my_enrollments_page` 的分页元信息（UI load-more 用）。
+    fn enrollment_pagination(&self) -> Option<EnrollmentPaginationMeta> {
+        None
+    }
 
     /// 本人 confirmed 课程报名的学习 run 进度；event 报名不返回。
     fn my_learning_runs(
@@ -76,11 +147,15 @@ pub struct MyLearningRunRow {
 
 pub struct HttpEnrollmentsApi {
     client: GraphqlClient,
+    last_page: std::sync::Mutex<Option<EnrollmentPaginationMeta>>,
 }
 
 impl HttpEnrollmentsApi {
     pub fn new(client: GraphqlClient) -> Self {
-        Self { client }
+        Self {
+            client,
+            last_page: std::sync::Mutex::new(None),
+        }
     }
     pub fn from_env() -> Self {
         Self::new(GraphqlClient::from_env())
@@ -178,13 +253,18 @@ impl HttpEnrollmentsApi {
 }
 
 impl EnrollmentsApi for HttpEnrollmentsApi {
-    fn my_enrollments(
+    fn my_enrollments_page(
         &self,
         token: Option<&str>,
-    ) -> Result<Vec<MyEnrollmentRow>, crate::list::EventsError> {
+        after: Option<&str>,
+    ) -> Result<MyEnrollmentsPage, crate::list::EventsError> {
         let payload = self
             .client
-            .post(token, MY_ENROLLMENTS_QUERY, serde_json::json!({}))
+            .post(
+                token,
+                MY_ENROLLMENTS_QUERY,
+                serde_json::json!({ "first": MY_ENROLLMENTS_PAGE_SIZE, "after": after }),
+            )
             .map_err(|error: ApiError| match error {
                 ApiError::Transport(reason) => crate::list::EventsError::Transport(reason),
                 ApiError::Timeout(reason) => {
@@ -197,11 +277,57 @@ impl EnrollmentsApi for HttpEnrollmentsApi {
             .get("data")
             .and_then(|data| data.get("myEnrollments"))
             .ok_or_else(|| crate::list::EventsError::Server("missing myEnrollments".to_string()))?;
-        Ok(page
-            .get("results")
-            .and_then(Value::as_array)
-            .map(|results| results.iter().filter_map(Self::parse).collect())
-            .unwrap_or_default())
+        let result = MyEnrollmentsPage {
+            rows: page
+                .get("results")
+                .and_then(Value::as_array)
+                .map(|results| results.iter().filter_map(Self::parse).collect())
+                .unwrap_or_default(),
+            total: page.get("count").and_then(Value::as_i64),
+            next_cursor: page
+                .get("endKeyset")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        };
+        *self
+            .last_page
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner()) = Some(result.pagination());
+        Ok(result)
+    }
+
+    fn enrollment_pagination(&self) -> Option<EnrollmentPaginationMeta> {
+        self.last_page
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .clone()
+    }
+
+    fn my_enrollment_for_course(
+        &self,
+        token: Option<&str>,
+        course_id: &str,
+    ) -> Result<Option<MyEnrollmentRow>, crate::list::EventsError> {
+        let payload = self
+            .client
+            .post(
+                token,
+                MY_ENROLLMENT_FOR_COURSE_QUERY,
+                serde_json::json!({ "offeringId": course_id }),
+            )
+            .map_err(|error: ApiError| match error {
+                ApiError::Transport(reason) => crate::list::EventsError::Transport(reason),
+                ApiError::Timeout(reason) => {
+                    crate::list::EventsError::Transport(format!("timeout: {reason}"))
+                }
+                ApiError::Unauthorized => crate::list::EventsError::Unauthorized,
+                ApiError::Graphql { message, .. } => crate::list::EventsError::Server(message),
+            })?;
+        Ok(payload
+            .get("data")
+            .and_then(|data| data.get("myEnrollment"))
+            .filter(|row| !row.is_null())
+            .and_then(Self::parse))
     }
 
     fn my_learning_runs(
@@ -235,11 +361,12 @@ impl EnrollmentsApi for HttpEnrollmentsApi {
 pub struct FakeEnrollmentsApi;
 
 impl EnrollmentsApi for FakeEnrollmentsApi {
-    fn my_enrollments(
+    fn my_enrollments_page(
         &self,
         _token: Option<&str>,
-    ) -> Result<Vec<MyEnrollmentRow>, crate::list::EventsError> {
-        Ok(vec![
+        _after: Option<&str>,
+    ) -> Result<MyEnrollmentsPage, crate::list::EventsError> {
+        let rows = vec![
             MyEnrollmentRow {
                 id: "enr-1".to_string(),
                 workspace_id: "ws-2046".to_string(),
@@ -273,7 +400,24 @@ impl EnrollmentsApi for FakeEnrollmentsApi {
                 payment_mode: Some("paid".to_string()),
                 check_in_code: None,
             },
-        ])
+        ];
+        Ok(MyEnrollmentsPage {
+            total: Some(rows.len() as i64),
+            rows,
+            next_cursor: None,
+        })
+    }
+
+    fn my_enrollment_for_course(
+        &self,
+        _token: Option<&str>,
+        course_id: &str,
+    ) -> Result<Option<MyEnrollmentRow>, crate::list::EventsError> {
+        Ok(self
+            .my_enrollments_page(None, None)?
+            .rows
+            .into_iter()
+            .find(|row| row.course_id.as_deref() == Some(course_id)))
     }
 
     fn my_learning_runs(
@@ -367,6 +511,66 @@ mod tests {
         assert_eq!(rows[0].target_title.as_deref(), Some("场次 A"));
         assert_eq!(rows[0].check_in_code.as_deref(), Some("123456"));
         assert_eq!(rows[0].workspace_id, "ws-own");
+    }
+
+    #[test]
+    fn http_my_enrollments_page_uses_after_and_reports_next_cursor() {
+        let (endpoint, server) = serve_once(
+            r#"{"data":{"myEnrollments":{"count":260,"endKeyset":"cursor-2","results":[{"id":"enr-1","workspaceId":"ws-own","status":"confirmed","targetTitle":"场次 A","startsAt":null,"eventId":"evt-1","courseId":null,"paymentMode":null,"checkInCode":null}]}}}"#
+                .to_string(),
+        );
+        let api = HttpEnrollmentsApi::new(GraphqlClient::new(endpoint));
+        let page = api
+            .my_enrollments_page(Some("token"), Some("cursor-1"))
+            .expect("page");
+        let request = server.join().expect("fixture");
+        assert_eq!(request["variables"]["first"], 250);
+        assert_eq!(request["variables"]["after"], "cursor-1");
+        assert!(request["query"]
+            .as_str()
+            .unwrap()
+            .contains("endKeyset"));
+        assert_eq!(page.rows.len(), 1);
+        assert_eq!(page.total, Some(260));
+        assert_eq!(page.next_cursor.as_deref(), Some("cursor-2"));
+        assert!(page.pagination().next_cursor.is_some());
+    }
+
+    #[test]
+    fn has_more_enrollments_prefers_total_over_cursor_existence() {
+        let meta = |total: Option<i64>, next: Option<&str>| EnrollmentPaginationMeta {
+            total,
+            next_cursor: next.map(str::to_string),
+        };
+        assert!(!has_more_enrollments(None, 0));
+        assert!(has_more_enrollments(Some(&meta(Some(260), Some("c"))), 250));
+        assert!(
+            !has_more_enrollments(Some(&meta(Some(250), Some("c"))), 250),
+            "count 已全部加载时不得继续显示加载更多"
+        );
+        assert!(!has_more_enrollments(Some(&meta(None, None)), 0));
+        assert!(
+            has_more_enrollments(Some(&meta(None, Some("c"))), 10),
+            "缺 count 时 cursor 是唯一分页依据"
+        );
+    }
+
+    #[test]
+    fn http_my_enrollment_for_course_parses_single_row() {
+        let (endpoint, server) = serve_once(
+            r#"{"data":{"myEnrollment":{"id":"enr-9","workspaceId":"ws-owner","status":"confirmed","targetTitle":"课程 A","startsAt":null,"eventId":null,"courseId":"crs-9","paymentMode":null,"checkInCode":null}}}"#
+                .to_string(),
+        );
+        let api = HttpEnrollmentsApi::new(GraphqlClient::new(endpoint));
+        let row = api
+            .my_enrollment_for_course(Some("token"), "crs-9")
+            .expect("lookup")
+            .expect("row");
+        let request = server.join().expect("fixture");
+        assert_eq!(request["variables"]["offeringId"], "crs-9");
+        assert!(request["query"].as_str().unwrap().contains("myEnrollment("));
+        assert_eq!(row.id, "enr-9");
+        assert_eq!(row.workspace_id, "ws-owner");
     }
 
     #[test]
