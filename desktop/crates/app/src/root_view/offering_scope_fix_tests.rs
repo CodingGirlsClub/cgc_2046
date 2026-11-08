@@ -144,3 +144,76 @@ fn public_response_arriving_after_workspace_switch_is_dropped(cx: &mut TestAppCo
         );
     });
 }
+
+fn course_owned_by_beta() -> cgc_courses::catalog::CourseDetail {
+    cgc_courses::catalog::CourseDetail {
+        id: "crs-000".into(),
+        title: "Course B".into(),
+        description: None,
+        status: "open".into(),
+        visibility: "public".into(),
+        workspace_id: Some("ws-beta".into()),
+        pricing_enabled: false,
+        enrollment_policy: "open".into(),
+        available_price_tiers: Vec::new(),
+        enrollment_status: None,
+        revision_number: Some(1),
+    }
+}
+
+#[gpui_kit::test]
+fn cross_workspace_open_lands_in_target_workspace_tab(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let root = root_at(cx, "/w/alpha/courses");
+    root.update(cx, |root, cx| {
+        root.workspaces.adopt(workspaces());
+        root.open_page_tab("/w/alpha/courses", "Alpha courses", cx);
+        // 屏幕侧改造后统一走 open_page_tab：先存源台，再切台恢复，最后插入目标 tab。
+        root.open_page_tab("/w/beta/courses/crs-001/learn", "Beta learning", cx);
+    });
+    let beta = crate::workspace_state::entry("ws-beta").expect("目标台必须有持久化桶");
+    let beta_paths: Vec<_> = beta.tabs.iter().map(|tab| tab.path.clone()).collect();
+    assert!(
+        beta_paths.contains(&"/w/beta/courses/crs-001/learn".to_string()),
+        "目标台必须拿到新 tab，实际 {beta_paths:?}"
+    );
+    let alpha = crate::workspace_state::entry("ws-alpha").expect("源台桶必须被保存");
+    let alpha_paths: Vec<_> = alpha.tabs.iter().map(|tab| tab.path.clone()).collect();
+    assert!(
+        alpha_paths.iter().all(|path| !path.contains("/w/beta/")),
+        "源台 tab 桶不得混入目标台路径，实际 {alpha_paths:?}"
+    );
+}
+
+#[gpui_kit::test]
+fn cross_workspace_canonicalize_keeps_the_source_tab_bucket(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let root = root_at(cx, "/w/alpha/courses/crs-000/learn");
+    root.update(cx, |root, _| {
+        root.workspaces.adopt(workspaces());
+        let tab = crate::root_view::state::PaneTab::page(
+            "/w/alpha/courses/crs-000/learn",
+            "Alpha learning",
+        );
+        root.active_tab = Some(tab.id.clone());
+        root.tabs.push(tab);
+        root.canonicalize_course_route(&course_owned_by_beta());
+    });
+    let alpha = crate::workspace_state::entry("ws-alpha").expect("源台桶必须被保存");
+    let alpha_paths: Vec<_> = alpha.tabs.iter().map(|tab| tab.path.clone()).collect();
+    assert_eq!(
+        alpha_paths,
+        vec!["/w/alpha/courses/crs-000/learn".to_string()],
+        "纠偏只改路由：源台 tab 必须保留自己的路径，不得被改写成目标台地址"
+    );
+    root.read_with(cx, |root, _| {
+        assert_eq!(
+            root.current
+                .as_ref()
+                .and_then(|route| route.params.get("slug"))
+                .map(String::as_str),
+            Some("beta"),
+            "纠偏后路由必须落在课程所属工作台"
+        );
+    });
+}

@@ -2797,13 +2797,8 @@ impl RootView {
         if self.current_path().as_deref() == Some(target.as_str()) {
             return;
         }
-        if let Some(active) = self.active_tab.clone() {
-            if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == active) {
-                tab.path = target.clone();
-                tab.id = format!("page:{target}");
-                self.active_tab = Some(tab.id.clone());
-            }
-        }
+        // 纠偏只改路由：目标台的 tab 由目标台自己的 tab 生命周期插入并持久化。
+        // 在这里改写当前 tab 会把目标台路径写进**源台**的 tab 桶（R10）。
         self.navigate(&target);
     }
 
@@ -3273,7 +3268,8 @@ impl RootView {
         self.open_page_tab(&path, title, cx);
     }
 
-    fn open_tab(&mut self, tab: PaneTab, cx: &mut Context<Self>) {
+    /// 唯一的「插入 tab + 持久化」入口：`navigate()` 只换路由，不插 tab。
+    pub(in crate::root_view) fn open_tab(&mut self, tab: PaneTab, cx: &mut Context<Self>) {
         self.site_tree_search_focused = false;
         self.page_context.reset_dismissed();
         self.navigate(&tab.path);
