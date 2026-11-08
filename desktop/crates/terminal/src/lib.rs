@@ -76,6 +76,8 @@ pub struct TerminalCore {
     frame: Frame,
     size: GridSize,
     events: Rc<RefCell<Vec<CoreEvent>>>,
+    /// 终端生成的写回数据（OSC 11 查询响应、DA、DSR 等），由宿主写进 PTY。
+    responses: Rc<RefCell<Vec<u8>>>,
     search: Option<libghostty_vt::search::Search<'static, 'static>>,
     /// 搜索匹配的复用缓冲，避免每帧重新分配。
     match_buffer: libghostty_vt::search::MatchBuffer,
@@ -113,6 +115,14 @@ impl TerminalCore {
             bell_events.borrow_mut().push(CoreEvent::Bell);
         })?;
 
+        // 终端对查询的答复（OSC 10/11/12 颜色、DA、DSR 等）走这个回调；
+        // 不接它，应用（如 OMP）问背景色永远没有回答，会退回深色 UI。
+        let responses: Rc<RefCell<Vec<u8>>> = Rc::new(RefCell::new(Vec::new()));
+        let response_sink = Rc::clone(&responses);
+        terminal.on_pty_write(move |_term, data| {
+            response_sink.borrow_mut().extend_from_slice(data);
+        })?;
+
         // 回看上限：`seq 1 100000` 这类输出不应无限吃内存。
         terminal.set_scrollback_max_lines(Some(SCROLLBACK_MAX_LINES))?;
 
@@ -124,6 +134,7 @@ impl TerminalCore {
             frame: Frame::new(size),
             size,
             events,
+            responses,
             search: None,
             match_buffer: libghostty_vt::search::MatchBuffer::new(),
         })
@@ -132,6 +143,14 @@ impl TerminalCore {
     /// 取走解析过程中累积的事件（标题 / cwd / bell）。
     pub fn take_events(&mut self) -> Vec<CoreEvent> {
         std::mem::take(&mut *self.events.borrow_mut())
+    }
+
+    /// 取走终端生成的写回数据（OSC 11 颜色响应、DA、DSR 等）。
+    ///
+    /// 宿主必须在每次 [`Self::feed`] 之后排空并写回 PTY，否则应用收不到
+    /// 终端对查询的答复（典型表现：TUI 判断不出明暗主题）。
+    pub fn take_responses(&mut self) -> Vec<u8> {
+        std::mem::take(&mut *self.responses.borrow_mut())
     }
 
     pub fn size(&self) -> GridSize {
@@ -498,6 +517,29 @@ mod tests {
         assert!(rows.contains(&(0, 0, 2)), "第一行第一个 foo：{rows:?}");
         assert!(rows.contains(&(0, 8, 10)), "第一行第二个 foo：{rows:?}");
         assert!(rows.contains(&(1, 4, 6)), "第二行 foo：{rows:?}");
+    }
+
+    #[test]
+    fn libghostty_answers_osc11_color_queries() {
+        let mut core = TerminalCore::new(size(40, 4)).unwrap();
+        core.terminal
+            .set_default_bg_color(Some(crate::FrameColor {
+                r: 0xFC,
+                g: 0xFC,
+                b: 0xFC,
+            }))
+            .unwrap();
+
+        core.feed(b"\x1b]11;?\x07");
+        let response = String::from_utf8_lossy(&core.take_responses()).into_owned();
+        assert!(
+            response.contains("]11;"),
+            "libghostty 应生成 OSC 11 响应，实际：{response:?}"
+        );
+        assert!(
+            response.to_ascii_lowercase().contains("fcfc/fcfc/fcfc"),
+            "响应应带回注入的背景色（rgb:RRRR/GGGG/BBBB），实际：{response:?}"
+        );
     }
 
     #[test]

@@ -18,6 +18,9 @@ const MAX_BYTES_PER_POLL: usize = 2 * 1024 * 1024;
 /// PTY 输出队列的容量（块数，每块 ≤ 8 KiB）。填满后读线程阻塞，形成背压。
 const OUTPUT_QUEUE_CHUNKS: usize = 64;
 
+/// 单次 [`Session::poll`] 最多写回的终端响应字节数。
+const MAX_RESPONSE_BYTES: usize = 64 * 1024;
+
 /// 用户默认 shell 的命令行；`cwd` 为 `Some` 时在该目录启动。
 fn default_command(cwd: Option<&std::path::Path>) -> CommandBuilder {
     let mut cmd = CommandBuilder::new_default_prog();
@@ -121,6 +124,14 @@ impl Session {
                     }
                 }
             }
+        }
+
+        // 把终端对查询的答复（OSC 11 颜色、DA、DSR）写回子进程；不接这条，
+        // TUI 判断不出终端明暗（典型：OMP 用深色 UI）。单次上限防止失控。
+        let responses = self.core.take_responses();
+        if !responses.is_empty() {
+            let limited = &responses[..responses.len().min(MAX_RESPONSE_BYTES)];
+            let _ = self.write(limited);
         }
 
         if self.exit.is_none() {
@@ -323,6 +334,43 @@ mod tests {
         assert_eq!(exit.code, 3);
         assert!(!exit.success);
         assert!(!session.is_running());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn answers_osc11_query_from_the_child() {
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        // 延迟查询，给测试先注入主题；先切 raw（否则 canonical 模式等换行，
+        // OSC 11 响应没有换行会被卡住），dd 读回响应，od 转十六进制。
+        cmd.args([
+            "-c",
+            "sleep 0.2; stty raw -echo; printf '\\033]11;?\\007'; dd bs=1 count=24 2>/dev/null | od -An -tx1 | tr -d ' \\r\\n'",
+        ]);
+        let mut session = Session::spawn_command(cmd, grid(60, 6)).expect("spawn");
+        session
+            .set_theme(&crate::TerminalTheme {
+                foreground: crate::FrameColor {
+                    r: 0x5C,
+                    g: 0x61,
+                    b: 0x66,
+                },
+                background: crate::FrameColor {
+                    r: 0xFC,
+                    g: 0xFC,
+                    b: 0xFC,
+                },
+                cursor: crate::FrameColor {
+                    r: 0xFF,
+                    g: 0x99,
+                    b: 0x40,
+                },
+                ansi: [crate::FrameColor { r: 0, g: 0, b: 0 }; 16],
+            })
+            .expect("theme");
+
+        // `fcfc` 的十六进制是 66636663；终端必须把 OSC 11 响应写回子进程。
+        let text = wait_for(&mut session, "66636663", Duration::from_secs(5));
+        assert!(text.contains("66636663"), "screen: {text:?}");
     }
 
     #[cfg(unix)]
