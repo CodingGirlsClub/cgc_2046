@@ -5,7 +5,6 @@
 
 use std::ops::Range;
 use std::panic;
-use std::time::{Duration, Instant};
 
 use cgc_terminal::{
     CoreEvent, CursorVisualStyle, Frame, FrameCell, FrameColors, GridSize, Key, KeyInput, Mods,
@@ -77,8 +76,8 @@ pub struct TerminalView {
     /// 输入框订阅：View 存活期间保持订阅，字段本身不读取。
     #[allow(dead_code)]
     search_subscription: Option<Subscription>,
-    /// 收到 BEL 后的提示截止时间；`None` 表示当前没有提示。
-    bell_until: Option<Instant>,
+    /// 收到 BEL 后保持标记，直到用户下一次按键。
+    bell_pending: bool,
 }
 
 impl TerminalView {
@@ -121,7 +120,7 @@ impl TerminalView {
             search_input,
             search_status: String::new(),
             search_subscription: Some(search_subscription),
-            bell_until: None,
+            bell_pending: false,
         }
     }
 
@@ -139,6 +138,12 @@ impl TerminalView {
             }
             cx.stop_propagation();
             return;
+        }
+
+        // 用户真正敲键后清除响铃标记（纯修饰键不算）。
+        if self.bell_pending && clears_bell(&keystroke.key) {
+            self.bell_pending = false;
+            cx.notify();
         }
 
         // Cmd+F：打开搜索条并把焦点交给输入框。
@@ -209,7 +214,7 @@ impl TerminalView {
                     changed = true;
                 }
                 CoreEvent::Bell => {
-                    self.bell_until = Some(Instant::now() + BELL_PROMPT);
+                    self.bell_pending = true;
                     changed = true;
                 }
             }
@@ -222,12 +227,6 @@ impl TerminalView {
                 ));
                 changed = true;
             }
-        }
-        // 响铃提示显示期间保持重绘，让它到点自然消失。
-        if bell_prompt_visible(self.bell_until, Instant::now()) {
-            changed = true;
-        } else {
-            self.bell_until = None;
         }
         if changed {
             cx.notify();
@@ -599,13 +598,13 @@ impl Render for TerminalView {
                         .child(self.search_status.clone()),
                 )
         });
-        let bell_bar = bell_prompt_visible(self.bell_until, Instant::now()).then(|| {
+        let bell_bar = self.bell_pending.then(|| {
             div()
                 .px(px(8.0))
                 .py(px(4.0))
                 .text_size(px(11.0))
                 .text_color(self.style.foreground)
-                .child("终端响铃（bell）")
+                .child("终端响铃 · 按任意键清除")
         });
         let handle_color = Hsla {
             a: 0.32,
@@ -1423,8 +1422,13 @@ fn search_nav_button(
         .into_any_element()
 }
 
-/// 响铃提示的显示时长。
-const BELL_PROMPT: Duration = Duration::from_millis(1200);
+/// 这次按键是否算「用户已经看到响铃」——纯修饰键不清除。
+fn clears_bell(key: &str) -> bool {
+    !matches!(
+        key,
+        "shift" | "control" | "alt" | "platform" | "function" | "capslock"
+    )
+}
 
 /// alternate screen 里滚轮对应的方向键与次数。
 ///
@@ -1451,18 +1455,12 @@ fn thumb_geometry(total: u64, offset: u64, len: u64) -> Option<(f32, f32)> {
     Some((progress * max_top, height))
 }
 
-/// 响铃提示在 `now` 时刻是否可见。
-fn bell_prompt_visible(until: Option<Instant>, now: Instant) -> bool {
-    until.is_some_and(|deadline| now < deadline)
-}
-
 #[cfg(test)]
 mod tests {
     // 只做显式导入：父模块的 `use gpui_kit::*` 会引入 gpui 的 test 宏，
     // 遮蔽 std 的 `#[test]` 并触发递归展开。
-    use super::{alternate_scroll_key, bell_prompt_visible, search_status_text, thumb_geometry};
+    use super::{alternate_scroll_key, clears_bell, search_status_text, thumb_geometry};
     use cgc_terminal::Key;
-    use std::time::{Duration, Instant};
 
     #[test]
     fn alternate_scroll_maps_wheel_to_arrows() {
@@ -1507,17 +1505,13 @@ mod tests {
     }
 
     #[test]
-    fn bell_prompt_expires_at_its_deadline() {
-        let now = Instant::now();
-        assert!(!bell_prompt_visible(None, now));
-        assert!(bell_prompt_visible(
-            Some(now + Duration::from_millis(1)),
-            now
-        ));
-        assert!(!bell_prompt_visible(Some(now), now));
-        assert!(!bell_prompt_visible(
-            Some(now - Duration::from_millis(1)),
-            now
-        ));
+    fn only_real_keys_clear_the_bell() {
+        assert!(clears_bell("a"));
+        assert!(clears_bell("escape"));
+        assert!(clears_bell("enter"));
+        assert!(!clears_bell("shift"));
+        assert!(!clears_bell("control"));
+        assert!(!clears_bell("alt"));
+        assert!(!clears_bell("platform"));
     }
 }
