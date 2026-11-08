@@ -3994,7 +3994,8 @@ impl RootView {
                 if rows.iter().any(|row| row.id == run.enrollment_id) {
                     continue;
                 }
-                if let Ok(Some(row)) = api.my_enrollment_for_course(token.as_deref(), &run.course_id)
+                if let Ok(Some(row)) =
+                    api.my_enrollment_for_course(token.as_deref(), &run.course_id)
                 {
                     if !rows.iter().any(|existing| existing.id == row.id) {
                         rows.push(row);

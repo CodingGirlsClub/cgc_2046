@@ -9,7 +9,6 @@ use cgc_courses::catalog::{
 };
 use cgc_courses::content::CourseContent;
 use cgc_courses::projection::LearningProjection;
-use std::collections::BTreeMap;
 use cgc_platform::session::{FakeAuthApi, MemoryStore, SessionService};
 use cgc_platform::workspace::{OfferingScope, WorkspaceScope, WorkspaceSummary};
 use gpui_kit::test::{TestQueryExt, TestWindowExt};
@@ -17,6 +16,7 @@ use gpui_kit::{
     div, px, size, AppContext, Bounds, Context, Entity, IntoElement, ParentElement, Render, Styled,
     TestAppContext, Window, WindowBounds, WindowOptions,
 };
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 struct SiteTreeProbe {
