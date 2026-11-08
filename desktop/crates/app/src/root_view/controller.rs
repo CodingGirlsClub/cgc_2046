@@ -4312,6 +4312,18 @@ impl RootView {
             cx.notify();
             return;
         }
+        // R14：未知金额档位不可提交（UI 已禁用，这里再兜一层）。
+        if let Some(tier_id) = self.selected_tier.as_deref() {
+            if detail
+                .available_price_tiers
+                .iter()
+                .any(|tier| tier.id == tier_id && tier.amount_cents.is_none())
+            {
+                self.enrollment_error = Some("tier_unavailable".to_string());
+                cx.notify();
+                return;
+            }
+        }
         let Some(user_id) = self
             .session
             .signed_in()
@@ -4353,12 +4365,6 @@ impl RootView {
                         this.enrollments_started = false;
                         this.enrollments_state = EnrollmentsListState::Idle;
                         if same_course {
-                            this.course_detail.adopt_enrollment(Some(
-                                cgc_courses::catalog::CourseEnrollment {
-                                    id: enrollment.id,
-                                    status: enrollment.status,
-                                },
-                            ));
                             this.course_detail_started = false;
                             this.start_course_detail_load(cx, course_id);
                         }
