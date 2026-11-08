@@ -22,6 +22,7 @@ impl RootView {
             return;
         };
         ENROLLMENTS_LOADING_MORE.with(|flag| flag.set(true));
+        self.enrollments_load_more_failed = false;
         let api = std::sync::Arc::clone(&self.enrollments_api);
         let token = self.session_token();
         let epoch = self.workspaces.epoch();
@@ -54,6 +55,13 @@ impl RootView {
                             };
                     }
                     Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
+                    Err(error) if !this.enrollments_rows.is_empty() => {
+                        // 分页失败不得清空已加载列表：保留 Ready，仅提示本次追加失败，
+                        // 再次点击「加载更多」即重试（cursor 未推进）。诊断信息只进日志。
+                        log::warn!(target: "enrollments", "加载更多失败：{}", error.diagnostic());
+                        this.enrollments_state = EnrollmentsListState::Ready;
+                        this.enrollments_load_more_failed = true;
+                    }
                     Err(error) => {
                         this.enrollments_state = EnrollmentsListState::Failed(error.diagnostic());
                     }
@@ -75,6 +83,17 @@ pub(in crate::root_view) fn render_participations(
     let rows = ctx.enrollments_rows.clone();
     let pagination = ctx.enrollments_api.enrollment_pagination();
     let has_more = has_more_enrollments(pagination.as_ref(), rows.len());
+    let load_more_error = ctx.enrollments_load_more_failed.then(|| {
+        div()
+            .id("participations-load-more-error")
+            .test_support()
+            .role(Role::Status)
+            .aria_label(translate(language, Key::AccountWorkspaceFailed).to_string())
+            .text_size(px(12.0))
+            .text_color(palette.danger)
+            .child(translate(language, Key::AccountWorkspaceFailed))
+            .into_any_element()
+    });
     let load_more = has_more.then(|| {
         div()
             .id("participations-load-more")
@@ -94,8 +113,29 @@ pub(in crate::root_view) fn render_participations(
             render_loading_state(language, Key::AccountWorkspaceLoading, palette).into_any_element()
         }
         EnrollmentsListState::Failed(_) => div()
+            .flex()
+            .flex_col()
+            .gap(space(1))
             .text_color(palette.danger)
             .child(translate(language, Key::AccountWorkspaceFailed))
+            .child(
+                // 闸门要求 `!enrollments_started && Idle` 才重发；失败后已 started，
+                // 必须显式复位，否则本页没有任何恢复入口（只能切台/登出）。
+                div()
+                    .id("participations-retry")
+                    .test_support()
+                    .px(space(2))
+                    .py(px(4.0))
+                    .rounded(px(RADIUS_MEDIUM))
+                    .bg(palette.accent)
+                    .text_color(palette.canvas)
+                    .child(translate(language, Key::AccountWorkspaceRetry))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.enrollments_started = false;
+                        this.enrollments_state = EnrollmentsListState::Idle;
+                        cx.notify();
+                    })),
+            )
             .into_any_element(),
         _ if rows.is_empty() => div()
             .text_size(px(12.0))
@@ -207,6 +247,7 @@ pub(in crate::root_view) fn render_participations(
                     }))
                     .into_any_element()
             }))
+            .children(load_more_error)
             .children(load_more)
             .into_any_element(),
     };

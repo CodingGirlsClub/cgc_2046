@@ -875,6 +875,7 @@ impl RootView {
         self.enrollments_rows.clear();
         self.learning_runs.clear();
         self.enrollments_state = EnrollmentsListState::Idle;
+        self.enrollments_load_more_failed = false;
         self.detail_started = false;
         self.courses_started = false;
         self.course_detail_started = false;

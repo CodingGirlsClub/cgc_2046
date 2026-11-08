@@ -3,8 +3,8 @@
 use super::RootView;
 use crate::{i18n::Language, theme::ThemePreference, workspace_state};
 use cgc_events::enrollments::{
-    EnrollmentsApi, HttpEnrollmentsApi, LearningNextAction, LearningProgress, MyEnrollmentRow,
-    MyLearningRunRow,
+    EnrollmentPaginationMeta, EnrollmentsApi, HttpEnrollmentsApi, LearningNextAction,
+    LearningProgress, MyEnrollmentRow, MyEnrollmentsPage, MyLearningRunRow,
 };
 use cgc_platform::{
     api::GraphqlClient,
@@ -448,6 +448,146 @@ fn start_enrollments_load_backfills_missing_run_enrollment(cx: &mut TestAppConte
                 .iter()
                 .any(|row| row.id == "enr-backfilled" && row.workspace_id == "ws-beta"),
             "run 的 enrollment 不在分页结果时，must 按 course 补查并 append"
+        );
+    });
+}
+
+fn page_one_row() -> MyEnrollmentRow {
+    MyEnrollmentRow {
+        id: "enr-page-1".into(),
+        workspace_id: "ws-alpha".into(),
+        status: "confirmed".into(),
+        target_title: Some("Page one".into()),
+        starts_at: None,
+        event_id: Some("e-1".into()),
+        course_id: None,
+        payment_mode: None,
+        check_in_code: None,
+    }
+}
+
+/// 第一页成功、`after` 页失败：用于验证分页失败不得清空已加载列表。
+struct FlakyEnrollmentsApi;
+
+impl EnrollmentsApi for FlakyEnrollmentsApi {
+    fn my_enrollments_page(
+        &self,
+        _token: Option<&str>,
+        after: Option<&str>,
+    ) -> Result<MyEnrollmentsPage, cgc_events::list::EventsError> {
+        if after.is_some() {
+            return Err(cgc_events::list::EventsError::Transport(
+                "pagination down".into(),
+            ));
+        }
+        Ok(MyEnrollmentsPage {
+            rows: vec![page_one_row()],
+            total: Some(2),
+            next_cursor: Some("cursor-2".into()),
+        })
+    }
+
+    fn my_enrollment_for_course(
+        &self,
+        _token: Option<&str>,
+        _course_id: &str,
+    ) -> Result<Option<MyEnrollmentRow>, cgc_events::list::EventsError> {
+        Ok(None)
+    }
+
+    fn my_learning_runs(
+        &self,
+        _token: Option<&str>,
+    ) -> Result<Vec<MyLearningRunRow>, cgc_events::list::EventsError> {
+        Ok(Vec::new())
+    }
+
+    fn enrollment_pagination(&self) -> Option<EnrollmentPaginationMeta> {
+        Some(EnrollmentPaginationMeta {
+            total: Some(2),
+            next_cursor: Some("cursor-2".into()),
+        })
+    }
+}
+
+#[gpui_kit::test]
+fn pagination_failure_keeps_loaded_rows_and_reports_inline(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let (window, root) =
+        open_personal_page(cx, PersonalPage::Participations, false, "confirmed", true);
+    root.update(cx, |root, cx| {
+        root.enrollments_api = std::sync::Arc::new(FlakyEnrollmentsApi);
+        root.enrollments_rows = vec![page_one_row()];
+        root.enrollments_started = true;
+        root.enrollments_state = super::EnrollmentsListState::Ready;
+        root.load_more_enrollments(cx);
+    });
+    cx.run_until_parked();
+    root.read_with(cx, |root, _| {
+        assert_eq!(root.enrollments_rows.len(), 1, "分页失败不得清空已加载列表");
+        assert!(
+            matches!(root.enrollments_state, super::EnrollmentsListState::Ready),
+            "分页失败只降级为行内提示，不得整页 Failed"
+        );
+        assert!(
+            root.enrollments_load_more_failed,
+            "追加失败必须可见，不能静默"
+        );
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        let paths = window
+            .elements()
+            .iter()
+            .map(|element| format!("{:?}", element.path()))
+            .collect::<Vec<_>>();
+        assert!(
+            paths
+                .iter()
+                .any(|path| path.contains("Name(\"participations-load-more-error\")")),
+            "行内错误必须渲染在列表旁：{paths:?}"
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn failed_participations_list_resets_the_load_gate_on_retry(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let (window, root) =
+        open_personal_page(cx, PersonalPage::Participations, true, "confirmed", true);
+    root.update(cx, |root, _| {
+        root.enrollments_started = true;
+        root.enrollments_state = super::EnrollmentsListState::Failed("boom".into());
+        root.enrollments_rows.clear();
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        let paths = window
+            .elements()
+            .iter()
+            .map(|element| format!("{:?}", element.path()))
+            .collect::<Vec<_>>();
+        assert!(
+            paths
+                .iter()
+                .any(|path| path.contains("Name(\"participations-retry\")")),
+            "失败态必须有重试入口，否则本页无法恢复：{paths:?}"
+        );
+    })
+    .unwrap();
+    cx.update_window(window, |_, window, cx| {
+        window.click("participations-retry", cx);
+    })
+    .unwrap();
+    root.read_with(cx, |root, _| {
+        assert!(
+            !root.enrollments_started,
+            "重试必须复位 `enrollments_started`，否则闸门永不重发"
+        );
+        assert!(
+            matches!(root.enrollments_state, super::EnrollmentsListState::Idle),
+            "重试后必须回到 Idle 让渲染闸门重新拉起加载"
         );
     });
 }

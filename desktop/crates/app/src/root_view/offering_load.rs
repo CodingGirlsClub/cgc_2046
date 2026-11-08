@@ -452,6 +452,7 @@ impl RootView {
     pub(in crate::root_view) fn start_enrollments_load(&mut self, cx: &mut Context<Self>) {
         self.enrollments_started = true;
         self.enrollments_state = EnrollmentsListState::Loading;
+        self.enrollments_load_more_failed = false;
         let api = Arc::clone(&self.enrollments_api);
         let token = self.session_token();
         let epoch = self.workspaces.epoch();

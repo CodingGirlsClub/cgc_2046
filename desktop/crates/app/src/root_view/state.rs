@@ -277,6 +277,8 @@ pub struct ShellState {
     pub(in crate::root_view) course_enrollments: std::collections::BTreeMap<String, Option<String>>,
     /// M2：报名状态查询在途的课程 id，避免快速翻页时重复查询尚未落缓存的课程。
     pub(in crate::root_view) course_enrollments_inflight: std::collections::HashSet<String>,
+    /// 分页请求失败：列表仍保留（Ready），仅在「加载更多」旁显示行内失败提示。
+    pub(in crate::root_view) enrollments_load_more_failed: bool,
     /// R11：登录后已消费显式深链，首次工作区恢复必须保留当前路由，不被旧 active tab 覆盖。
     pub(in crate::root_view) deep_link_keep_route: bool,
     pub(in crate::root_view) workspaces: WorkspaceService,
@@ -460,6 +462,7 @@ impl ShellState {
             courses_load_serial: 0,
             course_enrollments: std::collections::BTreeMap::new(),
             course_enrollments_inflight: std::collections::HashSet::new(),
+            enrollments_load_more_failed: false,
             deep_link_keep_route: false,
             course_detail,
             course_detail_started: false,
