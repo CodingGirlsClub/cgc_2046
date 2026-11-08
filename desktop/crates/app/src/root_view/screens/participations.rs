@@ -25,9 +25,9 @@ impl RootView {
         let api = std::sync::Arc::clone(&self.enrollments_api);
         let token = self.session_token();
         let epoch = self.workspaces.epoch();
-        let task = cx.background_executor().spawn(async move {
-            api.my_enrollments_page(token.as_deref(), Some(&cursor))
-        });
+        let task = cx
+            .background_executor()
+            .spawn(async move { api.my_enrollments_page(token.as_deref(), Some(&cursor)) });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             ENROLLMENTS_LOADING_MORE.with(|flag| flag.set(false));
@@ -46,18 +46,16 @@ impl RootView {
                                 this.enrollments_rows.push(row);
                             }
                         }
-                        this.enrollments_state = if this.enrollments_rows.is_empty()
-                            && this.learning_runs.is_empty()
-                        {
-                            EnrollmentsListState::Empty
-                        } else {
-                            EnrollmentsListState::Ready
-                        };
+                        this.enrollments_state =
+                            if this.enrollments_rows.is_empty() && this.learning_runs.is_empty() {
+                                EnrollmentsListState::Empty
+                            } else {
+                                EnrollmentsListState::Ready
+                            };
                     }
                     Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
                     Err(error) => {
-                        this.enrollments_state =
-                            EnrollmentsListState::Failed(error.diagnostic());
+                        this.enrollments_state = EnrollmentsListState::Failed(error.diagnostic());
                     }
                 }
                 cx.notify();

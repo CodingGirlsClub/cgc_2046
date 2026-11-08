@@ -52,17 +52,11 @@ pub struct EnrollmentPaginationMeta {
 }
 
 /// 是否还有下一页：优先用 `count` 与已加载行数判定，缺 count 时退回 cursor 存在性。
-pub fn has_more_enrollments(
-    meta: Option<&EnrollmentPaginationMeta>,
-    loaded_rows: usize,
-) -> bool {
+pub fn has_more_enrollments(meta: Option<&EnrollmentPaginationMeta>, loaded_rows: usize) -> bool {
     let Some(meta) = meta else {
         return false;
     };
-    meta.next_cursor.is_some()
-        && meta
-            .total
-            .is_none_or(|total| (loaded_rows as i64) < total)
+    meta.next_cursor.is_some() && meta.total.is_none_or(|total| (loaded_rows as i64) < total)
 }
 
 impl MyEnrollmentsPage {
@@ -102,8 +96,7 @@ pub trait EnrollmentsApi: Send + Sync {
         &self,
         token: Option<&str>,
     ) -> Result<Vec<MyEnrollmentRow>, crate::list::EventsError> {
-        self.my_enrollments_page(token, None)
-            .map(|page| page.rows)
+        self.my_enrollments_page(token, None).map(|page| page.rows)
     }
 
     /// 按课程补查本人报名（run 的 enrollment 不在已加载页时兜底）。
@@ -542,10 +535,7 @@ mod tests {
         let request = server.join().expect("fixture");
         assert_eq!(request["variables"]["first"], 250);
         assert_eq!(request["variables"]["after"], "cursor-1");
-        assert!(request["query"]
-            .as_str()
-            .unwrap()
-            .contains("endKeyset"));
+        assert!(request["query"].as_str().unwrap().contains("endKeyset"));
         assert_eq!(page.rows.len(), 1);
         assert_eq!(page.total, Some(260));
         assert_eq!(page.next_cursor.as_deref(), Some("cursor-2"));
@@ -633,7 +623,11 @@ mod tests {
     #[test]
     fn enrollment_for_run_falls_back_to_course_owner_row() {
         // 分页只加载了部分报名；补查按 course_id 追加的 confirmed 行应兜底工作区归属。
-        let rows = vec![enrollment_row("enr-supplemented", Some("crs-9"), "ws-owner")];
+        let rows = vec![enrollment_row(
+            "enr-supplemented",
+            Some("crs-9"),
+            "ws-owner",
+        )];
         let found = enrollment_for_run(&rows, &learning_run("enr-missing", "crs-9"))
             .expect("补查行必须按 course_id 兜底");
         assert_eq!(found.workspace_id, "ws-owner");
