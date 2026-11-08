@@ -143,17 +143,23 @@ impl TerminalCore {
         self.terminal.vt_write(bytes);
     }
 
-    /// 把剪贴板文本编码成 PTY 输入。
+    /// 把剪贴板文本编码成 PTY 输入；返回 `None` 表示需要用户确认。
     ///
     /// 终端开启 bracketed paste（DECSET 2004）时用 `ESC[200~`/`ESC[201~` 包裹，
-    /// 否则换行转回车；两种模式都会剔除可注入命令的控制字节（ESC、DEL 等）。
-    pub fn encode_paste(&self, text: &str) -> Result<Vec<u8>> {
+    /// 换行在包裹内是安全的；未开启时换行会被换成回车，**每行立即执行**。
+    /// 因此未开启且 `paste::is_safe` 判定内容可执行命令（含换行、ESC 等）时，
+    /// 只有 `allow_unsafe` 才真正编码——由宿主先向用户确认。
+    /// 两种模式都会剔除可注入命令的控制字节（ESC、DEL 等）。
+    pub fn encode_paste(&self, text: &str, allow_unsafe: bool) -> Result<Option<Vec<u8>>> {
         if text.is_empty() {
-            return Ok(Vec::new());
+            return Ok(Some(Vec::new()));
         }
         let bracketed = self
             .terminal
             .mode(libghostty_vt::terminal::Mode::BRACKETED_PASTE)?;
+        if !bracketed && !allow_unsafe && !libghostty_vt::paste::is_safe(text) {
+            return Ok(None);
+        }
         let mut data = text.as_bytes().to_vec();
         let mut out = vec![0u8; data.len() + 16];
         let written = match libghostty_vt::paste::encode(&mut data, bracketed, &mut out) {
@@ -165,7 +171,7 @@ impl TerminalCore {
             Err(error) => return Err(error.into()),
         };
         out.truncate(written);
-        Ok(out)
+        Ok(Some(out))
     }
 
     /// 应用主题配色：默认前景/背景/光标与 ANSI 0–15。
@@ -518,13 +524,31 @@ mod tests {
     fn paste_is_framed_only_when_bracketed_paste_is_on() {
         let mut core = TerminalCore::new(size(40, 4)).unwrap();
 
-        // 未开启：换行转回车，且不带 bracketed 前缀。
-        let plain = core.encode_paste("a\nb").unwrap();
-        assert_eq!(plain, b"a\rb");
+        // 未开启且含换行：可执行命令，必须先向用户确认（返回 None）。
+        assert_eq!(
+            core.encode_paste("a\nb", false).unwrap(),
+            None,
+            "未开启 bracketed paste 时多行粘贴需要确认"
+        );
+        // 确认后才编码：换行转回车，不带 bracketed 前缀。
+        assert_eq!(
+            core.encode_paste("a\nb", true)
+                .unwrap()
+                .expect("确认后编码"),
+            b"a\rb"
+        );
+        // 单行内容无需确认。
+        assert_eq!(
+            core.encode_paste("single", false).unwrap().expect("单行"),
+            b"single"
+        );
 
-        // 开启 DECSET 2004 后：整段被包裹，换行保持原样。
+        // 开启 DECSET 2004 后：整段被包裹，换行保持原样，且无需确认。
         core.feed(b"\x1b[?2004h");
-        let framed = core.encode_paste("a\nb").unwrap();
+        let framed = core
+            .encode_paste("a\nb", false)
+            .unwrap()
+            .expect("bracketed 模式");
         assert_eq!(framed, b"\x1b[200~a\nb\x1b[201~");
     }
 
@@ -534,7 +558,10 @@ mod tests {
         core.feed(b"\x1b[?2004h");
 
         // 夹带 `ESC[201~` 试图提前结束 bracketed paste：ESC 必须被中和。
-        let framed = core.encode_paste("a\x1b[201~rm -rf /\x1b[201~").unwrap();
+        let framed = core
+            .encode_paste("a\x1b[201~rm -rf /\x1b[201~", false)
+            .unwrap()
+            .expect("bracketed 模式");
         let text = String::from_utf8_lossy(&framed);
         assert_eq!(text.matches("\x1b[201~").count(), 1, "只有结尾的合法终止符");
     }

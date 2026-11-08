@@ -88,6 +88,8 @@ pub struct TerminalView {
     search_subscription: Option<Subscription>,
     /// 收到 BEL 后保持标记，直到用户下一次按键。
     bell_pending: bool,
+    /// 等待用户确认的不安全粘贴内容（非 bracketed 且含换行）。
+    pending_paste: Option<String>,
 }
 
 impl TerminalView {
@@ -132,6 +134,7 @@ impl TerminalView {
             search_highlights: Vec::new(),
             search_subscription: Some(search_subscription),
             bell_pending: false,
+            pending_paste: None,
         }
     }
 
@@ -182,6 +185,12 @@ impl TerminalView {
             self.copy_selection(cx);
             cx.stop_propagation();
             return;
+        }
+
+        // 普通按键表示放弃那次待确认的粘贴。
+        if self.pending_paste.is_some() {
+            self.pending_paste = None;
+            cx.notify();
         }
 
         let key = key_from_str(&keystroke.key);
@@ -313,8 +322,20 @@ impl TerminalView {
         if text.is_empty() {
             return;
         }
-        if self.session.paste(text).is_ok() {
-            cx.notify();
+        // 第二次粘贴同一内容视为用户确认（内容可能含换行，会立即执行）。
+        let confirmed = self.pending_paste.as_deref() == Some(text);
+        match self.session.paste(text, confirmed) {
+            Ok(true) => {
+                self.pending_paste = None;
+                cx.notify();
+            }
+            Ok(false) => {
+                self.pending_paste = Some(text.to_string());
+                cx.notify();
+            }
+            Err(error) => {
+                log::warn!(target: "terminal", "粘贴失败：{error}");
+            }
         }
     }
 
@@ -628,6 +649,14 @@ impl Render for TerminalView {
                 .text_color(self.style.foreground)
                 .child("终端响铃 · 按任意键清除")
         });
+        let paste_bar = self.pending_paste.as_ref().map(|_| {
+            div()
+                .px(px(8.0))
+                .py(px(4.0))
+                .text_size(px(11.0))
+                .text_color(self.style.foreground)
+                .child("粘贴内容含换行，可能立即执行命令 · 再按一次 Cmd+V 确认")
+        });
         let handle_color = Hsla {
             a: 0.32,
             ..self.style.foreground
@@ -853,6 +882,7 @@ impl Render for TerminalView {
             )
             .children(search_bar)
             .children(bell_bar)
+            .children(paste_bar)
             .child(
                 div()
                     .flex_1()

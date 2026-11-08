@@ -187,13 +187,16 @@ impl Session {
         self.core.search(needle, forward)
     }
 
-    /// 按终端当前模式粘贴文本（见 [`crate::TerminalCore::encode_paste`]）。
-    pub fn paste(&mut self, text: &str) -> Result<()> {
-        let bytes = self.core.encode_paste(text)?;
+    /// 按终端当前模式粘贴文本；返回 `false` 表示需要用户确认。
+    pub fn paste(&mut self, text: &str, allow_unsafe: bool) -> Result<bool> {
+        let Some(bytes) = self.core.encode_paste(text, allow_unsafe)? else {
+            return Ok(false);
+        };
         if bytes.is_empty() {
-            return Ok(());
+            return Ok(true);
         }
-        self.write(&bytes)
+        self.write(&bytes)?;
+        Ok(true)
     }
 
     /// 应用主题配色(见 [`crate::TerminalCore::set_theme`])。
