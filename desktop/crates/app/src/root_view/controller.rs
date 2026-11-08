@@ -2494,15 +2494,16 @@ impl RootView {
         crate::chat_state::save_native_chat_mode(enabled);
     }
 
-    /// 打开独立设置窗口（对齐 Zed 的 SettingsWindow）：已存在则激活复用。
-    /// 「+」菜单选择 CGC Agent：在 Agent Panel 内切到 native agent。
-    /// 切到聊天内容前关闭终端：终端占据面板最高优先级，不关就会被它挡住。
+    /// 切到聊天内容时只隐藏终端：进程与输出保留，可从 ＋ 菜单或历史恢复。
     pub(in crate::root_view) fn dismiss_terminal_for_chat(&mut self, cx: &mut Context<Self>) {
-        if self.terminal_view.is_some() {
-            self.close_terminal(cx);
+        if self.terminal_view.is_some() && self.terminal_visible {
+            self.terminal_visible = false;
+            self.pending_terminal_open = None;
+            cx.notify();
         }
     }
 
+    /// 「+」菜单选择 CGC Agent：在 Agent Panel 内切到 native agent。
     pub fn enter_native_chat(&mut self, cx: &mut Context<Self>) {
         self.dismiss_terminal_for_chat(cx);
         self.set_native_chat_mode(true);
@@ -2523,10 +2524,12 @@ impl RootView {
         cx.notify();
     }
 
-    /// 「+」菜单 → Terminal：在 Agent Panel 内打开一个终端（已存在则复用）。
+    /// 「+」菜单 → Terminal：已有终端则恢复显示（隐藏不等于销毁）。
     pub fn open_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.agent_panel_editing_title = false;
         if self.terminal_view.is_some() {
+            self.terminal_visible = true;
+            self.pending_terminal_open = None;
             cx.notify();
             return;
         }
@@ -2534,7 +2537,7 @@ impl RootView {
         self.spawn_terminal(cwd, window, cx);
     }
 
-    /// 从历史侧栏打开终端：已有终端在跑时，需要再点一次才替换。
+    /// 从历史侧栏打开终端：同目录直接恢复；不同目录需二次点击才替换。
     pub(in crate::root_view) fn open_terminal_at(
         &mut self,
         cwd: std::path::PathBuf,
@@ -2543,6 +2546,13 @@ impl RootView {
     ) {
         self.agent_panel_editing_title = false;
         if self.terminal_view.is_some() {
+            if terminal_matches_directory(self.terminal_cwd.as_deref(), &cwd) {
+                // 同一目录：复用现有实例（隐藏中的也直接恢复）。
+                self.terminal_visible = true;
+                self.pending_terminal_open = None;
+                cx.notify();
+                return;
+            }
             if self.pending_terminal_open.as_ref() == Some(&cwd) {
                 self.pending_terminal_open = None;
                 self.close_terminal(cx);
@@ -2634,6 +2644,8 @@ impl RootView {
             log::warn!(target: "terminal", "记录终端会话失败：{error}");
         }
         self.terminal_session_id = Some(session_id);
+        self.terminal_visible = true;
+        self.terminal_cwd = cwd.clone();
         self.pending_terminal_open = None;
         self.chat.history = self.load_unified_history();
         cx.notify();
@@ -2681,6 +2693,8 @@ impl RootView {
             }
         }
         self.pending_terminal_open = None;
+        self.terminal_visible = false;
+        self.terminal_cwd = None;
         self.chat.history = self.load_unified_history();
         cx.notify();
     }
@@ -4753,6 +4767,14 @@ mod login_email_tests {
         assert!(!looks_like_email("user@example."));
         assert!(!looks_like_email("user name@example.com"));
     }
+}
+
+/// 历史点击时，现有终端是否就在目标目录（可直接复用实例而不是替换）。
+pub(in crate::root_view) fn terminal_matches_directory(
+    current: Option<&std::path::Path>,
+    target: &std::path::Path,
+) -> bool {
+    current == Some(target)
 }
 
 /// 进程内唯一、按时间可排序的终端会话 id。

@@ -2678,7 +2678,7 @@ mod tests {
     };
     use crate::i18n::{translate, Key, Language};
     use crate::registration::build_registry;
-    use crate::root_view::controller::terminal_cwd;
+    use crate::root_view::controller::{terminal_cwd, terminal_matches_directory};
     use crate::theme::ThemePreference;
     use cgc_agent_ui::conversation::{ConversationThread, Entry as ConversationEntry};
     use cgc_platform::session::{
@@ -3587,6 +3587,20 @@ mod tests {
     }
 
     /// 终端默认目录优先级：上次 cwd → agent 工作区 → home。方案 A 的锚点是 agent 工作区。
+    #[test]
+    fn terminal_directory_match_controls_reuse() {
+        let project = Path::new("/tmp/project");
+        assert!(
+            terminal_matches_directory(Some(project), project),
+            "同目录复用隐藏中的终端实例"
+        );
+        assert!(
+            !terminal_matches_directory(Some(Path::new("/tmp/other")), project),
+            "不同目录要走替换流程"
+        );
+        assert!(!terminal_matches_directory(None, project));
+    }
+
     #[test]
     fn terminal_cwd_prefers_last_then_scope_then_home() {
         let last = Path::new("/tmp/last");

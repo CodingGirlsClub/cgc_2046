@@ -292,6 +292,10 @@ pub struct ShellState {
     pub(in crate::root_view) last_terminal_cwd: Option<std::path::PathBuf>,
     /// 当前终端会话 id（历史侧栏 terminal 行的 key）。
     pub(in crate::root_view) terminal_session_id: Option<String>,
+    /// 终端是否占据面板内容（关闭面板内容不等于销毁终端，见 `dismiss_terminal_for_chat`）。
+    pub(in crate::root_view) terminal_visible: bool,
+    /// 当前终端启动时的工作目录（不依赖 shell 的 OSC 7，用于判断能否复用实例）。
+    pub(in crate::root_view) terminal_cwd: Option<std::path::PathBuf>,
     /// 等待二次确认的替换目录（已有终端在跑时点历史记录）。
     pub(in crate::root_view) pending_terminal_open: Option<std::path::PathBuf>,
     pub(in crate::root_view) native_runtime: Option<crate::native_runtime::NativeRuntimeHandle>,
@@ -449,6 +453,8 @@ impl ShellState {
             theme_subscription: None,
             last_terminal_cwd: None,
             terminal_session_id: None,
+            terminal_visible: false,
+            terminal_cwd: None,
             pending_terminal_open: None,
             native_runtime: None,
             native_scope: None,

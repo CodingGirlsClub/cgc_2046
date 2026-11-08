@@ -49,7 +49,10 @@ pub(in crate::root_view) fn render_agent_panel(
     cx: &mut Context<RootView>,
 ) -> AnyElement {
     let native_mode = ctx.native_chat_mode && RootView::native_agent_enabled();
-    let content: AnyElement = match content_for(ctx.terminal_view.is_some(), native_mode) {
+    let content: AnyElement = match content_for(
+        ctx.terminal_visible && ctx.terminal_view.is_some(),
+        native_mode,
+    ) {
         AgentPanelContent::Terminal => ctx
             .terminal_view
             .clone()
@@ -548,11 +551,12 @@ mod tests {
     // 只做显式导入：父模块的 glob 会引入 gpui 的 test 宏。
     use super::{content_for, terminal_panel_title, AgentPanelContent};
 
+    /// 面板内容优先级：终端可见时占位；隐藏（切到 agent）后显示对话内容。
     #[test]
-    fn terminal_owns_the_panel_until_it_is_closed() {
+    fn terminal_owns_the_panel_only_while_visible() {
         assert_eq!(content_for(true, true), AgentPanelContent::Terminal);
         assert_eq!(content_for(true, false), AgentPanelContent::Terminal);
-        // 切到 agent 的前提是入口先关闭终端。
+        // 隐藏终端后（进程仍在跑）面板回到对话内容。
         assert_eq!(content_for(false, true), AgentPanelContent::Native);
         assert_eq!(content_for(false, false), AgentPanelContent::External);
     }
