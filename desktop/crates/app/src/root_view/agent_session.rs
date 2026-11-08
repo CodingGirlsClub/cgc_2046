@@ -102,6 +102,9 @@ impl RootView {
             return;
         };
         self.agent_lease_pending = Some(epoch);
+        // 启动中的 ACP 会话绑定旧 authority；本次刷新完成必须重启它，
+        // 否则旧启动回调被 serial 校验丢弃后，面板会永久停在 Starting（R3）。
+        self.note_agent_start_interrupted();
         let authorization_serial = self.agent_authorization_serial;
         // 工具固定参数随页面：工作区路由 > 站点级课程归属 > 当前工作区；
         // 作用域变化由 sync_agent_workspace_scope 重建上下文。
@@ -142,6 +145,9 @@ impl RootView {
                     || this.agent_authorization_serial != authorization_serial
                     || this.agent_lease_scope().as_ref() != Some(&requested_scope)
                 {
+                    // 过期任务不能把 pending 留给一个永远不会完成的授权；但 serial 已推进
+                    // 时 pending 属于接替任务，清掉会诱发重复签发。
+                    this.clear_stale_agent_lease_pending(epoch, authorization_serial);
                     return;
                 }
                 this.agent_lease_pending = None;
@@ -159,8 +165,7 @@ impl RootView {
                         if let Some(runtime) = &this.native_runtime {
                             runtime.set_mcp_context(context, epoch);
                         }
-                        if this.chat.start_after_authorization {
-                            this.chat.start_after_authorization = false;
+                        if this.take_pending_agent_restart() {
                             this.start_chat(cx);
                         }
                     }
@@ -185,6 +190,35 @@ impl RootView {
             });
         })
         .detach();
+    }
+
+    /// 授权刷新会作废旧 authority；启动中的 ACP 会话需要在新授权完成后重启。
+    fn note_agent_start_interrupted(&mut self) {
+        if matches!(self.chat.session.phase, ConnectionPhase::Starting) {
+            self.chat.start_after_authorization = true;
+        }
+    }
+
+    /// 消费「授权完成后重启」标记。`start_chat` 对 `Starting` 直接早退，
+    /// 因此重试前必须先把被旧 authority 中断的 phase 复位到 Idle。
+    pub(in crate::root_view) fn take_pending_agent_restart(&mut self) -> bool {
+        if !self.chat.start_after_authorization {
+            return false;
+        }
+        self.chat.start_after_authorization = false;
+        if matches!(self.chat.session.phase, ConnectionPhase::Starting) {
+            self.chat.session.phase = ConnectionPhase::Idle;
+        }
+        true
+    }
+
+    /// 旧授权回调作废时清理 pending；只有 serial 未推进（没有接替任务）才归本任务清。
+    fn clear_stale_agent_lease_pending(&mut self, epoch: u64, authorization_serial: u64) {
+        if self.agent_authorization_serial == authorization_serial
+            && self.agent_lease_pending == Some(epoch)
+        {
+            self.agent_lease_pending = None;
+        }
     }
 
     fn agent_lease_scope(&self) -> Option<LeaseScope> {
