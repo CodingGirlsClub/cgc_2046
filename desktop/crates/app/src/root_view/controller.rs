@@ -38,6 +38,10 @@ mod navigation_lifecycle_tests;
 #[path = "public_course_workspace_tests.rs"]
 mod public_course_workspace_tests;
 
+#[cfg(all(test, cgc_ui_tests))]
+#[path = "offering_scope_fix_tests.rs"]
+mod offering_scope_fix_tests;
+
 /// 登录标识是否是邮箱。客户端只支持邮箱登录，这里做最小形状校验：
 /// 本地部分非空、域部分含点且不以点开头/结尾（真正的校验在服务端）。
 fn looks_like_email(value: &str) -> bool {
@@ -1324,6 +1328,28 @@ impl RootView {
         }
     }
 
+    /// 详情/正文/projection 的 epoch 守卫：只有依赖工作区的路由才绑定 epoch。
+    ///
+    /// 公开路由（`courses.public_*` / `events.public_*`）的请求与工作区无关；绑定 epoch 会
+    /// 让「工作区列表先返回」把已经在途的响应判过期，而 `adopt()` 递增 epoch 后没人重发，
+    /// 页面永久停在加载态（R1）。与 `start_courses_load_with_scope` 的列表口径一致。
+    fn workspace_bound_epoch(&self) -> Option<u64> {
+        self.current
+            .as_ref()
+            .is_some_and(|route_match| crate::routing::requires_workspace(route_match.route.id))
+            .then(|| self.workspaces.epoch())
+    }
+
+    /// 当前路由指向的对象 id（课程与活动都用 `:id` 参数）。
+    ///
+    /// 过期响应丢弃时用它判断「用户是否还停在这条稿子上」：只有还在，复位才安全。
+    fn route_object_id(&self) -> Option<&str> {
+        self.current
+            .as_ref()
+            .and_then(|route_match| route_match.params.get("id"))
+            .map(String::as_str)
+    }
+
     pub(in crate::root_view) fn start_projection_load(
         &mut self,
         cx: &mut Context<Self>,
@@ -1332,14 +1358,23 @@ impl RootView {
         self.projection.begin_load(&course_id);
         let api = self.projection.api_handle();
         let token = self.session_token();
-        let epoch = self.workspaces.epoch();
+        let epoch = self.workspace_bound_epoch();
+        let requested_course = course_id.clone();
         let task = cx
             .background_executor()
             .spawn(async move { api.get_learning_projection(token.as_deref(), &course_id) });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                if !this.workspaces.is_current_epoch(epoch) {
+                let stale_epoch =
+                    epoch.is_some_and(|epoch| !this.workspaces.is_current_epoch(epoch));
+                let same_course = this.route_object_id() == Some(requested_course.as_str());
+                if stale_epoch || !same_course {
+                    // 丢弃后必须复位：render 闸门要求 `Idle` 才会重发，否则正文/投影
+                    // 永久停在加载态且没有重试入口（R1）。
+                    if same_course {
+                        this.projection.reset();
+                    }
                     return;
                 }
                 match result {
@@ -1384,14 +1419,22 @@ impl RootView {
         self.content.begin_load(&course_id);
         let api = self.content.api_handle();
         let token = self.session_token();
-        let epoch = self.workspaces.epoch();
+        let epoch = self.workspace_bound_epoch();
+        let requested_course = course_id.clone();
         let task = cx
             .background_executor()
             .spawn(async move { api.get_course_content(token.as_deref(), &course_id) });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                if !this.workspaces.is_current_epoch(epoch) {
+                let stale_epoch =
+                    epoch.is_some_and(|epoch| !this.workspaces.is_current_epoch(epoch));
+                let same_course = this.route_object_id() == Some(requested_course.as_str());
+                if stale_epoch || !same_course {
+                    // 丢弃后必须复位，否则正文闸门（`Idle`）不再重发（R1）。
+                    if same_course {
+                        this.content.reset();
+                    }
                     return;
                 }
                 match result {
@@ -2730,7 +2773,7 @@ impl RootView {
         }
         self.projection.reset();
         self.pending_link = None;
-        let epoch = self.workspaces.epoch();
+        let epoch = self.workspace_bound_epoch();
         let requested_course = course_id.clone();
         let api = self.course_detail.api_handle();
         let token = self.session_token();
@@ -2768,13 +2811,16 @@ impl RootView {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                if !this.workspaces.is_current_epoch(epoch)
-                    || this
-                        .current
-                        .as_ref()
-                        .and_then(|current| current.params.get("id"))
-                        != Some(&requested_course)
-                {
+                let stale_epoch =
+                    epoch.is_some_and(|epoch| !this.workspaces.is_current_epoch(epoch));
+                let same_course = this.route_object_id() == Some(requested_course.as_str());
+                if stale_epoch || !same_course {
+                    // 丢弃后必须复位：render 闸门要求 `!started && Idle` 才重发，
+                    // 否则详情页永久转圈且只有 Failed 分支有重试入口（R1）。
+                    if same_course {
+                        this.course_detail.reset();
+                        this.course_detail_started = false;
+                    }
                     return;
                 }
                 match result {
@@ -3843,7 +3889,8 @@ impl RootView {
         self.enrolling = false;
         let api = self.detail.api_handle();
         let token = self.session_token();
-        let epoch = self.workspaces.epoch();
+        let epoch = self.workspace_bound_epoch();
+        let requested_event = event_id.clone();
         let task = cx.background_executor().spawn(async move {
             let detail = api.get_event(token.as_deref(), &event_id)?;
             let enrollment = api
@@ -3854,7 +3901,15 @@ impl RootView {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                if !this.workspaces.is_current_epoch(epoch) {
+                let stale_epoch =
+                    epoch.is_some_and(|epoch| !this.workspaces.is_current_epoch(epoch));
+                let same_event = this.route_object_id() == Some(requested_event.as_str());
+                if stale_epoch || !same_event {
+                    // 丢弃后必须复位，否则活动详情闸门（`Idle` + `!started`）不再重发（R1）。
+                    if same_event {
+                        this.detail.reset();
+                        this.detail_started = false;
+                    }
                     return;
                 }
                 match result {
