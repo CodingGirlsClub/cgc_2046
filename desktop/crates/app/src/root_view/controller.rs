@@ -3840,10 +3840,12 @@ impl RootView {
         // 审批卡的键盘等价路径（显式组合键，避免与输入 y/n 冲突）。
         if event.keystroke.modifiers.control
             && event.keystroke.modifiers.shift
-            && self
-                .current
-                .as_ref()
-                .is_some_and(|route_match| route_match.route.id == "courses.learning")
+            && self.current.as_ref().is_some_and(|route_match| {
+                matches!(
+                    route_match.route.id,
+                    "courses.learning" | "courses.public_learning"
+                )
+            })
         {
             match event.keystroke.key.as_str() {
                 "y" => {
@@ -3868,7 +3870,11 @@ impl RootView {
         let Some(route_match) = self.current.clone() else {
             return;
         };
-        if route_match.route.id != "courses.detail" {
+        // 公开详情页复用同一块「开始学习 / 按 Enter 进入学习」提示，键盘必须同源（R17）。
+        if !matches!(
+            route_match.route.id,
+            "courses.detail" | "courses.public_detail"
+        ) {
             return;
         }
         let Some(course_id) = route_match.params.get("id").cloned() else {

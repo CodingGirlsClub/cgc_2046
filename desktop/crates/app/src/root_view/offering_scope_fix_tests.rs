@@ -6,7 +6,11 @@ use super::RootView;
 use cgc_courses::catalog::{CourseCatalogService, FakeCoursesApi};
 use cgc_platform::session::{FakeAuthApi, MemoryStore, SessionService};
 use cgc_platform::workspace::WorkspaceSummary;
-use gpui_kit::{AppContext, Entity, TestAppContext};
+use gpui_kit::test::TestWindowExt;
+use gpui_kit::{
+    div, px, size, AppContext, Bounds, Context, Entity, IntoElement, ParentElement, Render, Styled,
+    TestAppContext, Window, WindowBounds, WindowOptions,
+};
 use std::sync::Arc;
 
 fn workspace(id: &str, slug: &str) -> WorkspaceSummary {
@@ -214,6 +218,145 @@ fn cross_workspace_canonicalize_keeps_the_source_tab_bucket(cx: &mut TestAppCont
                 .map(String::as_str),
             Some("beta"),
             "纠偏后路由必须落在课程所属工作台"
+        );
+    });
+}
+
+struct RootProbe {
+    root: Entity<RootView>,
+}
+
+impl Render for RootProbe {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().size_full().child(self.root.clone())
+    }
+}
+
+fn root_window_at(
+    cx: &mut TestAppContext,
+    path: &'static str,
+) -> (gpui_kit::AnyWindowHandle, Entity<RootView>) {
+    cx.update(gpui_kit::init);
+    cx.update(|cx| {
+        let (handle, probe) = gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                    None,
+                    size(px(960.0), px(720.0)),
+                    cx,
+                ))),
+                ..Default::default()
+            },
+            cx,
+            |_, cx| {
+                let root = cx.new(|_| {
+                    let mut session = SessionService::new(
+                        Box::new(FakeAuthApi::demo()),
+                        Box::new(MemoryStore::default()),
+                    );
+                    session
+                        .sign_in("demo@example.com", "demo")
+                        .expect("fake login");
+                    let mut root = RootView::with_session_from(
+                        crate::registration::build_registry().expect("registry"),
+                        crate::i18n::Language::Zh,
+                        crate::theme::ThemePreference::Light,
+                        session,
+                        path,
+                    );
+                    // 不自动跑会话校验/工作区拉取：夹具自己控制状态。
+                    root.session_checked = true;
+                    root.workspaces_started = true;
+                    root
+                });
+                cx.new(|_| RootProbe { root: root.clone() })
+            },
+        )
+        .expect("root probe window");
+        let root = probe.read(cx).root.clone();
+        (handle, root)
+    })
+}
+
+fn public_course_confirmed() -> cgc_courses::catalog::CourseDetail {
+    cgc_courses::catalog::CourseDetail {
+        id: "crs-000".into(),
+        title: "Free course".into(),
+        description: None,
+        status: "open".into(),
+        visibility: "public".into(),
+        workspace_id: None,
+        pricing_enabled: false,
+        enrollment_policy: "open".into(),
+        available_price_tiers: Vec::new(),
+        enrollment_status: Some("confirmed".into()),
+        revision_number: Some(1),
+    }
+}
+
+#[gpui_kit::test]
+fn enter_starts_learning_from_public_course_detail(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let (handle, root) = root_window_at(cx, "/courses/crs-000");
+    root.update(cx, |root, _| {
+        root.workspaces.adopt(workspaces());
+        root.adopt_course_detail(public_course_confirmed());
+        assert_eq!(
+            root.current.as_ref().map(|route| route.route.id),
+            Some("courses.public_detail"),
+            "夹具必须落在公开详情路由上"
+        );
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        window.press("enter", cx);
+    })
+    .unwrap();
+    root.read_with(cx, |root, _| {
+        assert_eq!(
+            root.current.as_ref().map(|route| route.route.id),
+            Some("courses.public_learning"),
+            "公开详情页展示「开始学习」提示，Enter 必须真的进入学习页"
+        );
+        assert!(
+            root.tabs
+                .iter()
+                .any(|tab| tab.path == "/courses/crs-000/learn"),
+            "进入学习必须落一个 tab（navigate 不插 tab）"
+        );
+    });
+}
+
+#[gpui_kit::test]
+fn approval_shortcut_works_on_public_learning(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let (handle, root) = root_window_at(cx, "/courses/crs-000/learn");
+    root.update(cx, |root, _| {
+        root.workspaces.adopt(workspaces());
+        assert_eq!(
+            root.current.as_ref().map(|route| route.route.id),
+            Some("courses.public_learning"),
+            "夹具必须落在公开学习页路由上"
+        );
+        // 审批卡在公开学习页同样存在；这里只观察快捷键是否被分发到处理器。
+        root.chat.session.thread.pending_permission =
+            Some(cgc_agent_ui::conversation::PermissionRequest {
+                request_id: "perm-1".into(),
+                title: "允许运行命令？".into(),
+                tool: Some("run_command".into()),
+                tool_call_id: None,
+                args: None,
+                options: Vec::new(),
+            });
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.press("ctrl-shift-y", cx);
+    })
+    .unwrap();
+    root.read_with(cx, |root, _| {
+        assert!(
+            root.chat.session.thread.pending_permission.is_none(),
+            "公开学习页必须响应既有审批快捷键（Ctrl+Shift+Y）"
         );
     });
 }
