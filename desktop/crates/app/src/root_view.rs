@@ -2834,6 +2834,13 @@ mod tests {
         directory.join(format!("workspace_state-{index}.json"))
     }
 
+    /// 默认状态文件的摘要：断言只比较摘要，失败时不把开发者状态文件内容打进测试输出。
+    fn default_state_digest(path: &std::path::Path) -> Option<String> {
+        std::fs::read(path)
+            .ok()
+            .map(|bytes| cgc_platform::registry::checksum::sha256_hex(&bytes))
+    }
+
     fn view() -> RootView {
         WORKSPACE_STATE_ISOLATION.with(|isolation| {
             *isolation.borrow_mut() = Some(WorkspaceStateIsolation::install(
@@ -3439,7 +3446,7 @@ mod tests {
             std::env::var_os("CGC_WORKSPACE_STATE_FILE").expect("隔离状态文件已安装"),
         );
         let developer_file = cgc_platform::paths::AppPaths::from_env().workspace_state_file();
-        let developer_before = std::fs::read(&developer_file).ok();
+        let developer_before = default_state_digest(&developer_file);
         view.state.workspaces.adopt(vec![
             cgc_platform::workspace::WorkspaceSummary {
                 id: "ws-alpha".into(),
@@ -3486,7 +3493,7 @@ mod tests {
             "导航必须把工作区状态写进用例隔离文件（{isolated:?}）"
         );
         assert_eq!(
-            std::fs::read(&developer_file).ok(),
+            default_state_digest(&developer_file),
             developer_before,
             "单测不得创建或改写开发者真实状态文件（{developer_file:?}）"
         );
