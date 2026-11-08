@@ -328,8 +328,8 @@ impl RootView {
                 .map(|workspace| {
                     crate::page_context::project_workspace_overview(
                         workspace,
-                        &self.enrollments_rows,
                         self.events.items(),
+                        self.courses.items(),
                         &tab.id,
                     )
                 })
