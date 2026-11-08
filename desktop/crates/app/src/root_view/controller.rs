@@ -1213,7 +1213,26 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 match result {
                     Ok(workspaces) => {
+                        let had_accessible_workspaces =
+                            this.workspaces.workspaces().iter().any(|workspace| workspace.can_access);
                         this.workspaces.adopt(workspaces);
+                        // R4：工作区列表从空变非空后，此前按空 workspace_ids 加载的公开课程
+                        // 列表/详情需要补查归属，否则来源徽标与工作区入口永远缺失。
+                        if state::should_backfill_public_ownership(
+                            had_accessible_workspaces,
+                            this
+                                .workspaces
+                                .workspaces()
+                                .iter()
+                                .any(|workspace| workspace.can_access),
+                            this.courses_scope,
+                            this.courses
+                                .items()
+                                .iter()
+                                .any(|course| course.workspace_id.is_none()),
+                        ) {
+                            this.backfill_public_course_ownership(cx);
+                        }
                         // 启动路由（上次工作区）优先于 adopt 的默认第一项。
                         let route_slug = this
                             .current
@@ -1244,6 +1263,41 @@ impl RootView {
             });
         })
         .detach();
+    }
+
+    /// R4：工作区列表从空变非空后，为已加载的公开课程列表/详情补查 `courseWorkspaces`。
+    fn backfill_public_course_ownership(&mut self, cx: &mut Context<Self>) {
+        if self.courses_scope == Some(crate::routing::ListScope::Public)
+            && self.courses_started
+            && self
+                .courses
+                .items()
+                .iter()
+                .any(|course| course.workspace_id.is_none())
+        {
+            // 重新走公开列表加载：此时 workspace_ids 已非空，`course_workspaces` 能补回归属。
+            self.start_courses_load_with_scope(cx, true, crate::routing::ListScope::Public);
+        }
+        let public_course_id = self
+            .current
+            .as_ref()
+            .filter(|route| {
+                matches!(
+                    route.route.id,
+                    "courses.public_detail" | "courses.public_learning"
+                )
+            })
+            .and_then(|route| route.params.get("id").cloned());
+        if let (Some(course_id), true) = (
+            public_course_id,
+            self.course_detail
+                .detail()
+                .is_some_and(|detail| detail.workspace_id.is_none()),
+        ) {
+            // 详情同款：重拉一次，`start_course_detail_load` 会用非空 workspace_ids 补查。
+            self.course_detail_started = false;
+            self.start_course_detail_load(cx, course_id);
+        }
     }
 
     /// 失败态的重试入口（概览页 / 工作台切换器）：复位为 Idle 后重新拉列表。

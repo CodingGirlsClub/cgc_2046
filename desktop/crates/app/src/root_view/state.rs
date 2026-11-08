@@ -499,6 +499,19 @@ pub(in crate::root_view) fn site_tree_list_scope() -> crate::routing::ListScope 
     crate::routing::ListScope::Workspace
 }
 
+/// R4：只有「工作区列表从空变非空 + 当前是公开列表 + 存在无归属课程」才补查。
+pub(in crate::root_view) fn should_backfill_public_ownership(
+    had_accessible_workspaces: bool,
+    has_accessible_workspaces: bool,
+    scope: Option<crate::routing::ListScope>,
+    has_unowned_public_course: bool,
+) -> bool {
+    !had_accessible_workspaces
+        && has_accessible_workspaces
+        && scope == Some(crate::routing::ListScope::Public)
+        && has_unowned_public_course
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
