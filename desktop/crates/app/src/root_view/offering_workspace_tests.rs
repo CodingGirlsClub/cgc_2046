@@ -376,3 +376,78 @@ fn inaccessible_owner_keeps_learning_on_the_public_route(cx: &mut TestAppContext
     })
     .unwrap();
 }
+
+struct BackfillEnrollmentsApi;
+
+impl EnrollmentsApi for BackfillEnrollmentsApi {
+    fn my_enrollments_page(
+        &self,
+        _token: Option<&str>,
+        _after: Option<&str>,
+    ) -> Result<cgc_events::enrollments::MyEnrollmentsPage, cgc_events::list::EventsError> {
+        Ok(cgc_events::enrollments::MyEnrollmentsPage {
+            rows: Vec::new(),
+            total: Some(1),
+            next_cursor: None,
+        })
+    }
+
+    fn my_enrollment_for_course(
+        &self,
+        _token: Option<&str>,
+        course_id: &str,
+    ) -> Result<Option<MyEnrollmentRow>, cgc_events::list::EventsError> {
+        Ok((course_id == "crs-9").then(|| MyEnrollmentRow {
+            id: "enr-backfilled".into(),
+            workspace_id: "ws-beta".into(),
+            status: "confirmed".into(),
+            target_title: Some("Paired course".into()),
+            starts_at: None,
+            event_id: None,
+            course_id: Some("crs-9".into()),
+            payment_mode: None,
+            check_in_code: None,
+        }))
+    }
+
+    fn my_learning_runs(
+        &self,
+        _token: Option<&str>,
+    ) -> Result<Vec<MyLearningRunRow>, cgc_events::list::EventsError> {
+        Ok(vec![MyLearningRunRow {
+            run_id: "run-missing-page".into(),
+            enrollment_id: "enr-missing-page".into(),
+            course_id: "crs-9".into(),
+            target_title: Some("Paired course".into()),
+            status: "active".into(),
+            stale_revision: false,
+            progress: LearningProgress {
+                mastered_required: 0,
+                total_required: 1,
+                complete: false,
+            },
+            next_action: None,
+        }])
+    }
+}
+
+#[gpui_kit::test]
+fn start_enrollments_load_backfills_missing_run_enrollment(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let (_window, root) = open_personal_page(cx, PersonalPage::Learning, true, "confirmed", true);
+    root.update(cx, |root, cx| {
+        root.enrollments_api = std::sync::Arc::new(BackfillEnrollmentsApi);
+        root.enrollments_rows.clear();
+        root.learning_runs.clear();
+        root.start_enrollments_load(cx);
+    });
+    cx.run_until_parked();
+    root.read_with(cx, |root, _| {
+        assert!(
+            root.enrollments_rows
+                .iter()
+                .any(|row| row.id == "enr-backfilled" && row.workspace_id == "ws-beta"),
+            "run 的 enrollment 不在分页结果时，must 按 course 补查并 append"
+        );
+    });
+}
