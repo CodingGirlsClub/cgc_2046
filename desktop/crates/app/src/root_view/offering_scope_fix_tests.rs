@@ -406,7 +406,9 @@ fn late_response_for_another_course_does_not_reset_loaded_content(cx: &mut TestA
             "旧课迟到响应不得复位另一门课已加载的正文"
         );
         assert_eq!(
-            root.content.content().map(|content| content.course_id.as_str()),
+            root.content
+                .content()
+                .map(|content| content.course_id.as_str()),
             Some("crs-002")
         );
         assert_eq!(
