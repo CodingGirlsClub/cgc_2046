@@ -1654,6 +1654,7 @@ impl RootView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.dismiss_terminal_for_chat(cx);
         let Some(runtime) = self.native_runtime.clone() else {
             return;
         };
@@ -2245,6 +2246,7 @@ impl RootView {
         session_id: String,
         cx: &mut Context<Self>,
     ) {
+        self.dismiss_terminal_for_chat(cx);
         self.agent_panel_editing_title = false;
         self.agent_panel_title_original = None;
         self.reset_chat_local(cx);
@@ -2494,7 +2496,15 @@ impl RootView {
 
     /// 打开独立设置窗口（对齐 Zed 的 SettingsWindow）：已存在则激活复用。
     /// 「+」菜单选择 CGC Agent：在 Agent Panel 内切到 native agent。
+    /// 切到聊天内容前关闭终端：终端占据面板最高优先级，不关就会被它挡住。
+    pub(in crate::root_view) fn dismiss_terminal_for_chat(&mut self, cx: &mut Context<Self>) {
+        if self.terminal_view.is_some() {
+            self.close_terminal(cx);
+        }
+    }
+
     pub fn enter_native_chat(&mut self, cx: &mut Context<Self>) {
+        self.dismiss_terminal_for_chat(cx);
         self.set_native_chat_mode(true);
         self.agent_panel_editing_title = false;
         self.agent_panel_title_original = None;
@@ -2503,6 +2513,7 @@ impl RootView {
 
     /// 在 Agent Panel 内开启一个新的 native 会话。
     pub fn new_native_chat(&mut self, cx: &mut Context<Self>) {
+        self.dismiss_terminal_for_chat(cx);
         self.set_native_chat_mode(true);
         self.agent_panel_editing_title = false;
         self.agent_panel_title_original = None;
@@ -4133,6 +4144,7 @@ impl RootView {
         display_name: String,
         cx: &mut Context<Self>,
     ) {
+        self.dismiss_terminal_for_chat(cx);
         self.reset_chat_for_external_agent(&id, &display_name);
         self.start_chat(cx);
     }

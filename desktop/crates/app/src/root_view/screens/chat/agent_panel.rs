@@ -12,6 +12,7 @@ use gpui_kit::component::popover::Popover;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::root_view) enum AgentPanelContent {
+    Terminal,
     Native,
     External,
 }
@@ -28,6 +29,18 @@ pub(in crate::root_view) fn content_kind(
     }
 }
 
+/// 面板内容优先级：终端 > native > external。
+///
+/// 终端打开时它就是面板内容；切到任何 agent 之前必须先关闭终端
+/// （`RootView::dismiss_terminal_for_chat`），否则对话会被终端挡住。
+fn content_for(terminal_open: bool, native_mode: bool) -> AgentPanelContent {
+    if terminal_open {
+        AgentPanelContent::Terminal
+    } else {
+        content_kind(native_mode, None)
+    }
+}
+
 pub(in crate::root_view) fn render_agent_panel(
     ctx: &mut ScreenContext<'_>,
     language: Language,
@@ -35,21 +48,19 @@ pub(in crate::root_view) fn render_agent_panel(
     _window: &mut Window,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
-    let route_id = ctx.current.as_ref().map(|route_match| route_match.route.id);
     let native_mode = ctx.native_chat_mode && RootView::native_agent_enabled();
-    let content: AnyElement = if let Some(view) = ctx.terminal_view.clone() {
-        view.into_any_element()
-    } else {
-        match content_kind(native_mode, route_id) {
-            AgentPanelContent::Native => ctx
-                .native_agent_view
-                .clone()
-                .map(IntoElement::into_any_element)
-                .unwrap_or_else(|| div().child("正在初始化 Agent…").into_any_element()),
-            AgentPanelContent::External => {
-                super::panel::render_chat_panel(ctx, language, palette, cx)
-            }
-        }
+    let content: AnyElement = match content_for(ctx.terminal_view.is_some(), native_mode) {
+        AgentPanelContent::Terminal => ctx
+            .terminal_view
+            .clone()
+            .map(IntoElement::into_any_element)
+            .unwrap_or_else(|| div().into_any_element()),
+        AgentPanelContent::Native => ctx
+            .native_agent_view
+            .clone()
+            .map(IntoElement::into_any_element)
+            .unwrap_or_else(|| div().child("正在初始化 Agent…").into_any_element()),
+        AgentPanelContent::External => super::panel::render_chat_panel(ctx, language, palette, cx),
     };
     div()
         .id("agent-panel-dock")
@@ -535,7 +546,16 @@ fn threads_sidebar_shortcut_label() -> &'static str {
 #[cfg(test)]
 mod tests {
     // 只做显式导入：父模块的 glob 会引入 gpui 的 test 宏。
-    use super::terminal_panel_title;
+    use super::{content_for, terminal_panel_title, AgentPanelContent};
+
+    #[test]
+    fn terminal_owns_the_panel_until_it_is_closed() {
+        assert_eq!(content_for(true, true), AgentPanelContent::Terminal);
+        assert_eq!(content_for(true, false), AgentPanelContent::Terminal);
+        // 切到 agent 的前提是入口先关闭终端。
+        assert_eq!(content_for(false, true), AgentPanelContent::Native);
+        assert_eq!(content_for(false, false), AgentPanelContent::External);
+    }
 
     #[test]
     fn terminal_title_falls_back_when_empty() {
