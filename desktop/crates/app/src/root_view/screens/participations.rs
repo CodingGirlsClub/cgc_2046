@@ -1,5 +1,71 @@
 use super::super::*;
 use super::ScreenContext;
+use cgc_events::enrollments::has_more_enrollments;
+
+thread_local! {
+    /// 「加载更多」只允许一个在途请求；GPUI UI 线程单线程渲染。
+    static ENROLLMENTS_LOADING_MORE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+impl RootView {
+    /// `/participations` 的 myEnrollments keyset 追加；cursor 由 API 页面元信息携带。
+    pub(in crate::root_view) fn load_more_enrollments(&mut self, cx: &mut Context<Self>) {
+        let Some(meta) = self.enrollments_api.enrollment_pagination() else {
+            return;
+        };
+        if !has_more_enrollments(Some(&meta), self.enrollments_rows.len())
+            || ENROLLMENTS_LOADING_MORE.with(std::cell::Cell::get)
+        {
+            return;
+        }
+        let Some(cursor) = meta.next_cursor.clone() else {
+            return;
+        };
+        ENROLLMENTS_LOADING_MORE.with(|flag| flag.set(true));
+        let api = std::sync::Arc::clone(&self.enrollments_api);
+        let token = self.session_token();
+        let epoch = self.workspaces.epoch();
+        let task = cx.background_executor().spawn(async move {
+            api.my_enrollments_page(token.as_deref(), Some(&cursor))
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            ENROLLMENTS_LOADING_MORE.with(|flag| flag.set(false));
+            let _ = this.update(cx, |this, cx| {
+                if !this.workspaces.is_current_epoch(epoch) {
+                    return;
+                }
+                match result {
+                    Ok(page) => {
+                        for row in page.rows {
+                            if !this
+                                .enrollments_rows
+                                .iter()
+                                .any(|existing| existing.id == row.id)
+                            {
+                                this.enrollments_rows.push(row);
+                            }
+                        }
+                        this.enrollments_state = if this.enrollments_rows.is_empty()
+                            && this.learning_runs.is_empty()
+                        {
+                            EnrollmentsListState::Empty
+                        } else {
+                            EnrollmentsListState::Ready
+                        };
+                    }
+                    Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
+                    Err(error) => {
+                        this.enrollments_state =
+                            EnrollmentsListState::Failed(error.diagnostic());
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+}
 
 pub(in crate::root_view) fn render_participations(
     ctx: &mut ScreenContext<'_>,
@@ -9,6 +75,22 @@ pub(in crate::root_view) fn render_participations(
 ) -> AnyElement {
     let state = ctx.enrollments_state.clone();
     let rows = ctx.enrollments_rows.clone();
+    let pagination = ctx.enrollments_api.enrollment_pagination();
+    let has_more = has_more_enrollments(pagination.as_ref(), rows.len());
+    let load_more = has_more.then(|| {
+        div()
+            .id("participations-load-more")
+            .mt(space(2))
+            .px(space(2))
+            .py(px(5.0))
+            .rounded(px(RADIUS_MEDIUM))
+            .border_1()
+            .border_color(palette.line_strong)
+            .text_color(palette.ink_2)
+            .child(translate(language, Key::EventsListLoadMore))
+            .on_click(cx.listener(|this, _, _, cx| this.load_more_enrollments(cx)))
+            .into_any_element()
+    });
     let body: AnyElement = match state {
         EnrollmentsListState::Idle | EnrollmentsListState::Loading => {
             render_loading_state(language, Key::AccountWorkspaceLoading, palette).into_any_element()
@@ -127,6 +209,7 @@ pub(in crate::root_view) fn render_participations(
                     }))
                     .into_any_element()
             }))
+            .children(load_more)
             .into_any_element(),
     };
     div()
