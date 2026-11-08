@@ -3,9 +3,11 @@
 //! UI 用例必须串行跑（`--test-threads=1`）：`LayoutFiles` 改的是进程级环境变量。
 
 use super::RootView;
+use cgc_courses::catalog::{CourseCatalogService, FakeCoursesApi};
 use cgc_platform::session::{FakeAuthApi, MemoryStore, SessionService};
 use cgc_platform::workspace::WorkspaceSummary;
 use gpui_kit::{AppContext, Entity, TestAppContext};
+use std::sync::Arc;
 
 fn workspace(id: &str, slug: &str) -> WorkspaceSummary {
     WorkspaceSummary {
@@ -99,6 +101,46 @@ fn workspace_detail_dropped_by_epoch_resets_the_gate(cx: &mut TestAppContext) {
         assert!(
             !root.course_detail_started,
             "丢弃后必须清 started：render 闸门要求 `!started && Idle` 才会重发"
+        );
+    });
+}
+
+#[gpui_kit::test]
+fn public_response_arriving_after_workspace_switch_is_dropped(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let root = root_at(cx, "/courses");
+    root.update(cx, |root, _| {
+        root.workspaces.adopt(workspaces());
+        assert_eq!(
+            root.current.as_ref().map(|route| route.route.id),
+            Some("courses.public_list"),
+            "夹具必须落在公开目录路由上"
+        );
+        root.courses = CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(23)));
+    });
+    root.update(cx, |root, cx| {
+        // 公开面请求先发（稍后才返回的成功响应）。
+        root.start_courses_load(cx, true);
+    });
+    root.update(cx, |root, cx| {
+        // 切到工作区目录后再发一次；新请求换成不可达 API，这样「有数据但状态失败」
+        // 只可能来自迟到的公开响应。
+        root.courses = CourseCatalogService::new(Arc::new(FakeCoursesApi::failing()));
+        root.navigate("/w/alpha/courses");
+        root.start_courses_load(cx, true);
+    });
+    cx.run_until_parked();
+    root.read_with(cx, |root, _| {
+        assert!(
+            root.courses.items().is_empty(),
+            "迟到的公开列表不得写进工作区列表缓存（串台）"
+        );
+        assert!(
+            matches!(
+                root.courses.state(),
+                cgc_courses::catalog::CoursesListState::Failed(_)
+            ),
+            "工作区请求失败必须如实反映，不能被迟到的公开响应顶成 Ready"
         );
     });
 }

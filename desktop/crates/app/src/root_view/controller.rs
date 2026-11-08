@@ -42,8 +42,47 @@ mod public_course_workspace_tests;
 #[path = "offering_scope_fix_tests.rs"]
 mod offering_scope_fix_tests;
 
+#[cfg(test)]
+#[path = "list_generation_tests.rs"]
+mod list_generation_tests;
+
 /// 登录标识是否是邮箱。客户端只支持邮箱登录，这里做最小形状校验：
 /// 本地部分非空、域部分含点且不以点开头/结尾（真正的校验在服务端）。
+/// 列表响应是否允许落地的判定结果（R2）。
+///
+/// 用三值而不是布尔：过期响应分两种处理——有更新的请求在途时**什么都不做**
+/// （复位会把新请求打回 Idle 并触发重复拉取），scope/epoch 越界时才丢弃并复位闸门。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ListResponseDisposition {
+    Apply,
+    Ignore,
+    DiscardAndReset,
+}
+
+/// 判定一次列表响应能否落地：代次 → 完整 scope（数据面 + 工作区 epoch）。
+///
+/// 公开面 epoch 恒为 `None`，所以「工作区 → 公开」的反向切换只能靠 `active_scope`
+/// 与代次拦住，这正是串台的两个入口。
+fn list_response_disposition(
+    latest_serial: u64,
+    response_serial: u64,
+    active_scope: Option<crate::routing::ListScope>,
+    response_scope: crate::routing::ListScope,
+    response_epoch: Option<u64>,
+    epoch_is_current: bool,
+) -> ListResponseDisposition {
+    if latest_serial != response_serial {
+        return ListResponseDisposition::Ignore;
+    }
+    if active_scope != Some(response_scope) {
+        return ListResponseDisposition::DiscardAndReset;
+    }
+    if response_epoch.is_some_and(|_| !epoch_is_current) {
+        return ListResponseDisposition::DiscardAndReset;
+    }
+    ListResponseDisposition::Apply
+}
+
 fn looks_like_email(value: &str) -> bool {
     let Some((local, domain)) = value.split_once('@') else {
         return false;
@@ -2612,6 +2651,9 @@ impl RootView {
             crate::routing::ListScope::Public => None,
         };
         self.courses_scope = Some(scope_mode);
+        // R2：每次发起换一个代次，迟到响应只有代次与完整 scope 都匹配时才落地。
+        self.courses_load_serial = self.courses_load_serial.wrapping_add(1);
+        let serial = self.courses_load_serial;
         if first {
             self.courses.begin_first_load();
         } else {
@@ -2668,12 +2710,24 @@ impl RootView {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                if epoch.is_some_and(|epoch| !this.workspaces.is_current_epoch(epoch)) {
-                    // 丢弃越界响应后必须复位，否则闸门会永久停在 Loading。
-                    this.courses.reset();
-                    this.courses_started = false;
-                    cx.notify();
-                    return;
+                let disposition = list_response_disposition(
+                    this.courses_load_serial,
+                    serial,
+                    this.courses_scope,
+                    scope_mode,
+                    epoch,
+                    epoch.is_none_or(|epoch| this.workspaces.is_current_epoch(epoch)),
+                );
+                match disposition {
+                    ListResponseDisposition::Ignore => return,
+                    ListResponseDisposition::DiscardAndReset => {
+                        // 丢弃越界响应后必须复位，否则闸门会永久停在 Loading。
+                        this.courses.reset();
+                        this.courses_started = false;
+                        cx.notify();
+                        return;
+                    }
+                    ListResponseDisposition::Apply => {}
                 }
                 match result {
                     Ok(page) => {
@@ -4350,6 +4404,9 @@ impl RootView {
             crate::routing::ListScope::Public => None,
         };
         self.events_scope = Some(scope_mode);
+        // R2：同上，活动列表与课程列表各有一份代次。
+        self.events_load_serial = self.events_load_serial.wrapping_add(1);
+        let serial = self.events_load_serial;
         if first {
             self.events.begin_first_load();
         } else {
@@ -4377,11 +4434,24 @@ impl RootView {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                if epoch.is_some_and(|epoch| !this.workspaces.is_current_epoch(epoch)) {
-                    this.events.reset();
-                    this.events_started = false;
-                    cx.notify();
-                    return;
+                let disposition = list_response_disposition(
+                    this.events_load_serial,
+                    serial,
+                    this.events_scope,
+                    scope_mode,
+                    epoch,
+                    epoch.is_none_or(|epoch| this.workspaces.is_current_epoch(epoch)),
+                );
+                match disposition {
+                    ListResponseDisposition::Ignore => return,
+                    ListResponseDisposition::DiscardAndReset => {
+                        // 丢弃越界响应后必须复位，否则闸门会永久停在 Loading。
+                        this.events.reset();
+                        this.events_started = false;
+                        cx.notify();
+                        return;
+                    }
+                    ListResponseDisposition::Apply => {}
                 }
                 match result {
                     Ok(page) => this.events.adopt_page(page),
