@@ -302,7 +302,6 @@ workspace.site_tree.title
 nav.group.workspace
 nav.group.mine
 nav.group.community
-nav.agents
 workspace.outline.title
 courses.learning.ungrouped
 agent.registry.title

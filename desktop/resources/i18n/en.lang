@@ -301,7 +301,6 @@ workspace.site_tree.title = Navigation
 nav.group.workspace = Workspace navigation
 nav.group.mine = Mine
 nav.group.community = Community
-nav.agents = Agents
 workspace.outline.title = Outline
 courses.learning.ungrouped = Ungrouped
 agent.registry.title = Agent Registry

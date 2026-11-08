@@ -589,20 +589,8 @@ fn render_site_tree(
                 }),
         );
 
-        let root_agents = cx.entity().downgrade();
-        items.push(
-            SidebarMenuItem::new(translate(language, Key::NavAgents).to_string())
-                .icon(
-                    Icon::default()
-                        .path(AssetIcon::BotMessageSquare.path())
-                        .small(),
-                )
-                .active(active_path.as_deref() == Some("/agents"))
-                .on_click(move |_, _, cx| {
-                    let _ = root_agents.update(cx, |this, cx| this.open_agent_registry(cx));
-                }),
-        );
-
+        // Agent Registry 不占导航位：对话面板的「Add More Agents」已是唯一入口，
+        // 它与注册页同走 /agents，导航再加一项只会制造两个入口（产品决策，2026-11-08）。
         let events_open_path = crate::routing::workspace_path(workspace_slug, "/events");
         let root_events = cx.entity().downgrade();
         let mut events_item =

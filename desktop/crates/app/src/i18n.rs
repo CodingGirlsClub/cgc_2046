@@ -124,7 +124,6 @@ mod tests {
         assert_eq!(translate(Language::En, Key::NavGroupMine), "Mine");
         assert_eq!(translate(Language::Zh, Key::NavGroupCommunity), "全站");
         assert_eq!(translate(Language::En, Key::NavGroupCommunity), "Community");
-        assert_eq!(translate(Language::Zh, Key::NavAgents), "Agents");
         assert_eq!(
             translate(Language::Zh, Key::CoursesPublicEmpty),
             "暂无公开课程。"

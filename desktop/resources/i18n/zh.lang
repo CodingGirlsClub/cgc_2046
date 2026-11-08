@@ -301,7 +301,6 @@ workspace.site_tree.title = 导航
 nav.group.workspace = 工作区导航
 nav.group.mine = 我的
 nav.group.community = 全站
-nav.agents = Agents
 workspace.outline.title = 课程目录
 courses.learning.ungrouped = 未分组
 agent.registry.title = Agent Registry

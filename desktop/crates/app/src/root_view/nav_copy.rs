@@ -15,7 +15,6 @@ pub(in crate::root_view) struct SiteTreeEntrySpec {
 #[cfg(test)]
 pub(in crate::root_view) const SITE_TREE_WORKSPACE_ENTRIES: &[Key] = &[
     Key::AccountWorkspaceOverview,
-    Key::NavAgents,
     Key::EventsListTitle,
     Key::CoursesCatalogTitle,
 ];
@@ -82,7 +81,6 @@ mod tests {
             SITE_TREE_WORKSPACE_ENTRIES,
             &[
                 Key::AccountWorkspaceOverview,
-                Key::NavAgents,
                 Key::EventsListTitle,
                 Key::CoursesCatalogTitle,
             ]
