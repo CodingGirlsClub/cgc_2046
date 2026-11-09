@@ -51,19 +51,36 @@ pub fn parse(raw: &str) -> Result<DeepLink, DeepLinkError> {
 
     let path = match (host, segments.as_slice()) {
         ("home", []) => "/".to_string(),
-        ("workspace", []) => "/workspace".to_string(),
+        ("workspace", []) => "/".to_string(),
+        ("workspace", [slug]) => crate::routing::workspace_path(slug_check(slug)?, ""),
+        ("workspace", [slug, "events", id]) => format!(
+            "{}/events/{}",
+            crate::routing::workspace_path(slug_check(slug)?, ""),
+            uuid(id)?
+        ),
+        ("workspace", [slug, "courses", id, "learn"]) => format!(
+            "{}/courses/{}/learn",
+            crate::routing::workspace_path(slug_check(slug)?, ""),
+            uuid(id)?
+        ),
         ("settings", []) => "/settings".to_string(),
         ("agents", []) => "/agents".to_string(),
-        ("companion", []) => "/companion".to_string(),
         ("events", []) => "/events".to_string(),
-        ("events", ["mine"]) => "/events/mine".to_string(),
+        ("events", ["mine"]) => "/participations".to_string(),
         ("events", [id]) => format!("/events/{}", uuid(id)?),
         ("courses", []) => "/courses".to_string(),
         ("courses", [id]) => format!("/courses/{}", uuid(id)?),
+        // 学习页必须先知道工作区；旧链接没有 slug，落到跨工作区的「我的学习」。
         ("courses", [id, "learn"]) => format!("/courses/{}/learn", uuid(id)?),
         _ => return Err(DeepLinkError::BadPath),
     };
     Ok(DeepLink { path })
+}
+
+fn slug_check(value: &str) -> Result<&str, DeepLinkError> {
+    crate::routing::is_safe_slug(value)
+        .then_some(value)
+        .ok_or(DeepLinkError::BadPath)
 }
 
 fn uuid(value: &str) -> Result<String, DeepLinkError> {
@@ -81,12 +98,12 @@ mod tests {
     #[test]
     fn parses_supported_routes() {
         assert_eq!(parse("cgc://home").unwrap().path, "/");
-        assert_eq!(parse("cgc://workspace").unwrap().path, "/workspace");
+        assert_eq!(parse("cgc://workspace").unwrap().path, "/");
+        assert_eq!(parse("cgc://workspace/2046").unwrap().path, "/w/2046");
         assert_eq!(parse("cgc://settings").unwrap().path, "/settings");
         assert_eq!(parse("cgc://agents").unwrap().path, "/agents");
-        assert_eq!(parse("cgc://companion").unwrap().path, "/companion");
         assert_eq!(parse("cgc://events").unwrap().path, "/events");
-        assert_eq!(parse("cgc://events/mine").unwrap().path, "/events/mine");
+        assert_eq!(parse("cgc://events/mine").unwrap().path, "/participations");
         assert_eq!(parse("cgc://courses").unwrap().path, "/courses");
         assert_eq!(
             parse(&format!("cgc://events/{ID}")).unwrap().path,
@@ -100,6 +117,18 @@ mod tests {
             parse(&format!("cgc://courses/{ID}/learn")).unwrap().path,
             format!("/courses/{ID}/learn")
         );
+        assert_eq!(
+            parse(&format!("cgc://workspace/2046/events/{ID}"))
+                .unwrap()
+                .path,
+            format!("/w/2046/events/{ID}")
+        );
+        assert_eq!(
+            parse(&format!("cgc://workspace/2046/courses/{ID}/learn"))
+                .unwrap()
+                .path,
+            format!("/w/2046/courses/{ID}/learn")
+        );
     }
 
     #[test]
@@ -110,6 +139,11 @@ mod tests {
             Ok(DeepLink {
                 path: "/events".into()
             })
+        );
+        assert_eq!(parse("cgc://companion"), Err(DeepLinkError::BadPath));
+        assert_eq!(
+            parse("cgc://workspace/bad%20slug"),
+            Err(DeepLinkError::BadPath)
         );
         assert_eq!(
             parse("cgc://events/not-a-uuid"),

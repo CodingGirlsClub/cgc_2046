@@ -49,13 +49,12 @@ pub(in crate::root_view) fn toggled_right_panel(
     }
 }
 
-/// 中心 Pane 的一个 Tab。page tab 以 path 唯一；issue tab 以课程+卡唯一。
+/// 中心 Pane 的一个 Tab：身份就是完整地址（含 `?issue=` 这类定位参数）。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::root_view) struct PaneTab {
     pub id: String,
     pub title: String,
     pub path: String,
-    pub issue_id: Option<String>,
 }
 
 impl PaneTab {
@@ -64,20 +63,6 @@ impl PaneTab {
             id: format!("page:{path}"),
             title: title.into(),
             path: path.to_string(),
-            issue_id: None,
-        }
-    }
-
-    pub(in crate::root_view) fn issue(
-        course_id: &str,
-        issue_id: &str,
-        title: impl Into<String>,
-    ) -> Self {
-        Self {
-            id: format!("issue:{course_id}:{issue_id}"),
-            title: title.into(),
-            path: format!("/courses/{course_id}/learn"),
-            issue_id: Some(issue_id.to_string()),
         }
     }
 }
@@ -128,6 +113,13 @@ pub(in crate::root_view) fn close_tab(
 }
 
 impl ShellState {
+    /// 当前工作区面路径；无工作区时返回 None（站点级页面自行兜底）。
+    pub(in crate::root_view) fn workspace_path(&self, suffix: &str) -> Option<String> {
+        self.workspaces
+            .current()
+            .map(|workspace| crate::routing::workspace_path(&workspace.slug, suffix))
+    }
+
     pub(in crate::root_view) fn open_tab(&mut self, tab: PaneTab) {
         open_or_focus_tab(&mut self.tabs, tab, &mut self.active_tab);
     }
@@ -166,6 +158,11 @@ pub struct NativeAgentHighlight {
 pub struct ShellState {
     pub(in crate::root_view) registry: RouteRegistry,
     pub(in crate::root_view) current: Option<RouteMatch>,
+    /// 最近使用的工作区 slug（启动时读本地状态；测试可注入空值）。
+    pub(in crate::root_view) last_workspace_slug: Option<String>,
+    /// 列表缓存所属的数据面；详情页等无 scope 的路由不改变它。
+    pub(in crate::root_view) events_scope: Option<crate::routing::ListScope>,
+    pub(in crate::root_view) courses_scope: Option<crate::routing::ListScope>,
     pub(in crate::root_view) language: Language,
     pub(in crate::root_view) preference: ThemePreference,
     pub(in crate::root_view) theme_name: String,
@@ -218,6 +215,10 @@ pub struct ShellState {
     pub(in crate::root_view) site_tree_events_open: bool,
     pub(in crate::root_view) site_tree_courses_open: bool,
     pub(in crate::root_view) site_tree_query: String,
+    pub(in crate::root_view) site_tree_search_input:
+        Option<Entity<gpui_kit::component::input::InputState>>,
+    pub(in crate::root_view) site_tree_search_subscription: Option<Subscription>,
+    pub(in crate::root_view) site_tree_search_language: Option<Language>,
     pub(in crate::root_view) site_tree_search_focused: bool,
     pub(in crate::root_view) site_tree_course_open: Option<String>,
     pub(in crate::root_view) site_tree_scroll: ScrollHandle,
@@ -226,8 +227,11 @@ pub struct ShellState {
     pub(in crate::root_view) key_interceptor: Option<Subscription>,
     pub(in crate::root_view) events: EventListService,
     pub(in crate::root_view) events_started: bool,
+    /// 列表请求代次：迟到响应只有代次与 scope 都匹配时才允许落地（R2）。
+    pub(in crate::root_view) events_load_serial: u64,
     pub(in crate::root_view) enrollments_api: Arc<dyn EnrollmentsApi>,
     pub(in crate::root_view) enrollments_rows: Vec<MyEnrollmentRow>,
+    pub(in crate::root_view) learning_runs: Vec<MyLearningRunRow>,
     pub(in crate::root_view) enrollments_state: EnrollmentsListState,
     pub(in crate::root_view) enrollments_started: bool,
     pub(in crate::root_view) detail: EventDetailService,
@@ -269,7 +273,23 @@ pub struct ShellState {
     pub(in crate::root_view) agent_registry_filter: AgentRegistryFilter,
     pub(in crate::root_view) courses: CourseCatalogService,
     pub(in crate::root_view) courses_started: bool,
+    pub(in crate::root_view) courses_load_serial: u64,
+    /// Site Tree 专用缓存：恒为本工作区数据面，与中心列表（可能是公开面）互不覆盖。
+    pub(in crate::root_view) nav_events: EventListService,
+    pub(in crate::root_view) nav_events_started: bool,
+    pub(in crate::root_view) nav_events_serial: u64,
+    pub(in crate::root_view) nav_courses: CourseCatalogService,
+    pub(in crate::root_view) nav_courses_started: bool,
+    pub(in crate::root_view) nav_courses_serial: u64,
+    /// 账号代数：登录/登出时递增；跨账号的在途响应必须丢弃（切台由 workspace epoch 管）。
+    pub(in crate::root_view) session_epoch: u64,
     pub(in crate::root_view) course_enrollments: std::collections::BTreeMap<String, Option<String>>,
+    /// M2：报名状态查询在途的课程 id，避免快速翻页时重复查询尚未落缓存的课程。
+    pub(in crate::root_view) course_enrollments_inflight: std::collections::HashSet<String>,
+    /// 分页请求失败：列表仍保留（Ready），仅在「加载更多」旁显示行内失败提示。
+    pub(in crate::root_view) enrollments_load_more_failed: bool,
+    /// R11：登录后已消费显式深链，首次工作区恢复必须保留当前路由，不被旧 active tab 覆盖。
+    pub(in crate::root_view) deep_link_keep_route: bool,
     pub(in crate::root_view) workspaces: WorkspaceService,
     pub(in crate::root_view) workspaces_started: bool,
     pub(in crate::root_view) revoking: bool,
@@ -329,17 +349,37 @@ impl ShellState {
         preference: ThemePreference,
         session: SessionService,
     ) -> Self {
-        let current = initial_route(&registry);
+        Self::with_session_from(registry, language, preference, session, None)
+    }
+
+    pub(in crate::root_view) fn with_session_from(
+        registry: RouteRegistry,
+        language: Language,
+        preference: ThemePreference,
+        session: SessionService,
+        start_path: Option<&str>,
+    ) -> Self {
+        let last_workspace_slug = if start_path.is_some() {
+            None
+        } else {
+            crate::workspace_state::last_workspace()
+        };
+        let current = initial_route(&registry, start_path, last_workspace_slug.as_deref());
         let layout_preferences = crate::preferences::load();
         let events = build_events_service();
+        let nav_events = build_events_service();
         let detail = EventDetailService::new(events.api_handle());
         let courses = build_courses_service();
+        let nav_courses = build_courses_service();
         let course_detail = CourseDetailService::new(courses.api_handle());
         let content = CourseContentService::new(courses.api_handle());
         let projection = LearningProjectionService::new(courses.api_handle());
         Self {
             registry,
             current,
+            last_workspace_slug,
+            events_scope: None,
+            courses_scope: None,
             language,
             preference,
             theme_name: theme::load_selected_theme()
@@ -389,6 +429,9 @@ impl ShellState {
             site_tree_events_open: false,
             site_tree_courses_open: false,
             site_tree_query: String::new(),
+            site_tree_search_input: None,
+            site_tree_search_subscription: None,
+            site_tree_search_language: None,
             site_tree_search_focused: false,
             site_tree_course_open: None,
             site_tree_scroll: ScrollHandle::new(),
@@ -397,8 +440,10 @@ impl ShellState {
             key_interceptor: None,
             events,
             events_started: false,
+            events_load_serial: 0,
             enrollments_api: build_enrollments_api(),
             enrollments_rows: Vec::new(),
+            learning_runs: Vec::new(),
             enrollments_state: EnrollmentsListState::Idle,
             enrollments_started: false,
             detail,
@@ -440,7 +485,18 @@ impl ShellState {
             agent_registry_filter: AgentRegistryFilter::default(),
             courses,
             courses_started: false,
+            courses_load_serial: 0,
+            nav_events,
+            nav_events_started: false,
+            nav_events_serial: 0,
+            nav_courses,
+            nav_courses_started: false,
+            nav_courses_serial: 0,
+            session_epoch: 0,
             course_enrollments: std::collections::BTreeMap::new(),
+            course_enrollments_inflight: std::collections::HashSet::new(),
+            enrollments_load_more_failed: false,
+            deep_link_keep_route: false,
             course_detail,
             course_detail_started: false,
             content,
@@ -473,6 +529,38 @@ impl ShellState {
             selected_event: None,
         }
     }
+}
+
+/// R4：只有「工作区列表从空变非空 + 当前是公开列表 + 存在无归属课程」才补查。
+pub(in crate::root_view) fn should_backfill_public_ownership(
+    had_accessible_workspaces: bool,
+    has_accessible_workspaces: bool,
+    scope: Option<crate::routing::ListScope>,
+    has_unowned_public_course: bool,
+) -> bool {
+    !had_accessible_workspaces
+        && has_accessible_workspaces
+        && scope == Some(crate::routing::ListScope::Public)
+        && has_unowned_public_course
+}
+
+/// R11：本次是否已消费显式深链；是则首次工作区恢复必须保留当前路由。
+pub(in crate::root_view) fn should_keep_initial_route(deep_link_consumed: bool) -> bool {
+    deep_link_consumed
+}
+
+/// R15：报名重复错误必须触发权威状态刷新（与活动分支同口径）。
+pub(in crate::root_view) fn enrollment_error_needs_refresh(code: &str) -> bool {
+    code == "enrollment_duplicate_active"
+}
+
+/// M2：该课程既未缓存也未在途时才应发起报名状态查询。
+pub(in crate::root_view) fn should_query_course_enrollment(
+    course_id: &str,
+    cached: &std::collections::BTreeMap<String, Option<String>>,
+    inflight: &std::collections::HashSet<String>,
+) -> bool {
+    !cached.contains_key(course_id) && !inflight.contains(course_id)
 }
 
 #[cfg(test)]
@@ -524,34 +612,107 @@ mod tests {
     }
 
     #[test]
-    fn pane_issue_tab_keeps_course_learning_path() {
-        let tab = PaneTab::issue("course-1", "issue-1", "Card");
-        assert_eq!(tab.id, "issue:course-1:issue-1");
-        assert_eq!(tab.path, "/courses/course-1/learn");
-        assert_eq!(tab.issue_id.as_deref(), Some("issue-1"));
+    fn issue_tab_identity_lives_in_its_address() {
+        let card = PaneTab::page("/w/2046/courses/course-1/learn?issue=issue-1", "Card");
+        let lesson = PaneTab::page("/w/2046/courses/course-1/learn", "Course");
+        assert_eq!(card.id, "page:/w/2046/courses/course-1/learn?issue=issue-1");
+        assert_ne!(
+            card.path, lesson.path,
+            "cards and the lesson are distinct pages"
+        );
+        assert_eq!(
+            crate::routing::issue_of(&card.path),
+            Some("issue-1"),
+            "the card id is read back from the address"
+        );
     }
 
     #[test]
     fn navigating_keeps_a_matching_active_tab_and_clears_a_stale_one() {
-        let issue_a = PaneTab::issue("course-1", "issue-1", "Card A");
-        let issue_b = PaneTab::issue("course-1", "issue-2", "Card B");
-        let event = PaneTab::page("/events/event-1", "Event");
+        let issue_a = PaneTab::page("/w/2046/courses/course-1/learn?issue=issue-1", "Card A");
+        let issue_b = PaneTab::page("/w/2046/courses/course-1/learn?issue=issue-2", "Card B");
+        let event = PaneTab::page("/w/2046/events/event-1", "Event");
         let tabs = vec![issue_a.clone(), issue_b.clone(), event.clone()];
 
         assert_eq!(
             active_tab_for_path(&tabs, Some(issue_b.id.as_str()), &issue_b.path),
             Some(issue_b.id.clone()),
-            "same-path issue tab keeps the user's current card"
+            "same-address card keeps the user's current card"
         );
         assert_eq!(
             active_tab_for_path(&tabs, Some(event.id.as_str()), &issue_a.path),
             Some(issue_a.id.clone()),
-            "a different active tab moves to the first tab for the new path"
+            "a different active tab moves to the tab for the new address"
         );
         assert_eq!(
             active_tab_for_path(&tabs, Some(issue_a.id.as_str()), "/settings"),
             None,
             "no matching tab must clear stale context"
         );
+    }
+
+    #[test]
+    fn stage2_backfill_requires_workspaces_and_public_scope() {
+        assert!(super::should_backfill_public_ownership(
+            false,
+            true,
+            Some(crate::routing::ListScope::Public),
+            true
+        ));
+        assert!(!super::should_backfill_public_ownership(
+            true,
+            true,
+            Some(crate::routing::ListScope::Public),
+            true
+        ));
+        assert!(!super::should_backfill_public_ownership(
+            false,
+            true,
+            Some(crate::routing::ListScope::Workspace),
+            true
+        ));
+        assert!(!super::should_backfill_public_ownership(
+            false,
+            true,
+            Some(crate::routing::ListScope::Public),
+            false
+        ));
+    }
+
+    #[test]
+    fn stage2_deep_link_consumption_keeps_initial_route() {
+        assert!(super::should_keep_initial_route(true));
+        assert!(!super::should_keep_initial_route(false));
+    }
+
+    #[test]
+    fn stage2_enrollment_query_skips_cached_and_inflight_courses() {
+        let mut cached = std::collections::BTreeMap::new();
+        cached.insert("crs-cached".to_string(), None);
+        let mut inflight = std::collections::HashSet::new();
+        inflight.insert("crs-inflight".to_string());
+        assert!(!super::should_query_course_enrollment(
+            "crs-cached",
+            &cached,
+            &inflight
+        ));
+        assert!(!super::should_query_course_enrollment(
+            "crs-inflight",
+            &cached,
+            &inflight
+        ));
+        assert!(super::should_query_course_enrollment(
+            "crs-new", &cached, &inflight
+        ));
+    }
+
+    #[test]
+    fn stage2_duplicate_enrollment_error_requires_refresh() {
+        assert!(super::enrollment_error_needs_refresh(
+            "enrollment_duplicate_active"
+        ));
+        assert!(!super::enrollment_error_needs_refresh(
+            "enrollment_capacity_full"
+        ));
     }
 }

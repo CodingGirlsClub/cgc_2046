@@ -1,8 +1,8 @@
 use super::*;
 
 #[test]
-fn workspace_overview_projection_uses_visible_subset_without_secrets() {
-    use cgc_events::enrollments::MyEnrollmentRow;
+fn workspace_overview_projection_matches_visible_blocks() {
+    use cgc_courses::catalog::CourseSummary;
     use cgc_events::list::EventSummary;
     use cgc_platform::workspace::WorkspaceSummary;
 
@@ -14,19 +14,9 @@ fn workspace_overview_projection_uses_visible_subset_without_secrets() {
         member_count: Some(42),
         can_access: true,
     };
-    let course = MyEnrollmentRow {
-        id: "enroll-course".into(),
-        status: "confirmed".into(),
-        target_title: Some("Rust Basics".into()),
-        starts_at: None,
-        event_id: None,
-        course_id: Some("course-1".into()),
-        payment_mode: None,
-        check_in_code: Some("SECRET".into()),
-    };
-    let event = EventSummary {
-        id: "event-1".into(),
-        title: "Rust Night".into(),
+    let event = |id: &str, title: &str, starts_at: &str| EventSummary {
+        id: id.into(),
+        title: title.into(),
         status: "open".into(),
         visibility: "public".into(),
         enrollment_policy: "open".into(),
@@ -34,21 +24,60 @@ fn workspace_overview_projection_uses_visible_subset_without_secrets() {
         confirmed_count: None,
         enrollment_badge: None,
         registration_deadline: None,
-        starts_at: Some("2026-11-02".into()),
+        starts_at: Some(starts_at.into()),
         venue: None,
         pricing_enabled: false,
     };
+    let course = |id: &str, title: &str| CourseSummary {
+        id: id.into(),
+        title: title.into(),
+        status: "published".into(),
+        workspace_id: Some("ws-1".into()),
+        enrollment_badge: None,
+        pricing_enabled: false,
+        starts_at: None,
+        registration_deadline: None,
+    };
 
-    let (body, _) = project_workspace_overview(&workspace, &[course], &[event], "page:/workspace");
+    let (body, version) = project_workspace_overview(
+        &workspace,
+        &[
+            event("event-1", "Rust Night", "2026-11-02"),
+            event("event-2", "Rust Day", "2026-11-09"),
+        ],
+        &[course("course-1", "Rust Basics")],
+        "page:/workspace",
+    );
     let PageBody::Ready(body) = body else {
         panic!("workspace overview must have a ready body");
     };
     assert!(body.contains("Beijing Chapter"));
     assert!(body.contains("learner"));
     assert!(body.contains("42"));
-    assert!(body.contains("Rust Basics"));
+    // 概览 UI 真正渲染的两块列表必须出现在投影里。
+    assert!(body.contains("本区近期活动"));
     assert!(body.contains("Rust Night"));
-    assert!(!body.contains("SECRET"));
+    assert!(body.contains("本区课程"));
+    assert!(body.contains("Rust Basics"));
+    // R7：概览 UI 没有报名块，投影也不得再出现报名行（尤其跨台的）。
+    assert!(
+        !body.contains("我的课程"),
+        "概览不得投影 UI 不存在的课程报名块"
+    );
+    assert!(!body.contains("我的参与"), "概览不得投影 UI 不存在的参与块");
+    assert!(!body.contains("跨台报名"), "概览不得包含任何报名行");
+
+    // 行序抖动（同一批数据换序返回）不应改动 Agent 上下文版本。
+    let (_, reordered) = project_workspace_overview(
+        &workspace,
+        &[
+            event("event-2", "Rust Day", "2026-11-09"),
+            event("event-1", "Rust Night", "2026-11-02"),
+        ],
+        &[course("course-1", "Rust Basics")],
+        "page:/workspace",
+    );
+    assert_eq!(version, reordered, "行序抖动不应改 Agent 上下文版本");
 }
 
 #[test]
@@ -105,6 +134,7 @@ fn enrollment_projection_excludes_check_in_code() {
 
     let row = MyEnrollmentRow {
         id: "enroll-1".into(),
+        workspace_id: "ws-1".into(),
         status: "confirmed".into(),
         target_title: Some("Rust Night".into()),
         starts_at: Some("2026-11-02".into()),
@@ -123,6 +153,65 @@ fn enrollment_projection_excludes_check_in_code() {
 }
 
 #[test]
+fn learning_run_projection_carries_progress_and_falls_back_to_confirmed_courses() {
+    use cgc_events::enrollments::{
+        LearningNextAction, LearningProgress, MyEnrollmentRow, MyLearningRunRow,
+    };
+
+    let run = MyLearningRunRow {
+        run_id: "run-1".into(),
+        enrollment_id: "enroll-from-event".into(),
+        course_id: "course-1".into(),
+        target_title: Some("Rust Basics".into()),
+        status: "active".into(),
+        stale_revision: true,
+        progress: LearningProgress {
+            mastered_required: 2,
+            total_required: 4,
+            complete: false,
+        },
+        next_action: Some(LearningNextAction {
+            kind: "review".into(),
+            objective_id: "obj-1".into(),
+            reason: "due".into(),
+        }),
+    };
+    // 这条报名不在 myEnrollments 第一页（活动报名且 course_id 为空）也不影响 run 投影。
+    let fallback = MyEnrollmentRow {
+        id: "enroll-confirmed".into(),
+        workspace_id: "ws-1".into(),
+        status: "confirmed".into(),
+        target_title: Some("Owned course".into()),
+        starts_at: None,
+        event_id: None,
+        course_id: Some("course-2".into()),
+        payment_mode: None,
+        check_in_code: None,
+    };
+    let (body, version) =
+        project_learning_runs(std::slice::from_ref(&run), &[fallback], "page:/learning");
+    let PageBody::Ready(text) = body else {
+        panic!("runs must produce a ready body");
+    };
+    assert!(text.contains("Rust Basics"));
+    assert!(text.contains("必修 2/4"));
+    assert!(text.contains("课程已更新"));
+    assert!(text.contains("下一动作：review"));
+    assert!(
+        text.contains("Owned course"),
+        "confirmed fallback stays visible"
+    );
+
+    let mut advanced = run;
+    advanced.progress.mastered_required = 3;
+    let (_, advanced_version) = project_learning_runs(&[advanced], &[], "page:/learning");
+    assert_ne!(
+        version, advanced_version,
+        "progress changes must change the context version"
+    );
+}
+
+#[test]
 fn course_pages_project_detail_and_catalog_rows() {
     use cgc_courses::catalog::{CourseDetail, CourseSummary};
 
@@ -134,6 +223,8 @@ fn course_pages_project_detail_and_catalog_rows() {
         visibility: "public".into(),
         workspace_id: Some("ws-1".into()),
         pricing_enabled: false,
+        enrollment_policy: "open".into(),
+        available_price_tiers: Vec::new(),
         enrollment_status: Some("confirmed".into()),
         revision_number: Some(7),
     };
@@ -142,8 +233,10 @@ fn course_pages_project_detail_and_catalog_rows() {
         title: "Rust Basics".into(),
         status: "published".into(),
         workspace_id: Some("ws-1".into()),
+        enrollment_badge: None,
         pricing_enabled: false,
         starts_at: Some("2026-11-02".into()),
+        registration_deadline: None,
     };
 
     let (body, _) = project_course_detail(&detail, "page:/courses/course-1");

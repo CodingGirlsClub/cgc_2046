@@ -6,8 +6,8 @@
 
 use std::sync::Arc;
 
-use cgc_platform::api::{apply_workspace_scope, ApiError, GraphqlClient};
-use cgc_platform::workspace::WorkspaceScope;
+use cgc_platform::api::{apply_offering_scope, ApiError, GraphqlClient};
+use cgc_platform::workspace::OfferingScope;
 use serde_json::{json, Value};
 
 const LIST_EVENTS_QUERY: &str = r#"
@@ -125,7 +125,7 @@ pub trait EventsApi: Send + Sync {
     fn list_events(
         &self,
         token: Option<&str>,
-        scope: Option<&WorkspaceScope>,
+        scope: OfferingScope<'_>,
         filter: StatusFilter,
         after: Option<&str>,
         first: u32,
@@ -278,7 +278,7 @@ impl EventsApi for HttpEventsApi {
     fn list_events(
         &self,
         token: Option<&str>,
-        scope: Option<&WorkspaceScope>,
+        scope: OfferingScope<'_>,
         filter: StatusFilter,
         after: Option<&str>,
         first: u32,
@@ -290,7 +290,8 @@ impl EventsApi for HttpEventsApi {
         if let Some(status) = filter.status_value() {
             variables["filter"] = json!({ "status": { "eq": status } });
         }
-        apply_workspace_scope(&mut variables, scope);
+        // 公开面覆盖 status 并补 visibility；工作区面只注入 workspaceId。
+        apply_offering_scope(&mut variables, scope);
 
         let payload = self
             .client
@@ -524,7 +525,7 @@ impl EventsApi for FakeEventsApi {
     fn list_events(
         &self,
         _token: Option<&str>,
-        _scope: Option<&WorkspaceScope>,
+        _scope: OfferingScope<'_>,
         filter: StatusFilter,
         after: Option<&str>,
         first: u32,
@@ -575,7 +576,7 @@ impl EventsApi for FakeEventsApi {
             detail.available_price_tiers = vec![crate::detail::PriceTier {
                 id: "tier-early".to_string(),
                 name: "早鸟".to_string(),
-                amount_cents: 9900,
+                amount_cents: Some(9900),
             }];
         }
         // 每 5 条造一个押金场（evt-004/009/...），供三态 UI 与测试使用。
@@ -616,10 +617,25 @@ impl EventsApi for FakeEventsApi {
         if self.fail {
             return Err(EventsError::Transport("fake network down".to_string()));
         }
+        if let Some(course_id) = request.course_id.as_deref() {
+            let enrollment = crate::enroll::MyEnrollment {
+                id: format!("enroll-{course_id}"),
+                status: "confirmed".to_string(),
+                check_in_code: None,
+            };
+            self.enrollments
+                .lock()
+                .expect("enrollments lock")
+                .insert(course_id.to_string(), enrollment.clone());
+            return Ok(enrollment);
+        }
+        let Some(event_id) = request.event_id.as_deref() else {
+            return Err(EventsError::NotFound);
+        };
         let event = self
             .events
             .iter()
-            .find(|event| event.id == request.event_id)
+            .find(|event| event.id == event_id)
             .ok_or(EventsError::NotFound)?;
         let status = if event.pricing_enabled {
             "payment_pending"
@@ -627,14 +643,14 @@ impl EventsApi for FakeEventsApi {
             "confirmed"
         };
         let enrollment = crate::enroll::MyEnrollment {
-            id: format!("enroll-{}", request.event_id),
+            id: format!("enroll-{event_id}"),
             status: status.to_string(),
             check_in_code: Some("654321".to_string()),
         };
         self.enrollments
             .lock()
             .expect("enrollments lock")
-            .insert(request.event_id.clone(), enrollment.clone());
+            .insert(event_id.to_string(), enrollment.clone());
         Ok(enrollment)
     }
 
@@ -744,10 +760,14 @@ impl EventListService {
     }
 
     /// 后台线程调用：按当前筛选/游标取一页。
-    pub fn fetch(&self, token: Option<&str>) -> Result<EventPage, EventsError> {
+    pub fn fetch(
+        &self,
+        token: Option<&str>,
+        scope: OfferingScope<'_>,
+    ) -> Result<EventPage, EventsError> {
         self.api.list_events(
             token,
-            None,
+            scope,
             self.filter,
             if self.loading_more {
                 self.next_cursor.as_deref()
@@ -796,6 +816,7 @@ impl EventListService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cgc_platform::workspace::WorkspaceScope;
 
     fn service() -> EventListService {
         EventListService::new(Arc::new(FakeEventsApi::with_seed(23)))
@@ -805,7 +826,9 @@ mod tests {
     fn first_page_has_items_and_next_cursor() {
         let mut service = service();
         service.begin_first_load();
-        let page = service.fetch(None).expect("fake page");
+        let page = service
+            .fetch(None, OfferingScope::Public)
+            .expect("fake page");
         service.adopt_page(page);
 
         assert_eq!(service.items().len(), 10);
@@ -817,11 +840,11 @@ mod tests {
     fn load_more_appends_until_exhausted() {
         let mut service = service();
         service.begin_first_load();
-        service.adopt_page(service.fetch(None).expect("page 1"));
+        service.adopt_page(service.fetch(None, OfferingScope::Public).expect("page 1"));
 
         while service.next_cursor().is_some() {
             service.begin_load_more();
-            service.adopt_page(service.fetch(None).expect("page n"));
+            service.adopt_page(service.fetch(None, OfferingScope::Public).expect("page n"));
         }
 
         assert_eq!(service.items().len(), 23);
@@ -833,7 +856,11 @@ mod tests {
         let mut service = service();
         service.set_filter(StatusFilter::Closed);
         service.begin_first_load();
-        service.adopt_page(service.fetch(None).expect("filtered page"));
+        service.adopt_page(
+            service
+                .fetch(None, OfferingScope::Public)
+                .expect("filtered page"),
+        );
 
         assert!(!service.items().is_empty());
         assert!(service.items().iter().all(|event| event.status == "closed"));
@@ -843,12 +870,16 @@ mod tests {
     fn has_more_uses_total_not_cursor() {
         let mut service = service();
         service.begin_first_load();
-        service.adopt_page(service.fetch(None).expect("page 1"));
+        service.adopt_page(service.fetch(None, OfferingScope::Public).expect("page 1"));
         assert!(service.has_more(), "23 items, first page of 10");
 
         while service.next_cursor().is_some() {
             service.begin_load_more();
-            service.adopt_page(service.fetch(None).expect("next page"));
+            service.adopt_page(
+                service
+                    .fetch(None, OfferingScope::Public)
+                    .expect("next page"),
+            );
         }
         assert!(!service.has_more(), "all items loaded");
     }
@@ -857,7 +888,11 @@ mod tests {
     fn empty_filter_result_sets_empty_state() {
         let mut service = EventListService::new(Arc::new(FakeEventsApi::with_seed(0)));
         service.begin_first_load();
-        service.adopt_page(service.fetch(None).expect("empty page"));
+        service.adopt_page(
+            service
+                .fetch(None, OfferingScope::Public)
+                .expect("empty page"),
+        );
         assert_eq!(service.state(), &ListState::Empty);
         assert!(service.items().is_empty());
     }
@@ -866,7 +901,7 @@ mod tests {
     fn transport_error_sets_failed_and_retry_returns_idle() {
         let mut service = EventListService::new(Arc::new(FakeEventsApi::failing()));
         service.begin_first_load();
-        let error = service.fetch(None).unwrap_err();
+        let error = service.fetch(None, OfferingScope::Public).unwrap_err();
         service.fail(&error);
 
         assert!(matches!(service.state(), ListState::Failed(_)));
@@ -928,7 +963,7 @@ mod tests {
         let page = api
             .list_events(
                 Some("token"),
-                Some(&WorkspaceScope {
+                OfferingScope::Workspace(&WorkspaceScope {
                     workspace_id: "ws-1".into(),
                     epoch: 1,
                 }),
@@ -945,10 +980,75 @@ mod tests {
     }
 
     #[test]
+    fn http_list_events_public_scope_forces_open_public() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 4096];
+            let header_end = loop {
+                let read = stream.read(&mut buffer).expect("read");
+                if read == 0 {
+                    break request.len();
+                }
+                request.extend_from_slice(&buffer[..read]);
+                if let Some(pos) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                    break pos + 4;
+                }
+            };
+            let headers = String::from_utf8_lossy(&request[..header_end]).to_string();
+            let content_length = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().ok())
+                        .flatten()
+                })
+                .unwrap_or(0);
+            while request.len() < header_end + content_length {
+                let read = stream.read(&mut buffer).expect("read body");
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..read]);
+            }
+            let _ = sender.send(String::from_utf8_lossy(&request).to_string());
+            let body = r#"{"data":{"listEvents":{"count":0,"endKeyset":null,"results":[]}}}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).expect("write");
+        });
+
+        let api = HttpEventsApi::new(GraphqlClient::new(format!("http://{addr}/api/graphql")));
+        let _ = api
+            .list_events(None, OfferingScope::Public, StatusFilter::Closed, None, 10)
+            .expect("http page");
+        let sent = receiver.recv().expect("request");
+        let body = sent.split("\r\n\r\n").nth(1).expect("request body");
+        let body: Value = serde_json::from_str(body).expect("json body");
+        let filter = &body["variables"]["filter"];
+        assert!(
+            filter.get("workspaceId").is_none(),
+            "public scope leaked: {filter}"
+        );
+        assert_eq!(filter["status"]["eq"], "open");
+        assert_eq!(filter["visibility"]["eq"], "public");
+    }
+
+    #[test]
     fn fake_cancel_enrollment_sets_cancelled() {
         let api = FakeEventsApi::with_seed(2);
         let request = crate::enroll::EnrollmentRequest {
-            event_id: "evt-001".to_string(),
+            event_id: Some("evt-001".to_string()),
+            course_id: None,
             user_id: "u-1".to_string(),
             tier_id: None,
             age_confirmed: false,
@@ -972,7 +1072,8 @@ mod tests {
             .expect("none")
             .is_none());
         let request = crate::enroll::EnrollmentRequest {
-            event_id: "evt-000".to_string(),
+            event_id: Some("evt-000".to_string()),
+            course_id: None,
             user_id: "u-1".to_string(),
             tier_id: None,
             age_confirmed: false,
@@ -987,7 +1088,8 @@ mod tests {
         );
         // 奇数 index 的 fake 场次免费 → confirmed
         let priced = crate::enroll::EnrollmentRequest {
-            event_id: "evt-001".to_string(),
+            event_id: Some("evt-001".to_string()),
+            course_id: None,
             user_id: "u-1".to_string(),
             tier_id: Some("tier-early".to_string()),
             age_confirmed: false,
@@ -1053,7 +1155,8 @@ mod tests {
         );
         let api = HttpEventsApi::new(GraphqlClient::new(endpoint));
         let request = crate::enroll::EnrollmentRequest {
-            event_id: "e-1".into(),
+            event_id: Some("e-1".into()),
+            course_id: None,
             user_id: "u-1".into(),
             tier_id: Some("tier-early".into()),
             age_confirmed: true,

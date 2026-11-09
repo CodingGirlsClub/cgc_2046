@@ -120,6 +120,11 @@ impl LearningProjectionService {
         self.projection.as_ref()
     }
 
+    /// 当前加载/已加载的课程 id：过期响应的复位判据要用它，而不是路由对象。
+    pub fn course_id(&self) -> Option<&str> {
+        self.course_id.as_deref()
+    }
+
     pub fn begin_load(&mut self, course_id: &str) {
         self.course_id = Some(course_id.to_string());
         self.state = ProjectionState::Loading;

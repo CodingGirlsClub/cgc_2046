@@ -20,6 +20,10 @@ pub(in crate::root_view) fn render_course_learning(
         .session
         .signed_in()
         .map(|session| session.user_id.clone());
+    let public_face = ctx
+        .current
+        .as_ref()
+        .is_some_and(|route_match| route_match.route.id == "courses.public_learning");
 
     let back = div()
         .id("course-learning-back")
@@ -27,7 +31,17 @@ pub(in crate::root_view) fn render_course_learning(
         .text_color(palette.ink_3)
         .child(translate(language, Key::CoursesDetailBack))
         .on_click(cx.listener(move |this, _, _, cx| {
-            this.navigate(&format!("/courses/{course_id}"));
+            let public = this
+                .current
+                .as_ref()
+                .is_some_and(|route_match| route_match.route.id == "courses.public_learning");
+            let path = if public {
+                format!("/courses/{course_id}")
+            } else {
+                this.workspace_path(&format!("/courses/{course_id}"))
+                    .unwrap_or_else(|| "/learning".to_string())
+            };
+            this.navigate(&path);
             cx.notify();
         }));
 
@@ -79,16 +93,32 @@ pub(in crate::root_view) fn render_course_learning(
                             .gap(space(2))
                             .text_size(px(12.0))
                             .text_color(palette.ink_3)
-                            .child(format!(
-                                "{} {}",
-                                translate(language, Key::CoursesLearningWorkspace),
-                                context.workspace_id
+                            .children(super::super::render_workspace_badge(
+                                ctx.workspaces.workspaces(),
+                                Some(&context.workspace_id),
+                                language,
+                                palette,
                             ))
                             .child(format!(
                                 "{} {}",
                                 translate(language, Key::CoursesLearningRevision),
                                 context.course_revision_id
                             )),
+                    )
+                    .children(
+                        public_face
+                            .then(|| {
+                                super::super::render_workspace_link(
+                                    ctx.workspaces.workspaces(),
+                                    Some(&context.workspace_id),
+                                    &format!("/courses/{}/learn", detail.id),
+                                    &detail.title,
+                                    language,
+                                    palette,
+                                    cx,
+                                )
+                            })
+                            .flatten(),
                     )
                     .child(render_learning_projection(ctx, language, palette, cx))
                     .child(render_course_materials(ctx, language, palette, cx))

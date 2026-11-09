@@ -10,7 +10,10 @@ use crate::list::{EventSummary, EventsApi, EventsError, ListState};
 pub struct PriceTier {
     pub id: String,
     pub name: String,
-    pub amount_cents: i64,
+    /// 金额缺失时后端投 `nil`（`Offering.PriceTier.available_tiers/1` 的
+    /// 金额表态守卫，脏值不表态）：客户端必须显示「金额待定」并禁选，
+    /// 不得把未知金额当成 0 元档（同课程档位 R14 口径）。
+    pub amount_cents: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,8 +42,14 @@ pub struct EventDetail {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PriceMode {
     Free,
-    Paid { min_amount_cents: i64, tiers: usize },
-    Deposit { amount_cents: i64 },
+    Paid {
+        /// 只在有已知金额的档位里取最小值；全部未知时为 `None`，UI 显示「金额待定」。
+        min_amount_cents: Option<i64>,
+        tiers: usize,
+    },
+    Deposit {
+        amount_cents: i64,
+    },
 }
 
 impl EventDetail {
@@ -51,12 +60,12 @@ impl EventDetail {
             }
         } else if self.pricing_enabled && !self.available_price_tiers.is_empty() {
             PriceMode::Paid {
+                // 未知金额不参与取最小值，也不得退化成 0（¥0.00 起 是错误价格表达）。
                 min_amount_cents: self
                     .available_price_tiers
                     .iter()
-                    .map(|tier| tier.amount_cents)
-                    .min()
-                    .unwrap_or(0),
+                    .filter_map(|tier| tier.amount_cents)
+                    .min(),
                 tiers: self.available_price_tiers.len(),
             }
         } else {
@@ -109,10 +118,7 @@ pub fn parse_price_tiers(raw: &Value) -> Vec<PriceTier> {
                     Some(PriceTier {
                         id: parsed.get("id")?.as_str()?.to_string(),
                         name: parsed.get("name")?.as_str()?.to_string(),
-                        amount_cents: parsed
-                            .get("amount_cents")
-                            .and_then(Value::as_i64)
-                            .unwrap_or(0),
+                        amount_cents: parsed.get("amount_cents").and_then(Value::as_i64),
                     })
                 })
                 .collect()
@@ -236,20 +242,85 @@ mod tests {
             PriceTier {
                 id: "a".into(),
                 name: "早鸟".into(),
-                amount_cents: 9900,
+                amount_cents: Some(9900),
             },
             PriceTier {
                 id: "b".into(),
                 name: "标准".into(),
-                amount_cents: 12900,
+                amount_cents: Some(12900),
             },
         ];
         assert_eq!(
             detail_with(true, tiers, false, None).price_mode(),
             PriceMode::Paid {
-                min_amount_cents: 9900,
+                min_amount_cents: Some(9900),
                 tiers: 2
             }
+        );
+    }
+
+    #[test]
+    fn unknown_tier_amount_is_preserved_as_none() {
+        let raw = serde_json::json!([
+            r#"{"id":"a","name":"早鸟","amount_cents":9900}"#,
+            r#"{"id":"b","name":"脏值","amount_cents":null}"#,
+            r#"{"id":"c","name":"缺键"}"#
+        ]);
+        let tiers = parse_price_tiers(&raw);
+        assert_eq!(tiers.len(), 3);
+        assert_eq!(tiers[0].amount_cents, Some(9900));
+        assert_eq!(
+            tiers[1].amount_cents, None,
+            "null 金额必须保持未知，不能吞成 0"
+        );
+        assert_eq!(tiers[2].amount_cents, None, "缺键金额同样是未知");
+    }
+
+    #[test]
+    fn paid_mode_min_ignores_unknown_amounts() {
+        let tiers = vec![
+            PriceTier {
+                id: "a".into(),
+                name: "未知".into(),
+                amount_cents: None,
+            },
+            PriceTier {
+                id: "b".into(),
+                name: "标准".into(),
+                amount_cents: Some(12900),
+            },
+        ];
+        assert_eq!(
+            detail_with(true, tiers, false, None).price_mode(),
+            PriceMode::Paid {
+                min_amount_cents: Some(12900),
+                tiers: 2
+            },
+            "至少一个已知金额时，起价必须来自已知档位而不是 0"
+        );
+    }
+
+    #[test]
+    fn paid_mode_with_only_unknown_amounts_has_no_min() {
+        let tiers = vec![
+            PriceTier {
+                id: "a".into(),
+                name: "未知 A".into(),
+                amount_cents: None,
+            },
+            PriceTier {
+                id: "b".into(),
+                name: "未知 B".into(),
+                amount_cents: None,
+            },
+        ];
+        assert_eq!(
+            detail_with(true, tiers, false, None).price_mode(),
+            PriceMode::Paid {
+                min_amount_cents: None,
+                tiers: 2
+            },
+            "全部未知时不得编造 ¥0.00 起价"
         );
     }
 

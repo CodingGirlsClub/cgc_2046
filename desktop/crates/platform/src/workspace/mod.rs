@@ -183,6 +183,26 @@ pub struct WorkspaceScope {
     pub epoch: u64,
 }
 
+/// 列表查询的数据作用域：当前工作区，或全平台公开面。
+///
+/// `Public` 不注入 `workspaceId`，并把过滤固定为 `status=open` + `visibility=public`，
+/// 与 Web 公开发现页（`web/lib/public-offerings.ts`）同一口径；
+/// `Workspace` 只按工作区隔离，不额外收窄可见性。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OfferingScope<'a> {
+    Workspace(&'a WorkspaceScope),
+    Public,
+}
+
+impl<'a> OfferingScope<'a> {
+    pub fn workspace(self) -> Option<&'a WorkspaceScope> {
+        match self {
+            Self::Workspace(scope) => Some(scope),
+            Self::Public => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WorkspaceSummary {
     pub id: String,
@@ -470,6 +490,19 @@ impl WorkspaceService {
         self.epoch == epoch
     }
 
+    /// 按 slug 切换（路由是唯一真源）；未知或无权限时返回 false 且不改 current。
+    pub fn switch_to_slug(&mut self, slug: &str) -> bool {
+        let Some(workspace_id) = self
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.slug == slug && workspace.can_access)
+            .map(|workspace| workspace.id.clone())
+        else {
+            return false;
+        };
+        self.switch_to(&workspace_id)
+    }
+
     /// 切换当前工作台：变更成功才递增 epoch（旧 in-flight 响应随后被守卫丢弃）。
     pub fn switch_to(&mut self, workspace_id: &str) -> bool {
         if self.current_id() == Some(workspace_id) {
@@ -509,6 +542,29 @@ mod workspace_tests {
             Some("2046")
         );
         assert_eq!(service.epoch(), 1);
+    }
+
+    #[test]
+    fn switch_by_slug_selects_only_accessible_workspaces() {
+        let mut service = service();
+        service.begin_load();
+        service.adopt(service.fetch(None).expect("workspaces"));
+        assert_eq!(
+            service.current().map(|workspace| workspace.slug.as_str()),
+            Some("2046")
+        );
+
+        assert!(service.switch_to_slug("demo"));
+        assert_eq!(
+            service.current().map(|workspace| workspace.slug.as_str()),
+            Some("demo")
+        );
+
+        assert!(!service.switch_to_slug("missing"));
+        assert_eq!(
+            service.current().map(|workspace| workspace.slug.as_str()),
+            Some("demo")
+        );
     }
 
     #[test]

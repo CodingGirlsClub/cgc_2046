@@ -27,7 +27,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use cgc_events::enroll::{enrollment_error_key, EnrollmentRequest};
 use cgc_events::enrollments::{
-    EnrollmentsApi, FakeEnrollmentsApi, HttpEnrollmentsApi, MyEnrollmentRow,
+    EnrollmentsApi, FakeEnrollmentsApi, HttpEnrollmentsApi, MyEnrollmentRow, MyLearningRunRow,
 };
 use cgc_events::list::{
     EventListService, EventsApi, FakeEventsApi, HttpEventsApi, ListState, StatusFilter,
@@ -77,7 +77,13 @@ use crate::theme::{self, space, ThemePreference, RADIUS_LARGE, RADIUS_MEDIUM, RA
 mod agent_icons;
 mod agent_session;
 mod controller;
+mod enrollment_flow;
 mod history_actions;
+mod key_dispatch;
+mod nav_copy;
+mod offering_load;
+mod page_context_build;
+mod tab_lifecycle;
 pub(crate) use history_actions::notify_history_changed;
 pub use history_actions::register_history_root;
 pub(crate) use history_actions::root_weak;
@@ -91,6 +97,24 @@ mod footer_tests;
 mod panel_memory_tests;
 #[cfg(all(test, cgc_ui_tests))]
 mod titlebar_tests;
+
+/// UI 测试夹具：以演示账号进入 `SignedIn`（内存凭证存储，不碰 keychain）。
+///
+/// 凭据取自 `FakeAuthApi::demo()` 自身，调用点因此不出现密码字面量——密码实参
+/// 写成字面量会被 CodeQL `rust/hard-coded-cryptographic-value` 判成硬编码凭证。
+#[cfg(all(test, cgc_ui_tests))]
+pub(in crate::root_view) fn demo_signed_in() -> SessionService {
+    let api = cgc_platform::session::FakeAuthApi::demo();
+    let session = api.demo_session().expect("fake demo session");
+    let mut service = SessionService::new(
+        Box::new(api),
+        Box::new(cgc_platform::session::MemoryStore::default()),
+    );
+    service
+        .adopt_signed_in(session)
+        .expect("memory store persists");
+    service
+}
 
 use state::{AgentRegistryFilter, RightPanel, ShellState, SiteTreeSection};
 
@@ -470,6 +494,26 @@ impl RootView {
     ) -> Self {
         Self {
             state: ShellState::with_session(registry, language, preference, session),
+        }
+    }
+
+    /// 测试/受控启动：固定起始路径，不读本机最近工作区记录。
+    #[cfg(test)]
+    pub(crate) fn with_session_from(
+        registry: RouteRegistry,
+        language: Language,
+        preference: ThemePreference,
+        session: SessionService,
+        start_path: &str,
+    ) -> Self {
+        Self {
+            state: ShellState::with_session_from(
+                registry,
+                language,
+                preference,
+                session,
+                Some(start_path),
+            ),
         }
     }
 
@@ -853,34 +897,42 @@ impl Render for RootView {
                 self.workspaces.state(),
                 WorkspaceListState::Idle | WorkspaceListState::Loading
             );
+            if workspaces_ready {
+                self.sync_workspace_route(cx);
+                self.sync_agent_workspace_scope(cx);
+            }
             let current_id = self
                 .current
                 .as_ref()
                 .map(|route_match| route_match.route.id);
-            if workspaces_ready
-                && matches!(current_id, Some("events.list") | Some("account.workspace"))
+            // 站点级页面（公开目录 / 我的学习 / 我的报名）不等工作区加载。
+            let data_ready =
+                workspaces_ready || !current_id.is_some_and(crate::routing::requires_workspace);
+            if data_ready
+                && matches!(
+                    current_id,
+                    Some("events.list") | Some("events.public_list") | Some("account.workspace")
+                )
                 && !self.events_started
                 && matches!(self.events.state(), ListState::Idle)
             {
                 self.start_events_load(cx, true);
             }
-            if workspaces_ready
+            if data_ready
                 && matches!(
                     current_id,
-                    Some("events.mine")
-                        | Some("events.participations")
-                        | Some("account.workspace")
-                        | Some("courses.learning_home")
+                    Some("events.participations") | Some("courses.learning_home")
                 )
                 && !self.enrollments_started
                 && matches!(self.enrollments_state, EnrollmentsListState::Idle)
             {
                 self.start_enrollments_load(cx);
             }
-            if workspaces_ready
-                && current_id == Some("events.detail")
-                && !self.detail_started
-                && matches!(self.detail.state(), ListState::Idle)
+            if data_ready
+                && matches!(
+                    current_id,
+                    Some("events.detail") | Some("events.public_detail")
+                )
             {
                 if let Some(event_id) = self
                     .current
@@ -888,20 +940,35 @@ impl Render for RootView {
                     .and_then(|route_match| route_match.params.get("id"))
                     .cloned()
                 {
-                    self.start_detail_load(cx, event_id);
+                    // 详情服务跨 route 复用：id 变了必须先清掉上一条，否则显示错对象。
+                    if self.detail.event_id() != Some(event_id.as_str()) {
+                        self.detail.reset();
+                        self.detail_started = false;
+                    }
+                    if !self.detail_started && matches!(self.detail.state(), ListState::Idle) {
+                        self.start_detail_load(cx, event_id);
+                    }
                 }
             }
-            if workspaces_ready
-                && current_id == Some("courses.catalog")
+            if data_ready
+                && matches!(
+                    current_id,
+                    Some("courses.catalog")
+                        | Some("courses.public_list")
+                        | Some("account.workspace")
+                )
                 && !self.courses_started
                 && matches!(self.courses.state(), CoursesListState::Idle)
             {
                 self.start_courses_load(cx, true);
             }
-            if workspaces_ready
+            if data_ready
                 && matches!(
                     current_id,
-                    Some("courses.detail") | Some("courses.learning")
+                    Some("courses.detail")
+                        | Some("courses.public_detail")
+                        | Some("courses.learning")
+                        | Some("courses.public_learning")
                 )
                 && !self.course_detail_started
                 && matches!(self.course_detail.state(), CoursesListState::Idle)
@@ -915,16 +982,21 @@ impl Render for RootView {
                     self.start_course_detail_load(cx, course_id);
                 }
             }
-            if current_id == Some("courses.learning")
-                && matches!(self.course_detail.state(), CoursesListState::Ready)
+            if matches!(
+                current_id,
+                Some("courses.learning") | Some("courses.public_learning")
+            ) && matches!(self.course_detail.state(), CoursesListState::Ready)
                 && std::env::var("CGC_AUTO_CHAT").as_deref() == Ok("1")
                 && matches!(self.chat.session.phase, ConnectionPhase::Idle)
             {
                 self.start_chat(cx);
             }
 
-            if workspaces_ready
-                && current_id == Some("courses.learning")
+            if data_ready
+                && matches!(
+                    current_id,
+                    Some("courses.learning") | Some("courses.public_learning")
+                )
                 && matches!(self.course_detail.state(), CoursesListState::Ready)
                 && matches!(self.content.state(), CourseContentState::Idle)
             {
@@ -937,8 +1009,11 @@ impl Render for RootView {
                     self.start_content_load(cx, course_id);
                 }
             }
-            if workspaces_ready
-                && current_id == Some("courses.learning")
+            if data_ready
+                && matches!(
+                    current_id,
+                    Some("courses.learning") | Some("courses.public_learning")
+                )
                 && matches!(self.course_detail.state(), CoursesListState::Ready)
                 && matches!(self.projection.state(), ProjectionState::Idle)
             {
@@ -951,14 +1026,24 @@ impl Render for RootView {
                     self.start_projection_load(cx, course_id);
                 }
             }
+            if data_ready
+                && self.right_panel_open
+                && self.right_panel == RightPanel::SiteTree
+                && !self.site_tree_query.trim().is_empty()
+            {
+                self.ensure_navigation_data(cx);
+            }
         }
 
         let key_focus = self.ensure_key_focus(cx);
         if is_signed_in
-            && self
-                .current
-                .as_ref()
-                .is_some_and(|route_match| route_match.route.id == "courses.detail")
+            && window.focused(cx).is_none()
+            && self.current.as_ref().is_some_and(|route_match| {
+                matches!(
+                    route_match.route.id,
+                    "courses.detail" | "courses.public_detail" | "courses.public_learning"
+                )
+            })
         {
             window.focus(&key_focus, cx);
         }
@@ -1267,6 +1352,12 @@ impl Render for RootView {
                                             if matches!(
                                                 self.workspaces.state(),
                                                 WorkspaceListState::Empty
+                                            ) && self.current.as_ref().is_some_and(
+                                                |route_match| {
+                                                    crate::routing::requires_workspace(
+                                                        route_match.route.id,
+                                                    )
+                                                },
                                             ) {
                                                 self.render_workspace_empty(language, &palette)
                                             } else {
@@ -1285,7 +1376,8 @@ impl Render for RootView {
                                                             cx,
                                                         )
                                                     }
-                                                    Some("events.list") => {
+                                                    Some("events.list")
+                                                    | Some("events.public_list") => {
                                                         screens::render_events_list(
                                                             &mut screens::ScreenContext::new(
                                                                 &mut self.state,
@@ -1295,18 +1387,9 @@ impl Render for RootView {
                                                             cx,
                                                         )
                                                     }
-                                                    Some("events.detail") => {
+                                                    Some("events.detail")
+                                                    | Some("events.public_detail") => {
                                                         screens::render_detail(
-                                                            &mut screens::ScreenContext::new(
-                                                                &mut self.state,
-                                                            ),
-                                                            language,
-                                                            &palette,
-                                                            cx,
-                                                        )
-                                                    }
-                                                    Some("events.mine") => {
-                                                        screens::render_enrollments_list(
                                                             &mut screens::ScreenContext::new(
                                                                 &mut self.state,
                                                             ),
@@ -1335,7 +1418,8 @@ impl Render for RootView {
                                                             cx,
                                                         )
                                                     }
-                                                    Some("courses.catalog") => {
+                                                    Some("courses.catalog")
+                                                    | Some("courses.public_list") => {
                                                         screens::render_courses_list(
                                                             &mut screens::ScreenContext::new(
                                                                 &mut self.state,
@@ -1365,7 +1449,8 @@ impl Render for RootView {
                                                             cx,
                                                         )
                                                     }
-                                                    Some("courses.detail") => {
+                                                    Some("courses.detail")
+                                                    | Some("courses.public_detail") => {
                                                         screens::render_course_detail(
                                                             &mut screens::ScreenContext::new(
                                                                 &mut self.state,
@@ -1375,7 +1460,8 @@ impl Render for RootView {
                                                             cx,
                                                         )
                                                     }
-                                                    Some("courses.learning") => {
+                                                    Some("courses.learning")
+                                                    | Some("courses.public_learning") => {
                                                         let active_issue = self
                                                             .active_issue_tab()
                                                             .map(|(course_id, issue_id)| {
@@ -1817,7 +1903,10 @@ impl RootView {
                     .accessibility_label(translate(language, Key::AccountWorkspaceTitle))
                     .on_click(move |_, _, cx| {
                         let _ = overview_root.update(cx, |this, cx| {
-                            this.navigate("/workspace");
+                            let path = this
+                                .workspace_path("")
+                                .unwrap_or_else(|| "/learning".to_string());
+                            this.navigate(&path);
                             cx.notify();
                         });
                     }),
@@ -2165,7 +2254,16 @@ impl RootView {
     }
 }
 
-fn initial_route(registry: &RouteRegistry) -> Option<RouteMatch> {
+fn initial_route(
+    registry: &RouteRegistry,
+    start_path: Option<&str>,
+    last_slug: Option<&str>,
+) -> Option<RouteMatch> {
+    if let Some(path) = start_path {
+        if let crate::routing::RouteSelection::Match(route_match) = registry.select(path) {
+            return Some(route_match);
+        }
+    }
     if let Ok(path) = std::env::var("CGC_START_PATH") {
         if let crate::routing::RouteSelection::Match(route_match) = registry.select(&path) {
             return Some(route_match);
@@ -2176,15 +2274,18 @@ fn initial_route(registry: &RouteRegistry) -> Option<RouteMatch> {
             return Some(RouteMatch {
                 route,
                 params: std::collections::BTreeMap::new(),
+                query: std::collections::BTreeMap::new(),
             });
         }
     }
-    if let crate::routing::RouteSelection::Match(route_match) = registry.select("/workspace") {
+    let start = crate::routing::home_target(last_slug);
+    if let crate::routing::RouteSelection::Match(route_match) = registry.select(&start) {
         return Some(route_match);
     }
     registry.routes().first().copied().map(|route| RouteMatch {
         route,
         params: std::collections::BTreeMap::new(),
+        query: std::collections::BTreeMap::new(),
     })
 }
 
@@ -2212,6 +2313,7 @@ fn status_label(language: Language, status: &str) -> &'static str {
 
 fn course_row(
     course: &CourseSummary,
+    origin: Option<AnyElement>,
     language: Language,
     palette: &theme::Palette,
     cx: &mut Context<RootView>,
@@ -2229,6 +2331,9 @@ fn course_row(
     let course_id = course.id.clone();
     div()
         .id(format!("course-row-{}", course.id))
+        .test_support()
+        .role(Role::Link)
+        .aria_label(course.title.clone())
         .flex()
         .flex_row()
         .items_center()
@@ -2245,23 +2350,42 @@ fn course_row(
                 .flex_col()
                 .gap(px(2.0))
                 .child(div().text_color(palette.ink).child(course.title.clone()))
-                .child(
-                    div()
-                        .text_size(px(11.0))
-                        .text_color(palette.ink_3)
-                        .child(format!("{starts} · {price}")),
-                ),
+                .children(origin)
+                .child(div().text_size(px(11.0)).text_color(palette.ink_3).child({
+                    let base = format!("{starts} · {price}");
+                    match course.registration_deadline.as_deref() {
+                        Some(deadline) => {
+                            let deadline = deadline.chars().take(10).collect::<String>();
+                            format!(
+                                "{base} · {} {deadline}",
+                                translate(language, Key::EventsListDeadline)
+                            )
+                        }
+                        None => base,
+                    }
+                })),
         )
-        .child(
+        .child({
+            let badge_key = course
+                .enrollment_badge
+                .as_deref()
+                .and_then(crate::root_view::nav_copy::enrollment_badge_key);
+            let label = match badge_key {
+                Some(key) => translate(language, key),
+                None => status_label(language, course.status.as_str()),
+            };
             div()
+                .id(format!("course-badge-{}", course.id))
+                .test_support()
+                .aria_label(label.to_string())
                 .px(px(6.0))
                 .py(px(2.0))
                 .rounded(px(RADIUS_SMALL))
                 .bg(palette.soft)
                 .text_size(px(11.0))
                 .text_color(palette.ink_2)
-                .child(status_label(language, course.status.as_str())),
-        )
+                .child(label)
+        })
         .on_click(cx.listener(move |this, _, _, cx| {
             this.navigate_to_course_detail(&course_id, cx);
             cx.notify();
@@ -2695,16 +2819,94 @@ mod tests {
         }
     }
 
+    thread_local! {
+        /// R16：导航与布局用例会经 `navigate` → `persist_workspace_state` 把工作区状态
+        /// 整文件重写。夹具在用例线程首次构造视图时安装隔离 guard，把
+        /// `CGC_WORKSPACE_STATE_FILE` 指向用例私有的临时文件，避免写进开发者真实状态文件。
+        /// guard 自带进程级锁，因此不依赖测试线程数（CI 的 `cargo test --workspace` 是并行的）。
+        static WORKSPACE_STATE_ISOLATION: std::cell::RefCell<Option<WorkspaceStateIsolation>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    /// 用例私有的工作区状态文件；`Drop` 时还原进程级 env 并删除临时文件。
+    ///
+    /// guard 在整个生命周期里持有进程级环境锁（`workspace_state::test_env_lock`，与
+    /// `workspace_state` 自身用例共用）：`CGC_WORKSPACE_STATE_FILE` 是进程级 env，而 CI
+    /// 的 workspace 步骤是裸 `cargo test --workspace`（并行），靠 `--test-threads=1`
+    /// 串行才成立的前提在 CI 上不成立。
+    pub(super) struct WorkspaceStateIsolation {
+        previous: Option<std::ffi::OsString>,
+        file: std::path::PathBuf,
+        /// 持锁到 guard drop；同线程嵌套申请时是空壳（锁由外层 guard 持有）。
+        _env_lock: crate::workspace_state::test_env_lock::Guard,
+    }
+
+    impl WorkspaceStateIsolation {
+        fn install(file: std::path::PathBuf) -> Self {
+            let env_lock = crate::workspace_state::test_env_lock::acquire();
+            let previous = std::env::var_os("CGC_WORKSPACE_STATE_FILE");
+            std::env::set_var("CGC_WORKSPACE_STATE_FILE", &file);
+            Self {
+                previous,
+                file,
+                _env_lock: env_lock,
+            }
+        }
+    }
+
+    impl Drop for WorkspaceStateIsolation {
+        fn drop(&mut self) {
+            match self.previous.take() {
+                Some(previous) => std::env::set_var("CGC_WORKSPACE_STATE_FILE", previous),
+                None => std::env::remove_var("CGC_WORKSPACE_STATE_FILE"),
+            }
+            let _ = std::fs::remove_file(&self.file);
+        }
+    }
+
+    /// 隔离状态文件路径：临时目录下按进程隔离，每次调用换一个新文件名，
+    /// 避免用例之间共享残留状态。
+    fn isolated_workspace_state_file() -> std::path::PathBuf {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let index = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let directory =
+            std::env::temp_dir().join(format!("cgc-root-view-state-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("isolated workspace state directory");
+        directory.join(format!("workspace_state-{index}.json"))
+    }
+
+    /// 默认状态文件的摘要：断言只比较摘要，失败时不把开发者状态文件内容打进测试输出。
+    pub(super) fn default_state_digest(path: &std::path::Path) -> Option<String> {
+        std::fs::read(path)
+            .ok()
+            .map(|bytes| cgc_platform::registry::checksum::sha256_hex(&bytes))
+    }
+
+    /// 供同 crate 其他测试模块复用同一套隔离（`enrollment_tests` 点跨台入口也会
+    /// 整文件持久化工作区状态）。调用方持有 guard 到用例结束：`Drop` 还原
+    /// `CGC_WORKSPACE_STATE_FILE` 并清理临时文件。
+    pub(super) fn isolate_workspace_state() -> WorkspaceStateIsolation {
+        WorkspaceStateIsolation::install(isolated_workspace_state_file())
+    }
+
     fn view() -> RootView {
+        WORKSPACE_STATE_ISOLATION.with(|isolation| {
+            // 同一用例可能构造多个 view：保留首个 guard，否则第二个空壳 guard 会在
+            // 替换 `Some` 时释放真正的进程锁，等于测试环境隔离失效（P2-2 边角）。
+            if isolation.borrow().is_none() {
+                *isolation.borrow_mut() = Some(isolate_workspace_state());
+            }
+        });
         let session = SessionService::new(
             Box::new(FakeAuthApi::demo()),
             Box::new(MemoryStore::default()),
         );
-        RootView::with_session(
+        RootView::with_session_from(
             build_registry().expect("registry builds"),
             Language::Zh,
             ThemePreference::System,
             session,
+            "/learning",
         )
     }
 
@@ -2803,19 +3005,19 @@ mod tests {
     fn event_context_never_attributes_cached_or_unready_details_to_the_active_event() {
         use crate::page_context::PageBody;
         let mut view = view();
-        activate_context_tab(&mut view, "/events/event-a", "Event A");
+        activate_context_tab(&mut view, "/w/2046/events/event-a", "Event A");
         view.state.detail.begin_load("event-a");
         view.state.detail.adopt(context_event("event-a", "Event A"));
         view.refresh_page_context();
         for agent in ["native", "codex"] {
             assert!(context_prompt(&view, agent).contains("Description for Event A"));
         }
-        activate_context_tab(&mut view, "/events/event-b", "Event B");
+        activate_context_tab(&mut view, "/w/2046/events/event-b", "Event B");
         view.refresh_page_context();
         assert_eq!(view.page_context.visible().unwrap().body, PageBody::Loading);
         for agent in ["native", "codex"] {
             let prompt = context_prompt(&view, agent);
-            assert!(prompt.contains("route=/events/event-b"));
+            assert!(prompt.contains("route=/w/2046/events/event-b"));
             assert!(!prompt.contains("Description for Event A"));
         }
         view.state.detail.begin_load("event-b");
@@ -2855,12 +3057,12 @@ mod tests {
             .fail(&cgc_events::list::EventsError::Transport(
                 "Previous event request failed".into(),
             ));
-        activate_context_tab(&mut view, "/events/event-c", "Event C");
+        activate_context_tab(&mut view, "/w/2046/events/event-c", "Event C");
         view.refresh_page_context();
         assert_eq!(view.page_context.visible().unwrap().body, PageBody::Loading);
         for agent in ["native", "codex"] {
             let prompt = context_prompt(&view, agent);
-            assert!(prompt.contains("route=/events/event-c"));
+            assert!(prompt.contains("route=/w/2046/events/event-c"));
             assert!(!prompt.contains("Previous event request failed"));
         }
     }
@@ -2871,6 +3073,7 @@ mod tests {
         let mut view = view();
         let event = cgc_events::enrollments::MyEnrollmentRow {
             id: "event-enrollment".into(),
+            workspace_id: "ws-1".into(),
             status: "confirmed".into(),
             target_title: Some("Event registration outside the learning list".into()),
             starts_at: None,
@@ -2910,7 +3113,7 @@ mod tests {
             assert!(!context_prompt(&view, agent)
                 .contains("Event registration outside the learning list"));
         }
-        for path in ["/events/mine", "/participations"] {
+        for path in ["/participations"] {
             activate_context_tab(&mut view, path, "Participations");
             view.refresh_page_context();
             for agent in ["native", "codex"] {
@@ -2966,11 +3169,13 @@ mod tests {
             },
         };
         for focused_issue in [false, true] {
-            activate_context_tab(&mut view, "/courses/course-a/learn", "Course A");
+            activate_context_tab(&mut view, "/w/2046/courses/course-a/learn", "Course A");
             if focused_issue {
-                let tab = super::state::PaneTab::issue("course-a", "issue-a", "Ownership");
-                view.state.active_tab = Some(tab.id.clone());
-                view.state.tabs.push(tab);
+                activate_context_tab(
+                    &mut view,
+                    "/w/2046/courses/course-a/learn?issue=issue-a",
+                    "Ownership",
+                );
             }
             view.state.content.begin_load("course-a");
             view.state.content.adopt(content.clone());
@@ -3035,6 +3240,8 @@ mod tests {
                 visibility: "public".into(),
                 workspace_id: Some("course-workspace".into()),
                 pricing_enabled: false,
+                enrollment_policy: "open".into(),
+                available_price_tiers: Vec::new(),
                 enrollment_status: Some("confirmed".into()),
                 revision_number: previous_revision,
             };
@@ -3049,7 +3256,7 @@ mod tests {
                     ..CourseContentDocument::default()
                 },
             };
-            activate_context_tab(&mut view, "/courses/course-a/learn", "Course A");
+            activate_context_tab(&mut view, "/w/2046/courses/course-a/learn", "Course A");
             view.adopt_course_detail(detail.clone());
             view.state.content.begin_load("course-a");
             view.state.content.adopt(content.clone());
@@ -3060,8 +3267,8 @@ mod tests {
             }
 
             for revision in [previous_revision, refreshed_revision] {
-                activate_context_tab(&mut view, "/workspace", "Workspace");
-                activate_context_tab(&mut view, "/courses/course-a/learn", "Course A");
+                activate_context_tab(&mut view, "/w/2046", "Workspace");
+                activate_context_tab(&mut view, "/w/2046/courses/course-a/learn", "Course A");
                 assert!(view.state.course_detail.detail().is_none());
                 assert_eq!(view.state.content.content(), Some(&content));
                 view.adopt_course_detail(CourseDetail {
@@ -3114,15 +3321,51 @@ mod tests {
     }
 
     #[test]
+    fn learning_home_context_excludes_unconfirmed_courses() {
+        let mut view = view();
+        view.state.enrollments_rows = vec![
+            cgc_events::enrollments::MyEnrollmentRow {
+                id: "enr-a".into(),
+                workspace_id: "ws-1".into(),
+                status: "confirmed".into(),
+                target_title: Some("Confirmed course".into()),
+                starts_at: None,
+                event_id: None,
+                course_id: Some("c-1".into()),
+                payment_mode: None,
+                check_in_code: None,
+            },
+            cgc_events::enrollments::MyEnrollmentRow {
+                id: "enr-b".into(),
+                workspace_id: "ws-1".into(),
+                status: "payment_pending".into(),
+                target_title: Some("Unpaid course".into()),
+                starts_at: None,
+                event_id: None,
+                course_id: Some("c-2".into()),
+                payment_mode: Some("paid".into()),
+                check_in_code: None,
+            },
+        ];
+        view.state.enrollments_state = super::EnrollmentsListState::Ready;
+        activate_context_tab(&mut view, "/learning", "My learning");
+        view.refresh_page_context();
+        let prompt = context_prompt(&view, "native");
+        assert!(prompt.contains("Confirmed course"));
+        assert!(
+            !prompt.contains("Unpaid course"),
+            "the learning page hides unpaid courses, so its context must too"
+        );
+    }
+
+    #[test]
     fn course_context_keeps_route_identity_before_detail_loads() {
         let mut view = view();
-        view.state.tabs.push(super::state::PaneTab::issue(
-            "course-a",
-            "unit-a",
+        activate_context_tab(
+            &mut view,
+            "/w/2046/courses/course-a/learn?issue=unit-a",
             "First task",
-        ));
-        view.state.active_tab = Some("issue:course-a:unit-a".into());
-        view.navigate("/courses/course-a/learn");
+        );
         view.refresh_page_context();
         let page = view.page_context.visible().unwrap();
         let course = page.course.unwrap();
@@ -3131,11 +3374,11 @@ mod tests {
         assert_eq!(page.body, crate::page_context::PageBody::Loading);
         view.state.course_detail_started = true;
         view.state.tabs.push(super::state::PaneTab::page(
-            "/courses/course-b/learn",
+            "/w/2046/courses/course-b/learn",
             "Second course",
         ));
-        view.state.active_tab = Some("page:/courses/course-b/learn".into());
-        view.navigate("/courses/course-b/learn");
+        view.state.active_tab = Some("page:/w/2046/courses/course-b/learn".into());
+        view.navigate("/w/2046/courses/course-b/learn");
         assert!(!view.state.course_detail_started);
         view.refresh_page_context();
         assert_eq!(
@@ -3145,28 +3388,19 @@ mod tests {
     }
 
     #[test]
-    fn course_context_uses_the_courses_workspace_instead_of_the_selector() {
+    fn course_context_workspace_follows_the_route_slug() {
         let mut view = view();
         view.state
             .workspaces
             .adopt(vec![cgc_platform::workspace::WorkspaceSummary {
-                id: "selector-workspace".into(),
-                slug: "selected".into(),
-                name: "Selected workspace".into(),
+                id: "route-workspace".into(),
+                slug: "2046".into(),
+                name: "Route workspace".into(),
                 my_role_names: Vec::new(),
                 member_count: None,
                 can_access: true,
             }]);
-        assert_eq!(
-            view.state.workspaces.current_id(),
-            Some("selector-workspace")
-        );
-        view.state.tabs.push(super::state::PaneTab::page(
-            "/courses/course-a/learn",
-            "Course",
-        ));
-        view.state.active_tab = Some("page:/courses/course-a/learn".into());
-        view.navigate("/courses/course-a/learn");
+        activate_context_tab(&mut view, "/w/2046/courses/course-a/learn", "Course");
         view.state
             .course_detail
             .adopt(cgc_courses::catalog::CourseDetail {
@@ -3177,24 +3411,198 @@ mod tests {
                 visibility: "public".into(),
                 workspace_id: Some("course-workspace".into()),
                 pricing_enabled: false,
+                enrollment_policy: "open".into(),
+                available_price_tiers: Vec::new(),
                 enrollment_status: None,
                 revision_number: Some(3),
             });
         view.refresh_page_context();
         assert_eq!(
             view.page_context.visible().unwrap().workspace_id.as_deref(),
-            Some("course-workspace")
+            Some("route-workspace"),
+            "the route slug decides the workspace, not the course detail"
+        );
+
+        // 站点级学习页不借用当前工作区，即使课程详情自带归属。
+        activate_context_tab(&mut view, "/courses/course-a/learn", "Public course");
+        view.refresh_page_context();
+        assert_eq!(
+            view.page_context.visible().unwrap().workspace_id,
+            None,
+            "site-level pages must not borrow the selected workspace"
+        );
+    }
+
+    #[test]
+    fn agent_workspace_prefers_route_then_course_then_session() {
+        let mut view = view();
+        view.state.workspaces.adopt(vec![
+            cgc_platform::workspace::WorkspaceSummary {
+                id: "ws-alpha".into(),
+                slug: "alpha".into(),
+                name: "Alpha".into(),
+                my_role_names: Vec::new(),
+                member_count: None,
+                can_access: true,
+            },
+            cgc_platform::workspace::WorkspaceSummary {
+                id: "ws-beta".into(),
+                slug: "beta".into(),
+                name: "Beta".into(),
+                my_role_names: Vec::new(),
+                member_count: None,
+                can_access: true,
+            },
+        ]);
+        activate_context_tab(&mut view, "/w/alpha/courses", "Courses");
+        assert_eq!(view.agent_workspace_id().as_deref(), Some("ws-alpha"));
+
+        activate_context_tab(&mut view, "/courses/course-b/learn", "Public course");
+        view.state
+            .course_detail
+            .adopt(cgc_courses::catalog::CourseDetail {
+                id: "course-b".into(),
+                title: "Course B".into(),
+                description: None,
+                status: "published".into(),
+                visibility: "public".into(),
+                workspace_id: Some("ws-beta".into()),
+                pricing_enabled: false,
+                enrollment_policy: "open".into(),
+                available_price_tiers: Vec::new(),
+                enrollment_status: None,
+                revision_number: Some(1),
+            });
+        assert_eq!(
+            view.agent_workspace_id().as_deref(),
+            Some("ws-beta"),
+            "site-level course pages use the course owner for tool parameters"
+        );
+
+        activate_context_tab(&mut view, "/learning", "My learning");
+        assert_eq!(
+            view.agent_workspace_id().as_deref(),
+            Some("ws-alpha"),
+            "pages without a course fall back to the session workspace"
+        );
+    }
+
+    #[test]
+    fn agent_workspace_keeps_enrolled_non_member_course_owner() {
+        let mut view = view();
+        view.state
+            .workspaces
+            .adopt(vec![cgc_platform::workspace::WorkspaceSummary {
+                id: "ws-alpha".into(),
+                slug: "alpha".into(),
+                name: "Alpha".into(),
+                my_role_names: Vec::new(),
+                member_count: None,
+                can_access: true,
+            }]);
+        activate_context_tab(&mut view, "/courses/course-b/learn", "Public course");
+        view.state
+            .course_detail
+            .adopt(cgc_courses::catalog::CourseDetail {
+                id: "course-b".into(),
+                title: "Course B".into(),
+                description: None,
+                status: "published".into(),
+                visibility: "public".into(),
+                workspace_id: Some("ws-owner".into()),
+                pricing_enabled: false,
+                enrollment_policy: "open".into(),
+                available_price_tiers: Vec::new(),
+                enrollment_status: Some("confirmed".into()),
+                revision_number: Some(1),
+            });
+        assert_eq!(
+            view.agent_workspace_id().as_deref(),
+            Some("ws-owner"),
+            "已报名公开课的非成员学员必须保留报名/学习投影返回的 owner，不能按 can_access 丢弃"
+        );
+        assert!(
+            !view
+                .state
+                .workspaces
+                .workspaces()
+                .iter()
+                .any(|workspace| workspace.id == "ws-owner"),
+            "测试前提：owner 工作区不是本人工作区列表成员"
+        );
+    }
+
+    #[test]
+    fn loading_a_course_under_the_wrong_slug_canonicalizes_the_route() {
+        let mut view = view();
+        // R16：下面的 `canonicalize_course_route` 会触发 `navigate` → 整文件持久化，
+        // 必须写进夹具安装的隔离文件，而不是开发者真实状态文件。
+        let isolated = std::path::PathBuf::from(
+            std::env::var_os("CGC_WORKSPACE_STATE_FILE").expect("隔离状态文件已安装"),
+        );
+        let developer_file = cgc_platform::paths::AppPaths::from_env().workspace_state_file();
+        let developer_before = default_state_digest(&developer_file);
+        view.state.workspaces.adopt(vec![
+            cgc_platform::workspace::WorkspaceSummary {
+                id: "ws-alpha".into(),
+                slug: "alpha".into(),
+                name: "Alpha".into(),
+                my_role_names: Vec::new(),
+                member_count: None,
+                can_access: true,
+            },
+            cgc_platform::workspace::WorkspaceSummary {
+                id: "ws-beta".into(),
+                slug: "beta".into(),
+                name: "Beta".into(),
+                my_role_names: Vec::new(),
+                member_count: None,
+                can_access: true,
+            },
+        ]);
+        activate_context_tab(&mut view, "/w/alpha/courses/course-b/learn", "Course B");
+        let detail = cgc_courses::catalog::CourseDetail {
+            id: "course-b".into(),
+            title: "Course B".into(),
+            description: None,
+            status: "published".into(),
+            visibility: "public".into(),
+            workspace_id: Some("ws-beta".into()),
+            pricing_enabled: false,
+            enrollment_policy: "open".into(),
+            available_price_tiers: Vec::new(),
+            enrollment_status: None,
+            revision_number: Some(1),
+        };
+        view.canonicalize_course_route(&detail);
+        let current = view.current.as_ref().expect("route");
+        assert_eq!(current.route.id, "courses.learning");
+        assert_eq!(current.params.get("slug").map(String::as_str), Some("beta"));
+        assert_eq!(
+            view.page_context.visible(),
+            None,
+            "context refreshes on the next render, not mid-navigation"
+        );
+        assert!(
+            isolated.exists(),
+            "导航必须把工作区状态写进用例隔离文件（{isolated:?}）"
+        );
+        assert_eq!(
+            default_state_digest(&developer_file),
+            developer_before,
+            "单测不得创建或改写开发者真实状态文件（{developer_file:?}）"
         );
     }
 
     #[test]
     fn failed_course_detail_reports_unavailable_page_context_with_course_identity() {
         let mut view = view();
-        view.state
-            .tabs
-            .push(super::state::PaneTab::page("/courses/course-a", "Course A"));
+        view.state.tabs.push(super::state::PaneTab::page(
+            "/w/2046/courses/course-a",
+            "Course A",
+        ));
         view.state.active_tab = Some("page:/courses/course-a".into());
-        view.navigate("/courses/course-a");
+        view.navigate("/w/2046/courses/course-a");
         view.state
             .course_detail
             .fail(&cgc_courses::catalog::CoursesError::Transport(
@@ -3212,34 +3620,227 @@ mod tests {
     #[test]
     fn breadcrumb_sections_follow_route() {
         let mut view = view();
-        view.navigate("/events");
+        view.navigate("/w/2046/events");
         assert_eq!(
             view.breadcrumb_context().map(|(label, _)| label),
             Some("events.list.title")
         );
-        view.navigate("/courses/00dcc9a9-3876-4018-ab52-bcf1f0e4e05c/learn");
+        view.navigate("/w/2046/courses/00dcc9a9-3876-4018-ab52-bcf1f0e4e05c/learn");
         assert_eq!(
             view.breadcrumb_context().map(|(label, _)| label),
             Some("courses.catalog.title")
         );
-        view.navigate("/workspace");
+        view.navigate("/w/2046");
         assert_eq!(
             view.breadcrumb_context().map(|(label, _)| label),
             Some("account.workspace.overview")
         );
+        view.navigate("/courses");
+        assert_eq!(
+            view.breadcrumb_context().map(|(label, _)| label),
+            Some("courses.public.title")
+        );
+        view.navigate("/events");
+        assert_eq!(
+            view.breadcrumb_context().map(|(label, _)| label),
+            Some("events.public.title")
+        );
+        view.navigate("/participations");
+        assert_eq!(
+            view.breadcrumb_context().map(|(label, _)| label),
+            Some("events.participations.title")
+        );
+        view.navigate("/courses/c-1/learn");
+        assert_eq!(
+            view.breadcrumb_context().map(|(label, _)| label),
+            Some("courses.public.title")
+        );
     }
 
     #[test]
-    fn workspace_is_default_landing_and_login_target() {
+    fn public_course_detail_switch_resets_the_loaded_detail() {
+        let mut view = view();
+        view.navigate("/courses/c-1");
+        view.state.course_detail_started = true;
+        view.selected_tier = Some("tier-from-a".into());
+        view.navigate("/courses/c-2");
+        assert!(
+            !view.state.course_detail_started,
+            "switching course ids must drop the previous detail"
+        );
+        assert_eq!(
+            view.selected_tier, None,
+            "switching courses must drop a stale tier selection"
+        );
+    }
+
+    #[test]
+    fn list_cache_reloads_after_crossing_a_detail_page() {
+        use cgc_courses::catalog::{CoursesListState, FakeCoursesApi};
+        use cgc_platform::workspace::{OfferingScope, WorkspaceScope};
+
+        let mut view = view();
+        view.navigate("/w/2046/courses");
+        view.courses = cgc_courses::catalog::CourseCatalogService::new(std::sync::Arc::new(
+            FakeCoursesApi::with_seed(2),
+        ));
+        view.courses.begin_first_load();
+        let scope = WorkspaceScope {
+            workspace_id: "ws-1".into(),
+            epoch: 1,
+        };
+        let page = view
+            .courses
+            .fetch(None, OfferingScope::Workspace(&scope))
+            .expect("page");
+        view.courses.adopt_page(page);
+        view.courses_started = true;
+        view.courses_scope = Some(crate::routing::ListScope::Workspace);
+
+        view.navigate("/w/2046/courses/c-1");
+        assert_eq!(
+            view.courses.state(),
+            &CoursesListState::Ready,
+            "same-face detail navigation keeps the cache"
+        );
+        view.navigate("/courses");
+        assert_eq!(view.courses.state(), &CoursesListState::Idle);
+        assert!(!view.courses_started);
+        assert_eq!(view.courses_scope, None);
+    }
+
+    #[test]
+    fn switching_workspaces_resets_list_caches() {
+        use cgc_courses::catalog::{CoursesListState, FakeCoursesApi};
+        use cgc_platform::workspace::{OfferingScope, WorkspaceScope};
+
+        let mut view = view();
+        view.navigate("/w/2046/courses");
+        view.courses = cgc_courses::catalog::CourseCatalogService::new(std::sync::Arc::new(
+            FakeCoursesApi::with_seed(4),
+        ));
+        view.courses.begin_first_load();
+        let page = view
+            .courses
+            .fetch(
+                None,
+                OfferingScope::Workspace(&WorkspaceScope {
+                    workspace_id: "ws-1".into(),
+                    epoch: 0,
+                }),
+            )
+            .expect("page");
+        view.courses.adopt_page(page);
+        view.courses_scope = Some(crate::routing::ListScope::Workspace);
+
+        view.navigate("/w/other/courses");
+        assert_eq!(
+            view.courses.state(),
+            &CoursesListState::Idle,
+            "switching workspaces must invalidate list caches"
+        );
+        assert_eq!(view.courses_scope, None);
+    }
+
+    #[test]
+    fn switching_between_public_and_workspace_resets_list_cache() {
+        use cgc_courses::catalog::{CoursesListState, FakeCoursesApi};
+        use cgc_platform::workspace::OfferingScope;
+
+        let mut view = view();
+        view.courses = cgc_courses::catalog::CourseCatalogService::new(std::sync::Arc::new(
+            FakeCoursesApi::with_seed(4),
+        ));
+        view.courses.begin_first_load();
+        let page = view
+            .courses
+            .fetch(None, OfferingScope::Public)
+            .expect("page");
+        view.courses.adopt_page(page);
+        view.courses_scope = Some(crate::routing::ListScope::Public);
+        assert_eq!(view.courses.state(), &CoursesListState::Ready);
+
+        view.navigate("/courses");
+        view.navigate("/w/2046/courses");
+        assert_eq!(
+            view.courses.state(),
+            &CoursesListState::Idle,
+            "switching data faces must invalidate the list cache"
+        );
+        assert!(!view.courses_started);
+    }
+
+    #[test]
+    fn public_learning_route_resolves_without_a_workspace() {
+        let mut view = view();
+        view.navigate("/courses/c-1/learn");
+        assert_eq!(
+            view.current().map(|route| route.id),
+            Some("courses.public_learning")
+        );
+        assert_eq!(
+            view.current_match()
+                .and_then(|route_match| route_match.params.get("id"))
+                .map(String::as_str),
+            Some("c-1")
+        );
+        assert!(
+            !crate::routing::requires_workspace("courses.public_learning"),
+            "public learning must stay reachable without a workspace"
+        );
+    }
+
+    #[test]
+    fn repeated_view_keeps_the_workspace_state_process_lock() {
+        let _first = view();
+        let _second = view();
+        WORKSPACE_STATE_ISOLATION.with(|isolation| {
+            let isolation = isolation.borrow();
+            let guard = isolation.as_ref().expect("workspace state guard installed");
+            assert!(
+                guard._env_lock.holds_process_lock(),
+                "同一用例第二次 view() 必须复用首个隔离 guard，不能退化成空壳后释放真锁"
+            );
+        });
+    }
+
+    #[test]
+    fn navigate_slash_uses_the_last_workspace() {
+        let mut with_last = view();
+        with_last.last_workspace_slug = Some("2046".into());
+        with_last.navigate("/");
+        assert_eq!(
+            with_last.current().map(|route| route.id),
+            Some("account.workspace")
+        );
+        assert_eq!(
+            with_last
+                .current_match()
+                .and_then(|route_match| route_match.params.get("slug"))
+                .map(String::as_str),
+            Some("2046")
+        );
+
+        let mut fresh = view();
+        fresh.last_workspace_slug = None;
+        fresh.navigate("/");
+        assert_eq!(
+            fresh.current().map(|route| route.id),
+            Some("courses.learning_home")
+        );
+    }
+
+    #[test]
+    fn my_learning_is_default_landing_and_login_target() {
         let mut view = view();
         assert_eq!(
             view.current().map(|route| route.id),
-            Some("account.workspace")
+            Some("courses.learning_home")
         );
         view.finish_login(Ok(fake_signed_in()));
         assert_eq!(
             view.current().map(|route| route.id),
-            Some("account.workspace")
+            Some("courses.learning_home")
         );
     }
 
@@ -3496,11 +4097,11 @@ mod tests {
     }
 
     #[test]
-    fn starts_on_workspace_route_signed_out() {
+    fn starts_on_my_learning_signed_out() {
         let view = view();
         assert_eq!(
             view.current().map(|route| route.id),
-            Some("account.workspace")
+            Some("courses.learning_home")
         );
         assert_eq!(view.language(), Language::Zh);
         assert_eq!(view.preference(), ThemePreference::System);
@@ -3548,11 +4149,11 @@ mod tests {
     #[test]
     fn pending_deep_link_is_consumed_after_login() {
         let mut view = view();
-        view.pending_link = Some("/workspace".to_string());
+        view.pending_link = Some("/learning".to_string());
         view.finish_login(Ok(fake_signed_in()));
         assert_eq!(
             view.current().map(|route| route.id),
-            Some("account.workspace")
+            Some("courses.learning_home")
         );
         assert!(view.pending_link.is_none());
     }
@@ -3640,13 +4241,31 @@ mod tests {
     #[test]
     fn navigate_to_event_detail_captures_id_param() {
         let mut view = view();
-        view.navigate("/events/evt-007");
+        view.navigate("/w/2046/events/evt-007");
         assert_eq!(view.current().map(|route| route.id), Some("events.detail"));
         assert_eq!(
             view.current_match()
                 .and_then(|route_match| route_match.params.get("id"))
                 .map(String::as_str),
             Some("evt-007")
+        );
+        assert_eq!(
+            view.current_match()
+                .and_then(|route_match| route_match.params.get("slug"))
+                .map(String::as_str),
+            Some("2046")
+        );
+
+        view.navigate("/events/evt-008");
+        assert_eq!(
+            view.current().map(|route| route.id),
+            Some("events.public_detail")
+        );
+        assert_eq!(
+            view.current_match()
+                .and_then(|route_match| route_match.params.get("id"))
+                .map(String::as_str),
+            Some("evt-008")
         );
     }
 

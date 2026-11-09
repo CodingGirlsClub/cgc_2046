@@ -174,62 +174,6 @@ fn open_breadcrumb_probe(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Br
 }
 
 #[gpui_kit::test]
-fn breadcrumb_menu_opens_navigates_and_closes(cx: &mut TestAppContext) {
-    check_breadcrumb_menu(cx);
-}
-
-fn check_breadcrumb_menu(cx: &mut TestAppContext) {
-    cx.update(gpui_kit::init);
-    let (handle, probe) = open_breadcrumb_probe(cx);
-    let mut vcx = VisualTestContext::from_window(handle, cx);
-
-    let section = translate(Language::En, Key::AppBreadcrumbSections).to_string();
-    let participations = translate(Language::En, Key::EventsParticipationsTitle).to_string();
-
-    assert!(
-        vcx.update(|window, cx| {
-            window.render_frame(cx);
-            window.find("breadcrumb-section").visible()
-        }),
-        "面包屑触发器应渲染"
-    );
-    assert!(
-        vcx.update(|window, _| window.try_find_by_label(&participations).is_none()),
-        "菜单未打开时不应出现路由项"
-    );
-
-    vcx.update(|window, cx| window.click("breadcrumb-section", cx));
-    assert!(
-        vcx.update(|window, cx| {
-            window.render_frame(cx);
-            window.find_by_label(&participations).visible()
-        }),
-        "点击后应出现路由项（section={section}）"
-    );
-
-    vcx.simulate_keystrokes("escape");
-    assert!(
-        vcx.update(|window, cx| {
-            window.render_frame(cx);
-            window
-                .try_find_by_label(&participations)
-                .is_none_or(|element| !element.visible())
-        }),
-        "Esc 后菜单应关闭"
-    );
-
-    vcx.update(|window, cx| window.click("breadcrumb-section", cx));
-    let row_center = vcx.update(|window, cx| {
-        window.render_frame(cx);
-        window.find_by_label(&participations).bounds().center()
-    });
-    vcx.simulate_click(row_center, Modifiers::default());
-    vcx.update(|window, cx| window.render_frame(cx));
-    let route = cx.update(|cx| probe.read(cx).root.read(cx).current().map(|route| route.id));
-    assert_eq!(route, Some("events.participations"));
-}
-
-#[gpui_kit::test]
 fn workspace_menu_opens_and_closes(cx: &mut TestAppContext) {
     check_workspace_menu(cx);
 }

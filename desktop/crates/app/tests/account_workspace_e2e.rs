@@ -157,7 +157,25 @@ fn login_and_settings_routes_are_registered() {
         ids.contains(&"app.settings"),
         "step 1: settings（键盘/设置页入口）"
     );
-    assert!(ids.contains(&"events.list"), "step 2: events");
-    assert!(ids.contains(&"courses.catalog"), "step 2: courses");
-    assert!(ids.contains(&"agent_chat.panel"), "step 2: companion");
+    assert!(ids.contains(&"events.list"), "step 2: workspace events");
+    assert!(
+        ids.contains(&"courses.catalog"),
+        "step 2: workspace courses"
+    );
+    assert!(
+        ids.contains(&"events.public_list"),
+        "step 2: public events discovery"
+    );
+    assert!(
+        ids.contains(&"courses.public_list"),
+        "step 2: public courses discovery"
+    );
+    assert!(
+        !ids.contains(&"agent_chat.panel"),
+        "step 2: agent panel is a dock, not a page"
+    );
+    assert!(
+        !ids.contains(&"events.mine"),
+        "step 2: my enrollments merged into participations"
+    );
 }

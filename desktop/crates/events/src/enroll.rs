@@ -10,18 +10,44 @@ pub struct MyEnrollment {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EnrollmentRequest {
-    pub event_id: String,
+    /// 活动或课程二选一。
+    pub event_id: Option<String>,
+    pub course_id: Option<String>,
     pub user_id: String,
     pub tier_id: Option<String>,
     pub age_confirmed: bool,
 }
 
 impl EnrollmentRequest {
+    pub fn event(event_id: impl Into<String>, user_id: impl Into<String>) -> Self {
+        Self {
+            event_id: Some(event_id.into()),
+            course_id: None,
+            user_id: user_id.into(),
+            tier_id: None,
+            age_confirmed: false,
+        }
+    }
+
+    pub fn course(course_id: impl Into<String>, user_id: impl Into<String>) -> Self {
+        Self {
+            event_id: None,
+            course_id: Some(course_id.into()),
+            user_id: user_id.into(),
+            tier_id: None,
+            age_confirmed: false,
+        }
+    }
+
     pub fn to_input(&self) -> serde_json::Value {
         let mut input = serde_json::json!({
-            "eventId": self.event_id,
             "userId": self.user_id,
         });
+        if let Some(course_id) = &self.course_id {
+            input["courseId"] = serde_json::json!(course_id);
+        } else if let Some(event_id) = &self.event_id {
+            input["eventId"] = serde_json::json!(event_id);
+        }
         if let Some(tier_id) = &self.tier_id {
             input["tierId"] = serde_json::json!(tier_id);
         }
@@ -52,9 +78,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn course_input_carries_course_id_instead_of_event_id() {
+        let input = EnrollmentRequest::course("c-1", "u-1").to_input();
+        assert_eq!(input["courseId"], "c-1");
+        assert!(input.get("eventId").is_none());
+    }
+
+    #[test]
     fn input_omits_optional_fields_when_absent() {
         let input = EnrollmentRequest {
-            event_id: "e-1".into(),
+            event_id: Some("e-1".into()),
+            course_id: None,
             user_id: "u-1".into(),
             tier_id: None,
             age_confirmed: false,
@@ -69,7 +103,8 @@ mod tests {
     #[test]
     fn input_carries_tier_and_age() {
         let input = EnrollmentRequest {
-            event_id: "e-1".into(),
+            event_id: Some("e-1".into()),
+            course_id: None,
             user_id: "u-1".into(),
             tier_id: Some("tier-early".into()),
             age_confirmed: true,

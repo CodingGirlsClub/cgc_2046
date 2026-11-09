@@ -19,20 +19,27 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::{atomic::AtomicBool, Arc};
 
-struct LayoutFiles {
+pub(super) struct LayoutFiles {
     directory: PathBuf,
     previous: Vec<(&'static str, Option<OsString>)>,
 }
 
 impl LayoutFiles {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let directory =
             std::env::temp_dir().join(format!("cgc-layout-regression-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&directory).expect("isolated data directory");
-        let previous = ["CGC_DATA_DIR", "CGC_WORKSPACE_STATE_FILE"]
-            .into_iter()
-            .map(|key| (key, std::env::var_os(key)))
-            .collect();
+        let previous = [
+            "CGC_DATA_DIR",
+            "CGC_WORKSPACE_STATE_FILE",
+            "CGC_AUTH",
+            "CGC_AGENT_MODE",
+        ]
+        .into_iter()
+        .map(|key| (key, std::env::var_os(key)))
+        .collect();
+        std::env::set_var("CGC_AUTH", "fake");
+        std::env::set_var("CGC_AGENT_MODE", "echo");
         std::env::set_var("CGC_DATA_DIR", &directory);
         std::env::set_var(
             "CGC_WORKSPACE_STATE_FILE",
@@ -63,19 +70,15 @@ fn saved_workspace() -> WorkspaceEntry {
     WorkspaceEntry {
         tabs: vec![
             PersistedTab {
-                id: "page:/courses".into(),
                 title: "Courses".into(),
-                path: "/courses".into(),
-                issue_id: None,
+                path: "/w/layout-current/courses".into(),
             },
             PersistedTab {
-                id: "page:/events".into(),
                 title: "Events".into(),
-                path: "/events".into(),
-                issue_id: None,
+                path: "/w/layout-current/events".into(),
             },
         ],
-        active_tab: Some("page:/courses".into()),
+        active_tab: Some("page:/w/layout-current/courses".into()),
         site_tree_courses_open: true,
         site_tree_query: "learning".into(),
         layout: Some(PanelLayout {
@@ -112,8 +115,98 @@ fn restored_root(cx: &mut TestAppContext) -> Entity<RootView> {
             root
         })
     });
-    root.update(cx, |root, cx| root.restore_workspace_state(cx));
+    root.update(cx, |root, cx| root.restore_workspace_state(cx, false));
     root
+}
+
+#[gpui_kit::test]
+fn switching_workspace_persists_the_old_active_tab(cx: &mut TestAppContext) {
+    let _files = LayoutFiles::new();
+    workspace_state::save_entry("layout-current", saved_workspace());
+    let root = restored_root(cx);
+
+    root.update(cx, |root, cx| {
+        root.workspaces.adopt(vec![
+            WorkspaceSummary {
+                id: "layout-current".into(),
+                slug: "layout-current".into(),
+                name: "Layout current".into(),
+                my_role_names: Vec::new(),
+                member_count: Some(1),
+                can_access: true,
+            },
+            WorkspaceSummary {
+                id: "layout-other".into(),
+                slug: "layout-other".into(),
+                name: "Layout other".into(),
+                my_role_names: Vec::new(),
+                member_count: Some(1),
+                can_access: true,
+            },
+        ]);
+        // 直接改内存 active，不经过 activate_tab（它自己会落盘），
+        // 这样只有切台前的持久化能把它写进磁盘。
+        root.state.active_tab = Some("page:/w/layout-current/events".into());
+        root.switch_workspace("layout-other", cx);
+
+        let saved = workspace_state::entry("layout-current").expect("entry");
+        assert_eq!(
+            saved.active_tab.as_deref(),
+            Some("page:/w/layout-current/events"),
+            "switching away must persist the active tab before navigation clears it"
+        );
+    });
+}
+
+#[gpui_kit::test]
+fn explicit_route_survives_tab_restore(cx: &mut TestAppContext) {
+    let _files = LayoutFiles::new();
+    workspace_state::save_entry("layout-current", saved_workspace());
+    let root = restored_root(cx);
+
+    root.update(cx, |root, cx| {
+        root.navigate("/w/layout-current/events/evt-1");
+        root.restore_workspace_state(cx, true);
+
+        assert_eq!(
+            root.current().map(|route| route.id),
+            Some("events.detail"),
+            "an explicit deep-link target must not be replaced by the restored tab"
+        );
+        assert_eq!(root.tabs.len(), 2, "tabs are still restored");
+        assert!(
+            root.active_tab.is_none(),
+            "no tab matches the explicit route"
+        );
+    });
+}
+
+#[gpui_kit::test]
+fn restore_drops_tabs_belonging_to_another_workspace(cx: &mut TestAppContext) {
+    let _files = LayoutFiles::new();
+    let mut saved = saved_workspace();
+    saved.tabs.push(PersistedTab {
+        title: "Other course".into(),
+        path: "/w/other/courses/c-1".into(),
+    });
+    workspace_state::save_entry("layout-current", saved);
+
+    let root = restored_root(cx);
+    root.update(cx, |root, _| {
+        assert!(
+            root.tabs
+                .iter()
+                .all(|tab| tab.path != "/w/other/courses/c-1"),
+            "tabs from another workspace must be dropped"
+        );
+        assert_eq!(root.tabs.len(), 2, "site-level tabs are kept");
+        assert!(
+            root.pane_notice
+                .as_deref()
+                .is_some_and(|notice| notice.contains("1 个")),
+            "dropping a tab must be reported once"
+        );
+    });
 }
 
 #[gpui_kit::test]
@@ -135,7 +228,7 @@ fn workspace_layout_reset_inherits_defaults_after_navigation_and_reload(cx: &mut
     let root = restored_root(cx);
     root.update(cx, |root, cx| {
         assert!(root.reset_workspace_layout(cx));
-        root.activate_tab("page:/events", cx);
+        root.activate_tab("page:/w/layout-current/events", cx);
     });
 
     preferences::update(|prefs| {
@@ -158,14 +251,20 @@ fn workspace_layout_reset_inherits_defaults_after_navigation_and_reload(cx: &mut
         assert_eq!(root.agent_panel_width, 420.0, "重载应使用新的默认宽度");
         assert_eq!(root.right_panel_width, 336.0);
         assert!(root.right_panel_open);
-        assert_eq!(root.active_tab.as_deref(), Some("page:/events"));
+        assert_eq!(
+            root.active_tab.as_deref(),
+            Some("page:/w/layout-current/events")
+        );
         assert_eq!(root.current().map(|route| route.id), Some("events.list"));
         assert_eq!(
             root.tabs
                 .iter()
                 .map(|tab| tab.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["page:/courses", "page:/events"]
+            vec![
+                "page:/w/layout-current/courses",
+                "page:/w/layout-current/events"
+            ]
         );
         assert!(root.site_tree_courses_open);
         assert_eq!(root.site_tree_query, "learning");
@@ -316,7 +415,10 @@ fn workspace_layout_reset_can_be_confirmed_with_tab_enter_and_space(cx: &mut Tes
                 root.agent_panel_width, 380.0,
                 "第二次激活应套用 Panels 默认值"
             );
-            assert_eq!(root.active_tab.as_deref(), Some("page:/courses"));
+            assert_eq!(
+                root.active_tab.as_deref(),
+                Some("page:/w/layout-current/courses")
+            );
         })
     });
     assert!(workspace_state::entry("layout-current")
@@ -407,7 +509,10 @@ fn workspace_layout_reset_keyboard_works_through_production_settings_entry(
                 root.agent_panel_width, 380.0,
                 "键盘确认应重置真实工作台布局"
             );
-            assert_eq!(root.active_tab.as_deref(), Some("page:/courses"));
+            assert_eq!(
+                root.active_tab.as_deref(),
+                Some("page:/w/layout-current/courses")
+            );
         })
     });
     assert!(workspace_state::entry("layout-current")

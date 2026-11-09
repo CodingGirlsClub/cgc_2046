@@ -99,6 +99,46 @@ mod tests {
     use super::*;
 
     #[test]
+    fn navigation_copy_matches_web_terminology() {
+        assert_eq!(
+            translate(Language::Zh, Key::EventsParticipationsTitle),
+            "我的报名"
+        );
+        assert_eq!(
+            translate(Language::En, Key::EventsParticipationsTitle),
+            "My enrollments"
+        );
+        assert_eq!(
+            translate(Language::Zh, Key::AccountWorkspaceTitle),
+            "工作区"
+        );
+        assert_eq!(
+            translate(Language::Zh, Key::NavGroupWorkspace),
+            "工作区导航"
+        );
+        assert_eq!(
+            translate(Language::En, Key::NavGroupWorkspace),
+            "Workspace navigation"
+        );
+        assert_eq!(translate(Language::Zh, Key::NavGroupMine), "我的");
+        assert_eq!(translate(Language::En, Key::NavGroupMine), "Mine");
+        assert_eq!(translate(Language::Zh, Key::NavGroupCommunity), "全站");
+        assert_eq!(translate(Language::En, Key::NavGroupCommunity), "Community");
+        assert_eq!(
+            translate(Language::Zh, Key::CoursesPublicEmpty),
+            "暂无公开课程。"
+        );
+        assert_eq!(
+            translate(Language::Zh, Key::EventsPublicDetailBack),
+            "返回全部公开活动"
+        );
+        assert_eq!(
+            translate(Language::En, Key::CoursesPublicDetailBack),
+            "Back to all public courses"
+        );
+    }
+
+    #[test]
     fn locales_cover_the_same_keys() {
         let zh: Vec<_> = Language::Zh.catalog().iter().map(|(k, _)| *k).collect();
         let en: Vec<_> = Language::En.catalog().iter().map(|(k, _)| *k).collect();
