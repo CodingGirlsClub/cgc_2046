@@ -277,6 +277,7 @@ mod history_sidebar_tests {
             updated_at: "2026-10-26T12:00:00Z".to_string(),
             archived: false,
             source: HistorySource::Acp,
+            working_directory: None,
         }
     }
 

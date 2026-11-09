@@ -859,6 +859,9 @@ impl RootView {
         if theme::apply_named(&name, cx) {
             theme::save_selected_theme(&name);
             self.theme_name = name;
+            // 全局主题观察者可能在 `apply_named` 期间就触发了，那时
+            // `theme_name` 还是旧值；这里用新名字再同步一次终端。
+            self.sync_terminal_theme(cx);
         }
         cx.notify();
     }
@@ -1590,6 +1593,7 @@ impl RootView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.dismiss_terminal_for_chat(cx);
         let Some(runtime) = self.native_runtime.clone() else {
             return;
         };
@@ -1706,7 +1710,11 @@ impl RootView {
             .as_ref()
             .and_then(|store| store.archived_native_threads().ok())
             .unwrap_or_default();
-        crate::acp_history::merge_history_with_native_archived(native, acp, &native_archived)
+        let terminals = store
+            .as_ref()
+            .and_then(|store| store.list_terminal_sessions(50).ok())
+            .unwrap_or_default();
+        crate::acp_history::merge_history_with_terminals(native, acp, &native_archived, terminals)
     }
 
     pub(in crate::root_view) fn reset_config_search(
@@ -2177,6 +2185,7 @@ impl RootView {
         session_id: String,
         cx: &mut Context<Self>,
     ) {
+        self.dismiss_terminal_for_chat(cx);
         self.agent_panel_editing_title = false;
         self.agent_panel_title_original = None;
         self.reset_chat_local(cx);
@@ -2331,9 +2340,18 @@ impl RootView {
         crate::chat_state::save_native_chat_mode(enabled);
     }
 
-    /// 打开独立设置窗口（对齐 Zed 的 SettingsWindow）：已存在则激活复用。
+    /// 切到聊天内容时只隐藏终端：进程与输出保留，可从 ＋ 菜单或历史恢复。
+    pub(in crate::root_view) fn dismiss_terminal_for_chat(&mut self, cx: &mut Context<Self>) {
+        if self.terminal_view.is_some() && self.terminal_visible {
+            self.terminal_visible = false;
+            self.pending_terminal_open = None;
+            cx.notify();
+        }
+    }
+
     /// 「+」菜单选择 CGC Agent：在 Agent Panel 内切到 native agent。
     pub fn enter_native_chat(&mut self, cx: &mut Context<Self>) {
+        self.dismiss_terminal_for_chat(cx);
         self.set_native_chat_mode(true);
         self.agent_panel_editing_title = false;
         self.agent_panel_title_original = None;
@@ -2342,6 +2360,7 @@ impl RootView {
 
     /// 在 Agent Panel 内开启一个新的 native 会话。
     pub fn new_native_chat(&mut self, cx: &mut Context<Self>) {
+        self.dismiss_terminal_for_chat(cx);
         self.set_native_chat_mode(true);
         self.agent_panel_editing_title = false;
         self.agent_panel_title_original = None;
@@ -2349,6 +2368,194 @@ impl RootView {
             view.update(cx, |view, cx| view.start_new_thread(cx));
         }
         cx.notify();
+    }
+
+    /// 「+」菜单 → Terminal：已有终端则恢复显示（隐藏不等于销毁）。
+    pub fn open_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.agent_panel_editing_title = false;
+        if self.terminal_view.is_some() {
+            self.terminal_visible = true;
+            self.pending_terminal_open = None;
+            cx.notify();
+            return;
+        }
+        let cwd = self.default_terminal_cwd();
+        self.spawn_terminal(cwd, window, cx);
+    }
+
+    /// 从历史侧栏打开终端：同目录直接恢复；不同目录需二次点击才替换。
+    pub(in crate::root_view) fn open_terminal_at(
+        &mut self,
+        cwd: std::path::PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.agent_panel_editing_title = false;
+        if self.terminal_view.is_some() {
+            if terminal_matches_directory(self.terminal_cwd.as_deref(), &cwd) {
+                // 同一目录：复用现有实例（隐藏中的也直接恢复）。
+                self.terminal_visible = true;
+                self.pending_terminal_open = None;
+                cx.notify();
+                return;
+            }
+            if self.pending_terminal_open.as_ref() == Some(&cwd) {
+                self.pending_terminal_open = None;
+                self.close_terminal(cx);
+                self.spawn_terminal(Some(cwd), window, cx);
+            } else {
+                self.pending_terminal_open = Some(cwd);
+                self.pane_notice = Some("已有终端在运行：再点一次历史记录替换".to_string());
+                cx.notify();
+            }
+            return;
+        }
+        self.spawn_terminal(Some(cwd), window, cx);
+    }
+
+    /// 新终端的工作目录：上次关闭时的目录 → agent 工作区 → home（方案 A）。
+    /// 上次的目录可能已被删除；agent 工作区首次使用可能还不存在，
+    /// 所以先补建目录，建不出来就退回下一级。
+    fn default_terminal_cwd(&self) -> Option<std::path::PathBuf> {
+        let last = self.last_terminal_cwd.clone().filter(|path| path.is_dir());
+        let scope_root = self.native_scope.as_ref().map(|scope| scope.root.clone());
+        let home = home_dir();
+        terminal_cwd(last.as_deref(), scope_root.as_deref(), home.as_deref())
+            .map(std::path::Path::to_path_buf)
+            .filter(|dir| match std::fs::create_dir_all(dir) {
+                Ok(()) => true,
+                Err(error) => {
+                    log::warn!(
+                        target: "terminal",
+                        "无法创建工作目录 {}：{error}",
+                        dir.display()
+                    );
+                    false
+                }
+            })
+    }
+
+    fn spawn_terminal(
+        &mut self,
+        cwd: Option<std::path::PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let size = cgc_terminal::GridSize { cols: 80, rows: 24 };
+        let mut session = match cgc_terminal::Session::spawn_default_in(size, cwd.as_deref()) {
+            Ok(session) => session,
+            Err(error) => {
+                self.pane_notice = Some(format!("无法启动终端：{error}"));
+                cx.notify();
+                return;
+            }
+        };
+        if let Err(error) = session.set_theme(&theme::terminal_theme(&self.theme_name, cx)) {
+            log::warn!(target: "terminal", "应用终端配色失败：{error}");
+        }
+
+        let style = theme::terminal_style(cx);
+
+        let key_input = match cgc_terminal::KeyInput::new() {
+            Ok(key_input) => key_input,
+            Err(error) => {
+                self.pane_notice = Some(format!("无法初始化终端输入：{error}"));
+                cx.notify();
+                return;
+            }
+        };
+        let view = cx
+            .new(|cx| cgc_terminal_view::TerminalView::new(session, style, key_input, window, cx));
+        view.update(cx, |view, cx| view.poll(cx));
+        view.update(cx, |view, cx| view.focus(window, cx));
+        self.terminal_view = Some(view.clone());
+
+        // 会话日志：open 时插入一行，close 时回填标题/退出码（低频写库）。
+        let session_id = next_terminal_session_id();
+        let record = cgc_agent_store::TerminalSession {
+            terminal_id: session_id.clone(),
+            title: cwd
+                .as_deref()
+                .and_then(std::path::Path::file_name)
+                .map(|name| name.to_string_lossy().into_owned()),
+            custom_title: None,
+            working_directory: cwd.as_ref().map(|dir| dir.display().to_string()),
+            created_at: cgc_agent_store::now_utc_rfc3339(),
+            closed_at: None,
+            exit_code: None,
+        };
+        if let Err(error) = crate::acp_history::open_conversation_store()
+            .and_then(|store| store.upsert_terminal_session(&record))
+        {
+            log::warn!(target: "terminal", "记录终端会话失败：{error}");
+        }
+        self.terminal_session_id = Some(session_id);
+        self.terminal_visible = true;
+        self.terminal_cwd = cwd.clone();
+        self.pending_terminal_open = None;
+        self.chat.history = self.load_unified_history();
+        cx.notify();
+
+        // 33ms 轮询 PTY；视图析构后 `update` 失败，循环自然退出。
+        let weak = view.downgrade();
+        cx.spawn(async move |_root, cx| loop {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(33))
+                .await;
+            if weak.update(cx, |view, cx| view.poll(cx)).is_err() {
+                break;
+            }
+        })
+        .detach();
+    }
+
+    /// 关闭终端并回到对话视图；记住当前目录、回填会话日志。
+    pub fn close_terminal(&mut self, cx: &mut Context<Self>) {
+        if let Some(view) = self.terminal_view.take() {
+            let (cwd, title, exit_code) = {
+                let view = view.read(cx);
+                let title = view.title().trim().to_string();
+                (
+                    view.cwd().map(std::path::PathBuf::from),
+                    (!title.is_empty()).then_some(title),
+                    view.exit_code(),
+                )
+            };
+            self.last_terminal_cwd = cwd;
+            if let Some(session_id) = self.terminal_session_id.take() {
+                let closed_at = cgc_agent_store::now_utc_rfc3339();
+                if let Err(error) =
+                    crate::acp_history::open_conversation_store().and_then(|store| {
+                        store.finish_terminal_session(
+                            &session_id,
+                            title.as_deref(),
+                            &closed_at,
+                            exit_code.map(i64::from),
+                        )
+                    })
+                {
+                    log::warn!(target: "terminal", "回填终端会话失败：{error}");
+                }
+            }
+        }
+        self.pending_terminal_open = None;
+        self.terminal_visible = false;
+        self.terminal_cwd = None;
+        self.chat.history = self.load_unified_history();
+        cx.notify();
+    }
+
+    /// 应用主题变化后，把新配色同步给已打开的终端（历史输出一起换色）。
+    pub(in crate::root_view) fn sync_terminal_theme(&mut self, cx: &mut Context<Self>) {
+        let Some(view) = self.terminal_view.clone() else {
+            return;
+        };
+        let style = theme::terminal_style(cx);
+        let colors = theme::terminal_theme(&self.theme_name, cx);
+        match view.update(cx, |view, cx| view.apply_theme(style, &colors, cx)) {
+            Ok(()) => {}
+            Err(error) => log::warn!(target: "terminal", "同步终端配色失败：{error}"),
+        }
     }
 
     /// 执行 native agent 投递的应用内动作（AppAction）。
@@ -2949,6 +3156,7 @@ impl RootView {
         display_name: String,
         cx: &mut Context<Self>,
     ) {
+        self.dismiss_terminal_for_chat(cx);
         self.reset_chat_for_external_agent(&id, &display_name);
         self.start_chat(cx);
     }
@@ -3560,4 +3768,41 @@ mod login_email_tests {
         assert!(!looks_like_email("user@example."));
         assert!(!looks_like_email("user name@example.com"));
     }
+}
+
+/// 历史点击时，现有终端是否就在目标目录（可直接复用实例而不是替换）。
+pub(in crate::root_view) fn terminal_matches_directory(
+    current: Option<&std::path::Path>,
+    target: &std::path::Path,
+) -> bool {
+    current == Some(target)
+}
+
+/// 进程内唯一、按时间可排序的终端会话 id。
+fn next_terminal_session_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    format!("term-{millis}-{}", COUNTER.fetch_add(1, Ordering::Relaxed))
+}
+
+/// 用户 home：macOS/Linux 用 `HOME`，Windows 用 `USERPROFILE`。
+fn home_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(std::path::PathBuf::from)
+}
+
+/// 新终端的默认工作目录优先级：上次关闭时的目录 → agent 工作区 → home。
+///
+/// 只做选择，不做存在性检查：调用方过滤已删除的 `last`，并为 agent 工作区补建目录。
+pub(in crate::root_view) fn terminal_cwd<'a>(
+    last: Option<&'a std::path::Path>,
+    scope_root: Option<&'a std::path::Path>,
+    home: Option<&'a std::path::Path>,
+) -> Option<&'a std::path::Path> {
+    last.or(scope_root).or(home)
 }
