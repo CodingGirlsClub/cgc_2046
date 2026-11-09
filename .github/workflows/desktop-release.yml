@@ -96,11 +96,13 @@ jobs:
         run: |
           set -euo pipefail
           version=0.17.1
+          # 每个 tarball 的 SHA-256 来自官方 https://ziglang.org/download/index.json；
+          # 升级 Zig 版本时必须同步更新（本地用 index.json 或实际下载核对）。
           case "${RUNNER_OS}-${RUNNER_ARCH}" in
-            macOS-ARM64) asset="aarch64-macos" ;;
-            macOS-X64)   asset="x86_64-macos" ;;
-            Linux-X64)   asset="x86_64-linux" ;;
-            Windows-X64) asset="x86_64-windows" ;;
+            macOS-ARM64) asset="aarch64-macos"; sha256="75f1bc7a1e9852f17ec9a0c1895f767c4ec56d46bc8a834920eece1d0359dd8d" ;;
+            macOS-X64)   asset="x86_64-macos";   sha256="9af07b20319fbd0c92ee46ad23e81d6a782b1aaea2cfb8dcbff35f1d2c7ddbb7" ;;
+            Linux-X64)   asset="x86_64-linux";   sha256="3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a" ;;
+            Windows-X64) asset="x86_64-windows"; sha256="b03f477a1943673e02aca0f570e8030dffd536ce1f45cbc4d3326ec31159562e" ;;
             *)
               echo "不支持的 runner：${RUNNER_OS}-${RUNNER_ARCH}" >&2
               exit 1
@@ -115,6 +117,15 @@ jobs:
           mkdir -p "$dest"
           curl -fsSL "https://ziglang.org/download/${version}/${archive}" \
             -o "${RUNNER_TEMP}/${archive}"
+          if command -v sha256sum >/dev/null 2>&1; then
+            actual_sha256=$(sha256sum "${RUNNER_TEMP}/${archive}" | awk '{print $1}')
+          else
+            actual_sha256=$(shasum -a 256 "${RUNNER_TEMP}/${archive}" | awk '{print $1}')
+          fi
+          if [ "${actual_sha256}" != "${sha256}" ]; then
+            echo "Zig 校验失败：期望 ${sha256}，实际 ${actual_sha256}" >&2
+            exit 1
+          fi
           if [ "${RUNNER_OS}" = "Windows" ]; then
             7z x -y "${RUNNER_TEMP}/${archive}" -o"$dest" > /dev/null
           else

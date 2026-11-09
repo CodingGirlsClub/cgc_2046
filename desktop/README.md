@@ -76,6 +76,7 @@ Native 的文件操作集中在“变更 N”打开的面板中：N 是相对本
 ## 本机前置
 
 - Rust **1.98+**（`rust-toolchain.toml` 锁 1.98.1；本机可用已安装的更新版本，如 `RUSTUP_TOOLCHAIN=stable`）
+- **Zig 0.17.1** 在 PATH（`crates/terminal/README.md` 记录了版本与原因）：`libghostty-vt` 的 build.rs 用它编译 ghostty 的 C 库；缺它会在这里报「找不到 zig」
 - macOS 15+ / Windows 10+（MSVC + CMake 在 PATH）/ Ubuntu 24.04（Wayland 或 X11 会话 + Vulkan 驱动）
 - Linux 额外依赖见 gpui-kit 安装文档；登录凭证需要 `libsecret-tools`（Debian/Ubuntu: `sudo apt install libsecret-tools`）
 
