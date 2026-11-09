@@ -329,6 +329,7 @@ mod tests {
         text
     }
 
+    #[cfg(unix)]
     fn wait_exit(session: &mut Session, timeout: Duration) -> Option<ExitInfo> {
         let deadline = Instant::now() + timeout;
         let mut exit = None;
