@@ -44,7 +44,7 @@ pub(in crate::root_view) fn render_right_dock(
         }
     }
     let body = match panel {
-        RightPanel::SiteTree => render_site_tree(ctx, language, palette, cx),
+        RightPanel::SiteTree => render_site_tree(ctx, language, palette, window, cx),
         RightPanel::Outline => render_outline(ctx, language, palette, cx),
         RightPanel::Notifications => unreachable!(),
     };
@@ -416,6 +416,7 @@ fn render_site_tree(
     ctx: &mut ScreenContext<'_>,
     language: Language,
     palette: &theme::Palette,
+    window: &mut Window,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
     use gpui_kit::component::button::{Button, ButtonVariants};
@@ -426,46 +427,114 @@ fn render_site_tree(
         .current()
         .map(|workspace| workspace.name.clone())
         .unwrap_or_else(|| "Workspace".to_string());
+    // 工作区面节点只在有当前工作区时出现；站点级两组始终可见。
+    let workspace_slug = ctx
+        .workspaces
+        .current()
+        .map(|workspace| workspace.slug.clone());
     let events_open = ctx.site_tree_events_open;
     let courses_open = ctx.site_tree_courses_open;
-    let events = ctx
-        .events
-        .items()
-        .iter()
-        .take(20)
-        .map(|event| (event.id.clone(), event.title.clone()))
-        .collect::<Vec<_>>();
-    let show_unenrolled = ctx.display_preferences.dock_show_unenrolled;
-    let courses = ctx
-        .courses
-        .items()
-        .iter()
-        .take(20)
-        .filter(|course| {
-            show_unenrolled
-                || ctx
-                    .course_enrollments
-                    .get(&course.id)
-                    .is_none_or(Option::is_some)
+    let search = render_site_tree_search(ctx, language, window, cx);
+    let query = ctx
+        .site_tree_search_input
+        .as_ref()
+        .expect("initialized search")
+        .read(cx)
+        .value()
+        .trim()
+        .to_lowercase();
+    let matches_query = |title: &str| query.is_empty() || title.to_lowercase().contains(&query);
+    let course_outline = ctx
+        .content
+        .content()
+        .filter(|content| {
+            ctx.course_enrollments
+                .get(&content.course_id)
+                .and_then(Option::as_deref)
+                == Some("confirmed")
         })
-        .map(|course| (course.id.clone(), course.title.clone()))
-        .collect::<Vec<_>>();
-    let show_events = events_open;
-    let show_courses = courses_open;
+        .map(|content| (content.course_id.clone(), build_outline(&content.document)));
+    let outline_matches_course = |id: &str| {
+        course_outline
+            .as_ref()
+            .filter(|(course_id, _)| course_id == id)
+            .is_some_and(|(_, outline)| {
+                outline.chapters.iter().any(|chapter| {
+                    matches_query(&chapter.title)
+                        || chapter
+                            .issues
+                            .iter()
+                            .any(|issue| matches_query(&issue.title))
+                }) || outline
+                    .ungrouped
+                    .iter()
+                    .any(|issue| matches_query(&issue.title))
+            })
+    };
+    // 树优先读自己的缓存（`nav_*`）。缓存尚未建立时，只有「中心列表本身就是当前工作区」
+    // 才复用中心（工作区路由的旧行为）；中心是公开面时绝不借给树——公开条目进不了树，
+    // 反向也不会发生（树的加载只写 nav_*）。
+    let use_center_events =
+        !ctx.nav_events_started && ctx.events_scope == Some(crate::routing::ListScope::Workspace);
+    let events = {
+        let source = if use_center_events {
+            ctx.events.items()
+        } else {
+            ctx.nav_events.items()
+        };
+        source
+            .iter()
+            .filter(|event| matches_query(&event.title))
+            .map(|event| (event.id.clone(), event.title.clone()))
+            .collect::<Vec<_>>()
+    };
+    let show_unenrolled = ctx.display_preferences.dock_show_unenrolled;
+    let use_center_courses =
+        !ctx.nav_courses_started && ctx.courses_scope == Some(crate::routing::ListScope::Workspace);
+    let courses = {
+        let source = if use_center_courses {
+            ctx.courses.items()
+        } else {
+            ctx.nav_courses.items()
+        };
+        source
+            .iter()
+            .filter(|course| matches_query(&course.title) || outline_matches_course(&course.id))
+            .filter(|course| {
+                show_unenrolled
+                    || ctx
+                        .course_enrollments
+                        .get(&course.id)
+                        .is_none_or(Option::is_some)
+            })
+            .map(|course| (course.id.clone(), course.title.clone()))
+            .collect::<Vec<_>>()
+    };
+    let events_has_more = if use_center_events {
+        ctx.events.has_more()
+    } else {
+        ctx.nav_events.has_more()
+    };
+    let courses_has_more = if use_center_courses {
+        ctx.courses.has_more()
+    } else {
+        ctx.nav_courses.has_more()
+    };
+    let show_events = events_open || !query.is_empty();
+    let show_courses = courses_open || !query.is_empty();
+    let search_events_empty = events.is_empty();
+    let search_courses_empty = courses.is_empty();
     let expanded_course = ctx.site_tree_course_open.clone();
-    let course_content = ctx.content.content().cloned();
     let active_course = ctx
         .current
         .as_ref()
         .filter(|route_match| route_match.route.id.starts_with("courses."))
         .and_then(|route_match| route_match.params.get("id"))
         .cloned();
-    let active_issue = ctx.active_tab.as_deref().and_then(|active| {
-        ctx.tabs
-            .iter()
-            .find(|tab| tab.id == active)
-            .and_then(|tab| tab.issue_id.clone())
-    });
+    let active_issue = ctx
+        .current
+        .as_ref()
+        .and_then(|route_match| route_match.query.get("issue").cloned());
     let active_path = ctx
         .current
         .as_ref()
@@ -474,7 +543,7 @@ fn render_site_tree(
             for (key, value) in &route_match.params {
                 path = path.replace(&format!(":{key}"), value);
             }
-            path
+            crate::routing::path_with_query(&path, &route_match.query)
         })
         .or_else(|| {
             ctx.active_tab.as_deref().and_then(|active| {
@@ -504,190 +573,77 @@ fn render_site_tree(
                 .text_color(palette.ink_3)
                 .child(workspace),
         )
+        .child(search)
         .w_full()
         .into_any_element();
 
     let mut items: Vec<SidebarMenuItem> = Vec::new();
-    let root_overview = cx.entity().downgrade();
-    let overview_label = translate(language, Key::AccountWorkspaceOverview).to_string();
-    let overview_title = overview_label.clone();
-    items.push(
-        SidebarMenuItem::new(overview_label)
-            .icon(Icon::default().path(AssetIcon::House.path()).small())
-            .active(section_active("/workspace"))
-            .on_click(move |_, _, cx| {
-                let _ = root_overview.update(cx, |this, cx| {
-                    this.open_page_tab("/workspace", overview_title.clone(), cx);
-                });
-            }),
-    );
+    let group_heading = |key: Key| {
+        let label = translate(language, key).to_string();
+        SidebarMenuItem::new(label.clone())
+            .accessibility_label(label)
+            .pl(px(8.0))
+    };
 
-    let root_events = cx.entity().downgrade();
-    let mut events_item =
-        SidebarMenuItem::new(translate(language, Key::EventsListTitle).to_string())
-            .icon(Icon::default().path(AssetIcon::Calendar.path()).small())
-            .active(section_active("/events"))
-            .on_click(move |_, _, cx| {
-                let _ = root_events.update(cx, |this, cx| {
-                    this.toggle_site_tree_section(SiteTreeSection::Events, cx);
-                    this.open_page_tab(
-                        "/events",
-                        translate(language, Key::EventsListTitle).to_string(),
-                        cx,
-                    );
-                });
-            });
-    let events_chevron = {
-        let root = cx.entity().downgrade();
-        let expanded = show_events;
-        move |_: &mut Window, _: &mut App| {
-            let click_root = root.clone();
-            Button::new("site-tree-events-chevron")
-                .xsmall()
-                .ghost()
-                .accessibility_label(format!(
-                    "{} {}",
-                    if expanded {
-                        translate(language, Key::AppA11yCollapse)
-                    } else {
-                        translate(language, Key::AppA11yExpand)
-                    },
-                    translate(language, Key::EventsListTitle)
-                ))
-                .icon(
-                    Icon::default()
-                        .path(if expanded {
-                            AssetIcon::ChevronDown.path()
-                        } else {
-                            AssetIcon::ChevronRight.path()
-                        })
-                        .small(),
-                )
+    if let Some(workspace_slug) = &workspace_slug {
+        let overview_path = crate::routing::workspace_path(workspace_slug, "");
+        let events_path = crate::routing::workspace_path(workspace_slug, "/events");
+        let courses_path = crate::routing::workspace_path(workspace_slug, "/courses");
+        items.push(group_heading(Key::NavGroupWorkspace));
+        let root_overview = cx.entity().downgrade();
+        let overview_label = translate(language, Key::AccountWorkspaceOverview).to_string();
+        let overview_title = overview_label.clone();
+        let overview_open = overview_path.clone();
+        items.push(
+            SidebarMenuItem::new(overview_label)
+                .icon(Icon::default().path(AssetIcon::House.path()).small())
+                .active(section_active(&overview_path))
                 .on_click(move |_, _, cx| {
-                    cx.stop_propagation();
-                    let _ = click_root.update(cx, |this, cx| {
+                    let _ = root_overview.update(cx, |this, cx| {
+                        this.open_page_tab(&overview_open, overview_title.clone(), cx);
+                    });
+                }),
+        );
+
+        // Agent Registry 不占导航位：对话面板的「Add More Agents」已是唯一入口，
+        // 它与注册页同走 /agents，导航再加一项只会制造两个入口（产品决策，2026-11-08）。
+        let events_open_path = crate::routing::workspace_path(workspace_slug, "/events");
+        let root_events = cx.entity().downgrade();
+        let mut events_item =
+            SidebarMenuItem::new(translate(language, Key::EventsListTitle).to_string())
+                .icon(Icon::default().path(AssetIcon::Calendar.path()).small())
+                .active(section_active(&events_path))
+                .on_click(move |_, _, cx| {
+                    let path = events_open_path.clone();
+                    let _ = root_events.update(cx, |this, cx| {
                         this.toggle_site_tree_section(SiteTreeSection::Events, cx);
+                        this.open_page_tab(
+                            &path,
+                            translate(language, Key::EventsListTitle).to_string(),
+                            cx,
+                        );
                     });
-                })
-                .into_any_element()
-        }
-    };
-    events_item = events_item.suffix(events_chevron);
-    items.push(events_item);
-    if show_events {
-        for (id, title) in events {
-            let path = format!("/events/{id}");
-            let active = active_path.as_deref() == Some(path.as_str());
-            let root = cx.entity().downgrade();
-            let page_title = title.clone();
-            items.push(
-                SidebarMenuItem::new(title)
-                    .active(active)
-                    .pl(px(16.0))
-                    .border_l_1()
-                    .border_color(palette.line)
-                    .on_click(move |_, _, cx| {
-                        let _ = root.update(cx, |this, cx| {
-                            this.open_page_tab(&path, page_title.clone(), cx);
-                        });
-                    }),
-            );
-        }
-        if ctx.events.has_more() {
-            let root = cx.entity().downgrade();
-            items.push(SidebarMenuItem::new("加载更多活动").pl(px(16.0)).on_click(
-                move |_, _, cx| {
-                    let _ = root.update(cx, |this, cx| this.start_events_load(cx, false));
-                },
-            ));
-        }
-    }
-
-    let root_courses = cx.entity().downgrade();
-    let mut courses_item =
-        SidebarMenuItem::new(translate(language, Key::CoursesCatalogTitle).to_string())
-            .icon(Icon::default().path(AssetIcon::BookOpen.path()).small())
-            .active(section_active("/courses"))
-            .on_click(move |_, _, cx| {
-                let _ = root_courses.update(cx, |this, cx| {
-                    this.toggle_site_tree_section(SiteTreeSection::Courses, cx);
-                    this.open_page_tab(
-                        "/courses",
-                        translate(language, Key::CoursesCatalogTitle).to_string(),
-                        cx,
-                    );
                 });
-            });
-    let courses_chevron = {
-        let root = cx.entity().downgrade();
-        let expanded = show_courses;
-        move |_: &mut Window, _: &mut App| {
-            let click_root = root.clone();
-            Button::new("site-tree-courses-chevron")
-                .xsmall()
-                .ghost()
-                .accessibility_label(format!(
-                    "{} {}",
-                    if expanded {
-                        translate(language, Key::AppA11yCollapse)
-                    } else {
-                        translate(language, Key::AppA11yExpand)
-                    },
-                    translate(language, Key::CoursesCatalogTitle)
-                ))
-                .icon(
-                    Icon::default()
-                        .path(if expanded {
-                            AssetIcon::ChevronDown.path()
-                        } else {
-                            AssetIcon::ChevronRight.path()
-                        })
-                        .small(),
-                )
-                .on_click(move |_, _, cx| {
-                    cx.stop_propagation();
-                    let _ = click_root.update(cx, |this, cx| {
-                        this.toggle_site_tree_section(SiteTreeSection::Courses, cx);
-                    });
-                })
-                .into_any_element()
-        }
-    };
-    courses_item = courses_item.suffix(courses_chevron);
-    items.push(courses_item);
-    if show_courses {
-        for (id, title) in courses {
+        let events_chevron = {
             let root = cx.entity().downgrade();
-            let course_id = id.clone();
-            let path = format!("/courses/{id}");
-            let active = active_course.as_deref() == Some(id.as_str())
-                || active_path.as_deref().is_some_and(|active| {
-                    active == path || active.starts_with(&format!("{path}/"))
-                });
-            let is_expanded = expanded_course.as_deref() == Some(id.as_str());
-            let click_course_id = course_id.clone();
-            let chevron_label = format!(
-                "{} {title}",
-                if is_expanded {
-                    translate(language, Key::AppA11yCollapse)
-                } else {
-                    translate(language, Key::AppA11yExpand)
-                }
-            );
-            let chevron = {
-                let root = root.clone();
-                move |_: &mut Window, _: &mut App| {
-                    let root = root.clone();
-                    let course_id = course_id.clone();
-                    Button::new(SharedString::from(format!(
-                        "site-course-chevron-{course_id}"
-                    )))
+            let expanded = show_events;
+            move |_: &mut Window, _: &mut App| {
+                let click_root = root.clone();
+                Button::new("site-tree-events-chevron")
                     .xsmall()
                     .ghost()
-                    .accessibility_label(chevron_label.clone())
+                    .accessibility_label(format!(
+                        "{} {}",
+                        if expanded {
+                            translate(language, Key::AppA11yCollapse)
+                        } else {
+                            translate(language, Key::AppA11yExpand)
+                        },
+                        translate(language, Key::EventsListTitle)
+                    ))
                     .icon(
                         Icon::default()
-                            .path(if is_expanded {
+                            .path(if expanded {
                                 AssetIcon::ChevronDown.path()
                             } else {
                                 AssetIcon::ChevronRight.path()
@@ -696,113 +652,306 @@ fn render_site_tree(
                     )
                     .on_click(move |_, _, cx| {
                         cx.stop_propagation();
-                        let _ = root.update(cx, |this, cx| {
-                            this.toggle_site_tree_course(&course_id, cx);
+                        let _ = click_root.update(cx, |this, cx| {
+                            this.toggle_site_tree_section(SiteTreeSection::Events, cx);
                         });
                     })
                     .into_any_element()
-                }
-            };
-            let open_path = path.clone();
-            let open_title = title.clone();
-            let mut course_item = SidebarMenuItem::new(title)
-                .active(active)
-                .pl(px(16.0))
-                .suffix(chevron)
+            }
+        };
+        events_item = events_item.suffix(events_chevron);
+        items.push(events_item);
+        if show_events {
+            for (id, title) in events {
+                let path = crate::routing::workspace_path(workspace_slug, &format!("/events/{id}"));
+                let active = active_path.as_deref() == Some(path.as_str());
+                let root = cx.entity().downgrade();
+                let page_title = title.clone();
+                items.push(
+                    SidebarMenuItem::new(title)
+                        .active(active)
+                        .pl(px(16.0))
+                        .border_l_1()
+                        .border_color(palette.line)
+                        .on_click(move |_, _, cx| {
+                            let _ = root.update(cx, |this, cx| {
+                                this.open_page_tab(&path, page_title.clone(), cx);
+                            });
+                        }),
+                );
+            }
+            if events_has_more {
+                let root = cx.entity().downgrade();
+                items.push(SidebarMenuItem::new("加载更多活动").pl(px(16.0)).on_click(
+                    move |_, _, cx| {
+                        let _ = root.update(cx, |this, cx| {
+                            if use_center_events {
+                                this.start_events_load_with_scope(
+                                    cx,
+                                    false,
+                                    crate::routing::ListScope::Workspace,
+                                );
+                            } else {
+                                this.start_nav_events_load(cx, false);
+                            }
+                        });
+                    },
+                ));
+            }
+        }
+
+        let courses_open_path = crate::routing::workspace_path(workspace_slug, "/courses");
+        let root_courses = cx.entity().downgrade();
+        let mut courses_item =
+            SidebarMenuItem::new(translate(language, Key::CoursesCatalogTitle).to_string())
+                .icon(Icon::default().path(AssetIcon::BookOpen.path()).small())
+                .active(section_active(&courses_path))
                 .on_click(move |_, _, cx| {
-                    let _ = root.update(cx, |this, cx| {
-                        this.toggle_site_tree_course(&click_course_id, cx);
-                        this.open_page_tab(&open_path, open_title.clone(), cx);
+                    let path = courses_open_path.clone();
+                    let _ = root_courses.update(cx, |this, cx| {
+                        this.toggle_site_tree_section(SiteTreeSection::Courses, cx);
+                        this.open_page_tab(
+                            &path,
+                            translate(language, Key::CoursesCatalogTitle).to_string(),
+                            cx,
+                        );
                     });
                 });
-            let _ = &mut course_item;
-            items.push(course_item);
-            if is_expanded {
-                if let Some(content) = course_content
-                    .as_ref()
-                    .filter(|content| content.course_id == id)
-                {
-                    let outline = build_outline(&content.document);
-                    for chapter in &outline.chapters {
+        let courses_chevron = {
+            let root = cx.entity().downgrade();
+            let expanded = show_courses;
+            move |_: &mut Window, _: &mut App| {
+                let click_root = root.clone();
+                Button::new("site-tree-courses-chevron")
+                    .xsmall()
+                    .ghost()
+                    .accessibility_label(format!(
+                        "{} {}",
+                        if expanded {
+                            translate(language, Key::AppA11yCollapse)
+                        } else {
+                            translate(language, Key::AppA11yExpand)
+                        },
+                        translate(language, Key::CoursesCatalogTitle)
+                    ))
+                    .icon(
+                        Icon::default()
+                            .path(if expanded {
+                                AssetIcon::ChevronDown.path()
+                            } else {
+                                AssetIcon::ChevronRight.path()
+                            })
+                            .small(),
+                    )
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        let _ = click_root.update(cx, |this, cx| {
+                            this.toggle_site_tree_section(SiteTreeSection::Courses, cx);
+                        });
+                    })
+                    .into_any_element()
+            }
+        };
+        courses_item = courses_item.suffix(courses_chevron);
+        items.push(courses_item);
+        if show_courses {
+            for (id, title) in courses {
+                let root = cx.entity().downgrade();
+                let course_id = id.clone();
+                let path =
+                    crate::routing::workspace_path(workspace_slug, &format!("/courses/{id}"));
+                let active = active_course.as_deref() == Some(id.as_str())
+                    || active_path.as_deref().is_some_and(|active| {
+                        active == path || active.starts_with(&format!("{path}/"))
+                    });
+                let course_matches = matches_query(&title);
+                let is_expanded = expanded_course.as_deref() == Some(id.as_str())
+                    || (!query.is_empty() && outline_matches_course(&id));
+                let click_course_id = course_id.clone();
+                let chevron_label = format!(
+                    "{} {title}",
+                    if is_expanded {
+                        translate(language, Key::AppA11yCollapse)
+                    } else {
+                        translate(language, Key::AppA11yExpand)
+                    }
+                );
+                let chevron = {
+                    let root = root.clone();
+                    move |_: &mut Window, _: &mut App| {
+                        let root = root.clone();
+                        let course_id = course_id.clone();
+                        Button::new(SharedString::from(format!(
+                            "site-course-chevron-{course_id}"
+                        )))
+                        .xsmall()
+                        .ghost()
+                        .accessibility_label(chevron_label.clone())
+                        .icon(
+                            Icon::default()
+                                .path(if is_expanded {
+                                    AssetIcon::ChevronDown.path()
+                                } else {
+                                    AssetIcon::ChevronRight.path()
+                                })
+                                .small(),
+                        )
+                        .on_click(move |_, _, cx| {
+                            cx.stop_propagation();
+                            let _ = root.update(cx, |this, cx| {
+                                this.toggle_site_tree_course(&course_id, cx);
+                            });
+                        })
+                        .into_any_element()
+                    }
+                };
+                let open_path = path.clone();
+                let open_title = title.clone();
+                let mut course_item = SidebarMenuItem::new(title)
+                    .active(active)
+                    .pl(px(16.0))
+                    .suffix(chevron)
+                    .on_click(move |_, _, cx| {
+                        let _ = root.update(cx, |this, cx| {
+                            this.toggle_site_tree_course(&click_course_id, cx);
+                            this.open_page_tab(&open_path, open_title.clone(), cx);
+                        });
+                    });
+                let _ = &mut course_item;
+                items.push(course_item);
+                if is_expanded {
+                    let enrolled = ctx.course_enrollments.get(&id).and_then(Option::as_deref)
+                        == Some("confirmed");
+                    if !enrolled {
                         items.push(
-                            SidebarMenuItem::new(chapter.title.clone())
-                                .disable(true)
-                                .pl(px(28.0))
-                                .border_l_1()
-                                .border_color(palette.line),
+                            SidebarMenuItem::new(
+                                translate(language, Key::CoursesSiteTreeEnrollToUnlock).to_string(),
+                            )
+                            .disable(true)
+                            .pl(px(28.0))
+                            .border_l_1()
+                            .border_color(palette.line),
                         );
-                        for issue in &chapter.issues {
-                            let root = cx.entity().downgrade();
-                            let issue_id = issue.id.clone();
-                            let title = issue.title.clone();
-                            let active = active_issue.as_deref() == Some(issue_id.as_str());
-                            let course_id = id.clone();
-                            items.push(
-                                SidebarMenuItem::new(title.clone())
-                                    .active(active)
-                                    .pl(px(36.0))
-                                    .border_l_1()
-                                    .border_color(palette.line)
-                                    .on_click(move |_, _, cx| {
-                                        let _ = root.update(cx, |this, cx| {
-                                            this.open_issue_tab(
-                                                &course_id,
-                                                &issue_id,
-                                                title.clone(),
-                                                cx,
-                                            );
-                                        });
-                                    }),
-                            );
+                    } else if let Some((_, outline)) = course_outline
+                        .as_ref()
+                        .filter(|(course_id, _)| course_id == &id)
+                    {
+                        let groups = outline
+                            .chapters
+                            .iter()
+                            .map(|chapter| {
+                                (Some(chapter.title.as_str()), chapter.issues.as_slice())
+                            })
+                            .chain(std::iter::once((None, outline.ungrouped.as_slice())));
+                        for (chapter_title, issues) in groups {
+                            let chapter_matches =
+                                course_matches || chapter_title.is_some_and(matches_query);
+                            let chapter_visible = chapter_matches
+                                || issues.iter().any(|issue| matches_query(&issue.title));
+                            if !chapter_visible {
+                                continue;
+                            }
+                            if let Some(title) = chapter_title {
+                                items.push(
+                                    SidebarMenuItem::new(title.to_string())
+                                        .disable(true)
+                                        .pl(px(28.0))
+                                        .border_l_1()
+                                        .border_color(palette.line),
+                                );
+                            }
+                            for issue in issues {
+                                if !chapter_matches && !matches_query(&issue.title) {
+                                    continue;
+                                }
+                                let root = cx.entity().downgrade();
+                                let issue_id = issue.id.clone();
+                                let title = issue.title.clone();
+                                let active = active_issue.as_deref() == Some(issue_id.as_str());
+                                let course_id = id.clone();
+                                items.push(
+                                    SidebarMenuItem::new(title.clone())
+                                        .active(active)
+                                        .pl(px(36.0))
+                                        .border_l_1()
+                                        .border_color(palette.line)
+                                        .on_click(move |_, _, cx| {
+                                            let _ = root.update(cx, |this, cx| {
+                                                this.open_issue_tab(
+                                                    &course_id,
+                                                    &issue_id,
+                                                    title.clone(),
+                                                    cx,
+                                                );
+                                            });
+                                        }),
+                                );
+                            }
                         }
                     }
                 }
             }
-        }
-        let root = cx.entity().downgrade();
-        if ctx.courses.has_more() {
-            items.push(SidebarMenuItem::new("加载更多课程").pl(px(16.0)).on_click(
-                move |_, _, cx| {
-                    let _ = root.update(cx, |this, cx| this.start_courses_load(cx, false));
-                },
-            ));
+            let root = cx.entity().downgrade();
+            if courses_has_more {
+                items.push(SidebarMenuItem::new("加载更多课程").pl(px(16.0)).on_click(
+                    move |_, _, cx| {
+                        let _ = root.update(cx, |this, cx| {
+                            if use_center_courses {
+                                this.start_courses_load_with_scope(
+                                    cx,
+                                    false,
+                                    crate::routing::ListScope::Workspace,
+                                );
+                            } else {
+                                this.start_nav_courses_load(cx, false);
+                            }
+                        });
+                    },
+                ));
+            }
+            if !query.is_empty() && search_events_empty && search_courses_empty {
+                items.push(
+                    SidebarMenuItem::new(translate(language, Key::NavSiteTreeEmpty).to_string())
+                        .disable(true)
+                        .pl(px(8.0)),
+                );
+            }
         }
     }
 
-    let root_learning = cx.entity().downgrade();
-    items.push(
-        SidebarMenuItem::new(translate(language, Key::CoursesLearningHomeTitle).to_string())
-            .icon(
-                Icon::default()
-                    .path(AssetIcon::GraduationCap.path())
-                    .small(),
-            )
-            .active(section_active("/learning"))
-            .on_click(move |_, _, cx| {
-                let _ = root_learning.update(cx, |this, cx| {
-                    this.open_page_tab(
-                        "/learning",
-                        translate(language, Key::CoursesLearningHomeTitle).to_string(),
-                        cx,
-                    );
-                });
-            }),
-    );
-    let root_participations = cx.entity().downgrade();
-    items.push(
-        SidebarMenuItem::new(translate(language, Key::EventsParticipationsTitle).to_string())
-            .icon(Icon::default().path(AssetIcon::Ticket.path()).small())
-            .active(section_active("/participations"))
-            .on_click(move |_, _, cx| {
-                let _ = root_participations.update(cx, |this, cx| {
-                    this.open_page_tab(
-                        "/participations",
-                        translate(language, Key::EventsParticipationsTitle).to_string(),
-                        cx,
-                    );
-                });
-            }),
-    );
+    items.push(group_heading(Key::NavGroupMine));
+    for spec in crate::root_view::nav_copy::SITE_TREE_MINE {
+        let root = cx.entity().downgrade();
+        let title = translate(language, spec.key).to_string();
+        let path = spec.path.to_string();
+        items.push(
+            SidebarMenuItem::new(title.clone())
+                .icon(Icon::default().path(spec.icon.path()).small())
+                .active(section_active(spec.path))
+                .on_click(move |_, _, cx| {
+                    let _ = root.update(cx, |this, cx| {
+                        this.open_page_tab(&path, title.clone(), cx);
+                    });
+                }),
+        );
+    }
+
+    items.push(group_heading(Key::NavGroupCommunity));
+    for spec in crate::root_view::nav_copy::SITE_TREE_COMMUNITY {
+        let root = cx.entity().downgrade();
+        let title = translate(language, spec.key).to_string();
+        let path = spec.path.to_string();
+        items.push(
+            SidebarMenuItem::new(title.clone())
+                .icon(Icon::default().path(spec.icon.path()).small())
+                .active(section_active(spec.path))
+                .on_click(move |_, _, cx| {
+                    let _ = root.update(cx, |this, cx| {
+                        this.open_page_tab(&path, title.clone(), cx);
+                    });
+                }),
+        );
+    }
 
     Sidebar::new("site-tree-sidebar")
         .side(gpui_kit::component::Side::Right)
@@ -815,16 +964,68 @@ fn render_site_tree(
         .into_any_element()
 }
 
+fn render_site_tree_search(
+    ctx: &mut ScreenContext<'_>,
+    language: Language,
+    window: &mut Window,
+    cx: &mut Context<RootView>,
+) -> AnyElement {
+    use gpui_kit::component::input::{Input, InputEvent, InputState};
+
+    if ctx.site_tree_search_input.is_none() {
+        let value = ctx.site_tree_query.clone();
+        let input = cx.new(|cx| InputState::new(window, cx).default_value(value));
+        ctx.site_tree_search_subscription =
+            Some(
+                cx.subscribe_in(&input, window, |this, input, event: &InputEvent, _, cx| {
+                    match event {
+                        InputEvent::Change => {
+                            this.site_tree_query = input.read(cx).value().to_string();
+                            if !this.site_tree_query.trim().is_empty() {
+                                this.ensure_navigation_data(cx);
+                            }
+                        }
+                        InputEvent::Focus => this.site_tree_search_focused = true,
+                        InputEvent::Blur => this.site_tree_search_focused = false,
+                        _ => return,
+                    }
+                    cx.notify();
+                }),
+            );
+        ctx.site_tree_search_input = Some(input);
+    }
+    let input = ctx
+        .site_tree_search_input
+        .as_ref()
+        .expect("initialized search")
+        .clone();
+    if ctx.site_tree_search_language != Some(language) {
+        input.update(cx, |state, cx| {
+            state.set_placeholder(translate(language, Key::NavSiteTreeSearch), window, cx);
+        });
+        ctx.site_tree_search_language = Some(language);
+    }
+    div()
+        .id("site-tree-search")
+        .test_support()
+        .mx(space(1))
+        .mb(px(2.0))
+        .child(Input::new(&input).small())
+        .into_any_element()
+}
+
 fn render_outline(
     ctx: &mut ScreenContext<'_>,
     language: Language,
     palette: &theme::Palette,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
-    let is_learning = ctx
-        .current
-        .as_ref()
-        .is_some_and(|route_match| route_match.route.id == "courses.learning");
+    let is_learning = ctx.current.as_ref().is_some_and(|route_match| {
+        matches!(
+            route_match.route.id,
+            "courses.learning" | "courses.public_learning"
+        )
+    });
     let content = ctx.content.content().cloned();
     let Some(content) = content else {
         return empty_outline(language, palette);
@@ -836,12 +1037,10 @@ fn render_outline(
     let outline = build_outline(&content.document);
     let projection = ctx.projection.projection().cloned();
     let course_id = content.course_id.clone();
-    let active_issue = ctx.active_tab.as_deref().and_then(|active| {
-        ctx.tabs
-            .iter()
-            .find(|tab| tab.id == active)
-            .and_then(|tab| tab.issue_id.clone())
-    });
+    let active_issue = ctx
+        .current
+        .as_ref()
+        .and_then(|route_match| route_match.query.get("issue").cloned());
     let mut rows = Vec::new();
     rows.push(
         div()

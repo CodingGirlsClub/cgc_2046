@@ -140,3 +140,74 @@ fn unreachable_backend_leaves_loading_and_offers_retry(cx: &mut TestAppContext) 
         );
     });
 }
+
+#[gpui_kit::test]
+fn overview_drops_cross_workspace_blocks_and_shows_local_courses(cx: &mut TestAppContext) {
+    use cgc_courses::catalog::{CourseCatalogService, FakeCoursesApi};
+    use cgc_events::enrollments::MyEnrollmentRow;
+    use cgc_events::list::{EventListService, FakeEventsApi};
+    use cgc_platform::workspace::OfferingScope;
+    use std::sync::Arc;
+
+    let (handle, root) = open_overview(cx);
+    root.update(cx, |root, cx| {
+        let listed = root.workspaces.fetch(None).expect("demo workspaces");
+        root.workspaces.adopt(listed);
+
+        let mut events = EventListService::new(Arc::new(FakeEventsApi::with_seed(3)));
+        events.begin_first_load();
+        let page = events
+            .fetch(None, OfferingScope::Public)
+            .expect("events page");
+        events.adopt_page(page);
+        root.events = events;
+
+        let mut courses = CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(3)));
+        courses.begin_first_load();
+        let page = courses
+            .fetch(None, OfferingScope::Public)
+            .expect("courses page");
+        courses.adopt_page(page);
+        root.courses = courses;
+
+        // 跨台报名数据存在，但概览不应再渲染它。
+        root.enrollments_rows = vec![MyEnrollmentRow {
+            id: "enr-1".into(),
+            workspace_id: "ws-other".into(),
+            status: "confirmed".into(),
+            target_title: Some("Cross workspace".into()),
+            starts_at: None,
+            event_id: None,
+            course_id: Some("cross-1".into()),
+            payment_mode: None,
+            check_in_code: None,
+        }];
+        cx.notify();
+    });
+
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let labels = window
+            .elements()
+            .iter()
+            .filter_map(|element| element.label().map(str::to_string))
+            .collect::<Vec<_>>();
+        assert!(
+            labels.iter().any(|label| label == "Upcoming events"),
+            "workspace overview keeps the local events block; labels: {labels:?}"
+        );
+        assert!(
+            window.try_find_by_label("Courses").is_some(),
+            "workspace overview shows the local courses entry"
+        );
+        assert!(
+            window.try_find_by_label("Continue learning").is_none(),
+            "cross-workspace learning block must be removed"
+        );
+        assert!(
+            window.try_find_by_label("My enrollments").is_none(),
+            "cross-workspace enrollments block must be removed"
+        );
+    })
+    .unwrap();
+}

@@ -8,6 +8,7 @@ use cgc_courses::catalog::{
 };
 use cgc_courses::content::CourseContentService;
 use cgc_courses::projection::{LearningProjectionService, ProjectionState};
+use cgc_platform::workspace::OfferingScope;
 
 fn fake_api() -> Arc<dyn CoursesApi> {
     Arc::new(FakeCoursesApi::with_seed(15))
@@ -19,7 +20,7 @@ fn catalog_to_detail_to_reading_to_projection() {
 
     // 1. 目录（第一页）
     let page = api
-        .list_courses(None, None, None, 10)
+        .list_courses(None, OfferingScope::Public, None, 10)
         .expect("step 1: list courses");
     assert_eq!(page.items.len(), 10, "step 1: page size");
     assert!(page.next_cursor.is_some(), "step 1: has next page");
@@ -101,7 +102,7 @@ fn services_feed_learning_page_states() {
     let mut catalog = CourseCatalogService::new(api.clone());
     catalog.begin_first_load();
     let page = api
-        .list_courses(None, None, None, 10)
+        .list_courses(None, OfferingScope::Public, None, 10)
         .expect("step 1: list");
     catalog.adopt_page(page);
     assert!(

@@ -7,6 +7,20 @@ pub(in crate::root_view) fn render_courses_list(
     palette: &theme::Palette,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
+    let public_face = ctx
+        .current
+        .as_ref()
+        .is_some_and(|route_match| route_match.route.id == "courses.public_list");
+    let title_key = if public_face {
+        Key::CoursesPublicTitle
+    } else {
+        Key::CoursesCatalogTitle
+    };
+    let empty_key = if public_face {
+        Key::CoursesPublicEmpty
+    } else {
+        Key::CoursesCatalogEmpty
+    };
     let state = ctx.courses.state().clone();
     let items = ctx.courses.items().to_vec();
     let has_more = ctx.courses.has_more();
@@ -36,13 +50,29 @@ pub(in crate::root_view) fn render_courses_list(
             )
             .into_any_element(),
         CoursesListState::Empty => div()
+            .id("courses-list-empty")
+            .test_support()
+            .role(Role::Status)
+            .aria_label(translate(language, empty_key).to_string())
             .text_color(palette.ink_3)
-            .child(translate(language, Key::CoursesCatalogEmpty))
+            .child(translate(language, empty_key))
             .into_any_element(),
         CoursesListState::Ready => {
             let rows = items
                 .iter()
-                .map(|course| course_row(course, language, palette, cx))
+                .map(|course| {
+                    let origin = if public_face {
+                        super::super::render_workspace_badge(
+                            ctx.workspaces.workspaces(),
+                            course.workspace_id.as_deref(),
+                            language,
+                            palette,
+                        )
+                    } else {
+                        None
+                    };
+                    course_row(course, origin, language, palette, cx)
+                })
                 .collect::<Vec<_>>();
             let load_more = has_more.then(|| {
                 div()
@@ -75,9 +105,13 @@ pub(in crate::root_view) fn render_courses_list(
         .gap(space(2))
         .child(
             div()
+                .id("courses-list-title")
+                .test_support()
+                .role(Role::Heading)
+                .aria_label(translate(language, title_key).to_string())
                 .text_size(px(24.0))
                 .text_color(palette.ink)
-                .child(translate_registered(language, "courses.catalog.title")),
+                .child(translate(language, title_key)),
         )
         .child(body)
         .into_any_element()

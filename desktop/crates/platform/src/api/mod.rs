@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::workspace::WorkspaceScope;
+use crate::workspace::{OfferingScope, WorkspaceScope};
 
 /// 2.5：当前需要注入 workspace 作用域的 operation 清单（新增 operation 必须登记）。
 pub const WORKSPACE_SCOPED_OPERATIONS: &[&str] = &["ListEvents", "ListCourses"];
@@ -52,6 +52,37 @@ impl ApiError {
             },
         }
     }
+}
+
+/// 公开面（`OfferingScope::Public`）的列表过滤口径；与 Web 公开发现页一致。
+const PUBLIC_OFFERING_STATUS: &str = "open";
+const PUBLIC_OFFERING_VISIBILITY: &str = "public";
+
+/// 在 variables 里注入列表作用域：
+/// 工作区面 → `filter.workspaceId`；公开面 → `status=open` + `visibility=public`，不带工作区。
+pub fn apply_offering_scope(variables: &mut Value, scope: OfferingScope<'_>) {
+    if let Some(workspace) = scope.workspace() {
+        apply_workspace_scope(variables, Some(workspace));
+        return;
+    }
+    let Some(variables) = variables.as_object_mut() else {
+        return;
+    };
+    let Some(filter) = variables
+        .entry("filter")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+    else {
+        return;
+    };
+    filter.insert(
+        "status".to_string(),
+        serde_json::json!({ "eq": PUBLIC_OFFERING_STATUS }),
+    );
+    filter.insert(
+        "visibility".to_string(),
+        serde_json::json!({ "eq": PUBLIC_OFFERING_VISIBILITY }),
+    );
 }
 
 /// 在 variables 里注入当前 workspace 作用域（仅对登记过的 scoped operation 调用）。
@@ -326,6 +357,36 @@ mod tests {
         let mut untouched = serde_json::json!({ "id": "x" });
         apply_workspace_scope(&mut untouched, None);
         assert!(untouched.get("filter").is_none());
+    }
+
+    #[test]
+    fn public_offering_scope_forces_open_public_and_never_workspace() {
+        let mut variables = serde_json::json!({ "first": 10 });
+        apply_offering_scope(&mut variables, OfferingScope::Public);
+        assert_eq!(variables["filter"]["status"]["eq"], "open");
+        assert_eq!(variables["filter"]["visibility"]["eq"], "public");
+        assert!(variables["filter"].get("workspaceId").is_none());
+    }
+
+    #[test]
+    fn public_offering_scope_overrides_a_stale_status_filter() {
+        let mut variables = serde_json::json!({ "filter": { "status": { "eq": "closed" } } });
+        apply_offering_scope(&mut variables, OfferingScope::Public);
+        assert_eq!(variables["filter"]["status"]["eq"], "open");
+        assert_eq!(variables["filter"]["visibility"]["eq"], "public");
+    }
+
+    #[test]
+    fn workspace_offering_scope_keeps_the_status_filter() {
+        let scope = WorkspaceScope {
+            workspace_id: "ws-7".to_string(),
+            epoch: 1,
+        };
+        let mut variables = serde_json::json!({ "filter": { "status": { "eq": "closed" } } });
+        apply_offering_scope(&mut variables, OfferingScope::Workspace(&scope));
+        assert_eq!(variables["filter"]["workspaceId"]["eq"], "ws-7");
+        assert_eq!(variables["filter"]["status"]["eq"], "closed");
+        assert!(variables["filter"].get("visibility").is_none());
     }
 
     #[test]

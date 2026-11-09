@@ -5,10 +5,11 @@
 //! - 详情携带本人报名状态与 `revisionNumber`，学习入口按报名状态显示；
 //! - 学习页通过 `CourseContextPort` 校验上下文，缺失时 fail-closed 给引导。
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use cgc_platform::api::{apply_workspace_scope, ApiError, GraphqlClient};
-use cgc_platform::workspace::WorkspaceScope;
+use cgc_platform::api::{apply_offering_scope, ApiError, GraphqlClient};
+use cgc_platform::workspace::OfferingScope;
 use cgc_platform::workspace::{
     ContextError, CourseContext, CourseContextPort, CourseContextProvider,
 };
@@ -17,11 +18,23 @@ use serde_json::{json, Value};
 use crate::content::CourseContent;
 
 const LIST_COURSES_QUERY: &str = r#"
-query ListCourses($first: Int!, $after: String, $filter: CourseFilterInput) {
+query ListCourses($first: Int!, $after: String, $filter: CourseFilterInput, $includeWorkspaceId: Boolean!) {
   listCourses(first: $first, after: $after, filter: $filter) {
     count
     endKeyset
-    results { id title status visibility registrationDeadline startsAt endsAt pricingEnabled }
+    results {
+      id title status visibility registrationDeadline startsAt endsAt
+      workspaceId @include(if: $includeWorkspaceId)
+      pricingEnabled enrollmentBadge
+    }
+  }
+}
+"#;
+
+const COURSE_WORKSPACES_QUERY: &str = r#"
+query CourseWorkspaces($first: Int!, $filter: CourseFilterInput!) {
+  listCourses(first: $first, filter: $filter) {
+    results { id workspaceId }
   }
 }
 "#;
@@ -29,7 +42,7 @@ query ListCourses($first: Int!, $after: String, $filter: CourseFilterInput) {
 const GET_COURSE_QUERY: &str = r#"
 query GetCourse($id: ID!) {
   getCourse(id: $id) {
-    id workspaceId title description status visibility enrollmentPolicy
+    id title description status visibility enrollmentPolicy
     registrationDeadline startsAt endsAt pricingEnabled availablePriceTiers
   }
 }
@@ -37,13 +50,13 @@ query GetCourse($id: ID!) {
 
 const MY_ENROLLMENT_QUERY: &str = r#"
 query MyEnrollment($offeringId: ID!) {
-  myEnrollment(kind: "course", offeringId: $offeringId) { id status }
+  myEnrollment(kind: "course", offeringId: $offeringId) { id status workspaceId }
 }
 "#;
 
 const COURSE_LEARNING_QUERY: &str = r#"
 query CourseLearning($courseId: ID!) {
-  courseLearningDetail(courseId: $courseId) { courseId title revisionNumber staleRevision }
+  courseLearningDetail(courseId: $courseId) { courseId workspaceId title revisionNumber staleRevision }
 }
 "#;
 
@@ -53,8 +66,10 @@ pub struct CourseSummary {
     pub title: String,
     pub status: String,
     pub workspace_id: Option<String>,
+    pub enrollment_badge: Option<String>,
     pub pricing_enabled: bool,
     pub starts_at: Option<String>,
+    pub registration_deadline: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -62,6 +77,13 @@ pub struct CoursePage {
     pub items: Vec<CourseSummary>,
     pub next_cursor: Option<String>,
     pub total: Option<i64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CoursePriceTier {
+    pub id: String,
+    pub name: String,
+    pub amount_cents: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -73,6 +95,8 @@ pub struct CourseDetail {
     pub visibility: String,
     pub workspace_id: Option<String>,
     pub pricing_enabled: bool,
+    pub enrollment_policy: String,
+    pub available_price_tiers: Vec<CoursePriceTier>,
     /// 本人报名状态（confirmed/pending/...；None = 未报名或未登录）。
     pub enrollment_status: Option<String>,
     /// 学习 revision；None 表示后端没有可用学习数据（学习页 fail-closed 引导）。
@@ -125,10 +149,17 @@ pub trait CoursesApi: Send + Sync {
     fn list_courses(
         &self,
         token: Option<&str>,
-        scope: Option<&WorkspaceScope>,
+        scope: OfferingScope<'_>,
         after: Option<&str>,
         first: u32,
     ) -> Result<CoursePage, CoursesError>;
+    /// 仅查询给定可访问工作区内、当前页课程的归属；不扩大公开字段权限。
+    fn course_workspaces(
+        &self,
+        token: Option<&str>,
+        course_ids: &[String],
+        workspace_ids: &[String],
+    ) -> Result<BTreeMap<String, String>, CoursesError>;
     fn get_course(&self, token: Option<&str>, id: &str) -> Result<CourseDetail, CoursesError>;
     /// 课程报名状态；未报名返回 None（不把 404/权限错误当未报名以外的事实）。
     fn get_my_enrollment_status(
@@ -174,6 +205,48 @@ query CourseLearningDetail($courseId: ID!) {
 }
 "#;
 
+/// R9：目录读面拒绝时，用 `courseLearningDetail` 的学员授权数据构造最小课程详情。
+fn course_detail_from_learning(
+    learning: &Value,
+    enrollment_status: Option<String>,
+) -> Option<CourseDetail> {
+    Some(CourseDetail {
+        id: learning.get("courseId")?.as_str()?.to_string(),
+        title: learning.get("title")?.as_str()?.to_string(),
+        description: None,
+        status: "open".to_string(),
+        visibility: "workspace".to_string(),
+        workspace_id: learning
+            .get("workspaceId")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        pricing_enabled: false,
+        enrollment_policy: "open".to_string(),
+        available_price_tiers: Vec::new(),
+        enrollment_status,
+        revision_number: learning.get("revisionNumber").and_then(Value::as_i64),
+    })
+}
+
+fn parse_course_price_tiers(raw: &Value) -> Vec<CoursePriceTier> {
+    raw.as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let text = item.as_str()?;
+                    let parsed: Value = serde_json::from_str(text).ok()?;
+                    Some(CoursePriceTier {
+                        id: parsed.get("id")?.as_str()?.to_string(),
+                        name: parsed.get("name")?.as_str()?.to_string(),
+                        amount_cents: parsed.get("amount_cents").and_then(Value::as_i64),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 impl HttpCoursesApi {
     pub fn new(client: GraphqlClient) -> Self {
         Self { client }
@@ -192,12 +265,20 @@ impl HttpCoursesApi {
                 .get("workspaceId")
                 .and_then(Value::as_str)
                 .map(str::to_string),
+            enrollment_badge: value
+                .get("enrollmentBadge")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             pricing_enabled: value
                 .get("pricingEnabled")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
             starts_at: value
                 .get("startsAt")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            registration_deadline: value
+                .get("registrationDeadline")
                 .and_then(Value::as_str)
                 .map(str::to_string),
         })
@@ -208,15 +289,18 @@ impl CoursesApi for HttpCoursesApi {
     fn list_courses(
         &self,
         token: Option<&str>,
-        scope: Option<&WorkspaceScope>,
+        scope: OfferingScope<'_>,
         after: Option<&str>,
         first: u32,
     ) -> Result<CoursePage, CoursesError> {
-        let mut variables = json!({ "first": first });
+        let mut variables = json!({
+            "first": first,
+            "includeWorkspaceId": matches!(&scope, OfferingScope::Workspace(_)),
+        });
         if let Some(after) = after {
             variables["after"] = json!(after);
         }
-        apply_workspace_scope(&mut variables, scope);
+        apply_offering_scope(&mut variables, scope);
         let payload = self
             .client
             .post(token, LIST_COURSES_QUERY, variables)
@@ -241,31 +325,40 @@ impl CoursesApi for HttpCoursesApi {
         })
     }
 
-    fn get_course(&self, token: Option<&str>, id: &str) -> Result<CourseDetail, CoursesError> {
-        let payload = self
-            .client
-            .post(token, GET_COURSE_QUERY, json!({ "id": id }))
-            .map_err(CoursesError::from)?;
-        let value = payload
+    fn course_workspaces(
+        &self,
+        token: Option<&str>,
+        course_ids: &[String],
+        workspace_ids: &[String],
+    ) -> Result<BTreeMap<String, String>, CoursesError> {
+        if course_ids.is_empty() || workspace_ids.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+        let payload = self.client.post(token, COURSE_WORKSPACES_QUERY, json!({
+            "first": course_ids.len(),
+            "filter": { "id": { "in": course_ids }, "workspaceId": { "in": workspace_ids } },
+        })).map_err(CoursesError::from)?;
+        let rows = payload
             .get("data")
-            .and_then(|data| data.get("getCourse"))
-            .filter(|value| !value.is_null())
-            .ok_or(CoursesError::NotFound)?;
+            .and_then(|data| data.get("listCourses"))
+            .and_then(|page| page.get("results"))
+            .and_then(Value::as_array)
+            .ok_or_else(|| CoursesError::Server("missing course workspace results".into()))?;
+        Ok(rows
+            .iter()
+            .filter_map(|row| {
+                Some((
+                    row.get("id")?.as_str()?.to_string(),
+                    row.get("workspaceId")?.as_str()?.to_string(),
+                ))
+            })
+            .collect())
+    }
 
-        let enrollment_status = self
-            .client
-            .post(token, MY_ENROLLMENT_QUERY, json!({ "offeringId": id }))
-            .ok()
-            .and_then(|payload| {
-                payload
-                    .get("data")
-                    .and_then(|data| data.get("myEnrollment"))
-                    .and_then(|enrollment| enrollment.get("status"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            });
-
-        let revision_number = self
+    fn get_course(&self, token: Option<&str>, id: &str) -> Result<CourseDetail, CoursesError> {
+        // R9：先读学员授权面 `courseLearningDetail`。非成员但已报名公开活动时，
+        // 配套课即使 visibility=workspace，也应以学习关系放行，不能被 getCourse 目录权限挡住。
+        let learning = self
             .client
             .post(token, COURSE_LEARNING_QUERY, json!({ "courseId": id }))
             .ok()
@@ -273,9 +366,54 @@ impl CoursesApi for HttpCoursesApi {
                 payload
                     .get("data")
                     .and_then(|data| data.get("courseLearningDetail"))
-                    .and_then(|detail| detail.get("revisionNumber"))
-                    .and_then(Value::as_i64)
+                    .filter(|value| !value.is_null())
+                    .cloned()
             });
+
+        let enrollment = self
+            .client
+            .post(token, MY_ENROLLMENT_QUERY, json!({ "offeringId": id }))
+            .map_err(CoursesError::from)?;
+        let enrollment = enrollment
+            .get("data")
+            .and_then(|data| data.get("myEnrollment"));
+        let enrollment_status = enrollment
+            .and_then(|row| row.get("status"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let enrollment_workspace_id = enrollment
+            .and_then(|row| row.get("workspaceId"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let revision_number = learning
+            .as_ref()
+            .and_then(|detail| detail.get("revisionNumber"))
+            .and_then(Value::as_i64);
+        let learning_workspace_id = learning
+            .as_ref()
+            .and_then(|detail| detail.get("workspaceId"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+
+        let catalog = self
+            .client
+            .post(token, GET_COURSE_QUERY, json!({ "id": id }));
+        let value = match catalog {
+            Ok(payload) => payload
+                .get("data")
+                .and_then(|data| data.get("getCourse"))
+                .filter(|value| !value.is_null())
+                .cloned(),
+            // 目录读面可能因 workspace 可见性拒绝；已报名学员还能用学习读面拿到课程。
+            Err(_) if learning.is_some() => None,
+            Err(error) => return Err(CoursesError::from(error)),
+        };
+
+        let Some(value) = value else {
+            let learning = learning.ok_or(CoursesError::NotFound)?;
+            return course_detail_from_learning(&learning, enrollment_status)
+                .ok_or(CoursesError::NotFound);
+        };
 
         let id = value
             .get("id")
@@ -304,14 +442,20 @@ impl CoursesApi for HttpCoursesApi {
                 .and_then(Value::as_str)
                 .unwrap_or("public")
                 .to_string(),
-            workspace_id: value
-                .get("workspaceId")
-                .and_then(Value::as_str)
-                .map(str::to_string),
+            workspace_id: learning_workspace_id.or(enrollment_workspace_id),
             pricing_enabled: value
                 .get("pricingEnabled")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
+            enrollment_policy: value
+                .get("enrollmentPolicy")
+                .and_then(Value::as_str)
+                .unwrap_or("open")
+                .to_string(),
+            available_price_tiers: value
+                .get("availablePriceTiers")
+                .map(parse_course_price_tiers)
+                .unwrap_or_default(),
             enrollment_status,
             revision_number,
         })
@@ -380,8 +524,10 @@ impl FakeCoursesApi {
                 title: format!("课程 {}", index + 1),
                 status: "open".to_string(),
                 workspace_id: Some("ws-demo".to_string()),
+                enrollment_badge: None,
                 pricing_enabled: index % 3 == 0,
                 starts_at: Some(format!("2026-12-{:02}T09:00:00Z", (index % 28) + 1)),
+                registration_deadline: None,
             })
             .collect();
         Self {
@@ -412,7 +558,7 @@ impl CoursesApi for FakeCoursesApi {
     fn list_courses(
         &self,
         _token: Option<&str>,
-        _scope: Option<&WorkspaceScope>,
+        _scope: OfferingScope<'_>,
         after: Option<&str>,
         first: u32,
     ) -> Result<CoursePage, CoursesError> {
@@ -428,6 +574,28 @@ impl CoursesApi for FakeCoursesApi {
             next_cursor: (end < self.courses.len()).then(|| end.to_string()),
             total: Some(self.courses.len() as i64),
         })
+    }
+
+    fn course_workspaces(
+        &self,
+        _token: Option<&str>,
+        course_ids: &[String],
+        workspace_ids: &[String],
+    ) -> Result<BTreeMap<String, String>, CoursesError> {
+        if self.fail {
+            return Err(CoursesError::Transport("fake network down".into()));
+        }
+        Ok(self
+            .courses
+            .iter()
+            .filter(|course| course_ids.contains(&course.id))
+            .filter_map(|course| {
+                let workspace_id = course.workspace_id.as_ref()?;
+                workspace_ids
+                    .contains(workspace_id)
+                    .then(|| (course.id.clone(), workspace_id.clone()))
+            })
+            .collect())
     }
 
     fn get_course(&self, _token: Option<&str>, id: &str) -> Result<CourseDetail, CoursesError> {
@@ -449,6 +617,8 @@ impl CoursesApi for FakeCoursesApi {
             visibility: "public".to_string(),
             workspace_id: summary.workspace_id.clone(),
             pricing_enabled: summary.pricing_enabled,
+            enrollment_policy: "open".to_string(),
+            available_price_tiers: Vec::new(),
             enrollment_status: enrolled.then(|| "confirmed".to_string()),
             revision_number: enrolled.then(|| (index as i64) + 1),
         })
@@ -597,10 +767,14 @@ impl CourseCatalogService {
         self.state = CoursesListState::Loading;
     }
 
-    pub fn fetch(&self, token: Option<&str>) -> Result<CoursePage, CoursesError> {
+    pub fn fetch(
+        &self,
+        token: Option<&str>,
+        scope: OfferingScope<'_>,
+    ) -> Result<CoursePage, CoursesError> {
         self.api.list_courses(
             token,
-            None,
+            scope,
             if self.loading_more {
                 self.next_cursor.as_deref()
             } else {
@@ -711,6 +885,7 @@ pub fn learning_context(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cgc_platform::workspace::WorkspaceScope;
 
     fn catalog() -> CourseCatalogService {
         CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(15)))
@@ -720,12 +895,12 @@ mod tests {
     fn catalog_pages_and_appends() {
         let mut service = catalog();
         service.begin_first_load();
-        service.adopt_page(service.fetch(None).expect("page 1"));
+        service.adopt_page(service.fetch(None, OfferingScope::Public).expect("page 1"));
         assert_eq!(service.items().len(), 10);
         assert!(service.next_cursor().is_some());
 
         service.begin_load_more();
-        service.adopt_page(service.fetch(None).expect("page 2"));
+        service.adopt_page(service.fetch(None, OfferingScope::Public).expect("page 2"));
         assert_eq!(service.items().len(), 15);
         assert!(service.next_cursor().is_none());
     }
@@ -784,7 +959,7 @@ mod tests {
             epoch: 2,
         };
         let _ = api
-            .list_courses(None, Some(&scope), None, 10)
+            .list_courses(None, OfferingScope::Workspace(&scope), None, 10)
             .expect("page");
         let sent = receiver.recv().expect("request");
         assert!(sent.contains("ListCourses"));
@@ -793,15 +968,95 @@ mod tests {
     }
 
     #[test]
+    fn http_list_courses_public_scope_has_no_workspace() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 4096];
+            let header_end = loop {
+                let read = stream.read(&mut buffer).expect("read");
+                if read == 0 {
+                    break request.len();
+                }
+                request.extend_from_slice(&buffer[..read]);
+                if let Some(pos) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break pos + 4;
+                }
+            };
+            let headers = String::from_utf8_lossy(&request[..header_end]).to_string();
+            let content_length = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().ok())
+                        .flatten()
+                })
+                .unwrap_or(0);
+            while request.len() < header_end + content_length {
+                let read = stream.read(&mut buffer).expect("read body");
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..read]);
+            }
+            let _ = sender.send(String::from_utf8_lossy(&request).to_string());
+            let query: Value = serde_json::from_slice(&request[header_end..]).expect("query");
+            let course = json!({"id":"c-1","title":"Rust","status":"open","visibility":"public","pricingEnabled":false,"enrollmentBadge":"enrolling"});
+            let requests_workspace = query["query"]
+                .as_str()
+                .expect("document")
+                .contains("workspaceId")
+                && query["variables"]["includeWorkspaceId"] != false;
+            let body = if requests_workspace {
+                json!({"errors":[{"message":"forbidden field","code":"forbidden_field"}]})
+                    .to_string()
+            } else {
+                json!({"data":{"listCourses":{"count":1,"endKeyset":null,"results":[course]}}})
+                    .to_string()
+            };
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).expect("write");
+        });
+
+        let api = HttpCoursesApi::new(GraphqlClient::new(format!("http://{addr}/api/graphql")));
+        let page = api
+            .list_courses(None, OfferingScope::Public, None, 10)
+            .expect("page");
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].enrollment_badge.as_deref(), Some("enrolling"));
+        assert_eq!(page.items[0].workspace_id, None);
+        let sent = receiver.recv().expect("request");
+        let body = sent.split("\r\n\r\n").nth(1).expect("request body");
+        let body: Value = serde_json::from_str(body).expect("json body");
+        let filter = &body["variables"]["filter"];
+        assert!(
+            filter.get("workspaceId").is_none(),
+            "public scope leaked: {filter}"
+        );
+        assert_eq!(filter["status"]["eq"], "open");
+        assert_eq!(filter["visibility"]["eq"], "public");
+    }
+
+    #[test]
     fn catalog_empty_and_failure_states() {
         let mut empty = CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(0)));
         empty.begin_first_load();
-        empty.adopt_page(empty.fetch(None).expect("empty"));
+        empty.adopt_page(empty.fetch(None, OfferingScope::Public).expect("empty"));
         assert_eq!(empty.state(), &CoursesListState::Empty);
 
         let mut failing = CourseCatalogService::new(Arc::new(FakeCoursesApi::failing()));
         failing.begin_first_load();
-        let error = failing.fetch(None).unwrap_err();
+        let error = failing.fetch(None, OfferingScope::Public).unwrap_err();
         failing.fail(&error);
         assert!(matches!(failing.state(), CoursesListState::Failed(_)));
         failing.retry_ready();
@@ -812,12 +1067,16 @@ mod tests {
     fn has_more_uses_total_not_cursor() {
         let mut service = catalog();
         service.begin_first_load();
-        service.adopt_page(service.fetch(None).expect("page 1"));
+        service.adopt_page(service.fetch(None, OfferingScope::Public).expect("page 1"));
         assert!(service.has_more(), "15 items, first page of 10");
 
         while service.next_cursor().is_some() {
             service.begin_load_more();
-            service.adopt_page(service.fetch(None).expect("next page"));
+            service.adopt_page(
+                service
+                    .fetch(None, OfferingScope::Public)
+                    .expect("next page"),
+            );
         }
         assert!(!service.has_more(), "all items loaded");
     }
@@ -864,5 +1123,38 @@ mod tests {
         assert_eq!(context.workspace_id, "ws-demo");
         assert_eq!(context.course_revision_id, "3");
         assert_eq!(context.user_id, "u-1");
+    }
+
+    #[test]
+    fn parse_price_tiers_preserves_unknown_amounts() {
+        let raw = json!([
+            "{\"id\":\"t-early\",\"name\":\"早鸟\",\"amount_cents\":9900}",
+            "{\"id\":\"t-tbd\",\"name\":\"待定\"}"
+        ]);
+        let tiers = parse_course_price_tiers(&raw);
+        assert_eq!(tiers.len(), 2);
+        assert_eq!(tiers[0].amount_cents, Some(9900));
+        assert_eq!(
+            tiers[1].amount_cents, None,
+            "缺 amount_cents 必须是未知金额，不得当成 0"
+        );
+    }
+
+    #[test]
+    fn learning_detail_fallback_builds_enrolled_non_member_course() {
+        let learning = json!({
+            "courseId": "crs-9",
+            "workspaceId": "ws-beta",
+            "title": "活动配套课",
+            "revisionNumber": 4,
+            "staleRevision": false
+        });
+        let detail = course_detail_from_learning(&learning, Some("confirmed".to_string()))
+            .expect("fallback");
+        assert_eq!(detail.id, "crs-9");
+        assert_eq!(detail.title, "活动配套课");
+        assert_eq!(detail.workspace_id.as_deref(), Some("ws-beta"));
+        assert_eq!(detail.enrollment_status.as_deref(), Some("confirmed"));
+        assert_eq!(detail.revision_number, Some(4));
     }
 }
