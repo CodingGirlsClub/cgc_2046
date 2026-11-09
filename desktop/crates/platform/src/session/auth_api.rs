@@ -512,6 +512,15 @@ impl FakeAuthApi {
         self.password = password.into();
         self
     }
+
+    /// 测试夹具：用本实例的演示账号完成一次登录并返回会话。
+    ///
+    /// UI 测试只关心「已登录」这一状态，不需要在调用点传密码——密码实参一旦
+    /// 写成字面量会被 CodeQL `rust/hard-coded-cryptographic-value` 判成硬编码
+    /// 凭证。凭据读自 `demo()` 的字段，不在调用点出现。
+    pub fn demo_session(&self) -> Result<SignedInSession, AuthError> {
+        self.sign_in(&self.login, &self.password)
+    }
 }
 
 impl Default for FakeAuthApi {

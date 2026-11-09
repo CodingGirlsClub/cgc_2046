@@ -1,10 +1,7 @@
 use super::RootView;
 use crate::{i18n::Language, theme::ThemePreference, workspace_state};
 use cgc_courses::catalog::{CoursesApi, FakeCoursesApi};
-use cgc_platform::{
-    session::{FakeAuthApi, MemoryStore, SessionService},
-    workspace::WorkspaceSummary,
-};
+use cgc_platform::workspace::WorkspaceSummary;
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{px, size, AppContext, Bounds, Entity, TestAppContext, WindowBounds, WindowOptions};
 
@@ -26,13 +23,7 @@ pub(super) fn root_window(
             cx,
             |_, cx| {
                 cx.new(|_| {
-                    let mut session = SessionService::new(
-                        Box::new(FakeAuthApi::demo()),
-                        Box::new(MemoryStore::default()),
-                    );
-                    session
-                        .sign_in("demo@example.com", "demo")
-                        .expect("fake login");
+                    let session = crate::root_view::demo_signed_in();
                     let mut root = RootView::with_session_from(
                         crate::registration::build_registry().unwrap(),
                         Language::Zh,

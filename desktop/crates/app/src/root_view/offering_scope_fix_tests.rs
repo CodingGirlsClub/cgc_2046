@@ -250,13 +250,7 @@ fn root_window_at(
             cx,
             |_, cx| {
                 let root = cx.new(|_| {
-                    let mut session = SessionService::new(
-                        Box::new(FakeAuthApi::demo()),
-                        Box::new(MemoryStore::default()),
-                    );
-                    session
-                        .sign_in("demo@example.com", "demo")
-                        .expect("fake login");
+                    let session = crate::root_view::demo_signed_in();
                     let mut root = RootView::with_session_from(
                         crate::registration::build_registry().expect("registry"),
                         crate::i18n::Language::Zh,

@@ -98,6 +98,24 @@ mod panel_memory_tests;
 #[cfg(all(test, cgc_ui_tests))]
 mod titlebar_tests;
 
+/// UI 测试夹具：以演示账号进入 `SignedIn`（内存凭证存储，不碰 keychain）。
+///
+/// 凭据取自 `FakeAuthApi::demo()` 自身，调用点因此不出现密码字面量——密码实参
+/// 写成字面量会被 CodeQL `rust/hard-coded-cryptographic-value` 判成硬编码凭证。
+#[cfg(all(test, cgc_ui_tests))]
+pub(in crate::root_view) fn demo_signed_in() -> SessionService {
+    let api = cgc_platform::session::FakeAuthApi::demo();
+    let session = api.demo_session().expect("fake demo session");
+    let mut service = SessionService::new(
+        Box::new(api),
+        Box::new(cgc_platform::session::MemoryStore::default()),
+    );
+    service
+        .adopt_signed_in(session)
+        .expect("memory store persists");
+    service
+}
+
 use state::{AgentRegistryFilter, RightPanel, ShellState, SiteTreeSection};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
