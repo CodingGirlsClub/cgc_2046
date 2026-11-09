@@ -21,7 +21,8 @@ pub(crate) const AGENT_ROW_ICON_SIZE: f32 = 14.0;
 /// 系统托盘 PNG（macOS 菜单栏暂未改模板图，仍用彩色 mark）。
 pub const TRAY_ICON_PNG: &[u8] = include_bytes!("../icons/32x32.png");
 
-/// native agent / 托盘使用的小尺寸 mark（18px 以下可读）。
+/// native agent 使用的小尺寸 mark（应用图标；内容在画布里偏下，调用方按
+/// 资产比例补偿，见 `root_view::agent_icons`）。
 pub(crate) fn app_icon() -> Arc<Image> {
     static ICON: OnceLock<Arc<Image>> = OnceLock::new();
     ICON.get_or_init(|| {

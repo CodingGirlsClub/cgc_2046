@@ -136,6 +136,8 @@ impl NativeAgentView {
             snapshot: seeded_snapshot,
             writer,
             initial_snapshot_requested: false,
+            copied_actions: None,
+            copied_actions_serial: 0,
             page_context,
             language,
             composer_context: Default::default(),

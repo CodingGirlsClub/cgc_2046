@@ -195,7 +195,7 @@ pub(crate) fn assemble(
     }
 }
 
-pub(crate) fn input_capacity(model: &Model) -> usize {
+pub fn input_capacity(model: &Model) -> usize {
     (model.limits.context_window as usize)
         .saturating_sub(model.limits.max_output_tokens as usize + PROTOCOL_RESERVE)
 }

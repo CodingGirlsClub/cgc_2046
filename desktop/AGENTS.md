@@ -16,6 +16,7 @@ GPUI + gpui-kit 的原生桌面客户端。组织方式对齐 Zed：`crates/` �
 - **依赖方向（AD-1）**：`app → 各 domain crate → platform`、`platform-{macos,windows,linux} → platform`；domain crate 之间零依赖。OS 集成按 Zed 的 `gpui_platform` + `gpui_macos/linux/windows` 同构拆分，按 target 选择。
 - **加功能规则**：默认加进已有 domain crate 的 module；只有「独立依赖面 / 被两个以上 crate 复用 / 需要并行隔离或独立发布」之一才新建 crate（Zed 的 `agent` 裂成 `agent_ui`/`agent_servers` 即此标准）。不要按功能清单建 crate。
 - **工具链与版本**：Rust 1.98+；`gpui-kit` =0.9.0（精确钉，补丁版会连带升级 `gpui-pre` 快照与 wgpu/taffy）、`gpui-pre` 由 kit 钉死；**禁止直接依赖 crates.io 的 `gpui`**（会引入两份 GPUI）。
+- **UI 尽量使用 GPUI Kit 组件**：具体有哪些、怎么用，去 `gpui_kit` 依赖源码里找，自己决定。
 - **许可门禁**：新增依赖须与 AGPL-3.0 兼容；GPL-3.0 类先开 issue 人裁（`docs/开源合规/依赖引入规则.md`）。
 - **敏感值**：token、对话内容、核销码、用户手机号不进日志/遥测/崩溃报告（AD-13/AD-16）。
 - **人工合并**：`.github/**`、依赖锁文件（`Cargo.lock`）、根 `AGENTS.md` 的改动由人合并。
@@ -60,3 +61,19 @@ GPUI + gpui-kit 的原生桌面客户端。组织方式对齐 Zed：`crates/` �
 模型/配置选择器共用 `agent_ui::picker`；
 不要在任一视图里另写一份。
 拆 crate 的门槛：出现第二个消费者（如全局助手）、独立依赖面、或需要并行隔离时才拆；否则先在 crate 内加 module。
+
+## 查上游实现（xerj）
+
+两套索引，用途不同：
+
+- `--prefix zed`：Zed 主仓（索引自 `~/Code/github.com/zed-industries/zed`）。查「Zed 怎么写的」，拿结构照抄。
+- `--prefix gpui-kit`：gpui-kit 源码。查依赖 API 的用法与实现。
+
+```bash
+xerj search --prefix zed "agent panel thread view" -k 5
+xerj search --prefix gpui-kit "titlebar window drag" -k 5
+xerj def    --prefix gpui-kit "TitleBar"
+```
+
+- `--prefix` 必须写：缺省 `ax` 已归零，不带前缀的搜索是空的。
+- 索引是快照（Zed 为 `4a6121bb0f`，2026-11-05）：结论回源码或上游 commit 复核。

@@ -153,6 +153,7 @@ pub fn palette_from_theme(cx: &App) -> Palette {
         line_strong: theme.border,
         soft: theme.secondary,
         danger: theme.danger,
+        warning: theme.warning,
     }
 }
 
@@ -194,6 +195,7 @@ pub struct Palette {
     pub line_strong: Hsla,
     pub soft: Hsla,
     pub danger: Hsla,
+    pub warning: Hsla,
 }
 
 impl Palette {
@@ -253,6 +255,7 @@ fn dark() -> Palette {
         line_strong: alpha(0xff_ff_ff, 0.15),
         soft: alpha(0xff_ff_ff, 0.05),
         danger: col(0xeb_57_57),
+        warning: col(0xc9_94_01),
     }
 }
 
@@ -272,6 +275,7 @@ fn light() -> Palette {
         line_strong: alpha(0x00_00_00, 0.15),
         soft: alpha(0x00_00_00, 0.05),
         danger: col(0xeb_57_57),
+        warning: col(0xc9_94_01),
     }
 }
 

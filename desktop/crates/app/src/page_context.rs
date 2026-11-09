@@ -8,7 +8,8 @@ use std::sync::{Arc, Mutex};
 mod projection;
 pub(crate) use projection::{
     project_course_detail, project_course_learning, project_course_list, project_enrollments,
-    project_event_detail, project_event_list, project_issue, project_workspace_overview,
+    project_event_detail, project_event_list, project_issue, project_learning_runs,
+    project_workspace_overview,
 };
 
 /// 一次 Agent 会话的稳定身份。页面正文按线程与 Agent 分别记录加载状态。

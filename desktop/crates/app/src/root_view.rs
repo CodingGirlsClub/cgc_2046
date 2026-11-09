@@ -5,7 +5,7 @@
 //! 整个窗口显示登录页（guard），登录成功后进入壳；登出在头像下拉里（同 Zed 的
 //! sign out）。网络调用放后台线程，结果回主线程刷新。
 
-use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
+use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::InteractiveElement;
 use gpui_kit::*;
 
@@ -27,7 +27,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use cgc_events::enroll::{enrollment_error_key, EnrollmentRequest};
 use cgc_events::enrollments::{
-    EnrollmentsApi, FakeEnrollmentsApi, HttpEnrollmentsApi, MyEnrollmentRow,
+    EnrollmentsApi, FakeEnrollmentsApi, HttpEnrollmentsApi, MyEnrollmentRow, MyLearningRunRow,
 };
 use cgc_events::list::{
     EventListService, EventsApi, FakeEventsApi, HttpEventsApi, ListState, StatusFilter,
@@ -64,7 +64,7 @@ use gpui_kit::component::{
     status_bar::StatusBar,
     tag::Tag,
     tooltip::Tooltip,
-    Icon, Sizable as _, Size as KitSize,
+    Icon, Sizable as _, Size as KitSize, TitleBar,
 };
 
 use crate::i18n::{default_language, translate, translate_registered, Key, Language};
@@ -77,13 +77,44 @@ use crate::theme::{self, space, ThemePreference, RADIUS_LARGE, RADIUS_MEDIUM, RA
 mod agent_icons;
 mod agent_session;
 mod controller;
+mod enrollment_flow;
 mod history_actions;
+mod key_dispatch;
+mod nav_copy;
+mod offering_load;
+mod page_context_build;
+mod tab_lifecycle;
 pub(crate) use history_actions::notify_history_changed;
 pub use history_actions::register_history_root;
 pub(crate) use history_actions::root_weak;
 mod history_sidebar;
 mod screens;
 mod state;
+
+#[cfg(all(test, cgc_ui_tests))]
+mod footer_tests;
+#[cfg(all(test, cgc_ui_tests))]
+mod panel_memory_tests;
+#[cfg(all(test, cgc_ui_tests))]
+mod titlebar_tests;
+
+/// UI 测试夹具：以演示账号进入 `SignedIn`（内存凭证存储，不碰 keychain）。
+///
+/// 凭据取自 `FakeAuthApi::demo()` 自身，调用点因此不出现密码字面量——密码实参
+/// 写成字面量会被 CodeQL `rust/hard-coded-cryptographic-value` 判成硬编码凭证。
+#[cfg(all(test, cgc_ui_tests))]
+pub(in crate::root_view) fn demo_signed_in() -> SessionService {
+    let api = cgc_platform::session::FakeAuthApi::demo();
+    let session = api.demo_session().expect("fake demo session");
+    let mut service = SessionService::new(
+        Box::new(api),
+        Box::new(cgc_platform::session::MemoryStore::default()),
+    );
+    service
+        .adopt_signed_in(session)
+        .expect("memory store persists");
+    service
+}
 
 use state::{AgentRegistryFilter, RightPanel, ShellState, SiteTreeSection};
 
@@ -114,11 +145,6 @@ enum WechatLoginView {
     },
     Expired,
     Failed(LoginError),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BreadcrumbMenu {
-    Sections,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -236,6 +262,9 @@ struct ChatUi {
     history_open: bool,
     guidance: Option<ChatGuidance>,
     load_retry_available: bool,
+    /// 最近点了 Copy 的操作栏 key：短暂把复制图标换成 Check。
+    copied_actions: Option<String>,
+    copied_actions_serial: u64,
 }
 
 impl ChatUi {
@@ -262,7 +291,26 @@ struct ChatGuidance {
 }
 
 /// 全局标题栏高度：32px 品牌 badge + 上下留白，与三栏 header 解耦。
-const TITLEBAR_HEIGHT: f32 = 44.0;
+pub(crate) const TITLEBAR_HEIGHT: f32 = 44.0;
+
+/// macOS 红绿灯左/上边距：系统按钮 14px，`TITLEBAR_HEIGHT` 内垂直居中。
+pub(crate) const TRAFFIC_LIGHT_X: f32 = 9.0;
+pub(crate) const TRAFFIC_LIGHT_Y: f32 = (TITLEBAR_HEIGHT - 14.0) / 2.0;
+
+/// 红绿灯右侧给标题栏内容留的起点（Zed 的 macOS 26 取值 78，与窗口左侧同像素对齐）。
+pub(crate) const TITLEBAR_LEFT_INSET: f32 = 78.0;
+
+/// 自绘标题栏左侧内缩：macOS 让开红绿灯；全屏时红绿灯隐藏，内容顶到前面
+/// （`TitleBar` 内部在全屏时会再补 12px）。
+pub(crate) fn title_bar_left_inset(fullscreen: bool) -> Pixels {
+    if fullscreen {
+        px(0.0)
+    } else if cfg!(target_os = "macos") {
+        px(TITLEBAR_LEFT_INSET)
+    } else {
+        space(3)
+    }
+}
 
 /// 三栏（Agent 面板 / Pane TabBar / 右 Dock）header 统一高度。
 /// 中间 TabBar 内容 32px，加上上下各 2px；三栏共用保证水平分隔线对齐。
@@ -449,6 +497,26 @@ impl RootView {
         }
     }
 
+    /// 测试/受控启动：固定起始路径，不读本机最近工作区记录。
+    #[cfg(test)]
+    pub(crate) fn with_session_from(
+        registry: RouteRegistry,
+        language: Language,
+        preference: ThemePreference,
+        session: SessionService,
+        start_path: &str,
+    ) -> Self {
+        Self {
+            state: ShellState::with_session_from(
+                registry,
+                language,
+                preference,
+                session,
+                Some(start_path),
+            ),
+        }
+    }
+
     pub fn initialize_chat_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.state.chat_input =
             Some(cx.new(|cx| cgc_agent_ui::message_editor::MessageEditor::new_state(window, cx)));
@@ -529,10 +597,14 @@ impl RootView {
             &input,
             window,
             |this, _input, event: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { .. } = event {
-                    if this.agent_panel_editing_title {
+                // 对齐 Zed：回车或失焦都提交（点别处保存）。
+                match event {
+                    InputEvent::PressEnter { .. } | InputEvent::Blur
+                        if this.agent_panel_editing_title =>
+                    {
                         this.commit_agent_panel_title(window, cx);
                     }
+                    _ => {}
                 }
             },
         ));
@@ -546,8 +618,12 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         let title = self.agent_panel_title(cx);
+        self.agent_panel_title_original = Some(title.clone());
         let input = self.ensure_agent_panel_title_input(window, cx);
-        input.update(cx, |state, cx| state.set_value(title, window, cx));
+        input.update(cx, |state, cx| {
+            state.set_value(title, window, cx);
+            state.select_all(window, cx);
+        });
         let focus = input.read(cx).focus_handle(cx);
         window.focus(&focus, cx);
         self.agent_panel_editing_title = true;
@@ -563,6 +639,14 @@ impl RootView {
             return;
         };
         let raw = input.read(cx).value().trim().to_string();
+        let unchanged = self.agent_panel_title_original.as_deref() == Some(raw.as_str());
+        self.agent_panel_title_original = None;
+        if unchanged {
+            // 只是点进来又点走：退出编辑，不固化 override。
+            self.agent_panel_editing_title = false;
+            cx.notify();
+            return;
+        }
         let title = if raw.is_empty() { None } else { Some(raw) };
         if self.native_chat_mode && RootView::native_agent_enabled() {
             if let Some(view) = self.native_panel_view() {
@@ -584,11 +668,26 @@ impl RootView {
         cx.notify();
     }
 
+    /// 标题编辑时拦截 Esc：取消本次修改（Blur 会提交改动，所以必须先拦）。
+    pub(in crate::root_view) fn handle_title_edit_escape(
+        &mut self,
+        keystroke: &Keystroke,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if keystroke.key != "escape" || !self.agent_panel_editing_title {
+            return false;
+        }
+        self.cancel_agent_panel_title(window, cx);
+        true
+    }
+
     pub(in crate::root_view) fn cancel_agent_panel_title(
         &mut self,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.agent_panel_title_original = None;
         self.agent_panel_editing_title = false;
         cx.notify();
     }
@@ -618,6 +717,7 @@ impl RootView {
 
 impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let fullscreen = window.is_fullscreen() || window.is_simple_fullscreen();
         let previous_page = self.page_context.visible();
         self.refresh_page_context();
         let page_changed = previous_page != self.page_context.visible();
@@ -651,7 +751,6 @@ impl Render for RootView {
             self.state.right_panel,
             RightPanel::Outline | RightPanel::Notifications
         );
-        let account_menu = self.account_menu_open;
         let is_signed_in = self.is_signed_in();
         if is_signed_in && self.pending_link.as_deref() == Some("/settings") {
             self.pending_link = None;
@@ -664,7 +763,8 @@ impl Render for RootView {
                 let keystroke = event.keystroke.clone();
                 let handled = root
                     .update(cx, |this, cx| {
-                        this.handle_slash_keystroke(&keystroke, window, cx)
+                        this.handle_title_edit_escape(&keystroke, window, cx)
+                            || this.handle_slash_keystroke(&keystroke, window, cx)
                     })
                     .unwrap_or(false);
                 if handled {
@@ -790,34 +890,42 @@ impl Render for RootView {
                 self.workspaces.state(),
                 WorkspaceListState::Idle | WorkspaceListState::Loading
             );
+            if workspaces_ready {
+                self.sync_workspace_route(cx);
+                self.sync_agent_workspace_scope(cx);
+            }
             let current_id = self
                 .current
                 .as_ref()
                 .map(|route_match| route_match.route.id);
-            if workspaces_ready
-                && matches!(current_id, Some("events.list") | Some("account.workspace"))
+            // 站点级页面（公开目录 / 我的学习 / 我的报名）不等工作区加载。
+            let data_ready =
+                workspaces_ready || !current_id.is_some_and(crate::routing::requires_workspace);
+            if data_ready
+                && matches!(
+                    current_id,
+                    Some("events.list") | Some("events.public_list") | Some("account.workspace")
+                )
                 && !self.events_started
                 && matches!(self.events.state(), ListState::Idle)
             {
                 self.start_events_load(cx, true);
             }
-            if workspaces_ready
+            if data_ready
                 && matches!(
                     current_id,
-                    Some("events.mine")
-                        | Some("events.participations")
-                        | Some("account.workspace")
-                        | Some("courses.learning_home")
+                    Some("events.participations") | Some("courses.learning_home")
                 )
                 && !self.enrollments_started
                 && matches!(self.enrollments_state, EnrollmentsListState::Idle)
             {
                 self.start_enrollments_load(cx);
             }
-            if workspaces_ready
-                && current_id == Some("events.detail")
-                && !self.detail_started
-                && matches!(self.detail.state(), ListState::Idle)
+            if data_ready
+                && matches!(
+                    current_id,
+                    Some("events.detail") | Some("events.public_detail")
+                )
             {
                 if let Some(event_id) = self
                     .current
@@ -825,20 +933,35 @@ impl Render for RootView {
                     .and_then(|route_match| route_match.params.get("id"))
                     .cloned()
                 {
-                    self.start_detail_load(cx, event_id);
+                    // 详情服务跨 route 复用：id 变了必须先清掉上一条，否则显示错对象。
+                    if self.detail.event_id() != Some(event_id.as_str()) {
+                        self.detail.reset();
+                        self.detail_started = false;
+                    }
+                    if !self.detail_started && matches!(self.detail.state(), ListState::Idle) {
+                        self.start_detail_load(cx, event_id);
+                    }
                 }
             }
-            if workspaces_ready
-                && current_id == Some("courses.catalog")
+            if data_ready
+                && matches!(
+                    current_id,
+                    Some("courses.catalog")
+                        | Some("courses.public_list")
+                        | Some("account.workspace")
+                )
                 && !self.courses_started
                 && matches!(self.courses.state(), CoursesListState::Idle)
             {
                 self.start_courses_load(cx, true);
             }
-            if workspaces_ready
+            if data_ready
                 && matches!(
                     current_id,
-                    Some("courses.detail") | Some("courses.learning")
+                    Some("courses.detail")
+                        | Some("courses.public_detail")
+                        | Some("courses.learning")
+                        | Some("courses.public_learning")
                 )
                 && !self.course_detail_started
                 && matches!(self.course_detail.state(), CoursesListState::Idle)
@@ -852,16 +975,21 @@ impl Render for RootView {
                     self.start_course_detail_load(cx, course_id);
                 }
             }
-            if current_id == Some("courses.learning")
-                && matches!(self.course_detail.state(), CoursesListState::Ready)
+            if matches!(
+                current_id,
+                Some("courses.learning") | Some("courses.public_learning")
+            ) && matches!(self.course_detail.state(), CoursesListState::Ready)
                 && std::env::var("CGC_AUTO_CHAT").as_deref() == Ok("1")
                 && matches!(self.chat.session.phase, ConnectionPhase::Idle)
             {
                 self.start_chat(cx);
             }
 
-            if workspaces_ready
-                && current_id == Some("courses.learning")
+            if data_ready
+                && matches!(
+                    current_id,
+                    Some("courses.learning") | Some("courses.public_learning")
+                )
                 && matches!(self.course_detail.state(), CoursesListState::Ready)
                 && matches!(self.content.state(), CourseContentState::Idle)
             {
@@ -874,8 +1002,11 @@ impl Render for RootView {
                     self.start_content_load(cx, course_id);
                 }
             }
-            if workspaces_ready
-                && current_id == Some("courses.learning")
+            if data_ready
+                && matches!(
+                    current_id,
+                    Some("courses.learning") | Some("courses.public_learning")
+                )
                 && matches!(self.course_detail.state(), CoursesListState::Ready)
                 && matches!(self.projection.state(), ProjectionState::Idle)
             {
@@ -888,14 +1019,24 @@ impl Render for RootView {
                     self.start_projection_load(cx, course_id);
                 }
             }
+            if data_ready
+                && self.right_panel_open
+                && self.right_panel == RightPanel::SiteTree
+                && !self.site_tree_query.trim().is_empty()
+            {
+                self.ensure_navigation_data(cx);
+            }
         }
 
         let key_focus = self.ensure_key_focus(cx);
         if is_signed_in
-            && self
-                .current
-                .as_ref()
-                .is_some_and(|route_match| route_match.route.id == "courses.detail")
+            && window.focused(cx).is_none()
+            && self.current.as_ref().is_some_and(|route_match| {
+                matches!(
+                    route_match.route.id,
+                    "courses.detail" | "courses.public_detail" | "courses.public_learning"
+                )
+            })
         {
             window.focus(&key_focus, cx);
         }
@@ -928,6 +1069,17 @@ impl Render for RootView {
                 .text_size(px(14.0))
                 .track_focus(&key_focus)
                 .on_key_down(cx.listener(Self::handle_key))
+                .child(
+                    TitleBar::new()
+                        .h(px(TITLEBAR_HEIGHT))
+                        .on_close_window(cx.listener(|this, _, window, cx| {
+                            this.handle_main_window_close(cx);
+                            window.remove_window();
+                        }))
+                        .pl(title_bar_left_inset(fullscreen))
+                        .bg(palette.canvas)
+                        .border_color(palette.canvas),
+                )
                 .child(
                     div()
                         .flex_1()
@@ -965,16 +1117,13 @@ impl Render for RootView {
                     }),
                 )
                 .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
+                    TitleBar::new()
                         .h(px(TITLEBAR_HEIGHT))
-                        .pl(if cfg!(target_os = "macos") {
-                            px(84.0)
-                        } else {
-                            space(3)
-                        })
+                        .on_close_window(cx.listener(|this, _, window, cx| {
+                            this.handle_main_window_close(cx);
+                            window.remove_window();
+                        }))
+                        .pl(title_bar_left_inset(fullscreen))
                         .pr(space(2))
                         .gap(space(1))
                         .bg(palette.frame)
@@ -982,14 +1131,11 @@ impl Render for RootView {
                         .border_color(palette.line)
                         .child(
                             div()
-                                .id("titlebar-drag")
+                                .id("titlebar-brand")
                                 .flex()
                                 .items_center()
                                 .h_full()
                                 .pr(space(2))
-                                .on_mouse_down(MouseButton::Left, |_, window, _| {
-                                    window.start_window_move();
-                                })
                                 .children(self.display_preferences.title_bar_brand.then(|| {
                                     div()
                                         .flex()
@@ -1026,28 +1172,14 @@ impl Render for RootView {
                                 .title_bar_notifications
                                 .then(|| self.render_notifications_bell(language, &palette, cx)),
                         )
-                        .child(
-                            div()
-                                .id("account-toggle-wrap")
-                                .relative()
-                                .flex()
-                                .items_center()
-                                .tooltip(move |window, cx| {
-                                    Tooltip::new(account_tooltip).build(window, cx)
-                                })
-                                .child(
-                                    Avatar::new()
-                                        .name(email.clone())
-                                        .with_size(KitSize::Small)
-                                        .on_mouse_down(
-                                            MouseButton::Left,
-                                            cx.listener(|this, _, _, cx| {
-                                                this.toggle_account_menu();
-                                                cx.notify();
-                                            }),
-                                        ),
-                                ),
-                        ),
+                        .child(self.render_account_menu_button(
+                            &palette,
+                            &email,
+                            signed_in_as,
+                            sign_out_label,
+                            account_tooltip,
+                            cx,
+                        )),
                 )
                 .child({
                     let agent_on_left =
@@ -1213,6 +1345,12 @@ impl Render for RootView {
                                             if matches!(
                                                 self.workspaces.state(),
                                                 WorkspaceListState::Empty
+                                            ) && self.current.as_ref().is_some_and(
+                                                |route_match| {
+                                                    crate::routing::requires_workspace(
+                                                        route_match.route.id,
+                                                    )
+                                                },
                                             ) {
                                                 self.render_workspace_empty(language, &palette)
                                             } else {
@@ -1231,7 +1369,8 @@ impl Render for RootView {
                                                             cx,
                                                         )
                                                     }
-                                                    Some("events.list") => {
+                                                    Some("events.list")
+                                                    | Some("events.public_list") => {
                                                         screens::render_events_list(
                                                             &mut screens::ScreenContext::new(
                                                                 &mut self.state,
@@ -1241,18 +1380,9 @@ impl Render for RootView {
                                                             cx,
                                                         )
                                                     }
-                                                    Some("events.detail") => {
+                                                    Some("events.detail")
+                                                    | Some("events.public_detail") => {
                                                         screens::render_detail(
-                                                            &mut screens::ScreenContext::new(
-                                                                &mut self.state,
-                                                            ),
-                                                            language,
-                                                            &palette,
-                                                            cx,
-                                                        )
-                                                    }
-                                                    Some("events.mine") => {
-                                                        screens::render_enrollments_list(
                                                             &mut screens::ScreenContext::new(
                                                                 &mut self.state,
                                                             ),
@@ -1281,7 +1411,8 @@ impl Render for RootView {
                                                             cx,
                                                         )
                                                     }
-                                                    Some("courses.catalog") => {
+                                                    Some("courses.catalog")
+                                                    | Some("courses.public_list") => {
                                                         screens::render_courses_list(
                                                             &mut screens::ScreenContext::new(
                                                                 &mut self.state,
@@ -1311,7 +1442,8 @@ impl Render for RootView {
                                                             cx,
                                                         )
                                                     }
-                                                    Some("courses.detail") => {
+                                                    Some("courses.detail")
+                                                    | Some("courses.public_detail") => {
                                                         screens::render_course_detail(
                                                             &mut screens::ScreenContext::new(
                                                                 &mut self.state,
@@ -1321,7 +1453,8 @@ impl Render for RootView {
                                                             cx,
                                                         )
                                                     }
-                                                    Some("courses.learning") => {
+                                                    Some("courses.learning")
+                                                    | Some("courses.public_learning") => {
                                                         let active_issue = self
                                                             .active_issue_tab()
                                                             .map(|(course_id, issue_id)| {
@@ -1372,25 +1505,6 @@ impl Render for RootView {
                     &palette,
                     cx,
                 ));
-            if self.workspace_menu_open {
-                root = root.child(self.render_workspace_menu(language, &palette, cx));
-            }
-            if let Some(menu) = self.breadcrumb_menu {
-                root = root.child(self.render_breadcrumb_menu(language, &palette, menu, cx));
-            }
-            if self.theme_menu_open {
-                root = root.child(self.render_theme_menu(&palette, cx));
-            }
-            if account_menu {
-                root = root.child(self.render_account_menu(
-                    language,
-                    &palette,
-                    &email,
-                    signed_in_as,
-                    sign_out_label,
-                    cx,
-                ));
-            }
             root
         }
     }
@@ -1432,57 +1546,6 @@ impl RootView {
         }
     }
 
-    fn render_theme_menu(&self, palette: &theme::Palette, cx: &mut Context<Self>) -> AnyElement {
-        let rows = theme::available_themes(cx)
-            .into_iter()
-            .map(|(name, _mode)| {
-                let selected = self.theme_name == name;
-                let root = cx.entity().downgrade();
-                div()
-                    .id(SharedString::from(format!("theme-menu-{name}")))
-                    .px(space(1))
-                    .py(px(4.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .text_size(px(11.0))
-                    .text_color(if selected {
-                        palette.accent
-                    } else {
-                        palette.ink_2
-                    })
-                    .hover(|style| style.bg(palette.soft))
-                    .child(if selected {
-                        format!("{name} ✓")
-                    } else {
-                        name.clone()
-                    })
-                    .on_click(move |_, _, cx| {
-                        let _ = root.update(cx, |this, cx| {
-                            this.select_theme(name.clone(), cx);
-                        });
-                    })
-            });
-        div()
-            .id("theme-menu")
-            .absolute()
-            .bottom(px(36.0))
-            .right(space(2))
-            .w(px(240.0))
-            .max_h(px(420.0))
-            .overflow_y_scroll()
-            .flex()
-            .flex_col()
-            .gap(px(1.0))
-            .p(space(1))
-            .rounded(px(RADIUS_MEDIUM))
-            .border_1()
-            .border_color(palette.line_strong)
-            .bg(palette.card)
-            .occlude()
-            .text_color(palette.ink)
-            .children(rows)
-            .into_any_element()
-    }
-
     fn render_notifications_bell(
         &self,
         language: Language,
@@ -1498,114 +1561,35 @@ impl RootView {
         };
         let label = translate(language, Key::AppNotificationsTitle);
         let tooltip = label.to_string();
+        use gpui_kit::component::button::{Button, ButtonVariants as _};
+
+        let tint = if active {
+            palette.accent
+        } else {
+            palette.ink_3
+        };
+        // Badge 的计数是绝对定位、会画出子元素边界；Button 的内容层是
+        // overflow_hidden，所以 Badge 必须包在 Button 外层，否则角标被裁掉。
         div()
-            .id("notifications-toggle")
-            .role(Role::Button)
-            .aria_label(label)
-            .size(px(26.0))
             .mr(px(7.0))
-            .rounded(px(RADIUS_MEDIUM))
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_color(if active {
-                palette.accent
-            } else {
-                palette.ink_3
-            })
-            .hover(|style| style.bg(palette.soft))
-            .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
-            .on_click(cx.listener(|this, _, _, cx| this.toggle_notifications(cx)))
             .child(
                 Badge::new()
                     .count(unread)
                     .max(9)
                     .with_size(gpui_kit::component::Size::Small)
                     .child(
-                        Icon::default()
-                            .path(icon.path())
-                            .text_color(if active {
-                                palette.accent
-                            } else {
-                                palette.ink_3
-                            })
-                            .small(),
+                        Button::new("notifications-toggle")
+                            .icon(Icon::default().path(icon.path()).text_color(tint).small())
+                            .ghost()
+                            .with_size(KitSize::Size(px(26.0)))
+                            .size(px(26.0))
+                            .px(px(0.0))
+                            .py(px(0.0))
+                            .rounded(px(RADIUS_MEDIUM))
+                            .accessibility_label(label)
+                            .tooltip(tooltip.clone())
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_notifications(cx))),
                     ),
-            )
-            .into_any_element()
-    }
-
-    /// 账户下拉：必须挂在根级最后绘制，否则会被后续 content/footer 覆盖（表现为“半透明”）。
-    fn render_account_menu(
-        &self,
-        language: Language,
-        palette: &theme::Palette,
-        email: &str,
-        signed_in_as: &str,
-        sign_out_label: &str,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        div()
-            .id("account-menu")
-            .absolute()
-            .top(px(52.0))
-            .right(space(2))
-            .w(px(220.0))
-            .flex()
-            .flex_col()
-            .gap(px(2.0))
-            .p(space(1))
-            .rounded(px(RADIUS_MEDIUM))
-            .border_1()
-            .border_color(palette.line_strong)
-            .bg(palette.card)
-            .occlude()
-            .text_color(palette.ink)
-            .child(
-                div()
-                    .px(space(1))
-                    .py(px(4.0))
-                    .text_size(px(10.0))
-                    .text_color(palette.ink_3)
-                    .child(format!("{signed_in_as} {email}")),
-            )
-            .child(
-                div()
-                    .id("account-settings")
-                    .role(Role::Button)
-                    .aria_label(translate(language, Key::AppSettingsTitle))
-                    .px(space(1))
-                    .py(px(6.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .text_color(palette.ink_2)
-                    .hover(|style| style.bg(palette.soft))
-                    .child(
-                        div()
-                            .flex()
-                            .justify_between()
-                            .child(translate(language, Key::AppSettingsTitle))
-                            .child(shortcut_kbd(if cfg!(target_os = "macos") {
-                                "cmd-,"
-                            } else {
-                                "ctrl-,"
-                            })),
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.open_settings_window(cx);
-                        this.account_menu_open = false;
-                        cx.notify();
-                    })),
-            )
-            .child(
-                div()
-                    .id("account-sign-out")
-                    .px(space(1))
-                    .py(px(6.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .text_color(palette.ink_2)
-                    .hover(|style| style.bg(palette.soft))
-                    .child(sign_out_label.to_string())
-                    .on_click(cx.listener(|this, _, _, cx| this.sign_out(cx))),
             )
             .into_any_element()
     }
@@ -1780,166 +1764,225 @@ impl RootView {
         palette: &theme::Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        use gpui_kit::component::button::{Button, ButtonVariants as _};
+        use gpui_kit::component::Disableable as _;
+
+        let palette = *palette;
         let label = self
             .workspaces
             .current()
             .map(|workspace| workspace.name.clone())
             .unwrap_or_else(|| translate(language, Key::AppWorkspaceSwitch).to_string());
+        let overview_root = cx.entity().downgrade();
+        let switch_root = cx.entity().downgrade();
+        let state = self.workspaces.state().clone();
+        let current_id = self
+            .workspaces
+            .current()
+            .map(|workspace| workspace.id.clone());
+        let rows = self
+            .workspaces
+            .workspaces()
+            .iter()
+            .map(|workspace| {
+                let roles = workspace
+                    .my_role_names
+                    .iter()
+                    .map(|role| workspace_role_label(language, role))
+                    .collect::<Vec<_>>()
+                    .join(" · ");
+                (
+                    workspace.id.clone(),
+                    workspace.name.clone(),
+                    roles,
+                    current_id.as_deref() == Some(workspace.id.as_str()),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let loading = matches!(
+            state,
+            WorkspaceListState::Idle | WorkspaceListState::Loading
+        );
+        let trigger = Button::new("workspace-menu-toggle")
+            .icon(
+                Icon::default()
+                    .path(AssetIcon::ChevronDown.path())
+                    .text_color(palette.ink_3),
+            )
+            .ghost()
+            .xsmall()
+            .accessibility_label(translate(language, Key::AppWorkspaceSwitch))
+            // 菜单内容在打开时构建并缓存到 dismiss；加载中打开会永远停在
+            // “加载中”，所以 Idle/Loading 直接禁用触发器（失败/空态仍可查看）。
+            .disabled(loading)
+            .tooltip(if loading {
+                translate(language, Key::AppWorkspaceLoading)
+            } else {
+                translate(language, Key::AppWorkspaceSwitch)
+            })
+            .dropdown_menu(move |menu, _window, _cx| {
+                let mut menu = menu.item(PopupMenuItem::label(translate(
+                    language,
+                    Key::AppWorkspaceSwitch,
+                )));
+                match state {
+                    WorkspaceListState::Idle | WorkspaceListState::Loading => menu.item(
+                        PopupMenuItem::label(translate(language, Key::AppWorkspaceLoading)),
+                    ),
+                    WorkspaceListState::Failed(_) => {
+                        let retry_root = switch_root.clone();
+                        menu.item(
+                            PopupMenuItem::element(move |_, _| {
+                                div()
+                                    .text_color(palette.danger)
+                                    .child(translate(language, Key::AppWorkspaceError))
+                            })
+                            .disabled(true),
+                        )
+                        .item(
+                            PopupMenuItem::label(translate(language, Key::AppWorkspaceRetry))
+                                .on_click(move |_, _, cx| {
+                                    let _ = retry_root
+                                        .update(cx, |root, cx| root.retry_workspace_load(cx));
+                                }),
+                        )
+                    }
+                    WorkspaceListState::Empty => menu.item(PopupMenuItem::label(translate(
+                        language,
+                        Key::AppWorkspaceEmpty,
+                    ))),
+                    WorkspaceListState::Ready => {
+                        for (workspace_id, name, roles, selected) in rows.iter().cloned() {
+                            let root = switch_root.clone();
+                            menu = menu.item(
+                                PopupMenuItem::element(move |_, _| {
+                                    div()
+                                        .flex()
+                                        .flex_col()
+                                        .gap(px(2.0))
+                                        .child(div().child(name.clone()))
+                                        .children((!roles.is_empty()).then(|| {
+                                            div()
+                                                .text_size(px(10.0))
+                                                .text_color(palette.ink_3)
+                                                .child(roles.clone())
+                                        }))
+                                })
+                                .checked(selected)
+                                .on_click(move |_, _, cx| {
+                                    let _ = root.update(cx, |this, cx| {
+                                        this.switch_workspace(&workspace_id, cx);
+                                        cx.notify();
+                                    });
+                                }),
+                            );
+                        }
+                        menu
+                    }
+                }
+            });
+
         div()
             .flex()
             .flex_row()
             .items_center()
             .gap(px(1.0))
             .child(
-                div()
-                    .id("workspace-overview-link")
-                    .role(Role::Link)
-                    .aria_label(translate(language, Key::AccountWorkspaceTitle))
-                    .px(space(1))
-                    .py(px(2.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .hover(|style| style.bg(palette.soft))
-                    .child(
-                        div()
-                            .text_size(px(12.0))
-                            .text_color(palette.ink_2)
-                            .child(label),
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.workspace_menu_open = false;
-                        this.breadcrumb_menu = None;
-                        this.navigate("/workspace");
-                        cx.notify();
-                    })),
+                Button::new("workspace-overview-link")
+                    .label(label)
+                    .ghost()
+                    .xsmall()
+                    .accessibility_label(translate(language, Key::AccountWorkspaceTitle))
+                    .on_click(move |_, _, cx| {
+                        let _ = overview_root.update(cx, |this, cx| {
+                            let path = this
+                                .workspace_path("")
+                                .unwrap_or_else(|| "/learning".to_string());
+                            this.navigate(&path);
+                            cx.notify();
+                        });
+                    }),
             )
-            .child(
-                div()
-                    .id("workspace-menu-toggle")
-                    .role(Role::Button)
-                    .aria_label(translate(language, Key::AppWorkspaceSwitch))
-                    .px(px(3.0))
-                    .py(px(3.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .hover(|style| style.bg(palette.soft))
-                    .child(
-                        Icon::default()
-                            .path(AssetIcon::ChevronDown.path())
-                            .text_color(palette.ink_3)
-                            .with_size(px(12.0)),
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.workspace_menu_open = !this.workspace_menu_open;
-                        this.breadcrumb_menu = None;
-                        cx.notify();
-                    })),
-            )
+            .child(trigger)
             .into_any_element()
     }
 
-    /// 工作台下拉（根级 overlay，避免被内容区覆盖）。
-    fn render_workspace_menu(
-        &mut self,
-        language: Language,
+    /// 右上角账户头像：Kit `Button` 触发器 + 下拉菜单（Zed 的
+    /// `ButtonLike` + `PopoverMenu` 同构）。菜单状态由 Kit 自己管，
+    /// 点外/Esc/点项都会关闭。
+    fn render_account_menu_button(
+        &self,
         palette: &theme::Palette,
+        email: &str,
+        signed_in_as: &'static str,
+        sign_out_label: &'static str,
+        account_tooltip: &'static str,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let state = self.workspaces.state().clone();
-        let current = self.workspaces.current().cloned();
-        let workspaces = self.workspaces.workspaces().to_vec();
-        let body: AnyElement = match state {
-            WorkspaceListState::Idle | WorkspaceListState::Loading => {
-                render_loading_state(language, Key::AppWorkspaceLoading, palette).into_any_element()
-            }
-            WorkspaceListState::Failed(_) => div()
-                .px(space(1))
-                .py(px(4.0))
-                .text_size(px(12.0))
-                .text_color(palette.danger)
-                .child(translate(language, Key::AppWorkspaceError))
-                .into_any_element(),
-            WorkspaceListState::Empty => div()
-                .px(space(1))
-                .py(px(4.0))
-                .text_size(px(12.0))
-                .text_color(palette.ink_3)
-                .child(translate(language, Key::AppWorkspaceEmpty))
-                .into_any_element(),
-            WorkspaceListState::Ready => div()
-                .flex()
-                .flex_col()
-                .children(workspaces.iter().map(|workspace| {
-                    let selected = current
-                        .as_ref()
-                        .is_some_and(|current| current.id == workspace.id);
-                    let workspace_id = workspace.id.clone();
-                    let roles = workspace
-                        .my_role_names
-                        .iter()
-                        .map(|role| workspace_role_label(language, role))
-                        .collect::<Vec<_>>()
-                        .join(" · ");
-                    div()
-                        .id(format!("workspace-option-{}", workspace.id))
-                        .flex()
-                        .flex_col()
-                        .gap(px(2.0))
-                        .px(space(1))
-                        .py(px(6.0))
-                        .rounded(px(RADIUS_SMALL))
-                        .hover(|style| style.bg(palette.soft))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .justify_between()
-                                .child(div().text_color(palette.ink).child(workspace.name.clone()))
-                                .child(div().text_color(palette.accent).child(if selected {
-                                    "✓"
-                                } else {
-                                    ""
-                                })),
-                        )
-                        .children((!roles.is_empty()).then(|| {
-                            div()
-                                .text_size(px(11.0))
-                                .text_color(palette.ink_3)
-                                .child(roles)
-                                .into_any_element()
-                        }))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.switch_workspace(&workspace_id, cx);
-                            this.workspace_menu_open = false;
-                            cx.notify();
-                        }))
-                        .into_any_element()
-                }))
-                .into_any_element(),
-        };
-        div()
-            .id("workspace-menu")
-            .absolute()
-            .top(px(44.0))
-            .left(px(130.0))
-            .w(px(260.0))
-            .flex()
-            .flex_col()
-            .gap(px(2.0))
-            .p(space(1))
-            .rounded(px(RADIUS_MEDIUM))
-            .border_1()
-            .border_color(palette.line_strong)
-            .bg(palette.card)
-            .occlude()
+        let language = self.language;
+        let palette = *palette;
+        use gpui_kit::component::button::{Button, ButtonVariants as _};
+        let settings_root = cx.entity().downgrade();
+        let sign_out_root = cx.entity().downgrade();
+        let menu_email = email.to_string();
+        let menu_signed_in_as = signed_in_as;
+        let menu_sign_out = sign_out_label;
+        Button::new("account-toggle")
             .child(
-                div()
-                    .px(space(1))
-                    .py(px(3.0))
-                    .text_size(px(10.0))
-                    .text_color(palette.ink_3)
-                    .child(translate(language, Key::AppWorkspaceSwitch)),
+                Avatar::new()
+                    .name(email.to_string())
+                    .with_size(KitSize::Small),
             )
-            .child(body)
+            .ghost()
+            .with_size(KitSize::Size(px(24.0)))
+            // 有 child 的 Button 只按 size 加水平内边距（24*0.2=4.8），
+            // 会把 24px 头像撑成 33.6×24 的胶囊；这里显式收回成 30×30。
+            .px(px(3.0))
+            .py(px(3.0))
+            .rounded(px(RADIUS_SMALL))
+            .accessibility_label(account_tooltip)
+            .tooltip(account_tooltip)
+            .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _window, _cx| {
+                let header = format!("{menu_signed_in_as} {menu_email}");
+                let settings_root = settings_root.clone();
+                let sign_out_root = sign_out_root.clone();
+                menu.item(PopupMenuItem::element(move |_, _| {
+                    div()
+                        .text_size(px(10.0))
+                        .text_color(palette.ink_3)
+                        .child(header.clone())
+                }))
+                .item(PopupMenuItem::separator())
+                .item(
+                    PopupMenuItem::element(move |_, _| {
+                        div()
+                            .flex()
+                            .w_full()
+                            .justify_between()
+                            .gap(space(2))
+                            .child(translate(language, Key::AppSettingsTitle))
+                            .child(shortcut_kbd(if cfg!(target_os = "macos") {
+                                "cmd-,"
+                            } else {
+                                "ctrl-,"
+                            }))
+                    })
+                    .on_click(move |_, _, cx| {
+                        let _ = settings_root.update(cx, |this, cx| {
+                            this.open_settings_window(cx);
+                        });
+                    }),
+                )
+                .item(PopupMenuItem::separator())
+                .item(
+                    PopupMenuItem::new(menu_sign_out.to_string()).on_click(move |_, _, cx| {
+                        let _ = sign_out_root.update(cx, |this, cx| {
+                            this.sign_out(cx);
+                        });
+                    }),
+                )
+            })
             .into_any_element()
     }
 
@@ -1954,6 +1997,8 @@ impl RootView {
         palette: &theme::Palette,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        use gpui_kit::component::button::{Button, ButtonVariants as _};
+
         // 左侧：一级导航图标；右侧：主题/语言工具。版本号只放设置/关于，不进 footer。
         let root_weak = cx.entity().downgrade();
         let shortcut = if cfg!(target_os = "macos") {
@@ -1962,98 +2007,76 @@ impl RootView {
             "Ctrl+J"
         };
         let palette = *palette;
-        let agent_toggle = include_nav.then(|| {
-            div()
-                .id("agent-panel-toggle")
-                .role(Role::Button)
-                .aria_label("Agent")
-                .tab_index(0isize)
-                .size(px(22.0))
+        // Footer 图标按钮统一走 Kit `Button`：`ghost` 变体吃主题的 hover 面，
+        // 图标色沿用 palette（激活 accent / 常态 ink_3），尺寸保持 22px。
+        let icon_button = |id: &'static str,
+                           icon: AssetIcon,
+                           active: bool,
+                           label: SharedString,
+                           tooltip: SharedString| {
+            let tint = if active {
+                palette.accent
+            } else {
+                palette.ink_3
+            };
+            Button::new(id)
+                .icon(Icon::default().path(icon.path()).text_color(tint))
+                .ghost()
+                .with_size(KitSize::Size(px(22.0)))
                 .rounded(px(RADIUS_SMALL))
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(if self.agent_panel_open {
-                    palette.accent
-                } else {
-                    palette.ink_3
-                })
-                .hover(|style| style.bg(palette.soft))
-                .child(
-                    Icon::default()
-                        .path(nav_icon(NavIcon::Companion).path())
-                        .text_color(if self.agent_panel_open {
-                            palette.accent
-                        } else {
-                            palette.ink_3
-                        })
-                        .small(),
-                )
-                .tooltip(move |window, cx| {
-                    Tooltip::new(format!("Agent · {shortcut}")).build(window, cx)
-                })
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_agent_panel(cx);
-                }))
-                .context_menu({
-                    let root = root_weak.clone();
-                    let side = self.agent_panel_side;
-                    move |menu, _, _| {
-                        render_panel_status_bar_menu(
-                            menu,
-                            language,
-                            StatusBarMenuTarget::Agent,
-                            side,
-                            root.clone(),
-                        )
-                    }
-                })
-                .into_any_element()
+                .accessibility_label(label)
+                .tooltip(tooltip)
+        };
+        let agent_toggle = include_nav.then(|| {
+            icon_button(
+                "agent-panel-toggle",
+                nav_icon(NavIcon::Companion),
+                self.agent_panel_open,
+                "Agent".into(),
+                format!("Agent · {shortcut}").into(),
+            )
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.toggle_agent_panel(cx);
+            }))
+            .context_menu({
+                let root = root_weak.clone();
+                let side = self.agent_panel_side;
+                move |menu, _, _| {
+                    render_panel_status_bar_menu(
+                        menu,
+                        language,
+                        StatusBarMenuTarget::Agent,
+                        side,
+                        root.clone(),
+                    )
+                }
+            })
+            .into_any_element()
         });
         let history_toggle = include_nav.then(|| {
             let active = self.history_sidebar.is_some();
-            div()
-                .id("chat-history-toggle")
-                .role(Role::Button)
-                .aria_label("历史对话")
-                .tab_index(0isize)
-                .size(px(22.0))
-                .rounded(px(RADIUS_SMALL))
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(if active {
-                    palette.accent
-                } else {
-                    palette.ink_3
-                })
-                .hover(|style| style.bg(palette.soft))
-                .child(
-                    Icon::default()
-                        .path(AssetIcon::Clock.path())
-                        .text_color(if active {
-                            palette.accent
-                        } else {
-                            palette.ink_3
-                        })
-                        .small(),
-                )
-                .tooltip(move |window, cx| Tooltip::new("历史对话").build(window, cx))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_history_sidebar(cx);
-                }))
-                .context_menu({
-                    let root = root_weak.clone();
-                    move |menu, _, _| {
-                        render_hide_button_menu(
-                            menu,
-                            language,
-                            state::StatusBarButton::History,
-                            root.clone(),
-                        )
-                    }
-                })
-                .into_any_element()
+            icon_button(
+                "chat-history-toggle",
+                AssetIcon::Clock,
+                active,
+                "历史对话".into(),
+                "历史对话".into(),
+            )
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.toggle_history_sidebar(cx);
+            }))
+            .context_menu({
+                let root = root_weak.clone();
+                move |menu, _, _| {
+                    render_hide_button_menu(
+                        menu,
+                        language,
+                        state::StatusBarButton::History,
+                        root.clone(),
+                    )
+                }
+            })
+            .into_any_element()
         });
         let panel_toggle = |id: &'static str,
                             label: SharedString,
@@ -2063,34 +2086,7 @@ impl RootView {
                             target: StatusBarMenuTarget,
                             side: crate::preferences::PanelSide,
                             root: WeakEntity<Self>| {
-            let tooltip = label.clone();
-            div()
-                .id(id)
-                .role(Role::Button)
-                .aria_label(label.clone())
-                .tab_index(0isize)
-                .size(px(22.0))
-                .rounded(px(RADIUS_SMALL))
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(if active {
-                    palette.accent
-                } else {
-                    palette.ink_3
-                })
-                .hover(|style| style.bg(palette.soft))
-                .child(
-                    Icon::default()
-                        .path(icon.path())
-                        .text_color(if active {
-                            palette.accent
-                        } else {
-                            palette.ink_3
-                        })
-                        .small(),
-                )
-                .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+            icon_button(id, icon, active, label.clone(), label)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.toggle_right_panel(panel, cx);
                 }))
@@ -2193,57 +2189,53 @@ impl RootView {
                             .flex_shrink_0()
                             .overflow_x_hidden()
                             .children(right_items)
+                            .child({
+                                let themes = theme::available_themes(cx);
+                                let selected_name = self.theme_name.clone();
+                                let select_root = cx.entity().downgrade();
+                                icon_button(
+                                    "theme-menu-toggle",
+                                    AssetIcon::Palette,
+                                    false,
+                                    "主题".into(),
+                                    "主题".into(),
+                                )
+                                .dropdown_menu_with_anchor(
+                                    Anchor::BottomRight,
+                                    move |menu, _window, _cx| {
+                                        let mut menu = menu.scrollable(true).max_h(px(420.0));
+                                        for (name, _mode) in themes.clone() {
+                                            let root = select_root.clone();
+                                            let selected = name == selected_name;
+                                            let label = name.clone();
+                                            menu = menu.item(
+                                                PopupMenuItem::new(name)
+                                                    .checked(selected)
+                                                    .on_click(move |_, _, cx| {
+                                                        let _ = root.update(cx, |this, cx| {
+                                                            this.select_theme(label.clone(), cx);
+                                                        });
+                                                    }),
+                                            );
+                                        }
+                                        menu
+                                    },
+                                )
+                            })
                             .child(
-                                div()
-                                    .id("theme-menu-toggle")
-                                    .tab_index(0isize)
-                                    .size(px(22.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .text_color(palette.ink_3)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child(
-                                        Icon::default()
-                                            .path(AssetIcon::Palette.path())
-                                            .text_color(palette.ink_3)
-                                            .small(),
-                                    )
-                                    .tooltip(move |window, cx| {
-                                        Tooltip::new("主题").build(window, cx)
-                                    })
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.toggle_theme_menu(cx);
-                                    })),
-                            )
-                            .child(
-                                div()
-                                    .id("language-toggle")
-                                    .tab_index(0isize)
-                                    .size(px(22.0))
-                                    .rounded(px(RADIUS_SMALL))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .text_color(palette.ink_3)
-                                    .hover(|style| style.bg(palette.soft))
-                                    .child(
-                                        Icon::default()
-                                            .path(language_icon.path())
-                                            .text_color(palette.ink_3)
-                                            .small(),
-                                    )
-                                    .tooltip(move |window, cx| {
-                                        Tooltip::new(format!(
-                                            "{language_tooltip} · {language_label}"
-                                        ))
-                                        .build(window, cx)
-                                    })
-                                    .on_click(cx.listener(|this, _, _, cx| {
+                                icon_button(
+                                    "language-toggle",
+                                    language_icon,
+                                    false,
+                                    language_label.into(),
+                                    format!("{language_tooltip} · {language_label}").into(),
+                                )
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| {
                                         this.toggle_language();
                                         cx.notify();
-                                    })),
+                                    },
+                                )),
                             ),
                     )
                     .bg(palette.frame)
@@ -2255,7 +2247,16 @@ impl RootView {
     }
 }
 
-fn initial_route(registry: &RouteRegistry) -> Option<RouteMatch> {
+fn initial_route(
+    registry: &RouteRegistry,
+    start_path: Option<&str>,
+    last_slug: Option<&str>,
+) -> Option<RouteMatch> {
+    if let Some(path) = start_path {
+        if let crate::routing::RouteSelection::Match(route_match) = registry.select(path) {
+            return Some(route_match);
+        }
+    }
     if let Ok(path) = std::env::var("CGC_START_PATH") {
         if let crate::routing::RouteSelection::Match(route_match) = registry.select(&path) {
             return Some(route_match);
@@ -2266,15 +2267,18 @@ fn initial_route(registry: &RouteRegistry) -> Option<RouteMatch> {
             return Some(RouteMatch {
                 route,
                 params: std::collections::BTreeMap::new(),
+                query: std::collections::BTreeMap::new(),
             });
         }
     }
-    if let crate::routing::RouteSelection::Match(route_match) = registry.select("/workspace") {
+    let start = crate::routing::home_target(last_slug);
+    if let crate::routing::RouteSelection::Match(route_match) = registry.select(&start) {
         return Some(route_match);
     }
     registry.routes().first().copied().map(|route| RouteMatch {
         route,
         params: std::collections::BTreeMap::new(),
+        query: std::collections::BTreeMap::new(),
     })
 }
 
@@ -2302,6 +2306,7 @@ fn status_label(language: Language, status: &str) -> &'static str {
 
 fn course_row(
     course: &CourseSummary,
+    origin: Option<AnyElement>,
     language: Language,
     palette: &theme::Palette,
     cx: &mut Context<RootView>,
@@ -2319,6 +2324,9 @@ fn course_row(
     let course_id = course.id.clone();
     div()
         .id(format!("course-row-{}", course.id))
+        .test_support()
+        .role(Role::Link)
+        .aria_label(course.title.clone())
         .flex()
         .flex_row()
         .items_center()
@@ -2335,23 +2343,42 @@ fn course_row(
                 .flex_col()
                 .gap(px(2.0))
                 .child(div().text_color(palette.ink).child(course.title.clone()))
-                .child(
-                    div()
-                        .text_size(px(11.0))
-                        .text_color(palette.ink_3)
-                        .child(format!("{starts} · {price}")),
-                ),
+                .children(origin)
+                .child(div().text_size(px(11.0)).text_color(palette.ink_3).child({
+                    let base = format!("{starts} · {price}");
+                    match course.registration_deadline.as_deref() {
+                        Some(deadline) => {
+                            let deadline = deadline.chars().take(10).collect::<String>();
+                            format!(
+                                "{base} · {} {deadline}",
+                                translate(language, Key::EventsListDeadline)
+                            )
+                        }
+                        None => base,
+                    }
+                })),
         )
-        .child(
+        .child({
+            let badge_key = course
+                .enrollment_badge
+                .as_deref()
+                .and_then(crate::root_view::nav_copy::enrollment_badge_key);
+            let label = match badge_key {
+                Some(key) => translate(language, key),
+                None => status_label(language, course.status.as_str()),
+            };
             div()
+                .id(format!("course-badge-{}", course.id))
+                .test_support()
+                .aria_label(label.to_string())
                 .px(px(6.0))
                 .py(px(2.0))
                 .rounded(px(RADIUS_SMALL))
                 .bg(palette.soft)
                 .text_size(px(11.0))
                 .text_color(palette.ink_2)
-                .child(status_label(language, course.status.as_str())),
-        )
+                .child(label)
+        })
         .on_click(cx.listener(move |this, _, _, cx| {
             this.navigate_to_course_detail(&course_id, cx);
             cx.notify();
@@ -2537,21 +2564,19 @@ fn enroll_error_label(language: Language, suffix: &str) -> &'static str {
 }
 
 pub fn main_window_options() -> WindowOptions {
+    // 透明 titlebar + 自绘 header：红绿灯位置由 gpui 负责，拖动/双击由
+    // `TitleBar` 组件自己处理（`app_owns_titlebar_drag` 也由它设置）。
     WindowOptions {
-        // 参考 Zed build_window_options：透明 titlebar + 自绘 header，
-        // 红绿灯位置由 gpui 负责；Linux/Wayland 用 client side decorations。
         titlebar: Some(TitlebarOptions {
-            title: None,
-            appears_transparent: true,
-            traffic_light_position: Some(point(px(12.0), px(12.0))),
+            traffic_light_position: Some(point(px(TRAFFIC_LIGHT_X), px(TRAFFIC_LIGHT_Y))),
+            ..TitleBar::title_bar_options()
         }),
-        app_owns_titlebar_drag: cfg!(target_os = "macos"),
         window_decorations: Some(WindowDecorations::Client),
         window_min_size: Some(Size {
             width: px(800.0),
             height: px(560.0),
         }),
-        ..Default::default()
+        ..TitleBar::window_options()
     }
 }
 
@@ -2724,6 +2749,7 @@ fn render_panel_resize_handle(
                         this.right_panel_width = (start_width + delta).clamp(dock_min, max)
                     }
                 }
+                this.workspace_layout_overridden = true;
                 cx.spawn(async move |this, cx| {
                     cx.background_executor()
                         .timer(std::time::Duration::from_millis(250))
@@ -2784,16 +2810,94 @@ mod tests {
         }
     }
 
+    thread_local! {
+        /// R16：导航与布局用例会经 `navigate` → `persist_workspace_state` 把工作区状态
+        /// 整文件重写。夹具在用例线程首次构造视图时安装隔离 guard，把
+        /// `CGC_WORKSPACE_STATE_FILE` 指向用例私有的临时文件，避免写进开发者真实状态文件。
+        /// guard 自带进程级锁，因此不依赖测试线程数（CI 的 `cargo test --workspace` 是并行的）。
+        static WORKSPACE_STATE_ISOLATION: std::cell::RefCell<Option<WorkspaceStateIsolation>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    /// 用例私有的工作区状态文件；`Drop` 时还原进程级 env 并删除临时文件。
+    ///
+    /// guard 在整个生命周期里持有进程级环境锁（`workspace_state::test_env_lock`，与
+    /// `workspace_state` 自身用例共用）：`CGC_WORKSPACE_STATE_FILE` 是进程级 env，而 CI
+    /// 的 workspace 步骤是裸 `cargo test --workspace`（并行），靠 `--test-threads=1`
+    /// 串行才成立的前提在 CI 上不成立。
+    pub(super) struct WorkspaceStateIsolation {
+        previous: Option<std::ffi::OsString>,
+        file: std::path::PathBuf,
+        /// 持锁到 guard drop；同线程嵌套申请时是空壳（锁由外层 guard 持有）。
+        _env_lock: crate::workspace_state::test_env_lock::Guard,
+    }
+
+    impl WorkspaceStateIsolation {
+        fn install(file: std::path::PathBuf) -> Self {
+            let env_lock = crate::workspace_state::test_env_lock::acquire();
+            let previous = std::env::var_os("CGC_WORKSPACE_STATE_FILE");
+            std::env::set_var("CGC_WORKSPACE_STATE_FILE", &file);
+            Self {
+                previous,
+                file,
+                _env_lock: env_lock,
+            }
+        }
+    }
+
+    impl Drop for WorkspaceStateIsolation {
+        fn drop(&mut self) {
+            match self.previous.take() {
+                Some(previous) => std::env::set_var("CGC_WORKSPACE_STATE_FILE", previous),
+                None => std::env::remove_var("CGC_WORKSPACE_STATE_FILE"),
+            }
+            let _ = std::fs::remove_file(&self.file);
+        }
+    }
+
+    /// 隔离状态文件路径：临时目录下按进程隔离，每次调用换一个新文件名，
+    /// 避免用例之间共享残留状态。
+    fn isolated_workspace_state_file() -> std::path::PathBuf {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let index = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let directory =
+            std::env::temp_dir().join(format!("cgc-root-view-state-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("isolated workspace state directory");
+        directory.join(format!("workspace_state-{index}.json"))
+    }
+
+    /// 默认状态文件的摘要：断言只比较摘要，失败时不把开发者状态文件内容打进测试输出。
+    pub(super) fn default_state_digest(path: &std::path::Path) -> Option<String> {
+        std::fs::read(path)
+            .ok()
+            .map(|bytes| cgc_platform::registry::checksum::sha256_hex(&bytes))
+    }
+
+    /// 供同 crate 其他测试模块复用同一套隔离（`enrollment_tests` 点跨台入口也会
+    /// 整文件持久化工作区状态）。调用方持有 guard 到用例结束：`Drop` 还原
+    /// `CGC_WORKSPACE_STATE_FILE` 并清理临时文件。
+    pub(super) fn isolate_workspace_state() -> WorkspaceStateIsolation {
+        WorkspaceStateIsolation::install(isolated_workspace_state_file())
+    }
+
     fn view() -> RootView {
+        WORKSPACE_STATE_ISOLATION.with(|isolation| {
+            // 同一用例可能构造多个 view：保留首个 guard，否则第二个空壳 guard 会在
+            // 替换 `Some` 时释放真正的进程锁，等于测试环境隔离失效（P2-2 边角）。
+            if isolation.borrow().is_none() {
+                *isolation.borrow_mut() = Some(isolate_workspace_state());
+            }
+        });
         let session = SessionService::new(
             Box::new(FakeAuthApi::demo()),
             Box::new(MemoryStore::default()),
         );
-        RootView::with_session(
+        RootView::with_session_from(
             build_registry().expect("registry builds"),
             Language::Zh,
             ThemePreference::System,
             session,
+            "/learning",
         )
     }
 
@@ -2802,6 +2906,51 @@ mod tests {
         view.state.active_tab = Some(tab.id.clone());
         view.state.tabs.push(tab);
         view.navigate(path);
+    }
+
+    #[test]
+    fn reset_workspace_layout_keeps_navigation_and_restores_panel_defaults() {
+        use super::state::{PanelMemory, RightPanel};
+
+        let mut view = view();
+        view.agent_panel_open = false;
+        view.right_panel_open = false;
+        view.right_panel = RightPanel::Outline;
+        view.panel_memory = PanelMemory {
+            panel: RightPanel::Outline,
+            open: false,
+        };
+        view.agent_panel_width = 500.0;
+        view.right_panel_width = 400.0;
+        view.site_tree_courses_open = true;
+        view.site_tree_query = "hitl".to_string();
+        activate_context_tab(&mut view, "/courses", "课程");
+
+        let preferences = crate::preferences::Preferences {
+            agent_panel_width: 420.0,
+            dock_width: 300.0,
+            agent_panel_side: crate::preferences::PanelSide::Right,
+            dock_side: crate::preferences::PanelSide::Left,
+            dock_starts_open: false,
+            ..Default::default()
+        };
+        view.apply_panel_defaults(&preferences);
+
+        // 导航记忆保留：标签、active tab、站点树展开与搜索。
+        assert_eq!(view.tabs.len(), 1);
+        assert_eq!(view.active_tab.as_deref(), Some("page:/courses"));
+        assert!(view.site_tree_courses_open);
+        assert_eq!(view.site_tree_query, "hitl");
+        // 布局回到 Panels 默认值。
+        assert_eq!(view.agent_panel_width, 420.0);
+        assert_eq!(view.right_panel_width, 300.0);
+        assert!(view.agent_panel_open);
+        assert!(!view.right_panel_open);
+        assert_eq!(view.right_panel, RightPanel::SiteTree);
+        assert_eq!(view.panel_memory.panel, RightPanel::SiteTree);
+        assert!(!view.panel_memory.open);
+        assert_eq!(view.agent_panel_side, crate::preferences::PanelSide::Right);
+        assert_eq!(view.dock_side, crate::preferences::PanelSide::Left);
     }
 
     fn context_prompt(view: &RootView, agent: &str) -> String {
@@ -2847,19 +2996,19 @@ mod tests {
     fn event_context_never_attributes_cached_or_unready_details_to_the_active_event() {
         use crate::page_context::PageBody;
         let mut view = view();
-        activate_context_tab(&mut view, "/events/event-a", "Event A");
+        activate_context_tab(&mut view, "/w/2046/events/event-a", "Event A");
         view.state.detail.begin_load("event-a");
         view.state.detail.adopt(context_event("event-a", "Event A"));
         view.refresh_page_context();
         for agent in ["native", "codex"] {
             assert!(context_prompt(&view, agent).contains("Description for Event A"));
         }
-        activate_context_tab(&mut view, "/events/event-b", "Event B");
+        activate_context_tab(&mut view, "/w/2046/events/event-b", "Event B");
         view.refresh_page_context();
         assert_eq!(view.page_context.visible().unwrap().body, PageBody::Loading);
         for agent in ["native", "codex"] {
             let prompt = context_prompt(&view, agent);
-            assert!(prompt.contains("route=/events/event-b"));
+            assert!(prompt.contains("route=/w/2046/events/event-b"));
             assert!(!prompt.contains("Description for Event A"));
         }
         view.state.detail.begin_load("event-b");
@@ -2899,12 +3048,12 @@ mod tests {
             .fail(&cgc_events::list::EventsError::Transport(
                 "Previous event request failed".into(),
             ));
-        activate_context_tab(&mut view, "/events/event-c", "Event C");
+        activate_context_tab(&mut view, "/w/2046/events/event-c", "Event C");
         view.refresh_page_context();
         assert_eq!(view.page_context.visible().unwrap().body, PageBody::Loading);
         for agent in ["native", "codex"] {
             let prompt = context_prompt(&view, agent);
-            assert!(prompt.contains("route=/events/event-c"));
+            assert!(prompt.contains("route=/w/2046/events/event-c"));
             assert!(!prompt.contains("Previous event request failed"));
         }
     }
@@ -2915,6 +3064,7 @@ mod tests {
         let mut view = view();
         let event = cgc_events::enrollments::MyEnrollmentRow {
             id: "event-enrollment".into(),
+            workspace_id: "ws-1".into(),
             status: "confirmed".into(),
             target_title: Some("Event registration outside the learning list".into()),
             starts_at: None,
@@ -2954,7 +3104,7 @@ mod tests {
             assert!(!context_prompt(&view, agent)
                 .contains("Event registration outside the learning list"));
         }
-        for path in ["/events/mine", "/participations"] {
+        for path in ["/participations"] {
             activate_context_tab(&mut view, path, "Participations");
             view.refresh_page_context();
             for agent in ["native", "codex"] {
@@ -3010,11 +3160,13 @@ mod tests {
             },
         };
         for focused_issue in [false, true] {
-            activate_context_tab(&mut view, "/courses/course-a/learn", "Course A");
+            activate_context_tab(&mut view, "/w/2046/courses/course-a/learn", "Course A");
             if focused_issue {
-                let tab = super::state::PaneTab::issue("course-a", "issue-a", "Ownership");
-                view.state.active_tab = Some(tab.id.clone());
-                view.state.tabs.push(tab);
+                activate_context_tab(
+                    &mut view,
+                    "/w/2046/courses/course-a/learn?issue=issue-a",
+                    "Ownership",
+                );
             }
             view.state.content.begin_load("course-a");
             view.state.content.adopt(content.clone());
@@ -3079,6 +3231,8 @@ mod tests {
                 visibility: "public".into(),
                 workspace_id: Some("course-workspace".into()),
                 pricing_enabled: false,
+                enrollment_policy: "open".into(),
+                available_price_tiers: Vec::new(),
                 enrollment_status: Some("confirmed".into()),
                 revision_number: previous_revision,
             };
@@ -3093,7 +3247,7 @@ mod tests {
                     ..CourseContentDocument::default()
                 },
             };
-            activate_context_tab(&mut view, "/courses/course-a/learn", "Course A");
+            activate_context_tab(&mut view, "/w/2046/courses/course-a/learn", "Course A");
             view.adopt_course_detail(detail.clone());
             view.state.content.begin_load("course-a");
             view.state.content.adopt(content.clone());
@@ -3104,8 +3258,8 @@ mod tests {
             }
 
             for revision in [previous_revision, refreshed_revision] {
-                activate_context_tab(&mut view, "/workspace", "Workspace");
-                activate_context_tab(&mut view, "/courses/course-a/learn", "Course A");
+                activate_context_tab(&mut view, "/w/2046", "Workspace");
+                activate_context_tab(&mut view, "/w/2046/courses/course-a/learn", "Course A");
                 assert!(view.state.course_detail.detail().is_none());
                 assert_eq!(view.state.content.content(), Some(&content));
                 view.adopt_course_detail(CourseDetail {
@@ -3158,15 +3312,51 @@ mod tests {
     }
 
     #[test]
+    fn learning_home_context_excludes_unconfirmed_courses() {
+        let mut view = view();
+        view.state.enrollments_rows = vec![
+            cgc_events::enrollments::MyEnrollmentRow {
+                id: "enr-a".into(),
+                workspace_id: "ws-1".into(),
+                status: "confirmed".into(),
+                target_title: Some("Confirmed course".into()),
+                starts_at: None,
+                event_id: None,
+                course_id: Some("c-1".into()),
+                payment_mode: None,
+                check_in_code: None,
+            },
+            cgc_events::enrollments::MyEnrollmentRow {
+                id: "enr-b".into(),
+                workspace_id: "ws-1".into(),
+                status: "payment_pending".into(),
+                target_title: Some("Unpaid course".into()),
+                starts_at: None,
+                event_id: None,
+                course_id: Some("c-2".into()),
+                payment_mode: Some("paid".into()),
+                check_in_code: None,
+            },
+        ];
+        view.state.enrollments_state = super::EnrollmentsListState::Ready;
+        activate_context_tab(&mut view, "/learning", "My learning");
+        view.refresh_page_context();
+        let prompt = context_prompt(&view, "native");
+        assert!(prompt.contains("Confirmed course"));
+        assert!(
+            !prompt.contains("Unpaid course"),
+            "the learning page hides unpaid courses, so its context must too"
+        );
+    }
+
+    #[test]
     fn course_context_keeps_route_identity_before_detail_loads() {
         let mut view = view();
-        view.state.tabs.push(super::state::PaneTab::issue(
-            "course-a",
-            "unit-a",
+        activate_context_tab(
+            &mut view,
+            "/w/2046/courses/course-a/learn?issue=unit-a",
             "First task",
-        ));
-        view.state.active_tab = Some("issue:course-a:unit-a".into());
-        view.navigate("/courses/course-a/learn");
+        );
         view.refresh_page_context();
         let page = view.page_context.visible().unwrap();
         let course = page.course.unwrap();
@@ -3175,11 +3365,11 @@ mod tests {
         assert_eq!(page.body, crate::page_context::PageBody::Loading);
         view.state.course_detail_started = true;
         view.state.tabs.push(super::state::PaneTab::page(
-            "/courses/course-b/learn",
+            "/w/2046/courses/course-b/learn",
             "Second course",
         ));
-        view.state.active_tab = Some("page:/courses/course-b/learn".into());
-        view.navigate("/courses/course-b/learn");
+        view.state.active_tab = Some("page:/w/2046/courses/course-b/learn".into());
+        view.navigate("/w/2046/courses/course-b/learn");
         assert!(!view.state.course_detail_started);
         view.refresh_page_context();
         assert_eq!(
@@ -3189,28 +3379,19 @@ mod tests {
     }
 
     #[test]
-    fn course_context_uses_the_courses_workspace_instead_of_the_selector() {
+    fn course_context_workspace_follows_the_route_slug() {
         let mut view = view();
         view.state
             .workspaces
             .adopt(vec![cgc_platform::workspace::WorkspaceSummary {
-                id: "selector-workspace".into(),
-                slug: "selected".into(),
-                name: "Selected workspace".into(),
+                id: "route-workspace".into(),
+                slug: "2046".into(),
+                name: "Route workspace".into(),
                 my_role_names: Vec::new(),
                 member_count: None,
                 can_access: true,
             }]);
-        assert_eq!(
-            view.state.workspaces.current_id(),
-            Some("selector-workspace")
-        );
-        view.state.tabs.push(super::state::PaneTab::page(
-            "/courses/course-a/learn",
-            "Course",
-        ));
-        view.state.active_tab = Some("page:/courses/course-a/learn".into());
-        view.navigate("/courses/course-a/learn");
+        activate_context_tab(&mut view, "/w/2046/courses/course-a/learn", "Course");
         view.state
             .course_detail
             .adopt(cgc_courses::catalog::CourseDetail {
@@ -3221,24 +3402,198 @@ mod tests {
                 visibility: "public".into(),
                 workspace_id: Some("course-workspace".into()),
                 pricing_enabled: false,
+                enrollment_policy: "open".into(),
+                available_price_tiers: Vec::new(),
                 enrollment_status: None,
                 revision_number: Some(3),
             });
         view.refresh_page_context();
         assert_eq!(
             view.page_context.visible().unwrap().workspace_id.as_deref(),
-            Some("course-workspace")
+            Some("route-workspace"),
+            "the route slug decides the workspace, not the course detail"
+        );
+
+        // 站点级学习页不借用当前工作区，即使课程详情自带归属。
+        activate_context_tab(&mut view, "/courses/course-a/learn", "Public course");
+        view.refresh_page_context();
+        assert_eq!(
+            view.page_context.visible().unwrap().workspace_id,
+            None,
+            "site-level pages must not borrow the selected workspace"
+        );
+    }
+
+    #[test]
+    fn agent_workspace_prefers_route_then_course_then_session() {
+        let mut view = view();
+        view.state.workspaces.adopt(vec![
+            cgc_platform::workspace::WorkspaceSummary {
+                id: "ws-alpha".into(),
+                slug: "alpha".into(),
+                name: "Alpha".into(),
+                my_role_names: Vec::new(),
+                member_count: None,
+                can_access: true,
+            },
+            cgc_platform::workspace::WorkspaceSummary {
+                id: "ws-beta".into(),
+                slug: "beta".into(),
+                name: "Beta".into(),
+                my_role_names: Vec::new(),
+                member_count: None,
+                can_access: true,
+            },
+        ]);
+        activate_context_tab(&mut view, "/w/alpha/courses", "Courses");
+        assert_eq!(view.agent_workspace_id().as_deref(), Some("ws-alpha"));
+
+        activate_context_tab(&mut view, "/courses/course-b/learn", "Public course");
+        view.state
+            .course_detail
+            .adopt(cgc_courses::catalog::CourseDetail {
+                id: "course-b".into(),
+                title: "Course B".into(),
+                description: None,
+                status: "published".into(),
+                visibility: "public".into(),
+                workspace_id: Some("ws-beta".into()),
+                pricing_enabled: false,
+                enrollment_policy: "open".into(),
+                available_price_tiers: Vec::new(),
+                enrollment_status: None,
+                revision_number: Some(1),
+            });
+        assert_eq!(
+            view.agent_workspace_id().as_deref(),
+            Some("ws-beta"),
+            "site-level course pages use the course owner for tool parameters"
+        );
+
+        activate_context_tab(&mut view, "/learning", "My learning");
+        assert_eq!(
+            view.agent_workspace_id().as_deref(),
+            Some("ws-alpha"),
+            "pages without a course fall back to the session workspace"
+        );
+    }
+
+    #[test]
+    fn agent_workspace_keeps_enrolled_non_member_course_owner() {
+        let mut view = view();
+        view.state
+            .workspaces
+            .adopt(vec![cgc_platform::workspace::WorkspaceSummary {
+                id: "ws-alpha".into(),
+                slug: "alpha".into(),
+                name: "Alpha".into(),
+                my_role_names: Vec::new(),
+                member_count: None,
+                can_access: true,
+            }]);
+        activate_context_tab(&mut view, "/courses/course-b/learn", "Public course");
+        view.state
+            .course_detail
+            .adopt(cgc_courses::catalog::CourseDetail {
+                id: "course-b".into(),
+                title: "Course B".into(),
+                description: None,
+                status: "published".into(),
+                visibility: "public".into(),
+                workspace_id: Some("ws-owner".into()),
+                pricing_enabled: false,
+                enrollment_policy: "open".into(),
+                available_price_tiers: Vec::new(),
+                enrollment_status: Some("confirmed".into()),
+                revision_number: Some(1),
+            });
+        assert_eq!(
+            view.agent_workspace_id().as_deref(),
+            Some("ws-owner"),
+            "已报名公开课的非成员学员必须保留报名/学习投影返回的 owner，不能按 can_access 丢弃"
+        );
+        assert!(
+            !view
+                .state
+                .workspaces
+                .workspaces()
+                .iter()
+                .any(|workspace| workspace.id == "ws-owner"),
+            "测试前提：owner 工作区不是本人工作区列表成员"
+        );
+    }
+
+    #[test]
+    fn loading_a_course_under_the_wrong_slug_canonicalizes_the_route() {
+        let mut view = view();
+        // R16：下面的 `canonicalize_course_route` 会触发 `navigate` → 整文件持久化，
+        // 必须写进夹具安装的隔离文件，而不是开发者真实状态文件。
+        let isolated = std::path::PathBuf::from(
+            std::env::var_os("CGC_WORKSPACE_STATE_FILE").expect("隔离状态文件已安装"),
+        );
+        let developer_file = cgc_platform::paths::AppPaths::from_env().workspace_state_file();
+        let developer_before = default_state_digest(&developer_file);
+        view.state.workspaces.adopt(vec![
+            cgc_platform::workspace::WorkspaceSummary {
+                id: "ws-alpha".into(),
+                slug: "alpha".into(),
+                name: "Alpha".into(),
+                my_role_names: Vec::new(),
+                member_count: None,
+                can_access: true,
+            },
+            cgc_platform::workspace::WorkspaceSummary {
+                id: "ws-beta".into(),
+                slug: "beta".into(),
+                name: "Beta".into(),
+                my_role_names: Vec::new(),
+                member_count: None,
+                can_access: true,
+            },
+        ]);
+        activate_context_tab(&mut view, "/w/alpha/courses/course-b/learn", "Course B");
+        let detail = cgc_courses::catalog::CourseDetail {
+            id: "course-b".into(),
+            title: "Course B".into(),
+            description: None,
+            status: "published".into(),
+            visibility: "public".into(),
+            workspace_id: Some("ws-beta".into()),
+            pricing_enabled: false,
+            enrollment_policy: "open".into(),
+            available_price_tiers: Vec::new(),
+            enrollment_status: None,
+            revision_number: Some(1),
+        };
+        view.canonicalize_course_route(&detail);
+        let current = view.current.as_ref().expect("route");
+        assert_eq!(current.route.id, "courses.learning");
+        assert_eq!(current.params.get("slug").map(String::as_str), Some("beta"));
+        assert_eq!(
+            view.page_context.visible(),
+            None,
+            "context refreshes on the next render, not mid-navigation"
+        );
+        assert!(
+            isolated.exists(),
+            "导航必须把工作区状态写进用例隔离文件（{isolated:?}）"
+        );
+        assert_eq!(
+            default_state_digest(&developer_file),
+            developer_before,
+            "单测不得创建或改写开发者真实状态文件（{developer_file:?}）"
         );
     }
 
     #[test]
     fn failed_course_detail_reports_unavailable_page_context_with_course_identity() {
         let mut view = view();
-        view.state
-            .tabs
-            .push(super::state::PaneTab::page("/courses/course-a", "Course A"));
+        view.state.tabs.push(super::state::PaneTab::page(
+            "/w/2046/courses/course-a",
+            "Course A",
+        ));
         view.state.active_tab = Some("page:/courses/course-a".into());
-        view.navigate("/courses/course-a");
+        view.navigate("/w/2046/courses/course-a");
         view.state
             .course_detail
             .fail(&cgc_courses::catalog::CoursesError::Transport(
@@ -3256,34 +3611,227 @@ mod tests {
     #[test]
     fn breadcrumb_sections_follow_route() {
         let mut view = view();
-        view.navigate("/events");
+        view.navigate("/w/2046/events");
         assert_eq!(
             view.breadcrumb_context().map(|(label, _)| label),
             Some("events.list.title")
         );
-        view.navigate("/courses/00dcc9a9-3876-4018-ab52-bcf1f0e4e05c/learn");
+        view.navigate("/w/2046/courses/00dcc9a9-3876-4018-ab52-bcf1f0e4e05c/learn");
         assert_eq!(
             view.breadcrumb_context().map(|(label, _)| label),
             Some("courses.catalog.title")
         );
-        view.navigate("/workspace");
+        view.navigate("/w/2046");
         assert_eq!(
             view.breadcrumb_context().map(|(label, _)| label),
             Some("account.workspace.overview")
         );
+        view.navigate("/courses");
+        assert_eq!(
+            view.breadcrumb_context().map(|(label, _)| label),
+            Some("courses.public.title")
+        );
+        view.navigate("/events");
+        assert_eq!(
+            view.breadcrumb_context().map(|(label, _)| label),
+            Some("events.public.title")
+        );
+        view.navigate("/participations");
+        assert_eq!(
+            view.breadcrumb_context().map(|(label, _)| label),
+            Some("events.participations.title")
+        );
+        view.navigate("/courses/c-1/learn");
+        assert_eq!(
+            view.breadcrumb_context().map(|(label, _)| label),
+            Some("courses.public.title")
+        );
     }
 
     #[test]
-    fn workspace_is_default_landing_and_login_target() {
+    fn public_course_detail_switch_resets_the_loaded_detail() {
+        let mut view = view();
+        view.navigate("/courses/c-1");
+        view.state.course_detail_started = true;
+        view.selected_tier = Some("tier-from-a".into());
+        view.navigate("/courses/c-2");
+        assert!(
+            !view.state.course_detail_started,
+            "switching course ids must drop the previous detail"
+        );
+        assert_eq!(
+            view.selected_tier, None,
+            "switching courses must drop a stale tier selection"
+        );
+    }
+
+    #[test]
+    fn list_cache_reloads_after_crossing_a_detail_page() {
+        use cgc_courses::catalog::{CoursesListState, FakeCoursesApi};
+        use cgc_platform::workspace::{OfferingScope, WorkspaceScope};
+
+        let mut view = view();
+        view.navigate("/w/2046/courses");
+        view.courses = cgc_courses::catalog::CourseCatalogService::new(std::sync::Arc::new(
+            FakeCoursesApi::with_seed(2),
+        ));
+        view.courses.begin_first_load();
+        let scope = WorkspaceScope {
+            workspace_id: "ws-1".into(),
+            epoch: 1,
+        };
+        let page = view
+            .courses
+            .fetch(None, OfferingScope::Workspace(&scope))
+            .expect("page");
+        view.courses.adopt_page(page);
+        view.courses_started = true;
+        view.courses_scope = Some(crate::routing::ListScope::Workspace);
+
+        view.navigate("/w/2046/courses/c-1");
+        assert_eq!(
+            view.courses.state(),
+            &CoursesListState::Ready,
+            "same-face detail navigation keeps the cache"
+        );
+        view.navigate("/courses");
+        assert_eq!(view.courses.state(), &CoursesListState::Idle);
+        assert!(!view.courses_started);
+        assert_eq!(view.courses_scope, None);
+    }
+
+    #[test]
+    fn switching_workspaces_resets_list_caches() {
+        use cgc_courses::catalog::{CoursesListState, FakeCoursesApi};
+        use cgc_platform::workspace::{OfferingScope, WorkspaceScope};
+
+        let mut view = view();
+        view.navigate("/w/2046/courses");
+        view.courses = cgc_courses::catalog::CourseCatalogService::new(std::sync::Arc::new(
+            FakeCoursesApi::with_seed(4),
+        ));
+        view.courses.begin_first_load();
+        let page = view
+            .courses
+            .fetch(
+                None,
+                OfferingScope::Workspace(&WorkspaceScope {
+                    workspace_id: "ws-1".into(),
+                    epoch: 0,
+                }),
+            )
+            .expect("page");
+        view.courses.adopt_page(page);
+        view.courses_scope = Some(crate::routing::ListScope::Workspace);
+
+        view.navigate("/w/other/courses");
+        assert_eq!(
+            view.courses.state(),
+            &CoursesListState::Idle,
+            "switching workspaces must invalidate list caches"
+        );
+        assert_eq!(view.courses_scope, None);
+    }
+
+    #[test]
+    fn switching_between_public_and_workspace_resets_list_cache() {
+        use cgc_courses::catalog::{CoursesListState, FakeCoursesApi};
+        use cgc_platform::workspace::OfferingScope;
+
+        let mut view = view();
+        view.courses = cgc_courses::catalog::CourseCatalogService::new(std::sync::Arc::new(
+            FakeCoursesApi::with_seed(4),
+        ));
+        view.courses.begin_first_load();
+        let page = view
+            .courses
+            .fetch(None, OfferingScope::Public)
+            .expect("page");
+        view.courses.adopt_page(page);
+        view.courses_scope = Some(crate::routing::ListScope::Public);
+        assert_eq!(view.courses.state(), &CoursesListState::Ready);
+
+        view.navigate("/courses");
+        view.navigate("/w/2046/courses");
+        assert_eq!(
+            view.courses.state(),
+            &CoursesListState::Idle,
+            "switching data faces must invalidate the list cache"
+        );
+        assert!(!view.courses_started);
+    }
+
+    #[test]
+    fn public_learning_route_resolves_without_a_workspace() {
+        let mut view = view();
+        view.navigate("/courses/c-1/learn");
+        assert_eq!(
+            view.current().map(|route| route.id),
+            Some("courses.public_learning")
+        );
+        assert_eq!(
+            view.current_match()
+                .and_then(|route_match| route_match.params.get("id"))
+                .map(String::as_str),
+            Some("c-1")
+        );
+        assert!(
+            !crate::routing::requires_workspace("courses.public_learning"),
+            "public learning must stay reachable without a workspace"
+        );
+    }
+
+    #[test]
+    fn repeated_view_keeps_the_workspace_state_process_lock() {
+        let _first = view();
+        let _second = view();
+        WORKSPACE_STATE_ISOLATION.with(|isolation| {
+            let isolation = isolation.borrow();
+            let guard = isolation.as_ref().expect("workspace state guard installed");
+            assert!(
+                guard._env_lock.holds_process_lock(),
+                "同一用例第二次 view() 必须复用首个隔离 guard，不能退化成空壳后释放真锁"
+            );
+        });
+    }
+
+    #[test]
+    fn navigate_slash_uses_the_last_workspace() {
+        let mut with_last = view();
+        with_last.last_workspace_slug = Some("2046".into());
+        with_last.navigate("/");
+        assert_eq!(
+            with_last.current().map(|route| route.id),
+            Some("account.workspace")
+        );
+        assert_eq!(
+            with_last
+                .current_match()
+                .and_then(|route_match| route_match.params.get("slug"))
+                .map(String::as_str),
+            Some("2046")
+        );
+
+        let mut fresh = view();
+        fresh.last_workspace_slug = None;
+        fresh.navigate("/");
+        assert_eq!(
+            fresh.current().map(|route| route.id),
+            Some("courses.learning_home")
+        );
+    }
+
+    #[test]
+    fn my_learning_is_default_landing_and_login_target() {
         let mut view = view();
         assert_eq!(
             view.current().map(|route| route.id),
-            Some("account.workspace")
+            Some("courses.learning_home")
         );
         view.finish_login(Ok(fake_signed_in()));
         assert_eq!(
             view.current().map(|route| route.id),
-            Some("account.workspace")
+            Some("courses.learning_home")
         );
     }
 
@@ -3540,11 +4088,11 @@ mod tests {
     }
 
     #[test]
-    fn starts_on_workspace_route_signed_out() {
+    fn starts_on_my_learning_signed_out() {
         let view = view();
         assert_eq!(
             view.current().map(|route| route.id),
-            Some("account.workspace")
+            Some("courses.learning_home")
         );
         assert_eq!(view.language(), Language::Zh);
         assert_eq!(view.preference(), ThemePreference::System);
@@ -3592,11 +4140,11 @@ mod tests {
     #[test]
     fn pending_deep_link_is_consumed_after_login() {
         let mut view = view();
-        view.pending_link = Some("/workspace".to_string());
+        view.pending_link = Some("/learning".to_string());
         view.finish_login(Ok(fake_signed_in()));
         assert_eq!(
             view.current().map(|route| route.id),
-            Some("account.workspace")
+            Some("courses.learning_home")
         );
         assert!(view.pending_link.is_none());
     }
@@ -3639,24 +4187,33 @@ mod tests {
     }
 
     #[test]
-    fn account_menu_toggles_and_closes() {
-        let mut view = view();
-        assert!(!view.account_menu_open());
-        assert!(view.toggle_account_menu());
-        view.close_account_menu();
-        assert!(!view.account_menu_open());
-    }
-
-    #[test]
     fn navigate_to_event_detail_captures_id_param() {
         let mut view = view();
-        view.navigate("/events/evt-007");
+        view.navigate("/w/2046/events/evt-007");
         assert_eq!(view.current().map(|route| route.id), Some("events.detail"));
         assert_eq!(
             view.current_match()
                 .and_then(|route_match| route_match.params.get("id"))
                 .map(String::as_str),
             Some("evt-007")
+        );
+        assert_eq!(
+            view.current_match()
+                .and_then(|route_match| route_match.params.get("slug"))
+                .map(String::as_str),
+            Some("2046")
+        );
+
+        view.navigate("/events/evt-008");
+        assert_eq!(
+            view.current().map(|route| route.id),
+            Some("events.public_detail")
+        );
+        assert_eq!(
+            view.current_match()
+                .and_then(|route_match| route_match.params.get("id"))
+                .map(String::as_str),
+            Some("evt-008")
         );
     }
 

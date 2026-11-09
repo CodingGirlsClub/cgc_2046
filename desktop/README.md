@@ -53,6 +53,7 @@ CLI `cgc-agent-demo` 复用同一协议：设置 `CGC_AGENT_PROTOCOL=anthropic_c
   `session`、`input`、`runtime_ops`、`render`、`widgets`、`state`、`tests`）。
   子模块可访问父模块私有字段，未放宽可见性。
 - Native 与 external ACP 的输入区共用 `agent_ui::message_editor::MessageEditor`，统一状态创建、4～8 行自动增高、可换行 placeholder 和 inline token 回调；卡片留白与发送按钮尺寸由共享 composer 管理。每个会话保留独立草稿和发送/审批/queue/steer 处理。`CGC_NATIVE_SHARED_VIEW` 已移除。
+- External ACP 的用量环、模型／推理配置和发送／停止按钮共用右侧控件组，窄面板换行后仍靠右。费用沿用 agent 上报的币种，非零且小于 `0.01` 时显示 4 位小数，其余显示 2 位。
 - `native_thread_state.rs` 已删除，状态类型在 `native_agent_view::state`，对外重新导出为
   `native_agent_view::NativeThreadState`。
 
@@ -127,21 +128,36 @@ Unix 回归使用系统 `curl`、`/usr/bin/python3` 和本机受控代理，不�
 
 ```text
 cgc://home
-cgc://workspace
+cgc://workspace                    # /：上次工作区概览，没有记录则「我的学习」
+cgc://workspace/<slug>             # 指定工作区概览
+cgc://workspace/<slug>/events/<uuid>
+cgc://workspace/<slug>/courses/<uuid>/learn
 cgc://settings
 cgc://agents
-cgc://companion
-cgc://events
-cgc://events/<uuid>
-cgc://events/mine
-cgc://courses
-cgc://courses/<uuid>
-cgc://courses/<uuid>/learn
+cgc://events                       # 公开活动目录（跨工作区）
+cgc://events/<uuid>                # 公开活动详情
+cgc://events/mine                  # 兼容：重定向到「我的报名」(/participations)
+cgc://courses                      # 公开课程目录（跨工作区）
+cgc://courses/<uuid>               # 公开课程详情
+cgc://courses/<uuid>/learn         # 站点级学习页（无工作区也可达）
 ```
 
-未登录时先保存 pending link，登录成功后继续跳转；非法链接回到工作台。
+未登录时先保存 pending link，登录成功后继续跳转；非法链接回到上次工作区。
+`cgc://companion` 已移除：Agent 面板是 dock，不是页面。
 `cgc` scheme 由安装包注册；开发时直接以 argv 传入，例如
 `cargo run -p cgc-desktop-app -- 'cgc://settings'`。
+
+## 工作区导航
+
+- Site Tree 支持搜索课程、活动标题及已加载的章节和 issue 标题；匹配子项时保留课程与章节，清空搜索恢复原展开状态。搜索词随工作区保存，恢复后主动加载所需列表。
+- 课程树仅在本人报名状态为 `confirmed` 时加载和展开学习正文；未报名、审批中、待支付及已取消的课程保留详情入口并显示解锁提示。报名状态覆盖已加载的全部分页，报名成功后同步更新。
+- 学习卡（issue）是学习页地址上的定位参数：`/w/<slug>/courses/<id>/learn?issue=<id>`，tab 身份就是完整地址，卡片与整课不再共用一个 path；旧 `workspace_state.json` 读取时把 `issue_id` 升级进地址，`active_tab` 同步映射。
+- 「我的学习」「我的报名」按条目所属工作区显示名称并跳转；没有归属信息或没有工作区访问权时使用站点级页面。跨工作区打开学习页或 issue，会在目标工作区恢复标签后插入并保存新标签。
+- 页面归属（Agent 上下文与 MCP 固定参数）只按路由 `/w/<slug>` 派生：站点级页面不借用当前工作区，课程详情不再提供第二真源。MCP 工具参数按「工作区路由 > 站点级课程归属 > 当前工作区」取值，页面作用域变化会重建工具上下文；没有工作区时只保留不依赖 `workspace_id` 的角色手册工具，其余课程工具不注册（失败关闭）。课程归属与路由 slug 不一致时（旧深链）自动把地址收敛到课程所属工作区。
+- 「我的学习」以 `myLearningRuns` 为主：每门课显示必修掌握进度、下一动作与「课程已更新」标记，点击进入所属工作区的学习页；`myEnrollments` 只兜底「已确认但还没有 run」的课程，待支付/审批中留在「我的报名」。
+- 公开目录的基础查询不读取受成员权限保护的归属字段。课程详情优先读取本人报名或学习投影的归属；可访问工作区的课程归属通过既有权限查询按页批量补齐，成员未报名时也可进入所属工作区。来源名称无法从可见工作区列表解析时隐藏徽标，不显示内部 ID。
+
+自动化回归覆盖完整 `RootView` 输入焦点、切台与标签恢复，以及 HTTP 字段权限和报名归属。UI 测试使用 `CGC_UI_TESTS=1 cargo test -p cgc-desktop-app --features gpui-kit/test-support --lib -- --test-threads=1`，课程 HTTP 端到端测试使用 `cargo test -p cgc-courses --test public_course_e2e`。
 
 ## 托盘与系统通知
 
@@ -178,8 +194,10 @@ cgc://courses/<uuid>/learn
 - `Window & Layout`：标题栏的品牌名/面包屑/通知按钮显隐；状态栏四个面板按钮显隐；关闭窗口时留在托盘。
 - `Panels`：每个面板一组，含 Dock Position（左/右）、默认宽度、新工作台默认展开（仅 Dock）、显示未报名课程。
 - 状态栏图标右键提供 `Dock Left` / `Dock Right` / `Hide Button`；图标随面板停靠侧移到左组或右组。
-- 面板开合与右侧当前面板按 workspace 记忆（`workspace_state.json`），优先于设置默认值；通知面板不记忆。
-- `新工作台默认展开` 与默认宽度只在 workspace 无记录时生效；拖动宽度后按 workspace 记住。
+- 面板宽度、开合与右侧当前面板按 workspace 记忆（`workspace_state.json`），优先于设置默认值；通知面板不记忆。
+- `新工作台默认展开` 与默认宽度作用于尚未自定义布局的 workspace；手动切换面板或拖动宽度后，按 workspace 保留布局覆盖。
+- `Panels → 当前工作台 → 重置当前工作台布局`：二次确认后清除当前 workspace 的布局覆盖并套用当前 `Panels` 默认值；保留标签、当前页面、站点树筛选与滚动位置，其他 workspace 不变。重置后继续跟随默认值，直到再次手动调整布局。
+- 重置按钮支持 `Tab` / `Shift-Tab` 聚焦，`Enter` / `Space` 激活；首次激活只进入确认状态。
 - 已知限制：debug 构建下，若 macOS 辅助功能被激活（例如自动化工具读取界面），点击「面板 → 默认宽度」的 `+`/`−` 会触发 `gpui-pre 0.3.11` 的 a11y 断言（`set_focus called more than once in a single frame`）并 panic；release 构建只记录 warn。移除条件：`gpui-kit` / `gpui-pre` 升级修复后删除此条。
 
 ## 审批规则（toolPermissions，native-only）
@@ -402,12 +420,12 @@ CI 分工：PR 阶段 desktop 只跑 lint + 测试（快）；**打包在合并�
 - **永久清空**：Settings → AI →「清空 ACP 对话历史」（二次确认，仅 ACP；native 不受影响）。Archive 只隐藏，不删除。
 - **审批规则**：`preferences.json` 的 `toolPermissions` **仅 native 生效**（详见上文「审批规则」）；external agent 的审批由 agent 自身模式决定。
 - **MCP（3.4a/b/c，2026-10-27）**：native MCP client 已落地 Streamable HTTP JSON-RPC（initialize/tools/list/tools/call，Bearer/SSE/超时/401/403 fail-closed，token 不进日志）。native-only 注入 5 个只读课程工具：`mcp:cgc-2046-learning:{get_course_content,get_course_revision,get_learning_state,get_role_playbook,get_enrollment_summary}`；白名单外不注册，无 lease/token 时 0 注册（fail-closed）。配置与 ACP 注入同源（`learning_host` lease + `mcp_endpoint(CGC_API_URL)`）；`CGC_MCP_ENDPOINT`/`CGC_MCP_TOKEN` 仅作 headless 测试 seam。**3.4d 真机待验**（真实平台 MCP server 的 tools/list 与工具调用）。
-- **平台工具凭证恢复**：Native 与 ACP 共用按账号和 API 服务端隔离的钥匙串凭证。冷启动通过 `GET /mcp/token` 核实归属、类型和 token ID 后复用；旧版 `learning_host` 明文项核实后迁移，额度已满也可恢复。401 才按失效处理；网络错误／429／5xx 保留凭证且不增发。新凭证保存失败会撤销本次签发，登出只撤销本机记录，不批量撤销其他客户端。授权失败在 Tab 栏下方独立提示，`Retry` 重新尝试恢复，长诊断不再挤掉标签。
-- **授权回归验证**：凭证测试在 `crates/platform/src/mcp/credential/tests.rs`；真实 TabBar 测试在 `crates/app/src/root_view/screens/workspace/pane/tests.rs`。后者使用 `CGC_UI_TESTS=1` 和 Kit 的 `test-support`（`cargo test -p cgc-desktop-app --features gpui-kit/test-support --lib authorization_failure_and_long_notices`）。当前 Kit 0.9.0 的这个聚合 feature 仍不能直接启用：它引用未启用的可选 `gpui-fast`，而 `gpui-fast 0.1.13` 把 `taffy` 钉在 `=0.15.0`、`unicode-properties` 钉在 `=0.1.3`，与 `gpui-pre 0.3.11` 解析到的补丁版冲突。验证时仍在临时 workspace 中为 Fast 包提供解析占位后运行；项目依赖和锁文件保持原样。
+- **平台工具凭证恢复**：Native 与 ACP 共用按账号和 API 服务端隔离的钥匙串凭证。冷启动通过 `GET /mcp/token` 核实归属、类型和 token ID 后复用；旧版 `learning_host` 明文项核实后迁移，额度已满也可恢复。401 才按失效处理；网络错误／429／5xx 保留凭证且不增发。新凭证保存失败会撤销本次签发，登出只撤销本机记录，不批量撤销其他客户端。授权失败在 Tab 栏下方独立提示，`Retry` 重新尝试恢复，长诊断不再挤掉标签；文案按失败类别分流（后台不可达 / 凭据不可用 / 凭据额度满），GraphQL 与 MCP 授权失败同时落 `app.log`（operation + 端点 + 错误类别，不含凭证）；工作台列表拉取失败时概览页与切换器都给出失败态与重试入口（#1238）。
+- **授权回归验证**：凭证测试在 `crates/platform/src/mcp/credential/tests.rs`；真实 TabBar 测试在 `crates/app/src/root_view/screens/workspace/pane/tests.rs`。UI 测试默认不编译：需 `CGC_UI_TESTS=1`（`crates/app/build.rs` 打开 `cfg(cgc_ui_tests)`）并启用 Kit 的 `test-support`——`CGC_UI_TESTS=1 cargo test -p cgc-desktop-app --features gpui-kit/test-support --lib -- --test-threads=1 authorization_failure_and_long_notices`。该 feature 会把 `gpui-fast` 系拉进解析图，而 `gpui-fast 0.1.13` 对 `taffy` 精确 pin `=0.15.0`、`gpui-fast-web 0.1.13` 对 `unicode-properties` 精确 pin `=0.1.3`（`gpui-pre 0.3.11` 是 `^0.15.0` / `^0.1.3`，允许）。因此 `Cargo.lock` 把这两个包固定在 `0.15.0` / `0.1.3`：**不要 `cargo update` 它们**，回到补丁新版后该 feature 会解析失败。移除条件：`gpui-kit` 松开这两个 pin。CI 的 desktop-build 在 macOS 腿已跑这一步（Linux/Windows 的 headless 窗口未验证，暂不铺开）；`scripts/check_licenses.py` 以同一 feature 取 metadata，测试依赖也进许可门禁与 SBOM。写 UI 测试时**不要在子模块里 `use super::*`**：`root_view` 本身 glob 导入 `gpui_kit::*`，叠加后 `#[gpui_kit::test]` 的属性宏展开会递归，rustc 直接 SIGBUS（实测）；只导入用到的名字。
 - **侧栏状态**：历史侧栏开关会写入 `preferences.json`（`historySidebarOpen`），重启后恢复。
 - **全局 Agent Panel（3.5a）**：任意页面打开同一 Agent Panel / 同一线程；课程学习页自动把 course/revision/unit 作为上下文附加到每条 prompt（native/ACP 同一段文本，输入气泡不显示），上下文 chip 可移除。不再有课程页专用工作区/会话指针。
 - **默认 agent（3.5b，2026-10-27）**：新会话（含课程页）默认 native；`CGC_NATIVE_AGENT=0` 或设置「使用 Native Agent 运行时」关闭时回退 External Agent（external 仍可在 `＋` 菜单选择）。
-- **Native 图片粘贴**：共享编辑器通过 Kit `Textarea::on_paste` 在默认文本插入前接收图片与复制的图片文件；快捷键和菜单粘贴共用该入口，普通输入不读取剪贴板。附件粘贴保留正文、token、多光标、选区方向与文本撤销历史；带描述文字的剪贴板不会因包含图片文件名而被吞掉。真实 composer 回归在 `crates/app/src/native_agent_view/paste_tests.rs`（沿用上文隔离 workspace 与 `CGC_UI_TESTS=1`，测试过滤器 `paste_tests`）。
+- **Native 图片粘贴**：共享编辑器通过 Kit `Textarea::on_paste` 在默认文本插入前接收图片与复制的图片文件；快捷键和菜单粘贴共用该入口，普通输入不读取剪贴板。附件粘贴保留正文、token、多光标、选区方向与文本撤销历史；带描述文字的剪贴板不会因包含图片文件名而被吞掉。真实 composer 回归在 `crates/app/src/native_agent_view/paste_tests.rs`（沿用上文 test-support 的锁文件 pin 与 `CGC_UI_TESTS=1`，测试过滤器 `paste_tests`）。
 - **Agent Header 无障碍名称**：Native/External 共用的实际新对话按钮提供中英文名称；真实 Header 回归在 `crates/app/src/root_view/screens/chat/editor_tests.rs`。
 - **全局 active tab 上下文**：所有中心内容 tab（课程 issue/整页、场次详情/列表、课程详情/目录、学习/参与列表、工作台概览）在 native/ACP 输入文字流中显示当前页附件 chip。草稿中的自动 chip 跟随当前 Tab，保留问题文字和手动附件；删除 chip 后本条消息不再附加当前页。发送时固定来源和正文快照，排队／重试不随之后的 Tab 改变。正文按线程 + Agent + tab 内容版本去重；chip 显示「待引用／已引用／待更新」，保留加载中、无正文、失败及部分引用状态，自动跟随与发送规则放在 tooltip。已引用页面的追问只带页面身份，不重复正文或通用提示；历史恢复或压缩后保守重载。Native 插话在收到实际消费回执后才标记已引用。
 - **Selection 与历史编辑**：`＋ → Selection` 将中心页面选中文字及其来源保存为独立附件；课程卡目标、清单及 Markdown 正文支持选择。Native 编辑历史消息时恢复原 chip 位置和快照，可替换为当前页再回滚重发；external ACP 的 `Edit copy` 将原消息及附件恢复到 Composer，作为新一轮发送。页面／Selection／File／Skill 快照随会话保存，重新打开历史后仍可恢复。
@@ -419,4 +437,4 @@ CI 分工：PR 阶段 desktop 只跑 lint + 测试（快）；**打包在合并�
 - **B3 能力**：模型 / thinking / 审批模式 picker 为 native-only 且 capability gated（ACP 用自己的 config options picker）；checkpoint 变更列表/全部保留/全部回退/单文件 Keep-Restore 已抽为共享面板 helper（数据层复用 `agent_checkpoint`）；subagent 进度行迁到 `agent_ui::subagent_row`，native 与共享视图共用、行顺序由 `message_row_kinds` 决定。
 - **B4a 迁移**：native 面板非 UI 逻辑已抽到 `app/src/native_context.rs`（workspace prompt/slash/mention）、`attachment.rs`（图片编解码/预览）、`native_session.rs`（thread/checkpoint 持久化）、`native_panel_host.rs`（agent_state/ACP host/title/audit/model 选择）；controller 创建 native 面板时经 host 注入。
 - **已知限制**：`native_agent_view.rs`（约 5850 行）尚未删除（B4b 等两轨真机验收后进行）；`CGC_NATIVE_SHARED_VIEW` flag 仍在；默认 native 已覆盖课程页（3.5b），但 MCP 工具只在有 `learning_host` lease 时注入（3.4d 真机待验）。
-- **本地门禁口径（开发）**：本机 Rockxy/Clash 代理会污染 localhost mock，全量测试固定清代理并串行：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY -u http_proxy -u https_proxy -u all_proxy -u no_proxy cargo test --workspace --exclude cgc-agent-tools -- --test-threads=1`（本轮实测 596 passed / 0 failed）。
+- **本地门禁口径（开发）**：本机 Rockxy/Clash 代理会污染 localhost mock，全量测试固定清代理并串行：`env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY -u http_proxy -u https_proxy -u all_proxy -u no_proxy cargo test --workspace --exclude cgc-agent-tools -- --test-threads=1`（本轮实测 596 passed / 0 failed）。UI 测试另跑一条（见上文「授权回归验证」，必须串行：用例共享进程级全局，并行时 `native_composer_uses_shared_editor_growth` 会在 `expect("runtime snapshot")` 处超时）：`CGC_UI_TESTS=1 cargo test -p cgc-desktop-app --features gpui-kit/test-support --lib -- --test-threads=1`。

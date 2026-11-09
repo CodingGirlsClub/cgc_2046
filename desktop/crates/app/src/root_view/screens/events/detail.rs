@@ -11,13 +11,29 @@ pub(in crate::root_view) fn render_detail(
     let state = ctx.detail.state().clone();
     let detail = ctx.detail.detail().cloned();
 
+    let back_key = crate::root_view::nav_copy::event_detail_back_key(
+        ctx.current
+            .as_ref()
+            .map(|route_match| route_match.route.id)
+            .unwrap_or("events.detail"),
+    );
     let back = div()
         .id("detail-back")
-        .child(translate(language, Key::EventsDetailBack))
+        .child(translate(language, back_key))
         .text_color(palette.ink_3)
         .text_size(px(12.0))
         .on_click(cx.listener(|this, _, _, cx| {
-            this.navigate("/events");
+            let public = this
+                .current
+                .as_ref()
+                .is_some_and(|route_match| route_match.route.id == "events.public_detail");
+            let path = if public {
+                "/events".to_string()
+            } else {
+                this.workspace_path("/events")
+                    .unwrap_or_else(|| "/events".to_string())
+            };
+            this.navigate(&path);
             cx.notify();
         }));
 
@@ -76,7 +92,15 @@ pub(in crate::root_view) fn render_detail(
                         tiers,
                     } => (
                         translate(language, Key::EventsDetailPaid).to_string(),
-                        format!("¥{:.2} 起 · {tiers} 档", min_amount_cents as f64 / 100.0),
+                        match min_amount_cents {
+                            Some(cents) => {
+                                format!("¥{:.2} 起 · {tiers} 档", cents as f64 / 100.0)
+                            }
+                            None => format!(
+                                "{} · {tiers} 档",
+                                translate(language, Key::EventsDetailPricePending)
+                            ),
+                        },
                     ),
                     PriceMode::Deposit { amount_cents } => (
                         translate(language, Key::EventsDetailDeposit).to_string(),
@@ -224,6 +248,18 @@ pub(in crate::root_view) fn render_enrollment_area(
                             ))
                             .into_any_element()
                     });
+            let view_participations = div()
+                .id("enroll-view-participations")
+                .test_support()
+                .role(Role::Link)
+                .aria_label(translate(language, Key::EventsEnrollViewParticipations).to_string())
+                .text_size(px(12.0))
+                .text_color(palette.accent)
+                .child(translate(language, Key::EventsEnrollViewParticipations))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.navigate("/participations");
+                    cx.notify();
+                }));
             return div()
                 .mt(space(2))
                 .flex()
@@ -234,6 +270,7 @@ pub(in crate::root_view) fn render_enrollment_area(
                 .child(enroll_status_label(language, enrollment.status.as_str()))
                 .children(paid_notice)
                 .children(check_in)
+                .child(view_participations)
                 .into_any_element();
         }
 
@@ -420,13 +457,39 @@ pub(in crate::root_view) fn render_enrollment_area(
             .into_any_element();
     }
 
+    let public_face = ctx
+        .current
+        .as_ref()
+        .is_some_and(|route_match| route_match.route.id == "events.public_detail");
+    if public_face && detail.visibility == "workspace" {
+        return div()
+            .id("events-enroll-workspace-only")
+            .test_support()
+            .role(Role::Status)
+            .aria_label(translate(language, Key::EventsEnrollWorkspaceOnly).to_string())
+            .mt(space(2))
+            .text_size(px(12.0))
+            .text_color(palette.ink_3)
+            .child(translate(language, Key::EventsEnrollWorkspaceOnly))
+            .into_any_element();
+    }
+
     let selected_tier = ctx.selected_tier.clone();
     let tier_chips: Vec<AnyElement> = detail
         .available_price_tiers
         .iter()
         .map(|tier| {
-            let selected = selected_tier.as_deref() == Some(tier.id.as_str());
+            let price_known = tier.amount_cents.is_some();
+            let selected = price_known && selected_tier.as_deref() == Some(tier.id.as_str());
             let tier_id = tier.id.clone();
+            let label = match tier.amount_cents {
+                Some(cents) => format!("{} ¥{:.2}", tier.name, cents as f64 / 100.0),
+                None => format!(
+                    "{} {}",
+                    tier.name,
+                    translate(language, Key::EventsDetailPricePending)
+                ),
+            };
             div()
                 .id(format!("enroll-tier-{}", tier.id))
                 .px(space(1))
@@ -438,19 +501,23 @@ pub(in crate::root_view) fn render_enrollment_area(
                 } else {
                     palette.soft
                 })
-                .text_color(if selected {
+                .text_color(if !price_known {
+                    palette.ink_3
+                } else if selected {
                     palette.canvas
                 } else {
                     palette.ink_2
                 })
-                .child(format!(
-                    "{} ¥{:.2}",
-                    tier.name,
-                    tier.amount_cents as f64 / 100.0
-                ))
+                .test_support()
+                .role(Role::Button)
+                .aria_label(label.clone())
+                .child(label)
                 .on_click(cx.listener(move |this, _, _, cx| {
-                    this.selected_tier = Some(tier_id.clone());
-                    cx.notify();
+                    // 未知金额档位不可选：显示「金额待定」，避免把 0 元价带上报名。
+                    if price_known {
+                        this.selected_tier = Some(tier_id.clone());
+                        cx.notify();
+                    }
                 }))
                 .into_any_element()
         })

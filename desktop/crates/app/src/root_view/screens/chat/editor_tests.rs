@@ -2,6 +2,7 @@ use super::panel::render_chat_panel;
 use crate::conversation_session::ConnectionPhase;
 use crate::i18n::Language;
 use crate::root_view::{screens::ScreenContext, RootView};
+use cgc_platform::acp::connection::{ConfigOptionCategory, ConfigOptionView};
 use cgc_platform::session::{FakeAuthApi, MemoryStore, SessionService};
 use gpui_kit::test::{TestQueryExt, TestSupportExt, TestWindowExt};
 use gpui_kit::{
@@ -103,6 +104,107 @@ fn acp_composer_uses_shared_editor_growth_and_preserves_draft(cx: &mut TestAppCo
             assert!(window.find_by_label("Send").visible());
         })
         .unwrap();
+    }
+}
+
+#[gpui_kit::test]
+fn acp_composer_keeps_send_and_stop_right_aligned_with_wrapped_configs(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (handle, probe) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Default::default(),
+                    size: size(px(458.0), px(500.0)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| {
+                let root = cx.new(|_| {
+                    let mut root = RootView::with_session(
+                        crate::registration::build_registry().unwrap(),
+                        Language::En,
+                        crate::theme::ThemePreference::Light,
+                        SessionService::new(
+                            Box::new(FakeAuthApi::demo()),
+                            Box::new(MemoryStore::default()),
+                        ),
+                    );
+                    root.state.native_chat_mode = false;
+                    root.state.chat.agent = "codex".into();
+                    root.state.chat.session.phase = ConnectionPhase::Ready;
+                    root.state.chat.session.thread.capabilities =
+                        cgc_agent_ui::conversation::ThreadCapabilities::acp();
+                    root
+                });
+                root.update(cx, |root, cx| root.initialize_chat_input(window, cx));
+                cx.new(|_| AcpComposerProbe { root })
+            },
+        )
+        .unwrap()
+    });
+    let model = "M".repeat(64);
+    let effort = "W".repeat(64);
+    let configs: Vec<_> = [
+        ("model", ConfigOptionCategory::Model, model.clone()),
+        ("effort", ConfigOptionCategory::ThoughtLevel, effort.clone()),
+    ]
+    .into_iter()
+    .map(|(id, category, current)| ConfigOptionView {
+        id: id.into(),
+        name: id.into(),
+        category,
+        values: vec![(current.clone(), current.clone())],
+        current,
+    })
+    .collect();
+    for (width, height) in [
+        (458.0, 500.0),
+        (380.0, 340.0),
+        (260.0, 340.0),
+        (560.0, 500.0),
+    ] {
+        cx.simulate_window_resize(handle, size(px(width), px(height)));
+        for show_usage in [true, false] {
+            cx.update_window(handle, |_, window, cx| {
+                let root = probe.read(cx).root.clone();
+                root.update(cx, |root, cx| {
+                    root.state.chat.session.configs.clear();
+                    root.state.chat.session.thread.status = cgc_agent_ui::conversation::ThreadStatus::Idle;
+                    root.state.chat.session.thread.usage.used = 26_000;
+                    root.state.chat.session.thread.usage.size = if show_usage { 1_000_000 } else { 0 };
+                    cx.notify();
+                });
+                window.render_frame(cx);
+                let expected_right = window.find_by_label("Send").bounds().right();
+                root.update(cx, |root, cx| {
+                    root.state.chat.session.configs = configs.clone();
+                    cx.notify();
+                });
+                for (status, action) in [
+                    (cgc_agent_ui::conversation::ThreadStatus::Idle, "Send"),
+                    (cgc_agent_ui::conversation::ThreadStatus::Generating, "Stop Generation"),
+                ] {
+                    root.update(cx, |root, cx| {
+                        root.state.chat.session.thread.status = status;
+                        cx.notify();
+                    });
+                    window.render_frame(cx);
+                    let send = window.find_by_label(action);
+                    let bounds = send.bounds();
+                    println!("ACP {width}x{height}, usage={show_usage}, {action}: {bounds:?}, right={expected_right:?}");
+                    assert!(send.visible());
+                    assert!(window.find_by_label(&model).visible());
+                    assert!(window.find_by_label(&effort).visible());
+                    assert!(
+                        (bounds.right() - expected_right).as_f32().abs() <= 1.0,
+                        "{action} must stay at the composer right edge after config wrapping"
+                    );
+                }
+            })
+            .unwrap();
+        }
     }
 }
 

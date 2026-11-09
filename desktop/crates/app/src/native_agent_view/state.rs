@@ -3,12 +3,10 @@ use crate::{
     agent_ingest, conversation_session::ConversationSession, native_panel_host::SubagentCard,
 };
 use cgc_agent_host::AgentEvent;
-use cgc_agent_provider::TokenUsage;
 use cgc_platform::acp::connection::HostEvent;
 
 pub struct NativeThreadState {
     pub session: ConversationSession,
-    pub usage_total: TokenUsage,
     pub subagents: Vec<SubagentCard>,
     pub last_tool_call_id: Option<String>,
 }
@@ -23,7 +21,6 @@ impl NativeThreadState {
     pub fn new() -> Self {
         Self {
             session: ConversationSession::native(),
-            usage_total: TokenUsage::default(),
             subagents: Vec::new(),
             last_tool_call_id: None,
         }

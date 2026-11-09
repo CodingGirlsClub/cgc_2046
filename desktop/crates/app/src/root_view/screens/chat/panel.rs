@@ -21,8 +21,11 @@ use cgc_agent_ui::picker::{
 use cgc_platform::acp::connection::ConfigOptionCategory;
 use gpui_kit::base::Disableable;
 use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::hover_card::HoverCard;
 use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::popover::Popover;
+use gpui_kit::component::progress::ProgressCircle;
+use gpui_kit::component::Size;
 
 pub(in crate::root_view) fn render_chat_panel(
     ctx: &mut ScreenContext<'_>,
@@ -312,14 +315,27 @@ pub(in crate::root_view) fn render_chat_panel(
                         // 操作栏在流式时仍可见，仅底部条在生成/等审批时隐藏。
                         let plan = row_view.action_plan(index, streaming, needs_confirmation);
                         let agent_response = row_view.turn_copy_text(index);
+                        let conversation = ctx
+                            .chat
+                            .session
+                            .session_id
+                            .as_deref()
+                            .unwrap_or("acp-pending");
+                        let copy_key = format!("{conversation}:chat-controls-{index}");
+                        let copied = ctx.chat.copied_actions.as_deref() == Some(copy_key.as_str());
                         let actions = plan.map(|plan| {
                             render_chat_message_controls(
-                                "chat-controls",
-                                index,
-                                plan,
-                                agent_response.clone(),
-                                &view_weak,
-                                palette,
+                                MessageControlsSpec {
+                                    id_prefix: "chat-controls",
+                                    index,
+                                    plan,
+                                    copy_text: agent_response.clone(),
+                                    view: view_weak.clone(),
+                                    palette: *palette,
+                                    copy_key: copy_key.clone(),
+                                    copied,
+                                },
+                                cx,
                             )
                         });
                         let menu_view = view_weak.clone();
@@ -517,16 +533,33 @@ pub(in crate::root_view) fn render_chat_panel(
             // 回合停在工具卡等非 assistant 行时，底部补一条兜底操作栏
             // （对齐 Zed 的 last-assistant fallback）。
             if let Some(plan) = row_view.trailing_plan(streaming, needs_confirmation) {
+                let conversation = ctx
+                    .chat
+                    .session
+                    .session_id
+                    .as_deref()
+                    .unwrap_or("acp-pending");
+                let trailing_key = format!(
+                    "{conversation}:chat-trailing-controls-{}",
+                    plan.assistant_index
+                );
+                let trailing_copied =
+                    ctx.chat.copied_actions.as_deref() == Some(trailing_key.as_str());
                 rows.push(render_chat_message_controls(
-                    "chat-trailing-controls",
-                    plan.assistant_index,
-                    cgc_agent_ui::message_flow::ActionPlan {
-                        scroll_to_user: plan.scroll_to_user,
-                        scroll_to_top: true,
+                    MessageControlsSpec {
+                        id_prefix: "chat-trailing-controls",
+                        index: plan.assistant_index,
+                        plan: cgc_agent_ui::message_flow::ActionPlan {
+                            scroll_to_user: plan.scroll_to_user,
+                            scroll_to_top: true,
+                        },
+                        copy_text: row_view.turn_copy_text(plan.assistant_index),
+                        view: view_weak.clone(),
+                        palette: *palette,
+                        copy_key: trailing_key,
+                        copied: trailing_copied,
                     },
-                    row_view.turn_copy_text(plan.assistant_index),
-                    &view_weak,
-                    palette,
+                    cx,
                 ));
             }
             let status = if streaming {
@@ -880,82 +913,82 @@ pub(in crate::root_view) fn render_chat_panel(
                                                 }
                                             }),
                                     )
-                                    .children(if surface_flags.config_options {
-                                        config_pickers
-                                    } else {
-                                        Vec::new()
-                                    })
-                                    .children(
-                                        (surface_flags.usage
-                                            && ctx.chat.session.thread.usage.size > 0)
-                                            .then(|| {
-                                                div()
-                                                    .text_size(px(10.0))
-                                                    .text_color(palette.ink_3)
-                                                    .child(format!(
-                                                        "{}% · {}/{}",
-                                                        ctx.chat
-                                                            .session
-                                                            .thread
-                                                            .usage
-                                                            .percent()
-                                                            .unwrap_or_default(),
-                                                        clipped_count(
-                                                            ctx.chat.session.thread.usage.used
-                                                        ),
-                                                        clipped_count(
-                                                            ctx.chat.session.thread.usage.size
-                                                        ),
-                                                    ))
-                                            }),
-                                    )
-                                    .child(cgc_agent_ui::composer::render_send_button(
-                                        cgc_agent_ui::composer::SendButtonSpec {
-                                            id: if streaming { "chat-stop" } else { "chat-send" }
-                                                .into(),
-                                            aria: if streaming {
-                                                "Stop Generation"
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_row()
+                                            .flex_wrap()
+                                            .items_center()
+                                            .justify_end()
+                                            .gap(px(4.0))
+                                            .min_w(px(0.0))
+                                            .ml_auto()
+                                            .children(
+                                                surface_flags
+                                                    .usage
+                                                    .then(|| {
+                                                        render_context_usage(
+                                                            &ctx.chat.session.thread.usage,
+                                                            *palette,
+                                                        )
+                                                    })
+                                                    .flatten(),
+                                            )
+                                            .children(if surface_flags.config_options {
+                                                config_pickers
                                             } else {
-                                                translate(language, Key::AgentChatChatSend)
-                                            }
-                                            .into(),
-                                            tooltip: if streaming {
-                                                "Stop Generation"
-                                            } else {
-                                                translate(language, Key::AgentChatChatSend)
-                                            }
-                                            .into(),
-                                            glyph: Icon::default()
-                                                .path(if streaming {
-                                                    AssetIcon::Square.path()
-                                                } else {
-                                                    AssetIcon::ArrowUp.path()
-                                                })
-                                                .small()
-                                                .into_any_element(),
-                                            bg: if streaming {
-                                                palette.danger
-                                            } else {
-                                                palette.accent
-                                            },
-                                            fg: palette.canvas,
-                                            radius: RADIUS_SMALL,
-                                            ml_auto: true,
-                                            on_click: {
-                                                let view = cx.entity().downgrade();
-                                                let send = composer.callbacks.send.clone();
-                                                Box::new(move |window, cx| {
-                                                    if !streaming {
-                                                        (send)(window, cx);
-                                                        return;
+                                                Vec::new()
+                                            })
+                                            .child(cgc_agent_ui::composer::render_send_button(
+                                                cgc_agent_ui::composer::SendButtonSpec {
+                                                    id: if streaming {
+                                                        "chat-stop"
+                                                    } else {
+                                                        "chat-send"
                                                     }
-                                                    let _ = view.update(cx, |this, cx| {
-                                                        this.stop_chat_turn(cx);
-                                                    });
-                                                })
-                                            },
-                                        },
-                                    )),
+                                                    .into(),
+                                                    aria: if streaming {
+                                                        "Stop Generation"
+                                                    } else {
+                                                        translate(language, Key::AgentChatChatSend)
+                                                    }
+                                                    .into(),
+                                                    tooltip: if streaming {
+                                                        "Stop Generation"
+                                                    } else {
+                                                        translate(language, Key::AgentChatChatSend)
+                                                    }
+                                                    .into(),
+                                                    glyph: Icon::default().path(if streaming {
+                                                        AssetIcon::Square.path()
+                                                    } else {
+                                                        AssetIcon::ArrowUp.path()
+                                                    }),
+                                                    bg: if streaming {
+                                                        palette.danger
+                                                    } else {
+                                                        palette.accent
+                                                    },
+                                                    fg: palette.canvas,
+                                                    radius: RADIUS_SMALL,
+                                                    ml_auto: false,
+                                                    on_click: {
+                                                        let view = cx.entity().downgrade();
+                                                        let send = composer.callbacks.send.clone();
+                                                        Box::new(move |window, cx| {
+                                                            if !streaming {
+                                                                (send)(window, cx);
+                                                                return;
+                                                            }
+                                                            let _ = view.update(cx, |this, cx| {
+                                                                this.stop_chat_turn(cx);
+                                                            });
+                                                        })
+                                                    },
+                                                },
+                                                cx,
+                                            )),
+                                    ),
                             ),
                         )
                         .children(slash_rows.map(|menu| {
@@ -1180,18 +1213,37 @@ pub(in crate::root_view) fn render_chat_panel(
 /// gating 与复制内容来自 `agent_ui::message_flow`，与 native 栈共用同一份实现；
 /// 这里只负责 ACP 面板的渲染与元素 id。`copy_text` 为 `None` 时不画 Copy，
 /// 避免出现点了没反应的按钮。
-fn render_chat_message_controls(
-    id_prefix: &str,
+struct MessageControlsSpec {
+    id_prefix: &'static str,
     index: usize,
     plan: cgc_agent_ui::message_flow::ActionPlan,
     copy_text: Option<String>,
-    view: &WeakEntity<RootView>,
-    palette: &theme::Palette,
-) -> AnyElement {
+    view: WeakEntity<RootView>,
+    palette: theme::Palette,
+    copy_key: String,
+    copied: bool,
+}
+
+fn render_chat_message_controls(spec: MessageControlsSpec, cx: &App) -> AnyElement {
+    let MessageControlsSpec {
+        id_prefix,
+        index,
+        plan,
+        copy_text,
+        view,
+        palette,
+        copy_key,
+        copied,
+    } = spec;
     let mut callbacks = ActionCallbacks::default();
     if let Some(copy_text) = copy_text {
+        let copy_view = view.clone();
+        let key = copy_key;
         callbacks.on_copy = Some(Box::new(move |cx: &mut App| {
             cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
+            let _ = copy_view.update(cx, |this, cx| {
+                this.mark_chat_actions_copied(key.clone(), cx);
+            });
         }));
     }
     if let Some(user_index) = plan.scroll_to_user {
@@ -1206,15 +1258,19 @@ fn render_chat_message_controls(
             let _ = top_view.update(cx, |this, cx| this.scroll_chat_to_top(cx));
         }));
     }
-    render_action_bar(ActionBarSpec {
-        row_id: SharedString::from(format!("{id_prefix}-{index}")),
-        copy_id: SharedString::from(format!("{id_prefix}-copy-{index}")),
-        user_id: SharedString::from(format!("{id_prefix}-user-{index}")),
-        top_id: SharedString::from(format!("{id_prefix}-top-{index}")),
-        glyphs: chat_action_glyphs(),
-        style: chat_action_style(palette),
-        callbacks,
-    })
+    render_action_bar(
+        ActionBarSpec {
+            row_id: SharedString::from(format!("{id_prefix}-{index}")),
+            copy_id: SharedString::from(format!("{id_prefix}-copy-{index}")),
+            user_id: SharedString::from(format!("{id_prefix}-user-{index}")),
+            top_id: SharedString::from(format!("{id_prefix}-top-{index}")),
+            glyphs: chat_action_glyphs(),
+            style: chat_action_style(&palette),
+            callbacks,
+            copied,
+        },
+        cx,
+    )
 }
 
 fn chat_action_glyphs() -> ActionGlyphs {
@@ -1243,6 +1299,95 @@ fn clipped_count(value: u64) -> String {
     } else {
         value.to_string()
     }
+}
+
+/// ACP 轨的上下文用量：单环 + Context/Cost 悬浮卡（对齐 Zed 的非 split 形态）。
+fn render_context_usage(
+    usage: &cgc_agent_ui::conversation::Usage,
+    palette: theme::Palette,
+) -> Option<AnyElement> {
+    if usage.size == 0 {
+        return None;
+    }
+    let ratio = (usage.used as f32 / usage.size as f32).clamp(0.0, 1.0);
+    let color = if ratio >= 0.85 {
+        palette.warning
+    } else {
+        palette.ink_3
+    };
+    let percent = (ratio * 100.0).round() as u64;
+    let used = clipped_count(usage.used);
+    let size = clipped_count(usage.size);
+    let cost = usage.cost.clone();
+    Some(
+        HoverCard::new("chat-context-usage")
+            .anchor(Anchor::BottomCenter)
+            .trigger(
+                ProgressCircle::new("chat-context-ring")
+                    .with_size(Size::Medium)
+                    .value(ratio * 100.0)
+                    .color(color)
+                    .accessibility_label(format!("上下文 {percent}% · {used} / {size}")),
+            )
+            .content(move |_, _, _| {
+                let mut card = div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.0))
+                    .min_w(px(160.0))
+                    .child(
+                        div()
+                            .text_size(px(10.0))
+                            .text_color(palette.ink_3)
+                            .child("Context"),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .gap(px(3.0))
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .child(format!("{percent}%")),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_3)
+                                    .child("•"),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(palette.ink_2)
+                                    .child(format!("{used} / {size}")),
+                            ),
+                    );
+                if let Some(cost) = cost.clone() {
+                    card = card
+                        .child(
+                            div()
+                                .mt(px(4.0))
+                                .pt(px(4.0))
+                                .border_t_1()
+                                .border_color(palette.line)
+                                .text_size(px(10.0))
+                                .text_color(palette.ink_3)
+                                .child("Cost"),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(palette.ink_2)
+                                .child(cost),
+                        );
+                }
+                card.into_any_element()
+            })
+            .into_any_element(),
+    )
 }
 
 fn chat_command_menu_style(palette: &theme::Palette) -> CommandMenuStyle {

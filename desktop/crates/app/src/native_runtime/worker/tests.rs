@@ -75,6 +75,29 @@ fn refresh(owner: &mut Owner) -> Arc<NativeRuntimeSnapshot> {
         .expect("refresh provider settings")
 }
 
+/// 视图首帧读 `latest` 镜像；镜像若只在 Subscribe 时写，调用方拿到 `inspect()` 结果后
+/// 立刻构造视图仍可能读到 `None`（依赖 owner 线程调度，见 #1246）。构建快照即发布。
+#[test]
+fn inspect_publishes_the_latest_snapshot() {
+    let root = std::env::temp_dir().join("cgc-inspect-publishes-latest");
+    let mut owner = configured_owner(&root);
+    let (reply, result) = oneshot::channel();
+    owner.command(Command::Inspect(reply));
+    let snapshot = block_on(result)
+        .expect("inspect reply")
+        .expect("inspect snapshot");
+    let latest = owner
+        .latest
+        .lock()
+        .expect("latest slot")
+        .clone()
+        .expect("inspect 必须把快照写进 latest 镜像");
+    assert!(
+        Arc::ptr_eq(&latest, &snapshot),
+        "latest 必须是 inspect 返回的同一份快照"
+    );
+}
+
 #[test]
 fn cancelled_turn_does_not_replay_unconsumed_context_steers_in_the_next_turn() {
     use cgc_agent_core::{AutoApprover, NoopObserver};

@@ -108,7 +108,6 @@ impl NativeAgentView {
     ) -> AnyElement {
         let busy = draft.busy;
         let has_input = draft.has_input;
-        let usage = draft.usage;
         let model_supports_images = draft.model_supports_images;
         let input = draft.input.clone();
         let add_menu_root = cx.entity().downgrade();
@@ -138,15 +137,6 @@ impl NativeAgentView {
         } else {
             "发送"
         };
-        let send_label = if busy {
-            if has_input {
-                "⏳"
-            } else {
-                "■"
-            }
-        } else {
-            "↑"
-        };
         let send_bg = if !model_ready {
             palette.soft
         } else if busy && !has_input {
@@ -175,30 +165,29 @@ impl NativeAgentView {
             "输入内容后可发送"
         };
         let send_weak = cx.entity().downgrade();
-        let context_window = self.metadata().model.limits.context_window.max(1) as u64;
-        let output_window = self.metadata().model.limits.max_output_tokens.max(1) as u64;
-        let usage_total = self.state.usage_total;
-        let input_percent = (usage as f64 / context_window as f64 * 100.0).clamp(0.0, 100.0);
-        let output_percent =
-            (usage_total.output as f64 / output_window as f64 * 100.0).clamp(0.0, 100.0);
-        let progress_color = |percent: f64| {
-            if percent >= 85.0 {
-                palette.danger
+        let usage = latest_request_usage(&self.metadata().thread.entries);
+        let input_capacity = cgc_agent_core::input_capacity(self.metadata().model.as_ref()) as u64;
+        let output_capacity = self.metadata().model.limits.max_output_tokens as u64;
+        let input_ratio = token_ratio(usage.map_or(0, |usage| usage.input), input_capacity);
+        let output_ratio = token_ratio(usage.map_or(0, |usage| usage.output), output_capacity);
+        let progress_color = |ratio: f32| {
+            if ratio >= 0.85 {
+                palette.warning
             } else {
                 palette.ink_3
             }
         };
-        let input_color = progress_color(input_percent);
-        let output_color = progress_color(output_percent);
+        let input_color = progress_color(input_ratio);
+        let output_color = progress_color(output_ratio);
         let input_label = format!(
             "{} / {}",
-            humanize_tokens(usage),
-            humanize_tokens(context_window)
+            humanize_tokens(usage.map_or(0, |usage| usage.input)),
+            humanize_tokens(input_capacity)
         );
         let output_label = format!(
             "{} / {}",
-            humanize_tokens(usage_total.output),
-            humanize_tokens(output_window)
+            humanize_tokens(usage.map_or(0, |usage| usage.output)),
+            humanize_tokens(output_capacity)
         );
         let rules = project_rule_files(self.metadata().workspace.as_ref());
         let rules_count = rules.len();
@@ -218,8 +207,8 @@ impl NativeAgentView {
                     )
                     .child(
                         ProgressCircle::new("native-input-context")
-                            .xsmall()
-                            .value(input_percent as f32)
+                            .with_size(Size::Medium)
+                            .value(input_ratio * 100.0)
                             .color(input_color),
                     )
                     .child(
@@ -229,19 +218,17 @@ impl NativeAgentView {
                     )
                     .child(
                         ProgressCircle::new("native-output-context")
-                            .xsmall()
-                            .value(output_percent as f32)
+                            .with_size(Size::Medium)
+                            .value(output_ratio * 100.0)
                             .color(output_color),
                     ),
             )
             .content(move |_, _, _| {
                 let mut card = div()
-                    .w(px(200.0))
-                    .p(space(1))
-                    .rounded(px(RADIUS_MEDIUM))
-                    .border_1()
-                    .border_color(palette.line)
-                    .bg(palette.card)
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.0))
+                    .min_w(px(160.0))
                     .child(
                         div()
                             .text_size(px(10.0))
@@ -601,15 +588,14 @@ impl NativeAgentView {
                                     }))
                             }))
 
+                            .children(
+                                (usage.is_some()
+                                    && self.state.session.thread.capabilities.usage_available())
+                                    .then_some(context_usage),
+                            )
                             .children(pickers.approval)
                             .children(pickers.model)
                             .children(pickers.thinking)
-                            .children(
-                                self.state.session.thread
-                                    .capabilities
-                                    .usage_available()
-                                    .then_some(context_usage),
-                            )
                             .child(cgc_agent_ui::composer::render_send_button(
                                 cgc_agent_ui::composer::SendButtonSpec {
                                     id: if busy {
@@ -620,7 +606,18 @@ impl NativeAgentView {
                                     .into(),
                                     aria: send_aria.into(),
                                     tooltip: send_tip.into(),
-                                    glyph: div().child(send_label).into_any_element(),
+                                    glyph: Icon::default().path(
+                                        (if busy {
+                                            if has_input {
+                                                gpui_kit::assets::IconName::Clock
+                                            } else {
+                                                gpui_kit::assets::IconName::Square
+                                            }
+                                        } else {
+                                            gpui_kit::assets::IconName::ArrowUp
+                                        })
+                                        .path(),
+                                    ),
                                     bg: send_bg,
                                     fg: send_fg,
                                     radius: RADIUS_SMALL,
@@ -638,6 +635,7 @@ impl NativeAgentView {
                                         });
                                     }),
                                 },
+                                cx,
                             )),
                     )
             .into_any_element()

@@ -61,6 +61,10 @@ impl McpContext {
             guard: McpLeaseGuard::new(),
         })))
     }
+    pub(crate) fn workspace_id(&self) -> Option<&str> {
+        self.0.workspace_id.as_deref()
+    }
+
     pub(crate) fn lease(&self) -> &LearningHostLease {
         &self.0.lease
     }
@@ -82,13 +86,15 @@ impl McpContext {
         if self.is_revoked() {
             return Err(McpClientError::Transport("平台授权已撤销".into()));
         }
+        // 白名单里只有手册读取不依赖 workspace；其余课程工具必须带 workspace_id，
+        // 无工作区时失败关闭，避免模型调用必然缺参的后端工具。
         let injected = self
             .0
             .workspace_id
             .as_ref()
             .map(|id| serde_json::json!({ "workspace_id": id }));
         let client = McpHttpClient::new(&self.0.endpoint).with_bearer_token(&self.0.lease.token);
-        let tools = discover_read_only_mcp_tools_with(
+        let mut tools = discover_read_only_mcp_tools_with(
             NATIVE_MCP_SERVER,
             client,
             injected,
@@ -96,6 +102,11 @@ impl McpContext {
         )?;
         if self.is_revoked() {
             return Err(McpClientError::Transport("平台授权已撤销".into()));
+        }
+        if self.0.workspace_id.is_none() {
+            // 只有手册读取允许无工作区；其余课程工具必须带 workspace_id。
+            let playbook = format!("mcp_{NATIVE_MCP_SERVER}_get_role_playbook");
+            tools.retain(|tool| tool.name() == playbook);
         }
         Ok(tools)
     }

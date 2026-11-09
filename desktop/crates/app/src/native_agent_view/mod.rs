@@ -20,7 +20,7 @@ use gpui_kit::component::input::{InputEvent, TextareaState};
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu};
 use gpui_kit::component::message_scroller::{MessageScroller, MessageScrollerState};
 use gpui_kit::component::popover::Popover;
-use gpui_kit::component::{Icon, Sizable};
+use gpui_kit::component::{Icon, Sizable, Size};
 use gpui_kit::InteractiveElement as _;
 use gpui_kit::StatefulInteractiveElement as _;
 use gpui_kit::*;
@@ -29,8 +29,9 @@ use crate::attachment::{decode_sent_images, is_image_path, prepare_clipboard_ima
 use crate::conversation_session::{ConnectionPhase, QueueMode};
 use crate::mention::{self, Mention, SkillEntry};
 use crate::native_context::{
-    collect_workspace_files, humanize_tokens, mention_matches, project_rule_files,
-    retry_hint_for_error, slash_entries_for, trailing_mention, SlashEntry,
+    collect_workspace_files, humanize_tokens, latest_request_usage, mention_matches,
+    project_rule_files, retry_hint_for_error, slash_entries_for, token_ratio, trailing_mention,
+    SlashEntry,
 };
 use crate::native_panel_host::SubagentCard;
 use crate::native_runtime::{
@@ -123,7 +124,6 @@ fn checkpoint_change_label(change: &FileChange) -> String {
 struct ComposerDraft {
     busy: bool,
     has_input: bool,
-    usage: u64,
     model_supports_images: bool,
     input: Entity<TextareaState>,
     input_value: String,
@@ -144,7 +144,6 @@ impl NativeAgentView {
         ComposerDraft {
             busy: self.is_generating(),
             has_input: composer_has_input(&input_value),
-            usage: self.state.usage_total.total(),
             model_supports_images: self.model_supports_images(),
             input: self.input.clone(),
             input_value,
@@ -363,6 +362,9 @@ pub struct NativeAgentView {
     sent_images: HashMap<usize, Vec<SentImage>>,
     _input_subscription: Option<Subscription>,
     _key_interceptor: Option<Subscription>,
+    /// 最近点了 Copy 的操作栏 key：短暂把复制图标换成 Check。
+    copied_actions: Option<SharedString>,
+    copied_actions_serial: u64,
 }
 
 #[cfg(test)]

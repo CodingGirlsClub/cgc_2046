@@ -84,6 +84,13 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn prepare_agent_authorization(&mut self, cx: &mut Context<Self>) {
+        // 旧版 workspace_state 的 bucket 键是 workspace id，迁移 tab 路径需要 id→slug 映射。
+        crate::workspace_state::remember_workspace_slugs(
+            self.workspaces
+                .workspaces()
+                .iter()
+                .map(|workspace| (workspace.id.as_str(), workspace.slug.as_str())),
+        );
         self.update_native_scope(cx);
         let epoch = self.workspaces.epoch();
         if self
@@ -102,8 +109,13 @@ impl RootView {
             return;
         };
         self.agent_lease_pending = Some(epoch);
+        // 启动中的 ACP 会话绑定旧 authority；本次刷新完成必须重启它，
+        // 否则旧启动回调被 serial 校验丢弃后，面板会永久停在 Starting（R3）。
+        self.note_agent_start_interrupted();
         let authorization_serial = self.agent_authorization_serial;
-        let workspace_id = self.workspaces.current_id().map(str::to_string);
+        // 工具固定参数随页面：工作区路由 > 站点级课程归属 > 当前工作区；
+        // 作用域变化由 sync_agent_workspace_scope 重建上下文。
+        let workspace_id = self.agent_workspace_id();
         let previous = self.agent_authorization_tail.take();
         let api = build_learning_host_api(&scope);
         let vault = build_learning_host_vault(&scope);
@@ -140,6 +152,9 @@ impl RootView {
                     || this.agent_authorization_serial != authorization_serial
                     || this.agent_lease_scope().as_ref() != Some(&requested_scope)
                 {
+                    // 过期任务不能把 pending 留给一个永远不会完成的授权；但 serial 已推进
+                    // 时 pending 属于接替任务，清掉会诱发重复签发。
+                    this.clear_stale_agent_lease_pending(epoch, authorization_serial);
                     return;
                 }
                 this.agent_lease_pending = None;
@@ -157,12 +172,20 @@ impl RootView {
                         if let Some(runtime) = &this.native_runtime {
                             runtime.set_mcp_context(context, epoch);
                         }
-                        if this.chat.start_after_authorization {
-                            this.chat.start_after_authorization = false;
+                        if this.take_pending_agent_restart() {
                             this.start_chat(cx);
                         }
                     }
                     Err(error) => {
+                        // 授权失败只进横幅 tooltip 时，用户与内测日志都看不出失败类别
+                        // （后台不可达 vs 凭据不可用）。这里落一条可定位的 WARN；lease
+                        // 明文从不进错误类型，logger 另有 redact 兜底（issue #1238）。
+                        log::warn!(
+                            target: "mcp",
+                            "平台授权失败 endpoint={} epoch={epoch}：{}",
+                            requested_scope.endpoint,
+                            error.diagnostic()
+                        );
                         this.agent_authorization_error = Some(error.clone());
                         if this.chat.start_after_authorization {
                             this.chat.start_after_authorization = false;
@@ -176,12 +199,86 @@ impl RootView {
         .detach();
     }
 
+    /// 授权刷新会作废旧 authority；启动中的 ACP 会话需要在新授权完成后重启。
+    fn note_agent_start_interrupted(&mut self) {
+        if matches!(self.chat.session.phase, ConnectionPhase::Starting) {
+            self.chat.start_after_authorization = true;
+        }
+    }
+
+    /// 消费「授权完成后重启」标记。`start_chat` 对 `Starting` 直接早退，
+    /// 因此重试前必须先把被旧 authority 中断的 phase 复位到 Idle。
+    pub(in crate::root_view) fn take_pending_agent_restart(&mut self) -> bool {
+        if !self.chat.start_after_authorization {
+            return false;
+        }
+        self.chat.start_after_authorization = false;
+        if matches!(self.chat.session.phase, ConnectionPhase::Starting) {
+            self.chat.session.phase = ConnectionPhase::Idle;
+        }
+        true
+    }
+
+    /// 旧授权回调作废时清理 pending；只有 serial 未推进（没有接替任务）才归本任务清。
+    fn clear_stale_agent_lease_pending(&mut self, epoch: u64, authorization_serial: u64) {
+        if self.agent_authorization_serial == authorization_serial
+            && self.agent_lease_pending == Some(epoch)
+        {
+            self.agent_lease_pending = None;
+        }
+    }
+
     fn agent_lease_scope(&self) -> Option<LeaseScope> {
         let session = self.session.signed_in()?;
         Some(LeaseScope::new(
             &session.user_id,
             &cgc_platform::runtime::api_endpoint(),
         ))
+    }
+
+    /// Agent/MCP 固定参数的工作区：工作区路由 > 站点级课程归属 > 当前工作区。
+    pub(in crate::root_view) fn agent_workspace_id(&self) -> Option<String> {
+        if let Some(id) = self.route_workspace_id() {
+            return Some(id);
+        }
+        if let Some(detail) = self
+            .current
+            .as_ref()
+            .filter(|route_match| {
+                matches!(
+                    route_match.route.id,
+                    "courses.detail"
+                        | "courses.learning"
+                        | "courses.public_detail"
+                        | "courses.public_learning"
+                )
+            })
+            .and_then(|route_match| {
+                let course_id = route_match.params.get("id")?;
+                self.course_detail
+                    .detail()
+                    .filter(|detail| &detail.id == course_id)
+            })
+        {
+            // 归属工作区来自 myEnrollment / courseLearningDetail 的 owner：已报名公开课
+            // 的学员可能不是该工作区成员（can_access=false），Native 工具仍须用 owner。
+            if let Some(id) = detail.workspace_id.clone() {
+                return Some(id);
+            }
+        }
+        self.workspaces.current_id().map(str::to_string)
+    }
+
+    /// 页面作用域变化（同 epoch 内换工作区/进站点级课程页）时重建工具上下文。
+    pub(in crate::root_view) fn sync_agent_workspace_scope(&mut self, cx: &mut Context<Self>) {
+        let Some(context) = self.agent_mcp.as_ref() else {
+            return;
+        };
+        let current = context.workspace_id().map(str::to_string);
+        if current != self.agent_workspace_id() {
+            self.invalidate_agent_clients(cx);
+            self.prepare_agent_authorization(cx);
+        }
     }
 
     fn invalidate_agent_clients(&mut self, _cx: &mut Context<Self>) {

@@ -2,7 +2,9 @@
 
 use super::super::super::*;
 use super::super::ScreenContext;
+use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::tab::{Tab, TabBar};
+use gpui_kit::component::FocusableExt as _;
 
 #[cfg(all(test, cgc_ui_tests))]
 mod tests;
@@ -26,17 +28,14 @@ pub(in crate::root_view) fn render_pane_tabs(
         let open_id = tab.id.clone();
         let close_root = cx.entity().downgrade();
         let open_root = close_root.clone();
-        let close = div()
-            .id(SharedString::from(format!("pane-tab-close-{close_id}")))
-            .flex()
-            .items_center()
-            .justify_center()
-            .size(px(16.0))
-            .rounded(px(RADIUS_SMALL))
-            .text_size(px(11.0))
-            .text_color(palette.ink_3)
-            .hover(|style| style.bg(palette.soft).text_color(palette.ink))
-            .child("×")
+        let close = Button::new(SharedString::from(format!("pane-tab-close-{close_id}")))
+            .label("×")
+            .xsmall()
+            .ghost()
+            // 与改前的不可聚焦 div 一致：不进 Tab 序、点击不留 focus ring。
+            .tab_stop(false)
+            .focus_ring(false)
+            .accessibility_label("关闭标签")
             .on_click(move |_, _, cx| {
                 cx.stop_propagation();
                 let _ = close_root.update(cx, |this, cx| this.close_pane_tab(&close_id, cx));
@@ -70,15 +69,20 @@ pub(in crate::root_view) fn render_pane_notices(
     palette: &theme::Palette,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
-    use gpui_kit::component::button::{Button, ButtonVariants};
+    let language = ctx.language;
     let mut notices = div().w_full().min_w_0().flex().flex_col().flex_none();
     if let Some(error) = ctx.agent_authorization_error.clone() {
         let detail = error.diagnostic();
-        let message = match error {
-            McpError::Domain { ref code, .. } if code == "mcp_token_limit_reached" =>
-                "Platform credential limit reached. Retry to recover this device's saved credential. If it is unavailable, revoke one unused credential in platform settings.",
-            _ => "Platform tools are unavailable. Your tabs and course content are still accessible.",
+        // 三类失败的用户动作不同：后台连不上 → 检查网络/服务；凭据额度用满 → 撤销旧凭据；
+        // 其它凭据问题 → 重新授权。泛化兜底会让用户按错误方向排查（issue #1238）。
+        let message_key = match &error {
+            McpError::Transport(_) => Key::PlatformNoticeUnreachable,
+            McpError::Domain { code, .. } if code == "mcp_token_limit_reached" => {
+                Key::PlatformNoticeCredentialLimit
+            }
+            _ => Key::PlatformNoticeCredential,
         };
+        let message = translate(language, message_key);
         let root = cx.entity().downgrade();
         notices = notices.child(
             div()
@@ -96,6 +100,9 @@ pub(in crate::root_view) fn render_pane_notices(
                 .child(
                     div()
                         .id("platform-authorization-message")
+                        .test_support()
+                        .role(Role::Alert)
+                        .aria_label(message)
                         .flex_1()
                         .min_w_0()
                         .text_size(px(11.0))
@@ -105,7 +112,7 @@ pub(in crate::root_view) fn render_pane_notices(
                 )
                 .child(
                     Button::new("platform-authorization-retry")
-                        .label("Retry")
+                        .label(translate(language, Key::PlatformNoticeRetry))
                         .ghost()
                         .xsmall()
                         .on_click(move |_, _, cx| {

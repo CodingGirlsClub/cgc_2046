@@ -3,7 +3,9 @@
 //! 包含：工作区 system prompt、工作区文件扫描、离线回显提示、时间戳、
 //! slash 菜单匹配、mention 匹配。只依赖 agent 领域 crate，不依赖 GPUI。
 
+use cgc_agent_core::Entry;
 use cgc_agent_host::SLASH_COMMANDS;
+use cgc_agent_provider::TokenUsage;
 
 use crate::mention::SkillEntry;
 
@@ -80,6 +82,26 @@ pub(crate) fn humanize_tokens(count: u64) -> String {
         format!("{:.1}k", count as f64 / 1_000.0).replace(".0k", "k")
     } else {
         count.to_string()
+    }
+}
+
+/// 最近一次模型请求的用量。`input` 已含缓存命中/写入，与 Zed 的
+/// `total_input_tokens` 同口径；旧会话或 provider 未上报时返回 `None`。
+pub(crate) fn latest_request_usage(entries: &[Entry]) -> Option<TokenUsage> {
+    entries.iter().rev().find_map(|entry| match entry {
+        Entry::Assistant {
+            usage: Some(usage), ..
+        } => Some(*usage),
+        _ => None,
+    })
+}
+
+/// 0..=1 的比例；分母为 0 时按 0 处理，超额收敛到 1。
+pub(crate) fn token_ratio(part: u64, max: u64) -> f32 {
+    if max == 0 {
+        0.0
+    } else {
+        (part as f32 / max as f32).clamp(0.0, 1.0)
     }
 }
 
@@ -283,9 +305,12 @@ pub(crate) fn slash_entries_for<'a>(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_workspace_system_prompt, collect_workspace_files, mention_matches, now_secs,
-        offline_echo_notice, project_rule_files, truncate_text,
+        build_workspace_system_prompt, collect_workspace_files, latest_request_usage,
+        mention_matches, now_secs, offline_echo_notice, project_rule_files, token_ratio,
+        truncate_text,
     };
+    use cgc_agent_core::Entry;
+    use cgc_agent_provider::TokenUsage;
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -350,6 +375,62 @@ mod tests {
         assert_eq!(truncate_text("abc", 3), "abc");
         assert_eq!(truncate_text("abcd", 3), "abc…");
     }
+    fn assistant(usage: Option<TokenUsage>) -> Entry {
+        Entry::Assistant {
+            text: String::new(),
+            tool_calls: Vec::new(),
+            usage,
+            replay_content: Vec::new(),
+            at: 0,
+        }
+    }
+
+    #[test]
+    fn latest_request_usage_picks_the_last_reported_assistant() {
+        let usage = TokenUsage {
+            input: 36_000,
+            output: 8,
+            ..TokenUsage::default()
+        };
+        let entries = vec![
+            assistant(Some(TokenUsage {
+                input: 900,
+                output: 90,
+                ..TokenUsage::default()
+            })),
+            Entry::User {
+                text: "next".into(),
+                images: Vec::new(),
+                display: None,
+                at: 0,
+            },
+            assistant(Some(usage)),
+            assistant(None),
+        ];
+        assert_eq!(latest_request_usage(&entries), Some(usage));
+    }
+
+    #[test]
+    fn latest_request_usage_is_none_without_reported_usage() {
+        let entries = vec![
+            assistant(None),
+            Entry::User {
+                text: "hi".into(),
+                images: Vec::new(),
+                display: None,
+                at: 0,
+            },
+        ];
+        assert_eq!(latest_request_usage(&entries), None);
+    }
+
+    #[test]
+    fn token_ratio_handles_zero_and_saturates_at_one() {
+        assert_eq!(token_ratio(0, 0), 0.0);
+        assert_eq!(token_ratio(50, 200), 0.25);
+        assert_eq!(token_ratio(300, 200), 1.0);
+    }
+
     #[test]
     fn project_rule_files_match_loaded_sources() {
         let dir = temp_dir("rules");
