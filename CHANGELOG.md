@@ -18,6 +18,10 @@ develop→main 发布时把该段改名为 `## [发布日期]` 并重新立一�
 commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `miniprogram`）。
 ## [Unreleased]
 
+### Changed
+- [Web][Miniprogram] 依赖安全收口：`minimatch` 覆盖至 11.0.1（GHSA-g3hv-75wg-m249，globparts 放大型 DoS，影响 7.x–11.0.0 区间实例）、`decode-uri-component` 覆盖至 0.5.1（GHSA-qr28-fpjm-wq7f，百分号编码二次替换 DoS）；同时把 lock 重算时被降级的 `swiper` / `webpack-dev-middleware` / `qs` 钉回原版本，`pnpm audit --prod` 保持 develop 基线（miniprogram 11 条 moderate/low、web 1 条 low，无 critical/high）。三条告警均在 devDependency 链路，不进生产产物。
+
+
 ## [2026-11-09]
 
 ### Security
