@@ -471,29 +471,55 @@ fn render_site_tree(
                     .any(|issue| matches_query(&issue.title))
             })
     };
-    // 树只读自己的工作区缓存（`nav_*`）；中心列表可能是公开面，与树互不覆盖。
-    let events = ctx
-        .nav_events
-        .items()
-        .iter()
-        .filter(|event| matches_query(&event.title))
-        .map(|event| (event.id.clone(), event.title.clone()))
-        .collect::<Vec<_>>();
+    // 树优先读自己的缓存（`nav_*`）。缓存尚未建立时，只有「中心列表本身就是当前工作区」
+    // 才复用中心（工作区路由的旧行为）；中心是公开面时绝不借给树——公开条目进不了树，
+    // 反向也不会发生（树的加载只写 nav_*）。
+    let use_center_events =
+        !ctx.nav_events_started && ctx.events_scope == Some(crate::routing::ListScope::Workspace);
+    let events = {
+        let source = if use_center_events {
+            ctx.events.items()
+        } else {
+            ctx.nav_events.items()
+        };
+        source
+            .iter()
+            .filter(|event| matches_query(&event.title))
+            .map(|event| (event.id.clone(), event.title.clone()))
+            .collect::<Vec<_>>()
+    };
     let show_unenrolled = ctx.display_preferences.dock_show_unenrolled;
-    let courses = ctx
-        .nav_courses
-        .items()
-        .iter()
-        .filter(|course| matches_query(&course.title) || outline_matches_course(&course.id))
-        .filter(|course| {
-            show_unenrolled
-                || ctx
-                    .course_enrollments
-                    .get(&course.id)
-                    .is_none_or(Option::is_some)
-        })
-        .map(|course| (course.id.clone(), course.title.clone()))
-        .collect::<Vec<_>>();
+    let use_center_courses =
+        !ctx.nav_courses_started && ctx.courses_scope == Some(crate::routing::ListScope::Workspace);
+    let courses = {
+        let source = if use_center_courses {
+            ctx.courses.items()
+        } else {
+            ctx.nav_courses.items()
+        };
+        source
+            .iter()
+            .filter(|course| matches_query(&course.title) || outline_matches_course(&course.id))
+            .filter(|course| {
+                show_unenrolled
+                    || ctx
+                        .course_enrollments
+                        .get(&course.id)
+                        .is_none_or(Option::is_some)
+            })
+            .map(|course| (course.id.clone(), course.title.clone()))
+            .collect::<Vec<_>>()
+    };
+    let events_has_more = if use_center_events {
+        ctx.events.has_more()
+    } else {
+        ctx.nav_events.has_more()
+    };
+    let courses_has_more = if use_center_courses {
+        ctx.courses.has_more()
+    } else {
+        ctx.nav_courses.has_more()
+    };
     let show_events = events_open || !query.is_empty();
     let show_courses = courses_open || !query.is_empty();
     let search_events_empty = events.is_empty();
@@ -654,12 +680,20 @@ fn render_site_tree(
                         }),
                 );
             }
-            if ctx.nav_events.has_more() {
+            if events_has_more {
                 let root = cx.entity().downgrade();
                 items.push(SidebarMenuItem::new("加载更多活动").pl(px(16.0)).on_click(
                     move |_, _, cx| {
                         let _ = root.update(cx, |this, cx| {
-                            this.start_nav_events_load(cx, false);
+                            if use_center_events {
+                                this.start_events_load_with_scope(
+                                    cx,
+                                    false,
+                                    crate::routing::ListScope::Workspace,
+                                );
+                            } else {
+                                this.start_nav_events_load(cx, false);
+                            }
                         });
                     },
                 ));
@@ -858,11 +892,19 @@ fn render_site_tree(
                 }
             }
             let root = cx.entity().downgrade();
-            if ctx.nav_courses.has_more() {
+            if courses_has_more {
                 items.push(SidebarMenuItem::new("加载更多课程").pl(px(16.0)).on_click(
                     move |_, _, cx| {
                         let _ = root.update(cx, |this, cx| {
-                            this.start_nav_courses_load(cx, false);
+                            if use_center_courses {
+                                this.start_courses_load_with_scope(
+                                    cx,
+                                    false,
+                                    crate::routing::ListScope::Workspace,
+                                );
+                            } else {
+                                this.start_nav_courses_load(cx, false);
+                            }
                         });
                     },
                 ));

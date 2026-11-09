@@ -456,7 +456,8 @@ impl RootView {
             self.nav_courses.begin_load_more();
         }
         self.nav_courses_started = true;
-        let api = self.nav_courses.api_handle();
+        // 与中心列表共用同一 API 客户端（缓存仍独立）：测试替换中心 fake 时树也走 fake。
+        let api = self.courses.api_handle();
         let token = self.session_token();
         let cursor = if first {
             None
@@ -523,7 +524,7 @@ impl RootView {
             self.nav_events.begin_load_more();
         }
         self.nav_events_started = true;
-        let api = self.nav_events.api_handle();
+        let api = self.events.api_handle();
         let token = self.session_token();
         let filter = self.nav_events.filter();
         let after = if first {
