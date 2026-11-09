@@ -331,13 +331,20 @@ mod tests {
 
     fn wait_exit(session: &mut Session, timeout: Duration) -> Option<ExitInfo> {
         let deadline = Instant::now() + timeout;
+        let mut exit = None;
         while Instant::now() < deadline {
-            if let Some(exit) = session.poll().expect("poll").exit {
-                return Some(exit);
+            let result = session.poll().expect("poll");
+            if result.exit.is_some() {
+                exit = result.exit;
+                // 子进程退出时 PTY 尾巴可能还在 channel 里；等输出端关闭，
+                // 保证 screen_text 能看到最后一批输出（Linux 上更容易触发）。
+                if result.output_closed {
+                    return exit;
+                }
             }
             thread::sleep(Duration::from_millis(10));
         }
-        None
+        exit
     }
 
     #[cfg(unix)]
