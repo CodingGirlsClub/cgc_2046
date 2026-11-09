@@ -21,6 +21,9 @@ const OUTPUT_QUEUE_CHUNKS: usize = 64;
 /// 单次 [`Session::poll`] 最多写回的终端响应字节数。
 const MAX_RESPONSE_BYTES: usize = 64 * 1024;
 
+/// 写回失败时待写队列的上限；超过就丢弃，避免无界增长。
+const MAX_PENDING_RESPONSE_BYTES: usize = 1024 * 1024;
+
 /// 用户默认 shell 的命令行；`cwd` 为 `Some` 时在该目录启动。
 fn default_command(cwd: Option<&std::path::Path>) -> CommandBuilder {
     let mut cmd = CommandBuilder::new_default_prog();
@@ -57,6 +60,8 @@ pub struct Session {
     child: Box<dyn Child + Send + Sync>,
     output_closed: bool,
     exit: Option<ExitInfo>,
+    /// 终端生成但尚未写回 PTY 的响应（写不完时分帧续写）。
+    pending_responses: Vec<u8>,
 }
 
 impl Session {
@@ -100,6 +105,7 @@ impl Session {
             child,
             output_closed: false,
             exit: None,
+            pending_responses: Vec::new(),
         })
     }
 
@@ -127,11 +133,19 @@ impl Session {
         }
 
         // 把终端对查询的答复（OSC 11 颜色、DA、DSR）写回子进程；不接这条，
-        // TUI 判断不出终端明暗（典型：OMP 用深色 UI）。单次上限防止失控。
-        let responses = self.core.take_responses();
-        if !responses.is_empty() {
-            let limited = &responses[..responses.len().min(MAX_RESPONSE_BYTES)];
-            let _ = self.write(limited);
+        // TUI 判断不出终端明暗（典型：OMP 用深色 UI）。每帧限量写，
+        // 写不完的留在 pending 里下一帧继续，避免超长响应被截断丢弃。
+        self.pending_responses
+            .extend_from_slice(&self.core.take_responses());
+        if !self.pending_responses.is_empty() {
+            let chunk = drain_response_chunk(&mut self.pending_responses, MAX_RESPONSE_BYTES);
+            if self.write(&chunk).is_err() {
+                // PTY 已关闭时写不进去：回填保留，但设上限防止无界增长。
+                self.pending_responses.splice(0..0, chunk);
+                if self.pending_responses.len() > MAX_PENDING_RESPONSE_BYTES {
+                    self.pending_responses.clear();
+                }
+            }
         }
 
         if self.exit.is_none() {
@@ -251,6 +265,12 @@ impl Drop for Session {
             let _ = self.child.try_wait();
         }
     }
+}
+
+/// 从待写队列取出最多 `max` 字节（FIFO），供 [`Session::poll`] 分帧写回。
+fn drain_response_chunk(pending: &mut Vec<u8>, max: usize) -> Vec<u8> {
+    let take = pending.len().min(max);
+    pending.drain(..take).collect()
 }
 
 fn pump(mut reader: Box<dyn Read + Send>, tx: mpsc::SyncSender<Vec<u8>>) {
@@ -457,5 +477,21 @@ mod tests {
             .filter(|c| !c.is_whitespace())
             .collect::<String>();
         assert!(flat.contains(&needle), "screen: {text:?}，期望 {expected}");
+    }
+
+    #[test]
+    fn response_writeback_drains_in_bounded_chunks() {
+        let mut pending = vec![7u8; MAX_RESPONSE_BYTES * 2 + 10];
+        let first = drain_response_chunk(&mut pending, MAX_RESPONSE_BYTES);
+        assert_eq!(first.len(), MAX_RESPONSE_BYTES, "第一帧应写满上限");
+        let second = drain_response_chunk(&mut pending, MAX_RESPONSE_BYTES);
+        assert_eq!(second.len(), MAX_RESPONSE_BYTES, "第二帧继续写满上限");
+        let last = drain_response_chunk(&mut pending, MAX_RESPONSE_BYTES);
+        assert_eq!(last.len(), 10, "第三帧只写剩余字节");
+        assert!(pending.is_empty(), "队列应被完全排空");
+        assert!(
+            drain_response_chunk(&mut pending, MAX_RESPONSE_BYTES).is_empty(),
+            "空队列不应产出数据"
+        );
     }
 }
