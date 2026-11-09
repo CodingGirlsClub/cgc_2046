@@ -482,8 +482,6 @@ jobs:
       # universal 时产物命名带 _macos-universal、verify 断言 lipo 双架构；
       # 其它平台留空 → name-artifacts.sh 回落到 uname -m。
       CGC_ARTIFACT_ARCH: ${{ matrix.artifact_arch }}
-      # Zig 由「安装 Zig 0.17.1」步骤解到 runner 临时目录，build.rs 优先读这个变量。
-      ZIG: ${{ runner.temp }}/zig/zig/zig
     defaults:
       run:
         working-directory: desktop
@@ -556,6 +554,10 @@ jobs:
             libssl-dev libzstd-dev libasound2-dev vulkan-validationlayers libvulkan1 \
             fuse libfuse2t64
       - name: 格式与 lint
+        # `runner` context 只在 step 级可用；job 级 env 里写 `${{ runner.temp }}`
+        # 会让整个 workflow 被判为无效（GitHub: invalid workflow file）。
+        env:
+          ZIG: ${{ runner.temp }}/zig/zig/zig
         run: |
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets -- -D warnings
@@ -570,6 +572,8 @@ jobs:
           python3 scripts/check_licenses.py --self-test
           python3 scripts/check_licenses.py
       - name: 测试
+        env:
+          ZIG: ${{ runner.temp }}/zig/zig/zig
         run: cargo test --workspace
       # UI 测试默认不编译：crates/app/build.rs 只在 CGC_UI_TESTS=1 时打开
       # cfg(cgc_ui_tests)。启用 Kit test-support 依赖 Cargo.lock 对
@@ -579,6 +583,7 @@ jobs:
         if: runner.os == 'macOS'
         env:
           CGC_UI_TESTS: "1"
+          ZIG: ${{ runner.temp }}/zig/zig/zig
         # 必须串行：UI 用例共享进程级全局（主题/原生 runtime）。并行时
         # native_composer_uses_shared_editor_growth 在 expect("runtime snapshot") 处超时。
         run: cargo test -p cgc-desktop-app --features gpui-kit/test-support --lib -- --test-threads=1
@@ -604,6 +609,7 @@ jobs:
           # 的 rerun-if-env-changed 保证改这里会重编）。本地 cargo run 不受影响。
           CGC_DEFAULT_API_URL: https://api.codingirlsclub.com/api/graphql
           CGC_DEFAULT_ENV: prod
+          ZIG: ${{ runner.temp }}/zig/zig/zig
         run: cargo packager -p cgc-desktop-app --release -f ${{ matrix.formats }}
       # cargo-packager 不做 lipo：两个架构各编一次，合并成 universal 再打包，
       # 产物路径正好是 packager 对 universal-apple-darwin 期望的 binaries_dir。
@@ -612,6 +618,7 @@ jobs:
         env:
           CGC_DEFAULT_API_URL: https://api.codingirlsclub.com/api/graphql
           CGC_DEFAULT_ENV: prod
+          ZIG: ${{ runner.temp }}/zig/zig/zig
         run: |
           rustup target add x86_64-apple-darwin
           cargo build --release -p cgc-desktop-app --target aarch64-apple-darwin

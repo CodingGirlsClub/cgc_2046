@@ -71,8 +71,6 @@ jobs:
     timeout-minutes: 90
     env:
       CGC_ARTIFACT_ARCH: ${{ matrix.artifact_arch }}
-      # Zig 由「安装 Zig 0.17.1」步骤解到 runner 临时目录，build.rs 优先读这个变量。
-      ZIG: ${{ runner.temp }}/zig/zig/zig
     defaults:
       run:
         working-directory: desktop
@@ -173,12 +171,14 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: "1"
           CGC_DEFAULT_API_URL: https://api.codingirlsclub.com/api/graphql
           CGC_DEFAULT_ENV: prod
+          ZIG: ${{ runner.temp }}/zig/zig/zig
         run: cargo packager -p cgc-desktop-app --release -f ${{ matrix.formats }}
       - name: 打包（macOS universal）
         if: runner.os == 'macOS'
         env:
           CGC_DEFAULT_API_URL: https://api.codingirlsclub.com/api/graphql
           CGC_DEFAULT_ENV: prod
+          ZIG: ${{ runner.temp }}/zig/zig/zig
         run: |
           rustup target add x86_64-apple-darwin
           cargo build --release -p cgc-desktop-app --target aarch64-apple-darwin
