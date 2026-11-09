@@ -106,11 +106,15 @@ fn load_fake_courses(root: &mut RootView) {
             }),
         )
         .expect("courses page");
-    root.courses.adopt_page(page);
+    root.courses.adopt_page(page.clone());
     root.courses_scope = Some(crate::routing::ListScope::Workspace);
     root.courses_started = true;
-    root.events_scope = Some(crate::routing::ListScope::Workspace);
-    root.events_started = true;
+    // 树读独立缓存：中心列表（可能是公开面）与树互不覆盖。
+    root.nav_courses = CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+    root.nav_courses.begin_first_load();
+    root.nav_courses.adopt_page(page);
+    root.nav_courses_started = true;
+    root.nav_events_started = true;
 }
 
 #[gpui_kit::test]
@@ -282,9 +286,9 @@ impl CoursesApi for PublicOnlyCoursesApi {
     }
 }
 
-/// R5：公开目录的条目不得进入当前工作区的 Site Tree；搜索时树必须已切回 Workspace 数据面。
+/// review #1253 P2：树读独立缓存——公开目录加载/搜索都不得改写中心列表，反之亦然。
 #[gpui_kit::test]
-fn site_tree_ignores_public_catalog_after_scope_change(cx: &mut TestAppContext) {
+fn site_tree_keeps_workspace_cache_while_public_catalog_loads(cx: &mut TestAppContext) {
     let _files = super::workspace_layout_tests::LayoutFiles::new();
     let (handle, root) = site_tree_window(cx);
     root.update(cx, |root, cx| {
@@ -298,11 +302,36 @@ fn site_tree_ignores_public_catalog_after_scope_change(cx: &mut TestAppContext) 
         root.start_courses_load(cx, true);
     });
     cx.run_until_parked();
+    root.read_with(cx, |root, _| {
+        assert_eq!(
+            root.courses_scope,
+            Some(crate::routing::ListScope::Public),
+            "中心列表必须停在公开面"
+        );
+        assert!(
+            root.courses
+                .items()
+                .iter()
+                .all(|course| course.id.starts_with("pub-")),
+            "中心列表只能是公开条目"
+        );
+        assert!(
+            root.nav_courses
+                .items()
+                .iter()
+                .all(|course| course.id.starts_with("crs-")),
+            "树缓存必须保持工作区数据"
+        );
+    });
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
         assert!(
+            window.try_find_by_label("展开 课程 1").is_some(),
+            "公开目录页上树也应展示工作区缓存"
+        );
+        assert!(
             window.try_find_by_label("展开 公开条目 1").is_none(),
-            "被动浏览公开目录时树也不得显示公开条目"
+            "公开目录条目不得进入工作区树"
         );
     })
     .unwrap();
@@ -312,12 +341,22 @@ fn site_tree_ignores_public_catalog_after_scope_change(cx: &mut TestAppContext) 
     })
     .unwrap();
     cx.run_until_parked();
+    root.read_with(cx, |root, _| {
+        assert_eq!(
+            root.courses_scope,
+            Some(crate::routing::ListScope::Public),
+            "树搜索不得改写中心列表数据面"
+        );
+        assert!(
+            root.courses
+                .items()
+                .iter()
+                .all(|course| course.id.starts_with("pub-")),
+            "树搜索不得把工作区条目写进公开列表"
+        );
+    });
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
-        assert!(
-            window.try_find_by_label("展开 课程 1").is_some(),
-            "搜索必须把树切回当前工作区数据面"
-        );
         assert!(
             window.try_find_by_label("展开 公开条目 1").is_none(),
             "公开目录条目不得进入工作区树"

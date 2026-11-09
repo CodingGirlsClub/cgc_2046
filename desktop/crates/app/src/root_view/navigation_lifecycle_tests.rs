@@ -222,13 +222,13 @@ fn restored_search_loads_event_results_while_the_center_shows_courses(cx: &mut T
         window.render_frame(cx);
         assert_eq!(
             root.read(cx)
-                .events
+                .nav_events
                 .items()
                 .iter()
                 .find(|event| event.title == "场次 1")
                 .map(|event| event.id.as_str()),
             Some("evt-000"),
-            "restored query must populate its event results"
+            "restored query must populate the Site Tree event cache"
         );
         assert_eq!(
             root.read(cx).current().map(|route| route.id),

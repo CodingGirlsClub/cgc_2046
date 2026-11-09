@@ -70,9 +70,14 @@ pub(in crate::root_view) fn list_response_disposition(
     response_scope: crate::routing::ListScope,
     response_epoch: Option<u64>,
     epoch_is_current: bool,
+    session_is_current: bool,
 ) -> ListResponseDisposition {
     if latest_serial != response_serial {
         return ListResponseDisposition::Ignore;
+    }
+    if !session_is_current {
+        // 账号已切换/已登出：公开面的旧账响应同样不能落地（R1/P1）。
+        return ListResponseDisposition::DiscardAndReset;
     }
     if active_scope != Some(response_scope) {
         return ListResponseDisposition::DiscardAndReset;
@@ -883,6 +888,7 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn force_sign_out(&mut self, cx: &mut Context<Self>) {
+        self.session_epoch = self.session_epoch.wrapping_add(1);
         self.revoke_agent_authorization(cx);
         if let Some(runtime) = &self.native_runtime {
             runtime.stop();
@@ -1072,6 +1078,12 @@ impl RootView {
         self.detail.reset();
         self.courses.reset();
         self.courses_scope = None;
+        self.nav_events.reset();
+        self.nav_events_started = false;
+        self.nav_events_serial = 0;
+        self.nav_courses.reset();
+        self.nav_courses_started = false;
+        self.nav_courses_serial = 0;
         self.course_enrollments.clear();
         self.course_detail.reset();
         self.content.reset();
@@ -3006,6 +3018,8 @@ impl RootView {
         self.signing_in = false;
         match result {
             Ok(session) => {
+                // 账号切换（含重新登录）后，上一账号在途的详情/列表响应必须作废。
+                self.session_epoch = self.session_epoch.wrapping_add(1);
                 if self.session.adopt_signed_in(session).is_err() {
                     self.login_error = Some(LoginError::Network);
                 }
@@ -3025,6 +3039,7 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn sign_out(&mut self, cx: &mut Context<Self>) {
+        self.session_epoch = self.session_epoch.wrapping_add(1);
         self.revoke_agent_authorization(cx);
         if let Some(runtime) = &self.native_runtime {
             runtime.stop();

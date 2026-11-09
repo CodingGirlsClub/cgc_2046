@@ -413,3 +413,36 @@ fn late_response_for_another_course_does_not_reset_loaded_content(cx: &mut TestA
         assert!(root.projection.projection().is_some());
     });
 }
+
+#[gpui_kit::test]
+fn public_detail_response_is_dropped_after_sign_out(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let root = root_at(cx, "/courses/crs-000");
+    root.update(cx, |root, _| {
+        root.workspaces.adopt(workspaces());
+        root.course_detail =
+            cgc_courses::catalog::CourseDetailService::new(Arc::new(FakeCoursesApi::with_seed(7)));
+        root.course_detail_started = false;
+    });
+    root.update(cx, |root, cx| {
+        // 公开详情先发（稍后才返回的成功响应）。
+        root.start_course_detail_load(cx, "crs-000".into());
+    });
+    root.update(cx, |root, cx| root.sign_out(cx));
+    cx.run_until_parked();
+    root.read_with(cx, |root, _| {
+        assert!(
+            root.course_detail.detail().is_none(),
+            "登出后旧账号的公开详情响应不得回填（含本人报名状态）"
+        );
+        assert_eq!(
+            root.course_detail.state(),
+            &cgc_courses::catalog::CoursesListState::Idle,
+            "丢弃后必须复位状态机"
+        );
+        assert!(
+            !root.course_detail_started,
+            "闸门必须放开，让页面按匿名身份重新取数"
+        );
+    });
+}

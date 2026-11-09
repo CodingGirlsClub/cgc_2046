@@ -274,6 +274,15 @@ pub struct ShellState {
     pub(in crate::root_view) courses: CourseCatalogService,
     pub(in crate::root_view) courses_started: bool,
     pub(in crate::root_view) courses_load_serial: u64,
+    /// Site Tree 专用缓存：恒为本工作区数据面，与中心列表（可能是公开面）互不覆盖。
+    pub(in crate::root_view) nav_events: EventListService,
+    pub(in crate::root_view) nav_events_started: bool,
+    pub(in crate::root_view) nav_events_serial: u64,
+    pub(in crate::root_view) nav_courses: CourseCatalogService,
+    pub(in crate::root_view) nav_courses_started: bool,
+    pub(in crate::root_view) nav_courses_serial: u64,
+    /// 账号代数：登录/登出时递增；跨账号的在途响应必须丢弃（切台由 workspace epoch 管）。
+    pub(in crate::root_view) session_epoch: u64,
     pub(in crate::root_view) course_enrollments: std::collections::BTreeMap<String, Option<String>>,
     /// M2：报名状态查询在途的课程 id，避免快速翻页时重复查询尚未落缓存的课程。
     pub(in crate::root_view) course_enrollments_inflight: std::collections::HashSet<String>,
@@ -343,8 +352,10 @@ impl ShellState {
         let current = initial_route(&registry, start_path, last_workspace_slug.as_deref());
         let layout_preferences = crate::preferences::load();
         let events = build_events_service();
+        let nav_events = build_events_service();
         let detail = EventDetailService::new(events.api_handle());
         let courses = build_courses_service();
+        let nav_courses = build_courses_service();
         let course_detail = CourseDetailService::new(courses.api_handle());
         let content = CourseContentService::new(courses.api_handle());
         let projection = LearningProjectionService::new(courses.api_handle());
@@ -460,6 +471,13 @@ impl ShellState {
             courses,
             courses_started: false,
             courses_load_serial: 0,
+            nav_events,
+            nav_events_started: false,
+            nav_events_serial: 0,
+            nav_courses,
+            nav_courses_started: false,
+            nav_courses_serial: 0,
+            session_epoch: 0,
             course_enrollments: std::collections::BTreeMap::new(),
             course_enrollments_inflight: std::collections::HashSet::new(),
             enrollments_load_more_failed: false,
@@ -489,20 +507,6 @@ impl ShellState {
             selected_event: None,
         }
     }
-}
-
-/// R5：Site Tree 的数据面判定：未加载或缓存属于别的数据面时都必须重载。
-pub(in crate::root_view) fn navigation_data_needs_reload(
-    started: bool,
-    cached: Option<crate::routing::ListScope>,
-) -> bool {
-    !started
-        || crate::routing::list_scope_needs_reload(cached, crate::routing::ListScope::Workspace)
-}
-
-/// R6：Site Tree 的列表调用一律使用显式 Workspace scope（与中心路由无关）。
-pub(in crate::root_view) fn site_tree_list_scope() -> crate::routing::ListScope {
-    crate::routing::ListScope::Workspace
 }
 
 /// R4：只有「工作区列表从空变非空 + 当前是公开列表 + 存在无归属课程」才补查。
@@ -626,28 +630,7 @@ mod tests {
     }
 
     #[test]
-    fn stage2_site_tree_scope_is_workspace() {
-        assert_eq!(
-            super::site_tree_list_scope(),
-            crate::routing::ListScope::Workspace
-        );
-    }
-
-    #[test]
-    fn stage2_navigation_data_reloads_foreign_or_missing_cache() {
-        assert!(super::navigation_data_needs_reload(false, None));
-        assert!(super::navigation_data_needs_reload(
-            true,
-            Some(crate::routing::ListScope::Public)
-        ));
-        assert!(!super::navigation_data_needs_reload(
-            true,
-            Some(crate::routing::ListScope::Workspace)
-        ));
-    }
-
-    #[test]
-    fn stage2_public_ownership_backfill_requires_arrival_and_unowned() {
+    fn stage2_backfill_requires_workspaces_and_public_scope() {
         assert!(super::should_backfill_public_ownership(
             false,
             true,

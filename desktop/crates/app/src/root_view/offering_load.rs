@@ -49,6 +49,7 @@ impl RootView {
         let api = self.projection.api_handle();
         let token = self.session_token();
         let epoch = self.workspace_bound_epoch();
+        let session_epoch = self.session_epoch;
         let requested_course = course_id.clone();
         let task = cx
             .background_executor()
@@ -58,11 +59,12 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 let stale_epoch =
                     epoch.is_some_and(|epoch| !this.workspaces.is_current_epoch(epoch));
+                let stale_session = this.session_epoch != session_epoch;
                 // 复位判据是「服务当前正在跟踪的那门课」，不是路由对象：Site Tree 会为
                 // 树里展开的**另一门课**加载正文/投影，此时路由往往没有 :id，按路由判会
                 // 把别人已加载的数据清空（CourseContentService::adopt 不校验课程）。
                 let still_wanted = this.projection.course_id() == Some(requested_course.as_str());
-                if stale_epoch || !still_wanted {
+                if stale_epoch || stale_session || !still_wanted {
                     // 丢弃后必须复位：render 闸门要求 `Idle` 才会重发，否则投影永久
                     // 停在加载态且没有重试入口（R1）。
                     if still_wanted {
@@ -113,6 +115,7 @@ impl RootView {
         let api = self.content.api_handle();
         let token = self.session_token();
         let epoch = self.workspace_bound_epoch();
+        let session_epoch = self.session_epoch;
         let requested_course = course_id.clone();
         let task = cx
             .background_executor()
@@ -122,10 +125,11 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 let stale_epoch =
                     epoch.is_some_and(|epoch| !this.workspaces.is_current_epoch(epoch));
+                let stale_session = this.session_epoch != session_epoch;
                 // 同 projection：判据是「当前加载/已加载的那门课」。旧课的迟到响应不得
                 // 复位另一门课（Site Tree 展开的课）的正文。
                 let still_wanted = this.content.course_id() == Some(requested_course.as_str());
-                if stale_epoch || !still_wanted {
+                if stale_epoch || stale_session || !still_wanted {
                     // 丢弃后必须复位，否则正文闸门（`Idle`）不再重发（R1）。
                     if still_wanted {
                         this.content.reset();
@@ -154,7 +158,8 @@ impl RootView {
         self.start_courses_load_with_scope(cx, first, scope_mode);
     }
 
-    /// `scope_mode` 由调用方显式决定：中心列表按路由，Site Tree / 概览恒为本工作区。
+    /// `scope_mode` 由调用方显式决定：中心列表按路由，概览固定 Workspace。
+    /// Site Tree 不走这里——它有自己的 `start_nav_courses_load` 缓存。
     pub(in crate::root_view) fn start_courses_load_with_scope(
         &mut self,
         cx: &mut Context<Self>,
@@ -197,6 +202,7 @@ impl RootView {
         };
         // 只有依赖工作区的请求才受 workspace epoch 约束；公开面与工作区无关。
         let epoch = scope.as_ref().map(|_| self.workspaces.epoch());
+        let session_epoch = self.session_epoch;
         let task = cx.background_executor().spawn(async move {
             let offering = match scope.as_ref() {
                 Some(scope) => cgc_platform::workspace::OfferingScope::Workspace(scope),
@@ -235,6 +241,7 @@ impl RootView {
                     scope_mode,
                     epoch,
                     epoch.is_none_or(|epoch| this.workspaces.is_current_epoch(epoch)),
+                    this.session_epoch == session_epoch,
                 );
                 match disposition {
                     ListResponseDisposition::Ignore => return,
@@ -282,6 +289,7 @@ impl RootView {
         self.projection.reset();
         self.pending_link = None;
         let epoch = self.workspace_bound_epoch();
+        let session_epoch = self.session_epoch;
         let requested_course = course_id.clone();
         let api = self.course_detail.api_handle();
         let token = self.session_token();
@@ -321,8 +329,9 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 let stale_epoch =
                     epoch.is_some_and(|epoch| !this.workspaces.is_current_epoch(epoch));
+                let stale_session = this.session_epoch != session_epoch;
                 let same_course = this.route_object_id() == Some(requested_course.as_str());
-                if stale_epoch || !same_course {
+                if stale_epoch || stale_session || !same_course {
                     // 丢弃后必须复位：render 闸门要求 `!started && Idle` 才重发，
                     // 否则详情页永久转圈且只有 Failed 分支有重试入口（R1）。
                     if same_course {
@@ -348,20 +357,32 @@ impl RootView {
     }
 
     pub(in crate::root_view) fn load_course_enrollments(&mut self, cx: &mut Context<Self>) {
-        let epoch = self.workspaces.epoch();
         let ids = self
             .courses
             .items()
             .iter()
+            .map(|course| course.id.clone())
+            .collect::<Vec<_>>();
+        self.load_course_enrollments_for(ids, cx);
+    }
+
+    /// 报名状态按课程 id 查询；中心列表与 Site Tree 缓存各自调用，共用同一份缓存。
+    pub(in crate::root_view) fn load_course_enrollments_for(
+        &mut self,
+        candidates: Vec<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let epoch = self.workspaces.epoch();
+        let ids = candidates
+            .into_iter()
             // M2：同一课程的状态查询在途时不再重复发起（快速翻页会反复触发本方法）。
-            .filter(|course| {
+            .filter(|id| {
                 state::should_query_course_enrollment(
-                    &course.id,
+                    id,
                     &self.course_enrollments,
                     &self.course_enrollments_inflight,
                 )
             })
-            .map(|course| course.id.clone())
             .collect::<Vec<_>>();
         if ids.is_empty() {
             return;
@@ -403,16 +424,145 @@ impl RootView {
     }
 
     /// Site Tree 的数据按需加载；只有进入已登录工作区后才调用。
+    ///
+    /// 树使用独立缓存（`nav_events` / `nav_courses`），与中心列表互不覆盖：中心可能
+    /// 停在公开目录（Public scope），树仍要展示当前工作区数据。
     pub(in crate::root_view) fn ensure_navigation_data(&mut self, cx: &mut Context<Self>) {
-        // Site Tree 永远展示当前工作区的数据，与中心页面是哪条路由无关。
-        // R5：中心列表可能已经以 Public scope 加载完成；`started` 只说明有缓存，
-        // 不说明缓存属于当前工作区，必须比较完整的数据面后再决定是否重载。
-        if state::navigation_data_needs_reload(self.events_started, self.events_scope) {
-            self.start_events_load_with_scope(cx, true, state::site_tree_list_scope());
+        if self.workspaces.scope().is_none() {
+            return;
         }
-        if state::navigation_data_needs_reload(self.courses_started, self.courses_scope) {
-            self.start_courses_load_with_scope(cx, true, state::site_tree_list_scope());
+        if !self.nav_events_started && matches!(self.nav_events.state(), ListState::Idle) {
+            self.start_nav_events_load(cx, true);
         }
+        if !self.nav_courses_started && matches!(self.nav_courses.state(), CoursesListState::Idle) {
+            self.start_nav_courses_load(cx, true);
+        }
+    }
+
+    /// Site Tree 课程缓存：恒为本工作区数据面，绝不写中心列表（review #1253 P2）。
+    pub(in crate::root_view) fn start_nav_courses_load(
+        &mut self,
+        cx: &mut Context<Self>,
+        first: bool,
+    ) {
+        let Some(scope) = self.workspaces.scope() else {
+            return;
+        };
+        self.nav_courses_serial = self.nav_courses_serial.wrapping_add(1);
+        let serial = self.nav_courses_serial;
+        if first {
+            self.nav_courses.begin_first_load();
+        } else {
+            self.nav_courses.begin_load_more();
+        }
+        self.nav_courses_started = true;
+        let api = self.nav_courses.api_handle();
+        let token = self.session_token();
+        let cursor = if first {
+            None
+        } else {
+            self.nav_courses.next_cursor().map(str::to_string)
+        };
+        let epoch = self.workspaces.epoch();
+        let session_epoch = self.session_epoch;
+        let task = cx.background_executor().spawn(async move {
+            api.list_courses(
+                token.as_deref(),
+                cgc_platform::workspace::OfferingScope::Workspace(&scope),
+                cursor.as_deref(),
+                10,
+            )
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.nav_courses_serial != serial {
+                    return;
+                }
+                if this.session_epoch != session_epoch || !this.workspaces.is_current_epoch(epoch) {
+                    // 切台/换账号后旧响应不能落地；复位让下一次展开重新加载。
+                    this.nav_courses.reset();
+                    this.nav_courses_started = false;
+                    cx.notify();
+                    return;
+                }
+                match result {
+                    Ok(page) => {
+                        this.nav_courses.adopt_page(page);
+                        let ids = this
+                            .nav_courses
+                            .items()
+                            .iter()
+                            .map(|course| course.id.clone())
+                            .collect();
+                        this.load_course_enrollments_for(ids, cx);
+                    }
+                    Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
+                    Err(error) => this.nav_courses.fail(&error),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Site Tree 活动缓存：同 `start_nav_courses_load`，与中心列表隔离。
+    pub(in crate::root_view) fn start_nav_events_load(
+        &mut self,
+        cx: &mut Context<Self>,
+        first: bool,
+    ) {
+        let Some(scope) = self.workspaces.scope() else {
+            return;
+        };
+        self.nav_events_serial = self.nav_events_serial.wrapping_add(1);
+        let serial = self.nav_events_serial;
+        if first {
+            self.nav_events.begin_first_load();
+        } else {
+            self.nav_events.begin_load_more();
+        }
+        self.nav_events_started = true;
+        let api = self.nav_events.api_handle();
+        let token = self.session_token();
+        let filter = self.nav_events.filter();
+        let after = if first {
+            None
+        } else {
+            self.nav_events.next_cursor().map(str::to_string)
+        };
+        let epoch = self.workspaces.epoch();
+        let session_epoch = self.session_epoch;
+        let task = cx.background_executor().spawn(async move {
+            api.list_events(
+                token.as_deref(),
+                cgc_platform::workspace::OfferingScope::Workspace(&scope),
+                filter,
+                after.as_deref(),
+                10,
+            )
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.nav_events_serial != serial {
+                    return;
+                }
+                if this.session_epoch != session_epoch || !this.workspaces.is_current_epoch(epoch) {
+                    this.nav_events.reset();
+                    this.nav_events_started = false;
+                    cx.notify();
+                    return;
+                }
+                match result {
+                    Ok(page) => this.nav_events.adopt_page(page),
+                    Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
+                    Err(error) => this.nav_events.fail(&error),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     pub(in crate::root_view) fn load_expanded_site_tree_course(&mut self, cx: &mut Context<Self>) {
@@ -521,6 +671,7 @@ impl RootView {
         let api = self.detail.api_handle();
         let token = self.session_token();
         let epoch = self.workspace_bound_epoch();
+        let session_epoch = self.session_epoch;
         let requested_event = event_id.clone();
         let task = cx.background_executor().spawn(async move {
             let detail = api.get_event(token.as_deref(), &event_id)?;
@@ -534,8 +685,9 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 let stale_epoch =
                     epoch.is_some_and(|epoch| !this.workspaces.is_current_epoch(epoch));
+                let stale_session = this.session_epoch != session_epoch;
                 let same_event = this.route_object_id() == Some(requested_event.as_str());
-                if stale_epoch || !same_event {
+                if stale_epoch || stale_session || !same_event {
                     // 丢弃后必须复位，否则活动详情闸门（`Idle` + `!started`）不再重发（R1）。
                     if same_event {
                         this.detail.reset();
@@ -575,7 +727,8 @@ impl RootView {
         self.start_events_load_with_scope(cx, first, scope_mode);
     }
 
-    /// `scope_mode` 由调用方显式决定：中心列表按路由，Site Tree / 概览恒为本工作区。
+    /// `scope_mode` 由调用方显式决定：中心列表按路由，概览固定 Workspace。
+    /// Site Tree 不走这里——它有自己的 `start_nav_events_load` 缓存。
     pub(in crate::root_view) fn start_events_load_with_scope(
         &mut self,
         cx: &mut Context<Self>,
@@ -609,6 +762,7 @@ impl RootView {
             self.events.next_cursor().map(str::to_string)
         };
         let epoch = scope.as_ref().map(|_| self.workspaces.epoch());
+        let session_epoch = self.session_epoch;
         let task = cx.background_executor().spawn(async move {
             let offering = match scope.as_ref() {
                 Some(scope) => cgc_platform::workspace::OfferingScope::Workspace(scope),
@@ -627,6 +781,7 @@ impl RootView {
                     scope_mode,
                     epoch,
                     epoch.is_none_or(|epoch| this.workspaces.is_current_epoch(epoch)),
+                    this.session_epoch == session_epoch,
                 );
                 match disposition {
                     ListResponseDisposition::Ignore => return,
