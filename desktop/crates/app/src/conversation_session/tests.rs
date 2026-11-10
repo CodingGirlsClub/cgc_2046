@@ -15,6 +15,42 @@ fn ready() -> ConversationSession {
 }
 
 #[test]
+fn failed_send_restores_agent_call_and_base_prompt() {
+    use crate::page_context::{ConversationScope, PageContextState};
+    use cgc_courses::content::{AgentActionSpec, AgentIntent};
+
+    let mut session = ConversationSession::native();
+    let state = PageContextState::default();
+    let scope = ConversationScope::new("thread", "native");
+    let call = crate::agent_call::AgentCall::from_action(
+        &AgentActionSpec {
+            id: "a-hint".into(),
+            label: "Hint".into(),
+            intent: AgentIntent::Hint,
+            primary: false,
+        },
+        crate::agent_call::LearningTarget::Objective {
+            course_id: "crs-1".into(),
+            revision: None,
+            issue_id: "issue-1".into(),
+            objective_id: "obj-1".into(),
+        },
+    );
+    let mut submission = session.submission(
+        "display".into(),
+        "base prompt".into(),
+        None,
+        Vec::new(),
+        false,
+    );
+    submission.agent_call = Some(call.clone());
+
+    assert!(!session.send_with_context(&mut submission, &state, &scope));
+    assert_eq!(submission.agent_call, Some(call));
+    assert_eq!(submission.prompt, "base prompt");
+}
+
+#[test]
 fn external_acp_sends_page_identity_each_turn_and_reloads_after_compaction() {
     use crate::page_context::{
         ConversationScope, PageBody, PageContext, PageContextState, PageLoadState,

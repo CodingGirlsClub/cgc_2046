@@ -270,5 +270,65 @@ fn native_composer_uses_shared_editor_growth_and_preserves_draft(cx: &mut TestAp
     }
 }
 
+#[gpui_kit::test]
+fn native_composer_shows_and_removes_pending_agent_call(cx: &mut TestAppContext) {
+    use cgc_courses::content::{AgentActionSpec, AgentIntent};
+
+    cx.update(gpui_kit::init);
+    let (handle, probe) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Default::default(),
+                    size: size(px(420.0), px(600.0)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| NativeComposerProbe::new(window, cx)),
+        )
+        .unwrap()
+    });
+    let call = crate::agent_call::AgentCall::from_action(
+        &AgentActionSpec {
+            id: "a-answer".into(),
+            label: "Answer".into(),
+            intent: AgentIntent::Answer,
+            primary: true,
+        },
+        crate::agent_call::LearningTarget::Objective {
+            course_id: "crs-1".into(),
+            revision: Some(1),
+            issue_id: "issue-1".into(),
+            objective_id: "obj-1".into(),
+        },
+    );
+    cx.update_window(handle, |_, window, cx| {
+        let view = probe.read(cx).view.clone();
+        view.update(cx, |view, cx| {
+            view.compose_agent_call(
+                call,
+                "Please ask me a question".into(),
+                "Answer".into(),
+                window,
+                cx,
+            );
+        });
+        window.render_frame(cx);
+        assert!(window.try_find("native-agent-call-chip").is_some());
+        assert!(window.try_find("native-agent-call-remove").is_some());
+        assert_eq!(
+            view.read(cx).input.read(cx).value(),
+            "Please ask me a question"
+        );
+
+        window.click("native-agent-call-remove", cx);
+        window.render_frame(cx);
+        assert!(window.try_find("native-agent-call-chip").is_none());
+        assert!(view.read(cx).pending_agent_call.is_none());
+    })
+    .unwrap();
+}
+
 #[path = "paste_tests.rs"]
 mod paste_tests;

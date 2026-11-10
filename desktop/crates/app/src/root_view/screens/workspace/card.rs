@@ -8,7 +8,10 @@
 use super::super::super::*;
 use super::super::ScreenContext;
 use super::media;
+use crate::agent_call::{AgentCall, LearningTarget};
+use cgc_courses::content::{AgentActionSpec, AgentIntent, CourseIssue, CourseObjective};
 use gpui_kit::base::SelectableText;
+use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::description_list::{DescriptionItem, DescriptionList};
 
 pub(in crate::root_view) fn render_issue_card(
@@ -414,6 +417,60 @@ pub(in crate::root_view) fn render_issue_card(
                 .into_any_element(),
         );
 
+        let actions = effective_agent_actions(issue, objective, language);
+        if !actions.is_empty() {
+            let target = LearningTarget::Objective {
+                course_id: course_id.to_string(),
+                revision: content.revision_number,
+                issue_id: issue_id.to_string(),
+                objective_id: objective_key.to_string(),
+            };
+            let mut buttons = Vec::with_capacity(actions.len());
+            for action in actions {
+                let call = AgentCall::from_action(&action, target.clone());
+                let prompt = agent_prompt(action.intent, language).to_string();
+                let label = action.label.clone();
+                let root = cx.entity().downgrade();
+                let id =
+                    SharedString::from(format!("issue-agent-action-{objective_key}-{}", action.id));
+                let mut button = Button::new(id).label(label.clone());
+                if !action.primary {
+                    button = button.ghost();
+                }
+                buttons.push(
+                    button
+                        .small()
+                        .on_click(move |_, window, cx| {
+                            let _ = root.update(cx, |this, cx| {
+                                this.apply_agent_call(
+                                    call.clone(),
+                                    prompt.clone(),
+                                    label.clone(),
+                                    window,
+                                    cx,
+                                );
+                            });
+                        })
+                        .into_any_element(),
+                );
+            }
+            card.push(
+                div()
+                    .id(SharedString::from(format!(
+                        "issue-objective-actions-{objective_key}"
+                    )))
+                    .test_support()
+                    .flex()
+                    .flex_row()
+                    .flex_wrap()
+                    .items_center()
+                    .gap(space(1))
+                    .pt(px(4.0))
+                    .children(buttons)
+                    .into_any_element(),
+            );
+        }
+
         if let Some(assessment) = objective
             .assessment
             .clone()
@@ -540,6 +597,84 @@ pub(in crate::root_view) fn render_issue_card(
         .gap(space(2))
         .children(children)
         .into_any_element()
+}
+
+fn effective_agent_actions(
+    issue: &CourseIssue,
+    objective: &CourseObjective,
+    language: Language,
+) -> Vec<AgentActionSpec> {
+    if !objective.agent_actions.is_empty() {
+        return objective.agent_actions.clone();
+    }
+    match issue.kind.as_deref() {
+        Some("thoughtwork") => vec![
+            default_agent_action(
+                "default-answer",
+                Key::CoursesLearningAgentActionAnswer,
+                AgentIntent::Answer,
+                true,
+                language,
+            ),
+            default_agent_action(
+                "default-hint",
+                Key::CoursesLearningAgentActionHint,
+                AgentIntent::Hint,
+                false,
+                language,
+            ),
+        ],
+        Some("handwork") => vec![
+            default_agent_action(
+                "default-inspect-artifact",
+                Key::CoursesLearningAgentActionInspectArtifact,
+                AgentIntent::InspectArtifact,
+                true,
+                language,
+            ),
+            default_agent_action(
+                "default-hint",
+                Key::CoursesLearningAgentActionHint,
+                AgentIntent::Hint,
+                false,
+                language,
+            ),
+        ],
+        _ => Vec::new(),
+    }
+}
+
+fn default_agent_action(
+    id: &str,
+    label: Key,
+    intent: AgentIntent,
+    primary: bool,
+    language: Language,
+) -> AgentActionSpec {
+    AgentActionSpec {
+        id: id.to_string(),
+        label: translate(language, label).to_string(),
+        intent,
+        primary,
+    }
+}
+
+fn agent_prompt(intent: AgentIntent, language: Language) -> &'static str {
+    translate(
+        language,
+        match intent {
+            AgentIntent::Answer => Key::CoursesLearningAgentPromptAnswer,
+            AgentIntent::Hint => Key::CoursesLearningAgentPromptHint,
+            AgentIntent::Explain => Key::CoursesLearningAgentPromptExplain,
+            AgentIntent::Summarize => Key::CoursesLearningAgentPromptSummarize,
+            AgentIntent::InspectWorkspace => Key::CoursesLearningAgentPromptInspectWorkspace,
+            AgentIntent::CreateFile => Key::CoursesLearningAgentPromptCreateFile,
+            AgentIntent::Run => Key::CoursesLearningAgentPromptRun,
+            AgentIntent::InspectArtifact => Key::CoursesLearningAgentPromptInspectArtifact,
+            AgentIntent::Submit => Key::CoursesLearningAgentPromptSubmit,
+            AgentIntent::Review => Key::CoursesLearningAgentPromptReview,
+        },
+    )
 }
 
 fn kind_label_key(kind: &str) -> Option<Key> {

@@ -80,6 +80,7 @@ mod controller;
 mod enrollment_flow;
 mod history_actions;
 mod key_dispatch;
+mod learning_actions;
 mod nav_copy;
 mod offering_load;
 mod page_context_build;

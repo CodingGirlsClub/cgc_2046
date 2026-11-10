@@ -99,6 +99,79 @@ impl NativeAgentView {
         .into_any_element()
     }
 
+    fn render_pending_agent_call(
+        &self,
+        pending: &crate::agent_call::PendingAgentCall,
+        palette: &theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let palette = *palette;
+        let json = pending.call.to_json();
+        let remove_root = cx.entity().downgrade();
+        let remove_id = "native-agent-call-remove";
+        div()
+            .id("native-agent-call-row")
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(4.0))
+            .mb(px(2.0))
+            .child(
+                Popover::new("native-agent-call-json")
+                    .anchor(Anchor::BottomLeft)
+                    .trigger(
+                        Button::new("native-agent-call-chip")
+                            .label(format!(
+                                "{} · {}",
+                                translate(self.language, Key::CoursesLearningAgentCallLabel),
+                                pending.label
+                            ))
+                            .xsmall()
+                            .ghost()
+                            .tooltip(translate(
+                                self.language,
+                                Key::CoursesLearningAgentCallViewJson,
+                            )),
+                    )
+                    .content(move |_, _, _| {
+                        div()
+                            .max_w(px(360.0))
+                            .p(space(1))
+                            .rounded(px(RADIUS_SMALL))
+                            .border_1()
+                            .border_color(palette.line)
+                            .bg(palette.card)
+                            .text_size(px(10.0))
+                            .text_color(palette.ink_3)
+                            .child(json.clone())
+                            .into_any_element()
+                    }),
+            )
+            .child(
+                div()
+                    .id(remove_id)
+                    .test_support()
+                    .role(Role::Button)
+                    .aria_label(translate(
+                        self.language,
+                        Key::CoursesLearningAgentCallRemove,
+                    ))
+                    .px(px(4.0))
+                    .py(px(1.0))
+                    .rounded(px(RADIUS_SMALL))
+                    .text_size(px(11.0))
+                    .text_color(palette.ink_3)
+                    .hover(|style| style.bg(palette.soft))
+                    .child("×")
+                    .on_click(move |_, _, cx| {
+                        let _ = remove_root.update(cx, |this, cx| {
+                            this.clear_pending_agent_call(cx);
+                        });
+                    }),
+            )
+            .into_any_element()
+    }
+
     #[rustfmt::skip]
     pub(super) fn render_composer(
         &mut self,
@@ -122,6 +195,10 @@ impl NativeAgentView {
             && !self.metadata().checkpoints.is_empty()
             && !busy;
         let change_count = self.metadata().changes.len();
+        let pending_chip = self
+            .pending_agent_call
+            .as_ref()
+            .map(|pending| self.render_pending_agent_call(pending, &palette, cx));
 
         let pickers = self.native_composer_pickers(palette, cx);
         let model_setup = self.metadata().model_setup;
@@ -449,6 +526,8 @@ impl NativeAgentView {
                             .pt(px(2.0))
                             .children(rows)
                     }))
+
+                    .children(pending_chip)
 
                     .child(
                         cgc_agent_ui::message_editor::MessageEditor::new(

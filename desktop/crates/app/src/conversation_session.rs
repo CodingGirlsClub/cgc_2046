@@ -31,6 +31,8 @@ pub struct Submission {
     pub context: Option<FrozenPageContext>,
     pub draft: Option<cgc_agent_ui::conversation::MessageDraft>,
     pub images: Vec<ImageAttachment>,
+    /// 本次消息携带的结构化学习动作；发送一次后消费。
+    pub agent_call: Option<crate::agent_call::AgentCall>,
     pub retry: bool,
 }
 
@@ -100,6 +102,7 @@ impl ConversationSession {
             context,
             draft: None,
             images,
+            agent_call: None,
             retry,
         }
     }
@@ -174,7 +177,14 @@ impl ConversationSession {
             std::mem::take(&mut submission.prompt),
             submission.context.take(),
         );
+        let agent_call = submission.agent_call.take();
+        let prompt_without_action = submission.prompt.clone();
+        if let Some(call) = &agent_call {
+            submission.prompt = crate::agent_call::prompt_with_agent_call(&submission.prompt, call);
+        }
         if !self.send(submission) {
+            submission.prompt = prompt_without_action;
+            submission.agent_call = agent_call;
             return false;
         }
         page_context.mark_sent(scope, &submission.context);

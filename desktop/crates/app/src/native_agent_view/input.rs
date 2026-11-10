@@ -6,6 +6,34 @@ use super::*;
 use gpui_kit::base::Disableable;
 
 impl NativeAgentView {
+    pub(crate) fn compose_agent_call(
+        &mut self,
+        call: crate::agent_call::AgentCall,
+        prompt: String,
+        label: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.pending_agent_call = Some(crate::agent_call::PendingAgentCall::new(
+            call,
+            label,
+            prompt.clone(),
+        ));
+        self.composer_context.reset();
+        self.input.update(cx, |state, cx| {
+            state.set_value(prompt, window, cx);
+            state.focus(window, cx);
+        });
+        self.status = "已加入学习动作，发送前可编辑".into();
+        cx.notify();
+    }
+
+    pub(crate) fn clear_pending_agent_call(&mut self, cx: &mut Context<Self>) {
+        if self.pending_agent_call.take().is_some() {
+            cx.notify();
+        }
+    }
+
     pub(crate) fn context_source(&self, id: &str) -> Option<crate::page_context::PageContext> {
         self.edit_context
             .source(id)

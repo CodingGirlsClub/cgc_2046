@@ -5,7 +5,9 @@ use crate::i18n::Language;
 use crate::root_view::state::MediaState;
 use crate::theme::ThemePreference;
 use cgc_courses::catalog::{CourseCatalogService, CoursesApi, FakeCoursesApi};
-use cgc_courses::content::{CourseChecklistItem, CourseObjective, MaterialKind, TypedMaterial};
+use cgc_courses::content::{
+    AgentActionSpec, AgentIntent, CourseChecklistItem, CourseObjective, MaterialKind, TypedMaterial,
+};
 use cgc_courses::projection::{LearningProjection, LearningProjectionService, ObjectiveState};
 use cgc_platform::session::{FakeAuthApi, MemoryStore, SessionService};
 use gpui_kit::test::TestWindowExt;
@@ -267,6 +269,46 @@ fn issue_card_switches_selected_objective(cx: &mut TestAppContext) {
             .any(|id| id == "obj-2"));
         assert!(window.try_find("issue-card-objective-obj-2").is_some());
         assert!(window.try_find("issue-card-objective-obj-1").is_none());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn issue_card_cta_dispatches_agent_call_to_composer(cx: &mut TestAppContext) {
+    let (handle, root) = issue_card_window(cx);
+    root.update(cx, |root, _| {
+        root.courses = CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        let mut content = card_content();
+        content.document.issues[0].objectives[0].agent_actions = vec![
+            AgentActionSpec {
+                id: "a-answer".into(),
+                label: "回答当前问题".into(),
+                intent: AgentIntent::Answer,
+                primary: true,
+            },
+            AgentActionSpec {
+                id: "a-hint".into(),
+                label: "给我一个提示".into(),
+                intent: AgentIntent::Hint,
+                primary: false,
+            },
+        ];
+        root.content.adopt(content);
+        root.projection = LearningProjectionService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        root.projection.adopt(projection());
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("issue-objective-actions-obj-1").is_some());
+        assert!(window
+            .try_find("issue-agent-action-obj-1-a-answer")
+            .is_some());
+        assert!(window.try_find("issue-agent-action-obj-1-a-hint").is_some());
+
+        window.click("issue-agent-action-obj-1-a-answer", cx);
+        let input = root.read(cx).chat.input.clone();
+        assert!(input.contains("请根据当前目标的验收标准向我提问"));
+        assert!(root.read(cx).agent_panel_open);
     })
     .unwrap();
 }

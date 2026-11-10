@@ -77,6 +77,24 @@ pub struct AgentCall {
     pub selection: Option<String>,
 }
 
+/// Composer 中待发送的 action；独立于 MessageDraft，发送成功或手动移除即清除。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PendingAgentCall {
+    pub call: AgentCall,
+    pub label: String,
+    pub prompt: String,
+}
+
+impl PendingAgentCall {
+    pub fn new(call: AgentCall, label: impl Into<String>, prompt: impl Into<String>) -> Self {
+        Self {
+            call,
+            label: label.into(),
+            prompt: prompt.into(),
+        }
+    }
+}
+
 impl AgentCall {
     pub fn new(intent: AgentIntent, target: LearningTarget, source: AgentCallSource) -> Self {
         Self {
@@ -119,9 +137,12 @@ impl AgentCall {
 
     /// 生成交给 native agent 的数据块；不包含工具名或工具参数。
     pub fn prompt_block(&self) -> String {
-        let json = serde_json::to_string_pretty(self)
-            .expect("AgentCall serialization cannot fail for finite fields");
-        format!("<agent_call>\n{json}\n</agent_call>")
+        format!("<agent_call>\n{}\n</agent_call>", self.to_json())
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self)
+            .expect("AgentCall serialization cannot fail for finite fields")
     }
 }
 
