@@ -88,6 +88,7 @@ fn course_learning_projection_contains_goals_chapters_and_issue_materials() {
     };
 
     let material = TypedMaterial {
+        id: None,
         kind: MaterialKind::Markdown,
         title: None,
         body: Some("Ownership rules".into()),
@@ -336,6 +337,7 @@ fn issue_projection_uses_active_issue_body_and_versions_the_payload() {
 
     fn material(kind: MaterialKind, body: &str) -> TypedMaterial {
         TypedMaterial {
+            id: None,
             kind,
             title: None,
             body: Some(body.into()),

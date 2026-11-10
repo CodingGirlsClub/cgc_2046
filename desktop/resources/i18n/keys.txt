@@ -324,6 +324,17 @@ courses.learning.video_open
 courses.learning.image_loading
 courses.learning.image_failed
 courses.learning.image_unavailable
+courses.learning.materials
+courses.learning.materials_completed
+courses.learning.material_kind_text
+courses.learning.material_kind_short_text
+courses.learning.material_kind_image
+courses.learning.material_kind_web
+courses.learning.material_kind_unknown
+courses.learning.material_read_full
+courses.learning.material_collapse
+courses.learning.material_open
+courses.learning.material_retry
 agent.registry.title
 agent.registry.subtitle
 agent.registry.install

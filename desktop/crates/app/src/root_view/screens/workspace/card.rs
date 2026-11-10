@@ -113,6 +113,7 @@ pub(in crate::root_view) fn render_issue_card(
         .goal
         .as_deref()
         .filter(|value| !value.trim().is_empty());
+    let has_objectives = !issue.objectives.is_empty();
     if story_as.is_some() || !story_given.is_empty() || story_goal.is_some() {
         let story_label = |key: Key| {
             div()
@@ -168,34 +169,57 @@ pub(in crate::root_view) fn render_issue_card(
 
         children.push(
             div()
-                .id("issue-card-user-story")
-                .test_support()
-                .role(Role::Group)
-                .aria_label(translate(language, Key::CoursesLearningUserStory))
                 .flex()
                 .flex_col()
-                .gap(px(4.0))
-                .p(space(2))
-                .rounded(px(RADIUS_MEDIUM))
-                .border_1()
-                .border_color(palette.line)
-                .bg(palette.card)
+                .gap(px(6.0))
                 .child(
                     div()
                         .text_size(px(11.0))
                         .text_color(palette.accent_strong)
                         .child(translate(language, Key::CoursesLearningUserStory)),
                 )
-                .child(div().w_full().child(story))
+                .child(
+                    div()
+                        .id("issue-card-user-story")
+                        .test_support()
+                        .role(Role::Group)
+                        .aria_label(translate(language, Key::CoursesLearningUserStory))
+                        .flex()
+                        .flex_col()
+                        .gap(px(4.0))
+                        .p(space(2))
+                        .rounded(px(RADIUS_MEDIUM))
+                        .border_1()
+                        .border_color(palette.line)
+                        .bg(palette.card)
+                        .child(div().w_full().child(story)),
+                )
                 .into_any_element(),
         );
+        if !issue.story_materials.is_empty() || has_objectives {
+            children.push(
+                div()
+                    .h(px(1.0))
+                    .w_full()
+                    .bg(palette.line)
+                    .into_any_element(),
+            );
+        }
     }
 
-    for (material_index, material) in issue.story_materials.iter().enumerate() {
-        if let Some(element) =
-            media::material_element(ctx, material, material_index, language, palette, cx)
-        {
-            children.push(element);
+    if !issue.story_materials.is_empty() {
+        let scope = media::material_scope(course_id, content.revision_number, issue_id);
+        children.push(media::material_section(
+            ctx, issue, &scope, language, palette, cx,
+        ));
+        if has_objectives {
+            children.push(
+                div()
+                    .h(px(1.0))
+                    .w_full()
+                    .bg(palette.line)
+                    .into_any_element(),
+            );
         }
     }
 

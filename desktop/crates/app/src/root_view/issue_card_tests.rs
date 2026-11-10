@@ -107,6 +107,7 @@ fn card_content() -> cgc_courses::content::CourseContent {
         materials: Vec::new(),
     }];
     issue.story_materials.push(TypedMaterial {
+        id: Some("mat-video".into()),
         kind: MaterialKind::Video,
         title: Some("讲解视频".into()),
         body: None,
@@ -117,12 +118,24 @@ fn card_content() -> cgc_courses::content::CourseContent {
         external_id: Some("BV1xx411c7mD".into()),
     });
     issue.story_materials.push(TypedMaterial {
+        id: Some("mat-image".into()),
         kind: MaterialKind::Image,
         title: None,
         body: None,
         url: Some(IMAGE_URL.into()),
         alt_text: Some("插图".into()),
         caption: Some("图 1".into()),
+        provider: None,
+        external_id: None,
+    });
+    issue.story_materials.push(TypedMaterial {
+        id: Some("mat-text".into()),
+        kind: MaterialKind::Text,
+        title: Some("一句话".into()),
+        body: Some("物理学研究物质及其运动规律。".into()),
+        url: None,
+        alt_text: None,
+        caption: None,
         provider: None,
         external_id: None,
     });
@@ -180,8 +193,32 @@ fn issue_card_renders_chapter_kind_assessment_and_rubric(cx: &mut TestAppContext
         assert!(window.try_find("issue-card-assessment-obj-1").is_some());
         assert!(window.try_find("issue-card-rubric-obj-1").is_some());
         assert!(window.try_find("issue-card-mastery-obj-1").is_some());
-        assert!(window.try_find("issue-video-2").is_some());
-        assert!(window.try_find("issue-image-3").is_some());
+        assert!(window.try_find("issue-materials").is_some());
+        for index in 0..5 {
+            assert!(
+                window
+                    .try_find(format!("issue-material-issue-1-{index}"))
+                    .is_some(),
+                "material row {index}"
+            );
+        }
+        assert!(window.try_find("material-expand-issue-1-0").is_some());
+        assert!(window.try_find("material-body-issue-1-4").is_some());
+        assert!(window.try_find("material-open-issue-1-1").is_some());
+        assert!(window.try_find("material-open-issue-1-2").is_some());
+        assert!(window.try_find("material-open-issue-1-3").is_some());
+        window.click("material-expand-issue-1-0", cx);
+        assert!(root
+            .read(cx)
+            .expanded_material
+            .values()
+            .any(|key| key.ends_with(":mat-md")));
+        window.click("material-done-issue-1-0", cx);
+        assert!(root
+            .read(cx)
+            .completed_materials
+            .iter()
+            .any(|key| key.ends_with(":mat-md")));
     })
     .unwrap();
 }

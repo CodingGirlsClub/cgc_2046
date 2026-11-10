@@ -242,6 +242,12 @@ pub struct ShellState {
     pub(in crate::root_view) media_cache: BTreeMap<String, MediaState>,
     /// 正在下载的 URL，防止每帧重复发起请求。
     pub(in crate::root_view) media_loading: BTreeSet<String>,
+    /// 已完成的课程材料 key（`course:revision:issue:material`）。
+    pub(in crate::root_view) completed_materials: BTreeSet<String>,
+    /// 每个 Issue 当前展开的材料 key（同一 Issue 单开）。
+    pub(in crate::root_view) expanded_material: BTreeMap<String, String>,
+    /// 点击后等待图片下载完成再打开 Viewer：URL → 窗口标题。
+    pub(in crate::root_view) pending_image_opens: BTreeMap<String, String>,
     pub(in crate::root_view) key_focus: Option<FocusHandle>,
     pub(in crate::root_view) key_interceptor: Option<Subscription>,
     pub(in crate::root_view) events: EventListService,
@@ -446,6 +452,9 @@ impl ShellState {
             outline_expanded: BTreeSet::new(),
             media_cache: BTreeMap::new(),
             media_loading: BTreeSet::new(),
+            completed_materials: BTreeSet::new(),
+            expanded_material: BTreeMap::new(),
+            pending_image_opens: BTreeMap::new(),
             key_focus: None,
             key_interceptor: None,
             events,

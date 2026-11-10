@@ -88,6 +88,7 @@ pub struct CourseObjective {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TypedMaterial {
+    pub id: Option<String>,
     pub kind: MaterialKind,
     pub title: Option<String>,
     pub body: Option<String>,
@@ -283,6 +284,7 @@ fn parse_material(value: &Value) -> Option<TypedMaterial> {
         _ => None,
     };
     Some(TypedMaterial {
+        id: string_field(value, "id").filter(|value| !value.trim().is_empty()),
         kind,
         title: string_field(value, "title"),
         body,
@@ -365,6 +367,7 @@ pub(crate) fn fake_course_content(course_id: &str, title: &str, index: usize) ->
                 kind: Some("handwork".to_string()),
                 story_materials: vec![
                     TypedMaterial {
+                        id: Some("mat-md".to_string()),
                         kind: MaterialKind::Markdown,
                         title: Some("正文".to_string()),
                         body: Some(FAKE_MARKDOWN.to_string()),
@@ -375,6 +378,7 @@ pub(crate) fn fake_course_content(course_id: &str, title: &str, index: usize) ->
                         external_id: None,
                     },
                     TypedMaterial {
+                        id: Some("mat-web".to_string()),
                         kind: MaterialKind::Web,
                         title: Some("延伸阅读".to_string()),
                         body: None,
@@ -512,6 +516,7 @@ mod tests {
                             "url": "https://example.com"
                         },
                         {
+                            "id": "mat-image",
                             "kind": "image",
                             "url": "https://example.com/a.png",
                             "alt_text": "插图",
