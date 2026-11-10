@@ -12,6 +12,7 @@ use crate::agent_call::{AgentCall, LearningTarget};
 use cgc_courses::content::{AgentActionSpec, AgentIntent, CourseIssue, CourseObjective};
 use gpui_kit::base::SelectableText;
 use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::collapsible::Collapsible;
 use gpui_kit::component::description_list::{DescriptionItem, DescriptionList};
 
 pub(in crate::root_view) fn render_issue_card(
@@ -246,6 +247,30 @@ pub(in crate::root_view) fn render_issue_card(
 
     if !issue.objectives.is_empty() {
         let root = cx.entity().downgrade();
+        let mastered = issue
+            .objectives
+            .iter()
+            .filter(|objective| {
+                objective
+                    .id
+                    .as_deref()
+                    .and_then(|id| {
+                        ctx.projection.projection().and_then(|projection| {
+                            projection.objectives.iter().find(|state| state.id == id)
+                        })
+                    })
+                    .is_some_and(|state| state.mastery == "mastered")
+            })
+            .count();
+        let total = issue.objectives.len();
+        let practice_count = translate(language, Key::CoursesLearningPracticeMastered)
+            .replace("{done}", &mastered.to_string())
+            .replace("{total}", &total.to_string());
+        let mode_label = match issue.kind.as_deref() {
+            Some("thoughtwork") => Some(Key::CoursesLearningBySpeaking),
+            Some("handwork") => Some(Key::CoursesLearningByDoing),
+            _ => None,
+        };
         let mut rows = Vec::new();
         for objective in &issue.objectives {
             let objective_key = objective.id.as_deref().unwrap_or("objective");
@@ -266,64 +291,102 @@ pub(in crate::root_view) fn render_issue_card(
             } else {
                 translate(language, Key::CoursesLearningObjectiveElective)
             };
-            rows.push(
-                div()
-                    .id(SharedString::from(format!(
-                        "issue-objective-row-{objective_key}"
-                    )))
-                    .test_support()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(8.0))
-                    .px(space(2))
-                    .py(px(6.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .bg(if selected { palette.soft } else { palette.view })
-                    .hover(|style| style.bg(palette.soft))
-                    .child(div().size(px(6.0)).rounded_full().bg(if selected {
-                        palette.accent
-                    } else {
-                        palette.line
-                    }))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w(px(0.0))
-                            .text_size(px(13.0))
-                            .text_color(palette.ink)
-                            .child(
-                                objective
-                                    .title
-                                    .clone()
-                                    .unwrap_or_else(|| "Objective".to_string()),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(10.0))
-                            .text_color(if objective.required {
-                                palette.accent_strong
-                            } else {
-                                palette.ink_3
-                            })
-                            .child(required_label),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(10.0))
-                            .text_color(mastery_color(palette, mastery))
-                            .child(translate(language, mastery_key(mastery))),
-                    )
-                    .on_click(move |_, _, cx| {
-                        let _ = root_for_click.update(cx, |this, cx| {
-                            this.selected_objective
-                                .insert(scope_for_click.clone(), id_for_click.clone());
-                            cx.notify();
-                        });
-                    })
-                    .into_any_element(),
-            );
+            let description = objective
+                .activity
+                .clone()
+                .filter(|text| !text.trim().is_empty());
+            let row = div()
+                .id(SharedString::from(format!(
+                    "issue-objective-row-{objective_key}"
+                )))
+                .test_support()
+                .flex()
+                .flex_col()
+                .gap(px(4.0))
+                .px(space(2))
+                .py(px(8.0))
+                .rounded(px(RADIUS_MEDIUM))
+                .border_1()
+                .border_color(if selected {
+                    palette.accent
+                } else {
+                    palette.line
+                })
+                .bg(if selected { palette.soft } else { palette.card })
+                .hover(|style| style.bg(palette.soft))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(8.0))
+                        .child(
+                            div()
+                                .flex_none()
+                                .size(px(12.0))
+                                .rounded_full()
+                                .border_1()
+                                .border_color(if selected {
+                                    palette.accent
+                                } else {
+                                    palette.line
+                                })
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .children(selected.then(|| {
+                                    div().size(px(6.0)).rounded_full().bg(palette.accent)
+                                })),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(px(0.0))
+                                .text_size(px(13.0))
+                                .text_color(palette.ink)
+                                .child(
+                                    objective
+                                        .title
+                                        .clone()
+                                        .unwrap_or_else(|| "Objective".to_string()),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(10.0))
+                                .text_color(if objective.required {
+                                    palette.accent_strong
+                                } else {
+                                    palette.ink_3
+                                })
+                                .child(required_label),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(10.0))
+                                .text_color(mastery_color(palette, mastery))
+                                .child(translate(language, mastery_key(mastery))),
+                        ),
+                )
+                .children(description.map(|text| {
+                    div()
+                        .id(SharedString::from(format!(
+                            "issue-objective-description-{objective_key}"
+                        )))
+                        .test_support()
+                        .pl(px(20.0))
+                        .text_size(px(11.0))
+                        .text_color(palette.ink_3)
+                        .child(text)
+                }))
+                .on_click(move |_, _, cx| {
+                    let _ = root_for_click.update(cx, |this, cx| {
+                        this.selected_objective
+                            .insert(scope_for_click.clone(), id_for_click.clone());
+                        cx.notify();
+                    });
+                });
+            rows.push(row.into_any_element());
         }
         children.push(
             div()
@@ -331,27 +394,56 @@ pub(in crate::root_view) fn render_issue_card(
                 .test_support()
                 .flex()
                 .flex_col()
-                .gap(px(6.0))
+                .gap(px(8.0))
                 .child(
                     div()
                         .flex()
                         .flex_row()
                         .items_center()
-                        .gap(px(6.0))
+                        .justify_between()
+                        .gap(px(8.0))
                         .child(
-                            Icon::default()
-                                .path(AssetIcon::Target.path())
-                                .text_color(palette.accent_strong)
-                                .small(),
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(px(6.0))
+                                .child(
+                                    Icon::default()
+                                        .path(AssetIcon::Target.path())
+                                        .text_color(palette.accent_strong)
+                                        .small(),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(11.0))
+                                        .text_color(palette.accent_strong)
+                                        .child(translate(language, Key::CoursesLearningPractice)),
+                                )
+                                .children(mode_label.map(|key| {
+                                    div()
+                                        .id("issue-practice-mode")
+                                        .test_support()
+                                        .px(px(6.0))
+                                        .py(px(2.0))
+                                        .rounded_full()
+                                        .border_1()
+                                        .border_color(palette.accent)
+                                        .text_size(px(9.0))
+                                        .text_color(palette.accent)
+                                        .child(translate(language, key))
+                                })),
                         )
                         .child(
                             div()
-                                .text_size(px(11.0))
-                                .text_color(palette.accent_strong)
-                                .child(translate(language, Key::CoursesLearningPractice)),
+                                .id("issue-practice-mastered")
+                                .test_support()
+                                .text_size(px(10.0))
+                                .text_color(palette.ink_3)
+                                .child(practice_count),
                         ),
                 )
-                .child(div().flex().flex_col().gap(px(2.0)).children(rows))
+                .child(div().flex().flex_col().gap(px(4.0)).children(rows))
                 .into_any_element(),
         );
     }
@@ -371,26 +463,12 @@ pub(in crate::root_view) fn render_issue_card(
             .unwrap_or("unassessed");
 
         let mut card = Vec::new();
-        if let Some(label) = match issue.kind.as_deref() {
-            Some("thoughtwork") => Some(Key::CoursesLearningBySpeaking),
-            Some("handwork") => Some(Key::CoursesLearningByDoing),
-            _ => None,
-        } {
-            card.push(
-                div()
-                    .text_size(px(10.0))
-                    .text_color(palette.accent_strong)
-                    .child(translate(language, label))
-                    .into_any_element(),
-            );
-        }
         card.push(
             div()
                 .flex()
                 .flex_row()
                 .items_center()
                 .gap(px(8.0))
-                .child(div().size(px(7.0)).rounded_full().bg(palette.accent))
                 .child(
                     div()
                         .flex_1()
@@ -416,6 +494,120 @@ pub(in crate::root_view) fn render_issue_card(
                 )
                 .into_any_element(),
         );
+
+        if let Some(assessment) = objective
+            .assessment
+            .clone()
+            .filter(|text| !text.trim().is_empty())
+        {
+            card.push(
+                div()
+                    .id(SharedString::from(format!(
+                        "issue-card-assessment-{objective_key}"
+                    )))
+                    .test_support()
+                    .flex()
+                    .flex_row()
+                    .items_start()
+                    .gap(px(8.0))
+                    .text_size(px(13.0))
+                    .text_color(palette.ink_2)
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_size(px(10.0))
+                            .text_color(palette.accent_strong)
+                            .child(translate(language, Key::CoursesLearningAnswerPrompt)),
+                    )
+                    .child(div().flex_1().min_w(px(0.0)).child(SelectableText::new(
+                        SharedString::from(format!(
+                            "issue-assessment-{course_id}-{issue_id}-{}",
+                            objective.id.as_deref().unwrap_or("objective")
+                        )),
+                        assessment,
+                    )))
+                    .into_any_element(),
+            );
+        }
+
+        if !objective.materials.is_empty() {
+            let key = format!("{objective_scope}:{objective_key}:materials");
+            let expanded = ctx.expanded_objective_materials.contains(&key);
+            let root = cx.entity().downgrade();
+            let key_for_click = key.clone();
+            let material_elements = if expanded {
+                objective
+                    .materials
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, material)| {
+                        media::material_element(ctx, material, index, language, palette, cx)
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+            let content = if expanded {
+                div()
+                    .id(SharedString::from(format!(
+                        "issue-objective-material-content-{objective_key}"
+                    )))
+                    .test_support()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.0))
+                    .children(material_elements)
+                    .into_any_element()
+            } else {
+                div().into_any_element()
+            };
+            card.push(
+                div()
+                    .id(SharedString::from(format!(
+                        "issue-objective-materials-{objective_key}"
+                    )))
+                    .test_support()
+                    .pt(px(4.0))
+                    .child(
+                        div()
+                            .id(SharedString::from(format!(
+                                "issue-objective-materials-toggle-{objective_key}"
+                            )))
+                            .test_support()
+                            .role(Role::Button)
+                            .aria_label(translate(language, Key::CoursesLearningObjectiveMaterials))
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(6.0))
+                            .py(px(2.0))
+                            .text_size(px(11.0))
+                            .text_color(palette.accent_strong)
+                            .child(if expanded { "▾" } else { "▸" })
+                            .child(format!(
+                                "{} ({})",
+                                translate(language, Key::CoursesLearningObjectiveMaterials),
+                                objective.materials.len()
+                            ))
+                            .on_click(move |_, _, cx| {
+                                let _ = root.update(cx, |this, cx| {
+                                    if !this.expanded_objective_materials.remove(&key_for_click) {
+                                        this.expanded_objective_materials
+                                            .insert(key_for_click.clone());
+                                    }
+                                    cx.notify();
+                                });
+                            }),
+                    )
+                    .child(
+                        Collapsible::new()
+                            .open(expanded)
+                            .motion_id(key.clone())
+                            .content(content),
+                    )
+                    .into_any_element(),
+            );
+        }
 
         let actions = effective_agent_actions(issue, objective, language);
         if !actions.is_empty() {
@@ -471,59 +663,41 @@ pub(in crate::root_view) fn render_issue_card(
             );
         }
 
-        if let Some(assessment) = objective
-            .assessment
-            .clone()
-            .filter(|text| !text.trim().is_empty())
-        {
-            card.push(
-                div()
-                    .id(SharedString::from(format!(
-                        "issue-card-assessment-{objective_key}"
-                    )))
-                    .test_support()
-                    .flex()
-                    .flex_row()
-                    .items_start()
-                    .gap(px(8.0))
-                    .text_size(px(13.0))
-                    .text_color(palette.ink_2)
-                    .child(
-                        div()
-                            .flex_none()
-                            .text_size(px(10.0))
-                            .text_color(palette.accent_strong)
-                            .child(translate(language, Key::CoursesLearningAssessment)),
-                    )
-                    .child(div().flex_1().min_w(px(0.0)).child(SelectableText::new(
-                        SharedString::from(format!(
-                            "issue-assessment-{course_id}-{issue_id}-{}",
-                            objective.id.as_deref().unwrap_or("objective")
-                        )),
-                        assessment,
-                    )))
-                    .into_any_element(),
-            );
-        }
-
         if !objective.rubric.is_empty() {
-            let mut rubric = Vec::with_capacity(objective.rubric.len() + 1);
-            rubric.push(
+            let key = format!("{objective_scope}:{objective_key}:rubric");
+            let expanded = ctx.expanded_objective_rubric.contains(&key);
+            let root = cx.entity().downgrade();
+            let key_for_click = key.clone();
+            let rubric = if expanded {
+                objective
+                    .rubric
+                    .iter()
+                    .enumerate()
+                    .map(|(index, item)| {
+                        div()
+                            .id(SharedString::from(format!(
+                                "issue-objective-rubric-item-{objective_key}-{index}"
+                            )))
+                            .test_support()
+                            .text_size(px(12.0))
+                            .text_color(palette.ink_3)
+                            .child(format!("✓ {}", item.text))
+                            .into_any_element()
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+            let content = if expanded {
                 div()
-                    .text_size(px(10.0))
-                    .text_color(palette.accent_strong)
-                    .child(translate(language, Key::CoursesLearningRubric))
-                    .into_any_element(),
-            );
-            for item in &objective.rubric {
-                rubric.push(
-                    div()
-                        .text_size(px(12.0))
-                        .text_color(palette.ink_3)
-                        .child(format!("✓ {}", item.text))
-                        .into_any_element(),
-                );
-            }
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.0))
+                    .pt(px(4.0))
+                    .children(rubric)
+            } else {
+                div()
+            };
             card.push(
                 div()
                     .id(SharedString::from(format!(
@@ -537,37 +711,40 @@ pub(in crate::root_view) fn render_issue_card(
                     .flex()
                     .flex_col()
                     .gap(px(4.0))
-                    .children(rubric)
+                    .child(
+                        div()
+                            .id(SharedString::from(format!(
+                                "issue-objective-rubric-toggle-{objective_key}"
+                            )))
+                            .test_support()
+                            .role(Role::Button)
+                            .aria_label(translate(language, Key::CoursesLearningRubricToggle))
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(6.0))
+                            .text_size(px(11.0))
+                            .text_color(palette.accent_strong)
+                            .child(if expanded { "▾" } else { "▸" })
+                            .child(translate(language, Key::CoursesLearningRubricToggle))
+                            .on_click(move |_, _, cx| {
+                                let _ = root.update(cx, |this, cx| {
+                                    if !this.expanded_objective_rubric.remove(&key_for_click) {
+                                        this.expanded_objective_rubric
+                                            .insert(key_for_click.clone());
+                                    }
+                                    cx.notify();
+                                });
+                            }),
+                    )
+                    .child(
+                        Collapsible::new()
+                            .open(expanded)
+                            .motion_id(key.clone())
+                            .content(content),
+                    )
                     .into_any_element(),
             );
-        }
-
-        if let Some(activity) = objective
-            .activity
-            .clone()
-            .filter(|text| !text.trim().is_empty())
-        {
-            card.push(
-                div()
-                    .text_size(px(13.0))
-                    .text_color(palette.ink_3)
-                    .child(SelectableText::new(
-                        SharedString::from(format!(
-                            "issue-activity-{course_id}-{issue_id}-{}",
-                            objective.id.as_deref().unwrap_or("objective")
-                        )),
-                        activity,
-                    ))
-                    .into_any_element(),
-            );
-        }
-
-        for (material_index, material) in objective.materials.iter().enumerate() {
-            if let Some(element) =
-                media::material_element(ctx, material, material_index, language, palette, cx)
-            {
-                card.push(element);
-            }
         }
 
         children.push(

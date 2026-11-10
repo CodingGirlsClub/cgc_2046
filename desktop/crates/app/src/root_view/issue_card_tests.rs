@@ -348,6 +348,73 @@ fn issue_card_cta_does_not_flip_native_mode_when_initializing(cx: &mut TestAppCo
 }
 
 #[gpui_kit::test]
+fn issue_card_practice_uses_prototype_hierarchy(cx: &mut TestAppContext) {
+    let (handle, root) = issue_card_window(cx);
+    root.update(cx, |root, _| {
+        root.courses = CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        let mut content = card_content();
+        let objective = &mut content.document.issues[0].objectives[0];
+        objective.materials.push(TypedMaterial {
+            id: Some("obj-mat-1".into()),
+            kind: MaterialKind::Text,
+            title: Some("任务材料".into()),
+            body: Some("任务材料正文".into()),
+            url: None,
+            alt_text: None,
+            caption: None,
+            provider: None,
+            external_id: None,
+        });
+        root.content.adopt(content);
+        root.projection = LearningProjectionService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        root.projection.adopt(projection());
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("issue-practice-mastered").is_some());
+        assert!(window.try_find("issue-practice-mode").is_some());
+        assert!(window
+            .try_find("issue-objective-description-obj-1")
+            .is_some());
+        assert!(window.try_find("issue-card-assessment-obj-1").is_some());
+
+        assert!(window.try_find("issue-objective-materials-obj-1").is_some());
+        assert!(window
+            .try_find("issue-objective-materials-toggle-obj-1")
+            .is_some());
+        assert!(window
+            .find_all("issue-objective-material-content-obj-1")
+            .is_empty());
+        window.click("issue-objective-materials-toggle-obj-1", cx);
+        assert!(!root.read(cx).expanded_objective_materials.is_empty());
+        window.render_frame(cx);
+        assert!(!window
+            .find_all("issue-objective-material-content-obj-1")
+            .is_empty());
+
+        assert!(window
+            .find_all("issue-objective-rubric-item-obj-1-0")
+            .is_empty());
+        let revision = root
+            .read(cx)
+            .content
+            .content()
+            .and_then(|content| content.revision_number)
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unversioned".into());
+        root.update(cx, |root, _| {
+            root.expanded_objective_rubric
+                .insert(format!("crs-000:{revision}:issue-1:obj-1:rubric"));
+        });
+        window.render_frame(cx);
+        assert!(!window
+            .find_all("issue-objective-rubric-item-obj-1-0")
+            .is_empty());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
 fn issue_card_user_story_falls_back_to_goal_only(cx: &mut TestAppContext) {
     let (handle, root) = issue_card_window(cx);
     root.update(cx, |root, _| {

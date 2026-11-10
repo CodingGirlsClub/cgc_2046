@@ -248,6 +248,9 @@ pub struct ShellState {
     pub(in crate::root_view) expanded_material: BTreeMap<String, String>,
     /// 每个 Issue 当前选中的 objective；按 issue scope 记忆，跨 tab 保留。
     pub(in crate::root_view) selected_objective: BTreeMap<String, String>,
+    /// 选中的 objective 的 rubric / 任务材料折叠状态。
+    pub(in crate::root_view) expanded_objective_rubric: BTreeSet<String>,
+    pub(in crate::root_view) expanded_objective_materials: BTreeSet<String>,
     /// 点击后等待图片下载完成再打开 Viewer：URL → 窗口标题。
     pub(in crate::root_view) pending_image_opens: BTreeMap<String, String>,
     pub(in crate::root_view) key_focus: Option<FocusHandle>,
@@ -457,6 +460,8 @@ impl ShellState {
             completed_materials: BTreeSet::new(),
             expanded_material: BTreeMap::new(),
             selected_objective: BTreeMap::new(),
+            expanded_objective_rubric: BTreeSet::new(),
+            expanded_objective_materials: BTreeSet::new(),
             pending_image_opens: BTreeMap::new(),
             key_focus: None,
             key_interceptor: None,
