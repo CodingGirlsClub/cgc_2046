@@ -81,33 +81,56 @@ impl RootView {
                 AgentCallSurface::Acp,
                 crate::agent_call::DeliveryDecision::Compose { call, prompt },
             ) => {
-                self.chat.pending_agent_call = Some(crate::agent_call::PendingAgentCall::new(
-                    call,
-                    label,
-                    prompt.clone(),
-                ));
-                // set_value replaces the composer content, including the auto page
-                // token. Reset the composer context so the next render re-attaches
-                // the active page context before the CTA prompt is sent.
-                self.chat.composer_context.reset();
-                self.chat.input = prompt.clone();
-                if let Some(input) = self.chat_input.clone() {
-                    input.update(cx, |input, cx| {
-                        input.set_value(prompt, window, cx);
-                        input.focus(window, cx);
-                    });
-                }
-                cx.notify();
+                self.prefill_chat_agent_call(call, label, prompt, window, cx);
             }
             (
                 AgentCallSurface::Acp,
                 crate::agent_call::DeliveryDecision::Send { call, prompt, .. },
             ) => {
-                if !self.send_chat_agent_call(call, prompt, cx) {
-                    self.show_auto_send_failed_notice(cx);
+                if !self.send_chat_agent_call(call.clone(), prompt.clone(), cx) {
+                    // Agent 忙碌或未就绪：退化为预填（FillOnly 行为），动作
+                    // 保留为 pending chip 由用户空闲后确认发送；ACP 轨没有
+                    // 队列泵，不自动排队。
+                    self.prefill_chat_agent_call(call, label, prompt, window, cx);
+                    self.show_auto_send_busy_notice(cx);
                 }
             }
         }
+    }
+
+    /// CTA 预填：pending chip + 覆盖输入框（含 auto page token 的 composer
+    /// context 重置）。Compose 分支与 AutoSend 忙碌退化共用。
+    fn prefill_chat_agent_call(
+        &mut self,
+        call: crate::agent_call::AgentCall,
+        label: String,
+        prompt: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.chat.pending_agent_call = Some(crate::agent_call::PendingAgentCall::new(
+            call,
+            label,
+            prompt.clone(),
+        ));
+        // set_value replaces the composer content, including the auto page
+        // token. Reset the composer context so the next render re-attaches
+        // the active page context before the CTA prompt is sent.
+        self.chat.composer_context.reset();
+        self.chat.input = prompt.clone();
+        if let Some(input) = self.chat_input.clone() {
+            input.update(cx, |input, cx| {
+                input.set_value(prompt, window, cx);
+                input.focus(window, cx);
+            });
+        }
+        cx.notify();
+    }
+
+    fn show_auto_send_busy_notice(&mut self, cx: &mut Context<Self>) {
+        self.pane_notice =
+            Some(translate(self.language, Key::CoursesLearningAutoSendBusy).to_string());
+        cx.notify();
     }
 
     fn show_auto_send_failed_notice(&mut self, cx: &mut Context<Self>) {

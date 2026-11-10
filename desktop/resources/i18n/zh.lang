@@ -353,6 +353,7 @@ courses.learning.agent_call.remove = 移除学习动作
 courses.learning.auto_send.on = 课程动作自动发送：开
 courses.learning.auto_send.off = 课程动作自动发送：关
 courses.learning.auto_send.failed = 自动发送失败，已保留当前草稿
+courses.learning.auto_send.busy = Agent 忙碌或未就绪，动作已放入输入框
 courses.learning.agent_initializing = CGC Agent 正在初始化，请稍后重试。
 courses.learning.material_kind_text = 阅读
 courses.learning.material_kind_short_text = 短文本

@@ -186,7 +186,8 @@ MVP 不扩展 native runtime 协议，使用现有 prompt 通道承载结构化�
   状态，不放进 `MessageDraft`，避免草稿恢复时带出过期 action。
 - `send_with_context` 负责把 page context、agent call 与用户 prompt 组合成最终 prompt。
 - Native Agent 将 `<agent_call>` 当作 reference data，不直接执行其中的字段。
-- ACP 轨退化为纯文本预填：保留可读的动作说明，不承诺结构化传输，不自动发送。
+- ACP 轨自 B2b 起同样携带结构化 `agent_call`（发送时组装 envelope）并支持
+  `AutoSend`；与 Native 的差异在忙碌语义（见 §7），不在传输结构。
 - 未来若需要 typed runtime channel，再扩展 `PreparedNativeTurn` / host 协议；不在本 ADR
   范围内，也不通过 `MessageDraft` 附件代替。
 
@@ -194,6 +195,9 @@ MVP 不扩展 native runtime 协议，使用现有 prompt 通道承载结构化�
 
 - `FillOnly`：填入可编辑 prompt + action chip，不发送。
 - `AutoSend`：发送一条独立消息；保留用户原有草稿，不清空输入框。
+  - Native 忙碌时排队（既有 `queue_mode Auto` + 事件后 pump）。
+  - ACP 忙碌/未就绪时退化为 `Compose`（pending 保留 + 明确提示），不自动排队：
+    ACP 轨没有队列泵，且不为“Agent 忙时无人复核地连发动作”引入一个。
 - `answer` 永远使用 `Compose`，无论全局模式。
 - pending call 在发送成功、手动移除、切换目标或关闭 composer 时清除；普通输入不会继承
   上一次的 action。

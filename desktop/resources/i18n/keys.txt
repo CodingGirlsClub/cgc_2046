@@ -354,6 +354,7 @@ courses.learning.agent_call.remove
 courses.learning.auto_send.on
 courses.learning.auto_send.off
 courses.learning.auto_send.failed
+courses.learning.auto_send.busy
 courses.learning.agent_initializing
 courses.learning.material_kind_text
 courses.learning.material_kind_short_text

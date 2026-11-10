@@ -9,6 +9,7 @@ use gpui_kit::{
     div, px, size, AppContext, Bounds, Context, Entity, InteractiveElement, IntoElement,
     ParentElement, Render, Styled, TestAppContext, Window, WindowBounds, WindowOptions,
 };
+use std::sync::{Arc, Mutex};
 
 struct AcpComposerProbe {
     root: Entity<RootView>,
@@ -355,13 +356,15 @@ fn new_chat_button_has_a_localized_name_in_both_agent_modes(cx: &mut TestAppCont
     }
 }
 
-/// AutoSend 回归：ACP 侧 `send_chat_agent_call` 也必须先 `freeze_page` 再构造
-/// Submission。若未来把 context 改回 `None`，`PageContextState::refresh` 会原样
-/// 返回裸 prompt，MCP 丢失 workspace/course 标识（此前线上症状）；此测试断言
-/// in-process ACP host 收到的最终 prompt 仍带 workspace_id 与页面正文。
-#[gpui_kit::test]
-fn acp_auto_send_sends_page_context(cx: &mut TestAppContext) {
-    use crate::agent_call::{AgentCall, LearningTarget};
+/// 共用宿主：in-process ACP host 捕获 PromptRequest；窗口挂在
+/// `/w/alpha/courses/crs-000/learn`，page context 由路由刷新生成。
+fn open_acp_auto_send_window(
+    cx: &mut TestAppContext,
+) -> (
+    gpui_kit::AnyWindowHandle,
+    Entity<AcpComposerProbe>,
+    Arc<Mutex<Vec<String>>>,
+) {
     use crate::root_view::state::PaneTab;
     use agent_client_protocol::schema::v1::{
         AgentCapabilities, ContentBlock, InitializeRequest, InitializeResponse, NewSessionRequest,
@@ -369,13 +372,10 @@ fn acp_auto_send_sends_page_context(cx: &mut TestAppContext) {
     };
     use agent_client_protocol::{on_receive_request, Agent};
     use cgc_courses::catalog::{CoursesApi, FakeCoursesApi};
-    use cgc_courses::content::{AgentActionSpec, AgentIntent};
     use cgc_platform::acp::connection::{AcpHost, AcpHostConfig};
     use cgc_platform::workspace::WorkspaceSummary;
-    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
-    cx.update(gpui_kit::init);
     let captured = Arc::new(Mutex::new(Vec::<String>::new()));
     let received = captured.clone();
     let (handle, probe) = cx.update(|cx| {
@@ -480,6 +480,21 @@ fn acp_auto_send_sends_page_context(cx: &mut TestAppContext) {
         )
         .unwrap()
     });
+    (handle, probe, captured)
+}
+
+/// AutoSend 回归：ACP 侧 `send_chat_agent_call` 也必须先 `freeze_page` 再构造
+/// Submission。若未来把 context 改回 `None`，`PageContextState::refresh` 会原样
+/// 返回裸 prompt，MCP 丢失 workspace/course 标识（此前线上症状）；此测试断言
+/// in-process ACP host 收到的最终 prompt 仍带 workspace_id 与页面正文。
+#[gpui_kit::test]
+fn acp_auto_send_sends_page_context(cx: &mut TestAppContext) {
+    use crate::agent_call::{AgentCall, LearningTarget};
+    use cgc_courses::content::{AgentActionSpec, AgentIntent};
+    use std::time::{Duration, Instant};
+
+    cx.update(gpui_kit::init);
+    let (handle, probe, captured) = open_acp_auto_send_window(cx);
     cx.update_window(handle, |_, window, cx| {
         let root = probe.read(cx).root.clone();
         root.update(cx, |root, cx| {
@@ -533,4 +548,99 @@ fn acp_auto_send_sends_page_context(cx: &mut TestAppContext) {
         prompt.contains("的课程正文"),
         "auto-send prompt lost the fake course body text: {prompt}"
     );
+}
+
+/// AutoSend 在 Agent 忙碌/未就绪时退化为预填（FillOnly 行为）：动作保留为
+/// pending chip，不自动发送，由用户空闲后确认。ACP 轨没有队列泵，不为该
+/// 场景引入排队（见 ADR-0029 §7）。
+#[gpui_kit::test]
+fn acp_auto_send_busy_falls_back_to_pending(cx: &mut TestAppContext) {
+    use crate::agent_call::{AgentCall, DeliveryMode, LearningTarget};
+    use cgc_courses::content::{AgentActionSpec, AgentIntent};
+    use std::time::{Duration, Instant};
+
+    cx.update(gpui_kit::init);
+    // 隔离 preferences 文件：本测试要显式开 AutoSend，不读写开发者真实配置。
+    let directory =
+        std::env::temp_dir().join(format!("cgc-acp-auto-send-busy-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&directory).expect("isolated data directory");
+    let previous_data_dir = std::env::var_os("CGC_DATA_DIR");
+    std::env::set_var("CGC_DATA_DIR", &directory);
+    crate::preferences::update(|prefs| {
+        prefs.course_action_delivery = DeliveryMode::AutoSend;
+    });
+
+    let (handle, probe, captured) = open_acp_auto_send_window(cx);
+    // 先发一条普通消息让 session 进入 busy；不 drain TurnEnd，保持忙碌。
+    cx.update_window(handle, |_, _window, cx| {
+        let root = probe.read(cx).root.clone();
+        root.update(cx, |root, cx| {
+            assert!(root.send_chat_text("first question".into(), cx));
+            assert!(root.chat.session.is_busy(), "session must be busy");
+        });
+    })
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        cx.run_until_parked();
+        if !captured.lock().unwrap().is_empty() {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "first prompt did not reach the acp host"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    cx.update_window(handle, |_, window, cx| {
+        let root = probe.read(cx).root.clone();
+        root.update(cx, |root, cx| {
+            let call = AgentCall::from_action(
+                &AgentActionSpec {
+                    id: "a-hint".into(),
+                    label: "Hint".into(),
+                    intent: AgentIntent::Hint,
+                    primary: false,
+                },
+                LearningTarget::Objective {
+                    course_id: "crs-000".into(),
+                    revision: None,
+                    issue_id: "issue-1".into(),
+                    objective_id: "obj-1".into(),
+                },
+            );
+            root.apply_agent_call(call, "automatic hint".into(), "Hint".into(), window, cx);
+        });
+        window.render_frame(cx);
+        // 退化：pending 保留、prompt 预填、给出明确提示；不自动发送。
+        assert!(
+            root.read(cx).chat.pending_agent_call.is_some(),
+            "busy auto-send must fall back to a pending action"
+        );
+        let input = root.read(cx).chat_input.clone().expect("chat input");
+        assert_eq!(input.read(cx).value(), "automatic hint");
+        let notice = root
+            .read(cx)
+            .pane_notice
+            .clone()
+            .expect("busy fallback must surface a notice");
+        assert!(
+            notice.contains("busy"),
+            "notice must explain the fallback: {notice}"
+        );
+    })
+    .unwrap();
+    cx.run_until_parked();
+    assert_eq!(
+        captured.lock().unwrap().len(),
+        1,
+        "busy auto-send must not send automatically"
+    );
+
+    match previous_data_dir {
+        Some(value) => std::env::set_var("CGC_DATA_DIR", value),
+        None => std::env::remove_var("CGC_DATA_DIR"),
+    }
+    let _ = std::fs::remove_dir_all(&directory);
 }

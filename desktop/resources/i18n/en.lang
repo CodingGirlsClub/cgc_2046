@@ -353,6 +353,7 @@ courses.learning.agent_call.remove = Remove learning action
 courses.learning.auto_send.on = Course actions auto-send: on
 courses.learning.auto_send.off = Course actions auto-send: off
 courses.learning.auto_send.failed = Auto-send failed; your draft was kept
+courses.learning.auto_send.busy = Agent busy or not ready; the action is waiting in the composer
 courses.learning.agent_initializing = CGC Agent is still initializing; try again shortly.
 courses.learning.material_kind_text = Reading
 courses.learning.material_kind_short_text = Short text
