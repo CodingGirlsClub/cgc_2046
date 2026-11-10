@@ -27,6 +27,10 @@ mod enrollment_tests;
 mod site_tree_tests;
 
 #[cfg(all(test, cgc_ui_tests))]
+#[path = "issue_card_tests.rs"]
+mod issue_card_tests;
+
+#[cfg(all(test, cgc_ui_tests))]
 #[path = "offering_workspace_tests.rs"]
 mod offering_workspace_tests;
 

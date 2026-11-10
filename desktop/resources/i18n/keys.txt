@@ -304,6 +304,17 @@ nav.group.mine
 nav.group.community
 workspace.outline.title
 courses.learning.ungrouped
+courses.learning.chapter_kicker
+courses.learning.chapter_fallback
+courses.learning.unit_meta
+courses.learning.kind.thoughtwork
+courses.learning.kind.handwork
+courses.learning.assessment
+courses.learning.rubric
+courses.learning.mastery.unassessed
+courses.learning.mastery.developing
+courses.learning.mastery.mastered
+courses.learning.mastery.needs_review
 agent.registry.title
 agent.registry.subtitle
 agent.registry.install
