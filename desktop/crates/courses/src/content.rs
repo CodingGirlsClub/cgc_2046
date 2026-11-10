@@ -57,6 +57,10 @@ pub struct CourseIssue {
     pub kind: Option<String>,
     pub chapter_id: Option<String>,
     pub goal: Option<String>,
+    /// User story 的「作为」角色；旧内容缺失时为 None。
+    pub as_a: Option<String>,
+    /// User story 的「前提」列表；旧内容缺失时为空。
+    pub given: Vec<String>,
     pub checklist: Vec<CourseChecklistItem>,
     pub objectives: Vec<CourseObjective>,
     pub story_materials: Vec<TypedMaterial>,
@@ -159,8 +163,8 @@ fn parse_chapter(value: &Value) -> Option<CourseChapter> {
 
 fn parse_issue(value: &Value) -> Option<CourseIssue> {
     value.as_object()?;
-    let story_materials = value
-        .get("story")
+    let story = value.get("story");
+    let story_materials = story
         .and_then(|story| story.get("materials"))
         .and_then(Value::as_array)
         .map(|materials| materials.iter().filter_map(parse_material).collect())
@@ -179,11 +183,27 @@ fn parse_issue(value: &Value) -> Option<CourseIssue> {
         .iter()
         .flat_map(|objective| objective.materials.iter().cloned())
         .collect();
-    let checklist = value
-        .get("story")
+    let checklist = story
         .and_then(|story| story.get("checklist"))
         .and_then(Value::as_array)
         .map(|items| items.iter().filter_map(parse_checklist_item).collect())
+        .unwrap_or_default();
+    let as_a = story
+        .and_then(|story| story.get("as_a"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .filter(|value| !value.trim().is_empty());
+    let given = story
+        .and_then(|story| story.get("given"))
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .filter(|value| !value.trim().is_empty())
+                .collect()
+        })
         .unwrap_or_default();
 
     Some(CourseIssue {
@@ -191,11 +211,13 @@ fn parse_issue(value: &Value) -> Option<CourseIssue> {
         title: string_field(value, "title"),
         kind: string_field(value, "kind"),
         chapter_id: string_field(value, "chapter_id"),
-        goal: value
-            .get("story")
+        goal: story
             .and_then(|story| story.get("goal"))
             .and_then(Value::as_str)
-            .map(str::to_string),
+            .map(str::to_string)
+            .filter(|value| !value.trim().is_empty()),
+        as_a,
+        given,
         checklist,
         objectives,
         story_materials,
@@ -473,6 +495,8 @@ mod tests {
                 "kind": "handwork",
                 "chapter_id": "ch-1",
                 "story": {
+                    "as_a": "刚装好 Rust 的学员",
+                    "given": ["读完第一章", "能打开终端"],
                     "goal": "跑起来",
                     "checklist": [{"id": "check-1", "text": "完成第一次运行"}],
                     "materials": [
@@ -577,6 +601,11 @@ mod tests {
         assert_eq!(issue.kind.as_deref(), Some("handwork"));
         assert_eq!(issue.chapter_id.as_deref(), Some("ch-1"));
         assert_eq!(issue.goal.as_deref(), Some("跑起来"));
+        assert_eq!(issue.as_a.as_deref(), Some("刚装好 Rust 的学员"));
+        assert_eq!(
+            issue.given,
+            vec!["读完第一章".to_string(), "能打开终端".to_string()]
+        );
         assert_eq!(issue.checklist[0].id.as_deref(), Some("check-1"));
         assert_eq!(issue.checklist[0].text, "完成第一次运行");
         assert_eq!(issue.objectives[0].id.as_deref(), Some("obj-1"));
@@ -614,6 +643,29 @@ mod tests {
             Some("先安装工具链")
         );
         assert!(!document.is_empty());
+    }
+
+    #[test]
+    fn parse_course_content_tolerates_missing_user_story_fields() {
+        let raw = r#"{"issues":[{"id":"issue-1","story":{"goal":"只写 goal"}}]}"#;
+        let document = parse_course_content(raw);
+        let issue = &document.issues[0];
+
+        assert_eq!(issue.goal.as_deref(), Some("只写 goal"));
+        assert_eq!(issue.as_a, None);
+        assert!(issue.given.is_empty());
+    }
+
+    #[test]
+    fn parse_course_content_drops_blank_user_story_fields() {
+        let raw =
+            r#"{"issues":[{"id":"issue-1","story":{"as_a":"  ","given":["","  "],"goal":"  "}}]}"#;
+        let document = parse_course_content(raw);
+        let issue = &document.issues[0];
+
+        assert_eq!(issue.as_a, None);
+        assert!(issue.given.is_empty());
+        assert_eq!(issue.goal, None);
     }
 
     #[test]

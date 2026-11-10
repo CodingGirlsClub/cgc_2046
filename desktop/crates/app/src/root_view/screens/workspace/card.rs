@@ -1,13 +1,15 @@
 //! 单个 issue 卡的 Pane 内容：由 Outline/Site Tree 打开 Tab 后渲染。
 //!
-//! 信息层级对齐 web 阅读器：章节 kicker → 单元类型 → 标题 → goal →
-//! story materials → objective 卡（掌握态、验收、rubric、activity、材料）。
+//! 信息层级对齐 web 阅读器：章节 kicker → 单元类型 → 标题 →
+//! user story（作为/前提/我能）→ story materials → objective 卡
+//! （掌握态、验收、rubric、activity、材料）。
 //! checklist 只服务 agent 上下文，不进入阅读器正文。
 
 use super::super::super::*;
 use super::super::ScreenContext;
 use super::media;
 use gpui_kit::base::SelectableText;
+use gpui_kit::component::description_list::{DescriptionItem, DescriptionList};
 
 pub(in crate::root_view) fn render_issue_card(
     ctx: &mut ScreenContext<'_>,
@@ -97,15 +99,94 @@ pub(in crate::root_view) fn render_issue_card(
             )
             .into_any_element(),
     );
-    if let Some(goal) = issue.goal.clone() {
+    let story_as = issue
+        .as_a
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+    let story_given = issue
+        .given
+        .iter()
+        .filter(|value| !value.trim().is_empty())
+        .cloned()
+        .collect::<Vec<_>>();
+    let story_goal = issue
+        .goal
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+    if story_as.is_some() || !story_given.is_empty() || story_goal.is_some() {
+        let story_label = |key: Key| {
+            div()
+                .text_size(px(11.0))
+                .text_color(palette.accent)
+                .child(translate(language, key))
+                .into_any_element()
+        };
+        let story_value = |id: &str, text: String, color: gpui_kit::Hsla| {
+            div()
+                .id(SharedString::from(id.to_string()))
+                .test_support()
+                .text_size(px(13.0))
+                .text_color(color)
+                .child(SelectableText::new(
+                    SharedString::from(format!("{id}-text")),
+                    text,
+                ))
+                .into_any_element()
+        };
+
+        let mut story = DescriptionList::horizontal()
+            .columns(1)
+            .label_width(px(36.0))
+            .bordered(false)
+            .with_size(gpui_kit::component::Size::Small);
+        if let Some(as_a) = story_as {
+            story =
+                story.child(
+                    DescriptionItem::new(story_label(Key::CoursesLearningStoryAs)).value(
+                        story_value("issue-card-story-as", as_a.to_string(), palette.ink_2),
+                    ),
+                );
+        }
+        if !story_given.is_empty() {
+            story = story.child(
+                DescriptionItem::new(story_label(Key::CoursesLearningStoryGiven)).value(
+                    story_value(
+                        "issue-card-story-given",
+                        story_given.join("、"),
+                        palette.ink_2,
+                    ),
+                ),
+            );
+        }
+        if let Some(goal) = story_goal {
+            story = story.child(
+                DescriptionItem::new(story_label(Key::CoursesLearningStoryGoal)).value(
+                    story_value("issue-card-story-goal", goal.to_string(), palette.ink),
+                ),
+            );
+        }
+
         children.push(
             div()
-                .text_size(px(13.0))
-                .text_color(palette.ink_2)
-                .child(SelectableText::new(
-                    SharedString::from(format!("issue-goal-{course_id}-{issue_id}")),
-                    goal,
-                ))
+                .id("issue-card-user-story")
+                .test_support()
+                .role(Role::Group)
+                .aria_label(translate(language, Key::CoursesLearningUserStory))
+                .flex()
+                .flex_col()
+                .gap(px(4.0))
+                .p(space(2))
+                .rounded(px(RADIUS_MEDIUM))
+                .border_1()
+                .border_color(palette.line)
+                .bg(palette.card)
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(palette.accent_strong)
+                        .child(translate(language, Key::CoursesLearningUserStory)),
+                )
+                .child(div().w_full().child(story))
                 .into_any_element(),
         );
     }

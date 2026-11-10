@@ -349,6 +349,8 @@ fn issue_projection_uses_active_issue_body_and_versions_the_payload() {
 
     let issue = CourseIssue {
         goal: Some("Understand ownership".into()),
+        as_a: Some("学习 Rust 的学员".into()),
+        given: vec!["读完第一章".into()],
         checklist: vec![CourseChecklistItem {
             id: Some("check-1".into()),
             text: "Explain borrowing".into(),
@@ -375,6 +377,9 @@ fn issue_projection_uses_active_issue_body_and_versions_the_payload() {
         panic!("issue with content must have a ready body");
     };
     assert!(body.contains("Understand ownership"));
+    assert!(body.contains("作为：学习 Rust 的学员"));
+    assert!(body.contains("前提：读完第一章"));
+    assert!(body.contains("我能：Understand ownership"));
     assert!(body.contains("Explain borrowing"));
     assert!(body.contains("Ownership"));
     assert!(body.contains("Memory rules"));

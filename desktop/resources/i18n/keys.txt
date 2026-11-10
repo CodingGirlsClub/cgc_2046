@@ -304,6 +304,10 @@ nav.group.mine
 nav.group.community
 workspace.outline.title
 courses.learning.ungrouped
+courses.learning.user_story
+courses.learning.story_as
+courses.learning.story_given
+courses.learning.story_goal
 courses.learning.chapter_kicker
 courses.learning.chapter_fallback
 courses.learning.unit_meta

@@ -86,6 +86,9 @@ fn card_content() -> cgc_courses::content::CourseContent {
         .expect("fake content has one issue");
     issue.chapter_id = Some("ch-1".into());
     issue.kind = Some("thoughtwork".into());
+    issue.goal = Some("理解物理学的研究对象与学科定位".into());
+    issue.as_a = Some("刚接触物理的八年级学员".into());
+    issue.given = vec!["已读完第一章".into()];
     issue.checklist = vec![CourseChecklistItem {
         id: Some("check-1".into()),
         text: "只给 agent 的清单".into(),
@@ -169,12 +172,44 @@ fn issue_card_renders_chapter_kind_assessment_and_rubric(cx: &mut TestAppContext
         );
         assert!(window.try_find("issue-card-kicker").is_some());
         assert!(window.try_find("issue-card-kind").is_some());
+        assert!(window.try_find("issue-card-user-story").is_some());
+        assert!(window.try_find("issue-card-story-as").is_some());
+        assert!(window.try_find("issue-card-story-given").is_some());
+        assert!(window.try_find("issue-card-story-goal").is_some());
         assert!(window.try_find("issue-card-objective-obj-1").is_some());
         assert!(window.try_find("issue-card-assessment-obj-1").is_some());
         assert!(window.try_find("issue-card-rubric-obj-1").is_some());
         assert!(window.try_find("issue-card-mastery-obj-1").is_some());
         assert!(window.try_find("issue-video-2").is_some());
         assert!(window.try_find("issue-image-3").is_some());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn issue_card_user_story_falls_back_to_goal_only(cx: &mut TestAppContext) {
+    let (handle, root) = issue_card_window(cx);
+    root.update(cx, |root, _| {
+        root.courses = CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        let mut content = card_content();
+        let issue = content
+            .document
+            .issues
+            .first_mut()
+            .expect("fake content has one issue");
+        issue.as_a = None;
+        issue.given.clear();
+        issue.goal = Some("只写 goal 的旧内容".into());
+        root.content.adopt(content);
+        root.projection = LearningProjectionService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        root.projection.adopt(projection());
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("issue-card-user-story").is_some());
+        assert!(window.try_find("issue-card-story-goal").is_some());
+        assert!(window.try_find("issue-card-story-as").is_none());
+        assert!(window.try_find("issue-card-story-given").is_none());
     })
     .unwrap();
 }

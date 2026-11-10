@@ -340,8 +340,23 @@ fn push_material(sections: &mut Vec<String>, material: &cgc_courses::content::Ty
 
 fn issue_sections(issue: &cgc_courses::content::CourseIssue) -> Vec<String> {
     let mut sections = Vec::new();
+    let has_story = issue.as_a.is_some() || !issue.given.is_empty();
+    if let Some(as_a) = issue
+        .as_a
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        sections.push(format!("作为：{as_a}"));
+    }
+    if !issue.given.is_empty() {
+        sections.push(format!("前提：{}", issue.given.join("、")));
+    }
     if let Some(goal) = issue.goal.as_deref().filter(|goal| !goal.trim().is_empty()) {
-        sections.push(goal.to_string());
+        sections.push(if has_story {
+            format!("我能：{goal}")
+        } else {
+            goal.to_string()
+        });
     }
     if !issue.checklist.is_empty() {
         sections.push(
@@ -388,7 +403,7 @@ pub(crate) fn project_issue(
         .unwrap_or_else(|| "unversioned".into());
     project_body(
         tab_id,
-        &format!("issue-context-v2\0{revision}"),
+        &format!("issue-context-v3\0{revision}"),
         issue_sections(issue),
     )
 }
