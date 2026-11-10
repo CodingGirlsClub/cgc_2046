@@ -1557,10 +1557,7 @@ fn render_chat_agent_call_chip(
                 .label("×")
                 .xsmall()
                 .ghost()
-                .accessibility_label(translate(
-                    language,
-                    Key::CoursesLearningAgentCallRemove,
-                ))
+                .accessibility_label(translate(language, Key::CoursesLearningAgentCallRemove))
                 .tooltip(translate(language, Key::CoursesLearningAgentCallRemove))
                 .on_click(move |_, _, cx| {
                     let _ = remove_root.update(cx, |this, cx| {
