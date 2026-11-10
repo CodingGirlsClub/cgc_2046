@@ -273,6 +273,44 @@ fn issue_card_switches_selected_objective(cx: &mut TestAppContext) {
     .unwrap();
 }
 
+/// objective 行可聚焦并用 Enter/Space 激活（#40：不能只有鼠标）。
+#[gpui_kit::test]
+fn issue_card_objective_row_activates_with_keyboard(cx: &mut TestAppContext) {
+    let (handle, root) = issue_card_window(cx);
+    root.update(cx, |root, _| {
+        root.courses = CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        root.content.adopt(card_content());
+        root.projection = LearningProjectionService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        root.projection.adopt(projection());
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("issue-objective-row-obj-1").is_some());
+        let focus = root
+            .read(cx)
+            .objective_row_focus
+            .get("crs-000:1:issue-1:obj-1")
+            .cloned()
+            .expect("objective row registers a persistent focus handle");
+        focus.focus(window, cx);
+        window.render_frame(cx);
+        assert!(focus.is_focused(window), "objective row can take focus");
+        window.press("enter", cx);
+        assert_eq!(
+            root.read(cx).selected_objective.get("crs-000:1:issue-1"),
+            Some(&"obj-1".to_string()),
+            "Enter activates the focused objective row"
+        );
+        window.press("space", cx);
+        assert_eq!(
+            root.read(cx).selected_objective.get("crs-000:1:issue-1"),
+            Some(&"obj-1".to_string()),
+            "Space activates the focused objective row"
+        );
+    })
+    .unwrap();
+}
+
 #[gpui_kit::test]
 fn issue_card_cta_dispatches_agent_call_to_composer(cx: &mut TestAppContext) {
     let (handle, root) = issue_card_window(cx);

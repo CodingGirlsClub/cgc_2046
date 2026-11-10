@@ -280,9 +280,11 @@ pub(in crate::root_view) fn render_issue_card(
                     projection.objectives.iter().find(|state| state.id == id)
                 })
             });
+            // owned：后续还要 &mut ctx 取 focus handle，不能让 projection 借用跨过去。
             let mastery = state
-                .map(|state| state.mastery.as_str())
-                .unwrap_or("unassessed");
+                .map(|state| state.mastery.clone())
+                .unwrap_or_else(|| "unassessed".to_string());
+            let mastery = mastery.as_str();
             let scope_for_click = objective_scope.clone();
             let id_for_click = objective_key.to_string();
             let root_for_click = root.clone();
@@ -295,11 +297,26 @@ pub(in crate::root_view) fn render_issue_card(
                 .activity
                 .clone()
                 .filter(|text| !text.trim().is_empty());
+            let row_label = objective
+                .title
+                .clone()
+                .unwrap_or_else(|| objective_key.to_string());
+            // 持久 FocusHandle：track_focus 后 gpui 对 focusable 元素内置
+            // Enter/Space → click（elements/div.rs "Press enter, space to
+            // trigger click, when the element is focused"），无需再挂 on_key_down。
+            let focus_for_row = ctx
+                .objective_row_focus
+                .entry(format!("{objective_scope}:{objective_key}"))
+                .or_insert_with(|| cx.focus_handle())
+                .clone();
             let row = div()
                 .id(SharedString::from(format!(
                     "issue-objective-row-{objective_key}"
                 )))
                 .test_support()
+                .role(Role::Button)
+                .aria_label(row_label)
+                .track_focus(&focus_for_row)
                 .flex()
                 .flex_col()
                 .gap(px(4.0))

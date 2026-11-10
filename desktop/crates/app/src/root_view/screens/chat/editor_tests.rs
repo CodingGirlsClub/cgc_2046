@@ -168,6 +168,11 @@ fn acp_composer_renders_pending_agent_call_chip(cx: &mut TestAppContext) {
         window.render_frame(cx);
         assert!(window.try_find("chat-agent-call-chip").is_some());
         assert!(window.try_find("chat-agent-call-remove").is_some());
+        // 可访问名称必须是语义化的，而不是可见符号 "×"。
+        assert_eq!(
+            window.find("chat-agent-call-remove").label(),
+            Some("Remove learning action")
+        );
 
         window.click("chat-agent-call-remove", cx);
         window.render_frame(cx);

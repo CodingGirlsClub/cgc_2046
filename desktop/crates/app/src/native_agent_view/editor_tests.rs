@@ -317,6 +317,11 @@ fn native_composer_shows_and_removes_pending_agent_call(cx: &mut TestAppContext)
         window.render_frame(cx);
         assert!(window.try_find("native-agent-call-chip").is_some());
         assert!(window.try_find("native-agent-call-remove").is_some());
+        // 可访问名称必须是语义化的，而不是可见符号 "×"。
+        assert_eq!(
+            window.find("native-agent-call-remove").label(),
+            Some("Remove learning action")
+        );
         assert_eq!(
             view.read(cx).input.read(cx).value(),
             "Please ask me a question"

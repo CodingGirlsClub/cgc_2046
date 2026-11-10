@@ -149,6 +149,10 @@ impl NativeAgentView {
                     .label("×")
                     .xsmall()
                     .ghost()
+                    .accessibility_label(translate(
+                        self.language,
+                        Key::CoursesLearningAgentCallRemove,
+                    ))
                     .tooltip(translate(
                         self.language,
                         Key::CoursesLearningAgentCallRemove,

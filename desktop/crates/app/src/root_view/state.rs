@@ -251,6 +251,8 @@ pub struct ShellState {
     /// 选中的 objective 的 rubric / 任务材料折叠状态。
     pub(in crate::root_view) expanded_objective_rubric: BTreeSet<String>,
     pub(in crate::root_view) expanded_objective_materials: BTreeSet<String>,
+    /// objective 行的持久焦点句柄（`track_focus`）：Tab 可聚焦、Enter/Space 激活。
+    pub(in crate::root_view) objective_row_focus: std::collections::HashMap<String, FocusHandle>,
     /// 点击后等待图片下载完成再打开 Viewer：URL → 窗口标题。
     pub(in crate::root_view) pending_image_opens: BTreeMap<String, String>,
     pub(in crate::root_view) key_focus: Option<FocusHandle>,
@@ -462,6 +464,7 @@ impl ShellState {
             selected_objective: BTreeMap::new(),
             expanded_objective_rubric: BTreeSet::new(),
             expanded_objective_materials: BTreeSet::new(),
+            objective_row_focus: std::collections::HashMap::new(),
             pending_image_opens: BTreeMap::new(),
             key_focus: None,
             key_interceptor: None,
