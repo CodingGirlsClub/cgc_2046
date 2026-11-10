@@ -446,18 +446,40 @@ impl PageContextState {
 }
 
 /// 上下文提示文本（确定性，供 native/ACP prompt 前置与单测）。
+///
+/// metadata 行的引号字段:值来自内容(标题/ID),双引号会提前闭合引号、
+/// 换行会伪造新的字段行,统一压平。只影响展示层,`FrozenPageContext`
+/// 里的原始结构不变。
+fn sanitize_prompt_value(value: &str) -> String {
+    let flattened = value.replace(['\r', '\n'], " ");
+    flattened.replace('"', "'")
+}
+
+/// 正文里伪造的闭合 tag 会提前终止 `<active_tab_body>` 段;`<\/` 在模型
+/// 阅读中仍是同一个 tag 的转义形式,但无法再拼出真闭合。
+fn neutralize_active_tab_body_delimiter(payload: &str) -> String {
+    payload.replace("</active_tab_body", "<\\/active_tab_body")
+}
+
 fn page_reference(context: &PageContext) -> String {
     let mut note = format!(
         "[Current page context] route={}; page=\"{}\" (tab_id={}, version={})",
-        context.route, context.title, context.tab_id, context.version
+        sanitize_prompt_value(&context.route),
+        sanitize_prompt_value(&context.title),
+        sanitize_prompt_value(&context.tab_id),
+        sanitize_prompt_value(&context.version),
     );
     if let Some(workspace_id) = &context.workspace_id {
-        note.push_str(&format!("; workspace_id={workspace_id}"));
+        note.push_str(&format!(
+            "; workspace_id={}",
+            sanitize_prompt_value(workspace_id)
+        ));
     }
     if let Some(course) = &context.course {
         note.push_str(&format!(
             "; course=\"{}\" (course_id={}",
-            course.title, course.id
+            sanitize_prompt_value(&course.title),
+            sanitize_prompt_value(&course.id),
         ));
         if let Some(revision) = course.revision {
             note.push_str(&format!(", revision={revision}"));
@@ -466,7 +488,8 @@ fn page_reference(context: &PageContext) -> String {
         if let Some(unit) = &course.unit {
             note.push_str(&format!(
                 "; current unit=\"{}\" (unit_id={})",
-                unit.title, unit.id
+                sanitize_prompt_value(&unit.title),
+                sanitize_prompt_value(&unit.id),
             ));
         }
     }
@@ -490,7 +513,7 @@ pub(crate) fn context_note(context: &PageContext, body_budget: usize) -> String 
             note.push_str("\n\n[Page body truncated to the beginning of the active tab]");
         }
         note.push_str("\n\n<active_tab_body>\n");
-        note.push_str(&payload);
+        note.push_str(&neutralize_active_tab_body_delimiter(&payload));
         note.push_str("\n</active_tab_body>");
     }
     note
