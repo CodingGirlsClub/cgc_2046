@@ -160,6 +160,9 @@ defmodule Cgc2046.Mcp.Playbooks do
      objective,不得成环或自引用)/activity/assessment(字符串,可空串)/materials
      (typed Material 数组)/rubric(至少一条 {id, text},评分标准须可判定——空 rubric 的
      objective 不可判定掌握,过不了门禁)。objective 的 id 与 issue 的 id 一样发布后不改不删。
+     agent_actions(可选,学习 Agent CTA 声明):[{id, label, intent, primary?}];
+     intent ∈ answer/hint/explain/summarize/inspect_workspace/create_file/run/
+     inspect_artifact/submit/review,不得写工具名或任意 prompt;id 发布后不改不删。
   8. 章节归属:课程内容有天然章节结构(如教材按章、讲义按讲)时,content 必须带 chapters
      数组(每项 {id, title},id 在课程内唯一,与 issue/objective id 同规:发布后不改不删),
      且每张 issue 卡填 chapter_id 引用所属章节;无章节结构的课程可整个省略 chapters,

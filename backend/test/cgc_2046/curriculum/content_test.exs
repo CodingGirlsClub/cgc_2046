@@ -39,6 +39,73 @@ defmodule Cgc2046.Curriculum.ContentTest do
     }
   end
 
+  defp content_with_agent_actions(actions) do
+    base = content([])
+    [issue | rest] = base["issues"]
+    [objective] = issue["objectives"]
+
+    %{
+      base
+      | "issues" => [
+          %{issue | "objectives" => [Map.put(objective, "agent_actions", actions)]} | rest
+        ]
+    }
+  end
+
+  test "accepts optional objective agent_actions and exposes the intent vocabulary" do
+    actions = [
+      %{"id" => "a-answer", "label" => "回答当前问题", "intent" => "answer", "primary" => true},
+      %{"id" => "a-hint", "label" => "给我一个提示", "intent" => "hint"}
+    ]
+
+    content = content_with_agent_actions(actions)
+
+    assert Content.valid?(content)
+    assert Content.objective_violations(content) == []
+
+    assert Content.agent_intents() ==
+             ~w(answer hint explain summarize inspect_workspace create_file run inspect_artifact submit review)
+  end
+
+  test "rejects malformed objective agent_actions" do
+    cases = [
+      "not a list",
+      [%{"id" => "a-1", "label" => "回答", "intent" => "unknown"}],
+      [
+        %{"id" => "a-1", "label" => "回答", "intent" => "answer"},
+        %{"id" => "a-1", "label" => "提示", "intent" => "hint"}
+      ],
+      [
+        %{"id" => "a-1", "label" => "回答", "intent" => "answer", "primary" => true},
+        %{"id" => "a-2", "label" => "提示", "intent" => "hint", "primary" => true}
+      ],
+      [%{"id" => "", "label" => "回答", "intent" => "answer"}],
+      [%{"id" => "a-1", "label" => "  ", "intent" => "answer"}],
+      [%{"id" => "a-1", "label" => "回答", "intent" => "answer", "primary" => "yes"}],
+      Enum.map(1..9, &%{"id" => "a-#{&1}", "label" => "动作", "intent" => "hint"})
+    ]
+
+    for actions <- cases do
+      content = content_with_agent_actions(actions)
+      refute Content.valid?(content)
+
+      assert Enum.any?(
+               Content.objective_violations(content),
+               &String.contains?(&1, "agent_actions")
+             )
+    end
+  end
+
+  test "rejects malformed objective agent_actions entries" do
+    content = content_with_agent_actions(["not a map"])
+    refute Content.valid?(content)
+
+    assert Enum.any?(
+             Content.objective_violations(content),
+             &String.contains?(&1, "agent_actions[0]")
+           )
+  end
+
   test "accepts chapters and typed materials" do
     materials = [
       %{"kind" => "text", "title" => "说明", "body" => "正文"},

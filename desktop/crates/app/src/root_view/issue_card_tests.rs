@@ -105,6 +105,7 @@ fn card_content() -> cgc_courses::content::CourseContent {
             text: "优秀：准确说出".into(),
         }],
         materials: Vec::new(),
+        agent_actions: Vec::new(),
     }];
     issue.story_materials.push(TypedMaterial {
         id: Some("mat-video".into()),

@@ -370,6 +370,7 @@ fn issue_projection_uses_active_issue_body_and_versions_the_payload() {
             assessment: None,
             rubric: Vec::new(),
             materials: vec![material(MaterialKind::Text, "Move one value")],
+            agent_actions: Vec::new(),
         }],
         ..Default::default()
     };

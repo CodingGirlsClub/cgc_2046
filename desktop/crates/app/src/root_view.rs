@@ -3143,6 +3143,7 @@ mod tests {
                             assessment: None,
                             rubric: Vec::new(),
                             materials: Vec::new(),
+                            agent_actions: Vec::new(),
                         },
                         CourseObjective {
                             id: Some("objective-optional".into()),
@@ -3153,6 +3154,7 @@ mod tests {
                             assessment: None,
                             rubric: Vec::new(),
                             materials: Vec::new(),
+                            agent_actions: Vec::new(),
                         },
                     ],
                     ..Default::default()
