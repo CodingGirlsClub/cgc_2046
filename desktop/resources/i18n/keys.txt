@@ -326,6 +326,11 @@ courses.learning.image_failed
 courses.learning.image_unavailable
 courses.learning.materials
 courses.learning.materials_completed
+courses.learning.practice
+courses.learning.objective_required
+courses.learning.objective_elective
+courses.learning.by_speaking
+courses.learning.by_doing
 courses.learning.material_kind_text
 courses.learning.material_kind_short_text
 courses.learning.material_kind_image

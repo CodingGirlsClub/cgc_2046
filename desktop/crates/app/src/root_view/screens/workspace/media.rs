@@ -19,8 +19,8 @@ use std::sync::Arc;
 pub(in crate::root_view) const MEDIA_CACHE_LIMIT: usize = 20;
 const MAX_DECODED_EDGE: u32 = 4096;
 
-/// 材料进度的作用域：course + revision + issue。
-pub(in crate::root_view) fn material_scope(
+/// 材料/目标的 Issue 作用域：course + revision + issue。
+pub(in crate::root_view) fn issue_scope(
     course_id: &str,
     revision: Option<i64>,
     issue_id: &str,
@@ -29,6 +29,15 @@ pub(in crate::root_view) fn material_scope(
         .map(|value| value.to_string())
         .unwrap_or_else(|| "unversioned".into());
     format!("{course_id}:{revision}:{issue_id}")
+}
+
+/// 材料进度的作用域：course + revision + issue。
+pub(in crate::root_view) fn material_scope(
+    course_id: &str,
+    revision: Option<i64>,
+    issue_id: &str,
+) -> String {
+    issue_scope(course_id, revision, issue_id)
 }
 
 /// 材料 key：优先内容提供的稳定 id，缺失时回退到 Issue 内序号。

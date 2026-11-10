@@ -223,8 +223,141 @@ pub(in crate::root_view) fn render_issue_card(
         }
     }
 
+    let objective_scope = media::issue_scope(course_id, content.revision_number, issue_id);
+    let active_objective = ctx
+        .selected_objective
+        .get(&objective_scope)
+        .cloned()
+        .filter(|id| {
+            issue
+                .objectives
+                .iter()
+                .any(|objective| objective.id.as_deref().unwrap_or("objective") == id)
+        })
+        .or_else(|| {
+            issue
+                .objectives
+                .first()
+                .map(|objective| objective.id.clone().unwrap_or_else(|| "objective".into()))
+        });
+
+    if !issue.objectives.is_empty() {
+        let root = cx.entity().downgrade();
+        let mut rows = Vec::new();
+        for objective in &issue.objectives {
+            let objective_key = objective.id.as_deref().unwrap_or("objective");
+            let selected = active_objective.as_deref() == Some(objective_key);
+            let state = objective.id.as_deref().and_then(|id| {
+                ctx.projection.projection().and_then(|projection| {
+                    projection.objectives.iter().find(|state| state.id == id)
+                })
+            });
+            let mastery = state
+                .map(|state| state.mastery.as_str())
+                .unwrap_or("unassessed");
+            let scope_for_click = objective_scope.clone();
+            let id_for_click = objective_key.to_string();
+            let root_for_click = root.clone();
+            let required_label = if objective.required {
+                translate(language, Key::CoursesLearningObjectiveRequired)
+            } else {
+                translate(language, Key::CoursesLearningObjectiveElective)
+            };
+            rows.push(
+                div()
+                    .id(SharedString::from(format!(
+                        "issue-objective-row-{objective_key}"
+                    )))
+                    .test_support()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(8.0))
+                    .px(space(2))
+                    .py(px(6.0))
+                    .rounded(px(RADIUS_SMALL))
+                    .bg(if selected { palette.soft } else { palette.view })
+                    .hover(|style| style.bg(palette.soft))
+                    .child(div().size(px(6.0)).rounded_full().bg(if selected {
+                        palette.accent
+                    } else {
+                        palette.line
+                    }))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .text_size(px(13.0))
+                            .text_color(palette.ink)
+                            .child(
+                                objective
+                                    .title
+                                    .clone()
+                                    .unwrap_or_else(|| "Objective".to_string()),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(10.0))
+                            .text_color(if objective.required {
+                                palette.accent_strong
+                            } else {
+                                palette.ink_3
+                            })
+                            .child(required_label),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(10.0))
+                            .text_color(mastery_color(palette, mastery))
+                            .child(translate(language, mastery_key(mastery))),
+                    )
+                    .on_click(move |_, _, cx| {
+                        let _ = root_for_click.update(cx, |this, cx| {
+                            this.selected_objective
+                                .insert(scope_for_click.clone(), id_for_click.clone());
+                            cx.notify();
+                        });
+                    })
+                    .into_any_element(),
+            );
+        }
+        children.push(
+            div()
+                .id("issue-objective-practice")
+                .test_support()
+                .flex()
+                .flex_col()
+                .gap(px(6.0))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(6.0))
+                        .child(
+                            Icon::default()
+                                .path(AssetIcon::Target.path())
+                                .text_color(palette.accent_strong)
+                                .small(),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(palette.accent_strong)
+                                .child(translate(language, Key::CoursesLearningPractice)),
+                        ),
+                )
+                .child(div().flex().flex_col().gap(px(2.0)).children(rows))
+                .into_any_element(),
+        );
+    }
+
     for objective in &issue.objectives {
         let objective_key = objective.id.as_deref().unwrap_or("objective");
+        if active_objective.as_deref() != Some(objective_key) {
+            continue;
+        }
         let state = objective.id.as_deref().and_then(|id| {
             ctx.projection
                 .projection()
@@ -235,6 +368,19 @@ pub(in crate::root_view) fn render_issue_card(
             .unwrap_or("unassessed");
 
         let mut card = Vec::new();
+        if let Some(label) = match issue.kind.as_deref() {
+            Some("thoughtwork") => Some(Key::CoursesLearningBySpeaking),
+            Some("handwork") => Some(Key::CoursesLearningByDoing),
+            _ => None,
+        } {
+            card.push(
+                div()
+                    .text_size(px(10.0))
+                    .text_color(palette.accent_strong)
+                    .child(translate(language, label))
+                    .into_any_element(),
+            );
+        }
         card.push(
             div()
                 .flex()

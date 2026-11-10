@@ -225,6 +225,53 @@ fn issue_card_renders_chapter_kind_assessment_and_rubric(cx: &mut TestAppContext
 }
 
 #[gpui_kit::test]
+fn issue_card_switches_selected_objective(cx: &mut TestAppContext) {
+    let (handle, root) = issue_card_window(cx);
+    root.update(cx, |root, _| {
+        root.courses = CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        let mut content = card_content();
+        content
+            .document
+            .issues
+            .first_mut()
+            .expect("fake content has one issue")
+            .objectives
+            .push(CourseObjective {
+                id: Some("obj-2".into()),
+                title: Some("理解测量单位".into()),
+                required: false,
+                prereq_ids: Vec::new(),
+                activity: None,
+                assessment: None,
+                rubric: Vec::new(),
+                materials: Vec::new(),
+                agent_actions: Vec::new(),
+            });
+        root.content.adopt(content);
+        root.projection = LearningProjectionService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        root.projection.adopt(projection());
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("issue-objective-practice").is_some());
+        assert!(window.try_find("issue-objective-row-obj-1").is_some());
+        assert!(window.try_find("issue-objective-row-obj-2").is_some());
+        assert!(window.try_find("issue-card-objective-obj-1").is_some());
+        assert!(window.try_find("issue-card-objective-obj-2").is_none());
+
+        window.click("issue-objective-row-obj-2", cx);
+        assert!(root
+            .read(cx)
+            .selected_objective
+            .values()
+            .any(|id| id == "obj-2"));
+        assert!(window.try_find("issue-card-objective-obj-2").is_some());
+        assert!(window.try_find("issue-card-objective-obj-1").is_none());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
 fn issue_card_user_story_falls_back_to_goal_only(cx: &mut TestAppContext) {
     let (handle, root) = issue_card_window(cx);
     root.update(cx, |root, _| {
