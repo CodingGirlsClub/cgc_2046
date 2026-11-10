@@ -6,6 +6,7 @@
 
 use super::super::super::*;
 use super::super::ScreenContext;
+use super::media;
 use gpui_kit::base::SelectableText;
 
 pub(in crate::root_view) fn render_issue_card(
@@ -14,6 +15,7 @@ pub(in crate::root_view) fn render_issue_card(
     issue_id: &str,
     language: Language,
     palette: &theme::Palette,
+    cx: &mut Context<RootView>,
 ) -> AnyElement {
     let Some(content) = ctx.content.content().cloned() else {
         return render_loading_state(language, Key::CoursesLearningContentLoading, palette)
@@ -109,7 +111,9 @@ pub(in crate::root_view) fn render_issue_card(
     }
 
     for (material_index, material) in issue.story_materials.iter().enumerate() {
-        if let Some(element) = material_element(material, palette, material_index) {
+        if let Some(element) =
+            media::material_element(ctx, material, material_index, language, palette, cx)
+        {
             children.push(element);
         }
     }
@@ -251,7 +255,9 @@ pub(in crate::root_view) fn render_issue_card(
         }
 
         for (material_index, material) in objective.materials.iter().enumerate() {
-            if let Some(element) = material_element(material, palette, material_index) {
+            if let Some(element) =
+                media::material_element(ctx, material, material_index, language, palette, cx)
+            {
                 card.push(element);
             }
         }
@@ -309,42 +315,4 @@ fn mastery_color(palette: &theme::Palette, mastery: &str) -> gpui_kit::Hsla {
         "needs_review" => palette.warning,
         _ => palette.ink_3,
     }
-}
-
-fn material_element(
-    material: &cgc_courses::content::TypedMaterial,
-    palette: &theme::Palette,
-    index: usize,
-) -> Option<AnyElement> {
-    if matches!(
-        material.kind,
-        cgc_courses::content::MaterialKind::Text | cgc_courses::content::MaterialKind::Markdown
-    ) {
-        let body = material.body.as_deref()?;
-        if body.trim().is_empty() {
-            return None;
-        }
-        return Some(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(4.0))
-                .children(render_markdown_with_math(
-                    body,
-                    &format!("issue-material-{index}"),
-                    14.0,
-                    2.0,
-                    palette.ink,
-                ))
-                .into_any_element(),
-        );
-    }
-    let url = material.url.clone()?;
-    Some(
-        div()
-            .text_size(px(12.0))
-            .text_color(palette.accent)
-            .child(url)
-            .into_any_element(),
-    )
 }

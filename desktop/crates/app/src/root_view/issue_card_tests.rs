@@ -2,9 +2,10 @@
 
 use super::RootView;
 use crate::i18n::Language;
+use crate::root_view::state::MediaState;
 use crate::theme::ThemePreference;
 use cgc_courses::catalog::{CourseCatalogService, CoursesApi, FakeCoursesApi};
-use cgc_courses::content::{CourseChecklistItem, CourseObjective};
+use cgc_courses::content::{CourseChecklistItem, CourseObjective, MaterialKind, TypedMaterial};
 use cgc_courses::projection::{LearningProjection, LearningProjectionService, ObjectiveState};
 use cgc_platform::session::{FakeAuthApi, MemoryStore, SessionService};
 use gpui_kit::test::TestWindowExt;
@@ -20,7 +21,7 @@ struct IssueCardProbe {
 
 impl Render for IssueCardProbe {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let area = self.root.update(cx, |root, _cx| {
+        let area = self.root.update(cx, |root, cx| {
             let palette = crate::theme::palette(gpui_kit::component::ThemeMode::Light);
             let mut context = crate::root_view::screens::ScreenContext::new(&mut root.state);
             crate::root_view::screens::render_issue_card(
@@ -29,6 +30,7 @@ impl Render for IssueCardProbe {
                 "issue-1",
                 Language::Zh,
                 &palette,
+                cx,
             )
         });
         div().size(px(760.0)).flex().flex_col().child(area)
@@ -70,6 +72,7 @@ fn issue_card_window(cx: &mut TestAppContext) -> (gpui_kit::AnyWindowHandle, Ent
     })
 }
 
+const IMAGE_URL: &str = "https://cdn.example.com/a.png";
 
 fn card_content() -> cgc_courses::content::CourseContent {
     let api = FakeCoursesApi::with_seed(5);
@@ -100,6 +103,26 @@ fn card_content() -> cgc_courses::content::CourseContent {
         }],
         materials: Vec::new(),
     }];
+    issue.story_materials.push(TypedMaterial {
+        kind: MaterialKind::Video,
+        title: Some("讲解视频".into()),
+        body: None,
+        url: None,
+        alt_text: None,
+        caption: None,
+        provider: Some("bilibili".into()),
+        external_id: Some("BV1xx411c7mD".into()),
+    });
+    issue.story_materials.push(TypedMaterial {
+        kind: MaterialKind::Image,
+        title: None,
+        body: None,
+        url: Some(IMAGE_URL.into()),
+        alt_text: Some("插图".into()),
+        caption: Some("图 1".into()),
+        provider: None,
+        external_id: None,
+    });
     content
 }
 
@@ -131,6 +154,9 @@ fn issue_card_renders_chapter_kind_assessment_and_rubric(cx: &mut TestAppContext
     root.update(cx, |root, _| {
         root.courses = CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(5)));
         root.content.adopt(card_content());
+        // 避免测试触发真实网络下载；图片走失败态分支。
+        root.media_cache
+            .insert(IMAGE_URL.into(), MediaState::Failed);
         root.projection = LearningProjectionService::new(Arc::new(FakeCoursesApi::with_seed(5)));
         root.projection.adopt(projection());
     });
@@ -147,6 +173,8 @@ fn issue_card_renders_chapter_kind_assessment_and_rubric(cx: &mut TestAppContext
         assert!(window.try_find("issue-card-assessment-obj-1").is_some());
         assert!(window.try_find("issue-card-rubric-obj-1").is_some());
         assert!(window.try_find("issue-card-mastery-obj-1").is_some());
+        assert!(window.try_find("issue-video-2").is_some());
+        assert!(window.try_find("issue-image-3").is_some());
     })
     .unwrap();
 }

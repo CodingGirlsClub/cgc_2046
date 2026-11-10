@@ -9,6 +9,8 @@ use serde_json::Value;
 
 use crate::workspace::{OfferingScope, WorkspaceScope};
 
+pub mod media;
+
 /// 2.5：当前需要注入 workspace 作用域的 operation 清单（新增 operation 必须登记）。
 pub const WORKSPACE_SCOPED_OPERATIONS: &[&str] = &["ListEvents", "ListCourses"];
 

@@ -315,6 +315,11 @@ courses.learning.mastery.unassessed
 courses.learning.mastery.developing
 courses.learning.mastery.mastered
 courses.learning.mastery.needs_review
+courses.learning.video
+courses.learning.video_open
+courses.learning.image_loading
+courses.learning.image_failed
+courses.learning.image_unavailable
 agent.registry.title
 agent.registry.subtitle
 agent.registry.install

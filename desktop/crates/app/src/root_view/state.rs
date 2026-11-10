@@ -3,6 +3,13 @@ use gpui_kit::component::tree::TreeState;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
+/// 媒体（课程图片）的加载状态；只在内存缓存，不落盘。
+pub(in crate::root_view) enum MediaState {
+    Loading,
+    Ready(Arc<RenderImage>),
+    Failed,
+}
+
 /// 右侧 Dock 的互斥 panel。图标在 footer/header 切换，同一时间只显示一个。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(in crate::root_view) enum RightPanel {
@@ -231,6 +238,10 @@ pub struct ShellState {
     pub(in crate::root_view) outline_tree_key: Option<(String, Option<i64>)>,
     /// 按业务 id 保存的展开节点，跨重启恢复。
     pub(in crate::root_view) outline_expanded: BTreeSet<String>,
+    /// 课程图片下载/解码结果（URL → 状态）；上限见 `media::MEDIA_CACHE_LIMIT`。
+    pub(in crate::root_view) media_cache: BTreeMap<String, MediaState>,
+    /// 正在下载的 URL，防止每帧重复发起请求。
+    pub(in crate::root_view) media_loading: BTreeSet<String>,
     pub(in crate::root_view) key_focus: Option<FocusHandle>,
     pub(in crate::root_view) key_interceptor: Option<Subscription>,
     pub(in crate::root_view) events: EventListService,
@@ -433,6 +444,8 @@ impl ShellState {
             outline_tree_subscription: None,
             outline_tree_key: None,
             outline_expanded: BTreeSet::new(),
+            media_cache: BTreeMap::new(),
+            media_loading: BTreeSet::new(),
             key_focus: None,
             key_interceptor: None,
             events,

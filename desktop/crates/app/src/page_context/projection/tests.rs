@@ -93,6 +93,7 @@ fn course_learning_projection_contains_goals_chapters_and_issue_materials() {
         body: Some("Ownership rules".into()),
         url: None,
         alt_text: None,
+        caption: None,
         provider: None,
         external_id: None,
     };
@@ -340,6 +341,7 @@ fn issue_projection_uses_active_issue_body_and_versions_the_payload() {
             body: Some(body.into()),
             url: None,
             alt_text: None,
+            caption: None,
             provider: None,
             external_id: None,
         }

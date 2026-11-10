@@ -89,6 +89,7 @@ pub struct TypedMaterial {
     pub body: Option<String>,
     pub url: Option<String>,
     pub alt_text: Option<String>,
+    pub caption: Option<String>,
     pub provider: Option<String>,
     pub external_id: Option<String>,
 }
@@ -265,6 +266,7 @@ fn parse_material(value: &Value) -> Option<TypedMaterial> {
         body,
         url: string_field(value, "url"),
         alt_text: string_field(value, "alt_text"),
+        caption: string_field(value, "caption"),
         provider: string_field(value, "provider"),
         external_id: string_field(value, "external_id"),
     })
@@ -346,6 +348,7 @@ pub(crate) fn fake_course_content(course_id: &str, title: &str, index: usize) ->
                         body: Some(FAKE_MARKDOWN.to_string()),
                         url: None,
                         alt_text: None,
+                        caption: None,
                         provider: None,
                         external_id: None,
                     },
@@ -355,6 +358,7 @@ pub(crate) fn fake_course_content(course_id: &str, title: &str, index: usize) ->
                         body: None,
                         url: Some("https://example.com".to_string()),
                         alt_text: None,
+                        caption: None,
                         provider: None,
                         external_id: None,
                     },
@@ -482,6 +486,12 @@ mod tests {
                             "title": "延伸阅读",
                             "body": "web 不保留正文",
                             "url": "https://example.com"
+                        },
+                        {
+                            "kind": "image",
+                            "url": "https://example.com/a.png",
+                            "alt_text": "插图",
+                            "caption": "图 1"
                         }
                     ]
                 },
@@ -574,7 +584,7 @@ mod tests {
         assert_eq!(issue.objectives[0].prereq_ids, vec!["obj-0".to_string()]);
         assert_eq!(issue.objectives[0].rubric[0].text, "输出正确");
 
-        assert_eq!(issue.story_materials.len(), 2);
+        assert_eq!(issue.story_materials.len(), 3);
         assert_eq!(issue.story_materials[0].kind, MaterialKind::Markdown);
         assert_eq!(issue.story_materials[0].title.as_deref(), Some("正文"));
         let body = issue.story_materials[0]
@@ -593,6 +603,9 @@ mod tests {
             issue.story_materials[1].url.as_deref(),
             Some("https://example.com")
         );
+        assert_eq!(issue.story_materials[2].kind, MaterialKind::Image);
+        assert_eq!(issue.story_materials[2].alt_text.as_deref(), Some("插图"));
+        assert_eq!(issue.story_materials[2].caption.as_deref(), Some("图 1"));
 
         assert_eq!(issue.objective_materials.len(), 1);
         assert_eq!(issue.objective_materials[0].kind, MaterialKind::Text);

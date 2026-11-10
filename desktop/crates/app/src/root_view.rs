@@ -1473,6 +1473,7 @@ impl Render for RootView {
                                                             &issue_id,
                                                             language,
                                                             &palette,
+                                                            cx,
                                                         )
                                                     }
                                                     None => screens::render_course_learning(
