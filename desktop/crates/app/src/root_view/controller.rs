@@ -2951,6 +2951,7 @@ impl RootView {
         self.chat.session.configs.clear();
         self.chat.session.commands.clear();
         self.chat.pending_agent_call = None;
+        self.chat.composer_context.reset();
         self.chat.configs_applied = false;
         self.chat.auto_prompted = false;
     }

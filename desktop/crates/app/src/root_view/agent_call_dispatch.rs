@@ -61,6 +61,10 @@ impl RootView {
                     label,
                     prompt.clone(),
                 ));
+                // set_value replaces the composer content, including the auto page
+                // token. Reset the composer context so the next render re-attaches
+                // the active page context before the CTA prompt is sent.
+                self.chat.composer_context.reset();
                 self.chat.input = prompt.clone();
                 if let Some(input) = self.chat_input.clone() {
                     input.update(cx, |input, cx| {
