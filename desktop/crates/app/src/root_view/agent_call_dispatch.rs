@@ -1,4 +1,4 @@
-//! 课程 CTA → Agent composer 的分发入口。
+//! 课程 CTA → Agent composer 的分发入口（AgentCall，不叫 LearningAction）。
 //!
 //! Native 轨拿到结构化 `AgentCall` 与 pending chip；ACP 轨按 #1260 的降级
 //! 口径只预填可编辑文本，不承诺结构化 action。

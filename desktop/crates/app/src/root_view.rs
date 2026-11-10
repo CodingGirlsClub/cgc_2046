@@ -74,13 +74,13 @@ use crate::routing::{Route, RouteMatch, RouteRegistry};
 use crate::settings_window::SettingsWindowView;
 use crate::theme::{self, space, ThemePreference, RADIUS_LARGE, RADIUS_MEDIUM, RADIUS_SMALL};
 
+mod agent_call_dispatch;
 mod agent_icons;
 mod agent_session;
 mod controller;
 mod enrollment_flow;
 mod history_actions;
 mod key_dispatch;
-mod learning_actions;
 mod nav_copy;
 mod offering_load;
 mod page_context_build;
