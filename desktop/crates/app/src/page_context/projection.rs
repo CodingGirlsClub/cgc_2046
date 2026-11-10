@@ -385,6 +385,22 @@ fn issue_sections(issue: &cgc_courses::content::CourseIssue) -> Vec<String> {
             instructions.push_str(&format!(" · {activity}"));
         }
         sections.push(instructions);
+        if let Some(assessment) = objective
+            .assessment
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            sections.push(format!("答什么：{assessment}"));
+        }
+        if !objective.rubric.is_empty() {
+            let rubric = objective
+                .rubric
+                .iter()
+                .map(|item| format!("- {}", item.text))
+                .collect::<Vec<_>>()
+                .join("\n");
+            sections.push(format!("怎么算通过：\n{rubric}"));
+        }
         for material in &objective.materials {
             push_material(&mut sections, material);
         }
@@ -403,7 +419,7 @@ pub(crate) fn project_issue(
         .unwrap_or_else(|| "unversioned".into());
     project_body(
         tab_id,
-        &format!("issue-context-v3\0{revision}"),
+        &format!("issue-context-v4\0{revision}"),
         issue_sections(issue),
     )
 }

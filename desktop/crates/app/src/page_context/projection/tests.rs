@@ -367,8 +367,11 @@ fn issue_projection_uses_active_issue_body_and_versions_the_payload() {
             required: false,
             prereq_ids: Vec::new(),
             activity: None,
-            assessment: None,
-            rubric: Vec::new(),
+            assessment: Some("Explain the ownership rule".into()),
+            rubric: vec![CourseChecklistItem {
+                id: Some("rubric-1".into()),
+                text: "Explains move vs borrow".into(),
+            }],
             materials: vec![material(MaterialKind::Text, "Move one value")],
             agent_actions: Vec::new(),
         }],
@@ -387,6 +390,8 @@ fn issue_projection_uses_active_issue_body_and_versions_the_payload() {
     assert!(body.contains("Ownership"));
     assert!(body.contains("Memory rules"));
     assert!(body.contains("Move one value"));
+    assert!(body.contains("答什么：Explain the ownership rule"));
+    assert!(body.contains("怎么算通过：\n- Explains move vs borrow"));
     assert_eq!(
         version,
         project_issue(&issue, Some(7), "issue:course-1:issue-1").1
