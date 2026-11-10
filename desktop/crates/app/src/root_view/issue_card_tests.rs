@@ -309,6 +309,7 @@ fn issue_card_cta_dispatches_agent_call_to_composer(cx: &mut TestAppContext) {
         window.click("issue-agent-action-obj-1-a-answer", cx);
         let input = root.read(cx).chat.input.clone();
         assert!(input.contains("请根据当前目标的验收标准向我提问"));
+        assert!(root.read(cx).chat.pending_agent_call.is_some());
         assert!(root.read(cx).agent_panel_open);
     })
     .unwrap();

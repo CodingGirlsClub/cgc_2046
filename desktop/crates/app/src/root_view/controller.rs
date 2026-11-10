@@ -1755,6 +1755,7 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         self.chat.input.clear();
+        self.chat.pending_agent_call = None;
         if let Some(input) = self.chat_input.clone() {
             input.update(cx, |input, cx| {
                 input.set_value("", window, cx);
@@ -1996,6 +1997,7 @@ impl RootView {
             return false;
         }
         let scope = self.chat.conversation_scope();
+        let pending_agent_call = self.chat.pending_agent_call.take();
         let content = self
             .chat_input
             .as_ref()
@@ -2019,12 +2021,16 @@ impl RootView {
                 .session
                 .submission(draft.text.clone(), prompt, context, Vec::new(), false);
         submission.draft = Some(draft);
+        submission.agent_call = pending_agent_call
+            .as_ref()
+            .map(|pending| pending.call.clone());
         let page_context = self.page_context.clone();
         if !self
             .chat
             .session
             .send_with_context(&mut submission, &page_context, &scope)
         {
+            self.chat.pending_agent_call = pending_agent_call;
             return false;
         }
         self.chat.composer_context.reset();
@@ -2261,6 +2267,7 @@ impl RootView {
             .invalidate_loaded(&self.chat.conversation_scope());
         self.chat.session.disconnect();
         self.chat.composer_context.reset();
+        self.chat.pending_agent_call = None;
         self.chat.agent.clear();
         self.chat.version = None;
         self.chat.session.thread =
@@ -2943,6 +2950,7 @@ impl RootView {
         self.agent_panel_title_original = None;
         self.chat.session.configs.clear();
         self.chat.session.commands.clear();
+        self.chat.pending_agent_call = None;
         self.chat.configs_applied = false;
         self.chat.auto_prompted = false;
     }

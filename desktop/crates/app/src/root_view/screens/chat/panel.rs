@@ -770,6 +770,9 @@ pub(in crate::root_view) fn render_chat_panel(
                         .flex()
                         .flex_col()
                         .gap(space(1))
+                        .children(ctx.chat.pending_agent_call.as_ref().map(|pending| {
+                            render_chat_agent_call_chip(pending, palette, language, cx)
+                        }))
                         .child(
                             cgc_agent_ui::composer::composer_card(
                                 "chat-composer",
@@ -1462,6 +1465,73 @@ fn has_unresolved_permission(entries: &[ConversationEntry]) -> bool {
     entries
         .iter()
         .any(|entry| matches!(entry, ConversationEntry::Permission { resolved: None, .. }))
+}
+
+fn render_chat_agent_call_chip(
+    pending: &crate::agent_call::PendingAgentCall,
+    palette: &theme::Palette,
+    language: Language,
+    cx: &mut Context<RootView>,
+) -> AnyElement {
+    let palette = *palette;
+    let json = pending.call.to_json();
+    let remove_root = cx.entity().downgrade();
+    div()
+        .id("chat-agent-call-row")
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(4.0))
+        .px(space(1))
+        .child(
+            Popover::new("chat-agent-call-json")
+                .anchor(Anchor::BottomLeft)
+                .trigger(
+                    Button::new("chat-agent-call-chip")
+                        .label(format!(
+                            "{} · {}",
+                            translate(language, Key::CoursesLearningAgentCallLabel),
+                            pending.label
+                        ))
+                        .xsmall()
+                        .ghost()
+                        .tooltip(translate(language, Key::CoursesLearningAgentCallViewJson)),
+                )
+                .content(move |_, _, _| {
+                    div()
+                        .max_w(px(360.0))
+                        .p(space(1))
+                        .rounded(px(RADIUS_SMALL))
+                        .border_1()
+                        .border_color(palette.line)
+                        .bg(palette.card)
+                        .text_size(px(10.0))
+                        .text_color(palette.ink_3)
+                        .child(json.clone())
+                        .into_any_element()
+                }),
+        )
+        .child(
+            div()
+                .id("chat-agent-call-remove")
+                .test_support()
+                .role(Role::Button)
+                .aria_label(translate(language, Key::CoursesLearningAgentCallRemove))
+                .px(px(4.0))
+                .py(px(1.0))
+                .rounded(px(RADIUS_SMALL))
+                .text_size(px(11.0))
+                .text_color(palette.ink_3)
+                .hover(|style| style.bg(palette.soft))
+                .child("×")
+                .on_click(move |_, _, cx| {
+                    let _ = remove_root.update(cx, |this, cx| {
+                        this.chat.pending_agent_call = None;
+                        cx.notify();
+                    });
+                }),
+        )
+        .into_any_element()
 }
 
 #[cfg(test)]

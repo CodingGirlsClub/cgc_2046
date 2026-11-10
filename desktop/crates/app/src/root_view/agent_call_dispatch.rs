@@ -56,6 +56,11 @@ impl RootView {
                 self.show_agent_call_initializing_notice(cx);
             }
             AgentCallSurface::Acp => {
+                self.chat.pending_agent_call = Some(crate::agent_call::PendingAgentCall::new(
+                    call,
+                    label,
+                    prompt.clone(),
+                ));
                 self.chat.input = prompt.clone();
                 if let Some(input) = self.chat_input.clone() {
                     input.update(cx, |input, cx| {

@@ -247,6 +247,8 @@ struct ChatUi {
     chat_scroll: ScrollHandle,
     input: String,
     composer_context: crate::composer_context::ComposerContext,
+    /// 课程 CTA 在 ACP composer 上的 pending action；发送成功或手动移除即清除。
+    pending_agent_call: Option<crate::agent_call::PendingAgentCall>,
     focused: bool,
     auto_prompted: bool,
     config_search: String,

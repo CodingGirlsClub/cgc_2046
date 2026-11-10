@@ -108,6 +108,76 @@ fn acp_composer_uses_shared_editor_growth_and_preserves_draft(cx: &mut TestAppCo
 }
 
 #[gpui_kit::test]
+fn acp_composer_renders_pending_agent_call_chip(cx: &mut TestAppContext) {
+    use crate::agent_call::{AgentCall, LearningTarget, PendingAgentCall};
+    use cgc_courses::content::{AgentActionSpec, AgentIntent};
+
+    cx.update(gpui_kit::init);
+    let (handle, probe) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Default::default(),
+                    size: size(px(360.0), px(500.0)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| {
+                let root = cx.new(|_| {
+                    let mut root = RootView::with_session(
+                        crate::registration::build_registry().unwrap(),
+                        Language::En,
+                        crate::theme::ThemePreference::Light,
+                        SessionService::new(
+                            Box::new(FakeAuthApi::demo()),
+                            Box::new(MemoryStore::default()),
+                        ),
+                    );
+                    root.state.chat.agent = "codex".into();
+                    root.state.chat.session.phase = ConnectionPhase::Ready;
+                    root
+                });
+                root.update(cx, |root, cx| root.initialize_chat_input(window, cx));
+                cx.new(|_| AcpComposerProbe { root })
+            },
+        )
+        .unwrap()
+    });
+    cx.update_window(handle, |_, window, cx| {
+        let root = probe.read(cx).root.clone();
+        let call = AgentCall::from_action(
+            &AgentActionSpec {
+                id: "a-hint".into(),
+                label: "Hint".into(),
+                intent: AgentIntent::Hint,
+                primary: false,
+            },
+            LearningTarget::Objective {
+                course_id: "crs-1".into(),
+                revision: None,
+                issue_id: "issue-1".into(),
+                objective_id: "obj-1".into(),
+            },
+        );
+        root.update(cx, |root, cx| {
+            root.state.chat.pending_agent_call =
+                Some(PendingAgentCall::new(call, "Hint", "Give me a hint"));
+            cx.notify();
+        });
+        window.render_frame(cx);
+        assert!(window.try_find("chat-agent-call-chip").is_some());
+        assert!(window.try_find("chat-agent-call-remove").is_some());
+
+        window.click("chat-agent-call-remove", cx);
+        window.render_frame(cx);
+        assert!(window.try_find("chat-agent-call-chip").is_none());
+        assert!(root.read(cx).state.chat.pending_agent_call.is_none());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
 fn acp_composer_keeps_send_and_stop_right_aligned_with_wrapped_configs(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let (handle, probe) = cx.update(|cx| {
