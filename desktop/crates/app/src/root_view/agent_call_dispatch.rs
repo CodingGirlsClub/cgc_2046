@@ -133,6 +133,27 @@ impl RootView {
         cx.notify();
     }
 
+    /// ADR-0029 §7：native 与 ACP 的 pending action 在目标页面分离时清除。
+    pub(in crate::root_view) fn clear_stale_pending_agent_calls(&mut self, cx: &mut Context<Self>) {
+        let page = self.page_context.visible();
+        if let Some(view) = self.native_agent_view.clone() {
+            view.update(cx, |view, cx| {
+                view.clear_stale_pending_agent_call(page.as_ref(), cx)
+            });
+        }
+        let stale = self
+            .chat
+            .pending_agent_call
+            .as_ref()
+            .is_some_and(|pending| {
+                !crate::agent_call::pending_action_targets_current_page(pending, page.as_ref())
+            });
+        if stale {
+            self.chat.pending_agent_call = None;
+            cx.notify();
+        }
+    }
+
     fn show_auto_send_failed_notice(&mut self, cx: &mut Context<Self>) {
         self.pane_notice =
             Some(translate(self.language, Key::CoursesLearningAutoSendFailed).to_string());

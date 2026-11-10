@@ -45,6 +45,47 @@ pub enum DeliveryDecision {
     },
 }
 
+/// pending action 的目标是否仍指向当前页面。ADR-0029 §7「切换目标即清除」：
+/// 目标的 course/issue 与当前 page 身份分离（切 tab、换 issue、离开课程页）
+/// 即过期。同页 rerender（正文加载完成等）不改变 course/issue 身份，不清。
+pub(crate) fn pending_action_targets_current_page(
+    pending: &PendingAgentCall,
+    page: Option<&crate::page_context::PageContext>,
+) -> bool {
+    let Some(page) = page else {
+        return false;
+    };
+    let (course_id, issue_id) = match &pending.call.target {
+        LearningTarget::Objective {
+            course_id,
+            issue_id,
+            ..
+        }
+        | LearningTarget::Issue {
+            course_id,
+            issue_id,
+            ..
+        }
+        | LearningTarget::Material {
+            course_id,
+            issue_id,
+            ..
+        } => (course_id, issue_id),
+    };
+    let Some(course) = &page.course else {
+        return false;
+    };
+    if &course.id != course_id {
+        return false;
+    }
+    match &course.unit {
+        // issue 卡页：unit 即 issue id。
+        Some(unit) => &unit.id == issue_id,
+        // 课程总览/detail 页没有 issue：issue 级 pending 已不在目标页。
+        None => false,
+    }
+}
+
 /// 调用来源：作者声明的 CTA，或阅读材料时的文本选区。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]

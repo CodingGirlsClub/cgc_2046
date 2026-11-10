@@ -724,6 +724,9 @@ impl Render for RootView {
         let previous_page = self.page_context.visible();
         self.refresh_page_context();
         let page_changed = previous_page != self.page_context.visible();
+        // ADR-0029 §7：pending 目标已不指向当前页面（切 tab/换 issue/离开课程页）
+        // 即清除，防止发送指向旧课程的动作。
+        self.clear_stale_pending_agent_calls(cx);
         if let Some(view) = self.native_agent_view.clone() {
             view.update(cx, |view, cx| {
                 view.set_language(self.language, cx);

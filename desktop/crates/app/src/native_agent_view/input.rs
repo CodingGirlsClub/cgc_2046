@@ -34,6 +34,22 @@ impl NativeAgentView {
         }
     }
 
+    /// ADR-0029 §7：pending 目标已不指向当前页面（切 tab/换 issue）即清除。
+    /// 由 RootView::render 在 page context 刷新后调用。
+    pub(crate) fn clear_stale_pending_agent_call(
+        &mut self,
+        page: Option<&crate::page_context::PageContext>,
+        cx: &mut Context<Self>,
+    ) {
+        let stale = self.pending_agent_call.as_ref().is_some_and(|pending| {
+            !crate::agent_call::pending_action_targets_current_page(pending, page)
+        });
+        if stale {
+            self.pending_agent_call = None;
+            cx.notify();
+        }
+    }
+
     /// AutoSend: 独立提交一条学习动作消息，不触碰 composer 内容或 draft。
     pub(crate) fn send_agent_call(
         &mut self,

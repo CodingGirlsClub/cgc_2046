@@ -498,5 +498,96 @@ fn native_auto_send_sends_page_context(cx: &mut TestAppContext) {
     );
 }
 
+/// ADR-0029 §7：native pending 目标与 page 身份分离即清除（render 钩子接线）。
+#[gpui_kit::test]
+fn native_pending_agent_call_clears_when_page_leaves_target(cx: &mut TestAppContext) {
+    use crate::agent_call::{AgentCall, LearningTarget, PendingAgentCall};
+    use crate::page_context::{CourseContext, PageBody, PageContext, PageUnit};
+    use cgc_courses::content::{AgentActionSpec, AgentIntent};
+
+    cx.update(gpui_kit::init);
+    let (handle, probe) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Default::default(),
+                    size: size(px(420.0), px(600.0)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| NativeComposerProbe::new(window, cx)),
+        )
+        .unwrap()
+    });
+    cx.update_window(handle, |_, _window, cx| {
+        let view = probe.read(cx).view.clone();
+        let call = AgentCall::from_action(
+            &AgentActionSpec {
+                id: "a-hint".into(),
+                label: "Hint".into(),
+                intent: AgentIntent::Hint,
+                primary: false,
+            },
+            LearningTarget::Objective {
+                course_id: "course-1".into(),
+                revision: None,
+                issue_id: "issue-1".into(),
+                objective_id: "obj-1".into(),
+            },
+        );
+        view.update(cx, |view, _| {
+            view.pending_agent_call = Some(PendingAgentCall::new(call, "Hint", "hint prompt"));
+            view.page_context.set_current(Some(PageContext {
+                workspace_id: None,
+                tab_id: "course-tab".into(),
+                route: "/courses/course-1/learn".into(),
+                title: "Course".into(),
+                version: "v1".into(),
+                body: PageBody::Ready("body".into()),
+                course: Some(CourseContext {
+                    id: "course-1".into(),
+                    title: "Course".into(),
+                    revision: None,
+                    unit: Some(PageUnit {
+                        id: "issue-1".into(),
+                        title: "Issue".into(),
+                    }),
+                }),
+            }));
+        });
+        let page = view.read(cx).page_context.visible();
+        view.update(cx, |view, cx| {
+            view.clear_stale_pending_agent_call(page.as_ref(), cx)
+        });
+        assert!(
+            view.read(cx).pending_agent_call.is_some(),
+            "pending must survive while the page matches the target"
+        );
+        view.update(cx, |view, _| {
+            let mut other = view.page_context.visible().unwrap();
+            other.course = Some(CourseContext {
+                id: "course-1".into(),
+                title: "Course".into(),
+                revision: None,
+                unit: Some(PageUnit {
+                    id: "issue-2".into(),
+                    title: "Another issue".into(),
+                }),
+            });
+            view.page_context.set_current(Some(other));
+        });
+        let page = view.read(cx).page_context.visible();
+        view.update(cx, |view, cx| {
+            view.clear_stale_pending_agent_call(page.as_ref(), cx)
+        });
+        assert!(
+            view.read(cx).pending_agent_call.is_none(),
+            "switching to another issue must clear the native pending action"
+        );
+    })
+    .unwrap();
+}
+
 #[path = "paste_tests.rs"]
 mod paste_tests;

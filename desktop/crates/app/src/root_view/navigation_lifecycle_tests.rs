@@ -265,3 +265,98 @@ fn active_learning_course_takes_priority_over_an_old_expanded_tree_course(cx: &m
         );
     });
 }
+
+/// ADR-0029 §7:pending action 的目标(course/issue)与当前页面分离即清除,
+/// 防止切 tab/换 issue 后发送指向旧课程的动作(错误课程提交风险)。
+#[gpui_kit::test]
+fn pending_agent_call_clears_when_navigation_leaves_target(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let (window, root) = root_window(cx, "/w/alpha/courses/crs-001/learn?issue=issue-1");
+    let call = crate::agent_call::AgentCall::from_action(
+        &cgc_courses::content::AgentActionSpec {
+            id: "a-hint".into(),
+            label: "Hint".into(),
+            intent: cgc_courses::content::AgentIntent::Hint,
+            primary: false,
+        },
+        crate::agent_call::LearningTarget::Objective {
+            course_id: "crs-001".into(),
+            revision: None,
+            issue_id: "issue-1".into(),
+            objective_id: "obj-1".into(),
+        },
+    );
+    root.update(cx, |root, _| {
+        let tab = crate::root_view::state::PaneTab::page(
+            "/w/alpha/courses/crs-001/learn?issue=issue-1",
+            "Card",
+        );
+        root.state.active_tab = Some(tab.id.clone());
+        root.state.tabs.push(tab);
+        root.state.chat.pending_agent_call = Some(crate::agent_call::PendingAgentCall::new(
+            call,
+            "Hint",
+            "hint prompt",
+        ));
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            root.read(cx).chat.pending_agent_call.is_some(),
+            "pending must survive a same-page render"
+        );
+        root.update(cx, |root, cx| {
+            root.navigate("/w/alpha/courses/crs-001/learn?issue=issue-2")
+        });
+        window.render_frame(cx);
+        assert!(
+            root.read(cx).chat.pending_agent_call.is_none(),
+            "switching to another issue must clear the pending action"
+        );
+    })
+    .unwrap();
+}
+
+/// 无课程上下文的页面(目录/列表)同样与 issue 级 pending 分离。
+#[gpui_kit::test]
+fn pending_agent_call_clears_when_leaving_course_pages(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let (window, root) = root_window(cx, "/w/alpha/courses/crs-001/learn?issue=issue-1");
+    let call = crate::agent_call::AgentCall::from_action(
+        &cgc_courses::content::AgentActionSpec {
+            id: "a-hint".into(),
+            label: "Hint".into(),
+            intent: cgc_courses::content::AgentIntent::Hint,
+            primary: false,
+        },
+        crate::agent_call::LearningTarget::Issue {
+            course_id: "crs-001".into(),
+            revision: None,
+            issue_id: "issue-1".into(),
+        },
+    );
+    root.update(cx, |root, _| {
+        let tab = crate::root_view::state::PaneTab::page(
+            "/w/alpha/courses/crs-001/learn?issue=issue-1",
+            "Card",
+        );
+        root.state.active_tab = Some(tab.id.clone());
+        root.state.tabs.push(tab);
+        root.state.chat.pending_agent_call = Some(crate::agent_call::PendingAgentCall::new(
+            call,
+            "Hint",
+            "hint prompt",
+        ));
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(root.read(cx).chat.pending_agent_call.is_some());
+        root.update(cx, |root, cx| root.navigate("/w/alpha/courses"));
+        window.render_frame(cx);
+        assert!(
+            root.read(cx).chat.pending_agent_call.is_none(),
+            "leaving course pages must clear the issue-level pending action"
+        );
+    })
+    .unwrap();
+}
