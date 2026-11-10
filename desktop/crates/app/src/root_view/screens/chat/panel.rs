@@ -38,6 +38,9 @@ pub(in crate::root_view) fn render_chat_panel(
     let streaming = ctx.chat.session.is_busy();
     let surface = super::surface::ChatSurface::new(&thread);
     let surface_flags = surface.flags;
+    let auto_send = crate::preferences::load().course_action_delivery
+        == crate::agent_call::DeliveryMode::AutoSend;
+    let auto_send_zap_root = cx.entity().downgrade();
     let row_view = surface.thread.row_view();
     let input = ctx.chat.input.clone();
     let agent_label = if ctx.chat.agent.trim().is_empty() {
@@ -916,6 +919,40 @@ pub(in crate::root_view) fn render_chat_panel(
                                                 }
                                             }),
                                     )
+                                            .child(
+                                                Button::new("chat-course-action-auto-send")
+                                                    .icon(
+                                                        Icon::default()
+                                                            .path(AssetIcon::Zap.path())
+                                                            .text_color(if auto_send {
+                                                                palette.accent
+                                                            } else {
+                                                                palette.ink_3
+                                                            })
+                                                            .small(),
+                                                    )
+                                                    .xsmall()
+                                                    .ghost()
+                                                    .tooltip(translate(
+                                                        language,
+                                                        if auto_send {
+                                                            Key::CoursesLearningAutoSendOn
+                                                        } else {
+                                                            Key::CoursesLearningAutoSendOff
+                                                        },
+                                                    ))
+                                                    .on_click(move |_, _, cx| {
+                                                        crate::preferences::update(|preferences| {
+                                                            preferences.course_action_delivery = if auto_send {
+                                                                crate::agent_call::DeliveryMode::FillOnly
+                                                            } else {
+                                                                crate::agent_call::DeliveryMode::AutoSend
+                                                            };
+                                                        });
+                                                        let _ = auto_send_zap_root
+                                                            .update(cx, |_this, cx| cx.notify());
+                                                    }),
+                                            )
                                     .child(
                                         div()
                                             .flex()
@@ -1495,7 +1532,7 @@ fn render_chat_agent_call_chip(
                         ))
                         .xsmall()
                         .ghost()
-                        .tooltip(translate(language, Key::CoursesLearningAgentCallViewJson)),
+                        .tooltip(pending.call.to_json()),
                 )
                 .content(move |_, _, _| {
                     div()
@@ -1512,18 +1549,11 @@ fn render_chat_agent_call_chip(
                 }),
         )
         .child(
-            div()
-                .id("chat-agent-call-remove")
-                .test_support()
-                .role(Role::Button)
-                .aria_label(translate(language, Key::CoursesLearningAgentCallRemove))
-                .px(px(4.0))
-                .py(px(1.0))
-                .rounded(px(RADIUS_SMALL))
-                .text_size(px(11.0))
-                .text_color(palette.ink_3)
-                .hover(|style| style.bg(palette.soft))
-                .child("×")
+            Button::new("chat-agent-call-remove")
+                .label("×")
+                .xsmall()
+                .ghost()
+                .tooltip(translate(language, Key::CoursesLearningAgentCallRemove))
                 .on_click(move |_, _, cx| {
                     let _ = remove_root.update(cx, |this, cx| {
                         this.chat.pending_agent_call = None;

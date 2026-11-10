@@ -2039,6 +2039,35 @@ impl RootView {
         true
     }
 
+    pub(in crate::root_view) fn send_chat_agent_call(
+        &mut self,
+        call: crate::agent_call::AgentCall,
+        prompt: String,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.refresh_page_context();
+        if !self.chat.session.can_submit() || self.chat.session.session_id.is_none() {
+            return false;
+        }
+        let scope = self.chat.conversation_scope();
+        let mut submission =
+            self.chat
+                .session
+                .submission(prompt.clone(), prompt, None, Vec::new(), false);
+        submission.agent_call = Some(call);
+        let page_context = self.page_context.clone();
+        if !self
+            .chat
+            .session
+            .send_with_context(&mut submission, &page_context, &scope)
+        {
+            return false;
+        }
+        self.chat.history_open = false;
+        cx.notify();
+        true
+    }
+
     pub(in crate::root_view) fn stop_chat_turn(&mut self, cx: &mut Context<Self>) {
         self.chat.session.stop();
         cx.notify();

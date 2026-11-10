@@ -36,26 +36,51 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         self.agent_panel_open = true;
-
-        match agent_call_surface(
+        let decision = crate::agent_call::decide_delivery(
+            crate::preferences::load().course_action_delivery,
+            call,
+            prompt,
+        );
+        let surface = agent_call_surface(
             self.native_chat_mode,
             Self::native_agent_enabled(),
             self.native_agent_view.is_some(),
-        ) {
-            AgentCallSurface::Native => {
+        );
+
+        match (surface, decision) {
+            (
+                AgentCallSurface::Native,
+                crate::agent_call::DeliveryDecision::Compose { call, prompt },
+            ) => {
                 if let Some(view) = self.native_agent_view.clone() {
                     view.update(cx, |view, cx| {
                         view.compose_agent_call(call, prompt, label, window, cx);
                     });
                     cx.notify();
-                    return;
+                } else {
+                    self.show_agent_call_initializing_notice(cx);
                 }
+            }
+            (
+                AgentCallSurface::Native,
+                crate::agent_call::DeliveryDecision::Send { call, prompt, .. },
+            ) => {
+                let sent = self.native_agent_view.clone().is_some_and(|view| {
+                    view.update(cx, |view, cx| view.send_agent_call(call, prompt, cx))
+                });
+                if sent {
+                    cx.notify();
+                } else {
+                    self.show_auto_send_failed_notice(cx);
+                }
+            }
+            (AgentCallSurface::Initializing, _) => {
                 self.show_agent_call_initializing_notice(cx);
             }
-            AgentCallSurface::Initializing => {
-                self.show_agent_call_initializing_notice(cx);
-            }
-            AgentCallSurface::Acp => {
+            (
+                AgentCallSurface::Acp,
+                crate::agent_call::DeliveryDecision::Compose { call, prompt },
+            ) => {
                 self.chat.pending_agent_call = Some(crate::agent_call::PendingAgentCall::new(
                     call,
                     label,
@@ -74,7 +99,21 @@ impl RootView {
                 }
                 cx.notify();
             }
+            (
+                AgentCallSurface::Acp,
+                crate::agent_call::DeliveryDecision::Send { call, prompt, .. },
+            ) => {
+                if !self.send_chat_agent_call(call, prompt, cx) {
+                    self.show_auto_send_failed_notice(cx);
+                }
+            }
         }
+    }
+
+    fn show_auto_send_failed_notice(&mut self, cx: &mut Context<Self>) {
+        self.pane_notice =
+            Some(translate(self.language, Key::CoursesLearningAutoSendFailed).to_string());
+        cx.notify();
     }
 
     fn show_agent_call_initializing_notice(&mut self, cx: &mut Context<Self>) {

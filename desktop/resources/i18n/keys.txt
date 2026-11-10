@@ -351,6 +351,9 @@ courses.learning.agent_prompt.review
 courses.learning.agent_call.label
 courses.learning.agent_call.view_json
 courses.learning.agent_call.remove
+courses.learning.auto_send.on
+courses.learning.auto_send.off
+courses.learning.auto_send.failed
 courses.learning.agent_initializing
 courses.learning.material_kind_text
 courses.learning.material_kind_short_text

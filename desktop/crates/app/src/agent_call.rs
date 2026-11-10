@@ -15,6 +15,22 @@ pub enum DeliveryMode {
     AutoSend,
 }
 
+impl DeliveryMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::FillOnly => "fill_only",
+            Self::AutoSend => "auto_send",
+        }
+    }
+
+    pub fn from_value(value: Option<&str>) -> Self {
+        match value {
+            Some("auto_send") => Self::AutoSend,
+            _ => Self::FillOnly,
+        }
+    }
+}
+
 /// 纯投递决策：UI 只执行它，不再各自判断 fill/auto、answer 与草稿保留。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DeliveryDecision {
@@ -269,6 +285,21 @@ mod tests {
         assert!(prompt.starts_with("<agent_call>\n"));
         assert!(prompt.contains("\"kind\": \"agent_call\""));
         assert!(prompt.ends_with("</agent_call>\n\n请给我一个提示"));
+    }
+
+    #[test]
+    fn delivery_mode_round_trips_wire_values() {
+        assert_eq!(DeliveryMode::FillOnly.as_str(), "fill_only");
+        assert_eq!(DeliveryMode::AutoSend.as_str(), "auto_send");
+        assert_eq!(
+            DeliveryMode::from_value(Some("auto_send")),
+            DeliveryMode::AutoSend
+        );
+        assert_eq!(
+            DeliveryMode::from_value(Some("unknown")),
+            DeliveryMode::FillOnly
+        );
+        assert_eq!(DeliveryMode::from_value(None), DeliveryMode::FillOnly);
     }
 
     #[test]

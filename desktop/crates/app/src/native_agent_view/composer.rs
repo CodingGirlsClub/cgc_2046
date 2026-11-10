@@ -128,10 +128,7 @@ impl NativeAgentView {
                             ))
                             .xsmall()
                             .ghost()
-                            .tooltip(translate(
-                                self.language,
-                                Key::CoursesLearningAgentCallViewJson,
-                            )),
+                            .tooltip(pending.call.to_json()),
                     )
                     .content(move |_, _, _| {
                         div()
@@ -148,21 +145,14 @@ impl NativeAgentView {
                     }),
             )
             .child(
-                div()
-                    .id(remove_id)
-                    .test_support()
-                    .role(Role::Button)
-                    .aria_label(translate(
+                Button::new(remove_id)
+                    .label("×")
+                    .xsmall()
+                    .ghost()
+                    .tooltip(translate(
                         self.language,
                         Key::CoursesLearningAgentCallRemove,
                     ))
-                    .px(px(4.0))
-                    .py(px(1.0))
-                    .rounded(px(RADIUS_SMALL))
-                    .text_size(px(11.0))
-                    .text_color(palette.ink_3)
-                    .hover(|style| style.bg(palette.soft))
-                    .child("×")
                     .on_click(move |_, _, cx| {
                         let _ = remove_root.update(cx, |this, cx| {
                             this.clear_pending_agent_call(cx);
@@ -199,6 +189,9 @@ impl NativeAgentView {
             .pending_agent_call
             .as_ref()
             .map(|pending| self.render_pending_agent_call(pending, &palette, cx));
+        let auto_send = crate::preferences::load().course_action_delivery
+            == crate::agent_call::DeliveryMode::AutoSend;
+        let zap_root = cx.entity().downgrade();
 
         let pickers = self.native_composer_pickers(palette, cx);
         let model_setup = self.metadata().model_setup;
@@ -646,6 +639,39 @@ impl NativeAgentView {
                                                     })
                                             }))
                                             .into_any_element()
+                                    }),
+                            )
+                            .child(
+                                Button::new("native-course-action-auto-send")
+                                    .icon(
+                                        Icon::default()
+                                            .path(gpui_kit::assets::IconName::Zap.path())
+                                            .text_color(if auto_send {
+                                                palette.accent
+                                            } else {
+                                                palette.ink_3
+                                            })
+                                            .small(),
+                                    )
+                                    .xsmall()
+                                    .ghost()
+                                    .tooltip(translate(
+                                        self.language,
+                                        if auto_send {
+                                            Key::CoursesLearningAutoSendOn
+                                        } else {
+                                            Key::CoursesLearningAutoSendOff
+                                        },
+                                    ))
+                                    .on_click(move |_, _, cx| {
+                                        crate::preferences::update(|preferences| {
+                                            preferences.course_action_delivery = if auto_send {
+                                                crate::agent_call::DeliveryMode::FillOnly
+                                            } else {
+                                                crate::agent_call::DeliveryMode::AutoSend
+                                            };
+                                        });
+                                        let _ = zap_root.update(cx, |_this, cx| cx.notify());
                                     }),
                             )
                             .child(div().flex_1())

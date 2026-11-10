@@ -337,5 +337,52 @@ fn native_composer_shows_and_removes_pending_agent_call(cx: &mut TestAppContext)
     .unwrap();
 }
 
+#[gpui_kit::test]
+fn native_auto_send_keeps_composer_draft(cx: &mut TestAppContext) {
+    use crate::agent_call::{AgentCall, LearningTarget};
+    use cgc_courses::content::{AgentActionSpec, AgentIntent};
+
+    cx.update(gpui_kit::init);
+    let (handle, probe) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Default::default(),
+                    size: size(px(420.0), px(600.0)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| NativeComposerProbe::new(window, cx)),
+        )
+        .unwrap()
+    });
+    cx.update_window(handle, |_, window, cx| {
+        let view = probe.read(cx).view.clone();
+        let input = view.read(cx).input.clone();
+        input.update(cx, |state, cx| state.set_value("draft answer", window, cx));
+        let call = AgentCall::from_action(
+            &AgentActionSpec {
+                id: "a-hint".into(),
+                label: "Hint".into(),
+                intent: AgentIntent::Hint,
+                primary: false,
+            },
+            LearningTarget::Objective {
+                course_id: "crs-1".into(),
+                revision: None,
+                issue_id: "issue-1".into(),
+                objective_id: "obj-1".into(),
+            },
+        );
+        view.update(cx, |view, cx| {
+            assert!(view.send_agent_call(call, "automatic hint".into(), cx));
+            assert_eq!(view.input.read(cx).value(), "draft answer");
+            assert!(view.pending_agent_call.is_none());
+        });
+    })
+    .unwrap();
+}
+
 #[path = "paste_tests.rs"]
 mod paste_tests;

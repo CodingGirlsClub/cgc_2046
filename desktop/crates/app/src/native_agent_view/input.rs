@@ -34,6 +34,27 @@ impl NativeAgentView {
         }
     }
 
+    /// AutoSend: 独立提交一条学习动作消息，不触碰 composer 内容或 draft。
+    pub(crate) fn send_agent_call(
+        &mut self,
+        call: crate::agent_call::AgentCall,
+        prompt: String,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.ensure_model_configured(true, cx) {
+            return false;
+        }
+        let mut submission =
+            self.state
+                .session
+                .submission(prompt.clone(), prompt, None, Vec::new(), false);
+        submission.agent_call = Some(call);
+        self.state.session.queue_mode = QueueMode::Auto;
+        self.state.session.queue.push(submission);
+        self.dispatch_queued(cx);
+        true
+    }
+
     pub(crate) fn context_source(&self, id: &str) -> Option<crate::page_context::PageContext> {
         self.edit_context
             .source(id)
