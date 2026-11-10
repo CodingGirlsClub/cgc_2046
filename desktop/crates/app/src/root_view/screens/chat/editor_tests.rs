@@ -349,3 +349,183 @@ fn new_chat_button_has_a_localized_name_in_both_agent_modes(cx: &mut TestAppCont
         }
     }
 }
+
+/// AutoSend 回归：ACP 侧 `send_chat_agent_call` 也必须先 `freeze_page` 再构造
+/// Submission。若未来把 context 改回 `None`，`PageContextState::refresh` 会原样
+/// 返回裸 prompt，MCP 丢失 workspace/course 标识（此前线上症状）；此测试断言
+/// in-process ACP host 收到的最终 prompt 仍带 workspace_id 与页面正文。
+#[gpui_kit::test]
+fn acp_auto_send_sends_page_context(cx: &mut TestAppContext) {
+    use crate::agent_call::{AgentCall, LearningTarget};
+    use crate::root_view::state::PaneTab;
+    use agent_client_protocol::schema::v1::{
+        AgentCapabilities, ContentBlock, InitializeRequest, InitializeResponse, NewSessionRequest,
+        NewSessionResponse, PromptRequest, PromptResponse, StopReason,
+    };
+    use agent_client_protocol::{on_receive_request, Agent};
+    use cgc_courses::catalog::{CoursesApi, FakeCoursesApi};
+    use cgc_courses::content::{AgentActionSpec, AgentIntent};
+    use cgc_platform::acp::connection::{AcpHost, AcpHostConfig};
+    use cgc_platform::workspace::WorkspaceSummary;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    cx.update(gpui_kit::init);
+    let captured = Arc::new(Mutex::new(Vec::<String>::new()));
+    let received = captured.clone();
+    let (handle, probe) = cx.update(|cx| {
+        let server = Agent
+            .builder()
+            .on_receive_request(
+                async |_: InitializeRequest, responder, _| {
+                    responder.respond(
+                        InitializeResponse::new(1u16.into())
+                            .agent_capabilities(AgentCapabilities::new()),
+                    )
+                },
+                on_receive_request!(),
+            )
+            .on_receive_request(
+                async |_: NewSessionRequest, responder, _| {
+                    responder.respond(NewSessionResponse::new("acp-auto-send-test"))
+                },
+                on_receive_request!(),
+            )
+            .on_receive_request(
+                async move |request: PromptRequest, responder, _| {
+                    let text = request
+                        .prompt
+                        .iter()
+                        .filter_map(|block| match block {
+                            ContentBlock::Text(text) => Some(text.text.as_str()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    received.lock().unwrap().push(text);
+                    responder.respond(PromptResponse::new(StopReason::EndTurn))
+                },
+                on_receive_request!(),
+            );
+        let host = AcpHost::start_in_process(AcpHostConfig::new("", std::env::temp_dir()), server)
+            .expect("in-process acp host");
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Default::default(),
+                    size: size(px(420.0), px(600.0)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| {
+                let root = cx.new(|_| {
+                    let mut root = RootView::with_session(
+                        crate::registration::build_registry().unwrap(),
+                        Language::En,
+                        crate::theme::ThemePreference::Light,
+                        SessionService::new(
+                            Box::new(FakeAuthApi::demo()),
+                            Box::new(MemoryStore::default()),
+                        ),
+                    );
+                    root.state.native_chat_mode = false;
+                    root.state.session_checked = true;
+                    root.state.chat.agent = "codex".into();
+                    root.state.workspaces.adopt(vec![WorkspaceSummary {
+                        id: "ws-alpha".into(),
+                        slug: "alpha".into(),
+                        name: "Alpha".into(),
+                        my_role_names: vec![],
+                        member_count: None,
+                        can_access: true,
+                    }]);
+                    let content = FakeCoursesApi::with_seed(1)
+                        .get_course_content(None, "crs-000")
+                        .expect("fake course content");
+                    root.state.content.adopt(content);
+                    let path = "/w/alpha/courses/crs-000/learn";
+                    let tab = PaneTab::page(path, "Course");
+                    root.state.active_tab = Some(tab.id.clone());
+                    root.state.tabs.push(tab);
+                    root.navigate(path);
+                    let generation = root.state.chat.session.attach(host);
+                    let deadline = Instant::now() + Duration::from_secs(5);
+                    while !root.state.chat.session.can_submit()
+                        || root.state.chat.session.session_id.is_none()
+                    {
+                        assert!(Instant::now() < deadline, "acp host did not become ready");
+                        if let Some(event) = root
+                            .state
+                            .chat
+                            .session
+                            .host
+                            .as_ref()
+                            .unwrap()
+                            .recv_timeout(Duration::from_millis(20))
+                        {
+                            root.state.chat.session.ingest_external(generation, &event);
+                        }
+                    }
+                    root
+                });
+                root.update(cx, |root, cx| root.initialize_chat_input(window, cx));
+                cx.new(|_| AcpComposerProbe { root })
+            },
+        )
+        .unwrap()
+    });
+    cx.update_window(handle, |_, window, cx| {
+        let root = probe.read(cx).root.clone();
+        root.update(cx, |root, cx| {
+            let call = AgentCall::from_action(
+                &AgentActionSpec {
+                    id: "a-hint".into(),
+                    label: "Hint".into(),
+                    intent: AgentIntent::Hint,
+                    primary: false,
+                },
+                LearningTarget::Objective {
+                    course_id: "crs-000".into(),
+                    revision: None,
+                    issue_id: "issue-1".into(),
+                    objective_id: "obj-1".into(),
+                },
+            );
+            assert!(root.send_chat_agent_call(call, "automatic hint".into(), cx));
+        });
+        window.render_frame(cx);
+    })
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        cx.run_until_parked();
+        if !captured.lock().unwrap().is_empty() {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "auto-send prompt did not reach the acp host"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let prompts = captured.lock().unwrap();
+    assert_eq!(
+        prompts.len(),
+        1,
+        "auto-send must deliver exactly one prompt"
+    );
+    let prompt = &prompts[0];
+    assert!(
+        prompt.contains("workspace_id=ws-alpha"),
+        "auto-send prompt lost the workspace identifier: {prompt}"
+    );
+    assert!(
+        prompt.contains("<active_tab_body>"),
+        "auto-send prompt lost the page body: {prompt}"
+    );
+    assert!(
+        prompt.contains("的课程正文"),
+        "auto-send prompt lost the fake course body text: {prompt}"
+    );
+}

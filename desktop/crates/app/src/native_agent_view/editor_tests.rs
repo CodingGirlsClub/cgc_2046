@@ -384,5 +384,114 @@ fn native_auto_send_keeps_composer_draft(cx: &mut TestAppContext) {
     .unwrap();
 }
 
+/// AutoSend 回归：`send_agent_call` 必须先 `freeze_page` 再构造 Submission。
+/// 若未来把 context 改回 `None`，page context 会整体丢失，MCP 拿不到
+/// workspace/course 标识（此前线上症状）。session 保持 Idle，dispatch 不会
+/// 跨线程发送；断言队列中 submission 已带完整 page context。发送链路
+/// （send_with_context 注入正文）由 `conversation_session` envelope 测试覆盖。
+#[gpui_kit::test]
+fn native_auto_send_sends_page_context(cx: &mut TestAppContext) {
+    use crate::agent_call::{AgentCall, LearningTarget};
+    use crate::page_context::{CourseContext, PageBody, PageContext};
+    use cgc_courses::content::{AgentActionSpec, AgentIntent};
+
+    cx.update(gpui_kit::init);
+    let (handle, probe) = cx.update(|cx| {
+        gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: Default::default(),
+                    size: size(px(420.0), px(600.0)),
+                })),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| NativeComposerProbe::new(window, cx)),
+        )
+        .unwrap()
+    });
+    cx.update_window(handle, |_, window, cx| {
+        let view = probe.read(cx).view.clone();
+        view.update(cx, |view, _| {
+            view.page_context.set_current(Some(PageContext {
+                workspace_id: Some("workspace-1".into()),
+                tab_id: "course-tab".into(),
+                route: "/courses/course-1/learn".into(),
+                title: "Course".into(),
+                version: "v1".into(),
+                body: PageBody::Ready("complete course task body".into()),
+                course: Some(CourseContext {
+                    id: "course-1".into(),
+                    title: "Course".into(),
+                    revision: Some(1),
+                    unit: None,
+                }),
+            }));
+        });
+        let call = AgentCall::from_action(
+            &AgentActionSpec {
+                id: "a-hint".into(),
+                label: "Hint".into(),
+                intent: AgentIntent::Hint,
+                primary: false,
+            },
+            LearningTarget::Objective {
+                course_id: "course-1".into(),
+                revision: Some(1),
+                issue_id: "issue-1".into(),
+                objective_id: "obj-1".into(),
+            },
+        );
+        view.update(cx, |view, cx| {
+            assert!(view.send_agent_call(call, "automatic hint".into(), cx));
+        });
+    })
+    .unwrap();
+    let queued = cx.update(|cx| {
+        let view = probe.read(cx).view.clone();
+        let session = &view.read(cx).state.session;
+        assert_eq!(
+            session.queue.len(),
+            1,
+            "auto-send must queue one submission"
+        );
+        let submission = &session.queue[0];
+        (
+            submission.display.clone(),
+            submission.prompt.clone(),
+            submission
+                .context
+                .as_ref()
+                .map(|context| context.page.clone()),
+            submission.agent_call.is_some(),
+        )
+    });
+    let (display, prompt, context_page, has_call) = queued;
+    assert_eq!(display, "automatic hint", "display keeps the bare prompt");
+    assert!(has_call, "queued submission carries the agent call");
+    let context_page = context_page.expect("auto-send submission must freeze the page context");
+    assert_eq!(
+        context_page.workspace_id.as_deref(),
+        Some("workspace-1"),
+        "frozen context keeps the workspace identifier"
+    );
+    assert!(
+        prompt.contains("workspace_id=workspace-1"),
+        "auto-send prompt lost the workspace identifier: {prompt}"
+    );
+    assert!(
+        prompt.contains("<active_tab_body>"),
+        "auto-send prompt lost the page body: {prompt}"
+    );
+    assert!(
+        prompt.contains("complete course task body"),
+        "auto-send prompt lost the page body text: {prompt}"
+    );
+    assert!(
+        prompt.contains("automatic hint"),
+        "auto-send prompt lost the user prompt: {prompt}"
+    );
+}
+
 #[path = "paste_tests.rs"]
 mod paste_tests;
