@@ -1,5 +1,6 @@
 use super::state::PaneTab;
 use super::*;
+use crate::root_view::screens::workspace::outline_tree::issue_node_id;
 
 impl RootView {
     /// 课程归属与路由 slug 不一致（深链/旧地址）时把地址收敛到课程所属工作区，
@@ -99,6 +100,15 @@ impl RootView {
                     .find(|course| course.id == course_id)
                     .and_then(|course| course.workspace_id.as_deref())
             });
+        if let Some(tree) = self.outline_tree.clone() {
+            tree.update(cx, |state, cx| {
+                state.reveal_item(
+                    &SharedString::from(issue_node_id(course_id, issue_id)),
+                    gpui_kit::ScrollStrategy::Center,
+                    cx,
+                );
+            });
+        }
         let base = crate::routing::offering_path(
             self.workspaces.workspaces(),
             workspace_id,
@@ -223,6 +233,7 @@ impl RootView {
             site_tree_scroll_y: self
                 .site_tree_scroll_restore
                 .unwrap_or_else(|| self.site_tree_scroll.offset().y.as_f32()),
+            outline_expanded: self.outline_expanded.iter().cloned().collect(),
             layout: self.workspace_layout_overridden.then_some(
                 crate::workspace_state::PanelLayout {
                     right_panel_width: self.right_panel_width,
@@ -276,6 +287,10 @@ impl RootView {
         self.site_tree_course_open = entry.site_tree_course_open;
         self.site_tree_scroll = ScrollHandle::new();
         self.site_tree_scroll_restore = Some(entry.site_tree_scroll_y);
+        self.outline_expanded = entry.outline_expanded.into_iter().collect();
+        self.outline_tree = None;
+        self.outline_tree_subscription = None;
+        self.outline_tree_key = None;
         let stored_tab_count = entry.tabs.len();
         let current_slug = self
             .workspaces

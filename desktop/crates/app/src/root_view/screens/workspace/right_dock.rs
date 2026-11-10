@@ -5,6 +5,7 @@
 
 use super::super::super::*;
 use super::super::ScreenContext;
+use super::outline_tree::render_outline_tree;
 use crate::notification_center::{filtered_items, format_time, NotificationFilter};
 use cgc_courses::outline::build_outline;
 use gpui_kit::component::empty::{Empty, EmptyDescription, EmptyHeader, EmptyTitle};
@@ -12,6 +13,7 @@ use gpui_kit::component::progress::Progress;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::skeleton::Skeleton;
 use gpui_kit::component::spinner::Spinner;
+use gpui_kit::prelude::FluentBuilder;
 
 pub(in crate::root_view) fn render_right_dock(
     ctx: &mut ScreenContext<'_>,
@@ -96,19 +98,22 @@ pub(in crate::root_view) fn render_right_dock(
                 .id("right-dock-body")
                 .flex_1()
                 .min_h(px(0.0))
-                .overflow_y_scroll()
-                .track_scroll(&ctx.site_tree_scroll)
-                .on_scroll(cx.listener(|_this, _, _, cx| {
-                    cx.spawn(async move |this, cx| {
-                        cx.background_executor()
-                            .timer(std::time::Duration::from_millis(200))
-                            .await;
-                        let _ = this.update(cx, |this, cx| {
-                            this.persist_site_tree_scroll(cx);
-                        });
-                    })
-                    .detach();
-                }))
+                // Outline 的 Tree 自己是 uniform_list 滚动容器；外层再滚会双滚动。
+                .when(panel != RightPanel::Outline, |this| {
+                    this.overflow_y_scroll()
+                        .track_scroll(&ctx.site_tree_scroll)
+                        .on_scroll(cx.listener(|_this, _, _, cx| {
+                            cx.spawn(async move |this, cx| {
+                                cx.background_executor()
+                                    .timer(std::time::Duration::from_millis(200))
+                                    .await;
+                                let _ = this.update(cx, |this, cx| {
+                                    this.persist_site_tree_scroll(cx);
+                                });
+                            })
+                            .detach();
+                        }))
+                })
                 .p(if panel == RightPanel::SiteTree {
                     px(0.0)
                 } else {
@@ -531,10 +536,6 @@ fn render_site_tree(
         .filter(|route_match| route_match.route.id.starts_with("courses."))
         .and_then(|route_match| route_match.params.get("id"))
         .cloned();
-    let active_issue = ctx
-        .current
-        .as_ref()
-        .and_then(|route_match| route_match.query.get("issue").cloned());
     let active_path = ctx
         .current
         .as_ref()
@@ -836,57 +837,38 @@ fn render_site_tree(
                         .as_ref()
                         .filter(|(course_id, _)| course_id == &id)
                     {
-                        let groups = outline
-                            .chapters
-                            .iter()
-                            .map(|chapter| {
-                                (Some(chapter.title.as_str()), chapter.issues.as_slice())
-                            })
-                            .chain(std::iter::once((None, outline.ungrouped.as_slice())));
-                        for (chapter_title, issues) in groups {
-                            let chapter_matches =
-                                course_matches || chapter_title.is_some_and(matches_query);
-                            let chapter_visible = chapter_matches
-                                || issues.iter().any(|issue| matches_query(&issue.title));
+                        // 完整目录只留在 Outline 面板；这里列到章级，避免同一份
+                        // 91 个单元在两处重复渲染、两套展开态。
+                        for (index, chapter) in outline.chapters.iter().enumerate() {
+                            let chapter_visible = course_matches
+                                || matches_query(&chapter.title)
+                                || chapter
+                                    .issues
+                                    .iter()
+                                    .any(|issue| matches_query(&issue.title));
                             if !chapter_visible {
                                 continue;
                             }
-                            if let Some(title) = chapter_title {
-                                items.push(
-                                    SidebarMenuItem::new(title.to_string())
-                                        .disable(true)
-                                        .pl(px(28.0))
-                                        .border_l_1()
-                                        .border_color(palette.line),
-                                );
-                            }
-                            for issue in issues {
-                                if !chapter_matches && !matches_query(&issue.title) {
-                                    continue;
-                                }
-                                let root = cx.entity().downgrade();
-                                let issue_id = issue.id.clone();
-                                let title = issue.title.clone();
-                                let active = active_issue.as_deref() == Some(issue_id.as_str());
-                                let course_id = id.clone();
-                                items.push(
-                                    SidebarMenuItem::new(title.clone())
-                                        .active(active)
-                                        .pl(px(36.0))
-                                        .border_l_1()
-                                        .border_color(palette.line)
-                                        .on_click(move |_, _, cx| {
-                                            let _ = root.update(cx, |this, cx| {
-                                                this.open_issue_tab(
-                                                    &course_id,
-                                                    &issue_id,
-                                                    title.clone(),
-                                                    cx,
-                                                );
-                                            });
-                                        }),
-                                );
-                            }
+                            items.push(
+                                SidebarMenuItem::new(format!(
+                                    "{:02}  {}",
+                                    index + 1,
+                                    chapter.title
+                                ))
+                                .pl(px(28.0))
+                                .border_l_1()
+                                .border_color(palette.line),
+                            );
+                        }
+                        if !outline.ungrouped.is_empty() {
+                            items.push(
+                                SidebarMenuItem::new(
+                                    translate(language, Key::CoursesLearningUngrouped).to_string(),
+                                )
+                                .pl(px(28.0))
+                                .border_l_1()
+                                .border_color(palette.line),
+                            );
                         }
                     }
                 }
@@ -1037,12 +1019,14 @@ fn render_outline(
     let outline = build_outline(&content.document);
     let projection = ctx.projection.projection().cloned();
     let course_id = content.course_id.clone();
+    let revision = content.revision_number;
     let active_issue = ctx
         .current
         .as_ref()
         .and_then(|route_match| route_match.query.get("issue").cloned());
-    let mut rows = Vec::new();
-    rows.push(
+
+    let mut header = Vec::new();
+    header.push(
         div()
             .px(space(1))
             .py(px(3.0))
@@ -1059,7 +1043,7 @@ fn render_outline(
         } else {
             0.0
         };
-        rows.push(
+        header.push(
             div()
                 .px(space(1))
                 .pb(px(3.0))
@@ -1084,7 +1068,7 @@ fn render_outline(
         .as_ref()
         .and_then(|projection| projection.next_action.as_ref())
     {
-        rows.push(
+        header.push(
             div()
                 .px(space(1))
                 .pb(px(3.0))
@@ -1095,7 +1079,7 @@ fn render_outline(
         );
     }
     if outline.is_empty() {
-        rows.push(
+        header.push(
             div()
                 .px(space(1))
                 .py(px(3.0))
@@ -1104,49 +1088,37 @@ fn render_outline(
                 .into_any_element(),
         );
     }
-    for chapter in &outline.chapters {
-        rows.push(
-            div()
-                .px(space(1))
-                .pt(space(1))
-                .text_color(palette.ink_3)
-                .child(chapter.title.clone())
-                .into_any_element(),
-        );
-        for issue in &chapter.issues {
-            rows.push(outline_issue_row(
-                issue,
-                palette,
-                &course_id,
-                active_issue.as_deref(),
-                cx,
-            ));
-        }
-    }
-    if !outline.ungrouped.is_empty() {
-        rows.push(
-            div()
-                .px(space(1))
-                .pt(space(1))
-                .text_color(palette.ink_3)
-                .child(translate(language, Key::CoursesLearningUngrouped))
-                .into_any_element(),
-        );
-        for issue in &outline.ungrouped {
-            rows.push(outline_issue_row(
-                issue,
-                palette,
-                &course_id,
-                active_issue.as_deref(),
-                cx,
-            ));
-        }
-    }
+
+    let tree = if outline.is_empty() {
+        div().into_any_element()
+    } else {
+        render_outline_tree(
+            ctx,
+            &outline,
+            (course_id, revision),
+            active_issue.as_deref(),
+            translate(language, Key::CoursesLearningUngrouped),
+            palette,
+            cx,
+        )
+    };
+
     div()
+        .id("outline-panel")
         .flex()
         .flex_col()
-        .gap(px(1.0))
-        .children(rows)
+        .h_full()
+        .min_h(px(0.0))
+        .gap(px(3.0))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(1.0))
+                .children(header)
+                .into_any_element(),
+        )
+        .child(div().flex_1().min_h(px(0.0)).child(tree))
         .into_any_element()
 }
 
@@ -1156,44 +1128,4 @@ fn empty_outline(language: Language, palette: &theme::Palette) -> AnyElement {
         .text_color(palette.ink_3)
         .child(translate(language, Key::CoursesLearningContextRequired))
         .into_any_element()
-}
-
-fn outline_issue_row(
-    issue: &cgc_courses::outline::OutlineIssue,
-    palette: &theme::Palette,
-    course_id: &str,
-    active_issue: Option<&str>,
-    cx: &mut Context<RootView>,
-) -> AnyElement {
-    let issue_id = issue.id.clone();
-    let title = issue.title.clone();
-    let course_id = course_id.to_string();
-    let is_active = active_issue == Some(issue.id.as_str());
-    let mut row = div()
-        .id(SharedString::from(format!("outline-issue-{}", issue.id)))
-        .flex()
-        .flex_col()
-        .gap(px(1.0))
-        .px(space(1))
-        .py(px(3.0))
-        .rounded(px(RADIUS_SMALL))
-        .bg(if is_active {
-            palette.soft
-        } else {
-            palette.view
-        })
-        .hover(|style| style.bg(palette.soft))
-        .child(div().text_size(px(12.0)).child(title.clone()))
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.open_issue_tab(&course_id, &issue_id, title.clone(), cx);
-        }));
-    if let Some(goal) = issue.goal.clone() {
-        row = row.child(
-            div()
-                .text_size(px(10.0))
-                .text_color(palette.ink_3)
-                .child(goal),
-        );
-    }
-    row.into_any_element()
 }

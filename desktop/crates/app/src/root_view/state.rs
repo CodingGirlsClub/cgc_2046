@@ -1,5 +1,6 @@
 use super::*;
-use std::collections::BTreeMap;
+use gpui_kit::component::tree::TreeState;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
 /// 右侧 Dock 的互斥 panel。图标在 footer/header 切换，同一时间只显示一个。
@@ -223,6 +224,13 @@ pub struct ShellState {
     pub(in crate::root_view) site_tree_course_open: Option<String>,
     pub(in crate::root_view) site_tree_scroll: ScrollHandle,
     pub(in crate::root_view) site_tree_scroll_restore: Option<f32>,
+    /// Outline 目录树；课程内容加载后惰性创建。
+    pub(in crate::root_view) outline_tree: Option<Entity<TreeState>>,
+    pub(in crate::root_view) outline_tree_subscription: Option<Subscription>,
+    /// 当前树对应的 (course_id, revision)；变化时才重建 items。
+    pub(in crate::root_view) outline_tree_key: Option<(String, Option<i64>)>,
+    /// 按业务 id 保存的展开节点，跨重启恢复。
+    pub(in crate::root_view) outline_expanded: BTreeSet<String>,
     pub(in crate::root_view) key_focus: Option<FocusHandle>,
     pub(in crate::root_view) key_interceptor: Option<Subscription>,
     pub(in crate::root_view) events: EventListService,
@@ -421,6 +429,10 @@ impl ShellState {
             site_tree_course_open: None,
             site_tree_scroll: ScrollHandle::new(),
             site_tree_scroll_restore: None,
+            outline_tree: None,
+            outline_tree_subscription: None,
+            outline_tree_key: None,
+            outline_expanded: BTreeSet::new(),
             key_focus: None,
             key_interceptor: None,
             events,

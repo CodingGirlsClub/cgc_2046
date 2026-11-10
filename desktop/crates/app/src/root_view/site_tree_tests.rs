@@ -464,3 +464,73 @@ fn enrollment_completion_updates_the_tree_only_in_the_origin_workspace(cx: &mut 
         });
     }
 }
+
+fn outline_window(
+    cx: &mut TestAppContext,
+) -> (
+    gpui_kit::AnyWindowHandle,
+    Entity<RootView>,
+    super::workspace_layout_tests::LayoutFiles,
+) {
+    // 点击与 open_issue_tab 都会持久化展开态/标签，必须落到隔离目录。
+    let files = super::workspace_layout_tests::LayoutFiles::new();
+    let (handle, root) = site_tree_window(cx);
+    root.update(cx, |root, cx| {
+        load_fake_courses(root);
+        root.course_enrollments
+            .insert("crs-000".into(), Some("confirmed".into()));
+        let content = root
+            .courses
+            .api_handle()
+            .get_course_content(None, "crs-000")
+            .expect("published course content");
+        root.content.adopt(content);
+        root.right_panel = crate::root_view::state::RightPanel::Outline;
+        root.open_issue_tab("crs-000", "issue-1", "第一次运行", cx);
+        cx.notify();
+    });
+    (handle, root, files)
+}
+
+#[gpui_kit::test]
+fn outline_tree_lists_chapters_and_units(cx: &mut TestAppContext) {
+    let (handle, root, _files) = outline_window(cx);
+    root.update(cx, |root, _| {
+        root.outline_expanded.insert("chapter:crs-000:ch-1".into());
+        root.outline_expanded.insert("ungrouped:crs-000".into());
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find_by_label("01  第一章：开始").is_some());
+        assert!(window.try_find_by_label("第一次运行").is_some());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn clicking_outline_node_toggles_and_records_expansion(cx: &mut TestAppContext) {
+    let (handle, root, _files) = outline_window(cx);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        window.click("outline-node-ungrouped:crs-000", cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(!root.read(cx).outline_expanded.contains("ungrouped:crs-000"));
+        let tree = root.read(cx).outline_tree.clone().expect("outline tree");
+        assert!(tree
+            .read(cx)
+            .index_of(&gpui_kit::SharedString::from("issue:crs-000:issue-1"))
+            .is_none());
+        window.click("outline-node-ungrouped:crs-000", cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(root.read(cx).outline_expanded.contains("ungrouped:crs-000"));
+    })
+    .unwrap();
+}
