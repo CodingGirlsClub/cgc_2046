@@ -321,6 +321,13 @@ fn native_composer_shows_and_removes_pending_agent_call(cx: &mut TestAppContext)
             view.read(cx).input.read(cx).value(),
             "Please ask me a question"
         );
+        view.update(cx, |view, cx| view.steer(window, cx));
+        assert!(view.read(cx).pending_agent_call.is_some());
+        assert_eq!(
+            view.read(cx).input.read(cx).value(),
+            "Please ask me a question"
+        );
+        assert!(view.read(cx).status.contains("队列"));
 
         window.click("native-agent-call-remove", cx);
         window.render_frame(cx);

@@ -119,9 +119,11 @@ impl NativeAgentView {
                     }
                     if *secondary
                         && this.is_generating()
+                        && this.pending_agent_call.is_none()
                         && this.state.session.thread.capabilities.steer_available()
                     {
-                        // ⌘↩：生成中立即打断并发送。
+                        // ⌘↩：生成中立即打断并发送；带 pending action 时改走队列，
+                        // 避免 steer 丢失结构化 AgentCall。
                         this.steer(window, cx);
                     } else {
                         this.send(window, cx);

@@ -346,6 +346,7 @@ courses.learning.agent_prompt.review = 请带我复盘这次学习过程，并�
 courses.learning.agent_call.label = 动作
 courses.learning.agent_call.view_json = 查看学习动作 JSON
 courses.learning.agent_call.remove = 移除学习动作
+courses.learning.agent_initializing = CGC Agent 正在初始化，请稍后重试。
 courses.learning.material_kind_text = 阅读
 courses.learning.material_kind_short_text = 短文本
 courses.learning.material_kind_image = 图片

@@ -51,6 +51,119 @@ fn failed_send_restores_agent_call_and_base_prompt() {
 }
 
 #[test]
+fn successful_send_embeds_agent_call_exactly_once() {
+    use crate::page_context::{ConversationScope, PageContextState};
+    use agent_client_protocol::schema::v1::{
+        AgentCapabilities, ContentBlock, InitializeRequest, InitializeResponse, NewSessionRequest,
+        NewSessionResponse, PromptRequest, PromptResponse, StopReason,
+    };
+    use agent_client_protocol::{on_receive_request, Agent};
+    use cgc_courses::content::{AgentActionSpec, AgentIntent};
+    use cgc_platform::acp::connection::AcpHostConfig;
+    use std::{
+        sync::{Arc, Mutex},
+        time::{Duration, Instant},
+    };
+
+    let captured = Arc::new(Mutex::new(Vec::<String>::new()));
+    let received = captured.clone();
+    let server = Agent
+        .builder()
+        .on_receive_request(
+            async |_: InitializeRequest, responder, _| {
+                responder.respond(
+                    InitializeResponse::new(1u16.into())
+                        .agent_capabilities(AgentCapabilities::new()),
+                )
+            },
+            on_receive_request!(),
+        )
+        .on_receive_request(
+            async |_: NewSessionRequest, responder, _| {
+                responder.respond(NewSessionResponse::new("envelope-test"))
+            },
+            on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: PromptRequest, responder, _| {
+                let text = request
+                    .prompt
+                    .iter()
+                    .filter_map(|block| match block {
+                        ContentBlock::Text(text) => Some(text.text.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                received.lock().unwrap().push(text);
+                responder.respond(PromptResponse::new(StopReason::EndTurn))
+            },
+            on_receive_request!(),
+        );
+    let host = AcpHost::start_in_process(AcpHostConfig::new("", std::env::temp_dir()), server)
+        .expect("host");
+    let mut session = ConversationSession::default();
+    let generation = session.attach(host);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !session.can_submit() {
+        assert!(Instant::now() < deadline, "host did not become ready");
+        if let Some(event) = session
+            .host
+            .as_ref()
+            .unwrap()
+            .recv_timeout(Duration::from_millis(20))
+        {
+            session.ingest_external(generation, &event);
+        }
+    }
+
+    let call = crate::agent_call::AgentCall::from_action(
+        &AgentActionSpec {
+            id: "a-hint".into(),
+            label: "Hint".into(),
+            intent: AgentIntent::Hint,
+            primary: false,
+        },
+        crate::agent_call::LearningTarget::Objective {
+            course_id: "crs-1".into(),
+            revision: Some(1),
+            issue_id: "issue-1".into(),
+            objective_id: "obj-1".into(),
+        },
+    );
+    let state = PageContextState::default();
+    let scope = ConversationScope::new("envelope-test", "native");
+    let mut submission = session.submission(
+        "display".into(),
+        "base prompt".into(),
+        None,
+        Vec::new(),
+        false,
+    );
+    submission.agent_call = Some(call);
+    assert!(session.send_with_context(&mut submission, &state, &scope));
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while captured.lock().unwrap().is_empty() {
+        assert!(Instant::now() < deadline, "prompt was not delivered");
+        if let Some(event) = session
+            .host
+            .as_ref()
+            .unwrap()
+            .recv_timeout(Duration::from_millis(20))
+        {
+            session.ingest_external(generation, &event);
+        }
+    }
+
+    let prompts = captured.lock().unwrap();
+    assert_eq!(prompts.len(), 1);
+    assert_eq!(prompts[0].matches("<agent_call>").count(), 1);
+    assert!(prompts[0].contains("\"intent\": \"hint\""));
+    assert!(prompts[0].contains("base prompt"));
+}
+
+#[test]
 fn external_acp_sends_page_identity_each_turn_and_reloads_after_compaction() {
     use crate::page_context::{
         ConversationScope, PageBody, PageContext, PageContextState, PageLoadState,

@@ -207,6 +207,7 @@ impl NativeAgentView {
             self.pending_restart_confirm = None;
             self.show_checkpoint_panel = false;
             self.pending_images.clear();
+            self.pending_agent_call = None;
             self.state.session.queue.clear();
             self.workspace_files = collect_workspace_files(&snapshot.workspace);
             self.skills = mention::load_skills(&snapshot.workspace);

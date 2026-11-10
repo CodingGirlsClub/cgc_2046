@@ -296,6 +296,7 @@ fn issue_card_cta_dispatches_agent_call_to_composer(cx: &mut TestAppContext) {
         root.content.adopt(content);
         root.projection = LearningProjectionService::new(Arc::new(FakeCoursesApi::with_seed(5)));
         root.projection.adopt(projection());
+        root.native_chat_mode = false;
     });
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
@@ -309,6 +310,39 @@ fn issue_card_cta_dispatches_agent_call_to_composer(cx: &mut TestAppContext) {
         let input = root.read(cx).chat.input.clone();
         assert!(input.contains("请根据当前目标的验收标准向我提问"));
         assert!(root.read(cx).agent_panel_open);
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn issue_card_cta_does_not_flip_native_mode_when_initializing(cx: &mut TestAppContext) {
+    let (handle, root) = issue_card_window(cx);
+    root.update(cx, |root, _| {
+        root.courses = CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        let mut content = card_content();
+        content.document.issues[0].objectives[0].agent_actions = vec![AgentActionSpec {
+            id: "a-hint".into(),
+            label: "给我一个提示".into(),
+            intent: AgentIntent::Hint,
+            primary: false,
+        }];
+        root.content.adopt(content);
+        root.projection = LearningProjectionService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        root.projection.adopt(projection());
+        root.native_chat_mode = true;
+        root.native_agent_view = None;
+    });
+    cx.update_window(handle, |_, window, cx| {
+        std::env::set_var("CGC_NATIVE_AGENT", "1");
+        window.render_frame(cx);
+        window.click("issue-agent-action-obj-1-a-hint", cx);
+        let root = root.read(cx);
+        assert!(root.native_chat_mode, "mode must stay native");
+        assert!(
+            root.pane_notice.is_some(),
+            "user must see initializing notice"
+        );
+        assert!(root.chat.input.is_empty(), "no ACP fallback prefill");
     })
     .unwrap();
 }
