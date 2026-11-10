@@ -258,6 +258,26 @@
 - **架构位置**：**类别名，不是某个具体 agent 的名字**——个体的名字出现在课程页对话栏的选择器里（「由 OMP 驱动」/「由 Codex 驱动」），「本机 agent 对话」指对话栏这个面。平台不运行模型、不代管学员的 agent 登录；学习凭证经 ACP 的 `mcpServers` 下发，平台只按 token 类型收窄权限。
 - **扩展方式（历史）**：在 Host 的注册表（原 `cgc-host/src/agents/`，已随 `cgc-host/` 删除）加一条记录、页面按 `status.agents` 自适应——第三个 agent（如 Claude Code）不改路由与页面结构。
 
+### AgentActionSpec（学习 Agent 动作声明）
+
+- **定义**：课程内容中由教研人员声明的 CTA 规格（`{ id, label, intent, primary? }`）：它只声明该学习目标允许展示哪些动作，不定义工具名、工具参数或 Agent prompt。发布后 `id` 不改不删。
+- **架构位置**：objective 的可选 `agent_actions` 字段；由桌面端解析并渲染为 CTA。与课程进度的 `NextAction`（下一学习动作投影）不是同一概念。
+
+### AgentCall（学习 Agent 调用）
+
+- **定义**：学员点击 CTA 或选中材料文字后，由客户端组装的一次瞬态调用：`intent + target + source + selection?`。它是请求而不是授权；Agent 侧仍须重新检查目标、内容 revision 与权限。
+- **架构位置**：`Submission.agent_call` 与 composer 的 pending call；发送一次后清除，不进入 attempt，不作为学习记录持久化。
+
+### AgentIntent（学习 Agent 意图）
+
+- **定义**：`AgentCall` 的封闭语义词表：`answer / hint / explain / summarize / inspect_workspace / create_file / run / inspect_artifact / submit / review`。内容作者不能扩展工具名或任意 prompt；`copy` 等本地动作不属于 AgentIntent。
+- **架构位置**：内容 `AgentActionSpec.intent` 与运行时 `AgentCall.intent` 共用；未知值在保存时拒绝，运行时退化为纯文本 compose。
+
+### LearningTarget（学习调用目标）
+
+- **定义**：`AgentCall` 指向的课程对象身份，带 kind：issue / objective / material；可携带课程内容 revision。material 选区把 `selection` 文本放在调用上，不写入目标身份。
+- **架构位置**：`AgentCall.target`；与 `PageContext`（页面身份与正文）分属两个维度，不把 objective/material 塞进 page context。
+
 ### Agent（授权/配置登记，租户资源）
 
 - **定义**：两种形态——**个人 Agent**（角色分身，仅本人可见可用）与**公共 Agent**（Workspace 级，按 Workflow 协作）。在 BYO 架构下，Agent 只是授权与配置登记：`type / allowed_roles / owner` + OpenClacky 配置引用（`openclacky_profile / model / system_prompt / skills`）（D2）。**不包含执行逻辑**——执行发生在用户本地 OpenClacky。
