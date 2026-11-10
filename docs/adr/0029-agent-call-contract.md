@@ -191,6 +191,12 @@ MVP 不扩展 native runtime 协议，使用现有 prompt 通道承载结构化�
 - 未来若需要 typed runtime channel，再扩展 `PreparedNativeTurn` / host 协议；不在本 ADR
   范围内，也不通过 `MessageDraft` 附件代替。
 
+### 6a. 执行语义（#45）
+
+执行类 intent 在装配时注入行动指令（`agent_call::execution_instruction` 映射表），
+envelope 保留为 reference 视图。指令是模板文本，不是工具调用；副作用由
+`toolPermissions` 审批兜底。回答类（answer/hint/explain/summarize）不注入。
+
 ### 7. 投递与生命周期
 
 - `FillOnly`：填入可编辑 prompt + action chip，不发送。

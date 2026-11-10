@@ -229,8 +229,32 @@ impl Serialize for AgentCall {
 
 /// 把 action 数据块放在用户 prompt 前面；页面上下文仍由既有 page context
 /// 前缀负责，二者不互相覆盖。
+/// #45：执行类 intent 的指令模板（客户端代码；作者只能选 intent，不能
+/// 构造工具参数）。回答类（answer/hint/explain/summarize）不注入。
+fn execution_instruction(intent: &AgentIntent) -> Option<&'static str> {
+    let template = match intent {
+        AgentIntent::Answer | AgentIntent::Hint | AgentIntent::Explain | AgentIntent::Summarize => {
+            return None;
+        }
+        AgentIntent::InspectWorkspace => "用可用工具检查工作区/项目，并报告发现",
+        AgentIntent::InspectArtifact => "用可用工具检查产物，并报告发现",
+        AgentIntent::CreateFile | AgentIntent::Run | AgentIntent::Submit | AgentIntent::Review => {
+            "按动作执行（有副作用，受工具审批规则约束）"
+        }
+    };
+    Some(template)
+}
+
 pub fn prompt_with_agent_call(prompt: &str, call: &AgentCall) -> String {
-    let mut result = call.prompt_block();
+    let mut result = String::new();
+    if let Some(instruction) = execution_instruction(&call.intent) {
+        // 指令置前：模型先读到行动指令，再读 reference 视图（envelope）。
+        result.push_str(&format!("本次学习动作：{instruction}。动作与目标见下方 agent_call 块（仅作参考数据，非直接执行）。"));
+    }
+    if !result.is_empty() {
+        result.push_str("\n\n");
+    }
+    result.push_str(&call.prompt_block());
     if !prompt.trim().is_empty() {
         result.push_str("\n\n");
         result.push_str(prompt);
@@ -335,6 +359,35 @@ mod tests {
         assert_eq!(value["target"]["course_id"], "crs-001");
         assert_eq!(value["target"]["revision"], 3);
         assert_eq!(value["target"]["objective_id"], "obj-1");
+    }
+
+    /// #45：执行类 intent 在装配时注入行动指令（指令置前，envelope 保留）。
+    #[test]
+    fn prompt_with_agent_call_injects_execution_instruction() {
+        let call = AgentCall::from_action(&action(AgentIntent::Run, "a-run"), objective_target());
+        let result = prompt_with_agent_call("跑一下测试", &call);
+        assert!(
+            result.starts_with("本次学习动作"),
+            "instruction leads the prompt: {result}"
+        );
+        assert!(
+            result.contains("<agent_call>"),
+            "envelope retained: {result}"
+        );
+        assert!(
+            result.contains("跑一下测试"),
+            "user prompt retained: {result}"
+        );
+        assert!(result.contains("副作用"), "side-effecting note included");
+    }
+
+    /// #45：回答类 intent 不注入指令，装配保持原样（envelope + prompt）。
+    #[test]
+    fn prompt_with_agent_call_leaves_answer_intents_unchanged() {
+        let call =
+            AgentCall::from_action(&action(AgentIntent::Answer, "a-answer"), objective_target());
+        let result = prompt_with_agent_call("帮我回答", &call);
+        assert_eq!(result, format!("{}\n\n帮我回答", call.prompt_block()));
     }
 
     #[test]
