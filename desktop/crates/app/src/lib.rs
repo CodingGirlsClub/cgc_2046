@@ -2,6 +2,7 @@
 
 #![recursion_limit = "512"]
 pub mod acp_history;
+pub mod agent_call;
 pub mod agent_ingest;
 pub mod approval_rules;
 pub mod attachment;
