@@ -192,6 +192,43 @@ impl NativeAgentView {
         let auto_send = crate::preferences::load().course_action_delivery
             == crate::agent_call::DeliveryMode::AutoSend;
         let zap_root = cx.entity().downgrade();
+        let zap_button = {
+            let mut button = Button::new("native-course-action-auto-send")
+                .icon(
+                    Icon::default()
+                        .path(gpui_kit::assets::IconName::Zap.path())
+                        .text_color(if auto_send {
+                            palette.canvas
+                        } else {
+                            palette.ink_3
+                        })
+                        .small(),
+                )
+                .xsmall()
+                .tooltip(translate(
+                    self.language,
+                    if auto_send {
+                        Key::CoursesLearningAutoSendOn
+                    } else {
+                        Key::CoursesLearningAutoSendOff
+                    },
+                ));
+            if auto_send {
+                button = button.primary();
+            } else {
+                button = button.ghost();
+            }
+            button.on_click(move |_, _, cx| {
+                crate::preferences::update(|preferences| {
+                    preferences.course_action_delivery = if auto_send {
+                        crate::agent_call::DeliveryMode::FillOnly
+                    } else {
+                        crate::agent_call::DeliveryMode::AutoSend
+                    };
+                });
+                let _ = zap_root.update(cx, |_this, cx| cx.notify());
+            })
+        };
 
         let pickers = self.native_composer_pickers(palette, cx);
         let model_setup = self.metadata().model_setup;
@@ -641,39 +678,7 @@ impl NativeAgentView {
                                             .into_any_element()
                                     }),
                             )
-                            .child(
-                                Button::new("native-course-action-auto-send")
-                                    .icon(
-                                        Icon::default()
-                                            .path(gpui_kit::assets::IconName::Zap.path())
-                                            .text_color(if auto_send {
-                                                palette.accent
-                                            } else {
-                                                palette.ink_3
-                                            })
-                                            .small(),
-                                    )
-                                    .xsmall()
-                                    .ghost()
-                                    .tooltip(translate(
-                                        self.language,
-                                        if auto_send {
-                                            Key::CoursesLearningAutoSendOn
-                                        } else {
-                                            Key::CoursesLearningAutoSendOff
-                                        },
-                                    ))
-                                    .on_click(move |_, _, cx| {
-                                        crate::preferences::update(|preferences| {
-                                            preferences.course_action_delivery = if auto_send {
-                                                crate::agent_call::DeliveryMode::FillOnly
-                                            } else {
-                                                crate::agent_call::DeliveryMode::AutoSend
-                                            };
-                                        });
-                                        let _ = zap_root.update(cx, |_this, cx| cx.notify());
-                                    }),
-                            )
+                            .child(zap_button)
                             .child(div().flex_1())
                             .children((can_review_changes && change_count > 0).then(|| {
                                 div()

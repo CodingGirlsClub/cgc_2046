@@ -41,6 +41,43 @@ pub(in crate::root_view) fn render_chat_panel(
     let auto_send = crate::preferences::load().course_action_delivery
         == crate::agent_call::DeliveryMode::AutoSend;
     let auto_send_zap_root = cx.entity().downgrade();
+    let auto_send_zap_button = {
+        let mut button = Button::new("chat-course-action-auto-send")
+            .icon(
+                Icon::default()
+                    .path(AssetIcon::Zap.path())
+                    .text_color(if auto_send {
+                        palette.canvas
+                    } else {
+                        palette.ink_3
+                    })
+                    .small(),
+            )
+            .xsmall()
+            .tooltip(translate(
+                language,
+                if auto_send {
+                    Key::CoursesLearningAutoSendOn
+                } else {
+                    Key::CoursesLearningAutoSendOff
+                },
+            ));
+        if auto_send {
+            button = button.primary();
+        } else {
+            button = button.ghost();
+        }
+        button.on_click(move |_, _, cx| {
+            crate::preferences::update(|preferences| {
+                preferences.course_action_delivery = if auto_send {
+                    crate::agent_call::DeliveryMode::FillOnly
+                } else {
+                    crate::agent_call::DeliveryMode::AutoSend
+                };
+            });
+            let _ = auto_send_zap_root.update(cx, |_this, cx| cx.notify());
+        })
+    };
     let row_view = surface.thread.row_view();
     let input = ctx.chat.input.clone();
     let agent_label = if ctx.chat.agent.trim().is_empty() {
@@ -919,40 +956,7 @@ pub(in crate::root_view) fn render_chat_panel(
                                                 }
                                             }),
                                     )
-                                            .child(
-                                                Button::new("chat-course-action-auto-send")
-                                                    .icon(
-                                                        Icon::default()
-                                                            .path(AssetIcon::Zap.path())
-                                                            .text_color(if auto_send {
-                                                                palette.accent
-                                                            } else {
-                                                                palette.ink_3
-                                                            })
-                                                            .small(),
-                                                    )
-                                                    .xsmall()
-                                                    .ghost()
-                                                    .tooltip(translate(
-                                                        language,
-                                                        if auto_send {
-                                                            Key::CoursesLearningAutoSendOn
-                                                        } else {
-                                                            Key::CoursesLearningAutoSendOff
-                                                        },
-                                                    ))
-                                                    .on_click(move |_, _, cx| {
-                                                        crate::preferences::update(|preferences| {
-                                                            preferences.course_action_delivery = if auto_send {
-                                                                crate::agent_call::DeliveryMode::FillOnly
-                                                            } else {
-                                                                crate::agent_call::DeliveryMode::AutoSend
-                                                            };
-                                                        });
-                                                        let _ = auto_send_zap_root
-                                                            .update(cx, |_this, cx| cx.notify());
-                                                    }),
-                                            )
+                                    .child(auto_send_zap_button)
                                     .child(
                                         div()
                                             .flex()
