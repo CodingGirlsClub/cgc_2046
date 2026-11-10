@@ -2050,10 +2050,13 @@ impl RootView {
             return false;
         }
         let scope = self.chat.conversation_scope();
+        let display = prompt.clone();
+        let page = self.page_context.visible();
+        let (prompt, context) = self.page_context.freeze_page(scope.clone(), prompt, page);
         let mut submission =
             self.chat
                 .session
-                .submission(prompt.clone(), prompt, None, Vec::new(), false);
+                .submission(display, prompt, context, Vec::new(), false);
         submission.agent_call = Some(call);
         let page_context = self.page_context.clone();
         if !self

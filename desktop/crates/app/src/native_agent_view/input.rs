@@ -44,10 +44,14 @@ impl NativeAgentView {
         if !self.ensure_model_configured(true, cx) {
             return false;
         }
+        let display = prompt.clone();
+        let scope = self.conversation_scope();
+        let page = self.page_context.visible();
+        let (prompt, context) = self.page_context.freeze_page(scope, prompt, page);
         let mut submission =
             self.state
                 .session
-                .submission(prompt.clone(), prompt, None, Vec::new(), false);
+                .submission(display, prompt, context, Vec::new(), false);
         submission.agent_call = Some(call);
         self.state.session.queue_mode = QueueMode::Auto;
         self.state.session.queue.push(submission);
