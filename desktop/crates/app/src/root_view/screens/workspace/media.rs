@@ -401,6 +401,15 @@ pub(in crate::root_view) fn material_section(
                             .pb(px(8.0))
                             .text_size(px(13.0))
                             .text_color(palette.ink_2)
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener({
+                                    let material_id = material.id.clone();
+                                    move |this, _, _, _| {
+                                        this.selection_material_id = material_id.clone();
+                                    }
+                                }),
+                            )
                             .child(SelectableText::new(
                                 SharedString::from(format!(
                                     "material-body-text-{issue_id}-{index}"
@@ -417,6 +426,15 @@ pub(in crate::root_view) fn material_section(
                                 "material-expanded-{issue_id}-{index}"
                             )))
                             .test_support()
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener({
+                                    let material_id = material.id.clone();
+                                    move |this, _, _, _| {
+                                        this.selection_material_id = material_id.clone();
+                                    }
+                                }),
+                            )
                             .w_full()
                             .min_w(px(0.0))
                             .child({
@@ -531,7 +549,7 @@ pub(in crate::root_view) fn material_element(
     cx: &mut Context<RootView>,
 ) -> Option<AnyElement> {
     match material.kind {
-        MaterialKind::Text | MaterialKind::Markdown => text_material(material, index, palette),
+        MaterialKind::Text | MaterialKind::Markdown => text_material(material, index, palette, cx),
         MaterialKind::Image => image_material(ctx, material, index, palette, cx),
         MaterialKind::Video => video_material(material, index, language, palette),
         MaterialKind::Web | MaterialKind::Unknown(_) => link_material(material, index, palette),
@@ -542,6 +560,7 @@ fn text_material(
     material: &TypedMaterial,
     index: usize,
     palette: &theme::Palette,
+    cx: &mut Context<RootView>,
 ) -> Option<AnyElement> {
     let body = material.body.as_deref()?;
     if body.trim().is_empty() {
@@ -579,6 +598,15 @@ fn text_material(
             .flex()
             .flex_col()
             .gap(px(4.0))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener({
+                    let material_id = material.id.clone();
+                    move |this, _, _, _| {
+                        this.selection_material_id = material_id.clone();
+                    }
+                }),
+            )
             .children(elements)
             .into_any_element(),
     )

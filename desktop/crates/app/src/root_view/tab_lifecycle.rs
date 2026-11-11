@@ -242,6 +242,7 @@ impl RootView {
                     right_panel_open: self.panel_memory.open,
                     right_panel: match self.panel_memory.panel {
                         RightPanel::Outline => crate::workspace_state::PersistedRightPanel::Outline,
+                        RightPanel::Notes => crate::workspace_state::PersistedRightPanel::Notes,
                         _ => crate::workspace_state::PersistedRightPanel::SiteTree,
                     },
                 },
@@ -269,6 +270,7 @@ impl RootView {
             self.right_panel_open = layout.right_panel_open;
             self.right_panel = match layout.right_panel {
                 crate::workspace_state::PersistedRightPanel::Outline => RightPanel::Outline,
+                crate::workspace_state::PersistedRightPanel::Notes => RightPanel::Notes,
                 crate::workspace_state::PersistedRightPanel::SiteTree => RightPanel::SiteTree,
             };
             self.panel_memory = state::PanelMemory {

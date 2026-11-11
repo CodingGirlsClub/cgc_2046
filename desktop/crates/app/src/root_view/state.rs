@@ -1,7 +1,24 @@
 use super::*;
+use cgc_courses::notes::CourseNotesService;
 use gpui_kit::component::tree::TreeState;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
+
+/// 行内编辑中的笔记；只存在当前会话。
+#[derive(Clone)]
+pub(in crate::root_view) struct NoteEditState {
+    pub(in crate::root_view) note_id: String,
+    pub(in crate::root_view) input: gpui_kit::Entity<gpui_kit::component::input::InputState>,
+}
+
+/// 课程级 Notes 面板筛选。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::root_view) enum NotesFilter {
+    #[default]
+    All,
+    Notes,
+    Retro,
+}
 
 /// 媒体（课程图片）的加载状态；只在内存缓存，不落盘。
 pub(in crate::root_view) enum MediaState {
@@ -16,6 +33,7 @@ pub(in crate::root_view) enum RightPanel {
     #[default]
     SiteTree,
     Outline,
+    Notes,
     Notifications,
 }
 
@@ -331,6 +349,24 @@ pub struct ShellState {
     pub(in crate::root_view) course_detail: CourseDetailService,
     pub(in crate::root_view) course_detail_started: bool,
     pub(in crate::root_view) content: CourseContentService,
+    /// 课程 Notes：服务端真源的内存快照；切换课程/重载时整体替换。
+    pub(in crate::root_view) notes: CourseNotesService,
+    pub(in crate::root_view) notes_started: bool,
+    pub(in crate::root_view) notes_load_serial: u64,
+    /// 行内编辑中的笔记（不落盘；离开页面即丢弃）。
+    pub(in crate::root_view) note_edit: Option<NoteEditState>,
+    /// 等待二次确认删除的笔记 id。
+    pub(in crate::root_view) note_pending_delete: Option<String>,
+    /// 展开全文的笔记 id。
+    pub(in crate::root_view) expanded_notes: BTreeSet<String>,
+    /// 课程级 Notes 面板当前选中的筛选。
+    pub(in crate::root_view) notes_filter: NotesFilter,
+    /// 当前选区来源材料（material.id）；由材料正文 mouse-down 记录。
+    pub(in crate::root_view) selection_material_id: Option<String>,
+    /// Notes 操作的一次性提示（已加入/重复/失败）。
+    pub(in crate::root_view) notes_notice: Option<String>,
+    /// 已触发过 Retro 检查的 `course:revision:issue`，避免每次投影刷新重复请求。
+    pub(in crate::root_view) retro_checked: BTreeSet<String>,
     pub(in crate::root_view) projection: LearningProjectionService,
     /// 提交成功时投影仍在加载：当前请求结束后需要再拉一次。
     pub(in crate::root_view) projection_refresh_pending: bool,
@@ -396,6 +432,7 @@ impl ShellState {
         let nav_courses = build_courses_service();
         let course_detail = CourseDetailService::new(courses.api_handle());
         let content = CourseContentService::new(courses.api_handle());
+        let notes = build_notes_service();
         let projection = LearningProjectionService::new(courses.api_handle());
         Self {
             registry,
@@ -537,6 +574,16 @@ impl ShellState {
             course_detail,
             course_detail_started: false,
             content,
+            notes,
+            notes_started: false,
+            notes_load_serial: 0,
+            note_edit: None,
+            note_pending_delete: None,
+            expanded_notes: BTreeSet::new(),
+            notes_filter: NotesFilter::All,
+            selection_material_id: None,
+            notes_notice: None,
+            retro_checked: BTreeSet::new(),
             projection,
             projection_refresh_pending: false,
             selection_popover: None,

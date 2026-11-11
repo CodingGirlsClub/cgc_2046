@@ -46,6 +46,7 @@ pub(crate) enum PersistedRightPanel {
     #[default]
     SiteTree,
     Outline,
+    Notes,
 }
 
 impl PersistedRightPanel {
@@ -53,12 +54,14 @@ impl PersistedRightPanel {
         match self {
             Self::SiteTree => "site_tree",
             Self::Outline => "outline",
+            Self::Notes => "notes",
         }
     }
 
     pub(crate) fn from_value(value: Option<&str>) -> Self {
         match value {
             Some("outline") => Self::Outline,
+            Some("notes") => Self::Notes,
             _ => Self::SiteTree,
         }
     }

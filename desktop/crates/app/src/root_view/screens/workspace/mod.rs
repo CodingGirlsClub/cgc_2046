@@ -4,6 +4,7 @@
 pub(super) mod agent_registry;
 pub(in crate::root_view) mod card;
 pub(super) mod media;
+pub(super) mod notes;
 pub(in crate::root_view) mod outline_tree;
 pub(super) mod pane;
 pub(super) mod right_dock;

@@ -1091,6 +1091,14 @@ impl RootView {
         self.course_enrollments.clear();
         self.course_detail.reset();
         self.content.reset();
+        self.notes.reset();
+        self.notes_started = false;
+        self.note_edit = None;
+        self.note_pending_delete = None;
+        self.notes_notice = None;
+        self.selection_material_id = None;
+        self.expanded_notes.clear();
+        self.retro_checked.clear();
         self.projection.reset();
         self.pending_link = None;
         self.selected_event = None;

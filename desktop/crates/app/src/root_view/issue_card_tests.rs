@@ -9,6 +9,7 @@ use cgc_courses::catalog::{CourseCatalogService, CoursesApi, FakeCoursesApi};
 use cgc_courses::content::{
     AgentActionSpec, AgentIntent, CourseChecklistItem, CourseObjective, MaterialKind, TypedMaterial,
 };
+use cgc_courses::notes::{CourseNote, CourseNotesService, FakeNotesApi, NoteKind};
 use cgc_courses::projection::{LearningProjection, LearningProjectionService, ObjectiveState};
 use cgc_platform::session::{FakeAuthApi, MemoryStore, SessionService};
 use gpui_kit::test::TestWindowExt;
@@ -47,7 +48,7 @@ fn issue_card_window(cx: &mut TestAppContext) -> (gpui_kit::AnyWindowHandle, Ent
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                     None,
-                    size(px(960.), px(720.)),
+                    size(px(960.), px(1600.)),
                     cx,
                 ))),
                 ..Default::default()
@@ -238,6 +239,198 @@ fn issue_card_renders_chapter_kind_assessment_and_rubric(cx: &mut TestAppContext
             .completed_materials
             .iter()
             .any(|key| key.ends_with(":mat-md")));
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn issue_card_renders_notes_with_source_material(cx: &mut TestAppContext) {
+    let (handle, root) = issue_card_window(cx);
+    root.update(cx, |root, _| {
+        root.courses = CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        root.content.adopt(card_content());
+        root.notes = CourseNotesService::new(Arc::new(FakeNotesApi::default()));
+        root.notes.begin_load("crs-000");
+        root.notes.adopt(vec![CourseNote {
+            id: "n1".into(),
+            course_id: "crs-000".into(),
+            issue_id: "issue-1".into(),
+            source_material_id: Some("mat-text".into()),
+            kind: NoteKind::Note,
+            text: "选中材料后记下的重点".into(),
+            created_at: "2026-11-11T00:00:00Z".into(),
+            updated_at: None,
+        }]);
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("issue-notes").is_some());
+        assert!(window.try_find("issue-note-n1").is_some());
+        assert!(window.try_find("issue-notes-empty").is_none());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn selection_add_note_writes_through_notes_api(cx: &mut TestAppContext) {
+    let (handle, root) = issue_card_window(cx);
+    root.update(cx, |root, _| {
+        root.courses = CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        root.content.adopt(card_content());
+        root.notes = CourseNotesService::new(Arc::new(FakeNotesApi::default()));
+        root.notes.begin_load("crs-000");
+    });
+
+    root.update(cx, |root, cx| {
+        root.add_note_from_selection(
+            "材料重点".into(),
+            Some("mat-text".into()),
+            crate::agent_call::LearningTarget::Material {
+                course_id: "crs-000".into(),
+                revision: Some(1),
+                issue_id: "issue-1".into(),
+                objective_id: None,
+                material_id: "mat-text".into(),
+            },
+            cx,
+        );
+    });
+    cx.run_until_parked();
+
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let notes = root.read(cx).notes.notes_for_issue("issue-1");
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].text, "材料重点");
+        assert_eq!(notes[0].source_material_id.as_deref(), Some("mat-text"));
+        assert!(
+            window.try_find("issue-notes").is_some(),
+            "notes section renders"
+        );
+        assert!(
+            window.try_find("issue-note-note-1").is_some(),
+            "note row renders: {:?}",
+            notes.iter().map(|note| note.id.clone()).collect::<Vec<_>>()
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn issue_note_crud_uses_inline_edit_and_confirm_delete(cx: &mut TestAppContext) {
+    let (handle, root) = issue_card_window(cx);
+    let note = CourseNote {
+        id: "n1".into(),
+        course_id: "crs-000".into(),
+        issue_id: "issue-1".into(),
+        source_material_id: Some("mat-text".into()),
+        kind: NoteKind::Note,
+        text: "before".into(),
+        created_at: "2026-11-11T00:00:00Z".into(),
+        updated_at: None,
+    };
+    root.update(cx, move |root, _| {
+        root.courses = CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        root.content.adopt(card_content());
+        root.notes =
+            CourseNotesService::new(Arc::new(FakeNotesApi::with_notes(vec![note.clone()])));
+        root.notes.begin_load("crs-000");
+        root.notes.adopt(vec![note.clone()]);
+    });
+
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        window.click("note-edit-n1", cx);
+        assert!(root.read(cx).note_edit.is_some());
+
+        let input = root
+            .read(cx)
+            .note_edit
+            .as_ref()
+            .expect("edit state")
+            .input
+            .clone();
+        input.update(cx, |state, cx| state.set_value("after", window, cx));
+        assert_eq!(input.read(cx).value().to_string(), "after");
+        window.render_frame(cx);
+        assert!(
+            root.read(cx).note_edit.is_some(),
+            "edit state survives render"
+        );
+        window.click("note-save-n1", cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+
+    cx.update_window(handle, |_, window, cx| {
+        assert_eq!(
+            root.read(cx).notes.notes_for_issue("issue-1")[0].text,
+            "after",
+            "notice={:?}",
+            root.read(cx).notes_notice
+        );
+        window.render_frame(cx);
+        window.click("note-delete-n1", cx);
+        assert!(root.read(cx).note_pending_delete.as_deref() == Some("n1"));
+        window.render_frame(cx);
+        window.click("note-confirm-n1", cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, _, cx| {
+        assert!(root.read(cx).notes.notes_for_issue("issue-1").is_empty());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn completed_issue_triggers_retro_once(cx: &mut TestAppContext) {
+    let (_handle, root) = issue_card_window(cx);
+    root.update(cx, |root, _| {
+        root.courses = CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        root.content.adopt(card_content());
+        root.projection = LearningProjectionService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        root.projection.adopt(projection());
+        root.notes = CourseNotesService::new(Arc::new(FakeNotesApi::default()));
+        root.notes.begin_load("crs-000");
+    });
+    root.update(cx, |root, cx| {
+        root.ensure_retro_for_course(cx);
+        root.ensure_retro_for_course(cx);
+    });
+    cx.run_until_parked();
+
+    root.update(cx, |root, _| {
+        let retros = root
+            .notes
+            .notes_for_issue("issue-1")
+            .into_iter()
+            .filter(|note| note.kind == NoteKind::Retro)
+            .count();
+        assert_eq!(retros, 1);
+    });
+}
+
+#[gpui_kit::test]
+fn send_note_prefills_composer_without_agent_call(cx: &mut TestAppContext) {
+    let (handle, root) = issue_card_window(cx);
+    let note = CourseNote {
+        id: "n1".into(),
+        course_id: "crs-000".into(),
+        issue_id: "issue-1".into(),
+        source_material_id: None,
+        kind: NoteKind::Note,
+        text: "需要回顾的重点".into(),
+        created_at: "2026-11-11T00:00:00Z".into(),
+        updated_at: None,
+    };
+
+    cx.update_window(handle, |_, window, cx| {
+        root.update(cx, |root, cx| {
+            root.send_note_to_agent(&note, window, cx);
+        });
+        assert!(root.read(cx).chat.input.contains("需要回顾的重点"));
+        assert!(root.read(cx).chat.pending_agent_call.is_none());
     })
     .unwrap();
 }

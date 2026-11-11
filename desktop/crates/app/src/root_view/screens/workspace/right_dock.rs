@@ -5,6 +5,7 @@
 
 use super::super::super::*;
 use super::super::ScreenContext;
+use super::notes;
 use super::outline_tree::render_outline_tree;
 use crate::notification_center::{filtered_items, format_time, NotificationFilter};
 use cgc_courses::outline::build_outline;
@@ -30,11 +31,13 @@ pub(in crate::root_view) fn render_right_dock(
     let title = match panel {
         RightPanel::SiteTree => translate(language, Key::WorkspaceSiteTreeTitle),
         RightPanel::Outline => translate(language, Key::WorkspaceOutlineTitle),
+        RightPanel::Notes => translate(language, Key::CoursesLearningNotesPanelTitle),
         RightPanel::Notifications => translate(language, Key::AppNotificationsTitle),
     };
     let icon = match panel {
         RightPanel::SiteTree => AssetIcon::FolderOpen,
         RightPanel::Outline => AssetIcon::FileText,
+        RightPanel::Notes => AssetIcon::FileText,
         RightPanel::Notifications => AssetIcon::Bell,
     };
     if panel == RightPanel::SiteTree {
@@ -48,6 +51,7 @@ pub(in crate::root_view) fn render_right_dock(
     let body = match panel {
         RightPanel::SiteTree => render_site_tree(ctx, language, palette, window, cx),
         RightPanel::Outline => render_outline(ctx, language, palette, cx),
+        RightPanel::Notes => notes::render_course_notes(ctx, language, palette, cx),
         RightPanel::Notifications => unreachable!(),
     };
 

@@ -8,6 +8,7 @@
 use super::super::super::*;
 use super::super::ScreenContext;
 use super::media;
+use super::notes as issue_notes;
 use crate::agent_call::{AgentCall, LearningTarget};
 use cgc_courses::content::{AgentActionSpec, AgentIntent, CourseIssue, CourseObjective};
 use gpui_kit::base::SelectableText;
@@ -781,6 +782,10 @@ pub(in crate::root_view) fn render_issue_card(
                 .into_any_element(),
         );
     }
+
+    children.push(issue_notes::issue_notes_section(
+        ctx, issue_id, language, palette, cx,
+    ));
 
     div()
         .id("issue-card")

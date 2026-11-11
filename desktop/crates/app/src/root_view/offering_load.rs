@@ -97,6 +97,7 @@ impl RootView {
                             }
                         }
                         this.projection.adopt(projection);
+                        this.ensure_retro_for_course(cx);
                         true
                     }
                     Err(error) if error.is_unauthorized() => {
@@ -116,6 +117,45 @@ impl RootView {
                     if loaded {
                         this.start_projection_load(cx, requested_course.clone());
                     }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub(in crate::root_view) fn start_notes_load(
+        &mut self,
+        cx: &mut Context<Self>,
+        course_id: String,
+    ) {
+        self.notes.begin_load(&course_id);
+        self.notes_started = true;
+        self.notes_load_serial = self.notes_load_serial.wrapping_add(1);
+        let serial = self.notes_load_serial;
+        let api = self.notes.api_handle();
+        let token = self.session_token();
+        let epoch = self.workspace_bound_epoch();
+        let session_epoch = self.session_epoch;
+        let requested_course = course_id.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move { api.list_notes(token.as_deref(), &course_id) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                let stale_epoch =
+                    epoch.is_some_and(|epoch| !this.workspaces.is_current_epoch(epoch));
+                let stale_session = this.session_epoch != session_epoch;
+                let still_wanted = this.notes_load_serial == serial
+                    && this.notes.course_id() == Some(requested_course.as_str());
+                if stale_epoch || stale_session || !still_wanted {
+                    return;
+                }
+                match result {
+                    Ok(notes) => this.notes.adopt(notes),
+                    Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
+                    Err(error) => this.notes.fail(&error),
                 }
                 cx.notify();
             });
@@ -154,7 +194,10 @@ impl RootView {
                     return;
                 }
                 match result {
-                    Ok(content) => this.content.adopt(content),
+                    Ok(content) => {
+                        this.content.adopt(content);
+                        this.ensure_retro_for_course(cx);
+                    }
                     Err(error) if error.is_unauthorized() => this.force_sign_out(cx),
                     Err(error) => this.content.fail(&error),
                 }

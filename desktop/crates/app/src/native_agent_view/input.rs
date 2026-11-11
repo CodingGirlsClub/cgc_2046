@@ -28,6 +28,22 @@ impl NativeAgentView {
         cx.notify();
     }
 
+    pub(crate) fn compose_note(
+        &mut self,
+        prompt: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.pending_agent_call = None;
+        self.composer_context.reset();
+        self.input.update(cx, |state, cx| {
+            state.set_value(prompt, window, cx);
+            state.focus(window, cx);
+        });
+        self.status = "已引用笔记，发送前可编辑".into();
+        cx.notify();
+    }
+
     pub(crate) fn clear_pending_agent_call(&mut self, cx: &mut Context<Self>) {
         if self.pending_agent_call.take().is_some() {
             cx.notify();

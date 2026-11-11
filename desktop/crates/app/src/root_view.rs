@@ -21,6 +21,7 @@ use cgc_courses::catalog::{
     CoursesListState, FakeCoursesApi, HttpCoursesApi,
 };
 use cgc_courses::content::{CourseContentService, CourseContentState, MaterialKind};
+use cgc_courses::notes::{CourseNotesService, FakeNotesApi, HttpNotesApi, NotesApi, NotesState};
 use cgc_courses::projection::{LearningProjectionService, ProjectionState};
 use cgc_events::detail::{EventDetail, EventDetailService, PriceMode};
 use cgc_platform::paths::AppPaths;
@@ -83,6 +84,7 @@ mod enrollment_flow;
 mod history_actions;
 mod key_dispatch;
 mod nav_copy;
+mod notes;
 mod offering_load;
 mod page_context_build;
 mod tab_lifecycle;
@@ -232,6 +234,7 @@ pub(in crate::root_view) struct SelectionPopover {
     pub(in crate::root_view) text: String,
     pub(in crate::root_view) position: Point<Pixels>,
     pub(in crate::root_view) target: crate::agent_call::LearningTarget,
+    pub(in crate::root_view) source_material_id: Option<String>,
 }
 
 #[derive(Default)]
@@ -1018,6 +1021,24 @@ impl Render for RootView {
                     self.start_content_load(cx, course_id);
                 }
             }
+            if matches!(
+                current_id,
+                Some("courses.learning")
+                    | Some("courses.public_learning")
+                    | Some("courses.detail")
+                    | Some("courses.public_detail")
+            ) && matches!(self.course_detail.state(), CoursesListState::Ready)
+                && matches!(self.notes.state(), NotesState::Idle)
+            {
+                if let Some(course_id) = self
+                    .current
+                    .as_ref()
+                    .and_then(|route_match| route_match.params.get("id"))
+                    .cloned()
+                {
+                    self.start_notes_load(cx, course_id);
+                }
+            }
             if data_ready
                 && matches!(
                     current_id,
@@ -1544,6 +1565,7 @@ impl RootView {
             let _ = root.update(cx, |this, cx| {
                 this.page_context.capture_selection(text.clone());
                 this.selection_popover = this.build_selection_popover(&text, position);
+                this.selection_material_id = None;
                 if let Some(view) = this.native_agent_view.clone() {
                     view.update(cx, |_, cx| cx.notify());
                 }
@@ -1563,6 +1585,17 @@ impl RootView {
             .unwrap_or_else(|| "unversioned".into());
         let scope = format!("{}:{}:{}", course.id, revision, unit.id);
         let objective = self.selected_objective.get(&scope).map(String::as_str);
+
+        if let Some(material_id) = self.selection_material_id.clone() {
+            return Some(crate::agent_call::LearningTarget::Material {
+                course_id: course.id.clone(),
+                revision: course.revision,
+                issue_id: unit.id.clone(),
+                objective_id: objective.map(str::to_string),
+                material_id,
+            });
+        }
+
         crate::agent_call::selection_target(page.as_ref(), objective)
     }
 
@@ -1593,6 +1626,7 @@ impl RootView {
             text,
             position,
             target,
+            source_material_id: self.selection_material_id.clone(),
         })
     }
 
@@ -1661,6 +1695,25 @@ impl RootView {
                     cx.notify();
                 });
             });
+        let add_label = translate(language, Key::CoursesLearningNotesAdd).to_string();
+        let add_text = popover.text.clone();
+        let add_source = popover.source_material_id.clone();
+        let add_target = popover.target.clone();
+        let add_root = root.clone();
+        let add_button = Button::new("selection-add-note")
+            .xsmall()
+            .label(add_label)
+            .on_click(move |_, _, cx| {
+                let _ = add_root.update(cx, |this, cx| {
+                    this.add_note_from_selection(
+                        add_text.clone(),
+                        add_source.clone(),
+                        add_target.clone(),
+                        cx,
+                    );
+                });
+            });
+
         let copy_text = popover.text.clone();
         let copy_root = root.clone();
         let copy_button = Button::new("selection-copy")
@@ -1687,7 +1740,7 @@ impl RootView {
             .border_color(palette.line)
             .bg(palette.card)
             .shadow_sm()
-            .children([explain_button, summarize_button, copy_button]);
+            .children([explain_button, summarize_button, add_button, copy_button]);
 
         let dismiss_root = cx.entity().downgrade();
         let dismiss = deferred(
@@ -2489,6 +2542,16 @@ fn build_courses_service() -> CourseCatalogService {
         Arc::new(FakeCoursesApi::with_seed(15))
     };
     CourseCatalogService::new(api)
+}
+
+fn build_notes_service() -> CourseNotesService {
+    let use_http = !cgc_platform::runtime::use_fake_backend();
+    let api: Arc<dyn NotesApi> = if use_http {
+        Arc::new(HttpNotesApi::from_env())
+    } else {
+        Arc::new(FakeNotesApi::default())
+    };
+    CourseNotesService::new(api)
 }
 
 fn status_label(language: Language, status: &str) -> &'static str {

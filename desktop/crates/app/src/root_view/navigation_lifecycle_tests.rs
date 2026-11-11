@@ -1,6 +1,7 @@
 use super::RootView;
 use crate::{i18n::Language, theme::ThemePreference, workspace_state};
 use cgc_courses::catalog::{CoursesApi, FakeCoursesApi};
+use cgc_courses::notes::{CourseNote, CourseNotesService, FakeNotesApi, NoteKind};
 use cgc_platform::workspace::WorkspaceSummary;
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{px, size, AppContext, Bounds, Entity, TestAppContext, WindowBounds, WindowOptions};
@@ -361,6 +362,52 @@ fn pending_agent_call_clears_when_leaving_course_pages(cx: &mut TestAppContext) 
     .unwrap();
 }
 
+#[gpui_kit::test]
+fn notes_panel_opens_and_filters_retro(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let (window, root) = root_window(cx, "/w/alpha/courses/crs-001/learn");
+    root.update(cx, |root, _| {
+        root.notes = CourseNotesService::new(std::sync::Arc::new(FakeNotesApi::default()));
+        root.notes.begin_load("crs-001");
+        root.notes.adopt(vec![
+            CourseNote {
+                id: "n1".into(),
+                course_id: "crs-001".into(),
+                issue_id: "issue-1".into(),
+                source_material_id: None,
+                kind: NoteKind::Note,
+                text: "普通笔记".into(),
+                created_at: "2026-11-11T00:00:00Z".into(),
+                updated_at: None,
+            },
+            CourseNote {
+                id: "r1".into(),
+                course_id: "crs-001".into(),
+                issue_id: "issue-1".into(),
+                source_material_id: None,
+                kind: NoteKind::Retro,
+                text: "复盘".into(),
+                created_at: "2026-11-11T00:01:00Z".into(),
+                updated_at: None,
+            },
+        ]);
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        root.update(cx, |root, cx| root.open_notes_panel(cx));
+        window.render_frame(cx);
+        assert!(window.try_find("course-notes-panel").is_some());
+        assert!(window.try_find("issue-note-n1").is_some());
+        assert!(window.try_find("issue-note-r1").is_some());
+
+        window.click("notes-filter-retro", cx);
+        window.render_frame(cx);
+        assert!(window.try_find("issue-note-r1").is_some());
+        assert!(window.try_find("issue-note-n1").is_none());
+    })
+    .unwrap();
+}
+
 /// 选区浮层：三个动作可见；点击外部关闭。
 #[gpui_kit::test]
 fn selection_popover_renders_actions_and_dismisses(cx: &mut TestAppContext) {
@@ -375,6 +422,7 @@ fn selection_popover_renders_actions_and_dismisses(cx: &mut TestAppContext) {
                 revision: Some(1),
                 issue_id: "issue-1".into(),
             },
+            source_material_id: None,
         });
     });
     cx.update_window(window, |_, window, cx| {
@@ -383,6 +431,7 @@ fn selection_popover_renders_actions_and_dismisses(cx: &mut TestAppContext) {
         assert!(window.try_find("selection-popover").is_some());
         assert!(window.try_find("selection-explain").is_some());
         assert!(window.try_find("selection-summarize").is_some());
+        assert!(window.try_find("selection-add-note").is_some());
         assert!(window.try_find("selection-copy").is_some());
 
         let dismiss = window.find("selection-popover-dismiss");
