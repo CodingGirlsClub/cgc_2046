@@ -243,17 +243,20 @@ fn execution_instruction(intent: &AgentIntent) -> Option<&'static str> {
             "用工具检查工作区/项目环境（根目录见系统提示），报告检查了什么、是否满足任务要求、还缺什么；不要臆测不存在的结果。"
         }
         AgentIntent::InspectArtifact => {
-            "按以下程序检查产物：\n\
-             1. 在工作区定位该目标要求的产物（list_directory/read_file/run_command；根目录见系统提示）；找不到就先问用户一次，然后如实报告缺失。\n\
-             2. 逐条对照当前目标的 rubric（见页面上下文），给出每个 criterion id 的结论：通过/不通过，以及证据（文件路径:行、命令输出）。\n\
-             3. 只报告检查结果，不提交、不记录掌握。\n\
-             4. 没有本地工具时明确说明无法读取本地文件，不要假装检查过。"
+            "按以下程序检查完成情况：\n\
+             1. 先读当前目标的 rubric（见页面上下文），判断每条 criterion 需要什么证据：本机环境/命令输出、产物文件、终端记录/截图、或学习者的一段说明。\n\
+             2. 环境类：用只读命令确认（command -v / --version / 状态查询）；交互类（已启动/收到回复）请学习者粘贴终端记录或截图，不要因为工作区没有文件就判不通过。\n\
+             3. 文件类：在工作区定位并读取（list_directory/read_file/run_command；根目录见系统提示）；找不到就问用户路径。\n\
+             4. 说明类：请学习者用自己的话说明，再按 rubric 评价。\n\
+             5. 逐条给出 criterion id 的结论：通过/不通过/待证据，以及证据（命令输出、路径:行、截图或记录引用）。\n\
+             6. 只报告检查结果，不提交、不记录掌握；证据缺失时说“需要你提供 X”，不要直接判失败。\n\
+             7. 没有本地工具时明确说明无法检查，不要假装检查过。"
         }
         AgentIntent::Submit => {
             "按以下程序提交：\n\
-             1. 先按 inspect_artifact 的流程定位并检查真实产物；没有检查不得提交。\n\
-             2. 调用 submit_learning_attempt 时，rubric_results 必须精确覆盖该目标 rubric 的每个 criterion id（不多不少）；evidence 写明真实文件路径与关键片段/命令输出；confidence 与证据强度一致。\n\
-             3. 任一 criterion 无法验证或未通过时，不报 passed、不写高 confidence；如实说明缺什么。\n\
+             1. 先按 inspect_artifact 的流程检查真实证据（环境命令、产物文件、终端记录/截图、学习者说明）；没有检查不得提交。\n\
+             2. 调用 submit_learning_attempt 时，rubric_results 必须精确覆盖该目标 rubric 的每个 criterion id（不多不少）；evidence 写明真实证据（命令输出、文件路径:行、终端记录/截图、学习者说明）；confidence 与证据强度一致。\n\
+             3. 任一 criterion 缺证据或未通过时，不报 passed、不写高 confidence；如实说明缺什么。\n\
              4. 没有本地工具时明确说明无法检查，不要凭用户描述提交。"
         }
         AgentIntent::CreateFile => {
@@ -405,7 +408,7 @@ mod tests {
         assert!(result.contains("退出码"), "run procedure included");
     }
 
-    /// #46：检查产物必须逐条对照 rubric、给出证据、且不提交。
+    /// #46：检查完成情况必须按 rubric 判断证据类型，不把「没有文件」当失败。
     #[test]
     fn prompt_with_agent_call_requires_artifact_evidence() {
         let call = AgentCall::from_action(
@@ -414,11 +417,14 @@ mod tests {
         );
         let result = prompt_with_agent_call("请检查", &call);
         for needle in [
-            "逐条对照",
-            "criterion id",
-            "证据",
+            "先读当前目标的 rubric",
+            "环境类",
+            "终端记录",
+            "截图",
+            "说明",
+            "待证据",
+            "不要直接判失败",
             "不提交",
-            "找不到",
             "没有本地工具",
         ] {
             assert!(

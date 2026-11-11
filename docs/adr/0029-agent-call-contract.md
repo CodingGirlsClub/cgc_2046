@@ -197,12 +197,19 @@ MVP 不扩展 native runtime 协议，使用现有 prompt 通道承载结构化�
 envelope 保留为 reference 视图。指令是模板文本，不是工具调用；副作用由
 `toolPermissions` 审批兜底。回答类（answer/hint/explain/summarize）不注入。
 
-手工作业（#46）的证据纪律写进同一指令：
+手工作业（#46）的证据纪律写进同一指令。证据不限于文件，按 rubric 判断类型：
 
-- `inspect_artifact`：定位真实产物 → 逐条对照 rubric → 报「criterion id + 通过/不通过 +
-  证据（路径:行 / 命令输出）」；不提交、不记录掌握；找不到如实报告；无本地工具时明说。
-- `submit`：先完成检查再调 `submit_learning_attempt`；`rubric_results` 精确覆盖每个
-  criterion id；`evidence` 引用真实路径/输出；证据不足不报 passed、不写高 confidence。
+- 环境类：只读命令（`command -v` / `--version` / 状态查询）；
+- 交互类（已启动/收到回复）：学习者提供的终端记录或截图；
+- 文件类：工作区内的产物文件（路径:行）；
+- 说明类：学习者用自己的话说明。
+
+`inspect_artifact`：先按 rubric 判定每条 criterion 需要哪类证据 → 采集/请求证据 →
+报「criterion id + 通过/不通过/待证据 + 证据」；不提交、不记录掌握；**缺少证据时
+说「需要你提供 X」，不因工作区没有文件就判失败**；无本地工具时明说。
+`submit`：先完成检查再调 `submit_learning_attempt`；`rubric_results` 精确覆盖每个
+criterion id；`evidence` 引用真实证据（命令输出/路径:行/终端记录/说明）；证据不足
+不报 passed、不写高 confidence。
 - 这是软约束（模型遵循度），不是运行时强制；若实测不达标，后续再评估 runtime gate
   （同一 turn 内需出现读文件/运行工具才允许提交）。
 
