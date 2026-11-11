@@ -360,3 +360,37 @@ fn pending_agent_call_clears_when_leaving_course_pages(cx: &mut TestAppContext) 
     })
     .unwrap();
 }
+
+/// 选区浮层：三个动作可见；点击外部关闭。
+#[gpui_kit::test]
+fn selection_popover_renders_actions_and_dismisses(cx: &mut TestAppContext) {
+    let _files = super::workspace_layout_tests::LayoutFiles::new();
+    let (window, root) = root_window(cx, "/w/alpha/courses/crs-001/learn");
+    root.update(cx, |root, _| {
+        root.selection_popover = Some(crate::root_view::SelectionPopover {
+            text: "选中的一段材料".into(),
+            position: gpui_kit::point(px(120.0), px(120.0)),
+            target: crate::agent_call::LearningTarget::Issue {
+                course_id: "crs-001".into(),
+                revision: Some(1),
+                issue_id: "issue-1".into(),
+            },
+        });
+    });
+    cx.update_window(window, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(root.read(cx).selection_popover.is_some());
+        assert!(window.try_find("selection-popover").is_some());
+        assert!(window.try_find("selection-explain").is_some());
+        assert!(window.try_find("selection-summarize").is_some());
+        assert!(window.try_find("selection-copy").is_some());
+
+        let dismiss = window.find("selection-popover-dismiss");
+        assert!(dismiss.visible(), "dismiss bounds={:?}", dismiss.bounds());
+        window.click("selection-popover-dismiss", cx);
+        window.render_frame(cx);
+        assert!(window.try_find("selection-popover").is_none());
+        assert!(root.read(cx).selection_popover.is_none());
+    })
+    .unwrap();
+}

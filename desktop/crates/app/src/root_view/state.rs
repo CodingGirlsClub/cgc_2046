@@ -332,6 +332,8 @@ pub struct ShellState {
     pub(in crate::root_view) projection: LearningProjectionService,
     /// 提交成功时投影仍在加载：当前请求结束后需要再拉一次。
     pub(in crate::root_view) projection_refresh_pending: bool,
+    /// 页面选区浮层：解释/总结/复制。
+    pub(in crate::root_view) selection_popover: Option<super::SelectionPopover>,
     pub(in crate::root_view) pending_link: Option<String>,
     pub(in crate::root_view) native_agent_highlight: Option<NativeAgentHighlight>,
     pub(in crate::root_view) native_chat_mode: bool,
@@ -534,6 +536,7 @@ impl ShellState {
             content,
             projection,
             projection_refresh_pending: false,
+            selection_popover: None,
             pending_link: None,
             native_agent_highlight: None,
             native_chat_mode: crate::chat_state::load_native_chat_mode().unwrap_or(true),

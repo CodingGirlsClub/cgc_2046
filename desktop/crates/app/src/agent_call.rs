@@ -274,6 +274,30 @@ fn execution_instruction(intent: &AgentIntent) -> Option<&'static str> {
     Some(template)
 }
 
+/// 选区动作的目标：当前 objective；没有选中 objective 时挂到 issue。
+/// 页面没有课程/unit（例如普通页面）时不产生选区动作。
+pub(crate) fn selection_target(
+    page: Option<&crate::page_context::PageContext>,
+    objective_id: Option<&str>,
+) -> Option<LearningTarget> {
+    let page = page?;
+    let course = page.course.as_ref()?;
+    let unit = course.unit.as_ref()?;
+    Some(match objective_id {
+        Some(objective_id) => LearningTarget::Objective {
+            course_id: course.id.clone(),
+            revision: course.revision,
+            issue_id: unit.id.clone(),
+            objective_id: objective_id.to_string(),
+        },
+        None => LearningTarget::Issue {
+            course_id: course.id.clone(),
+            revision: course.revision,
+            issue_id: unit.id.clone(),
+        },
+    })
+}
+
 pub fn prompt_with_agent_call(prompt: &str, call: &AgentCall) -> String {
     let mut result = String::new();
     if let Some(instruction) = execution_instruction(&call.intent) {
@@ -479,6 +503,52 @@ mod tests {
                 "answer-class intent {intent:?} must stay unchanged"
             );
         }
+    }
+
+    /// 选区目标：有选中 objective 用 Objective，否则 Issue；无 unit 不产生。
+    #[test]
+    fn selection_target_uses_objective_or_issue() {
+        use crate::page_context::{CourseContext, PageBody, PageContext, PageUnit};
+
+        let page = PageContext {
+            workspace_id: None,
+            tab_id: "tab".into(),
+            route: "/courses/crs-1/learn".into(),
+            title: "Course".into(),
+            version: "v1".into(),
+            body: PageBody::Empty,
+            course: Some(CourseContext {
+                id: "crs-1".into(),
+                title: "Course".into(),
+                revision: Some(2),
+                unit: Some(PageUnit {
+                    id: "issue-1".into(),
+                    title: "Issue".into(),
+                }),
+            }),
+        };
+        assert_eq!(
+            selection_target(Some(&page), Some("obj-1")),
+            Some(LearningTarget::Objective {
+                course_id: "crs-1".into(),
+                revision: Some(2),
+                issue_id: "issue-1".into(),
+                objective_id: "obj-1".into(),
+            })
+        );
+        assert_eq!(
+            selection_target(Some(&page), None),
+            Some(LearningTarget::Issue {
+                course_id: "crs-1".into(),
+                revision: Some(2),
+                issue_id: "issue-1".into(),
+            })
+        );
+
+        let mut without_unit = page;
+        without_unit.course.as_mut().unwrap().unit = None;
+        assert_eq!(selection_target(Some(&without_unit), Some("obj-1")), None);
+        assert_eq!(selection_target(None, Some("obj-1")), None);
     }
 
     #[test]

@@ -339,6 +339,9 @@ courses.learning.by_doing
 courses.learning.agent_action.answer
 courses.learning.agent_action.hint
 courses.learning.agent_action.inspect_artifact
+courses.learning.selection.explain
+courses.learning.selection.summarize
+courses.learning.selection.copy
 courses.learning.agent_prompt.answer
 courses.learning.agent_prompt.hint
 courses.learning.agent_prompt.explain
