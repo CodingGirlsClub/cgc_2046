@@ -15,6 +15,14 @@ pub(in crate::root_view) struct HistoryRowActions {
 /// 未归档行显示 Rename + Archive；归档行显示 Rename + Unarchive。
 /// native 的归档标记存在 conversations.db.native_archived（threads.db schema 不变）。
 pub(in crate::root_view) fn history_row_actions(entry: &HistoryEntry) -> HistoryRowActions {
+    // 终端会话不归档：它只是按时间衰减的日志，再叠一层归档没有收益。
+    if entry.source == HistorySource::Terminal {
+        return HistoryRowActions {
+            rename: true,
+            archive: false,
+            unarchive: false,
+        };
+    }
     HistoryRowActions {
         rename: true,
         archive: !entry.archived,
@@ -35,12 +43,16 @@ impl RootView {
         let thread_id = entry.thread_id.clone();
         let session_id = entry.session_id.clone();
         let source = entry.source;
+        let working_directory = entry.working_directory.clone();
         let actions = history_row_actions(entry);
         let title = entry
             .title
             .clone()
             .filter(|title| !title.trim().is_empty())
-            .unwrap_or_else(|| "未命名对话".to_string());
+            .unwrap_or_else(|| match source {
+                HistorySource::Terminal => "Terminal".to_string(),
+                _ => "未命名对话".to_string(),
+            });
         let agent_label = entry.agent_label().to_string();
         let time_label = acp_history::relative_time_label(&entry.updated_at, now);
         let is_current = match source {
@@ -51,6 +63,8 @@ impl RootView {
             HistorySource::Native => self.native_agent_view.as_ref().is_some_and(|view| {
                 view.read(cx).current_thread_id().as_deref() == Some(thread_id.as_str())
             }),
+            // 终端行的 key 是历史记录 id，不跟踪当前活动实例。
+            HistorySource::Terminal => false,
         };
         let renaming = self
             .history_sidebar
@@ -105,6 +119,7 @@ impl RootView {
         let open_thread_id = thread_id.clone();
         let open_session_id = session_id.clone();
         let open_source = source;
+        let open_directory = working_directory.clone();
         let open_area = div()
             .id(format!("history-open-{thread_id}"))
             .role(Role::Button)
@@ -122,11 +137,18 @@ impl RootView {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child(crate::root_view::agent_icons::agent_icon_element(
-                        &agent_label,
-                        AGENT_ROW_ICON_SIZE,
-                        palette.ink_3,
-                    )),
+                    .child(if source == HistorySource::Terminal {
+                        crate::root_view::agent_icons::terminal_icon_element(
+                            AGENT_ROW_ICON_SIZE,
+                            palette.ink_3,
+                        )
+                    } else {
+                        crate::root_view::agent_icons::agent_icon_element(
+                            &agent_label,
+                            AGENT_ROW_ICON_SIZE,
+                            palette.ink_3,
+                        )
+                    }),
             )
             .child(
                 div()
@@ -159,6 +181,7 @@ impl RootView {
                         open_thread_id.clone(),
                         open_session_id.clone(),
                         open_source,
+                        open_directory.clone(),
                         window,
                         cx,
                     );
@@ -297,6 +320,7 @@ mod history_row_tests {
             updated_at: "2026-10-26T12:00:00Z".to_string(),
             archived,
             source,
+            working_directory: None,
         }
     }
 
@@ -310,6 +334,11 @@ mod history_row_tests {
         assert!(
             native.rename && native.archive && !native.unarchive,
             "native 也可归档（标记存 native_archived）"
+        );
+        let terminal = history_row_actions(&entry(HistorySource::Terminal, false));
+        assert!(
+            terminal.rename && !terminal.archive && !terminal.unarchive,
+            "终端行只提供重命名"
         );
     }
 }

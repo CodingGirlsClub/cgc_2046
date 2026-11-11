@@ -12,6 +12,7 @@ use gpui_kit::component::popover::Popover;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::root_view) enum AgentPanelContent {
+    Terminal,
     Native,
     External,
 }
@@ -28,6 +29,18 @@ pub(in crate::root_view) fn content_kind(
     }
 }
 
+/// 面板内容优先级：终端 > native > external。
+///
+/// 终端打开时它就是面板内容；切到任何 agent 之前必须先关闭终端
+/// （`RootView::dismiss_terminal_for_chat`），否则对话会被终端挡住。
+fn content_for(terminal_open: bool, native_mode: bool) -> AgentPanelContent {
+    if terminal_open {
+        AgentPanelContent::Terminal
+    } else {
+        content_kind(native_mode, None)
+    }
+}
+
 pub(in crate::root_view) fn render_agent_panel(
     ctx: &mut ScreenContext<'_>,
     language: Language,
@@ -35,9 +48,16 @@ pub(in crate::root_view) fn render_agent_panel(
     _window: &mut Window,
     cx: &mut Context<RootView>,
 ) -> AnyElement {
-    let route_id = ctx.current.as_ref().map(|route_match| route_match.route.id);
     let native_mode = ctx.native_chat_mode && RootView::native_agent_enabled();
-    let content: AnyElement = match content_kind(native_mode, route_id) {
+    let content: AnyElement = match content_for(
+        ctx.terminal_visible && ctx.terminal_view.is_some(),
+        native_mode,
+    ) {
+        AgentPanelContent::Terminal => ctx
+            .terminal_view
+            .clone()
+            .map(IntoElement::into_any_element)
+            .unwrap_or_else(|| div().into_any_element()),
         AgentPanelContent::Native => ctx
             .native_agent_view
             .clone()
@@ -59,6 +79,9 @@ pub(in crate::root_view) fn render_agent_panel(
 }
 
 fn panel_title(ctx: &ScreenContext<'_>, cx: &mut Context<RootView>) -> String {
+    if let Some(view) = ctx.terminal_view.as_ref() {
+        return terminal_panel_title(view.read(cx).title());
+    }
     if ctx.native_chat_mode && RootView::native_agent_enabled() {
         return ctx
             .native_agent_view
@@ -81,6 +104,16 @@ fn panel_title(ctx: &ScreenContext<'_>, cx: &mut Context<RootView>) -> String {
         .unwrap_or_else(|| "新对话".to_string())
 }
 
+/// 终端面板标题：程序通过 OSC 设置了标题就用它，否则回退 `Terminal`。
+pub(in crate::root_view) fn terminal_panel_title(title: &str) -> String {
+    let trimmed = title.trim();
+    if trimmed.is_empty() {
+        "Terminal".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 pub(in crate::root_view) fn header(
     ctx: &mut ScreenContext<'_>,
     language: Language,
@@ -94,6 +127,16 @@ pub(in crate::root_view) fn header(
         "native".to_string()
     } else {
         ctx.chat.selected_agent.clone().unwrap_or_default()
+    };
+    // 终端模式用终端图标，其余沿用 agent 品牌 mark（Zed 的 tab 同样按内容切图标）。
+    let header_icon = if ctx.terminal_view.is_some() {
+        crate::root_view::agent_icons::terminal_icon_element(AGENT_HEADER_ICON_SIZE, palette.ink_3)
+    } else {
+        crate::root_view::agent_icons::agent_icon_element(
+            &agent_icon_id,
+            AGENT_HEADER_ICON_SIZE,
+            palette.ink_3,
+        )
     };
     let title = panel_title(ctx, cx);
     let editing = ctx.agent_panel_editing_title;
@@ -221,6 +264,7 @@ pub(in crate::root_view) fn header(
     let add_menu_root = root.clone();
     let regenerate_root = root.clone();
     let settings_root = root.clone();
+    let terminal_open = ctx.terminal_view.is_some();
 
     div()
         .id("agent-panel-header")
@@ -234,11 +278,7 @@ pub(in crate::root_view) fn header(
         .h(px(COLUMN_HEADER_HEIGHT))
         .border_b_1()
         .border_color(palette.line)
-        .child(crate::root_view::agent_icons::agent_icon_element(
-            &agent_icon_id,
-            AGENT_HEADER_ICON_SIZE,
-            palette.ink_3,
-        ))
+        .child(header_icon)
         .child(title_area)
         .child(
             Popover::new("agent-panel-new")
@@ -301,6 +341,36 @@ pub(in crate::root_view) fn header(
                                 .into_any_element(),
                         );
                     }
+                    let term_root = add_menu_root.clone();
+                    let term_dismiss = dismiss.clone();
+                    rows.push(
+                        div()
+                            .id("agent-panel-terminal")
+                            .role(Role::Button)
+                            .aria_label("Terminal")
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(space(1))
+                            .px(space(1))
+                            .py(px(3.0))
+                            .rounded(px(RADIUS_SMALL))
+                            .text_size(px(11.0))
+                            .text_color(palette.ink_2)
+                            .hover(|style| style.bg(palette.soft))
+                            .child(crate::root_view::agent_icons::terminal_icon_element(
+                                AGENT_ROW_ICON_SIZE,
+                                palette.ink_3,
+                            ))
+                            .child(div().flex_1().child("Terminal"))
+                            .on_click(move |_, window, cx| {
+                                let _ =
+                                    term_root.update(cx, |this, cx| this.open_terminal(window, cx));
+                                let _ =
+                                    term_dismiss.update(cx, |state, cx| state.dismiss(window, cx));
+                            })
+                            .into_any_element(),
+                    );
                     rows.push(menu_separator(palette));
                     rows.push(
                         div()
@@ -441,9 +511,18 @@ pub(in crate::root_view) fn header(
                         }),
                     );
                     let settings = settings_root.clone();
-                    menu.item(PopupMenuItem::new("Settings").on_click(move |_, _, cx| {
+                    menu = menu.item(PopupMenuItem::new("Settings").on_click(move |_, _, cx| {
                         let _ = settings.update(cx, |this, cx| this.open_settings_window(cx));
-                    }))
+                    }));
+                    if terminal_open {
+                        let close_root = settings_root.clone();
+                        menu = menu.item(PopupMenuItem::new("Close Terminal").on_click(
+                            move |_, _, cx| {
+                                let _ = close_root.update(cx, |this, cx| this.close_terminal(cx));
+                            },
+                        ));
+                    }
+                    menu
                 }),
         )
         .into_any_element()
@@ -464,5 +543,32 @@ fn threads_sidebar_shortcut_label() -> &'static str {
         "⌥⌘J"
     } else {
         "Ctrl+Alt+J"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // 只做显式导入：父模块的 glob 会引入 gpui 的 test 宏。
+    use super::{content_for, terminal_panel_title, AgentPanelContent};
+
+    /// 面板内容优先级：终端可见时占位；隐藏（切到 agent）后显示对话内容。
+    #[test]
+    fn terminal_owns_the_panel_only_while_visible() {
+        assert_eq!(content_for(true, true), AgentPanelContent::Terminal);
+        assert_eq!(content_for(true, false), AgentPanelContent::Terminal);
+        // 隐藏终端后（进程仍在跑）面板回到对话内容。
+        assert_eq!(content_for(false, true), AgentPanelContent::Native);
+        assert_eq!(content_for(false, false), AgentPanelContent::External);
+    }
+
+    #[test]
+    fn terminal_title_falls_back_when_empty() {
+        assert_eq!(terminal_panel_title(""), "Terminal");
+        assert_eq!(terminal_panel_title("   \n"), "Terminal");
+    }
+
+    #[test]
+    fn terminal_title_uses_program_title() {
+        assert_eq!(terminal_panel_title("  vim main.rs  "), "vim main.rs");
     }
 }

@@ -33,6 +33,9 @@ commit scope 平台化：`mp-wechat` / `mp-xhs` / `mp-dy`（取代笼统的 `min
 
 ## [2026-11-09]
 
+### Changed
+- [Web][Miniprogram] 依赖安全收口：`minimatch` 覆盖至 11.0.1（GHSA-g3hv-75wg-m249，globparts 放大型 DoS，影响 7.x–11.0.0 区间实例）、`decode-uri-component` 覆盖至 0.5.1（GHSA-qr28-fpjm-wq7f，百分号编码二次替换 DoS）；同时把 lock 重算时被降级的 `swiper` / `webpack-dev-middleware` / `qs` 钉回原版本，`pnpm audit --prod` 保持 develop 基线（miniprogram 11 条 moderate/low、web 1 条 low，无 critical/high）。三条告警均在 devDependency 链路，不进生产产物。
+
 ### Security
 - [Backend] 升级 `saxy` 1.6.1 → 1.7.0，修复 XML 注释、CDATA 与处理指令的注入漏洞（CVE-2026-66293、CVE-2026-66294、CVE-2026-66295），恢复依赖安全审计通过。
 

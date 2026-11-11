@@ -19,6 +19,7 @@ pub(crate) mod agent_scope;
 pub(crate) mod composer_context;
 pub mod conversation_session;
 pub mod deep_link;
+pub mod fonts;
 pub mod formula;
 pub mod i18n;
 pub mod icon_theme;

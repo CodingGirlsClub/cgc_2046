@@ -733,6 +733,13 @@ impl RootView {
 
 impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 应用主题切换时同步终端配色；订阅常驻，终端打开与否由回调自行判断。
+        if self.theme_subscription.is_none() {
+            self.theme_subscription =
+                Some(cx.observe_global::<gpui_kit::component::Theme>(|this, cx| {
+                    this.sync_terminal_theme(cx)
+                }));
+        }
         let fullscreen = window.is_fullscreen() || window.is_simple_fullscreen();
         let previous_page = self.page_context.visible();
         self.refresh_page_context();
@@ -3057,11 +3064,13 @@ mod tests {
     };
     use crate::i18n::{translate, Key, Language};
     use crate::registration::build_registry;
+    use crate::root_view::controller::{terminal_cwd, terminal_matches_directory};
     use crate::theme::ThemePreference;
     use cgc_agent_ui::conversation::{ConversationThread, Entry as ConversationEntry};
     use cgc_platform::session::{
         AuthError, FakeAuthApi, MemoryStore, SessionService, SignedInSession,
     };
+    use std::path::Path;
 
     fn fake_signed_in() -> SignedInSession {
         SignedInSession {
@@ -4440,6 +4449,49 @@ mod tests {
         assert_ne!(before, after);
         view.toggle_language();
         assert_eq!(translate(view.language(), Key::AppEmptyTitle), before);
+    }
+
+    /// 终端默认目录优先级：上次 cwd → agent 工作区 → home。方案 A 的锚点是 agent 工作区。
+    #[test]
+    fn terminal_directory_match_controls_reuse() {
+        let project = Path::new("/tmp/project");
+        assert!(
+            terminal_matches_directory(Some(project), project),
+            "同目录复用隐藏中的终端实例"
+        );
+        assert!(
+            !terminal_matches_directory(Some(Path::new("/tmp/other")), project),
+            "不同目录要走替换流程"
+        );
+        assert!(!terminal_matches_directory(None, project));
+    }
+
+    #[test]
+    fn terminal_cwd_prefers_last_then_scope_then_home() {
+        let last = Path::new("/tmp/last");
+        let scope = Path::new("/tmp/scope");
+        let home = Path::new("/Users/me");
+
+        assert_eq!(
+            terminal_cwd(Some(last), Some(scope), Some(home)),
+            Some(last),
+            "同一进程内关闭重开：沿用上次目录"
+        );
+        assert_eq!(
+            terminal_cwd(None, Some(scope), Some(home)),
+            Some(scope),
+            "首次打开：落在 agent 工作区，而不是 home"
+        );
+        assert_eq!(
+            terminal_cwd(None, None, Some(home)),
+            Some(home),
+            "agent 未初始化：退回 home"
+        );
+        assert_eq!(
+            terminal_cwd(None, None, None),
+            None,
+            "都没有时交给 shell 默认"
+        );
     }
 
     #[test]

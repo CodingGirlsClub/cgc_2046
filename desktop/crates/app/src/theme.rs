@@ -161,6 +161,143 @@ fn theme_file_path() -> PathBuf {
     cgc_platform::paths::AppPaths::from_env().theme_state_file()
 }
 
+/// 打包的终端配色表：主题名 → 前景/背景/光标 + ANSI 0–15。
+///
+/// 与主题 JSON 分开存放，因为 gpui-kit 的 `ThemeConfig` 不认识
+/// `terminal.*` 字段；这份表由本应用直接读取。
+const TERMINAL_PALETTES: &str = include_str!("../../../resources/themes/terminal-palettes.json");
+
+#[derive(serde::Deserialize)]
+struct TerminalPaletteFile {
+    #[serde(default)]
+    themes: std::collections::HashMap<String, TerminalPaletteEntry>,
+}
+
+#[derive(serde::Deserialize)]
+struct TerminalPaletteEntry {
+    foreground: String,
+    background: String,
+    cursor: String,
+    ansi: Vec<String>,
+}
+
+fn terminal_palettes() -> &'static TerminalPaletteFile {
+    static FILES: std::sync::LazyLock<TerminalPaletteFile> =
+        std::sync::LazyLock::new(|| match serde_json::from_str(TERMINAL_PALETTES) {
+            Ok(file) => file,
+            Err(error) => {
+                log::warn!(target: "theme", "终端配色表解析失败：{error}");
+                TerminalPaletteFile {
+                    themes: Default::default(),
+                }
+            }
+        });
+    &FILES
+}
+
+impl TerminalPaletteEntry {
+    fn resolve(&self) -> Option<cgc_terminal::TerminalTheme> {
+        if self.ansi.len() != 16 {
+            return None;
+        }
+        let mut ansi = [cgc_terminal::FrameColor { r: 0, g: 0, b: 0 }; 16];
+        for (slot, value) in ansi.iter_mut().zip(&self.ansi) {
+            *slot = cgc_terminal::parse_hex(value)?;
+        }
+        Some(cgc_terminal::TerminalTheme {
+            foreground: cgc_terminal::parse_hex(&self.foreground)?,
+            background: cgc_terminal::parse_hex(&self.background)?,
+            cursor: cgc_terminal::parse_hex(&self.cursor)?,
+            ansi,
+        })
+    }
+}
+
+/// 主题名对应的终端配色；表里缺失时从当前 Kit 主题的三色推导。
+pub fn terminal_theme(name: &str, cx: &App) -> cgc_terminal::TerminalTheme {
+    if let Some(theme) = terminal_palettes()
+        .themes
+        .get(name)
+        .and_then(TerminalPaletteEntry::resolve)
+    {
+        return theme;
+    }
+    fallback_terminal_theme(cx)
+}
+
+/// 终端绘制样式：字体固定，颜色跟随当前主题。
+pub fn terminal_style(cx: &App) -> cgc_terminal_view::TerminalStyle {
+    let palette = palette_from_theme(cx);
+    let mut style = cgc_terminal_view::TerminalStyle::new(crate::fonts::terminal_font(), px(13.0));
+    style.background = palette.canvas;
+    style.foreground = palette.ink;
+    style.cursor = palette.accent;
+    style.selection = Hsla {
+        h: palette.accent.h,
+        s: palette.accent.s,
+        l: palette.accent.l,
+        a: 0.3,
+    };
+    style.match_highlight = Hsla {
+        a: 0.32,
+        ..palette.warning
+    };
+    style
+}
+
+/// 没有打包配色时的兜底：用主题的前景/背景与语义色拼出 16 色。
+fn fallback_terminal_theme(cx: &App) -> cgc_terminal::TerminalTheme {
+    let theme = cx.theme();
+    let light = theme.mode == ThemeMode::Light;
+    let black = if light {
+        theme.foreground
+    } else {
+        theme.background
+    };
+    let white = if light {
+        theme.background
+    } else {
+        theme.foreground
+    };
+    let normal = [
+        black,
+        theme.danger,
+        theme.success,
+        theme.warning,
+        theme.info,
+        theme.primary,
+        theme.secondary,
+        white,
+    ];
+    let mut ansi = [cgc_terminal::FrameColor { r: 0, g: 0, b: 0 }; 16];
+    for (index, color) in normal.iter().enumerate() {
+        ansi[index] = hsla_rgb(*color);
+        ansi[index + 8] = hsla_rgb(lighten(*color, 0.12));
+    }
+    cgc_terminal::TerminalTheme {
+        foreground: hsla_rgb(theme.foreground),
+        background: hsla_rgb(theme.background),
+        cursor: hsla_rgb(theme.primary),
+        ansi,
+    }
+}
+
+fn hsla_rgb(color: Hsla) -> cgc_terminal::FrameColor {
+    let rgba: Rgba = color.into();
+    cgc_terminal::FrameColor {
+        r: (rgba.r * 255.0).round() as u8,
+        g: (rgba.g * 255.0).round() as u8,
+        b: (rgba.b * 255.0).round() as u8,
+    }
+}
+
+fn lighten(color: Hsla, amount: f32) -> Hsla {
+    Hsla {
+        l: (color.l + amount).min(1.0),
+        ..color
+    }
+}
+
 pub fn load_selected_theme() -> Option<String> {
     std::fs::read_to_string(theme_file_path())
         .ok()
@@ -467,5 +604,94 @@ mod tests {
                 });
             assert!(!set.themes.is_empty(), "内置主题 {file}.json 没有主题条目");
         }
+    }
+
+    /// 打包的终端配色必须覆盖每个内置主题变体，且每项都能解析。
+    #[test]
+    fn bundled_terminal_palettes_cover_every_theme() {
+        let mut names = Vec::new();
+        for (_, raw) in super::builtin::BUILTIN_THEME_FILES {
+            let set: gpui_kit::component::ThemeSet = serde_json::from_str(raw).expect("主题可解析");
+            for theme in set.themes {
+                names.push(theme.name.to_string());
+            }
+        }
+        assert!(!names.is_empty());
+
+        let palettes = super::terminal_palettes();
+        for name in names {
+            let entry = palettes
+                .themes
+                .get(&name)
+                .unwrap_or_else(|| panic!("`{name}` 缺少终端配色"));
+            assert!(entry.resolve().is_some(), "`{name}` 的终端配色不完整");
+        }
+    }
+
+    /// 默认主题直接采用 Zed 上游的终端色值，不能被推导规则改写。
+    #[test]
+    fn default_theme_uses_upstream_terminal_palette() {
+        let theme = super::terminal_palettes()
+            .themes
+            .get("Ayu Light")
+            .expect("Ayu Light 有终端配色")
+            .resolve()
+            .expect("配色完整");
+        let hex = |value: &str| cgc_terminal::parse_hex(value).expect("有效 hex");
+        assert_eq!(theme.foreground, hex("#5c6166"));
+        assert_eq!(theme.background, hex("#fcfcfc"));
+        assert_eq!(theme.ansi[1], hex("#ef7271"));
+        assert_eq!(theme.ansi[8], hex("#3b9ee5"));
+        assert_eq!(theme.ansi[15], hex("#ffffff"));
+    }
+
+    /// 端到端：打包配色注入终端后，ANSI 输出的 cell 直接渲染成主题色。
+    #[test]
+    fn terminal_renders_bundled_palette_colors() {
+        let colors = super::terminal_palettes()
+            .themes
+            .get("Catppuccin Mocha")
+            .expect("{{PERSON_butccfh5}}")
+            .resolve()
+            .expect("配色完整");
+
+        let mut core = cgc_terminal::TerminalCore::new(cgc_terminal::GridSize { cols: 8, rows: 2 })
+            .expect("终端可创建");
+        core.set_theme(&colors).expect("配色可注入");
+        core.feed(b"\x1b[31mR\x1b[32mG\x1b[0m");
+        core.update_frame().expect("帧可刷新");
+
+        let cells = &core.frame().rows()[0].cells;
+        assert_eq!(cells[0].fg, Some(colors.ansi[1]), "ANSI 红");
+        assert_eq!(cells[1].fg, Some(colors.ansi[2]), "ANSI 绿");
+        assert_eq!(core.frame().colors().background, colors.background);
+    }
+
+    /// 已有输出的终端换主题：cell 颜色跟着新主题走，行内容不变。
+    #[test]
+    fn switching_theme_recolors_live_terminal() {
+        let palettes = super::terminal_palettes();
+        let light = palettes.themes["Ayu Light"]
+            .resolve()
+            .expect("Ayu Light 配色");
+        let dark = palettes.themes["Ayu Dark"]
+            .resolve()
+            .expect("Ayu Dark 配色");
+
+        let mut core = cgc_terminal::TerminalCore::new(cgc_terminal::GridSize { cols: 6, rows: 2 })
+            .expect("终端可创建");
+        core.set_theme(&light).expect("浅色配色可注入");
+        core.feed(b"\x1b[31mR\x1b[0mtext");
+        core.update_frame().expect("帧可刷新");
+        let before = core.frame().rows()[0].cells[0].fg;
+        assert_eq!(before, Some(light.ansi[1]));
+
+        core.set_theme(&dark).expect("深色配色可注入");
+        core.update_frame().expect("换色后重绘");
+
+        let row = &core.frame().rows()[0];
+        assert_eq!(row.cells[0].fg, Some(dark.ansi[1]), "已有 cell 换用新色板");
+        assert_eq!(row.cells[1].text, "t", "文本内容不受影响");
+        assert_eq!(core.frame().colors().background, dark.background);
     }
 }
