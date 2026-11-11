@@ -211,6 +211,21 @@ fn issue_card_renders_chapter_kind_assessment_and_rubric(cx: &mut TestAppContext
         assert!(window.try_find("material-open-issue-1-1").is_some());
         assert!(window.try_find("material-open-issue-1-2").is_some());
         assert!(window.try_find("material-open-issue-1-3").is_some());
+        assert_eq!(
+            window.find("material-expand-issue-1-0").role(),
+            Some(gpui_kit::Role::Button)
+        );
+        for id in [
+            "material-open-issue-1-1",
+            "material-open-issue-1-2",
+            "material-open-issue-1-3",
+        ] {
+            assert_eq!(
+                window.find(id).role(),
+                Some(gpui_kit::Role::Button),
+                "{id} should expose Button role"
+            );
+        }
         window.click("material-expand-issue-1-0", cx);
         assert!(root
             .read(cx)
@@ -307,6 +322,48 @@ fn issue_card_objective_row_activates_with_keyboard(cx: &mut TestAppContext) {
             root.read(cx).selected_objective.get("crs-000:1:issue-1"),
             Some(&"obj-1".to_string()),
             "Space activates the focused objective row"
+        );
+    })
+    .unwrap();
+}
+
+/// 材料动作行可聚焦并用 Enter/Space 展开/收起（#40：open/retry/expand 不能只有鼠标）。
+#[gpui_kit::test]
+fn issue_card_material_action_activates_with_keyboard(cx: &mut TestAppContext) {
+    let (handle, root) = issue_card_window(cx);
+    root.update(cx, |root, _| {
+        root.courses = CourseCatalogService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        root.content.adopt(card_content());
+        root.projection = LearningProjectionService::new(Arc::new(FakeCoursesApi::with_seed(5)));
+        root.projection.adopt(projection());
+    });
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let focus = root
+            .read(cx)
+            .material_action_focus
+            .get("crs-000:1:issue-1:0")
+            .cloned()
+            .expect("material action registers a persistent focus handle");
+        focus.focus(window, cx);
+        window.render_frame(cx);
+        assert!(focus.is_focused(window), "material action can take focus");
+        window.press("enter", cx);
+        assert!(
+            root.read(cx)
+                .expanded_material
+                .values()
+                .any(|key| key.ends_with(":mat-md")),
+            "Enter expands the focused markdown material"
+        );
+        window.press("space", cx);
+        assert!(
+            !root
+                .read(cx)
+                .expanded_material
+                .values()
+                .any(|key| key.ends_with(":mat-md")),
+            "Space collapses the focused markdown material"
         );
     })
     .unwrap();

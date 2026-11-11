@@ -253,6 +253,8 @@ pub struct ShellState {
     pub(in crate::root_view) expanded_objective_materials: BTreeSet<String>,
     /// objective 行的持久焦点句柄（`track_focus`）：Tab 可聚焦、Enter/Space 激活。
     pub(in crate::root_view) objective_row_focus: std::collections::HashMap<String, FocusHandle>,
+    /// 材料动作行的持久焦点句柄（key: `scope:index`），覆盖展开/打开/重试。
+    pub(in crate::root_view) material_action_focus: std::collections::HashMap<String, FocusHandle>,
     /// 点击后等待图片下载完成再打开 Viewer：URL → 窗口标题。
     pub(in crate::root_view) pending_image_opens: BTreeMap<String, String>,
     pub(in crate::root_view) key_focus: Option<FocusHandle>,
@@ -469,6 +471,7 @@ impl ShellState {
             expanded_objective_rubric: BTreeSet::new(),
             expanded_objective_materials: BTreeSet::new(),
             objective_row_focus: std::collections::HashMap::new(),
+            material_action_focus: std::collections::HashMap::new(),
             pending_image_opens: BTreeMap::new(),
             key_focus: None,
             key_interceptor: None,

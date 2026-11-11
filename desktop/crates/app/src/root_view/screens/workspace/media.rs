@@ -164,6 +164,13 @@ pub(in crate::root_view) fn material_section(
             .map(str::to_string)
             .unwrap_or_else(|| title.clone());
         let row_id = format!("issue-material-{issue_id}-{index}");
+        // 与 objective 行相同：持久 FocusHandle + track_focus，让 gpui 内置的
+        // Enter/Space → click 覆盖展开、打开与图片重试。
+        let action_focus = ctx
+            .material_action_focus
+            .entry(format!("{scope}:{index}"))
+            .or_insert_with(|| cx.focus_handle())
+            .clone();
 
         let key_for_check = key.clone();
         let root_for_check = root.clone();
@@ -215,6 +222,9 @@ pub(in crate::root_view) fn material_section(
                     .id(SharedString::from(format!(
                         "material-expand-{issue_id}-{index}"
                     )))
+                    .role(Role::Button)
+                    .aria_label(accessible_title.clone())
+                    .track_focus(&action_focus)
                     .test_support()
                     .on_click(move |_, _, cx| {
                         let _ = root_for_toggle.update(cx, |this, cx| {
@@ -266,6 +276,9 @@ pub(in crate::root_view) fn material_section(
                         .id(SharedString::from(format!(
                             "material-open-{issue_id}-{index}"
                         )))
+                        .role(Role::Button)
+                        .aria_label(accessible_title.clone())
+                        .track_focus(&action_focus)
                         .test_support()
                         .on_click(move |_, _, cx| {
                             let _ = root_for_open.update(cx, |this, cx| {
@@ -297,6 +310,9 @@ pub(in crate::root_view) fn material_section(
                         .id(SharedString::from(format!(
                             "material-open-{issue_id}-{index}"
                         )))
+                        .role(Role::Button)
+                        .aria_label(accessible_title.clone())
+                        .track_focus(&action_focus)
                         .test_support()
                         .on_click(move |_, _, cx| cx.open_url(&url))
                         .into_any_element()
@@ -321,6 +337,9 @@ pub(in crate::root_view) fn material_section(
                         .id(SharedString::from(format!(
                             "material-open-{issue_id}-{index}"
                         )))
+                        .role(Role::Button)
+                        .aria_label(accessible_title.clone())
+                        .track_focus(&action_focus)
                         .test_support()
                         .on_click(move |_, _, cx| cx.open_url(&url))
                         .into_any_element()
